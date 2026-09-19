@@ -67,8 +67,8 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
     if (!input) {
         return true;
     }
-    /* State is owned by this daemon. Deliberately tolerate unknown/new fields;
-       a complete JSON parser is introduced with notification configuration. */
+    /* The state writer emits one device per line. Unknown fields are ignored so
+       newer state files remain readable by an older daemon. */
     while (std::getline(input, line)) {
         std::string marker = "\"ieee_address\":\"";
         std::string::size_type start = line.find(marker);
@@ -81,6 +81,31 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
                 return false;
             }
             device.ieeeAddress = line.substr(start, end - start);
+            const char* fields[] = {"name", "kind"};
+            std::string* destinations[] = {&device.name, &device.kind};
+            int index;
+            for (index = 0; index < 2; ++index) {
+                std::string field = std::string("\"") + fields[index] + "\":\"";
+                std::string::size_type fieldStart = line.find(field);
+                if (fieldStart != std::string::npos) {
+                    fieldStart += field.size();
+                    std::string::size_type fieldEnd = line.find('"', fieldStart);
+                    if (fieldEnd != std::string::npos) *destinations[index] = line.substr(fieldStart, fieldEnd - fieldStart);
+                }
+            }
+            device.contactOpen = line.find("\"contact_open\":true") != std::string::npos;
+            device.hasContact = line.find("\"has_contact\":true") != std::string::npos;
+            device.hasTemperature = line.find("\"has_temperature\":true") != std::string::npos;
+            device.hasBattery = line.find("\"has_battery\":true") != std::string::npos;
+            std::string::size_type valueStart;
+            valueStart = line.find("\"temperature_celsius\":");
+            if (valueStart != std::string::npos) device.temperatureCelsius = atof(line.c_str() + valueStart + 22);
+            valueStart = line.find("\"battery_percent\":");
+            if (valueStart != std::string::npos) device.batteryPercent = atoi(line.c_str() + valueStart + 18);
+            valueStart = line.find("\"link_quality\":");
+            if (valueStart != std::string::npos) device.linkQuality = atoi(line.c_str() + valueStart + 15);
+            valueStart = line.find("\"last_seen\":");
+            if (valueStart != std::string::npos) device.lastSeen = atol(line.c_str() + valueStart + 12);
             devices->push_back(device);
         }
     }

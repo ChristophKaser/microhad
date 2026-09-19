@@ -50,11 +50,25 @@ static void testDevicePersistence() {
     assert(ensureDirectory(directory, &error));
     input.ieeeAddress = "0x00124b0000000001";
     input.name = "Kitchen window";
+    input.kind = "contact";
+    input.hasContact = true;
+    input.contactOpen = true;
+    input.hasTemperature = true;
+    input.temperatureCelsius = 19.75;
+    input.hasBattery = true;
+    input.batteryPercent = 76;
+    input.linkQuality = 91;
+    input.lastSeen = 123456;
     devices.push_back(input);
     assert(saveDevices(filename, devices, &error));
     assert(loadDevices(filename, &loaded, &error));
     assert(loaded.size() == 1);
     assert(loaded[0].ieeeAddress == input.ieeeAddress);
+    assert(loaded[0].name == input.name && loaded[0].kind == input.kind);
+    assert(loaded[0].hasContact && loaded[0].contactOpen && loaded[0].hasTemperature);
+    assert(loaded[0].temperatureCelsius == input.temperatureCelsius);
+    assert(loaded[0].hasBattery && loaded[0].batteryPercent == input.batteryPercent);
+    assert(loaded[0].linkQuality == input.linkQuality && loaded[0].lastSeen == input.lastSeen);
     unlink(filename.c_str());
     rmdir(directory.c_str());
 }
