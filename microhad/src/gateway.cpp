@@ -301,6 +301,12 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
     } else {
         command = frame[2];
         payloadOffset = 3;
+        /* EZSP v5-v7 uses the legacy extended-command sentinel (0xff), then
+           a reserved byte and the real 8-bit command identifier. */
+        if (command == 0xff && frame.size() >= 5) {
+            command = frame[4];
+            payloadOffset = 5;
+        }
         if (command == 0 && frame.size() > payloadOffset) ezspVersion_ = frame[payloadOffset];
     }
     if (command == 0) online_ = true;
