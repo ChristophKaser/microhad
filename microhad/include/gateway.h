@@ -31,6 +31,7 @@ public:
     void poll();
     bool isOnline() const;
     bool setJoining(unsigned int seconds, std::string* error);
+    bool createFreshNetwork(std::string* error);
     bool renameDevice(const std::string& ieeeAddress, const std::string& name, std::string* error);
     bool applyAttributeReport(const std::string& ieeeAddress, unsigned short cluster, unsigned short attribute,
                               const std::vector<unsigned char>& value);
@@ -51,6 +52,13 @@ private:
     unsigned char ezspSequence_;
     unsigned char ezspVersion_;
     long resetDeadline_;
+    bool networkForming_;
+    bool networkFormed_;
+    std::vector<unsigned char> networkExtendedPan_;
+    std::vector<unsigned char> networkKey_;
+    std::vector<unsigned char> preconfiguredKey_;
+    unsigned short networkPanId_;
+    unsigned char networkChannel_;
     std::map<std::string, Device> devices_;
     std::map<unsigned short, std::string> nodeAddresses_;
     bool configureSerial(std::string* error);
@@ -61,6 +69,8 @@ private:
     void handleEzspFrame(const std::vector<unsigned char>& frame);
     void registerNode(unsigned short nodeId, const unsigned char* eui64);
     void handleIncomingMessage(const std::vector<unsigned char>& payload);
+    bool generateNetworkMaterial(std::string* error);
+    void continueNetworkFormation(unsigned short completedCommand);
     void loadState();
     void saveState() const;
 };

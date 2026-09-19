@@ -73,6 +73,10 @@ void HttpServer::handleClient(int clientFd) {
         std::string error;
         if (gateway_->setJoining(300, &error)) writeResponse(clientFd, 200, "application/json", "{\"ok\":true,\"seconds\":300}");
         else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + error + "\"}");
+    } else if (request.find("POST /api/network/create ") == 0) {
+        std::string error;
+        if (gateway_->createFreshNetwork(&error)) writeResponse(clientFd, 200, "application/json", "{\"ok\":true,\"state\":\"forming\"}");
+        else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + error + "\"}");
     } else if (request.find("GET / ") == 0) {
         const char* page = "<!doctype html><title>MicroHAD</title><h1>MicroHAD Native</h1><button onclick=\"fetch('/api/join',{method:'POST'})\">Join for 5 minutes</button><pre id=s></pre><script>setInterval(function(){fetch('/api/status').then(function(r){return r.json()}).then(function(v){document.getElementById('s').textContent=JSON.stringify(v,null,2)})},1000)</script>";
         writeResponse(clientFd, 200, "text/html; charset=utf-8", page);

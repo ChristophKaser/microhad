@@ -33,7 +33,8 @@ std::vector<unsigned char> randomize(const std::vector<unsigned char>& input) {
 Gateway::Gateway(const std::string& serialDevice, int serialBaud, const std::string& runtimeDirectory) :
     serialDevice_(serialDevice), serialBaud_(serialBaud), runtimeDirectory_(runtimeDirectory), serialFd_(-1),
     online_(false), joinUntil_(0), ashSendSequence_(0), ashReceiveSequence_(0), ezspSequence_(0),
-    ezspVersion_(4), resetDeadline_(0) {
+    ezspVersion_(4), resetDeadline_(0), networkForming_(false), networkFormed_(false), networkPanId_(0),
+    networkChannel_(0) {
 }
 
 Gateway::~Gateway() {
@@ -134,6 +135,16 @@ bool Gateway::setJoining(unsigned int seconds, std::string* error) {
     return true;
 }
 
+bool Gateway::createFreshNetwork(std::string* error) {
+    if (!online_) { *error = "Zigbee coordinator is offline"; return false; }
+    if (networkForming_) { *error = "network creation is already in progress"; return false; }
+    if (!generateNetworkMaterial(error)) return false;
+    networkForming_ = true;
+    networkFormed_ = false;
+    sendEzspCommand(0x00b1, std::vector<unsigned char>()); /* clearKeyTable */
+    return true;
+}
+
 bool Gateway::renameDevice(const std::string& ieeeAddress, const std::string& name, std::string* error) {
     std::map<std::string, Device>::iterator it = devices_.find(ieeeAddress);
     if (it == devices_.end()) {
@@ -179,7 +190,9 @@ std::vector<Device> Gateway::devices() const {
 
 std::string Gateway::statusJson() const {
     std::ostringstream json;
-    json << "{\"online\":" << (online_ ? "true" : "false") << ",\"joining_until\":" << joinUntil_
+    json << "{\"online\":" << (online_ ? "true" : "false") << ",\"network_forming\":"
+         << (networkForming_ ? "true" : "false") << ",\"network_formed\":" << (networkFormed_ ? "true" : "false")
+         << ",\"joining_until\":" << joinUntil_
          << ",\"devices\":[";
     std::map<std::string, Device>::const_iterator it;
     bool first = true;
@@ -291,6 +304,10 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
         if (command == 0 && frame.size() > payloadOffset) ezspVersion_ = frame[payloadOffset];
     }
     if (command == 0) online_ = true;
+    if (networkForming_ && (command == 0x00b1 || command == 0x0068 || command == 0x001e)) {
+        if (frame[payloadOffset] == 0) continueNetworkFormation(command);
+        else networkForming_ = false;
+    }
     if (frame.size() <= payloadOffset) return;
     if (command == 0x24 && frame.size() >= payloadOffset + 10) {
         unsigned short nodeId = static_cast<unsigned short>(frame[payloadOffset]) |
@@ -303,6 +320,50 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
     } else if (command == 0x45) {
         std::vector<unsigned char> payload(frame.begin() + payloadOffset, frame.end());
         handleIncomingMessage(payload);
+    }
+}
+
+bool Gateway::generateNetworkMaterial(std::string* error) {
+    int randomFd = open("/dev/urandom", O_RDONLY);
+    unsigned char material[42];
+    ssize_t count;
+    if (randomFd < 0) { *error = "cannot read system random source"; return false; }
+    count = read(randomFd, material, sizeof(material));
+    close(randomFd);
+    if (count != static_cast<ssize_t>(sizeof(material))) { *error = "cannot generate network material"; return false; }
+    networkExtendedPan_.assign(material, material + 8);
+    networkKey_.assign(material + 8, material + 24);
+    preconfiguredKey_.assign(material + 24, material + 40);
+    networkPanId_ = static_cast<unsigned short>(material[40]) | (static_cast<unsigned short>(material[41]) << 8);
+    if (networkPanId_ == 0 || networkPanId_ == 0xffff) networkPanId_ = 0x1a62;
+    networkChannel_ = static_cast<unsigned char>(11 + material[0] % 16);
+    return true;
+}
+
+void Gateway::continueNetworkFormation(unsigned short completedCommand) {
+    std::vector<unsigned char> payload;
+    if (completedCommand == 0x00b1) {
+        /* EmberInitialSecurityState, all multi-byte values little-endian. */
+        unsigned short bitmask = 0x0100 | 0x0004 | 0x0200 | 0x0800 | 0x0084;
+        payload.push_back(static_cast<unsigned char>(bitmask));
+        payload.push_back(static_cast<unsigned char>(bitmask >> 8));
+        unsigned long i;
+        payload.insert(payload.end(), preconfiguredKey_.begin(), preconfiguredKey_.end());
+        payload.insert(payload.end(), networkKey_.begin(), networkKey_.end());
+        payload.push_back(0); /* network key sequence */
+        for (i = 0; i < 8; ++i) payload.push_back(0);
+        sendEzspCommand(0x0068, payload);
+    } else if (completedCommand == 0x0068) {
+        payload.insert(payload.end(), networkExtendedPan_.begin(), networkExtendedPan_.end());
+        payload.push_back(static_cast<unsigned char>(networkPanId_));
+        payload.push_back(static_cast<unsigned char>(networkPanId_ >> 8));
+        payload.push_back(5); payload.push_back(networkChannel_); payload.push_back(0);
+        payload.push_back(0); payload.push_back(0); payload.push_back(0);
+        payload.push_back(0x00); payload.push_back(0xf8); payload.push_back(0xff); payload.push_back(0x07);
+        sendEzspCommand(0x001e, payload);
+    } else if (completedCommand == 0x001e) {
+        networkForming_ = false;
+        networkFormed_ = true;
     }
 }
 
