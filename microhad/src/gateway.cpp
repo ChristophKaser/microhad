@@ -14,7 +14,9 @@
 #include <unistd.h>
 
 Device::Device() : kind("generic"), contactOpen(false), hasContact(false), hasTemperature(false),
-                   temperatureCelsius(0), hasBattery(false), batteryPercent(0), linkQuality(0), lastSeen(0) {
+                   temperatureCelsius(0), hasBattery(false), batteryPercent(0), linkQuality(0), lastSeen(0),
+                   hasLowTemperatureAlert(false), hasHighTemperatureAlert(false), lowTemperatureAlert(0),
+                   highTemperatureAlert(0) {
 }
 
 namespace {
@@ -175,10 +177,26 @@ bool Gateway::applyAttributeReport(const std::string& ieeeAddress, unsigned shor
     Device& device = devices_[ieeeAddress];
     bool changed;
     bool wasOpen = device.contactOpen;
+    bool hadTemperature = device.hasTemperature;
+    double previousTemperature = device.temperatureCelsius;
     if (device.ieeeAddress.empty()) device.ieeeAddress = ieeeAddress;
     changed = applyZclAttribute(&device, cluster, attribute, value, time(0));
-    if (changed) { updateContactAlert(ieeeAddress, wasOpen); saveState(); }
+    if (changed) { updateContactAlert(ieeeAddress, wasOpen); updateTemperatureAlert(device, hadTemperature, previousTemperature); saveState(); }
     return changed;
+}
+
+bool Gateway::setTemperatureAlerts(const std::string& ieeeAddress, bool hasLow, double low, bool hasHigh, double high,
+                                   std::string* error) {
+    std::map<std::string, Device>::iterator device = devices_.find(ieeeAddress);
+    if (device == devices_.end()) { *error = "device not found"; return false; }
+    if ((hasLow && (low < -100 || low > 200)) || (hasHigh && (high < -100 || high > 200)) ||
+        (hasLow && hasHigh && low >= high)) { *error = "invalid temperature thresholds"; return false; }
+    device->second.hasLowTemperatureAlert = hasLow;
+    device->second.lowTemperatureAlert = low;
+    device->second.hasHighTemperatureAlert = hasHigh;
+    device->second.highTemperatureAlert = high;
+    saveState();
+    return true;
 }
 
 bool Gateway::applyIasZoneStatus(const std::string& ieeeAddress, const std::vector<unsigned char>& payload) {
@@ -200,6 +218,18 @@ void Gateway::updateContactAlert(const std::string& ieeeAddress, bool wasOpen) {
     } else if (!device->second.contactOpen && wasOpen) {
         contactOpenedAt_.erase(ieeeAddress);
         nextContactAlertAt_.erase(ieeeAddress);
+    }
+}
+
+void Gateway::updateTemperatureAlert(const Device& device, bool hadTemperature, double previousTemperature) {
+    if (!device.hasTemperature || !hadTemperature) return;
+    if (device.hasHighTemperatureAlert && previousTemperature < device.highTemperatureAlert &&
+        device.temperatureCelsius >= device.highTemperatureAlert) {
+        emitNotification("Temperature high", device.name.empty() ? device.ieeeAddress : device.name);
+    }
+    if (device.hasLowTemperatureAlert && previousTemperature > device.lowTemperatureAlert &&
+        device.temperatureCelsius <= device.lowTemperatureAlert) {
+        emitNotification("Temperature low", device.name.empty() ? device.ieeeAddress : device.name);
     }
 }
 

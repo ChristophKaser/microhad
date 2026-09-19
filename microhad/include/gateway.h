@@ -19,6 +19,10 @@ struct Device {
     int batteryPercent;
     int linkQuality;
     long lastSeen;
+    bool hasLowTemperatureAlert;
+    bool hasHighTemperatureAlert;
+    double lowTemperatureAlert;
+    double highTemperatureAlert;
     Device();
 };
 
@@ -36,6 +40,8 @@ public:
     bool applyAttributeReport(const std::string& ieeeAddress, unsigned short cluster, unsigned short attribute,
                               const std::vector<unsigned char>& value);
     bool applyIasZoneStatus(const std::string& ieeeAddress, const std::vector<unsigned char>& payload);
+    bool setTemperatureAlerts(const std::string& ieeeAddress, bool hasLow, double low, bool hasHigh, double high,
+                              std::string* error);
     std::vector<Device> devices() const;
     std::string statusJson() const;
 
@@ -74,6 +80,7 @@ private:
     bool generateNetworkMaterial(std::string* error);
     void continueNetworkFormation(unsigned short completedCommand);
     void updateContactAlert(const std::string& ieeeAddress, bool wasOpen);
+    void updateTemperatureAlert(const Device& device, bool hadTemperature, double previousTemperature);
     void emitNotification(const std::string& title, const std::string& body);
     void loadState();
     void saveState() const;

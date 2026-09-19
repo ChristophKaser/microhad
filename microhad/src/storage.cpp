@@ -48,7 +48,11 @@ bool saveDevices(const std::string& filename, const std::vector<Device>& devices
                << ",\"temperature_celsius\":" << device.temperatureCelsius << ",\"has_temperature\":"
                << (device.hasTemperature ? "true" : "false") << ",\"battery_percent\":" << device.batteryPercent
                << ",\"has_battery\":" << (device.hasBattery ? "true" : "false") << ",\"link_quality\":"
-               << device.linkQuality << ",\"last_seen\":" << device.lastSeen << "}";
+               << device.linkQuality << ",\"last_seen\":" << device.lastSeen << ",\"has_low_temperature_alert\":"
+               << (device.hasLowTemperatureAlert ? "true" : "false") << ",\"low_temperature_alert\":"
+               << device.lowTemperatureAlert << ",\"has_high_temperature_alert\":"
+               << (device.hasHighTemperatureAlert ? "true" : "false") << ",\"high_temperature_alert\":"
+               << device.highTemperatureAlert << "}";
         output << (i + 1 == devices.size() ? "\n" : ",\n");
     }
     output << "  ]\n}\n";
@@ -97,6 +101,8 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
             device.hasContact = line.find("\"has_contact\":true") != std::string::npos;
             device.hasTemperature = line.find("\"has_temperature\":true") != std::string::npos;
             device.hasBattery = line.find("\"has_battery\":true") != std::string::npos;
+            device.hasLowTemperatureAlert = line.find("\"has_low_temperature_alert\":true") != std::string::npos;
+            device.hasHighTemperatureAlert = line.find("\"has_high_temperature_alert\":true") != std::string::npos;
             std::string::size_type valueStart;
             valueStart = line.find("\"temperature_celsius\":");
             if (valueStart != std::string::npos) device.temperatureCelsius = atof(line.c_str() + valueStart + 22);
@@ -106,6 +112,10 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
             if (valueStart != std::string::npos) device.linkQuality = atoi(line.c_str() + valueStart + 15);
             valueStart = line.find("\"last_seen\":");
             if (valueStart != std::string::npos) device.lastSeen = atol(line.c_str() + valueStart + 12);
+            valueStart = line.find("\"low_temperature_alert\":");
+            if (valueStart != std::string::npos) device.lowTemperatureAlert = atof(line.c_str() + valueStart + 24);
+            valueStart = line.find("\"high_temperature_alert\":");
+            if (valueStart != std::string::npos) device.highTemperatureAlert = atof(line.c_str() + valueStart + 25);
             devices->push_back(device);
         }
     }
