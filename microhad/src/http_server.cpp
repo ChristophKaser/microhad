@@ -96,14 +96,26 @@ void HttpServer::handleClient(int clientFd) {
     } else if (request.find("POST /api/devices/") == 0) {
         const std::string prefix = "POST /api/devices/";
         std::string::size_type nameAt = request.find("/name ", prefix.size());
+        std::string::size_type alertAt = request.find("/temperature-alert ", prefix.size());
         std::string::size_type bodyAt = request.find("\r\n\r\n");
-        if (nameAt == std::string::npos || bodyAt == std::string::npos) {
+        if (bodyAt == std::string::npos || (nameAt == std::string::npos && alertAt == std::string::npos)) {
             writeResponse(clientFd, 400, "application/json", "{\"error\":\"invalid device rename request\"}");
         } else {
-            std::string ieeeAddress = decodeComponent(request.substr(prefix.size(), nameAt - prefix.size()));
-            std::string name = decodeComponent(request.substr(bodyAt + 4));
+            std::string::size_type routeAt = nameAt == std::string::npos ? alertAt : nameAt;
+            std::string ieeeAddress = decodeComponent(request.substr(prefix.size(), routeAt - prefix.size()));
+            std::string body = decodeComponent(request.substr(bodyAt + 4));
             std::string error;
-            if (gateway_->renameDevice(ieeeAddress, name, &error)) writeResponse(clientFd, 200, "application/json", "{\"ok\":true}");
+            if (alertAt != std::string::npos) {
+                std::string::size_type lowAt = body.find("low=");
+                std::string::size_type highAt = body.find("high=");
+                bool hasLow = lowAt != std::string::npos;
+                bool hasHigh = highAt != std::string::npos;
+                double low = hasLow ? strtod(body.c_str() + lowAt + 4, 0) : 0;
+                double high = hasHigh ? strtod(body.c_str() + highAt + 5, 0) : 0;
+                if (gateway_->setTemperatureAlerts(ieeeAddress, hasLow, low, hasHigh, high, &error))
+                    writeResponse(clientFd, 200, "application/json", "{\"ok\":true}");
+                else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + error + "\"}");
+            } else if (gateway_->renameDevice(ieeeAddress, body, &error)) writeResponse(clientFd, 200, "application/json", "{\"ok\":true}");
             else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + error + "\"}");
         }
     } else if (request.find("GET / ") == 0) {
