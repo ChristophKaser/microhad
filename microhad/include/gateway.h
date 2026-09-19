@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 
+#include "ash.h"
+
 struct Device {
     std::string ieeeAddress;
     std::string name;
@@ -40,8 +42,19 @@ private:
     int serialFd_;
     bool online_;
     long joinUntil_;
+    AshTransport ash_;
+    unsigned char ashSendSequence_;
+    unsigned char ashReceiveSequence_;
+    unsigned char ezspSequence_;
+    unsigned char ezspVersion_;
+    long resetDeadline_;
     std::map<std::string, Device> devices_;
     bool configureSerial(std::string* error);
+    bool writeBytes(const std::vector<unsigned char>& bytes);
+    void sendAshReset();
+    void sendEzspCommand(unsigned short command, const std::vector<unsigned char>& payload);
+    void handleAshFrame(const std::vector<unsigned char>& frame);
+    void handleEzspFrame(const std::vector<unsigned char>& frame);
     void loadState();
     void saveState() const;
 };
