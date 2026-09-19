@@ -1,0 +1,10 @@
+{
+  "serial_device": "/dev/ttyS1",
+  "serial_baud": 115200,
+  "http_port": 8080,
+  "runtime_dir": "/tuya/native",
+  "tls_certificate": "/tuya/native/tls/cert.pem",
+  "tls_private_key": "/tuya/native/tls/key.pem",
+  "firebase_service_account": "/tuya/native/firebase-service-account-file.json",
+  "firebase_topic": "zigbee_alerts"
+}

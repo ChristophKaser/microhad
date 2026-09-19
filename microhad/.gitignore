@@ -1,0 +1,12 @@
+# Target and host outputs
+build/
+microhad-zigbee-native
+*.o
+
+# Runtime state and secrets
+runtime/
+config.json
+*.pem
+*.key
+firebase-service-account-file.json
+
