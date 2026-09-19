@@ -32,6 +32,9 @@ public:
     bool isOnline() const;
     bool setJoining(unsigned int seconds, std::string* error);
     bool renameDevice(const std::string& ieeeAddress, const std::string& name, std::string* error);
+    bool applyAttributeReport(const std::string& ieeeAddress, unsigned short cluster, unsigned short attribute,
+                              const std::vector<unsigned char>& value);
+    bool applyIasZoneStatus(const std::string& ieeeAddress, const std::vector<unsigned char>& payload);
     std::vector<Device> devices() const;
     std::string statusJson() const;
 

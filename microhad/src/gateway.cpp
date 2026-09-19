@@ -1,5 +1,6 @@
 #include "gateway.h"
 #include "storage.h"
+#include "zcl.h"
 
 #include <cerrno>
 #include <cstdio>
@@ -145,6 +146,25 @@ bool Gateway::renameDevice(const std::string& ieeeAddress, const std::string& na
     it->second.name = name;
     saveState();
     return true;
+}
+
+bool Gateway::applyAttributeReport(const std::string& ieeeAddress, unsigned short cluster, unsigned short attribute,
+                                   const std::vector<unsigned char>& value) {
+    Device& device = devices_[ieeeAddress];
+    bool changed;
+    if (device.ieeeAddress.empty()) device.ieeeAddress = ieeeAddress;
+    changed = applyZclAttribute(&device, cluster, attribute, value, time(0));
+    if (changed) saveState();
+    return changed;
+}
+
+bool Gateway::applyIasZoneStatus(const std::string& ieeeAddress, const std::vector<unsigned char>& payload) {
+    Device& device = devices_[ieeeAddress];
+    bool changed;
+    if (device.ieeeAddress.empty()) device.ieeeAddress = ieeeAddress;
+    changed = ::applyIasZoneStatus(&device, payload, time(0));
+    if (changed) saveState();
+    return changed;
 }
 
 std::vector<Device> Gateway::devices() const {

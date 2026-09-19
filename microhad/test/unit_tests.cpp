@@ -1,6 +1,7 @@
 #include "ash.h"
 #include "gateway.h"
 #include "storage.h"
+#include "zcl.h"
 
 #include <cassert>
 #include <cstdio>
@@ -58,10 +59,28 @@ static void testDevicePersistence() {
     rmdir(directory.c_str());
 }
 
+static void testGenericCapabilities() {
+    Device device;
+    std::vector<unsigned char> temperature;
+    std::vector<unsigned char> zone;
+    std::vector<unsigned char> battery;
+    device.ieeeAddress = "0x00124b0000000002";
+    temperature.push_back(0x1a); temperature.push_back(0x09); /* 23.30 C */
+    assert(applyZclAttribute(&device, 0x0402, 0x0000, temperature, 123));
+    assert(device.hasTemperature && device.temperatureCelsius == 23.3);
+    battery.push_back(170);
+    assert(applyZclAttribute(&device, 0x0001, 0x0021, battery, 124));
+    assert(device.hasBattery && device.batteryPercent == 85);
+    zone.push_back(1); zone.push_back(0);
+    assert(applyIasZoneStatus(&device, zone, 125));
+    assert(device.hasContact && device.contactOpen && device.lastSeen == 125);
+}
+
 int main() {
     testAshRoundTrip();
     testAshRejectsBadCrc();
     testDevicePersistence();
+    testGenericCapabilities();
     printf("unit tests passed\n");
     return 0;
 }
