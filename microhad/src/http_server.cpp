@@ -2,6 +2,7 @@
 #include "gateway.h"
 
 #include <cerrno>
+#include <cstdlib>
 #include <cstdio>
 #include <cstring>
 #include <fcntl.h>
@@ -25,6 +26,21 @@ void writeResponse(int fd, int status, const char* contentType, const std::strin
         cursor += written;
         remaining -= static_cast<unsigned long>(written);
     }
+}
+
+std::string decodeComponent(const std::string& value) {
+    std::string decoded;
+    unsigned long i;
+    for (i = 0; i < value.size(); ++i) {
+        if (value[i] == '+' ) decoded += ' ';
+        else if (value[i] == '%' && i + 2 < value.size()) {
+            char hex[3];
+            hex[0] = value[i + 1]; hex[1] = value[i + 2]; hex[2] = 0;
+            decoded += static_cast<char>(strtoul(hex, 0, 16));
+            i += 2;
+        } else decoded += value[i];
+    }
+    return decoded;
 }
 }
 
@@ -77,8 +93,21 @@ void HttpServer::handleClient(int clientFd) {
         std::string error;
         if (gateway_->createFreshNetwork(&error)) writeResponse(clientFd, 200, "application/json", "{\"ok\":true,\"state\":\"forming\"}");
         else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + error + "\"}");
+    } else if (request.find("POST /api/devices/") == 0) {
+        const std::string prefix = "POST /api/devices/";
+        std::string::size_type nameAt = request.find("/name ", prefix.size());
+        std::string::size_type bodyAt = request.find("\r\n\r\n");
+        if (nameAt == std::string::npos || bodyAt == std::string::npos) {
+            writeResponse(clientFd, 400, "application/json", "{\"error\":\"invalid device rename request\"}");
+        } else {
+            std::string ieeeAddress = decodeComponent(request.substr(prefix.size(), nameAt - prefix.size()));
+            std::string name = decodeComponent(request.substr(bodyAt + 4));
+            std::string error;
+            if (gateway_->renameDevice(ieeeAddress, name, &error)) writeResponse(clientFd, 200, "application/json", "{\"ok\":true}");
+            else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + error + "\"}");
+        }
     } else if (request.find("GET / ") == 0) {
-        const char* page = "<!doctype html><title>MicroHAD</title><h1>MicroHAD Native</h1><button onclick=\"fetch('/api/join',{method:'POST'})\">Join for 5 minutes</button><pre id=s></pre><script>setInterval(function(){fetch('/api/status').then(function(r){return r.json()}).then(function(v){document.getElementById('s').textContent=JSON.stringify(v,null,2)})},1000)</script>";
+        const char* page = "<!doctype html><meta name=viewport content='width=device-width,initial-scale=1'><title>MicroHAD</title><style>body{font:16px sans-serif;max-width:48rem;margin:auto;padding:1rem}button{padding:.7rem;margin:.2rem}.device{border-bottom:1px solid #ddd;padding:.6rem}</style><h1>MicroHAD</h1><p><button onclick=\"post('/api/network/create')\">Create fresh network</button><button onclick=\"post('/api/join')\">Allow joining (5 min)</button></p><p id=state>Loading…</p><div id=devices></div><script>function post(u,b){fetch(u,{method:'POST',body:b||''}).then(update)}function rename(a,n){var v=prompt('Device name',n);if(v)post('/api/devices/'+encodeURIComponent(a)+'/name',v)}function update(){fetch('/api/status').then(function(r){return r.json()}).then(function(v){document.getElementById('state').textContent='Coordinator: '+(v.online?'online':'offline')+' | Network: '+(v.network_formed?'formed':v.network_forming?'forming':'not formed');document.getElementById('devices').innerHTML=v.devices.map(function(d){return '<div class=device><b>'+d.name+'</b> <button onclick=\"rename(\\\''+d.ieee_address+'\\\',\\\''+d.name.replace(/'/g,'')+'\\\')\">Rename</button><br>'+d.ieee_address+' · '+d.kind+(d.kind==='contact'?' · '+(d.contact_open?'OPEN':'closed'):'')+(d.kind==='temperature'?' · '+d.temperature_celsius+' °C':'')+'</div>'}).join('')})}update();setInterval(update,2000)</script>";
         writeResponse(clientFd, 200, "text/html; charset=utf-8", page);
     } else {
         writeResponse(clientFd, 400, "application/json", "{\"error\":\"unknown endpoint\"}");
