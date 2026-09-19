@@ -7,7 +7,10 @@ TARGET_READELF := $(RSDK_ROOT)/bin/mips-linux-readelf
 HOST_CXX ?= g++
 
 WARNINGS := -Wall -Wextra -Werror -pedantic
-CXXFLAGS := -std=gnu++03 $(WARNINGS) -Iinclude -O2
+# GCC 3.4 in the supplied RSDK has no -std=gnu++03 switch; its default is
+# C++98/C++03-compatible. Keep target flags explicit and separate from host.
+HOST_CXXFLAGS := -std=gnu++03 $(WARNINGS) -Iinclude -O2
+TARGET_CXXFLAGS := $(WARNINGS) -Iinclude -O2
 LDFLAGS :=
 SOURCES := src/main.cpp src/ash.cpp src/storage.cpp src/http_server.cpp src/gateway.cpp
 HOST_BUILD := build/host
@@ -24,14 +27,14 @@ host: $(HOST_BIN)
 
 $(HOST_BIN): $(SOURCES) $(wildcard include/*.h)
 	@mkdir -p $(HOST_BUILD)
-	$(HOST_CXX) $(CXXFLAGS) $(SOURCES) -o $@ $(LDFLAGS)
+	$(HOST_CXX) $(HOST_CXXFLAGS) $(SOURCES) -o $@ $(LDFLAGS)
 
 mips: $(MIPS_BIN) verify-target
 
 $(MIPS_BIN): $(SOURCES) $(wildcard include/*.h)
 	@test -x $(TARGET_CXX) || (echo "RSDK compiler not found: $(TARGET_CXX)"; exit 1)
 	@mkdir -p $(MIPS_BUILD)
-	$(TARGET_CXX) $(CXXFLAGS) -static $(SOURCES) -o $@
+	$(TARGET_CXX) $(TARGET_CXXFLAGS) -static $(SOURCES) -o $@
 	$(TARGET_STRIP) $@
 
 verify-target: $(MIPS_BIN)
@@ -40,7 +43,7 @@ verify-target: $(MIPS_BIN)
 
 $(TEST_BIN): test/unit_tests.cpp src/ash.cpp src/storage.cpp src/gateway.cpp $(wildcard include/*.h)
 	@mkdir -p $(HOST_BUILD)
-	$(HOST_CXX) $(CXXFLAGS) test/unit_tests.cpp src/ash.cpp src/storage.cpp src/gateway.cpp -o $@
+	$(HOST_CXX) $(HOST_CXXFLAGS) test/unit_tests.cpp src/ash.cpp src/storage.cpp src/gateway.cpp -o $@
 
 test: $(TEST_BIN)
 	$(TEST_BIN)
