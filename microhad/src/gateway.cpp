@@ -9,6 +9,7 @@
 #include <fcntl.h>
 #include <sstream>
 #include <iomanip>
+#include <fstream>
 #include <termios.h>
 #include <unistd.h>
 
@@ -113,6 +114,15 @@ void Gateway::poll() {
     if (joinUntil_ != 0 && time(0) >= joinUntil_) {
         joinUntil_ = 0;
     }
+    std::map<std::string, long>::iterator alert;
+    long now = time(0);
+    for (alert = nextContactAlertAt_.begin(); alert != nextContactAlertAt_.end(); ++alert) {
+        std::map<std::string, Device>::const_iterator device = devices_.find(alert->first);
+        if (device != devices_.end() && device->second.contactOpen && now >= alert->second) {
+            emitNotification("Window open", device->second.name.empty() ? device->second.ieeeAddress : device->second.name);
+            alert->second = now + 300;
+        }
+    }
 }
 
 bool Gateway::isOnline() const {
@@ -164,19 +174,39 @@ bool Gateway::applyAttributeReport(const std::string& ieeeAddress, unsigned shor
                                    const std::vector<unsigned char>& value) {
     Device& device = devices_[ieeeAddress];
     bool changed;
+    bool wasOpen = device.contactOpen;
     if (device.ieeeAddress.empty()) device.ieeeAddress = ieeeAddress;
     changed = applyZclAttribute(&device, cluster, attribute, value, time(0));
-    if (changed) saveState();
+    if (changed) { updateContactAlert(ieeeAddress, wasOpen); saveState(); }
     return changed;
 }
 
 bool Gateway::applyIasZoneStatus(const std::string& ieeeAddress, const std::vector<unsigned char>& payload) {
     Device& device = devices_[ieeeAddress];
     bool changed;
+    bool wasOpen = device.contactOpen;
     if (device.ieeeAddress.empty()) device.ieeeAddress = ieeeAddress;
     changed = ::applyIasZoneStatus(&device, payload, time(0));
-    if (changed) saveState();
+    if (changed) { updateContactAlert(ieeeAddress, wasOpen); saveState(); }
     return changed;
+}
+
+void Gateway::updateContactAlert(const std::string& ieeeAddress, bool wasOpen) {
+    std::map<std::string, Device>::const_iterator device = devices_.find(ieeeAddress);
+    if (device == devices_.end() || !device->second.hasContact) return;
+    if (device->second.contactOpen && !wasOpen) {
+        contactOpenedAt_[ieeeAddress] = time(0);
+        nextContactAlertAt_[ieeeAddress] = time(0) + 600;
+    } else if (!device->second.contactOpen && wasOpen) {
+        contactOpenedAt_.erase(ieeeAddress);
+        nextContactAlertAt_.erase(ieeeAddress);
+    }
+}
+
+void Gateway::emitNotification(const std::string& title, const std::string& body) {
+    std::ofstream output((runtimeDirectory_ + "/notification-outbox.ndjson").c_str(), std::ios::app);
+    if (output) output << "{\"title\":\"" << jsonEscape(title) << "\",\"body\":\""
+                       << jsonEscape(body) << "\",\"timestamp\":" << time(0) << "}\n";
 }
 
 std::vector<Device> Gateway::devices() const {

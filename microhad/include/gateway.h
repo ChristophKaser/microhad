@@ -61,6 +61,8 @@ private:
     unsigned char networkChannel_;
     std::map<std::string, Device> devices_;
     std::map<unsigned short, std::string> nodeAddresses_;
+    std::map<std::string, long> contactOpenedAt_;
+    std::map<std::string, long> nextContactAlertAt_;
     bool configureSerial(std::string* error);
     bool writeBytes(const std::vector<unsigned char>& bytes);
     void sendAshReset();
@@ -71,6 +73,8 @@ private:
     void handleIncomingMessage(const std::vector<unsigned char>& payload);
     bool generateNetworkMaterial(std::string* error);
     void continueNetworkFormation(unsigned short completedCommand);
+    void updateContactAlert(const std::string& ieeeAddress, bool wasOpen);
+    void emitNotification(const std::string& title, const std::string& body);
     void loadState();
     void saveState() const;
 };
