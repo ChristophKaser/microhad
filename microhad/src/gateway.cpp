@@ -8,6 +8,7 @@
 #include <ctime>
 #include <fcntl.h>
 #include <sstream>
+#include <iomanip>
 #include <termios.h>
 #include <unistd.h>
 
@@ -277,14 +278,84 @@ void Gateway::handleAshFrame(const std::vector<unsigned char>& frame) {
 
 void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
     unsigned short command;
+    unsigned long payloadOffset;
     if (frame.size() < 3) return;
     if (ezspVersion_ >= 8) {
         if (frame.size() < 5) return;
         command = static_cast<unsigned short>(frame[3]) | (static_cast<unsigned short>(frame[4]) << 8);
-        if (command == 0 && frame.size() > 5) ezspVersion_ = frame[5];
+        payloadOffset = 5;
+        if (command == 0 && frame.size() > payloadOffset) ezspVersion_ = frame[payloadOffset];
     } else {
         command = frame[2];
-        if (command == 0 && frame.size() > 3) ezspVersion_ = frame[3];
+        payloadOffset = 3;
+        if (command == 0 && frame.size() > payloadOffset) ezspVersion_ = frame[payloadOffset];
     }
     if (command == 0) online_ = true;
+    if (frame.size() <= payloadOffset) return;
+    if (command == 0x24 && frame.size() >= payloadOffset + 10) {
+        unsigned short nodeId = static_cast<unsigned short>(frame[payloadOffset]) |
+                               (static_cast<unsigned short>(frame[payloadOffset + 1]) << 8);
+        registerNode(nodeId, &frame[payloadOffset + 2]);
+    } else if (command == 0x23 && frame.size() >= payloadOffset + 12) {
+        unsigned short nodeId = static_cast<unsigned short>(frame[payloadOffset + 2]) |
+                               (static_cast<unsigned short>(frame[payloadOffset + 3]) << 8);
+        registerNode(nodeId, &frame[payloadOffset + 4]);
+    } else if (command == 0x45) {
+        std::vector<unsigned char> payload(frame.begin() + payloadOffset, frame.end());
+        handleIncomingMessage(payload);
+    }
+}
+
+void Gateway::registerNode(unsigned short nodeId, const unsigned char* eui64) {
+    std::ostringstream address;
+    int i;
+    address << "0x" << std::hex << std::setfill('0');
+    /* EZSP transmits EUI64 least significant byte first. */
+    for (i = 7; i >= 0; --i) address << std::setw(2) << static_cast<unsigned int>(eui64[i]);
+    nodeAddresses_[nodeId] = address.str();
+    Device& device = devices_[address.str()];
+    if (device.ieeeAddress.empty()) {
+        device.ieeeAddress = address.str();
+        device.name = address.str();
+        device.lastSeen = time(0);
+        saveState();
+    }
+}
+
+void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
+    unsigned short cluster;
+    unsigned short sender;
+    unsigned long messageOffset;
+    unsigned long length;
+    std::map<unsigned short, std::string>::const_iterator address;
+    std::vector<unsigned char> message;
+    if (payload.size() < 20) return;
+    /* type(1), APS frame(11), LQI/RSSI(2), sender(2), binding/address(2), LVBytes */
+    cluster = static_cast<unsigned short>(payload[3]) | (static_cast<unsigned short>(payload[4]) << 8);
+    sender = static_cast<unsigned short>(payload[14]) | (static_cast<unsigned short>(payload[15]) << 8);
+    messageOffset = 18;
+    length = payload[messageOffset++];
+    if (messageOffset + length > payload.size() || length < 3) return;
+    address = nodeAddresses_.find(sender);
+    if (address == nodeAddresses_.end()) return;
+    message.assign(payload.begin() + messageOffset, payload.begin() + messageOffset + length);
+    unsigned char frameControl = message[0];
+    unsigned long zclOffset = 3;
+    if ((frameControl & 0x04) != 0) zclOffset += 2;
+    if (zclOffset > message.size()) return;
+    unsigned char command = message[zclOffset - 1];
+    if (cluster == 0x0500 && command == 0x00 && message.size() >= zclOffset + 2) {
+        std::vector<unsigned char> zone(message.begin() + zclOffset, message.end());
+        applyIasZoneStatus(address->second, zone);
+    } else if (command == 0x0a && message.size() >= zclOffset + 5) {
+        unsigned short attribute = static_cast<unsigned short>(message[zclOffset]) |
+                                   (static_cast<unsigned short>(message[zclOffset + 1]) << 8);
+        unsigned char type = message[zclOffset + 2];
+        unsigned long valueLength = (type == 0x20) ? 1 : 2;
+        if (message.size() >= zclOffset + 3 + valueLength) {
+            std::vector<unsigned char> value(message.begin() + zclOffset + 3,
+                                             message.begin() + zclOffset + 3 + valueLength);
+            applyAttributeReport(address->second, cluster, attribute, value);
+        }
+    }
 }

@@ -52,12 +52,15 @@ private:
     unsigned char ezspVersion_;
     long resetDeadline_;
     std::map<std::string, Device> devices_;
+    std::map<unsigned short, std::string> nodeAddresses_;
     bool configureSerial(std::string* error);
     bool writeBytes(const std::vector<unsigned char>& bytes);
     void sendAshReset();
     void sendEzspCommand(unsigned short command, const std::vector<unsigned char>& payload);
     void handleAshFrame(const std::vector<unsigned char>& frame);
     void handleEzspFrame(const std::vector<unsigned char>& frame);
+    void registerNode(unsigned short nodeId, const unsigned char* eui64);
+    void handleIncomingMessage(const std::vector<unsigned char>& payload);
     void loadState();
     void saveState() const;
 };
