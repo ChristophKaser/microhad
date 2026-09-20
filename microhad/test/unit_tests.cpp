@@ -7,6 +7,7 @@
 #include <cassert>
 #include <cstdio>
 #include <cstdlib>
+#include <fstream>
 #include <sstream>
 #include <string>
 #include <unistd.h>
@@ -113,6 +114,27 @@ static void testGenericCapabilities() {
     assert(device.hasContact && device.contactOpen && device.lastSeen == 125);
 }
 
+static void testImmediateContactNotification() {
+    std::ostringstream path;
+    std::string error;
+    std::ifstream output;
+    std::string content;
+    std::vector<unsigned char> zone;
+    path << "/tmp/microhad-zigbee-alert-test-" << static_cast<long>(getpid());
+    std::string directory = path.str();
+    assert(ensureDirectory(directory, &error));
+    Gateway gateway("/dev/null", 115200, directory, "", "", "");
+    zone.push_back(1); zone.push_back(0);
+    assert(gateway.applyIasZoneStatus("0x00124b0000000003", zone));
+    output.open((directory + "/notification-outbox.ndjson").c_str());
+    content.assign((std::istreambuf_iterator<char>(output)), std::istreambuf_iterator<char>());
+    assert(content.find("Contact opened") != std::string::npos);
+    output.close();
+    unlink((directory + "/notification-outbox.ndjson").c_str());
+    unlink((directory + "/devices.json").c_str());
+    rmdir(directory.c_str());
+}
+
 static void testFcmMessageConstruction() {
     FirebaseServiceAccount account;
     std::string error;
@@ -133,6 +155,7 @@ int main() {
     testDevicePersistence();
     testNetworkPersistence();
     testGenericCapabilities();
+    testImmediateContactNotification();
     testFcmMessageConstruction();
     printf("unit tests passed\n");
     return 0;

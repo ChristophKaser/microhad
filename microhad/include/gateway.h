@@ -46,6 +46,7 @@ public:
     bool applyIasZoneStatus(const std::string& ieeeAddress, const std::vector<unsigned char>& payload);
     bool setTemperatureAlerts(const std::string& ieeeAddress, bool hasLow, double low, bool hasHigh, double high,
                               std::string* error);
+    void sendTestNotification();
     std::vector<Device> devices() const;
     std::string statusJson() const;
 
