@@ -33,6 +33,17 @@ std::vector<unsigned char> randomize(const std::vector<unsigned char>& input) {
     }
     return output;
 }
+
+unsigned long zclValueLength(unsigned char type, const std::vector<unsigned char>& message, unsigned long offset) {
+    if (type == 0x10 || type == 0x20 || type == 0x28 || type == 0x30) return 1;
+    if (type == 0x21 || type == 0x29 || type == 0x31) return 2;
+    if (type == 0x23 || type == 0x2b || type == 0x39) return 4;
+    if (type == 0x42 && offset < message.size()) return 1 + message[offset];
+    if (type == 0x43 && offset + 1 < message.size()) {
+        return 2 + static_cast<unsigned long>(message[offset]) + (static_cast<unsigned long>(message[offset + 1]) << 8);
+    }
+    return 0;
+}
 }
 
 Gateway::Gateway(const std::string& serialDevice, int serialBaud, const std::string& runtimeDirectory,
@@ -285,6 +296,10 @@ std::string Gateway::statusJson() const {
              << ",\"temperature_celsius\":" << device.temperatureCelsius
              << ",\"has_battery\":" << (device.hasBattery ? "true" : "false")
              << ",\"battery_percent\":" << device.batteryPercent << ",\"link_quality\":" << device.linkQuality
+             << ",\"has_low_temperature_alert\":" << (device.hasLowTemperatureAlert ? "true" : "false")
+             << ",\"low_temperature_alert\":" << device.lowTemperatureAlert
+             << ",\"has_high_temperature_alert\":" << (device.hasHighTemperatureAlert ? "true" : "false")
+             << ",\"high_temperature_alert\":" << device.highTemperatureAlert
              << ",\"last_seen\":" << device.lastSeen << "}";
     }
     json << "]}";
@@ -514,15 +529,18 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
     if (cluster == 0x0500 && command == 0x00 && message.size() >= zclOffset + 2) {
         std::vector<unsigned char> zone(message.begin() + zclOffset, message.end());
         applyIasZoneStatus(address->second, zone);
-    } else if (command == 0x0a && message.size() >= zclOffset + 5) {
-        unsigned short attribute = static_cast<unsigned short>(message[zclOffset]) |
-                                   (static_cast<unsigned short>(message[zclOffset + 1]) << 8);
-        unsigned char type = message[zclOffset + 2];
-        unsigned long valueLength = (type == 0x20) ? 1 : 2;
-        if (message.size() >= zclOffset + 3 + valueLength) {
-            std::vector<unsigned char> value(message.begin() + zclOffset + 3,
-                                             message.begin() + zclOffset + 3 + valueLength);
+    } else if (command == 0x0a) {
+        unsigned long attributeOffset = zclOffset;
+        while (attributeOffset + 3 <= message.size()) {
+            unsigned short attribute = static_cast<unsigned short>(message[attributeOffset]) |
+                                       (static_cast<unsigned short>(message[attributeOffset + 1]) << 8);
+            unsigned char type = message[attributeOffset + 2];
+            unsigned long valueOffset = attributeOffset + 3;
+            unsigned long valueLength = zclValueLength(type, message, valueOffset);
+            if (valueLength == 0 || valueOffset + valueLength > message.size()) break;
+            std::vector<unsigned char> value(message.begin() + valueOffset, message.begin() + valueOffset + valueLength);
             applyAttributeReport(address->second, cluster, attribute, value);
+            attributeOffset = valueOffset + valueLength;
         }
     }
 }
