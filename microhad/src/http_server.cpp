@@ -11,6 +11,7 @@
 #include <netinet/in.h>
 #include <sstream>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <unistd.h>
 
 #ifdef MICROHAD_MIPS_TARGET
@@ -93,6 +94,14 @@ bool HttpServer::start(std::string* error) {
 void HttpServer::poll() {
     int clientFd = accept(listenFd_, 0, 0);
     if (clientFd >= 0) {
+        /* The gateway deliberately has a tiny, single-threaded event loop.
+           Do not allow a browser pre-connect or incomplete TLS handshake to
+           suspend the radio and every other HTTP client indefinitely. */
+        struct timeval timeout;
+        timeout.tv_sec = 1;
+        timeout.tv_usec = 0;
+        setsockopt(clientFd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+        setsockopt(clientFd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
         handleClient(clientFd);
         close(clientFd);
     }
@@ -191,6 +200,12 @@ void HttpServer::handleClient(int clientFd) {
         std::string newJoinState = "var left=Math.max(0,v.joining_until-Math.floor(Date.now()/1000)),preparing=v.joining_preparing;document.getElementById('join-state').textContent=left?'Joining enabled: pair a sensor within '+Math.ceil(left/60)+' minute(s).':preparing?'Preparing secure pairing…':'Joining is closed.';document.getElementById('join').textContent=left?'Extend joining (5 min)':preparing?'Preparing…':'Allow joining (5 min)';";
         markerAt = dashboard.find(oldJoinState);
         if (markerAt != std::string::npos) dashboard.replace(markerAt, oldJoinState.size(), newJoinState);
+        std::string oldCoordinatorState = "' | Network: '+(v.network_formed?'formed':v.network_forming?'forming':'not formed')";
+        std::string newCoordinatorState = "' | Network: '+(v.network_formed?'formed':v.network_forming?'forming':'not formed')+' | Serial RX: '+v.serial_rx_bytes+' bytes / '+v.ash_rx_frames+' frames'";
+        markerAt = dashboard.find(oldCoordinatorState);
+        if (markerAt != std::string::npos) {
+            dashboard.replace(markerAt, oldCoordinatorState.size(), newCoordinatorState);
+        }
         markerAt = dashboard.find("<div id=devices></div>");
         if (markerAt != std::string::npos) {
             dashboard.replace(markerAt, strlen("<div id=devices></div>"),

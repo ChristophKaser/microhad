@@ -52,7 +52,7 @@ Gateway::Gateway(const std::string& serialDevice, int serialBaud, const std::str
     serialDevice_(serialDevice), serialBaud_(serialBaud), runtimeDirectory_(runtimeDirectory),
     firebaseServiceAccount_(firebaseServiceAccount), firebaseTopic_(firebaseTopic), caBundle_(caBundle), serialFd_(-1),
     online_(false), joinUntil_(0), joinPermitRenewAt_(0), pendingJoinSeconds_(0), joinPreparationStep_(0), ashSendSequence_(0), ashReceiveSequence_(0), ezspSequence_(0),
-    ezspVersion_(4), zdoSequence_(0), zclTransactionSequence_(0), ezspVersionNegotiated_(false), stackTokenWritingRequested_(false), networkInitRequested_(false), resetDeadline_(0), networkForming_(false), networkFormed_(false), networkPanId_(0),
+    ezspVersion_(4), zdoSequence_(0), zclTransactionSequence_(0), ezspVersionNegotiated_(false), stackTokenWritingRequested_(false), networkInitRequested_(false), coordinatorInitializationStep_(0), resetDeadline_(0), nextHeartbeatAt_(0), serialRxBytes_(0), ashRxFrames_(0), networkForming_(false), networkFormationStep_(0), networkFormed_(false), networkPanId_(0),
     networkChannel_(0) {
 }
 
@@ -127,9 +127,16 @@ void Gateway::poll() {
     if (serialFd_ >= 0) {
         count = read(serialFd_, bytes, sizeof(bytes));
         if (count > 0) {
+            serialRxBytes_ += static_cast<unsigned long>(count);
+            addHexLog("SERIAL RX", bytes, static_cast<unsigned long>(count));
             ash_.feed(bytes, static_cast<unsigned long>(count));
             while (ash_.popFrame(&frame)) handleAshFrame(frame);
         }
+    }
+    if (online_ && nextHeartbeatAt_ != 0 && time(0) >= nextHeartbeatAt_) {
+        addLog("Coordinator heartbeat");
+        sendEzspCommand(0x0005, std::vector<unsigned char>()); /* nop */
+        nextHeartbeatAt_ = time(0) + 20;
     }
     if (!online_ && resetDeadline_ != 0 && time(0) >= resetDeadline_) sendAshReset();
     if (joinUntil_ != 0 && time(0) >= joinUntil_) {
@@ -196,13 +203,22 @@ bool Gateway::setJoining(unsigned int seconds, std::string* error) {
 }
 
 bool Gateway::createFreshNetwork(std::string* error) {
+    bool leaveExisting;
     if (!online_) { *error = "Zigbee coordinator is offline"; return false; }
     if (networkForming_) { *error = "network creation is already in progress"; return false; }
     if (!generateNetworkMaterial(error)) return false;
     networkForming_ = true;
+    leaveExisting = networkFormed_;
     networkFormed_ = false;
-    addLog("Creating a fresh Zigbee network");
-    sendEzspCommand(0x00b1, std::vector<unsigned char>()); /* clearKeyTable */
+    if (leaveExisting) {
+        networkFormationStep_ = 1;
+        addLog("Leaving the existing Zigbee network before replacement");
+        sendEzspCommand(0x0020, std::vector<unsigned char>()); /* leaveNetwork */
+    } else {
+        networkFormationStep_ = 2;
+        addLog("Creating replacement Zigbee network from network-down state");
+        sendEzspCommand(0x00b1, std::vector<unsigned char>()); /* clearKeyTable */
+    }
     return true;
 }
 
@@ -329,6 +345,7 @@ std::string Gateway::statusJson() const {
     std::ostringstream json;
     json << "{\"online\":" << (online_ ? "true" : "false") << ",\"network_forming\":"
          << (networkForming_ ? "true" : "false") << ",\"network_formed\":" << (networkFormed_ ? "true" : "false")
+         << ",\"serial_rx_bytes\":" << serialRxBytes_ << ",\"ash_rx_frames\":" << ashRxFrames_
          << ",\"joining_until\":" << joinUntil_ << ",\"joining_preparing\":"
          << (joinPreparationStep_ != 0 ? "true" : "false")
          << ",\"devices\":[";
@@ -378,7 +395,7 @@ void Gateway::loadLogs() {
     while (std::getline(input, line)) {
         if (!line.empty()) logs_.push_back(line);
     }
-    while (logs_.size() > 128) logs_.erase(logs_.begin());
+    while (logs_.size() > 512) logs_.erase(logs_.begin());
 }
 
 void Gateway::saveLogs() const {
@@ -393,8 +410,26 @@ void Gateway::addLog(const std::string& message) {
     std::string rendered = message.substr(0, 240);
     line << time(0) << " " << rendered;
     logs_.push_back(line.str());
-    while (logs_.size() > 128) logs_.erase(logs_.begin());
+    while (logs_.size() > 512) logs_.erase(logs_.begin());
     saveLogs();
+}
+
+void Gateway::addHexLog(const std::string& direction, const unsigned char* bytes, unsigned long length) {
+    const unsigned long bytesPerLine = 80;
+    unsigned long offset;
+    if (length == 0) {
+        addLog(direction + " [0/0]");
+        return;
+    }
+    for (offset = 0; offset < length; offset += bytesPerLine) {
+        unsigned long end = offset + bytesPerLine;
+        unsigned long i;
+        std::ostringstream message;
+        if (end > length) end = length;
+        message << direction << " [" << offset << "/" << length << "] " << std::hex << std::setfill('0');
+        for (i = offset; i < end; ++i) message << std::setw(2) << static_cast<unsigned int>(bytes[i]);
+        addLog(message.str());
+    }
 }
 
 void Gateway::loadState() {
@@ -427,6 +462,7 @@ void Gateway::saveState() const {
 
 bool Gateway::writeBytes(const std::vector<unsigned char>& bytes) {
     unsigned long offset = 0;
+    if (!bytes.empty()) addHexLog("SERIAL TX", &bytes[0], bytes.size());
     while (serialFd_ >= 0 && offset < bytes.size()) {
         ssize_t count = write(serialFd_, &bytes[offset], bytes.size() - offset);
         if (count > 0) offset += static_cast<unsigned long>(count);
@@ -442,6 +478,7 @@ void Gateway::sendAshReset() {
     reset.insert(reset.begin(), 0x1a);
     ash_.reset();
     online_ = false;
+    nextHeartbeatAt_ = 0;
     writeBytes(reset);
     resetDeadline_ = time(0) + 5;
 }
@@ -471,6 +508,84 @@ void Gateway::sendEzspCommand(unsigned short command, const std::vector<unsigned
         addLog(message.str());
     }
     writeBytes(encoded);
+}
+
+unsigned short Gateway::coordinatorInitializationCommand() const {
+    if (coordinatorInitializationStep_ >= 1 && coordinatorInitializationStep_ <= 11) return 0x0053;
+    if (coordinatorInitializationStep_ >= 12 && coordinatorInitializationStep_ <= 14) return 0x0055;
+    if (coordinatorInitializationStep_ >= 15 && coordinatorInitializationStep_ <= 16) return 0x00ab;
+    if (coordinatorInitializationStep_ == 17) return 0x0010;
+    if (coordinatorInitializationStep_ == 18) return 0x005a;
+    if (coordinatorInitializationStep_ >= 19 && coordinatorInitializationStep_ <= 20) return 0x0002;
+    if (coordinatorInitializationStep_ == 21) return 0x0017;
+    return 0xffff;
+}
+
+void Gateway::continueCoordinatorInitialization() {
+    static const unsigned char configurationIds[] = {56, 25, 29, 34, 42, 18, 19, 13, 12, 28, 1};
+    static const unsigned short configurationValues[] = {90, 2, 50, 2, 3, 7680, 14, 5, 2, 1, 255};
+    std::vector<unsigned char> payload;
+    unsigned char step = coordinatorInitializationStep_;
+    if (step < 11) {
+        payload.push_back(configurationIds[step]);
+        payload.push_back(static_cast<unsigned char>(configurationValues[step]));
+        payload.push_back(static_cast<unsigned char>(configurationValues[step] >> 8));
+        ++coordinatorInitializationStep_;
+        sendEzspCommand(0x0053, payload); /* setConfigurationValue */
+    } else if (step < 14) {
+        static const unsigned char policyIds[] = {6, 5, 0};
+        static const unsigned short decisions[] = {0x60, 0x51, 0x03};
+        unsigned char policy = static_cast<unsigned char>(step - 11);
+        payload.push_back(policyIds[policy]);
+        payload.push_back(static_cast<unsigned char>(decisions[policy]));
+        payload.push_back(static_cast<unsigned char>(decisions[policy] >> 8));
+        ++coordinatorInitializationStep_;
+        sendEzspCommand(0x0055, payload); /* setPolicy */
+    } else if (step < 16) {
+        static const unsigned char valueIds[] = {63, 21};
+        static const unsigned char values[] = {3, 0};
+        unsigned char value = static_cast<unsigned char>(step - 14);
+        payload.push_back(valueIds[value]); payload.push_back(1); payload.push_back(values[value]);
+        ++coordinatorInitializationStep_;
+        sendEzspCommand(0x00ab, payload); /* setValue */
+    } else if (step == 16) {
+        const unsigned char concentrator[] = {1, 0xf9, 0xff, 10, 0, 90, 0, 4, 3, 0};
+        payload.assign(concentrator, concentrator + sizeof(concentrator));
+        ++coordinatorInitializationStep_;
+        sendEzspCommand(0x0010, payload); /* setConcentrator */
+    } else if (step == 17) {
+        payload.push_back(1);
+        ++coordinatorInitializationStep_;
+        sendEzspCommand(0x005a, payload); /* setSourceRouteDiscoveryMode */
+    } else if (step == 18) {
+        static const unsigned short inputClusters[] = {0, 3, 6, 10, 25, 26, 768};
+        static const unsigned short outputClusters[] = {0, 3, 4, 5, 6, 8, 32, 768, 1024, 1026, 1029,
+                                                        1030, 1280, 2817, 2819, 2820, 1794, 4096, 64513, 64514};
+        unsigned long i;
+        payload.push_back(1); payload.push_back(0x04); payload.push_back(0x01);
+        payload.push_back(0xef); payload.push_back(0xbe); payload.push_back(0);
+        payload.push_back(7); payload.push_back(20);
+        for (i = 0; i < 7; ++i) {
+            payload.push_back(static_cast<unsigned char>(inputClusters[i]));
+            payload.push_back(static_cast<unsigned char>(inputClusters[i] >> 8));
+        }
+        for (i = 0; i < 20; ++i) {
+            payload.push_back(static_cast<unsigned char>(outputClusters[i]));
+            payload.push_back(static_cast<unsigned char>(outputClusters[i] >> 8));
+        }
+        ++coordinatorInitializationStep_;
+        sendEzspCommand(0x0002, payload); /* addEndpoint */
+    } else if (step == 19) {
+        const unsigned char greenPowerEndpoint[] = {242, 0xe0, 0xa1, 0x61, 0, 0, 0, 1, 0x21, 0};
+        payload.assign(greenPowerEndpoint, greenPowerEndpoint + sizeof(greenPowerEndpoint));
+        ++coordinatorInitializationStep_;
+        sendEzspCommand(0x0002, payload); /* addEndpoint */
+    } else if (step == 20) {
+        ++coordinatorInitializationStep_;
+        networkInitRequested_ = true;
+        addLog("Initializing NCP Zigbee network after coordinator configuration");
+        sendEzspCommand(0x0017, payload);
+    }
 }
 
 void Gateway::enableStackTokenWriting() {
@@ -527,6 +642,7 @@ void Gateway::beginJoinWindow(unsigned int seconds) {
 void Gateway::handleAshFrame(const std::vector<unsigned char>& frame) {
     unsigned char control;
     if (frame.empty()) return;
+    ++ashRxFrames_;
     control = frame[0];
     if (control == 0xc1) {
         ashSendSequence_ = 0;
@@ -535,6 +651,7 @@ void Gateway::handleAshFrame(const std::vector<unsigned char>& frame) {
         ezspVersion_ = 4;
         ezspVersionNegotiated_ = false;
         networkInitRequested_ = false;
+        coordinatorInitializationStep_ = 0;
         addLog("ASH reset acknowledgement received");
         std::vector<unsigned char> version;
         version.push_back(ezspVersion_);
@@ -598,10 +715,24 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
     }
     if (command == 0 && ezspVersionNegotiated_) {
         online_ = true;
+        nextHeartbeatAt_ = time(0) + 20;
         if (!networkInitRequested_) {
-            networkInitRequested_ = true;
-            addLog("Initializing NCP Zigbee network");
-            sendEzspCommand(0x0017, std::vector<unsigned char>());
+            addLog("Configuring NCP coordinator to match original controller");
+            continueCoordinatorInitialization();
+        }
+    }
+    if (coordinatorInitializationStep_ != 0 && command == coordinatorInitializationCommand()) {
+        if (command != 0x005a && frame.size() > payloadOffset && frame[payloadOffset] != 0) {
+            std::ostringstream failure;
+            failure << "Coordinator initialization command 0x" << std::hex << command
+                    << " rejected: 0x" << static_cast<unsigned int>(frame[payloadOffset]);
+            addLog(failure.str());
+        }
+        if (coordinatorInitializationStep_ == 21) {
+            coordinatorInitializationStep_ = 0;
+        } else {
+            continueCoordinatorInitialization();
+            return;
         }
     }
     if (networkForming_) {
@@ -610,14 +741,41 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
                 static_cast<unsigned int>(ezspVersion_), static_cast<unsigned int>(command), status,
                 static_cast<unsigned long>(frame.size()));
     }
+    if (networkForming_ && command == 0x0020) {
+        if (frame[payloadOffset] != 0) {
+            if (frame[payloadOffset] == 0x70) {
+                networkFormationStep_ = 2;
+                addLog("NCP already network-down; creating replacement network");
+                sendEzspCommand(0x00b1, std::vector<unsigned char>()); /* clearKeyTable */
+            } else {
+                networkForming_ = false;
+                networkFormationStep_ = 0;
+                std::ostringstream failure;
+                failure << "NCP rejected leave-network request: 0x" << std::hex
+                        << static_cast<unsigned int>(frame[payloadOffset]);
+                addLog(failure.str());
+            }
+        } else {
+            addLog("NCP leaving old Zigbee network");
+        }
+        return;
+    }
     if (networkForming_ && (command == 0x00b1 || command == 0x0068 || command == 0x001e)) {
         if (frame[payloadOffset] == 0) continueNetworkFormation(command);
-        else networkForming_ = false;
+        else {
+            std::ostringstream failure;
+            failure << "Network formation command 0x" << std::hex << command
+                    << " rejected: 0x" << static_cast<unsigned int>(frame[payloadOffset]);
+            addLog(failure.str());
+            networkForming_ = false;
+            networkFormationStep_ = 0;
+        }
     }
     if (frame.size() <= payloadOffset) return;
     if (command == 0x0017) {
         if (frame[payloadOffset] == 0) addLog("NCP network initialization accepted");
         else {
+            networkFormed_ = false;
             std::ostringstream message;
             message << "NCP network initialization rejected: 0x" << std::hex
                     << static_cast<unsigned int>(frame[payloadOffset]);
@@ -626,10 +784,17 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
         return;
     }
     if (command == 0x0019) {
+        if (networkForming_ && networkFormationStep_ == 1 && frame[payloadOffset] != 0x90) {
+            networkFormationStep_ = 2;
+            addLog("Old Zigbee network left; creating replacement network");
+            sendEzspCommand(0x00b1, std::vector<unsigned char>()); /* clearKeyTable */
+            return;
+        }
         if (frame[payloadOffset] == 0x90) {
             networkFormed_ = true;
             addLog("NCP Zigbee network is active");
         } else {
+            networkFormed_ = false;
             std::ostringstream message;
             message << "NCP Zigbee network status: 0x" << std::hex
                     << static_cast<unsigned int>(frame[payloadOffset]);
@@ -719,7 +884,6 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
 bool Gateway::generateNetworkMaterial(std::string* error) {
     int randomFd = open("/dev/urandom", O_RDONLY);
     unsigned char material[42];
-    static const char joiningKey[] = "ZigBeeAlliance09";
     ssize_t count;
     if (randomFd < 0) { *error = "cannot read system random source"; return false; }
     count = read(randomFd, material, sizeof(material));
@@ -727,12 +891,18 @@ bool Gateway::generateNetworkMaterial(std::string* error) {
     if (count != static_cast<ssize_t>(sizeof(material))) { *error = "cannot generate network material"; return false; }
     networkExtendedPan_.assign(material, material + 8);
     networkKey_.assign(material + 8, material + 24);
-    /* Generic Zigbee 3.0 devices use this well-known install/joining key
-       before the trust center distributes the random network key. */
-    preconfiguredKey_.assign(joiningKey, joiningKey + sizeof(joiningKey) - 1);
+    /* With TRUST_CENTER_USES_HASHED_LINK_KEY this field is a private random
+       trust-center secret, not the public ZigBeeAlliance09 joining key.  The
+       latter is installed separately as a transient wildcard key whenever a
+       pairing window opens. */
+    preconfiguredKey_.assign(material + 24, material + 40);
     networkPanId_ = static_cast<unsigned short>(material[40]) | (static_cast<unsigned short>(material[41]) << 8);
     if (networkPanId_ == 0 || networkPanId_ == 0xffff) networkPanId_ = 0x1a62;
-    networkChannel_ = static_cast<unsigned char>(11 + material[0] % 16);
+    /* Keep the coordinator on the Zigbee default channel.  Besides making a
+       freshly deployed gateway reproducible, channel 11 is the channel used
+       by the vendor/original controller and is broadly supported by sleepy
+       end devices during their short pairing scan. */
+    networkChannel_ = 11;
     return true;
 }
 
@@ -759,6 +929,7 @@ void Gateway::continueNetworkFormation(unsigned short completedCommand) {
         sendEzspCommand(0x001e, payload);
     } else if (completedCommand == 0x001e) {
         networkForming_ = false;
+        networkFormationStep_ = 0;
         networkFormed_ = true;
         NetworkState network;
         std::string ignored;

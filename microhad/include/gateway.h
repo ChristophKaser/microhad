@@ -78,8 +78,13 @@ private:
     bool ezspVersionNegotiated_;
     bool stackTokenWritingRequested_;
     bool networkInitRequested_;
+    unsigned char coordinatorInitializationStep_;
     long resetDeadline_;
+    long nextHeartbeatAt_;
+    unsigned long serialRxBytes_;
+    unsigned long ashRxFrames_;
     bool networkForming_;
+    unsigned char networkFormationStep_;
     bool networkFormed_;
     std::vector<unsigned char> networkExtendedPan_;
     std::vector<unsigned char> networkKey_;
@@ -95,6 +100,8 @@ private:
     bool writeBytes(const std::vector<unsigned char>& bytes);
     void sendAshReset();
     void sendEzspCommand(unsigned short command, const std::vector<unsigned char>& payload);
+    void continueCoordinatorInitialization();
+    unsigned short coordinatorInitializationCommand() const;
     void enableStackTokenWriting();
     void sendApsUnicast(unsigned short destination, unsigned short profile, unsigned short cluster,
                         unsigned char sourceEndpoint, unsigned char destinationEndpoint,
@@ -119,6 +126,7 @@ private:
     void updateTemperatureAlert(const Device& device, bool hadTemperature, double previousTemperature);
     bool emitNotification(const std::string& title, const std::string& body, std::string* error);
     void addLog(const std::string& message);
+    void addHexLog(const std::string& direction, const unsigned char* bytes, unsigned long length);
     void loadLogs();
     void saveLogs() const;
     void loadState();
