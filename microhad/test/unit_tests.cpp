@@ -128,6 +128,11 @@ static void testGenericCapabilities() {
     assert(device.hasContact && device.contactOpen && device.lastSeen == 125);
 }
 
+static void testJoinStatusJson() {
+    Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+    assert(gateway.statusJson().find("\"joining_preparing\":false") != std::string::npos);
+}
+
 static void testImmediateContactNotification() {
     std::ostringstream path;
     std::string error;
@@ -169,6 +174,7 @@ int main() {
     testDevicePersistence();
     testNetworkPersistence();
     testGenericCapabilities();
+    testJoinStatusJson();
     testImmediateContactNotification();
     testFcmMessageConstruction();
     printf("unit tests passed\n");

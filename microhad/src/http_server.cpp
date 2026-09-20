@@ -120,7 +120,7 @@ void HttpServer::handleClient(int clientFd) {
         writeResponse(clientFd, 200, "application/json", gateway_->statusJson());
     } else if (request.find("POST /api/join ") == 0) {
         std::string error;
-        if (gateway_->setJoining(300, &error)) writeResponse(clientFd, 200, "application/json", "{\"ok\":true,\"seconds\":300}");
+        if (gateway_->setJoining(300, &error)) writeResponse(clientFd, 200, "application/json", "{\"ok\":true,\"seconds\":300,\"state\":\"preparing\"}");
         else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + error + "\"}");
     } else if (request.find("POST /api/notifications/test ") == 0) {
         gateway_->sendTestNotification();
@@ -183,6 +183,10 @@ void HttpServer::handleClient(int clientFd) {
         if (markerAt != std::string::npos) {
             dashboard.insert(markerAt, "if(d.has_humidity)s+=' · '+d.humidity_percent+'% humidity';if(d.has_occupancy)s+=' · '+(d.occupied?'OCCUPIED':'clear');");
         }
+        std::string oldJoinState = "var left=Math.max(0,v.joining_until-Math.floor(Date.now()/1000));document.getElementById('join-state').textContent=left?'Joining enabled: pair a sensor within '+Math.ceil(left/60)+' minute(s).':'Joining is closed.';document.getElementById('join').textContent=left?'Extend joining (5 min)':'Allow joining (5 min)';";
+        std::string newJoinState = "var left=Math.max(0,v.joining_until-Math.floor(Date.now()/1000)),preparing=v.joining_preparing;document.getElementById('join-state').textContent=left?'Joining enabled: pair a sensor within '+Math.ceil(left/60)+' minute(s).':preparing?'Preparing secure pairing…':'Joining is closed.';document.getElementById('join').textContent=left?'Extend joining (5 min)':preparing?'Preparing…':'Allow joining (5 min)';";
+        markerAt = dashboard.find(oldJoinState);
+        if (markerAt != std::string::npos) dashboard.replace(markerAt, oldJoinState.size(), newJoinState);
         writeResponse(clientFd, 200, "text/html; charset=utf-8", dashboard);
     } else {
         writeResponse(clientFd, 400, "application/json", "{\"error\":\"unknown endpoint\"}");

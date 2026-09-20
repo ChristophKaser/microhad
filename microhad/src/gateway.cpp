@@ -309,7 +309,8 @@ std::string Gateway::statusJson() const {
     std::ostringstream json;
     json << "{\"online\":" << (online_ ? "true" : "false") << ",\"network_forming\":"
          << (networkForming_ ? "true" : "false") << ",\"network_formed\":" << (networkFormed_ ? "true" : "false")
-         << ",\"joining_until\":" << joinUntil_
+         << ",\"joining_until\":" << joinUntil_ << ",\"joining_preparing\":"
+         << (joinPreparationStep_ != 0 ? "true" : "false")
          << ",\"devices\":[";
     std::map<std::string, Device>::const_iterator it;
     bool first = true;
