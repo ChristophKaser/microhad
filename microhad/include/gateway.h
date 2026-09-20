@@ -76,6 +76,7 @@ private:
     unsigned char zdoSequence_;
     unsigned char zclTransactionSequence_;
     bool ezspVersionNegotiated_;
+    bool stackTokenWritingRequested_;
     long resetDeadline_;
     bool networkForming_;
     bool networkFormed_;
@@ -93,6 +94,7 @@ private:
     bool writeBytes(const std::vector<unsigned char>& bytes);
     void sendAshReset();
     void sendEzspCommand(unsigned short command, const std::vector<unsigned char>& payload);
+    void enableStackTokenWriting();
     void sendApsUnicast(unsigned short destination, unsigned short profile, unsigned short cluster,
                         unsigned char sourceEndpoint, unsigned char destinationEndpoint,
                         const std::vector<unsigned char>& message);

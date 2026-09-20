@@ -52,7 +52,7 @@ Gateway::Gateway(const std::string& serialDevice, int serialBaud, const std::str
     serialDevice_(serialDevice), serialBaud_(serialBaud), runtimeDirectory_(runtimeDirectory),
     firebaseServiceAccount_(firebaseServiceAccount), firebaseTopic_(firebaseTopic), caBundle_(caBundle), serialFd_(-1),
     online_(false), joinUntil_(0), joinPermitRenewAt_(0), pendingJoinSeconds_(0), joinPreparationStep_(0), ashSendSequence_(0), ashReceiveSequence_(0), ezspSequence_(0),
-    ezspVersion_(4), zdoSequence_(0), zclTransactionSequence_(0), ezspVersionNegotiated_(false), resetDeadline_(0), networkForming_(false), networkFormed_(false), networkPanId_(0),
+    ezspVersion_(4), zdoSequence_(0), zclTransactionSequence_(0), ezspVersionNegotiated_(false), stackTokenWritingRequested_(false), resetDeadline_(0), networkForming_(false), networkFormed_(false), networkPanId_(0),
     networkChannel_(0) {
 }
 
@@ -475,6 +475,16 @@ void Gateway::sendEzspCommand(unsigned short command, const std::vector<unsigned
     writeBytes(encoded);
 }
 
+void Gateway::enableStackTokenWriting() {
+    std::vector<unsigned char> payload;
+    payload.push_back(0x07); /* VALUE_STACK_TOKEN_WRITING */
+    payload.push_back(1);    /* LVBytes length */
+    payload.push_back(1);    /* enabled */
+    stackTokenWritingRequested_ = true;
+    addLog("Enabling NCP stack token writing");
+    sendEzspCommand(0x00ab, payload);
+}
+
 void Gateway::sendApsUnicast(unsigned short destination, unsigned short profile, unsigned short cluster,
                              unsigned char sourceEndpoint, unsigned char destinationEndpoint,
                              const std::vector<unsigned char>& message) {
@@ -587,7 +597,10 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
                 << command << " status=0x" << status << " bytes=" << std::dec << frame.size();
         addLog(message.str());
     }
-    if (command == 0 && ezspVersionNegotiated_) online_ = true;
+    if (command == 0 && ezspVersionNegotiated_) {
+        online_ = true;
+        if (!stackTokenWritingRequested_) enableStackTokenWriting();
+    }
     if (networkForming_) {
         unsigned int status = frame.size() > payloadOffset ? frame[payloadOffset] : 0xff;
         fprintf(stderr, "EZSP formation response: version=%u command=0x%04x status=0x%02x bytes=%lu\n",
