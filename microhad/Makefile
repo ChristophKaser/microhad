@@ -2,6 +2,8 @@
 # host compiler for the target build: a host executable is not deployable.
 RSDK_ROOT := ../rsdk-4.4.7-4181-EB-2.6.30-0.9.30-m32u-140129
 TARGET_CXX := $(RSDK_ROOT)/bin/mips-linux-g++
+TARGET_CC := $(RSDK_ROOT)/bin/mips-linux-gcc
+TARGET_AR := $(RSDK_ROOT)/bin/mips-linux-ar
 TARGET_STRIP := $(RSDK_ROOT)/bin/mips-linux-strip
 TARGET_READELF := $(RSDK_ROOT)/bin/mips-linux-readelf
 HOST_CXX ?= g++
@@ -17,9 +19,11 @@ HOST_BUILD := build/host
 MIPS_BUILD := build/mips
 HOST_BIN := $(HOST_BUILD)/microhad-zigbee-native
 MIPS_BIN := $(MIPS_BUILD)/microhad-zigbee-native
+MBEDTLS_DIR := third_party/mbedtls
+MBEDTLS_LIBS := $(MBEDTLS_DIR)/library/libmbedtls.a $(MBEDTLS_DIR)/library/libmbedx509.a $(MBEDTLS_DIR)/library/libmbedcrypto.a
 TEST_BIN := $(HOST_BUILD)/unit_tests
 
-.PHONY: all host mips test verify-target clean
+.PHONY: all host mips mbedtls-mips test verify-target clean
 
 all: host
 
@@ -29,12 +33,16 @@ $(HOST_BIN): $(SOURCES) $(wildcard include/*.h)
 	@mkdir -p $(HOST_BUILD)
 	$(HOST_CXX) $(HOST_CXXFLAGS) $(SOURCES) -o $@ $(LDFLAGS)
 
-mips: $(MIPS_BIN) verify-target
+mips: mbedtls-mips $(MIPS_BIN) verify-target
 
-$(MIPS_BIN): $(SOURCES) $(wildcard include/*.h)
+mbedtls-mips:
+	$(MAKE) -C $(MBEDTLS_DIR)/library clean
+	$(MAKE) -C $(MBEDTLS_DIR)/library CC=$(TARGET_CC) AR=$(TARGET_AR) CFLAGS='-O2 -std=gnu99'
+
+$(MIPS_BIN): $(SOURCES) $(wildcard include/*.h) $(MBEDTLS_LIBS)
 	@test -x $(TARGET_CXX) || (echo "RSDK compiler not found: $(TARGET_CXX)"; exit 1)
 	@mkdir -p $(MIPS_BUILD)
-	$(TARGET_CXX) $(TARGET_CXXFLAGS) -static $(SOURCES) -o $@
+	$(TARGET_CXX) $(TARGET_CXXFLAGS) -I$(MBEDTLS_DIR)/include -static $(SOURCES) -o $@ $(MBEDTLS_LIBS)
 	$(TARGET_STRIP) $@
 
 verify-target: $(MIPS_BIN)
