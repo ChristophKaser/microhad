@@ -279,9 +279,13 @@ std::string Gateway::statusJson() const {
         first = false;
         json << "{\"ieee_address\":\"" << jsonEscape(device.ieeeAddress) << "\",\"name\":\""
              << jsonEscape(device.name) << "\",\"kind\":\"" << jsonEscape(device.kind)
-             << "\",\"contact_open\":" << (device.contactOpen ? "true" : "false")
-             << ",\"temperature_celsius\":" << device.temperatureCelsius << ",\"last_seen\":"
-             << device.lastSeen << "}";
+             << "\",\"has_contact\":" << (device.hasContact ? "true" : "false")
+             << ",\"contact_open\":" << (device.contactOpen ? "true" : "false")
+             << ",\"has_temperature\":" << (device.hasTemperature ? "true" : "false")
+             << ",\"temperature_celsius\":" << device.temperatureCelsius
+             << ",\"has_battery\":" << (device.hasBattery ? "true" : "false")
+             << ",\"battery_percent\":" << device.batteryPercent << ",\"link_quality\":" << device.linkQuality
+             << ",\"last_seen\":" << device.lastSeen << "}";
     }
     json << "]}";
     return json.str();
@@ -289,10 +293,20 @@ std::string Gateway::statusJson() const {
 
 void Gateway::loadState() {
     std::vector<Device> saved;
+    NetworkState network;
     std::string error;
     unsigned long i;
     if (loadDevices(runtimeDirectory_ + "/devices.json", &saved, &error)) {
         for (i = 0; i < saved.size(); ++i) devices_[saved[i].ieeeAddress] = saved[i];
+    }
+    error.clear();
+    if (loadNetworkState(runtimeDirectory_ + "/network.json", &network, &error) && network.formed) {
+        networkFormed_ = true;
+        networkPanId_ = network.panId;
+        networkChannel_ = network.channel;
+        networkExtendedPan_ = network.extendedPan;
+        networkKey_ = network.networkKey;
+        preconfiguredKey_ = network.preconfiguredKey;
     }
 }
 
@@ -447,6 +461,15 @@ void Gateway::continueNetworkFormation(unsigned short completedCommand) {
     } else if (completedCommand == 0x001e) {
         networkForming_ = false;
         networkFormed_ = true;
+        NetworkState network;
+        std::string ignored;
+        network.formed = true;
+        network.panId = networkPanId_;
+        network.channel = networkChannel_;
+        network.extendedPan = networkExtendedPan_;
+        network.networkKey = networkKey_;
+        network.preconfiguredKey = preconfiguredKey_;
+        saveNetworkState(runtimeDirectory_ + "/network.json", network, &ignored);
     }
 }
 

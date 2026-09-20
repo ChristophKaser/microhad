@@ -10,6 +10,49 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+NetworkState::NetworkState() : formed(false), panId(0), channel(0) {
+}
+
+namespace {
+std::string hexEncode(const std::vector<unsigned char>& input) {
+    const char* digits = "0123456789abcdef";
+    std::string output;
+    unsigned long i;
+    for (i = 0; i < input.size(); ++i) {
+        output += digits[input[i] >> 4];
+        output += digits[input[i] & 0x0f];
+    }
+    return output;
+}
+
+bool hexDecode(const std::string& input, std::vector<unsigned char>* output) {
+    unsigned long i;
+    if ((input.size() & 1) != 0) return false;
+    output->clear();
+    for (i = 0; i < input.size(); i += 2) {
+        int high = input[i] >= '0' && input[i] <= '9' ? input[i] - '0' :
+                   input[i] >= 'a' && input[i] <= 'f' ? input[i] - 'a' + 10 : -1;
+        int low = input[i + 1] >= '0' && input[i + 1] <= '9' ? input[i + 1] - '0' :
+                  input[i + 1] >= 'a' && input[i + 1] <= 'f' ? input[i + 1] - 'a' + 10 : -1;
+        if (high < 0 || low < 0) return false;
+        output->push_back(static_cast<unsigned char>((high << 4) | low));
+    }
+    return true;
+}
+
+bool stringField(const std::string& input, const char* name, std::string* value) {
+    std::string marker = std::string("\"") + name + "\":\"";
+    std::string::size_type start = input.find(marker);
+    std::string::size_type end;
+    if (start == std::string::npos) return false;
+    start += marker.size();
+    end = input.find('"', start);
+    if (end == std::string::npos) return false;
+    *value = input.substr(start, end - start);
+    return true;
+}
+}
+
 std::string jsonEscape(const std::string& value) {
     std::string result;
     std::string::const_iterator it;
@@ -119,5 +162,47 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
             devices->push_back(device);
         }
     }
+    return true;
+}
+
+bool saveNetworkState(const std::string& filename, const NetworkState& network, std::string* error) {
+    std::string temporary = filename + ".tmp";
+    std::ofstream output(temporary.c_str());
+    if (!network.formed || network.extendedPan.size() != 8 || network.networkKey.size() != 16 ||
+        network.preconfiguredKey.size() != 16) { *error = "invalid network state"; return false; }
+    if (!output) { *error = "cannot open network state for writing"; return false; }
+    output << "{\"version\":1,\"formed\":true,\"pan_id\":" << network.panId << "\",\"channel\":"
+           << static_cast<unsigned int>(network.channel) << "\",\"extended_pan\":\""
+           << hexEncode(network.extendedPan) << "\",\"network_key\":\"" << hexEncode(network.networkKey)
+           << "\",\"preconfigured_key\":\"" << hexEncode(network.preconfiguredKey) << "\"}\n";
+    output.close();
+    if (!output || chmod(temporary.c_str(), 0600) != 0 || rename(temporary.c_str(), filename.c_str()) != 0) {
+        unlink(temporary.c_str()); *error = "cannot atomically save network state"; return false;
+    }
+    return true;
+}
+
+bool loadNetworkState(const std::string& filename, NetworkState* network, std::string* error) {
+    std::ifstream input(filename.c_str());
+    std::string content;
+    std::string extendedPan, networkKey, preconfiguredKey;
+    std::string::size_type panAt, channelAt;
+    if (!input) return true;
+    content.assign((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+    if (content.find("\"formed\":true") == std::string::npos || !stringField(content, "extended_pan", &extendedPan) ||
+        !stringField(content, "network_key", &networkKey) || !stringField(content, "preconfigured_key", &preconfiguredKey) ||
+        !hexDecode(extendedPan, &network->extendedPan) || !hexDecode(networkKey, &network->networkKey) ||
+        !hexDecode(preconfiguredKey, &network->preconfiguredKey) || network->extendedPan.size() != 8 ||
+        network->networkKey.size() != 16 || network->preconfiguredKey.size() != 16) {
+        *error = "invalid network state"; return false;
+    }
+    panAt = content.find("\"pan_id\":"); channelAt = content.find("\"channel\":");
+    if (panAt == std::string::npos || channelAt == std::string::npos) { *error = "invalid network state"; return false; }
+    network->panId = static_cast<unsigned short>(strtoul(content.c_str() + panAt + 9, 0, 10));
+    network->channel = static_cast<unsigned char>(strtoul(content.c_str() + channelAt + 10, 0, 10));
+    if (network->channel < 11 || network->channel > 26 || network->panId == 0 || network->panId == 0xffff) {
+        *error = "invalid network state"; return false;
+    }
+    network->formed = true;
     return true;
 }

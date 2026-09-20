@@ -74,6 +74,24 @@ static void testDevicePersistence() {
     rmdir(directory.c_str());
 }
 
+static void testNetworkPersistence() {
+    std::ostringstream path;
+    std::string error;
+    NetworkState input;
+    NetworkState loaded;
+    path << "/tmp/microhad-zigbee-network-test-" << static_cast<long>(getpid());
+    std::string directory = path.str();
+    std::string filename = directory + "/network.json";
+    assert(ensureDirectory(directory, &error));
+    input.formed = true; input.panId = 0x1a62; input.channel = 15;
+    input.extendedPan.assign(8, 0x12); input.networkKey.assign(16, 0x34); input.preconfiguredKey.assign(16, 0x56);
+    assert(saveNetworkState(filename, input, &error));
+    assert(loadNetworkState(filename, &loaded, &error));
+    assert(loaded.formed && loaded.panId == input.panId && loaded.channel == input.channel);
+    assert(loaded.extendedPan == input.extendedPan && loaded.networkKey == input.networkKey);
+    unlink(filename.c_str()); rmdir(directory.c_str());
+}
+
 static void testGenericCapabilities() {
     Device device;
     std::vector<unsigned char> temperature;
@@ -109,6 +127,7 @@ int main() {
     testAshRoundTrip();
     testAshRejectsBadCrc();
     testDevicePersistence();
+    testNetworkPersistence();
     testGenericCapabilities();
     testFcmMessageConstruction();
     printf("unit tests passed\n");
