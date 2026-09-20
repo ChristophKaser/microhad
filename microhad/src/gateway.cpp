@@ -599,7 +599,6 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
     }
     if (command == 0 && ezspVersionNegotiated_) {
         online_ = true;
-        if (!stackTokenWritingRequested_) enableStackTokenWriting();
     }
     if (networkForming_) {
         unsigned int status = frame.size() > payloadOffset ? frame[payloadOffset] : 0xff;
@@ -711,6 +710,7 @@ void Gateway::continueNetworkFormation(unsigned short completedCommand) {
         network.preconfiguredKey = preconfiguredKey_;
         saveNetworkState(runtimeDirectory_ + "/network.json", network, &ignored);
         addLog("Fresh Zigbee network formed");
+        if (!stackTokenWritingRequested_) enableStackTokenWriting();
     }
 }
 
