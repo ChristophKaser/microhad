@@ -50,9 +50,9 @@ any native daemon; taking ownership of `/dev/ttyS1` is an explicit later step.
 The web API is deliberately LAN-only in v1. With `tls_certificate` and
 `tls_private_key` set, `https_port` is served directly over TLS and the
 dashboard can register its service worker for Browser Push. Without both
-paths the compatibility `http_port` listener remains plain HTTP, but Browser
+paths the `http_port` listener remains plain HTTP, but Browser
 Push subscription is unavailable in browsers because service workers require
-a secure context. The daemon opens `/dev/ttyS1` directly; do not run
+a secure context. The defaults are HTTP port 80 and HTTPS port 443. The daemon opens `/dev/ttyS1` directly; do not run
 `serialgateway` at the same time.
 
 ## Current protocol boundary

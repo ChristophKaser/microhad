@@ -57,6 +57,7 @@ int main(int argc, char** argv) {
     std::string runtimeDirectory;
     int serialBaud;
     int httpPort;
+    int httpsPort;
     Gateway* gateway;
     HttpServer* server;
 
@@ -72,7 +73,8 @@ int main(int argc, char** argv) {
     serialDevice = jsonString(config, "serial_device", "/dev/ttyS1");
     serialBaud = jsonInt(config, "serial_baud", 115200);
     runtimeDirectory = jsonString(config, "runtime_dir", "/tuya/native");
-    httpPort = jsonInt(config, "https_port", jsonInt(config, "http_port", 8080));
+    httpPort = jsonInt(config, "http_port", 80);
+    httpsPort = jsonInt(config, "https_port", 443);
     gateway = new Gateway(serialDevice, serialBaud, runtimeDirectory,
                           jsonString(config, "firebase_service_account", ""),
                           jsonString(config, "firebase_topic", "zigbee_alerts"),
@@ -82,23 +84,44 @@ int main(int argc, char** argv) {
         delete gateway;
         return 1;
     }
-    server = new HttpServer(httpPort, gateway, jsonString(config, "tls_certificate", ""),
-                            jsonString(config, "tls_private_key", ""));
+    server = new HttpServer(httpPort, gateway, "", "");
     if (!server->start(&error)) {
         fprintf(stderr, "web startup failed: %s\n", error.c_str());
         delete server;
         delete gateway;
         return 1;
     }
+    HttpServer* httpsServer = 0;
+    std::string certificatePath = jsonString(config, "tls_certificate", "");
+    std::string privateKeyPath = jsonString(config, "tls_private_key", "");
+    if (!certificatePath.empty() || !privateKeyPath.empty()) {
+        if (certificatePath.empty() || privateKeyPath.empty()) {
+            fprintf(stderr, "both tls_certificate and tls_private_key are required for HTTPS\n");
+            delete server;
+            delete gateway;
+            return 2;
+        }
+        httpsServer = new HttpServer(httpsPort, gateway, certificatePath, privateKeyPath);
+        if (!httpsServer->start(&error)) {
+            fprintf(stderr, "HTTPS startup failed: %s\n", error.c_str());
+            delete httpsServer;
+            delete server;
+            delete gateway;
+            return 1;
+        }
+    }
     signal(SIGINT, stopHandler);
     signal(SIGTERM, stopHandler);
-    fprintf(stderr, "microhad-zigbee-native: serial=%s http=%d\n", serialDevice.c_str(), httpPort);
+    fprintf(stderr, "microhad-zigbee-native: serial=%s http=%d https=%d\n", serialDevice.c_str(), httpPort,
+            httpsServer == 0 ? 0 : httpsPort);
     while (running) {
         gateway->poll();
         server->poll();
+        if (httpsServer != 0) httpsServer->poll();
         usleep(20000);
     }
     delete server;
+    delete httpsServer;
     delete gateway;
     return 0;
 }
