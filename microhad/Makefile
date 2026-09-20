@@ -14,12 +14,12 @@ WARNINGS := -Wall -Wextra -Werror -pedantic
 HOST_CXXFLAGS := -std=gnu++03 $(WARNINGS) -Iinclude -O2
 TARGET_CXXFLAGS := $(WARNINGS) -Iinclude -O2 -DMICROHAD_MIPS_TARGET=1
 LDFLAGS :=
-SOURCES := src/main.cpp src/ash.cpp src/storage.cpp src/http_server.cpp src/gateway.cpp src/zcl.cpp src/fcm.cpp
+SOURCES := src/main.cpp src/ash.cpp src/storage.cpp src/http_server.cpp src/gateway.cpp src/zcl.cpp src/fcm.cpp src/https_client.cpp
 HOST_BUILD := build/host
 MIPS_BUILD := build/mips
 HOST_BIN := $(HOST_BUILD)/microhad-zigbee-native
 MIPS_BIN := $(MIPS_BUILD)/microhad-zigbee-native
-MIPS_C_OBJECTS := $(MIPS_BUILD)/fcm_signer.o
+MIPS_C_OBJECTS := $(MIPS_BUILD)/fcm_signer.o $(MIPS_BUILD)/https_client.o
 MBEDTLS_DIR := third_party/mbedtls
 MBEDTLS_LIBS := $(MBEDTLS_DIR)/library/libmbedtls.a $(MBEDTLS_DIR)/library/libmbedx509.a $(MBEDTLS_DIR)/library/libmbedcrypto.a
 TEST_BIN := $(HOST_BUILD)/unit_tests
@@ -40,7 +40,11 @@ mbedtls-mips:
 	$(MAKE) -C $(MBEDTLS_DIR)/library clean
 	$(MAKE) -C $(MBEDTLS_DIR)/library CC=$(TARGET_CC) AR=$(TARGET_AR) CFLAGS='-O2 -std=gnu99'
 
-$(MIPS_C_OBJECTS): src/fcm_signer.c $(MBEDTLS_LIBS)
+$(MIPS_BUILD)/fcm_signer.o: src/fcm_signer.c $(MBEDTLS_LIBS)
+	@mkdir -p $(MIPS_BUILD)
+	$(TARGET_CC) -std=gnu99 $(WARNINGS) -I$(MBEDTLS_DIR)/include -c $< -o $@
+
+$(MIPS_BUILD)/https_client.o: src/https_client.c $(MBEDTLS_LIBS)
 	@mkdir -p $(MIPS_BUILD)
 	$(TARGET_CC) -std=gnu99 $(WARNINGS) -I$(MBEDTLS_DIR)/include -c $< -o $@
 
