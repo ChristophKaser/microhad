@@ -12,6 +12,7 @@
 #include <sstream>
 #include <sys/socket.h>
 #include <sys/time.h>
+#include <ctime>
 #include <unistd.h>
 
 #ifdef MICROHAD_MIPS_TARGET
@@ -24,6 +25,18 @@ namespace {
 #ifdef MICROHAD_MIPS_TARGET
 void* activeTlsSession = 0;
 #endif
+std::string* queuedResponse = 0;
+
+bool requestComplete(const std::string& request) {
+    std::string::size_type headers = request.find("\r\n\r\n");
+    std::string::size_type contentLength;
+    unsigned long expected = 0;
+    if (headers == std::string::npos) return false;
+    contentLength = request.find("Content-Length:");
+    if (contentLength == std::string::npos) contentLength = request.find("content-length:");
+    if (contentLength != std::string::npos) expected = strtoul(request.c_str() + contentLength + 15, 0, 10);
+    return request.size() >= headers + 4 + expected;
+}
 
 void writeResponse(int fd, int status, const char* contentType, const std::string& body) {
     std::ostringstream response;
@@ -33,6 +46,10 @@ void writeResponse(int fd, int status, const char* contentType, const std::strin
     std::string wire = response.str();
     const char* cursor = wire.data();
     unsigned long remaining = wire.size();
+    if (queuedResponse != 0) {
+        *queuedResponse = wire;
+        return;
+    }
 #ifdef MICROHAD_MIPS_TARGET
     if (activeTlsSession != 0) {
         microhad_tls_write_close(activeTlsSession, wire.data(), wire.size());
@@ -92,18 +109,70 @@ bool HttpServer::start(std::string* error) {
 }
 
 void HttpServer::poll() {
-    int clientFd = accept(listenFd_, 0, 0);
-    if (clientFd >= 0) {
+    if (certificatePath_.empty() && privateKeyPath_.empty()) {
+        acceptClients();
+        pollClients();
+    } else {
+        int clientFd = accept(listenFd_, 0, 0);
+        if (clientFd < 0) return;
         /* The gateway deliberately has a tiny, single-threaded event loop.
            Do not allow a browser pre-connect or incomplete TLS handshake to
            suspend the radio and every other HTTP client indefinitely. */
         struct timeval timeout;
-        timeout.tv_sec = 1;
-        timeout.tv_usec = 0;
+        timeout.tv_sec = 0;
+        timeout.tv_usec = 200000;
         setsockopt(clientFd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
         setsockopt(clientFd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
         handleClient(clientFd);
         close(clientFd);
+    }
+}
+
+void HttpServer::acceptClients() {
+    int clientFd;
+    unsigned int accepted = 0;
+    while (accepted < 4 && (clientFd = accept(listenFd_, 0, 0)) >= 0) {
+        Client client;
+        ++accepted;
+        if (clients_.size() >= 16) { close(clientFd); continue; }
+        fcntl(clientFd, F_SETFL, O_NONBLOCK);
+        client.fd = clientFd;
+        client.responseOffset = 0;
+        client.deadline = time(0) + 5;
+        clients_.push_back(client);
+    }
+}
+
+void HttpServer::pollClients() {
+    std::vector<Client>::iterator client = clients_.begin();
+    char buffer[2048];
+    while (client != clients_.end()) {
+        bool closeClient = false;
+        ssize_t count;
+        if (client->response.empty()) {
+            while ((count = read(client->fd, buffer, sizeof(buffer))) > 0) {
+                client->request.append(buffer, static_cast<unsigned long>(count));
+                if (client->request.size() > 8192) { closeClient = true; break; }
+            }
+            if (count == 0 || (count < 0 && errno != EAGAIN && errno != EWOULDBLOCK)) closeClient = true;
+            if (!closeClient && requestComplete(client->request)) {
+                queuedResponse = &client->response;
+                handleRequest(client->fd, client->request);
+                queuedResponse = 0;
+            }
+        }
+        if (!closeClient && !client->response.empty()) {
+            count = write(client->fd, client->response.data() + client->responseOffset,
+                          client->response.size() - client->responseOffset);
+            if (count > 0) client->responseOffset += static_cast<unsigned long>(count);
+            else if (count < 0 && errno != EAGAIN && errno != EWOULDBLOCK) closeClient = true;
+            if (client->responseOffset >= client->response.size()) closeClient = true;
+        }
+        if (time(0) >= client->deadline) closeClient = true;
+        if (closeClient) {
+            close(client->fd);
+            client = clients_.erase(client);
+        } else ++client;
     }
 }
 
@@ -126,6 +195,10 @@ void HttpServer::handleClient(int clientFd) {
     if (count <= 0) return;
     buffer[count] = 0;
     request.assign(buffer);
+    handleRequest(clientFd, request);
+}
+
+void HttpServer::handleRequest(int clientFd, const std::string& request) {
     if (request.find("GET /api/status ") == 0) {
         writeResponse(clientFd, 200, "application/json", gateway_->statusJson());
     } else if (request.find("GET /api/logs ") == 0) {
