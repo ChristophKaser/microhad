@@ -72,7 +72,7 @@ int main(int argc, char** argv) {
     serialDevice = jsonString(config, "serial_device", "/dev/ttyS1");
     serialBaud = jsonInt(config, "serial_baud", 115200);
     runtimeDirectory = jsonString(config, "runtime_dir", "/tuya/native");
-    httpPort = jsonInt(config, "http_port", 8080);
+    httpPort = jsonInt(config, "https_port", jsonInt(config, "http_port", 8080));
     gateway = new Gateway(serialDevice, serialBaud, runtimeDirectory,
                           jsonString(config, "firebase_service_account", ""),
                           jsonString(config, "firebase_topic", "zigbee_alerts"),
@@ -82,7 +82,8 @@ int main(int argc, char** argv) {
         delete gateway;
         return 1;
     }
-    server = new HttpServer(httpPort, gateway);
+    server = new HttpServer(httpPort, gateway, jsonString(config, "tls_certificate", ""),
+                            jsonString(config, "tls_private_key", ""));
     if (!server->start(&error)) {
         fprintf(stderr, "web startup failed: %s\n", error.c_str());
         delete server;

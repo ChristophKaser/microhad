@@ -99,6 +99,9 @@ static void testFcmMessageConstruction() {
     assert(account.privateKeyPem == "-----BEGIN\nKEY-----\n");
     assert(base64UrlEncode("foo") == "Zm9v");
     assert(base64UrlEncode("f") == "Zg");
+    std::string decoded;
+    assert(base64UrlDecode("Zm9v", &decoded) && decoded == "foo");
+    assert(base64UrlDecode("Zg", &decoded) && decoded == "f");
     assert(makeFcmMessage("zigbee_alerts", "Window open", "Kitchen").find("\"topic\":\"zigbee_alerts\"") != std::string::npos);
 }
 

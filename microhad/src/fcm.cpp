@@ -63,6 +63,26 @@ std::string base64UrlEncode(const std::string& data) {
     return output;
 }
 
+bool base64UrlDecode(const std::string& value, std::string* decoded) {
+    unsigned int bits = 0;
+    int available = 0;
+    unsigned long i;
+    decoded->clear();
+    for (i = 0; i < value.size(); ++i) {
+        unsigned char c = value[i];
+        int digit = c >= 'A' && c <= 'Z' ? c - 'A' : c >= 'a' && c <= 'z' ? c - 'a' + 26 :
+                    c >= '0' && c <= '9' ? c - '0' + 52 : c == '-' ? 62 : c == '_' ? 63 : -1;
+        if (digit < 0) return false;
+        bits = (bits << 6) | static_cast<unsigned int>(digit);
+        available += 6;
+        if (available >= 8) {
+            available -= 8;
+            decoded->push_back(static_cast<char>((bits >> available) & 0xff));
+        }
+    }
+    return available == 0 || available == 2 || available == 4;
+}
+
 std::string makeFcmMessage(const std::string& topic, const std::string& title, const std::string& body) {
     return std::string("{\"message\":{\"topic\":\"") + jsonEscape(topic) + "\",\"notification\":{\"title\":\"" +
            jsonEscape(title) + "\",\"body\":\"" + jsonEscape(body) + "\"},\"android\":{\"priority\":\"high\"}}}";

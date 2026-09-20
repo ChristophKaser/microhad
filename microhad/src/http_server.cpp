@@ -12,7 +12,17 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#ifdef MICROHAD_MIPS_TARGET
+extern "C" int microhad_tls_read_request(int fd, const char* certificatePath, const char* privateKeyPath,
+                                      char* request, unsigned long capacity, void** session);
+extern "C" int microhad_tls_write_close(void* session, const char* response, unsigned long length);
+#endif
+
 namespace {
+#ifdef MICROHAD_MIPS_TARGET
+void* activeTlsSession = 0;
+#endif
+
 void writeResponse(int fd, int status, const char* contentType, const std::string& body) {
     std::ostringstream response;
     response << "HTTP/1.1 " << status << (status == 200 ? " OK" : " Bad Request") << "\r\n"
@@ -21,6 +31,13 @@ void writeResponse(int fd, int status, const char* contentType, const std::strin
     std::string wire = response.str();
     const char* cursor = wire.data();
     unsigned long remaining = wire.size();
+#ifdef MICROHAD_MIPS_TARGET
+    if (activeTlsSession != 0) {
+        microhad_tls_write_close(activeTlsSession, wire.data(), wire.size());
+        activeTlsSession = 0;
+        return;
+    }
+#endif
     while (remaining != 0) {
         ssize_t written = write(fd, cursor, remaining);
         if (written <= 0) break;
@@ -45,8 +62,9 @@ std::string decodeComponent(const std::string& value) {
 }
 }
 
-HttpServer::HttpServer(int port, Gateway* gateway) : port_(port), listenFd_(-1), gateway_(gateway),
-    webPush_(new WebPushStore(gateway->runtimeDirectory())) {
+HttpServer::HttpServer(int port, Gateway* gateway, const std::string& certificatePath, const std::string& privateKeyPath) :
+    port_(port), listenFd_(-1), gateway_(gateway), webPush_(new WebPushStore(gateway->runtimeDirectory())),
+    certificatePath_(certificatePath), privateKeyPath_(privateKeyPath) {
 }
 
 HttpServer::~HttpServer() {
@@ -81,8 +99,20 @@ void HttpServer::poll() {
 
 void HttpServer::handleClient(int clientFd) {
     char buffer[2048];
-    ssize_t count = read(clientFd, buffer, sizeof(buffer) - 1);
+    ssize_t count;
     std::string request;
+#ifdef MICROHAD_MIPS_TARGET
+    if (!certificatePath_.empty() || !privateKeyPath_.empty()) {
+        if (certificatePath_.empty() || privateKeyPath_.empty()) return;
+        if (microhad_tls_read_request(clientFd, certificatePath_.c_str(), privateKeyPath_.c_str(), buffer,
+                                  sizeof(buffer) - 1, &activeTlsSession) != 0) return;
+        count = static_cast<ssize_t>(strlen(buffer));
+    } else {
+        count = read(clientFd, buffer, sizeof(buffer) - 1);
+    }
+#else
+    count = read(clientFd, buffer, sizeof(buffer) - 1);
+#endif
     if (count <= 0) return;
     buffer[count] = 0;
     request.assign(buffer);
@@ -100,6 +130,9 @@ void HttpServer::handleClient(int clientFd) {
         if (bodyAt != std::string::npos && webPush_->addSubscription(request.substr(bodyAt + 4), &error))
             writeResponse(clientFd, 200, "application/json", "{\"ok\":true}");
         else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + error + "\"}");
+    } else if (request.find("GET /sw.js ") == 0) {
+        const char* worker = "self.addEventListener('push',function(e){var d={title:'MicroHAD',body:''};if(e.data){d=e.data.json()}e.waitUntil(self.registration.showNotification(d.title,{body:d.body}))});";
+        writeResponse(clientFd, 200, "application/javascript", worker);
     } else if (request.find("POST /api/network/create ") == 0) {
         std::string error;
         if (gateway_->createFreshNetwork(&error)) writeResponse(clientFd, 200, "application/json", "{\"ok\":true,\"state\":\"forming\"}");
@@ -130,7 +163,7 @@ void HttpServer::handleClient(int clientFd) {
             else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + error + "\"}");
         }
     } else if (request.find("GET / ") == 0) {
-        const char* page = "<!doctype html><meta name=viewport content='width=device-width,initial-scale=1'><title>MicroHAD</title><style>body{font:16px sans-serif;max-width:48rem;margin:auto;padding:1rem}button{padding:.7rem;margin:.2rem}.device{border-bottom:1px solid #ddd;padding:.6rem}</style><h1>MicroHAD</h1><p><button onclick=\"post('/api/network/create')\">Create fresh network</button><button onclick=\"post('/api/join')\">Allow joining (5 min)</button></p><p id=state>Loading…</p><div id=devices></div><script>function post(u,b){fetch(u,{method:'POST',body:b||''}).then(update)}function rename(a,n){var v=prompt('Device name',n);if(v)post('/api/devices/'+encodeURIComponent(a)+'/name',v)}function update(){fetch('/api/status').then(function(r){return r.json()}).then(function(v){document.getElementById('state').textContent='Coordinator: '+(v.online?'online':'offline')+' | Network: '+(v.network_formed?'formed':v.network_forming?'forming':'not formed');document.getElementById('devices').innerHTML=v.devices.map(function(d){return '<div class=device><b>'+d.name+'</b> <button onclick=\"rename(\\\''+d.ieee_address+'\\\',\\\''+d.name.replace(/'/g,'')+'\\\')\">Rename</button><br>'+d.ieee_address+' · '+d.kind+(d.kind==='contact'?' · '+(d.contact_open?'OPEN':'closed'):'')+(d.kind==='temperature'?' · '+d.temperature_celsius+' °C':'')+'</div>'}).join('')})}update();setInterval(update,2000)</script>";
+        const char* page = "<!doctype html><meta name=viewport content='width=device-width,initial-scale=1'><title>MicroHAD</title><style>body{font:16px sans-serif;max-width:48rem;margin:auto;padding:1rem}button{padding:.7rem;margin:.2rem}.device{border-bottom:1px solid #ddd;padding:.6rem}</style><h1>MicroHAD</h1><p><button onclick=\"post('/api/network/create')\">Create fresh network</button><button onclick=\"post('/api/join')\">Allow joining (5 min)</button><button onclick=\"enablePush()\">Enable browser alerts</button></p><p id=state>Loading…</p><div id=devices></div><script>function post(u,b){return fetch(u,{method:'POST',body:b||''}).then(update)}function b64(s){s+=(s.length%4?'='.repeat(4-s.length%4):'');return Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')),function(c){return c.charCodeAt(0)})}function enablePush(){if(!('serviceWorker'in navigator)||!('PushManager'in window)){alert('Push is unavailable in this browser');return}navigator.serviceWorker.register('/sw.js').then(function(r){return fetch('/api/push/vapid-key').then(function(x){return x.json()}).then(function(k){return r.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:b64(k.public_key)})})}).then(function(s){return fetch('/api/push/subscriptions',{method:'POST',body:JSON.stringify(s)})}).then(function(){alert('Browser alerts enabled')}).catch(function(e){alert('Could not enable alerts: '+e)})}function rename(a,n){var v=prompt('Device name',n);if(v)post('/api/devices/'+encodeURIComponent(a)+'/name',v)}function update(){fetch('/api/status').then(function(r){return r.json()}).then(function(v){document.getElementById('state').textContent='Coordinator: '+(v.online?'online':'offline')+' | Network: '+(v.network_formed?'formed':v.network_forming?'forming':'not formed');document.getElementById('devices').innerHTML=v.devices.map(function(d){return '<div class=device><b>'+d.name+'</b> <button onclick=\"rename(\\\''+d.ieee_address+'\\\',\\\''+d.name.replace(/'/g,'')+'\\\')\">Rename</button><br>'+d.ieee_address+' · '+d.kind+(d.kind==='contact'?' · '+(d.contact_open?'OPEN':'closed'):'')+(d.kind==='temperature'?' · '+d.temperature_celsius+' °C':'')+'</div>'}).join('')})}update();setInterval(update,2000)</script>";
         writeResponse(clientFd, 200, "text/html; charset=utf-8", page);
     } else {
         writeResponse(clientFd, 400, "application/json", "{\"error\":\"unknown endpoint\"}");

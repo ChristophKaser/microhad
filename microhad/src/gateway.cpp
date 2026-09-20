@@ -2,6 +2,7 @@
 #include "storage.h"
 #include "zcl.h"
 #include "fcm.h"
+#include "web_push.h"
 
 #include <cerrno>
 #include <cstdio>
@@ -247,6 +248,11 @@ void Gateway::emitNotification(const std::string& title, const std::string& body
     if (!firebaseServiceAccount_.empty() && !firebaseTopic_.empty() && !caBundle_.empty()) {
         std::string ignored;
         sendFcmNotification(firebaseServiceAccount_, caBundle_, firebaseTopic_, title, body, &ignored);
+    }
+    if (!caBundle_.empty()) {
+        std::string ignored;
+        WebPushStore browserPush(runtimeDirectory_);
+        browserPush.send(caBundle_, title, body, &ignored);
     }
 }
 

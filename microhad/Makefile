@@ -19,7 +19,7 @@ HOST_BUILD := build/host
 MIPS_BUILD := build/mips
 HOST_BIN := $(HOST_BUILD)/microhad-zigbee-native
 MIPS_BIN := $(MIPS_BUILD)/microhad-zigbee-native
-MIPS_C_OBJECTS := $(MIPS_BUILD)/fcm_signer.o $(MIPS_BUILD)/https_client.o $(MIPS_BUILD)/vapid_key.o
+MIPS_C_OBJECTS := $(MIPS_BUILD)/fcm_signer.o $(MIPS_BUILD)/https_client.o $(MIPS_BUILD)/vapid_key.o $(MIPS_BUILD)/web_push_crypto.o $(MIPS_BUILD)/tls_server.o
 MBEDTLS_DIR := third_party/mbedtls
 MBEDTLS_LIBS := $(MBEDTLS_DIR)/library/libmbedtls.a $(MBEDTLS_DIR)/library/libmbedx509.a $(MBEDTLS_DIR)/library/libmbedcrypto.a
 TEST_BIN := $(HOST_BUILD)/unit_tests
@@ -52,6 +52,14 @@ $(MIPS_BUILD)/vapid_key.o: src/vapid_key.c $(MBEDTLS_LIBS)
 	@mkdir -p $(MIPS_BUILD)
 	$(TARGET_CC) -std=gnu99 $(WARNINGS) -I$(MBEDTLS_DIR)/include -c $< -o $@
 
+$(MIPS_BUILD)/web_push_crypto.o: src/web_push_crypto.c $(MBEDTLS_LIBS)
+	@mkdir -p $(MIPS_BUILD)
+	$(TARGET_CC) -std=gnu99 $(WARNINGS) -I$(MBEDTLS_DIR)/include -c $< -o $@
+
+$(MIPS_BUILD)/tls_server.o: src/tls_server.c $(MBEDTLS_LIBS)
+	@mkdir -p $(MIPS_BUILD)
+	$(TARGET_CC) -std=gnu99 $(WARNINGS) -I$(MBEDTLS_DIR)/include -c $< -o $@
+
 $(MIPS_BIN): $(SOURCES) $(wildcard include/*.h) $(MBEDTLS_LIBS) $(MIPS_C_OBJECTS)
 	@test -x $(TARGET_CXX) || (echo "RSDK compiler not found: $(TARGET_CXX)"; exit 1)
 	@mkdir -p $(MIPS_BUILD)
@@ -62,9 +70,9 @@ verify-target: $(MIPS_BIN)
 	$(TARGET_READELF) -h $(MIPS_BIN) | grep -q 'Data:.*big endian'
 	$(TARGET_READELF) -h $(MIPS_BIN) | grep -q 'Machine:.*MIPS'
 
-$(TEST_BIN): test/unit_tests.cpp src/ash.cpp src/storage.cpp src/gateway.cpp src/zcl.cpp src/fcm.cpp src/https_client.cpp $(wildcard include/*.h)
+$(TEST_BIN): test/unit_tests.cpp src/ash.cpp src/storage.cpp src/gateway.cpp src/zcl.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp $(wildcard include/*.h)
 	@mkdir -p $(HOST_BUILD)
-	$(HOST_CXX) $(HOST_CXXFLAGS) test/unit_tests.cpp src/ash.cpp src/storage.cpp src/gateway.cpp src/zcl.cpp src/fcm.cpp src/https_client.cpp -o $@
+	$(HOST_CXX) $(HOST_CXXFLAGS) test/unit_tests.cpp src/ash.cpp src/storage.cpp src/gateway.cpp src/zcl.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp -o $@
 
 test: $(TEST_BIN)
 	$(TEST_BIN)

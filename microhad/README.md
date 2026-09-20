@@ -32,9 +32,13 @@ outside this repository.
 /tuya/tuya-zigbee-native --config /tuya/native/config.json
 ```
 
-The web API is deliberately LAN-only in v1. Browser Push is enabled only when
-HTTPS certificate and key paths are set. The daemon opens `/dev/ttyS1`
-directly; do not run `serialgateway` at the same time.
+The web API is deliberately LAN-only in v1. With `tls_certificate` and
+`tls_private_key` set, `https_port` is served directly over TLS and the
+dashboard can register its service worker for Browser Push. Without both
+paths the compatibility `http_port` listener remains plain HTTP, but Browser
+Push subscription is unavailable in browsers because service workers require
+a secure context. The daemon opens `/dev/ttyS1` directly; do not run
+`serialgateway` at the same time.
 
 ## Current protocol boundary
 

@@ -1,7 +1,7 @@
 {
   "serial_device": "/dev/ttyS1",
   "serial_baud": 115200,
-  "http_port": 8080,
+  "https_port": 8443,
   "runtime_dir": "/tuya/native",
   "tls_certificate": "/tuya/native/tls/cert.pem",
   "tls_private_key": "/tuya/native/tls/key.pem",

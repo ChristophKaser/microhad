@@ -22,3 +22,15 @@ bool httpsPost(const std::string& host, const std::string& path, const std::stri
     return false;
 #endif
 }
+
+bool httpsPostUrl(const std::string& url, const std::string& headers, const std::string& body,
+                  const std::string& caBundle, std::string* response, std::string* error) {
+    const std::string prefix = "https://";
+    std::string::size_type start;
+    std::string::size_type slash;
+    if (url.compare(0, prefix.size(), prefix) != 0) { *error = "Push endpoint must use HTTPS"; return false; }
+    start = prefix.size();
+    slash = url.find('/', start);
+    if (slash == std::string::npos) return httpsPost(url.substr(start), "/", headers, body, caBundle, response, error);
+    return httpsPost(url.substr(start, slash - start), url.substr(slash), headers, body, caBundle, response, error);
+}
