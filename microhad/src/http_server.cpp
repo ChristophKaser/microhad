@@ -198,7 +198,7 @@ void HttpServer::handleClient(int clientFd) {
         }
         markerAt = dashboard.find("</script>");
         if (markerAt != std::string::npos) {
-            dashboard.insert(markerAt, "function updateLogs(){fetch('/api/logs').then(function(r){return r.json()}).then(function(v){document.getElementById('logs').textContent=v.lines.join('\\n')})}updateLogs();setInterval(updateLogs,1000);");
+            dashboard.insert(markerAt, ";function updateLogs(){fetch('/api/logs').then(function(r){return r.json()}).then(function(v){document.getElementById('logs').textContent=v.lines.join('\\n')})}updateLogs();setInterval(updateLogs,1000);");
         }
         writeResponse(clientFd, 200, "text/html; charset=utf-8", dashboard);
     } else {
