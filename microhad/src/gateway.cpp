@@ -50,7 +50,7 @@ Gateway::Gateway(const std::string& serialDevice, int serialBaud, const std::str
                  const std::string& firebaseServiceAccount, const std::string& firebaseTopic, const std::string& caBundle) :
     serialDevice_(serialDevice), serialBaud_(serialBaud), runtimeDirectory_(runtimeDirectory),
     firebaseServiceAccount_(firebaseServiceAccount), firebaseTopic_(firebaseTopic), caBundle_(caBundle), serialFd_(-1),
-    online_(false), joinUntil_(0), ashSendSequence_(0), ashReceiveSequence_(0), ezspSequence_(0),
+    online_(false), joinUntil_(0), joinPermitRenewAt_(0), ashSendSequence_(0), ashReceiveSequence_(0), ezspSequence_(0),
     ezspVersion_(4), resetDeadline_(0), networkForming_(false), networkFormed_(false), networkPanId_(0),
     networkChannel_(0) {
 }
@@ -129,7 +129,16 @@ void Gateway::poll() {
     }
     if (!online_ && resetDeadline_ != 0 && time(0) >= resetDeadline_) sendAshReset();
     if (joinUntil_ != 0 && time(0) >= joinUntil_) {
+        sendJoinPermit(0);
         joinUntil_ = 0;
+        joinPermitRenewAt_ = 0;
+    } else if (joinUntil_ != 0 && time(0) >= joinPermitRenewAt_) {
+        long remaining = joinUntil_ - time(0);
+        unsigned int duration = remaining > 254 ? 254 : static_cast<unsigned int>(remaining);
+        if (duration != 0) {
+            sendJoinPermit(duration);
+            joinPermitRenewAt_ = time(0) + (duration > 240 ? 240 : duration);
+        }
     }
     std::map<std::string, long>::iterator alert;
     long now = time(0);
@@ -159,10 +168,16 @@ bool Gateway::setJoining(unsigned int seconds, std::string* error) {
         *error = "joining window must not exceed one hour";
         return false;
     }
-    std::vector<unsigned char> payload;
-    payload.push_back(static_cast<unsigned char>(seconds));
-    sendEzspCommand(0x0022, payload);
-    joinUntil_ = seconds == 0 ? 0 : time(0) + seconds;
+    if (seconds == 0) {
+        sendJoinPermit(0);
+        joinUntil_ = 0;
+        joinPermitRenewAt_ = 0;
+    } else {
+        unsigned int duration = seconds > 254 ? 254 : seconds;
+        sendJoinPermit(duration);
+        joinUntil_ = time(0) + seconds;
+        joinPermitRenewAt_ = time(0) + (duration > 240 ? 240 : duration);
+    }
     return true;
 }
 
@@ -372,6 +387,12 @@ void Gateway::sendEzspCommand(unsigned short command, const std::vector<unsigned
     ashSendSequence_ = static_cast<unsigned char>((ashSendSequence_ + 1) & 7);
     encoded = AshTransport::encodeData(control, randomize(ezsp));
     writeBytes(encoded);
+}
+
+void Gateway::sendJoinPermit(unsigned int duration) {
+    std::vector<unsigned char> payload;
+    payload.push_back(static_cast<unsigned char>(duration > 254 ? 254 : duration));
+    sendEzspCommand(0x0022, payload);
 }
 
 void Gateway::handleAshFrame(const std::vector<unsigned char>& frame) {

@@ -57,6 +57,7 @@ private:
     int serialFd_;
     bool online_;
     long joinUntil_;
+    long joinPermitRenewAt_;
     AshTransport ash_;
     unsigned char ashSendSequence_;
     unsigned char ashReceiveSequence_;
@@ -78,6 +79,7 @@ private:
     bool writeBytes(const std::vector<unsigned char>& bytes);
     void sendAshReset();
     void sendEzspCommand(unsigned short command, const std::vector<unsigned char>& payload);
+    void sendJoinPermit(unsigned int duration);
     void handleAshFrame(const std::vector<unsigned char>& frame);
     void handleEzspFrame(const std::vector<unsigned char>& frame);
     void registerNode(unsigned short nodeId, const unsigned char* eui64);
