@@ -424,7 +424,7 @@ void Gateway::sendApsUnicast(unsigned short destination, unsigned short profile,
     payload.push_back(static_cast<unsigned char>(cluster >> 8));
     payload.push_back(sourceEndpoint);
     payload.push_back(destinationEndpoint);
-    payload.push_back(0); payload.push_back(0); /* APS options */
+    payload.push_back(0x40); payload.push_back(0x01); /* retry and route discovery */
     payload.push_back(0); payload.push_back(0); /* group id */
     payload.push_back(apsSequence++);
     payload.push_back(0); /* message tag */
