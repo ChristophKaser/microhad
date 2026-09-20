@@ -1,5 +1,6 @@
 #include "http_server.h"
 #include "gateway.h"
+#include "web_push.h"
 
 #include <cerrno>
 #include <cstdlib>
@@ -44,11 +45,13 @@ std::string decodeComponent(const std::string& value) {
 }
 }
 
-HttpServer::HttpServer(int port, Gateway* gateway) : port_(port), listenFd_(-1), gateway_(gateway) {
+HttpServer::HttpServer(int port, Gateway* gateway) : port_(port), listenFd_(-1), gateway_(gateway),
+    webPush_(new WebPushStore(gateway->runtimeDirectory())) {
 }
 
 HttpServer::~HttpServer() {
     if (listenFd_ >= 0) close(listenFd_);
+    delete webPush_;
 }
 
 bool HttpServer::start(std::string* error) {
@@ -88,6 +91,14 @@ void HttpServer::handleClient(int clientFd) {
     } else if (request.find("POST /api/join ") == 0) {
         std::string error;
         if (gateway_->setJoining(300, &error)) writeResponse(clientFd, 200, "application/json", "{\"ok\":true,\"seconds\":300}");
+        else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + error + "\"}");
+    } else if (request.find("GET /api/push/vapid-key ") == 0) {
+        writeResponse(clientFd, 200, "application/json", "{\"public_key\":\"" + webPush_->publicKey() + "\"}");
+    } else if (request.find("POST /api/push/subscriptions ") == 0) {
+        std::string::size_type bodyAt = request.find("\r\n\r\n");
+        std::string error;
+        if (bodyAt != std::string::npos && webPush_->addSubscription(request.substr(bodyAt + 4), &error))
+            writeResponse(clientFd, 200, "application/json", "{\"ok\":true}");
         else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + error + "\"}");
     } else if (request.find("POST /api/network/create ") == 0) {
         std::string error;

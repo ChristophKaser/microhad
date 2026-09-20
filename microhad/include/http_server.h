@@ -4,6 +4,7 @@
 #include <string>
 
 class Gateway;
+class WebPushStore;
 
 class HttpServer {
 public:
@@ -16,6 +17,7 @@ private:
     int port_;
     int listenFd_;
     Gateway* gateway_;
+    WebPushStore* webPush_;
     void handleClient(int clientFd);
 };
 

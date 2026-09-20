@@ -134,6 +134,10 @@ bool Gateway::isOnline() const {
     return online_;
 }
 
+std::string Gateway::runtimeDirectory() const {
+    return runtimeDirectory_;
+}
+
 bool Gateway::setJoining(unsigned int seconds, std::string* error) {
     if (!online_) {
         *error = "Zigbee coordinator is offline";

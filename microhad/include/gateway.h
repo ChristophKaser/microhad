@@ -35,6 +35,7 @@ public:
     void stop();
     void poll();
     bool isOnline() const;
+    std::string runtimeDirectory() const;
     bool setJoining(unsigned int seconds, std::string* error);
     bool createFreshNetwork(std::string* error);
     bool renameDevice(const std::string& ieeeAddress, const std::string& name, std::string* error);
