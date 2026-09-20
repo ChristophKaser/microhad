@@ -634,6 +634,7 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
 bool Gateway::generateNetworkMaterial(std::string* error) {
     int randomFd = open("/dev/urandom", O_RDONLY);
     unsigned char material[42];
+    static const char joiningKey[] = "ZigBeeAlliance09";
     ssize_t count;
     if (randomFd < 0) { *error = "cannot read system random source"; return false; }
     count = read(randomFd, material, sizeof(material));
@@ -641,7 +642,9 @@ bool Gateway::generateNetworkMaterial(std::string* error) {
     if (count != static_cast<ssize_t>(sizeof(material))) { *error = "cannot generate network material"; return false; }
     networkExtendedPan_.assign(material, material + 8);
     networkKey_.assign(material + 8, material + 24);
-    preconfiguredKey_.assign(material + 24, material + 40);
+    /* Generic Zigbee 3.0 devices use this well-known install/joining key
+       before the trust center distributes the random network key. */
+    preconfiguredKey_.assign(joiningKey, joiningKey + sizeof(joiningKey) - 1);
     networkPanId_ = static_cast<unsigned short>(material[40]) | (static_cast<unsigned short>(material[41]) << 8);
     if (networkPanId_ == 0 || networkPanId_ == 0xffff) networkPanId_ = 0x1a62;
     networkChannel_ = static_cast<unsigned char>(11 + material[0] % 16);
