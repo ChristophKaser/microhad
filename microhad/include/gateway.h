@@ -64,6 +64,7 @@ private:
     unsigned char ashReceiveSequence_;
     unsigned char ezspSequence_;
     unsigned char ezspVersion_;
+    bool ezspVersionNegotiated_;
     long resetDeadline_;
     bool networkForming_;
     bool networkFormed_;

@@ -51,7 +51,7 @@ Gateway::Gateway(const std::string& serialDevice, int serialBaud, const std::str
     serialDevice_(serialDevice), serialBaud_(serialBaud), runtimeDirectory_(runtimeDirectory),
     firebaseServiceAccount_(firebaseServiceAccount), firebaseTopic_(firebaseTopic), caBundle_(caBundle), serialFd_(-1),
     online_(false), joinUntil_(0), joinPermitRenewAt_(0), ashSendSequence_(0), ashReceiveSequence_(0), ezspSequence_(0),
-    ezspVersion_(4), resetDeadline_(0), networkForming_(false), networkFormed_(false), networkPanId_(0),
+    ezspVersion_(4), ezspVersionNegotiated_(false), resetDeadline_(0), networkForming_(false), networkFormed_(false), networkPanId_(0),
     networkChannel_(0) {
 }
 
@@ -406,6 +406,8 @@ void Gateway::handleAshFrame(const std::vector<unsigned char>& frame) {
         ashSendSequence_ = 0;
         ashReceiveSequence_ = 0;
         resetDeadline_ = 0;
+        ezspVersion_ = 4;
+        ezspVersionNegotiated_ = false;
         std::vector<unsigned char> version;
         version.push_back(ezspVersion_);
         sendEzspCommand(0x0000, version);
@@ -427,7 +429,17 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
         if (frame.size() < 5) return;
         command = static_cast<unsigned short>(frame[3]) | (static_cast<unsigned short>(frame[4]) << 8);
         payloadOffset = 5;
-        if (command == 0 && frame.size() > payloadOffset) ezspVersion_ = frame[payloadOffset];
+        if (command == 0 && frame.size() > payloadOffset) {
+            unsigned char reportedVersion = frame[payloadOffset];
+            if (reportedVersion != ezspVersion_) {
+                std::vector<unsigned char> version;
+                ezspVersion_ = reportedVersion;
+                version.push_back(ezspVersion_);
+                sendEzspCommand(0x0000, version);
+                return;
+            }
+            ezspVersionNegotiated_ = true;
+        }
     } else {
         command = frame[2];
         payloadOffset = 3;
@@ -437,9 +449,25 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
             command = frame[4];
             payloadOffset = 5;
         }
-        if (command == 0 && frame.size() > payloadOffset) ezspVersion_ = frame[payloadOffset];
+        if (command == 0 && frame.size() > payloadOffset) {
+            unsigned char reportedVersion = frame[payloadOffset];
+            if (reportedVersion != ezspVersion_) {
+                std::vector<unsigned char> version;
+                ezspVersion_ = reportedVersion;
+                version.push_back(ezspVersion_);
+                sendEzspCommand(0x0000, version);
+                return;
+            }
+            ezspVersionNegotiated_ = true;
+        }
     }
-    if (command == 0) online_ = true;
+    if (command == 0 && ezspVersionNegotiated_) online_ = true;
+    if (networkForming_) {
+        unsigned int status = frame.size() > payloadOffset ? frame[payloadOffset] : 0xff;
+        fprintf(stderr, "EZSP formation response: version=%u command=0x%04x status=0x%02x bytes=%lu\n",
+                static_cast<unsigned int>(ezspVersion_), static_cast<unsigned int>(command), status,
+                static_cast<unsigned long>(frame.size()));
+    }
     if (networkForming_ && (command == 0x00b1 || command == 0x0068 || command == 0x001e)) {
         if (frame[payloadOffset] == 0) continueNetworkFormation(command);
         else networkForming_ = false;
