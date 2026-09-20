@@ -59,6 +59,8 @@ private:
     bool online_;
     long joinUntil_;
     long joinPermitRenewAt_;
+    unsigned int pendingJoinSeconds_;
+    unsigned char joinPreparationStep_;
     AshTransport ash_;
     unsigned char ashSendSequence_;
     unsigned char ashReceiveSequence_;
@@ -82,6 +84,7 @@ private:
     void sendAshReset();
     void sendEzspCommand(unsigned short command, const std::vector<unsigned char>& payload);
     void sendJoinPermit(unsigned int duration);
+    void beginJoinWindow(unsigned int seconds);
     void handleAshFrame(const std::vector<unsigned char>& frame);
     void handleEzspFrame(const std::vector<unsigned char>& frame);
     void registerNode(unsigned short nodeId, const unsigned char* eui64);

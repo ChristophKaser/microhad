@@ -50,7 +50,7 @@ Gateway::Gateway(const std::string& serialDevice, int serialBaud, const std::str
                  const std::string& firebaseServiceAccount, const std::string& firebaseTopic, const std::string& caBundle) :
     serialDevice_(serialDevice), serialBaud_(serialBaud), runtimeDirectory_(runtimeDirectory),
     firebaseServiceAccount_(firebaseServiceAccount), firebaseTopic_(firebaseTopic), caBundle_(caBundle), serialFd_(-1),
-    online_(false), joinUntil_(0), joinPermitRenewAt_(0), ashSendSequence_(0), ashReceiveSequence_(0), ezspSequence_(0),
+    online_(false), joinUntil_(0), joinPermitRenewAt_(0), pendingJoinSeconds_(0), joinPreparationStep_(0), ashSendSequence_(0), ashReceiveSequence_(0), ezspSequence_(0),
     ezspVersion_(4), ezspVersionNegotiated_(false), resetDeadline_(0), networkForming_(false), networkFormed_(false), networkPanId_(0),
     networkChannel_(0) {
 }
@@ -172,11 +172,19 @@ bool Gateway::setJoining(unsigned int seconds, std::string* error) {
         sendJoinPermit(0);
         joinUntil_ = 0;
         joinPermitRenewAt_ = 0;
+        pendingJoinSeconds_ = 0;
+        joinPreparationStep_ = 0;
+    } else if (ezspVersion_ >= 8) {
+        std::vector<unsigned char> payload;
+        static const char key[] = "ZigBeeAlliance09";
+        unsigned long i;
+        for (i = 0; i < 8; ++i) payload.push_back(0xff); /* wildcard EUI64 */
+        for (i = 0; i < sizeof(key) - 1; ++i) payload.push_back(static_cast<unsigned char>(key[i]));
+        pendingJoinSeconds_ = seconds;
+        joinPreparationStep_ = 1;
+        sendEzspCommand(0x00af, payload); /* addTransientLinkKey */
     } else {
-        unsigned int duration = seconds > 254 ? 254 : seconds;
-        sendJoinPermit(duration);
-        joinUntil_ = time(0) + seconds;
-        joinPermitRenewAt_ = time(0) + (duration > 240 ? 240 : duration);
+        beginJoinWindow(seconds);
     }
     return true;
 }
@@ -398,6 +406,15 @@ void Gateway::sendJoinPermit(unsigned int duration) {
     sendEzspCommand(0x0022, payload);
 }
 
+void Gateway::beginJoinWindow(unsigned int seconds) {
+    unsigned int duration = seconds > 254 ? 254 : seconds;
+    sendJoinPermit(duration);
+    joinUntil_ = time(0) + seconds;
+    joinPermitRenewAt_ = time(0) + (duration > 240 ? 240 : duration);
+    pendingJoinSeconds_ = 0;
+    joinPreparationStep_ = 0;
+}
+
 void Gateway::handleAshFrame(const std::vector<unsigned char>& frame) {
     unsigned char control;
     if (frame.empty()) return;
@@ -473,6 +490,34 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
         else networkForming_ = false;
     }
     if (frame.size() <= payloadOffset) return;
+    if (joinPreparationStep_ == 1 && command == 0x00af) {
+        if (frame[payloadOffset] == 0) {
+            std::vector<unsigned char> policy;
+            policy.push_back(0); /* TRUST_CENTER_POLICY */
+            policy.push_back(3); policy.push_back(0); /* allow joins and unsecured rejoins */
+            joinPreparationStep_ = 2;
+            sendEzspCommand(0x0055, policy);
+        } else {
+            fprintf(stderr, "cannot add Zigbee transient joining key: 0x%02x\n", frame[payloadOffset]);
+            joinPreparationStep_ = 0;
+            pendingJoinSeconds_ = 0;
+        }
+        return;
+    }
+    if (joinPreparationStep_ == 2 && command == 0x0055) {
+        if (frame[payloadOffset] == 0) beginJoinWindow(pendingJoinSeconds_);
+        else {
+            fprintf(stderr, "cannot set Zigbee join policy: 0x%02x\n", frame[payloadOffset]);
+            joinPreparationStep_ = 0;
+            pendingJoinSeconds_ = 0;
+        }
+        return;
+    }
+    if (command == 0x0022 && frame[payloadOffset] != 0) {
+        fprintf(stderr, "EZSP permit joining failed: 0x%02x\n", frame[payloadOffset]);
+        joinUntil_ = 0;
+        joinPermitRenewAt_ = 0;
+    }
     if (command == 0x24 && frame.size() >= payloadOffset + 10) {
         unsigned short nodeId = static_cast<unsigned short>(frame[payloadOffset]) |
                                (static_cast<unsigned short>(frame[payloadOffset + 1]) << 8);

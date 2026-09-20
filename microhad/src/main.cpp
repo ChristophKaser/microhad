@@ -112,6 +112,9 @@ int main(int argc, char** argv) {
     }
     signal(SIGINT, stopHandler);
     signal(SIGTERM, stopHandler);
+    /* A browser may close a keep-alive/TLS socket before a response write.
+       Treat that as a normal write failure instead of terminating the gateway. */
+    signal(SIGPIPE, SIG_IGN);
     fprintf(stderr, "microhad-zigbee-native: serial=%s http=%d https=%d\n", serialDevice.c_str(), httpPort,
             httpsServer == 0 ? 0 : httpsPort);
     while (running) {
