@@ -58,6 +58,10 @@ static void testDevicePersistence() {
     input.contactOpen = true;
     input.hasTemperature = true;
     input.temperatureCelsius = 19.75;
+    input.hasHumidity = true;
+    input.humidityPercent = 47.25;
+    input.hasOccupancy = true;
+    input.occupied = true;
     input.hasBattery = true;
     input.batteryPercent = 76;
     input.linkQuality = 91;
@@ -72,6 +76,8 @@ static void testDevicePersistence() {
     assert(loaded[0].name == input.name && loaded[0].kind == input.kind);
     assert(loaded[0].hasContact && loaded[0].contactOpen && loaded[0].hasTemperature);
     assert(loaded[0].temperatureCelsius == input.temperatureCelsius);
+    assert(loaded[0].hasHumidity && loaded[0].humidityPercent == input.humidityPercent);
+    assert(loaded[0].hasOccupancy && loaded[0].occupied);
     assert(loaded[0].hasBattery && loaded[0].batteryPercent == input.batteryPercent);
     assert(loaded[0].linkQuality == input.linkQuality && loaded[0].lastSeen == input.lastSeen);
     assert(loaded[0].iasZoneId == input.iasZoneId);
@@ -100,12 +106,20 @@ static void testNetworkPersistence() {
 static void testGenericCapabilities() {
     Device device;
     std::vector<unsigned char> temperature;
+    std::vector<unsigned char> humidity;
+    std::vector<unsigned char> occupancy;
     std::vector<unsigned char> zone;
     std::vector<unsigned char> battery;
     device.ieeeAddress = "0x00124b0000000002";
     temperature.push_back(0x1a); temperature.push_back(0x09); /* 23.30 C */
     assert(applyZclAttribute(&device, 0x0402, 0x0000, temperature, 123));
     assert(device.hasTemperature && device.temperatureCelsius == 23.3);
+    humidity.push_back(0xb8); humidity.push_back(0x13); /* 50.48 % */
+    assert(applyZclAttribute(&device, 0x0405, 0x0000, humidity, 123));
+    assert(device.hasHumidity && device.humidityPercent == 50.48);
+    occupancy.push_back(1);
+    assert(applyZclAttribute(&device, 0x0406, 0x0000, occupancy, 123));
+    assert(device.hasOccupancy && device.occupied);
     battery.push_back(170);
     assert(applyZclAttribute(&device, 0x0001, 0x0021, battery, 124));
     assert(device.hasBattery && device.batteryPercent == 85);

@@ -16,7 +16,8 @@
 #include <unistd.h>
 
 Device::Device() : networkAddress(0xffff), kind("generic"), contactOpen(false), hasContact(false), hasTemperature(false),
-                   temperatureCelsius(0), hasBattery(false), batteryPercent(0), linkQuality(0), lastSeen(0),
+                   temperatureCelsius(0), hasHumidity(false), humidityPercent(0), hasOccupancy(false), occupied(false),
+                   hasBattery(false), batteryPercent(0), linkQuality(0), lastSeen(0),
                    iasZoneId(-1), hasLowTemperatureAlert(false), hasHighTemperatureAlert(false), lowTemperatureAlert(0),
                    highTemperatureAlert(0) {
 }
@@ -322,6 +323,10 @@ std::string Gateway::statusJson() const {
              << ",\"contact_open\":" << (device.contactOpen ? "true" : "false")
              << ",\"has_temperature\":" << (device.hasTemperature ? "true" : "false")
              << ",\"temperature_celsius\":" << device.temperatureCelsius
+             << ",\"has_humidity\":" << (device.hasHumidity ? "true" : "false")
+             << ",\"humidity_percent\":" << device.humidityPercent
+             << ",\"has_occupancy\":" << (device.hasOccupancy ? "true" : "false")
+             << ",\"occupied\":" << (device.occupied ? "true" : "false")
              << ",\"has_battery\":" << (device.hasBattery ? "true" : "false")
              << ",\"battery_percent\":" << device.batteryPercent << ",\"link_quality\":" << device.linkQuality
              << ",\"has_low_temperature_alert\":" << (device.hasLowTemperatureAlert ? "true" : "false")

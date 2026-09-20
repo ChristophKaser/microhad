@@ -14,6 +14,14 @@ bool applyZclAttribute(Device* device, unsigned short cluster, unsigned short at
         device->hasTemperature = true;
         device->temperatureCelsius = static_cast<double>(raw) / 100.0;
         device->kind = "temperature";
+    } else if (cluster == 0x0405 && attribute == 0x0000 && value.size() >= 2) {
+        device->hasHumidity = true;
+        device->humidityPercent = static_cast<double>(littleEndian16(value)) / 100.0;
+        device->kind = "humidity";
+    } else if (cluster == 0x0406 && attribute == 0x0000 && value.size() >= 1) {
+        device->hasOccupancy = true;
+        device->occupied = (value[0] & 0x01) != 0;
+        device->kind = "occupancy";
     } else if (cluster == 0x0001 && attribute == 0x0021 && value.size() >= 1) {
         device->hasBattery = true;
         /* Power Configuration reports half-percent units. */

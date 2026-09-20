@@ -77,9 +77,10 @@ identified by their IEEE address and retain their assigned IAS zone ID across
 restarts.
 
 The normalized device model is model-independent: IAS contact state, standard
-Temperature Measurement (`0x0402`), Power Configuration battery percentage,
-link quality, and last-seen state are retained and surfaced in the dashboard.
-An opened contact emits an alert immediately and repeats while it remains open;
+Temperature Measurement (`0x0402`), Relative Humidity Measurement (`0x0405`),
+Occupancy Sensing (`0x0406`), Power Configuration battery percentage, link
+quality, and last-seen state are retained and surfaced in the dashboard. An
+opened contact emits an alert immediately and repeats while it remains open;
 temperature thresholds can be set per device in the dashboard.
 
 For Browser Push, visit the HTTPS dashboard, accept the certificate, select

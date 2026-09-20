@@ -16,6 +16,10 @@ struct Device {
     bool hasContact;
     bool hasTemperature;
     double temperatureCelsius;
+    bool hasHumidity;
+    double humidityPercent;
+    bool hasOccupancy;
+    bool occupied;
     bool hasBattery;
     int batteryPercent;
     int linkQuality;
