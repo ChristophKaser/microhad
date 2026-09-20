@@ -58,9 +58,9 @@ verify-target: $(MIPS_BIN)
 	$(TARGET_READELF) -h $(MIPS_BIN) | grep -q 'Data:.*big endian'
 	$(TARGET_READELF) -h $(MIPS_BIN) | grep -q 'Machine:.*MIPS'
 
-$(TEST_BIN): test/unit_tests.cpp src/ash.cpp src/storage.cpp src/gateway.cpp src/zcl.cpp src/fcm.cpp $(wildcard include/*.h)
+$(TEST_BIN): test/unit_tests.cpp src/ash.cpp src/storage.cpp src/gateway.cpp src/zcl.cpp src/fcm.cpp src/https_client.cpp $(wildcard include/*.h)
 	@mkdir -p $(HOST_BUILD)
-	$(HOST_CXX) $(HOST_CXXFLAGS) test/unit_tests.cpp src/ash.cpp src/storage.cpp src/gateway.cpp src/zcl.cpp src/fcm.cpp -o $@
+	$(HOST_CXX) $(HOST_CXXFLAGS) test/unit_tests.cpp src/ash.cpp src/storage.cpp src/gateway.cpp src/zcl.cpp src/fcm.cpp src/https_client.cpp -o $@
 
 test: $(TEST_BIN)
 	$(TEST_BIN)

@@ -6,5 +6,6 @@
   "tls_certificate": "/tuya/native/tls/cert.pem",
   "tls_private_key": "/tuya/native/tls/key.pem",
   "firebase_service_account": "/tuya/native/firebase-service-account-file.json",
-  "firebase_topic": "zigbee_alerts"
+  "firebase_topic": "zigbee_alerts",
+  "ca_bundle": "/tuya/native/tls/ca-bundle.pem"
 }

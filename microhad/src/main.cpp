@@ -73,7 +73,10 @@ int main(int argc, char** argv) {
     serialBaud = jsonInt(config, "serial_baud", 115200);
     runtimeDirectory = jsonString(config, "runtime_dir", "/tuya/native");
     httpPort = jsonInt(config, "http_port", 8080);
-    gateway = new Gateway(serialDevice, serialBaud, runtimeDirectory);
+    gateway = new Gateway(serialDevice, serialBaud, runtimeDirectory,
+                          jsonString(config, "firebase_service_account", ""),
+                          jsonString(config, "firebase_topic", "zigbee_alerts"),
+                          jsonString(config, "ca_bundle", ""));
     if (!gateway->start(&error)) {
         fprintf(stderr, "gateway startup failed: %s\n", error.c_str());
         delete gateway;

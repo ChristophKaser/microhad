@@ -1,7 +1,10 @@
 #include "fcm.h"
 #include "storage.h"
+#include "https_client.h"
 
 #include <cstdio>
+#include <ctime>
+#include <fstream>
 
 #ifdef MICROHAD_MIPS_TARGET
 extern "C" int microhad_fcm_sign(const char* pem, const unsigned char* input, size_t inputLength,
@@ -91,4 +94,36 @@ std::string makeGoogleAccessTokenJwt(const FirebaseServiceAccount& account, long
     *error = "JWT signing is available only in the RSDK MIPS build";
     return std::string();
 #endif
+}
+
+bool sendFcmNotification(const std::string& serviceAccountPath, const std::string& caBundle,
+                         const std::string& topic, const std::string& title, const std::string& body,
+                         std::string* error) {
+    std::ifstream file(serviceAccountPath.c_str());
+    FirebaseServiceAccount account;
+    std::string contents;
+    std::string tokenResponse;
+    std::string response;
+    std::string jwt;
+    std::string token;
+    std::string::size_type tokenAt;
+    if (!file) { *error = "cannot read Firebase service account"; return false; }
+    contents.assign((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    if (!parseFirebaseServiceAccount(contents, &account, error)) return false;
+    jwt = makeGoogleAccessTokenJwt(account, time(0), error);
+    if (jwt.empty()) return false;
+    if (!httpsPost("oauth2.googleapis.com", "/token", "Content-Type: application/x-www-form-urlencoded\r\n",
+                   "grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=" + jwt, caBundle,
+                   &tokenResponse, error)) return false;
+    tokenAt = tokenResponse.find("\"access_token\":\"");
+    if (tokenAt == std::string::npos) { *error = "OAuth response did not contain an access token"; return false; }
+    tokenAt += 16;
+    std::string::size_type tokenEnd = tokenResponse.find('"', tokenAt);
+    if (tokenEnd == std::string::npos) { *error = "OAuth response has invalid access token"; return false; }
+    token = tokenResponse.substr(tokenAt, tokenEnd - tokenAt);
+    if (!httpsPost("fcm.googleapis.com", "/v1/projects/" + account.projectId + "/messages:send",
+                   "Content-Type: application/json\r\nAuthorization: Bearer " + token + "\r\n",
+                   makeFcmMessage(topic, title, body), caBundle, &response, error)) return false;
+    if (response.find("HTTP/1.1 200") != 0) { *error = "FCM rejected the notification"; return false; }
+    return true;
 }

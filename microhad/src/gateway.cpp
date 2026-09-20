@@ -1,6 +1,7 @@
 #include "gateway.h"
 #include "storage.h"
 #include "zcl.h"
+#include "fcm.h"
 
 #include <cerrno>
 #include <cstdio>
@@ -33,8 +34,10 @@ std::vector<unsigned char> randomize(const std::vector<unsigned char>& input) {
 }
 }
 
-Gateway::Gateway(const std::string& serialDevice, int serialBaud, const std::string& runtimeDirectory) :
-    serialDevice_(serialDevice), serialBaud_(serialBaud), runtimeDirectory_(runtimeDirectory), serialFd_(-1),
+Gateway::Gateway(const std::string& serialDevice, int serialBaud, const std::string& runtimeDirectory,
+                 const std::string& firebaseServiceAccount, const std::string& firebaseTopic, const std::string& caBundle) :
+    serialDevice_(serialDevice), serialBaud_(serialBaud), runtimeDirectory_(runtimeDirectory),
+    firebaseServiceAccount_(firebaseServiceAccount), firebaseTopic_(firebaseTopic), caBundle_(caBundle), serialFd_(-1),
     online_(false), joinUntil_(0), ashSendSequence_(0), ashReceiveSequence_(0), ezspSequence_(0),
     ezspVersion_(4), resetDeadline_(0), networkForming_(false), networkFormed_(false), networkPanId_(0),
     networkChannel_(0) {
@@ -237,6 +240,10 @@ void Gateway::emitNotification(const std::string& title, const std::string& body
     std::ofstream output((runtimeDirectory_ + "/notification-outbox.ndjson").c_str(), std::ios::app);
     if (output) output << "{\"title\":\"" << jsonEscape(title) << "\",\"body\":\""
                        << jsonEscape(body) << "\",\"timestamp\":" << time(0) << "}\n";
+    if (!firebaseServiceAccount_.empty() && !firebaseTopic_.empty() && !caBundle_.empty()) {
+        std::string ignored;
+        sendFcmNotification(firebaseServiceAccount_, caBundle_, firebaseTopic_, title, body, &ignored);
+    }
 }
 
 std::vector<Device> Gateway::devices() const {

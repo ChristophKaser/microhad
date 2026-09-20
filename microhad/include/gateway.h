@@ -28,7 +28,8 @@ struct Device {
 
 class Gateway {
 public:
-    Gateway(const std::string& serialDevice, int serialBaud, const std::string& runtimeDirectory);
+    Gateway(const std::string& serialDevice, int serialBaud, const std::string& runtimeDirectory,
+            const std::string& firebaseServiceAccount, const std::string& firebaseTopic, const std::string& caBundle);
     ~Gateway();
     bool start(std::string* error);
     void stop();
@@ -49,6 +50,9 @@ private:
     std::string serialDevice_;
     int serialBaud_;
     std::string runtimeDirectory_;
+    std::string firebaseServiceAccount_;
+    std::string firebaseTopic_;
+    std::string caBundle_;
     int serialFd_;
     bool online_;
     long joinUntil_;
