@@ -67,6 +67,27 @@ Push subscription is unavailable in browsers because service workers require
 a secure context. The defaults are HTTP port 80 and HTTPS port 443. The daemon opens `/dev/ttyS1` directly; do not run
 `serialgateway` at the same time.
 
+## Pairing and alerts
+
+Open the HTTPS dashboard and select **Allow joining (5 min)**, then reset or
+put the sensor in pairing mode while the displayed join countdown is active.
+The gateway accepts standard Zigbee 3.0 joining and sends the standard IAS Zone
+Enroll Response required by generic contact/window sensors. Joined devices are
+identified by their IEEE address and retain their assigned IAS zone ID across
+restarts.
+
+The normalized device model is model-independent: IAS contact state, standard
+Temperature Measurement (`0x0402`), Power Configuration battery percentage,
+link quality, and last-seen state are retained and surfaced in the dashboard.
+An opened contact emits an alert immediately and repeats while it remains open;
+temperature thresholds can be set per device in the dashboard.
+
+For Browser Push, visit the HTTPS dashboard, accept the certificate, select
+**Enable browser alerts**, grant the browser permission, then select **Test
+alerts**. FCM uses the configured topic/service account for the same sensor
+events. The test action intentionally uses the configured delivery transports,
+so it is the appropriate end-to-end check after credentials are installed.
+
 ## Current protocol boundary
 
 The repository contains the native ASH transport (escaping, CRC, framing and
