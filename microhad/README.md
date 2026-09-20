@@ -47,6 +47,18 @@ The script stages both files below the selected `/tuya/` directory and renames
 them only after successful transfer. It does not stop low.js, serialgateway, or
 any native daemon; taking ownership of `/dev/ttyS1` is an explicit later step.
 
+To make the native gateway the boot-time service, deploy to `/tuya/native`
+with `--activate`. This saves the previous `/tuya/tuya_start.sh` as
+`/tuya/tuya_start.sh.lowjs-backup` before installing the supervised native
+startup script. Include TLS and CA files when notifications or HTTPS are used:
+
+```sh
+./deploy.sh --host 192.168.178.62 --password-file ../ssh_password.txt \
+  --config /secure/path/config.json --target /tuya/native --activate \
+  --tls-certificate /secure/path/cert.pem --tls-private-key /secure/path/key.pem \
+  --ca-bundle /etc/ssl/certs/ca-certificates.crt
+```
+
 The web API is deliberately LAN-only in v1. With `tls_certificate` and
 `tls_private_key` set, `https_port` is served directly over TLS and the
 dashboard can register its service worker for Browser Push. Without both
