@@ -190,7 +190,7 @@ bool saveNetworkState(const std::string& filename, const NetworkState& network, 
     if (!network.formed || network.extendedPan.size() != 8 || network.networkKey.size() != 16 ||
         network.preconfiguredKey.size() != 16) { *error = "invalid network state"; return false; }
     if (!output) { *error = "cannot open network state for writing"; return false; }
-    output << "{\"version\":1,\"formed\":true,\"pan_id\":" << network.panId << "\",\"channel\":"
+    output << "{\"version\":1,\"formed\":true,\"pan_id\":" << network.panId << ",\"channel\":"
            << static_cast<unsigned int>(network.channel) << "\",\"extended_pan\":\""
            << hexEncode(network.extendedPan) << "\",\"network_key\":\"" << hexEncode(network.networkKey)
            << "\",\"preconfigured_key\":\"" << hexEncode(network.preconfiguredKey) << "\"}\n";

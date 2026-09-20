@@ -97,6 +97,11 @@ static void testNetworkPersistence() {
     input.formed = true; input.panId = 0x1a62; input.channel = 15;
     input.extendedPan.assign(8, 0x12); input.networkKey.assign(16, 0x34); input.preconfiguredKey.assign(16, 0x56);
     assert(saveNetworkState(filename, input, &error));
+    {
+        std::ifstream serialized(filename.c_str());
+        std::string text((std::istreambuf_iterator<char>(serialized)), std::istreambuf_iterator<char>());
+        assert(text.find("\"pan_id\":6754,\"channel\":15") != std::string::npos);
+    }
     assert(loadNetworkState(filename, &loaded, &error));
     assert(loaded.formed && loaded.panId == input.panId && loaded.channel == input.channel);
     assert(loaded.extendedPan == input.extendedPan && loaded.networkKey == input.networkKey);
