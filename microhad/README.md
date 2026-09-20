@@ -89,6 +89,15 @@ alerts**. FCM uses the configured topic/service account for the same sensor
 events. The test action intentionally uses the configured delivery transports,
 so it is the appropriate end-to-end check after credentials are installed.
 
+## Live diagnostics
+
+The dashboard includes a live coordinator log, refreshed once per second from
+`/api/logs`. The on-device log is deliberately stored only at
+`/tmp/microhad-zigbee-native.log`; on this gateway `/tmp` resolves below the
+RAM-backed `/var` mount, not the `/tuya` flash volume. It keeps at most 128
+entries of up to 240 characters, so diagnostics do not create flash write
+cycles or consume unbounded memory.
+
 ## Current protocol boundary
 
 The repository contains the native ASH transport (escaping, CRC, framing and
