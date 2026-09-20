@@ -19,6 +19,24 @@ struct microhad_tls_session {
     mbedtls_entropy_context entropy;
 };
 
+static char ascii_lower(char value) {
+    return value >= 'A' && value <= 'Z' ? (char)(value + ('a' - 'A')) : value;
+}
+
+static char* content_length_header(char* request) {
+    const char* name = "content-length:";
+    char* line = request;
+    while (*line != 0) {
+        unsigned long i = 0;
+        while (name[i] != 0 && line[i] != 0 && ascii_lower(line[i]) == name[i]) i++;
+        if (name[i] == 0) return line + i;
+        line = strstr(line, "\r\n");
+        if (line == 0) break;
+        line += 2;
+    }
+    return 0;
+}
+
 static void release_session(struct microhad_tls_session* session) {
     if (session == 0) return;
     mbedtls_ssl_free(&session->ssl); mbedtls_ssl_config_free(&session->config);
@@ -65,10 +83,10 @@ int microhad_tls_read_request(int fd, const char* certificate_path, const char* 
             if (expected == 0) {
                 char* header_end = strstr(request, "\r\n\r\n");
                 if (header_end != 0) {
-                    char* content_length = strstr(request, "Content-Length:");
+                    char* content_length = content_length_header(request);
                     unsigned long header_length = (unsigned long)(header_end + 4 - request);
                     expected = header_length;
-                    if (content_length != 0) expected += strtoul(content_length + 15, 0, 10);
+                    if (content_length != 0) expected += strtoul(content_length, 0, 10);
                 }
             }
             if (expected != 0 && length >= expected) break;
