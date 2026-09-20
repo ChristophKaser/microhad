@@ -182,15 +182,13 @@ bool Gateway::setJoining(unsigned int seconds, std::string* error) {
         joinPreparationStep_ = 0;
         addLog("Pairing closed");
     } else if (ezspVersion_ >= 8) {
-        std::vector<unsigned char> payload;
-        static const char key[] = "ZigBeeAlliance09";
-        unsigned long i;
-        for (i = 0; i < 8; ++i) payload.push_back(0xff); /* wildcard EUI64 */
-        for (i = 0; i < sizeof(key) - 1; ++i) payload.push_back(static_cast<unsigned char>(key[i]));
         pendingJoinSeconds_ = seconds;
         joinPreparationStep_ = 1;
-        addLog("Preparing secure pairing window");
-        sendEzspCommand(0x00af, payload); /* addTransientLinkKey */
+        std::vector<unsigned char> policy;
+        policy.push_back(6); /* APP_KEY_REQUEST_POLICY */
+        policy.push_back(0x60); policy.push_back(0x00); /* allow app-key requests */
+        addLog("Preparing Zigbee key-request policies");
+        sendEzspCommand(0x0055, policy);
     } else {
         beginJoinWindow(seconds);
     }
@@ -639,12 +637,46 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
         }
         return;
     }
-    if (joinPreparationStep_ == 1 && command == 0x00af) {
+    if (joinPreparationStep_ == 1 && command == 0x0055) {
+        if (frame[payloadOffset] == 0) {
+            std::vector<unsigned char> policy;
+            policy.push_back(5); /* TC_KEY_REQUEST_POLICY */
+            policy.push_back(0x51); policy.push_back(0x00); /* permit global trust-center key requests */
+            joinPreparationStep_ = 2;
+            sendEzspCommand(0x0055, policy);
+        } else {
+            fprintf(stderr, "cannot set Zigbee application-key policy: 0x%02x\n", frame[payloadOffset]);
+            addLog("Cannot set Zigbee application-key policy");
+            joinPreparationStep_ = 0;
+            pendingJoinSeconds_ = 0;
+        }
+        return;
+    }
+    if (joinPreparationStep_ == 2 && command == 0x0055) {
+        if (frame[payloadOffset] == 0) {
+            std::vector<unsigned char> payload;
+            static const char key[] = "ZigBeeAlliance09";
+            unsigned long i;
+            for (i = 0; i < 8; ++i) payload.push_back(0xff); /* wildcard EUI64 */
+            for (i = 0; i < sizeof(key) - 1; ++i) payload.push_back(static_cast<unsigned char>(key[i]));
+            joinPreparationStep_ = 3;
+            addLog("Preparing secure pairing window");
+            sendEzspCommand(0x00af, payload); /* addTransientLinkKey */
+        }
+        else {
+            fprintf(stderr, "cannot set Zigbee trust-center key policy: 0x%02x\n", frame[payloadOffset]);
+            addLog("Cannot set Zigbee trust-center key policy");
+            joinPreparationStep_ = 0;
+            pendingJoinSeconds_ = 0;
+        }
+        return;
+    }
+    if (joinPreparationStep_ == 3 && command == 0x00af) {
         if (frame[payloadOffset] == 0) {
             std::vector<unsigned char> policy;
             policy.push_back(0); /* TRUST_CENTER_POLICY */
             policy.push_back(3); policy.push_back(0); /* allow joins and unsecured rejoins */
-            joinPreparationStep_ = 2;
+            joinPreparationStep_ = 4;
             sendEzspCommand(0x0055, policy);
         } else {
             fprintf(stderr, "cannot add Zigbee transient joining key: 0x%02x\n", frame[payloadOffset]);
@@ -654,7 +686,7 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
         }
         return;
     }
-    if (joinPreparationStep_ == 2 && command == 0x0055) {
+    if (joinPreparationStep_ == 4 && command == 0x0055) {
         if (frame[payloadOffset] == 0) beginJoinWindow(pendingJoinSeconds_);
         else {
             fprintf(stderr, "cannot set Zigbee join policy: 0x%02x\n", frame[payloadOffset]);

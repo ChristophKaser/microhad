@@ -10,3 +10,5 @@ config.json
 *.key
 firebase-service-account-file.json
 
+# Raw hardware captures may include Zigbee security material. Keep them local.
+diagnostics/
