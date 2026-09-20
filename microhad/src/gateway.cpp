@@ -467,6 +467,11 @@ void Gateway::sendEzspCommand(unsigned short command, const std::vector<unsigned
     control = static_cast<unsigned char>((ashSendSequence_ << 4) | ashReceiveSequence_);
     ashSendSequence_ = static_cast<unsigned char>((ashSendSequence_ + 1) & 7);
     encoded = AshTransport::encodeData(control, randomize(ezsp));
+    {
+        std::ostringstream message;
+        message << "EZSP -> 0x" << std::hex << command << " payload=" << std::dec << payload.size();
+        addLog(message.str());
+    }
     writeBytes(encoded);
 }
 
@@ -521,6 +526,7 @@ void Gateway::handleAshFrame(const std::vector<unsigned char>& frame) {
         resetDeadline_ = 0;
         ezspVersion_ = 4;
         ezspVersionNegotiated_ = false;
+        addLog("ASH reset acknowledgement received");
         std::vector<unsigned char> version;
         version.push_back(ezspVersion_);
         sendEzspCommand(0x0000, version);
@@ -573,6 +579,13 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
             }
             ezspVersionNegotiated_ = true;
         }
+    }
+    {
+        std::ostringstream message;
+        unsigned int status = frame.size() > payloadOffset ? frame[payloadOffset] : 0xff;
+        message << "EZSP <- v" << std::dec << static_cast<unsigned int>(ezspVersion_) << " 0x" << std::hex
+                << command << " status=0x" << status << " bytes=" << std::dec << frame.size();
+        addLog(message.str());
     }
     if (command == 0 && ezspVersionNegotiated_) online_ = true;
     if (networkForming_) {
@@ -783,6 +796,13 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
     length = payload[messageOffset++];
     if (messageOffset + length > payload.size() || length < 3) return;
     message.assign(payload.begin() + messageOffset, payload.begin() + messageOffset + length);
+    {
+        std::ostringstream diagnostic;
+        diagnostic << "APS <- node=0x" << std::hex << sender << " profile=0x"
+                   << (static_cast<unsigned short>(payload[1]) | (static_cast<unsigned short>(payload[2]) << 8))
+                   << " cluster=0x" << cluster << " length=" << std::dec << length;
+        addLog(diagnostic.str());
+    }
     if (cluster == 0x0013 && message.size() >= 12) {
         /* ZDO Device_annce: transaction sequence, network address, EUI64, capability. */
         unsigned short announcedNode = static_cast<unsigned short>(message[1]) |
