@@ -1,5 +1,6 @@
 #include "http_server.h"
 #include "gateway.h"
+#include "storage.h"
 #include "web_push.h"
 
 #include <cerrno>
@@ -123,8 +124,9 @@ void HttpServer::handleClient(int clientFd) {
         if (gateway_->setJoining(300, &error)) writeResponse(clientFd, 200, "application/json", "{\"ok\":true,\"seconds\":300,\"state\":\"preparing\"}");
         else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + error + "\"}");
     } else if (request.find("POST /api/notifications/test ") == 0) {
-        gateway_->sendTestNotification();
-        writeResponse(clientFd, 200, "application/json", "{\"ok\":true}");
+        std::string error;
+        if (gateway_->sendTestNotification(&error)) writeResponse(clientFd, 200, "application/json", "{\"ok\":true}");
+        else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + jsonEscape(error) + "\"}");
     } else if (request.find("GET /api/push/vapid-key ") == 0) {
         writeResponse(clientFd, 200, "application/json", "{\"public_key\":\"" + webPush_->publicKey() + "\"}");
     } else if (request.find("POST /api/push/subscriptions ") == 0) {

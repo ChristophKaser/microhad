@@ -153,6 +153,8 @@ static void testImmediateContactNotification() {
     output.open((directory + "/notification-outbox.ndjson").c_str());
     content.assign((std::istreambuf_iterator<char>(output)), std::istreambuf_iterator<char>());
     assert(content.find("Contact opened") != std::string::npos);
+    assert(!gateway.sendTestNotification(&error));
+    assert(error == "no notification delivery is configured");
     output.close();
     unlink((directory + "/notification-outbox.ndjson").c_str());
     unlink((directory + "/devices.json").c_str());

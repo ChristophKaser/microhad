@@ -146,7 +146,7 @@ void Gateway::poll() {
     for (alert = nextContactAlertAt_.begin(); alert != nextContactAlertAt_.end(); ++alert) {
         std::map<std::string, Device>::const_iterator device = devices_.find(alert->first);
         if (device != devices_.end() && device->second.contactOpen && now >= alert->second) {
-            emitNotification("Window open", device->second.name.empty() ? device->second.ieeeAddress : device->second.name);
+            emitNotification("Window open", device->second.name.empty() ? device->second.ieeeAddress : device->second.name, 0);
             alert->second = now + 300;
         }
     }
@@ -257,7 +257,7 @@ void Gateway::updateContactAlert(const std::string& ieeeAddress, bool wasOpen) {
     if (device == devices_.end() || !device->second.hasContact) return;
     if (device->second.contactOpen && !wasOpen) {
         contactOpenedAt_[ieeeAddress] = time(0);
-        emitNotification("Contact opened", device->second.name.empty() ? device->second.ieeeAddress : device->second.name);
+        emitNotification("Contact opened", device->second.name.empty() ? device->second.ieeeAddress : device->second.name, 0);
         nextContactAlertAt_[ieeeAddress] = time(0) + 600;
     } else if (!device->second.contactOpen && wasOpen) {
         contactOpenedAt_.erase(ieeeAddress);
@@ -265,35 +265,48 @@ void Gateway::updateContactAlert(const std::string& ieeeAddress, bool wasOpen) {
     }
 }
 
-void Gateway::sendTestNotification() {
-    emitNotification("MicroHAD test", "Push notifications are configured.");
+bool Gateway::sendTestNotification(std::string* error) {
+    return emitNotification("MicroHAD test", "Push notifications are configured.", error);
 }
 
 void Gateway::updateTemperatureAlert(const Device& device, bool hadTemperature, double previousTemperature) {
     if (!device.hasTemperature || !hadTemperature) return;
     if (device.hasHighTemperatureAlert && previousTemperature < device.highTemperatureAlert &&
         device.temperatureCelsius >= device.highTemperatureAlert) {
-        emitNotification("Temperature high", device.name.empty() ? device.ieeeAddress : device.name);
+        emitNotification("Temperature high", device.name.empty() ? device.ieeeAddress : device.name, 0);
     }
     if (device.hasLowTemperatureAlert && previousTemperature > device.lowTemperatureAlert &&
         device.temperatureCelsius <= device.lowTemperatureAlert) {
-        emitNotification("Temperature low", device.name.empty() ? device.ieeeAddress : device.name);
+        emitNotification("Temperature low", device.name.empty() ? device.ieeeAddress : device.name, 0);
     }
 }
 
-void Gateway::emitNotification(const std::string& title, const std::string& body) {
+bool Gateway::emitNotification(const std::string& title, const std::string& body, std::string* error) {
     std::ofstream output((runtimeDirectory_ + "/notification-outbox.ndjson").c_str(), std::ios::app);
+    bool configured = false;
+    bool delivered = false;
+    std::string failures;
     if (output) output << "{\"title\":\"" << jsonEscape(title) << "\",\"body\":\""
                        << jsonEscape(body) << "\",\"timestamp\":" << time(0) << "}\n";
     if (!firebaseServiceAccount_.empty() && !firebaseTopic_.empty() && !caBundle_.empty()) {
-        std::string ignored;
-        sendFcmNotification(firebaseServiceAccount_, caBundle_, firebaseTopic_, title, body, &ignored);
+        std::string deliveryError;
+        configured = true;
+        if (sendFcmNotification(firebaseServiceAccount_, caBundle_, firebaseTopic_, title, body, &deliveryError)) delivered = true;
+        else failures += "FCM: " + deliveryError;
     }
     if (!caBundle_.empty()) {
-        std::string ignored;
+        std::string deliveryError;
         WebPushStore browserPush(runtimeDirectory_);
-        browserPush.send(caBundle_, title, body, &ignored);
+        configured = true;
+        if (browserPush.send(caBundle_, title, body, &deliveryError)) delivered = true;
+        else {
+            if (!failures.empty()) failures += "; ";
+            failures += "Browser Push: " + deliveryError;
+        }
     }
+    if (delivered) return true;
+    if (error != 0) *error = configured ? failures : "no notification delivery is configured";
+    return false;
 }
 
 std::vector<Device> Gateway::devices() const {

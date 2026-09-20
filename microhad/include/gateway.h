@@ -50,7 +50,7 @@ public:
     bool applyIasZoneStatus(const std::string& ieeeAddress, const std::vector<unsigned char>& payload);
     bool setTemperatureAlerts(const std::string& ieeeAddress, bool hasLow, double low, bool hasHigh, double high,
                               std::string* error);
-    void sendTestNotification();
+    bool sendTestNotification(std::string* error);
     std::vector<Device> devices() const;
     std::string statusJson() const;
 
@@ -106,7 +106,7 @@ private:
     void continueNetworkFormation(unsigned short completedCommand);
     void updateContactAlert(const std::string& ieeeAddress, bool wasOpen);
     void updateTemperatureAlert(const Device& device, bool hadTemperature, double previousTemperature);
-    void emitNotification(const std::string& title, const std::string& body);
+    bool emitNotification(const std::string& title, const std::string& body, std::string* error);
     void loadState();
     void saveState() const;
 };
