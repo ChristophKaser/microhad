@@ -91,7 +91,8 @@ bool saveDevices(const std::string& filename, const std::vector<Device>& devices
                << ",\"temperature_celsius\":" << device.temperatureCelsius << ",\"has_temperature\":"
                << (device.hasTemperature ? "true" : "false") << ",\"battery_percent\":" << device.batteryPercent
                << ",\"has_battery\":" << (device.hasBattery ? "true" : "false") << ",\"link_quality\":"
-               << device.linkQuality << ",\"last_seen\":" << device.lastSeen << ",\"has_low_temperature_alert\":"
+               << device.linkQuality << ",\"last_seen\":" << device.lastSeen << ",\"ias_zone_id\":" << device.iasZoneId
+               << ",\"has_low_temperature_alert\":"
                << (device.hasLowTemperatureAlert ? "true" : "false") << ",\"low_temperature_alert\":"
                << device.lowTemperatureAlert << ",\"has_high_temperature_alert\":"
                << (device.hasHighTemperatureAlert ? "true" : "false") << ",\"high_temperature_alert\":"
@@ -160,6 +161,11 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
             if (valueStart != std::string::npos) device.linkQuality = atoi(line.c_str() + valueStart + 15);
             valueStart = line.find("\"last_seen\":");
             if (valueStart != std::string::npos) device.lastSeen = atol(line.c_str() + valueStart + 12);
+            valueStart = line.find("\"ias_zone_id\":");
+            if (valueStart != std::string::npos) {
+                long zoneId = strtol(line.c_str() + valueStart + 14, 0, 10);
+                if (zoneId >= -1 && zoneId <= 254) device.iasZoneId = static_cast<int>(zoneId);
+            }
             valueStart = line.find("\"low_temperature_alert\":");
             if (valueStart != std::string::npos) device.lowTemperatureAlert = atof(line.c_str() + valueStart + 24);
             valueStart = line.find("\"high_temperature_alert\":");

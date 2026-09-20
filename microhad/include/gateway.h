@@ -20,6 +20,7 @@ struct Device {
     int batteryPercent;
     int linkQuality;
     long lastSeen;
+    int iasZoneId;
     bool hasLowTemperatureAlert;
     bool hasHighTemperatureAlert;
     double lowTemperatureAlert;
@@ -83,11 +84,18 @@ private:
     bool writeBytes(const std::vector<unsigned char>& bytes);
     void sendAshReset();
     void sendEzspCommand(unsigned short command, const std::vector<unsigned char>& payload);
+    void sendApsUnicast(unsigned short destination, unsigned short profile, unsigned short cluster,
+                        unsigned char sourceEndpoint, unsigned char destinationEndpoint,
+                        const std::vector<unsigned char>& message);
     void sendJoinPermit(unsigned int duration);
     void beginJoinWindow(unsigned int seconds);
     void handleAshFrame(const std::vector<unsigned char>& frame);
     void handleEzspFrame(const std::vector<unsigned char>& frame);
     void registerNode(unsigned short nodeId, const unsigned char* eui64);
+    int allocateIasZoneId(const std::string& ieeeAddress);
+    void sendIasEnrollResponse(unsigned short destination, unsigned char sourceEndpoint,
+                               unsigned char destinationEndpoint, unsigned char transactionSequence,
+                               unsigned char zoneId);
     void handleIncomingMessage(const std::vector<unsigned char>& payload);
     bool generateNetworkMaterial(std::string* error);
     void continueNetworkFormation(unsigned short completedCommand);

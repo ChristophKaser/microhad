@@ -61,6 +61,7 @@ static void testDevicePersistence() {
     input.batteryPercent = 76;
     input.linkQuality = 91;
     input.lastSeen = 123456;
+    input.iasZoneId = 17;
     devices.push_back(input);
     assert(saveDevices(filename, devices, &error));
     assert(loadDevices(filename, &loaded, &error));
@@ -72,6 +73,7 @@ static void testDevicePersistence() {
     assert(loaded[0].temperatureCelsius == input.temperatureCelsius);
     assert(loaded[0].hasBattery && loaded[0].batteryPercent == input.batteryPercent);
     assert(loaded[0].linkQuality == input.linkQuality && loaded[0].lastSeen == input.lastSeen);
+    assert(loaded[0].iasZoneId == input.iasZoneId);
     unlink(filename.c_str());
     rmdir(directory.c_str());
 }

@@ -17,7 +17,7 @@
 
 Device::Device() : networkAddress(0xffff), kind("generic"), contactOpen(false), hasContact(false), hasTemperature(false),
                    temperatureCelsius(0), hasBattery(false), batteryPercent(0), linkQuality(0), lastSeen(0),
-                   hasLowTemperatureAlert(false), hasHighTemperatureAlert(false), lowTemperatureAlert(0),
+                   iasZoneId(-1), hasLowTemperatureAlert(false), hasHighTemperatureAlert(false), lowTemperatureAlert(0),
                    highTemperatureAlert(0) {
 }
 
@@ -400,6 +400,29 @@ void Gateway::sendEzspCommand(unsigned short command, const std::vector<unsigned
     writeBytes(encoded);
 }
 
+void Gateway::sendApsUnicast(unsigned short destination, unsigned short profile, unsigned short cluster,
+                             unsigned char sourceEndpoint, unsigned char destinationEndpoint,
+                             const std::vector<unsigned char>& message) {
+    std::vector<unsigned char> payload;
+    static unsigned char apsSequence = 0;
+    payload.push_back(0); /* EMBER_OUTGOING_DIRECT */
+    payload.push_back(static_cast<unsigned char>(destination));
+    payload.push_back(static_cast<unsigned char>(destination >> 8));
+    payload.push_back(static_cast<unsigned char>(profile));
+    payload.push_back(static_cast<unsigned char>(profile >> 8));
+    payload.push_back(static_cast<unsigned char>(cluster));
+    payload.push_back(static_cast<unsigned char>(cluster >> 8));
+    payload.push_back(sourceEndpoint);
+    payload.push_back(destinationEndpoint);
+    payload.push_back(0); payload.push_back(0); /* APS options */
+    payload.push_back(0); payload.push_back(0); /* group id */
+    payload.push_back(apsSequence++);
+    payload.push_back(0); /* message tag */
+    payload.push_back(static_cast<unsigned char>(message.size()));
+    payload.insert(payload.end(), message.begin(), message.end());
+    sendEzspCommand(0x0034, payload); /* sendUnicast */
+}
+
 void Gateway::sendJoinPermit(unsigned int duration) {
     std::vector<unsigned char> payload;
     payload.push_back(static_cast<unsigned char>(duration > 254 ? 254 : duration));
@@ -602,6 +625,39 @@ void Gateway::registerNode(unsigned short nodeId, const unsigned char* eui64) {
     saveState();
 }
 
+int Gateway::allocateIasZoneId(const std::string& ieeeAddress) {
+    std::map<std::string, Device>::iterator current = devices_.find(ieeeAddress);
+    int candidate;
+    if (current != devices_.end() && current->second.iasZoneId >= 0 && current->second.iasZoneId <= 254) {
+        return current->second.iasZoneId;
+    }
+    for (candidate = 0; candidate <= 254; ++candidate) {
+        std::map<std::string, Device>::const_iterator device;
+        bool used = false;
+        for (device = devices_.begin(); device != devices_.end(); ++device) {
+            if (device->second.iasZoneId == candidate) { used = true; break; }
+        }
+        if (!used) {
+            devices_[ieeeAddress].iasZoneId = candidate;
+            saveState();
+            return candidate;
+        }
+    }
+    return -1;
+}
+
+void Gateway::sendIasEnrollResponse(unsigned short destination, unsigned char sourceEndpoint,
+                                    unsigned char destinationEndpoint, unsigned char transactionSequence,
+                                    unsigned char zoneId) {
+    std::vector<unsigned char> response;
+    response.push_back(0x19); /* cluster-specific, server-to-client, default response disabled */
+    response.push_back(transactionSequence);
+    response.push_back(0x00); /* Zone Enroll Response */
+    response.push_back(0x00); /* success */
+    response.push_back(zoneId);
+    sendApsUnicast(destination, 0x0104, 0x0500, sourceEndpoint, destinationEndpoint, response);
+}
+
 void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
     unsigned short cluster;
     unsigned short sender;
@@ -631,7 +687,21 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
     if ((frameControl & 0x04) != 0) zclOffset += 2;
     if (zclOffset > message.size()) return;
     unsigned char command = message[zclOffset - 1];
-    if (cluster == 0x0500 && command == 0x00 && message.size() >= zclOffset + 2) {
+    {
+        std::map<unsigned short, std::string>::iterator known = nodeAddresses_.find(sender);
+        if (known != nodeAddresses_.end()) {
+            Device& device = devices_[known->second];
+            device.linkQuality = payload[12];
+            device.lastSeen = time(0);
+        }
+    }
+    if (cluster == 0x0500 && command == 0x01 && message.size() >= zclOffset + 4) {
+        int zoneId = allocateIasZoneId(address->second);
+        if (zoneId >= 0) {
+            sendIasEnrollResponse(sender, payload[5], payload[4], message[zclOffset - 2],
+                                  static_cast<unsigned char>(zoneId));
+        }
+    } else if (cluster == 0x0500 && command == 0x00 && message.size() >= zclOffset + 2) {
         std::vector<unsigned char> zone(message.begin() + zclOffset, message.end());
         applyIasZoneStatus(address->second, zone);
     } else if (command == 0x0a) {
