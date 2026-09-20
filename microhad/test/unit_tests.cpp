@@ -50,6 +50,7 @@ static void testDevicePersistence() {
     std::vector<Device> loaded;
     assert(ensureDirectory(directory, &error));
     input.ieeeAddress = "0x00124b0000000001";
+    input.networkAddress = 0x1234;
     input.name = "Kitchen window";
     input.kind = "contact";
     input.hasContact = true;
@@ -65,6 +66,7 @@ static void testDevicePersistence() {
     assert(loadDevices(filename, &loaded, &error));
     assert(loaded.size() == 1);
     assert(loaded[0].ieeeAddress == input.ieeeAddress);
+    assert(loaded[0].networkAddress == input.networkAddress);
     assert(loaded[0].name == input.name && loaded[0].kind == input.kind);
     assert(loaded[0].hasContact && loaded[0].contactOpen && loaded[0].hasTemperature);
     assert(loaded[0].temperatureCelsius == input.temperatureCelsius);

@@ -9,6 +9,7 @@
 
 struct Device {
     std::string ieeeAddress;
+    unsigned short networkAddress;
     std::string name;
     std::string kind;
     bool contactOpen;

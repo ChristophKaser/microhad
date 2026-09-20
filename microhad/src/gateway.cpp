@@ -15,7 +15,7 @@
 #include <termios.h>
 #include <unistd.h>
 
-Device::Device() : kind("generic"), contactOpen(false), hasContact(false), hasTemperature(false),
+Device::Device() : networkAddress(0xffff), kind("generic"), contactOpen(false), hasContact(false), hasTemperature(false),
                    temperatureCelsius(0), hasBattery(false), batteryPercent(0), linkQuality(0), lastSeen(0),
                    hasLowTemperatureAlert(false), hasHighTemperatureAlert(false), lowTemperatureAlert(0),
                    highTemperatureAlert(0) {
@@ -327,7 +327,10 @@ void Gateway::loadState() {
     std::string error;
     unsigned long i;
     if (loadDevices(runtimeDirectory_ + "/devices.json", &saved, &error)) {
-        for (i = 0; i < saved.size(); ++i) devices_[saved[i].ieeeAddress] = saved[i];
+        for (i = 0; i < saved.size(); ++i) {
+            devices_[saved[i].ieeeAddress] = saved[i];
+            if (saved[i].networkAddress != 0xffff) nodeAddresses_[saved[i].networkAddress] = saved[i].ieeeAddress;
+        }
     }
     error.clear();
     if (loadNetworkState(runtimeDirectory_ + "/network.json", &network, &error) && network.formed) {
@@ -517,12 +520,13 @@ void Gateway::registerNode(unsigned short nodeId, const unsigned char* eui64) {
     for (i = 7; i >= 0; --i) address << std::setw(2) << static_cast<unsigned int>(eui64[i]);
     nodeAddresses_[nodeId] = address.str();
     Device& device = devices_[address.str()];
+    device.networkAddress = nodeId;
     if (device.ieeeAddress.empty()) {
         device.ieeeAddress = address.str();
         device.name = address.str();
         device.lastSeen = time(0);
-        saveState();
     }
+    saveState();
 }
 
 void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
@@ -539,9 +543,16 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
     messageOffset = 18;
     length = payload[messageOffset++];
     if (messageOffset + length > payload.size() || length < 3) return;
+    message.assign(payload.begin() + messageOffset, payload.begin() + messageOffset + length);
+    if (cluster == 0x0013 && message.size() >= 12) {
+        /* ZDO Device_annce: transaction sequence, network address, EUI64, capability. */
+        unsigned short announcedNode = static_cast<unsigned short>(message[1]) |
+                                      (static_cast<unsigned short>(message[2]) << 8);
+        registerNode(announcedNode, &message[3]);
+        return;
+    }
     address = nodeAddresses_.find(sender);
     if (address == nodeAddresses_.end()) return;
-    message.assign(payload.begin() + messageOffset, payload.begin() + messageOffset + length);
     unsigned char frameControl = message[0];
     unsigned long zclOffset = 3;
     if ((frameControl & 0x04) != 0) zclOffset += 2;

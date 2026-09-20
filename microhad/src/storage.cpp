@@ -85,7 +85,7 @@ bool saveDevices(const std::string& filename, const std::vector<Device>& devices
     for (i = 0; i < devices.size(); ++i) {
         const Device& device = devices[i];
         output << "    {\"ieee_address\":\"" << jsonEscape(device.ieeeAddress)
-               << "\",\"name\":\"" << jsonEscape(device.name) << "\",\"kind\":\""
+               << "\",\"network_address\":" << device.networkAddress << ",\"name\":\"" << jsonEscape(device.name) << "\",\"kind\":\""
                << jsonEscape(device.kind) << "\",\"contact_open\":" << (device.contactOpen ? "true" : "false")
                << ",\"has_contact\":" << (device.hasContact ? "true" : "false")
                << ",\"temperature_celsius\":" << device.temperatureCelsius << ",\"has_temperature\":"
@@ -128,6 +128,11 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
                 return false;
             }
             device.ieeeAddress = line.substr(start, end - start);
+            std::string::size_type networkAddress = line.find("\"network_address\":");
+            if (networkAddress != std::string::npos) {
+                long parsed = strtol(line.c_str() + networkAddress + 18, 0, 10);
+                if (parsed >= 0 && parsed <= 0xffff) device.networkAddress = static_cast<unsigned short>(parsed);
+            }
             const char* fields[] = {"name", "kind"};
             std::string* destinations[] = {&device.name, &device.kind};
             int index;
