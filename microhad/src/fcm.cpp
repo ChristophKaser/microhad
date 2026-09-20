@@ -3,6 +3,7 @@
 #include "https_client.h"
 
 #include <cstdio>
+#include <cstdlib>
 #include <ctime>
 #include <fstream>
 
@@ -12,6 +13,10 @@ extern "C" int microhad_fcm_sign(const char* pem, const unsigned char* input, si
 #endif
 
 namespace {
+std::string cachedToken;
+std::string cachedTokenSource;
+long cachedTokenExpiresAt = 0;
+
 std::string jsonValue(const std::string& json, const char* name) {
     std::string marker = std::string("\"") + name + "\"";
     std::string::size_type nameAt = json.find(marker);
@@ -32,6 +37,13 @@ std::string jsonValue(const std::string& json, const char* name) {
         else result += json[end];
     }
     return std::string();
+}
+
+long jsonNumber(const std::string& json, const char* name) {
+    std::string marker = std::string("\"") + name + "\":";
+    std::string::size_type at = json.find(marker);
+    if (at == std::string::npos) return 0;
+    return strtol(json.c_str() + at + marker.size(), 0, 10);
 }
 }
 
@@ -127,20 +139,30 @@ bool sendFcmNotification(const std::string& serviceAccountPath, const std::strin
     std::string jwt;
     std::string token;
     std::string::size_type tokenAt;
+    long now = time(0);
     if (!file) { *error = "cannot read Firebase service account"; return false; }
     contents.assign((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
     if (!parseFirebaseServiceAccount(contents, &account, error)) return false;
-    jwt = makeGoogleAccessTokenJwt(account, time(0), error);
-    if (jwt.empty()) return false;
-    if (!httpsPost("oauth2.googleapis.com", "/token", "Content-Type: application/x-www-form-urlencoded\r\n",
-                   "grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=" + jwt, caBundle,
-                   &tokenResponse, error)) return false;
-    tokenAt = tokenResponse.find("\"access_token\":\"");
-    if (tokenAt == std::string::npos) { *error = "OAuth response did not contain an access token"; return false; }
-    tokenAt += 16;
-    std::string::size_type tokenEnd = tokenResponse.find('"', tokenAt);
-    if (tokenEnd == std::string::npos) { *error = "OAuth response has invalid access token"; return false; }
-    token = tokenResponse.substr(tokenAt, tokenEnd - tokenAt);
+    if (cachedTokenSource == serviceAccountPath + "\n" + caBundle && cachedTokenExpiresAt > now + 60) {
+        token = cachedToken;
+    } else {
+        jwt = makeGoogleAccessTokenJwt(account, now, error);
+        if (jwt.empty()) return false;
+        if (!httpsPost("oauth2.googleapis.com", "/token", "Content-Type: application/x-www-form-urlencoded\r\n",
+                       "grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=" + jwt, caBundle,
+                       &tokenResponse, error)) return false;
+        tokenAt = tokenResponse.find("\"access_token\":\"");
+        if (tokenAt == std::string::npos) { *error = "OAuth response did not contain an access token"; return false; }
+        tokenAt += 16;
+        std::string::size_type tokenEnd = tokenResponse.find('"', tokenAt);
+        if (tokenEnd == std::string::npos) { *error = "OAuth response has invalid access token"; return false; }
+        token = tokenResponse.substr(tokenAt, tokenEnd - tokenAt);
+        long expiresIn = jsonNumber(tokenResponse, "expires_in");
+        if (expiresIn <= 60) { *error = "OAuth response has invalid token expiry"; return false; }
+        cachedToken = token;
+        cachedTokenSource = serviceAccountPath + "\n" + caBundle;
+        cachedTokenExpiresAt = now + expiresIn;
+    }
     if (!httpsPost("fcm.googleapis.com", "/v1/projects/" + account.projectId + "/messages:send",
                    "Content-Type: application/json\r\nAuthorization: Bearer " + token + "\r\n",
                    makeFcmMessage(topic, title, body), caBundle, &response, error)) return false;
