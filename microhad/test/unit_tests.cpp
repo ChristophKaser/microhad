@@ -2,6 +2,7 @@
 #include "gateway.h"
 #include "storage.h"
 #include "zcl.h"
+#include "fcm.h"
 
 #include <cassert>
 #include <cstdio>
@@ -90,11 +91,23 @@ static void testGenericCapabilities() {
     assert(device.hasContact && device.contactOpen && device.lastSeen == 125);
 }
 
+static void testFcmMessageConstruction() {
+    FirebaseServiceAccount account;
+    std::string error;
+    std::string json = "{\"project_id\":\"project\",\"client_email\":\"x@example.test\",\"private_key\":\"-----BEGIN\\nKEY-----\\n\"}";
+    assert(parseFirebaseServiceAccount(json, &account, &error));
+    assert(account.privateKeyPem == "-----BEGIN\nKEY-----\n");
+    assert(base64UrlEncode("foo") == "Zm9v");
+    assert(base64UrlEncode("f") == "Zg");
+    assert(makeFcmMessage("zigbee_alerts", "Window open", "Kitchen").find("\"topic\":\"zigbee_alerts\"") != std::string::npos);
+}
+
 int main() {
     testAshRoundTrip();
     testAshRejectsBadCrc();
     testDevicePersistence();
     testGenericCapabilities();
+    testFcmMessageConstruction();
     printf("unit tests passed\n");
     return 0;
 }

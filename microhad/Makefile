@@ -14,7 +14,7 @@ WARNINGS := -Wall -Wextra -Werror -pedantic
 HOST_CXXFLAGS := -std=gnu++03 $(WARNINGS) -Iinclude -O2
 TARGET_CXXFLAGS := $(WARNINGS) -Iinclude -O2
 LDFLAGS :=
-SOURCES := src/main.cpp src/ash.cpp src/storage.cpp src/http_server.cpp src/gateway.cpp src/zcl.cpp
+SOURCES := src/main.cpp src/ash.cpp src/storage.cpp src/http_server.cpp src/gateway.cpp src/zcl.cpp src/fcm.cpp
 HOST_BUILD := build/host
 MIPS_BUILD := build/mips
 HOST_BIN := $(HOST_BUILD)/microhad-zigbee-native
@@ -49,9 +49,9 @@ verify-target: $(MIPS_BIN)
 	$(TARGET_READELF) -h $(MIPS_BIN) | grep -q 'Data:.*big endian'
 	$(TARGET_READELF) -h $(MIPS_BIN) | grep -q 'Machine:.*MIPS'
 
-$(TEST_BIN): test/unit_tests.cpp src/ash.cpp src/storage.cpp src/gateway.cpp src/zcl.cpp $(wildcard include/*.h)
+$(TEST_BIN): test/unit_tests.cpp src/ash.cpp src/storage.cpp src/gateway.cpp src/zcl.cpp src/fcm.cpp $(wildcard include/*.h)
 	@mkdir -p $(HOST_BUILD)
-	$(HOST_CXX) $(HOST_CXXFLAGS) test/unit_tests.cpp src/ash.cpp src/storage.cpp src/gateway.cpp src/zcl.cpp -o $@
+	$(HOST_CXX) $(HOST_CXXFLAGS) test/unit_tests.cpp src/ash.cpp src/storage.cpp src/gateway.cpp src/zcl.cpp src/fcm.cpp -o $@
 
 test: $(TEST_BIN)
 	$(TEST_BIN)
