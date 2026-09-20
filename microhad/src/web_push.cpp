@@ -5,6 +5,7 @@
 #include <fstream>
 #include <sstream>
 #include <ctime>
+#include <sys/stat.h>
 
 #ifdef MICROHAD_MIPS_TARGET
 extern "C" int microhad_vapid_generate(unsigned char* publicKey, unsigned char* privateKey);
@@ -62,6 +63,7 @@ bool WebPushStore::loadOrCreateKey(std::string* error) {
     std::ifstream input((runtimeDirectory_ + "/vapid-public.key").c_str());
     if (input) {
         input >> publicKey_;
+        chmod((runtimeDirectory_ + "/vapid-private.key").c_str(), 0600);
         return !publicKey_.empty();
     }
 #ifdef MICROHAD_MIPS_TARGET
@@ -74,7 +76,13 @@ bool WebPushStore::loadOrCreateKey(std::string* error) {
     if (!publicOut || !privateOut) { *error = "cannot persist VAPID key"; return false; }
     publicOut << publicKey_ << "\n";
     privateOut.write(reinterpret_cast<char*>(privateKey), sizeof(privateKey));
-    return static_cast<bool>(publicOut) && static_cast<bool>(privateOut);
+    publicOut.close();
+    privateOut.close();
+    if (!publicOut || !privateOut || chmod((runtimeDirectory_ + "/vapid-private.key").c_str(), 0600) != 0) {
+        *error = "cannot persist VAPID key";
+        return false;
+    }
+    return true;
 #else
     *error = "VAPID key generation requires the MIPS crypto backend";
     return false;
@@ -89,6 +97,11 @@ bool WebPushStore::addSubscription(const std::string& subscriptionJson, std::str
     std::ofstream output((runtimeDirectory_ + "/web-push-subscriptions.ndjson").c_str(), std::ios::app);
     if (!output) { *error = "cannot persist Browser Push subscription"; return false; }
     output << subscriptionJson << "\n";
+    output.close();
+    if (!output || chmod((runtimeDirectory_ + "/web-push-subscriptions.ndjson").c_str(), 0600) != 0) {
+        *error = "cannot persist Browser Push subscription";
+        return false;
+    }
     return true;
 }
 
