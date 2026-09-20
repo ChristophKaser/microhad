@@ -1,6 +1,13 @@
 #include "fcm.h"
 #include "storage.h"
 
+#include <cstdio>
+
+#ifdef MICROHAD_MIPS_TARGET
+extern "C" int microhad_fcm_sign(const char* pem, const unsigned char* input, size_t inputLength,
+                              unsigned char* signature, size_t* signatureLength);
+#endif
+
 namespace {
 std::string jsonValue(const std::string& json, const char* name) {
     std::string marker = std::string("\"") + name + "\"";
@@ -56,4 +63,32 @@ std::string base64UrlEncode(const std::string& data) {
 std::string makeFcmMessage(const std::string& topic, const std::string& title, const std::string& body) {
     return std::string("{\"message\":{\"topic\":\"") + jsonEscape(topic) + "\",\"notification\":{\"title\":\"" +
            jsonEscape(title) + "\",\"body\":\"" + jsonEscape(body) + "\"},\"android\":{\"priority\":\"high\"}}}";
+}
+
+std::string makeGoogleAccessTokenJwt(const FirebaseServiceAccount& account, long issuedAt, std::string* error) {
+#ifdef MICROHAD_MIPS_TARGET
+    std::string header = base64UrlEncode("{\"alg\":\"RS256\",\"typ\":\"JWT\"}");
+    std::string claims = std::string("{\"iss\":\"") + jsonEscape(account.clientEmail) +
+        "\",\"scope\":\"https://www.googleapis.com/auth/firebase.messaging\",\"aud\":\"https://oauth2.googleapis.com/token\",\"iat\":";
+    char numeric[32];
+    snprintf(numeric, sizeof(numeric), "%ld", issuedAt);
+    claims += numeric;
+    claims += ",\"exp\":";
+    snprintf(numeric, sizeof(numeric), "%ld", issuedAt + 3600);
+    claims += numeric;
+    claims += "}";
+    std::string signingInput = header + "." + base64UrlEncode(claims);
+    unsigned char signature[512]; /* supports service-account RSA keys up to 4096 bits */
+    size_t signatureLength = 0;
+    if (microhad_fcm_sign(account.privateKeyPem.c_str(), reinterpret_cast<const unsigned char*>(signingInput.data()),
+                      signingInput.size(), signature, &signatureLength) != 0) {
+        *error = "cannot sign Firebase OAuth JWT";
+        return std::string();
+    }
+    return signingInput + "." + base64UrlEncode(std::string(reinterpret_cast<char*>(signature), signatureLength));
+#else
+    (void)account; (void)issuedAt;
+    *error = "JWT signing is available only in the RSDK MIPS build";
+    return std::string();
+#endif
 }
