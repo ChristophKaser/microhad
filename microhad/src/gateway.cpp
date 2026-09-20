@@ -52,7 +52,7 @@ Gateway::Gateway(const std::string& serialDevice, int serialBaud, const std::str
     serialDevice_(serialDevice), serialBaud_(serialBaud), runtimeDirectory_(runtimeDirectory),
     firebaseServiceAccount_(firebaseServiceAccount), firebaseTopic_(firebaseTopic), caBundle_(caBundle), serialFd_(-1),
     online_(false), joinUntil_(0), joinPermitRenewAt_(0), pendingJoinSeconds_(0), joinPreparationStep_(0), ashSendSequence_(0), ashReceiveSequence_(0), ezspSequence_(0),
-    ezspVersion_(4), zdoSequence_(0), zclTransactionSequence_(0), ezspVersionNegotiated_(false), stackTokenWritingRequested_(false), resetDeadline_(0), networkForming_(false), networkFormed_(false), networkPanId_(0),
+    ezspVersion_(4), zdoSequence_(0), zclTransactionSequence_(0), ezspVersionNegotiated_(false), stackTokenWritingRequested_(false), networkInitRequested_(false), resetDeadline_(0), networkForming_(false), networkFormed_(false), networkPanId_(0),
     networkChannel_(0) {
 }
 
@@ -536,6 +536,7 @@ void Gateway::handleAshFrame(const std::vector<unsigned char>& frame) {
         resetDeadline_ = 0;
         ezspVersion_ = 4;
         ezspVersionNegotiated_ = false;
+        networkInitRequested_ = false;
         addLog("ASH reset acknowledgement received");
         std::vector<unsigned char> version;
         version.push_back(ezspVersion_);
@@ -599,6 +600,11 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
     }
     if (command == 0 && ezspVersionNegotiated_) {
         online_ = true;
+        if (!networkInitRequested_) {
+            networkInitRequested_ = true;
+            addLog("Initializing NCP Zigbee network");
+            sendEzspCommand(0x0017, std::vector<unsigned char>());
+        }
     }
     if (networkForming_) {
         unsigned int status = frame.size() > payloadOffset ? frame[payloadOffset] : 0xff;
@@ -611,6 +617,28 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
         else networkForming_ = false;
     }
     if (frame.size() <= payloadOffset) return;
+    if (command == 0x0017) {
+        if (frame[payloadOffset] == 0) addLog("NCP network initialization accepted");
+        else {
+            std::ostringstream message;
+            message << "NCP network initialization rejected: 0x" << std::hex
+                    << static_cast<unsigned int>(frame[payloadOffset]);
+            addLog(message.str());
+        }
+        return;
+    }
+    if (command == 0x0019) {
+        if (frame[payloadOffset] == 0x90) {
+            networkFormed_ = true;
+            addLog("NCP Zigbee network is active");
+        } else {
+            std::ostringstream message;
+            message << "NCP Zigbee network status: 0x" << std::hex
+                    << static_cast<unsigned int>(frame[payloadOffset]);
+            addLog(message.str());
+        }
+        return;
+    }
     if (joinPreparationStep_ == 1 && command == 0x00af) {
         if (frame[payloadOffset] == 0) {
             std::vector<unsigned char> policy;

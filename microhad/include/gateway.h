@@ -77,6 +77,7 @@ private:
     unsigned char zclTransactionSequence_;
     bool ezspVersionNegotiated_;
     bool stackTokenWritingRequested_;
+    bool networkInitRequested_;
     long resetDeadline_;
     bool networkForming_;
     bool networkFormed_;
