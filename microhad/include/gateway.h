@@ -73,6 +73,8 @@ private:
     unsigned char ashReceiveSequence_;
     unsigned char ezspSequence_;
     unsigned char ezspVersion_;
+    unsigned char zdoSequence_;
+    unsigned char zclTransactionSequence_;
     bool ezspVersionNegotiated_;
     long resetDeadline_;
     bool networkForming_;
@@ -103,6 +105,10 @@ private:
     void sendIasEnrollResponse(unsigned short destination, unsigned char sourceEndpoint,
                                unsigned char destinationEndpoint, unsigned char transactionSequence,
                                unsigned char zoneId);
+    void requestActiveEndpoints(unsigned short destination);
+    void requestStandardAttributes(unsigned short destination, unsigned char endpoint);
+    void sendZclReadAttribute(unsigned short destination, unsigned char endpoint, unsigned short cluster,
+                              unsigned short attribute);
     void handleIncomingMessage(const std::vector<unsigned char>& payload);
     bool generateNetworkMaterial(std::string* error);
     void continueNetworkFormation(unsigned short completedCommand);

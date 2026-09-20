@@ -14,4 +14,8 @@ bool applyZclAttribute(Device* device, unsigned short cluster, unsigned short at
 /* IAS Zone status-change notification payload (command 0x00). */
 bool applyIasZoneStatus(Device* device, const std::vector<unsigned char>& payload, long observedAt);
 
+/* ZCL global Read Attributes Response records, beginning with attribute ID. */
+bool applyZclReadAttributeResponse(Device* device, unsigned short cluster,
+                                   const std::vector<unsigned char>& payload, long observedAt);
+
 #endif

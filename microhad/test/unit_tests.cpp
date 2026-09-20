@@ -125,6 +125,15 @@ static void testGenericCapabilities() {
     occupancy.push_back(1);
     assert(applyZclAttribute(&device, 0x0406, 0x0000, occupancy, 123));
     assert(device.hasOccupancy && device.occupied);
+    {
+        std::vector<unsigned char> response;
+        response.push_back(0x00); response.push_back(0x00); /* measured value */
+        response.push_back(0x00); /* success */
+        response.push_back(0x29); /* signed 16-bit */
+        response.push_back(0x1a); response.push_back(0x09); /* 23.30 C */
+        assert(applyZclReadAttributeResponse(&device, 0x0402, response, 126));
+        assert(device.temperatureCelsius == 23.3 && device.lastSeen == 126);
+    }
     battery.push_back(170);
     assert(applyZclAttribute(&device, 0x0001, 0x0021, battery, 124));
     assert(device.hasBattery && device.batteryPercent == 85);

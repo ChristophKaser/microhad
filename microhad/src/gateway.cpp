@@ -36,7 +36,7 @@ std::vector<unsigned char> randomize(const std::vector<unsigned char>& input) {
 }
 
 unsigned long zclValueLength(unsigned char type, const std::vector<unsigned char>& message, unsigned long offset) {
-    if (type == 0x10 || type == 0x20 || type == 0x28 || type == 0x30) return 1;
+    if (type == 0x08 || type == 0x10 || type == 0x18 || type == 0x20 || type == 0x28 || type == 0x30) return 1;
     if (type == 0x21 || type == 0x29 || type == 0x31) return 2;
     if (type == 0x23 || type == 0x2b || type == 0x39) return 4;
     if (type == 0x42 && offset < message.size()) return 1 + message[offset];
@@ -52,7 +52,7 @@ Gateway::Gateway(const std::string& serialDevice, int serialBaud, const std::str
     serialDevice_(serialDevice), serialBaud_(serialBaud), runtimeDirectory_(runtimeDirectory),
     firebaseServiceAccount_(firebaseServiceAccount), firebaseTopic_(firebaseTopic), caBundle_(caBundle), serialFd_(-1),
     online_(false), joinUntil_(0), joinPermitRenewAt_(0), pendingJoinSeconds_(0), joinPreparationStep_(0), ashSendSequence_(0), ashReceiveSequence_(0), ezspSequence_(0),
-    ezspVersion_(4), ezspVersionNegotiated_(false), resetDeadline_(0), networkForming_(false), networkFormed_(false), networkPanId_(0),
+    ezspVersion_(4), zdoSequence_(0), zclTransactionSequence_(0), ezspVersionNegotiated_(false), resetDeadline_(0), networkForming_(false), networkFormed_(false), networkPanId_(0),
     networkChannel_(0) {
 }
 
@@ -703,6 +703,7 @@ void Gateway::registerNode(unsigned short nodeId, const unsigned char* eui64) {
     std::ostringstream message;
     message << "Device announced: " << address.str() << " (0x" << std::hex << nodeId << ")";
     addLog(message.str());
+    requestActiveEndpoints(nodeId);
 }
 
 int Gateway::allocateIasZoneId(const std::string& ieeeAddress) {
@@ -738,6 +739,32 @@ void Gateway::sendIasEnrollResponse(unsigned short destination, unsigned char so
     sendApsUnicast(destination, 0x0104, 0x0500, sourceEndpoint, destinationEndpoint, response);
 }
 
+void Gateway::requestActiveEndpoints(unsigned short destination) {
+    std::vector<unsigned char> request;
+    request.push_back(zdoSequence_++);
+    request.push_back(static_cast<unsigned char>(destination));
+    request.push_back(static_cast<unsigned char>(destination >> 8));
+    sendApsUnicast(destination, 0x0000, 0x0005, 0, 0, request);
+}
+
+void Gateway::sendZclReadAttribute(unsigned short destination, unsigned char endpoint, unsigned short cluster,
+                                   unsigned short attribute) {
+    std::vector<unsigned char> request;
+    request.push_back(0x10); /* global command, client-to-server, disable default response */
+    request.push_back(zclTransactionSequence_++);
+    request.push_back(0x00); /* Read Attributes */
+    request.push_back(static_cast<unsigned char>(attribute));
+    request.push_back(static_cast<unsigned char>(attribute >> 8));
+    sendApsUnicast(destination, 0x0104, cluster, 1, endpoint, request);
+}
+
+void Gateway::requestStandardAttributes(unsigned short destination, unsigned char endpoint) {
+    sendZclReadAttribute(destination, endpoint, 0x0001, 0x0021); /* battery percentage */
+    sendZclReadAttribute(destination, endpoint, 0x0402, 0x0000); /* temperature */
+    sendZclReadAttribute(destination, endpoint, 0x0405, 0x0000); /* humidity */
+    sendZclReadAttribute(destination, endpoint, 0x0406, 0x0000); /* occupancy */
+}
+
 void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
     unsigned short cluster;
     unsigned short sender;
@@ -758,6 +785,16 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
         unsigned short announcedNode = static_cast<unsigned short>(message[1]) |
                                       (static_cast<unsigned short>(message[2]) << 8);
         registerNode(announcedNode, &message[3]);
+        return;
+    }
+    if (cluster == 0x8005 && message.size() >= 5 && message[1] == 0) {
+        unsigned long endpoint;
+        unsigned long count = message[4];
+        if (message.size() < 5 + count) return;
+        for (endpoint = 0; endpoint < count; ++endpoint) {
+            requestStandardAttributes(sender, message[5 + endpoint]);
+        }
+        addLog("Read standard attributes from announced device");
         return;
     }
     address = nodeAddresses_.find(sender);
@@ -784,6 +821,13 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
     } else if (cluster == 0x0500 && command == 0x00 && message.size() >= zclOffset + 2) {
         std::vector<unsigned char> zone(message.begin() + zclOffset, message.end());
         applyIasZoneStatus(address->second, zone);
+    } else if (command == 0x01) {
+        std::vector<unsigned char> records(message.begin() + zclOffset, message.end());
+        bool wasOpen = devices_[address->second].contactOpen;
+        if (applyZclReadAttributeResponse(&devices_[address->second], cluster, records, time(0))) {
+            updateContactAlert(address->second, wasOpen);
+            saveState();
+        }
     } else if (command == 0x0a) {
         unsigned long attributeOffset = zclOffset;
         while (attributeOffset + 3 <= message.size()) {
