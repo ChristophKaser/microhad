@@ -138,6 +138,15 @@ static void testJoinStatusJson() {
     assert(gateway.statusJson().find("\"joining_preparing\":false") != std::string::npos);
 }
 
+static void testRamLog() {
+    std::string error;
+    unlink("/tmp/microhad-zigbee-native.log");
+    Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+    assert(!gateway.setJoining(300, &error));
+    assert(gateway.logsJson().find("Pairing request rejected: coordinator offline") != std::string::npos);
+    unlink("/tmp/microhad-zigbee-native.log");
+}
+
 static void testImmediateContactNotification() {
     std::ostringstream path;
     std::string error;
@@ -182,6 +191,7 @@ int main() {
     testNetworkPersistence();
     testGenericCapabilities();
     testJoinStatusJson();
+    testRamLog();
     testImmediateContactNotification();
     testFcmMessageConstruction();
     printf("unit tests passed\n");

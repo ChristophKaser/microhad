@@ -119,6 +119,8 @@ void HttpServer::handleClient(int clientFd) {
     request.assign(buffer);
     if (request.find("GET /api/status ") == 0) {
         writeResponse(clientFd, 200, "application/json", gateway_->statusJson());
+    } else if (request.find("GET /api/logs ") == 0) {
+        writeResponse(clientFd, 200, "application/json", gateway_->logsJson());
     } else if (request.find("POST /api/join ") == 0) {
         std::string error;
         if (gateway_->setJoining(300, &error)) writeResponse(clientFd, 200, "application/json", "{\"ok\":true,\"seconds\":300,\"state\":\"preparing\"}");
@@ -189,6 +191,15 @@ void HttpServer::handleClient(int clientFd) {
         std::string newJoinState = "var left=Math.max(0,v.joining_until-Math.floor(Date.now()/1000)),preparing=v.joining_preparing;document.getElementById('join-state').textContent=left?'Joining enabled: pair a sensor within '+Math.ceil(left/60)+' minute(s).':preparing?'Preparing secure pairing…':'Joining is closed.';document.getElementById('join').textContent=left?'Extend joining (5 min)':preparing?'Preparing…':'Allow joining (5 min)';";
         markerAt = dashboard.find(oldJoinState);
         if (markerAt != std::string::npos) dashboard.replace(markerAt, oldJoinState.size(), newJoinState);
+        markerAt = dashboard.find("<div id=devices></div>");
+        if (markerAt != std::string::npos) {
+            dashboard.replace(markerAt, strlen("<div id=devices></div>"),
+                              "<div id=devices></div><details open><summary>Live coordinator log</summary><pre id=logs style='max-height:16rem;overflow:auto;white-space:pre-wrap'></pre></details>");
+        }
+        markerAt = dashboard.find("</script>");
+        if (markerAt != std::string::npos) {
+            dashboard.insert(markerAt, "function updateLogs(){fetch('/api/logs').then(function(r){return r.json()}).then(function(v){document.getElementById('logs').textContent=v.lines.join('\\n')})}updateLogs();setInterval(updateLogs,1000);");
+        }
         writeResponse(clientFd, 200, "text/html; charset=utf-8", dashboard);
     } else {
         writeResponse(clientFd, 400, "application/json", "{\"error\":\"unknown endpoint\"}");

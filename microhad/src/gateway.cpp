@@ -101,10 +101,13 @@ bool Gateway::start(std::string* error) {
     if (!ensureDirectory(runtimeDirectory_, error)) {
         return false;
     }
+    loadLogs();
     loadState();
     if (!configureSerial(error)) {
+        addLog(std::string("Serial startup failed: ") + *error);
         return false;
     }
+    addLog(std::string("Gateway starting on ") + serialDevice_);
     sendAshReset();
     return true;
 }
@@ -163,10 +166,12 @@ std::string Gateway::runtimeDirectory() const {
 bool Gateway::setJoining(unsigned int seconds, std::string* error) {
     if (!online_) {
         *error = "Zigbee coordinator is offline";
+        addLog("Pairing request rejected: coordinator offline");
         return false;
     }
     if (seconds > 3600) {
         *error = "joining window must not exceed one hour";
+        addLog("Pairing request rejected: duration exceeds one hour");
         return false;
     }
     if (seconds == 0) {
@@ -175,6 +180,7 @@ bool Gateway::setJoining(unsigned int seconds, std::string* error) {
         joinPermitRenewAt_ = 0;
         pendingJoinSeconds_ = 0;
         joinPreparationStep_ = 0;
+        addLog("Pairing closed");
     } else if (ezspVersion_ >= 8) {
         std::vector<unsigned char> payload;
         static const char key[] = "ZigBeeAlliance09";
@@ -183,6 +189,7 @@ bool Gateway::setJoining(unsigned int seconds, std::string* error) {
         for (i = 0; i < sizeof(key) - 1; ++i) payload.push_back(static_cast<unsigned char>(key[i]));
         pendingJoinSeconds_ = seconds;
         joinPreparationStep_ = 1;
+        addLog("Preparing secure pairing window");
         sendEzspCommand(0x00af, payload); /* addTransientLinkKey */
     } else {
         beginJoinWindow(seconds);
@@ -196,6 +203,7 @@ bool Gateway::createFreshNetwork(std::string* error) {
     if (!generateNetworkMaterial(error)) return false;
     networkForming_ = true;
     networkFormed_ = false;
+    addLog("Creating a fresh Zigbee network");
     sendEzspCommand(0x00b1, std::vector<unsigned char>()); /* clearKeyTable */
     return true;
 }
@@ -286,6 +294,7 @@ bool Gateway::emitNotification(const std::string& title, const std::string& body
     bool configured = false;
     bool delivered = false;
     std::string failures;
+    addLog(std::string("Notification queued: ") + title + " - " + body);
     if (output) output << "{\"title\":\"" << jsonEscape(title) << "\",\"body\":\""
                        << jsonEscape(body) << "\",\"timestamp\":" << time(0) << "}\n";
     if (!firebaseServiceAccount_.empty() && !firebaseTopic_.empty() && !caBundle_.empty()) {
@@ -351,6 +360,43 @@ std::string Gateway::statusJson() const {
     }
     json << "]}";
     return json.str();
+}
+
+std::string Gateway::logsJson() const {
+    std::ostringstream json;
+    unsigned long i;
+    json << "{\"lines\":[";
+    for (i = 0; i < logs_.size(); ++i) {
+        if (i != 0) json << ',';
+        json << "\"" << jsonEscape(logs_[i]) << "\"";
+    }
+    json << "]}";
+    return json.str();
+}
+
+void Gateway::loadLogs() {
+    std::ifstream input("/tmp/microhad-zigbee-native.log");
+    std::string line;
+    while (std::getline(input, line)) {
+        if (!line.empty()) logs_.push_back(line);
+    }
+    while (logs_.size() > 128) logs_.erase(logs_.begin());
+}
+
+void Gateway::saveLogs() const {
+    std::ofstream output("/tmp/microhad-zigbee-native.log", std::ios::trunc);
+    unsigned long i;
+    if (!output) return;
+    for (i = 0; i < logs_.size(); ++i) output << logs_[i] << "\n";
+}
+
+void Gateway::addLog(const std::string& message) {
+    std::ostringstream line;
+    std::string rendered = message.substr(0, 240);
+    line << time(0) << " " << rendered;
+    logs_.push_back(line.str());
+    while (logs_.size() > 128) logs_.erase(logs_.begin());
+    saveLogs();
 }
 
 void Gateway::loadState() {
@@ -460,6 +506,9 @@ void Gateway::beginJoinWindow(unsigned int seconds) {
     joinPermitRenewAt_ = time(0) + (duration > 240 ? 240 : duration);
     pendingJoinSeconds_ = 0;
     joinPreparationStep_ = 0;
+    std::ostringstream message;
+    message << "Pairing enabled for " << seconds << " seconds";
+    addLog(message.str());
 }
 
 void Gateway::handleAshFrame(const std::vector<unsigned char>& frame) {
@@ -546,6 +595,7 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
             sendEzspCommand(0x0055, policy);
         } else {
             fprintf(stderr, "cannot add Zigbee transient joining key: 0x%02x\n", frame[payloadOffset]);
+            addLog("Cannot add Zigbee transient joining key");
             joinPreparationStep_ = 0;
             pendingJoinSeconds_ = 0;
         }
@@ -555,6 +605,7 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
         if (frame[payloadOffset] == 0) beginJoinWindow(pendingJoinSeconds_);
         else {
             fprintf(stderr, "cannot set Zigbee join policy: 0x%02x\n", frame[payloadOffset]);
+            addLog("Cannot set Zigbee join policy");
             joinPreparationStep_ = 0;
             pendingJoinSeconds_ = 0;
         }
@@ -562,6 +613,7 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
     }
     if (command == 0x0022 && frame[payloadOffset] != 0) {
         fprintf(stderr, "EZSP permit joining failed: 0x%02x\n", frame[payloadOffset]);
+        addLog("Coordinator rejected pairing permit");
         joinUntil_ = 0;
         joinPermitRenewAt_ = 0;
     }
@@ -629,6 +681,7 @@ void Gateway::continueNetworkFormation(unsigned short completedCommand) {
         network.networkKey = networkKey_;
         network.preconfiguredKey = preconfiguredKey_;
         saveNetworkState(runtimeDirectory_ + "/network.json", network, &ignored);
+        addLog("Fresh Zigbee network formed");
     }
 }
 
@@ -647,6 +700,9 @@ void Gateway::registerNode(unsigned short nodeId, const unsigned char* eui64) {
         device.lastSeen = time(0);
     }
     saveState();
+    std::ostringstream message;
+    message << "Device announced: " << address.str() << " (0x" << std::hex << nodeId << ")";
+    addLog(message.str());
 }
 
 int Gateway::allocateIasZoneId(const std::string& ieeeAddress) {

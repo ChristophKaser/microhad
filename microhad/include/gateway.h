@@ -53,6 +53,7 @@ public:
     bool sendTestNotification(std::string* error);
     std::vector<Device> devices() const;
     std::string statusJson() const;
+    std::string logsJson() const;
 
 private:
     std::string serialDevice_;
@@ -85,6 +86,7 @@ private:
     std::map<unsigned short, std::string> nodeAddresses_;
     std::map<std::string, long> contactOpenedAt_;
     std::map<std::string, long> nextContactAlertAt_;
+    std::vector<std::string> logs_;
     bool configureSerial(std::string* error);
     bool writeBytes(const std::vector<unsigned char>& bytes);
     void sendAshReset();
@@ -107,6 +109,9 @@ private:
     void updateContactAlert(const std::string& ieeeAddress, bool wasOpen);
     void updateTemperatureAlert(const Device& device, bool hadTemperature, double previousTemperature);
     bool emitNotification(const std::string& title, const std::string& body, std::string* error);
+    void addLog(const std::string& message);
+    void loadLogs();
+    void saveLogs() const;
     void loadState();
     void saveState() const;
 };
