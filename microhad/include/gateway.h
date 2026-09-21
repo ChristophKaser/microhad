@@ -77,6 +77,7 @@ private:
     long joinPermitRenewAt_;
     unsigned int pendingJoinSeconds_;
     unsigned char joinPreparationStep_;
+    long joinPreparationDeadline_;
     AshTransport ash_;
     unsigned char ashSendSequence_;
     unsigned char ashReceiveSequence_;

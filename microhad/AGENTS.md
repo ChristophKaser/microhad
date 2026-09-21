@@ -59,6 +59,14 @@ curl --connect-timeout 5 --max-time 8 -sS http://192.168.178.62/api/logs
 curl --connect-timeout 5 --max-time 8 -k -sS https://192.168.178.62/api/status
 ```
 
+The dashboard's **Restart service** button uses the following endpoint. It
+gracefully restarts only the supervised native daemon; it does not reboot the
+device or replace Zigbee state:
+
+```sh
+curl --connect-timeout 5 --max-time 8 -sS -X POST http://192.168.178.62/api/service/restart
+```
+
 The dashboard serves HTTP on port 80 and HTTPS on port 443. The coordinator
 thread is the sole owner of the NCP serial connection and `Gateway` state.
 Each HTTP listener has an acceptor plus two request workers; all mutations use
@@ -78,6 +86,10 @@ off.
 A contact opening is only an alert candidate. Its per-device settings default
 to a ten-minute first `Window open` notification and five-minute reminders;
 closing it cancels the pending alert.
+
+Secure join preparation waits at most ten seconds for each NCP policy reply.
+If one is lost, preparation is cancelled and the dashboard permits another
+joining request instead of remaining stuck indefinitely.
 
 Coordinator logs are intentionally kept in `/tmp/microhad-zigbee-native.log`, a
 bounded 512-line RAM-only ring. Permanent radio captures belong under the

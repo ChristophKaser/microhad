@@ -54,7 +54,7 @@ Gateway::Gateway(const std::string& serialDevice, int serialBaud, const std::str
                  NotificationWorker* notificationWorker) :
     serialDevice_(serialDevice), serialBaud_(serialBaud), runtimeDirectory_(runtimeDirectory),
     firebaseServiceAccount_(firebaseServiceAccount), firebaseTopic_(firebaseTopic), caBundle_(caBundle), notificationWorker_(notificationWorker), serialFd_(-1),
-    online_(false), joinUntil_(0), joinPermitRenewAt_(0), pendingJoinSeconds_(0), joinPreparationStep_(0), ashSendSequence_(0), ashReceiveSequence_(0), ezspSequence_(0),
+    online_(false), joinUntil_(0), joinPermitRenewAt_(0), pendingJoinSeconds_(0), joinPreparationStep_(0), joinPreparationDeadline_(0), ashSendSequence_(0), ashReceiveSequence_(0), ezspSequence_(0),
     ezspVersion_(4), zdoSequence_(0), zclTransactionSequence_(0), ezspVersionNegotiated_(false), stackTokenWritingRequested_(false), networkInitRequested_(false), coordinatorInitializationStep_(0), resetDeadline_(0), nextHeartbeatAt_(0), serialRxBytes_(0), ashRxFrames_(0), networkForming_(false), networkFormationStep_(0), networkFormed_(false), networkPanId_(0),
     networkChannel_(0) {
 }
@@ -142,6 +142,12 @@ void Gateway::poll() {
         nextHeartbeatAt_ = time(0) + 20;
     }
     if (!online_ && resetDeadline_ != 0 && time(0) >= resetDeadline_) sendAshReset();
+    if (joinPreparationStep_ != 0 && joinPreparationDeadline_ != 0 && time(0) >= joinPreparationDeadline_) {
+        addLog("Secure pairing preparation timed out; try allowing joining again");
+        joinPreparationStep_ = 0;
+        joinPreparationDeadline_ = 0;
+        pendingJoinSeconds_ = 0;
+    }
     if (joinUntil_ != 0 && time(0) >= joinUntil_) {
         sendJoinPermit(0);
         joinUntil_ = 0;
@@ -190,10 +196,12 @@ bool Gateway::setJoining(unsigned int seconds, std::string* error) {
         joinPermitRenewAt_ = 0;
         pendingJoinSeconds_ = 0;
         joinPreparationStep_ = 0;
+        joinPreparationDeadline_ = 0;
         addLog("Pairing closed");
     } else if (ezspVersion_ >= 8) {
         pendingJoinSeconds_ = seconds;
         joinPreparationStep_ = 1;
+        joinPreparationDeadline_ = time(0) + 10;
         std::vector<unsigned char> policy;
         policy.push_back(6); /* APP_KEY_REQUEST_POLICY */
         policy.push_back(0x60); policy.push_back(0x00); /* allow app-key requests */
@@ -654,6 +662,7 @@ void Gateway::beginJoinWindow(unsigned int seconds) {
     joinPermitRenewAt_ = time(0) + (duration > 240 ? 240 : duration);
     pendingJoinSeconds_ = 0;
     joinPreparationStep_ = 0;
+    joinPreparationDeadline_ = 0;
     std::ostringstream message;
     message << "Pairing enabled for " << seconds << " seconds";
     addLog(message.str());
@@ -828,11 +837,13 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
             policy.push_back(5); /* TC_KEY_REQUEST_POLICY */
             policy.push_back(0x51); policy.push_back(0x00); /* permit global trust-center key requests */
             joinPreparationStep_ = 2;
+            joinPreparationDeadline_ = time(0) + 10;
             sendEzspCommand(0x0055, policy);
         } else {
             fprintf(stderr, "cannot set Zigbee application-key policy: 0x%02x\n", frame[payloadOffset]);
             addLog("Cannot set Zigbee application-key policy");
             joinPreparationStep_ = 0;
+            joinPreparationDeadline_ = 0;
             pendingJoinSeconds_ = 0;
         }
         return;
@@ -845,6 +856,7 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
             for (i = 0; i < 8; ++i) payload.push_back(0xff); /* wildcard EUI64 */
             for (i = 0; i < sizeof(key) - 1; ++i) payload.push_back(static_cast<unsigned char>(key[i]));
             joinPreparationStep_ = 3;
+            joinPreparationDeadline_ = time(0) + 10;
             addLog("Preparing secure pairing window");
             sendEzspCommand(0x00af, payload); /* addTransientLinkKey */
         }
@@ -852,6 +864,7 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
             fprintf(stderr, "cannot set Zigbee trust-center key policy: 0x%02x\n", frame[payloadOffset]);
             addLog("Cannot set Zigbee trust-center key policy");
             joinPreparationStep_ = 0;
+            joinPreparationDeadline_ = 0;
             pendingJoinSeconds_ = 0;
         }
         return;
@@ -862,11 +875,13 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
             policy.push_back(0); /* TRUST_CENTER_POLICY */
             policy.push_back(3); policy.push_back(0); /* allow joins and unsecured rejoins */
             joinPreparationStep_ = 4;
+            joinPreparationDeadline_ = time(0) + 10;
             sendEzspCommand(0x0055, policy);
         } else {
             fprintf(stderr, "cannot add Zigbee transient joining key: 0x%02x\n", frame[payloadOffset]);
             addLog("Cannot add Zigbee transient joining key");
             joinPreparationStep_ = 0;
+            joinPreparationDeadline_ = 0;
             pendingJoinSeconds_ = 0;
         }
         return;
@@ -877,6 +892,7 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
             fprintf(stderr, "cannot set Zigbee join policy: 0x%02x\n", frame[payloadOffset]);
             addLog("Cannot set Zigbee join policy");
             joinPreparationStep_ = 0;
+            joinPreparationDeadline_ = 0;
             pendingJoinSeconds_ = 0;
         }
         return;
