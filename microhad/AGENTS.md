@@ -32,6 +32,11 @@ before notification audit/outbox handling and before the notification-worker
 queue, so contact events do not exercise delivery-related code while push is
 off.
 
+A contact opening is only an alert candidate. It must remain open for ten
+minutes before the first `Window open` notification; closing it cancels that
+pending alert. While it remains open, later reminders are sent every five
+minutes.
+
 Coordinator logs are intentionally kept in `/tmp/microhad-zigbee-native.log`, a
 bounded 512-line RAM-only ring. Permanent radio captures belong under the
 ignored `diagnostics/` directory and must never be committed.
