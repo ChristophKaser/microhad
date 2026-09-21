@@ -301,7 +301,8 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
         if (refreshAt != std::string::npos) {
             std::string ieeeAddress = decodeComponent(request.substr(prefix.size(), refreshAt - prefix.size()));
             std::string error;
-            if (gateway_->refreshDevice(ieeeAddress, &error)) writeResponse(clientFd, 200, "application/json", "{\"ok\":true}");
+            if (gateway_->refreshDevice(ieeeAddress, &error))
+                writeResponse(clientFd, 200, "application/json", "{\"ok\":true,\"message\":\"Refresh request sent. Battery sensors reply when they wake up.\"}");
             else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + jsonEscape(error) + "\"}");
         } else if (bodyAt == std::string::npos || settingsAt == std::string::npos) {
             writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"invalid device settings request\"}");
@@ -353,7 +354,7 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
         std::string::size_type refreshMarkerAt = dashboard.find(refreshMarker);
         if (refreshMarkerAt != std::string::npos) {
             dashboard.insert(refreshMarkerAt,
-                             "function refreshDevice(i){var d=currentDevices[i];post('/api/devices/'+encodeURIComponent(d.ieee_address)+'/refresh')}");
+                             "function refreshDevice(i){var d=currentDevices[i];fetch('/api/devices/'+encodeURIComponent(d.ieee_address)+'/refresh',{method:'POST'}).then(function(r){return r.json()}).then(function(v){if(!v.ok)throw Error(v.error||'Refresh failed');alert(v.message||'Refresh request sent');return update()}).catch(function(e){alert(e.message)})}");
         }
         std::string createButton = "<button onclick=\"post('/api/network/create')\">Create fresh network</button>";
         std::string confirmedCreateButton = "<button onclick=\"openNetworkConfirmation()\">Create fresh network</button>";

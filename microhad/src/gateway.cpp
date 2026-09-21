@@ -142,7 +142,7 @@ void Gateway::poll() {
         nextHeartbeatAt_ = time(0) + 20;
     }
     if (!online_ && resetDeadline_ != 0 && time(0) >= resetDeadline_) sendAshReset();
-    if (online_ && !pendingAttributeReads_.empty() &&
+    if (online_ && networkFormed_ && coordinatorInitializationStep_ == 0 && !pendingAttributeReads_.empty() &&
         (nextAttributeReadAt_ == 0 || time(0) >= nextAttributeReadAt_)) {
         AttributeReadRequest request = pendingAttributeReads_.front();
         pendingAttributeReads_.erase(pendingAttributeReads_.begin());
@@ -153,7 +153,7 @@ void Gateway::poll() {
         } else sendZclReadAttribute(request.destination, request.endpoint, request.cluster, request.attribute);
         nextAttributeReadAt_ = time(0) + 1;
     }
-    if (online_ && pendingAttributeReads_.empty()) {
+    if (online_ && networkFormed_ && coordinatorInitializationStep_ == 0 && pendingAttributeReads_.empty()) {
         std::map<unsigned short, std::string>::const_iterator node;
         long now = time(0);
         for (node = nodeAddresses_.begin(); node != nodeAddresses_.end(); ++node) {
@@ -209,6 +209,11 @@ bool Gateway::setJoining(unsigned int seconds, std::string* error) {
         addLog("Pairing request rejected: coordinator offline");
         return false;
     }
+    if (!networkFormed_ || coordinatorInitializationStep_ != 0) {
+        *error = "Zigbee network is not ready";
+        addLog("Pairing request rejected: Zigbee network not ready");
+        return false;
+    }
     if (seconds > 3600) {
         *error = "joining window must not exceed one hour";
         addLog("Pairing request rejected: duration exceeds one hour");
@@ -240,6 +245,10 @@ bool Gateway::setJoining(unsigned int seconds, std::string* error) {
 bool Gateway::createFreshNetwork(std::string* error) {
     bool leaveExisting;
     if (!online_) { *error = "Zigbee coordinator is offline"; return false; }
+    if (!networkInitRequested_ || coordinatorInitializationStep_ != 0) {
+        *error = "Zigbee coordinator is still starting";
+        return false;
+    }
     if (networkForming_) { *error = "network creation is already in progress"; return false; }
     if (!generateNetworkMaterial(error)) return false;
     networkForming_ = true;
@@ -310,7 +319,11 @@ bool Gateway::setDeviceSettings(const std::string& ieeeAddress, const std::strin
 bool Gateway::refreshDevice(const std::string& ieeeAddress, std::string* error) {
     std::map<std::string, Device>::const_iterator device = devices_.find(ieeeAddress);
     if (device == devices_.end()) { *error = "device is unknown"; return false; }
-    if (!online_) { *error = "Zigbee coordinator is offline"; return false; }
+    if (!online_ || !networkFormed_ || coordinatorInitializationStep_ != 0) {
+        *error = "Zigbee network is not ready";
+        addLog(std::string("Manual refresh rejected; Zigbee network not ready: ") + ieeeAddress);
+        return false;
+    }
     if (device->second.networkAddress == 0xffff) { *error = "device has no active network address"; return false; }
     requestActiveEndpoints(device->second.networkAddress);
     nextSensorRefreshAt_[device->second.networkAddress] = time(0) + 300;
@@ -541,6 +554,9 @@ void Gateway::sendAshReset() {
     reset.insert(reset.begin(), 0x1a);
     ash_.reset();
     online_ = false;
+    /* Persistent state describes the intended network.  Do not send traffic
+       until this NCP boot reports NETWORK_UP. */
+    networkFormed_ = false;
     nextHeartbeatAt_ = 0;
     writeBytes(reset);
     resetDeadline_ = time(0) + 5;
@@ -864,6 +880,14 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
                     << static_cast<unsigned int>(frame[payloadOffset]);
             addLog(message.str());
         }
+        return;
+    }
+    if (command == 0x0034 && frame[payloadOffset] == 0x91) {
+        /* EMBER_NETWORK_DOWN: stop advertising the saved state as live and
+           hold subsequent refreshes until the NCP reports NETWORK_UP. */
+        networkFormed_ = false;
+        pendingAttributeReads_.clear();
+        addLog("NCP rejected Zigbee transmit: network is down");
         return;
     }
     if (joinPreparationStep_ == 1 && command == 0x0055) {
