@@ -16,6 +16,43 @@ The permanent device service is `/tuya/tuya_start.sh`; its executable and
 configuration live in `/tuya/native`. Never commit device configuration,
 credentials, TLS keys, persistent network state, or Zigbee keys.
 
+## Device build, deployment, and checks
+
+The development gateway is `192.168.178.62`. From this directory, use the
+untracked password file only by pathname:
+
+```sh
+make host test
+make mips
+./deploy.sh --host 192.168.178.62 --password-file ../ssh_password.txt \
+  --config /secure/path/config.json --target /tuya/native --activate
+```
+
+Deployment atomically replaces the files but deliberately does not restart the
+daemon. For an explicitly requested in-device activation, first identify the
+current launcher and native leader, then restart only those exact PIDs (the
+remaining matching entries are threads and must not be killed separately):
+
+```sh
+sshpass -f ../ssh_password.txt ssh -o ConnectTimeout=8 -o StrictHostKeyChecking=yes \
+  -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa \
+  -o PreferredAuthentications=password -o PubkeyAuthentication=no root@192.168.178.62 'ps w'
+# Replace LAUNCHER_PID and NATIVE_LEADER_PID with the two PIDs just inspected.
+sshpass -f ../ssh_password.txt ssh -o ConnectTimeout=8 -o StrictHostKeyChecking=yes \
+  -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa \
+  -o PreferredAuthentications=password -o PubkeyAuthentication=no root@192.168.178.62 \
+  'kill LAUNCHER_PID NATIVE_LEADER_PID; sleep 1; /tuya/tuya_start.sh >/tmp/microhad-native-launch.log 2>&1 &'
+```
+
+Check the external dashboard rather than using `curl` on the device (it is not
+installed there):
+
+```sh
+curl --connect-timeout 5 --max-time 8 -sS http://192.168.178.62/api/status
+curl --connect-timeout 5 --max-time 8 -sS http://192.168.178.62/api/logs
+curl --connect-timeout 5 --max-time 8 -k -sS https://192.168.178.62/api/status
+```
+
 The dashboard serves HTTP on port 80 and HTTPS on port 443. The coordinator
 thread is the sole owner of the NCP serial connection and `Gateway` state.
 Each HTTP listener has an acceptor plus two request workers; all mutations use
