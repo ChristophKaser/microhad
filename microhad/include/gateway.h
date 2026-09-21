@@ -163,6 +163,7 @@ private:
     void saveLogs() const;
     void loadState();
     void saveState() const;
+    void savePersistentState() const;
 };
 
 #endif

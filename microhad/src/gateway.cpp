@@ -47,6 +47,17 @@ unsigned long zclValueLength(unsigned char type, const std::vector<unsigned char
     }
     return 0;
 }
+
+void clearVolatileDeviceValues(Device* device) {
+    device->contactOpen = false;
+    device->temperatureCelsius = 0;
+    device->humidityPercent = 0;
+    device->occupied = false;
+    device->hasBattery = false;
+    device->batteryPercent = 0;
+    device->linkQuality = 0;
+    device->lastSeen = 0;
+}
 }
 
 Gateway::Gateway(const std::string& serialDevice, int serialBaud, const std::string& runtimeDirectory,
@@ -160,9 +171,9 @@ void Gateway::poll() {
             std::map<std::string, Device>::const_iterator device = devices_.find(node->second);
             if (device == devices_.end() || (!device->second.hasTemperature && !device->second.hasHumidity)) continue;
             if (nextSensorRefreshAt_[node->first] > now) continue;
-            requestActiveEndpoints(node->first);
+            requestRefreshAttributes(node->first, 1);
             nextSensorRefreshAt_[node->first] = now + 300;
-            addLog("Queued periodic sensor refresh");
+            addLog("Queued periodic sensor attribute refresh");
             break; /* one sleepy-device request at a time */
         }
     }
@@ -313,6 +324,7 @@ bool Gateway::setDeviceSettings(const std::string& ieeeAddress, const std::strin
         }
     }
     saveState();
+    savePersistentState();
     return true;
 }
 
@@ -514,13 +526,22 @@ void Gateway::addHexLog(const std::string& direction, const unsigned char* bytes
 
 void Gateway::loadState() {
     std::vector<Device> saved;
+    std::vector<Device> volatileValues;
     NetworkState network;
     std::string error;
     unsigned long i;
     if (loadDevices(runtimeDirectory_ + "/devices.json", &saved, &error)) {
         for (i = 0; i < saved.size(); ++i) {
+            clearVolatileDeviceValues(&saved[i]);
             devices_[saved[i].ieeeAddress] = saved[i];
             if (saved[i].networkAddress != 0xffff) nodeAddresses_[saved[i].networkAddress] = saved[i].ieeeAddress;
+        }
+    }
+    error.clear();
+    if (loadDevices("/tmp/microhad-zigbee-native-values.json", &volatileValues, &error)) {
+        for (i = 0; i < volatileValues.size(); ++i) {
+            if (devices_.find(volatileValues[i].ieeeAddress) != devices_.end())
+                devices_[volatileValues[i].ieeeAddress] = volatileValues[i];
         }
     }
     error.clear();
@@ -537,6 +558,14 @@ void Gateway::loadState() {
 void Gateway::saveState() const {
     std::vector<Device> saved = devices();
     std::string ignored;
+    saveDevices("/tmp/microhad-zigbee-native-values.json", saved, &ignored);
+}
+
+void Gateway::savePersistentState() const {
+    std::vector<Device> saved = devices();
+    std::string ignored;
+    unsigned long i;
+    for (i = 0; i < saved.size(); ++i) clearVolatileDeviceValues(&saved[i]);
     saveDevices(runtimeDirectory_ + "/devices.json", saved, &ignored);
 }
 
@@ -1060,6 +1089,7 @@ void Gateway::registerNode(unsigned short nodeId, const unsigned char* eui64) {
         device.lastSeen = time(0);
     }
     saveState();
+    savePersistentState();
     std::ostringstream message;
     message << "Device announced: " << address.str() << " (0x" << std::hex << nodeId << ")";
     addLog(message.str());
@@ -1081,6 +1111,7 @@ int Gateway::allocateIasZoneId(const std::string& ieeeAddress) {
         if (!used) {
             devices_[ieeeAddress].iasZoneId = candidate;
             saveState();
+            savePersistentState();
             return candidate;
         }
     }
