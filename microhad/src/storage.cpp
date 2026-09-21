@@ -99,7 +99,9 @@ bool saveDevices(const std::string& filename, const std::vector<Device>& devices
                << (device.hasLowTemperatureAlert ? "true" : "false") << ",\"low_temperature_alert\":"
                << device.lowTemperatureAlert << ",\"has_high_temperature_alert\":"
                << (device.hasHighTemperatureAlert ? "true" : "false") << ",\"high_temperature_alert\":"
-               << device.highTemperatureAlert << "}";
+               << device.highTemperatureAlert << ",\"contact_initial_alert_minutes\":"
+               << device.contactInitialAlertMinutes << ",\"contact_reminder_alert_minutes\":"
+               << device.contactReminderAlertMinutes << "}";
         output << (i + 1 == devices.size() ? "\n" : ",\n");
     }
     output << "  ]\n}\n";
@@ -178,6 +180,10 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
             if (valueStart != std::string::npos) device.lowTemperatureAlert = atof(line.c_str() + valueStart + 24);
             valueStart = line.find("\"high_temperature_alert\":");
             if (valueStart != std::string::npos) device.highTemperatureAlert = atof(line.c_str() + valueStart + 25);
+            valueStart = line.find("\"contact_initial_alert_minutes\":");
+            if (valueStart != std::string::npos) device.contactInitialAlertMinutes = strtoul(line.c_str() + valueStart + 32, 0, 10);
+            valueStart = line.find("\"contact_reminder_alert_minutes\":");
+            if (valueStart != std::string::npos) device.contactReminderAlertMinutes = strtoul(line.c_str() + valueStart + 33, 0, 10);
             devices->push_back(device);
         }
     }

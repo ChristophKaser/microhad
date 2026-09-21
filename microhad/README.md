@@ -34,18 +34,26 @@ outside this repository.
 
 ## Deployment
 
-Build the target first, create a protected configuration outside the repository,
-then upload it with the Dropbear-compatible deployment script:
+Build the target first, then upload it with the Dropbear-compatible deployment
+script. By default this replaces only the target binary and retains its
+configuration and TLS files:
 
 ```sh
 make mips
 ./deploy.sh --host 192.168.178.62 --password-file ../ssh_password.txt \
-  --config /secure/path/config.json --target /tuya/native-test
+  --target /tuya/native-test
 ```
 
-The script stages both files below the selected `/tuya/` directory and renames
-them only after successful transfer. It does not stop low.js, serialgateway, or
-any native daemon; taking ownership of `/dev/ttyS1` is an explicit later step.
+Pass `--config` to atomically replace configuration as well:
+
+```sh
+./deploy.sh --host 192.168.178.62 --password-file ../ssh_password.txt \
+  --config /secure/path/config.json --target /tuya/native
+```
+
+The script stages selected files below the target and renames them only after
+successful transfer. It does not stop low.js, serialgateway, or any native
+daemon; taking ownership of `/dev/ttyS1` is an explicit later step.
 
 To make the native gateway the boot-time service, deploy to `/tuya/native`
 with `--activate`. This saves the previous `/tuya/tuya_start.sh` as

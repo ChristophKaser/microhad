@@ -31,6 +31,8 @@ struct Device {
     bool hasHighTemperatureAlert;
     double lowTemperatureAlert;
     double highTemperatureAlert;
+    unsigned long contactInitialAlertMinutes;
+    unsigned long contactReminderAlertMinutes;
     Device();
 };
 
@@ -47,12 +49,13 @@ public:
     std::string runtimeDirectory() const;
     bool setJoining(unsigned int seconds, std::string* error);
     bool createFreshNetwork(std::string* error);
-    bool renameDevice(const std::string& ieeeAddress, const std::string& name, std::string* error);
+    bool setDeviceSettings(const std::string& ieeeAddress, const std::string& name,
+                           bool hasLow, double low, bool hasHigh, double high,
+                           bool hasContactTimings, unsigned long initialAlertMinutes,
+                           unsigned long reminderAlertMinutes, std::string* error);
     bool applyAttributeReport(const std::string& ieeeAddress, unsigned short cluster, unsigned short attribute,
                               const std::vector<unsigned char>& value);
     bool applyIasZoneStatus(const std::string& ieeeAddress, const std::vector<unsigned char>& payload);
-    bool setTemperatureAlerts(const std::string& ieeeAddress, bool hasLow, double low, bool hasHigh, double high,
-                              std::string* error);
     bool sendTestNotification(std::string* error);
     bool notificationsEnabled() const;
     bool setNotificationsEnabled(bool enabled, std::string* error);

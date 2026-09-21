@@ -68,6 +68,8 @@ static void testDevicePersistence() {
     input.linkQuality = 91;
     input.lastSeen = 123456;
     input.iasZoneId = 17;
+    input.contactInitialAlertMinutes = 20;
+    input.contactReminderAlertMinutes = 7;
     devices.push_back(input);
     assert(saveDevices(filename, devices, &error));
     assert(loadDevices(filename, &loaded, &error));
@@ -82,7 +84,35 @@ static void testDevicePersistence() {
     assert(loaded[0].hasBattery && loaded[0].batteryPercent == input.batteryPercent);
     assert(loaded[0].linkQuality == input.linkQuality && loaded[0].lastSeen == input.lastSeen);
     assert(loaded[0].iasZoneId == input.iasZoneId);
+    assert(loaded[0].contactInitialAlertMinutes == 20 && loaded[0].contactReminderAlertMinutes == 7);
     unlink(filename.c_str());
+    rmdir(directory.c_str());
+}
+
+static void testDeviceSettings() {
+    std::ostringstream path;
+    std::string error;
+    std::vector<unsigned char> zone;
+    std::vector<unsigned char> temperature;
+    path << "/tmp/microhad-zigbee-settings-test-" << static_cast<long>(getpid());
+    std::string directory = path.str();
+    assert(ensureDirectory(directory, &error));
+    Gateway gateway("/dev/null", 115200, directory, "", "", "");
+    zone.push_back(1); zone.push_back(0);
+    temperature.push_back(0x1a); temperature.push_back(0x09);
+    assert(gateway.applyIasZoneStatus("0x00124b0000000004", zone));
+    assert(gateway.applyAttributeReport("0x00124b0000000004", 0x0402, 0x0000, temperature));
+    assert(gateway.setDeviceSettings("0x00124b0000000004", "Office window", true, 5, true, 30,
+                                     true, 20, 7, &error));
+    assert(gateway.statusJson().find("\"contact_initial_alert_minutes\":20") != std::string::npos);
+    assert(gateway.statusJson().find("\"contact_reminder_alert_minutes\":7") != std::string::npos);
+    assert(!gateway.setDeviceSettings("0x00124b0000000004", "Office window", true, 30, true, 5,
+                                      true, 20, 7, &error));
+    assert(error == "invalid temperature thresholds");
+    assert(!gateway.setDeviceSettings("0x00124b0000000004", "Office window", false, 0, false, 0,
+                                      true, 0, 7, &error));
+    assert(error == "invalid contact notification times");
+    unlink((directory + "/devices.json").c_str());
     rmdir(directory.c_str());
 }
 
@@ -219,6 +249,7 @@ int main() {
     testAshRoundTrip();
     testAshRejectsBadCrc();
     testDevicePersistence();
+    testDeviceSettings();
     testNetworkPersistence();
     testGenericCapabilities();
     testJoinStatusJson();

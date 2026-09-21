@@ -12,20 +12,22 @@ target=/tuya/native-test
 binary="$project_dir/build/mips/microhad-zigbee-native"
 password_file=""
 config=""
+binary_only=true
 activate=false
 certificate=""
 private_key=""
 ca_bundle=""
 
 usage() {
-    echo "usage: $0 --config PATH --password-file PATH [--host HOST] [--user USER] [--target DIR] [--binary PATH] [--tls-certificate PATH --tls-private-key PATH] [--ca-bundle PATH] [--activate]" >&2
+    echo "usage: $0 --password-file PATH [--config PATH | --binary-only] [--host HOST] [--user USER] [--target DIR] [--binary PATH] [--tls-certificate PATH --tls-private-key PATH] [--ca-bundle PATH] [--activate]" >&2
     exit 2
 }
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
-        --config) config=${2-}; shift 2 ;;
+        --config) config=${2-}; binary_only=false; shift 2 ;;
         --password-file) password_file=${2-}; shift 2 ;;
+        --binary-only) binary_only=true; shift ;;
         --host) host=${2-}; shift 2 ;;
         --user) user=${2-}; shift 2 ;;
         --target) target=${2-}; shift 2 ;;
@@ -38,7 +40,8 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 
-[ -n "$config" ] && [ -f "$config" ] || usage
+[ "$binary_only" = true ] || { [ -n "$config" ] && [ -f "$config" ]; } || usage
+[ "$binary_only" = false ] || [ -z "$config" ] || usage
 [ -n "$password_file" ] && [ -r "$password_file" ] || usage
 [ -x "$binary" ] || { echo "MIPS binary not found or not executable: $binary" >&2; exit 1; }
 [ -z "$certificate" ] || [ -f "$certificate" ] || usage
@@ -62,8 +65,12 @@ ssh_command() {
 printf 'Uploading native binary to %s:%s\n' "$host" "$target"
 ssh_command "mkdir -p \"$target\"; rm -f \"$target/.microhad-zigbee-native.new\" \"$target/.config.json.new\""
 ssh_command "dd of=\"$target/.microhad-zigbee-native.new\"" < "$binary"
-ssh_command "dd of=\"$target/.config.json.new\"" < "$config"
-ssh_command "chmod 700 \"$target/.microhad-zigbee-native.new\"; chmod 600 \"$target/.config.json.new\"; mv \"$target/.microhad-zigbee-native.new\" \"$target/tuya-zigbee-native\"; mv \"$target/.config.json.new\" \"$target/config.json\"; ls -l \"$target/tuya-zigbee-native\" \"$target/config.json\""
+if [ "$binary_only" = true ]; then
+    ssh_command "chmod 700 \"$target/.microhad-zigbee-native.new\"; mv \"$target/.microhad-zigbee-native.new\" \"$target/tuya-zigbee-native\"; ls -l \"$target/tuya-zigbee-native\""
+else
+    ssh_command "dd of=\"$target/.config.json.new\"" < "$config"
+    ssh_command "chmod 700 \"$target/.microhad-zigbee-native.new\"; chmod 600 \"$target/.config.json.new\"; mv \"$target/.microhad-zigbee-native.new\" \"$target/tuya-zigbee-native\"; mv \"$target/.config.json.new\" \"$target/config.json\"; ls -l \"$target/tuya-zigbee-native\" \"$target/config.json\""
+fi
 if [ -n "$certificate" ]; then
     ssh_command "mkdir -p \"$target/tls\"; dd of=\"$target/tls/.cert.pem.new\"" < "$certificate"
     ssh_command "dd of=\"$target/tls/.key.pem.new\"" < "$private_key"

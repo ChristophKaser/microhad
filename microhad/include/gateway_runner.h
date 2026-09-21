@@ -17,14 +17,15 @@ public:
     std::string runtimeDirectory() const;
     bool setJoining(unsigned int seconds, std::string* error);
     bool createFreshNetwork(std::string* error);
-    bool renameDevice(const std::string& ieeeAddress, const std::string& name, std::string* error);
-    bool setTemperatureAlerts(const std::string& ieeeAddress, bool hasLow, double low, bool hasHigh, double high,
-                              std::string* error);
+    bool setDeviceSettings(const std::string& ieeeAddress, const std::string& name,
+                           bool hasLow, double low, bool hasHigh, double high,
+                           bool hasContactTimings, unsigned long initialAlertMinutes,
+                           unsigned long reminderAlertMinutes, std::string* error);
     bool sendTestNotification(std::string* error);
     bool setNotificationsEnabled(bool enabled, std::string* error);
 
 private:
-    enum CommandType { Join, CreateNetwork, Rename, TemperatureAlert, TestNotification, NotificationSetting };
+    enum CommandType { Join, CreateNetwork, DeviceSettings, TestNotification, NotificationSetting };
     struct Command {
         CommandType type;
         unsigned int seconds;
@@ -34,6 +35,9 @@ private:
         double low;
         bool hasHigh;
         double high;
+        bool hasContactTimings;
+        unsigned long initialAlertMinutes;
+        unsigned long reminderAlertMinutes;
         bool result;
         bool complete;
         std::string error;

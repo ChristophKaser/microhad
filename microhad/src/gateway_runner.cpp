@@ -106,10 +106,12 @@ void GatewayRunner::execute(Command* command) {
     bool result = false;
     if (command->type == Join) result = gateway_->setJoining(command->seconds, &error);
     else if (command->type == CreateNetwork) result = gateway_->createFreshNetwork(&error);
-    else if (command->type == Rename) result = gateway_->renameDevice(command->address, command->name, &error);
-    else if (command->type == TemperatureAlert) result = gateway_->setTemperatureAlerts(command->address, command->hasLow,
-                                                                                         command->low, command->hasHigh,
-                                                                                         command->high, &error);
+    else if (command->type == DeviceSettings) result = gateway_->setDeviceSettings(command->address, command->name,
+                                                                                      command->hasLow, command->low,
+                                                                                      command->hasHigh, command->high,
+                                                                                      command->hasContactTimings,
+                                                                                      command->initialAlertMinutes,
+                                                                                      command->reminderAlertMinutes, &error);
     else if (command->type == TestNotification) result = gateway_->sendTestNotification(&error);
     else if (command->type == NotificationSetting) result = gateway_->setNotificationsEnabled(command->hasLow, &error);
     updateSnapshots();
@@ -152,7 +154,22 @@ std::string GatewayRunner::runtimeDirectory() const { return runtimeDirectory_; 
 
 bool GatewayRunner::setJoining(unsigned int seconds, std::string* error) { Command command; command.type = Join; command.seconds = seconds; return invoke(&command, error); }
 bool GatewayRunner::createFreshNetwork(std::string* error) { Command command; command.type = CreateNetwork; return invoke(&command, error); }
-bool GatewayRunner::renameDevice(const std::string& address, const std::string& name, std::string* error) { Command command; command.type = Rename; command.address = address; command.name = name; return invoke(&command, error); }
-bool GatewayRunner::setTemperatureAlerts(const std::string& address, bool hasLow, double low, bool hasHigh, double high, std::string* error) { Command command; command.type = TemperatureAlert; command.address = address; command.hasLow = hasLow; command.low = low; command.hasHigh = hasHigh; command.high = high; return invoke(&command, error); }
+bool GatewayRunner::setDeviceSettings(const std::string& address, const std::string& name,
+                                      bool hasLow, double low, bool hasHigh, double high,
+                                      bool hasContactTimings, unsigned long initialAlertMinutes,
+                                      unsigned long reminderAlertMinutes, std::string* error) {
+    Command command;
+    command.type = DeviceSettings;
+    command.address = address;
+    command.name = name;
+    command.hasLow = hasLow;
+    command.low = low;
+    command.hasHigh = hasHigh;
+    command.high = high;
+    command.hasContactTimings = hasContactTimings;
+    command.initialAlertMinutes = initialAlertMinutes;
+    command.reminderAlertMinutes = reminderAlertMinutes;
+    return invoke(&command, error);
+}
 bool GatewayRunner::sendTestNotification(std::string* error) { Command command; command.type = TestNotification; return invoke(&command, error); }
 bool GatewayRunner::setNotificationsEnabled(bool enabled, std::string* error) { Command command; command.type = NotificationSetting; command.hasLow = enabled; return invoke(&command, error); }

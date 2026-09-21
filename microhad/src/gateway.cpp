@@ -6,6 +6,7 @@
 #include "web_push.h"
 
 #include <cerrno>
+#include <climits>
 #include <cstdio>
 #include <cstring>
 #include <ctime>
@@ -20,7 +21,7 @@ Device::Device() : networkAddress(0xffff), kind("generic"), contactOpen(false), 
                    temperatureCelsius(0), hasHumidity(false), humidityPercent(0), hasOccupancy(false), occupied(false),
                    hasBattery(false), batteryPercent(0), linkQuality(0), lastSeen(0),
                    iasZoneId(-1), hasLowTemperatureAlert(false), hasHighTemperatureAlert(false), lowTemperatureAlert(0),
-                   highTemperatureAlert(0) {
+                   highTemperatureAlert(0), contactInitialAlertMinutes(10), contactReminderAlertMinutes(5) {
 }
 
 namespace {
@@ -159,7 +160,7 @@ void Gateway::poll() {
         std::map<std::string, Device>::const_iterator device = devices_.find(alert->first);
         if (device != devices_.end() && device->second.contactOpen && now >= alert->second) {
             emitNotification("Window open", device->second.name.empty() ? device->second.ieeeAddress : device->second.name, 0);
-            alert->second = now + 300;
+            alert->second = now + static_cast<long>(device->second.contactReminderAlertMinutes * 60);
         }
     }
 }
@@ -224,7 +225,10 @@ bool Gateway::createFreshNetwork(std::string* error) {
     return true;
 }
 
-bool Gateway::renameDevice(const std::string& ieeeAddress, const std::string& name, std::string* error) {
+bool Gateway::setDeviceSettings(const std::string& ieeeAddress, const std::string& name,
+                                bool hasLow, double low, bool hasHigh, double high,
+                                bool hasContactTimings, unsigned long initialAlertMinutes,
+                                unsigned long reminderAlertMinutes, std::string* error) {
     std::map<std::string, Device>::iterator it = devices_.find(ieeeAddress);
     if (it == devices_.end()) {
         *error = "device not found";
@@ -234,7 +238,39 @@ bool Gateway::renameDevice(const std::string& ieeeAddress, const std::string& na
         *error = "device name must be between 1 and 64 characters";
         return false;
     }
+    if (it->second.hasTemperature &&
+        ((hasLow && (low < -100 || low > 200)) || (hasHigh && (high < -100 || high > 200)) ||
+         (hasLow && hasHigh && low >= high))) {
+        *error = "invalid temperature thresholds";
+        return false;
+    }
+    if (it->second.hasContact) {
+        long now = time(0);
+        if (!hasContactTimings || initialAlertMinutes == 0 || reminderAlertMinutes == 0 ||
+            initialAlertMinutes > static_cast<unsigned long>((LONG_MAX - now) / 60) ||
+            reminderAlertMinutes > static_cast<unsigned long>((LONG_MAX - now) / 60)) {
+            *error = "invalid contact notification times";
+            return false;
+        }
+    }
     it->second.name = name;
+    if (it->second.hasTemperature) {
+        it->second.hasLowTemperatureAlert = hasLow;
+        it->second.lowTemperatureAlert = low;
+        it->second.hasHighTemperatureAlert = hasHigh;
+        it->second.highTemperatureAlert = high;
+    }
+    if (it->second.hasContact) {
+        long now = time(0);
+        it->second.contactInitialAlertMinutes = initialAlertMinutes;
+        it->second.contactReminderAlertMinutes = reminderAlertMinutes;
+        if (it->second.contactOpen) {
+            long openedAt = contactOpenedAt_.count(ieeeAddress) ? contactOpenedAt_[ieeeAddress] : now;
+            long dueAt = openedAt + static_cast<long>(initialAlertMinutes * 60);
+            contactOpenedAt_[ieeeAddress] = openedAt;
+            nextContactAlertAt_[ieeeAddress] = dueAt < now ? now : dueAt;
+        }
+    }
     saveState();
     return true;
 }
@@ -252,20 +288,6 @@ bool Gateway::applyAttributeReport(const std::string& ieeeAddress, unsigned shor
     return changed;
 }
 
-bool Gateway::setTemperatureAlerts(const std::string& ieeeAddress, bool hasLow, double low, bool hasHigh, double high,
-                                   std::string* error) {
-    std::map<std::string, Device>::iterator device = devices_.find(ieeeAddress);
-    if (device == devices_.end()) { *error = "device not found"; return false; }
-    if ((hasLow && (low < -100 || low > 200)) || (hasHigh && (high < -100 || high > 200)) ||
-        (hasLow && hasHigh && low >= high)) { *error = "invalid temperature thresholds"; return false; }
-    device->second.hasLowTemperatureAlert = hasLow;
-    device->second.lowTemperatureAlert = low;
-    device->second.hasHighTemperatureAlert = hasHigh;
-    device->second.highTemperatureAlert = high;
-    saveState();
-    return true;
-}
-
 bool Gateway::applyIasZoneStatus(const std::string& ieeeAddress, const std::vector<unsigned char>& payload) {
     Device& device = devices_[ieeeAddress];
     bool changed;
@@ -281,7 +303,7 @@ void Gateway::updateContactAlert(const std::string& ieeeAddress, bool wasOpen) {
     if (device == devices_.end() || !device->second.hasContact) return;
     if (device->second.contactOpen && !wasOpen) {
         contactOpenedAt_[ieeeAddress] = time(0);
-        nextContactAlertAt_[ieeeAddress] = time(0) + 600;
+        nextContactAlertAt_[ieeeAddress] = time(0) + static_cast<long>(device->second.contactInitialAlertMinutes * 60);
     } else if (!device->second.contactOpen && wasOpen) {
         contactOpenedAt_.erase(ieeeAddress);
         nextContactAlertAt_.erase(ieeeAddress);
@@ -367,6 +389,8 @@ std::string Gateway::statusJson() const {
              << ",\"low_temperature_alert\":" << device.lowTemperatureAlert
              << ",\"has_high_temperature_alert\":" << (device.hasHighTemperatureAlert ? "true" : "false")
              << ",\"high_temperature_alert\":" << device.highTemperatureAlert
+             << ",\"contact_initial_alert_minutes\":" << device.contactInitialAlertMinutes
+             << ",\"contact_reminder_alert_minutes\":" << device.contactReminderAlertMinutes
              << ",\"last_seen\":" << device.lastSeen << "}";
     }
     json << "]}";
