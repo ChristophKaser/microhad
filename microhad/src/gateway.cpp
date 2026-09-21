@@ -325,9 +325,13 @@ bool Gateway::refreshDevice(const std::string& ieeeAddress, std::string* error) 
         return false;
     }
     if (device->second.networkAddress == 0xffff) { *error = "device has no active network address"; return false; }
-    requestActiveEndpoints(device->second.networkAddress);
+    /* Most ZHA sensors, including Xiaomi temperature sensors, expose their
+       measurement clusters on endpoint 1.  Endpoint discovery requires the
+       sleepy device to be listening first; direct reads can instead succeed
+       during any normal wake window. */
+    requestStandardAttributes(device->second.networkAddress, 1);
     nextSensorRefreshAt_[device->second.networkAddress] = time(0) + 300;
-    addLog(std::string("Manual refresh requested: ") + ieeeAddress);
+    addLog(std::string("Manual attribute refresh queued: ") + ieeeAddress);
     return true;
 }
 
