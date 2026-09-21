@@ -111,6 +111,7 @@ void GatewayRunner::execute(Command* command) {
                                                                                          command->low, command->hasHigh,
                                                                                          command->high, &error);
     else if (command->type == TestNotification) result = gateway_->sendTestNotification(&error);
+    else if (command->type == NotificationSetting) result = gateway_->setNotificationsEnabled(command->hasLow, &error);
     updateSnapshots();
     pthread_mutex_lock(&command->mutex);
     command->result = result;
@@ -154,3 +155,4 @@ bool GatewayRunner::createFreshNetwork(std::string* error) { Command command; co
 bool GatewayRunner::renameDevice(const std::string& address, const std::string& name, std::string* error) { Command command; command.type = Rename; command.address = address; command.name = name; return invoke(&command, error); }
 bool GatewayRunner::setTemperatureAlerts(const std::string& address, bool hasLow, double low, bool hasHigh, double high, std::string* error) { Command command; command.type = TemperatureAlert; command.address = address; command.hasLow = hasLow; command.low = low; command.hasHigh = hasHigh; command.high = high; return invoke(&command, error); }
 bool GatewayRunner::sendTestNotification(std::string* error) { Command command; command.type = TestNotification; return invoke(&command, error); }
+bool GatewayRunner::setNotificationsEnabled(bool enabled, std::string* error) { Command command; command.type = NotificationSetting; command.hasLow = enabled; return invoke(&command, error); }

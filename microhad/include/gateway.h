@@ -54,6 +54,8 @@ public:
     bool setTemperatureAlerts(const std::string& ieeeAddress, bool hasLow, double low, bool hasHigh, double high,
                               std::string* error);
     bool sendTestNotification(std::string* error);
+    bool notificationsEnabled() const;
+    bool setNotificationsEnabled(bool enabled, std::string* error);
     std::vector<Device> devices() const;
     std::string statusJson() const;
     std::string logsJson() const;

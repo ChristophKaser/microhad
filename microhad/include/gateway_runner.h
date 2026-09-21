@@ -21,9 +21,10 @@ public:
     bool setTemperatureAlerts(const std::string& ieeeAddress, bool hasLow, double low, bool hasHigh, double high,
                               std::string* error);
     bool sendTestNotification(std::string* error);
+    bool setNotificationsEnabled(bool enabled, std::string* error);
 
 private:
-    enum CommandType { Join, CreateNetwork, Rename, TemperatureAlert, TestNotification };
+    enum CommandType { Join, CreateNetwork, Rename, TemperatureAlert, TestNotification, NotificationSetting };
     struct Command {
         CommandType type;
         unsigned int seconds;

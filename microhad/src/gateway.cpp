@@ -293,6 +293,15 @@ bool Gateway::sendTestNotification(std::string* error) {
     return emitNotification("MicroHAD test", "Push notifications are configured.", error);
 }
 
+bool Gateway::notificationsEnabled() const { return notificationWorker_ != 0 && notificationWorker_->enabled(); }
+
+bool Gateway::setNotificationsEnabled(bool enabled, std::string* error) {
+    if (notificationWorker_ == 0) { *error = "notification worker is unavailable"; return false; }
+    if (!notificationWorker_->setEnabled(enabled, error)) return false;
+    addLog(std::string("Push notifications ") + (enabled ? "enabled" : "disabled; pending notifications discarded"));
+    return true;
+}
+
 void Gateway::updateTemperatureAlert(const Device& device, bool hadTemperature, double previousTemperature) {
     if (!device.hasTemperature || !hadTemperature) return;
     if (device.hasHighTemperatureAlert && previousTemperature < device.highTemperatureAlert &&
@@ -330,6 +339,7 @@ std::string Gateway::statusJson() const {
          << ",\"serial_rx_bytes\":" << serialRxBytes_ << ",\"ash_rx_frames\":" << ashRxFrames_
          << ",\"joining_until\":" << joinUntil_ << ",\"joining_preparing\":"
          << (joinPreparationStep_ != 0 ? "true" : "false")
+         << ",\"notifications_enabled\":" << (notificationsEnabled() ? "true" : "false")
          << ",\"devices\":[";
     std::map<std::string, Device>::const_iterator it;
     bool first = true;

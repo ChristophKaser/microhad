@@ -24,6 +24,11 @@ The single notification worker owns outbound FCM/browser-push calls and keeps
 at most 32 pending jobs in RAM. Do not call `Gateway` directly from a web or
 notification thread.
 
+The dashboard's global Push notifications switch persists in
+`notifications.json` beneath the runtime directory. Turning it off discards
+pending RAM jobs, blocks test and automatic push delivery, and retains browser
+subscriptions for a later re-enable.
+
 Coordinator logs are intentionally kept in `/tmp/microhad-zigbee-native.log`, a
 bounded 512-line RAM-only ring. Permanent radio captures belong under the
 ignored `diagnostics/` directory and must never be committed.

@@ -3,6 +3,7 @@
 #include "storage.h"
 #include "zcl.h"
 #include "fcm.h"
+#include "notification_worker.h"
 
 #include <cassert>
 #include <cstdio>
@@ -179,6 +180,30 @@ static void testImmediateContactNotification() {
     rmdir(directory.c_str());
 }
 
+static void testNotificationTogglePersistence() {
+    std::ostringstream path;
+    std::string error;
+    path << "/tmp/microhad-zigbee-notification-test-" << static_cast<long>(getpid());
+    std::string directory = path.str();
+    assert(ensureDirectory(directory, &error));
+    {
+        NotificationWorker worker(directory, "", "", "");
+        assert(worker.enabled());
+        assert(worker.setEnabled(false, &error));
+        assert(!worker.enabled());
+        assert(!worker.enqueue("Test", "Body", &error));
+        assert(error == "notification worker is unavailable" || error == "push notifications are disabled");
+    }
+    {
+        NotificationWorker worker(directory, "", "", "");
+        assert(!worker.enabled());
+        assert(worker.setEnabled(true, &error));
+        assert(worker.enabled());
+    }
+    unlink((directory + "/notifications.json").c_str());
+    rmdir(directory.c_str());
+}
+
 static void testFcmMessageConstruction() {
     FirebaseServiceAccount account;
     std::string error;
@@ -202,6 +227,7 @@ int main() {
     testJoinStatusJson();
     testRamLog();
     testImmediateContactNotification();
+    testNotificationTogglePersistence();
     testFcmMessageConstruction();
     printf("unit tests passed\n");
     return 0;
