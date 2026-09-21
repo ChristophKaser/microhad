@@ -281,7 +281,6 @@ void Gateway::updateContactAlert(const std::string& ieeeAddress, bool wasOpen) {
     if (device == devices_.end() || !device->second.hasContact) return;
     if (device->second.contactOpen && !wasOpen) {
         contactOpenedAt_[ieeeAddress] = time(0);
-        emitNotification("Contact opened", device->second.name.empty() ? device->second.ieeeAddress : device->second.name, 0);
         nextContactAlertAt_[ieeeAddress] = time(0) + 600;
     } else if (!device->second.contactOpen && wasOpen) {
         contactOpenedAt_.erase(ieeeAddress);

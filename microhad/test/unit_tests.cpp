@@ -157,7 +157,7 @@ static void testRamLog() {
     unlink("/tmp/microhad-zigbee-native.log");
 }
 
-static void testImmediateContactNotification() {
+static void testContactNotificationIsDeferred() {
     std::ostringstream path;
     std::string error;
     std::vector<unsigned char> zone;
@@ -169,6 +169,7 @@ static void testImmediateContactNotification() {
     Gateway gateway("/dev/null", 115200, directory, "", "", "", &worker);
     zone.push_back(1); zone.push_back(0);
     assert(gateway.applyIasZoneStatus("0x00124b0000000003", zone));
+    assert(gateway.logsJson().find("Contact opened") == std::string::npos);
     assert(!gateway.sendTestNotification(&error));
     assert(error == "push notifications are disabled");
     unlink((directory + "/notification-outbox.ndjson").c_str());
@@ -222,7 +223,7 @@ int main() {
     testGenericCapabilities();
     testJoinStatusJson();
     testRamLog();
-    testImmediateContactNotification();
+    testContactNotificationIsDeferred();
     testNotificationTogglePersistence();
     testFcmMessageConstruction();
     printf("unit tests passed\n");
