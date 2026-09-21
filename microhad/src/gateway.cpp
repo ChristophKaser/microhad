@@ -1268,14 +1268,14 @@ void Gateway::requestStandardAttributes(unsigned short destination, unsigned cha
        end device where to deliver its reports.  This mirrors the SNZB-02
        interview used by Zigbee2MQTT. */
     queueSensorBindings(destination, endpoint);
+    queueAttributeRead(destination, endpoint, 0x0402, 0x0000); /* temperature */
+    queueAttributeRead(destination, endpoint, 0x0405, 0x0000); /* humidity */
+    queueAttributeRead(destination, endpoint, 0x0001, 0x0021); /* battery percentage */
     queueAttributeReporting(destination, endpoint, 0x0402, 0x0000, 0x29, 20, 30, 3600);  /* 0.20 C */
     queueAttributeReporting(destination, endpoint, 0x0405, 0x0000, 0x21, 100, 30, 3600); /* 1.00 % */
     queueAttributeReporting(destination, endpoint, 0x0001, 0x0021, 0x20, 1, 3600, 65000); /* battery percentage */
-    queueAttributeRead(destination, endpoint, 0x0000, 0xff01); /* Xiaomi/Lumi measurement data */
     queueAttributeRead(destination, endpoint, 0x0001, 0x0020); /* battery voltage */
-    queueAttributeRead(destination, endpoint, 0x0001, 0x0021); /* battery percentage */
-    queueAttributeRead(destination, endpoint, 0x0402, 0x0000); /* temperature */
-    queueAttributeRead(destination, endpoint, 0x0405, 0x0000); /* humidity */
+    queueAttributeRead(destination, endpoint, 0x0000, 0xff01); /* Xiaomi/Lumi measurement data */
     queueAttributeRead(destination, endpoint, 0x0406, 0x0000); /* occupancy */
 }
 
@@ -1288,10 +1288,10 @@ void Gateway::requestRefreshAttributes(unsigned short destination, unsigned char
     }
     /* A manual refresh must fit inside a sleepy sensor's short receive
        window.  Reporting setup belongs to the full interview, not here. */
-    queueAttributeRead(destination, endpoint, 0x0000, 0xff01); /* Xiaomi/Lumi measurement data */
     queueAttributeRead(destination, endpoint, 0x0402, 0x0000); /* temperature */
     queueAttributeRead(destination, endpoint, 0x0405, 0x0000); /* humidity */
     queueAttributeRead(destination, endpoint, 0x0001, 0x0021); /* battery percentage */
+    queueAttributeRead(destination, endpoint, 0x0000, 0xff01); /* Xiaomi/Lumi measurement data */
 }
 
 void Gateway::queueAttributeRead(unsigned short destination, unsigned char endpoint, unsigned short cluster,
@@ -1360,7 +1360,9 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
     sender = static_cast<unsigned short>(payload[14]) | (static_cast<unsigned short>(payload[15]) << 8);
     messageOffset = 18;
     length = payload[messageOffset++];
-    if (messageOffset + length > payload.size() || length < 3) return;
+    /* A ZDO response consists of only its transaction sequence and status.
+       In particular Bind_rsp (0x8021) is valid at two bytes. */
+    if (messageOffset + length > payload.size() || length < 2) return;
     message.assign(payload.begin() + messageOffset, payload.begin() + messageOffset + length);
     {
         std::ostringstream diagnostic;
