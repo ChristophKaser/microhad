@@ -52,6 +52,61 @@ public:
         gateway->wakeInterview(node);
         return !gateway->interviews_[node].paused;
     }
+    static bool retryKeepsTransactionSequence(Gateway* gateway, unsigned short node) {
+        Gateway::InterviewState state;
+        Gateway::InterviewOperation operation;
+        state.ieeeAddress = "0x00124b0000000012";
+        state.operations.push_back(operation);
+        gateway->interviews_[node] = state;
+        gateway->sendInterviewOperation(node, &gateway->interviews_[node].operations[0]);
+        unsigned char sequence = gateway->interviews_[node].operations[0].transactionSequence;
+        gateway->failInterviewOperation(node, "test timeout");
+        gateway->sendInterviewOperation(node, &gateway->interviews_[node].operations[0]);
+        return gateway->interviews_[node].operations[0].transactionSequence == sequence;
+    }
+    static bool migrateRejoinedInterview(Gateway* gateway, unsigned short oldNode, unsigned short newNode) {
+        Gateway::InterviewState state;
+        Gateway::InterviewOperation operation;
+        const unsigned char eui64[] = {0x13, 0x00, 0x00, 0x00, 0x00, 0x4b, 0x12, 0x00};
+        state.ieeeAddress = "0x00124b0000000013";
+        state.operations.push_back(operation);
+        gateway->interviews_[oldNode] = state;
+        gateway->nodeAddresses_[oldNode] = state.ieeeAddress;
+        gateway->interviewRequestInFlight_ = true;
+        gateway->interviewNode_ = oldNode;
+        gateway->registerNode(newNode, eui64);
+        return gateway->nodeAddresses_.find(oldNode) == gateway->nodeAddresses_.end() &&
+               gateway->nodeAddresses_[newNode] == state.ieeeAddress &&
+               gateway->interviews_.find(oldNode) == gateway->interviews_.end() &&
+               gateway->interviews_.find(newNode) != gateway->interviews_.end() &&
+               !gateway->interviewRequestInFlight_;
+    }
+    static bool contactCloseDuringInterview(Gateway* gateway) {
+        const unsigned short contactNode = 0x1234;
+        const std::string ieee = "0x00124b0000000014";
+        std::vector<unsigned char> payload(19, 0);
+        Gateway::InterviewState interview;
+        Gateway::InterviewOperation operation;
+        interview.ieeeAddress = "0x00124b0000000015";
+        interview.operations.push_back(operation);
+        gateway->interviews_[0x5678] = interview;
+        gateway->interviewRequestInFlight_ = true;
+        gateway->interviewNode_ = 0x5678;
+        gateway->nodeAddresses_[contactNode] = ieee;
+        gateway->devices_[ieee].ieeeAddress = ieee;
+        gateway->devices_[ieee].hasContact = true;
+        gateway->devices_[ieee].contactOpen = true;
+        payload[1] = 0x04; payload[2] = 0x01; /* Home Automation profile */
+        payload[3] = 0x00; payload[4] = 0x05; /* IAS Zone cluster */
+        payload[12] = 99;
+        payload[14] = 0x34; payload[15] = 0x12;
+        payload[18] = 5;
+        payload.push_back(0x19); payload.push_back(7); payload.push_back(0x00);
+        payload.push_back(0x00); payload.push_back(0x00);
+        gateway->handleIncomingMessage(payload);
+        return gateway->devices_[ieee].hasContact && !gateway->devices_[ieee].contactOpen &&
+               gateway->devices_[ieee].linkQuality == 99;
+    }
 };
 
 static void testAshRoundTrip() {
@@ -269,6 +324,19 @@ static void testInterviewDescriptorAndPlanning() {
     assert(GatewayTestPeer::operationCluster(gateway, 0x1234, 1) == 0x0405);
     assert(GatewayTestPeer::operationCluster(gateway, 0x1234, 2) == 0x0001);
     assert(GatewayTestPeer::pauseAndWake(&gateway, 0x1235));
+    assert(GatewayTestPeer::retryKeepsTransactionSequence(&gateway, 0x1236));
+    assert(GatewayTestPeer::contactCloseDuringInterview(&gateway));
+    {
+        std::ostringstream path;
+        std::string error;
+        path << "/tmp/microhad-zigbee-rejoin-test-" << static_cast<long>(getpid());
+        assert(ensureDirectory(path.str(), &error));
+        Gateway rejoinGateway("/dev/null", 115200, path.str(), "", "", "");
+        assert(GatewayTestPeer::migrateRejoinedInterview(&rejoinGateway, 0x1237, 0x1238));
+        unlink((path.str() + "/devices.json").c_str());
+        unlink((path.str() + "/devices-state.json").c_str());
+        rmdir(path.str().c_str());
+    }
 }
 
 static void testJoinStatusJson() {

@@ -137,6 +137,7 @@ private:
         unsigned short maximumInterval;
         unsigned short reportableChange;
         unsigned char transactionSequence;
+        bool transactionSequenceAssigned;
         unsigned char messageTag;
         unsigned char attempts;
         InterviewOperation();

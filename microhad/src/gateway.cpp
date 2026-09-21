@@ -29,7 +29,8 @@ Device::Device() : networkAddress(0xffff), kind("generic"), contactOpen(false), 
 }
 
 Gateway::InterviewOperation::InterviewOperation() : type(InterviewNodeDescriptor), endpoint(0), cluster(0), attribute(0),
-    dataType(0), minimumInterval(0), maximumInterval(0), reportableChange(0), transactionSequence(0), messageTag(0), attempts(0) {
+    dataType(0), minimumInterval(0), maximumInterval(0), reportableChange(0), transactionSequence(0),
+    transactionSequenceAssigned(false), messageTag(0), attempts(0) {
 }
 
 Gateway::InterviewState::InterviewState() : operationIndex(0), refreshOnly(false), paused(false), persistentDirty(false) {
@@ -392,7 +393,11 @@ bool Gateway::applyIasZoneStatus(const std::string& ieeeAddress, const std::vect
     bool wasOpen = device.contactOpen;
     if (device.ieeeAddress.empty()) device.ieeeAddress = ieeeAddress;
     changed = ::applyIasZoneStatus(&device, payload, time(0));
-    if (changed) { updateContactAlert(ieeeAddress, wasOpen); saveState(); }
+    if (changed) {
+        addLog(std::string("Contact status from ") + ieeeAddress + (device.contactOpen ? ": open" : ": closed"));
+        updateContactAlert(ieeeAddress, wasOpen);
+        saveState();
+    }
     return changed;
 }
 
@@ -1147,6 +1152,30 @@ void Gateway::registerNode(unsigned short nodeId, const unsigned char* eui64) {
     address << "0x" << std::hex << std::setfill('0');
     /* EZSP transmits EUI64 least significant byte first. */
     for (i = 7; i >= 0; --i) address << std::setw(2) << static_cast<unsigned int>(eui64[i]);
+    /* A rejoin may allocate a different short address.  Move an unfinished
+       interview rather than leaving response matching tied to the stale
+       address. */
+    std::map<unsigned short, std::string>::iterator oldNode = nodeAddresses_.begin();
+    while (oldNode != nodeAddresses_.end()) {
+        std::map<unsigned short, std::string>::iterator current = oldNode++;
+        if (current->first == nodeId || current->second != address.str()) continue;
+        std::map<unsigned short, InterviewState>::iterator oldInterview = interviews_.find(current->first);
+        if (oldInterview != interviews_.end()) {
+            InterviewState moved = oldInterview->second;
+            moved.paused = false;
+            if (moved.operationIndex < moved.operations.size()) moved.operations[moved.operationIndex].attempts = 0;
+            interviews_.erase(oldInterview);
+            interviews_[nodeId] = moved;
+        }
+        if (interviewRequestInFlight_ && interviewNode_ == current->first) {
+            interviewRequestInFlight_ = false;
+            interviewDeadline_ = 0;
+        }
+        nextSensorRefreshAt_.erase(current->first);
+        lastActiveEndpointRequestAt_.erase(current->first);
+        nodeAddresses_.erase(current);
+        addLog("Migrated device state from stale network address");
+    }
     nodeAddresses_[nodeId] = address.str();
     nextSensorRefreshAt_[nodeId] = time(0) + 300;
     Device& device = devices_[address.str()];
@@ -1331,15 +1360,21 @@ void Gateway::sendNextInterviewOperation() {
 
 void Gateway::sendInterviewOperation(unsigned short destination, InterviewOperation* operation) {
     std::vector<unsigned char> request;
-    operation->transactionSequence = operation->type == InterviewNodeDescriptor || operation->type == InterviewActiveEndpoints ||
-        operation->type == InterviewSimpleDescriptor || operation->type == InterviewBind ? zdoSequence_++ : zclTransactionSequence_++;
+    /* Keep the transaction sequence stable across retries.  A sleepy child
+       can answer just after the timeout; replacing the sequence made that
+       valid response look unrelated to the retry. */
+    if (!operation->transactionSequenceAssigned) {
+        operation->transactionSequence = operation->type == InterviewNodeDescriptor || operation->type == InterviewActiveEndpoints ||
+            operation->type == InterviewSimpleDescriptor || operation->type == InterviewBind ? zdoSequence_++ : zclTransactionSequence_++;
+        operation->transactionSequenceAssigned = true;
+    }
     operation->messageTag = nextMessageTag_++;
     if (nextMessageTag_ == 0) nextMessageTag_ = 1;
     ++operation->attempts;
     interviewRequestInFlight_ = true;
     interviewSendAccepted_ = false;
     interviewNode_ = destination;
-    interviewDeadline_ = time(0) + 10;
+    interviewDeadline_ = time(0) + 20;
     if (operation->type == InterviewNodeDescriptor) {
         request.push_back(operation->transactionSequence);
         request.push_back(static_cast<unsigned char>(destination));
@@ -1376,21 +1411,22 @@ void Gateway::failInterviewOperation(unsigned short destination, const std::stri
     interviewRequestInFlight_ = false;
     interviewDeadline_ = 0;
     if (found == interviews_.end() || found->second.operationIndex >= found->second.operations.size()) return;
-    InterviewOperation& operation = found->second.operations[found->second.operationIndex];
     std::ostringstream message;
     message << "Interview operation failed for " << found->second.ieeeAddress << ": " << reason;
     addLog(message.str());
-    if (operation.attempts >= 2) {
-        operation.attempts = 0;
-        found->second.paused = true;
-        addLog("Interview paused until the device wakes again");
-    }
+    /* Retrying immediately cannot wake a sleepy child and can contend with
+       unrelated sensor reports.  Keep this operation pending until the
+       device next talks or the five-minute refresh wakes the state machine. */
+    found->second.paused = true;
+    addLog("Interview paused until the device wakes again");
 }
 
 void Gateway::wakeInterview(unsigned short destination) {
     std::map<unsigned short, InterviewState>::iterator found = interviews_.find(destination);
     if (found != interviews_.end() && found->second.paused) {
         found->second.paused = false;
+        if (found->second.operationIndex < found->second.operations.size())
+            found->second.operations[found->second.operationIndex].attempts = 0;
         addLog("Resuming paused interview on device traffic");
     }
 }
@@ -1448,9 +1484,12 @@ bool Gateway::updateBasicIdentity(Device* device, const std::vector<unsigned cha
 
 void Gateway::completeInterviewOperation(unsigned short destination) {
     std::map<unsigned short, InterviewState>::iterator found = interviews_.find(destination);
-    interviewRequestInFlight_ = false;
-    interviewDeadline_ = 0;
+    if (interviewRequestInFlight_ && interviewNode_ == destination) {
+        interviewRequestInFlight_ = false;
+        interviewDeadline_ = 0;
+    }
     if (found == interviews_.end() || found->second.operationIndex >= found->second.operations.size()) return;
+    found->second.paused = false;
     InterviewOperationType completedType = found->second.operations[found->second.operationIndex].type;
     ++found->second.operationIndex;
     if (found->second.operationIndex < found->second.operations.size()) return;
@@ -1594,7 +1633,7 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
     }
     if (cluster == 0x8002 && message.size() >= 2 && message[1] == 0) {
         std::map<unsigned short, InterviewState>::iterator interview = interviews_.find(sender);
-        if (interview != interviews_.end() && interviewRequestInFlight_ && interviewNode_ == sender &&
+        if (interview != interviews_.end() &&
             interview->second.operationIndex < interview->second.operations.size()) {
             InterviewOperation& operation = interview->second.operations[interview->second.operationIndex];
             if (operation.type == InterviewNodeDescriptor && operation.transactionSequence == message[0]) {
@@ -1606,15 +1645,18 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
     }
     if (cluster == 0x8005 && message.size() >= 5 && message[1] == 0) {
         std::map<unsigned short, InterviewState>::iterator interview = interviews_.find(sender);
-        if (interview != interviews_.end() && interviewRequestInFlight_ && interviewNode_ == sender &&
+        if (interview != interviews_.end() &&
             interview->second.operationIndex < interview->second.operations.size()) {
             InterviewOperation& operation = interview->second.operations[interview->second.operationIndex];
             unsigned long count = message[4];
             if (operation.type != InterviewActiveEndpoints || operation.transactionSequence != message[0] ||
                 message.size() < 5 + count) return;
             std::vector<unsigned char> endpoints(message.begin() + 5, message.begin() + 5 + count);
-            interviewRequestInFlight_ = false;
-            interviewDeadline_ = 0;
+            if (interviewRequestInFlight_ && interviewNode_ == sender) {
+                interviewRequestInFlight_ = false;
+                interviewDeadline_ = 0;
+            }
+            interview->second.paused = false;
             if (interview->second.refreshOnly && !devices_[interview->second.ieeeAddress].endpoints.empty())
                 buildRefreshOperations(sender);
             else buildDescriptorOperations(sender, endpoints);
@@ -1624,7 +1666,7 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
     }
     if (cluster == 0x8004 && message.size() >= 5) {
         std::map<unsigned short, InterviewState>::iterator interview = interviews_.find(sender);
-        if (interview != interviews_.end() && interviewRequestInFlight_ && interviewNode_ == sender &&
+        if (interview != interviews_.end() &&
             interview->second.operationIndex < interview->second.operations.size()) {
             InterviewOperation& operation = interview->second.operations[interview->second.operationIndex];
             EndpointDescriptor descriptor;
@@ -1643,7 +1685,7 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
         if (message[1] != 0) bind << static_cast<unsigned int>(message[1]);
         addLog(bind.str());
         std::map<unsigned short, InterviewState>::iterator interview = interviews_.find(sender);
-        if (interview != interviews_.end() && interviewRequestInFlight_ && interviewNode_ == sender &&
+        if (interview != interviews_.end() &&
             interview->second.operationIndex < interview->second.operations.size()) {
             InterviewOperation& operation = interview->second.operations[interview->second.operationIndex];
             if (operation.type == InterviewBind && operation.transactionSequence == message[0]) completeInterviewOperation(sender);
@@ -1681,7 +1723,7 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
         bool wasOpen = devices_[address->second].contactOpen;
         std::map<unsigned short, InterviewState>::iterator interview = interviews_.find(sender);
         bool matched = false;
-        if (interview != interviews_.end() && interviewRequestInFlight_ && interviewNode_ == sender &&
+        if (interview != interviews_.end() &&
             interview->second.operationIndex < interview->second.operations.size()) {
             InterviewOperation& operation = interview->second.operations[interview->second.operationIndex];
             matched = (operation.type == InterviewAttributeRead || operation.type == InterviewBasicRead) &&
@@ -1725,7 +1767,7 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
             addLog(response.str());
         }
         std::map<unsigned short, InterviewState>::iterator interview = interviews_.find(sender);
-        if (interview != interviews_.end() && interviewRequestInFlight_ && interviewNode_ == sender &&
+        if (interview != interviews_.end() &&
             interview->second.operationIndex < interview->second.operations.size()) {
             InterviewOperation& operation = interview->second.operations[interview->second.operationIndex];
             if (operation.type == InterviewConfigureReporting && operation.transactionSequence == transactionSequence &&
