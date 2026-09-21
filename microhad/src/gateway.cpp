@@ -158,9 +158,10 @@ void Gateway::poll() {
         BindRequest request = pendingBindRequests_.front();
         pendingBindRequests_.erase(pendingBindRequests_.begin());
         sendZdoBindRequest(request.destination, request.endpoint, request.cluster, request.sourceIeeeAddress);
-        /* Battery-powered devices have a very short receive window.  Serialize
-           the setup commands, as Zigbee2MQTT does, rather than flooding it. */
-        nextBindRequestAt_ = time(0) + 1;
+        /* An SNZB-02 remains awake for only a few seconds after announcing.
+           The coordinator loop already serializes NCP writes; send the next
+           interview transaction on its next pass, not one second later. */
+        nextBindRequestAt_ = 0;
     }
     if (online_ && networkFormed_ && coordinatorInitializationStep_ == 0 && pendingBindRequests_.empty() &&
         !pendingAttributeReads_.empty() &&
@@ -172,7 +173,9 @@ void Gateway::poll() {
                                       request.dataType, request.minimumInterval, request.maximumInterval,
                                       request.reportableChange);
         } else sendZclReadAttribute(request.destination, request.endpoint, request.cluster, request.attribute);
-        nextAttributeReadAt_ = time(0) + 1;
+        /* Keep an interview/refresh inside the sleepy device's wake window.
+           poll() sends only one command per pass, so this is still ordered. */
+        nextAttributeReadAt_ = 0;
     }
     if (online_ && networkFormed_ && coordinatorInitializationStep_ == 0 && pendingBindRequests_.empty() && pendingAttributeReads_.empty()) {
         std::map<unsigned short, std::string>::const_iterator node;
@@ -1417,6 +1420,22 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
             std::vector<unsigned char> value(message.begin() + valueOffset, message.begin() + valueOffset + valueLength);
             applyAttributeReport(address->second, cluster, attribute, value);
             attributeOffset = valueOffset + valueLength;
+        }
+    } else if (command == 0x07) {
+        unsigned long responseOffset = zclOffset;
+        while (responseOffset < message.size()) {
+            unsigned char status = message[responseOffset];
+            std::ostringstream response;
+            response << "Configure reporting response from " << address->second << ": cluster 0x" << std::hex
+                     << cluster << " status 0x" << static_cast<unsigned int>(status);
+            ++responseOffset;
+            if (status != 0 && responseOffset + 3 <= message.size()) {
+                unsigned short attribute = static_cast<unsigned short>(message[responseOffset + 1]) |
+                                           (static_cast<unsigned short>(message[responseOffset + 2]) << 8);
+                response << " attribute 0x" << attribute;
+                responseOffset += 3; /* direction plus attribute id */
+            }
+            addLog(response.str());
         }
     }
 }
