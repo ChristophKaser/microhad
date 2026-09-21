@@ -14,12 +14,13 @@ password_file=""
 config=""
 binary_only=true
 activate=false
+restart=false
 certificate=""
 private_key=""
 ca_bundle=""
 
 usage() {
-    echo "usage: $0 --password-file PATH [--config PATH | --binary-only] [--host HOST] [--user USER] [--target DIR] [--binary PATH] [--tls-certificate PATH --tls-private-key PATH] [--ca-bundle PATH] [--activate]" >&2
+    echo "usage: $0 --password-file PATH [--config PATH | --binary-only] [--host HOST] [--user USER] [--target DIR] [--binary PATH] [--tls-certificate PATH --tls-private-key PATH] [--ca-bundle PATH] [--activate] [--restart]" >&2
     exit 2
 }
 
@@ -36,6 +37,7 @@ while [ "$#" -gt 0 ]; do
         --tls-private-key) private_key=${2-}; shift 2 ;;
         --ca-bundle) ca_bundle=${2-}; shift 2 ;;
         --activate) activate=true; shift ;;
+        --restart) restart=true; shift ;;
         *) usage ;;
     esac
 done
@@ -55,6 +57,7 @@ command -v sshpass >/dev/null 2>&1 || { echo "sshpass is required for password a
 case "$target" in /tuya/*) ;; *) echo "target must be below /tuya" >&2; exit 2 ;; esac
 case "$target" in *[!A-Za-z0-9_./-]*) echo "target contains unsupported characters" >&2; exit 2 ;; esac
 [ "$activate" = false ] || [ "$target" = /tuya/native ] || { echo "--activate requires --target /tuya/native" >&2; exit 2; }
+[ "$restart" = false ] || [ "$target" = /tuya/native ] || { echo "--restart requires --target /tuya/native" >&2; exit 2; }
 
 ssh_command() {
     sshpass -f "$password_file" ssh -o ConnectTimeout=8 -o StrictHostKeyChecking=yes \
@@ -84,7 +87,11 @@ if [ "$activate" = true ]; then
     ssh_command "dd of=\"$target/.gateway_start.sh.new\"" < "$project_dir/native_start.sh"
     ssh_command "test -f /tuya/tuya_start.sh.lowjs-backup || cp /tuya/tuya_start.sh /tuya/tuya_start.sh.lowjs-backup; chmod 755 \"$target/.gateway_start.sh.new\"; mv \"$target/.gateway_start.sh.new\" /tuya/tuya_start.sh"
 fi
-if [ "$activate" = true ]; then
+if [ "$restart" = true ]; then
+    printf 'Restarting the supervised native daemon\n'
+    ssh_command "killall -TERM microhad-zigbee-native >/dev/null 2>&1 || exit 1; sleep 3; retries=0; while [ \$retries -lt 10 ]; do if ps w | grep -q '[t]uya-zigbee-native'; then exit 0; fi; retries=\$((retries + 1)); sleep 1; done; exit 1"
+    echo "Uploaded and restarted."
+elif [ "$activate" = true ]; then
     echo "Uploaded and activated for the next boot. Existing processes were not restarted."
 else
     echo "Uploaded. Existing services were not changed."

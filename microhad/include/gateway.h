@@ -116,6 +116,7 @@ private:
     };
     std::vector<AttributeReadRequest> pendingAttributeReads_;
     long nextAttributeReadAt_;
+    std::map<unsigned short, long> nextSensorRefreshAt_;
     std::map<std::string, long> contactOpenedAt_;
     std::map<std::string, long> nextContactAlertAt_;
     std::vector<std::string> logs_;

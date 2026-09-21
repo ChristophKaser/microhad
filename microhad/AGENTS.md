@@ -27,24 +27,13 @@ untracked password file only by pathname:
 make host test
 make mips
 ./deploy.sh --host 192.168.178.62 --password-file ../ssh_password.txt \
-  --target /tuya/native
+  --target /tuya/native --restart
 ```
 
-After every implementation change, deploy the target binary, then restart it
-and verify the dashboard. First identify the current launcher and native
-leader, then restart only those exact PIDs (the remaining matching entries are
-threads and must not be killed separately):
-
-```sh
-sshpass -f ../ssh_password.txt ssh -o ConnectTimeout=8 -o StrictHostKeyChecking=yes \
-  -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa \
-  -o PreferredAuthentications=password -o PubkeyAuthentication=no root@192.168.178.62 'ps w'
-# Replace LAUNCHER_PID and NATIVE_LEADER_PID with the two PIDs just inspected.
-sshpass -f ../ssh_password.txt ssh -o ConnectTimeout=8 -o StrictHostKeyChecking=yes \
-  -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa \
-  -o PreferredAuthentications=password -o PubkeyAuthentication=no root@192.168.178.62 \
-  'kill LAUNCHER_PID NATIVE_LEADER_PID; sleep 1; /tuya/tuya_start.sh >/tmp/microhad-native-launch.log 2>&1 &'
-```
+`--restart` is explicitly opt-in and only allowed for `/tuya/native`. It
+signals the exact `microhad-zigbee-native` daemon; the permanent launcher restarts
+it from the newly deployed binary. It does not reboot the device or alter
+Zigbee state.
 
 After successful verification, commit the implementation changes with a
 descriptive message. When the worktree already contains unrelated changes,
@@ -90,6 +79,12 @@ closing it cancels the pending alert.
 Secure join preparation waits at most ten seconds for each NCP policy reply.
 If one is lost, preparation is cancelled and the dashboard permits another
 joining request instead of remaining stuck indefinitely.
+
+Temperature and humidity sensors receive standard report configuration on
+discovery (five-minute maximum interval). As a bounded fallback for devices
+that ignore it, the coordinator requests active endpoints at most once every
+five minutes per known measurement sensor, then refreshes attributes after the
+device responds. This is intentionally serialized for sleepy battery devices.
 
 Coordinator logs are intentionally kept in `/tmp/microhad-zigbee-native.log`, a
 bounded 512-line RAM-only ring. Permanent radio captures belong under the

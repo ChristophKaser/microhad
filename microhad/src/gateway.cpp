@@ -153,6 +153,19 @@ void Gateway::poll() {
         } else sendZclReadAttribute(request.destination, request.endpoint, request.cluster, request.attribute);
         nextAttributeReadAt_ = time(0) + 1;
     }
+    if (online_ && pendingAttributeReads_.empty()) {
+        std::map<unsigned short, std::string>::const_iterator node;
+        long now = time(0);
+        for (node = nodeAddresses_.begin(); node != nodeAddresses_.end(); ++node) {
+            std::map<std::string, Device>::const_iterator device = devices_.find(node->second);
+            if (device == devices_.end() || (!device->second.hasTemperature && !device->second.hasHumidity)) continue;
+            if (nextSensorRefreshAt_[node->first] > now) continue;
+            requestActiveEndpoints(node->first);
+            nextSensorRefreshAt_[node->first] = now + 300;
+            addLog("Queued periodic sensor refresh");
+            break; /* one sleepy-device request at a time */
+        }
+    }
     if (joinPreparationStep_ != 0 && joinPreparationDeadline_ != 0 && time(0) >= joinPreparationDeadline_) {
         addLog("Secure pairing preparation timed out; try allowing joining again");
         joinPreparationStep_ = 0;
@@ -999,6 +1012,7 @@ void Gateway::registerNode(unsigned short nodeId, const unsigned char* eui64) {
     /* EZSP transmits EUI64 least significant byte first. */
     for (i = 7; i >= 0; --i) address << std::setw(2) << static_cast<unsigned int>(eui64[i]);
     nodeAddresses_[nodeId] = address.str();
+    nextSensorRefreshAt_[nodeId] = time(0) + 300;
     Device& device = devices_[address.str()];
     device.networkAddress = nodeId;
     if (device.ieeeAddress.empty()) {
