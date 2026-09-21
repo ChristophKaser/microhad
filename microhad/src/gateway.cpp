@@ -146,7 +146,11 @@ void Gateway::poll() {
         (nextAttributeReadAt_ == 0 || time(0) >= nextAttributeReadAt_)) {
         AttributeReadRequest request = pendingAttributeReads_.front();
         pendingAttributeReads_.erase(pendingAttributeReads_.begin());
-        sendZclReadAttribute(request.destination, request.endpoint, request.cluster, request.attribute);
+        if (request.configureReporting) {
+            sendZclConfigureReporting(request.destination, request.endpoint, request.cluster, request.attribute,
+                                      request.dataType, request.minimumInterval, request.maximumInterval,
+                                      request.reportableChange);
+        } else sendZclReadAttribute(request.destination, request.endpoint, request.cluster, request.attribute);
         nextAttributeReadAt_ = time(0) + 1;
     }
     if (joinPreparationStep_ != 0 && joinPreparationDeadline_ != 0 && time(0) >= joinPreparationDeadline_) {
@@ -1068,6 +1072,9 @@ void Gateway::requestStandardAttributes(unsigned short destination, unsigned cha
             request = pendingAttributeReads_.erase(request);
         else ++request;
     }
+    /* Battery sensors report at most every five minutes, or earlier for a meaningful change. */
+    queueAttributeReporting(destination, endpoint, 0x0402, 0x0000, 0x29, 10);  /* 0.10 C */
+    queueAttributeReporting(destination, endpoint, 0x0405, 0x0000, 0x21, 100); /* 1.00 % */
     queueAttributeRead(destination, endpoint, 0x0000, 0xff01); /* Xiaomi/Lumi measurement data */
     queueAttributeRead(destination, endpoint, 0x0001, 0x0021); /* battery percentage */
     queueAttributeRead(destination, endpoint, 0x0402, 0x0000); /* temperature */
@@ -1082,8 +1089,49 @@ void Gateway::queueAttributeRead(unsigned short destination, unsigned char endpo
     request.endpoint = endpoint;
     request.cluster = cluster;
     request.attribute = attribute;
+    request.configureReporting = false;
+    request.dataType = 0;
+    request.minimumInterval = 0;
+    request.maximumInterval = 0;
+    request.reportableChange = 0;
     pendingAttributeReads_.push_back(request);
     nextAttributeReadAt_ = 0;
+}
+
+void Gateway::queueAttributeReporting(unsigned short destination, unsigned char endpoint, unsigned short cluster,
+                                      unsigned short attribute, unsigned char dataType, unsigned short reportableChange) {
+    AttributeReadRequest request;
+    request.destination = destination;
+    request.endpoint = endpoint;
+    request.cluster = cluster;
+    request.attribute = attribute;
+    request.configureReporting = true;
+    request.dataType = dataType;
+    request.minimumInterval = 60;
+    request.maximumInterval = 300;
+    request.reportableChange = reportableChange;
+    pendingAttributeReads_.push_back(request);
+    nextAttributeReadAt_ = 0;
+}
+
+void Gateway::sendZclConfigureReporting(unsigned short destination, unsigned char endpoint, unsigned short cluster,
+                                        unsigned short attribute, unsigned char dataType, unsigned short minimumInterval,
+                                        unsigned short maximumInterval, unsigned short reportableChange) {
+    std::vector<unsigned char> request;
+    request.push_back(0x10); /* global command, client-to-server, disable default response */
+    request.push_back(zclTransactionSequence_++);
+    request.push_back(0x06); /* Configure Reporting */
+    request.push_back(0x00); /* reported attribute */
+    request.push_back(static_cast<unsigned char>(attribute));
+    request.push_back(static_cast<unsigned char>(attribute >> 8));
+    request.push_back(dataType);
+    request.push_back(static_cast<unsigned char>(minimumInterval));
+    request.push_back(static_cast<unsigned char>(minimumInterval >> 8));
+    request.push_back(static_cast<unsigned char>(maximumInterval));
+    request.push_back(static_cast<unsigned char>(maximumInterval >> 8));
+    request.push_back(static_cast<unsigned char>(reportableChange));
+    request.push_back(static_cast<unsigned char>(reportableChange >> 8));
+    sendApsUnicast(destination, 0x0104, cluster, 1, endpoint, request);
 }
 
 void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {

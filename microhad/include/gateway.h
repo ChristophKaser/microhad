@@ -108,6 +108,11 @@ private:
         unsigned char endpoint;
         unsigned short cluster;
         unsigned short attribute;
+        bool configureReporting;
+        unsigned char dataType;
+        unsigned short minimumInterval;
+        unsigned short maximumInterval;
+        unsigned short reportableChange;
     };
     std::vector<AttributeReadRequest> pendingAttributeReads_;
     long nextAttributeReadAt_;
@@ -136,8 +141,13 @@ private:
     void requestActiveEndpoints(unsigned short destination);
     void requestStandardAttributes(unsigned short destination, unsigned char endpoint);
     void queueAttributeRead(unsigned short destination, unsigned char endpoint, unsigned short cluster, unsigned short attribute);
+    void queueAttributeReporting(unsigned short destination, unsigned char endpoint, unsigned short cluster,
+                                 unsigned short attribute, unsigned char dataType, unsigned short reportableChange);
     void sendZclReadAttribute(unsigned short destination, unsigned char endpoint, unsigned short cluster,
                               unsigned short attribute);
+    void sendZclConfigureReporting(unsigned short destination, unsigned char endpoint, unsigned short cluster,
+                                   unsigned short attribute, unsigned char dataType, unsigned short minimumInterval,
+                                   unsigned short maximumInterval, unsigned short reportableChange);
     void handleIncomingMessage(const std::vector<unsigned char>& payload);
     bool generateNetworkMaterial(std::string* error);
     void continueNetworkFormation(unsigned short completedCommand);
