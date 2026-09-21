@@ -1055,6 +1055,7 @@ void Gateway::sendZclReadAttribute(unsigned short destination, unsigned char end
 }
 
 void Gateway::requestStandardAttributes(unsigned short destination, unsigned char endpoint) {
+    sendZclReadAttribute(destination, endpoint, 0x0000, 0xff01); /* Xiaomi/Lumi measurement data */
     sendZclReadAttribute(destination, endpoint, 0x0001, 0x0021); /* battery percentage */
     sendZclReadAttribute(destination, endpoint, 0x0402, 0x0000); /* temperature */
     sendZclReadAttribute(destination, endpoint, 0x0405, 0x0000); /* humidity */

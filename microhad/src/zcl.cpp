@@ -5,6 +5,44 @@ namespace {
 unsigned short littleEndian16(const std::vector<unsigned char>& value) {
     return static_cast<unsigned short>(value[0]) | (static_cast<unsigned short>(value[1]) << 8);
 }
+
+unsigned long valueLength(unsigned char type, const std::vector<unsigned char>& value, unsigned long offset) {
+    if (type == 0x08 || type == 0x10 || type == 0x18 || type == 0x20 || type == 0x28 || type == 0x30) return 1;
+    if (type == 0x21 || type == 0x29 || type == 0x31) return 2;
+    if (type == 0x23 || type == 0x2b || type == 0x39) return 4;
+    if ((type == 0x41 || type == 0x42) && offset < value.size()) return 1 + value[offset];
+    if ((type == 0x43 || type == 0x44) && offset + 1 < value.size())
+        return 2 + static_cast<unsigned long>(value[offset]) + (static_cast<unsigned long>(value[offset + 1]) << 8);
+    return 0;
+}
+
+bool applyXiaomiMeasurementData(Device* device, const std::vector<unsigned char>& value, long observedAt) {
+    unsigned long offset = 0;
+    bool changed = false;
+    /* Xiaomi/Lumi puts a length-prefixed TLV stream in Basic attribute 0xff01. */
+    if (!value.empty() && static_cast<unsigned long>(value[0]) + 1 == value.size()) offset = 1;
+    while (offset + 2 <= value.size()) {
+        unsigned char identifier = value[offset++];
+        unsigned char type = value[offset++];
+        unsigned long length = valueLength(type, value, offset);
+        if (length == 0 || offset + length > value.size()) break;
+        std::vector<unsigned char> field(value.begin() + offset, value.begin() + offset + length);
+        if (identifier == 0x64 && type == 0x29 && field.size() == 2) {
+            device->hasTemperature = true;
+            device->temperatureCelsius = static_cast<double>(static_cast<short>(littleEndian16(field))) / 100.0;
+            device->kind = device->hasHumidity ? "temperature/humidity" : "temperature";
+            changed = true;
+        } else if (identifier == 0x65 && type == 0x21 && field.size() == 2) {
+            device->hasHumidity = true;
+            device->humidityPercent = static_cast<double>(littleEndian16(field)) / 100.0;
+            device->kind = device->hasTemperature ? "temperature/humidity" : "humidity";
+            changed = true;
+        }
+        offset += length;
+    }
+    if (changed) device->lastSeen = observedAt;
+    return changed;
+}
 }
 
 bool applyZclAttribute(Device* device, unsigned short cluster, unsigned short attribute,
@@ -17,7 +55,7 @@ bool applyZclAttribute(Device* device, unsigned short cluster, unsigned short at
     } else if (cluster == 0x0405 && attribute == 0x0000 && value.size() >= 2) {
         device->hasHumidity = true;
         device->humidityPercent = static_cast<double>(littleEndian16(value)) / 100.0;
-        device->kind = "humidity";
+        device->kind = device->hasTemperature ? "temperature/humidity" : "humidity";
     } else if (cluster == 0x0406 && attribute == 0x0000 && value.size() >= 1) {
         device->hasOccupancy = true;
         device->occupied = (value[0] & 0x01) != 0;
@@ -30,6 +68,8 @@ bool applyZclAttribute(Device* device, unsigned short cluster, unsigned short at
         device->hasContact = true;
         device->contactOpen = (littleEndian16(value) & 0x0001) != 0;
         device->kind = "contact";
+    } else if (cluster == 0x0000 && attribute == 0xff01) {
+        return applyXiaomiMeasurementData(device, value, observedAt);
     } else {
         return false;
     }
@@ -60,10 +100,8 @@ bool applyZclReadAttributeResponse(Device* device, unsigned short cluster,
         if (status != 0) { offset += 3; continue; }
         if (offset + 4 > payload.size()) break;
         type = payload[offset + 3];
-        if (type == 0x08 || type == 0x10 || type == 0x18 || type == 0x20 || type == 0x28 || type == 0x30) length = 1;
-        else if (type == 0x21 || type == 0x29 || type == 0x31) length = 2;
-        else if (type == 0x23 || type == 0x2b || type == 0x39) length = 4;
-        else break;
+        length = valueLength(type, payload, offset + 4);
+        if (length == 0) break;
         if (offset + 4 + length > payload.size()) break;
         value.assign(payload.begin() + offset + 4, payload.begin() + offset + 4 + length);
         if (applyZclAttribute(device, cluster, attribute, value, observedAt)) changed = true;
