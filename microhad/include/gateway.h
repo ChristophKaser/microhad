@@ -116,7 +116,17 @@ private:
         unsigned short reportableChange;
     };
     std::vector<AttributeReadRequest> pendingAttributeReads_;
+    struct BindRequest {
+        unsigned short destination;
+        unsigned char endpoint;
+        unsigned short cluster;
+        std::string sourceIeeeAddress;
+    };
+    std::vector<BindRequest> pendingBindRequests_;
+    std::vector<unsigned char> coordinatorIeeeAddress_;
+    bool coordinatorIeeeAddressRequested_;
     long nextAttributeReadAt_;
+    long nextBindRequestAt_;
     std::map<unsigned short, long> nextSensorRefreshAt_;
     std::map<std::string, long> contactOpenedAt_;
     std::map<std::string, long> nextContactAlertAt_;
@@ -143,9 +153,14 @@ private:
     void requestActiveEndpoints(unsigned short destination);
     void requestStandardAttributes(unsigned short destination, unsigned char endpoint);
     void requestRefreshAttributes(unsigned short destination, unsigned char endpoint);
+    void requestCoordinatorIeeeAddress();
+    void queueSensorBindings(unsigned short destination, unsigned char endpoint);
+    void sendZdoBindRequest(unsigned short destination, unsigned char endpoint, unsigned short cluster,
+                            const std::string& sourceIeeeAddress);
     void queueAttributeRead(unsigned short destination, unsigned char endpoint, unsigned short cluster, unsigned short attribute);
     void queueAttributeReporting(unsigned short destination, unsigned char endpoint, unsigned short cluster,
-                                 unsigned short attribute, unsigned char dataType, unsigned short reportableChange);
+                                 unsigned short attribute, unsigned char dataType, unsigned short reportableChange,
+                                 unsigned short minimumInterval = 60, unsigned short maximumInterval = 300);
     void sendZclReadAttribute(unsigned short destination, unsigned char endpoint, unsigned short cluster,
                               unsigned short attribute);
     void sendZclConfigureReporting(unsigned short destination, unsigned char endpoint, unsigned short cluster,

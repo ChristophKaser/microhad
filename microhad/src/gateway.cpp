@@ -67,7 +67,7 @@ Gateway::Gateway(const std::string& serialDevice, int serialBaud, const std::str
     firebaseServiceAccount_(firebaseServiceAccount), firebaseTopic_(firebaseTopic), caBundle_(caBundle), notificationWorker_(notificationWorker), serialFd_(-1),
     online_(false), joinUntil_(0), joinPermitRenewAt_(0), pendingJoinSeconds_(0), joinPreparationStep_(0), joinPreparationDeadline_(0), ashSendSequence_(0), ashReceiveSequence_(0), ezspSequence_(0),
     ezspVersion_(4), zdoSequence_(0), zclTransactionSequence_(0), ezspVersionNegotiated_(false), stackTokenWritingRequested_(false), networkInitRequested_(false), coordinatorInitializationStep_(0), resetDeadline_(0), nextHeartbeatAt_(0), serialRxBytes_(0), ashRxFrames_(0), networkForming_(false), networkFormationStep_(0), networkFormed_(false), networkPanId_(0),
-    networkChannel_(0), nextAttributeReadAt_(0) {
+    networkChannel_(0), coordinatorIeeeAddressRequested_(false), nextAttributeReadAt_(0), nextBindRequestAt_(0) {
 }
 
 Gateway::~Gateway() {
@@ -153,7 +153,17 @@ void Gateway::poll() {
         nextHeartbeatAt_ = time(0) + 20;
     }
     if (!online_ && resetDeadline_ != 0 && time(0) >= resetDeadline_) sendAshReset();
-    if (online_ && networkFormed_ && coordinatorInitializationStep_ == 0 && !pendingAttributeReads_.empty() &&
+    if (online_ && networkFormed_ && coordinatorInitializationStep_ == 0 && !pendingBindRequests_.empty() &&
+        coordinatorIeeeAddress_.size() == 8 && (nextBindRequestAt_ == 0 || time(0) >= nextBindRequestAt_)) {
+        BindRequest request = pendingBindRequests_.front();
+        pendingBindRequests_.erase(pendingBindRequests_.begin());
+        sendZdoBindRequest(request.destination, request.endpoint, request.cluster, request.sourceIeeeAddress);
+        /* Battery-powered devices have a very short receive window.  Serialize
+           the setup commands, as Zigbee2MQTT does, rather than flooding it. */
+        nextBindRequestAt_ = time(0) + 1;
+    }
+    if (online_ && networkFormed_ && coordinatorInitializationStep_ == 0 && pendingBindRequests_.empty() &&
+        !pendingAttributeReads_.empty() &&
         (nextAttributeReadAt_ == 0 || time(0) >= nextAttributeReadAt_)) {
         AttributeReadRequest request = pendingAttributeReads_.front();
         pendingAttributeReads_.erase(pendingAttributeReads_.begin());
@@ -164,7 +174,7 @@ void Gateway::poll() {
         } else sendZclReadAttribute(request.destination, request.endpoint, request.cluster, request.attribute);
         nextAttributeReadAt_ = time(0) + 1;
     }
-    if (online_ && networkFormed_ && coordinatorInitializationStep_ == 0 && pendingAttributeReads_.empty()) {
+    if (online_ && networkFormed_ && coordinatorInitializationStep_ == 0 && pendingBindRequests_.empty() && pendingAttributeReads_.empty()) {
         std::map<unsigned short, std::string>::const_iterator node;
         long now = time(0);
         for (node = nodeAddresses_.begin(); node != nodeAddresses_.end(); ++node) {
@@ -265,6 +275,9 @@ bool Gateway::createFreshNetwork(std::string* error) {
     networkForming_ = true;
     leaveExisting = networkFormed_;
     networkFormed_ = false;
+    coordinatorIeeeAddress_.clear();
+    coordinatorIeeeAddressRequested_ = false;
+    pendingBindRequests_.clear();
     if (leaveExisting) {
         networkFormationStep_ = 1;
         addLog("Leaving the existing Zigbee network before replacement");
@@ -590,6 +603,9 @@ void Gateway::sendAshReset() {
     /* Persistent state describes the intended network.  Do not send traffic
        until this NCP boot reports NETWORK_UP. */
     networkFormed_ = false;
+    coordinatorIeeeAddress_.clear();
+    coordinatorIeeeAddressRequested_ = false;
+    pendingBindRequests_.clear();
     nextHeartbeatAt_ = 0;
     writeBytes(reset);
     resetDeadline_ = time(0) + 5;
@@ -906,6 +922,7 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
         if (frame[payloadOffset] == 0x90) {
             networkFormed_ = true;
             addLog("NCP Zigbee network is active");
+            requestCoordinatorIeeeAddress();
         } else {
             networkFormed_ = false;
             std::ostringstream message;
@@ -915,11 +932,21 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
         }
         return;
     }
+    if (command == 0x0026 && frame.size() >= payloadOffset + 8) {
+        int i;
+        std::ostringstream message;
+        coordinatorIeeeAddress_.assign(frame.begin() + payloadOffset, frame.begin() + payloadOffset + 8);
+        message << "Coordinator IEEE address: 0x" << std::hex << std::setfill('0');
+        for (i = 7; i >= 0; --i) message << std::setw(2) << static_cast<unsigned int>(coordinatorIeeeAddress_[i]);
+        addLog(message.str());
+        return;
+    }
     if (command == 0x0034 && frame[payloadOffset] == 0x91) {
         /* EMBER_NETWORK_DOWN: stop advertising the saved state as live and
            hold subsequent refreshes until the NCP reports NETWORK_UP. */
         networkFormed_ = false;
         pendingAttributeReads_.clear();
+        pendingBindRequests_.clear();
         addLog("NCP rejected Zigbee transmit: network is down");
         return;
     }
@@ -1069,6 +1096,7 @@ void Gateway::continueNetworkFormation(unsigned short completedCommand) {
         network.preconfiguredKey = preconfiguredKey_;
         saveNetworkState(runtimeDirectory_ + "/network.json", network, &ignored);
         addLog("Fresh Zigbee network formed");
+        requestCoordinatorIeeeAddress();
         if (!stackTokenWritingRequested_) enableStackTokenWriting();
     }
 }
@@ -1138,6 +1166,67 @@ void Gateway::requestActiveEndpoints(unsigned short destination) {
     sendApsUnicast(destination, 0x0000, 0x0005, 0, 0, request);
 }
 
+void Gateway::requestCoordinatorIeeeAddress() {
+    if (coordinatorIeeeAddressRequested_) return;
+    coordinatorIeeeAddressRequested_ = true;
+    addLog("Requesting coordinator IEEE address for device reporting bindings");
+    sendEzspCommand(0x0026, std::vector<unsigned char>()); /* getEui64 */
+}
+
+void Gateway::queueSensorBindings(unsigned short destination, unsigned char endpoint) {
+    std::map<unsigned short, std::string>::const_iterator source = nodeAddresses_.find(destination);
+    static const unsigned short clusters[] = {0x0402, 0x0405, 0x0001};
+    unsigned long i;
+    std::vector<BindRequest>::iterator pending = pendingBindRequests_.begin();
+    if (source == nodeAddresses_.end()) return;
+    while (pending != pendingBindRequests_.end()) {
+        if (pending->destination == destination && pending->endpoint == endpoint)
+            pending = pendingBindRequests_.erase(pending);
+        else ++pending;
+    }
+    for (i = 0; i < sizeof(clusters) / sizeof(clusters[0]); ++i) {
+        BindRequest request;
+        request.destination = destination;
+        request.endpoint = endpoint;
+        request.cluster = clusters[i];
+        request.sourceIeeeAddress = source->second;
+        pendingBindRequests_.push_back(request);
+    }
+    nextBindRequestAt_ = 0;
+    addLog("Queued coordinator bindings for sensor reports");
+}
+
+void Gateway::sendZdoBindRequest(unsigned short destination, unsigned char endpoint, unsigned short cluster,
+                                 const std::string& sourceIeeeAddress) {
+    std::vector<unsigned char> request;
+    int i;
+    if (coordinatorIeeeAddress_.size() != 8 || sourceIeeeAddress.size() != 18 ||
+        sourceIeeeAddress[0] != '0' || (sourceIeeeAddress[1] != 'x' && sourceIeeeAddress[1] != 'X')) {
+        addLog("Cannot bind sensor reporting: missing IEEE address");
+        return;
+    }
+    request.push_back(zdoSequence_++);
+    /* The stored display form is most-significant byte first; ZDO uses little endian. */
+    for (i = 7; i >= 0; --i) {
+        unsigned int byte = 0;
+        std::istringstream parser(sourceIeeeAddress.substr(2 + i * 2, 2));
+        parser >> std::hex >> byte;
+        request.push_back(static_cast<unsigned char>(byte));
+    }
+    request.push_back(endpoint);
+    request.push_back(static_cast<unsigned char>(cluster));
+    request.push_back(static_cast<unsigned char>(cluster >> 8));
+    request.push_back(0x03); /* 64-bit destination address */
+    request.insert(request.end(), coordinatorIeeeAddress_.begin(), coordinatorIeeeAddress_.end());
+    request.push_back(1); /* coordinator endpoint */
+    sendApsUnicast(destination, 0x0000, 0x0021, 0, 0, request);
+    {
+        std::ostringstream message;
+        message << "ZDO bind request sent: cluster 0x" << std::hex << cluster;
+        addLog(message.str());
+    }
+}
+
 void Gateway::sendZclReadAttribute(unsigned short destination, unsigned char endpoint, unsigned short cluster,
                                    unsigned short attribute) {
     std::vector<unsigned char> request;
@@ -1156,10 +1245,15 @@ void Gateway::requestStandardAttributes(unsigned short destination, unsigned cha
             request = pendingAttributeReads_.erase(request);
         else ++request;
     }
-    /* Battery sensors report at most every five minutes, or earlier for a meaningful change. */
-    queueAttributeReporting(destination, endpoint, 0x0402, 0x0000, 0x29, 10);  /* 0.10 C */
-    queueAttributeReporting(destination, endpoint, 0x0405, 0x0000, 0x21, 100); /* 1.00 % */
+    /* Bind first: a Configure Reporting command alone does not tell a Zigbee
+       end device where to deliver its reports.  This mirrors the SNZB-02
+       interview used by Zigbee2MQTT. */
+    queueSensorBindings(destination, endpoint);
+    queueAttributeReporting(destination, endpoint, 0x0402, 0x0000, 0x29, 20, 30, 3600);  /* 0.20 C */
+    queueAttributeReporting(destination, endpoint, 0x0405, 0x0000, 0x21, 100, 30, 3600); /* 1.00 % */
+    queueAttributeReporting(destination, endpoint, 0x0001, 0x0021, 0x20, 1, 3600, 65000); /* battery percentage */
     queueAttributeRead(destination, endpoint, 0x0000, 0xff01); /* Xiaomi/Lumi measurement data */
+    queueAttributeRead(destination, endpoint, 0x0001, 0x0020); /* battery voltage */
     queueAttributeRead(destination, endpoint, 0x0001, 0x0021); /* battery percentage */
     queueAttributeRead(destination, endpoint, 0x0402, 0x0000); /* temperature */
     queueAttributeRead(destination, endpoint, 0x0405, 0x0000); /* humidity */
@@ -1198,7 +1292,8 @@ void Gateway::queueAttributeRead(unsigned short destination, unsigned char endpo
 }
 
 void Gateway::queueAttributeReporting(unsigned short destination, unsigned char endpoint, unsigned short cluster,
-                                      unsigned short attribute, unsigned char dataType, unsigned short reportableChange) {
+                                      unsigned short attribute, unsigned char dataType, unsigned short reportableChange,
+                                      unsigned short minimumInterval, unsigned short maximumInterval) {
     AttributeReadRequest request;
     request.destination = destination;
     request.endpoint = endpoint;
@@ -1206,8 +1301,8 @@ void Gateway::queueAttributeReporting(unsigned short destination, unsigned char 
     request.attribute = attribute;
     request.configureReporting = true;
     request.dataType = dataType;
-    request.minimumInterval = 60;
-    request.maximumInterval = 300;
+    request.minimumInterval = minimumInterval;
+    request.maximumInterval = maximumInterval;
     request.reportableChange = reportableChange;
     pendingAttributeReads_.push_back(request);
     nextAttributeReadAt_ = 0;
@@ -1270,6 +1365,13 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
             requestStandardAttributes(sender, message[5 + endpoint]);
         }
         addLog("Read standard attributes from announced device");
+        return;
+    }
+    if (cluster == 0x8021 && message.size() >= 2) {
+        std::ostringstream bind;
+        bind << "ZDO bind response: " << (message[1] == 0 ? "accepted" : "rejected 0x") << std::hex;
+        if (message[1] != 0) bind << static_cast<unsigned int>(message[1]);
+        addLog(bind.str());
         return;
     }
     address = nodeAddresses_.find(sender);
