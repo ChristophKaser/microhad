@@ -15,6 +15,7 @@
 #include <iomanip>
 #include <fstream>
 #include <termios.h>
+#include <sys/time.h>
 #include <unistd.h>
 
 Device::Device() : networkAddress(0xffff), kind("generic"), contactOpen(false), hasContact(false), hasTemperature(false),
@@ -57,6 +58,16 @@ void clearVolatileDeviceValues(Device* device) {
     device->batteryPercent = 0;
     device->linkQuality = 0;
     device->lastSeen = 0;
+}
+
+unsigned long currentMilliseconds() {
+    struct timeval now;
+    gettimeofday(&now, 0);
+    return static_cast<unsigned long>(now.tv_sec) * 1000UL + static_cast<unsigned long>(now.tv_usec / 1000);
+}
+
+bool millisecondsReached(unsigned long deadline) {
+    return deadline == 0 || static_cast<long>(currentMilliseconds() - deadline) >= 0;
 }
 }
 
@@ -154,18 +165,17 @@ void Gateway::poll() {
     }
     if (!online_ && resetDeadline_ != 0 && time(0) >= resetDeadline_) sendAshReset();
     if (online_ && networkFormed_ && coordinatorInitializationStep_ == 0 && !pendingBindRequests_.empty() &&
-        coordinatorIeeeAddress_.size() == 8 && (nextBindRequestAt_ == 0 || time(0) >= nextBindRequestAt_)) {
+        coordinatorIeeeAddress_.size() == 8 && millisecondsReached(nextBindRequestAt_)) {
         BindRequest request = pendingBindRequests_.front();
         pendingBindRequests_.erase(pendingBindRequests_.begin());
         sendZdoBindRequest(request.destination, request.endpoint, request.cluster, request.sourceIeeeAddress);
-        /* An SNZB-02 remains awake for only a few seconds after announcing.
-           The coordinator loop already serializes NCP writes; send the next
-           interview transaction on its next pass, not one second later. */
-        nextBindRequestAt_ = 0;
+        /* The NCP needs a short gap between serial commands, while SNZB-02
+           stays awake only briefly after announcing. */
+        nextBindRequestAt_ = currentMilliseconds() + 100;
     }
     if (online_ && networkFormed_ && coordinatorInitializationStep_ == 0 && pendingBindRequests_.empty() &&
         !pendingAttributeReads_.empty() &&
-        (nextAttributeReadAt_ == 0 || time(0) >= nextAttributeReadAt_)) {
+        millisecondsReached(nextAttributeReadAt_)) {
         AttributeReadRequest request = pendingAttributeReads_.front();
         pendingAttributeReads_.erase(pendingAttributeReads_.begin());
         if (request.configureReporting) {
@@ -173,9 +183,9 @@ void Gateway::poll() {
                                       request.dataType, request.minimumInterval, request.maximumInterval,
                                       request.reportableChange);
         } else sendZclReadAttribute(request.destination, request.endpoint, request.cluster, request.attribute);
-        /* Keep an interview/refresh inside the sleepy device's wake window.
-           poll() sends only one command per pass, so this is still ordered. */
-        nextAttributeReadAt_ = 0;
+        /* Keep an interview/refresh inside the sleepy device's wake window
+           without overflowing the NCP command stream. */
+        nextAttributeReadAt_ = currentMilliseconds() + 100;
     }
     if (online_ && networkFormed_ && coordinatorInitializationStep_ == 0 && pendingBindRequests_.empty() && pendingAttributeReads_.empty()) {
         std::map<unsigned short, std::string>::const_iterator node;
@@ -1124,7 +1134,13 @@ void Gateway::registerNode(unsigned short nodeId, const unsigned char* eui64) {
     std::ostringstream message;
     message << "Device announced: " << address.str() << " (0x" << std::hex << nodeId << ")";
     addLog(message.str());
-    requestActiveEndpoints(nodeId);
+    /* EZSP reports the same rejoin through more than one callback.  One
+       endpoint discovery/interview is sufficient and prevents overlapping
+       sleepy-device setup transactions. */
+    if (lastActiveEndpointRequestAt_[nodeId] == 0 || time(0) - lastActiveEndpointRequestAt_[nodeId] >= 30) {
+        lastActiveEndpointRequestAt_[nodeId] = time(0);
+        requestActiveEndpoints(nodeId);
+    } else addLog("Ignoring duplicate device announcement during interview");
 }
 
 int Gateway::allocateIasZoneId(const std::string& ieeeAddress) {

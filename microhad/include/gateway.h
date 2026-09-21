@@ -125,9 +125,10 @@ private:
     std::vector<BindRequest> pendingBindRequests_;
     std::vector<unsigned char> coordinatorIeeeAddress_;
     bool coordinatorIeeeAddressRequested_;
-    long nextAttributeReadAt_;
-    long nextBindRequestAt_;
+    unsigned long nextAttributeReadAt_;
+    unsigned long nextBindRequestAt_;
     std::map<unsigned short, long> nextSensorRefreshAt_;
+    std::map<unsigned short, long> lastActiveEndpointRequestAt_;
     std::map<std::string, long> contactOpenedAt_;
     std::map<std::string, long> nextContactAlertAt_;
     std::vector<std::string> logs_;
