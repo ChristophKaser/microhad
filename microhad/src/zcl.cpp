@@ -109,3 +109,24 @@ bool applyZclReadAttributeResponse(Device* device, unsigned short cluster,
     }
     return changed;
 }
+
+std::vector<unsigned char> buildZclConfigureReporting(unsigned char transactionSequence, unsigned short attribute,
+                                                       unsigned char dataType, unsigned short minimumInterval,
+                                                       unsigned short maximumInterval, unsigned short reportableChange) {
+    std::vector<unsigned char> request;
+    request.push_back(0x10);
+    request.push_back(transactionSequence);
+    request.push_back(0x06);
+    request.push_back(0x00);
+    request.push_back(static_cast<unsigned char>(attribute));
+    request.push_back(static_cast<unsigned char>(attribute >> 8));
+    request.push_back(dataType);
+    request.push_back(static_cast<unsigned char>(minimumInterval));
+    request.push_back(static_cast<unsigned char>(minimumInterval >> 8));
+    request.push_back(static_cast<unsigned char>(maximumInterval));
+    request.push_back(static_cast<unsigned char>(maximumInterval >> 8));
+    request.push_back(static_cast<unsigned char>(reportableChange));
+    if (dataType == 0x21 || dataType == 0x29 || dataType == 0x31)
+        request.push_back(static_cast<unsigned char>(reportableChange >> 8));
+    return request;
+}

@@ -9,6 +9,16 @@
 
 class NotificationWorker;
 
+struct EndpointDescriptor {
+    unsigned char endpoint;
+    unsigned short profileId;
+    unsigned short deviceId;
+    unsigned char deviceVersion;
+    std::vector<unsigned short> inputClusters;
+    std::vector<unsigned short> outputClusters;
+    EndpointDescriptor();
+};
+
 struct Device {
     std::string ieeeAddress;
     unsigned short networkAddress;
@@ -33,6 +43,9 @@ struct Device {
     double highTemperatureAlert;
     unsigned long contactInitialAlertMinutes;
     unsigned long contactReminderAlertMinutes;
+    std::string manufacturerName;
+    std::string modelId;
+    std::vector<EndpointDescriptor> endpoints;
     Device();
 };
 
@@ -65,6 +78,7 @@ public:
     std::string logsJson() const;
 
 private:
+    friend class GatewayTestPeer;
     std::string serialDevice_;
     int serialBaud_;
     std::string runtimeDirectory_;
@@ -104,29 +118,47 @@ private:
     unsigned char networkChannel_;
     std::map<std::string, Device> devices_;
     std::map<unsigned short, std::string> nodeAddresses_;
-    struct AttributeReadRequest {
-        unsigned short destination;
+    enum InterviewOperationType {
+        InterviewNodeDescriptor,
+        InterviewActiveEndpoints,
+        InterviewSimpleDescriptor,
+        InterviewBasicRead,
+        InterviewBind,
+        InterviewAttributeRead,
+        InterviewConfigureReporting
+    };
+    struct InterviewOperation {
+        InterviewOperationType type;
         unsigned char endpoint;
         unsigned short cluster;
         unsigned short attribute;
-        bool configureReporting;
         unsigned char dataType;
         unsigned short minimumInterval;
         unsigned short maximumInterval;
         unsigned short reportableChange;
+        unsigned char transactionSequence;
+        unsigned char messageTag;
+        unsigned char attempts;
+        InterviewOperation();
     };
-    std::vector<AttributeReadRequest> pendingAttributeReads_;
-    struct BindRequest {
-        unsigned short destination;
-        unsigned char endpoint;
-        unsigned short cluster;
-        std::string sourceIeeeAddress;
+    struct InterviewState {
+        std::string ieeeAddress;
+        std::vector<InterviewOperation> operations;
+        unsigned long operationIndex;
+        std::vector<EndpointDescriptor> discoveredEndpoints;
+        bool refreshOnly;
+        bool paused;
+        bool persistentDirty;
+        InterviewState();
     };
-    std::vector<BindRequest> pendingBindRequests_;
+    std::map<unsigned short, InterviewState> interviews_;
+    bool interviewRequestInFlight_;
+    bool interviewSendAccepted_;
+    unsigned short interviewNode_;
+    long interviewDeadline_;
+    unsigned char nextMessageTag_;
     std::vector<unsigned char> coordinatorIeeeAddress_;
     bool coordinatorIeeeAddressRequested_;
-    unsigned long nextAttributeReadAt_;
-    unsigned long nextBindRequestAt_;
     std::map<unsigned short, long> nextSensorRefreshAt_;
     std::map<unsigned short, long> lastActiveEndpointRequestAt_;
     std::map<std::string, long> contactOpenedAt_;
@@ -141,7 +173,7 @@ private:
     void enableStackTokenWriting();
     void sendApsUnicast(unsigned short destination, unsigned short profile, unsigned short cluster,
                         unsigned char sourceEndpoint, unsigned char destinationEndpoint,
-                        const std::vector<unsigned char>& message);
+                        const std::vector<unsigned char>& message, unsigned char messageTag = 0);
     void sendJoinPermit(unsigned int duration);
     void beginJoinWindow(unsigned int seconds);
     void handleAshFrame(const std::vector<unsigned char>& frame);
@@ -151,22 +183,34 @@ private:
     void sendIasEnrollResponse(unsigned short destination, unsigned char sourceEndpoint,
                                unsigned char destinationEndpoint, unsigned char transactionSequence,
                                unsigned char zoneId);
-    void requestActiveEndpoints(unsigned short destination);
-    void requestStandardAttributes(unsigned short destination, unsigned char endpoint);
-    void requestRefreshAttributes(unsigned short destination, unsigned char endpoint);
+    void startInterview(unsigned short destination, bool refreshOnly);
+    void queueInterviewOperation(unsigned short destination, InterviewOperationType type, unsigned char endpoint,
+                                 unsigned short cluster = 0, unsigned short attribute = 0,
+                                 unsigned char dataType = 0, unsigned short reportableChange = 0,
+                                 unsigned short minimumInterval = 0, unsigned short maximumInterval = 0);
+    void sendNextInterviewOperation();
+    void sendInterviewOperation(unsigned short destination, InterviewOperation* operation);
+    void completeInterviewOperation(unsigned short destination);
+    void failInterviewOperation(unsigned short destination, const std::string& reason);
+    void buildDescriptorOperations(unsigned short destination, const std::vector<unsigned char>& endpoints);
+    void buildConfigurationOperations(unsigned short destination);
+    void buildRefreshOperations(unsigned short destination);
+    bool parseSimpleDescriptor(const std::vector<unsigned char>& message, EndpointDescriptor* descriptor) const;
+    bool endpointSupports(const EndpointDescriptor& endpoint, unsigned short cluster) const;
+    bool updateBasicIdentity(Device* device, const std::vector<unsigned char>& records);
+    void wakeInterview(unsigned short destination);
     void requestCoordinatorIeeeAddress();
-    void queueSensorBindings(unsigned short destination, unsigned char endpoint);
     void sendZdoBindRequest(unsigned short destination, unsigned char endpoint, unsigned short cluster,
-                            const std::string& sourceIeeeAddress);
-    void queueAttributeRead(unsigned short destination, unsigned char endpoint, unsigned short cluster, unsigned short attribute);
-    void queueAttributeReporting(unsigned short destination, unsigned char endpoint, unsigned short cluster,
-                                 unsigned short attribute, unsigned char dataType, unsigned short reportableChange,
-                                 unsigned short minimumInterval = 60, unsigned short maximumInterval = 300);
+                            const std::string& sourceIeeeAddress, unsigned char transactionSequence,
+                            unsigned char messageTag);
     void sendZclReadAttribute(unsigned short destination, unsigned char endpoint, unsigned short cluster,
-                              unsigned short attribute);
+                              unsigned short attribute, unsigned char transactionSequence, unsigned char messageTag);
+    void sendZclReadBasic(unsigned short destination, unsigned char endpoint,
+                          unsigned char transactionSequence, unsigned char messageTag);
     void sendZclConfigureReporting(unsigned short destination, unsigned char endpoint, unsigned short cluster,
                                    unsigned short attribute, unsigned char dataType, unsigned short minimumInterval,
-                                   unsigned short maximumInterval, unsigned short reportableChange);
+                                   unsigned short maximumInterval, unsigned short reportableChange,
+                                   unsigned char transactionSequence, unsigned char messageTag);
     void handleIncomingMessage(const std::vector<unsigned char>& payload);
     bool generateNetworkMaterial(std::string* error);
     void continueNetworkFormation(unsigned short completedCommand);

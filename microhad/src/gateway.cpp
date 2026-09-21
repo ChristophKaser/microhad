@@ -6,6 +6,7 @@
 #include "web_push.h"
 
 #include <cerrno>
+#include <algorithm>
 #include <climits>
 #include <cstdio>
 #include <cstring>
@@ -15,14 +16,23 @@
 #include <iomanip>
 #include <fstream>
 #include <termios.h>
-#include <sys/time.h>
 #include <unistd.h>
+
+EndpointDescriptor::EndpointDescriptor() : endpoint(0), profileId(0), deviceId(0), deviceVersion(0) {
+}
 
 Device::Device() : networkAddress(0xffff), kind("generic"), contactOpen(false), hasContact(false), hasTemperature(false),
                    temperatureCelsius(0), hasHumidity(false), humidityPercent(0), hasOccupancy(false), occupied(false),
                    hasBattery(false), batteryPercent(0), linkQuality(0), lastSeen(0),
                    iasZoneId(-1), hasLowTemperatureAlert(false), hasHighTemperatureAlert(false), lowTemperatureAlert(0),
                    highTemperatureAlert(0), contactInitialAlertMinutes(10), contactReminderAlertMinutes(5) {
+}
+
+Gateway::InterviewOperation::InterviewOperation() : type(InterviewNodeDescriptor), endpoint(0), cluster(0), attribute(0),
+    dataType(0), minimumInterval(0), maximumInterval(0), reportableChange(0), transactionSequence(0), messageTag(0), attempts(0) {
+}
+
+Gateway::InterviewState::InterviewState() : operationIndex(0), refreshOnly(false), paused(false), persistentDirty(false) {
 }
 
 namespace {
@@ -60,14 +70,15 @@ void clearVolatileDeviceValues(Device* device) {
     device->lastSeen = 0;
 }
 
-unsigned long currentMilliseconds() {
-    struct timeval now;
-    gettimeofday(&now, 0);
-    return static_cast<unsigned long>(now.tv_sec) * 1000UL + static_cast<unsigned long>(now.tv_usec / 1000);
-}
-
-bool millisecondsReached(unsigned long deadline) {
-    return deadline == 0 || static_cast<long>(currentMilliseconds() - deadline) >= 0;
+bool endpointDescriptorsEqual(const std::vector<EndpointDescriptor>& left,
+                              const std::vector<EndpointDescriptor>& right) {
+    if (left.size() != right.size()) return false;
+    for (unsigned long i = 0; i < left.size(); ++i) {
+        if (left[i].endpoint != right[i].endpoint || left[i].profileId != right[i].profileId ||
+            left[i].deviceId != right[i].deviceId || left[i].deviceVersion != right[i].deviceVersion ||
+            left[i].inputClusters != right[i].inputClusters || left[i].outputClusters != right[i].outputClusters) return false;
+    }
+    return true;
 }
 }
 
@@ -78,7 +89,8 @@ Gateway::Gateway(const std::string& serialDevice, int serialBaud, const std::str
     firebaseServiceAccount_(firebaseServiceAccount), firebaseTopic_(firebaseTopic), caBundle_(caBundle), notificationWorker_(notificationWorker), serialFd_(-1),
     online_(false), joinUntil_(0), joinPermitRenewAt_(0), pendingJoinSeconds_(0), joinPreparationStep_(0), joinPreparationDeadline_(0), ashSendSequence_(0), ashReceiveSequence_(0), ezspSequence_(0),
     ezspVersion_(4), zdoSequence_(0), zclTransactionSequence_(0), ezspVersionNegotiated_(false), stackTokenWritingRequested_(false), networkInitRequested_(false), coordinatorInitializationStep_(0), resetDeadline_(0), nextHeartbeatAt_(0), serialRxBytes_(0), ashRxFrames_(0), networkForming_(false), networkFormationStep_(0), networkFormed_(false), networkPanId_(0),
-    networkChannel_(0), coordinatorIeeeAddressRequested_(false), nextAttributeReadAt_(0), nextBindRequestAt_(0) {
+    networkChannel_(0), interviewRequestInFlight_(false), interviewSendAccepted_(false), interviewNode_(0xffff),
+    interviewDeadline_(0), nextMessageTag_(1), coordinatorIeeeAddressRequested_(false) {
 }
 
 Gateway::~Gateway() {
@@ -164,39 +176,28 @@ void Gateway::poll() {
         nextHeartbeatAt_ = time(0) + 20;
     }
     if (!online_ && resetDeadline_ != 0 && time(0) >= resetDeadline_) sendAshReset();
-    if (online_ && networkFormed_ && coordinatorInitializationStep_ == 0 && !pendingBindRequests_.empty() &&
-        coordinatorIeeeAddress_.size() == 8 && millisecondsReached(nextBindRequestAt_)) {
-        BindRequest request = pendingBindRequests_.front();
-        pendingBindRequests_.erase(pendingBindRequests_.begin());
-        sendZdoBindRequest(request.destination, request.endpoint, request.cluster, request.sourceIeeeAddress);
-        /* The NCP needs a short gap between serial commands, while SNZB-02
-           stays awake only briefly after announcing. */
-        nextBindRequestAt_ = currentMilliseconds() + 100;
+    if (interviewRequestInFlight_ && interviewDeadline_ != 0 && time(0) >= interviewDeadline_) {
+        failInterviewOperation(interviewNode_, "response timed out");
     }
-    if (online_ && networkFormed_ && coordinatorInitializationStep_ == 0 && pendingBindRequests_.empty() &&
-        !pendingAttributeReads_.empty() &&
-        millisecondsReached(nextAttributeReadAt_)) {
-        AttributeReadRequest request = pendingAttributeReads_.front();
-        pendingAttributeReads_.erase(pendingAttributeReads_.begin());
-        if (request.configureReporting) {
-            sendZclConfigureReporting(request.destination, request.endpoint, request.cluster, request.attribute,
-                                      request.dataType, request.minimumInterval, request.maximumInterval,
-                                      request.reportableChange);
-        } else sendZclReadAttribute(request.destination, request.endpoint, request.cluster, request.attribute);
-        /* Keep an interview/refresh inside the sleepy device's wake window
-           without overflowing the NCP command stream. */
-        nextAttributeReadAt_ = currentMilliseconds() + 100;
+    if (online_ && networkFormed_ && coordinatorInitializationStep_ == 0 && !interviewRequestInFlight_) {
+        sendNextInterviewOperation();
     }
-    if (online_ && networkFormed_ && coordinatorInitializationStep_ == 0 && pendingBindRequests_.empty() && pendingAttributeReads_.empty()) {
+    if (online_ && networkFormed_ && coordinatorInitializationStep_ == 0 && !interviewRequestInFlight_) {
         std::map<unsigned short, std::string>::const_iterator node;
         long now = time(0);
         for (node = nodeAddresses_.begin(); node != nodeAddresses_.end(); ++node) {
             std::map<std::string, Device>::const_iterator device = devices_.find(node->second);
-            if (device == devices_.end() || (!device->second.hasTemperature && !device->second.hasHumidity)) continue;
+            bool measurement = false;
+            if (device == devices_.end()) continue;
+            for (unsigned long endpoint = 0; endpoint < device->second.endpoints.size(); ++endpoint) {
+                if (endpointSupports(device->second.endpoints[endpoint], 0x0402) ||
+                    endpointSupports(device->second.endpoints[endpoint], 0x0405)) measurement = true;
+            }
+            if (!measurement && !device->second.hasTemperature && !device->second.hasHumidity) continue;
             if (nextSensorRefreshAt_[node->first] > now) continue;
-            requestRefreshAttributes(node->first, 1);
+            startInterview(node->first, true);
             nextSensorRefreshAt_[node->first] = now + 300;
-            addLog("Queued periodic sensor attribute refresh");
+            addLog("Queued periodic sensor discovery refresh");
             break; /* one sleepy-device request at a time */
         }
     }
@@ -290,7 +291,8 @@ bool Gateway::createFreshNetwork(std::string* error) {
     networkFormed_ = false;
     coordinatorIeeeAddress_.clear();
     coordinatorIeeeAddressRequested_ = false;
-    pendingBindRequests_.clear();
+    interviews_.clear();
+    interviewRequestInFlight_ = false;
     if (leaveExisting) {
         networkFormationStep_ = 1;
         addLog("Leaving the existing Zigbee network before replacement");
@@ -363,11 +365,9 @@ bool Gateway::refreshDevice(const std::string& ieeeAddress, std::string* error) 
         return false;
     }
     if (device->second.networkAddress == 0xffff) { *error = "device has no active network address"; return false; }
-    /* Most ZHA sensors, including Xiaomi temperature sensors, expose their
-       measurement clusters on endpoint 1.  Endpoint discovery requires the
-       sleepy device to be listening first; direct reads can instead succeed
-       during any normal wake window. */
-    requestRefreshAttributes(device->second.networkAddress, 1);
+    /* Probe the device first, then use its persisted descriptors to target
+       only measurement clusters that the endpoint actually exposes. */
+    startInterview(device->second.networkAddress, true);
     nextSensorRefreshAt_[device->second.networkAddress] = time(0) + 300;
     addLog(std::string("Manual attribute refresh queued: ") + ieeeAddress);
     return true;
@@ -566,8 +566,13 @@ void Gateway::loadState() {
     error.clear();
     if (loadDevices("/tmp/microhad-zigbee-native-values.json", &volatileValues, &error)) {
         for (i = 0; i < volatileValues.size(); ++i) {
-            if (devices_.find(volatileValues[i].ieeeAddress) != devices_.end())
+            if (devices_.find(volatileValues[i].ieeeAddress) != devices_.end()) {
+                Device& persistent = devices_[volatileValues[i].ieeeAddress];
+                if (volatileValues[i].manufacturerName.empty()) volatileValues[i].manufacturerName = persistent.manufacturerName;
+                if (volatileValues[i].modelId.empty()) volatileValues[i].modelId = persistent.modelId;
+                if (volatileValues[i].endpoints.empty()) volatileValues[i].endpoints = persistent.endpoints;
                 devices_[volatileValues[i].ieeeAddress] = volatileValues[i];
+            }
         }
     }
     error.clear();
@@ -618,7 +623,8 @@ void Gateway::sendAshReset() {
     networkFormed_ = false;
     coordinatorIeeeAddress_.clear();
     coordinatorIeeeAddressRequested_ = false;
-    pendingBindRequests_.clear();
+    interviews_.clear();
+    interviewRequestInFlight_ = false;
     nextHeartbeatAt_ = 0;
     writeBytes(reset);
     resetDeadline_ = time(0) + 5;
@@ -741,7 +747,7 @@ void Gateway::enableStackTokenWriting() {
 
 void Gateway::sendApsUnicast(unsigned short destination, unsigned short profile, unsigned short cluster,
                              unsigned char sourceEndpoint, unsigned char destinationEndpoint,
-                             const std::vector<unsigned char>& message) {
+                             const std::vector<unsigned char>& message, unsigned char messageTag) {
     std::vector<unsigned char> payload;
     static unsigned char apsSequence = 0;
     payload.push_back(0); /* EMBER_OUTGOING_DIRECT */
@@ -756,7 +762,7 @@ void Gateway::sendApsUnicast(unsigned short destination, unsigned short profile,
     payload.push_back(0x40); payload.push_back(0x01); /* retry and route discovery */
     payload.push_back(0); payload.push_back(0); /* group id */
     payload.push_back(apsSequence++);
-    payload.push_back(0); /* message tag */
+    payload.push_back(messageTag);
     payload.push_back(static_cast<unsigned char>(message.size()));
     payload.insert(payload.end(), message.begin(), message.end());
     sendEzspCommand(0x0034, payload); /* sendUnicast */
@@ -958,9 +964,30 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
         /* EMBER_NETWORK_DOWN: stop advertising the saved state as live and
            hold subsequent refreshes until the NCP reports NETWORK_UP. */
         networkFormed_ = false;
-        pendingAttributeReads_.clear();
-        pendingBindRequests_.clear();
+        interviews_.clear();
+        interviewRequestInFlight_ = false;
         addLog("NCP rejected Zigbee transmit: network is down");
+        return;
+    }
+    if (command == 0x0034 && interviewRequestInFlight_ && !interviewSendAccepted_) {
+        if (frame[payloadOffset] == 0) interviewSendAccepted_ = true;
+        else {
+            std::ostringstream reason;
+            reason << "NCP rejected transmit 0x" << std::hex << static_cast<unsigned int>(frame[payloadOffset]);
+            failInterviewOperation(interviewNode_, reason.str());
+        }
+        return;
+    }
+    if (command == 0x003f && interviewRequestInFlight_ && frame.size() >= payloadOffset + 16) {
+        unsigned char messageTag = frame[payloadOffset + 14];
+        unsigned char deliveryStatus = frame[payloadOffset + 15];
+        std::map<unsigned short, InterviewState>::iterator interview = interviews_.find(interviewNode_);
+        if (interview != interviews_.end() && interview->second.operationIndex < interview->second.operations.size() &&
+            interview->second.operations[interview->second.operationIndex].messageTag == messageTag && deliveryStatus != 0) {
+            std::ostringstream reason;
+            reason << "delivery failed 0x" << std::hex << static_cast<unsigned int>(deliveryStatus);
+            failInterviewOperation(interviewNode_, reason.str());
+        }
         return;
     }
     if (joinPreparationStep_ == 1 && command == 0x0055) {
@@ -1123,23 +1150,26 @@ void Gateway::registerNode(unsigned short nodeId, const unsigned char* eui64) {
     nodeAddresses_[nodeId] = address.str();
     nextSensorRefreshAt_[nodeId] = time(0) + 300;
     Device& device = devices_[address.str()];
+    bool persistentChanged = device.networkAddress != nodeId;
     device.networkAddress = nodeId;
     if (device.ieeeAddress.empty()) {
         device.ieeeAddress = address.str();
         device.name = address.str();
         device.lastSeen = time(0);
+        persistentChanged = true;
     }
     saveState();
-    savePersistentState();
+    if (persistentChanged) savePersistentState();
     std::ostringstream message;
     message << "Device announced: " << address.str() << " (0x" << std::hex << nodeId << ")";
     addLog(message.str());
+    wakeInterview(nodeId);
     /* EZSP reports the same rejoin through more than one callback.  One
        endpoint discovery/interview is sufficient and prevents overlapping
        sleepy-device setup transactions. */
     if (lastActiveEndpointRequestAt_[nodeId] == 0 || time(0) - lastActiveEndpointRequestAt_[nodeId] >= 30) {
         lastActiveEndpointRequestAt_[nodeId] = time(0);
-        requestActiveEndpoints(nodeId);
+        startInterview(nodeId, false);
     } else addLog("Ignoring duplicate device announcement during interview");
 }
 
@@ -1177,12 +1207,288 @@ void Gateway::sendIasEnrollResponse(unsigned short destination, unsigned char so
     sendApsUnicast(destination, 0x0104, 0x0500, sourceEndpoint, destinationEndpoint, response);
 }
 
-void Gateway::requestActiveEndpoints(unsigned short destination) {
+void Gateway::startInterview(unsigned short destination, bool refreshOnly) {
+    std::map<unsigned short, std::string>::const_iterator address = nodeAddresses_.find(destination);
+    if (address == nodeAddresses_.end()) return;
+    std::map<unsigned short, InterviewState>::iterator existing = interviews_.find(destination);
+    if (existing != interviews_.end()) {
+        existing->second.paused = false;
+        return;
+    }
+    InterviewState state;
+    state.ieeeAddress = address->second;
+    state.refreshOnly = refreshOnly;
+    interviews_[destination] = state;
+    queueInterviewOperation(destination, InterviewNodeDescriptor, 0);
+}
+
+void Gateway::queueInterviewOperation(unsigned short destination, InterviewOperationType type, unsigned char endpoint,
+                                      unsigned short cluster, unsigned short attribute, unsigned char dataType,
+                                      unsigned short reportableChange, unsigned short minimumInterval,
+                                      unsigned short maximumInterval) {
+    InterviewOperation operation;
+    operation.type = type;
+    operation.endpoint = endpoint;
+    operation.cluster = cluster;
+    operation.attribute = attribute;
+    operation.dataType = dataType;
+    operation.reportableChange = reportableChange;
+    operation.minimumInterval = minimumInterval;
+    operation.maximumInterval = maximumInterval;
+    interviews_[destination].operations.push_back(operation);
+}
+
+bool Gateway::endpointSupports(const EndpointDescriptor& endpoint, unsigned short cluster) const {
+    return std::find(endpoint.inputClusters.begin(), endpoint.inputClusters.end(), cluster) != endpoint.inputClusters.end();
+}
+
+void Gateway::buildDescriptorOperations(unsigned short destination, const std::vector<unsigned char>& endpoints) {
+    InterviewState& state = interviews_[destination];
+    state.operations.clear();
+    state.operationIndex = 0;
+    state.discoveredEndpoints.clear();
+    for (unsigned long i = 0; i < endpoints.size(); ++i) {
+        if (endpoints[i] != 0) queueInterviewOperation(destination, InterviewSimpleDescriptor, endpoints[i]);
+    }
+    if (state.operations.empty()) {
+        state.paused = true;
+        addLog("Interview paused: device returned no valid endpoints");
+    }
+}
+
+void Gateway::buildRefreshOperations(unsigned short destination) {
+    InterviewState& state = interviews_[destination];
+    const Device& device = devices_[state.ieeeAddress];
+    state.operations.clear();
+    state.operationIndex = 0;
+    for (unsigned long i = 0; i < device.endpoints.size(); ++i) {
+        const EndpointDescriptor& endpoint = device.endpoints[i];
+        if (endpointSupports(endpoint, 0x0402)) queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0402, 0x0000);
+        if (endpointSupports(endpoint, 0x0405)) queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0405, 0x0000);
+        if (endpointSupports(endpoint, 0x0001)) {
+            queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0001, 0x0021);
+            queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0001, 0x0020);
+        }
+    }
+    if (state.operations.empty()) {
+        addLog("Refresh completed: no persisted measurement endpoints");
+        interviews_.erase(destination);
+    }
+}
+
+void Gateway::buildConfigurationOperations(unsigned short destination) {
+    InterviewState& state = interviews_[destination];
+    Device& device = devices_[state.ieeeAddress];
+    state.operations.clear();
+    state.operationIndex = 0;
+    for (unsigned long i = 0; i < device.endpoints.size(); ++i) {
+        const EndpointDescriptor& endpoint = device.endpoints[i];
+        if (endpointSupports(endpoint, 0x0402)) queueInterviewOperation(destination, InterviewBind, endpoint.endpoint, 0x0402);
+        if (endpointSupports(endpoint, 0x0405)) queueInterviewOperation(destination, InterviewBind, endpoint.endpoint, 0x0405);
+        if (endpointSupports(endpoint, 0x0001)) queueInterviewOperation(destination, InterviewBind, endpoint.endpoint, 0x0001);
+        if (endpointSupports(endpoint, 0x0406)) queueInterviewOperation(destination, InterviewBind, endpoint.endpoint, 0x0406);
+    }
+    for (unsigned long i = 0; i < device.endpoints.size(); ++i) {
+        const EndpointDescriptor& endpoint = device.endpoints[i];
+        if (endpointSupports(endpoint, 0x0402)) {
+            queueInterviewOperation(destination, InterviewConfigureReporting, endpoint.endpoint, 0x0402, 0x0000, 0x29, 20, 30, 3600);
+            queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0402, 0x0000);
+        }
+        if (endpointSupports(endpoint, 0x0405)) {
+            queueInterviewOperation(destination, InterviewConfigureReporting, endpoint.endpoint, 0x0405, 0x0000, 0x21, 100, 30, 3600);
+            queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0405, 0x0000);
+        }
+        if (endpointSupports(endpoint, 0x0001)) {
+            queueInterviewOperation(destination, InterviewConfigureReporting, endpoint.endpoint, 0x0001, 0x0021, 0x20, 1, 3600, 65000);
+            queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0001, 0x0021);
+            queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0001, 0x0020);
+        }
+        if (endpointSupports(endpoint, 0x0406)) {
+            queueInterviewOperation(destination, InterviewConfigureReporting, endpoint.endpoint, 0x0406, 0x0000, 0x18, 0, 0, 3600);
+            queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0406, 0x0000);
+        }
+        if (endpointSupports(endpoint, 0x0000) &&
+            (device.manufacturerName.find("LUMI") != std::string::npos || device.manufacturerName.find("Xiaomi") != std::string::npos ||
+             device.modelId.find("lumi.") == 0)) {
+            queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0000, 0xff01);
+        }
+    }
+    if (state.operations.empty()) {
+        addLog("Interview completed: no configurable sensor clusters");
+        interviews_.erase(destination);
+    }
+}
+
+void Gateway::sendNextInterviewOperation() {
+    std::map<unsigned short, InterviewState>::iterator interview;
+    for (interview = interviews_.begin(); interview != interviews_.end(); ++interview) {
+        InterviewState& state = interview->second;
+        if (state.paused || state.operationIndex >= state.operations.size()) continue;
+        sendInterviewOperation(interview->first, &state.operations[state.operationIndex]);
+        return;
+    }
+}
+
+void Gateway::sendInterviewOperation(unsigned short destination, InterviewOperation* operation) {
     std::vector<unsigned char> request;
-    request.push_back(zdoSequence_++);
-    request.push_back(static_cast<unsigned char>(destination));
-    request.push_back(static_cast<unsigned char>(destination >> 8));
-    sendApsUnicast(destination, 0x0000, 0x0005, 0, 0, request);
+    operation->transactionSequence = operation->type == InterviewNodeDescriptor || operation->type == InterviewActiveEndpoints ||
+        operation->type == InterviewSimpleDescriptor || operation->type == InterviewBind ? zdoSequence_++ : zclTransactionSequence_++;
+    operation->messageTag = nextMessageTag_++;
+    if (nextMessageTag_ == 0) nextMessageTag_ = 1;
+    ++operation->attempts;
+    interviewRequestInFlight_ = true;
+    interviewSendAccepted_ = false;
+    interviewNode_ = destination;
+    interviewDeadline_ = time(0) + 10;
+    if (operation->type == InterviewNodeDescriptor) {
+        request.push_back(operation->transactionSequence);
+        request.push_back(static_cast<unsigned char>(destination));
+        request.push_back(static_cast<unsigned char>(destination >> 8));
+        sendApsUnicast(destination, 0x0000, 0x0002, 0, 0, request, operation->messageTag);
+    } else if (operation->type == InterviewActiveEndpoints) {
+        request.push_back(operation->transactionSequence);
+        request.push_back(static_cast<unsigned char>(destination));
+        request.push_back(static_cast<unsigned char>(destination >> 8));
+        sendApsUnicast(destination, 0x0000, 0x0005, 0, 0, request, operation->messageTag);
+    } else if (operation->type == InterviewSimpleDescriptor) {
+        request.push_back(operation->transactionSequence);
+        request.push_back(static_cast<unsigned char>(destination));
+        request.push_back(static_cast<unsigned char>(destination >> 8));
+        request.push_back(operation->endpoint);
+        sendApsUnicast(destination, 0x0000, 0x0004, 0, 0, request, operation->messageTag);
+    } else if (operation->type == InterviewBind) {
+        sendZdoBindRequest(destination, operation->endpoint, operation->cluster, interviews_[destination].ieeeAddress,
+                           operation->transactionSequence, operation->messageTag);
+    } else if (operation->type == InterviewBasicRead) {
+        sendZclReadBasic(destination, operation->endpoint, operation->transactionSequence, operation->messageTag);
+    } else if (operation->type == InterviewAttributeRead) {
+        sendZclReadAttribute(destination, operation->endpoint, operation->cluster, operation->attribute,
+                             operation->transactionSequence, operation->messageTag);
+    } else {
+        sendZclConfigureReporting(destination, operation->endpoint, operation->cluster, operation->attribute,
+                                  operation->dataType, operation->minimumInterval, operation->maximumInterval,
+                                  operation->reportableChange, operation->transactionSequence, operation->messageTag);
+    }
+}
+
+void Gateway::failInterviewOperation(unsigned short destination, const std::string& reason) {
+    std::map<unsigned short, InterviewState>::iterator found = interviews_.find(destination);
+    interviewRequestInFlight_ = false;
+    interviewDeadline_ = 0;
+    if (found == interviews_.end() || found->second.operationIndex >= found->second.operations.size()) return;
+    InterviewOperation& operation = found->second.operations[found->second.operationIndex];
+    std::ostringstream message;
+    message << "Interview operation failed for " << found->second.ieeeAddress << ": " << reason;
+    addLog(message.str());
+    if (operation.attempts >= 2) {
+        operation.attempts = 0;
+        found->second.paused = true;
+        addLog("Interview paused until the device wakes again");
+    }
+}
+
+void Gateway::wakeInterview(unsigned short destination) {
+    std::map<unsigned short, InterviewState>::iterator found = interviews_.find(destination);
+    if (found != interviews_.end() && found->second.paused) {
+        found->second.paused = false;
+        addLog("Resuming paused interview on device traffic");
+    }
+}
+
+bool Gateway::parseSimpleDescriptor(const std::vector<unsigned char>& message, EndpointDescriptor* descriptor) const {
+    unsigned long offset;
+    unsigned long count;
+    if (message.size() < 13 || message[1] != 0 || message[4] < 8 ||
+        message.size() < 5UL + static_cast<unsigned long>(message[4])) return false;
+    descriptor->endpoint = message[5];
+    descriptor->profileId = static_cast<unsigned short>(message[6]) | (static_cast<unsigned short>(message[7]) << 8);
+    descriptor->deviceId = static_cast<unsigned short>(message[8]) | (static_cast<unsigned short>(message[9]) << 8);
+    descriptor->deviceVersion = message[10] & 0x0f;
+    count = message[11];
+    offset = 12;
+    if (offset + count * 2 + 1 > message.size()) return false;
+    descriptor->inputClusters.clear();
+    descriptor->outputClusters.clear();
+    for (unsigned long i = 0; i < count; ++i, offset += 2) {
+        descriptor->inputClusters.push_back(static_cast<unsigned short>(message[offset]) |
+                                            (static_cast<unsigned short>(message[offset + 1]) << 8));
+    }
+    count = message[offset++];
+    if (offset + count * 2 > message.size()) return false;
+    for (unsigned long i = 0; i < count; ++i, offset += 2) {
+        descriptor->outputClusters.push_back(static_cast<unsigned short>(message[offset]) |
+                                             (static_cast<unsigned short>(message[offset + 1]) << 8));
+    }
+    return true;
+}
+
+bool Gateway::updateBasicIdentity(Device* device, const std::vector<unsigned char>& records) {
+    unsigned long offset = 0;
+    bool changed = false;
+    while (offset + 3 <= records.size()) {
+        unsigned short attribute = static_cast<unsigned short>(records[offset]) |
+                                   (static_cast<unsigned short>(records[offset + 1]) << 8);
+        unsigned char status = records[offset + 2];
+        if (status != 0) { offset += 3; continue; }
+        if (offset + 5 > records.size()) break;
+        unsigned char type = records[offset + 3];
+        if (type != 0x42 || offset + 5 + records[offset + 4] > records.size()) break;
+        std::string value(records.begin() + offset + 5, records.begin() + offset + 5 + records[offset + 4]);
+        if (attribute == 0x0004 && device->manufacturerName != value) {
+            device->manufacturerName = value;
+            changed = true;
+        } else if (attribute == 0x0005 && device->modelId != value) {
+            device->modelId = value;
+            changed = true;
+        }
+        offset += 5 + records[offset + 4];
+    }
+    return changed;
+}
+
+void Gateway::completeInterviewOperation(unsigned short destination) {
+    std::map<unsigned short, InterviewState>::iterator found = interviews_.find(destination);
+    interviewRequestInFlight_ = false;
+    interviewDeadline_ = 0;
+    if (found == interviews_.end() || found->second.operationIndex >= found->second.operations.size()) return;
+    InterviewOperationType completedType = found->second.operations[found->second.operationIndex].type;
+    ++found->second.operationIndex;
+    if (found->second.operationIndex < found->second.operations.size()) return;
+
+    InterviewState& state = found->second;
+    Device& device = devices_[state.ieeeAddress];
+    if (completedType == InterviewNodeDescriptor) {
+        state.operations.clear();
+        state.operationIndex = 0;
+        queueInterviewOperation(destination, InterviewActiveEndpoints, 0);
+    } else if (completedType == InterviewSimpleDescriptor) {
+        if (!endpointDescriptorsEqual(device.endpoints, state.discoveredEndpoints)) {
+            device.endpoints = state.discoveredEndpoints;
+            state.persistentDirty = true;
+        }
+        if (state.persistentDirty) {
+            savePersistentState();
+            state.persistentDirty = false;
+        }
+        state.operations.clear();
+        state.operationIndex = 0;
+        for (unsigned long i = 0; i < device.endpoints.size(); ++i) {
+            if (endpointSupports(device.endpoints[i], 0x0000))
+                queueInterviewOperation(destination, InterviewBasicRead, device.endpoints[i].endpoint, 0x0000);
+        }
+        if (state.operations.empty()) {
+            buildConfigurationOperations(destination);
+        }
+    } else if (completedType == InterviewBasicRead) {
+        if (state.persistentDirty) {
+            savePersistentState();
+            state.persistentDirty = false;
+        }
+        buildConfigurationOperations(destination);
+    } else {
+        addLog(state.refreshOnly ? "Sensor attribute refresh completed" : "Sensor interview completed");
+        interviews_.erase(destination);
+    }
 }
 
 void Gateway::requestCoordinatorIeeeAddress() {
@@ -1192,31 +1498,9 @@ void Gateway::requestCoordinatorIeeeAddress() {
     sendEzspCommand(0x0026, std::vector<unsigned char>()); /* getEui64 */
 }
 
-void Gateway::queueSensorBindings(unsigned short destination, unsigned char endpoint) {
-    std::map<unsigned short, std::string>::const_iterator source = nodeAddresses_.find(destination);
-    static const unsigned short clusters[] = {0x0402, 0x0405, 0x0001};
-    unsigned long i;
-    std::vector<BindRequest>::iterator pending = pendingBindRequests_.begin();
-    if (source == nodeAddresses_.end()) return;
-    while (pending != pendingBindRequests_.end()) {
-        if (pending->destination == destination && pending->endpoint == endpoint)
-            pending = pendingBindRequests_.erase(pending);
-        else ++pending;
-    }
-    for (i = 0; i < sizeof(clusters) / sizeof(clusters[0]); ++i) {
-        BindRequest request;
-        request.destination = destination;
-        request.endpoint = endpoint;
-        request.cluster = clusters[i];
-        request.sourceIeeeAddress = source->second;
-        pendingBindRequests_.push_back(request);
-    }
-    nextBindRequestAt_ = 0;
-    addLog("Queued coordinator bindings for sensor reports");
-}
-
 void Gateway::sendZdoBindRequest(unsigned short destination, unsigned char endpoint, unsigned short cluster,
-                                 const std::string& sourceIeeeAddress) {
+                                 const std::string& sourceIeeeAddress, unsigned char transactionSequence,
+                                 unsigned char messageTag) {
     std::vector<unsigned char> request;
     int i;
     if (coordinatorIeeeAddress_.size() != 8 || sourceIeeeAddress.size() != 18 ||
@@ -1224,7 +1508,7 @@ void Gateway::sendZdoBindRequest(unsigned short destination, unsigned char endpo
         addLog("Cannot bind sensor reporting: missing IEEE address");
         return;
     }
-    request.push_back(zdoSequence_++);
+    request.push_back(transactionSequence);
     /* The stored display form is most-significant byte first; ZDO uses little endian. */
     for (i = 7; i >= 0; --i) {
         unsigned int byte = 0;
@@ -1238,7 +1522,7 @@ void Gateway::sendZdoBindRequest(unsigned short destination, unsigned char endpo
     request.push_back(0x03); /* 64-bit destination address */
     request.insert(request.end(), coordinatorIeeeAddress_.begin(), coordinatorIeeeAddress_.end());
     request.push_back(1); /* coordinator endpoint */
-    sendApsUnicast(destination, 0x0000, 0x0021, 0, 0, request);
+    sendApsUnicast(destination, 0x0000, 0x0021, 0, 0, request, messageTag);
     {
         std::ostringstream message;
         message << "ZDO bind request sent: cluster 0x" << std::hex << cluster;
@@ -1247,104 +1531,34 @@ void Gateway::sendZdoBindRequest(unsigned short destination, unsigned char endpo
 }
 
 void Gateway::sendZclReadAttribute(unsigned short destination, unsigned char endpoint, unsigned short cluster,
-                                   unsigned short attribute) {
+                                   unsigned short attribute, unsigned char transactionSequence, unsigned char messageTag) {
     std::vector<unsigned char> request;
     request.push_back(0x10); /* global command, client-to-server, disable default response */
-    request.push_back(zclTransactionSequence_++);
+    request.push_back(transactionSequence);
     request.push_back(0x00); /* Read Attributes */
     request.push_back(static_cast<unsigned char>(attribute));
     request.push_back(static_cast<unsigned char>(attribute >> 8));
-    sendApsUnicast(destination, 0x0104, cluster, 1, endpoint, request);
+    sendApsUnicast(destination, 0x0104, cluster, 1, endpoint, request, messageTag);
 }
 
-void Gateway::requestStandardAttributes(unsigned short destination, unsigned char endpoint) {
-    std::vector<AttributeReadRequest>::iterator request = pendingAttributeReads_.begin();
-    while (request != pendingAttributeReads_.end()) {
-        if (request->destination == destination && request->endpoint == endpoint)
-            request = pendingAttributeReads_.erase(request);
-        else ++request;
-    }
-    /* Bind first: a Configure Reporting command alone does not tell a Zigbee
-       end device where to deliver its reports.  This mirrors the SNZB-02
-       interview used by Zigbee2MQTT. */
-    queueSensorBindings(destination, endpoint);
-    queueAttributeRead(destination, endpoint, 0x0402, 0x0000); /* temperature */
-    queueAttributeRead(destination, endpoint, 0x0405, 0x0000); /* humidity */
-    queueAttributeRead(destination, endpoint, 0x0001, 0x0021); /* battery percentage */
-    queueAttributeReporting(destination, endpoint, 0x0402, 0x0000, 0x29, 20, 30, 3600);  /* 0.20 C */
-    queueAttributeReporting(destination, endpoint, 0x0405, 0x0000, 0x21, 100, 30, 3600); /* 1.00 % */
-    queueAttributeReporting(destination, endpoint, 0x0001, 0x0021, 0x20, 1, 3600, 65000); /* battery percentage */
-    queueAttributeRead(destination, endpoint, 0x0001, 0x0020); /* battery voltage */
-    queueAttributeRead(destination, endpoint, 0x0000, 0xff01); /* Xiaomi/Lumi measurement data */
-    queueAttributeRead(destination, endpoint, 0x0406, 0x0000); /* occupancy */
-}
-
-void Gateway::requestRefreshAttributes(unsigned short destination, unsigned char endpoint) {
-    std::vector<AttributeReadRequest>::iterator request = pendingAttributeReads_.begin();
-    while (request != pendingAttributeReads_.end()) {
-        if (request->destination == destination && request->endpoint == endpoint)
-            request = pendingAttributeReads_.erase(request);
-        else ++request;
-    }
-    /* A manual refresh must fit inside a sleepy sensor's short receive
-       window.  Reporting setup belongs to the full interview, not here. */
-    queueAttributeRead(destination, endpoint, 0x0402, 0x0000); /* temperature */
-    queueAttributeRead(destination, endpoint, 0x0405, 0x0000); /* humidity */
-    queueAttributeRead(destination, endpoint, 0x0001, 0x0021); /* battery percentage */
-    queueAttributeRead(destination, endpoint, 0x0000, 0xff01); /* Xiaomi/Lumi measurement data */
-}
-
-void Gateway::queueAttributeRead(unsigned short destination, unsigned char endpoint, unsigned short cluster,
-                                 unsigned short attribute) {
-    AttributeReadRequest request;
-    request.destination = destination;
-    request.endpoint = endpoint;
-    request.cluster = cluster;
-    request.attribute = attribute;
-    request.configureReporting = false;
-    request.dataType = 0;
-    request.minimumInterval = 0;
-    request.maximumInterval = 0;
-    request.reportableChange = 0;
-    pendingAttributeReads_.push_back(request);
-    nextAttributeReadAt_ = 0;
-}
-
-void Gateway::queueAttributeReporting(unsigned short destination, unsigned char endpoint, unsigned short cluster,
-                                      unsigned short attribute, unsigned char dataType, unsigned short reportableChange,
-                                      unsigned short minimumInterval, unsigned short maximumInterval) {
-    AttributeReadRequest request;
-    request.destination = destination;
-    request.endpoint = endpoint;
-    request.cluster = cluster;
-    request.attribute = attribute;
-    request.configureReporting = true;
-    request.dataType = dataType;
-    request.minimumInterval = minimumInterval;
-    request.maximumInterval = maximumInterval;
-    request.reportableChange = reportableChange;
-    pendingAttributeReads_.push_back(request);
-    nextAttributeReadAt_ = 0;
+void Gateway::sendZclReadBasic(unsigned short destination, unsigned char endpoint,
+                               unsigned char transactionSequence, unsigned char messageTag) {
+    std::vector<unsigned char> request;
+    request.push_back(0x10);
+    request.push_back(transactionSequence);
+    request.push_back(0x00);
+    request.push_back(0x04); request.push_back(0x00);
+    request.push_back(0x05); request.push_back(0x00);
+    sendApsUnicast(destination, 0x0104, 0x0000, 1, endpoint, request, messageTag);
 }
 
 void Gateway::sendZclConfigureReporting(unsigned short destination, unsigned char endpoint, unsigned short cluster,
                                         unsigned short attribute, unsigned char dataType, unsigned short minimumInterval,
-                                        unsigned short maximumInterval, unsigned short reportableChange) {
-    std::vector<unsigned char> request;
-    request.push_back(0x10); /* global command, client-to-server, disable default response */
-    request.push_back(zclTransactionSequence_++);
-    request.push_back(0x06); /* Configure Reporting */
-    request.push_back(0x00); /* reported attribute */
-    request.push_back(static_cast<unsigned char>(attribute));
-    request.push_back(static_cast<unsigned char>(attribute >> 8));
-    request.push_back(dataType);
-    request.push_back(static_cast<unsigned char>(minimumInterval));
-    request.push_back(static_cast<unsigned char>(minimumInterval >> 8));
-    request.push_back(static_cast<unsigned char>(maximumInterval));
-    request.push_back(static_cast<unsigned char>(maximumInterval >> 8));
-    request.push_back(static_cast<unsigned char>(reportableChange));
-    request.push_back(static_cast<unsigned char>(reportableChange >> 8));
-    sendApsUnicast(destination, 0x0104, cluster, 1, endpoint, request);
+                                        unsigned short maximumInterval, unsigned short reportableChange,
+                                        unsigned char transactionSequence, unsigned char messageTag) {
+    std::vector<unsigned char> request = buildZclConfigureReporting(transactionSequence, attribute, dataType,
+                                                                    minimumInterval, maximumInterval, reportableChange);
+    sendApsUnicast(destination, 0x0104, cluster, 1, endpoint, request, messageTag);
 }
 
 void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
@@ -1378,14 +1592,49 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
         registerNode(announcedNode, &message[3]);
         return;
     }
-    if (cluster == 0x8005 && message.size() >= 5 && message[1] == 0) {
-        unsigned long endpoint;
-        unsigned long count = message[4];
-        if (message.size() < 5 + count) return;
-        for (endpoint = 0; endpoint < count; ++endpoint) {
-            requestStandardAttributes(sender, message[5 + endpoint]);
+    if (cluster == 0x8002 && message.size() >= 2 && message[1] == 0) {
+        std::map<unsigned short, InterviewState>::iterator interview = interviews_.find(sender);
+        if (interview != interviews_.end() && interviewRequestInFlight_ && interviewNode_ == sender &&
+            interview->second.operationIndex < interview->second.operations.size()) {
+            InterviewOperation& operation = interview->second.operations[interview->second.operationIndex];
+            if (operation.type == InterviewNodeDescriptor && operation.transactionSequence == message[0]) {
+                addLog("Node descriptor received");
+                completeInterviewOperation(sender);
+            }
         }
-        addLog("Read standard attributes from announced device");
+        return;
+    }
+    if (cluster == 0x8005 && message.size() >= 5 && message[1] == 0) {
+        std::map<unsigned short, InterviewState>::iterator interview = interviews_.find(sender);
+        if (interview != interviews_.end() && interviewRequestInFlight_ && interviewNode_ == sender &&
+            interview->second.operationIndex < interview->second.operations.size()) {
+            InterviewOperation& operation = interview->second.operations[interview->second.operationIndex];
+            unsigned long count = message[4];
+            if (operation.type != InterviewActiveEndpoints || operation.transactionSequence != message[0] ||
+                message.size() < 5 + count) return;
+            std::vector<unsigned char> endpoints(message.begin() + 5, message.begin() + 5 + count);
+            interviewRequestInFlight_ = false;
+            interviewDeadline_ = 0;
+            if (interview->second.refreshOnly && !devices_[interview->second.ieeeAddress].endpoints.empty())
+                buildRefreshOperations(sender);
+            else buildDescriptorOperations(sender, endpoints);
+            addLog("Active endpoints received");
+        }
+        return;
+    }
+    if (cluster == 0x8004 && message.size() >= 5) {
+        std::map<unsigned short, InterviewState>::iterator interview = interviews_.find(sender);
+        if (interview != interviews_.end() && interviewRequestInFlight_ && interviewNode_ == sender &&
+            interview->second.operationIndex < interview->second.operations.size()) {
+            InterviewOperation& operation = interview->second.operations[interview->second.operationIndex];
+            EndpointDescriptor descriptor;
+            if (operation.type == InterviewSimpleDescriptor && operation.transactionSequence == message[0] &&
+                parseSimpleDescriptor(message, &descriptor) && descriptor.endpoint == operation.endpoint) {
+                interview->second.discoveredEndpoints.push_back(descriptor);
+                addLog("Simple descriptor received");
+                completeInterviewOperation(sender);
+            }
+        }
         return;
     }
     if (cluster == 0x8021 && message.size() >= 2) {
@@ -1393,8 +1642,15 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
         bind << "ZDO bind response: " << (message[1] == 0 ? "accepted" : "rejected 0x") << std::hex;
         if (message[1] != 0) bind << static_cast<unsigned int>(message[1]);
         addLog(bind.str());
+        std::map<unsigned short, InterviewState>::iterator interview = interviews_.find(sender);
+        if (interview != interviews_.end() && interviewRequestInFlight_ && interviewNode_ == sender &&
+            interview->second.operationIndex < interview->second.operations.size()) {
+            InterviewOperation& operation = interview->second.operations[interview->second.operationIndex];
+            if (operation.type == InterviewBind && operation.transactionSequence == message[0]) completeInterviewOperation(sender);
+        }
         return;
     }
+    wakeInterview(sender);
     address = nodeAddresses_.find(sender);
     if (address == nodeAddresses_.end()) return;
     unsigned char frameControl = message[0];
@@ -1402,6 +1658,7 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
     if ((frameControl & 0x04) != 0) zclOffset += 2;
     if (zclOffset > message.size()) return;
     unsigned char command = message[zclOffset - 1];
+    unsigned char transactionSequence = message[zclOffset - 2];
     {
         std::map<unsigned short, std::string>::iterator known = nodeAddresses_.find(sender);
         if (known != nodeAddresses_.end()) {
@@ -1422,10 +1679,22 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
     } else if (command == 0x01) {
         std::vector<unsigned char> records(message.begin() + zclOffset, message.end());
         bool wasOpen = devices_[address->second].contactOpen;
+        std::map<unsigned short, InterviewState>::iterator interview = interviews_.find(sender);
+        bool matched = false;
+        if (interview != interviews_.end() && interviewRequestInFlight_ && interviewNode_ == sender &&
+            interview->second.operationIndex < interview->second.operations.size()) {
+            InterviewOperation& operation = interview->second.operations[interview->second.operationIndex];
+            matched = (operation.type == InterviewAttributeRead || operation.type == InterviewBasicRead) &&
+                      operation.transactionSequence == transactionSequence && operation.cluster == cluster &&
+                      operation.endpoint == payload[5];
+            if (matched && operation.type == InterviewBasicRead && updateBasicIdentity(&devices_[address->second], records))
+                interview->second.persistentDirty = true;
+        }
         if (applyZclReadAttributeResponse(&devices_[address->second], cluster, records, time(0))) {
             updateContactAlert(address->second, wasOpen);
             saveState();
         }
+        if (matched) completeInterviewOperation(sender);
     } else if (command == 0x0a) {
         unsigned long attributeOffset = zclOffset;
         while (attributeOffset + 3 <= message.size()) {
@@ -1454,6 +1723,13 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
                 responseOffset += 3; /* direction plus attribute id */
             }
             addLog(response.str());
+        }
+        std::map<unsigned short, InterviewState>::iterator interview = interviews_.find(sender);
+        if (interview != interviews_.end() && interviewRequestInFlight_ && interviewNode_ == sender &&
+            interview->second.operationIndex < interview->second.operations.size()) {
+            InterviewOperation& operation = interview->second.operations[interview->second.operationIndex];
+            if (operation.type == InterviewConfigureReporting && operation.transactionSequence == transactionSequence &&
+                operation.cluster == cluster && operation.endpoint == payload[5]) completeInterviewOperation(sender);
         }
     }
 }

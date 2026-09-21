@@ -18,4 +18,8 @@ bool applyIasZoneStatus(Device* device, const std::vector<unsigned char>& payloa
 bool applyZclReadAttributeResponse(Device* device, unsigned short cluster,
                                    const std::vector<unsigned char>& payload, long observedAt);
 
+std::vector<unsigned char> buildZclConfigureReporting(unsigned char transactionSequence, unsigned short attribute,
+                                                       unsigned char dataType, unsigned short minimumInterval,
+                                                       unsigned short maximumInterval, unsigned short reportableChange);
+
 #endif

@@ -14,6 +14,46 @@
 #include <unistd.h>
 #include <vector>
 
+class GatewayTestPeer {
+public:
+    static bool parseSimpleDescriptor(const Gateway& gateway, const std::vector<unsigned char>& message,
+                                      EndpointDescriptor* descriptor) {
+        return gateway.parseSimpleDescriptor(message, descriptor);
+    }
+    static void buildConfiguration(Gateway* gateway, unsigned short node, const std::string& ieee,
+                                   const EndpointDescriptor& endpoint) {
+        Gateway::InterviewState state;
+        state.ieeeAddress = ieee;
+        gateway->interviews_[node] = state;
+        gateway->devices_[ieee].ieeeAddress = ieee;
+        gateway->devices_[ieee].endpoints.push_back(endpoint);
+        gateway->buildConfigurationOperations(node);
+    }
+    static unsigned long operationCount(const Gateway& gateway, unsigned short node) {
+        return gateway.interviews_.find(node)->second.operations.size();
+    }
+    static int operationType(const Gateway& gateway, unsigned short node, unsigned long index) {
+        return static_cast<int>(gateway.interviews_.find(node)->second.operations[index].type);
+    }
+    static unsigned short operationCluster(const Gateway& gateway, unsigned short node, unsigned long index) {
+        return gateway.interviews_.find(node)->second.operations[index].cluster;
+    }
+    static bool pauseAndWake(Gateway* gateway, unsigned short node) {
+        Gateway::InterviewState state;
+        Gateway::InterviewOperation operation;
+        state.ieeeAddress = "0x00124b0000000011";
+        operation.attempts = 2;
+        state.operations.push_back(operation);
+        gateway->interviews_[node] = state;
+        gateway->interviewRequestInFlight_ = true;
+        gateway->interviewNode_ = node;
+        gateway->failInterviewOperation(node, "test failure");
+        if (!gateway->interviews_[node].paused) return false;
+        gateway->wakeInterview(node);
+        return !gateway->interviews_[node].paused;
+    }
+};
+
 static void testAshRoundTrip() {
     std::vector<unsigned char> payload;
     std::vector<unsigned char> encoded;
@@ -48,6 +88,7 @@ static void testDevicePersistence() {
     std::string filename = directory + "/devices.json";
     std::string error;
     Device input;
+    EndpointDescriptor endpoint;
     std::vector<Device> devices;
     std::vector<Device> loaded;
     assert(ensureDirectory(directory, &error));
@@ -70,6 +111,18 @@ static void testDevicePersistence() {
     input.iasZoneId = 17;
     input.contactInitialAlertMinutes = 20;
     input.contactReminderAlertMinutes = 7;
+    input.manufacturerName = "eWeLink";
+    input.modelId = "TH01";
+    endpoint.endpoint = 1;
+    endpoint.profileId = 0x0104;
+    endpoint.deviceId = 0x0302;
+    endpoint.deviceVersion = 1;
+    endpoint.inputClusters.push_back(0x0000);
+    endpoint.inputClusters.push_back(0x0001);
+    endpoint.inputClusters.push_back(0x0402);
+    endpoint.inputClusters.push_back(0x0405);
+    endpoint.outputClusters.push_back(0x0003);
+    input.endpoints.push_back(endpoint);
     devices.push_back(input);
     assert(saveDevices(filename, devices, &error));
     assert(loadDevices(filename, &loaded, &error));
@@ -85,6 +138,12 @@ static void testDevicePersistence() {
     assert(loaded[0].linkQuality == input.linkQuality && loaded[0].lastSeen == input.lastSeen);
     assert(loaded[0].iasZoneId == input.iasZoneId);
     assert(loaded[0].contactInitialAlertMinutes == 20 && loaded[0].contactReminderAlertMinutes == 7);
+    assert(loaded[0].manufacturerName == "eWeLink" && loaded[0].modelId == "TH01");
+    assert(loaded[0].endpoints.size() == 1);
+    assert(loaded[0].endpoints[0].endpoint == 1 && loaded[0].endpoints[0].profileId == 0x0104);
+    assert(loaded[0].endpoints[0].deviceId == 0x0302 && loaded[0].endpoints[0].deviceVersion == 1);
+    assert(loaded[0].endpoints[0].inputClusters.size() == 4);
+    assert(loaded[0].endpoints[0].inputClusters[2] == 0x0402 && loaded[0].endpoints[0].outputClusters[0] == 0x0003);
     unlink(filename.c_str());
     rmdir(directory.c_str());
 }
@@ -181,6 +240,37 @@ static void testGenericCapabilities() {
     assert(device.hasContact && device.contactOpen && device.lastSeen == 125);
 }
 
+static void testConfigureReportingEncoding() {
+    std::vector<unsigned char> battery = buildZclConfigureReporting(7, 0x0021, 0x20, 3600, 65000, 1);
+    std::vector<unsigned char> temperature = buildZclConfigureReporting(8, 0x0000, 0x29, 30, 3600, 20);
+    assert(battery.size() == 12);
+    assert(battery[1] == 7 && battery[6] == 0x20 && battery[11] == 1);
+    assert(temperature.size() == 13);
+    assert(temperature[1] == 8 && temperature[6] == 0x29 && temperature[11] == 20 && temperature[12] == 0);
+}
+
+static void testInterviewDescriptorAndPlanning() {
+    Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+    std::vector<unsigned char> response;
+    EndpointDescriptor descriptor;
+    response.push_back(1); response.push_back(0); response.push_back(0x34); response.push_back(0x12);
+    response.push_back(18); response.push_back(1); response.push_back(0x04); response.push_back(0x01);
+    response.push_back(0x02); response.push_back(0x03); response.push_back(1); response.push_back(4);
+    response.push_back(0x00); response.push_back(0x00); response.push_back(0x01); response.push_back(0x00);
+    response.push_back(0x02); response.push_back(0x04); response.push_back(0x05); response.push_back(0x04);
+    response.push_back(1); response.push_back(0x03); response.push_back(0x00);
+    assert(GatewayTestPeer::parseSimpleDescriptor(gateway, response, &descriptor));
+    assert(descriptor.endpoint == 1 && descriptor.profileId == 0x0104 && descriptor.deviceId == 0x0302);
+    assert(descriptor.inputClusters.size() == 4 && descriptor.inputClusters[2] == 0x0402);
+    GatewayTestPeer::buildConfiguration(&gateway, 0x1234, "0x00124b0000000010", descriptor);
+    assert(GatewayTestPeer::operationCount(gateway, 0x1234) == 10);
+    assert(GatewayTestPeer::operationType(gateway, 0x1234, 0) == 4); /* InterviewBind */
+    assert(GatewayTestPeer::operationCluster(gateway, 0x1234, 0) == 0x0402);
+    assert(GatewayTestPeer::operationCluster(gateway, 0x1234, 1) == 0x0405);
+    assert(GatewayTestPeer::operationCluster(gateway, 0x1234, 2) == 0x0001);
+    assert(GatewayTestPeer::pauseAndWake(&gateway, 0x1235));
+}
+
 static void testJoinStatusJson() {
     Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
     assert(gateway.statusJson().find("\"joining_preparing\":false") != std::string::npos);
@@ -260,6 +350,8 @@ int main() {
     testDeviceSettings();
     testNetworkPersistence();
     testGenericCapabilities();
+    testConfigureReportingEncoding();
+    testInterviewDescriptorAndPlanning();
     testJoinStatusJson();
     testRamLog();
     testContactNotificationIsDeferred();

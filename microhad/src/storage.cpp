@@ -40,6 +40,61 @@ bool hexDecode(const std::string& input, std::vector<unsigned char>* output) {
     return true;
 }
 
+std::string encodeEndpointDescriptors(const std::vector<EndpointDescriptor>& endpoints) {
+    std::vector<unsigned char> bytes;
+    if (endpoints.size() > 255) return "";
+    bytes.push_back(1); /* encoding version */
+    bytes.push_back(static_cast<unsigned char>(endpoints.size()));
+    for (unsigned long i = 0; i < endpoints.size(); ++i) {
+        const EndpointDescriptor& endpoint = endpoints[i];
+        if (endpoint.inputClusters.size() > 255 || endpoint.outputClusters.size() > 255) return "";
+        bytes.push_back(endpoint.endpoint);
+        bytes.push_back(static_cast<unsigned char>(endpoint.profileId));
+        bytes.push_back(static_cast<unsigned char>(endpoint.profileId >> 8));
+        bytes.push_back(static_cast<unsigned char>(endpoint.deviceId));
+        bytes.push_back(static_cast<unsigned char>(endpoint.deviceId >> 8));
+        bytes.push_back(endpoint.deviceVersion);
+        bytes.push_back(static_cast<unsigned char>(endpoint.inputClusters.size()));
+        for (unsigned long j = 0; j < endpoint.inputClusters.size(); ++j) {
+            bytes.push_back(static_cast<unsigned char>(endpoint.inputClusters[j]));
+            bytes.push_back(static_cast<unsigned char>(endpoint.inputClusters[j] >> 8));
+        }
+        bytes.push_back(static_cast<unsigned char>(endpoint.outputClusters.size()));
+        for (unsigned long j = 0; j < endpoint.outputClusters.size(); ++j) {
+            bytes.push_back(static_cast<unsigned char>(endpoint.outputClusters[j]));
+            bytes.push_back(static_cast<unsigned char>(endpoint.outputClusters[j] >> 8));
+        }
+    }
+    return hexEncode(bytes);
+}
+
+bool decodeEndpointDescriptors(const std::string& encoded, std::vector<EndpointDescriptor>* endpoints) {
+    std::vector<unsigned char> bytes;
+    unsigned long offset = 0;
+    if (!hexDecode(encoded, &bytes) || bytes.size() < 2 || bytes[0] != 1) return false;
+    unsigned long endpointCount = bytes[1];
+    offset = 2;
+    endpoints->clear();
+    for (unsigned long i = 0; i < endpointCount; ++i) {
+        EndpointDescriptor endpoint;
+        if (offset + 7 > bytes.size()) return false;
+        endpoint.endpoint = bytes[offset++];
+        endpoint.profileId = static_cast<unsigned short>(bytes[offset]) | (static_cast<unsigned short>(bytes[offset + 1]) << 8); offset += 2;
+        endpoint.deviceId = static_cast<unsigned short>(bytes[offset]) | (static_cast<unsigned short>(bytes[offset + 1]) << 8); offset += 2;
+        endpoint.deviceVersion = bytes[offset++];
+        unsigned long count = bytes[offset++];
+        if (offset + count * 2 + 1 > bytes.size()) return false;
+        for (unsigned long j = 0; j < count; ++j, offset += 2)
+            endpoint.inputClusters.push_back(static_cast<unsigned short>(bytes[offset]) | (static_cast<unsigned short>(bytes[offset + 1]) << 8));
+        count = bytes[offset++];
+        if (offset + count * 2 > bytes.size()) return false;
+        for (unsigned long j = 0; j < count; ++j, offset += 2)
+            endpoint.outputClusters.push_back(static_cast<unsigned short>(bytes[offset]) | (static_cast<unsigned short>(bytes[offset + 1]) << 8));
+        endpoints->push_back(endpoint);
+    }
+    return offset == bytes.size();
+}
+
 bool stringField(const std::string& input, const char* name, std::string* value) {
     std::string marker = std::string("\"") + name + "\":\"";
     std::string::size_type start = input.find(marker);
@@ -81,7 +136,7 @@ bool saveDevices(const std::string& filename, const std::vector<Device>& devices
         *error = "cannot open device state for writing";
         return false;
     }
-    output << "{\n  \"version\": 1,\n  \"devices\": [\n";
+    output << "{\n  \"version\": 2,\n  \"devices\": [\n";
     for (i = 0; i < devices.size(); ++i) {
         const Device& device = devices[i];
         output << "    {\"ieee_address\":\"" << jsonEscape(device.ieeeAddress)
@@ -101,7 +156,9 @@ bool saveDevices(const std::string& filename, const std::vector<Device>& devices
                << (device.hasHighTemperatureAlert ? "true" : "false") << ",\"high_temperature_alert\":"
                << device.highTemperatureAlert << ",\"contact_initial_alert_minutes\":"
                << device.contactInitialAlertMinutes << ",\"contact_reminder_alert_minutes\":"
-               << device.contactReminderAlertMinutes << "}";
+               << device.contactReminderAlertMinutes << ",\"manufacturer_name\":\""
+               << jsonEscape(device.manufacturerName) << "\",\"model_id\":\"" << jsonEscape(device.modelId)
+               << "\",\"endpoint_descriptors\":\"" << encodeEndpointDescriptors(device.endpoints) << "\"}";
         output << (i + 1 == devices.size() ? "\n" : ",\n");
     }
     output << "  ]\n}\n";
@@ -139,10 +196,10 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
                 long parsed = strtol(line.c_str() + networkAddress + 18, 0, 10);
                 if (parsed >= 0 && parsed <= 0xffff) device.networkAddress = static_cast<unsigned short>(parsed);
             }
-            const char* fields[] = {"name", "kind"};
-            std::string* destinations[] = {&device.name, &device.kind};
+            const char* fields[] = {"name", "kind", "manufacturer_name", "model_id"};
+            std::string* destinations[] = {&device.name, &device.kind, &device.manufacturerName, &device.modelId};
             int index;
-            for (index = 0; index < 2; ++index) {
+            for (index = 0; index < 4; ++index) {
                 std::string field = std::string("\"") + fields[index] + "\":\"";
                 std::string::size_type fieldStart = line.find(field);
                 if (fieldStart != std::string::npos) {
@@ -184,6 +241,14 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
             if (valueStart != std::string::npos) device.contactInitialAlertMinutes = strtoul(line.c_str() + valueStart + 32, 0, 10);
             valueStart = line.find("\"contact_reminder_alert_minutes\":");
             if (valueStart != std::string::npos) device.contactReminderAlertMinutes = strtoul(line.c_str() + valueStart + 33, 0, 10);
+            {
+                std::string encodedDescriptors;
+                if (stringField(line, "endpoint_descriptors", &encodedDescriptors) && !encodedDescriptors.empty() &&
+                    !decodeEndpointDescriptors(encodedDescriptors, &device.endpoints)) {
+                    *error = "invalid endpoint descriptor state";
+                    return false;
+                }
+            }
             devices->push_back(device);
         }
     }
