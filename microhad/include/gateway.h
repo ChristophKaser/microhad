@@ -103,6 +103,14 @@ private:
     unsigned char networkChannel_;
     std::map<std::string, Device> devices_;
     std::map<unsigned short, std::string> nodeAddresses_;
+    struct AttributeReadRequest {
+        unsigned short destination;
+        unsigned char endpoint;
+        unsigned short cluster;
+        unsigned short attribute;
+    };
+    std::vector<AttributeReadRequest> pendingAttributeReads_;
+    long nextAttributeReadAt_;
     std::map<std::string, long> contactOpenedAt_;
     std::map<std::string, long> nextContactAlertAt_;
     std::vector<std::string> logs_;
@@ -127,6 +135,7 @@ private:
                                unsigned char zoneId);
     void requestActiveEndpoints(unsigned short destination);
     void requestStandardAttributes(unsigned short destination, unsigned char endpoint);
+    void queueAttributeRead(unsigned short destination, unsigned char endpoint, unsigned short cluster, unsigned short attribute);
     void sendZclReadAttribute(unsigned short destination, unsigned char endpoint, unsigned short cluster,
                               unsigned short attribute);
     void handleIncomingMessage(const std::vector<unsigned char>& payload);

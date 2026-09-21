@@ -56,7 +56,7 @@ Gateway::Gateway(const std::string& serialDevice, int serialBaud, const std::str
     firebaseServiceAccount_(firebaseServiceAccount), firebaseTopic_(firebaseTopic), caBundle_(caBundle), notificationWorker_(notificationWorker), serialFd_(-1),
     online_(false), joinUntil_(0), joinPermitRenewAt_(0), pendingJoinSeconds_(0), joinPreparationStep_(0), joinPreparationDeadline_(0), ashSendSequence_(0), ashReceiveSequence_(0), ezspSequence_(0),
     ezspVersion_(4), zdoSequence_(0), zclTransactionSequence_(0), ezspVersionNegotiated_(false), stackTokenWritingRequested_(false), networkInitRequested_(false), coordinatorInitializationStep_(0), resetDeadline_(0), nextHeartbeatAt_(0), serialRxBytes_(0), ashRxFrames_(0), networkForming_(false), networkFormationStep_(0), networkFormed_(false), networkPanId_(0),
-    networkChannel_(0) {
+    networkChannel_(0), nextAttributeReadAt_(0) {
 }
 
 Gateway::~Gateway() {
@@ -142,6 +142,13 @@ void Gateway::poll() {
         nextHeartbeatAt_ = time(0) + 20;
     }
     if (!online_ && resetDeadline_ != 0 && time(0) >= resetDeadline_) sendAshReset();
+    if (online_ && !pendingAttributeReads_.empty() &&
+        (nextAttributeReadAt_ == 0 || time(0) >= nextAttributeReadAt_)) {
+        AttributeReadRequest request = pendingAttributeReads_.front();
+        pendingAttributeReads_.erase(pendingAttributeReads_.begin());
+        sendZclReadAttribute(request.destination, request.endpoint, request.cluster, request.attribute);
+        nextAttributeReadAt_ = time(0) + 1;
+    }
     if (joinPreparationStep_ != 0 && joinPreparationDeadline_ != 0 && time(0) >= joinPreparationDeadline_) {
         addLog("Secure pairing preparation timed out; try allowing joining again");
         joinPreparationStep_ = 0;
@@ -1055,11 +1062,28 @@ void Gateway::sendZclReadAttribute(unsigned short destination, unsigned char end
 }
 
 void Gateway::requestStandardAttributes(unsigned short destination, unsigned char endpoint) {
-    sendZclReadAttribute(destination, endpoint, 0x0000, 0xff01); /* Xiaomi/Lumi measurement data */
-    sendZclReadAttribute(destination, endpoint, 0x0001, 0x0021); /* battery percentage */
-    sendZclReadAttribute(destination, endpoint, 0x0402, 0x0000); /* temperature */
-    sendZclReadAttribute(destination, endpoint, 0x0405, 0x0000); /* humidity */
-    sendZclReadAttribute(destination, endpoint, 0x0406, 0x0000); /* occupancy */
+    std::vector<AttributeReadRequest>::iterator request = pendingAttributeReads_.begin();
+    while (request != pendingAttributeReads_.end()) {
+        if (request->destination == destination && request->endpoint == endpoint)
+            request = pendingAttributeReads_.erase(request);
+        else ++request;
+    }
+    queueAttributeRead(destination, endpoint, 0x0000, 0xff01); /* Xiaomi/Lumi measurement data */
+    queueAttributeRead(destination, endpoint, 0x0001, 0x0021); /* battery percentage */
+    queueAttributeRead(destination, endpoint, 0x0402, 0x0000); /* temperature */
+    queueAttributeRead(destination, endpoint, 0x0405, 0x0000); /* humidity */
+    queueAttributeRead(destination, endpoint, 0x0406, 0x0000); /* occupancy */
+}
+
+void Gateway::queueAttributeRead(unsigned short destination, unsigned char endpoint, unsigned short cluster,
+                                 unsigned short attribute) {
+    AttributeReadRequest request;
+    request.destination = destination;
+    request.endpoint = endpoint;
+    request.cluster = cluster;
+    request.attribute = attribute;
+    pendingAttributeReads_.push_back(request);
+    nextAttributeReadAt_ = 0;
 }
 
 void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
