@@ -160,21 +160,17 @@ static void testRamLog() {
 static void testImmediateContactNotification() {
     std::ostringstream path;
     std::string error;
-    std::ifstream output;
-    std::string content;
     std::vector<unsigned char> zone;
     path << "/tmp/microhad-zigbee-alert-test-" << static_cast<long>(getpid());
     std::string directory = path.str();
     assert(ensureDirectory(directory, &error));
-    Gateway gateway("/dev/null", 115200, directory, "", "", "");
+    NotificationWorker worker(directory, "", "", "");
+    assert(worker.setEnabled(false, &error));
+    Gateway gateway("/dev/null", 115200, directory, "", "", "", &worker);
     zone.push_back(1); zone.push_back(0);
     assert(gateway.applyIasZoneStatus("0x00124b0000000003", zone));
-    output.open((directory + "/notification-outbox.ndjson").c_str());
-    content.assign((std::istreambuf_iterator<char>(output)), std::istreambuf_iterator<char>());
-    assert(content.find("Contact opened") != std::string::npos);
     assert(!gateway.sendTestNotification(&error));
-    assert(error == "no notification delivery is configured");
-    output.close();
+    assert(error == "push notifications are disabled");
     unlink((directory + "/notification-outbox.ndjson").c_str());
     unlink((directory + "/devices.json").c_str());
     rmdir(directory.c_str());

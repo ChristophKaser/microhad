@@ -27,7 +27,10 @@ notification thread.
 The dashboard's global Push notifications switch persists in
 `notifications.json` beneath the runtime directory. Turning it off discards
 pending RAM jobs, blocks test and automatic push delivery, and retains browser
-subscriptions for a later re-enable.
+subscriptions for a later re-enable. Disabled notifications must be rejected
+before notification audit/outbox handling and before the notification-worker
+queue, so contact events do not exercise delivery-related code while push is
+off.
 
 Coordinator logs are intentionally kept in `/tmp/microhad-zigbee-native.log`, a
 bounded 512-line RAM-only ring. Permanent radio captures belong under the

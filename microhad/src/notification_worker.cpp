@@ -11,10 +11,15 @@ NotificationWorker::NotificationWorker(const std::string& runtimeDirectory, cons
     caBundle_(caBundle), running_(false), started_(false), enabled_(true) { pthread_mutex_init(&mutex_, 0); pthread_cond_init(&ready_, 0); loadEnabled(); }
 NotificationWorker::~NotificationWorker() { stop(); pthread_cond_destroy(&ready_); pthread_mutex_destroy(&mutex_); }
 bool NotificationWorker::start(std::string* error) {
+    pthread_attr_t attributes;
     pthread_mutex_lock(&mutex_);
     if (started_) { pthread_mutex_unlock(&mutex_); *error = "notification worker already started"; return false; }
     running_ = true;
-    if (pthread_create(&thread_, 0, threadMain, this) != 0) { running_ = false; pthread_mutex_unlock(&mutex_); *error = "cannot create notification worker"; return false; }
+    if (pthread_attr_init(&attributes) != 0 || pthread_attr_setstacksize(&attributes, 131072) != 0 ||
+        pthread_create(&thread_, &attributes, threadMain, this) != 0) {
+        pthread_attr_destroy(&attributes); running_ = false; pthread_mutex_unlock(&mutex_); *error = "cannot create notification worker"; return false;
+    }
+    pthread_attr_destroy(&attributes);
     started_ = true; pthread_mutex_unlock(&mutex_); return true;
 }
 void NotificationWorker::stop() { pthread_mutex_lock(&mutex_); if (!started_) { pthread_mutex_unlock(&mutex_); return; } running_ = false; pthread_cond_signal(&ready_); pthread_mutex_unlock(&mutex_); pthread_join(thread_, 0); pthread_mutex_lock(&mutex_); started_ = false; pthread_mutex_unlock(&mutex_); }

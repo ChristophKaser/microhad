@@ -9,12 +9,12 @@ extern "C" int microhad_https_post(const char* host, const char* path, const cha
 bool httpsPost(const std::string& host, const std::string& path, const std::string& headers,
                const std::string& body, const std::string& caBundle, std::string* response, std::string* error) {
 #ifdef MICROHAD_MIPS_TARGET
-    char buffer[16384];
+    std::string buffer(16384, '\0');
     unsigned long length = 0;
     if (caBundle.empty()) { *error = "a CA bundle is required for HTTPS"; return false; }
-    if (microhad_https_post(host.c_str(), path.c_str(), headers.c_str(), body.c_str(), caBundle.c_str(), buffer,
-                        sizeof(buffer), &length) != 0) { *error = "HTTPS request failed"; return false; }
-    response->assign(buffer, length);
+    if (microhad_https_post(host.c_str(), path.c_str(), headers.c_str(), body.c_str(), caBundle.c_str(), &buffer[0],
+                        buffer.size(), &length) != 0) { *error = "HTTPS request failed"; return false; }
+    response->assign(buffer.data(), length);
     return true;
 #else
     (void)host; (void)path; (void)headers; (void)body; (void)caBundle; (void)response;
