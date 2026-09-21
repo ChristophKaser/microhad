@@ -142,6 +142,7 @@ private:
                                unsigned char zoneId);
     void requestActiveEndpoints(unsigned short destination);
     void requestStandardAttributes(unsigned short destination, unsigned char endpoint);
+    void requestRefreshAttributes(unsigned short destination, unsigned char endpoint);
     void queueAttributeRead(unsigned short destination, unsigned char endpoint, unsigned short cluster, unsigned short attribute);
     void queueAttributeReporting(unsigned short destination, unsigned char endpoint, unsigned short cluster,
                                  unsigned short attribute, unsigned char dataType, unsigned short reportableChange);

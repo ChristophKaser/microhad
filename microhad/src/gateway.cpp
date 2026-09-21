@@ -329,7 +329,7 @@ bool Gateway::refreshDevice(const std::string& ieeeAddress, std::string* error) 
        measurement clusters on endpoint 1.  Endpoint discovery requires the
        sleepy device to be listening first; direct reads can instead succeed
        during any normal wake window. */
-    requestStandardAttributes(device->second.networkAddress, 1);
+    requestRefreshAttributes(device->second.networkAddress, 1);
     nextSensorRefreshAt_[device->second.networkAddress] = time(0) + 300;
     addLog(std::string("Manual attribute refresh queued: ") + ieeeAddress);
     return true;
@@ -1133,6 +1133,21 @@ void Gateway::requestStandardAttributes(unsigned short destination, unsigned cha
     queueAttributeRead(destination, endpoint, 0x0402, 0x0000); /* temperature */
     queueAttributeRead(destination, endpoint, 0x0405, 0x0000); /* humidity */
     queueAttributeRead(destination, endpoint, 0x0406, 0x0000); /* occupancy */
+}
+
+void Gateway::requestRefreshAttributes(unsigned short destination, unsigned char endpoint) {
+    std::vector<AttributeReadRequest>::iterator request = pendingAttributeReads_.begin();
+    while (request != pendingAttributeReads_.end()) {
+        if (request->destination == destination && request->endpoint == endpoint)
+            request = pendingAttributeReads_.erase(request);
+        else ++request;
+    }
+    /* A manual refresh must fit inside a sleepy sensor's short receive
+       window.  Reporting setup belongs to the full interview, not here. */
+    queueAttributeRead(destination, endpoint, 0x0000, 0xff01); /* Xiaomi/Lumi measurement data */
+    queueAttributeRead(destination, endpoint, 0x0402, 0x0000); /* temperature */
+    queueAttributeRead(destination, endpoint, 0x0405, 0x0000); /* humidity */
+    queueAttributeRead(destination, endpoint, 0x0001, 0x0021); /* battery percentage */
 }
 
 void Gateway::queueAttributeRead(unsigned short destination, unsigned char endpoint, unsigned short cluster,
