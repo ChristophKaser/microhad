@@ -18,9 +18,12 @@
 #include <unistd.h>
 
 #ifdef MICROHAD_MIPS_TARGET
-extern "C" int microhad_tls_read_request(int fd, const char* certificatePath, const char* privateKeyPath,
-                                      char* request, unsigned long capacity, void** session);
-extern "C" int microhad_tls_write_close(void* session, const char* response, unsigned long length);
+extern "C" int microhad_tls_server_create(const char* certificatePath, const char* privateKeyPath, void** server);
+extern "C" void microhad_tls_server_destroy(void* server);
+extern "C" int microhad_tls_session_open(void* server, int fd, void** session);
+extern "C" int microhad_tls_read_request(void* session, char* request, unsigned long capacity);
+extern "C" int microhad_tls_write(void* session, const char* response, unsigned long length);
+extern "C" void microhad_tls_session_close(void* session);
 #endif
 
 namespace {
@@ -48,8 +51,7 @@ void writeResponse(int fd, int status, const char* contentType, const std::strin
     }
 #ifdef MICROHAD_MIPS_TARGET
     if (activeTlsSession() != 0) {
-        microhad_tls_write_close(activeTlsSession(), wire.data(), wire.size());
-        setActiveTlsSession(0);
+        microhad_tls_write(activeTlsSession(), wire.data(), wire.size());
         return;
     }
 #endif
@@ -109,7 +111,7 @@ bool parseMinutes(const std::string& value, unsigned long* result) {
 
 HttpServer::HttpServer(int port, GatewayRunner* gateway, const std::string& certificatePath, const std::string& privateKeyPath) :
     port_(port), listenFd_(-1), gateway_(gateway), webPush_(new WebPushStore(gateway->runtimeDirectory())),
-    certificatePath_(certificatePath), privateKeyPath_(privateKeyPath), running_(false) {
+    certificatePath_(certificatePath), privateKeyPath_(privateKeyPath), tlsServer_(0), running_(false) {
     pthread_mutex_init(&queueMutex_, 0);
     pthread_cond_init(&queueReady_, 0);
 }
@@ -128,12 +130,24 @@ HttpServer::~HttpServer() {
     while (!clientQueue_.empty()) { close(clientQueue_.back()); clientQueue_.pop_back(); }
     pthread_cond_destroy(&queueReady_);
     pthread_mutex_destroy(&queueMutex_);
+#ifdef MICROHAD_MIPS_TARGET
+    if (tlsServer_ != 0) microhad_tls_server_destroy(tlsServer_);
+#endif
     delete webPush_;
 }
 
 bool HttpServer::start(std::string* error) {
     struct sockaddr_in address;
     int reuse = 1;
+#ifdef MICROHAD_MIPS_TARGET
+    if (!certificatePath_.empty() || !privateKeyPath_.empty()) {
+        if (certificatePath_.empty() || privateKeyPath_.empty() ||
+            microhad_tls_server_create(certificatePath_.c_str(), privateKeyPath_.c_str(), &tlsServer_) != 0) {
+            *error = "cannot initialize TLS certificate or key";
+            return false;
+        }
+    }
+#endif
     listenFd_ = socket(AF_INET, SOCK_STREAM, 0);
     if (listenFd_ < 0) { *error = strerror(errno); return false; }
     setsockopt(listenFd_, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
@@ -202,23 +216,31 @@ void HttpServer::handleClient(int clientFd) {
     ssize_t count;
     std::string request;
 #ifdef MICROHAD_MIPS_TARGET
-    if (!certificatePath_.empty() || !privateKeyPath_.empty()) {
-        if (certificatePath_.empty() || privateKeyPath_.empty()) return;
-        void* session = 0;
-        if (microhad_tls_read_request(clientFd, certificatePath_.c_str(), privateKeyPath_.c_str(), buffer,
-                                  sizeof(buffer) - 1, &session) != 0) return;
-        setActiveTlsSession(session);
+    void* session = 0;
+    if (tlsServer_ != 0 && microhad_tls_session_open(tlsServer_, clientFd, &session) != 0) return;
+#else
+#endif
+#ifdef MICROHAD_MIPS_TARGET
+    if (session != 0) {
+        if (microhad_tls_read_request(session, buffer, sizeof(buffer)) != 0) {
+            microhad_tls_session_close(session);
+            return;
+        }
         count = static_cast<ssize_t>(strlen(buffer));
-    } else {
-        count = read(clientFd, buffer, sizeof(buffer) - 1);
-    }
+        setActiveTlsSession(session);
+    } else count = read(clientFd, buffer, sizeof(buffer) - 1);
 #else
     count = read(clientFd, buffer, sizeof(buffer) - 1);
 #endif
-    if (count <= 0) return;
-    buffer[count] = 0;
-    request.assign(buffer);
-    handleRequest(clientFd, request);
+    if (count > 0) {
+        buffer[count] = 0;
+        request.assign(buffer);
+        handleRequest(clientFd, request);
+    }
+#ifdef MICROHAD_MIPS_TARGET
+    setActiveTlsSession(0);
+    if (session != 0) microhad_tls_session_close(session);
+#endif
 }
 
 void HttpServer::handleRequest(int clientFd, const std::string& request) {

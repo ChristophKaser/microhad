@@ -23,6 +23,7 @@ private:
     WebPushStore* webPush_;
     std::string certificatePath_;
     std::string privateKeyPath_;
+    void* tlsServer_;
     pthread_t acceptThread_;
     pthread_t workerThreads_[2];
     pthread_mutex_t queueMutex_;
