@@ -4146,6 +4146,8 @@
 #include MBEDTLS_USER_CONFIG_FILE
 #endif
 
+#include "mbedtls/microhad_config.h"
+
 #if defined(MBEDTLS_PSA_CRYPTO_CONFIG)
 #include "mbedtls/config_psa.h"
 #endif

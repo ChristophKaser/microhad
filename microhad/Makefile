@@ -12,7 +12,8 @@ WARNINGS := -Wall -Wextra -Werror -pedantic
 # GCC 3.4 in the supplied RSDK has no -std=gnu++03 switch; its default is
 # C++98/C++03-compatible. Keep target flags explicit and separate from host.
 HOST_CXXFLAGS := -std=gnu++03 $(WARNINGS) -Iinclude -O2
-TARGET_CXXFLAGS := $(WARNINGS) -Iinclude -O2 -DMICROHAD_MIPS_TARGET=1
+TARGET_CXXFLAGS := $(WARNINGS) -Iinclude -O2 -ffunction-sections -fdata-sections -DMICROHAD_MIPS_TARGET=1
+TARGET_CFLAGS := $(WARNINGS) -O2 -ffunction-sections -fdata-sections
 LDFLAGS := -lpthread
 SOURCES := src/main.cpp src/ash.cpp src/storage.cpp src/http_server.cpp src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp
 HOST_BUILD := build/host
@@ -38,32 +39,32 @@ mips: mbedtls-mips $(MIPS_BIN) verify-target
 
 mbedtls-mips:
 	$(MAKE) -C $(MBEDTLS_DIR)/library clean
-	$(MAKE) -C $(MBEDTLS_DIR)/library CC=$(TARGET_CC) AR=$(TARGET_AR) CFLAGS='-O2 -std=gnu99'
+	$(MAKE) -C $(MBEDTLS_DIR)/library CC=$(TARGET_CC) AR=$(TARGET_AR) CFLAGS='-O2 -std=gnu99 -ffunction-sections -fdata-sections'
 
 $(MIPS_BUILD)/fcm_signer.o: src/fcm_signer.c $(MBEDTLS_LIBS)
 	@mkdir -p $(MIPS_BUILD)
-	$(TARGET_CC) -std=gnu99 $(WARNINGS) -I$(MBEDTLS_DIR)/include -c $< -o $@
+	$(TARGET_CC) -std=gnu99 $(TARGET_CFLAGS) -I$(MBEDTLS_DIR)/include -c $< -o $@
 
 $(MIPS_BUILD)/https_client.o: src/https_client.c $(MBEDTLS_LIBS)
 	@mkdir -p $(MIPS_BUILD)
-	$(TARGET_CC) -std=gnu99 $(WARNINGS) -I$(MBEDTLS_DIR)/include -c $< -o $@
+	$(TARGET_CC) -std=gnu99 $(TARGET_CFLAGS) -I$(MBEDTLS_DIR)/include -c $< -o $@
 
 $(MIPS_BUILD)/vapid_key.o: src/vapid_key.c $(MBEDTLS_LIBS)
 	@mkdir -p $(MIPS_BUILD)
-	$(TARGET_CC) -std=gnu99 $(WARNINGS) -I$(MBEDTLS_DIR)/include -c $< -o $@
+	$(TARGET_CC) -std=gnu99 $(TARGET_CFLAGS) -I$(MBEDTLS_DIR)/include -c $< -o $@
 
 $(MIPS_BUILD)/web_push_crypto.o: src/web_push_crypto.c $(MBEDTLS_LIBS)
 	@mkdir -p $(MIPS_BUILD)
-	$(TARGET_CC) -std=gnu99 $(WARNINGS) -I$(MBEDTLS_DIR)/include -c $< -o $@
+	$(TARGET_CC) -std=gnu99 $(TARGET_CFLAGS) -I$(MBEDTLS_DIR)/include -c $< -o $@
 
 $(MIPS_BUILD)/tls_server.o: src/tls_server.c $(MBEDTLS_LIBS)
 	@mkdir -p $(MIPS_BUILD)
-	$(TARGET_CC) -std=gnu99 $(WARNINGS) -I$(MBEDTLS_DIR)/include -c $< -o $@
+	$(TARGET_CC) -std=gnu99 $(TARGET_CFLAGS) -I$(MBEDTLS_DIR)/include -c $< -o $@
 
 $(MIPS_BIN): $(SOURCES) $(wildcard include/*.h) $(MBEDTLS_LIBS) $(MIPS_C_OBJECTS)
 	@test -x $(TARGET_CXX) || (echo "RSDK compiler not found: $(TARGET_CXX)"; exit 1)
 	@mkdir -p $(MIPS_BUILD)
-	$(TARGET_CXX) $(TARGET_CXXFLAGS) -static $(SOURCES) $(MIPS_C_OBJECTS) -o $@ $(MBEDTLS_LIBS) $(LDFLAGS)
+	$(TARGET_CXX) $(TARGET_CXXFLAGS) -static -Wl,--gc-sections $(SOURCES) $(MIPS_C_OBJECTS) -o $@ $(MBEDTLS_LIBS) $(LDFLAGS)
 	$(TARGET_STRIP) $@
 
 verify-target: $(MIPS_BIN)
