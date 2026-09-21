@@ -13,8 +13,8 @@ WARNINGS := -Wall -Wextra -Werror -pedantic
 # C++98/C++03-compatible. Keep target flags explicit and separate from host.
 HOST_CXXFLAGS := -std=gnu++03 $(WARNINGS) -Iinclude -O2
 TARGET_CXXFLAGS := $(WARNINGS) -Iinclude -O2 -DMICROHAD_MIPS_TARGET=1
-LDFLAGS :=
-SOURCES := src/main.cpp src/ash.cpp src/storage.cpp src/http_server.cpp src/gateway.cpp src/zcl.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp
+LDFLAGS := -lpthread
+SOURCES := src/main.cpp src/ash.cpp src/storage.cpp src/http_server.cpp src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp
 HOST_BUILD := build/host
 MIPS_BUILD := build/mips
 HOST_BIN := $(HOST_BUILD)/microhad-zigbee-native
@@ -63,16 +63,16 @@ $(MIPS_BUILD)/tls_server.o: src/tls_server.c $(MBEDTLS_LIBS)
 $(MIPS_BIN): $(SOURCES) $(wildcard include/*.h) $(MBEDTLS_LIBS) $(MIPS_C_OBJECTS)
 	@test -x $(TARGET_CXX) || (echo "RSDK compiler not found: $(TARGET_CXX)"; exit 1)
 	@mkdir -p $(MIPS_BUILD)
-	$(TARGET_CXX) $(TARGET_CXXFLAGS) -static $(SOURCES) $(MIPS_C_OBJECTS) -o $@ $(MBEDTLS_LIBS)
+	$(TARGET_CXX) $(TARGET_CXXFLAGS) -static $(SOURCES) $(MIPS_C_OBJECTS) -o $@ $(MBEDTLS_LIBS) $(LDFLAGS)
 	$(TARGET_STRIP) $@
 
 verify-target: $(MIPS_BIN)
 	$(TARGET_READELF) -h $(MIPS_BIN) | grep -q 'Data:.*big endian'
 	$(TARGET_READELF) -h $(MIPS_BIN) | grep -q 'Machine:.*MIPS'
 
-$(TEST_BIN): test/unit_tests.cpp src/ash.cpp src/storage.cpp src/gateway.cpp src/zcl.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp $(wildcard include/*.h)
+$(TEST_BIN): test/unit_tests.cpp src/ash.cpp src/storage.cpp src/gateway.cpp src/notification_worker.cpp src/zcl.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp $(wildcard include/*.h)
 	@mkdir -p $(HOST_BUILD)
-	$(HOST_CXX) $(HOST_CXXFLAGS) test/unit_tests.cpp src/ash.cpp src/storage.cpp src/gateway.cpp src/zcl.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp -o $@
+	$(HOST_CXX) $(HOST_CXXFLAGS) test/unit_tests.cpp src/ash.cpp src/storage.cpp src/gateway.cpp src/notification_worker.cpp src/zcl.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp -o $@ $(LDFLAGS)
 
 test: $(TEST_BIN)
 	$(TEST_BIN)

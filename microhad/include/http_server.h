@@ -3,37 +3,38 @@
 
 #include <string>
 #include <vector>
+#include <pthread.h>
 
 class Gateway;
+class GatewayRunner;
 class WebPushStore;
 
 class HttpServer {
 public:
-    HttpServer(int port, Gateway* gateway, const std::string& certificatePath, const std::string& privateKeyPath);
+    HttpServer(int port, GatewayRunner* gateway, const std::string& certificatePath, const std::string& privateKeyPath);
     ~HttpServer();
     bool start(std::string* error);
     void poll();
 
 private:
-    struct Client {
-        int fd;
-        std::string request;
-        std::string response;
-        unsigned long responseOffset;
-        long deadline;
-    };
-
     int port_;
     int listenFd_;
-    Gateway* gateway_;
+    GatewayRunner* gateway_;
     WebPushStore* webPush_;
     std::string certificatePath_;
     std::string privateKeyPath_;
-    std::vector<Client> clients_;
+    pthread_t acceptThread_;
+    pthread_t workerThreads_[2];
+    pthread_mutex_t queueMutex_;
+    pthread_cond_t queueReady_;
+    std::vector<int> clientQueue_;
+    bool running_;
     void handleClient(int clientFd);
     void handleRequest(int clientFd, const std::string& request);
-    void acceptClients();
-    void pollClients();
+    static void* acceptThreadMain(void* opaque);
+    static void* workerThreadMain(void* opaque);
+    void acceptLoop();
+    void workerLoop();
 };
 
 #endif

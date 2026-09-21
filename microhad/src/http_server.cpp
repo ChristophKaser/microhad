@@ -1,5 +1,5 @@
 #include "http_server.h"
-#include "gateway.h"
+#include "gateway_runner.h"
 #include "storage.h"
 #include "web_push.h"
 
@@ -13,6 +13,7 @@
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <ctime>
+#include <pthread.h>
 #include <unistd.h>
 
 #ifdef MICROHAD_MIPS_TARGET
@@ -22,21 +23,15 @@ extern "C" int microhad_tls_write_close(void* session, const char* response, uns
 #endif
 
 namespace {
-#ifdef MICROHAD_MIPS_TARGET
-void* activeTlsSession = 0;
-#endif
 std::string* queuedResponse = 0;
-
-bool requestComplete(const std::string& request) {
-    std::string::size_type headers = request.find("\r\n\r\n");
-    std::string::size_type contentLength;
-    unsigned long expected = 0;
-    if (headers == std::string::npos) return false;
-    contentLength = request.find("Content-Length:");
-    if (contentLength == std::string::npos) contentLength = request.find("content-length:");
-    if (contentLength != std::string::npos) expected = strtoul(request.c_str() + contentLength + 15, 0, 10);
-    return request.size() >= headers + 4 + expected;
-}
+pthread_mutex_t webPushMutex = PTHREAD_MUTEX_INITIALIZER;
+#ifdef MICROHAD_MIPS_TARGET
+pthread_key_t tlsSessionKey;
+pthread_once_t tlsSessionKeyOnce = PTHREAD_ONCE_INIT;
+void createTlsSessionKey() { pthread_key_create(&tlsSessionKey, 0); }
+void* activeTlsSession() { pthread_once(&tlsSessionKeyOnce, createTlsSessionKey); return pthread_getspecific(tlsSessionKey); }
+void setActiveTlsSession(void* value) { pthread_once(&tlsSessionKeyOnce, createTlsSessionKey); pthread_setspecific(tlsSessionKey, value); }
+#endif
 
 void writeResponse(int fd, int status, const char* contentType, const std::string& body) {
     std::ostringstream response;
@@ -51,9 +46,9 @@ void writeResponse(int fd, int status, const char* contentType, const std::strin
         return;
     }
 #ifdef MICROHAD_MIPS_TARGET
-    if (activeTlsSession != 0) {
-        microhad_tls_write_close(activeTlsSession, wire.data(), wire.size());
-        activeTlsSession = 0;
+    if (activeTlsSession() != 0) {
+        microhad_tls_write_close(activeTlsSession(), wire.data(), wire.size());
+        setActiveTlsSession(0);
         return;
     }
 #endif
@@ -81,13 +76,27 @@ std::string decodeComponent(const std::string& value) {
 }
 }
 
-HttpServer::HttpServer(int port, Gateway* gateway, const std::string& certificatePath, const std::string& privateKeyPath) :
+HttpServer::HttpServer(int port, GatewayRunner* gateway, const std::string& certificatePath, const std::string& privateKeyPath) :
     port_(port), listenFd_(-1), gateway_(gateway), webPush_(new WebPushStore(gateway->runtimeDirectory())),
-    certificatePath_(certificatePath), privateKeyPath_(privateKeyPath) {
+    certificatePath_(certificatePath), privateKeyPath_(privateKeyPath), running_(false) {
+    pthread_mutex_init(&queueMutex_, 0);
+    pthread_cond_init(&queueReady_, 0);
 }
 
 HttpServer::~HttpServer() {
-    if (listenFd_ >= 0) close(listenFd_);
+    pthread_mutex_lock(&queueMutex_);
+    if (running_) {
+        running_ = false;
+        if (listenFd_ >= 0) { close(listenFd_); listenFd_ = -1; }
+        pthread_cond_broadcast(&queueReady_);
+        pthread_mutex_unlock(&queueMutex_);
+        pthread_join(acceptThread_, 0);
+        pthread_join(workerThreads_[0], 0);
+        pthread_join(workerThreads_[1], 0);
+    } else pthread_mutex_unlock(&queueMutex_);
+    while (!clientQueue_.empty()) { close(clientQueue_.back()); clientQueue_.pop_back(); }
+    pthread_cond_destroy(&queueReady_);
+    pthread_mutex_destroy(&queueMutex_);
     delete webPush_;
 }
 
@@ -105,74 +114,55 @@ bool HttpServer::start(std::string* error) {
         *error = strerror(errno); close(listenFd_); listenFd_ = -1; return false;
     }
     fcntl(listenFd_, F_SETFL, O_NONBLOCK);
+    pthread_mutex_lock(&queueMutex_);
+    running_ = true;
+    pthread_mutex_unlock(&queueMutex_);
+    if (pthread_create(&acceptThread_, 0, acceptThreadMain, this) != 0 ||
+        pthread_create(&workerThreads_[0], 0, workerThreadMain, this) != 0 ||
+        pthread_create(&workerThreads_[1], 0, workerThreadMain, this) != 0) {
+        *error = "cannot create HTTP worker threads";
+        pthread_mutex_lock(&queueMutex_); running_ = false; close(listenFd_); listenFd_ = -1;
+        pthread_cond_broadcast(&queueReady_); pthread_mutex_unlock(&queueMutex_);
+        return false;
+    }
     return true;
 }
 
 void HttpServer::poll() {
-    if (certificatePath_.empty() && privateKeyPath_.empty()) {
-        acceptClients();
-        pollClients();
-    } else {
-        int clientFd = accept(listenFd_, 0, 0);
-        if (clientFd < 0) return;
-        /* The gateway deliberately has a tiny, single-threaded event loop.
-           Do not allow a browser pre-connect or incomplete TLS handshake to
-           suspend the radio and every other HTTP client indefinitely. */
+    /* The acceptor and worker pool own web I/O. Retained for main-loop API compatibility. */
+}
+
+void* HttpServer::acceptThreadMain(void* opaque) { static_cast<HttpServer*>(opaque)->acceptLoop(); return 0; }
+void* HttpServer::workerThreadMain(void* opaque) { static_cast<HttpServer*>(opaque)->workerLoop(); return 0; }
+
+void HttpServer::acceptLoop() {
+    int clientFd;
+    while (true) {
+        clientFd = accept(listenFd_, 0, 0);
+        if (clientFd < 0) { usleep(10000); pthread_mutex_lock(&queueMutex_); bool keepGoing = running_; pthread_mutex_unlock(&queueMutex_); if (!keepGoing) break; continue; }
+        pthread_mutex_lock(&queueMutex_);
+        if (!running_) { pthread_mutex_unlock(&queueMutex_); close(clientFd); break; }
+        if (clientQueue_.size() >= 16) { pthread_mutex_unlock(&queueMutex_); close(clientFd); continue; }
+        clientQueue_.push_back(clientFd);
+        pthread_cond_signal(&queueReady_);
+        pthread_mutex_unlock(&queueMutex_);
+    }
+}
+
+void HttpServer::workerLoop() {
+    while (true) {
+        int clientFd;
+        pthread_mutex_lock(&queueMutex_);
+        while (running_ && clientQueue_.empty()) pthread_cond_wait(&queueReady_, &queueMutex_);
+        if (!running_ && clientQueue_.empty()) { pthread_mutex_unlock(&queueMutex_); break; }
+        clientFd = clientQueue_.front(); clientQueue_.erase(clientQueue_.begin());
+        pthread_mutex_unlock(&queueMutex_);
         struct timeval timeout;
-        timeout.tv_sec = 0;
-        timeout.tv_usec = 200000;
+        timeout.tv_sec = 5; timeout.tv_usec = 0;
         setsockopt(clientFd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
         setsockopt(clientFd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
         handleClient(clientFd);
         close(clientFd);
-    }
-}
-
-void HttpServer::acceptClients() {
-    int clientFd;
-    unsigned int accepted = 0;
-    while (accepted < 4 && (clientFd = accept(listenFd_, 0, 0)) >= 0) {
-        Client client;
-        ++accepted;
-        if (clients_.size() >= 16) { close(clientFd); continue; }
-        fcntl(clientFd, F_SETFL, O_NONBLOCK);
-        client.fd = clientFd;
-        client.responseOffset = 0;
-        client.deadline = time(0) + 5;
-        clients_.push_back(client);
-    }
-}
-
-void HttpServer::pollClients() {
-    std::vector<Client>::iterator client = clients_.begin();
-    char buffer[2048];
-    while (client != clients_.end()) {
-        bool closeClient = false;
-        ssize_t count;
-        if (client->response.empty()) {
-            while ((count = read(client->fd, buffer, sizeof(buffer))) > 0) {
-                client->request.append(buffer, static_cast<unsigned long>(count));
-                if (client->request.size() > 8192) { closeClient = true; break; }
-            }
-            if (count == 0 || (count < 0 && errno != EAGAIN && errno != EWOULDBLOCK)) closeClient = true;
-            if (!closeClient && requestComplete(client->request)) {
-                queuedResponse = &client->response;
-                handleRequest(client->fd, client->request);
-                queuedResponse = 0;
-            }
-        }
-        if (!closeClient && !client->response.empty()) {
-            count = write(client->fd, client->response.data() + client->responseOffset,
-                          client->response.size() - client->responseOffset);
-            if (count > 0) client->responseOffset += static_cast<unsigned long>(count);
-            else if (count < 0 && errno != EAGAIN && errno != EWOULDBLOCK) closeClient = true;
-            if (client->responseOffset >= client->response.size()) closeClient = true;
-        }
-        if (time(0) >= client->deadline) closeClient = true;
-        if (closeClient) {
-            close(client->fd);
-            client = clients_.erase(client);
-        } else ++client;
     }
 }
 
@@ -183,8 +173,10 @@ void HttpServer::handleClient(int clientFd) {
 #ifdef MICROHAD_MIPS_TARGET
     if (!certificatePath_.empty() || !privateKeyPath_.empty()) {
         if (certificatePath_.empty() || privateKeyPath_.empty()) return;
+        void* session = 0;
         if (microhad_tls_read_request(clientFd, certificatePath_.c_str(), privateKeyPath_.c_str(), buffer,
-                                  sizeof(buffer) - 1, &activeTlsSession) != 0) return;
+                                  sizeof(buffer) - 1, &session) != 0) return;
+        setActiveTlsSession(session);
         count = static_cast<ssize_t>(strlen(buffer));
     } else {
         count = read(clientFd, buffer, sizeof(buffer) - 1);
@@ -216,7 +208,10 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
     } else if (request.find("POST /api/push/subscriptions ") == 0) {
         std::string::size_type bodyAt = request.find("\r\n\r\n");
         std::string error;
-        if (bodyAt != std::string::npos && webPush_->addSubscription(request.substr(bodyAt + 4), &error))
+        pthread_mutex_lock(&webPushMutex);
+        bool subscribed = bodyAt != std::string::npos && webPush_->addSubscription(request.substr(bodyAt + 4), &error);
+        pthread_mutex_unlock(&webPushMutex);
+        if (subscribed)
             writeResponse(clientFd, 200, "application/json", "{\"ok\":true}");
         else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + error + "\"}");
     } else if (request.find("GET /sw.js ") == 0) {

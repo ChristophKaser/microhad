@@ -1,4 +1,6 @@
 #include "gateway.h"
+#include "gateway_runner.h"
+#include "notification_worker.h"
 #include "http_server.h"
 
 #include <cerrno>
@@ -59,6 +61,8 @@ int main(int argc, char** argv) {
     int httpPort;
     int httpsPort;
     Gateway* gateway;
+    GatewayRunner* gatewayRunner;
+    NotificationWorker* notificationWorker;
     HttpServer* server;
 
     if (argc == 3 && strcmp(argv[1], "--config") == 0) configPath = argv[2];
@@ -75,20 +79,30 @@ int main(int argc, char** argv) {
     runtimeDirectory = jsonString(config, "runtime_dir", "/tuya/native");
     httpPort = jsonInt(config, "http_port", 80);
     httpsPort = jsonInt(config, "https_port", 443);
-    gateway = new Gateway(serialDevice, serialBaud, runtimeDirectory,
-                          jsonString(config, "firebase_service_account", ""),
-                          jsonString(config, "firebase_topic", "zigbee_alerts"),
-                          jsonString(config, "ca_bundle", ""));
-    if (!gateway->start(&error)) {
-        fprintf(stderr, "gateway startup failed: %s\n", error.c_str());
-        delete gateway;
+    std::string firebaseServiceAccount = jsonString(config, "firebase_service_account", "");
+    std::string firebaseTopic = jsonString(config, "firebase_topic", "zigbee_alerts");
+    std::string caBundle = jsonString(config, "ca_bundle", "");
+    notificationWorker = new NotificationWorker(runtimeDirectory, firebaseServiceAccount, firebaseTopic, caBundle);
+    if (!notificationWorker->start(&error)) {
+        fprintf(stderr, "notification worker startup failed: %s\n", error.c_str());
+        delete notificationWorker;
         return 1;
     }
-    server = new HttpServer(httpPort, gateway, "", "");
+    gateway = new Gateway(serialDevice, serialBaud, runtimeDirectory, firebaseServiceAccount, firebaseTopic, caBundle,
+                          notificationWorker);
+    gatewayRunner = new GatewayRunner(gateway);
+    if (!gatewayRunner->start(&error)) {
+        fprintf(stderr, "gateway startup failed: %s\n", error.c_str());
+        delete gatewayRunner;
+        delete notificationWorker;
+        return 1;
+    }
+    server = new HttpServer(httpPort, gatewayRunner, "", "");
     if (!server->start(&error)) {
         fprintf(stderr, "web startup failed: %s\n", error.c_str());
         delete server;
-        delete gateway;
+        delete gatewayRunner;
+        delete notificationWorker;
         return 1;
     }
     HttpServer* httpsServer = 0;
@@ -101,12 +115,13 @@ int main(int argc, char** argv) {
             delete gateway;
             return 2;
         }
-        httpsServer = new HttpServer(httpsPort, gateway, certificatePath, privateKeyPath);
+        httpsServer = new HttpServer(httpsPort, gatewayRunner, certificatePath, privateKeyPath);
         if (!httpsServer->start(&error)) {
             fprintf(stderr, "HTTPS startup failed: %s\n", error.c_str());
             delete httpsServer;
             delete server;
-            delete gateway;
+            delete gatewayRunner;
+            delete notificationWorker;
             return 1;
         }
     }
@@ -118,13 +133,13 @@ int main(int argc, char** argv) {
     fprintf(stderr, "microhad-zigbee-native: serial=%s http=%d https=%d\n", serialDevice.c_str(), httpPort,
             httpsServer == 0 ? 0 : httpsPort);
     while (running) {
-        gateway->poll();
         server->poll();
         if (httpsServer != 0) httpsServer->poll();
         usleep(20000);
     }
     delete server;
     delete httpsServer;
-    delete gateway;
+    delete gatewayRunner;
+    delete notificationWorker;
     return 0;
 }

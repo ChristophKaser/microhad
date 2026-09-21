@@ -1,4 +1,5 @@
 #include "gateway.h"
+#include "notification_worker.h"
 #include "storage.h"
 #include "zcl.h"
 #include "fcm.h"
@@ -48,9 +49,10 @@ unsigned long zclValueLength(unsigned char type, const std::vector<unsigned char
 }
 
 Gateway::Gateway(const std::string& serialDevice, int serialBaud, const std::string& runtimeDirectory,
-                 const std::string& firebaseServiceAccount, const std::string& firebaseTopic, const std::string& caBundle) :
+                 const std::string& firebaseServiceAccount, const std::string& firebaseTopic, const std::string& caBundle,
+                 NotificationWorker* notificationWorker) :
     serialDevice_(serialDevice), serialBaud_(serialBaud), runtimeDirectory_(runtimeDirectory),
-    firebaseServiceAccount_(firebaseServiceAccount), firebaseTopic_(firebaseTopic), caBundle_(caBundle), serialFd_(-1),
+    firebaseServiceAccount_(firebaseServiceAccount), firebaseTopic_(firebaseTopic), caBundle_(caBundle), notificationWorker_(notificationWorker), serialFd_(-1),
     online_(false), joinUntil_(0), joinPermitRenewAt_(0), pendingJoinSeconds_(0), joinPreparationStep_(0), ashSendSequence_(0), ashReceiveSequence_(0), ezspSequence_(0),
     ezspVersion_(4), zdoSequence_(0), zclTransactionSequence_(0), ezspVersionNegotiated_(false), stackTokenWritingRequested_(false), networkInitRequested_(false), coordinatorInitializationStep_(0), resetDeadline_(0), nextHeartbeatAt_(0), serialRxBytes_(0), ashRxFrames_(0), networkForming_(false), networkFormationStep_(0), networkFormed_(false), networkPanId_(0),
     networkChannel_(0) {
@@ -305,31 +307,11 @@ void Gateway::updateTemperatureAlert(const Device& device, bool hadTemperature, 
 
 bool Gateway::emitNotification(const std::string& title, const std::string& body, std::string* error) {
     std::ofstream output((runtimeDirectory_ + "/notification-outbox.ndjson").c_str(), std::ios::app);
-    bool configured = false;
-    bool delivered = false;
-    std::string failures;
     addLog(std::string("Notification queued: ") + title + " - " + body);
     if (output) output << "{\"title\":\"" << jsonEscape(title) << "\",\"body\":\""
                        << jsonEscape(body) << "\",\"timestamp\":" << time(0) << "}\n";
-    if (!firebaseServiceAccount_.empty() && !firebaseTopic_.empty() && !caBundle_.empty()) {
-        std::string deliveryError;
-        configured = true;
-        if (sendFcmNotification(firebaseServiceAccount_, caBundle_, firebaseTopic_, title, body, &deliveryError)) delivered = true;
-        else failures += "FCM: " + deliveryError;
-    }
-    if (!caBundle_.empty()) {
-        std::string deliveryError;
-        WebPushStore browserPush(runtimeDirectory_);
-        configured = true;
-        if (browserPush.send(caBundle_, title, body, &deliveryError)) delivered = true;
-        else {
-            if (!failures.empty()) failures += "; ";
-            failures += "Browser Push: " + deliveryError;
-        }
-    }
-    if (delivered) return true;
-    if (error != 0) *error = configured ? failures : "no notification delivery is configured";
-    return false;
+    if (notificationWorker_ == 0) { if (error != 0) *error = "no notification delivery is configured"; return false; }
+    return notificationWorker_->enqueue(title, body, error);
 }
 
 std::vector<Device> Gateway::devices() const {

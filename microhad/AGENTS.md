@@ -16,12 +16,13 @@ The permanent device service is `/tuya/tuya_start.sh`; its executable and
 configuration live in `/tuya/native`. Never commit device configuration,
 credentials, TLS keys, persistent network state, or Zigbee keys.
 
-The dashboard serves HTTP on port 80 and HTTPS on port 443. The HTTP listener
-is an incremental nonblocking state machine (up to 16 active clients; no more
-than four are accepted per event-loop iteration). Keep it that way: the NCP
-serial owner is deliberately single-threaded and must run between client reads
-and writes. HTTPS has a short handshake deadline, so an incomplete TLS client
-cannot pause radio processing.
+The dashboard serves HTTP on port 80 and HTTPS on port 443. The coordinator
+thread is the sole owner of the NCP serial connection and `Gateway` state.
+Each HTTP listener has an acceptor plus two request workers; all mutations use
+the coordinator command queue and status/log reads use its protected snapshots.
+The single notification worker owns outbound FCM/browser-push calls and keeps
+at most 32 pending jobs in RAM. Do not call `Gateway` directly from a web or
+notification thread.
 
 Coordinator logs are intentionally kept in `/tmp/microhad-zigbee-native.log`, a
 bounded 512-line RAM-only ring. Permanent radio captures belong under the

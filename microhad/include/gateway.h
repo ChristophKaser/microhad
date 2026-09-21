@@ -7,6 +7,8 @@
 
 #include "ash.h"
 
+class NotificationWorker;
+
 struct Device {
     std::string ieeeAddress;
     unsigned short networkAddress;
@@ -35,7 +37,8 @@ struct Device {
 class Gateway {
 public:
     Gateway(const std::string& serialDevice, int serialBaud, const std::string& runtimeDirectory,
-            const std::string& firebaseServiceAccount, const std::string& firebaseTopic, const std::string& caBundle);
+            const std::string& firebaseServiceAccount, const std::string& firebaseTopic, const std::string& caBundle,
+            NotificationWorker* notificationWorker = 0);
     ~Gateway();
     bool start(std::string* error);
     void stop();
@@ -62,6 +65,7 @@ private:
     std::string firebaseServiceAccount_;
     std::string firebaseTopic_;
     std::string caBundle_;
+    NotificationWorker* notificationWorker_;
     int serialFd_;
     bool online_;
     long joinUntil_;
