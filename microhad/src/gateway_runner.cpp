@@ -112,6 +112,7 @@ void GatewayRunner::execute(Command* command) {
                                                                                       command->hasContactTimings,
                                                                                       command->initialAlertMinutes,
                                                                                       command->reminderAlertMinutes, &error);
+    else if (command->type == DeviceRefresh) result = gateway_->refreshDevice(command->address, &error);
     else if (command->type == TestNotification) result = gateway_->sendTestNotification(&error);
     else if (command->type == NotificationSetting) result = gateway_->setNotificationsEnabled(command->hasLow, &error);
     updateSnapshots();
@@ -169,6 +170,12 @@ bool GatewayRunner::setDeviceSettings(const std::string& address, const std::str
     command.hasContactTimings = hasContactTimings;
     command.initialAlertMinutes = initialAlertMinutes;
     command.reminderAlertMinutes = reminderAlertMinutes;
+    return invoke(&command, error);
+}
+bool GatewayRunner::refreshDevice(const std::string& address, std::string* error) {
+    Command command;
+    command.type = DeviceRefresh;
+    command.address = address;
     return invoke(&command, error);
 }
 bool GatewayRunner::sendTestNotification(std::string* error) { Command command; command.type = TestNotification; return invoke(&command, error); }

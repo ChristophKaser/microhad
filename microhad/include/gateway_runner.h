@@ -21,11 +21,12 @@ public:
                            bool hasLow, double low, bool hasHigh, double high,
                            bool hasContactTimings, unsigned long initialAlertMinutes,
                            unsigned long reminderAlertMinutes, std::string* error);
+    bool refreshDevice(const std::string& ieeeAddress, std::string* error);
     bool sendTestNotification(std::string* error);
     bool setNotificationsEnabled(bool enabled, std::string* error);
 
 private:
-    enum CommandType { Join, CreateNetwork, DeviceSettings, TestNotification, NotificationSetting };
+    enum CommandType { Join, CreateNetwork, DeviceSettings, DeviceRefresh, TestNotification, NotificationSetting };
     struct Command {
         CommandType type;
         unsigned int seconds;

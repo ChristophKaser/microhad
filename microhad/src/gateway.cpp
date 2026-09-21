@@ -307,6 +307,17 @@ bool Gateway::setDeviceSettings(const std::string& ieeeAddress, const std::strin
     return true;
 }
 
+bool Gateway::refreshDevice(const std::string& ieeeAddress, std::string* error) {
+    std::map<std::string, Device>::const_iterator device = devices_.find(ieeeAddress);
+    if (device == devices_.end()) { *error = "device is unknown"; return false; }
+    if (!online_) { *error = "Zigbee coordinator is offline"; return false; }
+    if (device->second.networkAddress == 0xffff) { *error = "device has no active network address"; return false; }
+    requestActiveEndpoints(device->second.networkAddress);
+    nextSensorRefreshAt_[device->second.networkAddress] = time(0) + 300;
+    addLog(std::string("Manual refresh requested: ") + ieeeAddress);
+    return true;
+}
+
 bool Gateway::applyAttributeReport(const std::string& ieeeAddress, unsigned short cluster, unsigned short attribute,
                                    const std::vector<unsigned char>& value) {
     Device& device = devices_[ieeeAddress];

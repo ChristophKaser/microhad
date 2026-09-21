@@ -53,6 +53,7 @@ public:
                            bool hasLow, double low, bool hasHigh, double high,
                            bool hasContactTimings, unsigned long initialAlertMinutes,
                            unsigned long reminderAlertMinutes, std::string* error);
+    bool refreshDevice(const std::string& ieeeAddress, std::string* error);
     bool applyAttributeReport(const std::string& ieeeAddress, unsigned short cluster, unsigned short attribute,
                               const std::vector<unsigned char>& value);
     bool applyIasZoneStatus(const std::string& ieeeAddress, const std::vector<unsigned char>& payload);
