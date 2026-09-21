@@ -11,10 +11,12 @@ make mips
 `make mips` builds the vendored Mbed TLS dependency and produces the static,
 big-endian MIPS binary at `build/mips/microhad-zigbee-native`.
 
-Deploy with `deploy.sh`, passing a local config and password file explicitly.
-The permanent device service is `/tuya/tuya_start.sh`; its executable and
-configuration live in `/tuya/native`. Never commit device configuration,
-credentials, TLS keys, persistent network state, or Zigbee keys.
+Deploy with `deploy.sh` and the password file explicitly. Deployment is
+binary-only by default and preserves the device configuration; pass `--config`
+only when intentionally replacing it. The permanent device service is
+`/tuya/tuya_start.sh`; its executable and configuration live in `/tuya/native`.
+Never commit device configuration, credentials, TLS keys, persistent network
+state, or Zigbee keys.
 
 ## Device build, deployment, and checks
 
@@ -25,13 +27,13 @@ untracked password file only by pathname:
 make host test
 make mips
 ./deploy.sh --host 192.168.178.62 --password-file ../ssh_password.txt \
-  --config /secure/path/config.json --target /tuya/native --activate
+  --target /tuya/native
 ```
 
-Deployment atomically replaces the files but deliberately does not restart the
-daemon. For an explicitly requested in-device activation, first identify the
-current launcher and native leader, then restart only those exact PIDs (the
-remaining matching entries are threads and must not be killed separately):
+After every implementation change, deploy the target binary, then restart it
+and verify the dashboard. First identify the current launcher and native
+leader, then restart only those exact PIDs (the remaining matching entries are
+threads and must not be killed separately):
 
 ```sh
 sshpass -f ../ssh_password.txt ssh -o ConnectTimeout=8 -o StrictHostKeyChecking=yes \
@@ -43,6 +45,10 @@ sshpass -f ../ssh_password.txt ssh -o ConnectTimeout=8 -o StrictHostKeyChecking=
   -o PreferredAuthentications=password -o PubkeyAuthentication=no root@192.168.178.62 \
   'kill LAUNCHER_PID NATIVE_LEADER_PID; sleep 1; /tuya/tuya_start.sh >/tmp/microhad-native-launch.log 2>&1 &'
 ```
+
+After successful verification, commit the implementation changes with a
+descriptive message. When the worktree already contains unrelated changes,
+stage and commit only files changed for the current task.
 
 Check the external dashboard rather than using `curl` on the device (it is not
 installed there):
@@ -69,10 +75,9 @@ before notification audit/outbox handling and before the notification-worker
 queue, so contact events do not exercise delivery-related code while push is
 off.
 
-A contact opening is only an alert candidate. It must remain open for ten
-minutes before the first `Window open` notification; closing it cancels that
-pending alert. While it remains open, later reminders are sent every five
-minutes.
+A contact opening is only an alert candidate. Its per-device settings default
+to a ten-minute first `Window open` notification and five-minute reminders;
+closing it cancels the pending alert.
 
 Coordinator logs are intentionally kept in `/tmp/microhad-zigbee-native.log`, a
 bounded 512-line RAM-only ring. Permanent radio captures belong under the
