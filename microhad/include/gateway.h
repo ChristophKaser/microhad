@@ -180,6 +180,7 @@ private:
     std::vector<unsigned char> coordinatorIeeeAddress_;
     bool coordinatorIeeeAddressRequested_;
     std::map<unsigned short, long> nextSensorRefreshAt_;
+    std::map<unsigned short, bool> lightSetupPending_;
     std::map<unsigned short, long> lastActiveEndpointRequestAt_;
     std::map<std::string, long> contactOpenedAt_;
     std::map<std::string, long> nextContactAlertAt_;

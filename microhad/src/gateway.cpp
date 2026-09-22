@@ -322,6 +322,16 @@ void Gateway::poll() {
     if (online_ && networkFormed_ && coordinatorInitializationStep_ == 0 && !interviewRequestInFlight_) {
         sendNextInterviewOperation();
     }
+    if (online_ && networkFormed_ && coordinatorInitializationStep_ == 0 && !interviewRequestInFlight_ &&
+        !lightSetupPending_.empty()) {
+        std::map<unsigned short, bool>::iterator pending = lightSetupPending_.begin();
+        unsigned short node = pending->first;
+        lightSetupPending_.erase(pending);
+        if (nodeAddresses_.find(node) != nodeAddresses_.end()) {
+            startInterview(node, false);
+            addLog("Queued light reporting setup for existing device");
+        }
+    }
     if (online_ && networkFormed_ && coordinatorInitializationStep_ == 0 && !interviewRequestInFlight_) {
         std::map<unsigned short, std::string>::const_iterator node;
         long now = time(0);
@@ -558,6 +568,10 @@ bool Gateway::setLightState(const std::string& ieeeAddress, const std::string& s
         unsigned int level = static_cast<unsigned int>((brightnessPercent * 254 + 50) / 100);
         arguments.push_back(static_cast<unsigned char>(level)); arguments.push_back(0); arguments.push_back(0);
         sendZclLightCommand(found->second.networkAddress, endpoint, 0x0008, 0x04, arguments);
+        found->second.hasBrightness = true;
+        found->second.brightnessPercent = brightnessPercent;
+        found->second.lightOn = brightnessPercent != 0;
+        saveState();
         addLog(std::string("Light brightness command queued: ") + ieeeAddress);
         return true;
     }
@@ -568,6 +582,9 @@ bool Gateway::setLightState(const std::string& ieeeAddress, const std::string& s
     else if (state == "toggle") command = 0x02;
     else { *error = "invalid light state"; return false; }
     sendZclLightCommand(found->second.networkAddress, endpoint, 0x0006, command, std::vector<unsigned char>());
+    if (state == "toggle") found->second.lightOn = !found->second.lightOn;
+    else found->second.lightOn = state == "on";
+    saveState();
     addLog(std::string("Light power command queued: ") + ieeeAddress + " " + state);
     return true;
 }
@@ -875,6 +892,7 @@ void Gateway::loadState() {
             classifyDevice(&saved[i]);
             devices_[saved[i].ieeeAddress] = saved[i];
             if (saved[i].networkAddress != 0xffff) nodeAddresses_[saved[i].networkAddress] = saved[i].ieeeAddress;
+            if (saved[i].hasLight && saved[i].networkAddress != 0xffff) lightSetupPending_[saved[i].networkAddress] = true;
         }
     }
     error.clear();
