@@ -121,9 +121,10 @@ development gateway API, run:
 python3 webui/dev_server.py --device http://192.168.178.62
 ```
 
-Open `http://127.0.0.1:8000`. The local server proxies `/api/` requests to the
-gateway so no CORS support is required. Browser-push enrollment is deliberately
-disabled in this mode; test it from the deployed HTTPS dashboard instead.
+Open `http://localhost:8000` or `http://<this-computer-ip>:8000` from another
+machine on the LAN. The local server proxies `/api/` requests to the gateway so
+no CORS support is required. Browser-push enrollment is deliberately disabled
+in this mode; test it from the deployed HTTPS dashboard instead.
 
 ## Current protocol boundary
 

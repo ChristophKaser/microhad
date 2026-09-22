@@ -78,8 +78,9 @@ def main():
     args = parser.parse_args()
     DashboardHandler.gateway_url = args.device.rstrip('/')
     DashboardHandler.webui_directory = os.path.dirname(os.path.abspath(__file__))
-    server = ThreadingHTTPServer(('127.0.0.1', args.port), DashboardHandler)
-    print('Dashboard: http://127.0.0.1:%d (API proxy: %s)' % (args.port, DashboardHandler.gateway_url))
+    server = ThreadingHTTPServer(('0.0.0.0', args.port), DashboardHandler)
+    print('Dashboard: http://localhost:%d and http://<this-computer-ip>:%d (API proxy: %s)' %
+          (args.port, args.port, DashboardHandler.gateway_url))
     server.serve_forever()
 
 
