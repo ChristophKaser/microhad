@@ -7,6 +7,7 @@
 #include <sstream>
 #include <ctime>
 #include <cstdio>
+#include <cstdlib>
 #include <sys/stat.h>
 #include <vector>
 
@@ -35,6 +36,34 @@ bool validSubscription(const std::string& subscriptionJson, std::string* endpoin
            base64UrlDecode(publicText, &clientPublic) && clientPublic.size() == 65 &&
            base64UrlDecode(authText, &auth) && auth.size() == 16;
 }
+
+bool saveSubscriptions(const std::string& filename, const std::vector<std::string>& subscriptions,
+                       std::string* error) {
+    std::string temporary = filename + ".tmp";
+    std::ofstream output(temporary.c_str());
+    if (!output) { *error = "cannot persist Browser Push subscription"; return false; }
+    for (unsigned long i = 0; i < subscriptions.size(); ++i) output << subscriptions[i] << "\n";
+    output.close();
+    if (!output || chmod(temporary.c_str(), 0600) != 0 || rename(temporary.c_str(), filename.c_str()) != 0) {
+        remove(temporary.c_str());
+        *error = "cannot persist Browser Push subscription";
+        return false;
+    }
+    return true;
+}
+
+#ifdef MICROHAD_MIPS_TARGET
+bool permanentlyRejected(const std::string& response) {
+    std::string::size_type statusAt;
+    char* end = 0;
+    long status;
+    if (response.compare(0, 5, "HTTP/") != 0) return false;
+    statusAt = response.find(' ');
+    if (statusAt == std::string::npos) return false;
+    status = strtol(response.c_str() + statusAt + 1, &end, 10);
+    return end != response.c_str() + statusAt + 1 && (status == 404 || status == 410);
+}
+#endif
 }
 
 #ifdef MICROHAD_MIPS_TARGET
@@ -97,7 +126,6 @@ bool WebPushStore::loadOrCreateKey(std::string* error) {
 bool WebPushStore::addSubscription(const std::string& subscriptionJson, std::string* error) {
     std::string endpoint;
     std::string filename = runtimeDirectory_ + "/web-push-subscriptions.ndjson";
-    std::string temporary = filename + ".tmp";
     std::ifstream input(filename.c_str());
     std::vector<std::string> subscriptions;
     std::string existing, existingEndpoint;
@@ -113,9 +141,19 @@ bool WebPushStore::addSubscription(const std::string& subscriptionJson, std::str
     while (std::getline(input, existing)) {
         if (!validSubscription(existing, &existingEndpoint)) continue;
         if (existingEndpoint == endpoint) {
-            subscriptions.push_back(subscriptionJson);
+            if (!replaced) subscriptions.push_back(subscriptionJson);
             replaced = true;
-        } else subscriptions.push_back(existing);
+        } else {
+            bool alreadyStored = false;
+            for (unsigned long i = 0; i < subscriptions.size(); ++i) {
+                std::string storedEndpoint;
+                if (validSubscription(subscriptions[i], &storedEndpoint) && storedEndpoint == existingEndpoint) {
+                    alreadyStored = true;
+                    break;
+                }
+            }
+            if (!alreadyStored) subscriptions.push_back(existing);
+        }
     }
     if (!replaced) {
         if (subscriptions.size() >= kMaximumSubscriptions) {
@@ -124,16 +162,7 @@ bool WebPushStore::addSubscription(const std::string& subscriptionJson, std::str
         }
         subscriptions.push_back(subscriptionJson);
     }
-    std::ofstream output(temporary.c_str());
-    if (!output) { *error = "cannot persist Browser Push subscription"; return false; }
-    for (unsigned long i = 0; i < subscriptions.size(); ++i) output << subscriptions[i] << "\n";
-    output.close();
-    if (!output || chmod(temporary.c_str(), 0600) != 0 || rename(temporary.c_str(), filename.c_str()) != 0) {
-        remove(temporary.c_str());
-        *error = "cannot persist Browser Push subscription";
-        return false;
-    }
-    return true;
+    return saveSubscriptions(filename, subscriptions, error);
 }
 
 std::string WebPushStore::publicKey() const {
@@ -143,20 +172,27 @@ std::string WebPushStore::publicKey() const {
 bool WebPushStore::send(const std::string& caBundle, const std::string& title, const std::string& body,
                         std::string* error) {
 #ifdef MICROHAD_MIPS_TARGET
-    std::ifstream subscriptions((runtimeDirectory_ + "/web-push-subscriptions.ndjson").c_str());
+    const std::string subscriptionFilename = runtimeDirectory_ + "/web-push-subscriptions.ndjson";
+    std::ifstream subscriptions(subscriptionFilename.c_str());
     std::ifstream privateFile((runtimeDirectory_ + "/vapid-private.key").c_str(), std::ios::binary);
     std::string subscription;
+    std::vector<std::string> retainedSubscriptions;
     std::string privateKey(32, '\0');
     bool delivered = false;
+    bool pruneRequired = false;
     if (!subscriptions) { *error = "no Browser Push subscriptions"; return false; }
     if (!privateFile.read(&privateKey[0], privateKey.size())) { *error = "cannot read VAPID private key"; return false; }
     while (std::getline(subscriptions, subscription)) {
         std::string endpoint, publicText, authText, clientPublic, auth, encrypted(8192, '\0');
         std::string audience, header, jwtHeader, jwtPayload, jwtInput, signature(64, '\0'), token;
         unsigned long encryptedLength = 0;
-        if (!jsonStringField(subscription, "endpoint", &endpoint) || !jsonStringField(subscription, "p256dh", &publicText) ||
+        if (!validSubscription(subscription, &endpoint) || !jsonStringField(subscription, "p256dh", &publicText) ||
             !jsonStringField(subscription, "auth", &authText) || !base64UrlDecode(publicText, &clientPublic) ||
-            !base64UrlDecode(authText, &auth) || clientPublic.size() != 65 || auth.size() != 16) continue;
+            !base64UrlDecode(authText, &auth) || clientPublic.size() != 65 || auth.size() != 16) {
+            pruneRequired = true;
+            continue;
+        }
+        retainedSubscriptions.push_back(subscription);
         std::string payload = "{\"title\":\"" + jsonEscape(title) + "\",\"body\":\"" + jsonEscape(body) + "\"}";
         payload += static_cast<char>(2);
         if (microhad_web_push_encrypt(reinterpret_cast<const unsigned char*>(clientPublic.data()),
@@ -175,8 +211,23 @@ bool WebPushStore::send(const std::string& caBundle, const std::string& title, c
                             reinterpret_cast<unsigned char*>(&signature[0])) != 0) continue;
         token = jwtInput + "." + base64UrlEncode(signature);
         header = "Content-Type: application/octet-stream\r\nContent-Encoding: aes128gcm\r\nTTL: 300\r\nAuthorization: vapid t=" + token + ", k=" + publicKey_ + "\r\n";
-        std::string ignored;
-        if (httpsPostUrl(endpoint, header, encrypted, caBundle, &ignored, &ignored)) delivered = true;
+        std::string response, sendError;
+        if (httpsPostUrl(endpoint, header, encrypted, caBundle, &response, &sendError)) {
+            if (permanentlyRejected(response)) {
+                retainedSubscriptions.pop_back();
+                pruneRequired = true;
+                continue;
+            }
+            delivered = true;
+        }
+    }
+    subscriptions.close();
+    if (pruneRequired) {
+        std::string saveError;
+        if (!saveSubscriptions(subscriptionFilename, retainedSubscriptions, &saveError)) {
+            *error = saveError;
+            return false;
+        }
     }
     if (!delivered) { *error = "Browser Push delivery failed"; return false; }
     return true;

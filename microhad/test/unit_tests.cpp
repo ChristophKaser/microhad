@@ -728,6 +728,7 @@ static void testBrowserPushSubscriptionBounds() {
     assert(store.addSubscription(pushSubscription("https://push.example.test/a", 2), &error));
     assert(readTextFile(directory + "/web-push-subscriptions.ndjson", &content));
     assert(content.find("https://push.example.test/a") != std::string::npos && content.find("\n") == content.size() - 1);
+    assert(content.find("https://push.example.test/a") == content.rfind("https://push.example.test/a"));
     assert(!store.addSubscription(pushSubscription("http://push.example.test/a", 3), &error));
     for (int i = 0; i < 31; ++i) {
         std::ostringstream endpoint;
