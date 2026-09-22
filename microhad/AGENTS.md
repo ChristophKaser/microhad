@@ -11,9 +11,11 @@ make mips
 `make mips` builds the vendored Mbed TLS dependency and produces the static,
 big-endian MIPS binary at `build/mips/microhad-zigbee-native`.
 
-Deploy with `deploy.sh` and the password file explicitly. Deployment is
-binary-only by default and preserves the device configuration; pass `--config`
-only when intentionally replacing it. The permanent device service is
+Deploy with `deploy.sh` and the password file explicitly. Deployment updates
+both the binary and web UI by default and preserves the device configuration;
+pass `--binary-only`, `--webui-only`, or `--both` to select assets, and pass
+`--config` only when intentionally replacing configuration. `--config`,
+`--activate`, and `--restart` require a binary deployment. The permanent device service is
 `/tuya/tuya_start.sh`; its executable and configuration live in `/tuya/native`.
 Never commit device configuration, credentials, TLS keys, persistent network
 state, or Zigbee keys.

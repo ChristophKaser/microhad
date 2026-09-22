@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <cstring>
 #include <fcntl.h>
+#include <fstream>
 #include <netinet/in.h>
 #include <sstream>
 #include <sys/socket.h>
@@ -40,7 +41,7 @@ void setActiveTlsSession(void* value) { pthread_once(&tlsSessionKeyOnce, createT
 
 void writeResponse(int fd, int status, const char* contentType, const std::string& body) {
     std::ostringstream response;
-    response << "HTTP/1.1 " << status << (status == 200 ? " OK" : " Bad Request") << "\r\n"
+    response << "HTTP/1.1 " << status << (status == 200 ? " OK" : status == 500 ? " Internal Server Error" : " Bad Request") << "\r\n"
              << "Content-Type: " << contentType << "\r\nCache-Control: no-store\r\nConnection: close\r\n"
              << "Content-Length: " << body.size() << "\r\n\r\n" << body;
     std::string wire = response.str();
@@ -108,10 +109,18 @@ bool parseMinutes(const std::string& value, unsigned long* result) {
     *result = strtoul(value.c_str(), &end, 10);
     return errno == 0 && end != value.c_str() && *end == 0;
 }
+
+bool readDashboard(const std::string& path, std::string* content) {
+    std::ifstream input(path.c_str(), std::ios::in | std::ios::binary);
+    if (!input) return false;
+    content->assign((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+    return !content->empty();
+}
 }
 
-HttpServer::HttpServer(int port, GatewayRunner* gateway, const std::string& certificatePath, const std::string& privateKeyPath) :
-    port_(port), listenFd_(-1), gateway_(gateway), webPush_(new WebPushStore(gateway->runtimeDirectory())),
+HttpServer::HttpServer(int port, GatewayRunner* gateway, const std::string& dashboardPath,
+                       const std::string& certificatePath, const std::string& privateKeyPath) :
+    port_(port), listenFd_(-1), gateway_(gateway), webPush_(new WebPushStore(gateway->runtimeDirectory())), dashboardPath_(dashboardPath),
     certificatePath_(certificatePath), privateKeyPath_(privateKeyPath), tlsServer_(0), running_(false) {
     pthread_mutex_init(&queueMutex_, 0);
     pthread_cond_init(&queueReady_, 0);
@@ -336,83 +345,11 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
             } else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + jsonEscape(error) + "\"}");
         }
     } else if (request.find("GET / ") == 0) {
-#if 0
-        const char* page = "<!doctype html><meta name=viewport content='width=device-width,initial-scale=1'><title>MicroHAD</title><style>body{font:16px sans-serif;max-width:48rem;margin:auto;padding:1rem}button{padding:.7rem;margin:.2rem}.device{border-bottom:1px solid #ddd;padding:.6rem}</style><h1>MicroHAD</h1><p><button onclick=\"post('/api/network/create')\">Create fresh network</button><button id=join onclick=\"post('/api/join')\">Allow joining (5 min)</button><button onclick=\"enablePush()\">Enable browser alerts</button><button id=test-alerts onclick=\"post('/api/notifications/test')\">Test alerts</button><label><input id=notifications type=checkbox onchange=\"setNotifications(this.checked)\"> Push notifications</label></p><p id=state>Loading…</p><p id=join-state></p><div id=devices></div><script>function post(u,b){return fetch(u,{method:'POST',body:b||''}).then(function(r){return r.json()}).then(function(v){if(!v.ok)throw Error(v.error||'Request failed');return update()}).catch(function(e){alert(e.message)})}function setNotifications(v){post('/api/notifications/enabled','enabled='+(v?'true':'false'))}function b64(s){s+=(s.length%4?'='.repeat(4-s.length%4):'');return Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')),function(c){return c.charCodeAt(0)})}function enablePush(){if(!('serviceWorker'in navigator)||!('PushManager'in window)){alert('Push is unavailable in this browser');return}navigator.serviceWorker.register('/sw.js').then(function(r){return fetch('/api/push/vapid-key').then(function(x){return x.json()}).then(function(k){return r.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:b64(k.public_key)})})}).then(function(s){return fetch('/api/push/subscriptions',{method:'POST',body:JSON.stringify(s)})}).then(function(r){return r.json()}).then(function(v){if(!v.ok)throw Error(v.error||'Subscription failed');alert('Browser alerts enabled')}).catch(function(e){alert('Could not enable alerts: '+e.message)})}function rename(a,n){var v=prompt('Device name',n);if(v)post('/api/devices/'+encodeURIComponent(a)+'/name',v)}function temperatures(a,l,h){l=prompt('Low alert °C (blank disables)',l===null?'':l);if(l===null)return;h=prompt('High alert °C (blank disables)',h===null?'':h);if(h===null)return;post('/api/devices/'+encodeURIComponent(a)+'/temperature-alert','low='+encodeURIComponent(l)+'&high='+encodeURIComponent(h))}function update(){return fetch('/api/status').then(function(r){return r.json()}).then(function(v){document.getElementById('state').textContent='Coordinator: '+(v.online?'online':'offline')+' | Network: '+(v.network_formed?'formed':v.network_forming?'forming':'not formed');document.getElementById('notifications').checked=v.notifications_enabled;document.getElementById('test-alerts').disabled=!v.notifications_enabled;var left=Math.max(0,v.joining_until-Math.floor(Date.now()/1000));document.getElementById('join-state').textContent=left?'Joining enabled: pair a sensor within '+Math.ceil(left/60)+' minute(s).':'Joining is closed.';document.getElementById('join').textContent=left?'Extend joining (5 min)':'Allow joining (5 min)';document.getElementById('devices').innerHTML=v.devices.map(function(d){var s=d.ieee_address+' · '+d.kind;if(d.has_contact)s+=' · '+(d.contact_open?'OPEN':'closed');if(d.has_temperature)s+=' · '+d.temperature_celsius+' °C';if(d.has_battery)s+=' · battery '+d.battery_percent+'%';var b='<button onclick=\"rename(\\\''+d.ieee_address+'\\\',\\\''+d.name.replace(/'/g,'')+'\\\')\">Rename</button>';if(d.has_temperature)b+=' <button onclick=\"temperatures(\\\''+d.ieee_address+'\\\','+(d.has_low_temperature_alert?d.low_temperature_alert:'null')+','+(d.has_high_temperature_alert?d.high_temperature_alert:'null')+')\">Temperature alerts</button>';return '<div class=device><b>'+d.name+'</b> '+b+'<br>'+s+'</div>'}).join('')})}update();setInterval(update,2000)</script>";
-#endif
-        const char* page =
-            "<!doctype html><meta name=viewport content='width=device-width,initial-scale=1'><title>MicroHAD</title>"
-            "<style>body{font:16px sans-serif;max-width:48rem;margin:auto;padding:1rem}button{padding:.7rem;margin:.2rem}.device{border-bottom:1px solid #ddd;padding:.6rem}.modal{position:fixed;inset:0;background:#0008;display:grid;place-items:center;padding:1rem}.modal[hidden]{display:none}.dialog{background:#fff;padding:1rem;max-width:28rem;width:100%;box-sizing:border-box}.dialog label{display:block;margin:.7rem 0}.dialog input{display:block;width:100%;box-sizing:border-box;padding:.4rem}.error{color:#b00;min-height:1.2em}</style>"
-            "<h1>MicroHAD</h1><p><button onclick=\"post('/api/network/create')\">Create fresh network</button><button id=join onclick=\"post('/api/join')\">Allow joining (5 min)</button><button onclick=\"restartService()\">Restart service</button><button onclick=\"enablePush()\">Enable browser alerts</button><button id=test-alerts onclick=\"post('/api/notifications/test')\">Test alerts</button><label><input id=notifications type=checkbox onchange=\"setNotifications(this.checked)\"> Push notifications</label></p><p id=state>Loading…</p><p id=join-state></p><div id=devices></div>"
-            "<div id=modal class=modal hidden><form id=settings-form class=dialog><h2>Device settings</h2><p id=settings-error class=error></p><label>Name<input id=settings-name maxlength=64 required></label><div id=contact-settings><label>First alert after (minutes)<input id=initial-minutes type=number min=1 step=1></label><label>Reminder every (minutes)<input id=reminder-minutes type=number min=1 step=1></label></div><div id=temperature-settings><label>Low threshold °C (blank disables)<input id=low-threshold type=number step=.1></label><label>High threshold °C (blank disables)<input id=high-threshold type=number step=.1></label></div><p><button type=button onclick=\"closeSettings()\">Cancel</button><button type=submit>Save</button></p></form></div>"
-            "<script>var currentDevices=[],selectedDevice;function post(u,b){return fetch(u,{method:'POST',body:b||''}).then(function(r){return r.json()}).then(function(v){if(!v.ok)throw Error(v.error||'Request failed');return update()}).catch(function(e){alert(e.message)})}function setNotifications(v){post('/api/notifications/enabled','enabled='+(v?'true':'false'))}function b64(s){s+=(s.length%4?'='.repeat(4-s.length%4):'');return Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')),function(c){return c.charCodeAt(0)})}function enablePush(){if(!('serviceWorker'in navigator)||!('PushManager'in window)){alert('Push is unavailable in this browser');return}navigator.serviceWorker.register('/sw.js').then(function(r){return fetch('/api/push/vapid-key').then(function(x){return x.json()}).then(function(k){return r.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:b64(k.public_key)})})}).then(function(s){return fetch('/api/push/subscriptions',{method:'POST',body:JSON.stringify(s)})}).then(function(r){return r.json()}).then(function(v){if(!v.ok)throw Error(v.error||'Subscription failed');alert('Browser alerts enabled')}).catch(function(e){alert('Could not enable alerts: '+e.message)})}function esc(s){return String(s).replace(/[&<>]/g,function(c){return c=='&'?'&amp;':c=='<'?'&lt;':'&gt;'})}function settings(i){selectedDevice=currentDevices[i];var d=selectedDevice;document.getElementById('settings-name').value=d.name;document.getElementById('contact-settings').hidden=!d.has_contact;document.getElementById('temperature-settings').hidden=!d.has_temperature;document.getElementById('initial-minutes').required=!!d.has_contact;document.getElementById('reminder-minutes').required=!!d.has_contact;document.getElementById('initial-minutes').value=d.contact_initial_alert_minutes;document.getElementById('reminder-minutes').value=d.contact_reminder_alert_minutes;document.getElementById('low-threshold').value=d.has_low_temperature_alert?d.low_temperature_alert:'';document.getElementById('high-threshold').value=d.has_high_temperature_alert?d.high_temperature_alert:'';document.getElementById('settings-error').textContent='';document.getElementById('modal').hidden=false}function closeSettings(){document.getElementById('modal').hidden=true}document.getElementById('settings-form').onsubmit=function(e){e.preventDefault();var d=selectedDevice,parts=['name='+encodeURIComponent(document.getElementById('settings-name').value)];if(d.has_temperature){parts.push('low='+encodeURIComponent(document.getElementById('low-threshold').value));parts.push('high='+encodeURIComponent(document.getElementById('high-threshold').value))}if(d.has_contact){parts.push('initial_minutes='+encodeURIComponent(document.getElementById('initial-minutes').value));parts.push('reminder_minutes='+encodeURIComponent(document.getElementById('reminder-minutes').value))}fetch('/api/devices/'+encodeURIComponent(d.ieee_address)+'/settings',{method:'POST',body:parts.join('&')}).then(function(r){return r.json()}).then(function(v){if(!v.ok)throw Error(v.error||'Request failed');closeSettings();return update()}).catch(function(x){document.getElementById('settings-error').textContent=x.message})};function update(){return fetch('/api/status').then(function(r){return r.json()}).then(function(v){currentDevices=v.devices;document.getElementById('state').textContent='Coordinator: '+(v.online?'online':'offline')+' | Network: '+(v.network_formed?'formed':v.network_forming?'forming':'not formed');document.getElementById('notifications').checked=v.notifications_enabled;document.getElementById('test-alerts').disabled=!v.notifications_enabled;var left=Math.max(0,v.joining_until-Math.floor(Date.now()/1000));document.getElementById('join-state').textContent=left?'Joining enabled: pair a sensor within '+Math.ceil(left/60)+' minute(s).':'Joining is closed.';document.getElementById('join').textContent=left?'Extend joining (5 min)':'Allow joining (5 min)';document.getElementById('devices').innerHTML=v.devices.map(function(d,i){var s=d.ieee_address+' · '+d.kind;if(d.has_contact)s+=' · '+(d.contact_open?'OPEN':'closed');if(d.has_temperature)s+=' · '+d.temperature_celsius+' °C';if(d.has_battery)s+=' · battery '+d.battery_percent+'%';return '<div class=device><b>'+esc(d.name)+'</b> <button onclick=\"settings('+i+')\">Settings</button><br>'+esc(s)+'</div>'}).join('')})}update();setInterval(update,2000)</script>";
-        std::string dashboard(page);
-        std::string settingsButton = "<button onclick=\"settings('+i+')\">Settings</button>";
-        std::string refreshButton = settingsButton + " <button onclick=\"refreshDevice('+i+')\">Refresh</button>";
-        std::string::size_type settingsButtonAt = dashboard.find(settingsButton);
-        if (settingsButtonAt != std::string::npos) dashboard.replace(settingsButtonAt, settingsButton.size(), refreshButton);
-        std::string refreshMarker = "function update(){";
-        std::string::size_type refreshMarkerAt = dashboard.find(refreshMarker);
-        if (refreshMarkerAt != std::string::npos) {
-            dashboard.insert(refreshMarkerAt,
-                             "function refreshDevice(i){var d=currentDevices[i];fetch('/api/devices/'+encodeURIComponent(d.ieee_address)+'/refresh',{method:'POST'}).then(function(r){return r.json()}).then(function(v){if(!v.ok)throw Error(v.error||'Refresh failed');alert(v.message||'Refresh request sent');return update()}).catch(function(e){alert(e.message)})}");
-        }
-        std::string createButton = "<button onclick=\"post('/api/network/create')\">Create fresh network</button>";
-        std::string confirmedCreateButton = "<button onclick=\"openNetworkConfirmation()\">Create fresh network</button>";
-        std::string networkDialog =
-            "<div id=network-modal class=modal hidden><form id=network-confirmation-form class=dialog>"
-            "<h2>Create a fresh Zigbee network</h2><p>This deletes the current Zigbee network. All paired devices "
-            "must be joined again.</p><p>Type <b>DELETE</b> to continue.</p><p id=network-confirmation-error class=error></p>"
-            "<label>Confirmation<input id=network-confirmation autocomplete=off oninput=\"updateNetworkConfirmation()\"></label>"
-            "<p><button type=button onclick=\"closeNetworkConfirmation()\">Cancel</button>"
-            "<button id=network-confirmation-submit type=submit disabled>Create fresh network</button></p></form></div>";
-        std::string networkScript =
-            "function openNetworkConfirmation(){document.getElementById('network-confirmation').value='';"
-            "document.getElementById('network-confirmation-error').textContent='';updateNetworkConfirmation();"
-            "document.getElementById('network-modal').hidden=false}function closeNetworkConfirmation(){"
-            "document.getElementById('network-modal').hidden=true}function updateNetworkConfirmation(){"
-            "document.getElementById('network-confirmation-submit').disabled=document.getElementById('network-confirmation').value!=='DELETE'}"
-            "document.getElementById('network-confirmation-form').onsubmit=function(e){e.preventDefault();"
-            "var c=document.getElementById('network-confirmation').value;if(c!=='DELETE')return;"
-            "fetch('/api/network/create',{method:'POST',body:'confirmation='+encodeURIComponent(c)}).then(function(r){return r.json()})"
-            ".then(function(v){if(!v.ok)throw Error(v.error||'Request failed');closeNetworkConfirmation();return update()})"
-            ".catch(function(x){document.getElementById('network-confirmation-error').textContent=x.message})};";
-        std::string::size_type confirmationAt = dashboard.find(createButton);
-        if (confirmationAt != std::string::npos)
-            dashboard.replace(confirmationAt, createButton.size(), confirmedCreateButton);
-        confirmationAt = dashboard.find("<div id=devices></div>");
-        if (confirmationAt != std::string::npos)
-            dashboard.insert(confirmationAt + 22, networkDialog);
-        confirmationAt = dashboard.find("<script>");
-        if (confirmationAt != std::string::npos)
-            dashboard.insert(confirmationAt + 8, networkScript);
-        std::string marker = "if(d.has_battery)";
-        std::string::size_type markerAt = dashboard.find(marker);
-        if (markerAt != std::string::npos) {
-            dashboard.insert(markerAt, "if(d.has_humidity)s+=' · '+d.humidity_percent+'% humidity';if(d.has_occupancy)s+=' · '+(d.occupied?'OCCUPIED':'clear');");
-        }
-        std::string oldJoinState = "var left=Math.max(0,v.joining_until-Math.floor(Date.now()/1000));document.getElementById('join-state').textContent=left?'Joining enabled: pair a sensor within '+Math.ceil(left/60)+' minute(s).':'Joining is closed.';document.getElementById('join').textContent=left?'Extend joining (5 min)':'Allow joining (5 min)';";
-        std::string newJoinState = "var left=Math.max(0,v.joining_until-Math.floor(Date.now()/1000)),preparing=v.joining_preparing;document.getElementById('join-state').textContent=left?'Joining enabled: pair a sensor within '+Math.ceil(left/60)+' minute(s).':preparing?'Preparing secure pairing…':'Joining is closed.';document.getElementById('join').textContent=left?'Extend joining (5 min)':preparing?'Preparing…':'Allow joining (5 min)';";
-        markerAt = dashboard.find(oldJoinState);
-        if (markerAt != std::string::npos) dashboard.replace(markerAt, oldJoinState.size(), newJoinState);
-        std::string restartScript = ";function restartService(){if(!confirm('Restart the Zigbee service? Joining will close briefly.'))return;fetch('/api/service/restart',{method:'POST'}).then(function(r){return r.json()}).then(function(v){if(!v.ok)throw Error(v.error||'Restart failed');document.getElementById('state').textContent='Restarting service…';setTimeout(update,3000)}).catch(function(e){alert(e.message)})}";
-        markerAt = dashboard.find("</script>");
-        if (markerAt != std::string::npos) dashboard.insert(markerAt, restartScript);
-        std::string oldCoordinatorState = "' | Network: '+(v.network_formed?'formed':v.network_forming?'forming':'not formed')";
-        std::string newCoordinatorState = "' | Network: '+(v.network_formed?'formed':v.network_forming?'forming':'not formed')+' | Serial RX: '+v.serial_rx_bytes+' bytes / '+v.ash_rx_frames+' frames'";
-        markerAt = dashboard.find(oldCoordinatorState);
-        if (markerAt != std::string::npos) {
-            dashboard.replace(markerAt, oldCoordinatorState.size(), newCoordinatorState);
-        }
-        markerAt = dashboard.find("<div id=devices></div>");
-        if (markerAt != std::string::npos) {
-            dashboard.replace(markerAt, strlen("<div id=devices></div>"),
-                              "<div id=devices></div><details open><summary>Live coordinator log</summary><pre id=logs style='max-height:16rem;overflow:auto;white-space:pre-wrap'></pre></details>");
-        }
-        markerAt = dashboard.find("</script>");
-        if (markerAt != std::string::npos) {
-            dashboard.insert(markerAt, ";function updateLogs(){fetch('/api/logs').then(function(r){return r.json()}).then(function(v){document.getElementById('logs').textContent=v.lines.join('\\n')})}updateLogs();setInterval(updateLogs,1000);");
-        }
-        writeResponse(clientFd, 200, "text/html; charset=utf-8", dashboard);
+        std::string dashboard;
+        if (readDashboard(dashboardPath_, &dashboard))
+            writeResponse(clientFd, 200, "text/html; charset=utf-8", dashboard);
+        else
+            writeResponse(clientFd, 500, "text/plain; charset=utf-8", "Dashboard is not installed.");
     } else {
         writeResponse(clientFd, 400, "application/json", "{\"error\":\"unknown endpoint\"}");
     }

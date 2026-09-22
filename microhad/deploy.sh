@@ -1,5 +1,5 @@
 #!/bin/sh
-# Upload a verified MIPS binary and a caller-supplied runtime config to a
+# Upload selected native gateway assets and an optional runtime config to a
 # Dropbear-only gateway gateway. The server has no SCP subsystem, so files are
 # transferred through SSH stdin and moved into place only after each transfer.
 
@@ -12,7 +12,8 @@ target=/tuya/native-test
 binary="$project_dir/build/mips/microhad-zigbee-native"
 password_file=""
 config=""
-binary_only=true
+deploy_binary=true
+deploy_webui=true
 activate=false
 restart=false
 certificate=""
@@ -20,15 +21,17 @@ private_key=""
 ca_bundle=""
 
 usage() {
-    echo "usage: $0 --password-file PATH [--config PATH | --binary-only] [--host HOST] [--user USER] [--target DIR] [--binary PATH] [--tls-certificate PATH --tls-private-key PATH] [--ca-bundle PATH] [--activate] [--restart]" >&2
+    echo "usage: $0 --password-file PATH [--binary-only | --webui-only | --both] [--config PATH] [--host HOST] [--user USER] [--target DIR] [--binary PATH] [--tls-certificate PATH --tls-private-key PATH] [--ca-bundle PATH] [--activate] [--restart]" >&2
     exit 2
 }
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
-        --config) config=${2-}; binary_only=false; shift 2 ;;
+        --config) config=${2-}; shift 2 ;;
         --password-file) password_file=${2-}; shift 2 ;;
-        --binary-only) binary_only=true; shift ;;
+        --binary-only) deploy_binary=true; deploy_webui=false; shift ;;
+        --webui-only) deploy_binary=false; deploy_webui=true; shift ;;
+        --both) deploy_binary=true; deploy_webui=true; shift ;;
         --host) host=${2-}; shift 2 ;;
         --user) user=${2-}; shift 2 ;;
         --target) target=${2-}; shift 2 ;;
@@ -42,10 +45,10 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 
-[ "$binary_only" = true ] || { [ -n "$config" ] && [ -f "$config" ]; } || usage
-[ "$binary_only" = false ] || [ -z "$config" ] || usage
 [ -n "$password_file" ] && [ -r "$password_file" ] || usage
-[ -x "$binary" ] || { echo "MIPS binary not found or not executable: $binary" >&2; exit 1; }
+[ "$deploy_binary" = false ] || [ -x "$binary" ] || { echo "MIPS binary not found or not executable: $binary" >&2; exit 1; }
+[ "$deploy_webui" = false ] || [ -f "$project_dir/webui/index.html" ] || { echo "Web UI not found: $project_dir/webui/index.html" >&2; exit 1; }
+[ -z "$config" ] || { [ "$deploy_binary" = true ] && [ -f "$config" ]; } || usage
 [ -z "$certificate" ] || [ -f "$certificate" ] || usage
 [ -z "$private_key" ] || [ -f "$private_key" ] || usage
 [ -z "$ca_bundle" ] || [ -f "$ca_bundle" ] || usage
@@ -58,6 +61,7 @@ case "$target" in /tuya/*) ;; *) echo "target must be below /tuya" >&2; exit 2 ;
 case "$target" in *[!A-Za-z0-9_./-]*) echo "target contains unsupported characters" >&2; exit 2 ;; esac
 [ "$activate" = false ] || [ "$target" = /tuya/native ] || { echo "--activate requires --target /tuya/native" >&2; exit 2; }
 [ "$restart" = false ] || [ "$target" = /tuya/native ] || { echo "--restart requires --target /tuya/native" >&2; exit 2; }
+[ "$deploy_binary" = true ] || { [ -z "$config" ] && [ "$activate" = false ] && [ "$restart" = false ]; } || { echo "--config, --activate, and --restart require binary deployment" >&2; exit 2; }
 
 ssh_command() {
     sshpass -f "$password_file" ssh -o ConnectTimeout=8 -o StrictHostKeyChecking=yes \
@@ -65,14 +69,22 @@ ssh_command() {
         -o PreferredAuthentications=password -o PubkeyAuthentication=no "$user@$host" "$1"
 }
 
-printf 'Uploading native binary to %s:%s\n' "$host" "$target"
-ssh_command "mkdir -p \"$target\"; rm -f \"$target/.microhad-zigbee-native.new\" \"$target/.config.json.new\""
-ssh_command "dd of=\"$target/.microhad-zigbee-native.new\"" < "$binary"
-if [ "$binary_only" = true ]; then
-    ssh_command "chmod 700 \"$target/.microhad-zigbee-native.new\"; mv \"$target/.microhad-zigbee-native.new\" \"$target/tuya-zigbee-native\"; ls -l \"$target/tuya-zigbee-native\""
-else
-    ssh_command "dd of=\"$target/.config.json.new\"" < "$config"
-    ssh_command "chmod 700 \"$target/.microhad-zigbee-native.new\"; chmod 600 \"$target/.config.json.new\"; mv \"$target/.microhad-zigbee-native.new\" \"$target/tuya-zigbee-native\"; mv \"$target/.config.json.new\" \"$target/config.json\"; ls -l \"$target/tuya-zigbee-native\" \"$target/config.json\""
+if [ "$deploy_binary" = true ]; then
+    printf 'Uploading native binary to %s:%s\n' "$host" "$target"
+    ssh_command "mkdir -p \"$target\"; rm -f \"$target/.microhad-zigbee-native.new\" \"$target/.config.json.new\""
+    ssh_command "dd of=\"$target/.microhad-zigbee-native.new\"" < "$binary"
+    if [ -z "$config" ]; then
+        ssh_command "chmod 700 \"$target/.microhad-zigbee-native.new\"; mv \"$target/.microhad-zigbee-native.new\" \"$target/tuya-zigbee-native\"; ls -l \"$target/tuya-zigbee-native\""
+    else
+        ssh_command "dd of=\"$target/.config.json.new\"" < "$config"
+        ssh_command "chmod 700 \"$target/.microhad-zigbee-native.new\"; chmod 600 \"$target/.config.json.new\"; mv \"$target/.microhad-zigbee-native.new\" \"$target/tuya-zigbee-native\"; mv \"$target/.config.json.new\" \"$target/config.json\"; ls -l \"$target/tuya-zigbee-native\" \"$target/config.json\""
+    fi
+fi
+if [ "$deploy_webui" = true ]; then
+    printf 'Uploading web UI to %s:%s/webui\n' "$host" "$target"
+    ssh_command "mkdir -p \"$target/webui\"; rm -f \"$target/webui/.index.html.new\""
+    ssh_command "dd of=\"$target/webui/.index.html.new\"" < "$project_dir/webui/index.html"
+    ssh_command "chmod 644 \"$target/webui/.index.html.new\"; mv \"$target/webui/.index.html.new\" \"$target/webui/index.html\"; ls -l \"$target/webui/index.html\""
 fi
 if [ -n "$certificate" ]; then
     ssh_command "mkdir -p \"$target/tls\"; dd of=\"$target/tls/.cert.pem.new\"" < "$certificate"
@@ -90,9 +102,9 @@ fi
 if [ "$restart" = true ]; then
     printf 'Restarting the supervised native daemon\n'
     ssh_command "killall -TERM microhad-zigbee-native >/dev/null 2>&1 || exit 1; sleep 3; retries=0; while [ \$retries -lt 10 ]; do if ps w | grep -q '[t]uya-zigbee-native'; then exit 0; fi; retries=\$((retries + 1)); sleep 1; done; exit 1"
-    echo "Uploaded and restarted."
+    echo "Selected assets uploaded and service restarted."
 elif [ "$activate" = true ]; then
-    echo "Uploaded and activated for the next boot. Existing processes were not restarted."
+    echo "Selected assets uploaded and activated for the next boot. Existing processes were not restarted."
 else
-    echo "Uploaded. Existing services were not changed."
+    echo "Selected assets uploaded. Existing services were not changed."
 fi

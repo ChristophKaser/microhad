@@ -35,14 +35,19 @@ outside this repository.
 ## Deployment
 
 Build the target first, then upload it with the Dropbear-compatible deployment
-script. By default this replaces only the target binary and retains its
-configuration and TLS files:
+script. By default this replaces the target binary and dashboard together, and
+retains its configuration and TLS files:
 
 ```sh
 make mips
 ./deploy.sh --host 192.168.178.62 --password-file ../ssh_password.txt \
   --target /tuya/native-test
 ```
+
+Use `--binary-only`, `--webui-only`, or `--both` to explicitly choose the
+assets to upload. Configuration, TLS installation, activation, and service
+restart require a binary deployment; a web-UI-only update takes effect without
+a daemon restart.
 
 Pass `--config` to atomically replace configuration as well:
 
@@ -105,6 +110,20 @@ The dashboard includes a live coordinator log, refreshed once per second from
 RAM-backed `/var` mount, not the `/tuya` flash volume. It keeps at most 128
 entries of up to 240 characters, so diagnostics do not create flash write
 cycles or consume unbounded memory.
+
+## Web UI development
+
+The dashboard source is `webui/index.html`; deployed gateways load it from
+`<runtime_dir>/webui/index.html`. To develop the UI locally while using the
+development gateway API, run:
+
+```sh
+python3 webui/dev_server.py --device http://192.168.178.62
+```
+
+Open `http://127.0.0.1:8000`. The local server proxies `/api/` requests to the
+gateway so no CORS support is required. Browser-push enrollment is deliberately
+disabled in this mode; test it from the deployed HTTPS dashboard instead.
 
 ## Current protocol boundary
 
