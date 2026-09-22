@@ -250,6 +250,7 @@ public:
         EndpointDescriptor endpoint;
         std::vector<unsigned char> move(1, 80);
         endpoint.endpoint = 1;
+        endpoint.outputClusters.push_back(0x0005);
         endpoint.outputClusters.push_back(0x0006);
         endpoint.outputClusters.push_back(0x0008);
         gateway.nodeAddresses_[node] = ieee;
@@ -257,11 +258,42 @@ public:
         gateway.devices_[ieee].endpoints.push_back(endpoint);
         gateway.classifyDevice(&gateway.devices_[ieee]);
         gateway.logs_.clear();
-        gateway.logRemoteKeyEvent(node, 0x0006, 1, 0x01, std::vector<unsigned char>());
-        gateway.logRemoteKeyEvent(node, 0x0008, 1, 0x05, move);
+        gateway.logRemoteKeyEvent(node, 0x0006, 1, 0, 0x01, std::vector<unsigned char>());
+        gateway.logRemoteKeyEvent(node, 0x0008, 1, 0, 0x05, move);
         return gateway.logsJson().find("Remote key event") != std::string::npos &&
                gateway.logsJson().find("action=on") != std::string::npos &&
                gateway.logsJson().find("action=move") != std::string::npos;
+    }
+    static bool styrbarArrowEventsAreLogged() {
+        const unsigned short node = 0x4321;
+        const std::string ieee = "0x00124b0000000022";
+        Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+        EndpointDescriptor endpoint;
+        std::vector<unsigned char> incoming(18, 0);
+        endpoint.endpoint = 1;
+        endpoint.outputClusters.push_back(0x0005);
+        endpoint.outputClusters.push_back(0x0006);
+        gateway.nodeAddresses_[node] = ieee;
+        gateway.devices_[ieee].ieeeAddress = ieee;
+        gateway.devices_[ieee].name = "Styrbar";
+        gateway.devices_[ieee].endpoints.push_back(endpoint);
+        gateway.classifyDevice(&gateway.devices_[ieee]);
+        incoming[1] = 0x04; incoming[2] = 0x01; /* Home Automation */
+        incoming[3] = 0x05; incoming[4] = 0x00; /* Scenes */
+        incoming[5] = 1; incoming[6] = 1;
+        incoming[14] = static_cast<unsigned char>(node); incoming[15] = static_cast<unsigned char>(node >> 8);
+        incoming.push_back(9);
+        incoming.push_back(0x05); incoming.push_back(0x7c); incoming.push_back(0x11);
+        incoming.push_back(42); incoming.push_back(0x07);
+        incoming.push_back(0x01); incoming.push_back(0x01); incoming.push_back(13); incoming.push_back(0);
+        gateway.handleIncomingMessage(incoming);
+        incoming[22] = 43; /* transaction sequence */
+        incoming[24] = 0x00; /* group 0x0100, right */
+        gateway.handleIncomingMessage(incoming);
+        return gateway.logsJson().find("action=arrow_left_click") != std::string::npos &&
+               gateway.logsJson().find("action=arrow_right_click") != std::string::npos &&
+               gateway.logsJson().find("payload=182a0b0700") != std::string::npos &&
+               gateway.logsJson().find("Configure reporting response from 0x00124b0000000022: cluster 0x5") == std::string::npos;
     }
 };
 
@@ -548,6 +580,12 @@ static void testRemoteKeyEvents() {
     unlink("/tmp/microhad-zigbee-native.log");
 }
 
+static void testStyrbarArrowEvents() {
+    unlink("/tmp/microhad-zigbee-native.log");
+    assert(GatewayTestPeer::styrbarArrowEventsAreLogged());
+    unlink("/tmp/microhad-zigbee-native.log");
+}
+
 static void testContactNotificationIsDeferred() {
     std::ostringstream path;
     std::string error;
@@ -620,6 +658,7 @@ int main() {
     testRamLog();
     testFrameLogs();
     testRemoteKeyEvents();
+    testStyrbarArrowEvents();
     testContactNotificationIsDeferred();
     testNotificationTogglePersistence();
     testFcmMessageConstruction();

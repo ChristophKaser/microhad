@@ -232,12 +232,14 @@ private:
                                    unsigned short attribute, unsigned char dataType, unsigned short minimumInterval,
                                    unsigned short maximumInterval, unsigned short reportableChange,
                                    unsigned char transactionSequence, unsigned char messageTag);
+    void sendZclDefaultResponse(unsigned short destination, unsigned char sourceEndpoint, unsigned char destinationEndpoint,
+                                unsigned short cluster, unsigned char transactionSequence, unsigned char command);
     void classifyDevice(Device* device) const;
     bool endpointForCluster(const Device& device, unsigned short cluster, unsigned char* endpoint) const;
     void sendZclLightCommand(unsigned short destination, unsigned char endpoint, unsigned short cluster,
                              unsigned char command, const std::vector<unsigned char>& arguments);
-    void logRemoteKeyEvent(unsigned short sender, unsigned short cluster, unsigned char endpoint,
-                           unsigned char command, const std::vector<unsigned char>& arguments);
+    bool logRemoteKeyEvent(unsigned short sender, unsigned short cluster, unsigned char endpoint,
+                           unsigned short manufacturer, unsigned char command, const std::vector<unsigned char>& arguments);
     void handleIncomingMessage(const std::vector<unsigned char>& payload);
     bool generateNetworkMaterial(std::string* error);
     void continueNetworkFormation(unsigned short completedCommand);

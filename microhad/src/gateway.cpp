@@ -604,12 +604,12 @@ void Gateway::classifyDevice(Device* device) const {
     else if (device->hasRemote) device->kind = "remote control";
 }
 
-void Gateway::logRemoteKeyEvent(unsigned short sender, unsigned short cluster, unsigned char endpoint,
-                                unsigned char command, const std::vector<unsigned char>& arguments) {
+bool Gateway::logRemoteKeyEvent(unsigned short sender, unsigned short cluster, unsigned char endpoint,
+                                unsigned short manufacturer, unsigned char command, const std::vector<unsigned char>& arguments) {
     std::map<unsigned short, std::string>::const_iterator address = nodeAddresses_.find(sender);
-    if (address == nodeAddresses_.end()) return;
+    if (address == nodeAddresses_.end()) return false;
     std::map<std::string, Device>::const_iterator device = devices_.find(address->second);
-    if (device == devices_.end() || !device->second.hasRemote) return;
+    if (device == devices_.end() || !device->second.hasRemote) return false;
     bool advertisesCluster = false;
     for (unsigned long i = 0; i < device->second.endpoints.size(); ++i) {
         const EndpointDescriptor& descriptor = device->second.endpoints[i];
@@ -618,8 +618,10 @@ void Gateway::logRemoteKeyEvent(unsigned short sender, unsigned short cluster, u
             advertisesCluster = true; break;
         }
     }
-    if (!advertisesCluster) return;
+    if (!advertisesCluster) return false;
     const char* action = 0;
+    unsigned short sceneGroup = 0;
+    unsigned char sceneId = 0;
     if (cluster == 0x0006) {
         if (command == 0x00) action = "off";
         else if (command == 0x01) action = "on";
@@ -629,14 +631,21 @@ void Gateway::logRemoteKeyEvent(unsigned short sender, unsigned short cluster, u
         else if (command == 0x01 || command == 0x05) action = "move";
         else if (command == 0x02 || command == 0x06) action = "step";
         else if (command == 0x03 || command == 0x07) action = "stop";
+    } else if (cluster == 0x0005 && manufacturer == 0x117c && command == 0x07 && arguments.size() >= 4) {
+        sceneGroup = static_cast<unsigned short>(arguments[0]) | (static_cast<unsigned short>(arguments[1]) << 8);
+        sceneId = arguments[2];
+        if (sceneGroup == 0x0101 && sceneId == 13) action = "arrow_left_click";
+        else if (sceneGroup == 0x0100 && sceneId == 13) action = "arrow_right_click";
     }
-    if (action == 0) return;
+    if (action == 0) return false;
     std::ostringstream event;
     event << "Remote key event: " << deviceLogLabel(sender) << " endpoint=" << static_cast<unsigned int>(endpoint)
           << " action=" << action << " cluster=0x" << std::hex << cluster << " command=0x"
           << static_cast<unsigned int>(command);
     if (!arguments.empty()) event << " value=" << std::dec << static_cast<unsigned int>(arguments[0]);
+    if (cluster == 0x0005) event << " group=0x" << std::hex << sceneGroup << " scene=" << std::dec << static_cast<unsigned int>(sceneId);
     addLog(event.str());
+    return true;
 }
 
 bool Gateway::applyAttributeReport(const std::string& ieeeAddress, unsigned short cluster, unsigned short attribute,
@@ -2025,6 +2034,17 @@ void Gateway::sendZclConfigureReporting(unsigned short destination, unsigned cha
     sendApsUnicast(destination, 0x0104, cluster, 1, endpoint, request, messageTag);
 }
 
+void Gateway::sendZclDefaultResponse(unsigned short destination, unsigned char sourceEndpoint, unsigned char destinationEndpoint,
+                                     unsigned short cluster, unsigned char transactionSequence, unsigned char command) {
+    std::vector<unsigned char> response;
+    response.push_back(0x18); /* global, server-to-client, disable response to this response */
+    response.push_back(transactionSequence);
+    response.push_back(0x0b); /* Default Response */
+    response.push_back(command);
+    response.push_back(0x00); /* success */
+    sendApsUnicast(destination, 0x0104, cluster, sourceEndpoint, destinationEndpoint, response);
+}
+
 void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
     unsigned short cluster;
     unsigned short sender;
@@ -2131,10 +2151,13 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
     if (address == nodeAddresses_.end()) return;
     unsigned char frameControl = message[0];
     unsigned long zclOffset = 3;
+    unsigned short manufacturer = 0;
     if ((frameControl & 0x04) != 0) zclOffset += 2;
     if (zclOffset > message.size()) return;
     unsigned char command = message[zclOffset - 1];
     unsigned char transactionSequence = message[zclOffset - 2];
+    if ((frameControl & 0x04) != 0)
+        manufacturer = static_cast<unsigned short>(message[1]) | (static_cast<unsigned short>(message[2]) << 8);
     {
         std::map<unsigned short, std::string>::iterator known = nodeAddresses_.find(sender);
         if (known != nodeAddresses_.end()) {
@@ -2145,7 +2168,8 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
     }
     if ((frameControl & 0x03) == 0x01) {
         std::vector<unsigned char> arguments(message.begin() + zclOffset, message.end());
-        logRemoteKeyEvent(sender, cluster, payload[5], command, arguments);
+        if (logRemoteKeyEvent(sender, cluster, payload[5], manufacturer, command, arguments) && (frameControl & 0x10) == 0)
+            sendZclDefaultResponse(sender, payload[6], payload[5], cluster, transactionSequence, command);
     }
     if (cluster == 0x0500 && command == 0x01 && message.size() >= zclOffset + 4) {
         int zoneId = allocateIasZoneId(address->second);
@@ -2156,7 +2180,7 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
     } else if (cluster == 0x0500 && command == 0x00 && message.size() >= zclOffset + 2) {
         std::vector<unsigned char> zone(message.begin() + zclOffset, message.end());
         applyIasZoneStatus(address->second, zone);
-    } else if (command == 0x01) {
+    } else if ((frameControl & 0x03) == 0 && command == 0x01) {
         std::vector<unsigned char> records(message.begin() + zclOffset, message.end());
         bool wasOpen = devices_[address->second].contactOpen;
         std::map<unsigned short, InterviewState>::iterator interview = interviews_.find(sender);
@@ -2176,7 +2200,7 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
             saveState();
         }
         if (matched) completeInterviewOperation(sender);
-    } else if (command == 0x0a) {
+    } else if ((frameControl & 0x03) == 0 && command == 0x0a) {
         unsigned long attributeOffset = zclOffset;
         while (attributeOffset + 3 <= message.size()) {
             unsigned short attribute = static_cast<unsigned short>(message[attributeOffset]) |
@@ -2189,7 +2213,7 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
             applyAttributeReport(address->second, cluster, attribute, value);
             attributeOffset = valueOffset + valueLength;
         }
-    } else if (command == 0x07) {
+    } else if ((frameControl & 0x03) == 0 && command == 0x07) {
         unsigned long responseOffset = zclOffset;
         while (responseOffset < message.size()) {
             unsigned char status = message[responseOffset];
