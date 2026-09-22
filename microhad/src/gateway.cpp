@@ -643,7 +643,27 @@ std::string Gateway::statusJson() const {
              << ",\"contact_initial_alert_minutes\":" << device.contactInitialAlertMinutes
              << ",\"contact_reminder_alert_minutes\":" << device.contactReminderAlertMinutes
              << ",\"sensor_refresh_interval_minutes\":" << device.sensorRefreshIntervalMinutes
-             << ",\"last_seen\":" << device.lastSeen << "}";
+             << ",\"last_seen\":" << device.lastSeen << ",\"endpoint_descriptors\":[";
+        for (unsigned long endpointIndex = 0; endpointIndex < device.endpoints.size(); ++endpointIndex) {
+            const EndpointDescriptor& endpoint = device.endpoints[endpointIndex];
+            if (endpointIndex != 0) json << ',';
+            json << "{\"endpoint\":" << static_cast<unsigned int>(endpoint.endpoint)
+                 << ",\"profile_id\":" << endpoint.profileId
+                 << ",\"device_id\":" << endpoint.deviceId
+                 << ",\"device_version\":" << static_cast<unsigned int>(endpoint.deviceVersion)
+                 << ",\"input_clusters\":[";
+            for (unsigned long clusterIndex = 0; clusterIndex < endpoint.inputClusters.size(); ++clusterIndex) {
+                if (clusterIndex != 0) json << ',';
+                json << endpoint.inputClusters[clusterIndex];
+            }
+            json << "],\"output_clusters\":[";
+            for (unsigned long clusterIndex = 0; clusterIndex < endpoint.outputClusters.size(); ++clusterIndex) {
+                if (clusterIndex != 0) json << ',';
+                json << endpoint.outputClusters[clusterIndex];
+            }
+            json << "]}";
+        }
+        json << "]}";
     }
     json << "]}";
     return json.str();

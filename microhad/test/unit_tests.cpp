@@ -464,6 +464,7 @@ static void testInterviewDescriptorAndPlanning() {
     assert(descriptor.endpoint == 1 && descriptor.profileId == 0x0104 && descriptor.deviceId == 0x0302);
     assert(descriptor.inputClusters.size() == 4 && descriptor.inputClusters[2] == 0x0402);
     GatewayTestPeer::buildConfiguration(&gateway, 0x1234, "0x00124b0000000010", descriptor);
+    assert(gateway.statusJson().find("\"endpoint_descriptors\":[{\"endpoint\":1,\"profile_id\":260,\"device_id\":770,\"device_version\":1,\"input_clusters\":[0,1,1026,1029],\"output_clusters\":[3]}") != std::string::npos);
     assert(GatewayTestPeer::operationCount(gateway, 0x1234) == 10);
     assert(GatewayTestPeer::operationType(gateway, 0x1234, 0) == 4); /* InterviewBind */
     assert(GatewayTestPeer::operationCluster(gateway, 0x1234, 0) == 0x0402);
