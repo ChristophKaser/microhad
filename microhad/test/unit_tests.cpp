@@ -378,7 +378,7 @@ static void testDevicePersistence() {
     assert(ensureDirectory(directory, &error));
     input.ieeeAddress = "0x00124b0000000001";
     input.networkAddress = 0x1234;
-    input.name = "Kitchen window";
+    input.name = "Kitchen \"window\"\\\n";
     input.kind = "contact";
     input.hasContact = true;
     input.contactOpen = true;
@@ -708,9 +708,13 @@ static void testSharedJsonUtilities() {
     std::string value;
     long number = 0;
     assert(jsonStringField("{ \"value\" : \"quoted \\u005c\\\" value\\n\" }", "value", &value));
-    assert(value == "quoted u005c\" value\n");
+    assert(value == "quoted \\\" value\n");
+    assert(jsonStringField("{\"value\":\"\\u20ac \\ud83d\\ude03\"}", "value", &value));
+    assert(value == "\342\202\254 \360\237\230\203");
+    assert(!jsonStringField("{\"value\":\"\\ud800\"}", "value", &value));
     assert(jsonLongField("{\"number\": 42}", "number", &number) && number == 42);
-    assert(jsonEscape("a\\b\"c") == "a\\\\b\\\"c");
+    assert(!jsonLongField("{\"number\": 42oops}", "number", &number));
+    assert(jsonEscape("a\\b\"c\n\001") == "a\\\\b\\\"c\\n\\u0001");
 }
 
 int main() {

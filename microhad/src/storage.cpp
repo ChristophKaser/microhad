@@ -163,17 +163,10 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
     /* The state writer emits one device per line. Unknown fields are ignored so
        newer state files remain readable by an older daemon. */
     while (std::getline(input, line)) {
-        std::string marker = "\"ieee_address\":\"";
-        std::string::size_type start = line.find(marker);
-        if (start != std::string::npos) {
+        std::string ieeeAddress;
+        if (jsonStringField(line, "ieee_address", &ieeeAddress)) {
             Device device;
-            start += marker.size();
-            std::string::size_type end = line.find('"', start);
-            if (end == std::string::npos) {
-                *error = "invalid device state";
-                return false;
-            }
-            device.ieeeAddress = line.substr(start, end - start);
+            device.ieeeAddress = ieeeAddress;
             std::string::size_type networkAddress = line.find("\"network_address\":");
             if (networkAddress != std::string::npos) {
                 long parsed = strtol(line.c_str() + networkAddress + 18, 0, 10);
@@ -183,13 +176,7 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
             std::string* destinations[] = {&device.name, &device.kind, &device.manufacturerName, &device.modelId};
             int index;
             for (index = 0; index < 4; ++index) {
-                std::string field = std::string("\"") + fields[index] + "\":\"";
-                std::string::size_type fieldStart = line.find(field);
-                if (fieldStart != std::string::npos) {
-                    fieldStart += field.size();
-                    std::string::size_type fieldEnd = line.find('"', fieldStart);
-                    if (fieldEnd != std::string::npos) *destinations[index] = line.substr(fieldStart, fieldEnd - fieldStart);
-                }
+                jsonStringField(line, fields[index], destinations[index]);
             }
             device.contactOpen = line.find("\"contact_open\":true") != std::string::npos;
             device.hasContact = line.find("\"has_contact\":true") != std::string::npos;
@@ -329,7 +316,7 @@ bool saveNetworkState(const std::string& filename, const NetworkState& network, 
         network.preconfiguredKey.size() != 16) { *error = "invalid network state"; return false; }
     if (!output) { *error = "cannot open network state for writing"; return false; }
     output << "{\"version\":1,\"formed\":true,\"pan_id\":" << network.panId << ",\"channel\":"
-           << static_cast<unsigned int>(network.channel) << "\",\"extended_pan\":\""
+           << static_cast<unsigned int>(network.channel) << ",\"extended_pan\":\""
            << hexEncode(network.extendedPan) << "\",\"network_key\":\"" << hexEncode(network.networkKey)
            << "\",\"preconfigured_key\":\"" << hexEncode(network.preconfiguredKey) << "\"}\n";
     output.close();
