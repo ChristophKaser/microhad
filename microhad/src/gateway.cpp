@@ -618,7 +618,10 @@ bool Gateway::logRemoteKeyEvent(unsigned short sender, unsigned short cluster, u
             advertisesCluster = true; break;
         }
     }
-    if (!advertisesCluster) return false;
+    /* STYRBAR uses an IKEA manufacturer-specific Scenes command even though
+       its descriptor does not list the Scenes cluster as an output cluster. */
+    bool styrbarSceneCommand = cluster == 0x0005 && manufacturer == 0x117c && command == 0x07 && arguments.size() >= 4;
+    if (!advertisesCluster && !styrbarSceneCommand) return false;
     const char* action = 0;
     unsigned short sceneGroup = 0;
     unsigned char sceneId = 0;
@@ -631,7 +634,7 @@ bool Gateway::logRemoteKeyEvent(unsigned short sender, unsigned short cluster, u
         else if (command == 0x01 || command == 0x05) action = "move";
         else if (command == 0x02 || command == 0x06) action = "step";
         else if (command == 0x03 || command == 0x07) action = "stop";
-    } else if (cluster == 0x0005 && manufacturer == 0x117c && command == 0x07 && arguments.size() >= 4) {
+    } else if (styrbarSceneCommand) {
         sceneGroup = static_cast<unsigned short>(arguments[0]) | (static_cast<unsigned short>(arguments[1]) << 8);
         sceneId = arguments[2];
         if (sceneGroup == 0x0101 && sceneId == 13) action = "arrow_left_click";

@@ -250,7 +250,6 @@ public:
         EndpointDescriptor endpoint;
         std::vector<unsigned char> move(1, 80);
         endpoint.endpoint = 1;
-        endpoint.outputClusters.push_back(0x0005);
         endpoint.outputClusters.push_back(0x0006);
         endpoint.outputClusters.push_back(0x0008);
         gateway.nodeAddresses_[node] = ieee;
@@ -271,8 +270,11 @@ public:
         EndpointDescriptor endpoint;
         std::vector<unsigned char> incoming(18, 0);
         endpoint.endpoint = 1;
-        endpoint.outputClusters.push_back(0x0005);
+        endpoint.outputClusters.push_back(0x0003);
         endpoint.outputClusters.push_back(0x0006);
+        endpoint.outputClusters.push_back(0x0008);
+        endpoint.outputClusters.push_back(0x0019);
+        endpoint.outputClusters.push_back(0x1000);
         gateway.nodeAddresses_[node] = ieee;
         gateway.devices_[ieee].ieeeAddress = ieee;
         gateway.devices_[ieee].name = "Styrbar";
