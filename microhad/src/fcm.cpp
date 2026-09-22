@@ -1,5 +1,5 @@
 #include "fcm.h"
-#include "storage.h"
+#include "json_util.h"
 #include "https_client.h"
 
 #include <cstdio>
@@ -17,41 +17,13 @@ std::string cachedToken;
 std::string cachedTokenSource;
 long cachedTokenExpiresAt = 0;
 
-std::string jsonValue(const std::string& json, const char* name) {
-    std::string marker = std::string("\"") + name + "\"";
-    std::string::size_type nameAt = json.find(marker);
-    std::string::size_type start;
-    std::string::size_type end;
-    std::string result;
-    bool escaped = false;
-    if (nameAt == std::string::npos) return result;
-    start = json.find('"', json.find(':', nameAt + marker.size()) + 1);
-    if (start == std::string::npos) return result;
-    ++start;
-    for (end = start; end < json.size(); ++end) {
-        if (escaped) {
-            if (json[end] == 'n') result += '\n'; else result += json[end];
-            escaped = false;
-        } else if (json[end] == '\\') escaped = true;
-        else if (json[end] == '"') return result;
-        else result += json[end];
-    }
-    return std::string();
-}
-
-long jsonNumber(const std::string& json, const char* name) {
-    std::string marker = std::string("\"") + name + "\":";
-    std::string::size_type at = json.find(marker);
-    if (at == std::string::npos) return 0;
-    return strtol(json.c_str() + at + marker.size(), 0, 10);
-}
 }
 
 bool parseFirebaseServiceAccount(const std::string& json, FirebaseServiceAccount* account, std::string* error) {
-    account->projectId = jsonValue(json, "project_id");
-    account->clientEmail = jsonValue(json, "client_email");
-    account->privateKeyPem = jsonValue(json, "private_key");
-    if (account->projectId.empty() || account->clientEmail.empty() || account->privateKeyPem.empty()) {
+    if (!jsonStringField(json, "project_id", &account->projectId) ||
+        !jsonStringField(json, "client_email", &account->clientEmail) ||
+        !jsonStringField(json, "private_key", &account->privateKeyPem) ||
+        account->projectId.empty() || account->clientEmail.empty() || account->privateKeyPem.empty()) {
         *error = "Firebase service account is missing project_id, client_email, or private_key";
         return false;
     }
@@ -157,7 +129,8 @@ bool sendFcmNotification(const std::string& serviceAccountPath, const std::strin
         std::string::size_type tokenEnd = tokenResponse.find('"', tokenAt);
         if (tokenEnd == std::string::npos) { *error = "OAuth response has invalid access token"; return false; }
         token = tokenResponse.substr(tokenAt, tokenEnd - tokenAt);
-        long expiresIn = jsonNumber(tokenResponse, "expires_in");
+        long expiresIn = 0;
+        jsonLongField(tokenResponse, "expires_in", &expiresIn);
         if (expiresIn <= 60) { *error = "OAuth response has invalid token expiry"; return false; }
         cachedToken = token;
         cachedTokenSource = serviceAccountPath + "\n" + caBundle;

@@ -2,6 +2,7 @@
 #include "gateway_runner.h"
 #include "notification_worker.h"
 #include "http_server.h"
+#include "json_util.h"
 
 #include <cerrno>
 #include <csignal>
@@ -19,36 +20,6 @@ void stopHandler(int) {
     running = false;
 }
 
-std::string jsonString(const std::string& content, const char* key, const std::string& fallback) {
-    std::string marker = std::string("\"") + key + "\"";
-    std::string::size_type keyAt = content.find(marker);
-    std::string::size_type colon;
-    std::string::size_type start;
-    std::string::size_type end;
-    if (keyAt == std::string::npos) return fallback;
-    colon = content.find(':', keyAt + marker.size());
-    if (colon == std::string::npos) return fallback;
-    start = content.find('"', colon + 1);
-    if (start == std::string::npos) return fallback;
-    end = content.find('"', start + 1);
-    return end == std::string::npos ? fallback : content.substr(start + 1, end - start - 1);
-}
-
-int jsonInt(const std::string& content, const char* key, int fallback) {
-    std::string marker = std::string("\"") + key + "\"";
-    std::string::size_type keyAt = content.find(marker);
-    std::string::size_type colon;
-    if (keyAt == std::string::npos) return fallback;
-    colon = content.find(':', keyAt + marker.size());
-    return colon == std::string::npos ? fallback : atoi(content.c_str() + colon + 1);
-}
-
-bool readFile(const char* filename, std::string* content) {
-    std::ifstream input(filename);
-    if (!input) return false;
-    content->assign((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
-    return true;
-}
 }
 
 int main(int argc, char** argv) {
@@ -70,18 +41,19 @@ int main(int argc, char** argv) {
         fprintf(stderr, "usage: %s [--config /protected/path/config.json]\n", argv[0]);
         return 2;
     }
-    if (!readFile(configPath, &config)) {
+    if (!readTextFile(configPath, &config)) {
         fprintf(stderr, "cannot read configuration %s: %s\n", configPath, strerror(errno));
         return 2;
     }
-    serialDevice = jsonString(config, "serial_device", "/dev/ttyS1");
-    serialBaud = jsonInt(config, "serial_baud", 115200);
-    runtimeDirectory = jsonString(config, "runtime_dir", "/tuya/native");
-    httpPort = jsonInt(config, "http_port", 80);
-    httpsPort = jsonInt(config, "https_port", 443);
-    std::string firebaseServiceAccount = jsonString(config, "firebase_service_account", "");
-    std::string firebaseTopic = jsonString(config, "firebase_topic", "zigbee_alerts");
-    std::string caBundle = jsonString(config, "ca_bundle", "");
+    long setting;
+    serialDevice = "/dev/ttyS1"; jsonStringField(config, "serial_device", &serialDevice);
+    serialBaud = jsonLongField(config, "serial_baud", &setting) ? static_cast<int>(setting) : 115200;
+    runtimeDirectory = "/tuya/native"; jsonStringField(config, "runtime_dir", &runtimeDirectory);
+    httpPort = jsonLongField(config, "http_port", &setting) ? static_cast<int>(setting) : 80;
+    httpsPort = jsonLongField(config, "https_port", &setting) ? static_cast<int>(setting) : 443;
+    std::string firebaseServiceAccount; jsonStringField(config, "firebase_service_account", &firebaseServiceAccount);
+    std::string firebaseTopic = "zigbee_alerts"; jsonStringField(config, "firebase_topic", &firebaseTopic);
+    std::string caBundle; jsonStringField(config, "ca_bundle", &caBundle);
     notificationWorker = new NotificationWorker(runtimeDirectory, firebaseServiceAccount, firebaseTopic, caBundle);
     if (!notificationWorker->start(&error)) {
         fprintf(stderr, "notification worker startup failed: %s\n", error.c_str());
@@ -106,8 +78,8 @@ int main(int argc, char** argv) {
         return 1;
     }
     HttpServer* httpsServer = 0;
-    std::string certificatePath = jsonString(config, "tls_certificate", "");
-    std::string privateKeyPath = jsonString(config, "tls_private_key", "");
+    std::string certificatePath; jsonStringField(config, "tls_certificate", &certificatePath);
+    std::string privateKeyPath; jsonStringField(config, "tls_private_key", &privateKeyPath);
     if (!certificatePath.empty() || !privateKeyPath.empty()) {
         if (certificatePath.empty() || privateKeyPath.empty()) {
             fprintf(stderr, "both tls_certificate and tls_private_key are required for HTTPS\n");

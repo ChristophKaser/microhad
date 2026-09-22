@@ -1,6 +1,7 @@
 #include "http_server.h"
 #include "gateway_runner.h"
 #include "storage.h"
+#include "json_util.h"
 #include "web_push.h"
 
 #include <cerrno>
@@ -110,12 +111,6 @@ bool parseMinutes(const std::string& value, unsigned long* result) {
     return errno == 0 && end != value.c_str() && *end == 0;
 }
 
-bool readDashboard(const std::string& path, std::string* content) {
-    std::ifstream input(path.c_str(), std::ios::in | std::ios::binary);
-    if (!input) return false;
-    content->assign((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
-    return !content->empty();
-}
 }
 
 HttpServer::HttpServer(int port, GatewayRunner* gateway, const std::string& dashboardPath,
@@ -390,7 +385,7 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
         }
     } else if (request.find("GET / ") == 0) {
         std::string dashboard;
-        if (readDashboard(dashboardPath_, &dashboard))
+        if (readTextFile(dashboardPath_, &dashboard) && !dashboard.empty())
             writeResponse(clientFd, 200, "text/html; charset=utf-8", dashboard);
         else
             writeResponse(clientFd, 500, "text/plain; charset=utf-8", "Dashboard is not installed.");

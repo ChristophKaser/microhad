@@ -1,5 +1,6 @@
 #include "storage.h"
 #include "gateway.h"
+#include "json_util.h"
 
 #include <cerrno>
 #include <cstdio>
@@ -95,29 +96,6 @@ bool decodeEndpointDescriptors(const std::string& encoded, std::vector<EndpointD
     return offset == bytes.size();
 }
 
-bool stringField(const std::string& input, const char* name, std::string* value) {
-    std::string marker = std::string("\"") + name + "\":\"";
-    std::string::size_type start = input.find(marker);
-    std::string::size_type end;
-    if (start == std::string::npos) return false;
-    start += marker.size();
-    end = input.find('"', start);
-    if (end == std::string::npos) return false;
-    *value = input.substr(start, end - start);
-    return true;
-}
-}
-
-std::string jsonEscape(const std::string& value) {
-    std::string result;
-    std::string::const_iterator it;
-    for (it = value.begin(); it != value.end(); ++it) {
-        if (*it == '\\' || *it == '"') {
-            result += '\\';
-        }
-        result += *it;
-    }
-    return result;
 }
 
 bool ensureDirectory(const std::string& directory, std::string* error) {
@@ -256,7 +234,7 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
             if (valueStart != std::string::npos) device.sensorRefreshIntervalMinutes = strtoul(line.c_str() + valueStart + 34, 0, 10);
             {
                 std::string encodedDescriptors;
-                if (stringField(line, "endpoint_descriptors", &encodedDescriptors) && !encodedDescriptors.empty() &&
+                if (jsonStringField(line, "endpoint_descriptors", &encodedDescriptors) && !encodedDescriptors.empty() &&
                     !decodeEndpointDescriptors(encodedDescriptors, &device.endpoints)) {
                     *error = "invalid endpoint descriptor state";
                     return false;
@@ -368,8 +346,8 @@ bool loadNetworkState(const std::string& filename, NetworkState* network, std::s
     std::string::size_type panAt, channelAt;
     if (!input) return true;
     content.assign((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
-    if (content.find("\"formed\":true") == std::string::npos || !stringField(content, "extended_pan", &extendedPan) ||
-        !stringField(content, "network_key", &networkKey) || !stringField(content, "preconfigured_key", &preconfiguredKey) ||
+    if (content.find("\"formed\":true") == std::string::npos || !jsonStringField(content, "extended_pan", &extendedPan) ||
+        !jsonStringField(content, "network_key", &networkKey) || !jsonStringField(content, "preconfigured_key", &preconfiguredKey) ||
         !hexDecode(extendedPan, &network->extendedPan) || !hexDecode(networkKey, &network->networkKey) ||
         !hexDecode(preconfiguredKey, &network->preconfiguredKey) || network->extendedPan.size() != 8 ||
         network->networkKey.size() != 16 || network->preconfiguredKey.size() != 16) {

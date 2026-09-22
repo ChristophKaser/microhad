@@ -1,6 +1,7 @@
 #include "web_push.h"
 #include "fcm.h"
 #include "https_client.h"
+#include "json_util.h"
 
 #include <fstream>
 #include <sstream>
@@ -18,22 +19,6 @@ extern "C" int microhad_vapid_sign(const unsigned char* privateKey, const unsign
 
 #ifdef MICROHAD_MIPS_TARGET
 namespace {
-bool jsonValue(const std::string& value, const std::string& name, std::string* result) {
-    const std::string marker = "\"" + name + "\"";
-    std::string::size_type start = value.find(marker);
-    std::string::size_type quote;
-    if (start == std::string::npos) return false;
-    start = value.find(':', start + marker.size());
-    if (start == std::string::npos) return false;
-    quote = value.find('"', start + 1);
-    if (quote == std::string::npos) return false;
-    start = quote + 1;
-    quote = value.find('"', start);
-    if (quote == std::string::npos) return false;
-    *result = value.substr(start, quote - start);
-    return true;
-}
-
 std::string urlOrigin(const std::string& endpoint) {
     std::string::size_type scheme = endpoint.find("://");
     std::string::size_type path;
@@ -42,15 +27,6 @@ std::string urlOrigin(const std::string& endpoint) {
     return path == std::string::npos ? endpoint : endpoint.substr(0, path);
 }
 
-std::string jsonEscapePush(const std::string& value) {
-    std::string output;
-    std::string::size_type i;
-    for (i = 0; i < value.size(); ++i) {
-        if (value[i] == '"' || value[i] == '\\') output += '\\';
-        output += value[i];
-    }
-    return output;
-}
 }
 #endif
 
@@ -123,10 +99,10 @@ bool WebPushStore::send(const std::string& caBundle, const std::string& title, c
         std::string endpoint, publicText, authText, clientPublic, auth, encrypted(8192, '\0');
         std::string audience, header, jwtHeader, jwtPayload, jwtInput, signature(64, '\0'), token;
         unsigned long encryptedLength = 0;
-        if (!jsonValue(subscription, "endpoint", &endpoint) || !jsonValue(subscription, "p256dh", &publicText) ||
-            !jsonValue(subscription, "auth", &authText) || !base64UrlDecode(publicText, &clientPublic) ||
+        if (!jsonStringField(subscription, "endpoint", &endpoint) || !jsonStringField(subscription, "p256dh", &publicText) ||
+            !jsonStringField(subscription, "auth", &authText) || !base64UrlDecode(publicText, &clientPublic) ||
             !base64UrlDecode(authText, &auth) || clientPublic.size() != 65 || auth.size() != 16) continue;
-        std::string payload = "{\"title\":\"" + jsonEscapePush(title) + "\",\"body\":\"" + jsonEscapePush(body) + "\"}";
+        std::string payload = "{\"title\":\"" + jsonEscape(title) + "\",\"body\":\"" + jsonEscape(body) + "\"}";
         payload += static_cast<char>(2);
         if (microhad_web_push_encrypt(reinterpret_cast<const unsigned char*>(clientPublic.data()),
                                   reinterpret_cast<const unsigned char*>(auth.data()),

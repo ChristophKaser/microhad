@@ -1,4 +1,5 @@
 #include "gateway.h"
+#include "json_util.h"
 #include "notification_worker.h"
 #include "storage.h"
 #include "zcl.h"

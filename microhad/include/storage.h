@@ -27,6 +27,4 @@ bool loadSceneConfiguration(const std::string& filename, std::vector<SceneGroup>
                             std::vector<RemoteSceneBinding>* bindings, std::string* error);
 bool saveSceneConfiguration(const std::string& filename, const std::vector<SceneGroup>& groups,
                             const std::vector<RemoteSceneBinding>& bindings, std::string* error);
-std::string jsonEscape(const std::string& value);
-
 #endif

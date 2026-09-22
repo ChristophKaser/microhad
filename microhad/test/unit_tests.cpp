@@ -4,6 +4,7 @@
 #include "zcl.h"
 #include "fcm.h"
 #include "notification_worker.h"
+#include "json_util.h"
 
 #include <cassert>
 #include <cstdio>
@@ -703,6 +704,15 @@ static void testFcmMessageConstruction() {
     assert(makeFcmMessage("zigbee_alerts", "Window open", "Kitchen").find("\"topic\":\"zigbee_alerts\"") != std::string::npos);
 }
 
+static void testSharedJsonUtilities() {
+    std::string value;
+    long number = 0;
+    assert(jsonStringField("{ \"value\" : \"quoted \\u005c\\\" value\\n\" }", "value", &value));
+    assert(value == "quoted u005c\" value\n");
+    assert(jsonLongField("{\"number\": 42}", "number", &number) && number == 42);
+    assert(jsonEscape("a\\b\"c") == "a\\\\b\\\"c");
+}
+
 int main() {
     GatewayTestPeer::reviewAndTransportRegressions();
     testAshRoundTrip();
@@ -724,6 +734,7 @@ int main() {
     testContactNotificationIsDeferred();
     testNotificationTogglePersistence();
     testFcmMessageConstruction();
+    testSharedJsonUtilities();
     printf("unit tests passed\n");
     return 0;
 }
