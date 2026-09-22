@@ -118,6 +118,10 @@ public:
     void poll();
     bool isOnline() const;
     std::string runtimeDirectory() const;
+    int serialFd() const;
+    bool serialNeedsWrite() const;
+    bool hasImmediateWork() const;
+    long nextPollDeadline() const;
     bool setJoining(unsigned int seconds, std::string* error);
     bool createFreshNetwork(std::string* error);
     bool setDeviceSettings(const std::string& ieeeAddress, const std::string& name,

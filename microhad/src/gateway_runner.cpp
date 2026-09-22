@@ -1,20 +1,30 @@
 #include "gateway_runner.h"
 #include "gateway.h"
 
+#include <cerrno>
+#include <fcntl.h>
+#include <sys/select.h>
 #include <unistd.h>
 
-GatewayRunner::GatewayRunner(Gateway* gateway) : gateway_(gateway), commandHead_(0), commandTail_(0), started_(false),
-    startupComplete_(false), startupSucceeded_(false), stopping_(false), currentView_(0), runtimeDirectory_(gateway->runtimeDirectory()) {
+GatewayRunner::GatewayRunner(Gateway* gateway) : gateway_(gateway), commandWakeRead_(-1), commandWakeWrite_(-1),
+    commandHead_(0), commandTail_(0), started_(false), startupComplete_(false), startupSucceeded_(false), stopping_(false),
+    currentView_(0), runtimeDirectory_(gateway->runtimeDirectory()) {
+    int wakePipe[2];
     pthread_mutex_init(&mutex_, 0);
-    pthread_cond_init(&commandReady_, 0);
     pthread_cond_init(&startupReady_, 0);
+    if (pipe(wakePipe) == 0) {
+        commandWakeRead_ = wakePipe[0]; commandWakeWrite_ = wakePipe[1];
+        fcntl(commandWakeRead_, F_SETFL, fcntl(commandWakeRead_, F_GETFL) | O_NONBLOCK);
+        fcntl(commandWakeWrite_, F_SETFL, fcntl(commandWakeWrite_, F_GETFL) | O_NONBLOCK);
+    }
 }
 
 GatewayRunner::~GatewayRunner() {
     stop();
     if (currentView_ != 0) { delete currentView_->view; delete currentView_; }
+    if (commandWakeRead_ >= 0) close(commandWakeRead_);
+    if (commandWakeWrite_ >= 0) close(commandWakeWrite_);
     pthread_cond_destroy(&startupReady_);
-    pthread_cond_destroy(&commandReady_);
     pthread_mutex_destroy(&mutex_);
     delete gateway_;
 }
@@ -22,6 +32,7 @@ GatewayRunner::~GatewayRunner() {
 bool GatewayRunner::start(std::string* error) {
     pthread_mutex_lock(&mutex_);
     if (started_) { pthread_mutex_unlock(&mutex_); *error = "coordinator thread already started"; return false; }
+    if (commandWakeRead_ < 0 || commandWakeWrite_ < 0) { pthread_mutex_unlock(&mutex_); *error = "cannot create coordinator wakeup pipe"; return false; }
     started_ = true;
     if (pthread_create(&thread_, 0, runThread, this) != 0) {
         started_ = false; pthread_mutex_unlock(&mutex_); *error = "cannot create coordinator thread"; return false;
@@ -41,7 +52,7 @@ void GatewayRunner::stop() {
     pending = commandHead_;
     commandHead_ = 0;
     commandTail_ = 0;
-    pthread_cond_broadcast(&commandReady_);
+    wakeCoordinator();
     pthread_mutex_unlock(&mutex_);
     while (pending != 0) {
         Command* next = pending->next;
@@ -89,7 +100,7 @@ void GatewayRunner::run() {
         if (stopNow) break;
         gateway_->poll();
         publishView(false);
-        usleep(20000);
+        waitForWork();
     }
     gateway_->stop();
 }
@@ -152,7 +163,7 @@ bool GatewayRunner::invoke(Command* command, std::string* error) {
     }
     if (commandTail_ == 0) commandHead_ = command; else commandTail_->next = command;
     commandTail_ = command;
-    pthread_cond_signal(&commandReady_);
+    wakeCoordinator();
     pthread_mutex_unlock(&mutex_);
     pthread_mutex_lock(&command->mutex);
     while (!command->complete) pthread_cond_wait(&command->ready, &command->mutex);
@@ -161,6 +172,43 @@ bool GatewayRunner::invoke(Command* command, std::string* error) {
     pthread_mutex_unlock(&command->mutex);
     pthread_cond_destroy(&command->ready); pthread_mutex_destroy(&command->mutex);
     return result;
+}
+
+void GatewayRunner::wakeCoordinator() {
+    char signal = 'w';
+    if (commandWakeWrite_ >= 0) {
+        ssize_t written = write(commandWakeWrite_, &signal, 1);
+        (void)written; /* A full nonblocking pipe already carries a wakeup. */
+    }
+}
+
+void GatewayRunner::waitForWork() {
+    fd_set readable;
+    fd_set writable;
+    struct timeval timeout;
+    struct timeval* timeoutPointer = 0;
+    int serial = gateway_->serialFd();
+    int maximum = commandWakeRead_;
+    long deadline;
+    if (gateway_->hasImmediateWork()) return;
+    FD_ZERO(&readable); FD_ZERO(&writable);
+    FD_SET(commandWakeRead_, &readable);
+    if (serial >= 0) {
+        FD_SET(serial, &readable);
+        if (gateway_->serialNeedsWrite()) FD_SET(serial, &writable);
+        if (serial > maximum) maximum = serial;
+    }
+    deadline = gateway_->nextPollDeadline();
+    if (deadline != 0) {
+        long seconds = deadline - time(0);
+        if (seconds < 0) seconds = 0;
+        timeout.tv_sec = seconds; timeout.tv_usec = 0;
+        timeoutPointer = &timeout;
+    }
+    if (select(maximum + 1, &readable, &writable, 0, timeoutPointer) > 0 && FD_ISSET(commandWakeRead_, &readable)) {
+        char buffer[64];
+        while (read(commandWakeRead_, buffer, sizeof(buffer)) > 0) {}
+    }
 }
 
 GatewayRunner::ViewLease::ViewLease(GatewayRunner* owner, ViewData* data) : data_(data), owner_(owner) {}

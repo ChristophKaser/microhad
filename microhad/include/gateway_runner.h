@@ -77,8 +77,9 @@ private:
     Gateway* gateway_;
     pthread_t thread_;
     mutable pthread_mutex_t mutex_;
-    pthread_cond_t commandReady_;
     pthread_cond_t startupReady_;
+    int commandWakeRead_;
+    int commandWakeWrite_;
     Command* commandHead_;
     Command* commandTail_;
     bool started_;
@@ -100,6 +101,8 @@ private:
     void execute(Command* command);
     void publishView(bool force);
     void releaseView(ViewData* data);
+    void wakeCoordinator();
+    void waitForWork();
 };
 
 #endif
