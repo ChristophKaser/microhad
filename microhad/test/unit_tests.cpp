@@ -690,6 +690,22 @@ static void testNotificationTogglePersistence() {
     rmdir(directory.c_str());
 }
 
+static void testNotificationAuditDoesNotWriteRuntimeFlash() {
+    std::ostringstream path;
+    std::string error;
+    path << "/tmp/microhad-zigbee-notification-audit-test-" << static_cast<long>(getpid());
+    std::string directory = path.str();
+    assert(ensureDirectory(directory, &error));
+    {
+        NotificationWorker worker(directory, "", "", "");
+        Gateway gateway("/dev/null", 115200, directory, "", "", "", &worker);
+        assert(worker.start(&error));
+        assert(gateway.sendTestNotification(&error));
+        assert(access((directory + "/notification-outbox.ndjson").c_str(), F_OK) != 0);
+    }
+    rmdir(directory.c_str());
+}
+
 static void testFcmMessageConstruction() {
     FirebaseServiceAccount account;
     std::string error;
@@ -737,6 +753,7 @@ int main() {
     testSceneBusyDoesNotAdvanceSelection();
     testContactNotificationIsDeferred();
     testNotificationTogglePersistence();
+    testNotificationAuditDoesNotWriteRuntimeFlash();
     testFcmMessageConstruction();
     testSharedJsonUtilities();
     printf("unit tests passed\n");

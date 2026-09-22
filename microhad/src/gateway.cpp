@@ -939,11 +939,15 @@ bool Gateway::emitNotification(const std::string& title, const std::string& body
         if (error != 0) *error = "push notifications are disabled";
         return false;
     }
-    std::ofstream output((runtimeDirectory_ + "/notification-outbox.ndjson").c_str(), std::ios::app);
+    if (!notificationWorker_->enqueue(title, body, error)) {
+        addLog(std::string("Notification queue failed: ") + title + " - " + body);
+        return false;
+    }
+    /* The bounded coordinator log is the notification audit trail and lives
+       in /tmp.  Do not append an outbox beneath runtimeDirectory_: contact
+       alerts can be frequent and that directory is normally flash-backed. */
     addLog(std::string("Notification queued: ") + title + " - " + body);
-    if (output) output << "{\"title\":\"" << jsonEscape(title) << "\",\"body\":\""
-                       << jsonEscape(body) << "\",\"timestamp\":" << time(0) << "}\n";
-    return notificationWorker_->enqueue(title, body, error);
+    return true;
 }
 
 std::vector<Device> Gateway::devices() const {
