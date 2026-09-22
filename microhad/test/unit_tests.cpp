@@ -329,7 +329,7 @@ public:
         retry.inFlight = true; retry.ezspSequence = 42; retry.sceneId = 2; retry.sentSceneId = 2;
         reply[0] = 42; reply[3] = 0x38; reply[4] = 0; reply[5] = 0xa1; /* EMBER_NETWORK_BUSY */
         gateway.handleEzspFrame(reply);
-        return !retry.inFlight && retry.attempts == 1 && retry.retryAt > time(0) && gateway.selectedScenes_.empty();
+        return !retry.inFlight && retry.attempts == 1 && retry.retryAt <= time(0) && gateway.selectedScenes_.empty();
     }
 };
 

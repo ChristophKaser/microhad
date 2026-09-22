@@ -711,8 +711,9 @@ void Gateway::pollSceneRetries() {
         SceneRetry& retry=it->second;
         if (retry.inFlight && now >= retry.sentAt + 2) {
             retry.inFlight=false;
-            if (retry.attempts<4) ++retry.attempts;
-            retry.retryAt=now+(1L << retry.attempts);
+            long delay = retry.attempts == 0 ? 0 : (1L << (retry.attempts - 1));
+            if (retry.attempts<5) ++retry.attempts;
+            retry.retryAt=now+delay;
             addLog("Scene multicast response timed out; retrying");
         }
         if(!retry.inFlight && retry.retryAt<=now && !sendSceneRetry(it->first,&retry)) retry.retryAt=now+5;
@@ -1664,11 +1665,12 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
             } else if (stale) {
                 retry.retryAt=time(0);
             } else {
-                if (retry.attempts<4) ++retry.attempts;
-                retry.retryAt=time(0)+(1L << retry.attempts);
+                long delay = retry.attempts == 0 ? 0 : (1L << (retry.attempts - 1));
+                if (retry.attempts<5) ++retry.attempts;
+                retry.retryAt=time(0)+delay;
                 std::ostringstream message;
                 message << "Scene multicast rejected: 0x" << std::hex << static_cast<unsigned int>(status)
-                        << "; retrying in " << std::dec << (1L << retry.attempts) << "s";
+                        << "; retrying in " << std::dec << delay << "s";
                 addLog(message.str());
             }
             return;
