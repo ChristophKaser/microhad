@@ -23,7 +23,8 @@ EndpointDescriptor::EndpointDescriptor() : endpoint(0), profileId(0), deviceId(0
 
 Device::Device() : networkAddress(0xffff), kind("generic"), contactOpen(false), hasContact(false), hasTemperature(false),
                    temperatureCelsius(0), hasHumidity(false), humidityPercent(0), hasOccupancy(false), occupied(false),
-                   hasBattery(false), batteryPercent(0), linkQuality(0), lastSeen(0),
+                   hasBattery(false), batteryPercent(0), hasLight(false), lightOn(false), hasBrightness(false),
+                   brightnessPercent(0), hasRemote(false), linkQuality(0), lastSeen(0),
                    iasZoneId(-1), hasLowTemperatureAlert(false), hasHighTemperatureAlert(false), lowTemperatureAlert(0),
                    highTemperatureAlert(0), contactInitialAlertMinutes(10), contactReminderAlertMinutes(5),
                    sensorRefreshIntervalMinutes(5) {
@@ -74,6 +75,9 @@ void clearVolatileDeviceValues(Device* device) {
     device->occupied = false;
     device->hasBattery = false;
     device->batteryPercent = 0;
+    device->lightOn = false;
+    device->hasBrightness = false;
+    device->brightnessPercent = 0;
     device->linkQuality = 0;
     device->lastSeen = 0;
 }
@@ -522,6 +526,102 @@ bool Gateway::refreshDevice(const std::string& ieeeAddress, std::string* error) 
     return true;
 }
 
+bool Gateway::endpointForCluster(const Device& device, unsigned short cluster, unsigned char* endpoint) const {
+    for (unsigned long i = 0; i < device.endpoints.size(); ++i) {
+        if (endpointSupports(device.endpoints[i], cluster)) { *endpoint = device.endpoints[i].endpoint; return true; }
+    }
+    return false;
+}
+
+void Gateway::sendZclLightCommand(unsigned short destination, unsigned char endpoint, unsigned short cluster,
+                                  unsigned char command, const std::vector<unsigned char>& arguments) {
+    std::vector<unsigned char> message;
+    message.push_back(0x11);
+    message.push_back(++zclTransactionSequence_);
+    message.push_back(command);
+    message.insert(message.end(), arguments.begin(), arguments.end());
+    sendApsUnicast(destination, 0x0104, cluster, 1, endpoint, message);
+}
+
+bool Gateway::setLightState(const std::string& ieeeAddress, const std::string& state, int brightnessPercent,
+                            std::string* error) {
+    std::map<std::string, Device>::iterator found = devices_.find(ieeeAddress);
+    unsigned char endpoint;
+    if (found == devices_.end() || !found->second.hasLight) { *error = "device is not a light"; return false; }
+    if (!online_ || !networkFormed_ || coordinatorInitializationStep_ != 0) { *error = "Zigbee network is not ready"; return false; }
+    if (found->second.networkAddress == 0xffff) { *error = "device has no active network address"; return false; }
+    if (brightnessPercent >= 0) {
+        if (brightnessPercent > 100 || !endpointForCluster(found->second, 0x0008, &endpoint)) {
+            *error = "brightness is unavailable for this light"; return false;
+        }
+        std::vector<unsigned char> arguments;
+        unsigned int level = static_cast<unsigned int>((brightnessPercent * 254 + 50) / 100);
+        arguments.push_back(static_cast<unsigned char>(level)); arguments.push_back(0); arguments.push_back(0);
+        sendZclLightCommand(found->second.networkAddress, endpoint, 0x0008, 0x04, arguments);
+        addLog(std::string("Light brightness command queued: ") + ieeeAddress);
+        return true;
+    }
+    unsigned char command;
+    if (!endpointForCluster(found->second, 0x0006, &endpoint)) { *error = "power control is unavailable for this light"; return false; }
+    if (state == "off") command = 0x00;
+    else if (state == "on") command = 0x01;
+    else if (state == "toggle") command = 0x02;
+    else { *error = "invalid light state"; return false; }
+    sendZclLightCommand(found->second.networkAddress, endpoint, 0x0006, command, std::vector<unsigned char>());
+    addLog(std::string("Light power command queued: ") + ieeeAddress + " " + state);
+    return true;
+}
+
+void Gateway::classifyDevice(Device* device) const {
+    bool onOffServer = false, levelServer = false, remote = false;
+    for (unsigned long i = 0; i < device->endpoints.size(); ++i) {
+        const EndpointDescriptor& endpoint = device->endpoints[i];
+        if (endpointSupports(endpoint, 0x0006)) onOffServer = true;
+        if (endpointSupports(endpoint, 0x0008)) levelServer = true;
+        if (std::find(endpoint.outputClusters.begin(), endpoint.outputClusters.end(), 0x0006) != endpoint.outputClusters.end() ||
+            std::find(endpoint.outputClusters.begin(), endpoint.outputClusters.end(), 0x0008) != endpoint.outputClusters.end()) remote = true;
+    }
+    device->hasLight = onOffServer;
+    device->hasRemote = remote && !onOffServer;
+    if (device->hasLight) device->kind = levelServer ? "dimmable light" : "light";
+    else if (device->hasRemote) device->kind = "remote control";
+}
+
+void Gateway::logRemoteKeyEvent(unsigned short sender, unsigned short cluster, unsigned char endpoint,
+                                unsigned char command, const std::vector<unsigned char>& arguments) {
+    std::map<unsigned short, std::string>::const_iterator address = nodeAddresses_.find(sender);
+    if (address == nodeAddresses_.end()) return;
+    std::map<std::string, Device>::const_iterator device = devices_.find(address->second);
+    if (device == devices_.end() || !device->second.hasRemote) return;
+    bool advertisesCluster = false;
+    for (unsigned long i = 0; i < device->second.endpoints.size(); ++i) {
+        const EndpointDescriptor& descriptor = device->second.endpoints[i];
+        if (descriptor.endpoint == endpoint &&
+            std::find(descriptor.outputClusters.begin(), descriptor.outputClusters.end(), cluster) != descriptor.outputClusters.end()) {
+            advertisesCluster = true; break;
+        }
+    }
+    if (!advertisesCluster) return;
+    const char* action = 0;
+    if (cluster == 0x0006) {
+        if (command == 0x00) action = "off";
+        else if (command == 0x01) action = "on";
+        else if (command == 0x02) action = "toggle";
+    } else if (cluster == 0x0008) {
+        if (command == 0x00 || command == 0x04) action = "move-to-level";
+        else if (command == 0x01 || command == 0x05) action = "move";
+        else if (command == 0x02 || command == 0x06) action = "step";
+        else if (command == 0x03 || command == 0x07) action = "stop";
+    }
+    if (action == 0) return;
+    std::ostringstream event;
+    event << "Remote key event: " << deviceLogLabel(sender) << " endpoint=" << static_cast<unsigned int>(endpoint)
+          << " action=" << action << " cluster=0x" << std::hex << cluster << " command=0x"
+          << static_cast<unsigned int>(command);
+    if (!arguments.empty()) event << " value=" << std::dec << static_cast<unsigned int>(arguments[0]);
+    addLog(event.str());
+}
+
 bool Gateway::applyAttributeReport(const std::string& ieeeAddress, unsigned short cluster, unsigned short attribute,
                                    const std::vector<unsigned char>& value) {
     Device& device = devices_[ieeeAddress];
@@ -636,6 +736,11 @@ std::string Gateway::statusJson() const {
              << ",\"occupied\":" << (device.occupied ? "true" : "false")
              << ",\"has_battery\":" << (device.hasBattery ? "true" : "false")
              << ",\"battery_percent\":" << device.batteryPercent << ",\"link_quality\":" << device.linkQuality
+             << ",\"has_light\":" << (device.hasLight ? "true" : "false")
+             << ",\"light_on\":" << (device.lightOn ? "true" : "false")
+             << ",\"has_brightness\":" << (device.hasBrightness ? "true" : "false")
+             << ",\"brightness_percent\":" << device.brightnessPercent
+             << ",\"has_remote\":" << (device.hasRemote ? "true" : "false")
              << ",\"has_low_temperature_alert\":" << (device.hasLowTemperatureAlert ? "true" : "false")
              << ",\"low_temperature_alert\":" << device.lowTemperatureAlert
              << ",\"has_high_temperature_alert\":" << (device.hasHighTemperatureAlert ? "true" : "false")
@@ -767,6 +872,7 @@ void Gateway::loadState() {
     if (loadDevices(runtimeDirectory_ + "/devices.json", &saved, &error)) {
         for (i = 0; i < saved.size(); ++i) {
             clearVolatileDeviceValues(&saved[i]);
+            classifyDevice(&saved[i]);
             devices_[saved[i].ieeeAddress] = saved[i];
             if (saved[i].networkAddress != 0xffff) nodeAddresses_[saved[i].networkAddress] = saved[i].ieeeAddress;
         }
@@ -779,6 +885,7 @@ void Gateway::loadState() {
                 if (volatileValues[i].manufacturerName.empty()) volatileValues[i].manufacturerName = persistent.manufacturerName;
                 if (volatileValues[i].modelId.empty()) volatileValues[i].modelId = persistent.modelId;
                 if (volatileValues[i].endpoints.empty()) volatileValues[i].endpoints = persistent.endpoints;
+                classifyDevice(&volatileValues[i]);
                 devices_[volatileValues[i].ieeeAddress] = volatileValues[i];
             }
         }
@@ -1572,6 +1679,8 @@ void Gateway::buildRefreshOperations(unsigned short destination) {
         const EndpointDescriptor& endpoint = device.endpoints[i];
         if (endpointSupports(endpoint, 0x0402)) queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0402, 0x0000);
         if (endpointSupports(endpoint, 0x0405)) queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0405, 0x0000);
+        if (endpointSupports(endpoint, 0x0006)) queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0006, 0x0000);
+        if (endpointSupports(endpoint, 0x0008)) queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0008, 0x0000);
         if (endpointSupports(endpoint, 0x0001)) {
             queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0001, 0x0021);
             queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0001, 0x0020);
@@ -1594,6 +1703,8 @@ void Gateway::buildConfigurationOperations(unsigned short destination) {
         if (endpointSupports(endpoint, 0x0405)) queueInterviewOperation(destination, InterviewBind, endpoint.endpoint, 0x0405);
         if (endpointSupports(endpoint, 0x0001)) queueInterviewOperation(destination, InterviewBind, endpoint.endpoint, 0x0001);
         if (endpointSupports(endpoint, 0x0406)) queueInterviewOperation(destination, InterviewBind, endpoint.endpoint, 0x0406);
+        if (endpointSupports(endpoint, 0x0006)) queueInterviewOperation(destination, InterviewBind, endpoint.endpoint, 0x0006);
+        if (endpointSupports(endpoint, 0x0008)) queueInterviewOperation(destination, InterviewBind, endpoint.endpoint, 0x0008);
     }
     for (unsigned long i = 0; i < device.endpoints.size(); ++i) {
         const EndpointDescriptor& endpoint = device.endpoints[i];
@@ -1613,6 +1724,14 @@ void Gateway::buildConfigurationOperations(unsigned short destination) {
         if (endpointSupports(endpoint, 0x0406)) {
             queueInterviewOperation(destination, InterviewConfigureReporting, endpoint.endpoint, 0x0406, 0x0000, 0x18, 0, 0, 3600);
             queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0406, 0x0000);
+        }
+        if (endpointSupports(endpoint, 0x0006)) {
+            queueInterviewOperation(destination, InterviewConfigureReporting, endpoint.endpoint, 0x0006, 0x0000, 0x10, 1, 0, 3600);
+            queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0006, 0x0000);
+        }
+        if (endpointSupports(endpoint, 0x0008)) {
+            queueInterviewOperation(destination, InterviewConfigureReporting, endpoint.endpoint, 0x0008, 0x0000, 0x20, 1, 0, 3600);
+            queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0008, 0x0000);
         }
         if (endpointSupports(endpoint, 0x0000) &&
             (device.manufacturerName.find("LUMI") != std::string::npos || device.manufacturerName.find("Xiaomi") != std::string::npos ||
@@ -1790,6 +1909,7 @@ void Gateway::completeInterviewOperation(unsigned short destination) {
     } else if (completedType == InterviewSimpleDescriptor) {
         if (!endpointDescriptorsEqual(device.endpoints, state.discoveredEndpoints)) {
             device.endpoints = state.discoveredEndpoints;
+            classifyDevice(&device);
             state.persistentDirty = true;
         }
         if (state.persistentDirty) {
@@ -2004,6 +2124,10 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
             device.linkQuality = payload[12];
             device.lastSeen = time(0);
         }
+    }
+    if ((frameControl & 0x03) == 0x01) {
+        std::vector<unsigned char> arguments(message.begin() + zclOffset, message.end());
+        logRemoteKeyEvent(sender, cluster, payload[5], command, arguments);
     }
     if (cluster == 0x0500 && command == 0x01 && message.size() >= zclOffset + 4) {
         int zoneId = allocateIasZoneId(address->second);

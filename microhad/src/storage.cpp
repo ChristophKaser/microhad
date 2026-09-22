@@ -150,6 +150,10 @@ bool saveDevices(const std::string& filename, const std::vector<Device>& devices
                << (device.hasOccupancy ? "true" : "false") << ",\"battery_percent\":" << device.batteryPercent
                << ",\"has_battery\":" << (device.hasBattery ? "true" : "false") << ",\"link_quality\":"
                << device.linkQuality << ",\"last_seen\":" << device.lastSeen << ",\"ias_zone_id\":" << device.iasZoneId
+               << ",\"has_light\":" << (device.hasLight ? "true" : "false") << ",\"light_on\":"
+               << (device.lightOn ? "true" : "false") << ",\"has_brightness\":"
+               << (device.hasBrightness ? "true" : "false") << ",\"brightness_percent\":" << device.brightnessPercent
+               << ",\"has_remote\":" << (device.hasRemote ? "true" : "false")
                << ",\"has_low_temperature_alert\":"
                << (device.hasLowTemperatureAlert ? "true" : "false") << ",\"low_temperature_alert\":"
                << device.lowTemperatureAlert << ",\"has_high_temperature_alert\":"
@@ -216,6 +220,10 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
             device.hasOccupancy = line.find("\"has_occupancy\":true") != std::string::npos;
             device.occupied = line.find("\"occupied\":true") != std::string::npos;
             device.hasBattery = line.find("\"has_battery\":true") != std::string::npos;
+            device.hasLight = line.find("\"has_light\":true") != std::string::npos;
+            device.lightOn = line.find("\"light_on\":true") != std::string::npos;
+            device.hasBrightness = line.find("\"has_brightness\":true") != std::string::npos;
+            device.hasRemote = line.find("\"has_remote\":true") != std::string::npos;
             device.hasLowTemperatureAlert = line.find("\"has_low_temperature_alert\":true") != std::string::npos;
             device.hasHighTemperatureAlert = line.find("\"has_high_temperature_alert\":true") != std::string::npos;
             std::string::size_type valueStart;
@@ -227,6 +235,8 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
             if (valueStart != std::string::npos) device.humidityPercent = atof(line.c_str() + valueStart + 19);
             valueStart = line.find("\"link_quality\":");
             if (valueStart != std::string::npos) device.linkQuality = atoi(line.c_str() + valueStart + 15);
+            valueStart = line.find("\"brightness_percent\":");
+            if (valueStart != std::string::npos) device.brightnessPercent = atoi(line.c_str() + valueStart + 21);
             valueStart = line.find("\"last_seen\":");
             if (valueStart != std::string::npos) device.lastSeen = atol(line.c_str() + valueStart + 12);
             valueStart = line.find("\"ias_zone_id\":");

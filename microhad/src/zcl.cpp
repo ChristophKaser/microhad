@@ -68,6 +68,15 @@ bool applyZclAttribute(Device* device, unsigned short cluster, unsigned short at
         device->hasContact = true;
         device->contactOpen = (littleEndian16(value) & 0x0001) != 0;
         device->kind = "contact";
+    } else if (cluster == 0x0006 && attribute == 0x0000 && value.size() >= 1) {
+        device->hasLight = true;
+        device->lightOn = value[0] != 0;
+        if (device->kind == "generic") device->kind = "light";
+    } else if (cluster == 0x0008 && attribute == 0x0000 && value.size() >= 1) {
+        device->hasLight = true;
+        device->hasBrightness = true;
+        device->brightnessPercent = (static_cast<int>(value[0]) * 100 + 127) / 254;
+        if (device->kind == "generic") device->kind = "dimmable light";
     } else if (cluster == 0x0000 && attribute == 0xff01) {
         return applyXiaomiMeasurementData(device, value, observedAt);
     } else {
@@ -75,6 +84,10 @@ bool applyZclAttribute(Device* device, unsigned short cluster, unsigned short at
     }
     device->lastSeen = observedAt;
     return true;
+}
+
+bool isLightAttribute(unsigned short cluster, unsigned short attribute) {
+    return (cluster == 0x0006 || cluster == 0x0008) && attribute == 0x0000;
 }
 
 bool applyIasZoneStatus(Device* device, const std::vector<unsigned char>& payload, long observedAt) {

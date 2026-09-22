@@ -306,8 +306,22 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
         const std::string prefix = "POST /api/devices/";
         std::string::size_type settingsAt = request.find("/settings ", prefix.size());
         std::string::size_type refreshAt = request.find("/refresh ", prefix.size());
+        std::string::size_type lightAt = request.find("/light ", prefix.size());
         std::string::size_type bodyAt = request.find("\r\n\r\n");
-        if (refreshAt != std::string::npos) {
+        if (lightAt != std::string::npos) {
+            std::string ieeeAddress = decodeComponent(request.substr(prefix.size(), lightAt - prefix.size()));
+            std::string state;
+            std::string brightnessValue;
+            std::string error;
+            unsigned long brightness = 0;
+            bool hasState = bodyAt != std::string::npos && formValue(request.substr(bodyAt + 4), "state", &state);
+            bool hasBrightness = bodyAt != std::string::npos && formValue(request.substr(bodyAt + 4), "brightness", &brightnessValue);
+            if ((!hasState && !hasBrightness) || (hasBrightness && (!parseMinutes(brightnessValue, &brightness) || brightness > 100))) {
+                writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"invalid light command\"}");
+            } else if (gateway_->setLightState(ieeeAddress, hasState ? state : "", hasBrightness ? static_cast<int>(brightness) : -1, &error)) {
+                writeResponse(clientFd, 200, "application/json", "{\"ok\":true}");
+            } else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + jsonEscape(error) + "\"}");
+        } else if (refreshAt != std::string::npos) {
             std::string ieeeAddress = decodeComponent(request.substr(prefix.size(), refreshAt - prefix.size()));
             std::string error;
             if (gateway_->refreshDevice(ieeeAddress, &error))

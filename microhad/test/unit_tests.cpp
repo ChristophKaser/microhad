@@ -243,6 +243,26 @@ public:
                gateway.logsJson().find("lqi=88 rssi=-40") != std::string::npos &&
                gateway.logsJson().find("Report Attributes") != std::string::npos;
     }
+    static bool remoteKeyEventsAreLogged() {
+        const unsigned short node = 0x4321;
+        const std::string ieee = "0x00124b0000000021";
+        Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+        EndpointDescriptor endpoint;
+        std::vector<unsigned char> move(1, 80);
+        endpoint.endpoint = 1;
+        endpoint.outputClusters.push_back(0x0006);
+        endpoint.outputClusters.push_back(0x0008);
+        gateway.nodeAddresses_[node] = ieee;
+        gateway.devices_[ieee].ieeeAddress = ieee;
+        gateway.devices_[ieee].endpoints.push_back(endpoint);
+        gateway.classifyDevice(&gateway.devices_[ieee]);
+        gateway.logs_.clear();
+        gateway.logRemoteKeyEvent(node, 0x0006, 1, 0x01, std::vector<unsigned char>());
+        gateway.logRemoteKeyEvent(node, 0x0008, 1, 0x05, move);
+        return gateway.logsJson().find("Remote key event") != std::string::npos &&
+               gateway.logsJson().find("action=on") != std::string::npos &&
+               gateway.logsJson().find("action=move") != std::string::npos;
+    }
 };
 
 static void testAshRoundTrip() {
@@ -301,6 +321,11 @@ static void testDevicePersistence() {
     input.occupied = true;
     input.hasBattery = true;
     input.batteryPercent = 76;
+    input.hasLight = true;
+    input.lightOn = true;
+    input.hasBrightness = true;
+    input.brightnessPercent = 63;
+    input.hasRemote = true;
     input.linkQuality = 91;
     input.lastSeen = 123456;
     input.iasZoneId = 17;
@@ -331,6 +356,7 @@ static void testDevicePersistence() {
     assert(loaded[0].hasHumidity && loaded[0].humidityPercent == input.humidityPercent);
     assert(loaded[0].hasOccupancy && loaded[0].occupied);
     assert(loaded[0].hasBattery && loaded[0].batteryPercent == input.batteryPercent);
+    assert(loaded[0].hasLight && loaded[0].lightOn && loaded[0].hasBrightness && loaded[0].brightnessPercent == 63 && loaded[0].hasRemote);
     assert(loaded[0].linkQuality == input.linkQuality && loaded[0].lastSeen == input.lastSeen);
     assert(loaded[0].iasZoneId == input.iasZoneId);
     assert(loaded[0].contactInitialAlertMinutes == 20 && loaded[0].contactReminderAlertMinutes == 7);
@@ -439,6 +465,16 @@ static void testGenericCapabilities() {
     zone.push_back(1); zone.push_back(0);
     assert(applyIasZoneStatus(&device, zone, 125));
     assert(device.hasContact && device.contactOpen && device.lastSeen == 125);
+
+    device = Device();
+    std::vector<unsigned char> on(1, 1);
+    std::vector<unsigned char> level(1, 127);
+    assert(applyZclAttribute(&device, 0x0006, 0x0000, on, 126));
+    assert(device.hasLight && device.lightOn && device.lastSeen == 126);
+    assert(applyZclAttribute(&device, 0x0008, 0x0000, level, 127));
+    assert(device.hasBrightness && device.brightnessPercent == 50 && device.lastSeen == 127);
+    assert(isLightAttribute(0x0006, 0x0000) && isLightAttribute(0x0008, 0x0000));
+    assert(!isLightAttribute(0x0008, 0x0001));
 }
 
 static void testConfigureReportingEncoding() {
@@ -503,6 +539,12 @@ static void testRamLog() {
 static void testFrameLogs() {
     unlink("/tmp/microhad-zigbee-native.log");
     assert(GatewayTestPeer::frameLogsContainDecodedDetails());
+    unlink("/tmp/microhad-zigbee-native.log");
+}
+
+static void testRemoteKeyEvents() {
+    unlink("/tmp/microhad-zigbee-native.log");
+    assert(GatewayTestPeer::remoteKeyEventsAreLogged());
     unlink("/tmp/microhad-zigbee-native.log");
 }
 
@@ -577,6 +619,7 @@ int main() {
     testJoinStatusJson();
     testRamLog();
     testFrameLogs();
+    testRemoteKeyEvents();
     testContactNotificationIsDeferred();
     testNotificationTogglePersistence();
     testFcmMessageConstruction();

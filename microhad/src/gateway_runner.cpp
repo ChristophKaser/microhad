@@ -115,6 +115,8 @@ void GatewayRunner::execute(Command* command) {
                                                                                       command->hasSensorRefreshInterval,
                                                                                       command->sensorRefreshIntervalMinutes, &error);
     else if (command->type == DeviceRefresh) result = gateway_->refreshDevice(command->address, &error);
+    else if (command->type == LightState) result = gateway_->setLightState(command->address, command->name,
+                                                                             command->brightnessPercent, &error);
     else if (command->type == TestNotification) result = gateway_->sendTestNotification(&error);
     else if (command->type == NotificationSetting) result = gateway_->setNotificationsEnabled(command->hasLow, &error);
     updateSnapshots();
@@ -181,6 +183,15 @@ bool GatewayRunner::refreshDevice(const std::string& address, std::string* error
     Command command;
     command.type = DeviceRefresh;
     command.address = address;
+    return invoke(&command, error);
+}
+bool GatewayRunner::setLightState(const std::string& address, const std::string& state, int brightnessPercent,
+                                  std::string* error) {
+    Command command;
+    command.type = LightState;
+    command.address = address;
+    command.name = state;
+    command.brightnessPercent = brightnessPercent;
     return invoke(&command, error);
 }
 bool GatewayRunner::sendTestNotification(std::string* error) { Command command; command.type = TestNotification; return invoke(&command, error); }

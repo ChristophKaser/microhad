@@ -23,11 +23,13 @@ public:
                            unsigned long reminderAlertMinutes, bool hasSensorRefreshInterval,
                            unsigned long sensorRefreshIntervalMinutes, std::string* error);
     bool refreshDevice(const std::string& ieeeAddress, std::string* error);
+    bool setLightState(const std::string& ieeeAddress, const std::string& state, int brightnessPercent,
+                       std::string* error);
     bool sendTestNotification(std::string* error);
     bool setNotificationsEnabled(bool enabled, std::string* error);
 
 private:
-    enum CommandType { Join, CreateNetwork, DeviceSettings, DeviceRefresh, TestNotification, NotificationSetting };
+    enum CommandType { Join, CreateNetwork, DeviceSettings, DeviceRefresh, LightState, TestNotification, NotificationSetting };
     struct Command {
         CommandType type;
         unsigned int seconds;
@@ -42,6 +44,7 @@ private:
         unsigned long reminderAlertMinutes;
         bool hasSensorRefreshInterval;
         unsigned long sensorRefreshIntervalMinutes;
+        int brightnessPercent;
         bool result;
         bool complete;
         std::string error;
