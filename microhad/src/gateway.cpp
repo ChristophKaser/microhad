@@ -88,6 +88,133 @@ bool endpointDescriptorsEqual(const std::vector<EndpointDescriptor>& left,
     }
     return true;
 }
+
+std::string hexBytes(const std::vector<unsigned char>& bytes) {
+    std::ostringstream output;
+    output << std::hex << std::setfill('0');
+    for (unsigned long i = 0; i < bytes.size(); ++i) output << std::setw(2) << static_cast<unsigned int>(bytes[i]);
+    return output.str();
+}
+
+const char* clusterName(unsigned short cluster) {
+    switch (cluster) {
+    case 0x0000: return "Basic";
+    case 0x0001: return "Power Configuration";
+    case 0x0002: return "Node Descriptor";
+    case 0x0004: return "Simple Descriptor";
+    case 0x0005: return "Active Endpoints";
+    case 0x0021: return "Bind";
+    case 0x0402: return "Temperature Measurement";
+    case 0x0405: return "Relative Humidity";
+    case 0x0406: return "Occupancy Sensing";
+    case 0x0500: return "IAS Zone";
+    case 0x0013: return "Device Announcement";
+    case 0x8002: return "Node Descriptor Response";
+    case 0x8004: return "Simple Descriptor Response";
+    case 0x8005: return "Active Endpoints Response";
+    case 0x8021: return "Bind Response";
+    default: return "";
+    }
+}
+
+const char* zclCommandName(unsigned char command) {
+    switch (command) {
+    case 0x00: return "Read Attributes";
+    case 0x01: return "Read Attributes Response";
+    case 0x06: return "Configure Reporting";
+    case 0x07: return "Configure Reporting Response";
+    case 0x0a: return "Report Attributes";
+    default: return "";
+    }
+}
+
+std::string knownAttributeValue(unsigned short cluster, unsigned short attribute, const std::vector<unsigned char>& message,
+                                unsigned long offset) {
+    std::ostringstream out;
+    if (cluster == 0x0402 && attribute == 0x0000 && offset + 2 <= message.size()) {
+        short raw = static_cast<short>(static_cast<unsigned short>(message[offset]) |
+                                       (static_cast<unsigned short>(message[offset + 1]) << 8));
+        out << " value=" << std::fixed << std::setprecision(2) << (static_cast<double>(raw) / 100.0) << "C";
+    } else if (cluster == 0x0405 && attribute == 0x0000 && offset + 2 <= message.size()) {
+        unsigned short raw = static_cast<unsigned short>(message[offset]) | (static_cast<unsigned short>(message[offset + 1]) << 8);
+        out << " value=" << std::fixed << std::setprecision(2) << (static_cast<double>(raw) / 100.0) << "%";
+    } else if (cluster == 0x0406 && attribute == 0x0000 && offset < message.size()) {
+        out << " value=" << ((message[offset] & 1) ? "occupied" : "clear");
+    } else if (cluster == 0x0001 && attribute == 0x0021 && offset < message.size()) {
+        out << " value=" << (static_cast<unsigned int>(message[offset]) / 2) << "%";
+    } else if (cluster == 0x0500 && attribute == 0x0002 && offset + 2 <= message.size()) {
+        out << " value=" << ((message[offset] & 1) ? "open" : "closed");
+    }
+    return out.str();
+}
+
+std::string decodeFramePayload(unsigned short profile, unsigned short cluster, const std::vector<unsigned char>& message) {
+    std::ostringstream out;
+    if (message.empty()) return " empty";
+    if (profile == 0x0000) {
+        out << " zdo_seq=" << std::dec << static_cast<unsigned int>(message[0]);
+        if ((cluster == 0x0013) && message.size() >= 12) {
+            unsigned short node = static_cast<unsigned short>(message[1]) | (static_cast<unsigned short>(message[2]) << 8);
+            out << " announced_node=0x" << std::hex << node << " eui64=0x" << std::setfill('0');
+            for (int i = 10; i >= 3; --i) out << std::setw(2) << static_cast<unsigned int>(message[i]);
+            out << " capability=0x" << static_cast<unsigned int>(message[11]);
+        } else if ((cluster & 0x8000) != 0 && message.size() >= 2) {
+            out << " status=0x" << std::hex << static_cast<unsigned int>(message[1]);
+            if (cluster == 0x8005 && message.size() >= 5) {
+                out << " node=0x" << (static_cast<unsigned short>(message[2]) | (static_cast<unsigned short>(message[3]) << 8))
+                    << " endpoints=" << std::dec << static_cast<unsigned int>(message[4]);
+            }
+        }
+        return out.str();
+    }
+    if (message.size() < 3) return " zcl=truncated";
+    unsigned char control = message[0];
+    unsigned long offset = 1;
+    out << " zcl_control=0x" << std::hex << static_cast<unsigned int>(control);
+    if ((control & 0x04) != 0) {
+        if (message.size() < 5) return out.str() + " manufacturer=truncated";
+        out << " manufacturer=0x" << (static_cast<unsigned short>(message[offset]) | (static_cast<unsigned short>(message[offset + 1]) << 8));
+        offset += 2;
+    }
+    if (offset + 2 > message.size()) return out.str() + " zcl=truncated";
+    unsigned char transaction = message[offset++];
+    unsigned char command = message[offset++];
+    out << " transaction=" << std::dec << static_cast<unsigned int>(transaction) << " command=0x" << std::hex
+        << static_cast<unsigned int>(command);
+    if (zclCommandName(command)[0] != '\0') out << "(" << zclCommandName(command) << ")";
+    if ((command == 0x00 || command == 0x06) && offset + 2 <= message.size()) {
+        unsigned short attribute = static_cast<unsigned short>(message[offset]) | (static_cast<unsigned short>(message[offset + 1]) << 8);
+        out << " attribute=0x" << attribute;
+        if (command == 0x06 && offset + 7 <= message.size()) {
+            unsigned short minimum = static_cast<unsigned short>(message[offset + 3]) |
+                                     (static_cast<unsigned short>(message[offset + 4]) << 8);
+            unsigned short maximum = static_cast<unsigned short>(message[offset + 5]) |
+                                     (static_cast<unsigned short>(message[offset + 6]) << 8);
+            out << " type=0x" << static_cast<unsigned int>(message[offset + 2])
+                << " min=" << std::dec << minimum << "s max=" << maximum << "s";
+        }
+    }
+    if (command == 0x0a && offset + 3 <= message.size()) {
+        unsigned short attribute = static_cast<unsigned short>(message[offset]) | (static_cast<unsigned short>(message[offset + 1]) << 8);
+        out << " attribute=0x" << attribute << " type=0x" << static_cast<unsigned int>(message[offset + 2]);
+        out << knownAttributeValue(cluster, attribute, message, offset + 3);
+    }
+    if (command == 0x01 && offset + 4 <= message.size()) {
+        unsigned short attribute = static_cast<unsigned short>(message[offset]) | (static_cast<unsigned short>(message[offset + 1]) << 8);
+        unsigned char status = message[offset + 2];
+        out << " attribute=0x" << attribute << " status=0x" << static_cast<unsigned int>(status);
+        if (status == 0) {
+            out << " type=0x" << static_cast<unsigned int>(message[offset + 3]);
+            out << knownAttributeValue(cluster, attribute, message, offset + 4);
+        }
+    }
+    if (cluster == 0x0500 && command == 0x00 && offset + 2 <= message.size()) {
+        unsigned short zoneStatus = static_cast<unsigned short>(message[offset]) |
+                                    (static_cast<unsigned short>(message[offset + 1]) << 8);
+        out << " zone_status=0x" << std::hex << zoneStatus << " contact=" << ((zoneStatus & 1) ? "open" : "closed");
+    }
+    return out.str();
+}
 }
 
 Gateway::Gateway(const std::string& serialDevice, int serialBaud, const std::string& runtimeDirectory,
@@ -552,11 +679,45 @@ void Gateway::saveLogs() const {
 
 void Gateway::addLog(const std::string& message) {
     std::ostringstream line;
-    std::string rendered = message.substr(0, 240);
+    std::string rendered = message.substr(0, 768);
     line << time(0) << " " << rendered;
     logs_.push_back(line.str());
     while (logs_.size() > 512) logs_.erase(logs_.begin());
     saveLogs();
+}
+
+std::string Gateway::deviceLogLabel(unsigned short node) const {
+    std::ostringstream label;
+    std::map<unsigned short, std::string>::const_iterator found = nodeAddresses_.find(node);
+    label << std::hex << std::setfill('0');
+    if (found == nodeAddresses_.end()) {
+        label << "unknown node=0x" << std::setw(4) << node;
+        return label.str();
+    }
+    std::map<std::string, Device>::const_iterator device = devices_.find(found->second);
+    if (device != devices_.end() && !device->second.name.empty()) label << device->second.name << " ";
+    label << "ieee=" << found->second << " node=0x" << std::setw(4) << node;
+    return label.str();
+}
+
+void Gateway::addFrameLog(const std::string& direction, unsigned short node, unsigned short profile, unsigned short cluster,
+                          unsigned char sourceEndpoint, unsigned char destinationEndpoint, unsigned short options,
+                          unsigned short bindingAddress, unsigned char apsSequence, unsigned char messageTag,
+                          int lqi, int rssi, const std::vector<unsigned char>& message) {
+    std::ostringstream line;
+    line << "FRAME " << direction << " " << (direction == "TX" ? "recipient=" : "sender=") << deviceLogLabel(node)
+         << " profile=0x" << std::hex << profile << " cluster=0x" << cluster;
+    if (clusterName(cluster)[0] != '\0') line << "(" << clusterName(cluster) << ")";
+    line << " src_ep=" << std::dec << static_cast<unsigned int>(sourceEndpoint)
+         << " dst_ep=" << static_cast<unsigned int>(destinationEndpoint)
+         << " aps_seq=" << static_cast<unsigned int>(apsSequence) << " options=0x" << std::hex << options
+         << " binding=0x" << bindingAddress;
+    if (messageTag != 0) line << " tag=" << std::dec << static_cast<unsigned int>(messageTag);
+    if (lqi >= 0) line << " lqi=" << std::dec << lqi;
+    if (rssi >= -128) line << " rssi=" << std::dec << rssi;
+    line << " length=" << std::dec << message.size() << decodeFramePayload(profile, cluster, message)
+         << " payload=" << hexBytes(message);
+    addLog(line.str());
 }
 
 void Gateway::addHexLog(const std::string& direction, const unsigned char* bytes, unsigned long length) {
@@ -825,6 +986,8 @@ void Gateway::sendApsUnicast(unsigned short destination, unsigned short profile,
     payload.push_back(messageTag);
     payload.push_back(static_cast<unsigned char>(message.size()));
     payload.insert(payload.end(), message.begin(), message.end());
+    addFrameLog("TX", destination, profile, cluster, sourceEndpoint, destinationEndpoint, 0x0140, 0,
+                static_cast<unsigned char>(apsSequence - 1), messageTag, -1, -129, message);
     sendEzspCommand(0x0034, payload); /* sendUnicast */
 }
 
@@ -1721,6 +1884,11 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
        In particular Bind_rsp (0x8021) is valid at two bytes. */
     if (messageOffset + length > payload.size() || length < 2) return;
     message.assign(payload.begin() + messageOffset, payload.begin() + messageOffset + length);
+    addFrameLog("RX", sender,
+                static_cast<unsigned short>(payload[1]) | (static_cast<unsigned short>(payload[2]) << 8), cluster,
+                payload[5], payload[6], static_cast<unsigned short>(payload[7]) | (static_cast<unsigned short>(payload[8]) << 8),
+                static_cast<unsigned short>(payload[16]) | (static_cast<unsigned short>(payload[17]) << 8), payload[11], 0,
+                static_cast<int>(payload[12]), static_cast<int>(static_cast<signed char>(payload[13])), message);
     {
         std::ostringstream diagnostic;
         diagnostic << "APS <- node=0x" << std::hex << sender << " profile=0x"

@@ -230,6 +230,11 @@ private:
     void updateContactAlert(const std::string& ieeeAddress, bool wasOpen);
     void updateTemperatureAlert(const Device& device, bool hadTemperature, double previousTemperature);
     bool emitNotification(const std::string& title, const std::string& body, std::string* error);
+    std::string deviceLogLabel(unsigned short node) const;
+    void addFrameLog(const std::string& direction, unsigned short node, unsigned short profile, unsigned short cluster,
+                     unsigned char sourceEndpoint, unsigned char destinationEndpoint, unsigned short options,
+                     unsigned short bindingAddress, unsigned char apsSequence, unsigned char messageTag,
+                     int lqi, int rssi, const std::vector<unsigned char>& message);
     void addLog(const std::string& message);
     void addHexLog(const std::string& direction, const unsigned char* bytes, unsigned long length);
     void loadLogs();

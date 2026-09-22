@@ -219,6 +219,30 @@ public:
         return gateway->devices_[ieee].hasContact && !gateway->devices_[ieee].contactOpen &&
                gateway->devices_[ieee].linkQuality == 99;
     }
+    static bool frameLogsContainDecodedDetails() {
+        const unsigned short node = 0x1234;
+        const std::string ieee = "0x00124b0000000020";
+        Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+        std::vector<unsigned char> request;
+        std::vector<unsigned char> incoming(24, 0);
+        gateway.logs_.clear();
+        gateway.nodeAddresses_[node] = ieee;
+        gateway.devices_[ieee].ieeeAddress = ieee;
+        gateway.devices_[ieee].name = "Kitchen sensor";
+        request.push_back(0x10); request.push_back(7); request.push_back(0x00); request.push_back(0x00); request.push_back(0x00);
+        gateway.sendApsUnicast(node, 0x0104, 0x0402, 1, 1, request, 9);
+        if (gateway.logsJson().find("FRAME TX recipient=Kitchen sensor ieee=0x00124b0000000020") == std::string::npos ||
+            gateway.logsJson().find("Read Attributes") == std::string::npos ||
+            gateway.logsJson().find("payload=1007000000") == std::string::npos) return false;
+        incoming[1] = 0x04; incoming[2] = 0x01; incoming[3] = 0x02; incoming[4] = 0x04;
+        incoming[5] = 1; incoming[6] = 1; incoming[11] = 44; incoming[12] = 88; incoming[13] = 0xd8;
+        incoming[14] = 0x34; incoming[15] = 0x12; incoming[18] = 5;
+        incoming[19] = 0x18; incoming[20] = 8; incoming[21] = 0x0a; incoming[22] = 0; incoming[23] = 0;
+        gateway.handleIncomingMessage(incoming);
+        return gateway.logsJson().find("FRAME RX sender=Kitchen sensor ieee=0x00124b0000000020") != std::string::npos &&
+               gateway.logsJson().find("lqi=88 rssi=-40") != std::string::npos &&
+               gateway.logsJson().find("Report Attributes") != std::string::npos;
+    }
 };
 
 static void testAshRoundTrip() {
@@ -475,6 +499,12 @@ static void testRamLog() {
     unlink("/tmp/microhad-zigbee-native.log");
 }
 
+static void testFrameLogs() {
+    unlink("/tmp/microhad-zigbee-native.log");
+    assert(GatewayTestPeer::frameLogsContainDecodedDetails());
+    unlink("/tmp/microhad-zigbee-native.log");
+}
+
 static void testContactNotificationIsDeferred() {
     std::ostringstream path;
     std::string error;
@@ -545,6 +575,7 @@ int main() {
     testInterviewDescriptorAndPlanning();
     testJoinStatusJson();
     testRamLog();
+    testFrameLogs();
     testContactNotificationIsDeferred();
     testNotificationTogglePersistence();
     testFcmMessageConstruction();
