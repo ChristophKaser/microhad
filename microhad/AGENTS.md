@@ -84,9 +84,11 @@ joining request instead of remaining stuck indefinitely.
 
 Temperature and humidity sensors receive standard report configuration on
 discovery (five-minute maximum interval). As a bounded fallback for devices
-that ignore it, the coordinator requests active endpoints at most once every
-five minutes per known measurement sensor, then refreshes attributes after the
-device responds. This is intentionally serialized for sleepy battery devices.
+that ignore it, each known measurement sensor defaults to active-endpoint
+refresh every five minutes; its dashboard setting can select another whole
+minute interval or `0` to disable fallback polling. The coordinator then
+refreshes attributes after the device responds. This is intentionally
+serialized for sleepy battery devices.
 
 Coordinator logs are intentionally kept in `/tmp/microhad-zigbee-native.log`, a
 bounded 512-line RAM-only ring. Permanent radio captures belong under the

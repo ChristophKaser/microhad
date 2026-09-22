@@ -111,7 +111,9 @@ void GatewayRunner::execute(Command* command) {
                                                                                       command->hasHigh, command->high,
                                                                                       command->hasContactTimings,
                                                                                       command->initialAlertMinutes,
-                                                                                      command->reminderAlertMinutes, &error);
+                                                                                      command->reminderAlertMinutes,
+                                                                                      command->hasSensorRefreshInterval,
+                                                                                      command->sensorRefreshIntervalMinutes, &error);
     else if (command->type == DeviceRefresh) result = gateway_->refreshDevice(command->address, &error);
     else if (command->type == TestNotification) result = gateway_->sendTestNotification(&error);
     else if (command->type == NotificationSetting) result = gateway_->setNotificationsEnabled(command->hasLow, &error);
@@ -158,7 +160,8 @@ bool GatewayRunner::createFreshNetwork(std::string* error) { Command command; co
 bool GatewayRunner::setDeviceSettings(const std::string& address, const std::string& name,
                                       bool hasLow, double low, bool hasHigh, double high,
                                       bool hasContactTimings, unsigned long initialAlertMinutes,
-                                      unsigned long reminderAlertMinutes, std::string* error) {
+                                      unsigned long reminderAlertMinutes, bool hasSensorRefreshInterval,
+                                      unsigned long sensorRefreshIntervalMinutes, std::string* error) {
     Command command;
     command.type = DeviceSettings;
     command.address = address;
@@ -170,6 +173,8 @@ bool GatewayRunner::setDeviceSettings(const std::string& address, const std::str
     command.hasContactTimings = hasContactTimings;
     command.initialAlertMinutes = initialAlertMinutes;
     command.reminderAlertMinutes = reminderAlertMinutes;
+    command.hasSensorRefreshInterval = hasSensorRefreshInterval;
+    command.sensorRefreshIntervalMinutes = sensorRefreshIntervalMinutes;
     return invoke(&command, error);
 }
 bool GatewayRunner::refreshDevice(const std::string& address, std::string* error) {

@@ -323,24 +323,29 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
             std::string highValue;
             std::string initialValue;
             std::string reminderValue;
+            std::string sensorRefreshValue;
             std::string error;
             bool hasName = formValue(body, "name", &name);
             formValue(body, "low", &lowValue);
             formValue(body, "high", &highValue);
             bool hasInitial = formValue(body, "initial_minutes", &initialValue);
             bool hasReminder = formValue(body, "reminder_minutes", &reminderValue);
+            bool hasSensorRefresh = formValue(body, "sensor_refresh_minutes", &sensorRefreshValue);
             bool hasLow = !lowValue.empty();
             bool hasHigh = !highValue.empty();
             double low = 0;
             double high = 0;
             unsigned long initial = 0;
             unsigned long reminder = 0;
+            unsigned long sensorRefresh = 0;
             if (!hasName || (hasLow && !parseDecimal(lowValue, &low)) || (hasHigh && !parseDecimal(highValue, &high)) ||
                 (hasInitial && !parseMinutes(initialValue, &initial)) ||
-                (hasReminder && !parseMinutes(reminderValue, &reminder))) {
+                (hasReminder && !parseMinutes(reminderValue, &reminder)) ||
+                (hasSensorRefresh && !parseMinutes(sensorRefreshValue, &sensorRefresh))) {
                 writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"invalid device settings\"}");
             } else if (gateway_->setDeviceSettings(ieeeAddress, name, hasLow, low, hasHigh, high,
-                                                    hasInitial && hasReminder, initial, reminder, &error)) {
+                                                    hasInitial && hasReminder, initial, reminder, hasSensorRefresh,
+                                                    sensorRefresh, &error)) {
                 writeResponse(clientFd, 200, "application/json", "{\"ok\":true}");
             } else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + jsonEscape(error) + "\"}");
         }

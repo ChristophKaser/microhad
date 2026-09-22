@@ -20,7 +20,8 @@ public:
     bool setDeviceSettings(const std::string& ieeeAddress, const std::string& name,
                            bool hasLow, double low, bool hasHigh, double high,
                            bool hasContactTimings, unsigned long initialAlertMinutes,
-                           unsigned long reminderAlertMinutes, std::string* error);
+                           unsigned long reminderAlertMinutes, bool hasSensorRefreshInterval,
+                           unsigned long sensorRefreshIntervalMinutes, std::string* error);
     bool refreshDevice(const std::string& ieeeAddress, std::string* error);
     bool sendTestNotification(std::string* error);
     bool setNotificationsEnabled(bool enabled, std::string* error);
@@ -39,6 +40,8 @@ private:
         bool hasContactTimings;
         unsigned long initialAlertMinutes;
         unsigned long reminderAlertMinutes;
+        bool hasSensorRefreshInterval;
+        unsigned long sensorRefreshIntervalMinutes;
         bool result;
         bool complete;
         std::string error;

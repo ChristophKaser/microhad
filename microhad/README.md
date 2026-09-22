@@ -96,6 +96,11 @@ quality, and last-seen state are retained and surfaced in the dashboard. An
 opened contact emits an alert immediately and repeats while it remains open;
 temperature thresholds can be set per device in the dashboard.
 
+Temperature and humidity devices also have a per-device fallback refresh
+interval in their settings. It defaults to five minutes for devices that
+ignore standard reporting; set it to `0` to disable automatic fallback refresh
+while retaining the manual Refresh action.
+
 For Browser Push, visit the HTTPS dashboard, accept the certificate, select
 **Enable browser alerts**, grant the browser permission, then select **Test
 alerts**. FCM uses the configured topic/service account for the same sensor

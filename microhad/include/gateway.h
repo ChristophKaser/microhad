@@ -43,6 +43,7 @@ struct Device {
     double highTemperatureAlert;
     unsigned long contactInitialAlertMinutes;
     unsigned long contactReminderAlertMinutes;
+    unsigned long sensorRefreshIntervalMinutes;
     std::string manufacturerName;
     std::string modelId;
     std::vector<EndpointDescriptor> endpoints;
@@ -65,7 +66,8 @@ public:
     bool setDeviceSettings(const std::string& ieeeAddress, const std::string& name,
                            bool hasLow, double low, bool hasHigh, double high,
                            bool hasContactTimings, unsigned long initialAlertMinutes,
-                           unsigned long reminderAlertMinutes, std::string* error);
+                           unsigned long reminderAlertMinutes, bool hasSensorRefreshInterval,
+                           unsigned long sensorRefreshIntervalMinutes, std::string* error);
     bool refreshDevice(const std::string& ieeeAddress, std::string* error);
     bool applyAttributeReport(const std::string& ieeeAddress, unsigned short cluster, unsigned short attribute,
                               const std::vector<unsigned char>& value);

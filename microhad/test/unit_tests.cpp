@@ -282,6 +282,7 @@ static void testDevicePersistence() {
     input.iasZoneId = 17;
     input.contactInitialAlertMinutes = 20;
     input.contactReminderAlertMinutes = 7;
+    input.sensorRefreshIntervalMinutes = 17;
     input.manufacturerName = "eWeLink";
     input.modelId = "TH01";
     endpoint.endpoint = 1;
@@ -309,6 +310,7 @@ static void testDevicePersistence() {
     assert(loaded[0].linkQuality == input.linkQuality && loaded[0].lastSeen == input.lastSeen);
     assert(loaded[0].iasZoneId == input.iasZoneId);
     assert(loaded[0].contactInitialAlertMinutes == 20 && loaded[0].contactReminderAlertMinutes == 7);
+    assert(loaded[0].sensorRefreshIntervalMinutes == 17);
     assert(loaded[0].manufacturerName == "eWeLink" && loaded[0].modelId == "TH01");
     assert(loaded[0].endpoints.size() == 1);
     assert(loaded[0].endpoints[0].endpoint == 1 && loaded[0].endpoints[0].profileId == 0x0104);
@@ -333,14 +335,18 @@ static void testDeviceSettings() {
     assert(gateway.applyIasZoneStatus("0x00124b0000000004", zone));
     assert(gateway.applyAttributeReport("0x00124b0000000004", 0x0402, 0x0000, temperature));
     assert(gateway.setDeviceSettings("0x00124b0000000004", "Office window", true, 5, true, 30,
-                                     true, 20, 7, &error));
+                                     true, 20, 7, true, 17, &error));
     assert(gateway.statusJson().find("\"contact_initial_alert_minutes\":20") != std::string::npos);
     assert(gateway.statusJson().find("\"contact_reminder_alert_minutes\":7") != std::string::npos);
+    assert(gateway.statusJson().find("\"sensor_refresh_interval_minutes\":17") != std::string::npos);
+    assert(gateway.setDeviceSettings("0x00124b0000000004", "Office window", true, 5, true, 30,
+                                     true, 20, 7, true, 0, &error));
+    assert(gateway.statusJson().find("\"sensor_refresh_interval_minutes\":0") != std::string::npos);
     assert(!gateway.setDeviceSettings("0x00124b0000000004", "Office window", true, 30, true, 5,
-                                      true, 20, 7, &error));
+                                      true, 20, 7, true, 17, &error));
     assert(error == "invalid temperature thresholds");
     assert(!gateway.setDeviceSettings("0x00124b0000000004", "Office window", false, 0, false, 0,
-                                      true, 0, 7, &error));
+                                      true, 0, 7, true, 0, &error));
     assert(error == "invalid contact notification times");
     unlink((directory + "/devices.json").c_str());
     rmdir(directory.c_str());

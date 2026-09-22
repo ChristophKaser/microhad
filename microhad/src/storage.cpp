@@ -156,7 +156,8 @@ bool saveDevices(const std::string& filename, const std::vector<Device>& devices
                << (device.hasHighTemperatureAlert ? "true" : "false") << ",\"high_temperature_alert\":"
                << device.highTemperatureAlert << ",\"contact_initial_alert_minutes\":"
                << device.contactInitialAlertMinutes << ",\"contact_reminder_alert_minutes\":"
-               << device.contactReminderAlertMinutes << ",\"manufacturer_name\":\""
+               << device.contactReminderAlertMinutes << ",\"sensor_refresh_interval_minutes\":"
+               << device.sensorRefreshIntervalMinutes << ",\"manufacturer_name\":\""
                << jsonEscape(device.manufacturerName) << "\",\"model_id\":\"" << jsonEscape(device.modelId)
                << "\",\"endpoint_descriptors\":\"" << encodeEndpointDescriptors(device.endpoints) << "\"}";
         output << (i + 1 == devices.size() ? "\n" : ",\n");
@@ -241,6 +242,8 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
             if (valueStart != std::string::npos) device.contactInitialAlertMinutes = strtoul(line.c_str() + valueStart + 32, 0, 10);
             valueStart = line.find("\"contact_reminder_alert_minutes\":");
             if (valueStart != std::string::npos) device.contactReminderAlertMinutes = strtoul(line.c_str() + valueStart + 33, 0, 10);
+            valueStart = line.find("\"sensor_refresh_interval_minutes\":");
+            if (valueStart != std::string::npos) device.sensorRefreshIntervalMinutes = strtoul(line.c_str() + valueStart + 34, 0, 10);
             {
                 std::string encodedDescriptors;
                 if (stringField(line, "endpoint_descriptors", &encodedDescriptors) && !encodedDescriptors.empty() &&
