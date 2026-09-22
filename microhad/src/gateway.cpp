@@ -30,7 +30,7 @@ Device::Device() : networkAddress(0xffff), kind("generic"), contactOpen(false), 
 
 Gateway::InterviewOperation::InterviewOperation() : type(InterviewNodeDescriptor), endpoint(0), cluster(0), attribute(0),
     dataType(0), minimumInterval(0), maximumInterval(0), reportableChange(0), transactionSequence(0),
-    transactionSequenceAssigned(false), messageTag(0), attempts(0) {
+    transactionSequenceAssigned(false), messageTag(0), attempts(0), retryAt(0) {
 }
 
 Gateway::InterviewState::InterviewState() : operationIndex(0), refreshOnly(false), paused(false), persistentDirty(false) {
@@ -89,8 +89,8 @@ Gateway::Gateway(const std::string& serialDevice, int serialBaud, const std::str
     serialDevice_(serialDevice), serialBaud_(serialBaud), runtimeDirectory_(runtimeDirectory),
     firebaseServiceAccount_(firebaseServiceAccount), firebaseTopic_(firebaseTopic), caBundle_(caBundle), notificationWorker_(notificationWorker), serialFd_(-1),
     online_(false), joinUntil_(0), joinPermitRenewAt_(0), pendingJoinSeconds_(0), joinPreparationStep_(0), joinPreparationDeadline_(0), ashSendSequence_(0), ashReceiveSequence_(0), ezspSequence_(0),
-    ezspVersion_(4), zdoSequence_(0), zclTransactionSequence_(0), ezspVersionNegotiated_(false), stackTokenWritingRequested_(false), networkInitRequested_(false), coordinatorInitializationStep_(0), resetDeadline_(0), nextHeartbeatAt_(0), serialRxBytes_(0), ashRxFrames_(0), networkForming_(false), networkFormationStep_(0), networkFormed_(false), networkPanId_(0),
-    networkChannel_(0), interviewRequestInFlight_(false), interviewSendAccepted_(false), interviewNode_(0xffff),
+    ashAckDeadline_(0), ashRetries_(0), ezspVersion_(4), zdoSequence_(0), zclTransactionSequence_(0), ezspVersionNegotiated_(false), stackTokenWritingRequested_(false), networkInitRequested_(false), coordinatorInitializationStep_(0), resetDeadline_(0), nextHeartbeatAt_(0), serialRxBytes_(0), ashRxFrames_(0), networkForming_(false), networkFormationStep_(0), networkFormed_(false), networkPanId_(0),
+    networkChannel_(0), interviewRequestInFlight_(false), interviewSendAccepted_(false), interviewEzspSequence_(0), interviewNode_(0xffff),
     interviewDeadline_(0), nextMessageTag_(1), coordinatorIeeeAddressRequested_(false) {
 }
 
@@ -171,6 +171,7 @@ void Gateway::poll() {
             while (ash_.popFrame(&frame)) handleAshFrame(frame);
         }
     }
+    pollAshTransmit();
     if (online_ && nextHeartbeatAt_ != 0 && time(0) >= nextHeartbeatAt_) {
         addLog("Coordinator heartbeat");
         sendEzspCommand(0x0005, std::vector<unsigned char>()); /* nop */
@@ -606,15 +607,48 @@ void Gateway::savePersistentState() const {
 }
 
 bool Gateway::writeBytes(const std::vector<unsigned char>& bytes) {
-    unsigned long offset = 0;
     if (!bytes.empty()) addHexLog("SERIAL TX", &bytes[0], bytes.size());
-    while (serialFd_ >= 0 && offset < bytes.size()) {
-        ssize_t count = write(serialFd_, &bytes[offset], bytes.size() - offset);
-        if (count > 0) offset += static_cast<unsigned long>(count);
-        else if (count < 0 && errno != EAGAIN && errno != EINTR) return false;
-        else break;
+    serialPendingBytes_.insert(serialPendingBytes_.end(), bytes.begin(), bytes.end());
+    flushSerialOutput();
+    return serialPendingBytes_.empty();
+}
+
+void Gateway::flushSerialOutput() {
+    while (serialFd_ >= 0 && !serialPendingBytes_.empty()) {
+        ssize_t count = write(serialFd_, &serialPendingBytes_[0], serialPendingBytes_.size());
+        if (count > 0) serialPendingBytes_.erase(serialPendingBytes_.begin(), serialPendingBytes_.begin() + count);
+        else if (count < 0 && errno == EINTR) continue;
+        else break; /* Preserve the unwritten suffix, including on EAGAIN. */
     }
-    return offset == bytes.size();
+}
+
+void Gateway::retransmitAsh() {
+    if (ashPendingData_.empty()) return;
+    if (++ashRetries_ > 3) {
+        addLog("ASH acknowledgement failed repeatedly; resetting serial link");
+        sendAshReset();
+        return;
+    }
+    addLog("ASH retransmitting unacknowledged frame");
+    writeBytes(AshTransport::encodeData(static_cast<unsigned char>(
+        (ashSendSequence_ << 4) | 0x08 | ashReceiveSequence_), ashPendingData_));
+    ashAckDeadline_ = time(0) + 2;
+}
+
+void Gateway::pollAshTransmit() {
+    flushSerialOutput();
+    if (!serialPendingBytes_.empty()) return;
+    if (!ashPendingData_.empty()) {
+        if (time(0) >= ashAckDeadline_) retransmitAsh();
+        return;
+    }
+    if (ashTransmitQueue_.empty()) return;
+    ashPendingData_ = ashTransmitQueue_.front();
+    ashTransmitQueue_.erase(ashTransmitQueue_.begin());
+    ashRetries_ = 0;
+    ashAckDeadline_ = time(0) + 2;
+    writeBytes(AshTransport::encodeData(static_cast<unsigned char>(
+        (ashSendSequence_ << 4) | ashReceiveSequence_), ashPendingData_));
 }
 
 void Gateway::sendAshReset() {
@@ -622,6 +656,10 @@ void Gateway::sendAshReset() {
     std::vector<unsigned char> reset = AshTransport::encodeData(0xc0, raw);
     reset.insert(reset.begin(), 0x1a);
     ash_.reset();
+    ashTransmitQueue_.clear();
+    ashPendingData_.clear();
+    serialPendingBytes_.clear();
+    ashAckDeadline_ = 0;
     online_ = false;
     /* Persistent state describes the intended network.  Do not send traffic
        until this NCP boot reports NETWORK_UP. */
@@ -637,8 +675,6 @@ void Gateway::sendAshReset() {
 
 void Gateway::sendEzspCommand(unsigned short command, const std::vector<unsigned char>& payload) {
     std::vector<unsigned char> ezsp;
-    std::vector<unsigned char> encoded;
-    unsigned char control;
     ezsp.push_back(ezspSequence_++);
     if (ezspVersion_ >= 8) {
         ezsp.push_back(0x00); ezsp.push_back(0x01);
@@ -651,15 +687,13 @@ void Gateway::sendEzspCommand(unsigned short command, const std::vector<unsigned
         ezsp.push_back(0x00); ezsp.push_back(static_cast<unsigned char>(command));
     }
     ezsp.insert(ezsp.end(), payload.begin(), payload.end());
-    control = static_cast<unsigned char>((ashSendSequence_ << 4) | ashReceiveSequence_);
-    ashSendSequence_ = static_cast<unsigned char>((ashSendSequence_ + 1) & 7);
-    encoded = AshTransport::encodeData(control, randomize(ezsp));
     {
         std::ostringstream message;
         message << "EZSP -> 0x" << std::hex << command << " payload=" << std::dec << payload.size();
         addLog(message.str());
     }
-    writeBytes(encoded);
+    ashTransmitQueue_.push_back(randomize(ezsp));
+    pollAshTransmit();
 }
 
 unsigned short Gateway::coordinatorInitializationCommand() const {
@@ -797,7 +831,21 @@ void Gateway::handleAshFrame(const std::vector<unsigned char>& frame) {
     if (frame.empty()) return;
     ++ashRxFrames_;
     control = frame[0];
+    if ((control & 0x80) == 0 || (control & 0xe0) == 0x80 || (control & 0xe0) == 0xa0) {
+        if (!ashPendingData_.empty() && (control & 7) == ((ashSendSequence_ + 1) & 7)) {
+            ashPendingData_.clear();
+            ashSendSequence_ = static_cast<unsigned char>((ashSendSequence_ + 1) & 7);
+            ashAckDeadline_ = 0;
+        }
+        if ((control & 0xe0) == 0xa0) {
+            addLog("ASH NAK received");
+            retransmitAsh();
+            return;
+        }
+    }
     if (control == 0xc1) {
+        ashPendingData_.clear();
+        ashTransmitQueue_.clear();
         ashSendSequence_ = 0;
         ashReceiveSequence_ = 0;
         resetDeadline_ = 0;
@@ -810,6 +858,14 @@ void Gateway::handleAshFrame(const std::vector<unsigned char>& frame) {
         version.push_back(ezspVersion_);
         sendEzspCommand(0x0000, version);
     } else if ((control & 0x80) == 0) {
+        unsigned char sequence = static_cast<unsigned char>((control >> 4) & 7);
+        if (sequence != ashReceiveSequence_) {
+            bool duplicate = (control & 0x08) != 0;
+            writeBytes(AshTransport::encodeData(static_cast<unsigned char>(
+                (duplicate ? 0x80 : 0xa0) | ashReceiveSequence_), std::vector<unsigned char>()));
+            addLog(duplicate ? "ASH duplicate suppressed" : "ASH receive gap; requested retransmission");
+            return;
+        }
         std::vector<unsigned char> data(frame.begin() + 1, frame.end());
         std::vector<unsigned char> ack = AshTransport::encodeData(
             static_cast<unsigned char>(0x80 | ((control >> 4) + 1) % 8), std::vector<unsigned char>());
@@ -974,12 +1030,12 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
         addLog("NCP rejected Zigbee transmit: network is down");
         return;
     }
-    if (command == 0x0034 && interviewRequestInFlight_ && !interviewSendAccepted_) {
+    if (command == 0x0034 && interviewRequestInFlight_ && !interviewSendAccepted_ && frame[0] == interviewEzspSequence_) {
         if (frame[payloadOffset] == 0) interviewSendAccepted_ = true;
         else {
             std::ostringstream reason;
             reason << "NCP rejected transmit 0x" << std::hex << static_cast<unsigned int>(frame[payloadOffset]);
-            failInterviewOperation(interviewNode_, reason.str());
+            failInterviewOperation(interviewNode_, reason.str(), true);
         }
         return;
     }
@@ -1152,6 +1208,15 @@ void Gateway::registerNode(unsigned short nodeId, const unsigned char* eui64) {
     address << "0x" << std::hex << std::setfill('0');
     /* EZSP transmits EUI64 least significant byte first. */
     for (i = 7; i >= 0; --i) address << std::setw(2) << static_cast<unsigned int>(eui64[i]);
+    if (nodeAddresses_.count(nodeId) && nodeAddresses_[nodeId] != address.str()) {
+        devices_[nodeAddresses_[nodeId]].networkAddress = 0xffff;
+        interviews_.erase(nodeId);
+        lastActiveEndpointRequestAt_.erase(nodeId);
+        if (interviewRequestInFlight_ && interviewNode_ == nodeId) {
+            interviewRequestInFlight_ = false;
+            interviewDeadline_ = 0;
+        }
+    }
     /* A rejoin may allocate a different short address.  Move an unfinished
        interview rather than leaving response matching tied to the stale
        address. */
@@ -1165,6 +1230,14 @@ void Gateway::registerNode(unsigned short nodeId, const unsigned char* eui64) {
             moved.paused = false;
             if (moved.operationIndex < moved.operations.size()) moved.operations[moved.operationIndex].attempts = 0;
             interviews_.erase(oldInterview);
+            if (interviewRequestInFlight_ && interviewNode_ == nodeId) {
+                interviewRequestInFlight_ = false;
+                interviewDeadline_ = 0;
+            }
+            if (moved.operationIndex < moved.operations.size()) {
+                moved.operations[moved.operationIndex].transactionSequenceAssigned = false;
+                moved.operations[moved.operationIndex].retryAt = 0;
+            }
             interviews_[nodeId] = moved;
         }
         if (interviewRequestInFlight_ && interviewNode_ == current->first) {
@@ -1353,6 +1426,7 @@ void Gateway::sendNextInterviewOperation() {
     for (interview = interviews_.begin(); interview != interviews_.end(); ++interview) {
         InterviewState& state = interview->second;
         if (state.paused || state.operationIndex >= state.operations.size()) continue;
+        if (state.operations[state.operationIndex].retryAt > time(0)) continue;
         sendInterviewOperation(interview->first, &state.operations[state.operationIndex]);
         return;
     }
@@ -1373,6 +1447,7 @@ void Gateway::sendInterviewOperation(unsigned short destination, InterviewOperat
     ++operation->attempts;
     interviewRequestInFlight_ = true;
     interviewSendAccepted_ = false;
+    interviewEzspSequence_ = ezspSequence_;
     interviewNode_ = destination;
     interviewDeadline_ = time(0) + 20;
     if (operation->type == InterviewNodeDescriptor) {
@@ -1406,7 +1481,7 @@ void Gateway::sendInterviewOperation(unsigned short destination, InterviewOperat
     }
 }
 
-void Gateway::failInterviewOperation(unsigned short destination, const std::string& reason) {
+void Gateway::failInterviewOperation(unsigned short destination, const std::string& reason, bool localFailure) {
     std::map<unsigned short, InterviewState>::iterator found = interviews_.find(destination);
     interviewRequestInFlight_ = false;
     interviewDeadline_ = 0;
@@ -1414,6 +1489,13 @@ void Gateway::failInterviewOperation(unsigned short destination, const std::stri
     std::ostringstream message;
     message << "Interview operation failed for " << found->second.ieeeAddress << ": " << reason;
     addLog(message.str());
+    InterviewOperation& operation = found->second.operations[found->second.operationIndex];
+    if (localFailure && operation.attempts < 3) {
+        operation.retryAt = time(0) + 2;
+        found->second.paused = false;
+        addLog("Coordinator-local failure; retry scheduled in two seconds");
+        return;
+    }
     /* Retrying immediately cannot wake a sleepy child and can contend with
        unrelated sensor reports.  Keep this operation pending until the
        device next talks or the five-minute refresh wakes the state machine. */
@@ -1634,7 +1716,8 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
     if (cluster == 0x8002 && message.size() >= 2 && message[1] == 0) {
         std::map<unsigned short, InterviewState>::iterator interview = interviews_.find(sender);
         if (interview != interviews_.end() &&
-            interview->second.operationIndex < interview->second.operations.size()) {
+            interview->second.operationIndex < interview->second.operations.size() &&
+            interview->second.operations[interview->second.operationIndex].transactionSequenceAssigned) {
             InterviewOperation& operation = interview->second.operations[interview->second.operationIndex];
             if (operation.type == InterviewNodeDescriptor && operation.transactionSequence == message[0]) {
                 addLog("Node descriptor received");
@@ -1646,7 +1729,8 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
     if (cluster == 0x8005 && message.size() >= 5 && message[1] == 0) {
         std::map<unsigned short, InterviewState>::iterator interview = interviews_.find(sender);
         if (interview != interviews_.end() &&
-            interview->second.operationIndex < interview->second.operations.size()) {
+            interview->second.operationIndex < interview->second.operations.size() &&
+            interview->second.operations[interview->second.operationIndex].transactionSequenceAssigned) {
             InterviewOperation& operation = interview->second.operations[interview->second.operationIndex];
             unsigned long count = message[4];
             if (operation.type != InterviewActiveEndpoints || operation.transactionSequence != message[0] ||
@@ -1667,7 +1751,8 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
     if (cluster == 0x8004 && message.size() >= 5) {
         std::map<unsigned short, InterviewState>::iterator interview = interviews_.find(sender);
         if (interview != interviews_.end() &&
-            interview->second.operationIndex < interview->second.operations.size()) {
+            interview->second.operationIndex < interview->second.operations.size() &&
+            interview->second.operations[interview->second.operationIndex].transactionSequenceAssigned) {
             InterviewOperation& operation = interview->second.operations[interview->second.operationIndex];
             EndpointDescriptor descriptor;
             if (operation.type == InterviewSimpleDescriptor && operation.transactionSequence == message[0] &&
@@ -1686,7 +1771,8 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
         addLog(bind.str());
         std::map<unsigned short, InterviewState>::iterator interview = interviews_.find(sender);
         if (interview != interviews_.end() &&
-            interview->second.operationIndex < interview->second.operations.size()) {
+            interview->second.operationIndex < interview->second.operations.size() &&
+            interview->second.operations[interview->second.operationIndex].transactionSequenceAssigned) {
             InterviewOperation& operation = interview->second.operations[interview->second.operationIndex];
             if (operation.type == InterviewBind && operation.transactionSequence == message[0]) completeInterviewOperation(sender);
         }
@@ -1712,7 +1798,7 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
     if (cluster == 0x0500 && command == 0x01 && message.size() >= zclOffset + 4) {
         int zoneId = allocateIasZoneId(address->second);
         if (zoneId >= 0) {
-            sendIasEnrollResponse(sender, payload[5], payload[4], message[zclOffset - 2],
+            sendIasEnrollResponse(sender, payload[6], payload[5], message[zclOffset - 2],
                                   static_cast<unsigned char>(zoneId));
         }
     } else if (cluster == 0x0500 && command == 0x00 && message.size() >= zclOffset + 2) {
@@ -1724,7 +1810,8 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
         std::map<unsigned short, InterviewState>::iterator interview = interviews_.find(sender);
         bool matched = false;
         if (interview != interviews_.end() &&
-            interview->second.operationIndex < interview->second.operations.size()) {
+            interview->second.operationIndex < interview->second.operations.size() &&
+            interview->second.operations[interview->second.operationIndex].transactionSequenceAssigned) {
             InterviewOperation& operation = interview->second.operations[interview->second.operationIndex];
             matched = (operation.type == InterviewAttributeRead || operation.type == InterviewBasicRead) &&
                       operation.transactionSequence == transactionSequence && operation.cluster == cluster &&
@@ -1768,7 +1855,8 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
         }
         std::map<unsigned short, InterviewState>::iterator interview = interviews_.find(sender);
         if (interview != interviews_.end() &&
-            interview->second.operationIndex < interview->second.operations.size()) {
+            interview->second.operationIndex < interview->second.operations.size() &&
+            interview->second.operations[interview->second.operationIndex].transactionSequenceAssigned) {
             InterviewOperation& operation = interview->second.operations[interview->second.operationIndex];
             if (operation.type == InterviewConfigureReporting && operation.transactionSequence == transactionSequence &&
                 operation.cluster == cluster && operation.endpoint == payload[5]) completeInterviewOperation(sender);

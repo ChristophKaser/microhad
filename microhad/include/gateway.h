@@ -97,6 +97,14 @@ private:
     unsigned char ashSendSequence_;
     unsigned char ashReceiveSequence_;
     unsigned char ezspSequence_;
+    std::vector<std::vector<unsigned char> > ashTransmitQueue_;
+    std::vector<unsigned char> ashPendingData_;
+    std::vector<unsigned char> serialPendingBytes_;
+    long ashAckDeadline_;
+    unsigned int ashRetries_;
+    void flushSerialOutput();
+    void pollAshTransmit();
+    void retransmitAsh();
     unsigned char ezspVersion_;
     unsigned char zdoSequence_;
     unsigned char zclTransactionSequence_;
@@ -140,6 +148,7 @@ private:
         bool transactionSequenceAssigned;
         unsigned char messageTag;
         unsigned char attempts;
+        long retryAt;
         InterviewOperation();
     };
     struct InterviewState {
@@ -155,6 +164,7 @@ private:
     std::map<unsigned short, InterviewState> interviews_;
     bool interviewRequestInFlight_;
     bool interviewSendAccepted_;
+    unsigned char interviewEzspSequence_;
     unsigned short interviewNode_;
     long interviewDeadline_;
     unsigned char nextMessageTag_;
@@ -192,7 +202,7 @@ private:
     void sendNextInterviewOperation();
     void sendInterviewOperation(unsigned short destination, InterviewOperation* operation);
     void completeInterviewOperation(unsigned short destination);
-    void failInterviewOperation(unsigned short destination, const std::string& reason);
+    void failInterviewOperation(unsigned short destination, const std::string& reason, bool localFailure = false);
     void buildDescriptorOperations(unsigned short destination, const std::vector<unsigned char>& endpoints);
     void buildConfigurationOperations(unsigned short destination);
     void buildRefreshOperations(unsigned short destination);

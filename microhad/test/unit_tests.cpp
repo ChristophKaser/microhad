@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
+#include <fcntl.h>
 #include <sstream>
 #include <string>
 #include <unistd.h>
@@ -16,6 +17,115 @@
 
 class GatewayTestPeer {
 public:
+    static void reviewAndTransportRegressions() {
+        Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+        gateway.serialFd_ = open("/dev/null", O_WRONLY);
+        assert(gateway.serialFd_ >= 0);
+        gateway.sendEzspCommand(5, std::vector<unsigned char>());
+        std::vector<unsigned char> original = gateway.ashPendingData_;
+        gateway.sendEzspCommand(5, std::vector<unsigned char>());
+        assert(gateway.ashTransmitQueue_.size() == 1);
+        gateway.handleAshFrame(std::vector<unsigned char>(1, 0xa0));
+        assert(gateway.ashRetries_ == 1 && gateway.ashPendingData_ == original);
+        assert(gateway.ashSendSequence_ == 0);
+        gateway.handleAshFrame(std::vector<unsigned char>(1, 0x81));
+        gateway.pollAshTransmit();
+        assert(gateway.ashSendSequence_ == 1 && gateway.ashTransmitQueue_.empty());
+        gateway.ashAckDeadline_ = 0;
+        gateway.pollAshTransmit();
+        assert(gateway.ashRetries_ == 1);
+        gateway.handleAshFrame(std::vector<unsigned char>(1, 0x10)); /* gap */
+        assert(gateway.ashReceiveSequence_ == 0);
+        gateway.handleAshFrame(std::vector<unsigned char>(1, 0x00));
+        assert(gateway.ashReceiveSequence_ == 1);
+        gateway.handleAshFrame(std::vector<unsigned char>(1, 0x08)); /* duplicate */
+        assert(gateway.ashReceiveSequence_ == 1);
+
+        const unsigned short node = 0x4321;
+        Gateway::InterviewState state;
+        state.ieeeAddress = "0x00124b00000000ab";
+        state.operations.push_back(Gateway::InterviewOperation());
+        gateway.interviews_[node] = state;
+        std::vector<unsigned char> response(21, 0);
+        response[3] = 2; response[4] = 0x80;
+        response[14] = 0x21; response[15] = 0x43;
+        response[18] = 2; /* seq 0, status success */
+        gateway.handleIncomingMessage(response);
+        assert(gateway.interviews_[node].operations[0].type == Gateway::InterviewNodeDescriptor);
+        gateway.interviews_[node].operations[0].transactionSequenceAssigned = true;
+        gateway.interviews_[node].paused = true;
+        gateway.handleIncomingMessage(response);
+        assert(gateway.interviews_[node].operations[0].type == Gateway::InterviewActiveEndpoints);
+        assert(!gateway.interviews_[node].paused);
+
+        const Gateway::InterviewOperationType types[] = {
+            Gateway::InterviewActiveEndpoints, Gateway::InterviewSimpleDescriptor,
+            Gateway::InterviewBind, Gateway::InterviewBasicRead,
+            Gateway::InterviewAttributeRead, Gateway::InterviewConfigureReporting};
+        const unsigned short clusters[] = {0x8005, 0x8004, 0x8021, 0, 0x0402, 0x0402};
+        gateway.nodeAddresses_[node] = state.ieeeAddress;
+        for (unsigned int i = 0; i < 6; ++i) {
+            state.operations[0] = Gateway::InterviewOperation();
+            state.operations[0].type = types[i];
+            state.operations[0].cluster = clusters[i];
+            gateway.interviews_[node] = state;
+            response.assign(32, 0);
+            response[3] = static_cast<unsigned char>(clusters[i]);
+            response[4] = static_cast<unsigned char>(clusters[i] >> 8);
+            response[14] = 0x21; response[15] = 0x43;
+            response[18] = 13;
+            if (i == 1) response[23] = 8; /* valid empty simple descriptor */
+            if (i >= 3) { response[19] = 0x18; response[21] = i == 5 ? 7 : 1; }
+            gateway.handleIncomingMessage(response);
+            assert(gateway.interviews_.count(node) == 1);
+            assert(gateway.interviews_[node].operations[0].type == types[i]);
+        }
+
+        Gateway::InterviewOperation& operation = gateway.interviews_[node].operations[0];
+        operation.attempts = 1;
+        gateway.failInterviewOperation(node, "buffer full", true);
+        assert(!gateway.interviews_[node].paused && operation.retryAt > time(0));
+        operation.attempts = 3;
+        gateway.failInterviewOperation(node, "buffer full", true);
+        assert(gateway.interviews_[node].paused);
+
+        /* An unrelated sendUnicast response must not reject this interview. */
+        gateway.ezspVersion_ = 8;
+        gateway.interviewRequestInFlight_ = true;
+        gateway.interviewSendAccepted_ = false;
+        gateway.interviewNode_ = node;
+        gateway.interviewEzspSequence_ = 42;
+        operation.attempts = 1;
+        gateway.interviews_[node].paused = false;
+        const unsigned char rejected[] = {41, 0x80, 1, 0x34, 0, 0x18};
+        std::vector<unsigned char> reply(rejected, rejected + sizeof(rejected));
+        gateway.handleEzspFrame(reply);
+        assert(gateway.interviewRequestInFlight_);
+        reply[0] = 42;
+        gateway.handleEzspFrame(reply);
+        assert(!gateway.interviewRequestInFlight_ && !gateway.interviews_[node].paused);
+
+        /* Decode the outbound enrollment reply and check reversed endpoints. */
+        gateway.ashPendingData_.clear();
+        gateway.ashTransmitQueue_.clear();
+        gateway.devices_[state.ieeeAddress].iasZoneId = 4;
+        response.assign(26, 0);
+        response[1] = 4; response[2] = 1;
+        response[3] = 0; response[4] = 5;
+        response[5] = 3; response[6] = 1;
+        response[14] = 0x21; response[15] = 0x43;
+        response[18] = 7;
+        response[19] = 0x19; response[20] = 9; response[21] = 1;
+        gateway.handleIncomingMessage(response);
+        std::vector<unsigned char> command = gateway.ashPendingData_;
+        unsigned char random = 0x42;
+        for (unsigned long i = 0; i < command.size(); ++i) {
+            command[i] ^= random;
+            random = (random & 1) ? static_cast<unsigned char>((random >> 1) ^ 0xb8) :
+                                   static_cast<unsigned char>(random >> 1);
+        }
+        assert(command.size() >= 14 && command[12] == 1 && command[13] == 3);
+    }
     static bool parseSimpleDescriptor(const Gateway& gateway, const std::vector<unsigned char>& message,
                                       EndpointDescriptor* descriptor) {
         return gateway.parseSimpleDescriptor(message, descriptor);
@@ -73,7 +183,9 @@ public:
         gateway->interviews_[oldNode] = state;
         gateway->nodeAddresses_[oldNode] = state.ieeeAddress;
         gateway->interviewRequestInFlight_ = true;
-        gateway->interviewNode_ = oldNode;
+        gateway->interviewNode_ = newNode;
+        gateway->interviews_[newNode] = Gateway::InterviewState();
+        gateway->nodeAddresses_[newNode] = "0x00124b00000000ff";
         gateway->registerNode(newNode, eui64);
         return gateway->nodeAddresses_.find(oldNode) == gateway->nodeAddresses_.end() &&
                gateway->nodeAddresses_[newNode] == state.ieeeAddress &&
@@ -122,6 +234,10 @@ static void testAshRoundTrip() {
     assert(transport.popFrame(&frame));
     assert(frame.size() == 4);
     assert(frame[0] == 0x00 && frame[1] == 0x7e && frame[2] == 0x11 && frame[3] == 0x12);
+    /* A CANCEL after a complete frame must only discard a partial frame. */
+    encoded.push_back(0x1a);
+    transport.feed(&encoded[0], encoded.size());
+    assert(transport.popFrame(&frame));
 }
 
 static void testAshRejectsBadCrc() {
@@ -412,6 +528,7 @@ static void testFcmMessageConstruction() {
 }
 
 int main() {
+    GatewayTestPeer::reviewAndTransportRegressions();
     testAshRoundTrip();
     testAshRejectsBadCrc();
     testDevicePersistence();

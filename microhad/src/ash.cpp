@@ -59,6 +59,7 @@ void AshTransport::feed(const unsigned char* bytes, unsigned long length) {
             input_.clear();
         } else {
             input_.push_back(bytes[i]);
+            if (bytes[i] == kFlag) parse();
         }
     }
     parse();
