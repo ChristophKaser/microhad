@@ -612,6 +612,20 @@ static void testJoinStatusJson() {
     assert(gateway.statusJson().find("\"joining_preparing\":false") != std::string::npos);
 }
 
+static void testGatewayViewIsImmutable() {
+    Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+    GatewayView first = gateway.captureView();
+    std::vector<unsigned char> temperature;
+    temperature.push_back(0x10); temperature.push_back(0x27); /* 100.00 C */
+    assert(gateway.takeViewDirty());
+    assert(gateway.applyAttributeReport("0x00124b00000000fe", 0x0402, 0x0000, temperature));
+    GatewayView second = gateway.captureView();
+    assert(first.statusJson().find("0x00124b00000000fe") == std::string::npos);
+    assert(second.statusJson().find("0x00124b00000000fe") != std::string::npos);
+    assert(gateway.takeViewDirty());
+    assert(!gateway.takeViewDirty());
+}
+
 static void testRamLog() {
     std::string error;
     unlink("/tmp/microhad-zigbee-native.log");
@@ -780,6 +794,7 @@ int main() {
     testConfigureReportingEncoding();
     testInterviewDescriptorAndPlanning();
     testJoinStatusJson();
+    testGatewayViewIsImmutable();
     testRamLog();
     testFrameLogs();
     testRemoteKeyEvents();

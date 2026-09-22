@@ -236,7 +236,7 @@ Gateway::Gateway(const std::string& serialDevice, int serialBaud, const std::str
     online_(false), joinUntil_(0), joinPermitRenewAt_(0), pendingJoinSeconds_(0), joinPreparationStep_(0), joinPreparationDeadline_(0), ashSendSequence_(0), ashReceiveSequence_(0), ezspSequence_(0),
     ashAckDeadline_(0), ashRetries_(0), ezspVersion_(4), zdoSequence_(0), zclTransactionSequence_(0), ezspVersionNegotiated_(false), stackTokenWritingRequested_(false), networkInitRequested_(false), coordinatorInitializationStep_(0), resetDeadline_(0), nextHeartbeatAt_(0), serialRxBytes_(0), ashRxFrames_(0), networkForming_(false), networkFormationStep_(0), networkFormed_(false), networkPanId_(0),
     networkChannel_(0), interviewRequestInFlight_(false), interviewSendAccepted_(false), interviewEzspSequence_(0), interviewNode_(0xffff),
-    interviewDeadline_(0), nextMessageTag_(1), coordinatorIeeeAddressRequested_(false) {
+    interviewDeadline_(0), nextMessageTag_(1), coordinatorIeeeAddressRequested_(false), viewDirty_(true) {
 }
 
 Gateway::~Gateway() {
@@ -877,7 +877,7 @@ bool Gateway::applyAttributeReport(const std::string& ieeeAddress, unsigned shor
     double previousTemperature = device.temperatureCelsius;
     if (device.ieeeAddress.empty()) device.ieeeAddress = ieeeAddress;
     changed = applyZclAttribute(&device, cluster, attribute, value, time(0));
-    if (changed) { updateContactAlert(ieeeAddress, wasOpen); updateTemperatureAlert(device, hadTemperature, previousTemperature); saveState(); }
+    if (changed) { markViewDirty(); updateContactAlert(ieeeAddress, wasOpen); updateTemperatureAlert(device, hadTemperature, previousTemperature); saveState(); }
     return changed;
 }
 
@@ -959,19 +959,22 @@ std::vector<Device> Gateway::devices() const {
     return result;
 }
 
-std::string Gateway::statusJson() const {
+GatewayView::GatewayView() : online(false), networkForming(false), networkFormed(false), serialRxBytes(0), ashRxFrames(0),
+    joiningUntil(0), joiningPreparing(false), notificationsEnabled(false) {
+}
+
+std::string GatewayView::statusJson() const {
     std::ostringstream json;
-    json << "{\"online\":" << (online_ ? "true" : "false") << ",\"network_forming\":"
-         << (networkForming_ ? "true" : "false") << ",\"network_formed\":" << (networkFormed_ ? "true" : "false")
-         << ",\"serial_rx_bytes\":" << serialRxBytes_ << ",\"ash_rx_frames\":" << ashRxFrames_
-         << ",\"joining_until\":" << joinUntil_ << ",\"joining_preparing\":"
-         << (joinPreparationStep_ != 0 ? "true" : "false")
-         << ",\"notifications_enabled\":" << (notificationsEnabled() ? "true" : "false")
+    json << "{\"online\":" << (online ? "true" : "false") << ",\"network_forming\":"
+         << (networkForming ? "true" : "false") << ",\"network_formed\":" << (networkFormed ? "true" : "false")
+         << ",\"serial_rx_bytes\":" << serialRxBytes << ",\"ash_rx_frames\":" << ashRxFrames
+         << ",\"joining_until\":" << joiningUntil << ",\"joining_preparing\":"
+         << (joiningPreparing ? "true" : "false")
+         << ",\"notifications_enabled\":" << (notificationsEnabled ? "true" : "false")
          << ",\"devices\":[";
-    std::map<std::string, Device>::const_iterator it;
     bool first = true;
-    for (it = devices_.begin(); it != devices_.end(); ++it) {
-        const Device& device = it->second;
+    for (unsigned long deviceIndex = 0; deviceIndex < devices.size(); ++deviceIndex) {
+        const Device& device = devices[deviceIndex];
         if (!first) json << ',';
         first = false;
         json << "{\"ieee_address\":\"" << jsonEscape(device.ieeeAddress) << "\",\"name\":\""
@@ -1021,8 +1024,8 @@ std::string Gateway::statusJson() const {
         json << "]}";
     }
     json << "],\"scene_groups\":[";
-    for (unsigned long groupIndex=0; groupIndex<sceneGroups_.size(); ++groupIndex) {
-        const SceneGroup& group=sceneGroups_[groupIndex]; if (groupIndex) json << ',';
+    for (unsigned long groupIndex=0; groupIndex<sceneGroups.size(); ++groupIndex) {
+        const SceneGroup& group=sceneGroups[groupIndex]; if (groupIndex) json << ',';
         json << "{\"id\":" << group.id << ",\"name\":\"" << jsonEscape(group.name) << "\",\"members\":[";
         for (unsigned long member=0;member<group.members.size();++member) { if(member)json<<','; json << "\"" << jsonEscape(group.members[member]) << "\""; }
         json << "],\"scenes\":[";
@@ -1030,22 +1033,36 @@ std::string Gateway::statusJson() const {
         json << "]}";
     }
     json << "],\"scene_bindings\":[";
-    for (unsigned long bindingIndex=0;bindingIndex<sceneBindings_.size();++bindingIndex) { const RemoteSceneBinding& binding=sceneBindings_[bindingIndex]; if(bindingIndex)json<<','; json << "{\"ieee_address\":\"" << jsonEscape(binding.ieeeAddress) << "\",\"action\":\"" << jsonEscape(binding.action) << "\",\"group_id\":" << binding.groupId << ",\"off\":" << (binding.off?"true":"false") << "}"; }
+    for (unsigned long bindingIndex=0;bindingIndex<sceneBindings.size();++bindingIndex) { const RemoteSceneBinding& binding=sceneBindings[bindingIndex]; if(bindingIndex)json<<','; json << "{\"ieee_address\":\"" << jsonEscape(binding.ieeeAddress) << "\",\"action\":\"" << jsonEscape(binding.action) << "\",\"group_id\":" << binding.groupId << ",\"off\":" << (binding.off?"true":"false") << "}"; }
     json << "]}";
     return json.str();
 }
 
-std::string Gateway::logsJson() const {
+std::string GatewayView::logsJson() const {
     std::ostringstream json;
     unsigned long i;
     json << "{\"lines\":[";
-    for (i = 0; i < logs_.size(); ++i) {
+    for (i = 0; i < logs.size(); ++i) {
         if (i != 0) json << ',';
-        json << "\"" << jsonEscape(logs_[i]) << "\"";
+        json << "\"" << jsonEscape(logs[i]) << "\"";
     }
     json << "]}";
     return json.str();
 }
+
+GatewayView Gateway::captureView() const {
+    GatewayView view;
+    view.online = online_; view.networkForming = networkForming_; view.networkFormed = networkFormed_;
+    view.serialRxBytes = serialRxBytes_; view.ashRxFrames = ashRxFrames_; view.joiningUntil = joinUntil_;
+    view.joiningPreparing = joinPreparationStep_ != 0; view.notificationsEnabled = notificationsEnabled();
+    view.devices = devices(); view.sceneGroups = sceneGroups_; view.sceneBindings = sceneBindings_; view.logs = logs_;
+    return view;
+}
+
+bool Gateway::takeViewDirty() { bool dirty = viewDirty_; viewDirty_ = false; return dirty; }
+void Gateway::markViewDirty() { viewDirty_ = true; }
+std::string Gateway::statusJson() const { return captureView().statusJson(); }
+std::string Gateway::logsJson() const { return captureView().logsJson(); }
 
 void Gateway::loadLogs() {
     std::ifstream input("/tmp/microhad-zigbee-native.log");
@@ -1069,6 +1086,7 @@ void Gateway::addLog(const std::string& message) {
     line << time(0) << " " << rendered;
     logs_.push_back(line.str());
     while (logs_.size() > 512) logs_.erase(logs_.begin());
+    markViewDirty();
     saveLogs();
 }
 
@@ -2477,6 +2495,7 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
             Device& device = devices_[known->second];
             device.linkQuality = payload[12];
             device.lastSeen = time(0);
+            markViewDirty();
         }
     }
     if ((frameControl & 0x03) == 0x01) {

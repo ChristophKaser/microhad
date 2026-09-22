@@ -85,6 +85,28 @@ struct RemoteSceneBinding {
     RemoteSceneBinding();
 };
 
+/* Immutable data which may be safely handed from the coordinator to a web
+   worker.  It deliberately contains only dashboard-visible state. */
+class GatewayView {
+public:
+    bool online;
+    bool networkForming;
+    bool networkFormed;
+    unsigned long serialRxBytes;
+    unsigned long ashRxFrames;
+    long joiningUntil;
+    bool joiningPreparing;
+    bool notificationsEnabled;
+    std::vector<Device> devices;
+    std::vector<SceneGroup> sceneGroups;
+    std::vector<RemoteSceneBinding> sceneBindings;
+    std::vector<std::string> logs;
+
+    GatewayView();
+    std::string statusJson() const;
+    std::string logsJson() const;
+};
+
 class Gateway {
 public:
     Gateway(const std::string& serialDevice, int serialBaud, const std::string& runtimeDirectory,
@@ -116,6 +138,8 @@ public:
     bool notificationsEnabled() const;
     bool setNotificationsEnabled(bool enabled, std::string* error);
     std::vector<Device> devices() const;
+    GatewayView captureView() const;
+    bool takeViewDirty();
     std::string statusJson() const;
     std::string logsJson() const;
 
@@ -236,6 +260,7 @@ private:
     std::map<unsigned short, unsigned char> selectedScenes_; /* RAM only */
     std::map<unsigned short, bool> sceneGroupOff_;
     std::vector<std::string> logs_;
+    bool viewDirty_;
     bool configureSerial(std::string* error);
     bool writeBytes(const std::vector<unsigned char>& bytes);
     void sendAshReset();
@@ -317,6 +342,7 @@ private:
                      unsigned short bindingAddress, unsigned char apsSequence, unsigned char messageTag,
                      int lqi, int rssi, const std::vector<unsigned char>& message);
     void addLog(const std::string& message);
+    void markViewDirty();
     void addHexLog(const std::string& direction, const unsigned char* bytes, unsigned long length);
     void loadLogs();
     void saveLogs() const;

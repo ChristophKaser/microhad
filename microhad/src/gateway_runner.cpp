@@ -4,7 +4,7 @@
 #include <unistd.h>
 
 GatewayRunner::GatewayRunner(Gateway* gateway) : gateway_(gateway), commandHead_(0), commandTail_(0), started_(false),
-    startupComplete_(false), startupSucceeded_(false), stopping_(false), runtimeDirectory_(gateway->runtimeDirectory()) {
+    startupComplete_(false), startupSucceeded_(false), stopping_(false), currentView_(0), runtimeDirectory_(gateway->runtimeDirectory()) {
     pthread_mutex_init(&mutex_, 0);
     pthread_cond_init(&commandReady_, 0);
     pthread_cond_init(&startupReady_, 0);
@@ -12,6 +12,7 @@ GatewayRunner::GatewayRunner(Gateway* gateway) : gateway_(gateway), commandHead_
 
 GatewayRunner::~GatewayRunner() {
     stop();
+    if (currentView_ != 0) { delete currentView_->view; delete currentView_; }
     pthread_cond_destroy(&startupReady_);
     pthread_cond_destroy(&commandReady_);
     pthread_mutex_destroy(&mutex_);
@@ -66,6 +67,7 @@ void* GatewayRunner::runThread(void* opaque) {
 void GatewayRunner::run() {
     std::string error;
     bool ready = gateway_->start(&error);
+    if (ready) publishView(true);
     pthread_mutex_lock(&mutex_);
     startupComplete_ = true;
     startupSucceeded_ = ready;
@@ -86,18 +88,23 @@ void GatewayRunner::run() {
         if (command != 0) execute(command);
         if (stopNow) break;
         gateway_->poll();
-        updateSnapshots();
+        publishView(false);
         usleep(20000);
     }
     gateway_->stop();
 }
 
-void GatewayRunner::updateSnapshots() {
-    std::string status = gateway_->statusJson();
-    std::string logs = gateway_->logsJson();
+void GatewayRunner::publishView(bool force) {
+    if (!force && !gateway_->takeViewDirty()) return;
+    GatewayView* view = new GatewayView(gateway_->captureView());
+    if (force) gateway_->takeViewDirty();
     pthread_mutex_lock(&mutex_);
-    statusJson_ = status;
-    logsJson_ = logs;
+    ViewData* previous = currentView_;
+    currentView_ = new ViewData(view);
+    if (previous != 0) {
+        previous->retired = true;
+        if (previous->references == 0) { delete previous->view; delete previous; }
+    }
     pthread_mutex_unlock(&mutex_);
 }
 
@@ -122,7 +129,7 @@ void GatewayRunner::execute(Command* command) {
     else if (command->type == SceneOff) result = gateway_->turnOffSceneGroup(command->groupId, &error);
     else if (command->type == TestNotification) result = gateway_->sendTestNotification(&error);
     else if (command->type == NotificationSetting) result = gateway_->setNotificationsEnabled(command->hasLow, &error);
-    updateSnapshots();
+    publishView(true);
     pthread_mutex_lock(&command->mutex);
     command->result = result;
     command->error = error;
@@ -156,8 +163,25 @@ bool GatewayRunner::invoke(Command* command, std::string* error) {
     return result;
 }
 
-std::string GatewayRunner::statusJson() const { pthread_mutex_lock(&mutex_); std::string value = statusJson_; pthread_mutex_unlock(&mutex_); return value; }
-std::string GatewayRunner::logsJson() const { pthread_mutex_lock(&mutex_); std::string value = logsJson_; pthread_mutex_unlock(&mutex_); return value; }
+GatewayRunner::ViewLease::ViewLease(GatewayRunner* owner, ViewData* data) : data_(data), owner_(owner) {}
+GatewayRunner::ViewLease::~ViewLease() { owner_->releaseView(data_); }
+std::string GatewayRunner::ViewLease::statusJson() const { return data_->view->statusJson(); }
+std::string GatewayRunner::ViewLease::logsJson() const { return data_->view->logsJson(); }
+
+GatewayRunner::ViewLease* GatewayRunner::acquireView() {
+    pthread_mutex_lock(&mutex_);
+    ViewData* data = currentView_;
+    if (data != 0) ++data->references;
+    pthread_mutex_unlock(&mutex_);
+    return data == 0 ? 0 : new ViewLease(this, data);
+}
+
+void GatewayRunner::releaseView(ViewData* data) {
+    pthread_mutex_lock(&mutex_);
+    --data->references;
+    if (data->retired && data->references == 0) { delete data->view; delete data; }
+    pthread_mutex_unlock(&mutex_);
+}
 std::string GatewayRunner::runtimeDirectory() const { return runtimeDirectory_; }
 
 bool GatewayRunner::setJoining(unsigned int seconds, std::string* error) { Command command; command.type = Join; command.seconds = seconds; return invoke(&command, error); }

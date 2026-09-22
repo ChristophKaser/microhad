@@ -5,15 +5,30 @@
 #include <string>
 
 class Gateway;
+class GatewayView;
 
 class GatewayRunner {
+    struct ViewData;
 public:
+    class ViewLease {
+    public:
+        ~ViewLease();
+        std::string statusJson() const;
+        std::string logsJson() const;
+    private:
+        friend class GatewayRunner;
+        ViewData* data_;
+        GatewayRunner* owner_;
+        ViewLease(GatewayRunner* owner, ViewData* data);
+        ViewLease(const ViewLease&);
+        ViewLease& operator=(const ViewLease&);
+    };
+
     GatewayRunner(Gateway* gateway);
     ~GatewayRunner();
     bool start(std::string* error);
     void stop();
-    std::string statusJson() const;
-    std::string logsJson() const;
+    ViewLease* acquireView();
     std::string runtimeDirectory() const;
     bool setJoining(unsigned int seconds, std::string* error);
     bool createFreshNetwork(std::string* error);
@@ -71,14 +86,20 @@ private:
     bool startupSucceeded_;
     bool stopping_;
     std::string startupError_;
-    std::string statusJson_;
-    std::string logsJson_;
+    struct ViewData {
+        GatewayView* view;
+        unsigned long references;
+        bool retired;
+        ViewData(GatewayView* value) : view(value), references(0), retired(false) {}
+    };
+    ViewData* currentView_;
     std::string runtimeDirectory_;
     static void* runThread(void* opaque);
     void run();
     bool invoke(Command* command, std::string* error);
     void execute(Command* command);
-    void updateSnapshots();
+    void publishView(bool force);
+    void releaseView(ViewData* data);
 };
 
 #endif

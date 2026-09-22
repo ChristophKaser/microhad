@@ -344,7 +344,9 @@ void HttpServer::handleClient(int clientFd) {
 
 void HttpServer::handleRequest(int clientFd, const std::string& request) {
     if (request.find("GET /api/status ") == 0) {
-        writeResponse(clientFd, 200, "application/json", gateway_->statusJson());
+        GatewayRunner::ViewLease* view = gateway_->acquireView();
+        if (view == 0) writeResponse(clientFd, 503, "application/json", "{\"ok\":false,\"error\":\"coordinator is unavailable\"}");
+        else { std::string body = view->statusJson(); delete view; writeResponse(clientFd, 200, "application/json", body); }
     } else if (request.find("GET /api/scenes/config ") == 0) {
         std::ifstream input((gateway_->runtimeDirectory() + "/scenes.conf").c_str());
         std::string content((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
@@ -353,7 +355,9 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
         writeResponse(clientFd, 200, "application/json", "{\"ok\":true,\"state\":\"restarting\"}");
         kill(getpid(), SIGTERM);
     } else if (request.find("GET /api/logs ") == 0) {
-        writeResponse(clientFd, 200, "application/json", gateway_->logsJson());
+        GatewayRunner::ViewLease* view = gateway_->acquireView();
+        if (view == 0) writeResponse(clientFd, 503, "application/json", "{\"ok\":false,\"error\":\"coordinator is unavailable\"}");
+        else { std::string body = view->logsJson(); delete view; writeResponse(clientFd, 200, "application/json", body); }
     } else if (request.find("POST /api/join ") == 0) {
         std::string error;
         if (gateway_->setJoining(300, &error)) writeResponse(clientFd, 200, "application/json", "{\"ok\":true,\"seconds\":300,\"state\":\"preparing\"}");
