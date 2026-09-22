@@ -6,7 +6,36 @@
 #include <fstream>
 #include <sstream>
 #include <ctime>
+#include <cstdio>
 #include <sys/stat.h>
+#include <vector>
+
+namespace {
+const unsigned long kMaximumSubscriptions = 32;
+
+bool validEndpoint(const std::string& endpoint) {
+    const std::string prefix = "https://";
+    std::string::size_type authorityEnd;
+    unsigned long i;
+    if (endpoint.compare(0, prefix.size(), prefix) != 0 || endpoint.size() <= prefix.size()) return false;
+    authorityEnd = endpoint.find('/', prefix.size());
+    if (authorityEnd == prefix.size()) return false;
+    if (authorityEnd == std::string::npos) authorityEnd = endpoint.size();
+    if (endpoint.find('@', prefix.size()) < authorityEnd) return false;
+    for (i = 0; i < endpoint.size(); ++i)
+        if (static_cast<unsigned char>(endpoint[i]) <= 0x20 || static_cast<unsigned char>(endpoint[i]) == 0x7f) return false;
+    return true;
+}
+
+bool validSubscription(const std::string& subscriptionJson, std::string* endpoint) {
+    std::string publicText, authText, clientPublic, auth;
+    return jsonStringField(subscriptionJson, "endpoint", endpoint) && validEndpoint(*endpoint) &&
+           jsonStringField(subscriptionJson, "p256dh", &publicText) &&
+           jsonStringField(subscriptionJson, "auth", &authText) &&
+           base64UrlDecode(publicText, &clientPublic) && clientPublic.size() == 65 &&
+           base64UrlDecode(authText, &auth) && auth.size() == 16;
+}
+}
 
 #ifdef MICROHAD_MIPS_TARGET
 extern "C" int microhad_vapid_generate(unsigned char* publicKey, unsigned char* privateKey);
@@ -66,15 +95,41 @@ bool WebPushStore::loadOrCreateKey(std::string* error) {
 }
 
 bool WebPushStore::addSubscription(const std::string& subscriptionJson, std::string* error) {
+    std::string endpoint;
+    std::string filename = runtimeDirectory_ + "/web-push-subscriptions.ndjson";
+    std::string temporary = filename + ".tmp";
+    std::ifstream input(filename.c_str());
+    std::vector<std::string> subscriptions;
+    std::string existing, existingEndpoint;
+    bool replaced = false;
     if (subscriptionJson.empty() || subscriptionJson.size() > 8192) {
         *error = "invalid Browser Push subscription";
         return false;
     }
-    std::ofstream output((runtimeDirectory_ + "/web-push-subscriptions.ndjson").c_str(), std::ios::app);
+    if (!validSubscription(subscriptionJson, &endpoint)) {
+        *error = "invalid Browser Push subscription";
+        return false;
+    }
+    while (std::getline(input, existing)) {
+        if (!validSubscription(existing, &existingEndpoint)) continue;
+        if (existingEndpoint == endpoint) {
+            subscriptions.push_back(subscriptionJson);
+            replaced = true;
+        } else subscriptions.push_back(existing);
+    }
+    if (!replaced) {
+        if (subscriptions.size() >= kMaximumSubscriptions) {
+            *error = "Browser Push subscription limit reached";
+            return false;
+        }
+        subscriptions.push_back(subscriptionJson);
+    }
+    std::ofstream output(temporary.c_str());
     if (!output) { *error = "cannot persist Browser Push subscription"; return false; }
-    output << subscriptionJson << "\n";
+    for (unsigned long i = 0; i < subscriptions.size(); ++i) output << subscriptions[i] << "\n";
     output.close();
-    if (!output || chmod((runtimeDirectory_ + "/web-push-subscriptions.ndjson").c_str(), 0600) != 0) {
+    if (!output || chmod(temporary.c_str(), 0600) != 0 || rename(temporary.c_str(), filename.c_str()) != 0) {
+        remove(temporary.c_str());
         *error = "cannot persist Browser Push subscription";
         return false;
     }

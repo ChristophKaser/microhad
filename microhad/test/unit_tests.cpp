@@ -5,6 +5,7 @@
 #include "fcm.h"
 #include "notification_worker.h"
 #include "json_util.h"
+#include "web_push.h"
 
 #include <cassert>
 #include <cstdio>
@@ -706,6 +707,39 @@ static void testNotificationAuditDoesNotWriteRuntimeFlash() {
     rmdir(directory.c_str());
 }
 
+static std::string pushSubscription(const std::string& endpoint, char publicKeyTail) {
+    std::string publicKey(65, '\0');
+    std::string auth(16, '\0');
+    publicKey[0] = 4;
+    publicKey[64] = publicKeyTail;
+    auth[15] = publicKeyTail;
+    return "{\"endpoint\":\"" + endpoint + "\",\"keys\":{\"p256dh\":\"" + base64UrlEncode(publicKey) +
+           "\",\"auth\":\"" + base64UrlEncode(auth) + "\"}}";
+}
+
+static void testBrowserPushSubscriptionBounds() {
+    std::ostringstream path;
+    std::string error, content;
+    path << "/tmp/microhad-zigbee-push-test-" << static_cast<long>(getpid());
+    std::string directory = path.str();
+    assert(ensureDirectory(directory, &error));
+    WebPushStore store(directory);
+    assert(store.addSubscription(pushSubscription("https://push.example.test/a", 1), &error));
+    assert(store.addSubscription(pushSubscription("https://push.example.test/a", 2), &error));
+    assert(readTextFile(directory + "/web-push-subscriptions.ndjson", &content));
+    assert(content.find("https://push.example.test/a") != std::string::npos && content.find("\n") == content.size() - 1);
+    assert(!store.addSubscription(pushSubscription("http://push.example.test/a", 3), &error));
+    for (int i = 0; i < 31; ++i) {
+        std::ostringstream endpoint;
+        endpoint << "https://push.example.test/" << i;
+        assert(store.addSubscription(pushSubscription(endpoint.str(), static_cast<char>(i + 4)), &error));
+    }
+    assert(!store.addSubscription(pushSubscription("https://push.example.test/overflow", 40), &error));
+    assert(error == "Browser Push subscription limit reached");
+    unlink((directory + "/web-push-subscriptions.ndjson").c_str());
+    rmdir(directory.c_str());
+}
+
 static void testFcmMessageConstruction() {
     FirebaseServiceAccount account;
     std::string error;
@@ -754,6 +788,7 @@ int main() {
     testContactNotificationIsDeferred();
     testNotificationTogglePersistence();
     testNotificationAuditDoesNotWriteRuntimeFlash();
+    testBrowserPushSubscriptionBounds();
     testFcmMessageConstruction();
     testSharedJsonUtilities();
     printf("unit tests passed\n");
