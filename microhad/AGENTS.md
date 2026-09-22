@@ -93,3 +93,7 @@ serialized for sleepy battery devices.
 Coordinator logs are intentionally kept in `/tmp/microhad-zigbee-native.log`, a
 bounded 512-line RAM-only ring. Permanent radio captures belong under the
 ignored `diagnostics/` directory and must never be committed.
+
+Warning: daily operation must not write logs, diagnostics, or other
+high-frequency state beneath `/tuya` (flash). Keep transient output in `/tmp`
+and verify new runtime behavior does not introduce flash write cycles.
