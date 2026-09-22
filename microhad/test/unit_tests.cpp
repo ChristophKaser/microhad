@@ -292,8 +292,20 @@ public:
         incoming[22] = 43; /* transaction sequence */
         incoming[24] = 0x00; /* group 0x0100, right */
         gateway.handleIncomingMessage(incoming);
+        incoming[18] = 8;
+        incoming[22] = 44;
+        incoming[23] = 0x08;
+        incoming[24] = 0x01; incoming[25] = 13; incoming[26] = 0;
+        gateway.handleIncomingMessage(incoming);
+        incoming[18] = 7;
+        incoming[22] = 45;
+        incoming[23] = 0x09;
+        incoming[24] = 0; incoming[25] = 0;
+        gateway.handleIncomingMessage(incoming);
         return gateway.logsJson().find("action=arrow_left_click") != std::string::npos &&
                gateway.logsJson().find("action=arrow_right_click") != std::string::npos &&
+               gateway.logsJson().find("action=arrow_left_hold") != std::string::npos &&
+               gateway.logsJson().find("action=arrow_left_release") != std::string::npos &&
                gateway.logsJson().find("payload=182a0b0700") != std::string::npos &&
                gateway.logsJson().find("Configure reporting response from 0x00124b0000000022: cluster 0x5") == std::string::npos;
     }

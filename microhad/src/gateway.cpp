@@ -618,11 +618,14 @@ bool Gateway::logRemoteKeyEvent(unsigned short sender, unsigned short cluster, u
             advertisesCluster = true; break;
         }
     }
-    /* STYRBAR uses an IKEA manufacturer-specific Scenes command even though
+    /* STYRBAR uses IKEA manufacturer-specific Scenes commands even though
        its descriptor does not list the Scenes cluster as an output cluster. */
-    bool styrbarSceneCommand = cluster == 0x0005 && manufacturer == 0x117c && command == 0x07 && arguments.size() >= 4;
+    bool styrbarSceneCommand = cluster == 0x0005 && manufacturer == 0x117c &&
+        ((command == 0x07 && arguments.size() >= 4) ||
+         (command == 0x08 && arguments.size() >= 3) || command == 0x09);
     if (!advertisesCluster && !styrbarSceneCommand) return false;
     const char* action = 0;
+    std::string releaseAction;
     unsigned short sceneGroup = 0;
     unsigned char sceneId = 0;
     if (cluster == 0x0006) {
@@ -635,10 +638,27 @@ bool Gateway::logRemoteKeyEvent(unsigned short sender, unsigned short cluster, u
         else if (command == 0x02 || command == 0x06) action = "step";
         else if (command == 0x03 || command == 0x07) action = "stop";
     } else if (styrbarSceneCommand) {
-        sceneGroup = static_cast<unsigned short>(arguments[0]) | (static_cast<unsigned short>(arguments[1]) << 8);
-        sceneId = arguments[2];
-        if (sceneGroup == 0x0101 && sceneId == 13) action = "arrow_left_click";
-        else if (sceneGroup == 0x0100 && sceneId == 13) action = "arrow_right_click";
+        if (command == 0x07) {
+            sceneGroup = static_cast<unsigned short>(arguments[0]) | (static_cast<unsigned short>(arguments[1]) << 8);
+            sceneId = arguments[2];
+            if (sceneGroup == 0x0101 && sceneId == 13) action = "arrow_left_click";
+            else if (sceneGroup == 0x0100 && sceneId == 13) action = "arrow_right_click";
+        } else if (command == 0x08) {
+            if (arguments[0] == 0x01) {
+                action = "arrow_left_hold";
+                remoteSceneHolds_[sender] = "arrow_left_release";
+            } else if (arguments[0] == 0x00) {
+                action = "arrow_right_hold";
+                remoteSceneHolds_[sender] = "arrow_right_release";
+            }
+        } else if (command == 0x09) {
+            std::map<unsigned short, std::string>::iterator hold = remoteSceneHolds_.find(sender);
+            if (hold != remoteSceneHolds_.end()) {
+                releaseAction = hold->second;
+                remoteSceneHolds_.erase(hold);
+                action = releaseAction.c_str();
+            }
+        }
     }
     if (action == 0) return false;
     std::ostringstream event;
@@ -646,7 +666,8 @@ bool Gateway::logRemoteKeyEvent(unsigned short sender, unsigned short cluster, u
           << " action=" << action << " cluster=0x" << std::hex << cluster << " command=0x"
           << static_cast<unsigned int>(command);
     if (!arguments.empty()) event << " value=" << std::dec << static_cast<unsigned int>(arguments[0]);
-    if (cluster == 0x0005) event << " group=0x" << std::hex << sceneGroup << " scene=" << std::dec << static_cast<unsigned int>(sceneId);
+    if (cluster == 0x0005 && command == 0x07)
+        event << " group=0x" << std::hex << sceneGroup << " scene=" << std::dec << static_cast<unsigned int>(sceneId);
     addLog(event.str());
     return true;
 }
