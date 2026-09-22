@@ -321,6 +321,16 @@ public:
             "T\t1\t1\t0xlight1\t1\t50\nT\t1\t1\t0xlight1\t0\t-1\n";
         return !gateway.setSceneConfiguration(configuration, &error) && error == "scene contains a duplicate light state";
     }
+    static bool sceneBusyDoesNotAdvanceSelection() {
+        Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+        Gateway::SceneRetry& retry = gateway.sceneRetries_[1];
+        std::vector<unsigned char> reply(6, 0);
+        gateway.ezspVersion_ = 8;
+        retry.inFlight = true; retry.ezspSequence = 42; retry.sceneId = 2; retry.sentSceneId = 2;
+        reply[0] = 42; reply[3] = 0x38; reply[4] = 0; reply[5] = 0xa1; /* EMBER_NETWORK_BUSY */
+        gateway.handleEzspFrame(reply);
+        return !retry.inFlight && retry.attempts == 1 && retry.retryAt > time(0) && gateway.selectedScenes_.empty();
+    }
 };
 
 static void testAshRoundTrip() {
@@ -631,6 +641,10 @@ static void testSceneConfigurationRejectsDuplicateStates() {
     assert(GatewayTestPeer::rejectsDuplicateSceneStates());
 }
 
+static void testSceneBusyDoesNotAdvanceSelection() {
+    assert(GatewayTestPeer::sceneBusyDoesNotAdvanceSelection());
+}
+
 static void testContactNotificationIsDeferred() {
     std::ostringstream path;
     std::string error;
@@ -706,6 +720,7 @@ int main() {
     testRemoteKeyEvents();
     testStyrbarArrowEvents();
     testSceneConfigurationRejectsDuplicateStates();
+    testSceneBusyDoesNotAdvanceSelection();
     testContactNotificationIsDeferred();
     testNotificationTogglePersistence();
     testFcmMessageConstruction();

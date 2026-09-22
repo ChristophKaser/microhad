@@ -220,21 +220,34 @@ private:
     std::map<std::string, long> nextContactAlertAt_;
     std::vector<SceneGroup> sceneGroups_;
     std::vector<RemoteSceneBinding> sceneBindings_;
-    std::map<std::string, unsigned char> sceneCursor_; /* RAM only: remote/action */
+    struct SceneRetry {
+        bool off;
+        bool inFlight;
+        bool sentOff;
+        unsigned char sceneId;
+        unsigned char sentSceneId;
+        unsigned char ezspSequence;
+        unsigned char attempts;
+        long sentAt;
+        long retryAt;
+        SceneRetry();
+    };
+    std::map<unsigned short, SceneRetry> sceneRetries_;
+    std::map<unsigned short, unsigned char> selectedScenes_; /* RAM only */
     std::map<unsigned short, bool> sceneGroupOff_;
     std::vector<std::string> logs_;
     bool configureSerial(std::string* error);
     bool writeBytes(const std::vector<unsigned char>& bytes);
     void sendAshReset();
-    void sendEzspCommand(unsigned short command, const std::vector<unsigned char>& payload);
+    unsigned char sendEzspCommand(unsigned short command, const std::vector<unsigned char>& payload);
     void continueCoordinatorInitialization();
     unsigned short coordinatorInitializationCommand() const;
     void enableStackTokenWriting();
     void sendApsUnicast(unsigned short destination, unsigned short profile, unsigned short cluster,
                         unsigned char sourceEndpoint, unsigned char destinationEndpoint,
                         const std::vector<unsigned char>& message, unsigned char messageTag = 0);
-    void sendApsMulticast(unsigned short groupId, unsigned short profile, unsigned short cluster,
-                          unsigned char sourceEndpoint, const std::vector<unsigned char>& message);
+    unsigned char sendApsMulticast(unsigned short groupId, unsigned short profile, unsigned short cluster,
+                                   unsigned char sourceEndpoint, const std::vector<unsigned char>& message);
     void sendJoinPermit(unsigned int duration);
     void beginJoinWindow(unsigned int seconds);
     void handleAshFrame(const std::vector<unsigned char>& frame);
@@ -283,6 +296,9 @@ private:
     bool sceneMemberNative(const Device& device, const Scene& scene, const SceneLightState& state) const;
     void provisionSceneGroup(const SceneGroup& group);
     void dispatchRemoteSceneAction(const std::string& ieeeAddress, const std::string& action);
+    void pollSceneRetries();
+    bool sendSceneRetry(unsigned short groupId, SceneRetry* retry);
+    void completeSceneRetry(unsigned short groupId, SceneRetry* retry);
     SceneGroup* findSceneGroup(unsigned short id);
     const SceneGroup* findSceneGroup(unsigned short id) const;
     void loadScenes();
