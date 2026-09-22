@@ -7,14 +7,18 @@
 #include <mbedtls/ssl.h>
 #include <mbedtls/x509_crt.h>
 
+/* This includes the request line, headers, separator, and body. */
+#define MICROHAD_HTTPS_REQUEST_CAPACITY 24576
+
 int microhad_https_post(const char* host, const char* path, const char* headers, const char* body,
-                    const char* ca_bundle, char* response, unsigned long response_capacity,
+                    unsigned long body_length, const char* ca_bundle, char* response, unsigned long response_capacity,
                     unsigned long* response_length) {
     mbedtls_net_context server; mbedtls_ssl_context ssl; mbedtls_ssl_config conf; mbedtls_x509_crt ca;
-    mbedtls_ctr_drbg_context drbg; mbedtls_entropy_context entropy; char* request = 0; int result = -1; size_t offset = 0;
+    mbedtls_ctr_drbg_context drbg; mbedtls_entropy_context entropy; char* request = 0; int result = -1; int header_length; size_t offset = 0; unsigned long request_length;
     mbedtls_net_init(&server); mbedtls_ssl_init(&ssl); mbedtls_ssl_config_init(&conf); mbedtls_x509_crt_init(&ca);
     mbedtls_ctr_drbg_init(&drbg); mbedtls_entropy_init(&entropy);
-    request = (char*)malloc(24576);
+    if (host == 0 || path == 0 || headers == 0 || body == 0 || response == 0 || response_length == 0 || response_capacity == 0) goto done;
+    request = (char*)malloc(MICROHAD_HTTPS_REQUEST_CAPACITY);
     if (request == 0) goto done;
     if (mbedtls_ctr_drbg_seed(&drbg, mbedtls_entropy_func, &entropy, (const unsigned char*)"microhad-https", 10) != 0) goto done;
     if (mbedtls_x509_crt_parse_file(&ca, ca_bundle) != 0 || mbedtls_net_connect(&server, host, "443", MBEDTLS_NET_PROTO_TCP) != 0) goto done;
@@ -25,8 +29,14 @@ int microhad_https_post(const char* host, const char* path, const char* headers,
     mbedtls_ssl_set_bio(&ssl, &server, mbedtls_net_send, mbedtls_net_recv, 0);
     while ((result = mbedtls_ssl_handshake(&ssl)) != 0) if (result != MBEDTLS_ERR_SSL_WANT_READ && result != MBEDTLS_ERR_SSL_WANT_WRITE) goto done;
     if (mbedtls_ssl_get_verify_result(&ssl) != 0) goto done;
-    if (snprintf(request, sizeof(request), "POST %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\nContent-Length: %lu\r\n%s\r\n%s", path, host, (unsigned long)strlen(body), headers, body) >= (int)sizeof(request)) goto done;
-    while (offset < strlen(request)) { result = mbedtls_ssl_write(&ssl, (const unsigned char*)request + offset, strlen(request) - offset); if (result > 0) offset += (size_t)result; else if (result != MBEDTLS_ERR_SSL_WANT_READ && result != MBEDTLS_ERR_SSL_WANT_WRITE) goto done; }
+    header_length = snprintf(request, MICROHAD_HTTPS_REQUEST_CAPACITY,
+                             "POST %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\nContent-Length: %lu\r\n%s\r\n",
+                             path, host, body_length, headers);
+    if (header_length < 0 || header_length >= MICROHAD_HTTPS_REQUEST_CAPACITY ||
+        body_length > MICROHAD_HTTPS_REQUEST_CAPACITY - (unsigned long)header_length) goto done;
+    memcpy(request + header_length, body, body_length);
+    request_length = (unsigned long)header_length + body_length;
+    while (offset < request_length) { result = mbedtls_ssl_write(&ssl, (const unsigned char*)request + offset, request_length - offset); if (result > 0) offset += (size_t)result; else if (result != MBEDTLS_ERR_SSL_WANT_READ && result != MBEDTLS_ERR_SSL_WANT_WRITE) goto done; }
     *response_length = 0;
     for (;;) { result = mbedtls_ssl_read(&ssl, (unsigned char*)response + *response_length, response_capacity - *response_length); if (result > 0) *response_length += (unsigned long)result; else if (result == 0 || result == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY) { result = 0; break; } else if (result != MBEDTLS_ERR_SSL_WANT_READ && result != MBEDTLS_ERR_SSL_WANT_WRITE) goto done; if (*response_length == response_capacity) goto done; }
 done:
