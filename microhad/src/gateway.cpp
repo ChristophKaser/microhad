@@ -712,6 +712,8 @@ bool Gateway::setSceneConfiguration(const std::string& encoded, std::string* err
             for (unsigned long k=0;k<scene.states.size();++k) {
                 if (std::find(groups[i].members.begin(),groups[i].members.end(),scene.states[k].ieeeAddress)==groups[i].members.end() ||
                     scene.states[k].brightnessPercent < -1 || scene.states[k].brightnessPercent > 100) { *error="invalid scene light state"; return false; }
+                for (unsigned long previous=0; previous<k; ++previous)
+                    if (scene.states[previous].ieeeAddress == scene.states[k].ieeeAddress) { *error="scene contains a duplicate light state"; return false; }
             }
         }
     }
@@ -807,7 +809,10 @@ bool Gateway::logRemoteKeyEvent(unsigned short sender, unsigned short cluster, u
     if (cluster == 0x0005 && command == 0x07)
         event << " group=0x" << std::hex << sceneGroup << " scene=" << std::dec << static_cast<unsigned int>(sceneId);
     addLog(event.str());
-    dispatchRemoteSceneAction(device->second.ieeeAddress, action);
+    std::string bindingAction = action;
+    if (bindingAction == "arrow_left_click") bindingAction = "arrow_left";
+    else if (bindingAction == "arrow_right_click") bindingAction = "arrow_right";
+    dispatchRemoteSceneAction(device->second.ieeeAddress, bindingAction);
     return true;
 }
 
@@ -1355,7 +1360,6 @@ void Gateway::sendApsMulticast(unsigned short groupId, unsigned short profile, u
                                unsigned char sourceEndpoint, const std::vector<unsigned char>& message) {
     std::vector<unsigned char> payload;
     static unsigned char apsSequence = 0;
-    payload.push_back(static_cast<unsigned char>(groupId)); payload.push_back(static_cast<unsigned char>(groupId >> 8));
     payload.push_back(static_cast<unsigned char>(profile)); payload.push_back(static_cast<unsigned char>(profile >> 8));
     payload.push_back(static_cast<unsigned char>(cluster)); payload.push_back(static_cast<unsigned char>(cluster >> 8));
     payload.push_back(sourceEndpoint); payload.push_back(0xff); /* group destination has no endpoint */

@@ -309,6 +309,18 @@ public:
                gateway.logsJson().find("payload=182a0b0700") != std::string::npos &&
                gateway.logsJson().find("Configure reporting response from 0x00124b0000000022: cluster 0x5") == std::string::npos;
     }
+    static bool rejectsDuplicateSceneStates() {
+        Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+        std::string error;
+        gateway.devices_["0xlight1"].ieeeAddress = "0xlight1";
+        gateway.devices_["0xlight1"].hasLight = true;
+        gateway.devices_["0xlight2"].ieeeAddress = "0xlight2";
+        gateway.devices_["0xlight2"].hasLight = true;
+        const char* configuration =
+            "G\t1\tTest\nM\t1\t0xlight1\nM\t1\t0xlight2\nS\t1\t1\tScene\n"
+            "T\t1\t1\t0xlight1\t1\t50\nT\t1\t1\t0xlight1\t0\t-1\n";
+        return !gateway.setSceneConfiguration(configuration, &error) && error == "scene contains a duplicate light state";
+    }
 };
 
 static void testAshRoundTrip() {
@@ -615,6 +627,10 @@ static void testStyrbarArrowEvents() {
     unlink("/tmp/microhad-zigbee-native.log");
 }
 
+static void testSceneConfigurationRejectsDuplicateStates() {
+    assert(GatewayTestPeer::rejectsDuplicateSceneStates());
+}
+
 static void testContactNotificationIsDeferred() {
     std::ostringstream path;
     std::string error;
@@ -689,6 +705,7 @@ int main() {
     testFrameLogs();
     testRemoteKeyEvents();
     testStyrbarArrowEvents();
+    testSceneConfigurationRejectsDuplicateStates();
     testContactNotificationIsDeferred();
     testNotificationTogglePersistence();
     testFcmMessageConstruction();
