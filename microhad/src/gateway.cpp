@@ -20,6 +20,10 @@
 
 EndpointDescriptor::EndpointDescriptor() : endpoint(0), profileId(0), deviceId(0), deviceVersion(0) {
 }
+SceneLightState::SceneLightState() : on(false), brightnessPercent(-1) {}
+Scene::Scene() : id(0) {}
+SceneGroup::SceneGroup() : id(0) {}
+RemoteSceneBinding::RemoteSceneBinding() : groupId(0), off(false) {}
 
 Device::Device() : networkAddress(0xffff), kind("generic"), contactOpen(false), hasContact(false), hasTemperature(false),
                    temperatureCelsius(0), hasHumidity(false), humidityPercent(0), hasOccupancy(false), occupied(false),
@@ -589,6 +593,140 @@ bool Gateway::setLightState(const std::string& ieeeAddress, const std::string& s
     return true;
 }
 
+SceneGroup* Gateway::findSceneGroup(unsigned short id) {
+    for (unsigned long i = 0; i < sceneGroups_.size(); ++i) if (sceneGroups_[i].id == id) return &sceneGroups_[i];
+    return 0;
+}
+const SceneGroup* Gateway::findSceneGroup(unsigned short id) const {
+    for (unsigned long i = 0; i < sceneGroups_.size(); ++i) if (sceneGroups_[i].id == id) return &sceneGroups_[i];
+    return 0;
+}
+
+bool Gateway::sceneMemberNative(const Device& device, const Scene&, const SceneLightState& state) const {
+    unsigned char endpoint;
+    if (!endpointForCluster(device, 0x0004, &endpoint) || !endpointForCluster(device, 0x0005, &endpoint) ||
+        !endpointForCluster(device, 0x0006, &endpoint)) return false;
+    return state.brightnessPercent < 0 || endpointForCluster(device, 0x0008, &endpoint);
+}
+
+void Gateway::provisionSceneGroup(const SceneGroup& group) {
+    for (unsigned long i = 0; i < group.members.size(); ++i) {
+        std::map<std::string, Device>::const_iterator found = devices_.find(group.members[i]);
+        unsigned char endpoint;
+        if (found == devices_.end() || found->second.networkAddress == 0xffff ||
+            !endpointForCluster(found->second, 0x0004, &endpoint)) continue;
+        std::vector<unsigned char> add;
+        add.push_back(0x11); add.push_back(++zclTransactionSequence_); add.push_back(0x00);
+        add.push_back(static_cast<unsigned char>(group.id)); add.push_back(static_cast<unsigned char>(group.id >> 8));
+        add.push_back(static_cast<unsigned char>(group.name.size())); add.insert(add.end(), group.name.begin(), group.name.end());
+        sendApsUnicast(found->second.networkAddress, 0x0104, 0x0004, 1, endpoint, add);
+        for (unsigned long j = 0; j < group.scenes.size(); ++j) {
+            const Scene& scene = group.scenes[j];
+            const SceneLightState* state = 0;
+            for (unsigned long k = 0; k < scene.states.size(); ++k)
+                if (scene.states[k].ieeeAddress == group.members[i]) { state = &scene.states[k]; break; }
+            if (state == 0 || !sceneMemberNative(found->second, scene, *state)) continue;
+            std::vector<unsigned char> command;
+            command.push_back(0x11); command.push_back(++zclTransactionSequence_); command.push_back(0x00);
+            command.push_back(static_cast<unsigned char>(group.id)); command.push_back(static_cast<unsigned char>(group.id >> 8));
+            command.push_back(scene.id); command.push_back(0); command.push_back(0); /* transition */
+            command.push_back(static_cast<unsigned char>(scene.name.size())); command.insert(command.end(), scene.name.begin(), scene.name.end());
+            command.push_back(0x06); command.push_back(0); command.push_back(1); command.push_back(state->on ? 1 : 0);
+            if (state->brightnessPercent >= 0) { command.push_back(0x08); command.push_back(0); command.push_back(1); command.push_back(static_cast<unsigned char>((state->brightnessPercent * 254 + 50) / 100)); }
+            sendApsUnicast(found->second.networkAddress, 0x0104, 0x0005, 1, endpoint, command);
+        }
+    }
+}
+
+bool Gateway::activateScene(unsigned short groupId, unsigned char sceneId, std::string* error) {
+    SceneGroup* group = findSceneGroup(groupId);
+    Scene* scene = 0;
+    bool multicast = false;
+    if (group == 0) { *error = "scene group not found"; return false; }
+    for (unsigned long i = 0; i < group->scenes.size(); ++i) if (group->scenes[i].id == sceneId) { scene = &group->scenes[i]; break; }
+    if (scene == 0) { *error = "scene not found"; return false; }
+    if (!online_ || !networkFormed_ || coordinatorInitializationStep_ != 0) { *error = "Zigbee network is not ready"; return false; }
+    for (unsigned long i = 0; i < scene->states.size(); ++i) {
+        std::map<std::string, Device>::const_iterator d = devices_.find(scene->states[i].ieeeAddress);
+        if (d == devices_.end() || d->second.networkAddress == 0xffff) { *error = "scene member is unavailable"; return false; }
+        if (sceneMemberNative(d->second, *scene, scene->states[i])) multicast = true;
+    }
+    if (multicast) { std::vector<unsigned char> recall; recall.push_back(0x11); recall.push_back(++zclTransactionSequence_); recall.push_back(0x05); recall.push_back(static_cast<unsigned char>(groupId)); recall.push_back(static_cast<unsigned char>(groupId >> 8)); recall.push_back(sceneId); sendApsMulticast(groupId, 0x0104, 0x0005, 1, recall); }
+    for (unsigned long i = 0; i < scene->states.size(); ++i) {
+        std::map<std::string, Device>::const_iterator d = devices_.find(scene->states[i].ieeeAddress);
+        if (!sceneMemberNative(d->second, *scene, scene->states[i]))
+            setLightState(scene->states[i].ieeeAddress, scene->states[i].on ? "on" : "off", scene->states[i].on ? scene->states[i].brightnessPercent : -1, error);
+    }
+    sceneGroupOff_[groupId] = false;
+    saveSceneRuntime();
+    addLog(std::string("Scene recalled: ") + group->name + " / " + scene->name + (multicast ? " (groupcast)" : " (unicast fallback)"));
+    return true;
+}
+
+bool Gateway::turnOffSceneGroup(unsigned short groupId, std::string* error) {
+    SceneGroup* group = findSceneGroup(groupId); bool multicast = false;
+    if (group == 0) { *error = "scene group not found"; return false; }
+    if (!online_ || !networkFormed_ || coordinatorInitializationStep_ != 0) { *error = "Zigbee network is not ready"; return false; }
+    for (unsigned long i = 0; i < group->members.size(); ++i) { std::map<std::string, Device>::const_iterator d=devices_.find(group->members[i]); unsigned char e; if (d != devices_.end() && endpointForCluster(d->second,0x0004,&e) && endpointForCluster(d->second,0x0006,&e)) multicast=true; }
+    if (multicast) { std::vector<unsigned char> off; off.push_back(0x11); off.push_back(++zclTransactionSequence_); off.push_back(0); sendApsMulticast(groupId,0x0104,0x0006,1,off); }
+    for (unsigned long i = 0; i < group->members.size(); ++i) { std::map<std::string, Device>::const_iterator d=devices_.find(group->members[i]); unsigned char e; if (d==devices_.end()) { *error="scene member is unavailable"; return false; } if (!endpointForCluster(d->second,0x0004,&e)) setLightState(group->members[i],"off",-1,error); }
+    sceneGroupOff_[groupId]=true; saveSceneRuntime(); addLog(std::string("Scene group off: ")+group->name); return true;
+}
+
+void Gateway::dispatchRemoteSceneAction(const std::string& ieeeAddress, const std::string& action) {
+    for (unsigned long i=0;i<sceneBindings_.size();++i) if (sceneBindings_[i].ieeeAddress==ieeeAddress && sceneBindings_[i].action==action) {
+        RemoteSceneBinding& binding=sceneBindings_[i]; std::string error;
+        if (binding.off) { turnOffSceneGroup(binding.groupId,&error); return; }
+        if (binding.sceneIds.empty()) return;
+        std::string key=ieeeAddress+"/"+action; unsigned char wanted=binding.sceneIds[0];
+        std::map<std::string,unsigned char>::iterator previous=sceneCursor_.find(key);
+        if (previous != sceneCursor_.end() && !sceneGroupOff_[binding.groupId]) {
+            for (unsigned long j=0;j<binding.sceneIds.size();++j) if (binding.sceneIds[j]==previous->second) { wanted=binding.sceneIds[(j+1)%binding.sceneIds.size()]; break; }
+        } else if (previous != sceneCursor_.end()) wanted=previous->second;
+        if (activateScene(binding.groupId,wanted,&error)) { sceneCursor_[key]=wanted; saveSceneRuntime(); }
+        else addLog(std::string("Scene binding failed: ")+error);
+        return;
+    }
+}
+
+bool Gateway::setSceneConfiguration(const std::string& encoded, std::string* error) {
+    const std::string incoming = "/tmp/microhad-zigbee-scenes-import";
+    std::ofstream output(incoming.c_str());
+    std::vector<SceneGroup> groups;
+    std::vector<RemoteSceneBinding> bindings;
+    if (!output) { *error = "cannot stage scene configuration"; return false; }
+    output << encoded; output.close();
+    if (!loadSceneConfiguration(incoming, &groups, &bindings, error)) { unlink(incoming.c_str()); return false; }
+    unlink(incoming.c_str());
+    for (unsigned long i=0;i<groups.size();++i) {
+        if (groups[i].id == 0 || groups[i].id > 0xfff7 || groups[i].name.empty() || groups[i].members.empty()) { *error="invalid scene group"; return false; }
+        for (unsigned long j=0;j<i;++j) if (groups[j].id==groups[i].id) { *error="duplicate scene group"; return false; }
+        for (unsigned long j=0;j<groups[i].members.size();++j) {
+            if (devices_.find(groups[i].members[j])==devices_.end() || !devices_[groups[i].members[j]].hasLight) { *error="group member is not a light"; return false; }
+            for (unsigned long a=0;a<=i;++a) for (unsigned long b=0;b<groups[a].members.size();++b)
+                if ((a!=i || b!=j) && groups[a].members[b]==groups[i].members[j]) { *error="a light may belong to only one scene group"; return false; }
+        }
+        for (unsigned long j=0;j<groups[i].scenes.size();++j) {
+            Scene& scene=groups[i].scenes[j];
+            if (scene.id==0 || scene.name.empty() || scene.states.size()!=groups[i].members.size()) { *error="scene must define every group light"; return false; }
+            for (unsigned long k=0;k<scene.states.size();++k) {
+                if (std::find(groups[i].members.begin(),groups[i].members.end(),scene.states[k].ieeeAddress)==groups[i].members.end() ||
+                    scene.states[k].brightnessPercent < -1 || scene.states[k].brightnessPercent > 100) { *error="invalid scene light state"; return false; }
+            }
+        }
+    }
+    for (unsigned long i=0;i<bindings.size();++i) {
+        const SceneGroup* group=findSceneGroup(bindings[i].groupId); /* old configuration is irrelevant */
+        group=0; for (unsigned long j=0;j<groups.size();++j) if(groups[j].id==bindings[i].groupId) group=&groups[j];
+        if (group==0 || (bindings[i].action!="on" && bindings[i].action!="off" && bindings[i].action!="arrow_left" && bindings[i].action!="arrow_right") ||
+            (!bindings[i].off && bindings[i].sceneIds.empty())) { *error="invalid remote binding"; return false; }
+    }
+    sceneGroups_=groups; sceneBindings_=bindings; saveScenes();
+    for (unsigned long i=0;i<sceneGroups_.size();++i) provisionSceneGroup(sceneGroups_[i]);
+    addLog("Scene configuration saved; native provisioning queued");
+    return true;
+}
+
 void Gateway::classifyDevice(Device* device) const {
     bool onOffServer = false, levelServer = false, remote = false;
     for (unsigned long i = 0; i < device->endpoints.size(); ++i) {
@@ -669,6 +807,7 @@ bool Gateway::logRemoteKeyEvent(unsigned short sender, unsigned short cluster, u
     if (cluster == 0x0005 && command == 0x07)
         event << " group=0x" << std::hex << sceneGroup << " scene=" << std::dec << static_cast<unsigned int>(sceneId);
     addLog(event.str());
+    dispatchRemoteSceneAction(device->second.ieeeAddress, action);
     return true;
 }
 
@@ -820,6 +959,17 @@ std::string Gateway::statusJson() const {
         }
         json << "]}";
     }
+    json << "],\"scene_groups\":[";
+    for (unsigned long groupIndex=0; groupIndex<sceneGroups_.size(); ++groupIndex) {
+        const SceneGroup& group=sceneGroups_[groupIndex]; if (groupIndex) json << ',';
+        json << "{\"id\":" << group.id << ",\"name\":\"" << jsonEscape(group.name) << "\",\"members\":[";
+        for (unsigned long member=0;member<group.members.size();++member) { if(member)json<<','; json << "\"" << jsonEscape(group.members[member]) << "\""; }
+        json << "],\"scenes\":[";
+        for (unsigned long sceneIndex=0;sceneIndex<group.scenes.size();++sceneIndex) { const Scene& scene=group.scenes[sceneIndex]; if(sceneIndex)json<<','; json << "{\"id\":" << static_cast<unsigned int>(scene.id) << ",\"name\":\"" << jsonEscape(scene.name) << "\"}"; }
+        json << "]}";
+    }
+    json << "],\"scene_bindings\":[";
+    for (unsigned long bindingIndex=0;bindingIndex<sceneBindings_.size();++bindingIndex) { const RemoteSceneBinding& binding=sceneBindings_[bindingIndex]; if(bindingIndex)json<<','; json << "{\"ieee_address\":\"" << jsonEscape(binding.ieeeAddress) << "\",\"action\":\"" << jsonEscape(binding.action) << "\",\"group_id\":" << binding.groupId << ",\"off\":" << (binding.off?"true":"false") << "}"; }
     json << "]}";
     return json.str();
 }
@@ -950,6 +1100,8 @@ void Gateway::loadState() {
         networkKey_ = network.networkKey;
         preconfiguredKey_ = network.preconfiguredKey;
     }
+    loadScenes();
+    loadSceneRuntime();
 }
 
 void Gateway::saveState() const {
@@ -964,6 +1116,36 @@ void Gateway::savePersistentState() const {
     unsigned long i;
     for (i = 0; i < saved.size(); ++i) clearVolatileDeviceValues(&saved[i]);
     saveDevices(runtimeDirectory_ + "/devices.json", saved, &ignored);
+}
+
+void Gateway::loadScenes() {
+    std::string error;
+    if (!loadSceneConfiguration(runtimeDirectory_ + "/scenes.conf", &sceneGroups_, &sceneBindings_, &error) && !error.empty())
+        addLog(std::string("Scene configuration ignored: ") + error);
+}
+
+void Gateway::saveScenes() const {
+    std::string error;
+    if (!saveSceneConfiguration(runtimeDirectory_ + "/scenes.conf", sceneGroups_, sceneBindings_, &error))
+        const_cast<Gateway*>(this)->addLog(std::string("Scene configuration save failed: ") + error);
+}
+
+void Gateway::loadSceneRuntime() {
+    std::ifstream input("/tmp/microhad-zigbee-scenes-runtime"); std::string line;
+    while (std::getline(input,line)) {
+        std::istringstream fields(line); char type; fields >> type;
+        if (type=='C') { std::string key; unsigned int id; if (fields >> key >> id && id>0 && id<256) sceneCursor_[key]=static_cast<unsigned char>(id); }
+        else if (type=='F') { unsigned int group, off; if (fields >> group >> off && group>0 && group<=0xffff) sceneGroupOff_[static_cast<unsigned short>(group)]=off!=0; }
+    }
+}
+
+void Gateway::saveSceneRuntime() const {
+    std::ofstream output("/tmp/microhad-zigbee-scenes-runtime", std::ios::trunc);
+    if (!output) return;
+    for (std::map<std::string,unsigned char>::const_iterator it=sceneCursor_.begin();it!=sceneCursor_.end();++it)
+        output << "C " << it->first << " " << static_cast<unsigned int>(it->second) << "\n";
+    for (std::map<unsigned short,bool>::const_iterator it=sceneGroupOff_.begin();it!=sceneGroupOff_.end();++it)
+        output << "F " << it->first << " " << (it->second?1:0) << "\n";
 }
 
 bool Gateway::writeBytes(const std::vector<unsigned char>& bytes) {
@@ -1167,6 +1349,27 @@ void Gateway::sendApsUnicast(unsigned short destination, unsigned short profile,
     addFrameLog("TX", destination, profile, cluster, sourceEndpoint, destinationEndpoint, 0x0140, 0,
                 static_cast<unsigned char>(apsSequence - 1), messageTag, -1, -129, message);
     sendEzspCommand(0x0034, payload); /* sendUnicast */
+}
+
+void Gateway::sendApsMulticast(unsigned short groupId, unsigned short profile, unsigned short cluster,
+                               unsigned char sourceEndpoint, const std::vector<unsigned char>& message) {
+    std::vector<unsigned char> payload;
+    static unsigned char apsSequence = 0;
+    payload.push_back(static_cast<unsigned char>(groupId)); payload.push_back(static_cast<unsigned char>(groupId >> 8));
+    payload.push_back(static_cast<unsigned char>(profile)); payload.push_back(static_cast<unsigned char>(profile >> 8));
+    payload.push_back(static_cast<unsigned char>(cluster)); payload.push_back(static_cast<unsigned char>(cluster >> 8));
+    payload.push_back(sourceEndpoint); payload.push_back(0xff); /* group destination has no endpoint */
+    payload.push_back(0x00); payload.push_back(0x00); /* no APS retry for multicast */
+    payload.push_back(static_cast<unsigned char>(groupId)); payload.push_back(static_cast<unsigned char>(groupId >> 8));
+    payload.push_back(apsSequence++);
+    payload.push_back(0); /* radius: stack default */
+    payload.push_back(7); /* non-member radius */
+    payload.push_back(0); /* message tag */
+    payload.push_back(static_cast<unsigned char>(message.size()));
+    payload.insert(payload.end(), message.begin(), message.end());
+    addFrameLog("TX", groupId, profile, cluster, sourceEndpoint, 0xff, 0, groupId,
+                static_cast<unsigned char>(apsSequence - 1), 0, -1, -129, message);
+    sendEzspCommand(0x0038, payload); /* sendMulticast */
 }
 
 void Gateway::sendJoinPermit(unsigned int duration) {

@@ -471,6 +471,21 @@ static void testNetworkPersistence() {
     unlink(filename.c_str()); rmdir(directory.c_str());
 }
 
+static void testSceneConfigurationPersistence() {
+    std::ostringstream path; std::string error; std::vector<SceneGroup> groups, loaded; std::vector<RemoteSceneBinding> bindings, loadedBindings;
+    path << "/tmp/microhad-zigbee-scenes-test-" << static_cast<long>(getpid());
+    assert(ensureDirectory(path.str(), &error));
+    SceneGroup group; Scene scene; SceneLightState state; RemoteSceneBinding binding;
+    group.id=42; group.name="Kitchen"; group.members.push_back("0x00124b0000000042");
+    scene.id=7; scene.name="Dinner"; state.ieeeAddress=group.members[0]; state.on=true; state.brightnessPercent=35; scene.states.push_back(state); group.scenes.push_back(scene); groups.push_back(group);
+    binding.ieeeAddress="0x00124b0000000099"; binding.action="on"; binding.groupId=42; binding.sceneIds.push_back(7); bindings.push_back(binding);
+    assert(saveSceneConfiguration(path.str()+"/scenes.conf",groups,bindings,&error));
+    assert(loadSceneConfiguration(path.str()+"/scenes.conf",&loaded,&loadedBindings,&error));
+    assert(loaded.size()==1 && loaded[0].id==42 && loaded[0].members.size()==1 && loaded[0].scenes[0].states[0].brightnessPercent==35);
+    assert(loadedBindings.size()==1 && loadedBindings[0].action=="on" && loadedBindings[0].sceneIds[0]==7);
+    unlink((path.str()+"/scenes.conf").c_str()); rmdir(path.str().c_str());
+}
+
 static void testGenericCapabilities() {
     Device device;
     std::vector<unsigned char> temperature;
@@ -665,6 +680,7 @@ int main() {
     testDevicePersistence();
     testDeviceSettings();
     testNetworkPersistence();
+    testSceneConfigurationPersistence();
     testGenericCapabilities();
     testConfigureReportingEncoding();
     testInterviewDescriptorAndPlanning();

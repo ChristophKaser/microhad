@@ -5,6 +5,8 @@
 #include <vector>
 
 struct Device;
+struct SceneGroup;
+struct RemoteSceneBinding;
 
 struct NetworkState {
     bool formed;
@@ -21,6 +23,10 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
 bool saveDevices(const std::string& filename, const std::vector<Device>& devices, std::string* error);
 bool loadNetworkState(const std::string& filename, NetworkState* network, std::string* error);
 bool saveNetworkState(const std::string& filename, const NetworkState& network, std::string* error);
+bool loadSceneConfiguration(const std::string& filename, std::vector<SceneGroup>* groups,
+                            std::vector<RemoteSceneBinding>* bindings, std::string* error);
+bool saveSceneConfiguration(const std::string& filename, const std::vector<SceneGroup>& groups,
+                            const std::vector<RemoteSceneBinding>& bindings, std::string* error);
 std::string jsonEscape(const std::string& value);
 
 #endif

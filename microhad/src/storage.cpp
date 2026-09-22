@@ -268,6 +268,82 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
     return true;
 }
 
+namespace {
+std::vector<std::string> tabFields(const std::string& line) {
+    std::vector<std::string> result;
+    std::string::size_type start = 0;
+    while (start <= line.size()) {
+        std::string::size_type end = line.find('\t', start);
+        result.push_back(line.substr(start, end == std::string::npos ? std::string::npos : end - start));
+        if (end == std::string::npos) break;
+        start = end + 1;
+    }
+    return result;
+}
+SceneGroup* sceneGroupById(std::vector<SceneGroup>* groups, unsigned short id) {
+    for (unsigned long i = 0; i < groups->size(); ++i) if ((*groups)[i].id == id) return &(*groups)[i];
+    return 0;
+}
+Scene* sceneById(SceneGroup* group, unsigned char id) {
+    if (group == 0) return 0;
+    for (unsigned long i = 0; i < group->scenes.size(); ++i) if (group->scenes[i].id == id) return &group->scenes[i];
+    return 0;
+}
+}
+
+bool saveSceneConfiguration(const std::string& filename, const std::vector<SceneGroup>& groups,
+                            const std::vector<RemoteSceneBinding>& bindings, std::string* error) {
+    std::string temporary = filename + ".tmp";
+    std::ofstream output(temporary.c_str());
+    if (!output) { *error = "cannot open scene configuration for writing"; return false; }
+    output << "# microhad-zigbee-scenes-v1\n";
+    for (unsigned long i = 0; i < groups.size(); ++i) {
+        const SceneGroup& group = groups[i];
+        output << "G\t" << group.id << "\t" << group.name << "\n";
+        for (unsigned long j = 0; j < group.members.size(); ++j) output << "M\t" << group.id << "\t" << group.members[j] << "\n";
+        for (unsigned long j = 0; j < group.scenes.size(); ++j) {
+            const Scene& scene = group.scenes[j];
+            output << "S\t" << group.id << "\t" << static_cast<unsigned int>(scene.id) << "\t" << scene.name << "\n";
+            for (unsigned long k = 0; k < scene.states.size(); ++k) {
+                const SceneLightState& state = scene.states[k];
+                output << "T\t" << group.id << "\t" << static_cast<unsigned int>(scene.id) << "\t" << state.ieeeAddress
+                       << "\t" << (state.on ? 1 : 0) << "\t" << state.brightnessPercent << "\n";
+            }
+        }
+    }
+    for (unsigned long i = 0; i < bindings.size(); ++i) {
+        output << "B\t" << bindings[i].ieeeAddress << "\t" << bindings[i].action << "\t" << bindings[i].groupId
+               << "\t" << (bindings[i].off ? 1 : 0) << "\t";
+        for (unsigned long j = 0; j < bindings[i].sceneIds.size(); ++j) {
+            if (j) output << ',';
+            output << static_cast<unsigned int>(bindings[i].sceneIds[j]);
+        }
+        output << "\n";
+    }
+    output.close();
+    if (!output || rename(temporary.c_str(), filename.c_str()) != 0) { unlink(temporary.c_str()); *error = "cannot atomically save scene configuration"; return false; }
+    return true;
+}
+
+bool loadSceneConfiguration(const std::string& filename, std::vector<SceneGroup>* groups,
+                            std::vector<RemoteSceneBinding>* bindings, std::string* error) {
+    std::ifstream input(filename.c_str());
+    std::string line;
+    groups->clear(); bindings->clear();
+    if (!input) return true;
+    while (std::getline(input, line)) {
+        std::vector<std::string> f = tabFields(line);
+        if (f.empty() || f[0].empty() || f[0][0] == '#') continue;
+        if (f[0] == "G" && f.size() == 3) { SceneGroup g; g.id = static_cast<unsigned short>(strtoul(f[1].c_str(), 0, 10)); g.name = f[2]; groups->push_back(g); }
+        else if (f[0] == "M" && f.size() == 3) { SceneGroup* g = sceneGroupById(groups, static_cast<unsigned short>(strtoul(f[1].c_str(), 0, 10))); if (g) g->members.push_back(f[2]); }
+        else if (f[0] == "S" && f.size() == 4) { SceneGroup* g = sceneGroupById(groups, static_cast<unsigned short>(strtoul(f[1].c_str(), 0, 10))); if (g) { Scene s; s.id = static_cast<unsigned char>(strtoul(f[2].c_str(), 0, 10)); s.name = f[3]; g->scenes.push_back(s); } }
+        else if (f[0] == "T" && f.size() == 6) { Scene* s = sceneById(sceneGroupById(groups, static_cast<unsigned short>(strtoul(f[1].c_str(), 0, 10))), static_cast<unsigned char>(strtoul(f[2].c_str(), 0, 10))); if (s) { SceneLightState t; t.ieeeAddress=f[3]; t.on=f[4]=="1"; t.brightnessPercent=atoi(f[5].c_str()); s->states.push_back(t); } }
+        else if (f[0] == "B" && f.size() == 6) { RemoteSceneBinding b; b.ieeeAddress=f[1]; b.action=f[2]; b.groupId=static_cast<unsigned short>(strtoul(f[3].c_str(),0,10)); b.off=f[4]=="1"; std::stringstream ids(f[5]); std::string id; while (std::getline(ids,id,',')) if (!id.empty()) b.sceneIds.push_back(static_cast<unsigned char>(strtoul(id.c_str(),0,10))); bindings->push_back(b); }
+        else { *error = "invalid scene configuration"; groups->clear(); bindings->clear(); return false; }
+    }
+    return true;
+}
+
 bool saveNetworkState(const std::string& filename, const NetworkState& network, std::string* error) {
     std::string temporary = filename + ".tmp";
     std::ofstream output(temporary.c_str());

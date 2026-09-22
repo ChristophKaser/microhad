@@ -25,11 +25,14 @@ public:
     bool refreshDevice(const std::string& ieeeAddress, std::string* error);
     bool setLightState(const std::string& ieeeAddress, const std::string& state, int brightnessPercent,
                        std::string* error);
+    bool setSceneConfiguration(const std::string& configuration, std::string* error);
+    bool activateScene(unsigned short groupId, unsigned char sceneId, std::string* error);
+    bool turnOffSceneGroup(unsigned short groupId, std::string* error);
     bool sendTestNotification(std::string* error);
     bool setNotificationsEnabled(bool enabled, std::string* error);
 
 private:
-    enum CommandType { Join, CreateNetwork, DeviceSettings, DeviceRefresh, LightState, TestNotification, NotificationSetting };
+    enum CommandType { Join, CreateNetwork, DeviceSettings, DeviceRefresh, LightState, SceneConfiguration, SceneActivate, SceneOff, TestNotification, NotificationSetting };
     struct Command {
         CommandType type;
         unsigned int seconds;
@@ -45,6 +48,9 @@ private:
         bool hasSensorRefreshInterval;
         unsigned long sensorRefreshIntervalMinutes;
         int brightnessPercent;
+        unsigned short groupId;
+        unsigned char sceneId;
+        std::string configuration;
         bool result;
         bool complete;
         std::string error;

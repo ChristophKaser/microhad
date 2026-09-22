@@ -55,6 +55,36 @@ struct Device {
     Device();
 };
 
+/* Scene data is controller configuration.  The IDs are also the Zigbee Group
+   and Scene IDs used on capable lamps. */
+struct SceneLightState {
+    std::string ieeeAddress;
+    bool on;
+    int brightnessPercent; /* -1 for a non-dimmable lamp */
+    SceneLightState();
+};
+struct Scene {
+    unsigned char id;
+    std::string name;
+    std::vector<SceneLightState> states;
+    Scene();
+};
+struct SceneGroup {
+    unsigned short id;
+    std::string name;
+    std::vector<std::string> members;
+    std::vector<Scene> scenes;
+    SceneGroup();
+};
+struct RemoteSceneBinding {
+    std::string ieeeAddress;
+    std::string action; /* on, off, arrow_left, arrow_right */
+    unsigned short groupId;
+    bool off;
+    std::vector<unsigned char> sceneIds;
+    RemoteSceneBinding();
+};
+
 class Gateway {
 public:
     Gateway(const std::string& serialDevice, int serialBaud, const std::string& runtimeDirectory,
@@ -76,6 +106,9 @@ public:
     bool refreshDevice(const std::string& ieeeAddress, std::string* error);
     bool setLightState(const std::string& ieeeAddress, const std::string& state, int brightnessPercent,
                        std::string* error);
+    bool setSceneConfiguration(const std::string& encoded, std::string* error);
+    bool activateScene(unsigned short groupId, unsigned char sceneId, std::string* error);
+    bool turnOffSceneGroup(unsigned short groupId, std::string* error);
     bool applyAttributeReport(const std::string& ieeeAddress, unsigned short cluster, unsigned short attribute,
                               const std::vector<unsigned char>& value);
     bool applyIasZoneStatus(const std::string& ieeeAddress, const std::vector<unsigned char>& payload);
@@ -185,6 +218,10 @@ private:
     std::map<unsigned short, long> lastActiveEndpointRequestAt_;
     std::map<std::string, long> contactOpenedAt_;
     std::map<std::string, long> nextContactAlertAt_;
+    std::vector<SceneGroup> sceneGroups_;
+    std::vector<RemoteSceneBinding> sceneBindings_;
+    std::map<std::string, unsigned char> sceneCursor_; /* RAM only: remote/action */
+    std::map<unsigned short, bool> sceneGroupOff_;
     std::vector<std::string> logs_;
     bool configureSerial(std::string* error);
     bool writeBytes(const std::vector<unsigned char>& bytes);
@@ -196,6 +233,8 @@ private:
     void sendApsUnicast(unsigned short destination, unsigned short profile, unsigned short cluster,
                         unsigned char sourceEndpoint, unsigned char destinationEndpoint,
                         const std::vector<unsigned char>& message, unsigned char messageTag = 0);
+    void sendApsMulticast(unsigned short groupId, unsigned short profile, unsigned short cluster,
+                          unsigned char sourceEndpoint, const std::vector<unsigned char>& message);
     void sendJoinPermit(unsigned int duration);
     void beginJoinWindow(unsigned int seconds);
     void handleAshFrame(const std::vector<unsigned char>& frame);
@@ -241,6 +280,15 @@ private:
                              unsigned char command, const std::vector<unsigned char>& arguments);
     bool logRemoteKeyEvent(unsigned short sender, unsigned short cluster, unsigned char endpoint,
                            unsigned short manufacturer, unsigned char command, const std::vector<unsigned char>& arguments);
+    bool sceneMemberNative(const Device& device, const Scene& scene, const SceneLightState& state) const;
+    void provisionSceneGroup(const SceneGroup& group);
+    void dispatchRemoteSceneAction(const std::string& ieeeAddress, const std::string& action);
+    SceneGroup* findSceneGroup(unsigned short id);
+    const SceneGroup* findSceneGroup(unsigned short id) const;
+    void loadScenes();
+    void saveScenes() const;
+    void loadSceneRuntime();
+    void saveSceneRuntime() const;
     void handleIncomingMessage(const std::vector<unsigned char>& payload);
     bool generateNetworkMaterial(std::string* error);
     void continueNetworkFormation(unsigned short completedCommand);

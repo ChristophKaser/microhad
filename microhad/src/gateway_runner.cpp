@@ -117,6 +117,9 @@ void GatewayRunner::execute(Command* command) {
     else if (command->type == DeviceRefresh) result = gateway_->refreshDevice(command->address, &error);
     else if (command->type == LightState) result = gateway_->setLightState(command->address, command->name,
                                                                              command->brightnessPercent, &error);
+    else if (command->type == SceneConfiguration) result = gateway_->setSceneConfiguration(command->configuration, &error);
+    else if (command->type == SceneActivate) result = gateway_->activateScene(command->groupId, command->sceneId, &error);
+    else if (command->type == SceneOff) result = gateway_->turnOffSceneGroup(command->groupId, &error);
     else if (command->type == TestNotification) result = gateway_->sendTestNotification(&error);
     else if (command->type == NotificationSetting) result = gateway_->setNotificationsEnabled(command->hasLow, &error);
     updateSnapshots();
@@ -193,6 +196,15 @@ bool GatewayRunner::setLightState(const std::string& address, const std::string&
     command.name = state;
     command.brightnessPercent = brightnessPercent;
     return invoke(&command, error);
+}
+bool GatewayRunner::setSceneConfiguration(const std::string& configuration, std::string* error) {
+    Command command; command.type = SceneConfiguration; command.configuration = configuration; return invoke(&command, error);
+}
+bool GatewayRunner::activateScene(unsigned short groupId, unsigned char sceneId, std::string* error) {
+    Command command; command.type = SceneActivate; command.groupId = groupId; command.sceneId = sceneId; return invoke(&command, error);
+}
+bool GatewayRunner::turnOffSceneGroup(unsigned short groupId, std::string* error) {
+    Command command; command.type = SceneOff; command.groupId = groupId; return invoke(&command, error);
 }
 bool GatewayRunner::sendTestNotification(std::string* error) { Command command; command.type = TestNotification; return invoke(&command, error); }
 bool GatewayRunner::setNotificationsEnabled(bool enabled, std::string* error) { Command command; command.type = NotificationSetting; command.hasLow = enabled; return invoke(&command, error); }

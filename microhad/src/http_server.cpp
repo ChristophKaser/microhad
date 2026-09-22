@@ -256,6 +256,10 @@ void HttpServer::handleClient(int clientFd) {
 void HttpServer::handleRequest(int clientFd, const std::string& request) {
     if (request.find("GET /api/status ") == 0) {
         writeResponse(clientFd, 200, "application/json", gateway_->statusJson());
+    } else if (request.find("GET /api/scenes/config ") == 0) {
+        std::ifstream input((gateway_->runtimeDirectory() + "/scenes.conf").c_str());
+        std::string content((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+        writeResponse(clientFd, 200, "text/plain; charset=utf-8", content);
     } else if (request.find("POST /api/service/restart ") == 0) {
         writeResponse(clientFd, 200, "application/json", "{\"ok\":true,\"state\":\"restarting\"}");
         kill(getpid(), SIGTERM);
@@ -302,6 +306,27 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
             writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"type DELETE to create a fresh network\"}");
         } else if (gateway_->createFreshNetwork(&error)) writeResponse(clientFd, 200, "application/json", "{\"ok\":true,\"state\":\"forming\"}");
         else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + error + "\"}");
+    } else if (request.find("POST /api/scenes/config ") == 0) {
+        std::string::size_type bodyAt = request.find("\r\n\r\n");
+        std::string error;
+        if (bodyAt == std::string::npos) writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"missing scene configuration\"}");
+        else if (gateway_->setSceneConfiguration(request.substr(bodyAt + 4), &error)) writeResponse(clientFd, 200, "application/json", "{\"ok\":true}");
+        else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + jsonEscape(error) + "\"}");
+    } else if (request.find("POST /api/scenes/") == 0) {
+        const std::string prefix = "POST /api/scenes/";
+        std::string tail = request.substr(prefix.size(), request.find(' ', prefix.size()) - prefix.size());
+        std::vector<std::string> parts; std::string::size_type start = 0;
+        while (start <= tail.size()) { std::string::size_type slash = tail.find('/', start); parts.push_back(tail.substr(start, slash == std::string::npos ? std::string::npos : slash - start)); if (slash == std::string::npos) break; start = slash + 1; }
+        unsigned long group = 0, scene = 0; std::string error;
+        if (parts.empty() || !parseMinutes(parts[0], &group) || group == 0 || group > 0xfff7)
+            writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"invalid scene group\"}");
+        else if (parts.size() == 2 && parts[1] == "off") {
+            if (gateway_->turnOffSceneGroup(static_cast<unsigned short>(group), &error)) writeResponse(clientFd, 200, "application/json", "{\"ok\":true}");
+            else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + jsonEscape(error) + "\"}");
+        } else if (parts.size() == 3 && parts[2] == "activate" && parseMinutes(parts[1], &scene) && scene > 0 && scene < 256) {
+            if (gateway_->activateScene(static_cast<unsigned short>(group), static_cast<unsigned char>(scene), &error)) writeResponse(clientFd, 200, "application/json", "{\"ok\":true}");
+            else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + jsonEscape(error) + "\"}");
+        } else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"invalid scene action\"}");
     } else if (request.find("POST /api/devices/") == 0) {
         const std::string prefix = "POST /api/devices/";
         std::string::size_type settingsAt = request.find("/settings ", prefix.size());
