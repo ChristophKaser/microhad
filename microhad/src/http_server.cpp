@@ -19,6 +19,7 @@
 #include <pthread.h>
 #include <signal.h>
 #include <unistd.h>
+#include <vector>
 
 #ifdef MICROHAD_MIPS_TARGET
 extern "C" int microhad_tls_server_create(const char* certificatePath, const char* privateKeyPath, void** server);
@@ -30,6 +31,15 @@ extern "C" void microhad_tls_session_close(void* session);
 #endif
 
 namespace {
+const unsigned long maximumRequestBytes = 16384;
+
+enum RequestReadResult {
+    RequestReadOk,
+    RequestReadMalformed,
+    RequestReadTooLarge,
+    RequestReadFailed
+};
+
 std::string* queuedResponse = 0;
 pthread_mutex_t webPushMutex = PTHREAD_MUTEX_INITIALIZER;
 #ifdef MICROHAD_MIPS_TARGET
@@ -42,7 +52,8 @@ void setActiveTlsSession(void* value) { pthread_once(&tlsSessionKeyOnce, createT
 
 void writeResponse(int fd, int status, const char* contentType, const std::string& body) {
     std::ostringstream response;
-    response << "HTTP/1.1 " << status << (status == 200 ? " OK" : status == 500 ? " Internal Server Error" : " Bad Request") << "\r\n"
+    response << "HTTP/1.1 " << status << (status == 200 ? " OK" : status == 500 ? " Internal Server Error" :
+                                           status == 413 ? " Payload Too Large" : " Bad Request") << "\r\n"
              << "Content-Type: " << contentType << "\r\nCache-Control: no-store\r\nConnection: close\r\n"
              << "Content-Length: " << body.size() << "\r\n\r\n" << body;
     std::string wire = response.str();
@@ -64,6 +75,79 @@ void writeResponse(int fd, int status, const char* contentType, const std::strin
         cursor += written;
         remaining -= static_cast<unsigned long>(written);
     }
+}
+
+bool equalHeaderName(const std::string& name, const char* expected) {
+    unsigned long i;
+    if (name.size() != strlen(expected)) return false;
+    for (i = 0; i < name.size(); ++i) {
+        char value = name[i];
+        if (value >= 'A' && value <= 'Z') value = static_cast<char>(value + ('a' - 'A'));
+        if (value != expected[i]) return false;
+    }
+    return true;
+}
+
+RequestReadResult expectedRequestLength(const std::string& request, unsigned long* expected) {
+    std::string::size_type headerEnd = request.find("\r\n\r\n");
+    std::string::size_type lineStart;
+    bool sawContentLength = false;
+    unsigned long contentLength = 0;
+    if (headerEnd == std::string::npos) return RequestReadFailed;
+    if (headerEnd + 4 > maximumRequestBytes) return RequestReadTooLarge;
+    lineStart = request.find("\r\n");
+    if (lineStart == std::string::npos || lineStart == 0) return RequestReadMalformed;
+    lineStart += 2;
+    while (lineStart < headerEnd) {
+        std::string::size_type lineEnd = request.find("\r\n", lineStart);
+        std::string::size_type colon;
+        std::string name;
+        std::string value;
+        if (lineEnd == std::string::npos || lineEnd > headerEnd) return RequestReadMalformed;
+        colon = request.find(':', lineStart);
+        if (colon == std::string::npos || colon >= lineEnd) return RequestReadMalformed;
+        name = request.substr(lineStart, colon - lineStart);
+        value = request.substr(colon + 1, lineEnd - colon - 1);
+        while (!value.empty() && (value[0] == ' ' || value[0] == '\t')) value.erase(0, 1);
+        if (equalHeaderName(name, "transfer-encoding")) return RequestReadMalformed;
+        if (equalHeaderName(name, "content-length")) {
+            char* end = 0;
+            unsigned long parsed;
+            if (value.empty() || value[0] == '-') return RequestReadMalformed;
+            errno = 0;
+            parsed = strtoul(value.c_str(), &end, 10);
+            if (errno != 0 || end == value.c_str() || *end != 0 || (sawContentLength && parsed != contentLength))
+                return RequestReadMalformed;
+            sawContentLength = true;
+            contentLength = parsed;
+        }
+        lineStart = lineEnd + 2;
+    }
+    if (contentLength > maximumRequestBytes - static_cast<unsigned long>(headerEnd + 4)) return RequestReadTooLarge;
+    *expected = static_cast<unsigned long>(headerEnd + 4) + contentLength;
+    return RequestReadOk;
+}
+
+RequestReadResult readPlainRequest(int fd, std::string* request) {
+    char chunk[1024];
+    unsigned long expected = 0;
+    bool haveHeaders = false;
+    request->clear();
+    while (request->size() < maximumRequestBytes) {
+        ssize_t received = read(fd, chunk, sizeof(chunk));
+        if (received <= 0) return RequestReadFailed;
+        request->append(chunk, static_cast<unsigned long>(received));
+        if (!haveHeaders && request->find("\r\n\r\n") != std::string::npos) {
+            RequestReadResult result = expectedRequestLength(*request, &expected);
+            if (result != RequestReadOk) return result;
+            haveHeaders = true;
+        }
+        if (haveHeaders && request->size() >= expected) {
+            request->resize(expected);
+            return RequestReadOk;
+        }
+    }
+    return RequestReadTooLarge;
 }
 
 std::string decodeComponent(const std::string& value) {
@@ -217,9 +301,8 @@ void HttpServer::workerLoop() {
 }
 
 void HttpServer::handleClient(int clientFd) {
-    char buffer[2048];
-    ssize_t count;
     std::string request;
+    RequestReadResult readResult = RequestReadFailed;
 #ifdef MICROHAD_MIPS_TARGET
     void* session = 0;
     if (tlsServer_ != 0 && microhad_tls_session_open(tlsServer_, clientFd, &session) != 0) return;
@@ -227,20 +310,31 @@ void HttpServer::handleClient(int clientFd) {
 #endif
 #ifdef MICROHAD_MIPS_TARGET
     if (session != 0) {
-        if (microhad_tls_read_request(session, buffer, sizeof(buffer)) != 0) {
+        std::vector<char> buffer(maximumRequestBytes + 1, 0);
+        int tlsResult = microhad_tls_read_request(session, &buffer[0], buffer.size());
+        if (tlsResult != 0) {
+            setActiveTlsSession(session);
+            writeResponse(clientFd, tlsResult == -2 ? 413 : 400, "application/json",
+                          tlsResult == -2 ? "{\"error\":\"request is too large\"}" : "{\"error\":\"malformed request\"}");
+            setActiveTlsSession(0);
             microhad_tls_session_close(session);
             return;
         }
-        count = static_cast<ssize_t>(strlen(buffer));
+        request.assign(&buffer[0]);
         setActiveTlsSession(session);
-    } else count = read(clientFd, buffer, sizeof(buffer) - 1);
+    } else readResult = readPlainRequest(clientFd, &request);
 #else
-    count = read(clientFd, buffer, sizeof(buffer) - 1);
+    readResult = readPlainRequest(clientFd, &request);
 #endif
-    if (count > 0) {
-        buffer[count] = 0;
-        request.assign(buffer);
+    if (
+#ifdef MICROHAD_MIPS_TARGET
+        session != 0 ||
+#endif
+        readResult == RequestReadOk) {
         handleRequest(clientFd, request);
+    } else {
+        writeResponse(clientFd, readResult == RequestReadTooLarge ? 413 : 400, "application/json",
+                      readResult == RequestReadTooLarge ? "{\"error\":\"request is too large\"}" : "{\"error\":\"malformed request\"}");
     }
 #ifdef MICROHAD_MIPS_TARGET
     setActiveTlsSession(0);

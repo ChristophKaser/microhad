@@ -1,4 +1,5 @@
 #include <stddef.h>
+#include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -38,17 +39,44 @@ static char ascii_lower(char value) {
     return value >= 'A' && value <= 'Z' ? (char)(value + ('a' - 'A')) : value;
 }
 
-static char* content_length_header(char* request) {
-    const char* name = "content-length:";
-    char* line = request;
-    while (*line != 0) {
-        unsigned long i = 0;
-        while (name[i] != 0 && line[i] != 0 && ascii_lower(line[i]) == name[i]) i++;
-        if (name[i] == 0) return line + i;
-        line = strstr(line, "\r\n");
-        if (line == 0) break;
-        line += 2;
+static int header_name_is(const char* start, const char* end, const char* name) {
+    unsigned long length = (unsigned long)(end - start);
+    unsigned long i;
+    if (length != strlen(name)) return 0;
+    for (i = 0; i < length; i++) if (ascii_lower(start[i]) != name[i]) return 0;
+    return 1;
+}
+
+static int request_length(char* request, unsigned long capacity, unsigned long* expected) {
+    char* header_end = strstr(request, "\r\n\r\n");
+    char* line = strstr(request, "\r\n");
+    unsigned long content_length = 0;
+    int saw_content_length = 0;
+    if (header_end == 0 || line == 0 || line == request) return -1;
+    if ((unsigned long)(header_end + 4 - request) >= capacity) return -2;
+    line += 2;
+    while (line < header_end) {
+        char* line_end = strstr(line, "\r\n");
+        char* colon;
+        char* value;
+        char* end;
+        unsigned long parsed;
+        if (line_end == 0 || line_end > header_end || (colon = strchr(line, ':')) == 0 || colon >= line_end) return -1;
+        value = colon + 1;
+        while (value < line_end && (*value == ' ' || *value == '\t')) value++;
+        if (header_name_is(line, colon, "transfer-encoding")) return -1;
+        if (header_name_is(line, colon, "content-length")) {
+            if (value == line_end || *value == '-') return -1;
+            errno = 0;
+            parsed = strtoul(value, &end, 10);
+            if (errno != 0 || end == value || end != line_end || (saw_content_length && parsed != content_length)) return -1;
+            saw_content_length = 1;
+            content_length = parsed;
+        }
+        line = line_end + 2;
     }
+    if (content_length > capacity - 1 - (unsigned long)(header_end + 4 - request)) return -2;
+    *expected = (unsigned long)(header_end + 4 - request) + content_length;
     return 0;
 }
 
@@ -151,26 +179,24 @@ int microhad_tls_read_request(void* opaque_session, char* request, unsigned long
     int received;
     unsigned long length = 0;
     unsigned long expected = 0;
+    int parsed_headers = 0;
     if (session == 0 || capacity < 2) return -1;
     while (result == 0 && length < capacity - 1) {
         received = mbedtls_ssl_read(&session->ssl, (unsigned char*)request + length, capacity - 1 - length);
         if (received > 0) {
             length += (unsigned long)received;
             request[length] = 0;
-            if (expected == 0) {
-                char* header_end = strstr(request, "\r\n\r\n");
-                if (header_end != 0) {
-                    char* content_length = content_length_header(request);
-                    unsigned long header_length = (unsigned long)(header_end + 4 - request);
-                    expected = header_length;
-                    if (content_length != 0) expected += strtoul(content_length, 0, 10);
-                }
+            if (!parsed_headers && strstr(request, "\r\n\r\n") != 0) {
+                result = request_length(request, capacity, &expected);
+                if (result != 0) break;
+                parsed_headers = 1;
             }
-            if (expected != 0 && length >= expected) break;
+            if (parsed_headers && length >= expected) { request[expected] = 0; break; }
         }
         else if (received != MBEDTLS_ERR_SSL_WANT_READ && received != MBEDTLS_ERR_SSL_WANT_WRITE) { result = -1; }
     }
-    return result == 0 && expected != 0 ? 0 : -1;
+    if (result == -2 || (!parsed_headers && length == capacity - 1)) return -2;
+    return result == 0 && parsed_headers ? 0 : -1;
 }
 
 int microhad_tls_write(void* opaque_session, const char* response, unsigned long length) {
