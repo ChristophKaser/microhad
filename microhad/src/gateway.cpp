@@ -783,6 +783,11 @@ void Gateway::dispatchRemoteSceneAction(const std::string& ieeeAddress, const st
         if (binding.sceneIds.empty()) return;
         unsigned char wanted=binding.sceneIds[0]; unsigned char current=0;
         std::map<unsigned short,SceneRetry>::iterator retry=sceneRetries_.find(binding.groupId);
+        if (retry != sceneRetries_.end() &&
+            (retry->second.inFlight || retry->second.retryAt != LONG_MAX)) {
+            addLog("Scene selection pending; ignoring remote action");
+            return;
+        }
         if(retry!=sceneRetries_.end() && !retry->second.off) current=retry->second.sceneId;
         else if(selectedScenes_.count(binding.groupId)) current=selectedScenes_[binding.groupId];
         if(current!=0) for(unsigned long j=0;j<binding.sceneIds.size();++j) if(binding.sceneIds[j]==current) {

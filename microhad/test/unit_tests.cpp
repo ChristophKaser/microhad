@@ -353,6 +353,21 @@ public:
         if (!gateway.scheduleSceneRetry(&retry, now) || retry.attempts != 6 || retry.retryAt != now + 10) return false;
         return !gateway.scheduleSceneRetry(&retry, time(0)) && retry.retryAt == LONG_MAX;
     }
+    static bool pendingSceneIgnoresRemoteAction() {
+        Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+        RemoteSceneBinding binding;
+        Gateway::SceneRetry& retry = gateway.sceneRetries_[1];
+        binding.ieeeAddress = "0xremote";
+        binding.action = "on";
+        binding.groupId = 1;
+        binding.sceneIds.push_back(1);
+        binding.sceneIds.push_back(2);
+        gateway.sceneBindings_.push_back(binding);
+        retry.sceneId = 1;
+        retry.inFlight = true;
+        gateway.dispatchRemoteSceneAction("0xremote", "on");
+        return retry.sceneId == 1 && gateway.logsJson().find("Scene selection pending; ignoring remote action") != std::string::npos;
+    }
 };
 
 static void testAshRoundTrip() {
@@ -686,6 +701,10 @@ static void testSceneBusyDoesNotAdvanceSelection() {
     assert(GatewayTestPeer::sceneBusyDoesNotAdvanceSelection());
 }
 
+static void testPendingSceneIgnoresRemoteAction() {
+    assert(GatewayTestPeer::pendingSceneIgnoresRemoteAction());
+}
+
 static void testContactNotificationIsDeferred() {
     std::ostringstream path;
     std::string error;
@@ -827,6 +846,7 @@ int main() {
     testStyrbarArrowEvents();
     testSceneConfigurationRejectsDuplicateStates();
     testSceneBusyDoesNotAdvanceSelection();
+    testPendingSceneIgnoresRemoteAction();
     testContactNotificationIsDeferred();
     testNotificationTogglePersistence();
     testNotificationAuditDoesNotWriteRuntimeFlash();
