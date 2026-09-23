@@ -573,13 +573,15 @@ bool Gateway::refreshDevice(const std::string& ieeeAddress, std::string* error) 
         return false;
     }
     if (device->second.networkAddress == 0xffff) { *error = "device has no active network address"; return false; }
-    /* Probe the device first, then use its persisted descriptors to target
-       only measurement clusters that the endpoint actually exposes. */
-    startInterview(device->second.networkAddress, true);
+    /* A remote needs a full interview so its output command clusters are
+       bound to the coordinator.  Measurement devices only need their
+       persisted endpoints refreshed. */
+    startInterview(device->second.networkAddress, !device->second.hasRemote);
     if (device->second.sensorRefreshIntervalMinutes == 0) nextSensorRefreshAt_.erase(device->second.networkAddress);
     else nextSensorRefreshAt_[device->second.networkAddress] =
         sensorRefreshDeadline(time(0), device->second.sensorRefreshIntervalMinutes);
-    addLog(std::string("Manual attribute refresh queued: ") + ieeeAddress);
+    addLog(std::string(device->second.hasRemote ? "Manual remote configuration queued: " :
+                       "Manual attribute refresh queued: ") + ieeeAddress);
     return true;
 }
 
