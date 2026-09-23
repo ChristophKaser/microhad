@@ -20,6 +20,70 @@
 
 class GatewayTestPeer {
 public:
+    static void ezspUpgradeCompatibility() {
+        for (int protocol = 8; protocol <= 13; protocol += 5) {
+            Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+            unsigned char legacy[] = {0, 0x80, 0, static_cast<unsigned char>(protocol), 2, 0x80, 0x67};
+            gateway.handleEzspFrame(std::vector<unsigned char>(legacy, legacy + sizeof(legacy)));
+            assert(gateway.ezspVersion_ == protocol && !gateway.online_);
+            std::vector<unsigned char> reply(9, 0);
+            reply[1] = 0x80; reply[2] = 1; reply[5] = protocol; reply[6] = 2;
+            reply[7] = 0x80; reply[8] = 0x67;
+            gateway.handleEzspFrame(reply);
+            assert(gateway.online_ && gateway.coordinatorInitializationStep_ == 1);
+            /* Required initialization must fail closed on missing status. */
+            reply.resize(5); reply[3] = 0x53;
+            gateway.handleEzspFrame(reply);
+            assert(!gateway.online_ && gateway.coordinatorInitializationStep_ == 1);
+            gateway.coordinatorInitializationStep_ = 0;
+            gateway.online_ = true; gateway.networkFormed_ = true;
+            gateway.ashTransmitQueue_.clear(); gateway.ashPendingData_.clear();
+            gateway.joinPreparationStep_ = 2; gateway.pendingJoinSeconds_ = 60;
+            reply.resize(6); reply[3] = 0x55; reply[5] = 0;
+            gateway.handleEzspFrame(reply);
+            assert(gateway.joinPreparationStep_ == 3);
+            assert(gateway.ashTransmitQueue_.size() == 1);
+            std::vector<unsigned char> request = gateway.ashTransmitQueue_.back();
+            unsigned char mask = 0x42;
+            for (unsigned long i = 0; i < request.size(); ++i) {
+                request[i] ^= mask;
+                mask = (mask & 1) ? static_cast<unsigned char>((mask >> 1) ^ 0xb8) :
+                                   static_cast<unsigned char>(mask >> 1);
+            }
+            assert(request[3] == (protocol == 13 ? 0x11 : 0xaf));
+            assert(request[4] == (protocol == 13 ? 1 : 0));
+            assert(request.size() == static_cast<unsigned long>(protocol == 13 ? 30 : 29));
+            if (protocol == 13) assert(request[29] == 0);
+            reply[3] = request[3]; reply[4] = request[4];
+            /* A v13 error with a zero low byte is still an error. */
+            if (protocol == 13) { reply.resize(9, 0); reply[6] = 1; }
+            else reply[5] = 1;
+            gateway.handleEzspFrame(reply);
+            assert(gateway.joinPreparationStep_ == 0 && gateway.joinUntil_ == 0);
+            gateway.joinPreparationStep_ = 3; gateway.pendingJoinSeconds_ = 60;
+            for (unsigned long i = 5; i < reply.size(); ++i) reply[i] = 0;
+            gateway.handleEzspFrame(reply);
+            assert(gateway.joinPreparationStep_ == 4);
+            if (protocol == 13) {
+                gateway.joinPreparationStep_ = 3;
+                reply.resize(6);
+                gateway.handleEzspFrame(reply);
+                assert(gateway.joinPreparationStep_ == 0);
+            }
+            gateway.joinPreparationStep_ = 3;
+            gateway.joinPreparationDeadline_ = time(0) - 1;
+            gateway.nextHeartbeatAt_ = time(0) + 100;
+            gateway.poll();
+            assert(gateway.joinPreparationStep_ == 0 && gateway.pendingJoinSeconds_ == 0);
+        }
+        Gateway unsupported("/dev/null", 115200, "/tmp", "", "", "");
+        unsigned char reply[] = {0, 0x80, 0, 14, 2, 0, 0};
+        unsupported.handleEzspFrame(std::vector<unsigned char>(reply, reply + sizeof(reply)));
+        assert(!unsupported.online_ && unsupported.ashTransmitQueue_.empty());
+        reply[3] = 13;
+        unsupported.handleEzspFrame(std::vector<unsigned char>(reply, reply + 4));
+        assert(!unsupported.online_ && unsupported.ezspVersion_ == 4);
+    }
     static void reviewAndTransportRegressions() {
         Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
         gateway.serialFd_ = open("/dev/null", O_WRONLY);
@@ -889,6 +953,7 @@ static void testSharedJsonUtilities() {
 
 int main() {
     GatewayTestPeer::reviewAndTransportRegressions();
+    GatewayTestPeer::ezspUpgradeCompatibility();
     testAshRoundTrip();
     testAshRejectsBadCrc();
     testDevicePersistence();

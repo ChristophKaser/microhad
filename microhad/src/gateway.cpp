@@ -1629,17 +1629,6 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
         if (frame.size() < 5) return;
         command = static_cast<unsigned short>(frame[3]) | (static_cast<unsigned short>(frame[4]) << 8);
         payloadOffset = 5;
-        if (command == 0 && frame.size() > payloadOffset) {
-            unsigned char reportedVersion = frame[payloadOffset];
-            if (reportedVersion != ezspVersion_) {
-                std::vector<unsigned char> version;
-                ezspVersion_ = reportedVersion;
-                version.push_back(ezspVersion_);
-                sendEzspCommand(0x0000, version);
-                return;
-            }
-            ezspVersionNegotiated_ = true;
-        }
     } else {
         command = frame[2];
         payloadOffset = 3;
@@ -1649,17 +1638,24 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
             command = frame[4];
             payloadOffset = 5;
         }
-        if (command == 0 && frame.size() > payloadOffset) {
-            unsigned char reportedVersion = frame[payloadOffset];
-            if (reportedVersion != ezspVersion_) {
-                std::vector<unsigned char> version;
-                ezspVersion_ = reportedVersion;
-                version.push_back(ezspVersion_);
-                sendEzspCommand(0x0000, version);
-                return;
-            }
-            ezspVersionNegotiated_ = true;
+    }
+    if (command == 0) {
+        if (frame.size() < payloadOffset + 4) { addLog("Truncated EZSP version reply"); return; }
+        unsigned char reportedVersion = frame[payloadOffset];
+        if (reportedVersion != 8 && reportedVersion != 13) {
+            online_ = false; networkFormed_ = false; resetDeadline_ = 0;
+            ezspVersionNegotiated_ = false;
+            addLog("Unsupported EZSP protocol; only v8 and v13 are supported");
+            return;
         }
+        if (reportedVersion != ezspVersion_) {
+            std::vector<unsigned char> version;
+            ezspVersion_ = reportedVersion;
+            version.push_back(ezspVersion_);
+            sendEzspCommand(0x0000, version);
+            return;
+        }
+        ezspVersionNegotiated_ = true;
     }
     {
         std::ostringstream message;
@@ -1669,6 +1665,13 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
         addLog(message.str());
     }
     if (command == 0 && ezspVersionNegotiated_) {
+        std::ostringstream version;
+        version << "Negotiated EZSP v" << static_cast<unsigned int>(ezspVersion_)
+                << " stack type=" << static_cast<unsigned int>(frame[payloadOffset + 1])
+                << " stack version=0x" << std::hex
+                << (static_cast<unsigned int>(frame[payloadOffset + 2]) |
+                    (static_cast<unsigned int>(frame[payloadOffset + 3]) << 8));
+        addLog(version.str());
         online_ = true;
         nextHeartbeatAt_ = time(0) + 20;
         if (!networkInitRequested_) {
@@ -1677,11 +1680,16 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
         }
     }
     if (coordinatorInitializationStep_ != 0 && command == coordinatorInitializationCommand()) {
-        if (command != 0x005a && frame.size() > payloadOffset && frame[payloadOffset] != 0) {
+        bool truncated = frame.size() < payloadOffset + (command == 0x005a ? 4 : 1);
+        if (truncated || (command != 0x005a && frame[payloadOffset] != 0)) {
             std::ostringstream failure;
             failure << "Coordinator initialization command 0x" << std::hex << command
-                    << " rejected: 0x" << static_cast<unsigned int>(frame[payloadOffset]);
+                    << " rejected or truncated: 0x" << (truncated ? 0xff : static_cast<unsigned int>(frame[payloadOffset]));
             addLog(failure.str());
+            online_ = false;
+            networkFormed_ = false;
+            resetDeadline_ = 0;
+            return; /* Do not proceed to network initialization after rejection. */
         }
         if (coordinatorInitializationStep_ == 21) {
             coordinatorInitializationStep_ = 0;
@@ -1866,7 +1874,10 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
             joinPreparationStep_ = 3;
             joinPreparationDeadline_ = time(0) + 10;
             addLog("Preparing secure pairing window");
-            sendEzspCommand(0x00af, payload); /* addTransientLinkKey */
+            if (ezspVersion_ == 13) {
+                payload.push_back(0); /* SecurityManagerContextFlags.NONE */
+                sendEzspCommand(0x0111, payload); /* importTransientKey */
+            } else sendEzspCommand(0x00af, payload); /* v8 addTransientLinkKey */
         }
         else {
             fprintf(stderr, "cannot set Zigbee trust-center key policy: 0x%02x\n", frame[payloadOffset]);
@@ -1877,8 +1888,12 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
         }
         return;
     }
-    if (joinPreparationStep_ == 3 && command == 0x00af) {
-        if (frame[payloadOffset] == 0) {
+    if (joinPreparationStep_ == 3 && command == (ezspVersion_ == 13 ? 0x0111 : 0x00af)) {
+        unsigned long width = ezspVersion_ == 13 ? 4 : 1;
+        bool success = frame.size() >= payloadOffset + width;
+        for (unsigned long i = 0; success && i < width; ++i)
+            if (frame[payloadOffset + i] != 0) success = false;
+        if (success) {
             std::vector<unsigned char> policy;
             policy.push_back(0); /* TRUST_CENTER_POLICY */
             policy.push_back(3); policy.push_back(0); /* allow joins and unsecured rejoins */
@@ -1886,8 +1901,7 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
             joinPreparationDeadline_ = time(0) + 10;
             sendEzspCommand(0x0055, policy);
         } else {
-            fprintf(stderr, "cannot add Zigbee transient joining key: 0x%02x\n", frame[payloadOffset]);
-            addLog("Cannot add Zigbee transient joining key");
+            addLog("Cannot add Zigbee transient joining key: rejected or truncated status");
             joinPreparationStep_ = 0;
             joinPreparationDeadline_ = 0;
             pendingJoinSeconds_ = 0;
