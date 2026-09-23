@@ -25,7 +25,7 @@ SceneLightState::SceneLightState() : on(false), brightnessPercent(-1) {}
 Scene::Scene() : id(0) {}
 SceneGroup::SceneGroup() : id(0) {}
 RemoteSceneBinding::RemoteSceneBinding() : groupId(0), off(false) {}
-Gateway::SceneRetry::SceneRetry() : off(false), inFlight(false), sentOff(false), sceneId(0), sentSceneId(0),
+Gateway::SceneRetry::SceneRetry() : off(false), inFlight(false), retryRequested(false), sentOff(false), sceneId(0), sentSceneId(0),
                                     ezspSequence(0), attempts(0), sentAt(0), retryAt(0) {}
 
 Device::Device() : networkAddress(0xffff), kind("generic"), contactOpen(false), hasContact(false), hasTemperature(false),
@@ -689,7 +689,7 @@ bool Gateway::activateScene(unsigned short groupId, unsigned char sceneId, std::
     if (!found) { *error = "scene not found"; return false; }
     if (!online_ || !networkFormed_ || coordinatorInitializationStep_ != 0) { *error = "Zigbee network is not ready"; return false; }
     SceneRetry& retry = sceneRetries_[groupId];
-    retry.off = false; retry.sceneId = sceneId; retry.attempts = 0; retry.retryAt = time(0);
+    retry.off = false; retry.sceneId = sceneId; retry.attempts = 0; retry.retryRequested = false; retry.retryAt = time(0);
     if (!retry.inFlight) pollSceneRetries();
     return true;
 }
@@ -698,7 +698,7 @@ bool Gateway::turnOffSceneGroup(unsigned short groupId, std::string* error) {
     if (findSceneGroup(groupId) == 0) { *error = "scene group not found"; return false; }
     if (!online_ || !networkFormed_ || coordinatorInitializationStep_ != 0) { *error = "Zigbee network is not ready"; return false; }
     SceneRetry& retry = sceneRetries_[groupId];
-    retry.off = true; retry.sceneId = 0; retry.attempts = 0; retry.retryAt = time(0);
+    retry.off = true; retry.sceneId = 0; retry.attempts = 0; retry.retryRequested = false; retry.retryAt = time(0);
     if (!retry.inFlight) pollSceneRetries();
     return true;
 }
@@ -769,7 +769,11 @@ void Gateway::pollSceneRetries() {
         SceneRetry& retry=it->second;
         if (retry.inFlight && now >= retry.sentAt + 2) {
             retry.inFlight=false;
-            if (scheduleSceneRetry(&retry, now)) addLog("Scene multicast response timed out; retrying");
+            if (retry.retryRequested) {
+                retry.retryRequested=false;
+                retry.retryAt=now;
+                addLog("Scene multicast response timed out; retry requested, retrying immediately");
+            } else if (scheduleSceneRetry(&retry, now)) addLog("Scene multicast response timed out; retrying");
             else addLog("Scene multicast response timed out; giving up");
         }
         if(!retry.inFlight && retry.retryAt<=now && !sendSceneRetry(it->first,&retry)) retry.retryAt=now+5;
@@ -785,7 +789,15 @@ void Gateway::dispatchRemoteSceneAction(const std::string& ieeeAddress, const st
         std::map<unsigned short,SceneRetry>::iterator retry=sceneRetries_.find(binding.groupId);
         if (retry != sceneRetries_.end() &&
             (retry->second.inFlight || retry->second.retryAt != LONG_MAX)) {
-            addLog("Scene selection pending; ignoring remote action");
+            if (retry->second.inFlight) {
+                retry->second.retryRequested=true;
+                addLog("Scene selection pending; immediate retry requested");
+            } else {
+                retry->second.retryAt=time(0);
+                retry->second.retryRequested=false;
+                addLog("Scene selection pending; retrying immediately");
+                pollSceneRetries();
+            }
             return;
         }
         if(retry!=sceneRetries_.end() && !retry->second.off) current=retry->second.sceneId;
@@ -1744,15 +1756,24 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
             retry.inFlight=false;
             if (status==0 && !stale) {
                 completeSceneRetry(it->first,&retry);
+                retry.retryRequested=false;
                 retry.retryAt=LONG_MAX;
             } else if (stale) {
+                retry.retryRequested=false;
                 retry.retryAt=time(0);
             } else {
                 long now=time(0);
-                bool scheduled=scheduleSceneRetry(&retry, now);
+                bool immediate=retry.retryRequested;
+                bool scheduled;
+                retry.retryRequested=false;
+                if (immediate) {
+                    retry.retryAt=now;
+                    scheduled=true;
+                } else scheduled=scheduleSceneRetry(&retry, now);
                 std::ostringstream message;
                 message << "Scene multicast rejected: 0x" << std::hex << static_cast<unsigned int>(status);
-                if (scheduled) message << "; retrying in " << std::dec << retry.retryAt-now << "s";
+                if (immediate) message << "; retry requested, retrying immediately";
+                else if (scheduled) message << "; retrying in " << std::dec << retry.retryAt-now << "s";
                 else message << "; giving up";
                 addLog(message.str());
             }

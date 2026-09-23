@@ -251,6 +251,7 @@ private:
     struct SceneRetry {
         bool off;
         bool inFlight;
+        bool retryRequested;
         bool sentOff;
         unsigned char sceneId;
         unsigned char sentSceneId;

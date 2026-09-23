@@ -366,7 +366,14 @@ public:
         retry.sceneId = 1;
         retry.inFlight = true;
         gateway.dispatchRemoteSceneAction("0xremote", "on");
-        return retry.sceneId == 1 && gateway.logsJson().find("Scene selection pending; ignoring remote action") != std::string::npos;
+        if (retry.sceneId != 1 || !retry.retryRequested ||
+            gateway.logsJson().find("Scene selection pending; immediate retry requested") == std::string::npos) return false;
+        gateway.ezspVersion_ = 8;
+        retry.ezspSequence = 42;
+        std::vector<unsigned char> reply(6, 0);
+        reply[0] = 42; reply[3] = 0x38; reply[4] = 0; reply[5] = 0xa1;
+        gateway.handleEzspFrame(reply);
+        return !retry.inFlight && !retry.retryRequested && retry.retryAt <= time(0);
     }
 };
 
