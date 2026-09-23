@@ -327,6 +327,7 @@ private:
     void dispatchRemoteSceneAction(const std::string& ieeeAddress, const std::string& action);
     void pollSceneRetries();
     bool sendSceneRetry(unsigned short groupId, SceneRetry* retry);
+    bool scheduleSceneRetry(SceneRetry* retry, long now);
     void completeSceneRetry(unsigned short groupId, SceneRetry* retry);
     SceneGroup* findSceneGroup(unsigned short id);
     const SceneGroup* findSceneGroup(unsigned short id) const;

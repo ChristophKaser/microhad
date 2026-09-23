@@ -744,6 +744,24 @@ void Gateway::completeSceneRetry(unsigned short groupId, SceneRetry* retry) {
     saveSceneRuntime();
 }
 
+bool Gateway::scheduleSceneRetry(SceneRetry* retry, long now) {
+    /* Retry once per second for the first five seconds, then make one final
+       attempt ten seconds later.  Busy is usually a brief NCP TX-queue
+       condition, so exponential backoff needlessly delays scene selection. */
+    if (retry->attempts < 5) {
+        ++retry->attempts;
+        retry->retryAt = now + 1;
+        return true;
+    }
+    if (retry->attempts == 5) {
+        ++retry->attempts;
+        retry->retryAt = now + 10;
+        return true;
+    }
+    retry->retryAt = LONG_MAX;
+    return false;
+}
+
 void Gateway::pollSceneRetries() {
     if (!online_ || !networkFormed_ || coordinatorInitializationStep_ != 0) return;
     long now=time(0);
@@ -751,10 +769,8 @@ void Gateway::pollSceneRetries() {
         SceneRetry& retry=it->second;
         if (retry.inFlight && now >= retry.sentAt + 2) {
             retry.inFlight=false;
-            long delay = retry.attempts == 0 ? 0 : (1L << (retry.attempts - 1));
-            if (retry.attempts<5) ++retry.attempts;
-            retry.retryAt=now+delay;
-            addLog("Scene multicast response timed out; retrying");
+            if (scheduleSceneRetry(&retry, now)) addLog("Scene multicast response timed out; retrying");
+            else addLog("Scene multicast response timed out; giving up");
         }
         if(!retry.inFlight && retry.retryAt<=now && !sendSceneRetry(it->first,&retry)) retry.retryAt=now+5;
     }
@@ -1727,12 +1743,12 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
             } else if (stale) {
                 retry.retryAt=time(0);
             } else {
-                long delay = retry.attempts == 0 ? 0 : (1L << (retry.attempts - 1));
-                if (retry.attempts<5) ++retry.attempts;
-                retry.retryAt=time(0)+delay;
+                long now=time(0);
+                bool scheduled=scheduleSceneRetry(&retry, now);
                 std::ostringstream message;
-                message << "Scene multicast rejected: 0x" << std::hex << static_cast<unsigned int>(status)
-                        << "; retrying in " << std::dec << delay << "s";
+                message << "Scene multicast rejected: 0x" << std::hex << static_cast<unsigned int>(status);
+                if (scheduled) message << "; retrying in " << std::dec << retry.retryAt-now << "s";
+                else message << "; giving up";
                 addLog(message.str());
             }
             return;

@@ -8,6 +8,7 @@
 #include "web_push.h"
 
 #include <cassert>
+#include <climits>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -342,7 +343,15 @@ public:
         retry.inFlight = true; retry.ezspSequence = 42; retry.sceneId = 2; retry.sentSceneId = 2;
         reply[0] = 42; reply[3] = 0x38; reply[4] = 0; reply[5] = 0xa1; /* EMBER_NETWORK_BUSY */
         gateway.handleEzspFrame(reply);
-        return !retry.inFlight && retry.attempts == 1 && retry.retryAt <= time(0) && gateway.selectedScenes_.empty();
+        long now = time(0);
+        if (retry.inFlight || retry.attempts != 1 || retry.retryAt < now || retry.retryAt > now + 1 || !gateway.selectedScenes_.empty()) return false;
+        for (int i = 2; i <= 5; ++i) {
+            now = time(0);
+            if (!gateway.scheduleSceneRetry(&retry, now) || retry.attempts != i || retry.retryAt != now + 1) return false;
+        }
+        now = time(0);
+        if (!gateway.scheduleSceneRetry(&retry, now) || retry.attempts != 6 || retry.retryAt != now + 10) return false;
+        return !gateway.scheduleSceneRetry(&retry, time(0)) && retry.retryAt == LONG_MAX;
     }
 };
 
