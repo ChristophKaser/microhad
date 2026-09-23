@@ -2415,6 +2415,9 @@ bool Gateway::updateBasicIdentity(Device* device, const std::vector<unsigned cha
         } else if (attribute == 0x0005 && device->modelId != value) {
             device->modelId = value;
             changed = true;
+        } else if (attribute == 0x4000) {
+            device->softwareBuildId = value;
+            addLog("Device software build: " + device->ieeeAddress + " version=" + value);
         }
         offset += 5 + records[offset + 4];
     }
@@ -2498,13 +2501,30 @@ void Gateway::sendZdoBindRequest(unsigned short destination, unsigned char endpo
     request.push_back(endpoint);
     request.push_back(static_cast<unsigned char>(cluster));
     request.push_back(static_cast<unsigned char>(cluster >> 8));
-    request.push_back(0x03); /* 64-bit destination address */
-    request.insert(request.end(), coordinatorIeeeAddress_.begin(), coordinatorIeeeAddress_.end());
-    request.push_back(1); /* coordinator endpoint */
+    bool legacyGroup = false;
+    std::map<std::string, Device>::const_iterator device = devices_.find(sourceIeeeAddress);
+    if (device != devices_.end() && device->second.modelId == "TRADFRI on/off switch" &&
+        (cluster == 0x0006 || cluster == 0x0008)) {
+        unsigned int major = 0, minor = 0, patch = 0;
+        char dot1 = 0, dot2 = 0;
+        std::istringstream version(device->second.softwareBuildId);
+        if ((version >> major >> dot1 >> minor >> dot2 >> patch) && dot1 == '.' && dot2 == '.')
+            legacyGroup = major < 2 || (major == 2 && (minor < 3 || (minor == 3 && patch < 75)));
+        else addLog("E1743 software build unavailable; using endpoint binding");
+    }
+    if (legacyGroup) {
+        request.push_back(0x01); /* group destination, no endpoint */
+        request.push_back(0x85); request.push_back(0x03); /* Herdsman group 901 */
+    } else {
+        request.push_back(0x03); /* 64-bit destination address */
+        request.insert(request.end(), coordinatorIeeeAddress_.begin(), coordinatorIeeeAddress_.end());
+        request.push_back(1); /* coordinator endpoint */
+    }
     sendApsUnicast(destination, 0x0000, 0x0021, 0, 0, request, messageTag);
     {
         std::ostringstream message;
         message << "ZDO bind request sent: cluster 0x" << std::hex << cluster;
+        message << (legacyGroup ? " target=group 901" : " target=coordinator endpoint 1");
         addLog(message.str());
     }
 }
@@ -2528,6 +2548,7 @@ void Gateway::sendZclReadBasic(unsigned short destination, unsigned char endpoin
     request.push_back(0x00);
     request.push_back(0x04); request.push_back(0x00);
     request.push_back(0x05); request.push_back(0x00);
+    request.push_back(0x00); request.push_back(0x40); /* softwareBuildID */
     sendApsUnicast(destination, 0x0104, 0x0000, 1, endpoint, request, messageTag);
 }
 
@@ -2672,6 +2693,17 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
             device.lastSeen = time(0);
             markViewDirty();
         }
+    }
+    if (cluster == 0x0019 && (frameControl & 0x0f) == 0x01 && command == 0x01 &&
+        message.size() >= zclOffset + 9) {
+        /* Query Next Image: acknowledge that this gateway has no OTA image.
+           Zigbee2MQTT does this even when no firmware update is requested. */
+        std::vector<unsigned char> response;
+        response.push_back(0x19); response.push_back(transactionSequence);
+        response.push_back(0x02); response.push_back(0x98); /* NO_IMAGE_AVAILABLE */
+        sendApsUnicast(sender, 0x0104, cluster, payload[6], payload[5], response);
+        addLog("OTA query answered: no image available for " + address->second);
+        return;
     }
     if ((frameControl & 0x03) == 0x01) {
         std::vector<unsigned char> arguments(message.begin() + zclOffset, message.end());

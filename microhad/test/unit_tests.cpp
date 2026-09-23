@@ -363,6 +363,34 @@ public:
                gateway.logsJson().find("action=on") != std::string::npos &&
                gateway.logsJson().find("action=move") != std::string::npos;
     }
+    static void tradfriFirmwareBindingAndOta() {
+        Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+        const std::string ieee = "0x70ac08fffe75827b";
+        gateway.nodeAddresses_[0xd938] = ieee;
+        Device& device = gateway.devices_[ieee];
+        device.ieeeAddress = ieee;
+        device.modelId = "TRADFRI on/off switch";
+        gateway.coordinatorIeeeAddress_.assign(8, 0x11);
+        const char* versions[] = {"2.2.010", "2.3.074", "2.3.075", "24.4.6"};
+        for (unsigned int i = 0; i < 4; ++i) {
+            device.softwareBuildId = versions[i];
+            gateway.logs_.clear();
+            gateway.sendZdoBindRequest(0xd938, 1, 6, ieee, 42, 1);
+            const std::string expected = i < 2 ? "payload=2a7b8275feff08ac70010600018503" :
+                "payload=2a7b8275feff08ac7001060003111111111111111101";
+            assert(gateway.logsJson().find(expected) != std::string::npos);
+        }
+        std::vector<unsigned char> incoming(19, 0);
+        incoming[1] = 4; incoming[2] = 1; incoming[3] = 0x19;
+        incoming[5] = 1; incoming[6] = 1;
+        incoming[14] = 0x38; incoming[15] = 0xd9;
+        const unsigned char query[] = {1, 14, 1, 1, 0x7c, 0x11, 0xc5, 0x11, 0x31, 6, 1, 0x22, 1, 0};
+        incoming[18] = sizeof(query);
+        incoming.insert(incoming.end(), query, query + sizeof(query));
+        gateway.logs_.clear();
+        gateway.handleIncomingMessage(incoming);
+        assert(gateway.logsJson().find("payload=190e0298") != std::string::npos);
+    }
     static bool styrbarArrowEventsAreLogged() {
         const unsigned short node = 0x4321;
         const std::string ieee = "0x00124b0000000022";
@@ -845,6 +873,7 @@ static void testFrameLogs() {
 static void testRemoteKeyEvents() {
     unlink("/tmp/microhad-zigbee-native.log");
     assert(GatewayTestPeer::remoteKeyEventsAreLogged());
+    GatewayTestPeer::tradfriFirmwareBindingAndOta();
     unlink("/tmp/microhad-zigbee-native.log");
 }
 

@@ -51,6 +51,7 @@ struct Device {
     unsigned long sensorRefreshIntervalMinutes;
     std::string manufacturerName;
     std::string modelId;
+    std::string softwareBuildId; /* read during interview; RAM only */
     std::vector<EndpointDescriptor> endpoints;
     Device();
 };
