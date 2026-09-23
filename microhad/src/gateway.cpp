@@ -269,7 +269,10 @@ bool Gateway::configureSerial(std::string* error) {
     options.c_iflag &= ~(IGNBRK | BRKINT | INLCR | IGNCR | ICRNL | IXON | IXOFF | IXANY);
     options.c_oflag &= ~OPOST;
     options.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG);
-    options.c_cc[VMIN] = 0;
+    /* With O_NONBLOCK, a zero-byte minimum makes select() report the TTY as
+       readable even when read() would return no data.  One byte keeps the
+       coordinator asleep until serial input is actually available. */
+    options.c_cc[VMIN] = 1;
     options.c_cc[VTIME] = 0;
     if (tcsetattr(serialFd_, TCSANOW, &options) != 0) {
         *error = std::string("cannot configure Zigbee serial device: ") + strerror(errno);
