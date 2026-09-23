@@ -353,6 +353,59 @@ public:
         if (!gateway.scheduleSceneRetry(&retry, now) || retry.attempts != 6 || retry.retryAt != now + 10) return false;
         return !gateway.scheduleSceneRetry(&retry, time(0)) && retry.retryAt == LONG_MAX;
     }
+    static void sceneBusyUnicastFallback() {
+        Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+        gateway.ezspVersion_ = 8;
+        gateway.online_ = true; gateway.networkFormed_ = true;
+        gateway.coordinatorInitializationStep_ = 0;
+        SceneGroup group; group.id = 1; group.name = "Test";
+        Scene scene; scene.id = 2; scene.name = "Scene";
+        for (int i = 0; i < 2; ++i) {
+            std::string ieee = i == 0 ? "0xlight1" : "0xlight2";
+            Device& device = gateway.devices_[ieee];
+            device.ieeeAddress = ieee; device.networkAddress = 0x1234 + i;
+            EndpointDescriptor endpoint; endpoint.endpoint = 3; endpoint.profileId = 0x0104;
+            endpoint.inputClusters.push_back(4); endpoint.inputClusters.push_back(5);
+            endpoint.inputClusters.push_back(6);
+            device.endpoints.push_back(endpoint);
+            group.members.push_back(ieee);
+            SceneLightState state; state.ieeeAddress = ieee; state.on = true; state.brightnessPercent = -1;
+            scene.states.push_back(state);
+        }
+        group.scenes.push_back(scene); gateway.sceneGroups_.push_back(group);
+        std::string error;
+        assert(gateway.activateScene(1, 2, &error));
+        Gateway::SceneRetry& retry = gateway.sceneRetries_[1];
+        std::vector<unsigned char> reply(6, 0);
+        reply[0] = retry.ezspSequence; reply[3] = 0x38; reply[5] = 0xa1;
+        gateway.handleEzspFrame(reply);
+        assert(retry.unicast && !retry.inFlight && gateway.selectedScenes_.empty());
+        gateway.pollSceneRetries();
+        assert(retry.inFlight && retry.memberIndex == 0);
+        assert(gateway.logsJson().find("dst_ep=3") != std::string::npos);
+        reply[0] = retry.ezspSequence; reply[3] = 0x34; reply[5] = 0xa1;
+        gateway.handleEzspFrame(reply);
+        assert(!retry.inFlight && retry.memberIndex == 0 && gateway.selectedScenes_.empty());
+        retry.retryAt = time(0);
+        gateway.pollSceneRetries();
+        for (int i = 0; i < 2; ++i) {
+            reply[0] = retry.ezspSequence; reply[5] = 0;
+            gateway.handleEzspFrame(reply);
+            assert(gateway.selectedScenes_.empty());
+            gateway.pollSceneRetries();
+        }
+        assert(gateway.selectedScenes_[1] == 2 && retry.retryAt == LONG_MAX);
+        assert(gateway.turnOffSceneGroup(1, &error));
+        assert(!retry.unicast);
+        reply[0] = retry.ezspSequence; reply[3] = 0x38; reply[5] = 0xa1;
+        gateway.handleEzspFrame(reply); gateway.pollSceneRetries();
+        assert(retry.unicast && retry.inFlight);
+        /* A new selection supersedes an outstanding fallback, even on timeout. */
+        assert(gateway.activateScene(1, 2, &error));
+        retry.sentAt = time(0) - 3;
+        gateway.pollSceneRetries();
+        assert(!retry.unicast && retry.memberIndex == 0 && retry.inFlight && !retry.sentOff);
+    }
     static bool pendingSceneIgnoresRemoteAction() {
         Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
         RemoteSceneBinding binding;
@@ -706,6 +759,7 @@ static void testSceneConfigurationRejectsDuplicateStates() {
 
 static void testSceneBusyDoesNotAdvanceSelection() {
     assert(GatewayTestPeer::sceneBusyDoesNotAdvanceSelection());
+    GatewayTestPeer::sceneBusyUnicastFallback();
 }
 
 static void testPendingSceneIgnoresRemoteAction() {

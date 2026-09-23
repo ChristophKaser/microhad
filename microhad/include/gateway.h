@@ -253,6 +253,8 @@ private:
         bool inFlight;
         bool retryRequested;
         bool sentOff;
+        bool unicast;
+        unsigned long memberIndex;
         unsigned char sceneId;
         unsigned char sentSceneId;
         unsigned char ezspSequence;
@@ -273,7 +275,7 @@ private:
     void continueCoordinatorInitialization();
     unsigned short coordinatorInitializationCommand() const;
     void enableStackTokenWriting();
-    void sendApsUnicast(unsigned short destination, unsigned short profile, unsigned short cluster,
+    unsigned char sendApsUnicast(unsigned short destination, unsigned short profile, unsigned short cluster,
                         unsigned char sourceEndpoint, unsigned char destinationEndpoint,
                         const std::vector<unsigned char>& message, unsigned char messageTag = 0);
     unsigned char sendApsMulticast(unsigned short groupId, unsigned short profile, unsigned short cluster,

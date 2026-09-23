@@ -25,7 +25,7 @@ SceneLightState::SceneLightState() : on(false), brightnessPercent(-1) {}
 Scene::Scene() : id(0) {}
 SceneGroup::SceneGroup() : id(0) {}
 RemoteSceneBinding::RemoteSceneBinding() : groupId(0), off(false) {}
-Gateway::SceneRetry::SceneRetry() : off(false), inFlight(false), retryRequested(false), sentOff(false), sceneId(0), sentSceneId(0),
+Gateway::SceneRetry::SceneRetry() : off(false), inFlight(false), retryRequested(false), sentOff(false), unicast(false), memberIndex(0), sceneId(0), sentSceneId(0),
                                     ezspSequence(0), attempts(0), sentAt(0), retryAt(0) {}
 
 Device::Device() : networkAddress(0xffff), kind("generic"), contactOpen(false), hasContact(false), hasTemperature(false),
@@ -690,6 +690,7 @@ bool Gateway::activateScene(unsigned short groupId, unsigned char sceneId, std::
     if (!online_ || !networkFormed_ || coordinatorInitializationStep_ != 0) { *error = "Zigbee network is not ready"; return false; }
     SceneRetry& retry = sceneRetries_[groupId];
     retry.off = false; retry.sceneId = sceneId; retry.attempts = 0; retry.retryRequested = false; retry.retryAt = time(0);
+    if (!retry.inFlight) { retry.unicast = false; retry.memberIndex = 0; }
     if (!retry.inFlight) pollSceneRetries();
     return true;
 }
@@ -699,6 +700,7 @@ bool Gateway::turnOffSceneGroup(unsigned short groupId, std::string* error) {
     if (!online_ || !networkFormed_ || coordinatorInitializationStep_ != 0) { *error = "Zigbee network is not ready"; return false; }
     SceneRetry& retry = sceneRetries_[groupId];
     retry.off = true; retry.sceneId = 0; retry.attempts = 0; retry.retryRequested = false; retry.retryAt = time(0);
+    if (!retry.inFlight) { retry.unicast = false; retry.memberIndex = 0; }
     if (!retry.inFlight) pollSceneRetries();
     return true;
 }
@@ -723,6 +725,29 @@ bool Gateway::sendSceneRetry(unsigned short groupId, SceneRetry* retry) {
     if (retry->off) message.push_back(0x00);
     else { message.push_back(0x05); message.push_back(static_cast<unsigned char>(groupId)); message.push_back(static_cast<unsigned char>(groupId >> 8)); message.push_back(retry->sceneId); }
     retry->sentOff=retry->off; retry->sentSceneId=retry->sceneId;
+    if (retry->unicast) {
+        /* Serialize native recalls so a full broadcast table does not block
+           user actions or cause a burst of unicast requests. */
+        for (; retry->memberIndex < group->members.size(); ++retry->memberIndex) {
+            std::map<std::string, Device>::const_iterator d = devices_.find(group->members[retry->memberIndex]);
+            if (d == devices_.end()) return false;
+            unsigned char endpoint;
+            bool native = false;
+            if (retry->off) native = endpointForCluster(d->second, 0x0004, &endpoint);
+            else for (unsigned long i = 0; i < scene->states.size(); ++i)
+                if (scene->states[i].ieeeAddress == d->first)
+                    native = sceneMemberNative(d->second, *scene, scene->states[i]);
+            if (!native) continue; /* handled by completeSceneRetry */
+            if (d->second.networkAddress == 0xffff ||
+                !endpointForCluster(d->second, retry->off ? 0x0006 : 0x0005, &endpoint)) return false;
+            retry->ezspSequence = sendApsUnicast(d->second.networkAddress, 0x0104,
+                retry->off ? 0x0006 : 0x0005, 1, endpoint, message);
+            retry->inFlight = true; retry->sentAt = time(0);
+            return true;
+        }
+        completeSceneRetry(groupId, retry); retry->retryAt = LONG_MAX;
+        return true;
+    }
     retry->ezspSequence=sendApsMulticast(groupId,0x0104,retry->off?0x0006:0x0005,1,message);
     retry->inFlight=true; retry->sentAt=time(0);
     return true;
@@ -769,6 +794,10 @@ void Gateway::pollSceneRetries() {
         SceneRetry& retry=it->second;
         if (retry.inFlight && now >= retry.sentAt + 2) {
             retry.inFlight=false;
+            if (retry.sentOff != retry.off || (!retry.off && retry.sentSceneId != retry.sceneId)) {
+                retry.unicast=false; retry.memberIndex=0;
+                retry.retryRequested=true;
+            }
             if (retry.retryRequested) {
                 retry.retryRequested=false;
                 retry.retryAt=now;
@@ -1479,7 +1508,7 @@ void Gateway::enableStackTokenWriting() {
     sendEzspCommand(0x00ab, payload);
 }
 
-void Gateway::sendApsUnicast(unsigned short destination, unsigned short profile, unsigned short cluster,
+unsigned char Gateway::sendApsUnicast(unsigned short destination, unsigned short profile, unsigned short cluster,
                              unsigned char sourceEndpoint, unsigned char destinationEndpoint,
                              const std::vector<unsigned char>& message, unsigned char messageTag) {
     std::vector<unsigned char> payload;
@@ -1501,7 +1530,7 @@ void Gateway::sendApsUnicast(unsigned short destination, unsigned short profile,
     payload.insert(payload.end(), message.begin(), message.end());
     addFrameLog("TX", destination, profile, cluster, sourceEndpoint, destinationEndpoint, 0x0140, 0,
                 static_cast<unsigned char>(apsSequence - 1), messageTag, -1, -129, message);
-    sendEzspCommand(0x0034, payload); /* sendUnicast */
+    return sendEzspCommand(0x0034, payload); /* sendUnicast */
 }
 
 unsigned char Gateway::sendApsMulticast(unsigned short groupId, unsigned short profile, unsigned short cluster,
@@ -1747,20 +1776,29 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
         addLog("NCP rejected Zigbee transmit: network is down");
         return;
     }
-    if (command == 0x0038) {
+    if (command == 0x0038 || command == 0x0034) {
         for (std::map<unsigned short, SceneRetry>::iterator it=sceneRetries_.begin(); it!=sceneRetries_.end(); ++it) {
             SceneRetry& retry=it->second;
-            if (!retry.inFlight || retry.ezspSequence != frame[0]) continue;
+            if (!retry.inFlight || retry.ezspSequence != frame[0] ||
+                (retry.unicast ? command != 0x0034 : command != 0x0038)) continue;
             unsigned char status=frame[payloadOffset];
             bool stale=retry.sentOff!=retry.off || (!retry.off && retry.sentSceneId!=retry.sceneId);
             retry.inFlight=false;
-            if (status==0 && !stale) {
+            if (stale) {
+                retry.unicast=false; retry.memberIndex=0;
+                retry.retryRequested=false;
+                retry.retryAt=time(0);
+            } else if (status == 0 && retry.unicast) {
+                ++retry.memberIndex; retry.attempts=0;
+                retry.retryRequested=false; retry.retryAt=time(0);
+            } else if (status == 0xa1 && !retry.unicast && findSceneGroup(it->first) != 0) {
+                retry.unicast=true; retry.memberIndex=0; retry.attempts=0;
+                retry.retryRequested=false; retry.retryAt=time(0);
+                addLog("Scene multicast busy (0xa1); falling back to serialized unicast");
+            } else if (status==0) {
                 completeSceneRetry(it->first,&retry);
                 retry.retryRequested=false;
                 retry.retryAt=LONG_MAX;
-            } else if (stale) {
-                retry.retryRequested=false;
-                retry.retryAt=time(0);
             } else {
                 long now=time(0);
                 bool immediate=retry.retryRequested;
@@ -1771,7 +1809,7 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
                     scheduled=true;
                 } else scheduled=scheduleSceneRetry(&retry, now);
                 std::ostringstream message;
-                message << "Scene multicast rejected: 0x" << std::hex << static_cast<unsigned int>(status);
+                message << (retry.unicast ? "Scene unicast rejected: 0x" : "Scene multicast rejected: 0x") << std::hex << static_cast<unsigned int>(status);
                 if (immediate) message << "; retry requested, retrying immediately";
                 else if (scheduled) message << "; retrying in " << std::dec << retry.retryAt-now << "s";
                 else message << "; giving up";
