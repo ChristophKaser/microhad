@@ -190,6 +190,12 @@ void GatewayRunner::waitForWork() {
     int serial = gateway_->serialFd();
     int maximum = commandWakeRead_;
     long deadline;
+    pthread_mutex_lock(&mutex_);
+    bool commandQueued = commandHead_ != 0 || stopping_;
+    pthread_mutex_unlock(&mutex_);
+    /* Pipe bytes are deliberately coalesced when drained.  Do not sleep if
+       another queued command remains after the previous loop iteration. */
+    if (commandQueued) return;
     if (gateway_->hasImmediateWork()) return;
     FD_ZERO(&readable); FD_ZERO(&writable);
     FD_SET(commandWakeRead_, &readable);

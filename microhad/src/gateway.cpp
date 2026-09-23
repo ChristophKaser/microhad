@@ -412,6 +412,7 @@ long Gateway::nextPollDeadline() const {
     std::map<unsigned short, long>::const_iterator sensor;
     std::map<std::string, long>::const_iterator alert;
     std::map<unsigned short, SceneRetry>::const_iterator scene;
+    std::map<unsigned short, InterviewState>::const_iterator interview;
     #define CONSIDER_DEADLINE(value) do { long candidate = (value); if (candidate != 0 && (deadline == 0 || candidate < deadline)) deadline = candidate; } while (0)
     if (!ashPendingData_.empty()) CONSIDER_DEADLINE(ashAckDeadline_);
     if (online_) CONSIDER_DEADLINE(nextHeartbeatAt_);
@@ -422,6 +423,11 @@ long Gateway::nextPollDeadline() const {
     if (joinUntil_ != 0) CONSIDER_DEADLINE(joinPermitRenewAt_);
     for (alert = nextContactAlertAt_.begin(); alert != nextContactAlertAt_.end(); ++alert) CONSIDER_DEADLINE(alert->second);
     if (online_ && networkFormed_ && coordinatorInitializationStep_ == 0 && !interviewRequestInFlight_) {
+        for (interview = interviews_.begin(); interview != interviews_.end(); ++interview) {
+            const InterviewState& state = interview->second;
+            if (!state.paused && state.operationIndex < state.operations.size())
+                CONSIDER_DEADLINE(state.operations[state.operationIndex].retryAt);
+        }
         for (sensor = nextSensorRefreshAt_.begin(); sensor != nextSensorRefreshAt_.end(); ++sensor) CONSIDER_DEADLINE(sensor->second);
         for (scene = sceneRetries_.begin(); scene != sceneRetries_.end(); ++scene)
             CONSIDER_DEADLINE(scene->second.inFlight ? scene->second.sentAt + 2 : scene->second.retryAt);

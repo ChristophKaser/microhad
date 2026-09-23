@@ -176,6 +176,17 @@ public:
         gateway->sendInterviewOperation(node, &gateway->interviews_[node].operations[0]);
         return gateway->interviews_[node].operations[0].transactionSequence == sequence;
     }
+    static bool interviewRetryContributesDeadline(Gateway* gateway, unsigned short node) {
+        Gateway::InterviewState state;
+        Gateway::InterviewOperation operation;
+        operation.retryAt = time(0) + 5;
+        state.operations.push_back(operation);
+        gateway->online_ = true;
+        gateway->networkFormed_ = true;
+        gateway->coordinatorInitializationStep_ = 0;
+        gateway->interviews_[node] = state;
+        return gateway->nextPollDeadline() == operation.retryAt;
+    }
     static bool migrateRejoinedInterview(Gateway* gateway, unsigned short oldNode, unsigned short newNode) {
         Gateway::InterviewState state;
         Gateway::InterviewOperation operation;
@@ -612,6 +623,11 @@ static void testJoinStatusJson() {
     assert(gateway.statusJson().find("\"joining_preparing\":false") != std::string::npos);
 }
 
+static void testInterviewRetryDeadline() {
+    Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+    assert(GatewayTestPeer::interviewRetryContributesDeadline(&gateway, 0x2345));
+}
+
 static void testGatewayViewIsImmutable() {
     Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
     GatewayView first = gateway.captureView();
@@ -794,6 +810,7 @@ int main() {
     testConfigureReportingEncoding();
     testInterviewDescriptorAndPlanning();
     testJoinStatusJson();
+    testInterviewRetryDeadline();
     testGatewayViewIsImmutable();
     testRamLog();
     testFrameLogs();
