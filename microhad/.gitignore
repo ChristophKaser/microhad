@@ -2,6 +2,7 @@
 build/
 microhad-zigbee-native
 *.o
+__pycache__/
 
 # Runtime state and secrets
 runtime/

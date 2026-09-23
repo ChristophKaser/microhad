@@ -2,14 +2,26 @@
 
 ## Current outcome (2026-09-23)
 
-The native daemon supports v8 and v13 pairing commands. It has been tested
-on the existing EZSP v8 radio. No radio firmware was flashed.
-Host tests and the prescribed MIPS build passed.
+Upgraded the radio from EmberZNet 6.7.8.0 build 373 (EZSP v8) to
+7.5.1.0 build 0 (EZSP v13). Gecko Bootloader remains 1.8.0; only the
+application was uploaded. Host tests and the prescribed MIPS build passed.
 
-Live radio: EmberZNet 6.7.8.0 build 373, Gecko Bootloader 1.8.0.
-Entering the bootloader, reading its menu, and returning to the existing
-application succeeded. The native supervisor was then resumed and the
-dashboard reported online with the network formed and eight known devices.
+The network did not survive the storage change in place. A logical restore
+preserved coordinator IEEE, PAN, extended PAN, channel, network key/sequence
+and hashed trust-center secret, with the transmit frame counter advanced.
+Independent verification succeeded, followed by live communication with all
+three office lights and the kitchen measurement sensor without re-pairing.
+HTTP and HTTPS report online, network formed, and eight known devices.
+Other sleepy devices still need to be observed when they next wake.
+
+A group-off multicast (repeating the existing off state) returned success
+0x00 without unicast fallback. This is not proof that intermittent busy
+failures are eliminated; the serialized unicast fallback remains enabled.
+
+The daemon retains v8 support. On v13 only, ERROR_INVALID_ID for the legacy
+packet-buffer-count setting is treated as fixed firmware allocation; other
+initialization failures remain fatal. The running binary checksum matched
+the verified target build.
 
 ## Private recovery assets
 
@@ -19,7 +31,10 @@ The original daemon MD5 is `1f0143402e484a2d612c3d3f94970abc`.
 `network-current.json` is a fresh open-coordinator-format backup, including
 network key, frame counter and hashed trust-center secret. Its two device
 entries reflect radio-exported records, not the dashboard's complete device list.
-Keep both backups private; neither is a full radio flash dump.
+`network-before-flash.json` is the final pre-flash backup.
+`network-restored-v13.json` is the independently verified post-restore backup.
+The recorded network transmit counter advanced from 290817 to 303105.
+Keep all backups private; none is a full radio flash dump.
 The historical 2023 backups are not current recovery data.
 
 The local 6.7.8 rollback candidate is
@@ -35,7 +50,7 @@ It has a valid CRC and no bootloader-update tag. Both application images start
 at 0x4000. The candidate reserves 36 KiB for NVM3 in its project configuration.
 Candidate SHA256: `05c66bcc7895bc7db0b9648c12c40e387a1145eabe792413a2762d3d0ada262d`.
 
-## Why flashing is on hold
+## Storage migration and recovery limitations
 
 The currently installed token-storage format has not been established.
 Silicon Labs makes SimEE2 migration conditional on the
@@ -44,10 +59,12 @@ include it; generated component-resolution output was not available to verify it
 Neither in-place network preservation nor reverse migration is established.
 Do not infer safety from a valid image CRC or a working bootloader.
 
-Before flashing, establish the current storage layout, verify migration in the
-exact candidate build, and validate a restore path that preserves identity and
-frame-counter monotonicity. Without that evidence, use an SWD programmer for
-a full flash backup/recovery path. No SWD programmer was available in this run.
+The user authorized proceeding with logical restoration or re-pairing if
+necessary. In-place preservation failed, but logical restoration succeeded.
+No SWD programmer was available. Downgrade and reverse storage migration
+remain untested: the retained old image is a recovery candidate, not a
+guarantee of restoration. Never replace the bootloader or erase the radio
+as an automatic recovery action.
 
 Sources:
 - https://docs.silabs.com/gecko-platform/3.2/service/api/group-simeeprom2-to-nvm3-upgrade
@@ -89,13 +106,43 @@ exited, and sending SIGCONT to the verified supervisor. Check HTTP/HTTPS status,
 network identity and live reports. If the application cannot be reached, stop;
 do not erase, factory-reset, replace the bootloader, or create a new network.
 
+## Retained upload and restore scripts
+
+`ezsp_flash.py --image FILE --sha256 EXPECTED` defaults to offline validation.
+Uploading additionally requires `--host 192.168.178.62 --exclusive-radio --flash`
+and the exclusive-UART preparation above. It checks the pinned digest, CRC,
+application ranges and absence of bootloader updates. Hardware compatibility
+must be established separately. The first attempt in this run timed out before
+upload while entering the bootloader. Its menu was independently confirmed,
+then `--already-in-bootloader` completed the upload. The script now waits three
+seconds after entry; it never automatically retries an upload.
+
+`ezsp_restore.py --backup PRIVATE.json` defaults to offline validation.
+Restoration additionally requires `--host 192.168.178.62 --exclusive-radio
+--restore --output NEW_PRIVATE.json`. It refuses a different coordinator IEEE,
+advances the backed-up frame counter by 10000, verifies identity and keys,
+and creates the output with mode 0600 without overwriting existing files.
+Use a fresh backup, never a stale counter after further network operation.
+
+If verification fails after restoration, do not immediately repeat the write.
+Use `--verify-only` instead of `--restore`, with a fresh output filename, to
+read and verify the already-restored network. In this run an immediate check
+failed; an independent export and subsequent verify-only check both succeeded.
+No second restoration was performed.
+
+For any downgrade attempt, first export current logical state, validate the
+old application image again, and use the same exclusive-access procedure.
+The old storage format might require a logical restore or device re-pairing.
+Preserve the v8/v13-compatible daemon until the radio protocol is confirmed.
+
 ## Daemon-only rollback
 
-The previous executable was extracted under
+The pre-upgrade v8-only executable was extracted under
 `diagnostics/ezsp-upgrade-recovery/tuya/native/tuya-zigbee-native` and its checksum
 matched the running pre-upgrade daemon. It can be redeployed with `deploy.sh`
 using `--binary` and `--binary-only`, the explicit password-file pathname,
 `--target /tuya/native`, and `--restart`. Do not replace configuration.
 The legacy device's restart check can report failure despite a successful
 restart; reconcile that using the running `/proc/PID/exe` checksum and dashboard.
+Do not deploy that v8-only executable while the radio is on v13.
 Do not treat this daemon rollback as a radio/network rollback.

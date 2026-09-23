@@ -1681,7 +1681,14 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
     }
     if (coordinatorInitializationStep_ != 0 && command == coordinatorInitializationCommand()) {
         bool truncated = frame.size() < payloadOffset + (command == 0x005a ? 4 : 1);
-        if (truncated || (command != 0x005a && frame[payloadOffset] != 0)) {
+        /* Some v13 NCP builds fix packet-buffer allocation at compile time.
+           ERROR_INVALID_ID for this optional legacy tuning is not a network
+           failure. Preserve v8's allocation request and reject other errors. */
+        bool fixedPacketBuffers = !truncated && ezspVersion_ == 13 &&
+            coordinatorInitializationStep_ == 11 && command == 0x0053 &&
+            frame[payloadOffset] == 0x37;
+        if (fixedPacketBuffers) addLog("NCP uses fixed packet-buffer allocation; keeping firmware default");
+        if (truncated || (!fixedPacketBuffers && command != 0x005a && frame[payloadOffset] != 0)) {
             std::ostringstream failure;
             failure << "Coordinator initialization command 0x" << std::hex << command
                     << " rejected or truncated: 0x" << (truncated ? 0xff : static_cast<unsigned int>(frame[payloadOffset]));

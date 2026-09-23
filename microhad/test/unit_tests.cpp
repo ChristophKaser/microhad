@@ -35,6 +35,12 @@ public:
             reply.resize(5); reply[3] = 0x53;
             gateway.handleEzspFrame(reply);
             assert(!gateway.online_ && gateway.coordinatorInitializationStep_ == 1);
+            gateway.online_ = true;
+            gateway.coordinatorInitializationStep_ = 11;
+            reply.resize(6); reply[5] = 0x37;
+            gateway.handleEzspFrame(reply);
+            assert(gateway.online_ == (protocol == 13));
+            assert(gateway.coordinatorInitializationStep_ == (protocol == 13 ? 12 : 11));
             gateway.coordinatorInitializationStep_ = 0;
             gateway.online_ = true; gateway.networkFormed_ = true;
             gateway.ashTransmitQueue_.clear(); gateway.ashPendingData_.clear();
