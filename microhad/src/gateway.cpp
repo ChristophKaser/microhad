@@ -234,7 +234,7 @@ Gateway::Gateway(const std::string& serialDevice, int serialBaud, const std::str
     serialDevice_(serialDevice), serialBaud_(serialBaud), runtimeDirectory_(runtimeDirectory),
     firebaseServiceAccount_(firebaseServiceAccount), firebaseTopic_(firebaseTopic), caBundle_(caBundle), notificationWorker_(notificationWorker), serialFd_(-1),
     online_(false), joinUntil_(0), joinPermitRenewAt_(0), pendingJoinSeconds_(0), joinPreparationStep_(0), joinPreparationDeadline_(0), ashSendSequence_(0), ashReceiveSequence_(0), ezspSequence_(0),
-    ashAckDeadline_(0), ashRetries_(0), ezspVersion_(4), zdoSequence_(0), zclTransactionSequence_(0), ezspVersionNegotiated_(false), stackTokenWritingRequested_(false), networkInitRequested_(false), coordinatorInitializationStep_(0), resetDeadline_(0), nextHeartbeatAt_(0), serialRxBytes_(0), ashRxFrames_(0), networkForming_(false), networkFormationStep_(0), networkFormed_(false), networkPanId_(0),
+    ashAckDeadline_(0), ashRetries_(0), ezspVersion_(4), zdoSequence_(0), zclTransactionSequence_(0), ezspVersionNegotiated_(false), stackTokenWritingRequested_(false), networkInitRequested_(false), tradfriBindGroupConfigured_(false), coordinatorInitializationStep_(0), resetDeadline_(0), nextHeartbeatAt_(0), serialRxBytes_(0), ashRxFrames_(0), networkForming_(false), networkFormationStep_(0), networkFormed_(false), networkPanId_(0),
     networkChannel_(0), interviewRequestInFlight_(false), interviewSendAccepted_(false), interviewEzspSequence_(0), interviewNode_(0xffff),
     interviewDeadline_(0), nextMessageTag_(1), coordinatorIeeeAddressRequested_(false), viewDirty_(true) {
 }
@@ -1426,53 +1426,53 @@ unsigned char Gateway::sendEzspCommand(unsigned short command, const std::vector
 }
 
 unsigned short Gateway::coordinatorInitializationCommand() const {
-    if (coordinatorInitializationStep_ >= 1 && coordinatorInitializationStep_ <= 11) return 0x0053;
-    if (coordinatorInitializationStep_ >= 12 && coordinatorInitializationStep_ <= 14) return 0x0055;
-    if (coordinatorInitializationStep_ >= 15 && coordinatorInitializationStep_ <= 16) return 0x00ab;
-    if (coordinatorInitializationStep_ == 17) return 0x0010;
-    if (coordinatorInitializationStep_ == 18) return 0x005a;
-    if (coordinatorInitializationStep_ >= 19 && coordinatorInitializationStep_ <= 20) return 0x0002;
-    if (coordinatorInitializationStep_ == 21) return 0x0017;
+    if (coordinatorInitializationStep_ >= 1 && coordinatorInitializationStep_ <= 12) return 0x0053;
+    if (coordinatorInitializationStep_ >= 13 && coordinatorInitializationStep_ <= 15) return 0x0055;
+    if (coordinatorInitializationStep_ >= 16 && coordinatorInitializationStep_ <= 17) return 0x00ab;
+    if (coordinatorInitializationStep_ == 18) return 0x0010;
+    if (coordinatorInitializationStep_ == 19) return 0x005a;
+    if (coordinatorInitializationStep_ >= 20 && coordinatorInitializationStep_ <= 21) return 0x0002;
+    if (coordinatorInitializationStep_ == 22) return 0x0017;
     return 0xffff;
 }
 
 void Gateway::continueCoordinatorInitialization() {
-    static const unsigned char configurationIds[] = {56, 25, 29, 34, 42, 18, 19, 13, 12, 28, 1};
-    static const unsigned short configurationValues[] = {90, 2, 50, 2, 3, 7680, 14, 5, 2, 1, 255};
+    static const unsigned char configurationIds[] = {56, 25, 29, 34, 42, 18, 19, 13, 12, 28, 1, 6};
+    static const unsigned short configurationValues[] = {90, 2, 50, 2, 3, 7680, 14, 5, 2, 1, 255, 1};
     std::vector<unsigned char> payload;
     unsigned char step = coordinatorInitializationStep_;
-    if (step < 11) {
+    if (step < 12) {
         payload.push_back(configurationIds[step]);
         payload.push_back(static_cast<unsigned char>(configurationValues[step]));
         payload.push_back(static_cast<unsigned char>(configurationValues[step] >> 8));
         ++coordinatorInitializationStep_;
         sendEzspCommand(0x0053, payload); /* setConfigurationValue */
-    } else if (step < 14) {
+    } else if (step < 15) {
         static const unsigned char policyIds[] = {6, 5, 0};
         static const unsigned short decisions[] = {0x60, 0x51, 0x03};
-        unsigned char policy = static_cast<unsigned char>(step - 11);
+        unsigned char policy = static_cast<unsigned char>(step - 12);
         payload.push_back(policyIds[policy]);
         payload.push_back(static_cast<unsigned char>(decisions[policy]));
         payload.push_back(static_cast<unsigned char>(decisions[policy] >> 8));
         ++coordinatorInitializationStep_;
         sendEzspCommand(0x0055, payload); /* setPolicy */
-    } else if (step < 16) {
+    } else if (step < 17) {
         static const unsigned char valueIds[] = {63, 21};
         static const unsigned char values[] = {3, 0};
-        unsigned char value = static_cast<unsigned char>(step - 14);
+        unsigned char value = static_cast<unsigned char>(step - 15);
         payload.push_back(valueIds[value]); payload.push_back(1); payload.push_back(values[value]);
         ++coordinatorInitializationStep_;
         sendEzspCommand(0x00ab, payload); /* setValue */
-    } else if (step == 16) {
+    } else if (step == 17) {
         const unsigned char concentrator[] = {1, 0xf9, 0xff, 10, 0, 90, 0, 4, 3, 0};
         payload.assign(concentrator, concentrator + sizeof(concentrator));
         ++coordinatorInitializationStep_;
         sendEzspCommand(0x0010, payload); /* setConcentrator */
-    } else if (step == 17) {
+    } else if (step == 18) {
         payload.push_back(1);
         ++coordinatorInitializationStep_;
         sendEzspCommand(0x005a, payload); /* setSourceRouteDiscoveryMode */
-    } else if (step == 18) {
+    } else if (step == 19) {
         static const unsigned short inputClusters[] = {0, 3, 6, 10, 25, 26, 768};
         static const unsigned short outputClusters[] = {0, 3, 4, 5, 6, 8, 32, 768, 1024, 1026, 1029,
                                                         1030, 1280, 2817, 2819, 2820, 1794, 4096, 64513, 64514};
@@ -1490,12 +1490,12 @@ void Gateway::continueCoordinatorInitialization() {
         }
         ++coordinatorInitializationStep_;
         sendEzspCommand(0x0002, payload); /* addEndpoint */
-    } else if (step == 19) {
+    } else if (step == 20) {
         const unsigned char greenPowerEndpoint[] = {242, 0xe0, 0xa1, 0x61, 0, 0, 0, 1, 0x21, 0};
         payload.assign(greenPowerEndpoint, greenPowerEndpoint + sizeof(greenPowerEndpoint));
         ++coordinatorInitializationStep_;
         sendEzspCommand(0x0002, payload); /* addEndpoint */
-    } else if (step == 20) {
+    } else if (step == 21) {
         ++coordinatorInitializationStep_;
         networkInitRequested_ = true;
         addLog("Initializing NCP Zigbee network after coordinator configuration");
@@ -1511,6 +1511,20 @@ void Gateway::enableStackTokenWriting() {
     stackTokenWritingRequested_ = true;
     addLog("Enabling NCP stack token writing");
     sendEzspCommand(0x00ab, payload);
+}
+
+void Gateway::configureTradfriBindGroup() {
+    std::vector<unsigned char> payload;
+    if (tradfriBindGroupConfigured_) return;
+    /* Pre-2.3.075 IKEA remotes, including E1743, use the legacy group
+       binding rather than sending their commands to a coordinator endpoint. */
+    payload.push_back(0); /* multicast table index */
+    payload.push_back(0x85); payload.push_back(0x03); /* group 901 */
+    payload.push_back(1); /* coordinator endpoint */
+    payload.push_back(0); /* primary network */
+    tradfriBindGroupConfigured_ = true;
+    sendEzspCommand(0x0064, payload); /* setMulticastTableEntry */
+    addLog("Subscribing coordinator to IKEA legacy remote group 901");
 }
 
 unsigned char Gateway::sendApsUnicast(unsigned short destination, unsigned short profile, unsigned short cluster,
@@ -1603,6 +1617,7 @@ void Gateway::handleAshFrame(const std::vector<unsigned char>& frame) {
         ezspVersion_ = 4;
         ezspVersionNegotiated_ = false;
         networkInitRequested_ = false;
+        tradfriBindGroupConfigured_ = false;
         coordinatorInitializationStep_ = 0;
         addLog("ASH reset acknowledgement received");
         std::vector<unsigned char> version;
@@ -1703,7 +1718,7 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
             resetDeadline_ = 0;
             return; /* Do not proceed to network initialization after rejection. */
         }
-        if (coordinatorInitializationStep_ == 21) {
+        if (coordinatorInitializationStep_ == 22) {
             coordinatorInitializationStep_ = 0;
         } else {
             continueCoordinatorInitialization();
@@ -1769,6 +1784,7 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
             networkFormed_ = true;
             addLog("NCP Zigbee network is active");
             requestCoordinatorIeeeAddress();
+            configureTradfriBindGroup();
         } else if (frame[payloadOffset] == 0x9c || frame[payloadOffset] == 0x9d) {
             /* NETWORK_OPENED and NETWORK_CLOSED describe the permit-join
                window, not whether the coordinator left the network. */

@@ -181,6 +181,7 @@ private:
     bool ezspVersionNegotiated_;
     bool stackTokenWritingRequested_;
     bool networkInitRequested_;
+    bool tradfriBindGroupConfigured_;
     unsigned char coordinatorInitializationStep_;
     long resetDeadline_;
     long nextHeartbeatAt_;
@@ -275,6 +276,7 @@ private:
     void continueCoordinatorInitialization();
     unsigned short coordinatorInitializationCommand() const;
     void enableStackTokenWriting();
+    void configureTradfriBindGroup();
     unsigned char sendApsUnicast(unsigned short destination, unsigned short profile, unsigned short cluster,
                         unsigned char sourceEndpoint, unsigned char destinationEndpoint,
                         const std::vector<unsigned char>& message, unsigned char messageTag = 0);
