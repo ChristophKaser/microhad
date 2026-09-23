@@ -2707,7 +2707,11 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
     }
     if ((frameControl & 0x03) == 0x01) {
         std::vector<unsigned char> arguments(message.begin() + zclOffset, message.end());
-        if (logRemoteKeyEvent(sender, cluster, payload[5], manufacturer, command, arguments) && (frameControl & 0x10) == 0)
+        /* Only unicast commands receive default responses. Group/broadcast
+           commands may use destination endpoint 255, which is not a valid
+           source endpoint for a reply. Still dispatch their key events. */
+        if (logRemoteKeyEvent(sender, cluster, payload[5], manufacturer, command, arguments) &&
+            (frameControl & 0x10) == 0 && payload[0] <= 1 && payload[6] != 255)
             sendZclDefaultResponse(sender, payload[6], payload[5], cluster, transactionSequence, command);
     }
     if (cluster == 0x0500 && command == 0x01 && message.size() >= zclOffset + 4) {

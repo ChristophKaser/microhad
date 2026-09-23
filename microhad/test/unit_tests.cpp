@@ -390,6 +390,22 @@ public:
         gateway.logs_.clear();
         gateway.handleIncomingMessage(incoming);
         assert(gateway.logsJson().find("payload=190e0298") != std::string::npos);
+        EndpointDescriptor endpoint;
+        endpoint.endpoint = 1;
+        endpoint.outputClusters.push_back(6);
+        device.endpoints.push_back(endpoint);
+        device.hasRemote = true;
+        incoming.resize(22);
+        incoming[3] = 6; incoming[18] = 3;
+        incoming[19] = 1; incoming[20] = 42; incoming[21] = 1;
+        for (unsigned char type = 0; type <= 5; ++type) {
+            incoming[0] = type;
+            incoming[6] = type < 2 ? 1 : 255;
+            gateway.logs_.clear();
+            gateway.handleIncomingMessage(incoming);
+            assert(gateway.logsJson().find("action=on") != std::string::npos);
+            assert((gateway.logsJson().find("payload=182a0b0100") != std::string::npos) == (type < 2));
+        }
     }
     static bool styrbarArrowEventsAreLogged() {
         const unsigned short node = 0x4321;
