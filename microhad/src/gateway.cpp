@@ -1102,7 +1102,10 @@ std::string GatewayView::statusJson() const {
              << ",\"contact_initial_alert_minutes\":" << device.contactInitialAlertMinutes
              << ",\"contact_reminder_alert_minutes\":" << device.contactReminderAlertMinutes
              << ",\"sensor_refresh_interval_minutes\":" << device.sensorRefreshIntervalMinutes
-             << ",\"last_seen\":" << device.lastSeen << ",\"endpoint_descriptors\":[";
+             << ",\"last_seen\":" << device.lastSeen
+             << ",\"manufacturer_name\":\"" << jsonEscape(device.manufacturerName)
+             << "\",\"model_id\":\"" << jsonEscape(device.modelId)
+             << "\",\"endpoint_descriptors\":[";
         for (unsigned long endpointIndex = 0; endpointIndex < device.endpoints.size(); ++endpointIndex) {
             const EndpointDescriptor& endpoint = device.endpoints[endpointIndex];
             if (endpointIndex != 0) json << ',';
