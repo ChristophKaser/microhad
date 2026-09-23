@@ -774,6 +774,19 @@ static void testInterviewDescriptorAndPlanning() {
     assert(GatewayTestPeer::operationCluster(gateway, 0x1234, 0) == 0x0402);
     assert(GatewayTestPeer::operationCluster(gateway, 0x1234, 1) == 0x0405);
     assert(GatewayTestPeer::operationCluster(gateway, 0x1234, 2) == 0x0001);
+    {
+        EndpointDescriptor remote;
+        Gateway remoteGateway("/dev/null", 115200, "/tmp", "", "", "");
+        remote.endpoint = 1;
+        remote.outputClusters.push_back(0x0006);
+        remote.outputClusters.push_back(0x0008);
+        GatewayTestPeer::buildConfiguration(&remoteGateway, 0x1235, "0x00124b0000000012", remote);
+        assert(GatewayTestPeer::operationCount(remoteGateway, 0x1235) == 2);
+        assert(GatewayTestPeer::operationType(remoteGateway, 0x1235, 0) == 4);
+        assert(GatewayTestPeer::operationCluster(remoteGateway, 0x1235, 0) == 0x0006);
+        assert(GatewayTestPeer::operationType(remoteGateway, 0x1235, 1) == 4);
+        assert(GatewayTestPeer::operationCluster(remoteGateway, 0x1235, 1) == 0x0008);
+    }
     assert(GatewayTestPeer::pauseAndWake(&gateway, 0x1235));
     assert(GatewayTestPeer::retryKeepsTransactionSequence(&gateway, 0x1236));
     assert(GatewayTestPeer::contactCloseDuringInterview(&gateway));

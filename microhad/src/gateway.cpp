@@ -2212,6 +2212,14 @@ void Gateway::buildConfigurationOperations(unsigned short destination) {
         if (endpointSupports(endpoint, 0x0406)) queueInterviewOperation(destination, InterviewBind, endpoint.endpoint, 0x0406);
         if (endpointSupports(endpoint, 0x0006)) queueInterviewOperation(destination, InterviewBind, endpoint.endpoint, 0x0006);
         if (endpointSupports(endpoint, 0x0008)) queueInterviewOperation(destination, InterviewBind, endpoint.endpoint, 0x0008);
+        /* Remotes are clients of On/Off and Level Control, so those clusters
+           appear in the output list.  Binding only input clusters configures
+           sensor reports but leaves remotes (including IKEA E1743) sending
+           their commands to their old/default target instead of us. */
+        if (std::find(endpoint.outputClusters.begin(), endpoint.outputClusters.end(), 0x0006) != endpoint.outputClusters.end())
+            queueInterviewOperation(destination, InterviewBind, endpoint.endpoint, 0x0006);
+        if (std::find(endpoint.outputClusters.begin(), endpoint.outputClusters.end(), 0x0008) != endpoint.outputClusters.end())
+            queueInterviewOperation(destination, InterviewBind, endpoint.endpoint, 0x0008);
     }
     for (unsigned long i = 0; i < device.endpoints.size(); ++i) {
         const EndpointDescriptor& endpoint = device.endpoints[i];
