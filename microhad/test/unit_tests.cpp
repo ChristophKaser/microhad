@@ -90,6 +90,22 @@ public:
         unsupported.handleEzspFrame(std::vector<unsigned char>(reply, reply + 4));
         assert(!unsupported.online_ && unsupported.ezspVersion_ == 4);
     }
+    static void networkJoinWindowDoesNotClearNetworkState() {
+        Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+        std::vector<unsigned char> status(6, 0);
+        gateway.ezspVersion_ = 13;
+        gateway.networkFormed_ = true;
+        status[3] = 0x19;
+        status[5] = 0x9c; /* NETWORK_OPENED */
+        gateway.handleEzspFrame(status);
+        assert(gateway.networkFormed_);
+        status[5] = 0x9d; /* NETWORK_CLOSED */
+        gateway.handleEzspFrame(status);
+        assert(gateway.networkFormed_);
+        status[5] = 0x91; /* NETWORK_DOWN */
+        gateway.handleEzspFrame(status);
+        assert(!gateway.networkFormed_);
+    }
     static void reviewAndTransportRegressions() {
         Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
         gateway.serialFd_ = open("/dev/null", O_WRONLY);
@@ -960,6 +976,7 @@ static void testSharedJsonUtilities() {
 int main() {
     GatewayTestPeer::reviewAndTransportRegressions();
     GatewayTestPeer::ezspUpgradeCompatibility();
+    GatewayTestPeer::networkJoinWindowDoesNotClearNetworkState();
     testAshRoundTrip();
     testAshRejectsBadCrc();
     testDevicePersistence();

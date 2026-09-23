@@ -1764,6 +1764,12 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
             networkFormed_ = true;
             addLog("NCP Zigbee network is active");
             requestCoordinatorIeeeAddress();
+        } else if (frame[payloadOffset] == 0x9c || frame[payloadOffset] == 0x9d) {
+            /* NETWORK_OPENED and NETWORK_CLOSED describe the permit-join
+               window, not whether the coordinator left the network. */
+            addLog(frame[payloadOffset] == 0x9c ?
+                   "NCP Zigbee network opened for joining" :
+                   "NCP Zigbee network closed for joining");
         } else {
             networkFormed_ = false;
             std::ostringstream message;
