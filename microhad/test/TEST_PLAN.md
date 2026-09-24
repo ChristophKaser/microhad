@@ -32,7 +32,7 @@ physical coordinator and radio interoperability testing.
 | LIF-03 | U | Missing, unreadable, empty, malformed, or wrong-type configuration fields | Clear startup failure; no leaked worker, runner, listener, or descriptor | G |
 | LIF-04 | I | Optional config boundaries: serial baud/ports outside valid integer range, duplicate listener ports, unusable runtime path | Startup rejects invalid values or reports bind/open error safely | G |
 | LIF-05 | I | Runtime directory absent, already present, readonly, or a non-directory | Create/reuse only valid directories; propagate failure without partial state | DONE |
-| LIF-06 | I | Serial path absent, permission denied, invalid baud, and start/stop twice | Error is propagated; stop is idempotent and closes resources | G |
+| LIF-06 | I | Serial path absent, permission denied, invalid baud, and start/stop twice | Error is propagated; stop is idempotent and closes resources | DONE |
 | LIF-07 | I | HTTP-only, HTTPS-only configuration error (one TLS path), valid TLS pair, unreadable/invalid cert/key | Correct listener selection; pair is mandatory; failure cleans all started components | P |
 | LIF-08 | I | SIGINT/SIGTERM and ignored SIGPIPE during normal request writes | Main loop exits cleanly; peer close cannot terminate the process | G |
 | LIF-09 | I | Host test build and target verification contract | `make host test` is self-contained; target check rejects non-MIPS/non-big-endian output | G |

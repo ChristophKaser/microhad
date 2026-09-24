@@ -156,6 +156,65 @@ void testRuntimeDirectoryBoundaries() {
     unlink(directory.c_str());
 }
 
+void testSerialStartupAndIdempotentStop() {
+    char name[] = "/tmp/microhad-zigbee-serial-lifecycle-XXXXXX";
+    char* temporary = mkdtemp(name);
+    assert(temporary != 0);
+    const std::string directory = temporary;
+    {
+        Gateway missing(directory + "/missing-serial", 115200, directory, "", "", "");
+        std::string error;
+        assert(!missing.start(&error) && error.find("cannot open Zigbee serial device") != std::string::npos);
+        assert(missing.serialFd() == -1);
+        missing.stop(); missing.stop();
+    }
+    {
+        Gateway invalidBaud("/dev/null", 9600, directory, "", "", "");
+        std::string error;
+        assert(!invalidBaud.start(&error) && error.find("only the built-in NCP baud rate 115200 is supported") != std::string::npos);
+        assert(invalidBaud.serialFd() == -1);
+        invalidBaud.stop(); invalidBaud.stop();
+    }
+    {
+        std::ofstream denied((directory + "/permission-denied-serial").c_str());
+        assert(denied); denied << "not a serial device"; denied.close();
+        assert(chmod((directory + "/permission-denied-serial").c_str(), 0000) == 0);
+        Gateway permissionDenied(directory + "/permission-denied-serial", 115200, directory, "", "", "");
+        std::string error;
+        assert(!permissionDenied.start(&error) && error.find("cannot open Zigbee serial device") != std::string::npos);
+        assert(permissionDenied.serialFd() == -1);
+        permissionDenied.stop();
+        assert(chmod((directory + "/permission-denied-serial").c_str(), 0600) == 0);
+        unlink((directory + "/permission-denied-serial").c_str());
+    }
+    assert(mkdir((directory + "/serial-directory").c_str(), 0700) == 0);
+    {
+        Gateway invalidPath(directory + "/serial-directory", 115200, directory, "", "", "");
+        std::string error;
+        assert(!invalidPath.start(&error) && error.find("cannot open Zigbee serial device") != std::string::npos);
+        assert(invalidPath.serialFd() == -1);
+        invalidPath.stop();
+    }
+    for (int i = 0; i < 2; ++i) {
+        int serial[2];
+        std::string error;
+        assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
+        Gateway started("/dev/null", 115200, directory, "", "", "");
+        GatewayIntegrationTestPeer::attachSerial(&started, serial[0]);
+        assert(started.start(&error) && started.serialFd() == serial[0]);
+        started.stop();
+        assert(started.serialFd() == -1);
+        started.stop();
+        assert(fcntl(serial[0], F_GETFD) == -1);
+        close(serial[1]);
+    }
+    rmdir((directory + "/serial-directory").c_str());
+    unlink((directory + "/devices.json").c_str());
+    unlink((directory + "/scenes.conf").c_str());
+    unlink((directory + "/network.json").c_str());
+    rmdir(directory.c_str());
+}
+
 void testCliUsageFailures() {
     expectUsageFailure(false);
     expectUsageFailure(true);
@@ -173,6 +232,8 @@ void runGatewayIntegrationTests() {
     testSceneConfigurationProvisioning();
     fprintf(stderr, "integration: gateway runtime directory boundaries\n");
     testRuntimeDirectoryBoundaries();
+    fprintf(stderr, "integration: serial startup failures and idempotent stop\n");
+    testSerialStartupAndIdempotentStop();
     fprintf(stderr, "integration: gateway CLI usage failures\n");
     testCliUsageFailures();
 }
