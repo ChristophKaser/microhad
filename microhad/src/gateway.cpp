@@ -689,6 +689,7 @@ void Gateway::provisionSceneGroup(const SceneGroup& group) {
 bool Gateway::activateScene(unsigned short groupId, unsigned char sceneId, std::string* error) {
     SceneGroup* group = findSceneGroup(groupId);
     if (group == 0) { *error = "scene group not found"; return false; }
+    if (group->members.empty()) { *error = "scene group is empty"; return false; }
     bool found = false;
     for (unsigned long i = 0; i < group->scenes.size(); ++i) if (group->scenes[i].id == sceneId) found = true;
     if (!found) { *error = "scene not found"; return false; }
@@ -701,7 +702,9 @@ bool Gateway::activateScene(unsigned short groupId, unsigned char sceneId, std::
 }
 
 bool Gateway::turnOffSceneGroup(unsigned short groupId, std::string* error) {
-    if (findSceneGroup(groupId) == 0) { *error = "scene group not found"; return false; }
+    SceneGroup* group = findSceneGroup(groupId);
+    if (group == 0) { *error = "scene group not found"; return false; }
+    if (group->members.empty()) { *error = "scene group is empty"; return false; }
     if (!online_ || !networkFormed_ || coordinatorInitializationStep_ != 0) { *error = "Zigbee network is not ready"; return false; }
     SceneRetry& retry = sceneRetries_[groupId];
     retry.off = true; retry.sceneId = 0; retry.attempts = 0; retry.retryRequested = false; retry.retryAt = time(0);

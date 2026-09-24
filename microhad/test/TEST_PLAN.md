@@ -111,7 +111,7 @@ physical coordinator and radio interoperability testing.
 | SCN-02 | U | Empty/comment-only config and every malformed record, field count, ID/range, duplicate group/scene/state/member, bad brightness, unknown action | Configuration is rejected atomically with a useful error | DONE |
 | SCN-03 | U | Binding references missing group/scene/remote; scene state missing/non-member; names with separators | Invalid cross-references and unrepresentable text are rejected | DONE |
 | SCN-04 | I | Set valid configuration | Saves first, provisions native-capable members/groups/scenes, publishes view | G |
-| SCN-05 | I | Activate/off unknown group/scene, empty group, offline/busy state, and send failure | No selected-state advance on failure; clear error is returned | P |
+| SCN-05 | I | Activate/off unknown group/scene, empty group, offline/busy state, and send failure | No selected-state advance on failure; clear error is returned | DONE |
 | SCN-06 | I | Native group/scene recall versus unicast fallback for unsupported lights | Correct multicast/unicast commands and per-light state outcomes | G |
 | SCN-07 | I | Scene command ACK/failure/timeout, retry limit, queued retry, coalesced action, selected-scene runtime persistence | Retry state is bounded; newest intended action wins without stale execution | P |
 | SCN-08 | I | Remote on/off/left/right events, held/duplicate/unknown event, no binding, and binding during pending scene | Correct mapped action; ignored events do not perturb selection | P |

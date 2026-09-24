@@ -97,6 +97,11 @@ void testResetTimeoutRetriesOverPipe() {
     close(serial[1]);
 }
 
+void testSceneCommandErrors() {
+    Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+    assert(GatewayIntegrationTestPeer::sceneCommandErrors(&gateway));
+}
+
 void testRuntimeDirectoryBoundaries() {
     char name[] = "/tmp/microhad-zigbee-runtime-XXXXXX";
     char* temporary = mkdtemp(name);
@@ -151,6 +156,8 @@ void runGatewayIntegrationTests() {
     testResetAndVersionOverPipe();
     fprintf(stderr, "integration: gateway reset timeout retry over pipe\n");
     testResetTimeoutRetriesOverPipe();
+    fprintf(stderr, "integration: scene command errors and state preservation\n");
+    testSceneCommandErrors();
     fprintf(stderr, "integration: gateway runtime directory boundaries\n");
     testRuntimeDirectoryBoundaries();
     fprintf(stderr, "integration: gateway CLI usage failures\n");

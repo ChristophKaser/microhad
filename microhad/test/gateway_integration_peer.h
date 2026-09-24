@@ -15,6 +15,29 @@ public:
     }
     static bool online(const Gateway& gateway) { return gateway.online_; }
     static void expireResetDeadline(Gateway* gateway) { gateway->resetDeadline_ = time(0) - 1; }
+    static bool sceneCommandErrors(Gateway* gateway) {
+        std::string error;
+        SceneGroup empty;
+        Scene scene;
+        SceneGroup configured;
+        empty.id = 1; empty.name = "Empty";
+        scene.id = 1; scene.name = "Scene"; empty.scenes.push_back(scene);
+        configured.id = 2; configured.name = "Configured";
+        configured.members.push_back("light"); configured.scenes.push_back(scene);
+        gateway->sceneGroups_.push_back(empty);
+        gateway->sceneGroups_.push_back(configured);
+        if (gateway->activateScene(99, 1, &error) || error != "scene group not found") return false;
+        if (gateway->turnOffSceneGroup(99, &error) || error != "scene group not found") return false;
+        if (gateway->activateScene(1, 1, &error) || error != "scene group is empty") return false;
+        if (gateway->turnOffSceneGroup(1, &error) || error != "scene group is empty") return false;
+        if (gateway->activateScene(2, 9, &error) || error != "scene not found") return false;
+        if (gateway->activateScene(2, 1, &error) || error != "Zigbee network is not ready") return false;
+        if (!gateway->selectedScenes_.empty()) return false;
+        gateway->online_ = true; gateway->networkFormed_ = true;
+        gateway->coordinatorInitializationStep_ = 1;
+        if (gateway->turnOffSceneGroup(2, &error) || error != "Zigbee network is not ready") return false;
+        return gateway->selectedScenes_.empty();
+    }
     static void prepareHttpDevice(Gateway* gateway) {
         Device device;
         EndpointDescriptor power;
