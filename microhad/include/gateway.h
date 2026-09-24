@@ -150,6 +150,7 @@ public:
 
 private:
     friend class GatewayTestPeer;
+    friend class GatewayIntegrationTestPeer;
     std::string serialDevice_;
     int serialBaud_;
     std::string runtimeDirectory_;

@@ -7,12 +7,14 @@ TARGET_AR := $(RSDK_ROOT)/bin/mips-linux-ar
 TARGET_STRIP := $(RSDK_ROOT)/bin/mips-linux-strip
 TARGET_READELF := $(RSDK_ROOT)/bin/mips-linux-readelf
 HOST_CXX ?= g++
+HOST_CC ?= gcc
+CMAKE ?= cmake
 
 WARNINGS := -Wall -Wextra -Werror -pedantic
 # GCC 3.4 in the supplied RSDK has no -std=gnu++03 switch; its default is
 # C++98/C++03-compatible. Keep target flags explicit and separate from host.
-HOST_CXXFLAGS := -std=gnu++03 $(WARNINGS) -Iinclude -O2
-TARGET_CXXFLAGS := $(WARNINGS) -Iinclude -O2 -ffunction-sections -fdata-sections -DMICROHAD_MIPS_TARGET=1
+HOST_CXXFLAGS := -std=gnu++03 $(WARNINGS) -Iinclude -Ithird_party/mbedtls/include -O2 -DMICROHAD_MBEDTLS_ENABLED=1
+TARGET_CXXFLAGS := $(WARNINGS) -Iinclude -O2 -ffunction-sections -fdata-sections -DMICROHAD_MIPS_TARGET=1 -DMICROHAD_MBEDTLS_ENABLED=1
 TARGET_CFLAGS := $(WARNINGS) -O2 -ffunction-sections -fdata-sections
 LDFLAGS := -lpthread
 SOURCES := src/main.cpp src/ash.cpp src/json_util.cpp src/storage.cpp src/http_server.cpp src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp
@@ -20,63 +22,77 @@ HOST_BUILD := build/host
 MIPS_BUILD := build/mips
 HOST_BIN := $(HOST_BUILD)/microhad-zigbee-native
 MIPS_BIN := $(MIPS_BUILD)/microhad-zigbee-native
-MIPS_C_OBJECTS := $(MIPS_BUILD)/fcm_signer.o $(MIPS_BUILD)/https_client.o $(MIPS_BUILD)/vapid_key.o $(MIPS_BUILD)/web_push_crypto.o $(MIPS_BUILD)/tls_server.o
+TLS_C_SOURCES := src/fcm_signer.c src/https_client.c src/vapid_key.c src/web_push_crypto.c src/tls_server.c
+HOST_C_OBJECTS := $(patsubst src/%.c,$(HOST_BUILD)/%.o,$(TLS_C_SOURCES))
+MIPS_C_OBJECTS := $(patsubst src/%.c,$(MIPS_BUILD)/%.o,$(TLS_C_SOURCES))
 MBEDTLS_DIR := third_party/mbedtls
-MBEDTLS_LIBS := $(MBEDTLS_DIR)/library/libmbedtls.a $(MBEDTLS_DIR)/library/libmbedx509.a $(MBEDTLS_DIR)/library/libmbedcrypto.a
-TEST_BIN := $(HOST_BUILD)/unit_tests
+HOST_MBEDTLS_BUILD := $(HOST_BUILD)/mbedtls
+MIPS_MBEDTLS_BUILD := $(MIPS_BUILD)/mbedtls
+HOST_MBEDTLS_LIBS := $(HOST_MBEDTLS_BUILD)/library/libmbedtls.a $(HOST_MBEDTLS_BUILD)/library/libmbedx509.a $(HOST_MBEDTLS_BUILD)/library/libmbedcrypto.a
+MIPS_MBEDTLS_LIBS := $(MIPS_MBEDTLS_BUILD)/library/libmbedtls.a $(MIPS_MBEDTLS_BUILD)/library/libmbedx509.a $(MIPS_MBEDTLS_BUILD)/library/libmbedcrypto.a
+UNIT_TEST_BIN := $(HOST_BUILD)/unit_tests
+INTEGRATION_TEST_BIN := $(HOST_BUILD)/integration_tests
+UNIT_TEST_SOURCES := test/unit_gateway.cpp test/unit_fcm.cpp test/unit_web_push.cpp test/test_main.cpp
+INTEGRATION_TEST_SOURCES := test/integration_gateway.cpp test/integration_http_server.cpp test/integration_main.cpp
 
-.PHONY: all host mips mbedtls-mips test verify-target clean
+.PHONY: all host mips mbedtls-host mbedtls-mips unit-test integration-test test verify-target clean
 
 all: host
 
-host: $(HOST_BIN)
+host: mbedtls-host $(HOST_BIN)
 
-$(HOST_BIN): $(SOURCES) $(wildcard include/*.h)
+$(HOST_BIN): $(SOURCES) $(HOST_C_OBJECTS) $(HOST_MBEDTLS_LIBS) $(wildcard include/*.h)
 	@mkdir -p $(HOST_BUILD)
-	$(HOST_CXX) $(HOST_CXXFLAGS) $(SOURCES) -o $@ $(LDFLAGS)
+	$(HOST_CXX) $(HOST_CXXFLAGS) $(SOURCES) $(HOST_C_OBJECTS) -o $@ $(HOST_MBEDTLS_LIBS) $(LDFLAGS)
 
 mips: mbedtls-mips $(MIPS_BIN) verify-target
 
-mbedtls-mips:
-	$(MAKE) -C $(MBEDTLS_DIR)/library clean
-	$(MAKE) -C $(MBEDTLS_DIR)/library CC=$(TARGET_CC) AR=$(TARGET_AR) CFLAGS='-O2 -std=gnu99 -ffunction-sections -fdata-sections'
+mbedtls-host: $(HOST_MBEDTLS_LIBS)
 
-$(MIPS_BUILD)/fcm_signer.o: src/fcm_signer.c $(MBEDTLS_LIBS)
+$(HOST_MBEDTLS_LIBS): $(MBEDTLS_DIR)/CMakeLists.txt
+	$(CMAKE) -S $(MBEDTLS_DIR) -B $(HOST_MBEDTLS_BUILD) -DCMAKE_C_COMPILER=$(HOST_CC) -DENABLE_PROGRAMS=OFF -DENABLE_TESTING=OFF -DUSE_SHARED_MBEDTLS_LIBRARY=OFF -DMBEDTLS_FATAL_WARNINGS=OFF
+	$(CMAKE) --build $(HOST_MBEDTLS_BUILD) --target mbedtls mbedx509 mbedcrypto
+
+mbedtls-mips: $(MIPS_MBEDTLS_LIBS)
+
+$(MIPS_MBEDTLS_LIBS): $(MBEDTLS_DIR)/CMakeLists.txt
+	@test -x $(TARGET_CC) || (echo "RSDK compiler not found: $(TARGET_CC)"; exit 1)
+	$(CMAKE) -S $(MBEDTLS_DIR) -B $(MIPS_MBEDTLS_BUILD) -DCMAKE_C_COMPILER=$(TARGET_CC) -DCMAKE_AR=$(TARGET_AR) -DCMAKE_C_FLAGS='-O2 -std=gnu99 -ffunction-sections -fdata-sections' -DENABLE_PROGRAMS=OFF -DENABLE_TESTING=OFF -DUSE_SHARED_MBEDTLS_LIBRARY=OFF -DMBEDTLS_FATAL_WARNINGS=OFF
+	$(CMAKE) --build $(MIPS_MBEDTLS_BUILD) --target mbedtls mbedx509 mbedcrypto
+
+$(HOST_BUILD)/%.o: src/%.c $(HOST_MBEDTLS_LIBS)
+	@mkdir -p $(HOST_BUILD)
+	$(HOST_CC) -std=gnu99 $(WARNINGS) -O2 -I$(MBEDTLS_DIR)/include -c $< -o $@
+
+$(MIPS_BUILD)/%.o: src/%.c $(MIPS_MBEDTLS_LIBS)
 	@mkdir -p $(MIPS_BUILD)
 	$(TARGET_CC) -std=gnu99 $(TARGET_CFLAGS) -I$(MBEDTLS_DIR)/include -c $< -o $@
 
-$(MIPS_BUILD)/https_client.o: src/https_client.c $(MBEDTLS_LIBS)
-	@mkdir -p $(MIPS_BUILD)
-	$(TARGET_CC) -std=gnu99 $(TARGET_CFLAGS) -I$(MBEDTLS_DIR)/include -c $< -o $@
-
-$(MIPS_BUILD)/vapid_key.o: src/vapid_key.c $(MBEDTLS_LIBS)
-	@mkdir -p $(MIPS_BUILD)
-	$(TARGET_CC) -std=gnu99 $(TARGET_CFLAGS) -I$(MBEDTLS_DIR)/include -c $< -o $@
-
-$(MIPS_BUILD)/web_push_crypto.o: src/web_push_crypto.c $(MBEDTLS_LIBS)
-	@mkdir -p $(MIPS_BUILD)
-	$(TARGET_CC) -std=gnu99 $(TARGET_CFLAGS) -I$(MBEDTLS_DIR)/include -c $< -o $@
-
-$(MIPS_BUILD)/tls_server.o: src/tls_server.c $(MBEDTLS_LIBS)
-	@mkdir -p $(MIPS_BUILD)
-	$(TARGET_CC) -std=gnu99 $(TARGET_CFLAGS) -I$(MBEDTLS_DIR)/include -c $< -o $@
-
-$(MIPS_BIN): $(SOURCES) $(wildcard include/*.h) $(MBEDTLS_LIBS) $(MIPS_C_OBJECTS)
+$(MIPS_BIN): $(SOURCES) $(wildcard include/*.h) $(MIPS_MBEDTLS_LIBS) $(MIPS_C_OBJECTS)
 	@test -x $(TARGET_CXX) || (echo "RSDK compiler not found: $(TARGET_CXX)"; exit 1)
 	@mkdir -p $(MIPS_BUILD)
-	$(TARGET_CXX) $(TARGET_CXXFLAGS) -static -Wl,--gc-sections $(SOURCES) $(MIPS_C_OBJECTS) -o $@ $(MBEDTLS_LIBS) $(LDFLAGS)
+	$(TARGET_CXX) $(TARGET_CXXFLAGS) -static -Wl,--gc-sections $(SOURCES) $(MIPS_C_OBJECTS) -o $@ $(MIPS_MBEDTLS_LIBS) $(LDFLAGS)
 	$(TARGET_STRIP) $@
 
 verify-target: $(MIPS_BIN)
 	$(TARGET_READELF) -h $(MIPS_BIN) | grep -q 'Data:.*big endian'
 	$(TARGET_READELF) -h $(MIPS_BIN) | grep -q 'Machine:.*MIPS'
 
-$(TEST_BIN): test/unit_tests.cpp src/ash.cpp src/json_util.cpp src/storage.cpp src/gateway.cpp src/notification_worker.cpp src/zcl.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp $(wildcard include/*.h)
+$(UNIT_TEST_BIN): $(UNIT_TEST_SOURCES) src/ash.cpp src/json_util.cpp src/storage.cpp src/gateway.cpp src/notification_worker.cpp src/zcl.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp $(HOST_C_OBJECTS) $(HOST_MBEDTLS_LIBS) $(wildcard include/*.h)
 	@mkdir -p $(HOST_BUILD)
-	$(HOST_CXX) $(HOST_CXXFLAGS) test/unit_tests.cpp src/ash.cpp src/json_util.cpp src/storage.cpp src/gateway.cpp src/notification_worker.cpp src/zcl.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp -o $@ $(LDFLAGS)
+	$(HOST_CXX) $(HOST_CXXFLAGS) $(UNIT_TEST_SOURCES) src/ash.cpp src/json_util.cpp src/storage.cpp src/gateway.cpp src/notification_worker.cpp src/zcl.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp $(HOST_C_OBJECTS) -o $@ $(HOST_MBEDTLS_LIBS) $(LDFLAGS)
 
-test: $(TEST_BIN)
-	$(TEST_BIN)
+$(INTEGRATION_TEST_BIN): $(INTEGRATION_TEST_SOURCES) src/ash.cpp src/json_util.cpp src/storage.cpp src/http_server.cpp src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp $(HOST_C_OBJECTS) $(HOST_MBEDTLS_LIBS) $(wildcard include/*.h)
+	@mkdir -p $(HOST_BUILD)
+	$(HOST_CXX) $(HOST_CXXFLAGS) $(INTEGRATION_TEST_SOURCES) src/ash.cpp src/json_util.cpp src/storage.cpp src/http_server.cpp src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp $(HOST_C_OBJECTS) -o $@ $(HOST_MBEDTLS_LIBS) $(LDFLAGS)
+
+unit-test: mbedtls-host $(UNIT_TEST_BIN)
+	$(UNIT_TEST_BIN)
+
+integration-test: mbedtls-host $(INTEGRATION_TEST_BIN)
+	$(INTEGRATION_TEST_BIN)
+
+test: unit-test integration-test
 
 clean:
 	rm -rf build

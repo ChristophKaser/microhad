@@ -1033,7 +1033,7 @@ static void testSharedJsonUtilities() {
     assert(jsonEscape("a\\b\"c\n\001") == "a\\\\b\\\"c\\n\\u0001");
 }
 
-int main() {
+void runUnitTests() {
     GatewayTestPeer::reviewAndTransportRegressions();
     GatewayTestPeer::ezspUpgradeCompatibility();
     GatewayTestPeer::networkJoinWindowDoesNotClearNetworkState();
@@ -1062,6 +1062,4 @@ int main() {
     testBrowserPushSubscriptionBounds();
     testFcmMessageConstruction();
     testSharedJsonUtilities();
-    printf("unit tests passed\n");
-    return 0;
 }

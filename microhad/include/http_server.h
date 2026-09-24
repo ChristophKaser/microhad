@@ -16,6 +16,7 @@ public:
     ~HttpServer();
     bool start(std::string* error);
     void poll();
+    int boundPort() const;
 
 private:
     int port_;

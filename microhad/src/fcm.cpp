@@ -7,7 +7,7 @@
 #include <ctime>
 #include <fstream>
 
-#ifdef MICROHAD_MIPS_TARGET
+#ifdef MICROHAD_MBEDTLS_ENABLED
 extern "C" int microhad_fcm_sign(const char* pem, const unsigned char* input, size_t inputLength,
                               unsigned char* signature, size_t* signatureLength);
 #endif
@@ -73,7 +73,7 @@ std::string makeFcmMessage(const std::string& topic, const std::string& title, c
 }
 
 std::string makeGoogleAccessTokenJwt(const FirebaseServiceAccount& account, long issuedAt, std::string* error) {
-#ifdef MICROHAD_MIPS_TARGET
+#ifdef MICROHAD_MBEDTLS_ENABLED
     std::string header = base64UrlEncode("{\"alg\":\"RS256\",\"typ\":\"JWT\"}");
     std::string claims = std::string("{\"iss\":\"") + jsonEscape(account.clientEmail) +
         "\",\"scope\":\"https://www.googleapis.com/auth/firebase.messaging\",\"aud\":\"https://oauth2.googleapis.com/token\",\"iat\":";

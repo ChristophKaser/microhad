@@ -289,7 +289,9 @@ bool Gateway::start(std::string* error) {
     }
     loadLogs();
     loadState();
-    if (!configureSerial(error)) {
+    /* Tests may inject a pipe descriptor before the coordinator thread starts.
+       Production always reaches this branch with serialFd_ == -1. */
+    if (serialFd_ < 0 && !configureSerial(error)) {
         addLog(std::string("Serial startup failed: ") + *error);
         return false;
     }

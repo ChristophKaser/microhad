@@ -1,6 +1,6 @@
 #include "https_client.h"
 
-#ifdef MICROHAD_MIPS_TARGET
+#ifdef MICROHAD_MBEDTLS_ENABLED
 extern "C" int microhad_https_post(const char* host, const char* path, const char* headers, const char* body,
                                 unsigned long bodyLength, const char* caBundle, char* response, unsigned long responseCapacity,
                                 unsigned long* responseLength);
@@ -8,7 +8,7 @@ extern "C" int microhad_https_post(const char* host, const char* path, const cha
 
 bool httpsPost(const std::string& host, const std::string& path, const std::string& headers,
                const std::string& body, const std::string& caBundle, std::string* response, std::string* error) {
-#ifdef MICROHAD_MIPS_TARGET
+#ifdef MICROHAD_MBEDTLS_ENABLED
     std::string buffer(16384, '\0');
     unsigned long length = 0;
     if (caBundle.empty()) { *error = "a CA bundle is required for HTTPS"; return false; }

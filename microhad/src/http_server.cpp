@@ -21,7 +21,7 @@
 #include <unistd.h>
 #include <vector>
 
-#ifdef MICROHAD_MIPS_TARGET
+#ifdef MICROHAD_MBEDTLS_ENABLED
 extern "C" int microhad_tls_server_create(const char* certificatePath, const char* privateKeyPath, void** server);
 extern "C" void microhad_tls_server_destroy(void* server);
 extern "C" int microhad_tls_session_open(void* server, int fd, void** session);
@@ -42,7 +42,7 @@ enum RequestReadResult {
 
 std::string* queuedResponse = 0;
 pthread_mutex_t webPushMutex = PTHREAD_MUTEX_INITIALIZER;
-#ifdef MICROHAD_MIPS_TARGET
+#ifdef MICROHAD_MBEDTLS_ENABLED
 pthread_key_t tlsSessionKey;
 pthread_once_t tlsSessionKeyOnce = PTHREAD_ONCE_INIT;
 void createTlsSessionKey() { pthread_key_create(&tlsSessionKey, 0); }
@@ -63,7 +63,7 @@ void writeResponse(int fd, int status, const char* contentType, const std::strin
         *queuedResponse = wire;
         return;
     }
-#ifdef MICROHAD_MIPS_TARGET
+#ifdef MICROHAD_MBEDTLS_ENABLED
     if (activeTlsSession() != 0) {
         microhad_tls_write(activeTlsSession(), wire.data(), wire.size());
         return;
@@ -219,7 +219,7 @@ HttpServer::~HttpServer() {
     while (!clientQueue_.empty()) { close(clientQueue_.back()); clientQueue_.pop_back(); }
     pthread_cond_destroy(&queueReady_);
     pthread_mutex_destroy(&queueMutex_);
-#ifdef MICROHAD_MIPS_TARGET
+#ifdef MICROHAD_MBEDTLS_ENABLED
     if (tlsServer_ != 0) microhad_tls_server_destroy(tlsServer_);
 #endif
     delete webPush_;
@@ -228,7 +228,7 @@ HttpServer::~HttpServer() {
 bool HttpServer::start(std::string* error) {
     struct sockaddr_in address;
     int reuse = 1;
-#ifdef MICROHAD_MIPS_TARGET
+#ifdef MICROHAD_MBEDTLS_ENABLED
     if (!certificatePath_.empty() || !privateKeyPath_.empty()) {
         if (certificatePath_.empty() || privateKeyPath_.empty() ||
             microhad_tls_server_create(certificatePath_.c_str(), privateKeyPath_.c_str(), &tlsServer_) != 0) {
@@ -264,6 +264,13 @@ bool HttpServer::start(std::string* error) {
 
 void HttpServer::poll() {
     /* The acceptor and worker pool own web I/O. Retained for main-loop API compatibility. */
+}
+
+int HttpServer::boundPort() const {
+    struct sockaddr_in address;
+    socklen_t length = sizeof(address);
+    if (listenFd_ < 0 || getsockname(listenFd_, reinterpret_cast<struct sockaddr*>(&address), &length) != 0) return -1;
+    return static_cast<int>(ntohs(address.sin_port));
 }
 
 void* HttpServer::acceptThreadMain(void* opaque) { static_cast<HttpServer*>(opaque)->acceptLoop(); return 0; }
@@ -303,12 +310,12 @@ void HttpServer::workerLoop() {
 void HttpServer::handleClient(int clientFd) {
     std::string request;
     RequestReadResult readResult = RequestReadFailed;
-#ifdef MICROHAD_MIPS_TARGET
+#ifdef MICROHAD_MBEDTLS_ENABLED
     void* session = 0;
     if (tlsServer_ != 0 && microhad_tls_session_open(tlsServer_, clientFd, &session) != 0) return;
 #else
 #endif
-#ifdef MICROHAD_MIPS_TARGET
+#ifdef MICROHAD_MBEDTLS_ENABLED
     if (session != 0) {
         std::vector<char> buffer(maximumRequestBytes + 1, 0);
         int tlsResult = microhad_tls_read_request(session, &buffer[0], buffer.size());
@@ -327,7 +334,7 @@ void HttpServer::handleClient(int clientFd) {
     readResult = readPlainRequest(clientFd, &request);
 #endif
     if (
-#ifdef MICROHAD_MIPS_TARGET
+#ifdef MICROHAD_MBEDTLS_ENABLED
         session != 0 ||
 #endif
         readResult == RequestReadOk) {
@@ -336,7 +343,7 @@ void HttpServer::handleClient(int clientFd) {
         writeResponse(clientFd, readResult == RequestReadTooLarge ? 413 : 400, "application/json",
                       readResult == RequestReadTooLarge ? "{\"error\":\"request is too large\"}" : "{\"error\":\"malformed request\"}");
     }
-#ifdef MICROHAD_MIPS_TARGET
+#ifdef MICROHAD_MBEDTLS_ENABLED
     setActiveTlsSession(0);
     if (session != 0) microhad_tls_session_close(session);
 #endif

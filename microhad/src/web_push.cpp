@@ -52,7 +52,7 @@ bool saveSubscriptions(const std::string& filename, const std::vector<std::strin
     return true;
 }
 
-#ifdef MICROHAD_MIPS_TARGET
+#ifdef MICROHAD_MBEDTLS_ENABLED
 bool permanentlyRejected(const std::string& response) {
     std::string::size_type statusAt;
     char* end = 0;
@@ -66,7 +66,7 @@ bool permanentlyRejected(const std::string& response) {
 #endif
 }
 
-#ifdef MICROHAD_MIPS_TARGET
+#ifdef MICROHAD_MBEDTLS_ENABLED
 extern "C" int microhad_vapid_generate(unsigned char* publicKey, unsigned char* privateKey);
 extern "C" int microhad_web_push_encrypt(const unsigned char* clientPublic, const unsigned char* authSecret,
                                       const unsigned char* plaintext, unsigned long plaintextLength,
@@ -75,7 +75,7 @@ extern "C" int microhad_vapid_sign(const unsigned char* privateKey, const unsign
                                 unsigned long inputLength, unsigned char* signature);
 #endif
 
-#ifdef MICROHAD_MIPS_TARGET
+#ifdef MICROHAD_MBEDTLS_ENABLED
 namespace {
 std::string urlOrigin(const std::string& endpoint) {
     std::string::size_type scheme = endpoint.find("://");
@@ -100,7 +100,7 @@ bool WebPushStore::loadOrCreateKey(std::string* error) {
         chmod((runtimeDirectory_ + "/vapid-private.key").c_str(), 0600);
         return !publicKey_.empty();
     }
-#ifdef MICROHAD_MIPS_TARGET
+#ifdef MICROHAD_MBEDTLS_ENABLED
     unsigned char publicKey[65];
     unsigned char privateKey[32];
     if (microhad_vapid_generate(publicKey, privateKey) != 0) { *error = "cannot generate VAPID key"; return false; }
@@ -171,7 +171,7 @@ std::string WebPushStore::publicKey() const {
 
 bool WebPushStore::send(const std::string& caBundle, const std::string& title, const std::string& body,
                         std::string* error) {
-#ifdef MICROHAD_MIPS_TARGET
+#ifdef MICROHAD_MBEDTLS_ENABLED
     const std::string subscriptionFilename = runtimeDirectory_ + "/web-push-subscriptions.ndjson";
     std::ifstream subscriptions(subscriptionFilename.c_str());
     std::ifstream privateFile((runtimeDirectory_ + "/vapid-private.key").c_str(), std::ios::binary);
