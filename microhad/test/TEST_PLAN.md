@@ -140,7 +140,7 @@ physical coordinator and radio interoperability testing.
 | RUN-01 | I | Runner start success/failure and stop before/after start | Startup error crosses thread boundary; resources and gateway ownership are correct | G |
 | RUN-02 | I | Every command type: join, network, settings, refresh, light, scene config/activate/off, test notification, notification toggle | Command reaches only coordinator thread and relays result/error | G |
 | RUN-03 | I | Concurrent readers and mutations, publish while lease held, release after stop, wake-pipe failure | Snapshot leases are safe/immutable; no deadlock, use-after-free, or direct gateway access | G |
-| HTTP-01 | H | `GET /`, `/api/status`, `/api/logs`, `/api/scenes/config`, `/sw.js`, `/api/push/vapid-key` | Correct status, content type, body/schema, and missing-dashboard/config behavior | P |
+| HTTP-01 | H | `GET /`, `/api/status`, `/api/logs`, `/api/scenes/config`, `/sw.js`, `/api/push/vapid-key` | Correct status, content type, body/schema, and missing-dashboard/config behavior | DONE |
 | HTTP-02 | H | `POST /api/join`, `/api/network/create`, `/api/notifications/test`, `/api/notifications/enabled`, `/api/push/subscriptions` | Success and every body validation/coordinator/disabled/worker error serialize correctly | P |
 | HTTP-03 | H | `POST /api/devices/{ieee}/settings`, `/refresh`, `/light` | URL decoding, valid command, missing body/name, invalid decimals/minutes/brightness/state, and gateway errors | P |
 | HTTP-04 | H | `POST /api/scenes/config`, `/{group}/{scene}/activate`, `/{group}/off` | Valid dispatch plus malformed/missing/out-of-range IDs/actions/configuration | P |

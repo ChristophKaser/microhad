@@ -184,10 +184,24 @@ void testServers() {
     if (!https.start(&error)) { fprintf(stderr, "HTTPS start failed: %s\n", error.c_str()); assert(false); }
     assert(http.boundPort() > 0 && https.boundPort() > 0);
 
-    expectStatus("http dashboard", plainRequest(http.boundPort(), "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"), 200);
-    expectStatus("http service worker", plainRequest(http.boundPort(), "GET /sw.js HTTP/1.1\r\nHost: localhost\r\n\r\n"), 200);
-    expectStatus("http status", plainRequest(http.boundPort(), "GET /api/status HTTP/1.1\r\nHost: localhost\r\n\r\n"), 200);
-    expectStatus("http logs", plainRequest(http.boundPort(), "GET /api/logs HTTP/1.1\r\nHost: localhost\r\n\r\n"), 200);
+    std::string response = plainRequest(http.boundPort(), "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n");
+    expectStatus("http dashboard", response, 200);
+    assert(response.find("Content-Type: text/html; charset=utf-8\r\n") != std::string::npos && response.find("<html>integration dashboard</html>") != std::string::npos);
+    response = plainRequest(http.boundPort(), "GET /sw.js HTTP/1.1\r\nHost: localhost\r\n\r\n");
+    expectStatus("http service worker", response, 200);
+    assert(response.find("Content-Type: application/javascript\r\n") != std::string::npos && response.find("addEventListener('push'") != std::string::npos);
+    response = plainRequest(http.boundPort(), "GET /api/status HTTP/1.1\r\nHost: localhost\r\n\r\n");
+    expectStatus("http status", response, 200);
+    assert(response.find("Content-Type: application/json\r\n") != std::string::npos && response.find("\"online\":") != std::string::npos && response.find("\"devices\":") != std::string::npos);
+    response = plainRequest(http.boundPort(), "GET /api/logs HTTP/1.1\r\nHost: localhost\r\n\r\n");
+    expectStatus("http logs", response, 200);
+    assert(response.find("Content-Type: application/json\r\n") != std::string::npos && response.find("\"lines\":") != std::string::npos);
+    response = plainRequest(http.boundPort(), "GET /api/scenes/config HTTP/1.1\r\nHost: localhost\r\n\r\n");
+    expectStatus("http missing scene config", response, 200);
+    assert(response.find("Content-Type: text/plain; charset=utf-8\r\n") != std::string::npos);
+    response = plainRequest(http.boundPort(), "GET /api/push/vapid-key HTTP/1.1\r\nHost: localhost\r\n\r\n");
+    expectStatus("http VAPID key", response, 200);
+    assert(response.find("Content-Type: application/json\r\n") != std::string::npos && response.find("\"public_key\":\"") != std::string::npos);
     expectStatus("http disable notifications", plainRequest(http.boundPort(), post("/api/notifications/enabled", "enabled=false")), 200);
     expectStatus("http reject notification setting", plainRequest(http.boundPort(), post("/api/notifications/enabled", "enabled=maybe")), 400);
     expectStatus("http reject offline network creation", plainRequest(http.boundPort(), post("/api/network/create", "confirmation=DELETE")), 400);
@@ -213,6 +227,14 @@ void testServers() {
     expectStatus("https status", tlsRequest(https.boundPort(), "GET /api/status HTTP/1.1\r\nHost: localhost\r\n\r\n"), 200);
     expectStatus("https service worker", tlsRequest(https.boundPort(), "GET /sw.js HTTP/1.1\r\nHost: localhost\r\n\r\n"), 200);
     expectStatus("https enable notifications", tlsRequest(https.boundPort(), post("/api/notifications/enabled", "enabled=true")), 200);
+
+    {
+        HttpServer missingDashboard(0, &runner, directory + "/missing-dashboard.html", "", "");
+        assert(missingDashboard.start(&error));
+        response = plainRequest(missingDashboard.boundPort(), "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n");
+        expectStatus("http missing dashboard", response, 500);
+        assert(response.find("Dashboard is not installed.") != std::string::npos);
+    }
 
     runner.stop();
     close(inbound[1]);
