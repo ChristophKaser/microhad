@@ -4,6 +4,7 @@
 #include "gateway.h"
 
 #include <cassert>
+#include <ctime>
 #include <fcntl.h>
 
 class GatewayIntegrationTestPeer {
@@ -13,6 +14,7 @@ public:
         gateway->serialFd_ = fd;
     }
     static bool online(const Gateway& gateway) { return gateway.online_; }
+    static void expireResetDeadline(Gateway* gateway) { gateway->resetDeadline_ = time(0) - 1; }
 };
 
 #endif

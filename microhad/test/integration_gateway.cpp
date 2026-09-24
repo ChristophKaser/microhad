@@ -49,9 +49,29 @@ void testResetAndVersionOverPipe() {
     gateway.stop();
     close(serial[1]);
 }
+
+void testResetTimeoutRetriesOverPipe() {
+    int serial[2];
+    std::string error;
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
+    Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+    GatewayIntegrationTestPeer::attachSerial(&gateway, serial[0]);
+    assert(gateway.start(&error));
+    std::vector<unsigned char> initial = readAvailable(serial[1]);
+    assert(!initial.empty() && initial[0] == 0x1a && initial[1] == 0xc0);
+    GatewayIntegrationTestPeer::expireResetDeadline(&gateway);
+    gateway.poll();
+    std::vector<unsigned char> retry = readAvailable(serial[1]);
+    assert(!retry.empty() && retry[0] == 0x1a && retry[1] == 0xc0);
+    assert(!GatewayIntegrationTestPeer::online(gateway));
+    gateway.stop();
+    close(serial[1]);
+}
 }
 
 void runGatewayIntegrationTests() {
     fprintf(stderr, "integration: gateway reset and EZSP version over pipe\n");
     testResetAndVersionOverPipe();
+    fprintf(stderr, "integration: gateway reset timeout retry over pipe\n");
+    testResetTimeoutRetriesOverPipe();
 }
