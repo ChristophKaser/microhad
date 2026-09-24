@@ -54,15 +54,19 @@ bool saveSubscriptions(const std::string& filename, const std::vector<std::strin
 }
 
 #ifdef MICROHAD_MBEDTLS_ENABLED
-bool permanentlyRejected(const std::string& response) {
+long responseStatus(const std::string& response) {
     std::string::size_type statusAt;
     char* end = 0;
-    long status;
-    if (response.compare(0, 5, "HTTP/") != 0) return false;
+    if (response.compare(0, 5, "HTTP/") != 0) return -1;
     statusAt = response.find(' ');
-    if (statusAt == std::string::npos) return false;
-    status = strtol(response.c_str() + statusAt + 1, &end, 10);
-    return end != response.c_str() + statusAt + 1 && (status == 404 || status == 410);
+    if (statusAt == std::string::npos) return -1;
+    long status = strtol(response.c_str() + statusAt + 1, &end, 10);
+    return end != response.c_str() + statusAt + 1 ? status : -1;
+}
+
+bool permanentlyRejected(const std::string& response) {
+    long status = responseStatus(response);
+    return status == 404 || status == 410;
 }
 #endif
 }
@@ -235,7 +239,8 @@ bool WebPushStore::send(const std::string& caBundle, const std::string& title, c
                 pruneRequired = true;
                 continue;
             }
-            delivered = true;
+            long status = responseStatus(response);
+            if (status >= 200 && status < 300) delivered = true;
         }
     }
     subscriptions.close();

@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
+#include <map>
 #include <sstream>
 #include <sys/stat.h>
 #include <string>
@@ -32,9 +33,11 @@ public:
     bool failPush;
     long expiresIn;
     long pushStatus;
+    std::string pushFailureError;
     std::string fcmResponse;
     std::string oauthError;
     std::vector<HttpsRequest> requests;
+    std::map<std::string, long> pushStatusByPath;
 
     bool post(const std::string& host, const std::string& path, const std::string& headers,
               const std::string& body, const std::string&, std::string* response, std::string* error) {
@@ -52,9 +55,11 @@ public:
             return true;
         }
         if (host == "fcm.googleapis.com") { *response = fcmResponse; return true; }
-        if (failPush) { *error = "fake Push connection failure"; return false; }
+        if (failPush) { *error = pushFailureError.empty() ? "fake Push connection failure" : pushFailureError; return false; }
         std::ostringstream push;
-        push << "HTTP/1.1 " << pushStatus << " Fake Push\r\nContent-Length: 0\r\n\r\n";
+        std::map<std::string, long>::const_iterator configured = pushStatusByPath.find(path);
+        long status = configured == pushStatusByPath.end() ? pushStatus : configured->second;
+        push << "HTTP/1.1 " << status << " Fake Push\r\nContent-Length: 0\r\n\r\n";
         *response = push.str();
         return true;
     }
@@ -272,6 +277,59 @@ void testNotificationTransportIndependence(const std::string& root) {
     assert(unconfigured.requests.empty());
     cleanNotificationRuntime(directory);
 }
+
+void testWebPushEncryptionAndRejection(const std::string& root) {
+    std::string error;
+    std::string response;
+    std::string directory = root + "/web-push-send";
+    assert(mkdir(directory.c_str(), 0700) == 0);
+    prepareBrowserSubscription(directory);
+    FakeHttpsTransport successful;
+    setHttpsPostHook(&successful);
+    WebPushStore store(directory);
+    assert(store.send("fake-ca", "Window open", "Kitchen", &error));
+    assert(successful.countHost("push.example.test") == 1);
+    const HttpsRequest& request = successful.requests.back();
+    assert(request.path == "/subscription");
+    assert(request.headers.find("Content-Type: application/octet-stream") != std::string::npos);
+    assert(request.headers.find("Content-Encoding: aes128gcm") != std::string::npos);
+    assert(request.headers.find("Authorization: vapid t=") != std::string::npos);
+    assert(request.headers.find(", k=") != std::string::npos && !request.body.empty());
+
+    FakeHttpsTransport connectionFailure;
+    connectionFailure.failPush = true;
+    connectionFailure.pushFailureError = "fake TLS CA verification failure";
+    setHttpsPostHook(&connectionFailure);
+    assert(!store.send("bad-ca", "Window open", "Kitchen", &error));
+    assert(error == "Browser Push delivery failed");
+    std::string persisted;
+    assert(readTextFile(directory + "/web-push-subscriptions.ndjson", &persisted));
+    assert(persisted.find("push.example.test/subscription") != std::string::npos);
+
+    unsigned int requestsBefore = connectionFailure.requests.size();
+    assert(!httpsPostUrl("http://push.example.test/subscription", "", "", "fake-ca", &response, &error));
+    assert(error == "Push endpoint must use HTTPS" && connectionFailure.requests.size() == requestsBefore);
+    assert(!httpsPost("push.example.test", "/subscription", "", "", "", &response, &error));
+    assert(error == "a CA bundle is required for HTTPS");
+    cleanNotificationRuntime(directory);
+
+    directory = root + "/web-push-pruning";
+    assert(mkdir(directory.c_str(), 0700) == 0);
+    WebPushStore twoSubscriptions(directory);
+    assert(twoSubscriptions.addSubscription(makeBrowserSubscription("https://push.example.test/gone"), &error));
+    assert(twoSubscriptions.addSubscription(makeBrowserSubscription("https://push.example.test/transient"), &error));
+    FakeHttpsTransport rejected;
+    rejected.pushStatusByPath["/gone"] = 410;
+    rejected.pushStatusByPath["/transient"] = 503;
+    setHttpsPostHook(&rejected);
+    WebPushStore sender(directory);
+    assert(!sender.send("fake-ca", "Window open", "Kitchen", &error));
+    assert(error == "Browser Push delivery failed");
+    assert(readTextFile(directory + "/web-push-subscriptions.ndjson", &persisted));
+    assert(persisted.find("push.example.test/gone") == std::string::npos);
+    assert(persisted.find("push.example.test/transient") != std::string::npos);
+    cleanNotificationRuntime(directory);
+}
 }
 
 void runOutboundIntegrationTests() {
@@ -282,6 +340,7 @@ void runOutboundIntegrationTests() {
     setHttpsPostHook(&transport);
     testFcmTokenCacheAndFailures(directory, &transport);
     testNotificationTransportIndependence(directory);
+    testWebPushEncryptionAndRejection(directory);
     setHttpsPostHook(0);
     unlink((std::string(directory) + "/account-one.json").c_str());
     unlink((std::string(directory) + "/account-two.json").c_str());
@@ -289,4 +348,5 @@ void runOutboundIntegrationTests() {
     assert(rmdir(directory) == 0);
     fprintf(stderr, "integration: FCM token caching, expiry, account change, and failures\n");
     fprintf(stderr, "integration: notification worker isolates FCM and Browser Push failures\n");
+    fprintf(stderr, "integration: Browser Push encryption, transport errors, and subscription pruning\n");
 }
