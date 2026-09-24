@@ -1190,6 +1190,7 @@ static void testRamLog() {
     unlink("/tmp/microhad-zigbee-native.log");
     Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
     assert(!gateway.setJoining(300, &error));
+    assert(error == "Zigbee coordinator is offline");
     assert(gateway.logsJson().find("Pairing request rejected: coordinator offline") != std::string::npos);
     GatewayTestPeer::logRingAndSerialization();
     unlink("/tmp/microhad-zigbee-native.log");
