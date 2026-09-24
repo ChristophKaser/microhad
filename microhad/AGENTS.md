@@ -17,8 +17,11 @@ pass `--binary-only`, `--webui-only`, or `--both` to select assets, and pass
 `--config` only when intentionally replacing configuration. `--config`,
 `--activate`, and `--restart` require a binary deployment. The permanent device service is
 `/tuya/tuya_start.sh`; its executable and configuration live in `/tuya/native`.
-Never commit device configuration, credentials, TLS keys, persistent network
-state, or Zigbee keys.
+Never commit device configuration, credentials, production TLS keys,
+persistent network state, or Zigbee keys. The only exception is the
+non-production localhost key at `test/fixtures/tls/localhost.key`, which is
+used exclusively by host integration tests. It must never be installed,
+packaged, or referenced by deployment code.
 
 ## Device build, deployment, and checks
 
