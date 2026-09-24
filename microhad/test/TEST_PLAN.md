@@ -64,7 +64,7 @@ physical coordinator and radio interoperability testing.
 | NET-04 | I | Create network offline, while forming, RNG failure, EZSP failure, and formation timeout | Operation is rejected or fails cleanly without overwriting known-good state | DONE |
 | NET-05 | I | Restart after formed network and after interrupted formation | Persisted formed state restores; interrupted state does not masquerade as formed | DONE |
 | JOIN-01 | U | Offline join request | Rejected with coordinator-offline error and log entry | DONE |
-| JOIN-02 | I | Secure join preparation policy replies all succeed | Join permit opens for requested duration; status shows preparing then deadline | G |
+| JOIN-02 | I | Secure join preparation policy replies all succeed | Join permit opens for requested duration; status shows preparing then deadline | DONE |
 | JOIN-03 | I | Policy reply rejection, unexpected reply, each policy timeout, and duplicate join during preparation | Preparation cancels within ten seconds; dashboard can request joining again | G |
 | JOIN-04 | I | Join extension, expiry, permit renewal, and permit-close failure | Correct deadline/renewal commands; status remains truthful | G |
 

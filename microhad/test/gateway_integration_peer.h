@@ -49,6 +49,13 @@ public:
     }
     static bool networkForming(const Gateway& gateway) { return gateway.networkForming_; }
     static void expireNetworkFormation(Gateway* gateway) { gateway->networkFormationDeadline_ = time(0) - 1; }
+    static bool prepareJoining(Gateway* gateway, unsigned int seconds, std::string* error) {
+        gateway->online_ = true;
+        gateway->networkFormed_ = true;
+        gateway->ezspVersion_ = 8;
+        gateway->coordinatorInitializationStep_ = 0;
+        return gateway->setJoining(seconds, error);
+    }
     static bool restoredNetworkMaterial(const Gateway& gateway) {
         return gateway.networkPanId_ != 0 && gateway.networkPanId_ != 0xffff &&
                gateway.networkChannel_ == 11 && gateway.networkExtendedPan_.size() == 8 &&

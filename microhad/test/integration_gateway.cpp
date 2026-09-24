@@ -445,6 +445,42 @@ void testNetworkCreationFailuresAndTimeout() {
     unlink((directory + "/network.json").c_str()); rmdir(directory.c_str());
 }
 
+void testSecureJoinPreparationSuccess() {
+    int serial[2];
+    std::string error;
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
+    Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+    GatewayIntegrationTestPeer::attachSerial(&gateway, serial[0]);
+    assert(GatewayIntegrationTestPeer::prepareJoining(&gateway, 60, &error));
+    assert(gateway.statusJson().find("\"joining_preparing\":true") != std::string::npos);
+    assert(gateway.statusJson().find("\"joining_until\":0") != std::string::npos);
+
+    std::vector<unsigned char> request = firstAshData(readAvailable(serial[1]));
+    assert(request[3] == 0x55 && request[4] == 0 && request[5] == 6 && request[6] == 0x60 && request[7] == 0);
+    replyToFormationCommand(serial[1], request, 0);
+    gateway.poll();
+    request = firstAshData(readAvailable(serial[1]));
+    assert(request[3] == 0x55 && request[4] == 0 && request[5] == 5 && request[6] == 0x51 && request[7] == 0);
+    replyToFormationCommand(serial[1], request, 1);
+    gateway.poll();
+    request = firstAshData(readAvailable(serial[1]));
+    assert(request[3] == 0xaf && request[4] == 0 && request.size() == 29);
+    assert(std::string(request.begin() + 13, request.end()) == "ZigBeeAlliance09");
+    replyToFormationCommand(serial[1], request, 2);
+    gateway.poll();
+    request = firstAshData(readAvailable(serial[1]));
+    assert(request[3] == 0x55 && request[4] == 0 && request[5] == 0 && request[6] == 3 && request[7] == 0);
+    replyToFormationCommand(serial[1], request, 3);
+    gateway.poll();
+    request = firstAshData(readAvailable(serial[1]));
+    assert(request[3] == 0x22 && request[4] == 0 && request[5] == 60);
+    std::string status = gateway.statusJson();
+    assert(status.find("\"joining_preparing\":false") != std::string::npos);
+    assert(status.find("\"joining_until\":0") == std::string::npos);
+    assert(gateway.logsJson().find("Pairing enabled for 60 seconds") != std::string::npos);
+    gateway.stop(); close(serial[1]);
+}
+
 void testCoordinatorInitializationSequence() {
     int serial[2];
     assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
@@ -885,6 +921,8 @@ void runGatewayIntegrationTests() {
     testFreshNetworkFormationOverSerial();
     fprintf(stderr, "integration: network creation rejection, RNG, EZSP failure, and timeout\n");
     testNetworkCreationFailuresAndTimeout();
+    fprintf(stderr, "integration: secure join preparation policy sequence\n");
+    testSecureJoinPreparationSuccess();
     fprintf(stderr, "integration: coordinator initialization, IEEE lookup, and Tradfri setup\n");
     testCoordinatorInitializationSequence();
     fprintf(stderr, "integration: coordinator initialization unexpected reply and timeout\n");
