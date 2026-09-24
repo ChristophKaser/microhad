@@ -8,6 +8,7 @@ TARGET_STRIP := $(RSDK_ROOT)/bin/mips-linux-strip
 TARGET_READELF := $(RSDK_ROOT)/bin/mips-linux-readelf
 HOST_CXX ?= g++
 HOST_CC ?= gcc
+HOST_READELF ?= readelf
 CMAKE ?= cmake
 
 WARNINGS := -Wall -Wextra -Werror -pedantic
@@ -35,7 +36,7 @@ INTEGRATION_TEST_BIN := $(HOST_BUILD)/integration_tests
 UNIT_TEST_SOURCES := test/unit_gateway.cpp test/unit_gateway_config.cpp test/unit_fcm.cpp test/unit_web_push.cpp test/test_main.cpp
 INTEGRATION_TEST_SOURCES := test/integration_gateway.cpp test/integration_http_server.cpp test/integration_lifecycle.cpp test/integration_main.cpp
 
-.PHONY: all host mips mbedtls-host mbedtls-mips unit-test integration-test test verify-target clean
+.PHONY: all host mips mbedtls-host mbedtls-mips unit-test integration-test target-verifier-test test verify-target clean
 
 all: host
 
@@ -92,7 +93,14 @@ unit-test: mbedtls-host $(UNIT_TEST_BIN)
 integration-test: mbedtls-host $(INTEGRATION_TEST_BIN)
 	$(INTEGRATION_TEST_BIN)
 
-test: unit-test integration-test
+target-verifier-test: $(HOST_BIN)
+	@if $(MAKE) --no-print-directory verify-target MIPS_BIN=$(HOST_BIN) TARGET_READELF=$(HOST_READELF) >/dev/null 2>&1; then \
+		echo "target verifier accepted the host executable"; exit 1; \
+	else \
+		echo "target verifier rejects the host executable"; \
+	fi
+
+test: unit-test integration-test target-verifier-test
 
 clean:
 	rm -rf build

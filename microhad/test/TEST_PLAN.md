@@ -35,7 +35,7 @@ physical coordinator and radio interoperability testing.
 | LIF-06 | I | Serial path absent, permission denied, invalid baud, and start/stop twice | Error is propagated; stop is idempotent and closes resources | DONE |
 | LIF-07 | I | HTTP-only, HTTPS-only configuration error (one TLS path), valid TLS pair, unreadable/invalid cert/key | Correct listener selection; pair is mandatory; failure cleans all started components | DONE |
 | LIF-08 | I | SIGINT/SIGTERM and ignored SIGPIPE during normal request writes | Main loop exits cleanly; peer close cannot terminate the process | DONE |
-| LIF-09 | I | Host test build and target verification contract | `make host test` is self-contained; target check rejects non-MIPS/non-big-endian output | G |
+| LIF-09 | I | Host test build and target verification contract | `make host test` is self-contained; target check rejects non-MIPS/non-big-endian output | DONE |
 
 ## ASH transport, serial I/O, and EZSP coordinator lifecycle
 
