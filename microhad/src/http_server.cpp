@@ -375,10 +375,11 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
         else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + jsonEscape(error) + "\"}");
     } else if (request.find("POST /api/notifications/enabled ") == 0) {
         std::string::size_type bodyAt = request.find("\r\n\r\n");
+        std::string enabledValue;
         std::string error;
-        bool enabled = bodyAt != std::string::npos && request.substr(bodyAt + 4).find("enabled=true") != std::string::npos;
-        if (bodyAt == std::string::npos || (request.substr(bodyAt + 4).find("enabled=true") == std::string::npos &&
-                                           request.substr(bodyAt + 4).find("enabled=false") == std::string::npos)) {
+        bool hasEnabled = bodyAt != std::string::npos && formValue(request.substr(bodyAt + 4), "enabled", &enabledValue);
+        bool enabled = enabledValue == "true";
+        if (!hasEnabled || (enabledValue != "true" && enabledValue != "false")) {
             writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"invalid notification setting\"}");
         } else if (gateway_->setNotificationsEnabled(enabled, &error)) {
             writeResponse(clientFd, 200, "application/json", std::string("{\"ok\":true,\"enabled\":") + (enabled ? "true}" : "false}"));

@@ -3,6 +3,7 @@
 #include "gateway_integration_peer.h"
 #include "http_server.h"
 #include "notification_worker.h"
+#include "fcm.h"
 #include "storage.h"
 
 #pragma GCC diagnostic push
@@ -154,6 +155,14 @@ std::string post(const std::string& path, const std::string& body) {
     return request.str();
 }
 
+std::string subscription(const std::string& endpoint) {
+    std::string publicKey(65, '\0');
+    std::string auth(16, '\0');
+    publicKey[0] = 4;
+    return "{\"endpoint\":\"" + endpoint + "\",\"keys\":{\"p256dh\":\"" +
+           base64UrlEncode(publicKey) + "\",\"auth\":\"" + base64UrlEncode(auth) + "\"}}";
+}
+
 void expectStatus(const char* name, const std::string& response, int code) {
     std::ostringstream expected;
     expected << "HTTP/1.1 " << code;
@@ -169,6 +178,7 @@ void testServers() {
     assert(ensureDirectory(directory + "/webui", &error));
     writeText(directory + "/webui/index.html", "<html>integration dashboard</html>");
     NotificationWorker notifications(directory, "", "", "");
+    assert(notifications.start(&error));
     Gateway* gateway = new Gateway("/dev/null", 115200, directory, "", "", "", &notifications);
     GatewayIntegrationTestPeer::attachSerial(gateway, inbound[0]);
     GatewayRunner runner(gateway);
@@ -201,6 +211,12 @@ void testServers() {
     assert(response.find("Content-Type: application/json\r\n") != std::string::npos && response.find("\"public_key\":\"") != std::string::npos);
     expectStatus("http disable notifications", plainRequest(http.boundPort(), post("/api/notifications/enabled", "enabled=false")), 200);
     expectStatus("http reject notification setting", plainRequest(http.boundPort(), post("/api/notifications/enabled", "enabled=maybe")), 400);
+    expectStatus("http reject ambiguous notification setting", plainRequest(http.boundPort(), post("/api/notifications/enabled", "enabled=truex")), 400);
+    expectStatus("http reject disabled test notification", plainRequest(http.boundPort(), post("/api/notifications/test", "")), 400);
+    expectStatus("http enable notifications", plainRequest(http.boundPort(), post("/api/notifications/enabled", "enabled=true")), 200);
+    expectStatus("http queue test notification", plainRequest(http.boundPort(), post("/api/notifications/test", "")), 200);
+    expectStatus("http reject invalid push subscription", plainRequest(http.boundPort(), post("/api/push/subscriptions", "{}")), 400);
+    expectStatus("http save push subscription", plainRequest(http.boundPort(), post("/api/push/subscriptions", subscription("https://push.example.test/subscription"))), 200);
     expectStatus("http reject offline network creation", plainRequest(http.boundPort(), post("/api/network/create", "confirmation=DELETE")), 400);
     expectStatus("http reject invalid scene configuration", plainRequest(http.boundPort(), post("/api/scenes/config", "1 kitchen\n")), 400);
     expectStatus("http reject invalid scene group", plainRequest(http.boundPort(), post("/api/scenes/65528/1/activate", "")), 400);
@@ -271,6 +287,7 @@ void testServers() {
     }
 
     runner.stop();
+    notifications.stop();
     close(inbound[1]);
     close(outbound[0]);
     close(outbound[1]);
