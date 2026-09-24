@@ -772,61 +772,109 @@ bool Gateway::sendSceneRetry(unsigned short groupId, SceneRetry* retry) {
     Scene* scene = 0;
     bool multicast = false;
     if (group == 0) return false;
-    if (!retry->off) for (unsigned long i=0;i<group->scenes.size();++i) if(group->scenes[i].id==retry->sceneId) scene=&group->scenes[i];
+    if (!retry->off) {
+        for (unsigned long i = 0; i < group->scenes.size(); ++i) {
+            if (group->scenes[i].id == retry->sceneId) scene = &group->scenes[i];
+        }
+    }
     if (!retry->off && scene == 0) return false;
     if (retry->off) {
-        for (unsigned long i=0;i<group->members.size();++i) { std::map<std::string,Device>::const_iterator d=devices_.find(group->members[i]); unsigned char endpoint; if(d!=devices_.end() && endpointForCluster(d->second,0x0004,&endpoint) && endpointForCluster(d->second,0x0006,&endpoint)) multicast=true; }
-    } else for (unsigned long i=0;i<scene->states.size();++i) {
-        std::map<std::string, Device>::const_iterator d = devices_.find(scene->states[i].ieeeAddress);
-        if (d == devices_.end() || d->second.networkAddress == 0xffff) { addLog("Scene retry waiting for unavailable member"); return false; }
-        if (sceneMemberNative(d->second, *scene, scene->states[i])) multicast = true;
+        for (unsigned long i = 0; i < group->members.size(); ++i) {
+            std::map<std::string, Device>::const_iterator device = devices_.find(group->members[i]);
+            unsigned char endpoint;
+            if (device != devices_.end() && endpointForCluster(device->second, 0x0004, &endpoint) &&
+                endpointForCluster(device->second, 0x0006, &endpoint)) multicast = true;
+        }
+    } else {
+        for (unsigned long i = 0; i < scene->states.size(); ++i) {
+            std::map<std::string, Device>::const_iterator device = devices_.find(scene->states[i].ieeeAddress);
+            if (device == devices_.end() || device->second.networkAddress == 0xffff) {
+                addLog("Scene retry waiting for unavailable member");
+                return false;
+            }
+            if (sceneMemberNative(device->second, *scene, scene->states[i])) multicast = true;
+        }
     }
-    if (!multicast) { completeSceneRetry(groupId, retry); retry->retryAt=LONG_MAX; return true; }
+    if (!multicast) {
+        completeSceneRetry(groupId, retry);
+        retry->retryAt = LONG_MAX;
+        return true;
+    }
     std::vector<unsigned char> message;
-    message.push_back(0x11); message.push_back(++zclTransactionSequence_);
+    message.push_back(0x11);
+    message.push_back(++zclTransactionSequence_);
     if (retry->off) message.push_back(0x00);
-    else { message.push_back(0x05); message.push_back(static_cast<unsigned char>(groupId)); message.push_back(static_cast<unsigned char>(groupId >> 8)); message.push_back(retry->sceneId); }
-    retry->sentOff=retry->off; retry->sentSceneId=retry->sceneId;
+    else {
+        message.push_back(0x05);
+        message.push_back(static_cast<unsigned char>(groupId));
+        message.push_back(static_cast<unsigned char>(groupId >> 8));
+        message.push_back(retry->sceneId);
+    }
+    retry->sentOff = retry->off;
+    retry->sentSceneId = retry->sceneId;
     if (retry->unicast) {
         /* Serialize native recalls so a full broadcast table does not block
            user actions or cause a burst of unicast requests. */
         for (; retry->memberIndex < group->members.size(); ++retry->memberIndex) {
-            std::map<std::string, Device>::const_iterator d = devices_.find(group->members[retry->memberIndex]);
-            if (d == devices_.end()) return false;
+            std::map<std::string, Device>::const_iterator device = devices_.find(group->members[retry->memberIndex]);
+            if (device == devices_.end()) return false;
             unsigned char endpoint;
             bool native = false;
-            if (retry->off) native = endpointForCluster(d->second, 0x0004, &endpoint);
+            if (retry->off) native = endpointForCluster(device->second, 0x0004, &endpoint);
             else for (unsigned long i = 0; i < scene->states.size(); ++i)
-                if (scene->states[i].ieeeAddress == d->first)
-                    native = sceneMemberNative(d->second, *scene, scene->states[i]);
+                if (scene->states[i].ieeeAddress == device->first)
+                    native = sceneMemberNative(device->second, *scene, scene->states[i]);
             if (!native) continue; /* handled by completeSceneRetry */
-            if (d->second.networkAddress == 0xffff ||
-                !endpointForCluster(d->second, retry->off ? 0x0006 : 0x0005, &endpoint)) return false;
-            retry->ezspSequence = sendApsUnicast(d->second.networkAddress, 0x0104,
+            if (device->second.networkAddress == 0xffff ||
+                !endpointForCluster(device->second, retry->off ? 0x0006 : 0x0005, &endpoint)) return false;
+            retry->ezspSequence = sendApsUnicast(device->second.networkAddress, 0x0104,
                 retry->off ? 0x0006 : 0x0005, 1, endpoint, message);
-            retry->inFlight = true; retry->sentAt = time(0);
+            retry->inFlight = true;
+            retry->sentAt = time(0);
             return true;
         }
-        completeSceneRetry(groupId, retry); retry->retryAt = LONG_MAX;
+        completeSceneRetry(groupId, retry);
+        retry->retryAt = LONG_MAX;
         return true;
     }
-    retry->ezspSequence=sendApsMulticast(groupId,0x0104,retry->off?0x0006:0x0005,1,message);
-    retry->inFlight=true; retry->sentAt=time(0);
+    retry->ezspSequence = sendApsMulticast(groupId, 0x0104, retry->off ? 0x0006 : 0x0005, 1, message);
+    retry->inFlight = true;
+    retry->sentAt = time(0);
     return true;
 }
 
 void Gateway::completeSceneRetry(unsigned short groupId, SceneRetry* retry) {
-    SceneGroup* group=findSceneGroup(groupId);
-    if (group==0) return;
+    SceneGroup* group = findSceneGroup(groupId);
+    if (group == 0) return;
     if (retry->off) {
-        for(unsigned long i=0;i<group->members.size();++i) { std::map<std::string,Device>::const_iterator d=devices_.find(group->members[i]); unsigned char e; if(d!=devices_.end() && !endpointForCluster(d->second,0x0004,&e)) { std::string ignored; setLightState(group->members[i],"off",-1,&ignored); } }
-        sceneGroupOff_[groupId]=true; addLog(std::string("Scene group off: ")+group->name);
+        for (unsigned long i = 0; i < group->members.size(); ++i) {
+            std::map<std::string, Device>::const_iterator device = devices_.find(group->members[i]);
+            unsigned char endpoint;
+            if (device != devices_.end() && !endpointForCluster(device->second, 0x0004, &endpoint)) {
+                std::string ignored;
+                setLightState(group->members[i], "off", -1, &ignored);
+            }
+        }
+        sceneGroupOff_[groupId] = true;
+        addLog(std::string("Scene group off: ") + group->name);
     } else {
-        Scene* scene=0; for(unsigned long i=0;i<group->scenes.size();++i)if(group->scenes[i].id==retry->sceneId)scene=&group->scenes[i];
-        if(scene==0)return;
-        for(unsigned long i=0;i<scene->states.size();++i) { std::map<std::string,Device>::const_iterator d=devices_.find(scene->states[i].ieeeAddress); if(d!=devices_.end() && !sceneMemberNative(d->second,*scene,scene->states[i])) { std::string ignored; setLightState(scene->states[i].ieeeAddress,scene->states[i].on?"on":"off",scene->states[i].on?scene->states[i].brightnessPercent:-1,&ignored); } }
-        selectedScenes_[groupId]=retry->sceneId; sceneGroupOff_[groupId]=false;
-        addLog(std::string("Scene recalled: ")+group->name+" / "+scene->name);
+        Scene* scene = 0;
+        for (unsigned long i = 0; i < group->scenes.size(); ++i) {
+            if (group->scenes[i].id == retry->sceneId) scene = &group->scenes[i];
+        }
+        if (scene == 0) return;
+        for (unsigned long i = 0; i < scene->states.size(); ++i) {
+            const SceneLightState& state = scene->states[i];
+            std::map<std::string, Device>::const_iterator device = devices_.find(state.ieeeAddress);
+            if (device != devices_.end() && !sceneMemberNative(device->second, *scene, state)) {
+                std::string ignored;
+                setLightState(state.ieeeAddress, state.on ? "on" : "off",
+                              state.on ? state.brightnessPercent : -1, &ignored);
+            }
+        }
+        selectedScenes_[groupId] = retry->sceneId;
+        sceneGroupOff_[groupId] = false;
+        addLog(std::string("Scene recalled: ") + group->name + " / " + scene->name);
     }
     saveSceneRuntime();
 }
@@ -851,55 +899,70 @@ bool Gateway::scheduleSceneRetry(SceneRetry* retry, long now) {
 
 void Gateway::pollSceneRetries() {
     if (!online_ || !networkFormed_ || coordinatorInitializationStep_ != 0) return;
-    long now=time(0);
-    for(std::map<unsigned short,SceneRetry>::iterator it=sceneRetries_.begin();it!=sceneRetries_.end();++it) {
-        SceneRetry& retry=it->second;
+    long now = time(0);
+    for (std::map<unsigned short, SceneRetry>::iterator it = sceneRetries_.begin();
+         it != sceneRetries_.end(); ++it) {
+        SceneRetry& retry = it->second;
         if (retry.inFlight && now >= retry.sentAt + 2) {
-            retry.inFlight=false;
+            retry.inFlight = false;
             if (retry.sentOff != retry.off || (!retry.off && retry.sentSceneId != retry.sceneId)) {
-                retry.unicast=false; retry.memberIndex=0;
-                retry.retryRequested=true;
+                retry.unicast = false;
+                retry.memberIndex = 0;
+                retry.retryRequested = true;
             }
             if (retry.retryRequested) {
-                retry.retryRequested=false;
-                retry.retryAt=now;
+                retry.retryRequested = false;
+                retry.retryAt = now;
                 addLog("Scene multicast response timed out; retry requested, retrying immediately");
             } else if (scheduleSceneRetry(&retry, now)) addLog("Scene multicast response timed out; retrying");
             else addLog("Scene multicast response timed out; giving up");
         }
-        if(!retry.inFlight && retry.retryAt<=now && !sendSceneRetry(it->first,&retry)) retry.retryAt=now+5;
+        if (!retry.inFlight && retry.retryAt <= now && !sendSceneRetry(it->first, &retry))
+            retry.retryAt = now + 5;
     }
 }
 
 void Gateway::dispatchRemoteSceneAction(const std::string& ieeeAddress, const std::string& action) {
-    for (unsigned long i=0;i<sceneBindings_.size();++i) if (sceneBindings_[i].ieeeAddress==ieeeAddress && sceneBindings_[i].action==action) {
-        RemoteSceneBinding& binding=sceneBindings_[i]; std::string error;
-        if (binding.off) { turnOffSceneGroup(binding.groupId,&error); return; }
+    for (unsigned long i = 0; i < sceneBindings_.size(); ++i) {
+        RemoteSceneBinding& binding = sceneBindings_[i];
+        if (binding.ieeeAddress != ieeeAddress || binding.action != action) continue;
+
+        std::string error;
+        if (binding.off) {
+            turnOffSceneGroup(binding.groupId, &error);
+            return;
+        }
         if (binding.sceneIds.empty()) return;
-        unsigned char wanted=binding.sceneIds[0]; unsigned char current=0;
-        std::map<unsigned short,SceneRetry>::iterator retry=sceneRetries_.find(binding.groupId);
+        unsigned char wanted = binding.sceneIds[0];
+        unsigned char current = 0;
+        std::map<unsigned short, SceneRetry>::iterator retry = sceneRetries_.find(binding.groupId);
         if (retry != sceneRetries_.end() &&
             (retry->second.inFlight || retry->second.retryAt != LONG_MAX)) {
             if (retry->second.inFlight) {
-                retry->second.retryRequested=true;
+                retry->second.retryRequested = true;
                 addLog("Scene selection pending; immediate retry requested");
             } else {
-                retry->second.retryAt=time(0);
-                retry->second.retryRequested=false;
+                retry->second.retryAt = time(0);
+                retry->second.retryRequested = false;
                 addLog("Scene selection pending; retrying immediately");
                 pollSceneRetries();
             }
             return;
         }
-        if(retry!=sceneRetries_.end() && !retry->second.off) current=retry->second.sceneId;
-        else if(selectedScenes_.count(binding.groupId)) current=selectedScenes_[binding.groupId];
-        if(current!=0) for(unsigned long j=0;j<binding.sceneIds.size();++j) if(binding.sceneIds[j]==current) {
-            if (sceneGroupOff_[binding.groupId] && (retry==sceneRetries_.end() || retry->second.off)) wanted=current;
-            else wanted=binding.sceneIds[(j+1)%binding.sceneIds.size()];
-            break;
+        if (retry != sceneRetries_.end() && !retry->second.off) current = retry->second.sceneId;
+        else if (selectedScenes_.count(binding.groupId)) current = selectedScenes_[binding.groupId];
+        if (current != 0) {
+            for (unsigned long j = 0; j < binding.sceneIds.size(); ++j) {
+                if (binding.sceneIds[j] != current) continue;
+                if (sceneGroupOff_[binding.groupId] && (retry == sceneRetries_.end() || retry->second.off))
+                    wanted = current;
+                else
+                    wanted = binding.sceneIds[(j + 1) % binding.sceneIds.size()];
+                break;
+            }
         }
-        if (activateScene(binding.groupId,wanted,&error)) { }
-        else addLog(std::string("Scene binding failed: ")+error);
+        if (!activateScene(binding.groupId, wanted, &error))
+            addLog(std::string("Scene binding failed: ") + error);
         return;
     }
 }
@@ -935,8 +998,13 @@ bool Gateway::setSceneConfiguration(const std::string& encoded, std::string* err
         }
     }
     for (unsigned long i=0;i<bindings.size();++i) {
-        const SceneGroup* group=findSceneGroup(bindings[i].groupId); /* old configuration is irrelevant */
-        group=0; for (unsigned long j=0;j<groups.size();++j) if(groups[j].id==bindings[i].groupId) group=&groups[j];
+        const SceneGroup* group = 0;
+        for (unsigned long j = 0; j < groups.size(); ++j) {
+            if (groups[j].id == bindings[i].groupId) {
+                group = &groups[j];
+                break;
+            }
+        }
         std::map<std::string, Device>::const_iterator remote = devices_.find(bindings[i].ieeeAddress);
         if (group==0 || remote == devices_.end() || !remote->second.hasRemote ||
             (bindings[i].action!="on" && bindings[i].action!="off" && bindings[i].action!="arrow_left" && bindings[i].action!="arrow_right") ||
@@ -1380,28 +1448,38 @@ void Gateway::loadScenes() {
         addLog(std::string("Scene configuration ignored: ") + error);
 }
 
-void Gateway::saveScenes() const {
+void Gateway::saveScenes() {
     std::string error;
     if (!saveSceneConfiguration(runtimeDirectory_ + "/scenes.conf", sceneGroups_, sceneBindings_, &error))
-        const_cast<Gateway*>(this)->addLog(std::string("Scene configuration save failed: ") + error);
+        addLog(std::string("Scene configuration save failed: ") + error);
 }
 
 void Gateway::loadSceneRuntime() {
-    std::ifstream input("/tmp/microhad-zigbee-scenes-runtime"); std::string line;
-    while (std::getline(input,line)) {
-        std::istringstream fields(line); char type; fields >> type;
-        if (type=='S') { unsigned int group, id; if (fields >> group >> id && group>0 && group<=0xffff && id>0 && id<256) selectedScenes_[static_cast<unsigned short>(group)]=static_cast<unsigned char>(id); }
-        else if (type=='F') { unsigned int group, off; if (fields >> group >> off && group>0 && group<=0xffff) sceneGroupOff_[static_cast<unsigned short>(group)]=off!=0; }
+    std::ifstream input("/tmp/microhad-zigbee-scenes-runtime");
+    std::string line;
+    while (std::getline(input, line)) {
+        std::istringstream fields(line);
+        char type;
+        unsigned int group;
+        unsigned int value;
+        if (!(fields >> type >> group >> value) || group == 0 || group > 0xffff) continue;
+
+        if (type == 'S' && value > 0 && value < 256)
+            selectedScenes_[static_cast<unsigned short>(group)] = static_cast<unsigned char>(value);
+        else if (type == 'F')
+            sceneGroupOff_[static_cast<unsigned short>(group)] = value != 0;
     }
 }
 
 void Gateway::saveSceneRuntime() const {
     std::ofstream output("/tmp/microhad-zigbee-scenes-runtime", std::ios::trunc);
     if (!output) return;
-    for (std::map<unsigned short,unsigned char>::const_iterator it=selectedScenes_.begin();it!=selectedScenes_.end();++it)
+    for (std::map<unsigned short, unsigned char>::const_iterator it = selectedScenes_.begin();
+         it != selectedScenes_.end(); ++it)
         output << "S " << it->first << " " << static_cast<unsigned int>(it->second) << "\n";
-    for (std::map<unsigned short,bool>::const_iterator it=sceneGroupOff_.begin();it!=sceneGroupOff_.end();++it)
-        output << "F " << it->first << " " << (it->second?1:0) << "\n";
+    for (std::map<unsigned short, bool>::const_iterator it = sceneGroupOff_.begin();
+         it != sceneGroupOff_.end(); ++it)
+        output << "F " << it->first << " " << (it->second ? 1 : 0) << "\n";
 }
 
 bool Gateway::writeBytes(const std::vector<unsigned char>& bytes, bool sensitive) {

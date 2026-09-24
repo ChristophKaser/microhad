@@ -347,7 +347,7 @@ private:
     SceneGroup* findSceneGroup(unsigned short id);
     const SceneGroup* findSceneGroup(unsigned short id) const;
     void loadScenes();
-    void saveScenes() const;
+    void saveScenes();
     void loadSceneRuntime();
     void saveSceneRuntime() const;
     void handleIncomingMessage(const std::vector<unsigned char>& payload);
