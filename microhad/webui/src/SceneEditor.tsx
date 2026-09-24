@@ -6,21 +6,76 @@ import type { SceneConfig, SceneState } from './scenes'
 
 type Props = { devices: Device[]; onClose: () => void; onSaved: () => void }
 
+function SceneLightState({
+  device,
+  address,
+  state,
+  onChange,
+}: {
+  device: Device | undefined
+  address: string
+  state: SceneState
+  onChange: (state: SceneState) => void
+}) {
+  const dimmable = device ? isDimmable(device) : false
+  const setOn = (on: boolean) => {
+    let brightness = state.brightness
+    if (on && brightness < 0 && dimmable)
+      brightness = device?.has_brightness ? device.brightness_percent : 100
+    onChange({ ...state, on, brightness })
+  }
+
+  return (
+    <div className="state-row">
+      <span>{device?.name ?? address}</span>
+      <label className="check">
+        <input
+          type="checkbox"
+          checked={state.on}
+          onChange={(event) => setOn(event.target.checked)}
+        />{' '}
+        On
+      </label>
+      {dimmable ? (
+        <label className="field compact">
+          Brightness %
+          <input
+            type="number"
+            min="0"
+            max="100"
+            disabled={!state.on}
+            value={state.brightness < 0 ? 100 : state.brightness}
+            onChange={(event) => onChange({ ...state, brightness: Number(event.target.value) })}
+          />
+        </label>
+      ) : (
+        <span className="muted small">On/off light</span>
+      )}
+    </div>
+  )
+}
+
 export function SceneEditor({ devices, onClose, onSaved }: Props) {
   const [config, setConfig] = useState<SceneConfig | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   useEffect(() => {
+    let active = true
     textRequest('/api/scenes/config')
       .then((text) => {
+        if (!active) return
         setConfig(parseScenes(text))
         setLoading(false)
       })
       .catch((e) => {
+        if (!active) return
         setError(errorMessage(e))
         setLoading(false)
       })
+    return () => {
+      active = false
+    }
   }, [])
   const change = (edit: (draft: SceneConfig) => void) =>
     setConfig((current) => {
@@ -89,16 +144,13 @@ export function SceneEditor({ devices, onClose, onSaved }: Props) {
     groupIndex: number,
     sceneIndex: number,
     address: string,
-    update: (state: SceneState) => void
+    state: SceneState
   ) =>
     change((draft) => {
       const scene = draft.groups[groupIndex].scenes[sceneIndex]
-      let state = scene.states.find((entry) => entry.ieee === address)
-      if (!state) {
-        state = newState(address, devices)
-        scene.states.push(state)
-      }
-      update(state)
+      const index = scene.states.findIndex((entry) => entry.ieee === address)
+      if (index < 0) scene.states.push(state)
+      else scene.states[index] = state
     })
   const save = async () => {
     if (!config) return
@@ -220,46 +272,14 @@ export function SceneEditor({ devices, onClose, onSaved }: Props) {
                       const state =
                         scene.states.find((item) => item.ieee === address) ??
                         newState(address, devices)
-                      const dimmable = device ? isDimmable(device) : false
-                      const updateState = (field: 'on' | 'brightness', value: boolean | number) =>
-                        setSceneState(groupIndex, sceneIndex, address, (item) => {
-                          if (field === 'on') {
-                            item.on = Boolean(value)
-                            if (item.on && item.brightness < 0 && device && dimmable)
-                              item.brightness = device.has_brightness
-                                ? device.brightness_percent
-                                : 100
-                          } else item.brightness = Number(value)
-                        })
                       return (
-                        <div className="state-row" key={address}>
-                          <span>{device?.name ?? address}</span>
-                          <label className="check">
-                            <input
-                              type="checkbox"
-                              checked={state.on}
-                              onChange={(event) => updateState('on', event.target.checked)}
-                            />{' '}
-                            On
-                          </label>
-                          {dimmable ? (
-                            <label className="field compact">
-                              Brightness %
-                              <input
-                                type="number"
-                                min="0"
-                                max="100"
-                                disabled={!state.on}
-                                value={state.brightness < 0 ? 100 : state.brightness}
-                                onChange={(event) =>
-                                  updateState('brightness', Number(event.target.value))
-                                }
-                              />
-                            </label>
-                          ) : (
-                            <span className="muted small">On/off light</span>
-                          )}
-                        </div>
+                        <SceneLightState
+                          key={address}
+                          device={device}
+                          address={address}
+                          state={state}
+                          onChange={(next) => setSceneState(groupIndex, sceneIndex, address, next)}
+                        />
                       )
                     })}
                     {!group.members.length && (

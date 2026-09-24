@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import type { Device, Status } from './api'
-import { errorMessage, form, jsonRequest, post, textRequest } from './api'
-import { ClipboardButton, DescriptorList, DeviceGroups, DeviceSettings } from './devices'
+import type { Device } from './api'
+import { errorMessage, form, jsonRequest, post } from './api'
+import { DeviceGroups, DeviceSettings } from './devices'
+import { DescriptorsDialog, NetworkDialog, SceneTextDialog } from './DashboardDialogs'
 import { SceneEditor } from './SceneEditor'
+import { useGatewayData } from './useGatewayData'
 import './style.css'
 
 function LogLine({ line }: { line: string }) {
@@ -79,44 +81,12 @@ function PushToggle({
 }
 
 function App() {
-  const [status, setStatus] = useState<Status | null>(null)
-  const [statusError, setStatusError] = useState('')
-  const [logs, setLogs] = useState<string[]>([])
-  const [logsError, setLogsError] = useState('')
+  const { status, statusError, logs, logsError, refreshStatus } = useGatewayData()
   const [dialog, setDialog] = useState<'network' | 'scenes' | 'text' | null>(null)
   const [selected, setSelected] = useState<Device | null>(null)
   const [descriptors, setDescriptors] = useState<Device | null>(null)
-  const [confirmation, setConfirmation] = useState('')
-  const [dialogError, setDialogError] = useState('')
-  const [sceneText, setSceneText] = useState('')
-  const [busy, setBusy] = useState(false)
   const [restarting, setRestarting] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  const refresh = async () => {
-    try {
-      setStatus(await jsonRequest<Status>('/api/status'))
-      setStatusError('')
-    } catch (e) {
-      setStatusError(errorMessage(e))
-    }
-  }
-  const refreshLogs = async () => {
-    try {
-      setLogs((await jsonRequest<{ lines: string[] }>('/api/logs')).lines)
-      setLogsError('')
-    } catch (e) {
-      setLogsError(errorMessage(e))
-    }
-  }
-  useEffect(() => {
-    void refresh()
-    void refreshLogs()
-    const timer = window.setInterval(() => {
-      void refresh()
-      void refreshLogs()
-    }, 2000)
-    return () => window.clearInterval(timer)
-  }, [])
   useEffect(() => {
     if (!mobileMenuOpen) return
     const closeOnEscape = (event: KeyboardEvent) => {
@@ -129,45 +99,9 @@ function App() {
     try {
       const result = await post<{ message?: string }>(url, body)
       if (result?.message) window.alert(result.message)
-      await refresh()
+      await refreshStatus()
     } catch (e) {
       window.alert(errorMessage(e))
-    }
-  }
-  const openText = async () => {
-    setDialogError('')
-    setDialog('text')
-    try {
-      setSceneText(await textRequest('/api/scenes/config'))
-    } catch (e) {
-      setDialogError(errorMessage(e))
-    }
-  }
-  const saveText = async () => {
-    setBusy(true)
-    setDialogError('')
-    try {
-      await post('/api/scenes/config', sceneText)
-      setDialog(null)
-      await refresh()
-    } catch (e) {
-      setDialogError(errorMessage(e))
-    } finally {
-      setBusy(false)
-    }
-  }
-  const createNetwork = async (event: React.FormEvent) => {
-    event.preventDefault()
-    setBusy(true)
-    setDialogError('')
-    try {
-      await post('/api/network/create', form({ confirmation }))
-      setDialog(null)
-      await refresh()
-    } catch (e) {
-      setDialogError(errorMessage(e))
-    } finally {
-      setBusy(false)
     }
   }
   const restart = async () => {
@@ -177,7 +111,7 @@ function App() {
       setRestarting(true)
       window.setTimeout(() => {
         setRestarting(false)
-        void refresh()
+        void refreshStatus()
       }, 3000)
     } catch (e) {
       window.alert(errorMessage(e))
@@ -278,8 +212,6 @@ function App() {
                 className="button danger"
                 onClick={() => {
                   setMobileMenuOpen(false)
-                  setConfirmation('')
-                  setDialogError('')
                   setDialog('network')
                 }}
               >
@@ -368,11 +300,7 @@ function App() {
           <JoinButton joinLeft={joinLeft} preparing={preparingJoin} action={action} />
           <button
             className="button danger"
-            onClick={() => {
-              setConfirmation('')
-              setDialogError('')
-              setDialog('network')
-            }}
+            onClick={() => setDialog('network')}
           >
             Create fresh network
           </button>
@@ -423,7 +351,7 @@ function App() {
             <button className="button primary" onClick={() => setDialog('scenes')}>
               Configure scenes & groups
             </button>
-            <button className="button" onClick={openText}>
+            <button className="button" onClick={() => setDialog('text')}>
               Advanced text editor
             </button>
           </div>
@@ -482,142 +410,30 @@ function App() {
           key={selected.ieee_address}
           device={selected}
           onClose={() => setSelected(null)}
-          onSaved={() => void refresh()}
+          onSaved={() => void refreshStatus()}
         />
       )}
       {descriptors && (
-        <div className="modal">
-          <section
-            className="dialog wide"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="descriptor-title"
-          >
-            <div className="dialog-heading">
-              <div>
-                <p className="eyebrow">Device details</p>
-                <h2 id="descriptor-title">Stored descriptors</h2>
-              </div>
-              <button
-                className="icon-button"
-                onClick={() => setDescriptors(null)}
-                aria-label="Close"
-              >
-                ✕
-              </button>
-            </div>
-            <p className="muted">
-              {descriptors.name} · {descriptors.ieee_address}
-            </p>
-            {descriptors.endpoint_descriptors.length ? (
-              descriptors.endpoint_descriptors.map((item) => (
-                <DescriptorList key={item.endpoint} descriptor={item} />
-              ))
-            ) : (
-              <p className="muted">No endpoint descriptors have been saved for this device yet.</p>
-            )}
-            <div className="dialog-actions">
-              <ClipboardButton
-                text={[
-                  `IEEE / EUI-64: ${descriptors.ieee_address}`,
-                  descriptors.manufacturer_name && `Vendor: ${descriptors.manufacturer_name}`,
-                  descriptors.model_id && `Model: ${descriptors.model_id}`,
-                ]
-                  .filter(Boolean)
-                  .join('\n')}
-              />
-              <button className="button" onClick={() => setDescriptors(null)}>
-                Close
-              </button>
-            </div>
-          </section>
-        </div>
+        <DescriptorsDialog device={descriptors} onClose={() => setDescriptors(null)} />
       )}
       {dialog === 'scenes' && (
         <SceneEditor
           devices={status?.devices ?? []}
           onClose={() => setDialog(null)}
-          onSaved={() => void refresh()}
+          onSaved={() => void refreshStatus()}
         />
       )}
       {dialog === 'text' && (
-        <div className="modal">
-          <section
-            className="dialog wide"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="text-title"
-          >
-            <div className="dialog-heading">
-              <h2 id="text-title">Advanced scene text editor</h2>
-              <button className="icon-button" onClick={() => setDialog(null)} aria-label="Close">
-                ✕
-              </button>
-            </div>
-            <p className="muted">Saving here replaces all scene and group settings.</p>
-            {dialogError && (
-              <p className="error" role="alert">
-                {dialogError}
-              </p>
-            )}
-            <textarea
-              className="advanced-text"
-              spellCheck={false}
-              value={sceneText}
-              onChange={(event) => setSceneText(event.target.value)}
-            />
-            <div className="dialog-actions">
-              <button className="button" onClick={() => setDialog(null)}>
-                Cancel
-              </button>
-              <button className="button primary" disabled={busy} onClick={saveText}>
-                {busy ? 'Saving…' : 'Save & sync scenes'}
-              </button>
-            </div>
-          </section>
-        </div>
+        <SceneTextDialog
+          onClose={() => setDialog(null)}
+          onSaved={() => void refreshStatus()}
+        />
       )}
       {dialog === 'network' && (
-        <div className="modal">
-          <form className="dialog" onSubmit={createNetwork}>
-            <div className="dialog-heading">
-              <h2>Create a fresh Zigbee network</h2>
-              <button
-                type="button"
-                className="icon-button"
-                onClick={() => setDialog(null)}
-                aria-label="Close"
-              >
-                ✕
-              </button>
-            </div>
-            <p>This deletes the current Zigbee network. All paired devices must be joined again.</p>
-            <p>
-              Type <strong>DELETE</strong> to continue.
-            </p>
-            {dialogError && (
-              <p className="error" role="alert">
-                {dialogError}
-              </p>
-            )}
-            <label className="field">
-              Confirmation
-              <input
-                autoComplete="off"
-                value={confirmation}
-                onChange={(event) => setConfirmation(event.target.value)}
-              />
-            </label>
-            <div className="dialog-actions">
-              <button type="button" className="button" onClick={() => setDialog(null)}>
-                Cancel
-              </button>
-              <button className="button danger" disabled={confirmation !== 'DELETE' || busy}>
-                Create fresh network
-              </button>
-            </div>
-          </form>
-        </div>
+        <NetworkDialog
+          onClose={() => setDialog(null)}
+          onSaved={() => void refreshStatus()}
+        />
       )}
     </main>
   )
