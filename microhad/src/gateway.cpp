@@ -2840,7 +2840,7 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
         if (zoneId >= 0) {
             sendIasEnrollResponse(sender, payload[6], payload[5], message[zclOffset - 2],
                                   static_cast<unsigned char>(zoneId));
-        }
+        } else addLog("IAS zone ID pool exhausted; enrollment response not sent");
     } else if (cluster == 0x0500 && command == 0x00 && message.size() >= zclOffset + 2) {
         std::vector<unsigned char> zone(message.begin() + zclOffset, message.end());
         applyIasZoneStatus(address->second, zone);

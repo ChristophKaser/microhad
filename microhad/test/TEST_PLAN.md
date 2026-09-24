@@ -75,7 +75,7 @@ physical coordinator and radio interoperability testing.
 | DEV-01 | U | Device persistence with every dashboard-visible field and endpoint descriptor | Complete round trip, including defaults and special brightness value `-1` | DONE |
 | DEV-02 | U | Missing/corrupt device data, invalid descriptors, duplicate IEEE/node data, bad numeric values | Invalid records are rejected/skipped deterministically; no crash | DONE |
 | DEV-03 | I | Device announce/register, EUI64 mapping, rejoin at same/different node, node reuse | IEEE identity is stable; volatile data and node maps update correctly | P |
-| DEV-04 | I | IAS enroll request and zone-ID allocation/exhaustion/persistence | Standard response is emitted; zone IDs are stable and exhaustion is safe | G |
+| DEV-04 | I | IAS enroll request and zone-ID allocation/exhaustion/persistence | Standard response is emitted; zone IDs are stable and exhaustion is safe | DONE |
 | DEV-05 | I | Node descriptor, active-endpoint, simple-descriptor, basic-identity, bind, read, and reporting interview | Operations are sequenced, persisted, and classified from discovered capabilities | P |
 | DEV-06 | I | Each interview response malformed, failed, delayed, duplicate, wrong transaction/tag, or absent | Correct operation alone completes; retry/pause/failure does not corrupt interview state | P |
 | DEV-07 | I | Sleepy-device wake, contact closure during interview, refresh-only interview, rejoin migration | Paused work resumes correctly and avoids duplicate/obsolete operations | P |

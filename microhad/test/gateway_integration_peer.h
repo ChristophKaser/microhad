@@ -61,6 +61,21 @@ public:
         gateway->joinUntil_ = until;
         gateway->joinPermitRenewAt_ = renewAt;
     }
+    static void addIasDevice(Gateway* gateway, unsigned short node, const std::string& ieee, int zoneId) {
+        gateway->online_ = true;
+        gateway->networkFormed_ = true;
+        gateway->ezspVersion_ = 8;
+        Device device;
+        EndpointDescriptor endpoint;
+        device.ieeeAddress = ieee;
+        device.networkAddress = node;
+        device.iasZoneId = zoneId;
+        endpoint.endpoint = 1;
+        endpoint.inputClusters.push_back(0x0500);
+        device.endpoints.push_back(endpoint);
+        gateway->devices_[ieee] = device;
+        gateway->nodeAddresses_[node] = ieee;
+    }
     static bool restoredNetworkMaterial(const Gateway& gateway) {
         return gateway.networkPanId_ != 0 && gateway.networkPanId_ != 0xffff &&
                gateway.networkChannel_ == 11 && gateway.networkExtendedPan_.size() == 8 &&

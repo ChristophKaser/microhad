@@ -579,6 +579,12 @@ long joiningUntilFromStatus(Gateway* gateway) {
     return static_cast<long>(strtol(status.c_str() + field + 16, 0, 10));
 }
 
+std::vector<unsigned char> apsPayload(unsigned short profile, unsigned short cluster,
+                                      unsigned char sourceEndpoint, unsigned char lqi,
+                                      const std::vector<unsigned char>& zcl, unsigned char declaredLength = 0xff);
+void sendApsCallback(int fd, unsigned char ashSequence, const std::vector<unsigned char>& aps);
+void sendApsCallbackV8(int fd, unsigned char ashSequence, const std::vector<unsigned char>& aps);
+
 void testJoinWindowExtensionExpiryRenewalAndCloseFailure() {
     int serial[2];
     std::string error;
@@ -642,6 +648,81 @@ void testJoinWindowExtensionExpiryRenewalAndCloseFailure() {
     gateway.poll();
     assert(gateway.statusJson().find("\"joining_until\":0") != std::string::npos);
     gateway.stop(); close(serial[1]);
+}
+
+void testIasEnrollmentAndZoneIdExhaustion() {
+    char name[] = "/tmp/microhad-zigbee-ias-enroll-XXXXXX";
+    char* temporary = mkdtemp(name);
+    assert(temporary != 0);
+    std::string directory(temporary);
+    int serial[2];
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
+    Gateway gateway("/dev/null", 115200, directory, "", "", "");
+    GatewayIntegrationTestPeer::attachSerial(&gateway, serial[0]);
+    const std::string targetIeee = "0x00124b0000007001";
+    GatewayIntegrationTestPeer::addIasDevice(&gateway, 0x1234, targetIeee, -1);
+
+    std::vector<unsigned char> enroll;
+    enroll.push_back(0x19); enroll.push_back(0x44); enroll.push_back(0x01);
+    enroll.push_back(0x2a); enroll.push_back(0x00); /* zone type */
+    enroll.push_back(0x34); enroll.push_back(0x12); /* manufacturer code */
+    sendApsCallbackV8(serial[1], 0, apsPayload(0x0104, 0x0500, 1, 91, enroll));
+    gateway.poll();
+    std::vector<unsigned char> enrollmentWire = readAvailable(serial[1]);
+    std::vector<unsigned char> response = firstAshData(enrollmentWire);
+    assert(response[3] == 0x34 && response[4] == 0x00);
+    assert(response[5] == 0 && response[6] == 0x34 && response[7] == 0x12);
+    assert(response[8] == 0x04 && response[9] == 0x01);
+    assert(response[10] == 0 && response[11] == 0x05);
+    assert(response[12] == 1 && response[13] == 1 && response[20] == 5);
+    assert(response[21] == 0x19 && response[22] == 0x44 && response[23] == 0x00 &&
+           response[24] == 0x00 && response[25] == 0x00);
+
+    replyToFormationCommand(serial[1], response, 0);
+    gateway.poll(); readAvailable(serial[1]);
+    sendApsCallbackV8(serial[1], 1, apsPayload(0x0104, 0x0500, 1, 92, enroll));
+    gateway.poll();
+    response = firstAshData(readAvailable(serial[1]));
+    assert(response[25] == 0); /* repeat enrollment retains the allocated ID */
+    replyToFormationCommand(serial[1], response, 1);
+    gateway.poll(); readAvailable(serial[1]);
+
+    std::vector<Device> persisted;
+    std::string error;
+    assert(loadDevices(directory + "/devices.json", &persisted, &error));
+    assert(persisted.size() == 1 && persisted[0].ieeeAddress == targetIeee && persisted[0].iasZoneId == 0);
+    gateway.stop(); close(serial[1]);
+    unlink((directory + "/devices.json").c_str());
+    rmdir(directory.c_str());
+
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
+    Gateway exhausted("/dev/null", 115200, "/tmp", "", "", "");
+    GatewayIntegrationTestPeer::attachSerial(&exhausted, serial[0]);
+    unsigned int id;
+    char ieee[32];
+    for (id = 0; id <= 254; ++id) {
+        snprintf(ieee, sizeof(ieee), "0x00124b000000%04x", id);
+        GatewayIntegrationTestPeer::addIasDevice(&exhausted, static_cast<unsigned short>(id + 1), ieee,
+                                                  static_cast<int>(id));
+    }
+    GatewayIntegrationTestPeer::addIasDevice(&exhausted, 0x7fff, "0x00124b0000007fff", -1);
+    std::vector<unsigned char> exhaustedEnroll = apsPayload(0x0104, 0x0500, 1, 80, enroll);
+    exhaustedEnroll[14] = 0xff; exhaustedEnroll[15] = 0x7f;
+    sendApsCallbackV8(serial[1], 0, exhaustedEnroll);
+    exhausted.poll();
+    std::vector<std::vector<unsigned char> > outbound = decodeFrames(readAvailable(serial[1]));
+    unsigned long frame;
+    for (frame = 0; frame < outbound.size(); ++frame)
+        assert(outbound[frame].empty() || (outbound[frame][0] & 0x80) != 0);
+    assert(exhausted.logsJson().find("IAS zone ID pool exhausted") != std::string::npos);
+    std::vector<Device> exhaustedDevices = exhausted.devices();
+    bool targetUnassigned = false;
+    for (frame = 0; frame < exhaustedDevices.size(); ++frame) {
+        if (exhaustedDevices[frame].ieeeAddress == "0x00124b0000007fff")
+            targetUnassigned = exhaustedDevices[frame].iasZoneId == -1;
+    }
+    assert(targetUnassigned);
+    exhausted.stop(); close(serial[1]);
 }
 
 void testCoordinatorInitializationSequence() {
@@ -734,7 +815,7 @@ void testCoordinatorInitializationUnexpectedReplyAndTimeout() {
 
 std::vector<unsigned char> apsPayload(unsigned short profile, unsigned short cluster,
                                       unsigned char sourceEndpoint, unsigned char lqi,
-                                      const std::vector<unsigned char>& zcl, unsigned char declaredLength = 0xff) {
+                                      const std::vector<unsigned char>& zcl, unsigned char declaredLength) {
     std::vector<unsigned char> payload(19 + zcl.size(), 0);
     payload[0] = 0;
     payload[1] = static_cast<unsigned char>(profile); payload[2] = static_cast<unsigned char>(profile >> 8);
@@ -750,6 +831,14 @@ std::vector<unsigned char> apsPayload(unsigned short profile, unsigned short clu
 void sendApsCallback(int fd, unsigned char ashSequence, const std::vector<unsigned char>& aps) {
     std::vector<unsigned char> ezsp;
     ezsp.push_back(1); ezsp.push_back(0x80); ezsp.push_back(0x45);
+    ezsp.insert(ezsp.end(), aps.begin(), aps.end());
+    sendAshControl(fd, static_cast<unsigned char>((ashSequence & 7) << 4), obfuscateEzsp(ezsp));
+}
+
+void sendApsCallbackV8(int fd, unsigned char ashSequence, const std::vector<unsigned char>& aps) {
+    std::vector<unsigned char> ezsp;
+    ezsp.push_back(1); ezsp.push_back(0x80); ezsp.push_back(static_cast<unsigned char>(aps.size()));
+    ezsp.push_back(0x45); ezsp.push_back(0);
     ezsp.insert(ezsp.end(), aps.begin(), aps.end());
     sendAshControl(fd, static_cast<unsigned char>((ashSequence & 7) << 4), obfuscateEzsp(ezsp));
 }
@@ -1090,6 +1179,8 @@ void runGatewayIntegrationTests() {
     testSecureJoinPreparationFailuresAndRetries();
     fprintf(stderr, "integration: join extension, expiry, renewal, and close failure\n");
     testJoinWindowExtensionExpiryRenewalAndCloseFailure();
+    fprintf(stderr, "integration: IAS enrollment and zone ID exhaustion\n");
+    testIasEnrollmentAndZoneIdExhaustion();
     fprintf(stderr, "integration: coordinator initialization, IEEE lookup, and Tradfri setup\n");
     testCoordinatorInitializationSequence();
     fprintf(stderr, "integration: coordinator initialization unexpected reply and timeout\n");
