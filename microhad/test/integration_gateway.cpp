@@ -319,7 +319,46 @@ void testFreshNetworkFormationOverSerial() {
     assert(gateway.logsJson().find("Leaving the existing Zigbee network") == std::string::npos);
     assert(gateway.logsJson().find("Creating replacement Zigbee network from network-down state") != std::string::npos);
     gateway.stop(); close(serial[1]);
+
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
+    Gateway restored("/dev/null", 115200, directory, "", "", "");
+    GatewayIntegrationTestPeer::attachSerial(&restored, serial[0]);
+    assert(restored.start(&error));
+    readAvailable(serial[1]);
+    assert(GatewayIntegrationTestPeer::restoredNetworkMaterial(restored));
+    assert(restored.statusJson().find("\"network_formed\":false") != std::string::npos);
+    const unsigned char resetAck[] = {0x1a, 0xc1, 0x02, 0x0b, 0x0a, 0x52, 0x7e};
+    assert(write(serial[1], resetAck, sizeof(resetAck)) == static_cast<ssize_t>(sizeof(resetAck)));
+    restored.poll(); readAvailable(serial[1]);
+    std::vector<unsigned char> networkUp;
+    networkUp.push_back(0); networkUp.push_back(0x80); networkUp.push_back(0x19); networkUp.push_back(0x90);
+    std::vector<unsigned char> wire = AshTransport::encodeData(0x01, obfuscateEzsp(networkUp));
+    assert(write(serial[1], &wire[0], wire.size()) == static_cast<ssize_t>(wire.size()));
+    restored.poll();
+    assert(restored.statusJson().find("\"network_formed\":true") != std::string::npos);
+    restored.stop(); close(serial[1]);
+
+    char interruptedName[] = "/tmp/microhad-zigbee-network-interrupted-XXXXXX";
+    char* interruptedPath = mkdtemp(interruptedName);
+    assert(interruptedPath != 0 && socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
+    std::string interruptedDirectory = interruptedPath;
+    Gateway interrupted("/dev/null", 115200, interruptedDirectory, "", "", "");
+    GatewayIntegrationTestPeer::attachSerial(&interrupted, serial[0]);
+    assert(interrupted.start(&error)); readAvailable(serial[1]);
+    assert(GatewayIntegrationTestPeer::prepareFreshNetwork(&interrupted, &error));
+    readAvailable(serial[1]);
+    assert(interrupted.statusJson().find("\"network_forming\":true") != std::string::npos);
+    interrupted.stop(); close(serial[1]);
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
+    Gateway afterInterrupted("/dev/null", 115200, interruptedDirectory, "", "", "");
+    GatewayIntegrationTestPeer::attachSerial(&afterInterrupted, serial[0]);
+    assert(afterInterrupted.start(&error)); readAvailable(serial[1]);
+    assert(afterInterrupted.statusJson().find("\"network_forming\":false") != std::string::npos);
+    assert(afterInterrupted.statusJson().find("\"network_formed\":false") != std::string::npos);
+    assert(loadNetworkState(interruptedDirectory + "/network.json", &persisted, &error) && !persisted.formed);
+    afterInterrupted.stop(); close(serial[1]);
     unlink((directory + "/network.json").c_str()); rmdir(directory.c_str());
+    rmdir(interruptedDirectory.c_str());
 }
 
 void testSerialBackpressureAndFailures() {
