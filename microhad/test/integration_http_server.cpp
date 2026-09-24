@@ -91,6 +91,16 @@ std::string plainRequest(int port, const std::string& request) {
     return response;
 }
 
+std::string plainRequestParts(int port, const std::vector<std::string>& parts, bool endWrite) {
+    int fd = connectLoopback(port);
+    for (unsigned long i = 0; i < parts.size(); ++i)
+        assert(write(fd, parts[i].data(), parts[i].size()) == static_cast<ssize_t>(parts[i].size()));
+    if (endWrite) assert(shutdown(fd, SHUT_WR) == 0);
+    std::string response = readAll(fd);
+    close(fd);
+    return response;
+}
+
 std::string tlsRequest(int port, const std::string& request) {
     mbedtls_net_context socket;
     mbedtls_ssl_context ssl;
@@ -187,6 +197,18 @@ void testServers() {
     expectStatus("http unknown route", plainRequest(http.boundPort(), "GET /missing HTTP/1.1\r\nHost: localhost\r\n\r\n"), 400);
     expectStatus("http reject chunked request", plainRequest(http.boundPort(), "POST /api/join HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n"), 400);
     expectStatus("http reject conflicting lengths", plainRequest(http.boundPort(), "POST /api/join HTTP/1.1\r\nHost: localhost\r\nContent-Length: 1\r\nContent-Length: 2\r\n\r\n"), 400);
+    expectStatus("http reject duplicate lengths", plainRequest(http.boundPort(), "POST /api/join HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\nContent-Length: 0\r\n\r\n"), 400);
+    expectStatus("http reject malformed request line", plainRequest(http.boundPort(), "INVALID\r\nHost: localhost\r\n\r\n"), 400);
+    expectStatus("http reject malformed header", plainRequest(http.boundPort(), "GET /api/status HTTP/1.1\r\nInvalidHeader\r\n\r\n"), 400);
+    expectStatus("http reject invalid content length", plainRequest(http.boundPort(), "POST /api/join HTTP/1.1\r\nHost: localhost\r\nContent-Length: nope\r\n\r\n"), 400);
+    expectStatus("http reject incomplete request", plainRequestParts(http.boundPort(), std::vector<std::string>(1, "GET /api/status HTTP/1.1\r\nHost: localhost\r\n"), true), 400);
+    {
+        std::vector<std::string> parts;
+        parts.push_back("GET /api/"); parts.push_back("status HTTP/1.1\r\nHost: localhost\r\n\r\n");
+        expectStatus("http accept partial request", plainRequestParts(http.boundPort(), parts, false), 200);
+    }
+    expectStatus("http reject oversized request", plainRequest(http.boundPort(), "POST /api/join HTTP/1.1\r\nHost: localhost\r\nContent-Length: 20000\r\n\r\n"), 413);
+    expectStatus("http survives malformed requests", plainRequest(http.boundPort(), "GET /api/status HTTP/1.1\r\nHost: localhost\r\n\r\n"), 200);
 
     expectStatus("https status", tlsRequest(https.boundPort(), "GET /api/status HTTP/1.1\r\nHost: localhost\r\n\r\n"), 200);
     expectStatus("https service worker", tlsRequest(https.boundPort(), "GET /sw.js HTTP/1.1\r\nHost: localhost\r\n\r\n"), 200);

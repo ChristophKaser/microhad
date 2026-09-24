@@ -116,7 +116,7 @@ RequestReadResult expectedRequestLength(const std::string& request, unsigned lon
             if (value.empty() || value[0] == '-') return RequestReadMalformed;
             errno = 0;
             parsed = strtoul(value.c_str(), &end, 10);
-            if (errno != 0 || end == value.c_str() || *end != 0 || (sawContentLength && parsed != contentLength))
+            if (errno != 0 || end == value.c_str() || *end != 0 || sawContentLength)
                 return RequestReadMalformed;
             sawContentLength = true;
             contentLength = parsed;
