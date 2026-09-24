@@ -16,6 +16,7 @@
 #include <string>
 #include <sstream>
 #include <sys/socket.h>
+#include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -1840,6 +1841,105 @@ void testGatewayRunnerCommandDispatch() {
     assert(rmdir(directory) == 0);
 }
 
+struct ConcurrentRunnerContext {
+    GatewayRunner* runner;
+    unsigned int id;
+    bool success;
+};
+
+void* concurrentRunnerMutation(void* opaque) {
+    ConcurrentRunnerContext* context = static_cast<ConcurrentRunnerContext*>(opaque);
+    unsigned int i;
+    for (i = 0; i < 12 && context->success; ++i) {
+        std::ostringstream name;
+        std::string error;
+        name << "Reader writer " << context->id << " " << i;
+        if (!context->runner->setDeviceSettings("runner-light", name.str(), false, 0, false, 0,
+                                                 false, 0, 0, true, 0, &error)) {
+            context->success = false;
+            break;
+        }
+        GatewayRunner::ViewLease* view = context->runner->acquireView();
+        if (view == 0 || view->statusJson().find("\"devices\":[") == std::string::npos) context->success = false;
+        delete view;
+    }
+    return 0;
+}
+
+void testGatewayRunnerConcurrentSnapshotsAndWakeFailure() {
+    char directoryName[] = "/tmp/microhad-zigbee-runner-race-XXXXXX";
+    char* directory = mkdtemp(directoryName);
+    const char* transientPaths[] = { "/tmp/microhad-zigbee-native-values.json", "/tmp/microhad-zigbee-native.log" };
+    std::string backups[2];
+    bool preserved[2];
+    int serial[2];
+    std::string error;
+    pthread_t threads[4];
+    ConcurrentRunnerContext contexts[4];
+    unsigned int i;
+    assert(directory != 0 && socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
+    for (i = 0; i < 2; ++i) {
+        std::ostringstream backup;
+        backup << transientPaths[i] << ".runner-race-" << static_cast<long>(getpid());
+        backups[i] = backup.str();
+        errno = 0;
+        preserved[i] = rename(transientPaths[i], backups[i].c_str()) == 0;
+        assert(preserved[i] || errno == ENOENT);
+    }
+    {
+        Gateway* gateway = new Gateway("/dev/null", 115200, directory, "", "", "");
+        GatewayIntegrationTestPeer::prepareRunnerCommandDevice(gateway);
+        GatewayIntegrationTestPeer::attachSerial(gateway, serial[0]);
+        GatewayRunner runner(gateway);
+        assert(runner.start(&error));
+        GatewayRunner::ViewLease* held = runner.acquireView();
+        assert(held != 0);
+        const std::string originalSnapshot = held->statusJson();
+        for (i = 0; i < 4; ++i) {
+            contexts[i].runner = &runner;
+            contexts[i].id = i;
+            contexts[i].success = true;
+            assert(pthread_create(&threads[i], 0, concurrentRunnerMutation, &contexts[i]) == 0);
+        }
+        for (i = 0; i < 4; ++i) {
+            assert(pthread_join(threads[i], 0) == 0);
+            assert(contexts[i].success);
+        }
+        GatewayRunner::ViewLease* latest = runner.acquireView();
+        assert(latest != 0 && latest->statusJson() != originalSnapshot);
+        delete latest;
+        runner.stop();
+        assert(held->statusJson() == originalSnapshot);
+        delete held; /* A retired snapshot lease remains releasable after stop. */
+    }
+    close(serial[1]);
+    unlink((std::string(directory) + "/devices.json").c_str());
+    rmdir(directory);
+    for (i = 0; i < 2; ++i) {
+        unlink(transientPaths[i]);
+        if (preserved[i]) assert(rename(backups[i].c_str(), transientPaths[i]) == 0);
+    }
+
+    pid_t child = fork();
+    assert(child >= 0);
+    if (child == 0) {
+        struct rlimit limit;
+        int result = 1;
+        limit.rlim_cur = 3;
+        limit.rlim_max = 3;
+        if (setrlimit(RLIMIT_NOFILE, &limit) == 0) {
+            Gateway* gateway = new Gateway("/dev/null", 115200, "/tmp", "", "", "");
+            GatewayRunner runner(gateway);
+            std::string startupError;
+            result = (!runner.start(&startupError) && startupError == "cannot create coordinator wakeup pipe") ? 0 : 1;
+        }
+        _exit(result);
+    }
+    int childStatus = 0;
+    assert(waitpid(child, &childStatus, 0) == child);
+    assert(WIFEXITED(childStatus) && WEXITSTATUS(childStatus) == 0);
+}
+
 void testCliUsageFailures() {
     expectUsageFailure(false);
     expectUsageFailure(true);
@@ -1907,6 +2007,8 @@ void runGatewayIntegrationTests() {
     testGatewayRunnerLifecycle();
     fprintf(stderr, "integration: runner command dispatch and result relay\n");
     testGatewayRunnerCommandDispatch();
+    fprintf(stderr, "integration: runner concurrent snapshots and wake-pipe failure\n");
+    testGatewayRunnerConcurrentSnapshotsAndWakeFailure();
     fprintf(stderr, "integration: gateway CLI usage failures\n");
     testCliUsageFailures();
 }
