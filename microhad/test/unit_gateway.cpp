@@ -21,6 +21,24 @@
 
 class GatewayTestPeer {
 public:
+    static void logRingAndSerialization() {
+        Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+        for (int i = 0; i < 513; ++i) {
+            std::ostringstream entry;
+            entry << "entry-" << i;
+            gateway.addLog(entry.str());
+        }
+        std::string logs = gateway.logsJson();
+        assert(logs.find("entry-0\"") == std::string::npos);
+        assert(logs.find("entry-1\"") != std::string::npos);
+        assert(logs.find("entry-512\"") != std::string::npos);
+        gateway.addLog(std::string(800, 'x'));
+        gateway.addLog("control\n\t\001");
+        logs = gateway.logsJson();
+        assert(logs.find("\\n\\t\\u0001") != std::string::npos);
+        assert(logs.find(std::string(769, 'x')) == std::string::npos);
+        assert(gateway.deviceLogLabel(0x1234) == "unknown node=0x1234");
+    }
     static std::vector<unsigned char> decodedLastEzsp(const Gateway& gateway) {
         std::vector<unsigned char> command = gateway.ashTransmitQueue_.empty() ? gateway.ashPendingData_ : gateway.ashTransmitQueue_.back();
         unsigned char random = 0x42;
@@ -1088,6 +1106,7 @@ static void testRamLog() {
     Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
     assert(!gateway.setJoining(300, &error));
     assert(gateway.logsJson().find("Pairing request rejected: coordinator offline") != std::string::npos);
+    GatewayTestPeer::logRingAndSerialization();
     unlink("/tmp/microhad-zigbee-native.log");
 }
 
