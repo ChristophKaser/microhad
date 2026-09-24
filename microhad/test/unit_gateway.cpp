@@ -985,10 +985,10 @@ static void testGenericCapabilities() {
     device.ieeeAddress = "0x00124b0000000002";
     temperature.push_back(0x1a); temperature.push_back(0x09); /* 23.30 C */
     assert(applyZclAttribute(&device, 0x0402, 0x0000, temperature, 123));
-    assert(device.hasTemperature && device.temperatureCelsius == 23.3);
+    assert(device.hasTemperature && device.temperatureCelsius == 23.3 && device.lastSeen == 123);
     humidity.push_back(0xb8); humidity.push_back(0x13); /* 50.48 % */
     assert(applyZclAttribute(&device, 0x0405, 0x0000, humidity, 123));
-    assert(device.hasHumidity && device.humidityPercent == 50.48);
+    assert(device.hasHumidity && device.humidityPercent == 50.48 && device.lastSeen == 123);
     xiaomi.push_back(8); /* length */
     xiaomi.push_back(0x64); xiaomi.push_back(0x29); xiaomi.push_back(0xa8); xiaomi.push_back(0x08); /* 22.16 C */
     xiaomi.push_back(0x65); xiaomi.push_back(0x21); xiaomi.push_back(0xb8); xiaomi.push_back(0x13); /* 50.48 % */
@@ -998,7 +998,7 @@ static void testGenericCapabilities() {
     assert(device.hasHumidity && device.humidityPercent == 50.48);
     occupancy.push_back(1);
     assert(applyZclAttribute(&device, 0x0406, 0x0000, occupancy, 123));
-    assert(device.hasOccupancy && device.occupied);
+    assert(device.hasOccupancy && device.occupied && device.lastSeen == 123);
     {
         std::vector<unsigned char> response;
         response.push_back(0x00); response.push_back(0x00); /* measured value */
@@ -1010,7 +1010,7 @@ static void testGenericCapabilities() {
     }
     battery.push_back(170);
     assert(applyZclAttribute(&device, 0x0001, 0x0021, battery, 124));
-    assert(device.hasBattery && device.batteryPercent == 85);
+    assert(device.hasBattery && device.batteryPercent == 85 && device.lastSeen == 124);
     zone.push_back(1); zone.push_back(0);
     assert(applyIasZoneStatus(&device, zone, 125));
     assert(device.hasContact && device.contactOpen && device.lastSeen == 125);
