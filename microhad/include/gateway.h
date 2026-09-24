@@ -154,6 +154,7 @@ private:
     std::string serialDevice_;
     int serialBaud_;
     std::string runtimeDirectory_;
+    std::string networkRandomSource_;
     std::string firebaseServiceAccount_;
     std::string firebaseTopic_;
     std::string caBundle_;
@@ -195,6 +196,7 @@ private:
     unsigned long ashRxFrames_;
     bool networkForming_;
     unsigned char networkFormationStep_;
+    long networkFormationDeadline_;
     bool networkFormed_;
     std::vector<unsigned char> networkExtendedPan_;
     std::vector<unsigned char> networkKey_;

@@ -81,7 +81,8 @@ std::vector<unsigned char> firstAshData(const std::vector<unsigned char>& wire) 
 }
 
 void replyToFormationCommand(int fd, const std::vector<unsigned char>& request, unsigned char ashSequence,
-                             int acknowledgement = -1, unsigned short responseCommand = 0xffff) {
+                             int acknowledgement = -1, unsigned short responseCommand = 0xffff,
+                             unsigned char responseStatus = 0) {
     assert(request.size() >= 5);
     std::vector<unsigned char> reply;
     reply.push_back(request[0]); reply.push_back(0x80); reply.push_back(1);
@@ -89,7 +90,7 @@ void replyToFormationCommand(int fd, const std::vector<unsigned char>& request, 
         static_cast<unsigned short>(request[3] | (static_cast<unsigned short>(request[4]) << 8)) : responseCommand;
     reply.push_back(static_cast<unsigned char>(command));
     reply.push_back(static_cast<unsigned char>(command >> 8));
-    reply.push_back(0);
+    reply.push_back(responseStatus);
     if (command == 0x005a) {
         reply.push_back(0); reply.push_back(0); reply.push_back(0);
     } else if (command == 0x0026) {
@@ -381,6 +382,67 @@ void testFreshNetworkFormationOverSerial() {
     afterInterrupted.stop(); close(serial[1]);
     unlink((directory + "/network.json").c_str()); rmdir(directory.c_str());
     rmdir(interruptedDirectory.c_str());
+}
+
+void testNetworkCreationFailuresAndTimeout() {
+    std::string error;
+    Gateway offline("/dev/null", 115200, "/tmp", "", "", "");
+    assert(!offline.createFreshNetwork(&error) && error == "Zigbee coordinator is offline");
+
+    Gateway randomFailure("/dev/null", 115200, "/tmp", "", "", "");
+    GatewayIntegrationTestPeer::setNetworkReady(&randomFailure, false);
+    GatewayIntegrationTestPeer::setNetworkRandomSource(&randomFailure, "/tmp/microhad-zigbee-no-random-source");
+    assert(!randomFailure.createFreshNetwork(&error) && error == "cannot read system random source");
+    assert(!GatewayIntegrationTestPeer::networkForming(randomFailure));
+
+    char name[] = "/tmp/microhad-zigbee-network-failure-XXXXXX";
+    char* temporary = mkdtemp(name);
+    assert(temporary != 0);
+    std::string directory = temporary;
+    NetworkState original;
+    original.formed = true; original.panId = 0x4567; original.channel = 15;
+    original.extendedPan.assign(8, 0x12); original.networkKey.assign(16, 0x34);
+    original.preconfiguredKey.assign(16, 0x56);
+    assert(saveNetworkState(directory + "/network.json", original, &error));
+
+    int serial[2];
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
+    Gateway rejected("/dev/null", 115200, directory, "", "", "");
+    GatewayIntegrationTestPeer::attachSerial(&rejected, serial[0]);
+    assert(rejected.start(&error)); readAvailable(serial[1]);
+    GatewayIntegrationTestPeer::setNetworkReady(&rejected, false);
+    assert(rejected.createFreshNetwork(&error));
+    assert(GatewayIntegrationTestPeer::networkForming(rejected));
+    assert(!rejected.createFreshNetwork(&error) && error == "network creation is already in progress");
+    std::vector<unsigned char> clearKeys = firstAshData(readAvailable(serial[1]));
+    assert(clearKeys[3] == 0xb1 && clearKeys[4] == 0);
+    replyToFormationCommand(serial[1], clearKeys, 0, -1, 0xffff, 0x30);
+    rejected.poll(); readAvailable(serial[1]);
+    assert(!GatewayIntegrationTestPeer::networkForming(rejected));
+    assert(rejected.logsJson().find("Network formation command 0xb1 rejected") != std::string::npos);
+    NetworkState stillSaved;
+    assert(loadNetworkState(directory + "/network.json", &stillSaved, &error));
+    assert(stillSaved.formed && stillSaved.panId == original.panId && stillSaved.networkKey == original.networkKey);
+    rejected.stop(); close(serial[1]);
+
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
+    Gateway timeout("/dev/null", 115200, directory, "", "", "");
+    GatewayIntegrationTestPeer::attachSerial(&timeout, serial[0]);
+    assert(timeout.start(&error)); readAvailable(serial[1]);
+    GatewayIntegrationTestPeer::setNetworkReady(&timeout, false);
+    assert(timeout.createFreshNetwork(&error));
+    readAvailable(serial[1]);
+    sendAshControl(serial[1], 0x81, std::vector<unsigned char>()); /* NCP accepted ASH, no EZSP response */
+    timeout.poll(); readAvailable(serial[1]);
+    GatewayIntegrationTestPeer::expireNetworkFormation(&timeout);
+    timeout.poll();
+    assert(!GatewayIntegrationTestPeer::networkForming(timeout));
+    assert(timeout.statusJson().find("\"network_formed\":false") != std::string::npos);
+    assert(timeout.logsJson().find("Network formation response timed out") != std::string::npos);
+    assert(loadNetworkState(directory + "/network.json", &stillSaved, &error));
+    assert(stillSaved.formed && stillSaved.panId == original.panId && stillSaved.networkKey == original.networkKey);
+    timeout.stop(); close(serial[1]);
+    unlink((directory + "/network.json").c_str()); rmdir(directory.c_str());
 }
 
 void testCoordinatorInitializationSequence() {
@@ -821,6 +883,8 @@ void runGatewayIntegrationTests() {
     testEzspFailedInitializationStatus();
     fprintf(stderr, "integration: fresh network formation and persistence\n");
     testFreshNetworkFormationOverSerial();
+    fprintf(stderr, "integration: network creation rejection, RNG, EZSP failure, and timeout\n");
+    testNetworkCreationFailuresAndTimeout();
     fprintf(stderr, "integration: coordinator initialization, IEEE lookup, and Tradfri setup\n");
     testCoordinatorInitializationSequence();
     fprintf(stderr, "integration: coordinator initialization unexpected reply and timeout\n");

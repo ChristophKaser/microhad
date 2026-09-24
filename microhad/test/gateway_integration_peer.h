@@ -37,6 +37,18 @@ public:
         gateway->ezspVersion_ = 8;
         return gateway->createFreshNetwork(error);
     }
+    static void setNetworkReady(Gateway* gateway, bool formed) {
+        gateway->online_ = true;
+        gateway->ezspVersion_ = 8;
+        gateway->networkInitRequested_ = true;
+        gateway->coordinatorInitializationStep_ = 0;
+        gateway->networkFormed_ = formed;
+    }
+    static void setNetworkRandomSource(Gateway* gateway, const std::string& path) {
+        gateway->networkRandomSource_ = path;
+    }
+    static bool networkForming(const Gateway& gateway) { return gateway.networkForming_; }
+    static void expireNetworkFormation(Gateway* gateway) { gateway->networkFormationDeadline_ = time(0) - 1; }
     static bool restoredNetworkMaterial(const Gateway& gateway) {
         return gateway.networkPanId_ != 0 && gateway.networkPanId_ != 0xffff &&
                gateway.networkChannel_ == 11 && gateway.networkExtendedPan_.size() == 8 &&

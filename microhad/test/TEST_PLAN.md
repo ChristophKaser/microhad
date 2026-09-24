@@ -61,7 +61,7 @@ physical coordinator and radio interoperability testing.
 | NET-01 | U | Save/load formed and unformed network state | PAN, channel, extended PAN, network/preconfigured keys round trip | DONE |
 | NET-02 | U | Missing, malformed JSON, invalid hex/length, incomplete network state | Safe defaults or explicit load failure; no partially trusted keys | DONE |
 | NET-03 | I | Create fresh network while online with confirmation | New material is generated, formation commands run, state becomes forming then formed and persists | DONE |
-| NET-04 | I | Create network offline, while forming, RNG failure, EZSP failure, and formation timeout | Operation is rejected or fails cleanly without overwriting known-good state | P |
+| NET-04 | I | Create network offline, while forming, RNG failure, EZSP failure, and formation timeout | Operation is rejected or fails cleanly without overwriting known-good state | DONE |
 | NET-05 | I | Restart after formed network and after interrupted formation | Persisted formed state restores; interrupted state does not masquerade as formed | DONE |
 | JOIN-01 | U | Offline join request | Rejected with coordinator-offline error and log entry | DONE |
 | JOIN-02 | I | Secure join preparation policy replies all succeed | Join permit opens for requested duration; status shows preparing then deadline | G |

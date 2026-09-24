@@ -231,10 +231,10 @@ std::string decodeFramePayload(unsigned short profile, unsigned short cluster, c
 Gateway::Gateway(const std::string& serialDevice, int serialBaud, const std::string& runtimeDirectory,
                  const std::string& firebaseServiceAccount, const std::string& firebaseTopic, const std::string& caBundle,
                  NotificationWorker* notificationWorker) :
-    serialDevice_(serialDevice), serialBaud_(serialBaud), runtimeDirectory_(runtimeDirectory),
+    serialDevice_(serialDevice), serialBaud_(serialBaud), runtimeDirectory_(runtimeDirectory), networkRandomSource_("/dev/urandom"),
     firebaseServiceAccount_(firebaseServiceAccount), firebaseTopic_(firebaseTopic), caBundle_(caBundle), notificationWorker_(notificationWorker), serialFd_(-1),
     online_(false), joinUntil_(0), joinPermitRenewAt_(0), pendingJoinSeconds_(0), joinPreparationStep_(0), joinPreparationDeadline_(0), ashSendSequence_(0), ashReceiveSequence_(0), ezspSequence_(0),
-    ashAckDeadline_(0), ashRetries_(0), ashPendingSensitive_(false), ezspVersion_(4), zdoSequence_(0), zclTransactionSequence_(0), ezspVersionNegotiated_(false), stackTokenWritingRequested_(false), networkInitRequested_(false), tradfriBindGroupConfigured_(false), coordinatorInitializationStep_(0), coordinatorInitializationDeadline_(0), resetDeadline_(0), nextHeartbeatAt_(0), serialRxBytes_(0), ashRxFrames_(0), networkForming_(false), networkFormationStep_(0), networkFormed_(false), networkPanId_(0),
+    ashAckDeadline_(0), ashRetries_(0), ashPendingSensitive_(false), ezspVersion_(4), zdoSequence_(0), zclTransactionSequence_(0), ezspVersionNegotiated_(false), stackTokenWritingRequested_(false), networkInitRequested_(false), tradfriBindGroupConfigured_(false), coordinatorInitializationStep_(0), coordinatorInitializationDeadline_(0), resetDeadline_(0), nextHeartbeatAt_(0), serialRxBytes_(0), ashRxFrames_(0), networkForming_(false), networkFormationStep_(0), networkFormationDeadline_(0), networkFormed_(false), networkPanId_(0),
     networkChannel_(0), interviewRequestInFlight_(false), interviewSendAccepted_(false), interviewEzspSequence_(0), interviewNode_(0xffff),
     interviewDeadline_(0), nextMessageTag_(1), coordinatorIeeeAddressRequested_(false), viewDirty_(true) {
 }
@@ -336,6 +336,13 @@ void Gateway::poll() {
         coordinatorInitializationStep_ = 0;
         sendAshReset();
     }
+    if (networkForming_ && networkFormationDeadline_ != 0 && time(0) >= networkFormationDeadline_) {
+        networkForming_ = false;
+        networkFormationStep_ = 0;
+        networkFormationDeadline_ = 0;
+        networkFormed_ = false;
+        addLog("Network formation response timed out; previous saved network was preserved");
+    }
     if (interviewRequestInFlight_ && interviewDeadline_ != 0 && time(0) >= interviewDeadline_) {
         failInterviewOperation(interviewNode_, "response timed out");
     }
@@ -427,6 +434,7 @@ long Gateway::nextPollDeadline() const {
     if (online_) CONSIDER_DEADLINE(nextHeartbeatAt_);
     if (!online_) CONSIDER_DEADLINE(resetDeadline_);
     CONSIDER_DEADLINE(coordinatorInitializationDeadline_);
+    if (networkForming_) CONSIDER_DEADLINE(networkFormationDeadline_);
     if (interviewRequestInFlight_) CONSIDER_DEADLINE(interviewDeadline_);
     CONSIDER_DEADLINE(joinPreparationDeadline_);
     CONSIDER_DEADLINE(joinUntil_);
@@ -495,6 +503,7 @@ bool Gateway::createFreshNetwork(std::string* error) {
     if (networkForming_) { *error = "network creation is already in progress"; return false; }
     if (!generateNetworkMaterial(error)) return false;
     networkForming_ = true;
+    networkFormationDeadline_ = time(0) + 30;
     leaveExisting = networkFormed_;
     networkFormed_ = false;
     coordinatorIeeeAddress_.clear();
@@ -1397,6 +1406,9 @@ void Gateway::failSerial(const char* operation, int errorNumber) {
     ashPendingSensitive_ = false;
     ashAckDeadline_ = 0;
     coordinatorInitializationDeadline_ = 0;
+    networkFormationDeadline_ = 0;
+    networkForming_ = false;
+    networkFormationStep_ = 0;
     resetDeadline_ = 0;
     online_ = false;
     networkFormed_ = false;
@@ -1445,6 +1457,9 @@ void Gateway::sendAshReset() {
     serialPendingBytes_.clear();
     ashAckDeadline_ = 0;
     coordinatorInitializationDeadline_ = 0;
+    networkFormationDeadline_ = 0;
+    networkForming_ = false;
+    networkFormationStep_ = 0;
     online_ = false;
     /* Persistent state describes the intended network.  Do not send traffic
        until this NCP boot reports NETWORK_UP. */
@@ -1796,17 +1811,19 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
                 static_cast<unsigned long>(frame.size()));
     }
     if (networkForming_ && command == 0x0020) {
-        if (frame[payloadOffset] != 0) {
-            if (frame[payloadOffset] == 0x70) {
+        unsigned int status = frame.size() > payloadOffset ? frame[payloadOffset] : 0xff;
+        if (status != 0) {
+            if (status == 0x70) {
                 networkFormationStep_ = 2;
+                networkFormationDeadline_ = time(0) + 30;
                 addLog("NCP already network-down; creating replacement network");
                 sendEzspCommand(0x00b1, std::vector<unsigned char>()); /* clearKeyTable */
             } else {
                 networkForming_ = false;
                 networkFormationStep_ = 0;
+                networkFormationDeadline_ = 0;
                 std::ostringstream failure;
-                failure << "NCP rejected leave-network request: 0x" << std::hex
-                        << static_cast<unsigned int>(frame[payloadOffset]);
+                failure << "NCP rejected leave-network request: 0x" << std::hex << status;
                 addLog(failure.str());
             }
         } else {
@@ -1815,14 +1832,16 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
         return;
     }
     if (networkForming_ && (command == 0x00b1 || command == 0x0068 || command == 0x001e)) {
-        if (frame[payloadOffset] == 0) continueNetworkFormation(command);
+        unsigned int status = frame.size() > payloadOffset ? frame[payloadOffset] : 0xff;
+        if (status == 0) continueNetworkFormation(command);
         else {
             std::ostringstream failure;
             failure << "Network formation command 0x" << std::hex << command
-                    << " rejected: 0x" << static_cast<unsigned int>(frame[payloadOffset]);
+                    << " rejected or truncated: 0x" << status;
             addLog(failure.str());
             networkForming_ = false;
             networkFormationStep_ = 0;
+            networkFormationDeadline_ = 0;
         }
     }
     if (frame.size() <= payloadOffset) return;
@@ -1840,6 +1859,7 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
     if (command == 0x0019) {
         if (networkForming_ && networkFormationStep_ == 1 && frame[payloadOffset] != 0x90) {
             networkFormationStep_ = 2;
+            networkFormationDeadline_ = time(0) + 30;
             addLog("Old Zigbee network left; creating replacement network");
             sendEzspCommand(0x00b1, std::vector<unsigned char>()); /* clearKeyTable */
             return;
@@ -2038,7 +2058,7 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
 }
 
 bool Gateway::generateNetworkMaterial(std::string* error) {
-    int randomFd = open("/dev/urandom", O_RDONLY);
+    int randomFd = open(networkRandomSource_.c_str(), O_RDONLY);
     unsigned char material[42];
     ssize_t count;
     if (randomFd < 0) { *error = "cannot read system random source"; return false; }
@@ -2065,6 +2085,7 @@ bool Gateway::generateNetworkMaterial(std::string* error) {
 void Gateway::continueNetworkFormation(unsigned short completedCommand) {
     std::vector<unsigned char> payload;
     if (completedCommand == 0x00b1) {
+        networkFormationDeadline_ = time(0) + 30;
         /* EmberInitialSecurityState, all multi-byte values little-endian. */
         unsigned short bitmask = 0x0100 | 0x0004 | 0x0200 | 0x0800 | 0x0084;
         payload.push_back(static_cast<unsigned char>(bitmask));
@@ -2076,6 +2097,7 @@ void Gateway::continueNetworkFormation(unsigned short completedCommand) {
         for (i = 0; i < 8; ++i) payload.push_back(0);
         sendEzspCommand(0x0068, payload);
     } else if (completedCommand == 0x0068) {
+        networkFormationDeadline_ = time(0) + 30;
         payload.insert(payload.end(), networkExtendedPan_.begin(), networkExtendedPan_.end());
         payload.push_back(static_cast<unsigned char>(networkPanId_));
         payload.push_back(static_cast<unsigned char>(networkPanId_ >> 8));
@@ -2086,6 +2108,7 @@ void Gateway::continueNetworkFormation(unsigned short completedCommand) {
     } else if (completedCommand == 0x001e) {
         networkForming_ = false;
         networkFormationStep_ = 0;
+        networkFormationDeadline_ = 0;
         networkFormed_ = true;
         NetworkState network;
         std::string ignored;
