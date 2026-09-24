@@ -1,5 +1,6 @@
 #include "ash.h"
 #include "gateway.h"
+#include "gateway_runner.h"
 #include "gateway_integration_peer.h"
 
 #include <cassert>
@@ -1742,6 +1743,41 @@ void testSerialStartupAndIdempotentStop() {
     rmdir(directory.c_str());
 }
 
+void testGatewayRunnerLifecycle() {
+    char directoryName[] = "/tmp/microhad-zigbee-runner-lifecycle-XXXXXX";
+    char* directory = mkdtemp(directoryName);
+    int serial[2];
+    std::string error;
+    assert(directory != 0 && socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
+    {
+        Gateway* gateway = new Gateway("/dev/null", 115200, directory, "", "", "");
+        GatewayIntegrationTestPeer::attachSerial(gateway, serial[0]);
+        GatewayRunner runner(gateway);
+        runner.stop();
+        assert(runner.start(&error));
+        GatewayRunner::ViewLease* view = runner.acquireView();
+        assert(view != 0 && view->statusJson().find("\"online\":false") != std::string::npos);
+        delete view;
+        runner.stop();
+        runner.stop();
+        readAvailable(serial[1]);
+        char byte;
+        assert(read(serial[1], &byte, 1) == 0);
+    }
+    close(serial[1]);
+    {
+        Gateway* gateway = new Gateway("/tmp/microhad-zigbee-runner-missing-serial", 115200,
+                                       std::string(directory) + "/failed", "", "", "");
+        GatewayRunner runner(gateway);
+        assert(!runner.start(&error));
+        assert(error.find("cannot open Zigbee serial device") != std::string::npos);
+        runner.stop();
+    }
+    unlink("/tmp/microhad-zigbee-native.log");
+    assert(rmdir((std::string(directory) + "/failed").c_str()) == 0);
+    assert(rmdir(directory) == 0);
+}
+
 void testCliUsageFailures() {
     expectUsageFailure(false);
     expectUsageFailure(true);
@@ -1805,6 +1841,8 @@ void runGatewayIntegrationTests() {
     testTransientLogRestartAndWriteFailure();
     fprintf(stderr, "integration: serial startup failures and idempotent stop\n");
     testSerialStartupAndIdempotentStop();
+    fprintf(stderr, "integration: coordinator runner startup and stop lifecycle\n");
+    testGatewayRunnerLifecycle();
     fprintf(stderr, "integration: gateway CLI usage failures\n");
     testCliUsageFailures();
 }
