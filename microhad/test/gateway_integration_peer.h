@@ -109,6 +109,10 @@ public:
         unsigned int i;
         for (i = 0; i < 8; ++i) gateway->coordinatorIeeeAddress_[i] = static_cast<unsigned char>(i + 1);
     }
+    static void startDeviceInterview(Gateway* gateway, unsigned short node) {
+        gateway->startInterview(node, false);
+    }
+    static void expireInterview(Gateway* gateway) { gateway->interviewDeadline_ = time(0) - 1; }
     static unsigned char coordinatorInitializationStep(const Gateway& gateway) { return gateway.coordinatorInitializationStep_; }
     static void expireCoordinatorInitialization(Gateway* gateway) {
         gateway->coordinatorInitializationDeadline_ = time(0) - 1;

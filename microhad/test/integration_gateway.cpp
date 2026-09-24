@@ -905,6 +905,90 @@ void testCompleteSensorInterview() {
     rmdir(directory.c_str());
 }
 
+void testInterviewResponseMatchingAndTimeout() {
+    int serial[2];
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
+    Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+    GatewayIntegrationTestPeer::attachSerial(&gateway, serial[0]);
+    const std::string ieee = "0x00124b0000001234";
+    GatewayIntegrationTestPeer::addIasDevice(&gateway, 0x1234, ieee, -1);
+    GatewayIntegrationTestPeer::startDeviceInterview(&gateway, 0x1234);
+    gateway.poll();
+    std::vector<unsigned char> request = firstAshData(readAvailable(serial[1]));
+    assert(request[10] == 0x02 && request[11] == 0x00);
+
+    unsigned char receiveSequence = GatewayIntegrationTestPeer::ashReceiveSequence(gateway);
+    unsigned char acknowledgement = static_cast<unsigned char>(
+        (GatewayIntegrationTestPeer::ashSendSequence(gateway) + 1) & 7);
+    replyToFormationCommand(serial[1], request, receiveSequence, acknowledgement);
+    gateway.poll(); readAvailable(serial[1]);
+
+    std::vector<unsigned char> zdo;
+    zdo.push_back(static_cast<unsigned char>(request[21] + 1)); zdo.push_back(0);
+    receiveSequence = GatewayIntegrationTestPeer::ashReceiveSequence(gateway);
+    acknowledgement = static_cast<unsigned char>((GatewayIntegrationTestPeer::ashSendSequence(gateway) + 1) & 7);
+    sendApsCallbackV8(serial[1], receiveSequence, apsPayload(0x0000, 0x8002, 0, 70, zdo), acknowledgement);
+    gateway.poll();
+    std::vector<unsigned char> wire = readAvailable(serial[1]);
+    std::vector<std::vector<unsigned char> > frames = decodeFrames(wire);
+    unsigned long i;
+    for (i = 0; i < frames.size(); ++i) assert(frames[i].empty() || (frames[i][0] & 0x80) != 0);
+    assert(gateway.logsJson().find("Node descriptor received") == std::string::npos);
+
+    std::vector<unsigned char> delivery(16, 0);
+    delivery[14] = static_cast<unsigned char>(request[19] + 1); /* unrelated message tag */
+    delivery[15] = 0x01; /* failure for another transmission */
+    std::vector<unsigned char> ezsp;
+    ezsp.push_back(1); ezsp.push_back(0x80); ezsp.push_back(16); ezsp.push_back(0x3f); ezsp.push_back(0);
+    ezsp.insert(ezsp.end(), delivery.begin(), delivery.end());
+    receiveSequence = GatewayIntegrationTestPeer::ashReceiveSequence(gateway);
+    sendAshControl(serial[1], static_cast<unsigned char>((receiveSequence << 4) |
+        ((GatewayIntegrationTestPeer::ashSendSequence(gateway) + 1) & 7)), obfuscateEzsp(ezsp));
+    gateway.poll();
+    wire = readAvailable(serial[1]); frames = decodeFrames(wire);
+    for (i = 0; i < frames.size(); ++i) assert(frames[i].empty() || (frames[i][0] & 0x80) != 0);
+
+    zdo[0] = request[21]; /* delayed, correctly matched node descriptor */
+    receiveSequence = GatewayIntegrationTestPeer::ashReceiveSequence(gateway);
+    sendApsCallbackV8(serial[1], receiveSequence, apsPayload(0x0000, 0x8002, 0, 70, zdo),
+                      (GatewayIntegrationTestPeer::ashSendSequence(gateway) + 1) & 7);
+    gateway.poll();
+    std::vector<unsigned char> activeEndpoints = firstAshData(readAvailable(serial[1]));
+    assert(activeEndpoints[10] == 0x05 && activeEndpoints[11] == 0x00);
+
+    zdo[0] = request[21]; /* duplicate old response cannot complete active-endpoint operation */
+    receiveSequence = GatewayIntegrationTestPeer::ashReceiveSequence(gateway);
+    sendApsCallbackV8(serial[1], receiveSequence, apsPayload(0x0000, 0x8002, 0, 70, zdo),
+                      (GatewayIntegrationTestPeer::ashSendSequence(gateway) + 1) & 7);
+    gateway.poll();
+    wire = readAvailable(serial[1]); frames = decodeFrames(wire);
+    for (i = 0; i < frames.size(); ++i) assert(frames[i].empty() || (frames[i][0] & 0x80) != 0);
+
+    std::vector<unsigned char> malformed(1, activeEndpoints[21]);
+    receiveSequence = GatewayIntegrationTestPeer::ashReceiveSequence(gateway);
+    sendApsCallbackV8(serial[1], receiveSequence, apsPayload(0x0000, 0x8005, 0, 70, malformed),
+                      (GatewayIntegrationTestPeer::ashSendSequence(gateway) + 1) & 7);
+    gateway.poll();
+    wire = readAvailable(serial[1]); frames = decodeFrames(wire);
+    for (i = 0; i < frames.size(); ++i) assert(frames[i].empty() || (frames[i][0] & 0x80) != 0);
+
+    std::vector<unsigned char> failed(2, 0);
+    failed[0] = activeEndpoints[21]; failed[1] = 0x80;
+    receiveSequence = GatewayIntegrationTestPeer::ashReceiveSequence(gateway);
+    sendApsCallbackV8(serial[1], receiveSequence, apsPayload(0x0000, 0x8005, 0, 70, failed),
+                      (GatewayIntegrationTestPeer::ashSendSequence(gateway) + 1) & 7);
+    gateway.poll();
+    wire = readAvailable(serial[1]); frames = decodeFrames(wire);
+    for (i = 0; i < frames.size(); ++i) assert(frames[i].empty() || (frames[i][0] & 0x80) != 0);
+    assert(gateway.logsJson().find("Active endpoints received") == std::string::npos);
+
+    GatewayIntegrationTestPeer::expireInterview(&gateway);
+    gateway.poll();
+    assert(gateway.logsJson().find("Interview operation failed for " + ieee + ": response timed out") != std::string::npos);
+    assert(gateway.logsJson().find("Interview paused until the device wakes again") != std::string::npos);
+    gateway.stop(); close(serial[1]);
+}
+
 void testCoordinatorInitializationSequence() {
     int serial[2];
     assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
@@ -1388,6 +1472,8 @@ void runGatewayIntegrationTests() {
     testDeviceAnnounceRejoinAndNodeReuse();
     fprintf(stderr, "integration: complete sensor interview sequence\n");
     testCompleteSensorInterview();
+    fprintf(stderr, "integration: interview response matching and timeout\n");
+    testInterviewResponseMatchingAndTimeout();
     fprintf(stderr, "integration: coordinator initialization, IEEE lookup, and Tradfri setup\n");
     testCoordinatorInitializationSequence();
     fprintf(stderr, "integration: coordinator initialization unexpected reply and timeout\n");
