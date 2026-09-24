@@ -12,6 +12,7 @@
 #include <fcntl.h>
 #include <fstream>
 #include <string>
+#include <sstream>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
@@ -1632,6 +1633,56 @@ void testRuntimeDirectoryBoundaries() {
     unlink(directory.c_str());
 }
 
+void testTransientLogRestartAndWriteFailure() {
+    char directoryName[] = "/tmp/microhad-zigbee-log-runtime-XXXXXX";
+    char* temporary = mkdtemp(directoryName);
+    const std::string logPath = "/tmp/microhad-zigbee-native.log";
+    std::ostringstream backupName;
+    std::string backup;
+    std::string error;
+    int serial[2];
+    bool hadPreviousLog;
+    assert(temporary != 0);
+    backupName << logPath << ".test-backup-" << static_cast<long>(getpid());
+    backup = backupName.str();
+    hadPreviousLog = rename(logPath.c_str(), backup.c_str()) == 0;
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
+    {
+        Gateway gateway("/dev/null", 115200, temporary, "", "", "");
+        GatewayIntegrationTestPeer::attachSerial(&gateway, serial[0]);
+        assert(gateway.start(&error));
+        assert(gateway.logsJson().find("Gateway starting on /dev/null") != std::string::npos);
+        gateway.stop();
+    }
+    close(serial[1]);
+    assert(access(logPath.c_str(), F_OK) == 0);
+    assert(access((std::string(temporary) + "/microhad-zigbee-native.log").c_str(), F_OK) != 0);
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
+    {
+        Gateway gateway("/dev/null", 115200, temporary, "", "", "");
+        GatewayIntegrationTestPeer::attachSerial(&gateway, serial[0]);
+        assert(gateway.start(&error));
+        assert(gateway.logsJson().find("Gateway starting on /dev/null") != std::string::npos);
+        gateway.stop();
+    }
+    close(serial[1]);
+    assert(unlink(logPath.c_str()) == 0);
+    assert(mkdir(logPath.c_str(), 0700) == 0);
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
+    {
+        Gateway gateway("/dev/null", 115200, temporary, "", "", "");
+        GatewayIntegrationTestPeer::attachSerial(&gateway, serial[0]);
+        assert(gateway.start(&error));
+        assert(gateway.logsJson().find("Gateway starting on /dev/null") != std::string::npos);
+        gateway.stop();
+    }
+    close(serial[1]);
+    assert(rmdir(logPath.c_str()) == 0);
+    if (hadPreviousLog) assert(rename(backup.c_str(), logPath.c_str()) == 0);
+    else assert(access(logPath.c_str(), F_OK) != 0);
+    assert(rmdir(temporary) == 0);
+}
+
 void testSerialStartupAndIdempotentStop() {
     char name[] = "/tmp/microhad-zigbee-serial-lifecycle-XXXXXX";
     char* temporary = mkdtemp(name);
@@ -1750,6 +1801,8 @@ void runGatewayIntegrationTests() {
     testSecurityDiagnosticsRedactAndBoundFallback();
     fprintf(stderr, "integration: gateway runtime directory boundaries\n");
     testRuntimeDirectoryBoundaries();
+    fprintf(stderr, "integration: transient log restart and write failure\n");
+    testTransientLogRestartAndWriteFailure();
     fprintf(stderr, "integration: serial startup failures and idempotent stop\n");
     testSerialStartupAndIdempotentStop();
     fprintf(stderr, "integration: gateway CLI usage failures\n");

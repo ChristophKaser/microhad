@@ -101,7 +101,7 @@ physical coordinator and radio interoperability testing.
 | ALT-04 | I | Notifications disabled before contact/temperature/test event | No notification audit/outbox/queue/delivery path is touched | DONE |
 | LOG-01 | U | Status and logs JSON with escaping, all feature fields, and immutable snapshot | Schema is valid, complete, stable, and a prior snapshot cannot change | DONE |
 | LOG-02 | U | More than ring capacity, long/control-character messages, unknown device labels | Bounded RAM log retains newest valid entries and serializes safely | DONE |
-| LOG-03 | I | Runtime log path, restart load, and failures writing transient files | Logging remains RAM-only under `/tmp`; no `/tuya` high-frequency writes | P |
+| LOG-03 | I | Runtime log path, restart load, and failures writing transient files | Logging remains RAM-only under `/tmp`; no `/tuya` high-frequency writes | DONE |
 
 ## Scenes, groups, and remotes
 
