@@ -2,14 +2,13 @@
 #include "gateway_runner.h"
 #include "notification_worker.h"
 #include "http_server.h"
-#include "json_util.h"
+#include "gateway_config.h"
 
 #include <cerrno>
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <fstream>
 #include <string>
 #include <unistd.h>
 
@@ -23,9 +22,9 @@ void stopHandler(int) {
 }
 
 int main(int argc, char** argv) {
-    const char* configPath = "/tuya/native/config.json";
-    std::string config;
+    std::string configPath;
     std::string error;
+    GatewayConfig config;
     std::string serialDevice;
     std::string runtimeDirectory;
     int serialBaud;
@@ -36,24 +35,22 @@ int main(int argc, char** argv) {
     NotificationWorker* notificationWorker;
     HttpServer* server;
 
-    if (argc == 3 && strcmp(argv[1], "--config") == 0) configPath = argv[2];
-    else if (argc != 1) {
-        fprintf(stderr, "usage: %s [--config /protected/path/config.json]\n", argv[0]);
+    if (!selectGatewayConfigPath(argc, const_cast<const char* const*>(argv), &configPath, &error)) {
+        fprintf(stderr, "%s\n", error.c_str());
         return 2;
     }
-    if (!readTextFile(configPath, &config)) {
-        fprintf(stderr, "cannot read configuration %s: %s\n", configPath, strerror(errno));
+    if (!loadGatewayConfig(configPath, &config, &error)) {
+        fprintf(stderr, "%s\n", error.c_str());
         return 2;
     }
-    long setting;
-    serialDevice = "/dev/ttyS1"; jsonStringField(config, "serial_device", &serialDevice);
-    serialBaud = jsonLongField(config, "serial_baud", &setting) ? static_cast<int>(setting) : 115200;
-    runtimeDirectory = "/tuya/native"; jsonStringField(config, "runtime_dir", &runtimeDirectory);
-    httpPort = jsonLongField(config, "http_port", &setting) ? static_cast<int>(setting) : 80;
-    httpsPort = jsonLongField(config, "https_port", &setting) ? static_cast<int>(setting) : 443;
-    std::string firebaseServiceAccount; jsonStringField(config, "firebase_service_account", &firebaseServiceAccount);
-    std::string firebaseTopic = "zigbee_alerts"; jsonStringField(config, "firebase_topic", &firebaseTopic);
-    std::string caBundle; jsonStringField(config, "ca_bundle", &caBundle);
+    serialDevice = config.serialDevice;
+    serialBaud = static_cast<int>(config.serialBaud);
+    runtimeDirectory = config.runtimeDirectory;
+    httpPort = static_cast<int>(config.httpPort);
+    httpsPort = static_cast<int>(config.httpsPort);
+    std::string firebaseServiceAccount = config.firebaseServiceAccount;
+    std::string firebaseTopic = config.firebaseTopic;
+    std::string caBundle = config.caBundle;
     notificationWorker = new NotificationWorker(runtimeDirectory, firebaseServiceAccount, firebaseTopic, caBundle);
     if (!notificationWorker->start(&error)) {
         fprintf(stderr, "notification worker startup failed: %s\n", error.c_str());
@@ -78,8 +75,8 @@ int main(int argc, char** argv) {
         return 1;
     }
     HttpServer* httpsServer = 0;
-    std::string certificatePath; jsonStringField(config, "tls_certificate", &certificatePath);
-    std::string privateKeyPath; jsonStringField(config, "tls_private_key", &privateKeyPath);
+    std::string certificatePath = config.tlsCertificate;
+    std::string privateKeyPath = config.tlsPrivateKey;
     if (!certificatePath.empty() || !privateKeyPath.empty()) {
         if (certificatePath.empty() || privateKeyPath.empty()) {
             fprintf(stderr, "both tls_certificate and tls_private_key are required for HTTPS\n");

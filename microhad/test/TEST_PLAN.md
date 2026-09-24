@@ -27,7 +27,7 @@ physical coordinator and radio interoperability testing.
 
 | ID | Level | Feature / stimulus | Expected result | Status |
 | --- | --- | --- | --- | --- |
-| LIF-01 | U | Valid default and `--config PATH` invocation | Selected configuration is read; defaults apply to omitted optional fields | G |
+| LIF-01 | U | Valid default and `--config PATH` invocation | Selected configuration is read; defaults apply to omitted optional fields | DONE |
 | LIF-02 | U | Invalid CLI arity or option | Exit code 2 and usage text; no daemon components start | DONE |
 | LIF-03 | U | Missing, unreadable, empty, malformed, or wrong-type configuration fields | Clear startup failure; no leaked worker, runner, listener, or descriptor | G |
 | LIF-04 | I | Optional config boundaries: serial baud/ports outside valid integer range, duplicate listener ports, unusable runtime path | Startup rejects invalid values or reports bind/open error safely | G |

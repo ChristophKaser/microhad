@@ -17,7 +17,7 @@ HOST_CXXFLAGS := -std=gnu++03 $(WARNINGS) -Iinclude -Ithird_party/mbedtls/includ
 TARGET_CXXFLAGS := $(WARNINGS) -Iinclude -O2 -ffunction-sections -fdata-sections -DMICROHAD_MIPS_TARGET=1 -DMICROHAD_MBEDTLS_ENABLED=1
 TARGET_CFLAGS := $(WARNINGS) -O2 -ffunction-sections -fdata-sections
 LDFLAGS := -lpthread
-SOURCES := src/main.cpp src/ash.cpp src/json_util.cpp src/storage.cpp src/http_server.cpp src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp
+SOURCES := src/main.cpp src/gateway_config.cpp src/ash.cpp src/json_util.cpp src/storage.cpp src/http_server.cpp src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp
 HOST_BUILD := build/host
 MIPS_BUILD := build/mips
 HOST_BIN := $(HOST_BUILD)/microhad-zigbee-native
@@ -32,7 +32,7 @@ HOST_MBEDTLS_LIBS := $(HOST_MBEDTLS_BUILD)/library/libmbedtls.a $(HOST_MBEDTLS_B
 MIPS_MBEDTLS_LIBS := $(MIPS_MBEDTLS_BUILD)/library/libmbedtls.a $(MIPS_MBEDTLS_BUILD)/library/libmbedx509.a $(MIPS_MBEDTLS_BUILD)/library/libmbedcrypto.a
 UNIT_TEST_BIN := $(HOST_BUILD)/unit_tests
 INTEGRATION_TEST_BIN := $(HOST_BUILD)/integration_tests
-UNIT_TEST_SOURCES := test/unit_gateway.cpp test/unit_fcm.cpp test/unit_web_push.cpp test/test_main.cpp
+UNIT_TEST_SOURCES := test/unit_gateway.cpp test/unit_gateway_config.cpp test/unit_fcm.cpp test/unit_web_push.cpp test/test_main.cpp
 INTEGRATION_TEST_SOURCES := test/integration_gateway.cpp test/integration_http_server.cpp test/integration_main.cpp
 
 .PHONY: all host mips mbedtls-host mbedtls-mips unit-test integration-test test verify-target clean
@@ -78,9 +78,9 @@ verify-target: $(MIPS_BIN)
 	$(TARGET_READELF) -h $(MIPS_BIN) | grep -q 'Data:.*big endian'
 	$(TARGET_READELF) -h $(MIPS_BIN) | grep -q 'Machine:.*MIPS'
 
-$(UNIT_TEST_BIN): $(UNIT_TEST_SOURCES) src/ash.cpp src/json_util.cpp src/storage.cpp src/gateway.cpp src/notification_worker.cpp src/zcl.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp $(HOST_C_OBJECTS) $(HOST_MBEDTLS_LIBS) $(wildcard include/*.h)
+$(UNIT_TEST_BIN): $(UNIT_TEST_SOURCES) src/gateway_config.cpp src/ash.cpp src/json_util.cpp src/storage.cpp src/gateway.cpp src/notification_worker.cpp src/zcl.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp $(HOST_C_OBJECTS) $(HOST_MBEDTLS_LIBS) $(wildcard include/*.h)
 	@mkdir -p $(HOST_BUILD)
-	$(HOST_CXX) $(HOST_CXXFLAGS) $(UNIT_TEST_SOURCES) src/ash.cpp src/json_util.cpp src/storage.cpp src/gateway.cpp src/notification_worker.cpp src/zcl.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp $(HOST_C_OBJECTS) -o $@ $(HOST_MBEDTLS_LIBS) $(LDFLAGS)
+	$(HOST_CXX) $(HOST_CXXFLAGS) $(UNIT_TEST_SOURCES) src/gateway_config.cpp src/ash.cpp src/json_util.cpp src/storage.cpp src/gateway.cpp src/notification_worker.cpp src/zcl.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp $(HOST_C_OBJECTS) -o $@ $(HOST_MBEDTLS_LIBS) $(LDFLAGS)
 
 $(INTEGRATION_TEST_BIN): $(INTEGRATION_TEST_SOURCES) src/ash.cpp src/json_util.cpp src/storage.cpp src/http_server.cpp src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp $(HOST_C_OBJECTS) $(HOST_MBEDTLS_LIBS) $(wildcard include/*.h)
 	@mkdir -p $(HOST_BUILD)
