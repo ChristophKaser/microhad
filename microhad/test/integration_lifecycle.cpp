@@ -132,10 +132,62 @@ void verifyDaemonSignals(int signalNumber, bool exerciseBrokenPipe) {
     unlink(configName);
     rmdir(directory);
 }
+
+void verifyServiceRestartResponse() {
+    char directoryName[] = "/tmp/microhad-zigbee-restart-XXXXXX";
+    char* directory = mkdtemp(directoryName);
+    char configName[256];
+    int master = posix_openpt(O_RDWR | O_NOCTTY | O_NONBLOCK);
+    int port = unusedPort();
+    std::string response;
+    pid_t child;
+    unsigned int attempt;
+    int client;
+    struct sockaddr_in address;
+    const char request[] = "POST /api/service/restart HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n";
+    char buffer[512];
+    ssize_t count;
+    assert(directory != 0 && master >= 0);
+    assert(grantpt(master) == 0 && unlockpt(master) == 0 && ptsname(master) != 0);
+    snprintf(configName, sizeof(configName), "%s/config.json", directory);
+    {
+        int fd = open(configName, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+        assert(fd >= 0);
+        close(fd);
+    }
+    writeConfig(configName, ptsname(master), directory, port);
+    child = startGateway(configName);
+    bool ready = false;
+    for (attempt = 0; attempt < 200 && !ready; ++attempt) {
+        int status;
+        assert(waitpid(child, &status, WNOHANG) == 0);
+        ready = listenerReady(port);
+        if (!ready) usleep(10000);
+    }
+    assert(ready);
+    usleep(50000);
+    client = socket(AF_INET, SOCK_STREAM, 0);
+    assert(client >= 0);
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    address.sin_port = htons(static_cast<unsigned short>(port));
+    assert(connect(client, reinterpret_cast<struct sockaddr*>(&address), sizeof(address)) == 0);
+    assert(write(client, request, sizeof(request) - 1) == static_cast<ssize_t>(sizeof(request) - 1));
+    while ((count = read(client, buffer, sizeof(buffer))) > 0) response.append(buffer, static_cast<unsigned long>(count));
+    close(client);
+    assert(response.find("HTTP/1.1 200 OK\r\n") == 0);
+    assert(response.find("\"state\":\"restarting\"") != std::string::npos);
+    waitForExit(child);
+    close(master);
+    unlink(configName);
+    rmdir(directory);
+}
 }
 
 void runLifecycleIntegrationTests() {
     verifyDaemonSignals(SIGINT, false);
     verifyDaemonSignals(SIGTERM, true);
     fprintf(stderr, "integration: daemon SIGINT/SIGTERM shutdown and SIGPIPE-safe HTTP writes\n");
+    verifyServiceRestartResponse();
+    fprintf(stderr, "integration: service restart response flushed before graceful exit\n");
 }
