@@ -42,6 +42,14 @@ public:
                gateway.networkChannel_ == 11 && gateway.networkExtendedPan_.size() == 8 &&
                gateway.networkKey_.size() == 16 && gateway.preconfiguredKey_.size() == 16;
     }
+    static void beginCoordinatorInitialization(Gateway* gateway) {
+        gateway->online_ = true;
+        gateway->ezspVersion_ = 8;
+        gateway->networkInitRequested_ = false;
+        gateway->coordinatorInitializationStep_ = 0;
+        gateway->continueCoordinatorInitialization();
+    }
+    static unsigned char ashReceiveSequence(const Gateway& gateway) { return gateway.ashReceiveSequence_; }
     static void expireResetDeadline(Gateway* gateway) { gateway->resetDeadline_ = time(0) - 1; }
     static bool sceneCommandErrors(Gateway* gateway) {
         std::string error;

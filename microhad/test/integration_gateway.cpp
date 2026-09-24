@@ -79,13 +79,23 @@ std::vector<unsigned char> firstAshData(const std::vector<unsigned char>& wire) 
     return std::vector<unsigned char>();
 }
 
-void replyToFormationCommand(int fd, const std::vector<unsigned char>& request, unsigned char ashSequence) {
+void replyToFormationCommand(int fd, const std::vector<unsigned char>& request, unsigned char ashSequence,
+                             int acknowledgement = -1) {
     assert(request.size() >= 5);
     std::vector<unsigned char> reply;
     reply.push_back(request[0]); reply.push_back(0x80); reply.push_back(1);
     reply.push_back(request[3]); reply.push_back(request[4]); reply.push_back(0);
+    if (request[3] == 0x5a && request[4] == 0) {
+        reply.push_back(0); reply.push_back(0); reply.push_back(0);
+    } else if (request[3] == 0x26 && request[4] == 0) {
+        reply[5] = 0x10;
+        reply.push_back(0x21); reply.push_back(0x32); reply.push_back(0x43); reply.push_back(0x54);
+        reply.push_back(0x65); reply.push_back(0x76); reply.push_back(0x87);
+    }
+    unsigned char ack = acknowledgement < 0 ? static_cast<unsigned char>((ashSequence + 1) & 7) :
+                                              static_cast<unsigned char>(acknowledgement & 7);
     std::vector<unsigned char> wire = AshTransport::encodeData(
-        static_cast<unsigned char>((ashSequence << 4) | ((ashSequence + 1) & 7)), obfuscateEzsp(reply));
+        static_cast<unsigned char>(((ashSequence & 7) << 4) | ack), obfuscateEzsp(reply));
     assert(write(fd, &wire[0], wire.size()) == static_cast<ssize_t>(wire.size()));
 }
 
@@ -307,6 +317,13 @@ void testFreshNetworkFormationOverSerial() {
     assert(request.size() == 5 + 8 + 2 + 10);
     replyToFormationCommand(serial[1], request, 2);
     gateway.poll();
+    request = firstAshData(readAvailable(serial[1]));
+    assert(request[3] == 0x26 && request[4] == 0);
+    replyToFormationCommand(serial[1], request, 3, 4);
+    gateway.poll();
+    request = firstAshData(readAvailable(serial[1]));
+    assert(request[3] == 0xab && request[4] == 0);
+    assert(request.size() == 8 && request[5] == 7 && request[6] == 1 && request[7] == 1);
 
     std::string status = gateway.statusJson();
     assert(status.find("\"network_forming\":false") != std::string::npos);
@@ -359,6 +376,57 @@ void testFreshNetworkFormationOverSerial() {
     afterInterrupted.stop(); close(serial[1]);
     unlink((directory + "/network.json").c_str()); rmdir(directory.c_str());
     rmdir(interruptedDirectory.c_str());
+}
+
+void testCoordinatorInitializationSequence() {
+    int serial[2];
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
+    Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+    GatewayIntegrationTestPeer::attachSerial(&gateway, serial[0]);
+    GatewayIntegrationTestPeer::beginCoordinatorInitialization(&gateway);
+    unsigned int step;
+    for (step = 0; step < 22; ++step) {
+        std::vector<unsigned char> wire = readAvailable(serial[1]);
+        std::vector<unsigned char> request = firstAshData(wire);
+        unsigned short command = static_cast<unsigned short>(request[3]) |
+                                 (static_cast<unsigned short>(request[4]) << 8);
+        unsigned short expected;
+        if (step < 12) expected = 0x0053;
+        else if (step < 15) expected = 0x0055;
+        else if (step < 17) expected = 0x00ab;
+        else if (step == 17) expected = 0x0010;
+        else if (step == 18) expected = 0x005a;
+        else if (step < 21) expected = 0x0002;
+        else expected = 0x0017;
+        assert(command == expected);
+        if (step == 0) assert(request.size() == 8 && request[5] == 56 && request[6] == 90 && request[7] == 0);
+        if (step == 12) assert(request.size() == 8 && request[5] == 6 && request[6] == 0x60 && request[7] == 0);
+        if (step == 15) assert(request.size() == 8 && request[5] == 63 && request[6] == 1 && request[7] == 3);
+        replyToFormationCommand(serial[1], request, static_cast<unsigned char>(step & 7));
+        gateway.poll();
+    }
+    std::string logs = gateway.logsJson();
+    assert(logs.find("Initializing NCP Zigbee network after coordinator configuration") != std::string::npos);
+    assert(logs.find("NCP network initialization accepted") != std::string::npos);
+
+    std::vector<unsigned char> networkUp;
+    networkUp.push_back(22); networkUp.push_back(0x80); networkUp.push_back(0);
+    networkUp.push_back(0x19); networkUp.push_back(0); networkUp.push_back(0x90);
+    sendAshControl(serial[1], 0x67, obfuscateEzsp(networkUp));
+    gateway.poll();
+    std::vector<unsigned char> networkUpWire = readAvailable(serial[1]);
+    std::vector<unsigned char> ieeeRequest = firstAshData(networkUpWire);
+    assert(ieeeRequest[3] == 0x26 && ieeeRequest[4] == 0);
+    replyToFormationCommand(serial[1], ieeeRequest, 7, 7);
+    gateway.poll();
+    std::vector<unsigned char> bindWire = readAvailable(serial[1]);
+    std::vector<unsigned char> bindGroupRequest = firstAshData(bindWire);
+    assert(bindGroupRequest[3] == 0x64 && bindGroupRequest[4] == 0);
+    assert(bindGroupRequest.size() == 10 && bindGroupRequest[5] == 0 &&
+           bindGroupRequest[6] == 0x85 && bindGroupRequest[7] == 3 && bindGroupRequest[8] == 1);
+    assert(gateway.logsJson().find("Coordinator IEEE address: 0x8776655443322110") != std::string::npos);
+    assert(gateway.logsJson().find("Subscribing coordinator to IKEA legacy remote group 901") != std::string::npos);
+    gateway.stop(); close(serial[1]);
 }
 
 void testSerialBackpressureAndFailures() {
@@ -646,6 +714,8 @@ void runGatewayIntegrationTests() {
     testEzspFailedInitializationStatus();
     fprintf(stderr, "integration: fresh network formation and persistence\n");
     testFreshNetworkFormationOverSerial();
+    fprintf(stderr, "integration: coordinator initialization, IEEE lookup, and Tradfri setup\n");
+    testCoordinatorInitializationSequence();
     fprintf(stderr, "integration: serial backpressure recovery and terminal failures\n");
     testSerialBackpressureAndFailures();
     fprintf(stderr, "integration: ASH acknowledgements, retries, duplicate suppression, and wrap\n");
