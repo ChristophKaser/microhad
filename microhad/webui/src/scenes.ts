@@ -32,47 +32,60 @@ export function parseScenes(text: string): SceneConfig {
   const config: SceneConfig = { groups: [], bindings: [] }
   const groups = new Map<number, Group>()
   const scenes = new Map<string, Scene>()
-  text.split(/\r?\n/).forEach((line, index) => {
-    if (!line || line.startsWith('#')) return
+  for (const [index, line] of text.split(/\r?\n/).entries()) {
+    if (!line || line.startsWith('#')) continue
     const fields = line.split('\t')
-    const fail = () => {
-      throw new Error(`Line ${index + 1}: unsupported or incomplete record`)
-    }
+    const invalid = () => new Error(`Line ${index + 1}: unsupported or incomplete record`)
     const groupId = Number(fields[1])
-    if (
-      fields[0] === 'G' &&
-      fields.length === 3 &&
-      Number.isInteger(groupId) &&
-      groupId > 0 &&
-      groupId <= 0xfff7 &&
-      !groups.has(groupId)
-    ) {
-      const group: Group = { id: groupId, name: fields[2], members: [], scenes: [] }
-      groups.set(groupId, group)
-      config.groups.push(group)
-    } else if (fields[0] === 'M' && fields.length === 3 && groups.has(groupId)) {
-      groups.get(groupId)!.members.push(fields[2])
-    } else if (fields[0] === 'S' && fields.length === 4 && groups.has(groupId)) {
-      const id = Number(fields[2]),
-        key = `${groupId}/${id}`
-      if (!Number.isInteger(id) || id < 1 || id > 255 || scenes.has(key)) return fail()
-      const scene: Scene = { id, name: fields[3], states: [] }
-      scenes.set(key, scene)
-      groups.get(groupId)!.scenes.push(scene)
-    } else if (fields[0] === 'T' && fields.length === 6 && scenes.has(`${groupId}/${fields[2]}`)) {
-      scenes
-        .get(`${groupId}/${fields[2]}`)!
-        .states.push({ ieee: fields[3], on: fields[4] === '1', brightness: Number(fields[5]) })
-    } else if (fields[0] === 'B' && fields.length === 6) {
-      config.bindings.push({
-        ieee: fields[1],
-        action: fields[2],
-        groupId: Number(fields[3]),
-        off: fields[4] === '1',
-        sceneIds: fields[5] ? fields[5].split(',').map(Number) : [],
-      })
-    } else fail()
-  })
+    const group = groups.get(groupId)
+    switch (fields[0]) {
+      case 'G': {
+        if (
+          fields.length !== 3 || !Number.isInteger(groupId) ||
+          groupId < 1 || groupId > 0xfff7 || group
+        ) throw invalid()
+        const newGroup: Group = { id: groupId, name: fields[2], members: [], scenes: [] }
+        groups.set(groupId, newGroup)
+        config.groups.push(newGroup)
+        break
+      }
+      case 'M':
+        if (fields.length !== 3) throw invalid()
+        if (!group) throw invalid()
+        group.members.push(fields[2])
+        break
+      case 'S': {
+        if (fields.length !== 4) throw invalid()
+        if (!group) throw invalid()
+        const id = Number(fields[2])
+        const key = `${groupId}/${id}`
+        if (!Number.isInteger(id) || id < 1 || id > 255 || scenes.has(key)) throw invalid()
+        const scene: Scene = { id, name: fields[3], states: [] }
+        scenes.set(key, scene)
+        group.scenes.push(scene)
+        break
+      }
+      case 'T': {
+        const scene = scenes.get(`${groupId}/${fields[2]}`)
+        if (fields.length !== 6) throw invalid()
+        if (!scene) throw invalid()
+        scene.states.push({ ieee: fields[3], on: fields[4] === '1', brightness: Number(fields[5]) })
+        break
+      }
+      case 'B':
+        if (fields.length !== 6) throw invalid()
+        config.bindings.push({
+          ieee: fields[1],
+          action: fields[2],
+          groupId: Number(fields[3]),
+          off: fields[4] === '1',
+          sceneIds: fields[5] ? fields[5].split(',').map(Number) : [],
+        })
+        break
+      default:
+        throw invalid()
+    }
+  }
   return config
 }
 

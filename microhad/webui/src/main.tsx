@@ -31,6 +31,53 @@ function LogLine({ line }: { line: string }) {
     </span>
   )
 }
+
+type GatewayAction = (url: string, body?: string) => Promise<void>
+
+function JoinButton({
+  compact,
+  joinLeft,
+  preparing,
+  action,
+}: {
+  compact?: boolean
+  joinLeft: number
+  preparing: boolean
+  action: GatewayAction
+}) {
+  let label = compact ? 'Allow join' : 'Allow joining (5 min)'
+  if (joinLeft) label = compact ? 'Extend join' : 'Extend joining (5 min)'
+  if (preparing) label = 'Preparing…'
+  return (
+    <button className="button primary" disabled={preparing} onClick={() => void action('/api/join')}>
+      {label}
+    </button>
+  )
+}
+
+function PushToggle({
+  enabled,
+  compact,
+  action,
+}: {
+  enabled: boolean
+  compact?: boolean
+  action: GatewayAction
+}) {
+  return (
+    <label className="check">
+      <input
+        type="checkbox"
+        checked={enabled}
+        onChange={(event) =>
+          void action('/api/notifications/enabled', form({ enabled: String(event.target.checked) }))
+        }
+      />{' '}
+      {compact ? 'Push' : 'Push notifications'}
+    </label>
+  )
+}
+
 function App() {
   const [status, setStatus] = useState<Status | null>(null)
   const [statusError, setStatusError] = useState('')
@@ -172,6 +219,7 @@ function App() {
     : status?.network_forming
     ? 'Forming'
     : 'Not formed'
+  const preparingJoin = !!status?.joining_preparing
   return (
     <main className="shell">
       <section className="mobile-top" aria-label="Gateway status and controls">
@@ -203,26 +251,8 @@ function App() {
           </span>
         </div>
         <div className="mobile-controls">
-          <button
-            className="button primary"
-            disabled={status?.joining_preparing}
-            onClick={() => action('/api/join')}
-          >
-            {joinLeft ? 'Extend join' : status?.joining_preparing ? 'Preparing…' : 'Allow join'}
-          </button>
-          <label className="check">
-            <input
-              type="checkbox"
-              checked={!!status?.notifications_enabled}
-              onChange={(event) =>
-                action(
-                  '/api/notifications/enabled',
-                  form({ enabled: String(event.target.checked) })
-                )
-              }
-            />{' '}
-            Push
-          </label>
+          <JoinButton compact joinLeft={joinLeft} preparing={preparingJoin} action={action} />
+          <PushToggle compact enabled={!!status?.notifications_enabled} action={action} />
           <button className="button" onClick={enablePush}>
             Browser push
           </button>
@@ -335,17 +365,7 @@ function App() {
           </p>
         </div>
         <div className="toolbar">
-          <button
-            className="button primary"
-            disabled={status?.joining_preparing}
-            onClick={() => action('/api/join')}
-          >
-            {joinLeft
-              ? 'Extend joining (5 min)'
-              : status?.joining_preparing
-              ? 'Preparing…'
-              : 'Allow joining (5 min)'}
-          </button>
+          <JoinButton joinLeft={joinLeft} preparing={preparingJoin} action={action} />
           <button
             className="button danger"
             onClick={() => {
@@ -371,19 +391,7 @@ function App() {
           </button>
         </div>
         <div className="toggle-row">
-          <label className="check">
-            <input
-              type="checkbox"
-              checked={!!status?.notifications_enabled}
-              onChange={(event) =>
-                action(
-                  '/api/notifications/enabled',
-                  form({ enabled: String(event.target.checked) })
-                )
-              }
-            />{' '}
-            Push notifications
-          </label>
+          <PushToggle enabled={!!status?.notifications_enabled} action={action} />
           {import.meta.env.DEV && (
             <span className="muted small">
               Browser-push enrollment is disabled in local development.

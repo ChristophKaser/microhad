@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import type { Device } from './api'
 import { errorMessage, post, textRequest } from './api'
 import { isDimmable, newState, nextId, parseScenes, serializeScenes } from './scenes'
-import type { SceneConfig } from './scenes'
+import type { SceneConfig, SceneState } from './scenes'
 
 type Props = { devices: Device[]; onClose: () => void; onSaved: () => void }
 
@@ -58,6 +58,48 @@ export function SceneEditor({ devices, onClose, onSaved }: Props) {
       })
     })
   }
+  const removeGroup = (groupIndex: number) =>
+    change((draft) => {
+      const [group] = draft.groups.splice(groupIndex, 1)
+      draft.bindings = draft.bindings.filter((binding) => binding.groupId !== group.id)
+    })
+  const setGroupMember = (groupIndex: number, address: string, selected: boolean) =>
+    change((draft) => {
+      const group = draft.groups[groupIndex]
+      if (selected) {
+        group.members.push(address)
+        group.scenes.forEach((scene) => scene.states.push(newState(address, devices)))
+      } else {
+        group.members = group.members.filter((member) => member !== address)
+        group.scenes.forEach((scene) => {
+          scene.states = scene.states.filter((state) => state.ieee !== address)
+        })
+      }
+    })
+  const removeScene = (groupIndex: number, sceneIndex: number) =>
+    change((draft) => {
+      const group = draft.groups[groupIndex]
+      const [scene] = group.scenes.splice(sceneIndex, 1)
+      draft.bindings.forEach((binding) => {
+        if (binding.groupId === group.id)
+          binding.sceneIds = binding.sceneIds.filter((id) => id !== scene.id)
+      })
+    })
+  const setSceneState = (
+    groupIndex: number,
+    sceneIndex: number,
+    address: string,
+    update: (state: SceneState) => void
+  ) =>
+    change((draft) => {
+      const scene = draft.groups[groupIndex].scenes[sceneIndex]
+      let state = scene.states.find((entry) => entry.ieee === address)
+      if (!state) {
+        state = newState(address, devices)
+        scene.states.push(state)
+      }
+      update(state)
+    })
   const save = async () => {
     if (!config) return
     try {
@@ -121,12 +163,7 @@ export function SceneEditor({ devices, onClose, onSaved }: Props) {
                   </label>
                   <button
                     className="button danger"
-                    onClick={() =>
-                      change((d) => {
-                        d.groups.splice(groupIndex, 1)
-                        d.bindings = d.bindings.filter((binding) => binding.groupId !== group.id)
-                      })
-                    }
+                    onClick={() => removeGroup(groupIndex)}
                   >
                     Remove group
                   </button>
@@ -146,24 +183,7 @@ export function SceneEditor({ devices, onClose, onSaved }: Props) {
                           checked={selected}
                           disabled={assigned}
                           onChange={(event) =>
-                            change((d) => {
-                              const target = d.groups[groupIndex]
-                              if (event.target.checked) {
-                                target.members.push(light.ieee_address)
-                                target.scenes.forEach((scene) =>
-                                  scene.states.push(newState(light.ieee_address, devices))
-                                )
-                              } else {
-                                target.members = target.members.filter(
-                                  (member) => member !== light.ieee_address
-                                )
-                                target.scenes.forEach((scene) => {
-                                  scene.states = scene.states.filter(
-                                    (state) => state.ieee !== light.ieee_address
-                                  )
-                                })
-                              }
-                            })
+                            setGroupMember(groupIndex, light.ieee_address, event.target.checked)
                           }
                         />{' '}
                         {light.name}
@@ -190,15 +210,7 @@ export function SceneEditor({ devices, onClose, onSaved }: Props) {
                       </label>
                       <button
                         className="button danger"
-                        onClick={() =>
-                          change((d) => {
-                            d.groups[groupIndex].scenes.splice(sceneIndex, 1)
-                            d.bindings.forEach((binding) => {
-                              if (binding.groupId === group.id)
-                                binding.sceneIds = binding.sceneIds.filter((id) => id !== scene.id)
-                            })
-                          })
-                        }
+                        onClick={() => removeScene(groupIndex, sceneIndex)}
                       >
                         Remove scene
                       </button>
@@ -210,13 +222,7 @@ export function SceneEditor({ devices, onClose, onSaved }: Props) {
                         newState(address, devices)
                       const dimmable = device ? isDimmable(device) : false
                       const updateState = (field: 'on' | 'brightness', value: boolean | number) =>
-                        change((d) => {
-                          const target = d.groups[groupIndex].scenes[sceneIndex]
-                          let item = target.states.find((entry) => entry.ieee === address)
-                          if (!item) {
-                            item = newState(address, devices)
-                            target.states.push(item)
-                          }
+                        setSceneState(groupIndex, sceneIndex, address, (item) => {
                           if (field === 'on') {
                             item.on = Boolean(value)
                             if (item.on && item.brightness < 0 && device && dimmable)
