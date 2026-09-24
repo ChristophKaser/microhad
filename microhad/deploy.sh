@@ -88,9 +88,10 @@ if [ "$deploy_webui" = true ]; then
         case "$relative" in *[!A-Za-z0-9_./-]*|*..*) echo "unsupported Web UI asset path: $relative" >&2; exit 1 ;; esac
         asset_dir=${relative%/*}
         if [ "$asset_dir" = "$relative" ]; then asset_dir=.; fi
-        ssh_command "mkdir -p \"$target/webui/$asset_dir\""
+        # Keep SSH from consuming the remaining filenames on find's stdin.
+        ssh_command "mkdir -p \"$target/webui/$asset_dir\"" < /dev/null
         ssh_command "dd of=\"$target/webui/$relative.new\"" < "$asset"
-        ssh_command "chmod 644 \"$target/webui/$relative.new\"; mv \"$target/webui/$relative.new\" \"$target/webui/$relative\""
+        ssh_command "chmod 644 \"$target/webui/$relative.new\"; mv \"$target/webui/$relative.new\" \"$target/webui/$relative\"" < /dev/null
     done
     ssh_command "dd of=\"$target/webui/.index.html.new\"" < "$webui_dist/index.html"
     ssh_command "chmod 644 \"$target/webui/.index.html.new\"; mv \"$target/webui/.index.html.new\" \"$target/webui/index.html\"; ls -l \"$target/webui/index.html\""
