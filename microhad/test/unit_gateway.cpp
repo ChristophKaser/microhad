@@ -975,12 +975,16 @@ static void testSceneConfigurationPersistence() {
     assert(ensureDirectory(path.str(), &error));
     SceneGroup group; Scene scene; SceneLightState state; RemoteSceneBinding binding;
     group.id=42; group.name="Kitchen"; group.members.push_back("0x00124b0000000042");
-    scene.id=7; scene.name="Dinner"; state.ieeeAddress=group.members[0]; state.on=true; state.brightnessPercent=35; scene.states.push_back(state); group.scenes.push_back(scene); groups.push_back(group);
-    binding.ieeeAddress="0x00124b0000000099"; binding.action="on"; binding.groupId=42; binding.sceneIds.push_back(7); bindings.push_back(binding);
+    scene.id=7; scene.name="Dinner"; state.ieeeAddress=group.members[0]; state.on=true; state.brightnessPercent=35; scene.states.push_back(state); group.scenes.push_back(scene);
+    Scene secondScene; secondScene.id=8; secondScene.name="Late"; group.scenes.push_back(secondScene);
+    groups.push_back(group);
+    binding.ieeeAddress="0x00124b0000000099"; binding.action="on"; binding.groupId=42; binding.off=true; binding.sceneIds.push_back(7); binding.sceneIds.push_back(8); bindings.push_back(binding);
     assert(saveSceneConfiguration(path.str()+"/scenes.conf",groups,bindings,&error));
     assert(loadSceneConfiguration(path.str()+"/scenes.conf",&loaded,&loadedBindings,&error));
-    assert(loaded.size()==1 && loaded[0].id==42 && loaded[0].members.size()==1 && loaded[0].scenes[0].states[0].brightnessPercent==35);
-    assert(loadedBindings.size()==1 && loadedBindings[0].action=="on" && loadedBindings[0].sceneIds[0]==7);
+    assert(loaded.size()==1 && loaded[0].id==42 && loaded[0].name=="Kitchen" && loaded[0].members.size()==1 && loaded[0].members[0]=="0x00124b0000000042");
+    assert(loaded[0].scenes.size()==2 && loaded[0].scenes[0].id==7 && loaded[0].scenes[0].name=="Dinner" && loaded[0].scenes[0].states[0].brightnessPercent==35);
+    assert(loaded[0].scenes[1].id==8 && loaded[0].scenes[1].name=="Late");
+    assert(loadedBindings.size()==1 && loadedBindings[0].ieeeAddress=="0x00124b0000000099" && loadedBindings[0].action=="on" && loadedBindings[0].groupId==42 && loadedBindings[0].off && loadedBindings[0].sceneIds.size()==2 && loadedBindings[0].sceneIds[0]==7 && loadedBindings[0].sceneIds[1]==8);
     unlink((path.str()+"/scenes.conf").c_str()); rmdir(path.str().c_str());
 }
 
