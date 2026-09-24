@@ -170,10 +170,12 @@ private:
     unsigned char ashReceiveSequence_;
     unsigned char ezspSequence_;
     std::vector<std::vector<unsigned char> > ashTransmitQueue_;
+    std::vector<bool> ashTransmitSensitiveQueue_;
     std::vector<unsigned char> ashPendingData_;
     std::vector<unsigned char> serialPendingBytes_;
     long ashAckDeadline_;
     unsigned int ashRetries_;
+    bool ashPendingSensitive_;
     void flushSerialOutput();
     void pollAshTransmit();
     void retransmitAsh();
@@ -272,7 +274,7 @@ private:
     std::vector<std::string> logs_;
     bool viewDirty_;
     bool configureSerial(std::string* error);
-    bool writeBytes(const std::vector<unsigned char>& bytes);
+    bool writeBytes(const std::vector<unsigned char>& bytes, bool sensitive = false);
     void sendAshReset();
     unsigned char sendEzspCommand(unsigned short command, const std::vector<unsigned char>& payload);
     void continueCoordinatorInitialization();

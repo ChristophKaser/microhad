@@ -234,7 +234,7 @@ Gateway::Gateway(const std::string& serialDevice, int serialBaud, const std::str
     serialDevice_(serialDevice), serialBaud_(serialBaud), runtimeDirectory_(runtimeDirectory),
     firebaseServiceAccount_(firebaseServiceAccount), firebaseTopic_(firebaseTopic), caBundle_(caBundle), notificationWorker_(notificationWorker), serialFd_(-1),
     online_(false), joinUntil_(0), joinPermitRenewAt_(0), pendingJoinSeconds_(0), joinPreparationStep_(0), joinPreparationDeadline_(0), ashSendSequence_(0), ashReceiveSequence_(0), ezspSequence_(0),
-    ashAckDeadline_(0), ashRetries_(0), ezspVersion_(4), zdoSequence_(0), zclTransactionSequence_(0), ezspVersionNegotiated_(false), stackTokenWritingRequested_(false), networkInitRequested_(false), tradfriBindGroupConfigured_(false), coordinatorInitializationStep_(0), resetDeadline_(0), nextHeartbeatAt_(0), serialRxBytes_(0), ashRxFrames_(0), networkForming_(false), networkFormationStep_(0), networkFormed_(false), networkPanId_(0),
+    ashAckDeadline_(0), ashRetries_(0), ashPendingSensitive_(false), ezspVersion_(4), zdoSequence_(0), zclTransactionSequence_(0), ezspVersionNegotiated_(false), stackTokenWritingRequested_(false), networkInitRequested_(false), tradfriBindGroupConfigured_(false), coordinatorInitializationStep_(0), resetDeadline_(0), nextHeartbeatAt_(0), serialRxBytes_(0), ashRxFrames_(0), networkForming_(false), networkFormationStep_(0), networkFormed_(false), networkPanId_(0),
     networkChannel_(0), interviewRequestInFlight_(false), interviewSendAccepted_(false), interviewEzspSequence_(0), interviewNode_(0xffff),
     interviewDeadline_(0), nextMessageTag_(1), coordinatorIeeeAddressRequested_(false), viewDirty_(true) {
 }
@@ -1350,8 +1350,14 @@ void Gateway::saveSceneRuntime() const {
         output << "F " << it->first << " " << (it->second?1:0) << "\n";
 }
 
-bool Gateway::writeBytes(const std::vector<unsigned char>& bytes) {
-    if (!bytes.empty()) addHexLog("SERIAL TX", &bytes[0], bytes.size());
+bool Gateway::writeBytes(const std::vector<unsigned char>& bytes, bool sensitive) {
+    if (!bytes.empty()) {
+        if (sensitive) {
+            std::ostringstream message;
+            message << "SERIAL TX redacted sensitive frame bytes=" << std::dec << bytes.size();
+            addLog(message.str());
+        } else addHexLog("SERIAL TX", &bytes[0], bytes.size());
+    }
     serialPendingBytes_.insert(serialPendingBytes_.end(), bytes.begin(), bytes.end());
     flushSerialOutput();
     return serialPendingBytes_.empty();
@@ -1375,7 +1381,7 @@ void Gateway::retransmitAsh() {
     }
     addLog("ASH retransmitting unacknowledged frame");
     writeBytes(AshTransport::encodeData(static_cast<unsigned char>(
-        (ashSendSequence_ << 4) | 0x08 | ashReceiveSequence_), ashPendingData_));
+        (ashSendSequence_ << 4) | 0x08 | ashReceiveSequence_), ashPendingData_), ashPendingSensitive_);
     ashAckDeadline_ = time(0) + 2;
 }
 
@@ -1389,10 +1395,12 @@ void Gateway::pollAshTransmit() {
     if (ashTransmitQueue_.empty()) return;
     ashPendingData_ = ashTransmitQueue_.front();
     ashTransmitQueue_.erase(ashTransmitQueue_.begin());
+    ashPendingSensitive_ = !ashTransmitSensitiveQueue_.empty() && ashTransmitSensitiveQueue_.front();
+    if (!ashTransmitSensitiveQueue_.empty()) ashTransmitSensitiveQueue_.erase(ashTransmitSensitiveQueue_.begin());
     ashRetries_ = 0;
     ashAckDeadline_ = time(0) + 2;
     writeBytes(AshTransport::encodeData(static_cast<unsigned char>(
-        (ashSendSequence_ << 4) | ashReceiveSequence_), ashPendingData_));
+        (ashSendSequence_ << 4) | ashReceiveSequence_), ashPendingData_), ashPendingSensitive_);
 }
 
 void Gateway::sendAshReset() {
@@ -1401,7 +1409,9 @@ void Gateway::sendAshReset() {
     reset.insert(reset.begin(), 0x1a);
     ash_.reset();
     ashTransmitQueue_.clear();
+    ashTransmitSensitiveQueue_.clear();
     ashPendingData_.clear();
+    ashPendingSensitive_ = false;
     serialPendingBytes_.clear();
     ashAckDeadline_ = 0;
     online_ = false;
@@ -1438,6 +1448,7 @@ unsigned char Gateway::sendEzspCommand(unsigned short command, const std::vector
         addLog(message.str());
     }
     ashTransmitQueue_.push_back(randomize(ezsp));
+    ashTransmitSensitiveQueue_.push_back(command == 0x0068);
     pollAshTransmit();
     return sequence;
 }
@@ -1616,6 +1627,7 @@ void Gateway::handleAshFrame(const std::vector<unsigned char>& frame) {
     if ((control & 0x80) == 0 || (control & 0xe0) == 0x80 || (control & 0xe0) == 0xa0) {
         if (!ashPendingData_.empty() && (control & 7) == ((ashSendSequence_ + 1) & 7)) {
             ashPendingData_.clear();
+            ashPendingSensitive_ = false;
             ashSendSequence_ = static_cast<unsigned char>((ashSendSequence_ + 1) & 7);
             ashAckDeadline_ = 0;
         }
@@ -1628,6 +1640,8 @@ void Gateway::handleAshFrame(const std::vector<unsigned char>& frame) {
     if (control == 0xc1) {
         ashPendingData_.clear();
         ashTransmitQueue_.clear();
+        ashTransmitSensitiveQueue_.clear();
+        ashPendingSensitive_ = false;
         ashSendSequence_ = 0;
         ashReceiveSequence_ = 0;
         resetDeadline_ = 0;

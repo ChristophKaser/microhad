@@ -185,7 +185,7 @@ public:
             assert(gateway.coordinatorInitializationStep_ == (protocol == 13 ? 12 : 11));
             gateway.coordinatorInitializationStep_ = 0;
             gateway.online_ = true; gateway.networkFormed_ = true;
-            gateway.ashTransmitQueue_.clear(); gateway.ashPendingData_.clear();
+            gateway.ashTransmitQueue_.clear(); gateway.ashTransmitSensitiveQueue_.clear(); gateway.ashPendingData_.clear();
             gateway.joinPreparationStep_ = 2; gateway.pendingJoinSeconds_ = 60;
             reply.resize(6); reply[3] = 0x55; reply[5] = 0;
             gateway.handleEzspFrame(reply);
@@ -339,6 +339,7 @@ public:
         /* Decode the outbound enrollment reply and check reversed endpoints. */
         gateway.ashPendingData_.clear();
         gateway.ashTransmitQueue_.clear();
+        gateway.ashTransmitSensitiveQueue_.clear();
         gateway.devices_[state.ieeeAddress].iasZoneId = 4;
         response.assign(26, 0);
         response[1] = 4; response[2] = 1;

@@ -113,6 +113,30 @@ void testSceneConfigurationProvisioning() {
     rmdir(directory.c_str());
 }
 
+void testSecurityDiagnosticsRedactAndBoundFallback() {
+    char name[] = "/tmp/microhad-zigbee-diagnostics-XXXXXX";
+    char* temporary = mkdtemp(name);
+    int serial[2];
+    std::string error;
+    assert(temporary != 0 && socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
+    const std::string directory = temporary;
+    Gateway gateway("/dev/null", 115200, directory, "", "", "");
+    GatewayIntegrationTestPeer::attachSerial(&gateway, serial[0]);
+    assert(gateway.start(&error));
+    GatewayIntegrationTestPeer::sendSensitiveSecurityState(&gateway);
+    std::string logs = gateway.logsJson();
+    assert(logs.find("SERIAL TX redacted sensitive frame bytes=") != std::string::npos);
+    assert(logs.find("5a5a5a5a5a5a5a5a") == std::string::npos &&
+           logs.find("a5a5a5a5a5a5a5a5") == std::string::npos);
+    assert(!readAvailable(serial[1]).empty());
+    GatewayIntegrationTestPeer::logBoundedUnknownFrame(&gateway);
+    logs = gateway.logsJson();
+    assert(logs.find("command=0xfe") != std::string::npos && logs.find("payload=112afea5") != std::string::npos);
+    assert(logs.size() < 900);
+    gateway.stop(); close(serial[1]);
+    rmdir(directory.c_str());
+}
+
 void testRuntimeDirectoryBoundaries() {
     char name[] = "/tmp/microhad-zigbee-runtime-XXXXXX";
     char* temporary = mkdtemp(name);
@@ -230,6 +254,8 @@ void runGatewayIntegrationTests() {
     testSceneCommandErrors();
     fprintf(stderr, "integration: scene configuration persistence, provisioning, and snapshot\n");
     testSceneConfigurationProvisioning();
+    fprintf(stderr, "integration: secret redaction and bounded frame diagnostics\n");
+    testSecurityDiagnosticsRedactAndBoundFallback();
     fprintf(stderr, "integration: gateway runtime directory boundaries\n");
     testRuntimeDirectoryBoundaries();
     fprintf(stderr, "integration: serial startup failures and idempotent stop\n");

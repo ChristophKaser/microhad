@@ -68,6 +68,17 @@ public:
         if (!result) fprintf(stderr, "scene provision logs: %s\nstatus: %s\n", logs.c_str(), status.c_str());
         return result;
     }
+    static void sendSensitiveSecurityState(Gateway* gateway) {
+        gateway->preconfiguredKey_.assign(16, 0x5a);
+        gateway->networkKey_.assign(16, 0xa5);
+        gateway->continueNetworkFormation(0x00b1);
+    }
+    static void logBoundedUnknownFrame(Gateway* gateway) {
+        std::vector<unsigned char> message(512, 0xa5);
+        message[0] = 0x11; message[1] = 0x2a; message[2] = 0xfe;
+        gateway->logs_.clear();
+        gateway->addFrameLog("RX", 0x1234, 0x0104, 0x1234, 1, 1, 0, 0, 0, 0, 90, -40, message);
+    }
     static void prepareHttpDevice(Gateway* gateway) {
         Device device;
         EndpointDescriptor power;
