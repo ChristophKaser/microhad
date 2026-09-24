@@ -21,6 +21,13 @@
 
 class GatewayTestPeer {
 public:
+    static unsigned long logOccurrences(const Gateway& gateway, const std::string& text) {
+        std::string logs = gateway.logsJson();
+        std::string::size_type at = 0;
+        unsigned long count = 0;
+        while ((at = logs.find(text, at)) != std::string::npos) { ++count; at += text.size(); }
+        return count;
+    }
     static void completeViewSchema(Gateway* gateway) {
         Device device;
         EndpointDescriptor endpoint;
@@ -1266,6 +1273,47 @@ static void testContactNotificationIsDeferred() {
     rmdir(directory.c_str());
 }
 
+static void testTemperatureThresholdAlerts() {
+    std::ostringstream path;
+    std::string error;
+    std::vector<unsigned char> temperature;
+    path << "/tmp/microhad-zigbee-temperature-alert-test-" << static_cast<long>(getpid());
+    std::string directory = path.str();
+    assert(ensureDirectory(directory, &error));
+    NotificationWorker worker(directory, "", "", "");
+    assert(worker.start(&error));
+    Gateway gateway("/dev/null", 115200, directory, "", "", "", &worker);
+    temperature.push_back(0xd0); temperature.push_back(0x07); /* 20.00 C */
+    assert(gateway.applyAttributeReport("0x00124b0000000006", 0x0402, 0x0000, temperature));
+    assert(gateway.setDeviceSettings("0x00124b0000000006", "Utility", true, 10, true, 30,
+                                     false, 0, 0, false, 0, &error));
+    temperature[0] = 0x1c; temperature[1] = 0x0c; /* 31.00 C */
+    assert(gateway.applyAttributeReport("0x00124b0000000006", 0x0402, 0x0000, temperature));
+    assert(GatewayTestPeer::logOccurrences(gateway, "Notification queued: Temperature high") == 1);
+    temperature[0] = 0x80; temperature[1] = 0x0c; /* 32.00 C */
+    assert(gateway.applyAttributeReport("0x00124b0000000006", 0x0402, 0x0000, temperature));
+    assert(GatewayTestPeer::logOccurrences(gateway, "Notification queued: Temperature high") == 1);
+    temperature[0] = 0xd0; temperature[1] = 0x07; /* back inside */
+    assert(gateway.applyAttributeReport("0x00124b0000000006", 0x0402, 0x0000, temperature));
+    temperature[0] = 0x1c; temperature[1] = 0x0c;
+    assert(gateway.applyAttributeReport("0x00124b0000000006", 0x0402, 0x0000, temperature));
+    assert(GatewayTestPeer::logOccurrences(gateway, "Notification queued: Temperature high") == 2);
+    temperature[0] = 0x84; temperature[1] = 0x03; /* 9.00 C */
+    assert(gateway.applyAttributeReport("0x00124b0000000006", 0x0402, 0x0000, temperature));
+    assert(GatewayTestPeer::logOccurrences(gateway, "Notification queued: Temperature low") == 1);
+    temperature[0] = 0x20; temperature[1] = 0x03; /* 8.00 C */
+    assert(gateway.applyAttributeReport("0x00124b0000000006", 0x0402, 0x0000, temperature));
+    assert(GatewayTestPeer::logOccurrences(gateway, "Notification queued: Temperature low") == 1);
+    assert(gateway.setDeviceSettings("0x00124b0000000006", "Utility", false, 0, false, 0,
+                                     false, 0, 0, false, 0, &error));
+    temperature[0] = 0x1c; temperature[1] = 0x0c;
+    assert(gateway.applyAttributeReport("0x00124b0000000006", 0x0402, 0x0000, temperature));
+    assert(GatewayTestPeer::logOccurrences(gateway, "Notification queued: Temperature high") == 2);
+    worker.stop();
+    unlink((directory + "/devices.json").c_str());
+    rmdir(directory.c_str());
+}
+
 static void testNotificationTogglePersistence() {
     std::ostringstream path;
     std::string error;
@@ -1410,6 +1458,7 @@ void runUnitTests() {
     testSceneBusyDoesNotAdvanceSelection();
     testPendingSceneIgnoresRemoteAction();
     testContactNotificationIsDeferred();
+    testTemperatureThresholdAlerts();
     testNotificationTogglePersistence();
     testNotificationAuditDoesNotWriteRuntimeFlash();
     testBrowserPushSubscriptionBounds();
