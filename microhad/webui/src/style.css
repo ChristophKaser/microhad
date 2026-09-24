@@ -12,16 +12,19 @@
 @media(max-width:640px){
   .shell{padding:8px 10px 40px}
   .hero,.overview,.control-panel{display:none}
-  .mobile-top{display:block;margin:0 -10px 12px;background:#fff;border-bottom:1px solid #dce5ed}
+  .mobile-top{display:block;position:relative;z-index:5;margin:0 -10px 12px;background:#fff;border-bottom:1px solid #dce5ed}
   .mobile-state,.mobile-controls{display:flex;align-items:center;gap:12px;overflow-x:auto;white-space:nowrap;scrollbar-width:thin;scrollbar-color:#c3d3df transparent}
   .mobile-state{min-height:33px;padding:3px 12px;border-bottom:1px solid #e9eff3;font-size:.78rem;color:#62778a}
   .mobile-state strong{color:#172b41;font-size:.88rem;letter-spacing:-.02em}
   .mobile-state .state-good{color:#07805a;font-weight:700}
   .mobile-state .state-bad{color:#b04444;font-weight:700}
-  .mobile-controls{min-height:43px;padding:4px 10px;gap:6px}
-  .mobile-controls .button{flex:none;padding:6px 9px;font-size:.76rem;line-height:1.1;border-radius:7px}
-  .mobile-controls .check{flex:none;padding:4px 5px;font-size:.76rem}
-  .mobile-controls .check input{width:15px;height:15px}
+  .mobile-controls{min-height:52px;padding:5px 10px;gap:8px}
+  .mobile-controls .button{flex:none;min-height:40px;padding:8px 12px;font-size:.85rem;line-height:1.2;border-radius:8px}
+  .mobile-controls .check{flex:none;min-height:40px;padding:7px 8px;font-size:.85rem}
+  .mobile-controls .check input{width:18px;height:18px}
+  .mobile-menu-dismiss{position:fixed;inset:0;z-index:1}
+  .mobile-overflow{position:absolute;top:100%;right:10px;z-index:2;display:grid;gap:4px;min-width:205px;padding:7px;background:#fff;border:1px solid #cad7e3;border-radius:10px;box-shadow:0 12px 28px #16304830}
+  .mobile-overflow .button{text-align:left;min-height:42px;border:0;padding:10px 12px}
   .content-section{margin:0 0 24px}
   .content-section>.section-heading{margin:0 0 9px}
   .content-section>.section-heading .eyebrow{display:none}
