@@ -470,6 +470,11 @@ bool Gateway::setJoining(unsigned int seconds, std::string* error) {
         addLog("Pairing request rejected: duration exceeds one hour");
         return false;
     }
+    if (seconds != 0 && joinPreparationStep_ != 0) {
+        *error = "secure join preparation is already in progress";
+        addLog("Pairing request rejected: secure preparation already in progress");
+        return false;
+    }
     if (seconds == 0) {
         sendJoinPermit(0);
         joinUntil_ = 0;

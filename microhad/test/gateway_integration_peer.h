@@ -56,6 +56,7 @@ public:
         gateway->coordinatorInitializationStep_ = 0;
         return gateway->setJoining(seconds, error);
     }
+    static void expireJoinPreparation(Gateway* gateway) { gateway->joinPreparationDeadline_ = time(0) - 1; }
     static bool restoredNetworkMaterial(const Gateway& gateway) {
         return gateway.networkPanId_ != 0 && gateway.networkPanId_ != 0xffff &&
                gateway.networkChannel_ == 11 && gateway.networkExtendedPan_.size() == 8 &&

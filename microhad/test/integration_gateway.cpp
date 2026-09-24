@@ -481,6 +481,83 @@ void testSecureJoinPreparationSuccess() {
     gateway.stop(); close(serial[1]);
 }
 
+void runJoinPolicyFailure(unsigned int failedStep) {
+    int serial[2];
+    std::string error;
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
+    Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+    GatewayIntegrationTestPeer::attachSerial(&gateway, serial[0]);
+    assert(GatewayIntegrationTestPeer::prepareJoining(&gateway, 45, &error));
+    unsigned int step;
+    for (step = 1; step <= failedStep; ++step) {
+        std::vector<unsigned char> request = firstAshData(readAvailable(serial[1]));
+        unsigned short expected = step == 3 ? 0x00af : 0x0055;
+        assert(request[3] == static_cast<unsigned char>(expected));
+        assert(request[4] == static_cast<unsigned char>(expected >> 8));
+        replyToFormationCommand(serial[1], request, static_cast<unsigned char>((step - 1) & 7), -1,
+                                0xffff, static_cast<unsigned char>(step == failedStep ? 0x30 : 0));
+        gateway.poll();
+    }
+    readAvailable(serial[1]);
+    assert(gateway.statusJson().find("\"joining_preparing\":false") != std::string::npos);
+    assert(gateway.statusJson().find("\"joining_until\":0") != std::string::npos);
+    assert(gateway.logsJson().find("Cannot set Zigbee") != std::string::npos ||
+           gateway.logsJson().find("Cannot add Zigbee transient") != std::string::npos);
+    assert(gateway.setJoining(30, &error)); /* a failed attempt permits a fresh request */
+    gateway.stop(); close(serial[1]);
+}
+
+void runJoinPolicyTimeout(unsigned int timedOutStep) {
+    int serial[2];
+    std::string error;
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
+    Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+    GatewayIntegrationTestPeer::attachSerial(&gateway, serial[0]);
+    assert(GatewayIntegrationTestPeer::prepareJoining(&gateway, 45, &error));
+    unsigned int step;
+    for (step = 1; step < timedOutStep; ++step) {
+        std::vector<unsigned char> request = firstAshData(readAvailable(serial[1]));
+        replyToFormationCommand(serial[1], request, static_cast<unsigned char>((step - 1) & 7));
+        gateway.poll();
+    }
+    readAvailable(serial[1]);
+    sendAshControl(serial[1], static_cast<unsigned char>(0x80 | (timedOutStep & 7)),
+                   std::vector<unsigned char>()); /* transport ACK without policy response */
+    gateway.poll(); readAvailable(serial[1]);
+    GatewayIntegrationTestPeer::expireJoinPreparation(&gateway);
+    gateway.poll();
+    assert(gateway.statusJson().find("\"joining_preparing\":false") != std::string::npos);
+    assert(gateway.statusJson().find("\"joining_until\":0") != std::string::npos);
+    assert(gateway.logsJson().find("Secure pairing preparation timed out") != std::string::npos);
+    assert(gateway.setJoining(30, &error));
+    gateway.stop(); close(serial[1]);
+}
+
+void testSecureJoinPreparationFailuresAndRetries() {
+    unsigned int step;
+    for (step = 1; step <= 4; ++step) runJoinPolicyFailure(step);
+    for (step = 1; step <= 4; ++step) runJoinPolicyTimeout(step);
+
+    int serial[2];
+    std::string error;
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
+    Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+    GatewayIntegrationTestPeer::attachSerial(&gateway, serial[0]);
+    assert(GatewayIntegrationTestPeer::prepareJoining(&gateway, 45, &error));
+    std::vector<unsigned char> request = firstAshData(readAvailable(serial[1]));
+    replyToFormationCommand(serial[1], request, 0, -1, 0x0053); /* unexpected response */
+    gateway.poll();
+    std::vector<std::vector<unsigned char> > ack = decodeFrames(readAvailable(serial[1]));
+    assert(ack.size() == 1 && ack[0][0] == 0x81);
+    assert(gateway.statusJson().find("\"joining_preparing\":true") != std::string::npos);
+    assert(!gateway.setJoining(60, &error) && error == "secure join preparation is already in progress");
+    replyToFormationCommand(serial[1], request, 1);
+    gateway.poll();
+    std::vector<unsigned char> nextPolicy = firstAshData(readAvailable(serial[1]));
+    assert(nextPolicy[3] == 0x55 && nextPolicy[5] == 5);
+    gateway.stop(); close(serial[1]);
+}
+
 void testCoordinatorInitializationSequence() {
     int serial[2];
     assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
@@ -923,6 +1000,8 @@ void runGatewayIntegrationTests() {
     testNetworkCreationFailuresAndTimeout();
     fprintf(stderr, "integration: secure join preparation policy sequence\n");
     testSecureJoinPreparationSuccess();
+    fprintf(stderr, "integration: secure join policy failures, timeouts, and retry\n");
+    testSecureJoinPreparationFailuresAndRetries();
     fprintf(stderr, "integration: coordinator initialization, IEEE lookup, and Tradfri setup\n");
     testCoordinatorInitializationSequence();
     fprintf(stderr, "integration: coordinator initialization unexpected reply and timeout\n");
