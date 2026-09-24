@@ -821,9 +821,14 @@ static void testDevicePersistence() {
     endpoint.outputClusters.push_back(0x0003);
     input.endpoints.push_back(endpoint);
     devices.push_back(input);
+    Device nondimmable = input;
+    nondimmable.ieeeAddress = "0x00124b0000000002";
+    nondimmable.hasBrightness = false;
+    nondimmable.brightnessPercent = -1;
+    devices.push_back(nondimmable);
     assert(saveDevices(filename, devices, &error));
     assert(loadDevices(filename, &loaded, &error));
-    assert(loaded.size() == 1);
+    assert(loaded.size() == 2);
     assert(loaded[0].ieeeAddress == input.ieeeAddress);
     assert(loaded[0].networkAddress == input.networkAddress);
     assert(loaded[0].name == input.name && loaded[0].kind == input.kind);
@@ -843,6 +848,7 @@ static void testDevicePersistence() {
     assert(loaded[0].endpoints[0].deviceId == 0x0302 && loaded[0].endpoints[0].deviceVersion == 1);
     assert(loaded[0].endpoints[0].inputClusters.size() == 4);
     assert(loaded[0].endpoints[0].inputClusters[2] == 0x0402 && loaded[0].endpoints[0].outputClusters[0] == 0x0003);
+    assert(loaded[1].ieeeAddress == nondimmable.ieeeAddress && !loaded[1].hasBrightness && loaded[1].brightnessPercent == -1);
     unlink(filename.c_str());
     rmdir(directory.c_str());
 }
