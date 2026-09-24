@@ -3,6 +3,7 @@
 #include "gateway_integration_peer.h"
 
 #include <cassert>
+#include <csignal>
 #include <cstdlib>
 #include <cstdio>
 #include <fcntl.h>
@@ -95,6 +96,40 @@ void testResetTimeoutRetriesOverPipe() {
     assert(!GatewayIntegrationTestPeer::online(gateway));
     gateway.stop();
     close(serial[1]);
+}
+
+void testSerialBackpressureAndFailures() {
+    int serial[2];
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
+    Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+    GatewayIntegrationTestPeer::attachSerial(&gateway, serial[0]);
+    std::vector<unsigned char> expected(1024 * 1024);
+    unsigned long i;
+    for (i = 0; i < expected.size(); ++i) expected[i] = static_cast<unsigned char>(i * 37);
+    assert(GatewayIntegrationTestPeer::queueSerialBytes(&gateway, expected) > 0);
+    std::vector<unsigned char> received;
+    unsigned int attempts;
+    for (attempts = 0; attempts < 100 && received.size() < expected.size(); ++attempts) {
+        std::vector<unsigned char> part = readAvailable(serial[1]);
+        received.insert(received.end(), part.begin(), part.end());
+        gateway.poll();
+    }
+    std::vector<unsigned char> tail = readAvailable(serial[1]);
+    received.insert(received.end(), tail.begin(), tail.end());
+    assert(received == expected);
+    close(serial[1]);
+    gateway.poll();
+    assert(gateway.serialFd() == -1);
+    assert(gateway.logsJson().find("Serial read failed: end of file") != std::string::npos);
+
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
+    Gateway writeFailure("/dev/null", 115200, "/tmp", "", "", "");
+    GatewayIntegrationTestPeer::attachSerial(&writeFailure, serial[0]);
+    close(serial[1]);
+    signal(SIGPIPE, SIG_IGN);
+    GatewayIntegrationTestPeer::forceSerialWrite(&writeFailure);
+    assert(writeFailure.serialFd() == -1);
+    assert(writeFailure.logsJson().find("Serial write failed:") != std::string::npos);
 }
 
 void testSceneCommandErrors() {
@@ -250,6 +285,8 @@ void runGatewayIntegrationTests() {
     testResetAndVersionOverPipe();
     fprintf(stderr, "integration: gateway reset timeout retry over pipe\n");
     testResetTimeoutRetriesOverPipe();
+    fprintf(stderr, "integration: serial backpressure recovery and terminal failures\n");
+    testSerialBackpressureAndFailures();
     fprintf(stderr, "integration: scene command errors and state preservation\n");
     testSceneCommandErrors();
     fprintf(stderr, "integration: scene configuration persistence, provisioning, and snapshot\n");

@@ -319,7 +319,8 @@ void Gateway::poll() {
             addHexLog("SERIAL RX", bytes, static_cast<unsigned long>(count));
             ash_.feed(bytes, static_cast<unsigned long>(count));
             while (ash_.popFrame(&frame)) handleAshFrame(frame);
-        }
+        } else if (count == 0) failSerial("read", 0);
+        else if (errno != EINTR && errno != EAGAIN && errno != EWOULDBLOCK) failSerial("read", errno);
     }
     pollAshTransmit();
     pollSceneRetries();
@@ -1368,8 +1369,28 @@ void Gateway::flushSerialOutput() {
         ssize_t count = write(serialFd_, &serialPendingBytes_[0], serialPendingBytes_.size());
         if (count > 0) serialPendingBytes_.erase(serialPendingBytes_.begin(), serialPendingBytes_.begin() + count);
         else if (count < 0 && errno == EINTR) continue;
-        else break; /* Preserve the unwritten suffix, including on EAGAIN. */
+        else if (count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) break;
+        else { failSerial("write", count == 0 ? EIO : errno); break; }
     }
+}
+
+void Gateway::failSerial(const char* operation, int errorNumber) {
+    std::ostringstream message;
+    message << "Serial " << operation << " failed";
+    if (errorNumber != 0) message << ": " << strerror(errorNumber);
+    else message << ": end of file";
+    addLog(message.str());
+    if (serialFd_ >= 0) close(serialFd_);
+    serialFd_ = -1;
+    serialPendingBytes_.clear();
+    ashPendingData_.clear();
+    ashTransmitQueue_.clear();
+    ashTransmitSensitiveQueue_.clear();
+    ashPendingSensitive_ = false;
+    ashAckDeadline_ = 0;
+    resetDeadline_ = 0;
+    online_ = false;
+    networkFormed_ = false;
 }
 
 void Gateway::retransmitAsh() {

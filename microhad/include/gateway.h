@@ -177,6 +177,7 @@ private:
     unsigned int ashRetries_;
     bool ashPendingSensitive_;
     void flushSerialOutput();
+    void failSerial(const char* operation, int errorNumber);
     void pollAshTransmit();
     void retransmitAsh();
     unsigned char ezspVersion_;

@@ -16,6 +16,13 @@ public:
         gateway->serialFd_ = fd;
     }
     static bool online(const Gateway& gateway) { return gateway.online_; }
+    static unsigned long queueSerialBytes(Gateway* gateway, const std::vector<unsigned char>& bytes) {
+        gateway->serialPendingBytes_ = bytes;
+        gateway->flushSerialOutput();
+        return gateway->serialPendingBytes_.size();
+    }
+    static unsigned long pendingSerialBytes(const Gateway& gateway) { return gateway.serialPendingBytes_.size(); }
+    static void forceSerialWrite(Gateway* gateway) { gateway->serialPendingBytes_.push_back(0x55); gateway->flushSerialOutput(); }
     static void expireResetDeadline(Gateway* gateway) { gateway->resetDeadline_ = time(0) - 1; }
     static bool sceneCommandErrors(Gateway* gateway) {
         std::string error;
