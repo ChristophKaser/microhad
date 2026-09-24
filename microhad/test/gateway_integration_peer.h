@@ -253,6 +253,30 @@ public:
         gateway->networkFormed_ = true;
         gateway->coordinatorInitializationStep_ = 0;
     }
+    static void prepareRunnerCommandDevice(Gateway* gateway) {
+        Device device;
+        EndpointDescriptor endpoint;
+        device.ieeeAddress = "runner-light";
+        device.name = "Runner light";
+        device.networkAddress = 0x2345;
+        device.hasLight = true;
+        device.hasTemperature = true;
+        device.sensorRefreshIntervalMinutes = 0;
+        endpoint.endpoint = 1;
+        endpoint.inputClusters.push_back(0x0004);
+        endpoint.inputClusters.push_back(0x0005);
+        endpoint.inputClusters.push_back(0x0006);
+        endpoint.inputClusters.push_back(0x0008);
+        endpoint.inputClusters.push_back(0x0402);
+        device.endpoints.push_back(endpoint);
+        gateway->devices_[device.ieeeAddress] = device;
+        gateway->nodeAddresses_[device.networkAddress] = device.ieeeAddress;
+        gateway->online_ = true;
+        gateway->networkFormed_ = true;
+        gateway->networkInitRequested_ = true;
+        gateway->coordinatorInitializationStep_ = 0;
+        gateway->ezspVersion_ = 4;
+    }
 };
 
 #endif

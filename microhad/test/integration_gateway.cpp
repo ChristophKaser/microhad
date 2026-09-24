@@ -1,6 +1,7 @@
 #include "ash.h"
 #include "gateway.h"
 #include "gateway_runner.h"
+#include "notification_worker.h"
 #include "gateway_integration_peer.h"
 
 #include <cassert>
@@ -1773,8 +1774,69 @@ void testGatewayRunnerLifecycle() {
         assert(error.find("cannot open Zigbee serial device") != std::string::npos);
         runner.stop();
     }
-    unlink("/tmp/microhad-zigbee-native.log");
     assert(rmdir((std::string(directory) + "/failed").c_str()) == 0);
+    assert(rmdir(directory) == 0);
+}
+
+void testGatewayRunnerCommandDispatch() {
+    char directoryName[] = "/tmp/microhad-zigbee-runner-commands-XXXXXX";
+    char* directory = mkdtemp(directoryName);
+    const char* transientPaths[] = { "/tmp/microhad-zigbee-native-values.json", "/tmp/microhad-zigbee-scenes-runtime", "/tmp/microhad-zigbee-native.log" };
+    std::string backups[3];
+    bool preserved[3];
+    int serial[2];
+    std::string error;
+    const std::string scenes = "G\t42\tKitchen\nM\t42\trunner-light\nS\t42\t7\tDinner\nT\t42\t7\trunner-light\t1\t50\n";
+    assert(directory != 0 && socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
+    unsigned int pathIndex;
+    for (pathIndex = 0; pathIndex < 3; ++pathIndex) {
+        std::ostringstream backup;
+        backup << transientPaths[pathIndex] << ".runner-test-" << static_cast<long>(getpid());
+        backups[pathIndex] = backup.str();
+        errno = 0;
+        preserved[pathIndex] = rename(transientPaths[pathIndex], backups[pathIndex].c_str()) == 0;
+        assert(preserved[pathIndex] || errno == ENOENT);
+    }
+    NotificationWorker notifications(directory, "", "", "");
+    assert(notifications.start(&error));
+    {
+        Gateway* gateway = new Gateway("/dev/null", 115200, directory, "", "", "", &notifications);
+        GatewayIntegrationTestPeer::prepareRunnerCommandDevice(gateway);
+        GatewayIntegrationTestPeer::attachSerial(gateway, serial[0]);
+        GatewayRunner runner(gateway);
+        assert(runner.start(&error));
+        readAvailable(serial[1]);
+
+        assert(!runner.setJoining(60, &error) && error == "Zigbee coordinator is offline");
+        assert(!runner.createFreshNetwork(&error) && error == "Zigbee coordinator is offline");
+        assert(runner.setDeviceSettings("runner-light", "Configured light", true, 5, true, 35,
+                                        false, 0, 0, true, 0, &error));
+        GatewayRunner::ViewLease* view = runner.acquireView();
+        assert(view != 0 && view->statusJson().find("\"name\":\"Configured light\"") != std::string::npos);
+        delete view;
+        assert(!runner.refreshDevice("runner-light", &error) && error == "Zigbee network is not ready");
+        assert(!runner.setLightState("runner-light", "on", -1, &error) && error == "Zigbee network is not ready");
+        assert(runner.setSceneConfiguration(scenes, &error));
+        assert(!runner.activateScene(42, 7, &error) && error == "Zigbee network is not ready");
+        assert(!runner.turnOffSceneGroup(42, &error) && error == "Zigbee network is not ready");
+        assert(runner.sendTestNotification(&error));
+        assert(runner.setNotificationsEnabled(false, &error));
+        assert(!runner.sendTestNotification(&error) && error == "push notifications are disabled");
+        assert(runner.setNotificationsEnabled(true, &error));
+        assert(!runner.refreshDevice("missing", &error) && error == "device is unknown");
+        assert(!readAvailable(serial[1]).empty());
+        runner.stop();
+    }
+    notifications.stop();
+    close(serial[1]);
+    unlink((std::string(directory) + "/devices.json").c_str());
+    unlink((std::string(directory) + "/scenes.conf").c_str());
+    unlink((std::string(directory) + "/network.json").c_str());
+    unlink((std::string(directory) + "/notifications.json").c_str());
+    for (pathIndex = 0; pathIndex < 3; ++pathIndex) {
+        unlink(transientPaths[pathIndex]);
+        if (preserved[pathIndex]) assert(rename(backups[pathIndex].c_str(), transientPaths[pathIndex]) == 0);
+    }
     assert(rmdir(directory) == 0);
 }
 
@@ -1843,6 +1905,8 @@ void runGatewayIntegrationTests() {
     testSerialStartupAndIdempotentStop();
     fprintf(stderr, "integration: coordinator runner startup and stop lifecycle\n");
     testGatewayRunnerLifecycle();
+    fprintf(stderr, "integration: runner command dispatch and result relay\n");
+    testGatewayRunnerCommandDispatch();
     fprintf(stderr, "integration: gateway CLI usage failures\n");
     testCliUsageFailures();
 }
