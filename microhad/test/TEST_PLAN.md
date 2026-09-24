@@ -147,7 +147,7 @@ physical coordinator and radio interoperability testing.
 | HTTP-05 | H | `POST /api/service/restart` | Reply is flushed before SIGTERM; supervisor-facing exit is graceful | G |
 | HTTP-06 | H | Unknown routes/methods, malformed request line/headers, no terminator, partial reads, oversized request, duplicate/conflicting length, chunked transfer, invalid content length | 400 or 413 exactly as applicable; server continues serving later clients | DONE |
 | HTTP-07 | H | Acceptor/workers under multiple simultaneous clients, peer closes during read/write, queue pressure, bind/listen failure | Request handling remains bounded and service survives client faults | G |
-| TLS-01 | H | Valid loopback TLS status/API requests | Certificate, hostname validation, request, response, and HTTP parity work | P |
+| TLS-01 | H | Valid loopback TLS status/API requests | Certificate, hostname validation, request, response, and HTTP parity work | DONE |
 | TLS-02 | H | Invalid/mismatched cert/key, handshake failure, malformed encrypted request, oversize request, peer close | TLS resource cleanup and 400/413 behavior are correct; plain listener unaffected | G |
 | UI-01 | B | Dashboard status/log polling and rendering of offline/forming/formed/join-preparing/joining states | Controls, countdown, badges, and errors reflect API response | G |
 | UI-02 | B | Device cards, settings, refresh, light controls, descriptors, escaping, and empty states | Correct fields/actions are rendered; user input is encoded and API errors displayed | G |

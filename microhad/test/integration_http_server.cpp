@@ -224,9 +224,21 @@ void testServers() {
     expectStatus("http reject oversized request", plainRequest(http.boundPort(), "POST /api/join HTTP/1.1\r\nHost: localhost\r\nContent-Length: 20000\r\n\r\n"), 413);
     expectStatus("http survives malformed requests", plainRequest(http.boundPort(), "GET /api/status HTTP/1.1\r\nHost: localhost\r\n\r\n"), 200);
 
-    expectStatus("https status", tlsRequest(https.boundPort(), "GET /api/status HTTP/1.1\r\nHost: localhost\r\n\r\n"), 200);
-    expectStatus("https service worker", tlsRequest(https.boundPort(), "GET /sw.js HTTP/1.1\r\nHost: localhost\r\n\r\n"), 200);
-    expectStatus("https enable notifications", tlsRequest(https.boundPort(), post("/api/notifications/enabled", "enabled=true")), 200);
+    response = tlsRequest(https.boundPort(), "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n");
+    expectStatus("https dashboard", response, 200);
+    assert(response.find("Content-Type: text/html; charset=utf-8\r\n") != std::string::npos && response.find("integration dashboard") != std::string::npos);
+    response = tlsRequest(https.boundPort(), "GET /api/status HTTP/1.1\r\nHost: localhost\r\n\r\n");
+    expectStatus("https status", response, 200);
+    assert(response.find("Content-Type: application/json\r\n") != std::string::npos && response.find("\"devices\":") != std::string::npos);
+    response = tlsRequest(https.boundPort(), "GET /api/logs HTTP/1.1\r\nHost: localhost\r\n\r\n");
+    expectStatus("https logs", response, 200);
+    assert(response.find("Content-Type: application/json\r\n") != std::string::npos && response.find("\"lines\":") != std::string::npos);
+    response = tlsRequest(https.boundPort(), "GET /sw.js HTTP/1.1\r\nHost: localhost\r\n\r\n");
+    expectStatus("https service worker", response, 200);
+    assert(response.find("Content-Type: application/javascript\r\n") != std::string::npos);
+    response = tlsRequest(https.boundPort(), post("/api/notifications/enabled", "enabled=true"));
+    expectStatus("https enable notifications", response, 200);
+    assert(response.find("{\"ok\":true,\"enabled\":true}") != std::string::npos);
 
     {
         HttpServer missingDashboard(0, &runner, directory + "/missing-dashboard.html", "", "");
