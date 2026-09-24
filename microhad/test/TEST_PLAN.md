@@ -131,7 +131,7 @@ physical coordinator and radio interoperability testing.
 | PUSH-01 | U | VAPID key first create, reload, corrupted/partial keys, write failure | Stable valid public key or safe error; no accidental key replacement | DONE |
 | PUSH-02 | U | Valid subscription, duplicate, invalid scheme/JSON/keys, limit boundary | HTTPS-only unique subscriptions; 32-entry bound and useful errors | DONE |
 | PUSH-03 | I | Push request encryption/signing, bad CA/URL/connect/TLS/HTTP response, permanent rejection | Correct request or error; permanently rejected subscription is removed, transient one retained | G |
-| HTTPS-01 | U | URL parser and HTTPS request wrapper | Valid host/path URL forms accepted; malformed/non-HTTPS URLs rejected without a connection | G |
+| HTTPS-01 | U | URL parser and HTTPS request wrapper | Valid host/path URL forms accepted; malformed/non-HTTPS URLs rejected without a connection | DONE |
 
 ## Runner, HTTP, TLS, and dashboard
 

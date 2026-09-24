@@ -27,10 +27,18 @@ bool httpsPostUrl(const std::string& url, const std::string& headers, const std:
                   const std::string& caBundle, std::string* response, std::string* error) {
     const std::string prefix = "https://";
     std::string::size_type start;
-    std::string::size_type slash;
+    std::string::size_type pathAt;
+    std::string host;
     if (url.compare(0, prefix.size(), prefix) != 0) { *error = "Push endpoint must use HTTPS"; return false; }
     start = prefix.size();
-    slash = url.find('/', start);
-    if (slash == std::string::npos) return httpsPost(url.substr(start), "/", headers, body, caBundle, response, error);
-    return httpsPost(url.substr(start, slash - start), url.substr(slash), headers, body, caBundle, response, error);
+    pathAt = url.find_first_of("/?#", start);
+    host = url.substr(start, pathAt == std::string::npos ? std::string::npos : pathAt - start);
+    if (host.empty() || host.find('@') != std::string::npos || url.find_first_of(" \t\r\n") != std::string::npos ||
+        (pathAt != std::string::npos && url[pathAt] == '#') || url.find('#', start) != std::string::npos) {
+        *error = "invalid HTTPS URL";
+        return false;
+    }
+    if (pathAt == std::string::npos) return httpsPost(host, "/", headers, body, caBundle, response, error);
+    if (url[pathAt] == '?') return httpsPost(host, "/" + url.substr(pathAt), headers, body, caBundle, response, error);
+    return httpsPost(host, url.substr(pathAt), headers, body, caBundle, response, error);
 }

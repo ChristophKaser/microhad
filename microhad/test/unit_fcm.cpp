@@ -1,4 +1,5 @@
 #include "fcm.h"
+#include "https_client.h"
 #include "json_util.h"
 
 #include <cassert>
@@ -57,6 +58,21 @@ static void testFirebaseServiceAccountValidation() {
     assert(error == "Firebase service account is missing project_id, client_email, or private_key");
 }
 
+static void testHttpsUrlValidation() {
+    std::string response;
+    std::string error;
+    const char* valid[] = {"https://push.example.test", "https://push.example.test/path", "https://push.example.test?topic=alert"};
+    const char* invalid[] = {"http://push.example.test", "https://", "https:///path", "https://user@push.example.test", "https://push.example.test/#fragment", "https://push.example.test/a b"};
+    for (unsigned long i = 0; i < sizeof(valid) / sizeof(valid[0]); ++i) {
+        assert(!httpsPostUrl(valid[i], "", "", "", &response, &error));
+        assert(error == "a CA bundle is required for HTTPS");
+    }
+    for (unsigned long i = 0; i < sizeof(invalid) / sizeof(invalid[0]); ++i) {
+        assert(!httpsPostUrl(invalid[i], "", "", "", &response, &error));
+        assert(error == "Push endpoint must use HTTPS" || error == "invalid HTTPS URL");
+    }
+}
+
 void runFcmUnitTests() {
     FirebaseServiceAccount account;
     std::string error;
@@ -67,4 +83,5 @@ void runFcmUnitTests() {
     assert(base64UrlEncode("foo") == "Zm9v");
     testFcmEncodingsAndJwt();
     testFirebaseServiceAccountValidation();
+    testHttpsUrlValidation();
 }
