@@ -6,6 +6,41 @@ import type { SceneConfig, SceneState } from './scenes'
 
 type Props = { devices: Device[]; onClose: () => void; onSaved: () => void }
 
+const actionLabels: Record<string, string> = {
+  on: 'Power on',
+  off: 'Power off',
+  arrow_left: '← Arrow left',
+  arrow_right: '→ Arrow right',
+}
+
+function AccordionToggle({
+  title,
+  detail,
+  id,
+  open,
+  onToggle,
+}: {
+  title: string
+  detail: string
+  id: string
+  open: boolean
+  onToggle: () => void
+}) {
+  return (
+    <button
+      className="accordion-toggle"
+      type="button"
+      aria-expanded={open}
+      aria-controls={id}
+      onClick={onToggle}
+    >
+      <span className="accordion-title">{title}</span>
+      <span className="accordion-detail">{detail}</span>
+      <span className="accordion-chevron" aria-hidden="true">⌄</span>
+    </button>
+  )
+}
+
 function SceneLightState({
   device,
   address,
@@ -60,6 +95,9 @@ export function SceneEditor({ devices, onClose, onSaved }: Props) {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [openGroupId, setOpenGroupId] = useState<number | null>(null)
+  const [openSceneKey, setOpenSceneKey] = useState<string | null>(null)
+  const [openBindingIndex, setOpenBindingIndex] = useState<number | null>(null)
   useEffect(() => {
     let active = true
     textRequest('/api/scenes/config')
@@ -96,6 +134,8 @@ export function SceneEditor({ devices, onClose, onSaved }: Props) {
     change((draft) => {
       draft.groups.push({ id, name: 'New group', members: [], scenes: [] })
     })
+    setOpenGroupId(id)
+    setOpenSceneKey(null)
   }
   const addScene = (groupIndex: number) => {
     if (!config) return
@@ -112,12 +152,20 @@ export function SceneEditor({ devices, onClose, onSaved }: Props) {
         states: group.members.map((member) => newState(member, devices)),
       })
     })
+    setOpenGroupId(config.groups[groupIndex].id)
+    setOpenSceneKey(`${config.groups[groupIndex].id}/${id}`)
   }
-  const removeGroup = (groupIndex: number) =>
+  const removeGroup = (groupIndex: number) => {
+    if (!config) return
+    const groupId = config.groups[groupIndex].id
     change((draft) => {
       const [group] = draft.groups.splice(groupIndex, 1)
       draft.bindings = draft.bindings.filter((binding) => binding.groupId !== group.id)
     })
+    if (openGroupId === groupId) setOpenGroupId(null)
+    if (openSceneKey?.startsWith(`${groupId}/`)) setOpenSceneKey(null)
+    setOpenBindingIndex(null)
+  }
   const setGroupMember = (groupIndex: number, address: string, selected: boolean) =>
     change((draft) => {
       const group = draft.groups[groupIndex]
@@ -131,7 +179,9 @@ export function SceneEditor({ devices, onClose, onSaved }: Props) {
         })
       }
     })
-  const removeScene = (groupIndex: number, sceneIndex: number) =>
+  const removeScene = (groupIndex: number, sceneIndex: number) => {
+    if (!config) return
+    const sceneKey = `${config.groups[groupIndex].id}/${config.groups[groupIndex].scenes[sceneIndex].id}`
     change((draft) => {
       const group = draft.groups[groupIndex]
       const [scene] = group.scenes.splice(sceneIndex, 1)
@@ -140,6 +190,8 @@ export function SceneEditor({ devices, onClose, onSaved }: Props) {
           binding.sceneIds = binding.sceneIds.filter((id) => id !== scene.id)
       })
     })
+    if (openSceneKey === sceneKey) setOpenSceneKey(null)
+  }
   const setSceneState = (
     groupIndex: number,
     sceneIndex: number,
@@ -201,95 +253,126 @@ export function SceneEditor({ devices, onClose, onSaved }: Props) {
           <>
             {config.groups.map((group, groupIndex) => (
               <section className="editor-card" key={group.id}>
-                <div className="editor-row">
-                  <label className="field grow">
-                    Group name
-                    <input
-                      value={group.name}
-                      onChange={(event) =>
-                        change((d) => {
-                          d.groups[groupIndex].name = event.target.value
-                        })
-                      }
-                    />
-                  </label>
-                  <button
-                    className="button danger"
-                    onClick={() => removeGroup(groupIndex)}
-                  >
-                    Remove group
-                  </button>
-                </div>
-                <p className="muted small">Zigbee group {group.id}</p>
-                <h3>Lights</h3>
-                <div className="choice-grid">
-                  {lights.map((light) => {
-                    const selected = group.members.includes(light.ieee_address)
-                    const assigned = config.groups.some(
-                      (other) => other.id !== group.id && other.members.includes(light.ieee_address)
-                    )
-                    return (
-                      <label className="check" key={light.ieee_address}>
-                        <input
-                          type="checkbox"
-                          checked={selected}
-                          disabled={assigned}
-                          onChange={(event) =>
-                            setGroupMember(groupIndex, light.ieee_address, event.target.checked)
-                          }
-                        />{' '}
-                        {light.name}
-                        {assigned ? ' (in another group)' : ''}
-                      </label>
-                    )
-                  })}
-                  {!lights.length && <span className="muted">No discovered lights available.</span>}
-                </div>
-                <h3>Scenes</h3>
-                {group.scenes.map((scene, sceneIndex) => (
-                  <div className="scene-card" key={scene.id}>
-                    <div className="editor-row">
-                      <label className="field grow">
-                        Scene name
-                        <input
-                          value={scene.name}
-                          onChange={(event) =>
-                            change((d) => {
-                              d.groups[groupIndex].scenes[sceneIndex].name = event.target.value
-                            })
-                          }
-                        />
-                      </label>
-                      <button
-                        className="button danger"
-                        onClick={() => removeScene(groupIndex, sceneIndex)}
-                      >
-                        Remove scene
-                      </button>
-                    </div>
-                    {group.members.map((address) => {
-                      const device = devices.find((item) => item.ieee_address === address)
-                      const state =
-                        scene.states.find((item) => item.ieee === address) ??
-                        newState(address, devices)
+                <AccordionToggle
+                  title={group.name || 'Unnamed group'}
+                  detail={`Zigbee group ${group.id} · ${group.members.length} lights · ${group.scenes.length} scenes`}
+                  id={`group-panel-${group.id}`}
+                  open={openGroupId === group.id}
+                  onToggle={() => {
+                    setOpenGroupId(openGroupId === group.id ? null : group.id)
+                    setOpenSceneKey(null)
+                  }}
+                />
+                <div
+                  className="accordion-body"
+                  id={`group-panel-${group.id}`}
+                  hidden={openGroupId !== group.id}
+                >
+                  <div className="editor-row">
+                    <label className="field grow">
+                      Group name
+                      <input
+                        value={group.name}
+                        onChange={(event) =>
+                          change((d) => {
+                            d.groups[groupIndex].name = event.target.value
+                          })
+                        }
+                      />
+                    </label>
+                    <button
+                      className="button danger"
+                      onClick={() => removeGroup(groupIndex)}
+                    >
+                      Remove group
+                    </button>
+                  </div>
+                  <h3>Lights</h3>
+                  <div className="choice-grid">
+                    {lights.map((light) => {
+                      const selected = group.members.includes(light.ieee_address)
+                      const assigned = config.groups.some(
+                        (other) => other.id !== group.id && other.members.includes(light.ieee_address)
+                      )
                       return (
-                        <SceneLightState
-                          key={address}
-                          device={device}
-                          address={address}
-                          state={state}
-                          onChange={(next) => setSceneState(groupIndex, sceneIndex, address, next)}
-                        />
+                        <label className="check" key={light.ieee_address}>
+                          <input
+                            type="checkbox"
+                            checked={selected}
+                            disabled={assigned}
+                            onChange={(event) =>
+                              setGroupMember(groupIndex, light.ieee_address, event.target.checked)
+                            }
+                          />{' '}
+                          {light.name}
+                          {assigned ? ' (in another group)' : ''}
+                        </label>
                       )
                     })}
-                    {!group.members.length && (
-                      <p className="muted">Add a light to set its scene state.</p>
-                    )}
+                    {!lights.length && <span className="muted">No discovered lights available.</span>}
                   </div>
-                ))}
-                <button className="button" onClick={() => addScene(groupIndex)}>
-                  ＋ Add scene
-                </button>
+                  <h3>Scenes</h3>
+                  {group.scenes.map((scene, sceneIndex) => {
+                    const sceneKey = `${group.id}/${scene.id}`
+                    return (
+                      <section className="scene-card" key={scene.id}>
+                        <AccordionToggle
+                          title={scene.name || 'Unnamed scene'}
+                          detail={`${group.members.length} lights`}
+                          id={`scene-panel-${group.id}-${scene.id}`}
+                          open={openSceneKey === sceneKey}
+                          onToggle={() => setOpenSceneKey(openSceneKey === sceneKey ? null : sceneKey)}
+                        />
+                        <div
+                          className="accordion-body"
+                          id={`scene-panel-${group.id}-${scene.id}`}
+                          hidden={openSceneKey !== sceneKey}
+                        >
+                          <div className="editor-row">
+                            <label className="field grow">
+                              Scene name
+                              <input
+                                value={scene.name}
+                                onChange={(event) =>
+                                  change((d) => {
+                                    d.groups[groupIndex].scenes[sceneIndex].name = event.target.value
+                                  })
+                                }
+                              />
+                            </label>
+                            <button
+                              className="button danger"
+                              onClick={() => removeScene(groupIndex, sceneIndex)}
+                            >
+                              Remove scene
+                            </button>
+                          </div>
+                          {group.members.map((address) => {
+                            const device = devices.find((item) => item.ieee_address === address)
+                            const state =
+                              scene.states.find((item) => item.ieee === address) ??
+                              newState(address, devices)
+                            return (
+                              <SceneLightState
+                                key={address}
+                                device={device}
+                                address={address}
+                                state={state}
+                                onChange={(next) => setSceneState(groupIndex, sceneIndex, address, next)}
+                              />
+                            )
+                          })}
+                          {!group.members.length && (
+                            <p className="muted">Add a light to set its scene state.</p>
+                          )}
+                        </div>
+                      </section>
+                    )
+                  })}
+                  <button className="button" onClick={() => addScene(groupIndex)}>
+                    ＋ Add scene
+                  </button>
+                </div>
               </section>
             ))}
             <button className="button" onClick={addGroup}>
@@ -299,112 +382,130 @@ export function SceneEditor({ devices, onClose, onSaved }: Props) {
               <h3>Remote bindings</h3>
               {config.bindings.map((binding, index) => {
                 const group = config.groups.find((item) => item.id === binding.groupId)
+                const remote = remotes.find((item) => item.ieee_address === binding.ieee)
                 return (
-                  <div className="scene-card" key={index}>
-                    <div className="binding-grid">
-                      <label className="field">
-                        Remote
-                        <select
-                          value={binding.ieee}
-                          onChange={(event) =>
+                  <section className="scene-card" key={index}>
+                    <AccordionToggle
+                      title={remote?.name ?? binding.ieee}
+                      detail={`${actionLabels[binding.action] ?? binding.action} · ${group?.name ?? `Group ${binding.groupId}`}`}
+                      id={`binding-panel-${index}`}
+                      open={openBindingIndex === index}
+                      onToggle={() => setOpenBindingIndex(openBindingIndex === index ? null : index)}
+                    />
+                    <div
+                      className="accordion-body"
+                      id={`binding-panel-${index}`}
+                      hidden={openBindingIndex !== index}
+                    >
+                      <div className="binding-grid">
+                        <label className="field">
+                          Remote
+                          <select
+                            value={binding.ieee}
+                            onChange={(event) =>
+                              change((d) => {
+                                d.bindings[index].ieee = event.target.value
+                              })
+                            }
+                          >
+                            {remotes.map((remote) => (
+                              <option key={remote.ieee_address} value={remote.ieee_address}>
+                                {remote.name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="field">
+                          Action
+                          <select
+                            value={binding.action}
+                            onChange={(event) =>
+                              change((d) => {
+                                d.bindings[index].action = event.target.value
+                              })
+                            }
+                          >
+                            <option value="on">Power on</option>
+                            <option value="off">Power off</option>
+                            <option value="arrow_left">← Arrow left</option>
+                            <option value="arrow_right">→ Arrow right</option>
+                          </select>
+                        </label>
+                        <label className="field">
+                          Group
+                          <select
+                            value={binding.groupId}
+                            onChange={(event) =>
+                              change((d) => {
+                                d.bindings[index].groupId = Number(event.target.value)
+                                d.bindings[index].sceneIds = []
+                              })
+                            }
+                          >
+                            {config.groups.map((item) => (
+                              <option key={item.id} value={item.id}>
+                                {item.name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <button
+                          className="button danger"
+                          onClick={() => {
                             change((d) => {
-                              d.bindings[index].ieee = event.target.value
+                              d.bindings.splice(index, 1)
                             })
-                          }
+                            setOpenBindingIndex((current) =>
+                              current === null || current === index ? null : current > index ? current - 1 : current
+                            )
+                          }}
                         >
-                          {remotes.map((remote) => (
-                            <option key={remote.ieee_address} value={remote.ieee_address}>
-                              {remote.name}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <label className="field">
-                        Action
-                        <select
-                          value={binding.action}
-                          onChange={(event) =>
-                            change((d) => {
-                              d.bindings[index].action = event.target.value
-                            })
-                          }
-                        >
-                          <option value="on">Power on</option>
-                          <option value="off">Power off</option>
-                          <option value="arrow_left">← Arrow left</option>
-                          <option value="arrow_right">→ Arrow right</option>
-                        </select>
-                      </label>
-                      <label className="field">
-                        Group
-                        <select
-                          value={binding.groupId}
-                          onChange={(event) =>
-                            change((d) => {
-                              d.bindings[index].groupId = Number(event.target.value)
-                              d.bindings[index].sceneIds = []
-                            })
-                          }
-                        >
-                          {config.groups.map((item) => (
-                            <option key={item.id} value={item.id}>
-                              {item.name}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <button
-                        className="button danger"
-                        onClick={() =>
-                          change((d) => {
-                            d.bindings.splice(index, 1)
-                          })
-                        }
-                      >
-                        Remove
-                      </button>
-                    </div>
-                    <label className="check">
-                      <input
-                        type="checkbox"
-                        checked={binding.off}
-                        onChange={(event) =>
-                          change((d) => {
-                            d.bindings[index].off = event.target.checked
-                          })
-                        }
-                      />{' '}
-                      Turn group off
-                    </label>
-                    {!binding.off && (
-                      <div className="choice-grid">
-                        {group?.scenes.map((scene) => (
-                          <label className="check" key={scene.id}>
-                            <input
-                              type="checkbox"
-                              checked={binding.sceneIds.includes(scene.id)}
-                              onChange={(event) =>
-                                change((d) => {
-                                  const ids = d.bindings[index].sceneIds
-                                  d.bindings[index].sceneIds = event.target.checked
-                                    ? [...ids, scene.id]
-                                    : ids.filter((id) => id !== scene.id)
-                                })
-                              }
-                            />{' '}
-                            {scene.name}
-                          </label>
-                        ))}
+                          Remove
+                        </button>
                       </div>
-                    )}
-                  </div>
+                      <label className="check">
+                        <input
+                          type="checkbox"
+                          checked={binding.off}
+                          onChange={(event) =>
+                            change((d) => {
+                              d.bindings[index].off = event.target.checked
+                            })
+                          }
+                        />{' '}
+                        Turn group off
+                      </label>
+                      {!binding.off && (
+                        <div className="choice-grid">
+                          {group?.scenes.map((scene) => (
+                            <label className="check" key={scene.id}>
+                              <input
+                                type="checkbox"
+                                checked={binding.sceneIds.includes(scene.id)}
+                                onChange={(event) =>
+                                  change((d) => {
+                                    const ids = d.bindings[index].sceneIds
+                                    d.bindings[index].sceneIds = event.target.checked
+                                      ? [...ids, scene.id]
+                                      : ids.filter((id) => id !== scene.id)
+                                  })
+                                }
+                              />{' '}
+                              {scene.name}
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </section>
                 )
               })}
               {!config.bindings.length && <p className="muted">No remote bindings configured.</p>}
               <button
                 className="button"
                 disabled={!remotes.length || !config.groups.length}
-                onClick={() =>
+                onClick={() => {
+                  setOpenBindingIndex(config.bindings.length)
                   change((d) => {
                     const group = d.groups[0]
                     d.bindings.push({
@@ -415,7 +516,7 @@ export function SceneEditor({ devices, onClose, onSaved }: Props) {
                       sceneIds: group.scenes.length ? [group.scenes[0].id] : [],
                     })
                   })
-                }
+                }}
               >
                 ＋ Add remote binding
               </button>

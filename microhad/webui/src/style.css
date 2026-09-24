@@ -475,6 +475,47 @@ button:disabled {
 .editor-card:first-of-type {
   border-top: 0;
 }
+.accordion-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 5px 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+.accordion-toggle:focus-visible {
+  outline: 2px solid #5aa7cf;
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+.accordion-title {
+  font-weight: 750;
+  overflow-wrap: anywhere;
+}
+.accordion-detail {
+  margin-left: auto;
+  color: #61768a;
+  font-size: 0.8rem;
+  text-align: right;
+}
+.accordion-chevron {
+  color: #52718d;
+  font-size: 1.4rem;
+  line-height: 1;
+  transition: transform 0.15s ease;
+}
+.accordion-toggle[aria-expanded='true'] .accordion-chevron {
+  transform: rotate(180deg);
+}
+.accordion-body {
+  padding-top: 12px;
+}
+.accordion-body[hidden] {
+  display: none;
+}
 .editor-row {
   display: flex;
   gap: 10px;
@@ -494,6 +535,10 @@ button:disabled {
   border-radius: 10px;
   padding: 13px;
   margin: 10px 0;
+}
+.scene-card .accordion-body {
+  border-top: 1px solid #e0e9f0;
+  margin-top: 9px;
 }
 .state-row {
   display: grid;
@@ -562,6 +607,18 @@ button:disabled {
   .editor-row {
     align-items: stretch;
     flex-direction: column;
+  }
+  .accordion-toggle {
+    flex-wrap: wrap;
+  }
+  .accordion-detail {
+    order: 3;
+    width: 100%;
+    margin-left: 0;
+    text-align: left;
+  }
+  .accordion-chevron {
+    margin-left: auto;
   }
   .state-row,
   .descriptor-columns,
