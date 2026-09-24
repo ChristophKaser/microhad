@@ -86,7 +86,7 @@ public:
         device.networkAddress = node;
         device.hasTemperature = true;
         device.temperatureCelsius = 15.0;
-        gateway->nextSensorRefreshAt_[node] = time(0) + 3600;
+        gateway->nextSensorRefreshAt_[node] = time(0) + 300;
         endpoint.endpoint = 1;
         endpoint.inputClusters.push_back(0x0402);
         device.endpoints.push_back(endpoint);
@@ -145,6 +145,12 @@ public:
         gateway->startInterview(node, false);
     }
     static void expireInterview(Gateway* gateway) { gateway->interviewDeadline_ = time(0) - 1; }
+    static void expireSensorRefresh(Gateway* gateway, unsigned short node) {
+        gateway->nextSensorRefreshAt_[node] = time(0) - 1;
+    }
+    static bool sensorRefreshScheduled(const Gateway& gateway, unsigned short node) {
+        return gateway.nextSensorRefreshAt_.find(node) != gateway.nextSensorRefreshAt_.end();
+    }
     static unsigned char coordinatorInitializationStep(const Gateway& gateway) { return gateway.coordinatorInitializationStep_; }
     static void expireCoordinatorInitialization(Gateway* gateway) {
         gateway->coordinatorInitializationDeadline_ = time(0) - 1;

@@ -845,11 +845,12 @@ void testCompleteSensorInterview() {
 
     response.clear();
     response.push_back(request[21]); response.push_back(0); response.push_back(0x34); response.push_back(0x12);
-    response.push_back(12); /* descriptor bytes */
+    response.push_back(14); /* descriptor bytes */
     response.push_back(1); response.push_back(0x04); response.push_back(0x01);
     response.push_back(0x01); response.push_back(0x00); response.push_back(0);
-    response.push_back(2); response.push_back(0x00); response.push_back(0x00);
-    response.push_back(0x02); response.push_back(0x04); response.push_back(0);
+    response.push_back(3); response.push_back(0x00); response.push_back(0x00);
+    response.push_back(0x02); response.push_back(0x04);
+    response.push_back(0x05); response.push_back(0x04); response.push_back(0);
     wire = answerInterviewRequest(&gateway, serial[1], request, 0x0000, 0x8004, 0, response);
     request = firstAshData(wire);
     assert(request[10] == 0x00 && request[11] == 0x00 && request[23] == 0x00);
@@ -872,9 +873,13 @@ void testCompleteSensorInterview() {
     response.clear(); response.push_back(request[21]); response.push_back(0);
     wire = answerInterviewRequest(&gateway, serial[1], request, 0x0000, 0x8021, 0, response);
     request = firstAshData(wire);
+    assert(request[10] == 0x21 && request[11] == 0x00); /* Bind humidity reports */
+    response[0] = request[21];
+    wire = answerInterviewRequest(&gateway, serial[1], request, 0x0000, 0x8021, 0, response);
+    request = firstAshData(wire);
     assert(request[10] == 0x02 && request[11] == 0x04 && request[23] == 0x06);
     assert(request[27] == 0x29 && request[28] == 30 && request[29] == 0 &&
-           request[30] == 0x10 && request[31] == 0x0e);
+           request[30] == 0x2c && request[31] == 0x01);
 
     response.clear(); response.push_back(0x18); response.push_back(request[22]);
     response.push_back(0x07); response.push_back(0);
@@ -886,6 +891,21 @@ void testCompleteSensorInterview() {
     response.push_back(0); response.push_back(0); response.push_back(0); response.push_back(0x29);
     response.push_back(0x2c); response.push_back(0x09);
     wire = answerInterviewRequest(&gateway, serial[1], request, 0x0104, 0x0402, 1, response);
+    request = firstAshData(wire);
+    assert(request[10] == 0x05 && request[11] == 0x04 && request[23] == 0x06);
+    assert(request[27] == 0x21 && request[28] == 30 && request[29] == 0 &&
+           request[30] == 0x2c && request[31] == 0x01);
+
+    response.clear(); response.push_back(0x18); response.push_back(request[22]);
+    response.push_back(0x07); response.push_back(0);
+    wire = answerInterviewRequest(&gateway, serial[1], request, 0x0104, 0x0405, 1, response);
+    request = firstAshData(wire);
+    assert(request[10] == 0x05 && request[11] == 0x04 && request[23] == 0x00);
+
+    response.clear(); response.push_back(0x18); response.push_back(request[22]); response.push_back(0x01);
+    response.push_back(0); response.push_back(0); response.push_back(0); response.push_back(0x21);
+    response.push_back(0x88); response.push_back(0x13); /* 50.00% */
+    wire = answerInterviewRequest(&gateway, serial[1], request, 0x0104, 0x0405, 1, response);
     std::vector<std::vector<unsigned char> > finishedFrames = decodeFrames(wire);
     unsigned long i;
     for (i = 0; i < finishedFrames.size(); ++i)
@@ -894,6 +914,7 @@ void testCompleteSensorInterview() {
     std::vector<Device> devices = gateway.devices();
     assert(devices.size() == 1 && devices[0].manufacturerName == "Acme" && devices[0].modelId == "ModelX");
     assert(devices[0].hasTemperature && devices[0].temperatureCelsius > 23.4 && devices[0].temperatureCelsius < 23.6);
+    assert(devices[0].hasHumidity && devices[0].humidityPercent == 50.0);
     std::vector<Device> persisted;
     std::string error;
     assert(loadDevices(directory + "/devices.json", &persisted, &error));
@@ -1075,6 +1096,74 @@ void testInterviewWakeContactAndRefreshOnly() {
     for (i = 0; i < frames.size(); ++i) assert(frames[i].empty() || (frames[i][0] & 0x80) != 0);
     assert(refresh.logsJson().find("Sensor attribute refresh completed") != std::string::npos);
     refresh.stop(); close(serial[1]);
+}
+
+void testSensorRefreshIntervalsAndPeriodicRead() {
+    char name[] = "/tmp/microhad-zigbee-sensor-refresh-XXXXXX";
+    char* temporary = mkdtemp(name);
+    assert(temporary != 0);
+    std::string directory(temporary);
+    int serial[2];
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
+    Gateway gateway("/dev/null", 115200, directory, "", "", "");
+    GatewayIntegrationTestPeer::attachSerial(&gateway, serial[0]);
+    const std::string ieee = "0x00124b0000004301";
+    const unsigned short node = 0x1234;
+    GatewayIntegrationTestPeer::addMeasurementDevice(&gateway, node, ieee);
+    std::vector<Device> devices = gateway.devices();
+    assert(devices[0].sensorRefreshIntervalMinutes == 5);
+    long deadline = gateway.nextPollDeadline();
+    assert(deadline >= time(0) + 298 && deadline <= time(0) + 300);
+
+    std::string error;
+    assert(gateway.setDeviceSettings(ieee, "Room sensor", false, 0, false, 0, false, 0, 0, true, 2, &error));
+    devices = gateway.devices();
+    assert(devices[0].sensorRefreshIntervalMinutes == 2);
+    deadline = gateway.nextPollDeadline();
+    assert(deadline >= time(0) + 118 && deadline <= time(0) + 120);
+
+    GatewayIntegrationTestPeer::expireSensorRefresh(&gateway, node);
+    gateway.poll();
+    assert(gateway.logsJson().find("Queued periodic sensor discovery refresh") != std::string::npos);
+    gateway.poll();
+    std::vector<unsigned char> request = firstAshData(readAvailable(serial[1]));
+    assert(request[10] == 0x02 && request[11] == 0x00); /* refresh begins with endpoint discovery */
+
+    std::vector<unsigned char> response;
+    response.push_back(request[21]); response.push_back(0);
+    std::vector<unsigned char> wire = answerInterviewRequest(&gateway, serial[1], request, 0x0000, 0x8002, 0, response);
+    request = firstAshData(wire);
+    response.clear(); response.push_back(request[21]); response.push_back(0);
+    response.push_back(static_cast<unsigned char>(node)); response.push_back(static_cast<unsigned char>(node >> 8));
+    response.push_back(1); response.push_back(1);
+    wire = answerInterviewRequest(&gateway, serial[1], request, 0x0000, 0x8005, 0, response);
+    request = firstAshData(wire);
+    assert(request[10] == 0x02 && request[11] == 0x04 && request[23] == 0x00);
+
+    response.clear(); response.push_back(0x18); response.push_back(request[22]); response.push_back(0x01);
+    response.push_back(0); response.push_back(0); response.push_back(0); response.push_back(0x29);
+    response.push_back(0x60); response.push_back(0x09); /* 24.00C */
+    wire = answerInterviewRequest(&gateway, serial[1], request, 0x0104, 0x0402, 1, response);
+    std::vector<std::vector<unsigned char> > frames = decodeFrames(wire);
+    unsigned long i;
+    for (i = 0; i < frames.size(); ++i) assert(frames[i].empty() || (frames[i][0] & 0x80) != 0);
+    assert(gateway.devices()[0].temperatureCelsius == 24.0);
+    assert(gateway.logsJson().find("Sensor attribute refresh completed") != std::string::npos);
+
+    GatewayIntegrationTestPeer::expireSensorRefresh(&gateway, node);
+    assert(gateway.setDeviceSettings(ieee, "Room sensor", false, 0, false, 0, false, 0, 0, true, 0, &error));
+    assert(gateway.devices()[0].sensorRefreshIntervalMinutes == 0);
+    assert(!GatewayIntegrationTestPeer::sensorRefreshScheduled(gateway, node));
+    gateway.poll();
+    std::string disabledLogs = gateway.logsJson();
+    std::string::size_type queued = disabledLogs.find("Queued periodic sensor discovery refresh");
+    assert(queued != std::string::npos &&
+           disabledLogs.find("Queued periodic sensor discovery refresh", queued + 1) == std::string::npos);
+    frames = decodeFrames(readAvailable(serial[1]));
+    for (i = 0; i < frames.size(); ++i) assert(frames[i].empty() || (frames[i][0] & 0x80) != 0);
+    gateway.stop(); close(serial[1]);
+    unlink((directory + "/devices.json").c_str());
+    rmdir(directory.c_str());
 }
 
 void testCoordinatorInitializationSequence() {
@@ -1564,6 +1653,8 @@ void runGatewayIntegrationTests() {
     testInterviewResponseMatchingAndTimeout();
     fprintf(stderr, "integration: sleepy interview wake, contact closure, and refresh-only\n");
     testInterviewWakeContactAndRefreshOnly();
+    fprintf(stderr, "integration: sensor refresh intervals and periodic attribute read\n");
+    testSensorRefreshIntervalsAndPeriodicRead();
     fprintf(stderr, "integration: coordinator initialization, IEEE lookup, and Tradfri setup\n");
     testCoordinatorInitializationSequence();
     fprintf(stderr, "integration: coordinator initialization unexpected reply and timeout\n");

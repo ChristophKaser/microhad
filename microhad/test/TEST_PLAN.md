@@ -79,7 +79,7 @@ physical coordinator and radio interoperability testing.
 | DEV-05 | I | Node descriptor, active-endpoint, simple-descriptor, basic-identity, bind, read, and reporting interview | Operations are sequenced, persisted, and classified from discovered capabilities | DONE |
 | DEV-06 | I | Each interview response malformed, failed, delayed, duplicate, wrong transaction/tag, or absent | Correct operation alone completes; retry/pause/failure does not corrupt interview state | DONE |
 | DEV-07 | I | Sleepy-device wake, contact closure during interview, refresh-only interview, rejoin migration | Paused work resumes correctly and avoids duplicate/obsolete operations | DONE |
-| DEV-08 | I | Standard measurement reporting configuration and fallback refresh scheduling | Five-minute defaults, configurable whole-minute interval, `0` disable, serial refresh after response | P |
+| DEV-08 | I | Standard measurement reporting configuration and fallback refresh scheduling | Five-minute defaults, configurable whole-minute interval, `0` disable, serial refresh after response | DONE |
 | DEV-09 | I | Refresh unknown device, no supported readable endpoint, busy interview, and queue/send failure | Meaningful rejection with no bogus state mutation | G |
 | ZCL-01 | U | Temperature, humidity, occupancy, battery, on/off, and level reports | Values, flags, last-seen, and brightness conversion are correct | DONE |
 | ZCL-02 | U | Xiaomi `0xff01` measurement data | Supported tagged values update only their respective measurements | DONE |

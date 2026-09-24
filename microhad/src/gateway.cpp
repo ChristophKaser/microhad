@@ -2343,11 +2343,11 @@ void Gateway::buildConfigurationOperations(unsigned short destination) {
     for (unsigned long i = 0; i < device.endpoints.size(); ++i) {
         const EndpointDescriptor& endpoint = device.endpoints[i];
         if (endpointSupports(endpoint, 0x0402)) {
-            queueInterviewOperation(destination, InterviewConfigureReporting, endpoint.endpoint, 0x0402, 0x0000, 0x29, 20, 30, 3600);
+            queueInterviewOperation(destination, InterviewConfigureReporting, endpoint.endpoint, 0x0402, 0x0000, 0x29, 20, 30, 300);
             queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0402, 0x0000);
         }
         if (endpointSupports(endpoint, 0x0405)) {
-            queueInterviewOperation(destination, InterviewConfigureReporting, endpoint.endpoint, 0x0405, 0x0000, 0x21, 100, 30, 3600);
+            queueInterviewOperation(destination, InterviewConfigureReporting, endpoint.endpoint, 0x0405, 0x0000, 0x21, 100, 30, 300);
             queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0405, 0x0000);
         }
         if (endpointSupports(endpoint, 0x0001)) {
