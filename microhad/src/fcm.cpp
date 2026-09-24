@@ -23,7 +23,9 @@ bool parseFirebaseServiceAccount(const std::string& json, FirebaseServiceAccount
     if (!jsonStringField(json, "project_id", &account->projectId) ||
         !jsonStringField(json, "client_email", &account->clientEmail) ||
         !jsonStringField(json, "private_key", &account->privateKeyPem) ||
-        account->projectId.empty() || account->clientEmail.empty() || account->privateKeyPem.empty()) {
+        account->projectId.empty() || account->clientEmail.empty() ||
+        account->privateKeyPem.find("-----BEGIN PRIVATE KEY-----") != 0 ||
+        account->privateKeyPem.find("-----END PRIVATE KEY-----") == std::string::npos) {
         *error = "Firebase service account is missing project_id, client_email, or private_key";
         return false;
     }

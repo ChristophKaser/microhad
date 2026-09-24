@@ -44,13 +44,27 @@ static void testFcmEncodingsAndJwt() {
     assert(error == "cannot sign Firebase OAuth JWT");
 }
 
+static void testFirebaseServiceAccountValidation() {
+    FirebaseServiceAccount account;
+    std::string error;
+    const std::string valid = "{\"project_id\":\"project\",\"client_email\":\"alerts@example.test\",\"private_key\":\"-----BEGIN PRIVATE KEY-----\\nkey\\n-----END PRIVATE KEY-----\\n\"}";
+    assert(parseFirebaseServiceAccount(valid, &account, &error));
+    assert(account.privateKeyPem == "-----BEGIN PRIVATE KEY-----\nkey\n-----END PRIVATE KEY-----\n");
+    assert(!parseFirebaseServiceAccount("{}", &account, &error));
+    assert(!parseFirebaseServiceAccount("{\"project_id\":\"project\",\"client_email\":\"alerts@example.test\",\"private_key\":5}", &account, &error));
+    assert(!parseFirebaseServiceAccount("{\"project_id\":\"project\",\"client_email\":\"alerts@example.test\",\"private_key\":\"not a key\"}", &account, &error));
+    assert(!parseFirebaseServiceAccount("{\"project_id\":\"project\",\"client_email\":\"alerts@example.test\",\"private_key\":\"\\u12zz\"}", &account, &error));
+    assert(error == "Firebase service account is missing project_id, client_email, or private_key");
+}
+
 void runFcmUnitTests() {
     FirebaseServiceAccount account;
     std::string error;
     fprintf(stderr, "unit: FCM service-account parsing and message encoding\n");
-    assert(parseFirebaseServiceAccount("{\"project_id\":\"project\",\"client_email\":\"alerts@example.test\",\"private_key\":\"key\"}", &account, &error));
+    assert(parseFirebaseServiceAccount("{\"project_id\":\"project\",\"client_email\":\"alerts@example.test\",\"private_key\":\"-----BEGIN PRIVATE KEY-----\\nkey\\n-----END PRIVATE KEY-----\"}", &account, &error));
     assert(!parseFirebaseServiceAccount("{\"project_id\":\"project\"}", &account, &error));
     assert(makeFcmMessage("alerts", "Window open", "Kitchen").find("\"topic\":\"alerts\"") != std::string::npos);
     assert(base64UrlEncode("foo") == "Zm9v");
     testFcmEncodingsAndJwt();
+    testFirebaseServiceAccountValidation();
 }

@@ -1220,9 +1220,9 @@ static void testBrowserPushSubscriptionBounds() {
 static void testFcmMessageConstruction() {
     FirebaseServiceAccount account;
     std::string error;
-    std::string json = "{\"project_id\":\"project\",\"client_email\":\"x@example.test\",\"private_key\":\"-----BEGIN\\nKEY-----\\n\"}";
+    std::string json = "{\"project_id\":\"project\",\"client_email\":\"x@example.test\",\"private_key\":\"-----BEGIN PRIVATE KEY-----\\nKEY\\n-----END PRIVATE KEY-----\\n\"}";
     assert(parseFirebaseServiceAccount(json, &account, &error));
-    assert(account.privateKeyPem == "-----BEGIN\nKEY-----\n");
+    assert(account.privateKeyPem == "-----BEGIN PRIVATE KEY-----\nKEY\n-----END PRIVATE KEY-----\n");
     assert(base64UrlEncode("foo") == "Zm9v");
     assert(base64UrlEncode("f") == "Zg");
     std::string decoded;
