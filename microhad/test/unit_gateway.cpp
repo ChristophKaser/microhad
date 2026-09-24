@@ -631,6 +631,35 @@ static void testAshFragmentationAndFrameOrdering() {
     assert(!transport.popFrame(&decoded));
 }
 
+static void testAshRejectsMalformedAndOverlongInput() {
+    AshTransport transport;
+    std::vector<unsigned char> payload;
+    std::vector<unsigned char> encoded;
+    std::vector<unsigned char> frame;
+    std::vector<unsigned char> overlong(4097, 0x55);
+    unsigned char strayDelimiter = 0x7e;
+    unsigned char cancel = 0x1a;
+    unsigned char malformedEscape[] = { 0x00, 0x7d, 0x00, 0x00, 0x00, 0x7e };
+
+    /* Empty delimiters and invalid escaping are discarded without a frame. */
+    transport.feed(&strayDelimiter, 1);
+    transport.feed(malformedEscape, sizeof(malformedEscape));
+    assert(!transport.popFrame(&frame));
+
+    /* A reset drops a partial frame and oversized unterminated input recovers. */
+    payload.push_back(0x55);
+    encoded = AshTransport::encodeData(0x03, payload);
+    transport.feed(&encoded[0], encoded.size() - 1);
+    transport.feed(&cancel, 1);
+    transport.feed(&encoded[encoded.size() - 1], 1);
+    assert(!transport.popFrame(&frame));
+    transport.feed(&overlong[0], overlong.size());
+    transport.feed(&encoded[0], encoded.size());
+    assert(transport.popFrame(&frame));
+    assert(frame.size() == 2 && frame[0] == 0x03 && frame[1] == 0x55);
+    assert(!transport.popFrame(&frame));
+}
+
 static void testDevicePersistence() {
     std::ostringstream path;
     path << "/tmp/microhad-zigbee-native-test-" << static_cast<long>(getpid());
@@ -1080,6 +1109,7 @@ void runUnitTests() {
     testAshRoundTrip();
     testAshRejectsBadCrc();
     testAshFragmentationAndFrameOrdering();
+    testAshRejectsMalformedAndOverlongInput();
     testDevicePersistence();
     testDeviceSettings();
     testNetworkPersistence();

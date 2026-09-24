@@ -42,7 +42,6 @@ physical coordinator and radio interoperability testing.
 | ID | Level | Feature / stimulus | Expected result | Status |
 | --- | --- | --- | --- | --- |
 | ASH-01 | U | Encode/decode data containing each reserved byte | Exact escaping, CRC, control byte, and payload round trip | E |
-| ASH-03 | U | Bad CRC, bad escape sequence, overlong/unbounded input, stray delimiters, and reset mid-frame | Invalid data is discarded; parser resynchronizes without unbounded memory | P |
 | ASH-04 | I | Reset request/acknowledgement and reset timeout | Gateway emits reset, begins initialization only after valid ack, retries or reports timeout | P |
 | ASH-05 | I | Serial short write, `EAGAIN`, interrupted read/write, EOF, and hard read/write error | Pending bytes are preserved when recoverable; offline/error state is published otherwise | G |
 | ASH-06 | I | Data ACK, NAK, retransmit deadline, retry limit, duplicate frame, and sequence wrap | Correct ACK/retransmit behavior; duplicate payload is not applied twice | G |
@@ -171,6 +170,7 @@ physical coordinator and radio interoperability testing.
 | ID | Level | Feature / stimulus | Expected result |
 | --- | --- | --- | --- |
 | ASH-02 | U | Empty, consecutive, fragmented, and multiple frames in one feed | Only complete valid frames are popped in order |
+| ASH-03 | U | Bad CRC, bad escape sequence, overlong/unbounded input, stray delimiters, and reset mid-frame | Invalid data is discarded; parser resynchronizes without unbounded memory |
 
 1. Split the current broad `unit_gateway.cpp` tests into behavior-focused cases
    while retaining the existing `test_main.cpp` target; add fakes for time,

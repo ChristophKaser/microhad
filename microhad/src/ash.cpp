@@ -5,6 +5,7 @@ const unsigned char kFlag = 0x7e;
 const unsigned char kEscape = 0x7d;
 const unsigned char kStuff = 0x20;
 const unsigned char kCancel = 0x1a;
+const unsigned long kMaximumPacketBytes = 4096;
 
 bool reserved(unsigned char value) {
     return value == 0x7e || value == 0x7d || value == 0x11 || value == 0x13 ||
@@ -60,6 +61,7 @@ void AshTransport::feed(const unsigned char* bytes, unsigned long length) {
         } else {
             input_.push_back(bytes[i]);
             if (bytes[i] == kFlag) parse();
+            else if (input_.size() > kMaximumPacketBytes) input_.clear();
         }
     }
     parse();
@@ -85,6 +87,7 @@ void AshTransport::parse() {
         std::vector<unsigned char> packet;
         std::vector<unsigned char> decoded;
         bool escaped = false;
+        bool invalidEscape = false;
         unsigned long i;
         flag = input_.begin();
         while (flag != input_.end() && *flag != kFlag) {
@@ -97,7 +100,9 @@ void AshTransport::parse() {
         input_.erase(input_.begin(), flag + 1);
         for (i = 0; i < packet.size(); ++i) {
             if (escaped) {
-                decoded.push_back(packet[i] ^ kStuff);
+                unsigned char unescaped = packet[i] ^ kStuff;
+                if (!reserved(unescaped)) invalidEscape = true;
+                else decoded.push_back(unescaped);
                 escaped = false;
             } else if (packet[i] == kEscape) {
                 escaped = true;
@@ -105,7 +110,7 @@ void AshTransport::parse() {
                 decoded.push_back(packet[i]);
             }
         }
-        if (!escaped && decoded.size() >= 3) {
+        if (!escaped && !invalidEscape && decoded.size() >= 3) {
             unsigned short received = static_cast<unsigned short>(decoded[decoded.size() - 2]) << 8;
             received |= decoded[decoded.size() - 1];
             decoded.resize(decoded.size() - 2);
