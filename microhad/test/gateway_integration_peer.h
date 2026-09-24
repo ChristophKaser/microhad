@@ -49,6 +49,20 @@ public:
         gateway->coordinatorInitializationStep_ = 0;
         gateway->continueCoordinatorInitialization();
     }
+    static void prepareApsSensor(Gateway* gateway) {
+        Device device;
+        EndpointDescriptor endpoint;
+        device.ieeeAddress = "0x00124b0000001234";
+        device.name = "APS sensor";
+        device.networkAddress = 0x1234;
+        device.hasTemperature = true;
+        device.temperatureCelsius = 10.5;
+        endpoint.endpoint = 1;
+        endpoint.inputClusters.push_back(0x0402);
+        device.endpoints.push_back(endpoint);
+        gateway->devices_[device.ieeeAddress] = device;
+        gateway->nodeAddresses_[device.networkAddress] = device.ieeeAddress;
+    }
     static unsigned char ashReceiveSequence(const Gateway& gateway) { return gateway.ashReceiveSequence_; }
     static unsigned char coordinatorInitializationStep(const Gateway& gateway) { return gateway.coordinatorInitializationStep_; }
     static void expireCoordinatorInitialization(Gateway* gateway) {

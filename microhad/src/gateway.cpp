@@ -2639,12 +2639,14 @@ void Gateway::sendZclDefaultResponse(unsigned short destination, unsigned char s
 void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
     unsigned short cluster;
     unsigned short sender;
+    unsigned short profile;
     unsigned long messageOffset;
     unsigned long length;
     std::map<unsigned short, std::string>::const_iterator address;
     std::vector<unsigned char> message;
     if (payload.size() < 20) return;
     /* type(1), APS frame(11), LQI/RSSI(2), sender(2), binding/address(2), LVBytes */
+    profile = static_cast<unsigned short>(payload[1]) | (static_cast<unsigned short>(payload[2]) << 8);
     cluster = static_cast<unsigned short>(payload[3]) | (static_cast<unsigned short>(payload[4]) << 8);
     sender = static_cast<unsigned short>(payload[14]) | (static_cast<unsigned short>(payload[15]) << 8);
     messageOffset = 18;
@@ -2654,9 +2656,9 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
     if (messageOffset + length > payload.size() || length < 2) return;
     message.assign(payload.begin() + messageOffset, payload.begin() + messageOffset + length);
     addFrameLog("RX", sender,
-                static_cast<unsigned short>(payload[1]) | (static_cast<unsigned short>(payload[2]) << 8), cluster,
+                profile, cluster,
                 payload[5], payload[6], static_cast<unsigned short>(payload[7]) | (static_cast<unsigned short>(payload[8]) << 8),
-                static_cast<unsigned short>(payload[16]) | (static_cast<unsigned short>(payload[17]) << 8), payload[11], 0,
+                0, payload[11], 0,
                 static_cast<int>(payload[12]), static_cast<int>(static_cast<signed char>(payload[13])), message);
     {
         std::ostringstream diagnostic;
@@ -2665,14 +2667,22 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
                    << " cluster=0x" << cluster << " length=" << std::dec << length;
         addLog(diagnostic.str());
     }
-    if (cluster == 0x0013 && message.size() >= 12) {
+    if (profile != 0x0000 && profile != 0x0104) {
+        addLog("Ignoring APS message with unsupported profile");
+        return;
+    }
+    if (profile == 0x0000 && cluster > 0x001f && (cluster < 0x8000 || cluster > 0x80ff)) {
+        addLog("Ignoring non-ZDO cluster on the Zigbee Device Profile");
+        return;
+    }
+    if (profile == 0x0000 && cluster == 0x0013 && message.size() >= 12) {
         /* ZDO Device_annce: transaction sequence, network address, EUI64, capability. */
         unsigned short announcedNode = static_cast<unsigned short>(message[1]) |
                                       (static_cast<unsigned short>(message[2]) << 8);
         registerNode(announcedNode, &message[3]);
         return;
     }
-    if (cluster == 0x8002 && message.size() >= 2 && message[1] == 0) {
+    if (profile == 0x0000 && cluster == 0x8002 && message.size() >= 2 && message[1] == 0) {
         std::map<unsigned short, InterviewState>::iterator interview = interviews_.find(sender);
         if (interview != interviews_.end() &&
             interview->second.operationIndex < interview->second.operations.size() &&
@@ -2685,7 +2695,7 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
         }
         return;
     }
-    if (cluster == 0x8005 && message.size() >= 5 && message[1] == 0) {
+    if (profile == 0x0000 && cluster == 0x8005 && message.size() >= 5 && message[1] == 0) {
         std::map<unsigned short, InterviewState>::iterator interview = interviews_.find(sender);
         if (interview != interviews_.end() &&
             interview->second.operationIndex < interview->second.operations.size() &&
@@ -2707,7 +2717,7 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
         }
         return;
     }
-    if (cluster == 0x8004 && message.size() >= 5) {
+    if (profile == 0x0000 && cluster == 0x8004 && message.size() >= 5) {
         std::map<unsigned short, InterviewState>::iterator interview = interviews_.find(sender);
         if (interview != interviews_.end() &&
             interview->second.operationIndex < interview->second.operations.size() &&
@@ -2723,7 +2733,7 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
         }
         return;
     }
-    if (cluster == 0x8021 && message.size() >= 2) {
+    if (profile == 0x0000 && cluster == 0x8021 && message.size() >= 2) {
         std::ostringstream bind;
         bind << "ZDO bind response: " << (message[1] == 0 ? "accepted" : "rejected 0x") << std::hex;
         if (message[1] != 0) bind << static_cast<unsigned int>(message[1]);
@@ -2740,6 +2750,16 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
     wakeInterview(sender);
     address = nodeAddresses_.find(sender);
     if (address == nodeAddresses_.end()) return;
+    if (profile == 0x0104 && !devices_[address->second].endpoints.empty()) {
+        bool endpointKnown = false;
+        for (unsigned long i = 0; i < devices_[address->second].endpoints.size(); ++i) {
+            if (devices_[address->second].endpoints[i].endpoint == payload[5]) endpointKnown = true;
+        }
+        if (!endpointKnown) {
+            addLog("Ignoring APS message from an undiscovered endpoint");
+            return;
+        }
+    }
     unsigned char frameControl = message[0];
     unsigned long zclOffset = 3;
     unsigned short manufacturer = 0;

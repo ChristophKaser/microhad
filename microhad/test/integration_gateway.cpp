@@ -3,6 +3,7 @@
 #include "gateway_integration_peer.h"
 
 #include <cassert>
+#include <algorithm>
 #include <cerrno>
 #include <csignal>
 #include <cstring>
@@ -470,6 +471,71 @@ void testCoordinatorInitializationUnexpectedReplyAndTimeout() {
     timeout.stop(); close(serial[1]);
 }
 
+std::vector<unsigned char> apsPayload(unsigned short profile, unsigned short cluster,
+                                      unsigned char sourceEndpoint, unsigned char lqi,
+                                      const std::vector<unsigned char>& zcl, unsigned char declaredLength = 0xff) {
+    std::vector<unsigned char> payload(19 + zcl.size(), 0);
+    payload[0] = 0;
+    payload[1] = static_cast<unsigned char>(profile); payload[2] = static_cast<unsigned char>(profile >> 8);
+    payload[3] = static_cast<unsigned char>(cluster); payload[4] = static_cast<unsigned char>(cluster >> 8);
+    payload[5] = sourceEndpoint; payload[6] = 1;
+    payload[7] = 0x40; payload[11] = 42; payload[12] = lqi; payload[13] = static_cast<unsigned char>(-40);
+    payload[14] = 0x34; payload[15] = 0x12;
+    payload[18] = declaredLength == 0xff ? static_cast<unsigned char>(zcl.size()) : declaredLength;
+    std::copy(zcl.begin(), zcl.end(), payload.begin() + 19);
+    return payload;
+}
+
+void sendApsCallback(int fd, unsigned char ashSequence, const std::vector<unsigned char>& aps) {
+    std::vector<unsigned char> ezsp;
+    ezsp.push_back(1); ezsp.push_back(0x80); ezsp.push_back(0x45);
+    ezsp.insert(ezsp.end(), aps.begin(), aps.end());
+    sendAshControl(fd, static_cast<unsigned char>((ashSequence & 7) << 4), obfuscateEzsp(ezsp));
+}
+
+void testApsCallbackValidationAndDispatch() {
+    int serial[2];
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
+    Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+    GatewayIntegrationTestPeer::attachSerial(&gateway, serial[0]);
+    GatewayIntegrationTestPeer::prepareApsSensor(&gateway);
+    std::vector<unsigned char> report;
+    report.push_back(0x18); report.push_back(7); report.push_back(0x0a);
+    report.push_back(0); report.push_back(0); report.push_back(0x29); report.push_back(0x2c); report.push_back(0x09);
+    sendApsCallback(serial[1], 0, apsPayload(0x0104, 0x0402, 1, 88, report));
+    gateway.poll(); readAvailable(serial[1]);
+    std::string status = gateway.statusJson();
+    assert(status.find("\"temperature_celsius\":23.48") != std::string::npos);
+    assert(status.find("\"link_quality\":88") != std::string::npos);
+    assert(gateway.logsJson().find("profile=0x104 cluster=0x402 length=8") != std::string::npos);
+    assert(gateway.logsJson().find("lqi=88 rssi=-40") != std::string::npos);
+    assert(gateway.logsJson().find("aps_seq=42 options=0x40") != std::string::npos);
+
+    sendApsCallback(serial[1], 1, apsPayload(0x0005, 0x0402, 1, 12, report));
+    gateway.poll(); readAvailable(serial[1]);
+    status = gateway.statusJson();
+    assert(status.find("\"temperature_celsius\":23.48") != std::string::npos);
+    assert(status.find("\"link_quality\":88") != std::string::npos);
+    assert(gateway.logsJson().find("Ignoring APS message with unsupported profile") != std::string::npos);
+
+    sendApsCallback(serial[1], 2, apsPayload(0x0104, 0x0402, 2, 4, report));
+    gateway.poll(); readAvailable(serial[1]);
+    assert(gateway.statusJson().find("\"link_quality\":88") != std::string::npos);
+    assert(gateway.logsJson().find("Ignoring APS message from an undiscovered endpoint") != std::string::npos);
+
+    sendApsCallback(serial[1], 3, apsPayload(0x0104, 0x0402, 1, 20, report, 20));
+    gateway.poll(); readAvailable(serial[1]);
+    assert(gateway.statusJson().find("\"temperature_celsius\":23.48") != std::string::npos);
+
+    std::vector<unsigned char> unsupported;
+    unsupported.push_back(0x18); unsupported.push_back(9); unsupported.push_back(0x0a);
+    sendApsCallback(serial[1], 4, apsPayload(0x0104, 0x1234, 1, 77, unsupported));
+    gateway.poll(); readAvailable(serial[1]);
+    assert(gateway.statusJson().find("\"temperature_celsius\":23.48") != std::string::npos);
+    assert(gateway.logsJson().find("profile=0x104 cluster=0x1234") != std::string::npos);
+    gateway.stop(); close(serial[1]);
+}
+
 void testSerialBackpressureAndFailures() {
     int serial[2];
     assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
@@ -759,6 +825,8 @@ void runGatewayIntegrationTests() {
     testCoordinatorInitializationSequence();
     fprintf(stderr, "integration: coordinator initialization unexpected reply and timeout\n");
     testCoordinatorInitializationUnexpectedReplyAndTimeout();
+    fprintf(stderr, "integration: APS callback validation and dispatch\n");
+    testApsCallbackValidationAndDispatch();
     fprintf(stderr, "integration: serial backpressure recovery and terminal failures\n");
     testSerialBackpressureAndFailures();
     fprintf(stderr, "integration: ASH acknowledgements, retries, duplicate suppression, and wrap\n");

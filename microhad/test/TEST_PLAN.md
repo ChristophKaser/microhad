@@ -51,7 +51,7 @@ physical coordinator and radio interoperability testing.
 | EZSP-02 | I | Unsupported, malformed, stale-sequence, failed-status, or absent version reply | Negotiation does not advance incorrectly; error/retry is observable | DONE |
 | EZSP-03 | I | Coordinator initialization command sequence, token-write setup, coordinator IEEE lookup, and Tradfri bind group | Commands occur in required order and only after prerequisite responses | DONE |
 | EZSP-04 | I | Initialization command failure, timeout, unexpected command, and delayed reply | No false online state; retry/failure is logged and deadlines remain bounded | DONE |
-| EZSP-05 | I | Incoming APS callbacks with valid/invalid profile, cluster, endpoints, lengths, options, LQI/RSSI | Valid frames reach the correct handler; malformed/unsupported frames only log safely | G |
+| EZSP-05 | I | Incoming APS callbacks with valid/invalid profile, cluster, endpoints, lengths, options, LQI/RSSI | Valid frames reach the correct handler; malformed/unsupported frames only log safely | DONE |
 | EZSP-06 | I | Frame diagnostic logging | Decoded frame details and bounded hex fallback are available without leaking secrets | DONE |
 
 ## Network formation and joining

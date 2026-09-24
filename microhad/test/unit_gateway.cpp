@@ -303,6 +303,7 @@ public:
             response.assign(32, 0);
             response[3] = static_cast<unsigned char>(clusters[i]);
             response[4] = static_cast<unsigned char>(clusters[i] >> 8);
+            if (i >= 3) { response[1] = 0x04; response[2] = 0x01; }
             response[14] = 0x21; response[15] = 0x43;
             response[18] = 13;
             if (i == 1) response[23] = 8; /* valid empty simple descriptor */
