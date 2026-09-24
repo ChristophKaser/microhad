@@ -5,6 +5,7 @@
 #include <signal.h>
 #include <string>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <netinet/in.h>
@@ -173,8 +174,13 @@ void verifyServiceRestartResponse() {
     address.sin_port = htons(static_cast<unsigned short>(port));
     assert(connect(client, reinterpret_cast<struct sockaddr*>(&address), sizeof(address)) == 0);
     assert(write(client, request, sizeof(request) - 1) == static_cast<ssize_t>(sizeof(request) - 1));
+    struct timeval readTimeout;
+    readTimeout.tv_sec = 3;
+    readTimeout.tv_usec = 0;
+    assert(setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &readTimeout, sizeof(readTimeout)) == 0);
     while ((count = read(client, buffer, sizeof(buffer))) > 0) response.append(buffer, static_cast<unsigned long>(count));
     close(client);
+    assert(count == 0 && "restart response did not finish before the read deadline");
     assert(response.find("HTTP/1.1 200 OK\r\n") == 0);
     assert(response.find("\"state\":\"restarting\"") != std::string::npos);
     waitForExit(child);

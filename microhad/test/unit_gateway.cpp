@@ -109,6 +109,40 @@ public:
         }
         return command;
     }
+    static void closingPermitReplyTimeout() {
+        Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+        std::string error;
+        gateway.online_ = true;
+        gateway.networkFormed_ = true;
+        gateway.ezspVersion_ = 8;
+        gateway.joinUntil_ = time(0) + 120;
+        gateway.joinPermitRenewAt_ = time(0) + 100;
+        assert(gateway.setJoining(0, &error));
+        assert(gateway.joinPermitClosePending_);
+        assert(gateway.joinPermitCloseDeadline_ >= time(0) + 9);
+        gateway.joinPermitCloseDeadline_ = time(0) - 1;
+        assert(gateway.nextPollDeadline() == time(0));
+        gateway.poll();
+        assert(!gateway.joinPermitClosePending_ && gateway.joinPermitCloseDeadline_ == 0);
+        assert(gateway.joinUntil_ == 0 && gateway.joinPermitRenewAt_ == 0);
+        assert(gateway.statusJson().find("\"joining_until\":0") != std::string::npos);
+        std::vector<unsigned char> retry = decodedLastEzsp(gateway);
+        assert(retry[3] == 0x22 && retry[5] == 0);
+    }
+    static void refreshDiscoversMissingEndpoints() {
+        Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+        Device device;
+        std::string error;
+        device.ieeeAddress = "0x00124b00000000dd";
+        device.networkAddress = 0x4321;
+        gateway.devices_[device.ieeeAddress] = device;
+        gateway.nodeAddresses_[device.networkAddress] = device.ieeeAddress;
+        gateway.online_ = true;
+        gateway.networkFormed_ = true;
+        assert(gateway.refreshDevice(device.ieeeAddress, &error));
+        assert(gateway.interviews_[device.networkAddress].refreshOnly);
+        assert(gateway.interviews_[device.networkAddress].operations[0].type == Gateway::InterviewNodeDescriptor);
+    }
     static void lightCommandEncoding() {
         Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
         Device device;
@@ -1841,6 +1875,8 @@ static void testSharedJsonUtilities() {
 }
 
 void runUnitTests() {
+    GatewayTestPeer::closingPermitReplyTimeout();
+    GatewayTestPeer::refreshDiscoversMissingEndpoints();
     GatewayTestPeer::reviewAndTransportRegressions();
     GatewayTestPeer::ezspUpgradeCompatibility();
     GatewayTestPeer::networkJoinWindowDoesNotClearNetworkState();

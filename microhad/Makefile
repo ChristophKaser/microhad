@@ -87,10 +87,10 @@ $(INTEGRATION_TEST_BIN): $(INTEGRATION_TEST_SOURCES) src/ash.cpp src/json_util.c
 	@mkdir -p $(HOST_BUILD)
 	$(HOST_CXX) $(HOST_CXXFLAGS) $(INTEGRATION_TEST_SOURCES) src/ash.cpp src/json_util.cpp src/storage.cpp src/http_server.cpp src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp $(HOST_C_OBJECTS) -o $@ $(HOST_MBEDTLS_LIBS) $(LDFLAGS)
 
-unit-test: mbedtls-host $(UNIT_TEST_BIN)
+unit-test: mbedtls-host $(HOST_BIN) $(UNIT_TEST_BIN)
 	$(UNIT_TEST_BIN)
 
-integration-test: mbedtls-host $(INTEGRATION_TEST_BIN)
+integration-test: mbedtls-host $(HOST_BIN) $(INTEGRATION_TEST_BIN)
 	$(INTEGRATION_TEST_BIN)
 
 target-verifier-test: $(HOST_BIN)
