@@ -3,8 +3,51 @@
 #include <cassert>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
+#include <fcntl.h>
 #include <string>
+#include <sys/wait.h>
 #include <unistd.h>
+
+namespace {
+void replaceFileContents(const std::string& filename, const std::string& contents) {
+    int fd = open(filename.c_str(), O_WRONLY | O_TRUNC);
+    assert(fd >= 0);
+    size_t written = 0;
+    while (written < contents.size()) {
+        ssize_t count = write(fd, contents.data() + written, contents.size() - written);
+        assert(count > 0);
+        written += static_cast<size_t>(count);
+    }
+    close(fd);
+}
+
+std::string runInvalidConfigProcess(const std::string& filename, int* exitCode) {
+    int output[2];
+    char buffer[512];
+    ssize_t count;
+    std::string captured;
+    int status;
+    assert(pipe(output) == 0);
+    pid_t child = fork();
+    assert(child >= 0);
+    if (child == 0) {
+        close(output[0]);
+        assert(dup2(output[1], STDERR_FILENO) == STDERR_FILENO);
+        close(output[1]);
+        execl("build/host/microhad-zigbee-native", "microhad-zigbee-native", "--config", filename.c_str(), static_cast<char*>(0));
+        _exit(127);
+    }
+    close(output[1]);
+    while ((count = read(output[0], buffer, sizeof(buffer))) > 0)
+        captured.append(buffer, static_cast<unsigned long>(count));
+    close(output[0]);
+    assert(waitpid(child, &status, 0) == child);
+    assert(WIFEXITED(status));
+    *exitCode = WEXITSTATUS(status);
+    return captured;
+}
+}
 
 void runGatewayConfigUnitTests() {
     std::string path;
@@ -31,6 +74,31 @@ void runGatewayConfigUnitTests() {
     assert(selected.runtimeDirectory == "/tmp/test-runtime");
     assert(selected.serialBaud == 115200 && selected.httpsPort == 443);
     assert(selected.firebaseTopic == "zigbee_alerts" && selected.firebaseServiceAccount.empty());
-    unlink(filename);
     fprintf(stderr, "unit: CLI config selection and defaults\n");
+
+    const std::string invalidDocuments[] = {
+        "", "{", "[]", "{\"serial_device\":}", "{\"serial_device\":42}",
+        "{\"http_port\":\"8080\"}", "{\"serial_baud\":true}",
+        "{\"runtime_dir\":\"/tmp/x\",}", "{\"runtime_dir\":\"/tmp/x\"} trailing"
+    };
+    unsigned long i;
+    for (i = 0; i < sizeof(invalidDocuments) / sizeof(invalidDocuments[0]); ++i) {
+        replaceFileContents(filename, invalidDocuments[i]);
+        GatewayConfig invalid;
+        assert(!loadGatewayConfig(filename, &invalid, &error) && !error.empty());
+    }
+    assert(!loadGatewayConfig(std::string(filename) + ".missing", &selected, &error));
+
+    char directoryName[] = "/tmp/microhad-zigbee-config-no-start-XXXXXX";
+    char* directoryPath = mkdtemp(directoryName);
+    assert(directoryPath != 0);
+    std::string runtimePath = std::string(directoryPath) + "/must-not-be-created";
+    replaceFileContents(filename, std::string("{\"runtime_dir\":\"") + runtimePath + "\",\"http_port\":\"80\"}");
+    int exitCode = -1;
+    std::string output = runInvalidConfigProcess(filename, &exitCode);
+    assert(exitCode == 2 && output.find("configuration field must be an integer: http_port") != std::string::npos);
+    assert(access(runtimePath.c_str(), F_OK) != 0);
+    unlink(filename);
+    rmdir(directoryPath);
+    fprintf(stderr, "unit: malformed and wrong-type configuration rejected before startup\n");
 }
