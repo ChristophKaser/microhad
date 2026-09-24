@@ -11,9 +11,9 @@ physical coordinator and radio interoperability testing.
 - **Level:** `U` is a unit test, `I` is a process/component integration test,
   `H` is a loopback HTTP/TLS integration test, and `B` is a headless-browser
   integration test.
-- **Status:** `E` means the current suite covers the stated behavior at least
-  once; `P` means partial coverage; `G` is an unimplemented gap.  `E` is not a
-  reason to omit the listed error variants if they are marked `P` or `G`.
+- **Status:** `DONE` means the deterministic test asserts the stated behavior
+  and passes through `make host test`; `P` means partial coverage; `G` is an
+  unimplemented gap.  A passing row must still cover its listed error variants.
 - Tests must use temporary runtime directories below `/tmp`; they must never
   require a device, external network service, credential, production TLS key,
   or persistent state.  Simulated time is required for all timeout, retry,
@@ -176,6 +176,6 @@ physical coordinator and radio interoperability testing.
    with route and malformed-transport matrices for every `H` row.
 3. Add a host headless-browser target for `B` rows and make it hermetic using a
    loopback fake API; it must not contact the development gateway.
-4. A row may move to `E` only when its test is deterministic, asserts the stated
+4. A row may move to `DONE` only when its test is deterministic, asserts the stated
    result, runs through `make host test`, and has no production credential,
    device, radio, external FCM, or external Push dependency.
