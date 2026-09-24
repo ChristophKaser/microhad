@@ -1207,6 +1207,38 @@ void testManualRefreshRejectionsAndSerialFailure() {
     disconnected.stop();
 }
 
+void testRemoteApsDispatchAndDefaultResponse() {
+    int serial[2];
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
+    Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+    GatewayIntegrationTestPeer::attachSerial(&gateway, serial[0]);
+    const std::string ieee = "0x00124b0000004501";
+    GatewayIntegrationTestPeer::addRemoteDevice(&gateway, 0x1234, ieee);
+
+    std::vector<unsigned char> key;
+    key.push_back(0x01); key.push_back(9); key.push_back(0x01); /* On/Off: On */
+    sendApsCallbackV8(serial[1], 0, apsPayload(0x0104, 0x0006, 1, 100, key));
+    gateway.poll();
+    std::vector<unsigned char> reply = firstAshData(readAvailable(serial[1]));
+    assert(reply[3] == 0x34 && reply[4] == 0);
+    assert(reply[6] == 0x34 && reply[7] == 0x12 && reply[10] == 0x06 && reply[11] == 0x00);
+    assert(reply[21] == 0x18 && reply[22] == 9 && reply[23] == 0x0b &&
+           reply[24] == 0x01 && reply[25] == 0);
+    assert(gateway.logsJson().find("Remote key event: ieee=0x00124b0000004501 node=0x1234 endpoint=1 action=on") != std::string::npos);
+
+    std::vector<unsigned char> groupKey;
+    groupKey.push_back(0x01); groupKey.push_back(10); groupKey.push_back(0x02); /* Toggle */
+    std::vector<unsigned char> broadcast = apsPayload(0x0104, 0x0006, 1, 99, groupKey);
+    broadcast[6] = 255;
+    sendApsCallbackV8(serial[1], 1, broadcast, 1); /* acknowledges the unicast default response */
+    gateway.poll();
+    std::vector<std::vector<unsigned char> > frames = decodeFrames(readAvailable(serial[1]));
+    unsigned long i;
+    for (i = 0; i < frames.size(); ++i) assert(frames[i].empty() || (frames[i][0] & 0x80) != 0);
+    assert(gateway.logsJson().find("endpoint=1 action=toggle") != std::string::npos);
+    gateway.stop(); close(serial[1]);
+}
+
 void testCoordinatorInitializationSequence() {
     int serial[2];
     assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
@@ -1698,6 +1730,8 @@ void runGatewayIntegrationTests() {
     testSensorRefreshIntervalsAndPeriodicRead();
     fprintf(stderr, "integration: manual refresh validation and serial failure\n");
     testManualRefreshRejectionsAndSerialFailure();
+    fprintf(stderr, "integration: remote APS dispatch and default response\n");
+    testRemoteApsDispatchAndDefaultResponse();
     fprintf(stderr, "integration: coordinator initialization, IEEE lookup, and Tradfri setup\n");
     testCoordinatorInitializationSequence();
     fprintf(stderr, "integration: coordinator initialization unexpected reply and timeout\n");

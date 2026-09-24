@@ -86,7 +86,7 @@ physical coordinator and radio interoperability testing.
 | ZCL-03 | U | IAS open/closed status and read-attribute response records | Contact state and standard read responses are normalized | DONE |
 | ZCL-04 | U | Empty/truncated/wrong-type/out-of-range/unknown ZCL and IAS payloads | Returns false/no-op with no partial values or crash | DONE |
 | ZCL-05 | U | Light-attribute classifier and command payload encoding | On/off, level, transition/default arguments and endpoint selection are exact | DONE |
-| ZCL-06 | I | APS message dispatch for reports, reads, default responses, IAS, remote events, and irrelevant clusters | Each valid message updates one intended subsystem; unsupported traffic is harmless | G |
+| ZCL-06 | I | APS message dispatch for reports, reads, default responses, IAS, remote events, and irrelevant clusters | Each valid message updates one intended subsystem; unsupported traffic is harmless | DONE |
 
 ## Device controls, alerts, logging, and views
 
