@@ -668,13 +668,23 @@ static void testAshRoundTrip() {
     std::vector<unsigned char> frame;
     AshTransport transport;
     payload.push_back(0x7e);
+    payload.push_back(0x7d);
     payload.push_back(0x11);
+    payload.push_back(0x13);
+    payload.push_back(0x18);
+    payload.push_back(0x1a);
     payload.push_back(0x12);
     encoded = AshTransport::encodeData(0x00, payload);
+    assert(encoded.size() >= 16);
+    assert(encoded[0] == 0 && encoded[1] == 0x7d && encoded[2] == 0x5e &&
+           encoded[3] == 0x7d && encoded[4] == 0x5d && encoded[5] == 0x7d && encoded[6] == 0x31 &&
+           encoded[7] == 0x7d && encoded[8] == 0x33 && encoded[9] == 0x7d && encoded[10] == 0x38 &&
+           encoded[11] == 0x7d && encoded[12] == 0x3a && encoded[13] == 0x12 && encoded[encoded.size() - 1] == 0x7e);
     transport.feed(&encoded[0], encoded.size());
     assert(transport.popFrame(&frame));
-    assert(frame.size() == 4);
-    assert(frame[0] == 0x00 && frame[1] == 0x7e && frame[2] == 0x11 && frame[3] == 0x12);
+    assert(frame.size() == 8);
+    assert(frame[0] == 0x00 && frame[1] == 0x7e && frame[2] == 0x7d && frame[3] == 0x11 &&
+           frame[4] == 0x13 && frame[5] == 0x18 && frame[6] == 0x1a && frame[7] == 0x12);
     /* A CANCEL after a complete frame must only discard a partial frame. */
     encoded.push_back(0x1a);
     transport.feed(&encoded[0], encoded.size());

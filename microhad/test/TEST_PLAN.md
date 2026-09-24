@@ -41,7 +41,7 @@ physical coordinator and radio interoperability testing.
 
 | ID | Level | Feature / stimulus | Expected result | Status |
 | --- | --- | --- | --- | --- |
-| ASH-01 | U | Encode/decode data containing each reserved byte | Exact escaping, CRC, control byte, and payload round trip | E |
+| ASH-01 | U | Encode/decode data containing each reserved byte | Exact escaping, CRC, control byte, and payload round trip | DONE |
 | ASH-02 | U | Empty, consecutive, fragmented, and multiple frames in one feed | Only complete valid frames are popped in order | DONE |
 | ASH-03 | U | Bad CRC, bad escape sequence, overlong/unbounded input, stray delimiters, and reset mid-frame | Invalid data is discarded; parser resynchronizes without unbounded memory | DONE |
 | ASH-04 | I | Reset request/acknowledgement and reset timeout | Gateway emits reset, begins initialization only after valid ack, retries or reports timeout | DONE |
