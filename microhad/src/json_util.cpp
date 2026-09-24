@@ -55,13 +55,24 @@ bool parseString(const std::string& input, std::string::size_type* at, std::stri
 }
 bool fieldValueStart(const std::string& input, const std::string& name, std::string::size_type* start) {
     std::string::size_type at = 0; std::string field;
+    std::string::size_type first = input.find_first_not_of(" \t\r\n");
+    std::string::size_type last = input.find_last_not_of(" \t\r\n");
+    bool found = false;
+    if (first == std::string::npos || input[first] != '{' || input[last] != '}') return false;
     while (at < input.size()) {
         if (input[at] != '\"') { ++at; continue; }
         if (!parseString(input, &at, &field)) return false;
         skipWhitespace(input, &at);
-        if (at < input.size() && input[at] == ':') { ++at; skipWhitespace(input, &at); if (field == name && at < input.size()) { *start = at; return true; } }
+        if (at < input.size() && input[at] == ':') {
+            ++at; skipWhitespace(input, &at);
+            if (field == name && at < input.size()) {
+                if (found) return false;
+                *start = at;
+                found = true;
+            }
+        }
     }
-    return false;
+    return found;
 }
 }
 

@@ -164,6 +164,7 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
        newer state files remain readable by an older daemon. */
     while (std::getline(input, line)) {
         std::string ieeeAddress;
+        if (!line.empty() && line[line.size() - 1] == ',') line.erase(line.size() - 1);
         if (jsonStringField(line, "ieee_address", &ieeeAddress)) {
             Device device;
             device.ieeeAddress = ieeeAddress;

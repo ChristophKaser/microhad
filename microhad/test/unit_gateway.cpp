@@ -1260,6 +1260,10 @@ static void testSharedJsonUtilities() {
     assert(!jsonStringField("{\"value\":\"\\ud800\"}", "value", &value));
     assert(jsonLongField("{\"number\": 42}", "number", &number) && number == 42);
     assert(!jsonLongField("{\"number\": 42oops}", "number", &number));
+    assert(!jsonStringField("{\"value\":\"first\",\"value\":\"second\"}", "value", &value));
+    assert(!jsonStringField("{\"other\":\"value\"}", "value", &value));
+    assert(!jsonStringField("{\"value\":\"value\"} trailing", "value", &value));
+    assert(!jsonLongField("{\"number\":42} trailing", "number", &number));
     assert(jsonEscape("a\\b\"c\n\001") == "a\\\\b\\\"c\\n\\u0001");
 }
 
