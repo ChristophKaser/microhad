@@ -112,7 +112,8 @@ bool sendFcmNotification(const std::string& serviceAccountPath, const std::strin
     std::string response;
     std::string jwt;
     std::string token;
-    std::string::size_type tokenAt;
+    std::string oauthBody;
+    std::string::size_type oauthBodyAt;
     long now = time(0);
     if (!file) { *error = "cannot read Firebase service account"; return false; }
     contents.assign((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
@@ -125,15 +126,16 @@ bool sendFcmNotification(const std::string& serviceAccountPath, const std::strin
         if (!httpsPost("oauth2.googleapis.com", "/token", "Content-Type: application/x-www-form-urlencoded\r\n",
                        "grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=" + jwt, caBundle,
                        &tokenResponse, error)) return false;
-        tokenAt = tokenResponse.find("\"access_token\":\"");
-        if (tokenAt == std::string::npos) { *error = "OAuth response did not contain an access token"; return false; }
-        tokenAt += 16;
-        std::string::size_type tokenEnd = tokenResponse.find('"', tokenAt);
-        if (tokenEnd == std::string::npos) { *error = "OAuth response has invalid access token"; return false; }
-        token = tokenResponse.substr(tokenAt, tokenEnd - tokenAt);
+        oauthBodyAt = tokenResponse.find("\r\n\r\n");
+        if (oauthBodyAt == std::string::npos) { *error = "OAuth response is malformed"; return false; }
+        oauthBody = tokenResponse.substr(oauthBodyAt + 4);
+        if (!jsonStringField(oauthBody, "access_token", &token) || token.empty()) {
+            *error = "OAuth response did not contain an access token"; return false;
+        }
         long expiresIn = 0;
-        jsonLongField(tokenResponse, "expires_in", &expiresIn);
-        if (expiresIn <= 60) { *error = "OAuth response has invalid token expiry"; return false; }
+        if (!jsonLongField(oauthBody, "expires_in", &expiresIn) || expiresIn <= 60) {
+            *error = "OAuth response has invalid token expiry"; return false;
+        }
         cachedToken = token;
         cachedTokenSource = serviceAccountPath + "\n" + caBundle;
         cachedTokenExpiresAt = now + expiresIn;
@@ -142,5 +144,12 @@ bool sendFcmNotification(const std::string& serviceAccountPath, const std::strin
                    "Content-Type: application/json\r\nAuthorization: Bearer " + token + "\r\n",
                    makeFcmMessage(topic, title, body), caBundle, &response, error)) return false;
     if (response.find("HTTP/1.1 200") != 0) { *error = "FCM rejected the notification"; return false; }
+    std::string::size_type bodyAt = response.find("\r\n\r\n");
+    std::string messageName;
+    if (bodyAt == std::string::npos || !jsonStringField(response.substr(bodyAt + 4), "name", &messageName) ||
+        messageName.empty()) {
+        *error = "FCM response was malformed";
+        return false;
+    }
     return true;
 }

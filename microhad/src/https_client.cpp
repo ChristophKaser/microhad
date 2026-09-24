@@ -1,5 +1,18 @@
 #include "https_client.h"
 
+#include <pthread.h>
+
+namespace {
+pthread_mutex_t httpsHookMutex = PTHREAD_MUTEX_INITIALIZER;
+HttpsPostHook* httpsPostHook = 0;
+}
+
+void setHttpsPostHook(HttpsPostHook* hook) {
+    pthread_mutex_lock(&httpsHookMutex);
+    httpsPostHook = hook;
+    pthread_mutex_unlock(&httpsHookMutex);
+}
+
 #ifdef MICROHAD_MBEDTLS_ENABLED
 extern "C" int microhad_https_post(const char* host, const char* path, const char* headers, const char* body,
                                 unsigned long bodyLength, const char* caBundle, char* response, unsigned long responseCapacity,
@@ -12,6 +25,10 @@ bool httpsPost(const std::string& host, const std::string& path, const std::stri
     std::string buffer(16384, '\0');
     unsigned long length = 0;
     if (caBundle.empty()) { *error = "a CA bundle is required for HTTPS"; return false; }
+    pthread_mutex_lock(&httpsHookMutex);
+    HttpsPostHook* hook = httpsPostHook;
+    pthread_mutex_unlock(&httpsHookMutex);
+    if (hook != 0) return hook->post(host, path, headers, body, caBundle, response, error);
     if (microhad_https_post(host.c_str(), path.c_str(), headers.c_str(), body.data(), body.size(), caBundle.c_str(), &buffer[0],
                         buffer.size(), &length) != 0) { *error = "HTTPS request failed"; return false; }
     response->assign(buffer.data(), length);
