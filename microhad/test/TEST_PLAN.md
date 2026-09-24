@@ -95,7 +95,7 @@ physical coordinator and radio interoperability testing.
 | CTRL-01 | U | Device name, thresholds, contact timing, and sensor refresh settings | Valid settings persist and publish; defaults are retained when a setting is omitted | E |
 | CTRL-02 | U | Unknown device, empty/oversize name, low >= high, invalid timing, overflow, negative/NaN thresholds | Request fails with no partial persistence | DONE |
 | CTRL-03 | I | Light state/brightness control for on/off, dimmable, non-dimmable, unknown, and unsupported devices | Correct command or precise capability/brightness/state error | G |
-| ALT-01 | U | Contact opens then closes before first delay | No alert is emitted; pending alert is cancelled | P |
+| ALT-01 | U | Contact opens then closes before first delay | No alert is emitted; pending alert is cancelled | DONE |
 | ALT-02 | I | Contact remains open through initial and reminder deadlines; duplicate open report | Exactly one first alert and scheduled reminders; duplicate reports do not reset incorrectly | G |
 | ALT-03 | I | Temperature crosses low/high threshold, remains outside, returns inside, thresholds disabled/changed | Alerts occur only on entering configured alarm states | G |
 | ALT-04 | I | Notifications disabled before contact/temperature/test event | No notification audit/outbox/queue/delivery path is touched | P |

@@ -21,6 +21,21 @@
 
 class GatewayTestPeer {
 public:
+    static bool contactAlertIsCancelled(Gateway* gateway, const std::string& ieeeAddress) {
+        std::vector<unsigned char> open;
+        std::vector<unsigned char> closed;
+        open.push_back(1); open.push_back(0);
+        closed.push_back(0); closed.push_back(0);
+        if (!gateway->applyIasZoneStatus(ieeeAddress, open) ||
+            gateway->nextContactAlertAt_.count(ieeeAddress) != 1 ||
+            gateway->contactOpenedAt_.count(ieeeAddress) != 1) return false;
+        if (!gateway->applyIasZoneStatus(ieeeAddress, closed) ||
+            gateway->nextContactAlertAt_.count(ieeeAddress) != 0 ||
+            gateway->contactOpenedAt_.count(ieeeAddress) != 0) return false;
+        gateway->poll();
+        return gateway->logsJson().find("Notification queued: Window open") == std::string::npos &&
+               gateway->logsJson().find("Notification suppressed: Window open") == std::string::npos;
+    }
     static void logRingAndSerialization() {
         Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
         for (int i = 0; i < 513; ++i) {
@@ -1155,6 +1170,7 @@ static void testContactNotificationIsDeferred() {
     zone.push_back(1); zone.push_back(0);
     assert(gateway.applyIasZoneStatus("0x00124b0000000003", zone));
     assert(gateway.logsJson().find("Contact opened") == std::string::npos);
+    assert(GatewayTestPeer::contactAlertIsCancelled(&gateway, "0x00124b0000000004"));
     assert(!gateway.sendTestNotification(&error));
     assert(error == "push notifications are disabled");
     unlink((directory + "/notification-outbox.ndjson").c_str());
