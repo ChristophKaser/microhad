@@ -3,10 +3,13 @@
 #include "gateway_integration_peer.h"
 
 #include <cassert>
+#include <cstdlib>
 #include <cstdio>
 #include <fcntl.h>
+#include <fstream>
 #include <string>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #include <vector>
 
@@ -67,6 +70,49 @@ void testResetTimeoutRetriesOverPipe() {
     gateway.stop();
     close(serial[1]);
 }
+
+void testRuntimeDirectoryBoundaries() {
+    char name[] = "/tmp/microhad-zigbee-runtime-XXXXXX";
+    char* temporary = mkdtemp(name);
+    std::string error;
+    int serial[2];
+    assert(temporary != 0);
+    std::string directory = temporary;
+    assert(rmdir(directory.c_str()) == 0); /* absent at startup */
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
+    {
+        Gateway gateway("/dev/null", 115200, directory, "", "", "");
+        GatewayIntegrationTestPeer::attachSerial(&gateway, serial[0]);
+        assert(gateway.start(&error));
+        struct stat details;
+        assert(stat(directory.c_str(), &details) == 0 && S_ISDIR(details.st_mode));
+        gateway.stop();
+    }
+    close(serial[1]);
+    assert(chmod(directory.c_str(), 0500) == 0);
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
+    {
+        Gateway gateway("/dev/null", 115200, directory, "", "", "");
+        GatewayIntegrationTestPeer::attachSerial(&gateway, serial[0]);
+        assert(gateway.start(&error)); /* existing readonly directory is valid for startup reads */
+        gateway.stop();
+    }
+    close(serial[1]);
+    assert(chmod(directory.c_str(), 0700) == 0);
+    assert(rmdir(directory.c_str()) == 0);
+    {
+        std::ofstream file(directory.c_str());
+        assert(file);
+        file << "not a directory";
+    }
+    {
+        Gateway gateway("/dev/null", 115200, directory, "", "", "");
+        assert(!gateway.start(&error));
+        assert(error.find("cannot create runtime directory") != std::string::npos);
+        assert(gateway.serialFd() == -1);
+    }
+    unlink(directory.c_str());
+}
 }
 
 void runGatewayIntegrationTests() {
@@ -74,4 +120,6 @@ void runGatewayIntegrationTests() {
     testResetAndVersionOverPipe();
     fprintf(stderr, "integration: gateway reset timeout retry over pipe\n");
     testResetTimeoutRetriesOverPipe();
+    fprintf(stderr, "integration: gateway runtime directory boundaries\n");
+    testRuntimeDirectoryBoundaries();
 }

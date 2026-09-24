@@ -99,8 +99,10 @@ bool decodeEndpointDescriptors(const std::string& encoded, std::vector<EndpointD
 }
 
 bool ensureDirectory(const std::string& directory, std::string* error) {
-    if (mkdir(directory.c_str(), 0700) == 0 || errno == EEXIST) {
-        return true;
+    if (mkdir(directory.c_str(), 0700) == 0) return true;
+    if (errno == EEXIST) {
+        struct stat details;
+        if (stat(directory.c_str(), &details) == 0 && S_ISDIR(details.st_mode)) return true;
     }
     *error = std::string("cannot create runtime directory: ") + strerror(errno);
     return false;
