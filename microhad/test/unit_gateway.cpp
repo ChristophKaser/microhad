@@ -715,6 +715,47 @@ public:
         } else if (unlink(filename) != 0) result = false;
         return result;
     }
+    static bool nativeAndFallbackSceneOutcomes() {
+        Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+        gateway.online_ = true; gateway.networkFormed_ = true;
+        gateway.coordinatorInitializationStep_ = 0; gateway.ezspVersion_ = 8;
+        EndpointDescriptor nativeEndpoint; nativeEndpoint.endpoint = 1;
+        nativeEndpoint.inputClusters.push_back(0x0004); nativeEndpoint.inputClusters.push_back(0x0005);
+        nativeEndpoint.inputClusters.push_back(0x0006);
+        EndpointDescriptor fallbackEndpoint; fallbackEndpoint.endpoint = 1; fallbackEndpoint.inputClusters.push_back(0x0006);
+        Device& native = gateway.devices_["native"];
+        native.ieeeAddress = "native"; native.networkAddress = 0x1001; native.hasLight = true;
+        native.endpoints.push_back(nativeEndpoint);
+        Device& fallback = gateway.devices_["fallback"];
+        fallback.ieeeAddress = "fallback"; fallback.networkAddress = 0x1002; fallback.hasLight = true;
+        fallback.endpoints.push_back(fallbackEndpoint);
+        SceneGroup mixed; mixed.id = 3; mixed.name = "Mixed";
+        mixed.members.push_back("native"); mixed.members.push_back("fallback");
+        Scene scene; scene.id = 1; scene.name = "On";
+        SceneLightState nativeState; nativeState.ieeeAddress = "native"; nativeState.on = true; nativeState.brightnessPercent = -1;
+        SceneLightState fallbackState; fallbackState.ieeeAddress = "fallback"; fallbackState.on = true; fallbackState.brightnessPercent = -1;
+        scene.states.push_back(nativeState); scene.states.push_back(fallbackState); mixed.scenes.push_back(scene);
+        gateway.sceneGroups_.push_back(mixed);
+        std::string error;
+        if (!gateway.activateScene(3, 1, &error) || !gateway.sceneRetries_[3].inFlight ||
+            gateway.logsJson().find("profile=0x104 cluster=0x5") == std::string::npos ||
+            gateway.devices_["fallback"].lightOn || gateway.selectedScenes_.count(3) != 0) return false;
+        std::vector<unsigned char> reply(6, 0);
+        reply[0] = gateway.sceneRetries_[3].ezspSequence; reply[3] = 0x38; reply[5] = 0;
+        gateway.handleEzspFrame(reply);
+        if (gateway.selectedScenes_[3] != 1 || !gateway.devices_["fallback"].lightOn ||
+            gateway.devices_["native"].lightOn || gateway.logsJson().find("Scene recalled: Mixed / On") == std::string::npos) return false;
+        SceneGroup fallbackOnly; fallbackOnly.id = 4; fallbackOnly.name = "Fallback";
+        fallbackOnly.members.push_back("fallback");
+        Scene fallbackScene; fallbackScene.id = 2; fallbackScene.name = "Off";
+        SceneLightState offState; offState.ieeeAddress = "fallback"; offState.on = false; offState.brightnessPercent = -1;
+        fallbackScene.states.push_back(offState); fallbackOnly.scenes.push_back(fallbackScene);
+        gateway.sceneGroups_.push_back(fallbackOnly);
+        if (!gateway.activateScene(4, 2, &error) || gateway.sceneRetries_[4].retryAt != LONG_MAX ||
+            gateway.selectedScenes_[4] != 2 || gateway.devices_["fallback"].lightOn ||
+            gateway.logsJson().find("profile=0x104 cluster=0x6") == std::string::npos) return false;
+        return true;
+    }
     static void sceneBusyUnicastFallback() {
         Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
         gateway.ezspVersion_ = 8;
@@ -1398,6 +1439,7 @@ static void testSceneConfigurationRejectsInvalidReferences() {
 static void testSceneBusyDoesNotAdvanceSelection() {
     assert(GatewayTestPeer::sceneBusyDoesNotAdvanceSelection());
     assert(GatewayTestPeer::sceneRuntimePersistence());
+    assert(GatewayTestPeer::nativeAndFallbackSceneOutcomes());
     GatewayTestPeer::sceneBusyUnicastFallback();
 }
 
