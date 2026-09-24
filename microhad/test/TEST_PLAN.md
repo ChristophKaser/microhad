@@ -114,7 +114,7 @@ physical coordinator and radio interoperability testing.
 | SCN-05 | I | Activate/off unknown group/scene, empty group, offline/busy state, and send failure | No selected-state advance on failure; clear error is returned | DONE |
 | SCN-06 | I | Native group/scene recall versus unicast fallback for unsupported lights | Correct multicast/unicast commands and per-light state outcomes | G |
 | SCN-07 | I | Scene command ACK/failure/timeout, retry limit, queued retry, coalesced action, selected-scene runtime persistence | Retry state is bounded; newest intended action wins without stale execution | DONE |
-| SCN-08 | I | Remote on/off/left/right events, held/duplicate/unknown event, no binding, and binding during pending scene | Correct mapped action; ignored events do not perturb selection | P |
+| SCN-08 | I | Remote on/off/left/right events, held/duplicate/unknown event, no binding, and binding during pending scene | Correct mapped action; ignored events do not perturb selection | DONE |
 
 ## Storage, JSON, and notification delivery
 

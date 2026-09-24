@@ -594,6 +594,40 @@ public:
                gateway.logsJson().find("payload=182a0b0700") != std::string::npos &&
                gateway.logsJson().find("Configure reporting response from 0x00124b0000000022: cluster 0x5") == std::string::npos;
     }
+    static bool remoteBindingsAndIgnoredEvents() {
+        const unsigned short node = 0x1234;
+        const std::string remoteIeee = "remote";
+        Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+        Device& remote = gateway.devices_[remoteIeee];
+        EndpointDescriptor remoteEndpoint; remoteEndpoint.endpoint = 1; remoteEndpoint.outputClusters.push_back(0x0006);
+        remote.ieeeAddress = remoteIeee; remote.hasRemote = true; remote.endpoints.push_back(remoteEndpoint);
+        gateway.nodeAddresses_[node] = remoteIeee;
+        Device& light = gateway.devices_["light"];
+        EndpointDescriptor lightEndpoint; lightEndpoint.endpoint = 1; lightEndpoint.inputClusters.push_back(0x0004);
+        lightEndpoint.inputClusters.push_back(0x0005); lightEndpoint.inputClusters.push_back(0x0006);
+        light.ieeeAddress = "light"; light.networkAddress = 0x2222; light.hasLight = true; light.endpoints.push_back(lightEndpoint);
+        SceneGroup group; group.id = 10; group.name = "Room"; group.members.push_back("light");
+        Scene scene; scene.id = 1; scene.name = "Bright";
+        SceneLightState state; state.ieeeAddress = "light"; state.on = true; state.brightnessPercent = -1;
+        scene.states.push_back(state); group.scenes.push_back(scene); gateway.sceneGroups_.push_back(group);
+        RemoteSceneBinding binding; binding.ieeeAddress = remoteIeee; binding.action = "arrow_left";
+        binding.groupId = 10; binding.sceneIds.push_back(1); gateway.sceneBindings_.push_back(binding);
+        gateway.online_ = true; gateway.networkFormed_ = true; gateway.coordinatorInitializationStep_ = 0;
+        std::vector<unsigned char> leftClick; leftClick.push_back(0x01); leftClick.push_back(0x01); leftClick.push_back(13); leftClick.push_back(0);
+        if (!gateway.logRemoteKeyEvent(node, 0x0005, 1, 0x117c, 0x07, leftClick) ||
+            gateway.sceneRetries_.find(10) == gateway.sceneRetries_.end() || gateway.sceneRetries_[10].sceneId != 1) return false;
+        if (!gateway.logRemoteKeyEvent(node, 0x0005, 1, 0x117c, 0x07, leftClick) ||
+            !gateway.sceneRetries_[10].retryRequested || gateway.selectedScenes_.count(10) != 0) return false;
+        std::vector<unsigned char> unknownGroup; unknownGroup.push_back(0x02); unknownGroup.push_back(0); unknownGroup.push_back(13); unknownGroup.push_back(0);
+        if (gateway.logRemoteKeyEvent(node, 0x0005, 1, 0x117c, 0x07, unknownGroup)) return false;
+        std::vector<unsigned char> hold; hold.push_back(1); hold.push_back(0); hold.push_back(0);
+        if (!gateway.logRemoteKeyEvent(node, 0x0005, 1, 0x117c, 0x08, hold) ||
+            !gateway.logRemoteKeyEvent(node, 0x0005, 1, 0x117c, 0x09, std::vector<unsigned char>()) ||
+            gateway.logRemoteKeyEvent(node, 0x0005, 1, 0x117c, 0x09, std::vector<unsigned char>())) return false;
+        if (gateway.logRemoteKeyEvent(0x9999, 0x0006, 1, 0, 0x01, std::vector<unsigned char>())) return false;
+        return gateway.sceneRetries_[10].sceneId == 1 && gateway.sceneRetries_[10].retryRequested &&
+               gateway.selectedScenes_.count(10) == 0;
+    }
     static bool rejectsDuplicateSceneStates() {
         Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
         std::string error;
@@ -1349,6 +1383,7 @@ static void testRemoteKeyEvents() {
 static void testStyrbarArrowEvents() {
     unlink("/tmp/microhad-zigbee-native.log");
     assert(GatewayTestPeer::styrbarArrowEventsAreLogged());
+    assert(GatewayTestPeer::remoteBindingsAndIgnoredEvents());
     unlink("/tmp/microhad-zigbee-native.log");
 }
 
