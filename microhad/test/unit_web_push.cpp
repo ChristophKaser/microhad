@@ -1,9 +1,11 @@
 #include "fcm.h"
+#include "json_util.h"
 #include "storage.h"
 #include "web_push.h"
 
 #include <cassert>
 #include <cstdio>
+#include <fstream>
 #include <sstream>
 #include <unistd.h>
 
@@ -20,6 +22,54 @@ std::string subscription(const std::string& endpoint, unsigned char publicPrefix
 std::string subscription(const std::string& endpoint) {
     return subscription(endpoint, 4, 65, 16);
 }
+
+void testVapidKeys(const std::string& directory) {
+    std::string error;
+    std::string publicKey;
+    std::string privateKey;
+    std::string decoded;
+    std::string keyDirectory = directory + "/keys";
+    assert(ensureDirectory(directory, &error));
+    assert(ensureDirectory(keyDirectory, &error));
+    {
+        WebPushStore first(keyDirectory);
+        publicKey = first.publicKey();
+        assert(base64UrlDecode(publicKey, &decoded) && decoded.size() == 65 && static_cast<unsigned char>(decoded[0]) == 4);
+    }
+    assert(readTextFile(keyDirectory + "/vapid-private.key", &privateKey) && privateKey.size() == 32);
+    {
+        WebPushStore reloaded(keyDirectory);
+        assert(reloaded.publicKey() == publicKey);
+    }
+    {
+        std::ofstream corrupt((keyDirectory + "/vapid-public.key").c_str());
+        corrupt << "corrupt";
+    }
+    {
+        WebPushStore corrupt(keyDirectory);
+        assert(corrupt.publicKey().empty());
+    }
+    assert(readTextFile(keyDirectory + "/vapid-public.key", &decoded) && decoded == "corrupt");
+    assert(readTextFile(keyDirectory + "/vapid-private.key", &decoded) && decoded == privateKey);
+    unlink((keyDirectory + "/vapid-public.key").c_str());
+    {
+        WebPushStore partial(keyDirectory);
+        assert(partial.publicKey().empty());
+    }
+    {
+        std::ofstream blocked((directory + "/blocked").c_str());
+        assert(blocked);
+        blocked << "not a directory";
+    }
+    {
+        WebPushStore unwritable(directory + "/blocked");
+        assert(unwritable.publicKey().empty());
+    }
+    unlink((keyDirectory + "/vapid-private.key").c_str());
+    rmdir(keyDirectory.c_str());
+    unlink((directory + "/blocked").c_str());
+    rmdir(directory.c_str());
+}
 }
 
 void runWebPushUnitTests() {
@@ -28,6 +78,7 @@ void runWebPushUnitTests() {
     path << "/tmp/microhad-web-push-unit-" << static_cast<long>(getpid());
     fprintf(stderr, "unit: Web Push subscription validation and persistence\n");
     assert(ensureDirectory(path.str(), &error));
+    testVapidKeys(path.str() + "-keys");
     WebPushStore store(path.str());
     const std::string endpoint = "https://push.example.test/subscription";
     assert(store.addSubscription(subscription(endpoint), &error));

@@ -96,11 +96,26 @@ WebPushStore::WebPushStore(const std::string& runtimeDirectory) : runtimeDirecto
 
 bool WebPushStore::loadOrCreateKey(std::string* error) {
     std::ifstream input((runtimeDirectory_ + "/vapid-public.key").c_str());
+    std::ifstream privateInput((runtimeDirectory_ + "/vapid-private.key").c_str(), std::ios::binary);
     if (input) {
+        std::string decoded;
+        std::string privateKey(32, '\0');
         input >> publicKey_;
-        chmod((runtimeDirectory_ + "/vapid-private.key").c_str(), 0600);
-        return !publicKey_.empty();
+        if (!base64UrlDecode(publicKey_, &decoded) || decoded.size() != 65 ||
+            static_cast<unsigned char>(decoded[0]) != 4 ||
+            !privateInput.read(&privateKey[0], privateKey.size()) || privateInput.get() != EOF) {
+            publicKey_.clear();
+            *error = "invalid persisted VAPID key";
+            return false;
+        }
+        if (chmod((runtimeDirectory_ + "/vapid-private.key").c_str(), 0600) != 0) {
+            publicKey_.clear();
+            *error = "cannot protect VAPID private key";
+            return false;
+        }
+        return true;
     }
+    if (privateInput) { *error = "incomplete persisted VAPID key"; return false; }
 #ifdef MICROHAD_MBEDTLS_ENABLED
     unsigned char publicKey[65];
     unsigned char privateKey[32];
@@ -108,12 +123,13 @@ bool WebPushStore::loadOrCreateKey(std::string* error) {
     publicKey_ = base64UrlEncode(std::string(reinterpret_cast<char*>(publicKey), sizeof(publicKey)));
     std::ofstream publicOut((runtimeDirectory_ + "/vapid-public.key").c_str());
     std::ofstream privateOut((runtimeDirectory_ + "/vapid-private.key").c_str(), std::ios::binary);
-    if (!publicOut || !privateOut) { *error = "cannot persist VAPID key"; return false; }
+    if (!publicOut || !privateOut) { publicKey_.clear(); *error = "cannot persist VAPID key"; return false; }
     publicOut << publicKey_ << "\n";
     privateOut.write(reinterpret_cast<char*>(privateKey), sizeof(privateKey));
     publicOut.close();
     privateOut.close();
     if (!publicOut || !privateOut || chmod((runtimeDirectory_ + "/vapid-private.key").c_str(), 0600) != 0) {
+        publicKey_.clear();
         *error = "cannot persist VAPID key";
         return false;
     }
