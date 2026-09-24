@@ -24,6 +24,11 @@ public:
     static unsigned long pendingSerialBytes(const Gateway& gateway) { return gateway.serialPendingBytes_.size(); }
     static void forceSerialWrite(Gateway* gateway) { gateway->serialPendingBytes_.push_back(0x55); gateway->flushSerialOutput(); }
     static void flushSerialOutput(Gateway* gateway) { gateway->flushSerialOutput(); }
+    static void queueEzspCommand(Gateway* gateway, unsigned short command) {
+        gateway->sendEzspCommand(command, std::vector<unsigned char>());
+    }
+    static void setAshSendSequence(Gateway* gateway, unsigned char sequence) { gateway->ashSendSequence_ = sequence & 7; }
+    static void expireAshAck(Gateway* gateway) { gateway->ashAckDeadline_ = time(0) - 1; }
     static void expireResetDeadline(Gateway* gateway) { gateway->resetDeadline_ = time(0) - 1; }
     static bool sceneCommandErrors(Gateway* gateway) {
         std::string error;

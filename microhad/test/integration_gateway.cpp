@@ -31,6 +31,32 @@ std::vector<unsigned char> readAvailable(int fd) {
     return bytes;
 }
 
+std::vector<unsigned char> decodeSingleFrame(const std::vector<unsigned char>& wire) {
+    AshTransport transport;
+    std::vector<unsigned char> frame;
+    if (!wire.empty()) transport.feed(&wire[0], wire.size());
+    assert(transport.popFrame(&frame));
+    assert(!transport.popFrame(&frame));
+    return frame;
+}
+
+void sendAshControl(int fd, unsigned char control, const std::vector<unsigned char>& payload) {
+    std::vector<unsigned char> wire = AshTransport::encodeData(control, payload);
+    assert(write(fd, &wire[0], wire.size()) == static_cast<ssize_t>(wire.size()));
+}
+
+std::vector<unsigned char> obfuscateEzsp(const std::vector<unsigned char>& plain) {
+    std::vector<unsigned char> encoded;
+    unsigned char random = 0x42;
+    unsigned long i;
+    for (i = 0; i < plain.size(); ++i) {
+        encoded.push_back(plain[i] ^ random);
+        random = (random & 1) ? static_cast<unsigned char>((random >> 1) ^ 0xb8) :
+                                static_cast<unsigned char>(random >> 1);
+    }
+    return encoded;
+}
+
 void expectUsageFailure(bool missingConfigPath) {
     int capture[2];
     int status;
@@ -173,6 +199,60 @@ void testSerialBackpressureAndFailures() {
     GatewayIntegrationTestPeer::forceSerialWrite(&writeFailure);
     assert(writeFailure.serialFd() == -1);
     assert(writeFailure.logsJson().find("Serial write failed:") != std::string::npos);
+}
+
+void testAshAcknowledgementsRetriesAndDuplicates() {
+    int serial[2];
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
+    Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+    GatewayIntegrationTestPeer::attachSerial(&gateway, serial[0]);
+    GatewayIntegrationTestPeer::queueEzspCommand(&gateway, 0x0005);
+    gateway.poll();
+    std::vector<unsigned char> originalWire = readAvailable(serial[1]);
+    std::vector<unsigned char> original = decodeSingleFrame(originalWire);
+    assert(original[0] == 0x00 && original.size() >= 4);
+    sendAshControl(serial[1], 0xa0, std::vector<unsigned char>());
+    gateway.poll();
+    std::vector<unsigned char> nakRetry = decodeSingleFrame(readAvailable(serial[1]));
+    assert(nakRetry[0] == 0x08 && std::vector<unsigned char>(nakRetry.begin() + 1, nakRetry.end()) ==
+           std::vector<unsigned char>(original.begin() + 1, original.end()));
+    sendAshControl(serial[1], 0x81, std::vector<unsigned char>());
+    gateway.poll();
+
+    GatewayIntegrationTestPeer::setAshSendSequence(&gateway, 7);
+    GatewayIntegrationTestPeer::queueEzspCommand(&gateway, 0x0005);
+    GatewayIntegrationTestPeer::queueEzspCommand(&gateway, 0x0005);
+    gateway.poll();
+    std::vector<unsigned char> sequenceSeven = decodeSingleFrame(readAvailable(serial[1]));
+    assert(sequenceSeven[0] == 0x70);
+    sendAshControl(serial[1], 0x80, std::vector<unsigned char>());
+    gateway.poll();
+    std::vector<unsigned char> wrappedSequence = decodeSingleFrame(readAvailable(serial[1]));
+    assert(wrappedSequence[0] == 0x00);
+    GatewayIntegrationTestPeer::expireAshAck(&gateway);
+    gateway.poll();
+    assert(decodeSingleFrame(readAvailable(serial[1]))[0] == 0x08);
+    GatewayIntegrationTestPeer::expireAshAck(&gateway); gateway.poll(); readAvailable(serial[1]);
+    GatewayIntegrationTestPeer::expireAshAck(&gateway); gateway.poll(); readAvailable(serial[1]);
+    GatewayIntegrationTestPeer::expireAshAck(&gateway); gateway.poll();
+    std::vector<unsigned char> resetWire = readAvailable(serial[1]);
+    assert(resetWire.size() >= 2 && resetWire[0] == 0x1a && resetWire[1] == 0xc0);
+    assert(gateway.logsJson().find("ASH acknowledgement failed repeatedly") != std::string::npos);
+
+    std::vector<unsigned char> incomingEzsp;
+    incomingEzsp.push_back(0); incomingEzsp.push_back(0x80); incomingEzsp.push_back(0xfe);
+    sendAshControl(serial[1], 0x00, obfuscateEzsp(incomingEzsp));
+    gateway.poll(); readAvailable(serial[1]);
+    std::string afterFirst = gateway.logsJson();
+    sendAshControl(serial[1], 0x08, obfuscateEzsp(incomingEzsp));
+    gateway.poll();
+    std::vector<unsigned char> duplicateAck = decodeSingleFrame(readAvailable(serial[1]));
+    assert(duplicateAck[0] == 0x81);
+    std::string afterDuplicate = gateway.logsJson();
+    assert(afterDuplicate.find("ASH duplicate suppressed") != std::string::npos);
+    size_t firstApply = afterFirst.find("EZSP <- v4 0xfe");
+    assert(firstApply != std::string::npos && afterDuplicate.find("EZSP <- v4 0xfe", firstApply + 1) == std::string::npos);
+    gateway.stop(); close(serial[1]);
 }
 
 void testSceneCommandErrors() {
@@ -330,6 +410,8 @@ void runGatewayIntegrationTests() {
     testResetTimeoutRetriesOverPipe();
     fprintf(stderr, "integration: serial backpressure recovery and terminal failures\n");
     testSerialBackpressureAndFailures();
+    fprintf(stderr, "integration: ASH acknowledgements, retries, duplicate suppression, and wrap\n");
+    testAshAcknowledgementsRetriesAndDuplicates();
     fprintf(stderr, "integration: scene command errors and state preservation\n");
     testSceneCommandErrors();
     fprintf(stderr, "integration: scene configuration persistence, provisioning, and snapshot\n");
