@@ -21,6 +21,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
+#include <signal.h>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -148,6 +149,59 @@ std::string tlsRequest(int port, const std::string& request) {
     return response;
 }
 
+void testHttpQueuePressureAndBindFailure(HttpServer* server, GatewayRunner* runner, const std::string& dashboardPath) {
+    int blocker = socket(AF_INET, SOCK_STREAM, 0);
+    struct sockaddr_in address;
+    socklen_t addressLength = sizeof(address);
+    std::string error;
+    assert(blocker >= 0);
+    memset(&address, 0, sizeof(address));
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = htonl(INADDR_ANY);
+    address.sin_port = 0;
+    assert(bind(blocker, reinterpret_cast<struct sockaddr*>(&address), sizeof(address)) == 0);
+    assert(listen(blocker, 2) == 0);
+    assert(getsockname(blocker, reinterpret_cast<struct sockaddr*>(&address), &addressLength) == 0);
+    HttpServer bindFailure(ntohs(address.sin_port), runner, dashboardPath, "", "");
+    assert(!bindFailure.start(&error) && !error.empty());
+    close(blocker);
+
+    std::vector<int> delayed;
+    std::vector<int> pressure;
+    const std::string partial = "GET /api/status HTTP/1.1\r\nHost: localhost\r\n";
+    const std::string complete = "GET /api/status HTTP/1.1\r\nHost: localhost\r\n\r\n";
+    unsigned int i;
+    for (i = 0; i < 2; ++i) {
+        int fd = connectLoopback(server->boundPort());
+        assert(write(fd, partial.data(), partial.size()) == static_cast<ssize_t>(partial.size()));
+        delayed.push_back(fd);
+    }
+    usleep(50000);
+    for (i = 0; i < 24; ++i) {
+        int fd = connectLoopback(server->boundPort());
+        ssize_t sent = write(fd, complete.data(), complete.size());
+        assert(sent == static_cast<ssize_t>(complete.size()) ||
+               (sent < 0 && (errno == EPIPE || errno == ECONNRESET)));
+        pressure.push_back(fd);
+    }
+    for (i = 0; i < delayed.size(); ++i) {
+        struct linger reset;
+        reset.l_onoff = 1; reset.l_linger = 0;
+        setsockopt(delayed[i], SOL_SOCKET, SO_LINGER, &reset, sizeof(reset));
+        close(delayed[i]);
+    }
+    unsigned int responses = 0;
+    for (i = 0; i < pressure.size(); ++i) {
+        std::string result = readAll(pressure[i]);
+        if (result.find("HTTP/1.1 200 OK\r\n") == 0) ++responses;
+        close(pressure[i]);
+    }
+    assert(responses > 0 && responses < pressure.size());
+    std::string recovery = plainRequest(server->boundPort(), complete);
+    assert(recovery.find("HTTP/1.1 200 OK\r\n") == 0);
+    fprintf(stderr, "integration: http survives worker queue pressure and peer closes\n");
+}
+
 void tlsAbortAfterRequest(int port) {
     mbedtls_net_context socket;
     mbedtls_ssl_context ssl;
@@ -225,6 +279,7 @@ void expectStatus(const char* name, const std::string& response, int code) {
 }
 
 void testServers() {
+    void (*oldSigpipe)(int) = signal(SIGPIPE, SIG_IGN);
     std::string directory = makeDirectory();
     std::string error;
     std::string response;
@@ -251,6 +306,7 @@ void testServers() {
     assert(!missingCertificate.start(&error) && error.find("TLS certificate or key") != std::string::npos);
     HttpServer invalidPrivateKey(0, &runner, directory + "/webui/index.html", "test/fixtures/tls/localhost.crt", "/dev/null");
     assert(!invalidPrivateKey.start(&error) && error.find("TLS certificate or key") != std::string::npos);
+    testHttpQueuePressureAndBindFailure(&http, &runner, directory + "/webui/index.html");
 
     response = tlsRequest(https.boundPort(), "INVALID\r\nHost: localhost\r\n\r\n");
     expectStatus("https reject malformed encrypted request", response, 400);
@@ -360,6 +416,7 @@ void testServers() {
     close(outbound[0]);
     close(outbound[1]);
     removeDirectory(directory);
+    signal(SIGPIPE, oldSigpipe);
 }
 
 }
