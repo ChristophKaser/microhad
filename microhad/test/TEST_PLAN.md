@@ -47,7 +47,7 @@ physical coordinator and radio interoperability testing.
 | ASH-04 | I | Reset request/acknowledgement and reset timeout | Gateway emits reset, begins initialization only after valid ack, retries or reports timeout | DONE |
 | ASH-05 | I | Serial short write, `EAGAIN`, interrupted read/write, EOF, and hard read/write error | Pending bytes are preserved when recoverable; offline/error state is published otherwise | DONE |
 | ASH-06 | I | Data ACK, NAK, retransmit deadline, retry limit, duplicate frame, and sequence wrap | Correct ACK/retransmit behavior; duplicate payload is not applied twice | DONE |
-| EZSP-01 | I | Supported version reply and negotiated-version reply | Correct protocol negotiation and subsequent initialization request | P |
+| EZSP-01 | I | Supported version reply and negotiated-version reply | Correct protocol negotiation and subsequent initialization request | DONE |
 | EZSP-02 | I | Unsupported, malformed, stale-sequence, failed-status, or absent version reply | Negotiation does not advance incorrectly; error/retry is observable | G |
 | EZSP-03 | I | Coordinator initialization command sequence, token-write setup, coordinator IEEE lookup, and Tradfri bind group | Commands occur in required order and only after prerequisite responses | G |
 | EZSP-04 | I | Initialization command failure, timeout, unexpected command, and delayed reply | No false online state; retry/failure is logged and deadlines remain bounded | G |

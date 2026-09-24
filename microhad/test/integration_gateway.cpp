@@ -40,6 +40,15 @@ std::vector<unsigned char> decodeSingleFrame(const std::vector<unsigned char>& w
     return frame;
 }
 
+std::vector<std::vector<unsigned char> > decodeFrames(const std::vector<unsigned char>& wire) {
+    AshTransport transport;
+    std::vector<std::vector<unsigned char> > frames;
+    std::vector<unsigned char> frame;
+    if (!wire.empty()) transport.feed(&wire[0], wire.size());
+    while (transport.popFrame(&frame)) frames.push_back(frame);
+    return frames;
+}
+
 void sendAshControl(int fd, unsigned char control, const std::vector<unsigned char>& payload) {
     std::vector<unsigned char> wire = AshTransport::encodeData(control, payload);
     assert(write(fd, &wire[0], wire.size()) == static_cast<ssize_t>(wire.size()));
@@ -99,14 +108,28 @@ void testResetAndVersionOverPipe() {
     std::vector<unsigned char> versionReply;
     versionReply.push_back(0); versionReply.push_back(0x80); versionReply.push_back(0);
     versionReply.push_back(8); versionReply.push_back(2); versionReply.push_back(0x80); versionReply.push_back(0x67);
-    std::vector<unsigned char> wire = AshTransport::encodeData(0x01, versionReply);
+    std::vector<unsigned char> wire = AshTransport::encodeData(0x01, obfuscateEzsp(versionReply));
     assert(write(serial[1], &wire[0], wire.size()) == static_cast<ssize_t>(wire.size()));
     gateway.poll();
-    std::vector<unsigned char> negotiatedRequest = readAvailable(serial[1]);
-    assert(!negotiatedRequest.empty());
-    /* The second request is the negotiated protocol-version exchange.  Its
-       exact response variants are covered by unit_gateway; this integration
-       test verifies that the live serial path reaches that exchange. */
+    std::vector<std::vector<unsigned char> > exchange = decodeFrames(readAvailable(serial[1]));
+    assert(exchange.size() == 2 && exchange[0][0] == 0x81 && exchange[1][0] == 0x11);
+    std::vector<unsigned char> expectedRequest(5, 0);
+    expectedRequest[1] = 0x80; expectedRequest[3] = 0; expectedRequest[4] = 0;
+    std::vector<unsigned char> actualRequest(exchange[1].begin() + 1, exchange[1].end());
+    actualRequest = obfuscateEzsp(actualRequest);
+    assert(actualRequest.size() >= expectedRequest.size() && actualRequest[3] == 0 && actualRequest[4] == 0);
+
+    std::vector<unsigned char> negotiatedReply;
+    negotiatedReply.push_back(1); negotiatedReply.push_back(0x80); negotiatedReply.push_back(0);
+    negotiatedReply.push_back(0); negotiatedReply.push_back(0); negotiatedReply.push_back(8);
+    negotiatedReply.push_back(2); negotiatedReply.push_back(0x80); negotiatedReply.push_back(0x67);
+    wire = AshTransport::encodeData(0x12, obfuscateEzsp(negotiatedReply));
+    assert(write(serial[1], &wire[0], wire.size()) == static_cast<ssize_t>(wire.size()));
+    gateway.poll();
+    std::vector<std::vector<unsigned char> > initialization = decodeFrames(readAvailable(serial[1]));
+    assert(GatewayIntegrationTestPeer::online(gateway));
+    assert(gateway.logsJson().find("Negotiated EZSP v8 stack type=2 stack version=0x6780") != std::string::npos);
+    assert(initialization.size() == 2 && initialization[0][0] == 0x82 && initialization[1].size() > 6);
     gateway.stop();
     close(serial[1]);
 }
