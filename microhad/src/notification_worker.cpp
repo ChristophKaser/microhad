@@ -6,9 +6,10 @@
 #include <fstream>
 
 NotificationWorker::NotificationWorker(const std::string& runtimeDirectory, const std::string& firebaseServiceAccount,
-                                       const std::string& firebaseTopic, const std::string& caBundle) :
+                                       const std::string& firebaseTopic, const std::string& caBundle,
+                                       DeliveryHook* deliveryHook) :
     runtimeDirectory_(runtimeDirectory), firebaseServiceAccount_(firebaseServiceAccount), firebaseTopic_(firebaseTopic),
-    caBundle_(caBundle), running_(false), started_(false), enabled_(true) { pthread_mutex_init(&mutex_, 0); pthread_cond_init(&ready_, 0); loadEnabled(); }
+    caBundle_(caBundle), deliveryHook_(deliveryHook), running_(false), started_(false), enabled_(true) { pthread_mutex_init(&mutex_, 0); pthread_cond_init(&ready_, 0); loadEnabled(); }
 NotificationWorker::~NotificationWorker() { stop(); pthread_cond_destroy(&ready_); pthread_mutex_destroy(&mutex_); }
 bool NotificationWorker::start(std::string* error) {
     pthread_attr_t attributes;
@@ -42,7 +43,7 @@ bool NotificationWorker::setEnabled(bool enabled, std::string* error) {
 }
 void* NotificationWorker::threadMain(void* opaque) { static_cast<NotificationWorker*>(opaque)->run(); return 0; }
 void NotificationWorker::run() { while (true) { Job job; pthread_mutex_lock(&mutex_); while (running_ && jobs_.empty()) pthread_cond_wait(&ready_, &mutex_); if (!running_ && jobs_.empty()) { pthread_mutex_unlock(&mutex_); break; } job = jobs_.front(); jobs_.erase(jobs_.begin()); pthread_mutex_unlock(&mutex_); deliver(job); } }
-void NotificationWorker::deliver(const Job& job) { std::string ignored; if (!enabled()) return; if (!firebaseServiceAccount_.empty() && !firebaseTopic_.empty() && !caBundle_.empty()) sendFcmNotification(firebaseServiceAccount_, caBundle_, firebaseTopic_, job.title, job.body, &ignored); if (!enabled()) return; if (!caBundle_.empty()) { WebPushStore browserPush(runtimeDirectory_); browserPush.send(caBundle_, job.title, job.body, &ignored); } }
+void NotificationWorker::deliver(const Job& job) { std::string ignored; if (!enabled()) return; if (deliveryHook_ != 0) { deliveryHook_->deliver(job.title, job.body); return; } if (!firebaseServiceAccount_.empty() && !firebaseTopic_.empty() && !caBundle_.empty()) sendFcmNotification(firebaseServiceAccount_, caBundle_, firebaseTopic_, job.title, job.body, &ignored); if (!enabled()) return; if (!caBundle_.empty()) { WebPushStore browserPush(runtimeDirectory_); browserPush.send(caBundle_, job.title, job.body, &ignored); } }
 void NotificationWorker::loadEnabled() {
     std::ifstream input((runtimeDirectory_ + "/notifications.json").c_str());
     std::string content;

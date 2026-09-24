@@ -17,6 +17,7 @@
 #include <sstream>
 #include <string>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <unistd.h>
 #include <vector>
 
@@ -1676,6 +1677,88 @@ static void testNotificationTogglePersistence() {
     rmdir(directory.c_str());
 }
 
+class BlockingNotificationDelivery : public NotificationWorker::DeliveryHook {
+public:
+    BlockingNotificationDelivery() : entered_(false), released_(false), delivered_(0) {
+        pthread_mutex_init(&mutex_, 0);
+        pthread_cond_init(&changed_, 0);
+    }
+    ~BlockingNotificationDelivery() {
+        pthread_cond_destroy(&changed_);
+        pthread_mutex_destroy(&mutex_);
+    }
+    void deliver(const std::string&, const std::string&) {
+        pthread_mutex_lock(&mutex_);
+        ++delivered_;
+        if (delivered_ == 1) {
+            entered_ = true;
+            pthread_cond_broadcast(&changed_);
+            while (!released_) pthread_cond_wait(&changed_, &mutex_);
+        }
+        pthread_mutex_unlock(&mutex_);
+    }
+    bool waitUntilEntered() {
+        struct timeval now;
+        struct timespec deadline;
+        gettimeofday(&now, 0);
+        deadline.tv_sec = now.tv_sec + 2;
+        deadline.tv_nsec = now.tv_usec * 1000;
+        pthread_mutex_lock(&mutex_);
+        while (!entered_) {
+            int result = pthread_cond_timedwait(&changed_, &mutex_, &deadline);
+            if (result != 0) { pthread_mutex_unlock(&mutex_); return false; }
+        }
+        pthread_mutex_unlock(&mutex_);
+        return true;
+    }
+    void release() {
+        pthread_mutex_lock(&mutex_);
+        released_ = true;
+        pthread_cond_broadcast(&changed_);
+        pthread_mutex_unlock(&mutex_);
+    }
+    int delivered() {
+        pthread_mutex_lock(&mutex_);
+        int value = delivered_;
+        pthread_mutex_unlock(&mutex_);
+        return value;
+    }
+private:
+    pthread_mutex_t mutex_;
+    pthread_cond_t changed_;
+    bool entered_, released_;
+    int delivered_;
+};
+
+static void testNotificationWorkerQueueLifecycle() {
+    char directoryName[] = "/tmp/microhad-zigbee-worker-XXXXXX";
+    char* directory = mkdtemp(directoryName);
+    std::string error;
+    unsigned int i;
+    assert(directory != 0);
+    BlockingNotificationDelivery delivery;
+    NotificationWorker worker(directory, "", "", "", &delivery);
+    assert(worker.start(&error));
+    assert(!worker.start(&error) && error == "notification worker already started");
+    assert(worker.enqueue("first", "body", &error));
+    assert(delivery.waitUntilEntered());
+    for (i = 0; i < 32; ++i) assert(worker.enqueue("queued", "body", &error));
+    assert(!worker.enqueue("overflow", "body", &error) && error == "notification queue is full");
+    delivery.release();
+    worker.stop();
+    assert(delivery.delivered() == 33);
+    worker.stop();
+    assert(worker.start(&error));
+    assert(worker.setEnabled(false, &error));
+    assert(!worker.enqueue("disabled", "body", &error) && error == "push notifications are disabled");
+    worker.stop();
+    assert(worker.start(&error));
+    worker.stop();
+    unlink((std::string(directory) + "/notifications.json").c_str());
+    rmdir(directory);
+    fprintf(stderr, "unit: notification worker lifecycle and bounded queue\n");
+}
+
 static void testNotificationAuditDoesNotWriteRuntimeFlash() {
     std::ostringstream path;
     std::string error;
@@ -1793,6 +1876,7 @@ void runUnitTests() {
     testTemperatureThresholdAlerts();
     testContactAlertReminders();
     testNotificationTogglePersistence();
+    testNotificationWorkerQueueLifecycle();
     testNotificationAuditDoesNotWriteRuntimeFlash();
     testBrowserPushSubscriptionBounds();
     testFcmMessageConstruction();
