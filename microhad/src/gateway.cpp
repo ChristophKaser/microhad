@@ -520,7 +520,8 @@ bool Gateway::setDeviceSettings(const std::string& ieeeAddress, const std::strin
         return false;
     }
     if (it->second.hasTemperature &&
-        ((hasLow && (low < -100 || low > 200)) || (hasHigh && (high < -100 || high > 200)) ||
+        ((hasLow && (low != low || low < -100 || low > 200)) ||
+         (hasHigh && (high != high || high < -100 || high > 200)) ||
          (hasLow && hasHigh && low >= high))) {
         *error = "invalid temperature thresholds";
         return false;

@@ -13,6 +13,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <fcntl.h>
+#include <limits>
 #include <sstream>
 #include <string>
 #include <unistd.h>
@@ -764,6 +765,25 @@ static void testDeviceSettings() {
     assert(!gateway.setDeviceSettings("0x00124b0000000004", "Office window", false, 0, false, 0,
                                       true, 0, 7, true, 0, &error));
     assert(error == "invalid contact notification times");
+    assert(!gateway.setDeviceSettings("0xmissing", "Valid name", false, 0, false, 0,
+                                      false, 0, 0, false, 0, &error));
+    assert(error == "device not found");
+    assert(!gateway.setDeviceSettings("0x00124b0000000004", "", false, 0, false, 0,
+                                      true, 20, 7, true, 0, &error));
+    assert(error == "device name must be between 1 and 64 characters");
+    assert(!gateway.setDeviceSettings("0x00124b0000000004", std::string(65, 'x'), false, 0, false, 0,
+                                      true, 20, 7, true, 0, &error));
+    assert(error == "device name must be between 1 and 64 characters");
+    double nan = std::numeric_limits<double>::quiet_NaN();
+    assert(!gateway.setDeviceSettings("0x00124b0000000004", "Changed", true, nan, false, 0,
+                                      true, 20, 7, true, 0, &error));
+    assert(error == "invalid temperature thresholds");
+    assert(!gateway.setDeviceSettings("0x00124b0000000004", "Changed", false, 0, false, 0,
+                                      true, ULONG_MAX, 7, true, 0, &error));
+    assert(error == "invalid contact notification times");
+    assert(gateway.statusJson().find("\"name\":\"Office window\"") != std::string::npos);
+    assert(gateway.statusJson().find("\"low_temperature_alert\":5") != std::string::npos);
+    assert(gateway.statusJson().find("\"high_temperature_alert\":30") != std::string::npos);
     unlink((directory + "/devices.json").c_str());
     rmdir(directory.c_str());
 }
