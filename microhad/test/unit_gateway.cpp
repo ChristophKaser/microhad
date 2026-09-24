@@ -21,6 +21,53 @@
 
 class GatewayTestPeer {
 public:
+    static std::vector<unsigned char> decodedLastEzsp(const Gateway& gateway) {
+        std::vector<unsigned char> command = gateway.ashTransmitQueue_.empty() ? gateway.ashPendingData_ : gateway.ashTransmitQueue_.back();
+        unsigned char random = 0x42;
+        for (unsigned long i = 0; i < command.size(); ++i) {
+            command[i] ^= random;
+            random = (random & 1) ? static_cast<unsigned char>((random >> 1) ^ 0xb8) :
+                                   static_cast<unsigned char>(random >> 1);
+        }
+        return command;
+    }
+    static void lightCommandEncoding() {
+        Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+        Device device;
+        EndpointDescriptor power;
+        EndpointDescriptor level;
+        std::string error;
+        device.ieeeAddress = "0x00124b00000000cc";
+        device.networkAddress = 0x4321;
+        device.hasLight = true;
+        device.lightOn = false;
+        power.endpoint = 3; power.inputClusters.push_back(0x0006);
+        level.endpoint = 7; level.inputClusters.push_back(0x0008);
+        device.endpoints.push_back(power);
+        device.endpoints.push_back(level);
+        gateway.devices_[device.ieeeAddress] = device;
+        gateway.online_ = true; gateway.networkFormed_ = true; gateway.coordinatorInitializationStep_ = 0; gateway.ezspVersion_ = 8;
+
+        assert(gateway.setLightState(device.ieeeAddress, "on", -1, &error));
+        std::vector<unsigned char> command = decodedLastEzsp(gateway);
+        assert(command.size() == 24 && command[3] == 0x34 && command[4] == 0x00);
+        assert(command[6] == 0x21 && command[7] == 0x43 && command[8] == 0x04 && command[9] == 0x01);
+        assert(command[10] == 0x06 && command[11] == 0x00 && command[12] == 1 && command[13] == 3);
+        assert(command[20] == 3 && command[21] == 0x11 && command[22] == 1 && command[23] == 1);
+
+        assert(gateway.setLightState(device.ieeeAddress, "off", -1, &error));
+        command = decodedLastEzsp(gateway);
+        assert(command[12] == 1 && command[13] == 3 && command[20] == 3 && command[23] == 0);
+        assert(gateway.setLightState(device.ieeeAddress, "toggle", -1, &error));
+        command = decodedLastEzsp(gateway);
+        assert(command[23] == 2);
+
+        assert(gateway.setLightState(device.ieeeAddress, "ignored", 50, &error));
+        command = decodedLastEzsp(gateway);
+        assert(command.size() == 27 && command[10] == 0x08 && command[11] == 0 && command[12] == 1 && command[13] == 7);
+        assert(command[20] == 6 && command[21] == 0x11 && command[23] == 0x04 &&
+               command[24] == 127 && command[25] == 0 && command[26] == 0);
+    }
     static void ezspUpgradeCompatibility() {
         for (int protocol = 8; protocol <= 13; protocol += 5) {
             Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
@@ -1201,6 +1248,7 @@ void runUnitTests() {
     GatewayTestPeer::reviewAndTransportRegressions();
     GatewayTestPeer::ezspUpgradeCompatibility();
     GatewayTestPeer::networkJoinWindowDoesNotClearNetworkState();
+    GatewayTestPeer::lightCommandEncoding();
     testAshRoundTrip();
     testAshRejectsBadCrc();
     testAshFragmentationAndFrameOrdering();
