@@ -651,6 +651,36 @@ public:
         if (!gateway.scheduleSceneRetry(&retry, now) || retry.attempts != 6 || retry.retryAt != now + 10) return false;
         return !gateway.scheduleSceneRetry(&retry, time(0)) && retry.retryAt == LONG_MAX;
     }
+    static bool sceneRuntimePersistence() {
+        const char* filename = "/tmp/microhad-zigbee-scenes-runtime";
+        std::ifstream previousInput(filename);
+        bool hadPrevious = previousInput.good();
+        std::string previous((std::istreambuf_iterator<char>(previousInput)), std::istreambuf_iterator<char>());
+        bool result = false;
+        {
+            std::ofstream output(filename, std::ios::trunc);
+            if (output) { output << "S 12 4\nF 12 1\n"; output.close(); }
+            if (output) {
+                Gateway loaded("/dev/null", 115200, "/tmp", "", "", "");
+                loaded.loadSceneRuntime();
+                bool loadedOk = loaded.selectedScenes_.count(12) == 1 && loaded.selectedScenes_[12] == 4 &&
+                                loaded.sceneGroupOff_.count(12) == 1 && loaded.sceneGroupOff_[12];
+                loaded.selectedScenes_[13] = 9;
+                loaded.sceneGroupOff_[13] = false;
+                loaded.saveSceneRuntime();
+                Gateway restarted("/dev/null", 115200, "/tmp", "", "", "");
+                restarted.loadSceneRuntime();
+                result = loadedOk && restarted.selectedScenes_.count(13) == 1 && restarted.selectedScenes_[13] == 9 &&
+                         restarted.sceneGroupOff_.count(13) == 1 && !restarted.sceneGroupOff_[13];
+            }
+        }
+        if (hadPrevious) {
+            std::ofstream restore(filename, std::ios::trunc);
+            if (restore) { restore << previous; restore.close(); }
+            if (!restore) result = false;
+        } else if (unlink(filename) != 0) result = false;
+        return result;
+    }
     static void sceneBusyUnicastFallback() {
         Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
         gateway.ezspVersion_ = 8;
@@ -1332,6 +1362,7 @@ static void testSceneConfigurationRejectsInvalidReferences() {
 
 static void testSceneBusyDoesNotAdvanceSelection() {
     assert(GatewayTestPeer::sceneBusyDoesNotAdvanceSelection());
+    assert(GatewayTestPeer::sceneRuntimePersistence());
     GatewayTestPeer::sceneBusyUnicastFallback();
 }
 
