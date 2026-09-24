@@ -16,6 +16,7 @@
 #include <limits>
 #include <sstream>
 #include <string>
+#include <sys/stat.h>
 #include <unistd.h>
 #include <vector>
 
@@ -1159,6 +1160,68 @@ static void testSceneConfigurationPersistence() {
     unlink((path.str()+"/scenes.conf").c_str()); rmdir(path.str().c_str());
 }
 
+static bool saveStorageFixture(int kind, const std::string& filename, std::string* error) {
+    if (kind == 0) {
+        std::vector<Device> devices;
+        return saveDevices(filename, devices, error);
+    }
+    if (kind == 1) {
+        NetworkState network;
+        network.formed = true; network.panId = 0x1234; network.channel = 15;
+        network.extendedPan.assign(8, 0x12); network.networkKey.assign(16, 0x34);
+        network.preconfiguredKey.assign(16, 0x56);
+        return saveNetworkState(filename, network, error);
+    }
+    std::vector<SceneGroup> groups;
+    std::vector<RemoteSceneBinding> bindings;
+    return saveSceneConfiguration(filename, groups, bindings, error);
+}
+
+static void testStorageSaveFailuresPreserveDestinations() {
+    std::ostringstream path;
+    std::string error, content;
+    path << "/tmp/microhad-zigbee-storage-failures-" << static_cast<long>(getpid());
+    assert(ensureDirectory(path.str(), &error));
+    for (int kind = 0; kind < 3; ++kind) {
+        std::ostringstream name;
+        name << path.str() << "/save-" << kind;
+        std::string target = name.str();
+        {
+            std::ofstream previous(target.c_str());
+            assert(previous); previous << "previous-state\n"; previous.close(); assert(previous);
+        }
+        assert(mkdir((target + ".tmp").c_str(), 0700) == 0);
+        error.clear();
+        assert(!saveStorageFixture(kind, target, &error) && !error.empty());
+        assert(readTextFile(target, &content) && content == "previous-state\n");
+        assert(rmdir((target + ".tmp").c_str()) == 0);
+
+        assert(unlink(target.c_str()) == 0);
+        assert(mkdir(target.c_str(), 0700) == 0);
+        {
+            std::ofstream previous((target + "/keep").c_str());
+            assert(previous); previous << "directory-state\n"; previous.close(); assert(previous);
+        }
+        error.clear();
+        assert(!saveStorageFixture(kind, target, &error) && !error.empty());
+        assert(readTextFile(target + "/keep", &content) && content == "directory-state\n");
+        assert(access((target + ".tmp").c_str(), F_OK) != 0);
+        assert(unlink((target + "/keep").c_str()) == 0);
+        assert(rmdir(target.c_str()) == 0);
+    }
+    {
+        std::string nested = path.str() + "/missing/child";
+        error.clear();
+        assert(!ensureDirectory(nested, &error) && error.find("cannot create runtime directory") != std::string::npos);
+        std::ofstream file((path.str() + "/not-a-directory").c_str());
+        assert(file); file << "file"; file.close();
+        error.clear();
+        assert(!ensureDirectory(path.str() + "/not-a-directory", &error));
+        unlink((path.str() + "/not-a-directory").c_str());
+    }
+    assert(rmdir(path.str().c_str()) == 0);
+}
+
 static void testSceneConfigurationMalformedRecordsAreAtomic() {
     std::ostringstream path; std::string error; std::vector<SceneGroup> groups; std::vector<RemoteSceneBinding> bindings;
     const char* malformed[] = {
@@ -1664,6 +1727,7 @@ void runUnitTests() {
     testNetworkPersistenceRejectsInvalidState();
     testSceneConfigurationPersistence();
     testSceneConfigurationMalformedRecordsAreAtomic();
+    testStorageSaveFailuresPreserveDestinations();
     testGenericCapabilities();
     testZclRejectsMalformedAttributes();
     testConfigureReportingEncoding();

@@ -120,7 +120,7 @@ physical coordinator and radio interoperability testing.
 
 | ID | Level | Feature / stimulus | Expected result | Status |
 | --- | --- | --- | --- | --- |
-| STO-01 | U | Directory creation and every save path | Parent/create/write/rename failures propagate and leave previous file intact | G |
+| STO-01 | U | Directory creation and every save path | Parent/create/write/rename failures propagate and leave previous file intact | DONE |
 | STO-02 | U | JSON strings, numbers, escapes, Unicode pairs, malformed escapes, duplicate/missing fields, trailing data | Accepted JSON is decoded accurately; malformed input is rejected | DONE |
 | NOT-01 | U | Notification worker initial enabled state, toggle, restart persistence | `notifications.json` is honored and updates atomically | DONE |
 | NOT-02 | I | Start/stop twice, disabled enqueue, queue of 0/1/32/33 jobs, stop with queued work | Worker is race-safe; capacity/error/flush policy is deterministic | G |
