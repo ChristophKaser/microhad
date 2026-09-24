@@ -149,6 +149,12 @@ bool validOptionalDecimalField(const std::string& line, const char* field, doubl
     return *end == ',' || *end == '}';
 }
 
+const char* numericField(const std::string& line, const char* field) {
+    const std::string key = std::string("\"") + field + "\":";
+    const std::string::size_type at = line.find(key);
+    return at == std::string::npos ? 0 : line.c_str() + at + key.size();
+}
+
 }
 
 bool ensureDirectory(const std::string& directory, std::string* error) {
@@ -224,10 +230,10 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
         if (!line.empty() && line[line.size() - 1] == ',') line.erase(line.size() - 1);
         if (jsonStringField(line, "ieee_address", &ieeeAddress)) {
             long networkAddress = 0;
-            std::string::size_type addressAt = line.find("\"network_address\":");
-            if (addressAt != std::string::npos) {
+            const char* addressValue = numericField(line, "network_address");
+            if (addressValue != 0) {
                 if (!validOptionalIntegerField(line, "network_address", 0, 0xffff)) continue;
-                networkAddress = strtol(line.c_str() + addressAt + 18, 0, 10);
+                networkAddress = strtol(addressValue, 0, 10);
             }
             if (ieeeAddress.empty() ||
                 !validOptionalDecimalField(line, "temperature_celsius", -100, 200) ||
@@ -253,7 +259,7 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
             if (duplicate) continue;
             Device device;
             device.ieeeAddress = ieeeAddress;
-            if (addressAt != std::string::npos) device.networkAddress = static_cast<unsigned short>(networkAddress);
+            if (addressValue != 0) device.networkAddress = static_cast<unsigned short>(networkAddress);
             const char* fields[] = {"name", "kind", "manufacturer_name", "model_id"};
             std::string* destinations[] = {&device.name, &device.kind, &device.manufacturerName, &device.modelId};
             int index;
@@ -273,34 +279,34 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
             device.hasRemote = line.find("\"has_remote\":true") != std::string::npos;
             device.hasLowTemperatureAlert = line.find("\"has_low_temperature_alert\":true") != std::string::npos;
             device.hasHighTemperatureAlert = line.find("\"has_high_temperature_alert\":true") != std::string::npos;
-            std::string::size_type valueStart;
-            valueStart = line.find("\"temperature_celsius\":");
-            if (valueStart != std::string::npos) device.temperatureCelsius = atof(line.c_str() + valueStart + 22);
-            valueStart = line.find("\"battery_percent\":");
-            if (valueStart != std::string::npos) device.batteryPercent = atoi(line.c_str() + valueStart + 18);
-            valueStart = line.find("\"humidity_percent\":");
-            if (valueStart != std::string::npos) device.humidityPercent = atof(line.c_str() + valueStart + 19);
-            valueStart = line.find("\"link_quality\":");
-            if (valueStart != std::string::npos) device.linkQuality = atoi(line.c_str() + valueStart + 15);
-            valueStart = line.find("\"brightness_percent\":");
-            if (valueStart != std::string::npos) device.brightnessPercent = atoi(line.c_str() + valueStart + 21);
-            valueStart = line.find("\"last_seen\":");
-            if (valueStart != std::string::npos) device.lastSeen = atol(line.c_str() + valueStart + 12);
-            valueStart = line.find("\"ias_zone_id\":");
-            if (valueStart != std::string::npos) {
-                long zoneId = strtol(line.c_str() + valueStart + 14, 0, 10);
+            const char* value;
+            value = numericField(line, "temperature_celsius");
+            if (value != 0) device.temperatureCelsius = atof(value);
+            value = numericField(line, "battery_percent");
+            if (value != 0) device.batteryPercent = atoi(value);
+            value = numericField(line, "humidity_percent");
+            if (value != 0) device.humidityPercent = atof(value);
+            value = numericField(line, "link_quality");
+            if (value != 0) device.linkQuality = atoi(value);
+            value = numericField(line, "brightness_percent");
+            if (value != 0) device.brightnessPercent = atoi(value);
+            value = numericField(line, "last_seen");
+            if (value != 0) device.lastSeen = atol(value);
+            value = numericField(line, "ias_zone_id");
+            if (value != 0) {
+                long zoneId = strtol(value, 0, 10);
                 if (zoneId >= -1 && zoneId <= 254) device.iasZoneId = static_cast<int>(zoneId);
             }
-            valueStart = line.find("\"low_temperature_alert\":");
-            if (valueStart != std::string::npos) device.lowTemperatureAlert = atof(line.c_str() + valueStart + 24);
-            valueStart = line.find("\"high_temperature_alert\":");
-            if (valueStart != std::string::npos) device.highTemperatureAlert = atof(line.c_str() + valueStart + 25);
-            valueStart = line.find("\"contact_initial_alert_minutes\":");
-            if (valueStart != std::string::npos) device.contactInitialAlertMinutes = strtoul(line.c_str() + valueStart + 32, 0, 10);
-            valueStart = line.find("\"contact_reminder_alert_minutes\":");
-            if (valueStart != std::string::npos) device.contactReminderAlertMinutes = strtoul(line.c_str() + valueStart + 33, 0, 10);
-            valueStart = line.find("\"sensor_refresh_interval_minutes\":");
-            if (valueStart != std::string::npos) device.sensorRefreshIntervalMinutes = strtoul(line.c_str() + valueStart + 34, 0, 10);
+            value = numericField(line, "low_temperature_alert");
+            if (value != 0) device.lowTemperatureAlert = atof(value);
+            value = numericField(line, "high_temperature_alert");
+            if (value != 0) device.highTemperatureAlert = atof(value);
+            value = numericField(line, "contact_initial_alert_minutes");
+            if (value != 0) device.contactInitialAlertMinutes = strtoul(value, 0, 10);
+            value = numericField(line, "contact_reminder_alert_minutes");
+            if (value != 0) device.contactReminderAlertMinutes = strtoul(value, 0, 10);
+            value = numericField(line, "sensor_refresh_interval_minutes");
+            if (value != 0) device.sensorRefreshIntervalMinutes = strtoul(value, 0, 10);
             {
                 std::string encodedDescriptors;
                 if (jsonStringField(line, "endpoint_descriptors", &encodedDescriptors) && !encodedDescriptors.empty() &&
@@ -336,6 +342,94 @@ Scene* sceneById(SceneGroup* group, unsigned char id) {
     if (group == 0) return 0;
     for (unsigned long i = 0; i < group->scenes.size(); ++i) if (group->scenes[i].id == id) return &group->scenes[i];
     return 0;
+}
+
+bool parseSceneRecord(const std::vector<std::string>& fields, std::vector<SceneGroup>* groups,
+                      std::vector<RemoteSceneBinding>* bindings) {
+    unsigned long groupId, sceneId;
+    const std::string& type = fields[0];
+
+    if (type == "G") {
+        if (fields.size() != 3 || !decimalField(fields[1], 0xfff7, &groupId) ||
+            groupId == 0 || fields[2].empty()) return false;
+        SceneGroup group;
+        group.id = static_cast<unsigned short>(groupId);
+        group.name = fields[2];
+        groups->push_back(group);
+        return true;
+    }
+    if (type == "M") {
+        if (fields.size() != 3 || !decimalField(fields[1], 0xfff7, &groupId) || fields[2].empty()) return false;
+        SceneGroup* group = sceneGroupById(groups, static_cast<unsigned short>(groupId));
+        if (group == 0) return false;
+        group->members.push_back(fields[2]);
+        return true;
+    }
+    if (type == "S") {
+        if (fields.size() != 4 || !decimalField(fields[1], 0xfff7, &groupId) ||
+            !decimalField(fields[2], 255, &sceneId) || sceneId == 0 || fields[3].empty()) return false;
+        SceneGroup* group = sceneGroupById(groups, static_cast<unsigned short>(groupId));
+        if (group == 0) return false;
+        Scene scene;
+        scene.id = static_cast<unsigned char>(sceneId);
+        scene.name = fields[3];
+        group->scenes.push_back(scene);
+        return true;
+    }
+    if (type == "T") {
+        int brightness;
+        if (fields.size() != 6 || !decimalField(fields[1], 0xfff7, &groupId) ||
+            !decimalField(fields[2], 255, &sceneId) || fields[3].empty() ||
+            (fields[4] != "0" && fields[4] != "1") || !brightnessField(fields[5], &brightness)) return false;
+        Scene* scene = sceneById(sceneGroupById(groups, static_cast<unsigned short>(groupId)),
+                                 static_cast<unsigned char>(sceneId));
+        if (scene == 0) return false;
+        SceneLightState state;
+        state.ieeeAddress = fields[3];
+        state.on = fields[4] == "1";
+        state.brightnessPercent = brightness;
+        scene->states.push_back(state);
+        return true;
+    }
+    if (type == "B") {
+        if (fields.size() != 6 || !decimalField(fields[3], 0xfff7, &groupId) || groupId == 0 ||
+            fields[1].empty() || (fields[4] != "0" && fields[4] != "1") ||
+            (fields[2] != "on" && fields[2] != "off" && fields[2] != "arrow_left" &&
+             fields[2] != "arrow_right")) return false;
+        RemoteSceneBinding binding;
+        binding.ieeeAddress = fields[1];
+        binding.action = fields[2];
+        binding.groupId = static_cast<unsigned short>(groupId);
+        binding.off = fields[4] == "1";
+        std::stringstream ids(fields[5]);
+        std::string id;
+        while (std::getline(ids, id, ',')) {
+            if (!decimalField(id, 255, &sceneId) || sceneId == 0) return false;
+            binding.sceneIds.push_back(static_cast<unsigned char>(sceneId));
+        }
+        bindings->push_back(binding);
+        return true;
+    }
+    return false;
+}
+
+bool uniqueSceneGroups(const std::vector<SceneGroup>& groups) {
+    for (unsigned long i = 0; i < groups.size(); ++i) {
+        for (unsigned long j = 0; j < i; ++j)
+            if (groups[i].id == groups[j].id) return false;
+        for (unsigned long j = 0; j < groups[i].members.size(); ++j)
+            for (unsigned long k = 0; k < j; ++k)
+                if (groups[i].members[j] == groups[i].members[k]) return false;
+        for (unsigned long j = 0; j < groups[i].scenes.size(); ++j) {
+            const Scene& scene = groups[i].scenes[j];
+            for (unsigned long k = 0; k < j; ++k)
+                if (scene.id == groups[i].scenes[k].id) return false;
+            for (unsigned long k = 0; k < scene.states.size(); ++k)
+                for (unsigned long n = 0; n < k; ++n)
+                    if (scene.states[k].ieeeAddress == scene.states[n].ieeeAddress) return false;
+        }
+    }
+    return true;
 }
 }
 
@@ -381,37 +475,20 @@ bool loadSceneConfiguration(const std::string& filename, std::vector<SceneGroup>
     std::vector<RemoteSceneBinding> parsedBindings;
     if (!input) { groups->clear(); bindings->clear(); return true; }
     while (std::getline(input, line)) {
-        std::vector<std::string> f = tabFields(line);
-        unsigned long groupId, sceneId;
-        if (f.empty() || f[0].empty() || f[0][0] == '#') continue;
-        if (f[0] == "G" && f.size() == 3 && decimalField(f[1], 0xfff7, &groupId) && groupId != 0 && !f[2].empty()) { SceneGroup g; g.id = static_cast<unsigned short>(groupId); g.name = f[2]; parsedGroups.push_back(g); }
-        else if (f[0] == "M" && f.size() == 3 && decimalField(f[1], 0xfff7, &groupId) && !f[2].empty()) { SceneGroup* g = sceneGroupById(&parsedGroups, static_cast<unsigned short>(groupId)); if (!g) goto invalid; g->members.push_back(f[2]); }
-        else if (f[0] == "S" && f.size() == 4 && decimalField(f[1], 0xfff7, &groupId) && decimalField(f[2], 255, &sceneId) && sceneId != 0 && !f[3].empty()) { SceneGroup* g = sceneGroupById(&parsedGroups, static_cast<unsigned short>(groupId)); if (!g) goto invalid; Scene s; s.id = static_cast<unsigned char>(sceneId); s.name = f[3]; g->scenes.push_back(s); }
-        else if (f[0] == "T" && f.size() == 6 && decimalField(f[1], 0xfff7, &groupId) && decimalField(f[2], 255, &sceneId) && !f[3].empty() && (f[4] == "0" || f[4] == "1")) { Scene* s = sceneById(sceneGroupById(&parsedGroups, static_cast<unsigned short>(groupId)), static_cast<unsigned char>(sceneId)); int brightness; if (!s || !brightnessField(f[5], &brightness)) goto invalid; SceneLightState t; t.ieeeAddress=f[3]; t.on=f[4]=="1"; t.brightnessPercent=brightness; s->states.push_back(t); }
-        else if (f[0] == "B" && f.size() == 6 && decimalField(f[3], 0xfff7, &groupId) && groupId != 0 && !f[1].empty() && (f[4] == "0" || f[4] == "1") && (f[2] == "on" || f[2] == "off" || f[2] == "arrow_left" || f[2] == "arrow_right")) { RemoteSceneBinding b; b.ieeeAddress=f[1]; b.action=f[2]; b.groupId=static_cast<unsigned short>(groupId); b.off=f[4]=="1"; std::stringstream ids(f[5]); std::string id; while (std::getline(ids,id,',')) { if (!decimalField(id,255,&sceneId) || sceneId == 0) goto invalid; b.sceneIds.push_back(static_cast<unsigned char>(sceneId)); } parsedBindings.push_back(b); }
-        else { goto invalid; }
-    }
-    for (unsigned long i = 0; i < parsedGroups.size(); ++i) {
-        for (unsigned long j = 0; j < i; ++j)
-            if (parsedGroups[i].id == parsedGroups[j].id) goto invalid;
-        for (unsigned long j = 0; j < parsedGroups[i].members.size(); ++j) {
-            for (unsigned long k = 0; k < j; ++k)
-                if (parsedGroups[i].members[j] == parsedGroups[i].members[k]) goto invalid;
-        }
-        for (unsigned long j = 0; j < parsedGroups[i].scenes.size(); ++j) {
-            for (unsigned long k = 0; k < j; ++k)
-                if (parsedGroups[i].scenes[j].id == parsedGroups[i].scenes[k].id) goto invalid;
-            for (unsigned long k = 0; k < parsedGroups[i].scenes[j].states.size(); ++k) {
-                for (unsigned long n = 0; n < k; ++n)
-                    if (parsedGroups[i].scenes[j].states[k].ieeeAddress == parsedGroups[i].scenes[j].states[n].ieeeAddress) goto invalid;
-            }
+        std::vector<std::string> fields = tabFields(line);
+        if (fields[0].empty() || fields[0][0] == '#') continue;
+        if (!parseSceneRecord(fields, &parsedGroups, &parsedBindings)) {
+            *error = "invalid scene configuration";
+            return false;
         }
     }
-    *groups = parsedGroups; *bindings = parsedBindings;
+    if (!uniqueSceneGroups(parsedGroups)) {
+        *error = "invalid scene configuration";
+        return false;
+    }
+    *groups = parsedGroups;
+    *bindings = parsedBindings;
     return true;
-invalid:
-    *error = "invalid scene configuration";
-    return false;
 }
 
 bool saveNetworkState(const std::string& filename, const NetworkState& network, std::string* error) {

@@ -93,8 +93,9 @@ The normalized device model is model-independent: IAS contact state, standard
 Temperature Measurement (`0x0402`), Relative Humidity Measurement (`0x0405`),
 Occupancy Sensing (`0x0406`), Power Configuration battery percentage, link
 quality, and last-seen state are retained and surfaced in the dashboard. An
-opened contact emits an alert immediately and repeats while it remains open;
-temperature thresholds can be set per device in the dashboard.
+opened contact starts a ten-minute notification window, followed by five-minute
+reminders while it remains open; closing it cancels the pending alert.
+Temperature thresholds can be set per device in the dashboard.
 
 Temperature and humidity devices also have a per-device fallback refresh
 interval in their settings. It defaults to five minutes for devices that
@@ -112,8 +113,8 @@ so it is the appropriate end-to-end check after credentials are installed.
 The dashboard includes a live coordinator log, refreshed once per second from
 `/api/logs`. The on-device log is deliberately stored only at
 `/tmp/microhad-zigbee-native.log`; on this gateway `/tmp` resolves below the
-RAM-backed `/var` mount, not the `/tuya` flash volume. It keeps at most 128
-entries of up to 240 characters, so diagnostics do not create flash write
+RAM-backed `/var` mount, not the `/tuya` flash volume. It keeps at most 512
+entries, so diagnostics do not create flash write
 cycles or consume unbounded memory.
 
 ## Web UI development

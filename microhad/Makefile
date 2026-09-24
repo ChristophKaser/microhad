@@ -75,9 +75,13 @@ $(MIPS_BIN): $(SOURCES) $(wildcard include/*.h) $(MIPS_MBEDTLS_LIBS) $(MIPS_C_OB
 	$(TARGET_CXX) $(TARGET_CXXFLAGS) -static -Wl,--gc-sections $(SOURCES) $(MIPS_C_OBJECTS) -o $@ $(MIPS_MBEDTLS_LIBS) $(LDFLAGS)
 	$(TARGET_STRIP) $@
 
+define verify_elf
+$(1) -h $(2) | grep -q 'Data:.*big endian' && \
+$(1) -h $(2) | grep -q 'Machine:.*MIPS'
+endef
+
 verify-target: $(MIPS_BIN)
-	$(TARGET_READELF) -h $(MIPS_BIN) | grep -q 'Data:.*big endian'
-	$(TARGET_READELF) -h $(MIPS_BIN) | grep -q 'Machine:.*MIPS'
+	@$(call verify_elf,$(TARGET_READELF),$(MIPS_BIN))
 
 $(UNIT_TEST_BIN): $(UNIT_TEST_SOURCES) src/gateway_config.cpp src/ash.cpp src/json_util.cpp src/storage.cpp src/gateway.cpp src/notification_worker.cpp src/zcl.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp $(HOST_C_OBJECTS) $(HOST_MBEDTLS_LIBS) $(wildcard include/*.h)
 	@mkdir -p $(HOST_BUILD)
@@ -93,8 +97,8 @@ unit-test: mbedtls-host $(HOST_BIN) $(UNIT_TEST_BIN)
 integration-test: mbedtls-host $(HOST_BIN) $(INTEGRATION_TEST_BIN)
 	$(INTEGRATION_TEST_BIN)
 
-target-verifier-test: $(HOST_BIN)
-	@if $(MAKE) --no-print-directory verify-target MIPS_BIN=$(HOST_BIN) TARGET_READELF=$(HOST_READELF) >/dev/null 2>&1; then \
+target-verifier-test: $(UNIT_TEST_BIN)
+	@if $(call verify_elf,$(HOST_READELF),$(UNIT_TEST_BIN)) >/dev/null 2>&1; then \
 		echo "target verifier accepted the host executable"; exit 1; \
 	else \
 		echo "target verifier rejects the host executable"; \
