@@ -19,6 +19,10 @@
 #include <termios.h>
 #include <unistd.h>
 
+#ifndef MICROHAD_BUILD_REVISION
+#define MICROHAD_BUILD_REVISION "unknown"
+#endif
+
 EndpointDescriptor::EndpointDescriptor() : endpoint(0), profileId(0), deviceId(0), deviceVersion(0) {
 }
 SceneLightState::SceneLightState() : on(false), brightnessPercent(-1) {}
@@ -333,6 +337,11 @@ bool Gateway::start(std::string* error) {
     }
     loadLogs();
     loadState();
+    {
+        std::ostringstream build;
+        build << "Build: " << __DATE__ << " " << __TIME__ << " revision=" << MICROHAD_BUILD_REVISION;
+        addLog(build.str());
+    }
     /* Tests may inject a pipe descriptor before the coordinator thread starts.
        Production always reaches this branch with serialFd_ == -1. */
     if (serialFd_ < 0 && !configureSerial(error)) {
