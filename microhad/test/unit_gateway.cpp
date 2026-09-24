@@ -1033,6 +1033,9 @@ static void testGenericCapabilities() {
     zone.push_back(1); zone.push_back(0);
     assert(applyIasZoneStatus(&device, zone, 125));
     assert(device.hasContact && device.contactOpen && device.lastSeen == 125);
+    zone[0] = 0;
+    assert(applyIasZoneStatus(&device, zone, 126));
+    assert(device.hasContact && !device.contactOpen && device.lastSeen == 126);
 
     device = Device();
     std::vector<unsigned char> on(1, 1);
