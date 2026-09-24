@@ -1240,6 +1240,8 @@ static void testContactNotificationIsDeferred() {
     std::ostringstream path;
     std::string error;
     std::vector<unsigned char> zone;
+    std::vector<unsigned char> warm;
+    std::vector<unsigned char> cold;
     path << "/tmp/microhad-zigbee-alert-test-" << static_cast<long>(getpid());
     std::string directory = path.str();
     assert(ensureDirectory(directory, &error));
@@ -1250,8 +1252,15 @@ static void testContactNotificationIsDeferred() {
     assert(gateway.applyIasZoneStatus("0x00124b0000000003", zone));
     assert(gateway.logsJson().find("Contact opened") == std::string::npos);
     assert(GatewayTestPeer::contactAlertIsCancelled(&gateway, "0x00124b0000000004"));
+    warm.push_back(0xd0); warm.push_back(0x07); /* 20.00 C */
+    cold.push_back(0xf4); cold.push_back(0x01); /* 5.00 C */
+    assert(gateway.applyAttributeReport("0x00124b0000000005", 0x0402, 0x0000, warm));
+    assert(gateway.setDeviceSettings("0x00124b0000000005", "Cold room", true, 10, false, 0,
+                                     false, 0, 0, false, 0, &error));
+    assert(gateway.applyAttributeReport("0x00124b0000000005", 0x0402, 0x0000, cold));
     assert(!gateway.sendTestNotification(&error));
     assert(error == "push notifications are disabled");
+    assert(gateway.logsJson().find("Notification ") == std::string::npos);
     unlink((directory + "/notification-outbox.ndjson").c_str());
     unlink((directory + "/devices.json").c_str());
     rmdir(directory.c_str());

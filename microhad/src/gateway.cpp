@@ -1041,7 +1041,6 @@ void Gateway::updateTemperatureAlert(const Device& device, bool hadTemperature, 
 bool Gateway::emitNotification(const std::string& title, const std::string& body, std::string* error) {
     if (notificationWorker_ == 0) { if (error != 0) *error = "no notification delivery is configured"; return false; }
     if (!notificationWorker_->enabled()) {
-        addLog(std::string("Notification suppressed: ") + title + " - " + body);
         if (error != 0) *error = "push notifications are disabled";
         return false;
     }
