@@ -119,18 +119,23 @@ cycles or consume unbounded memory.
 
 ## Web UI development
 
-The dashboard source is `webui/index.html`; deployed gateways load it from
-`<runtime_dir>/webui/index.html`. To develop the UI locally while using the
-development gateway API, run:
+The dashboard source is in `webui/src`. Build the React and TypeScript UI with
+Vite before deploying:
 
 ```sh
-python3 webui/dev_server.py --device http://192.168.178.62
+make webui
 ```
 
-Open `http://localhost:8000` or `http://<this-computer-ip>:8000` from another
-machine on the LAN. The local server proxies `/api/` requests to the gateway so
-no CORS support is required. Browser-push enrollment is deliberately disabled
-in this mode; test it from the deployed HTTPS dashboard instead.
+`deploy.sh` uploads the contents of `webui/dist` to `<runtime_dir>/webui` when
+web UI deployment is selected. Deploy the updated binary together with the new
+UI the first time, because the server must support bundled assets. The service
+worker is built from `webui/public/sw.js` and served as `/sw.js`.
+
+For local development, run `cd webui && npm ci && npm run dev`. Open
+`http://localhost:5173` or `http://<this-computer-ip>:5173` on the LAN. Vite
+proxies `/api/` requests to the development gateway at `192.168.178.62`, so
+no CORS support is required. Browser-push enrollment is disabled in this mode;
+test it from the deployed HTTPS dashboard instead.
 
 ## Current protocol boundary
 

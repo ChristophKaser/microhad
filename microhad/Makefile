@@ -37,11 +37,14 @@ INTEGRATION_TEST_BIN := $(HOST_BUILD)/integration_tests
 UNIT_TEST_SOURCES := test/unit_gateway.cpp test/unit_gateway_config.cpp test/unit_fcm.cpp test/unit_web_push.cpp test/test_main.cpp
 INTEGRATION_TEST_SOURCES := test/integration_gateway.cpp test/integration_http_server.cpp test/integration_lifecycle.cpp test/integration_outbound.cpp test/integration_main.cpp
 
-.PHONY: all host mips mbedtls-host mbedtls-mips unit-test integration-test target-verifier-test test verify-target clean
+.PHONY: all host mips webui mbedtls-host mbedtls-mips unit-test integration-test target-verifier-test test verify-target clean
 
 all: host
 
 host: mbedtls-host $(HOST_BIN)
+
+webui:
+	cd webui && npm ci && npm run build
 
 $(HOST_BIN): $(SOURCES) $(HOST_C_OBJECTS) $(HOST_MBEDTLS_LIBS) $(wildcard include/*.h)
 	@mkdir -p $(HOST_BUILD)

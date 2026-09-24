@@ -47,7 +47,7 @@ done
 
 [ -n "$password_file" ] && [ -r "$password_file" ] || usage
 [ "$deploy_binary" = false ] || [ -x "$binary" ] || { echo "MIPS binary not found or not executable: $binary" >&2; exit 1; }
-[ "$deploy_webui" = false ] || [ -f "$project_dir/webui/index.html" ] || { echo "Web UI not found: $project_dir/webui/index.html" >&2; exit 1; }
+[ "$deploy_webui" = false ] || { [ -f "$project_dir/webui/dist/index.html" ] && [ -f "$project_dir/webui/dist/sw.js" ]; } || { echo "Built Web UI not found; run make webui first" >&2; exit 1; }
 [ -z "$config" ] || { [ "$deploy_binary" = true ] && [ -f "$config" ]; } || usage
 [ -z "$certificate" ] || [ -f "$certificate" ] || usage
 [ -z "$private_key" ] || [ -f "$private_key" ] || usage
@@ -82,8 +82,17 @@ if [ "$deploy_binary" = true ]; then
 fi
 if [ "$deploy_webui" = true ]; then
     printf 'Uploading web UI to %s:%s/webui\n' "$host" "$target"
-    ssh_command "mkdir -p \"$target/webui\"; rm -f \"$target/webui/.index.html.new\""
-    ssh_command "dd of=\"$target/webui/.index.html.new\"" < "$project_dir/webui/index.html"
+    webui_dist="$project_dir/webui/dist"
+    find "$webui_dist" -type f ! -name index.html | while IFS= read -r asset; do
+        relative=${asset#"$webui_dist"/}
+        case "$relative" in *[!A-Za-z0-9_./-]*|*..*) echo "unsupported Web UI asset path: $relative" >&2; exit 1 ;; esac
+        asset_dir=${relative%/*}
+        if [ "$asset_dir" = "$relative" ]; then asset_dir=.; fi
+        ssh_command "mkdir -p \"$target/webui/$asset_dir\""
+        ssh_command "dd of=\"$target/webui/$relative.new\"" < "$asset"
+        ssh_command "chmod 644 \"$target/webui/$relative.new\"; mv \"$target/webui/$relative.new\" \"$target/webui/$relative\""
+    done
+    ssh_command "dd of=\"$target/webui/.index.html.new\"" < "$webui_dist/index.html"
     ssh_command "chmod 644 \"$target/webui/.index.html.new\"; mv \"$target/webui/.index.html.new\" \"$target/webui/index.html\"; ls -l \"$target/webui/index.html\""
 fi
 if [ -n "$certificate" ]; then

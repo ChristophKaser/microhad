@@ -51,6 +51,10 @@ void writeText(const std::string& name, const std::string& text) {
 
 void removeDirectory(const std::string& directory) {
     unlink((directory + "/webui/index.html").c_str());
+    unlink((directory + "/webui/sw.js").c_str());
+    unlink((directory + "/webui/assets/app.js").c_str());
+    unlink((directory + "/webui/assets/app.css").c_str());
+    rmdir((directory + "/webui/assets").c_str());
     rmdir((directory + "/webui").c_str());
     unlink((directory + "/notifications.json").c_str());
     unlink((directory + "/vapid-public.key").c_str());
@@ -287,6 +291,10 @@ void testServers() {
     assert(pipe(inbound) == 0 && pipe(outbound) == 0);
     assert(ensureDirectory(directory + "/webui", &error));
     writeText(directory + "/webui/index.html", "<html>integration dashboard</html>");
+    assert(ensureDirectory(directory + "/webui/assets", &error));
+    writeText(directory + "/webui/assets/app.js", "console.log(\"dashboard\")");
+    writeText(directory + "/webui/assets/app.css", "body{color:blue}");
+    writeText(directory + "/webui/sw.js", "self.addEventListener(\"push\", function() {});");
     NotificationWorker notifications(directory, "", "", "");
     assert(notifications.start(&error));
     Gateway* gateway = new Gateway("/dev/null", 115200, directory, "", "", "", &notifications);
@@ -295,18 +303,18 @@ void testServers() {
     assert(runner.start(&error));
     GatewayIntegrationTestPeer::prepareHttpDevice(gateway);
 
-    HttpServer http(0, &runner, directory + "/webui/index.html", "", "");
-    HttpServer https(0, &runner, directory + "/webui/index.html", "test/fixtures/tls/localhost.crt", "test/fixtures/tls/localhost.key");
+    HttpServer http(0, &runner, directory + "/webui", "", "");
+    HttpServer https(0, &runner, directory + "/webui", "test/fixtures/tls/localhost.crt", "test/fixtures/tls/localhost.key");
     if (!http.start(&error)) { fprintf(stderr, "HTTP start failed: %s\n", error.c_str()); assert(false); }
     if (!https.start(&error)) { fprintf(stderr, "HTTPS start failed: %s\n", error.c_str()); assert(false); }
     assert(http.boundPort() > 0 && https.boundPort() > 0);
 
-    HttpServer missingCertificate(0, &runner, directory + "/webui/index.html", directory + "/missing.crt",
+    HttpServer missingCertificate(0, &runner, directory + "/webui", directory + "/missing.crt",
                                   "test/fixtures/tls/localhost.key");
     assert(!missingCertificate.start(&error) && error.find("TLS certificate or key") != std::string::npos);
-    HttpServer invalidPrivateKey(0, &runner, directory + "/webui/index.html", "test/fixtures/tls/localhost.crt", "/dev/null");
+    HttpServer invalidPrivateKey(0, &runner, directory + "/webui", "test/fixtures/tls/localhost.crt", "/dev/null");
     assert(!invalidPrivateKey.start(&error) && error.find("TLS certificate or key") != std::string::npos);
-    testHttpQueuePressureAndBindFailure(&http, &runner, directory + "/webui/index.html");
+    testHttpQueuePressureAndBindFailure(&http, &runner, directory + "/webui");
 
     response = tlsRequest(https.boundPort(), "INVALID\r\nHost: localhost\r\n\r\n");
     expectStatus("https reject malformed encrypted request", response, 400);
@@ -320,7 +328,16 @@ void testServers() {
     assert(response.find("Content-Type: text/html; charset=utf-8\r\n") != std::string::npos && response.find("<html>integration dashboard</html>") != std::string::npos);
     response = plainRequest(http.boundPort(), "GET /sw.js HTTP/1.1\r\nHost: localhost\r\n\r\n");
     expectStatus("http service worker", response, 200);
-    assert(response.find("Content-Type: application/javascript\r\n") != std::string::npos && response.find("addEventListener('push'") != std::string::npos);
+    assert(response.find("Content-Type: application/javascript; charset=utf-8\r\n") != std::string::npos && response.find("addEventListener") != std::string::npos);
+    response = plainRequest(http.boundPort(), "GET /assets/app.js HTTP/1.1\r\nHost: localhost\r\n\r\n");
+    expectStatus("http javascript asset", response, 200);
+    assert(response.find("Content-Type: application/javascript; charset=utf-8\r\n") != std::string::npos && response.find("console.log") != std::string::npos);
+    response = plainRequest(http.boundPort(), "GET /assets/app.css HTTP/1.1\r\nHost: localhost\r\n\r\n");
+    expectStatus("http css asset", response, 200);
+    assert(response.find("Content-Type: text/css; charset=utf-8\r\n") != std::string::npos && response.find("body{color:blue}") != std::string::npos);
+    expectStatus("http missing asset", plainRequest(http.boundPort(), "GET /assets/missing.js HTTP/1.1\r\nHost: localhost\r\n\r\n"), 404);
+    expectStatus("http traversal", plainRequest(http.boundPort(), "GET /assets/../index.html HTTP/1.1\r\nHost: localhost\r\n\r\n"), 404);
+    expectStatus("http encoded traversal", plainRequest(http.boundPort(), "GET /assets/%2e%2e/index.html HTTP/1.1\r\nHost: localhost\r\n\r\n"), 404);
     response = plainRequest(http.boundPort(), "GET /api/status HTTP/1.1\r\nHost: localhost\r\n\r\n");
     expectStatus("http status", response, 200);
     assert(response.find("Content-Type: application/json\r\n") != std::string::npos && response.find("\"online\":") != std::string::npos && response.find("\"devices\":") != std::string::npos);
@@ -370,7 +387,7 @@ void testServers() {
     expectStatus("http accept encoded light command", response, 200);
     assert(response.find("{\"ok\":true}") != std::string::npos);
     expectStatus("http reject light brightness", plainRequest(http.boundPort(), post("/api/devices/not-a-device/light", "brightness=101")), 400);
-    expectStatus("http unknown route", plainRequest(http.boundPort(), "GET /missing HTTP/1.1\r\nHost: localhost\r\n\r\n"), 400);
+    expectStatus("http unknown route", plainRequest(http.boundPort(), "GET /missing HTTP/1.1\r\nHost: localhost\r\n\r\n"), 404);
     expectStatus("http reject chunked request", plainRequest(http.boundPort(), "POST /api/join HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n"), 400);
     expectStatus("http reject conflicting lengths", plainRequest(http.boundPort(), "POST /api/join HTTP/1.1\r\nHost: localhost\r\nContent-Length: 1\r\nContent-Length: 2\r\n\r\n"), 400);
     expectStatus("http reject duplicate lengths", plainRequest(http.boundPort(), "POST /api/join HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\nContent-Length: 0\r\n\r\n"), 400);
@@ -397,13 +414,16 @@ void testServers() {
     assert(response.find("Content-Type: application/json\r\n") != std::string::npos && response.find("\"lines\":") != std::string::npos);
     response = tlsRequest(https.boundPort(), "GET /sw.js HTTP/1.1\r\nHost: localhost\r\n\r\n");
     expectStatus("https service worker", response, 200);
-    assert(response.find("Content-Type: application/javascript\r\n") != std::string::npos);
+    assert(response.find("Content-Type: application/javascript; charset=utf-8\r\n") != std::string::npos);
+    response = tlsRequest(https.boundPort(), "GET /assets/app.js HTTP/1.1\r\nHost: localhost\r\n\r\n");
+    expectStatus("https javascript asset", response, 200);
+    assert(response.find("Content-Type: application/javascript; charset=utf-8\r\n") != std::string::npos);
     response = tlsRequest(https.boundPort(), post("/api/notifications/enabled", "enabled=true"));
     expectStatus("https enable notifications", response, 200);
     assert(response.find("{\"ok\":true,\"enabled\":true}") != std::string::npos);
 
     {
-        HttpServer missingDashboard(0, &runner, directory + "/missing-dashboard.html", "", "");
+        HttpServer missingDashboard(0, &runner, directory + "/missing-webui", "", "");
         assert(missingDashboard.start(&error));
         response = plainRequest(missingDashboard.boundPort(), "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n");
         expectStatus("http missing dashboard", response, 500);

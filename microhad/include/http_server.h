@@ -11,7 +11,7 @@ class WebPushStore;
 
 class HttpServer {
 public:
-    HttpServer(int port, GatewayRunner* gateway, const std::string& dashboardPath,
+    HttpServer(int port, GatewayRunner* gateway, const std::string& webuiDirectory,
                const std::string& certificatePath, const std::string& privateKeyPath);
     ~HttpServer();
     bool start(std::string* error);
@@ -23,7 +23,7 @@ private:
     int listenFd_;
     GatewayRunner* gateway_;
     WebPushStore* webPush_;
-    std::string dashboardPath_;
+    std::string webuiDirectory_;
     std::string certificatePath_;
     std::string privateKeyPath_;
     void* tlsServer_;

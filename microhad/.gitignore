@@ -1,5 +1,7 @@
 # Target and host outputs
 build/
+webui/dist/
+webui/node_modules/
 microhad-zigbee-native
 *.o
 __pycache__/

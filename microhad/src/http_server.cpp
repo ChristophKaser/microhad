@@ -13,6 +13,7 @@
 #include <fstream>
 #include <netinet/in.h>
 #include <sstream>
+#include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <ctime>
@@ -53,7 +54,7 @@ void setActiveTlsSession(void* value) { pthread_once(&tlsSessionKeyOnce, createT
 void writeResponse(int fd, int status, const char* contentType, const std::string& body) {
     std::ostringstream response;
     response << "HTTP/1.1 " << status << (status == 200 ? " OK" : status == 500 ? " Internal Server Error" :
-                                           status == 413 ? " Payload Too Large" : " Bad Request") << "\r\n"
+                                           status == 413 ? " Payload Too Large" : status == 404 ? " Not Found" : " Bad Request") << "\r\n"
              << "Content-Type: " << contentType << "\r\nCache-Control: no-store\r\nConnection: close\r\n"
              << "Content-Length: " << body.size() << "\r\n\r\n" << body;
     std::string wire = response.str();
@@ -195,11 +196,41 @@ bool parseMinutes(const std::string& value, unsigned long* result) {
     return errno == 0 && end != value.c_str() && *end == 0;
 }
 
+const char* assetContentType(const std::string& path) {
+    std::string::size_type dot = path.rfind('.');
+    if (dot == std::string::npos) return 0;
+    const std::string extension = path.substr(dot);
+    if (extension == ".html") return "text/html; charset=utf-8";
+    if (extension == ".js") return "application/javascript; charset=utf-8";
+    if (extension == ".css") return "text/css; charset=utf-8";
+    if (extension == ".svg") return "image/svg+xml";
+    if (extension == ".png") return "image/png";
+    if (extension == ".jpg" || extension == ".jpeg") return "image/jpeg";
+    if (extension == ".ico") return "image/x-icon";
+    if (extension == ".woff2") return "font/woff2";
+    if (extension == ".json") return "application/json";
+    return 0;
 }
 
-HttpServer::HttpServer(int port, GatewayRunner* gateway, const std::string& dashboardPath,
+bool safeAssetPath(const std::string& path) {
+    if (path.empty() || path[0] != '/' || path.find('%') != std::string::npos ||
+        path.find('\\') != std::string::npos || path.find("//") != std::string::npos) return false;
+    std::string::size_type start = 1;
+    while (start < path.size()) {
+        std::string::size_type end = path.find('/', start);
+        std::string part = path.substr(start, end == std::string::npos ? std::string::npos : end - start);
+        if (part.empty() || part == "." || part == ".." || part[0] == '.') return false;
+        if (end == std::string::npos) break;
+        start = end + 1;
+    }
+    return true;
+}
+
+}
+
+HttpServer::HttpServer(int port, GatewayRunner* gateway, const std::string& webuiDirectory,
                        const std::string& certificatePath, const std::string& privateKeyPath) :
-    port_(port), listenFd_(-1), gateway_(gateway), webPush_(new WebPushStore(gateway->runtimeDirectory())), dashboardPath_(dashboardPath),
+    port_(port), listenFd_(-1), gateway_(gateway), webPush_(new WebPushStore(gateway->runtimeDirectory())), webuiDirectory_(webuiDirectory),
     certificatePath_(certificatePath), privateKeyPath_(privateKeyPath), tlsServer_(0), running_(false) {
     pthread_mutex_init(&queueMutex_, 0);
     pthread_cond_init(&queueReady_, 0);
@@ -395,9 +426,6 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
         if (subscribed)
             writeResponse(clientFd, 200, "application/json", "{\"ok\":true}");
         else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + error + "\"}");
-    } else if (request.find("GET /sw.js ") == 0) {
-        const char* worker = "self.addEventListener('push',function(e){var d={title:'MicroHAD',body:''};if(e.data){d=e.data.json()}e.waitUntil(self.registration.showNotification(d.title,{body:d.body}))});";
-        writeResponse(clientFd, 200, "application/javascript", worker);
     } else if (request.find("POST /api/network/create ") == 0) {
         std::string::size_type bodyAt = request.find("\r\n\r\n");
         std::string confirmation;
@@ -489,12 +517,26 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
                 writeResponse(clientFd, 200, "application/json", "{\"ok\":true}");
             } else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + jsonEscape(error) + "\"}");
         }
-    } else if (request.find("GET / ") == 0) {
-        std::string dashboard;
-        if (readTextFile(dashboardPath_, &dashboard) && !dashboard.empty())
-            writeResponse(clientFd, 200, "text/html; charset=utf-8", dashboard);
-        else
-            writeResponse(clientFd, 500, "text/plain; charset=utf-8", "Dashboard is not installed.");
+    } else if (request.find("GET /") == 0 && request.find("GET /api/") != 0) {
+        std::string::size_type end = request.find(' ', 4);
+        std::string path = request.substr(4, end - 4);
+        std::string::size_type query = path.find('?');
+        if (query != std::string::npos) path.erase(query);
+        if (path == "/") path = "/index.html";
+        const char* contentType = assetContentType(path);
+        if (!safeAssetPath(path) || contentType == 0) {
+            writeResponse(clientFd, 404, "text/plain; charset=utf-8", "Asset not found.");
+        } else {
+            std::string filename = webuiDirectory_ + path;
+            struct stat info;
+            std::string body;
+            if (lstat(filename.c_str(), &info) == 0 && S_ISREG(info.st_mode) &&
+                readTextFile(filename, &body))
+                writeResponse(clientFd, 200, contentType, body);
+            else if (path == "/index.html")
+                writeResponse(clientFd, 500, "text/plain; charset=utf-8", "Dashboard is not installed.");
+            else writeResponse(clientFd, 404, "text/plain; charset=utf-8", "Asset not found.");
+        }
     } else {
         writeResponse(clientFd, 400, "application/json", "{\"error\":\"unknown endpoint\"}");
     }
