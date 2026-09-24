@@ -40,8 +40,16 @@ export interface Device {
   endpoint_descriptors: EndpointDescriptor[]
 }
 
-export interface SceneSummary { id: number; name: string }
-export interface SceneGroupSummary { id: number; name: string; members: string[]; scenes: SceneSummary[] }
+export interface SceneSummary {
+  id: number
+  name: string
+}
+export interface SceneGroupSummary {
+  id: number
+  name: string
+  members: string[]
+  scenes: SceneSummary[]
+}
 export interface Status {
   online: boolean
   network_forming: boolean
@@ -57,8 +65,9 @@ export interface Status {
 
 export async function jsonRequest<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, options)
-  const data = await response.json() as T & { ok?: boolean; error?: string }
-  if (!response.ok || data.ok === false) throw new Error(data.error || `Request failed (${response.status})`)
+  const data = (await response.json()) as T & { ok?: boolean; error?: string }
+  if (!response.ok || data.ok === false)
+    throw new Error(data.error || `Request failed (${response.status})`)
   return data
 }
 
@@ -68,12 +77,14 @@ export async function textRequest(url: string): Promise<string> {
   return response.text()
 }
 
-export function post(url: string, body = ''): Promise<unknown> {
-  return jsonRequest(url, { method: 'POST', body })
+export function post<T = unknown>(url: string, body = ''): Promise<T> {
+  return jsonRequest<T>(url, { method: 'POST', body })
 }
 
 export function form(fields: Record<string, string | number>): string {
-  return new URLSearchParams(Object.entries(fields).map(([key, value]) => [key, String(value)])).toString()
+  return new URLSearchParams(
+    Object.entries(fields).map(([key, value]) => [key, String(value)])
+  ).toString()
 }
 
 export function errorMessage(error: unknown): string {
