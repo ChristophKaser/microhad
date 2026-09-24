@@ -66,6 +66,29 @@ std::vector<unsigned char> obfuscateEzsp(const std::vector<unsigned char>& plain
     return encoded;
 }
 
+std::vector<unsigned char> firstAshData(const std::vector<unsigned char>& wire) {
+    std::vector<std::vector<unsigned char> > frames = decodeFrames(wire);
+    unsigned long i;
+    for (i = 0; i < frames.size(); ++i) {
+        if (!frames[i].empty() && (frames[i][0] & 0x80) == 0) {
+            std::vector<unsigned char> data(frames[i].begin() + 1, frames[i].end());
+            return obfuscateEzsp(data);
+        }
+    }
+    assert(false && "missing ASH data frame");
+    return std::vector<unsigned char>();
+}
+
+void replyToFormationCommand(int fd, const std::vector<unsigned char>& request, unsigned char ashSequence) {
+    assert(request.size() >= 5);
+    std::vector<unsigned char> reply;
+    reply.push_back(request[0]); reply.push_back(0x80); reply.push_back(1);
+    reply.push_back(request[3]); reply.push_back(request[4]); reply.push_back(0);
+    std::vector<unsigned char> wire = AshTransport::encodeData(
+        static_cast<unsigned char>((ashSequence << 4) | ((ashSequence + 1) & 7)), obfuscateEzsp(reply));
+    assert(write(fd, &wire[0], wire.size()) == static_cast<ssize_t>(wire.size()));
+}
+
 void expectUsageFailure(bool missingConfigPath) {
     int capture[2];
     int status;
@@ -255,6 +278,48 @@ void testEzspFailedInitializationStatus() {
     assert(!GatewayIntegrationTestPeer::online(gateway));
     assert(gateway.logsJson().find("Coordinator initialization command") != std::string::npos);
     gateway.stop(); close(serial[1]);
+}
+
+void testFreshNetworkFormationOverSerial() {
+    char name[] = "/tmp/microhad-zigbee-network-create-XXXXXX";
+    char* temporary = mkdtemp(name);
+    int serial[2];
+    std::string error;
+    assert(temporary != 0 && socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
+    std::string directory = temporary;
+    Gateway gateway("/dev/null", 115200, directory, "", "", "");
+    GatewayIntegrationTestPeer::attachSerial(&gateway, serial[0]);
+    assert(gateway.start(&error));
+    readAvailable(serial[1]);
+    assert(GatewayIntegrationTestPeer::prepareFreshNetwork(&gateway, &error));
+
+    std::vector<unsigned char> request = firstAshData(readAvailable(serial[1]));
+    assert(request[3] == 0xb1 && request[4] == 0x00);
+    replyToFormationCommand(serial[1], request, 0);
+    gateway.poll();
+    request = firstAshData(readAvailable(serial[1]));
+    assert(request[3] == 0x68 && request[4] == 0x00);
+    assert(request.size() == 48);
+    replyToFormationCommand(serial[1], request, 1);
+    gateway.poll();
+    request = firstAshData(readAvailable(serial[1]));
+    assert(request[3] == 0x1e && request[4] == 0x00);
+    assert(request.size() == 5 + 8 + 2 + 10);
+    replyToFormationCommand(serial[1], request, 2);
+    gateway.poll();
+
+    std::string status = gateway.statusJson();
+    assert(status.find("\"network_forming\":false") != std::string::npos);
+    assert(status.find("\"network_formed\":true") != std::string::npos);
+    NetworkState persisted;
+    assert(loadNetworkState(directory + "/network.json", &persisted, &error));
+    assert(persisted.formed && persisted.channel == 11 && persisted.panId != 0 && persisted.panId != 0xffff);
+    assert(persisted.extendedPan.size() == 8 && persisted.networkKey.size() == 16 &&
+           persisted.preconfiguredKey.size() == 16);
+    assert(gateway.logsJson().find("Leaving the existing Zigbee network") == std::string::npos);
+    assert(gateway.logsJson().find("Creating replacement Zigbee network from network-down state") != std::string::npos);
+    gateway.stop(); close(serial[1]);
+    unlink((directory + "/network.json").c_str()); rmdir(directory.c_str());
 }
 
 void testSerialBackpressureAndFailures() {
@@ -540,6 +605,8 @@ void runGatewayIntegrationTests() {
     testEzspVersionFailureModes();
     fprintf(stderr, "integration: EZSP failed initialization status\n");
     testEzspFailedInitializationStatus();
+    fprintf(stderr, "integration: fresh network formation and persistence\n");
+    testFreshNetworkFormationOverSerial();
     fprintf(stderr, "integration: serial backpressure recovery and terminal failures\n");
     testSerialBackpressureAndFailures();
     fprintf(stderr, "integration: ASH acknowledgements, retries, duplicate suppression, and wrap\n");

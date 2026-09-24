@@ -29,6 +29,14 @@ public:
     }
     static void setAshSendSequence(Gateway* gateway, unsigned char sequence) { gateway->ashSendSequence_ = sequence & 7; }
     static void expireAshAck(Gateway* gateway) { gateway->ashAckDeadline_ = time(0) - 1; }
+    static bool prepareFreshNetwork(Gateway* gateway, std::string* error) {
+        gateway->online_ = true;
+        gateway->networkInitRequested_ = true;
+        gateway->coordinatorInitializationStep_ = 0;
+        gateway->networkFormed_ = false;
+        gateway->ezspVersion_ = 8;
+        return gateway->createFreshNetwork(error);
+    }
     static void expireResetDeadline(Gateway* gateway) { gateway->resetDeadline_ = time(0) - 1; }
     static bool sceneCommandErrors(Gateway* gateway) {
         std::string error;
