@@ -143,6 +143,23 @@ public:
         assert(command.size() == 27 && command[10] == 0x08 && command[11] == 0 && command[12] == 1 && command[13] == 7);
         assert(command[20] == 6 && command[21] == 0x11 && command[23] == 0x04 &&
                command[24] == 127 && command[25] == 0 && command[26] == 0);
+
+        assert(!gateway.setLightState("0xmissing", "on", -1, &error));
+        assert(error == "device is not a light");
+        Device nondimmable = device;
+        nondimmable.ieeeAddress = "0x00124b00000000cd";
+        nondimmable.endpoints.erase(nondimmable.endpoints.begin() + 1);
+        gateway.devices_[nondimmable.ieeeAddress] = nondimmable;
+        assert(!gateway.setLightState(nondimmable.ieeeAddress, "on", 1, &error));
+        assert(error == "brightness is unavailable for this light");
+        assert(!gateway.setLightState(nondimmable.ieeeAddress, "invalid", -1, &error));
+        assert(error == "invalid light state");
+        Device unsupported = device;
+        unsupported.ieeeAddress = "0x00124b00000000ce";
+        unsupported.endpoints.clear();
+        gateway.devices_[unsupported.ieeeAddress] = unsupported;
+        assert(!gateway.setLightState(unsupported.ieeeAddress, "on", -1, &error));
+        assert(error == "power control is unavailable for this light");
     }
     static void ezspUpgradeCompatibility() {
         for (int protocol = 8; protocol <= 13; protocol += 5) {
