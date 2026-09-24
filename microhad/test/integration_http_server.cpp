@@ -5,6 +5,7 @@
 #include "notification_worker.h"
 #include "fcm.h"
 #include "storage.h"
+#include "sensor_history.h"
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wpedantic"
@@ -62,6 +63,7 @@ void removeDirectory(const std::string& directory) {
     unlink((directory + "/web-push-subscriptions.ndjson").c_str());
     unlink((directory + "/scenes.conf").c_str());
     unlink((directory + "/devices.json").c_str());
+    unlink((directory + "/history.bin").c_str());
     rmdir(directory.c_str());
 }
 
@@ -297,7 +299,9 @@ void testServers() {
     writeText(directory + "/webui/sw.js", "self.addEventListener(\"push\", function() {});");
     NotificationWorker notifications(directory, "", "", "");
     assert(notifications.start(&error));
-    Gateway* gateway = new Gateway("/dev/null", 115200, directory, "", "", "", &notifications);
+    SensorHistory history(directory + "/history.bin");
+    assert(history.append("0x00124b0000000042", SensorHistory::Temperature, 2245, 1700000000));
+    Gateway* gateway = new Gateway("/dev/null", 115200, directory, "", "", "", &notifications, directory + "/history.bin");
     GatewayIntegrationTestPeer::attachSerial(gateway, inbound[0]);
     GatewayRunner runner(gateway);
     assert(runner.start(&error));
@@ -344,6 +348,11 @@ void testServers() {
     response = plainRequest(http.boundPort(), "GET /api/logs HTTP/1.1\r\nHost: localhost\r\n\r\n");
     expectStatus("http logs", response, 200);
     assert(response.find("Content-Type: application/json\r\n") != std::string::npos && response.find("\"lines\":") != std::string::npos);
+    response = plainRequest(http.boundPort(), "GET /api/devices/0x00124b0000000042/history HTTP/1.1\r\nHost: localhost\r\n\r\n");
+    expectStatus("http sensor history", response, 200);
+    assert(response.find(",1,2245]") != std::string::npos);
+    expectStatus("http reject invalid history cursor", plainRequest(http.boundPort(), "GET /api/devices/0x00124b0000000042/history?before=bad HTTP/1.1\r\nHost: localhost\r\n\r\n"), 400);
+    expectStatus("http reject invalid history address", plainRequest(http.boundPort(), "GET /api/devices/wrong/history HTTP/1.1\r\nHost: localhost\r\n\r\n"), 400);
     response = plainRequest(http.boundPort(), "GET /api/scenes/config HTTP/1.1\r\nHost: localhost\r\n\r\n");
     expectStatus("http missing scene config", response, 200);
     assert(response.find("Content-Type: text/plain; charset=utf-8\r\n") != std::string::npos);

@@ -63,6 +63,12 @@ export interface Status {
   scene_groups: SceneGroupSummary[]
 }
 
+export type HistorySample = [sequence: number, timestamp: number, metric: 1 | 2 | 3, value: number]
+export interface HistoryPage {
+  samples: HistorySample[]
+  next_before: number
+}
+
 export async function jsonRequest<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, options)
   const data = (await response.json()) as T & { ok?: boolean; error?: string }

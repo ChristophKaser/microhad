@@ -3,6 +3,7 @@
 #include "storage.h"
 #include "json_util.h"
 #include "web_push.h"
+#include "sensor_history.h"
 
 #include <cerrno>
 #include <climits>
@@ -385,6 +386,29 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
         GatewayRunner::ViewLease* view = gateway_->acquireView();
         if (view == 0) writeResponse(clientFd, 503, "application/json", "{\"ok\":false,\"error\":\"coordinator is unavailable\"}");
         else { std::string body = view->statusJson(); delete view; writeResponse(clientFd, 200, "application/json", body); }
+    } else if (request.find("GET /api/devices/") == 0) {
+        const std::string prefix = "GET /api/devices/";
+        std::string::size_type end = request.find(' ', prefix.size());
+        std::string target = end == std::string::npos ? "" : request.substr(prefix.size(), end - prefix.size());
+        std::string::size_type suffix = target.find("/history");
+        bool valid = suffix != std::string::npos && suffix > 0;
+        std::string address = valid ? decodeComponent(target.substr(0, suffix)) : "";
+        std::string query = valid ? target.substr(suffix + 8) : "";
+        unsigned long before = 0;
+        valid = valid && (query.empty() || query.find("?before=") == 0);
+        if (valid && !query.empty()) {
+            const std::string number = query.substr(8);
+            char* parseEnd = 0;
+            errno = 0;
+            before = strtoul(number.c_str(), &parseEnd, 10);
+            valid = !number.empty() && errno == 0 && *parseEnd == 0 && before > 0 && before <= 0xffffffffUL;
+        }
+        std::string json;
+        std::string error;
+        if (!valid || !SensorHistory::readJson(gateway_->historyPath(), address, before, &json, &error))
+            writeResponse(clientFd, valid && error != "invalid device address" ? 500 : 400, "application/json",
+                          "{\"ok\":false,\"error\":\"" + jsonEscape(valid ? error : "invalid history request") + "\"}");
+        else writeResponse(clientFd, 200, "application/json", json);
     } else if (request.find("GET /api/scenes/config ") == 0) {
         std::ifstream input((gateway_->runtimeDirectory() + "/scenes.conf").c_str());
         std::string content((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());

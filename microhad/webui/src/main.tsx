@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import type { Device } from './api'
 import { errorMessage, form, jsonRequest, post } from './api'
 import { DeviceGroups, DeviceSettings } from './devices'
+import { HistoryDialog } from './HistoryDialog'
 import { DescriptorsDialog, NetworkDialog, SceneTextDialog } from './DashboardDialogs'
 import { SceneEditor } from './SceneEditor'
 import { useGatewayData } from './useGatewayData'
@@ -85,6 +86,7 @@ function App() {
   const [dialog, setDialog] = useState<'network' | 'scenes' | 'text' | null>(null)
   const [selected, setSelected] = useState<Device | null>(null)
   const [descriptors, setDescriptors] = useState<Device | null>(null)
+  const [historyDevice, setHistoryDevice] = useState<Device | null>(null)
   const [restarting, setRestarting] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   useEffect(() => {
@@ -339,6 +341,7 @@ function App() {
           action={action}
           onSettings={setSelected}
           onDescriptors={setDescriptors}
+          onHistory={setHistoryDevice}
         />
       </section>
       <section className="panel">
@@ -415,6 +418,9 @@ function App() {
       )}
       {descriptors && (
         <DescriptorsDialog device={descriptors} onClose={() => setDescriptors(null)} />
+      )}
+      {historyDevice && (
+        <HistoryDialog key={historyDevice.ieee_address} device={historyDevice} onClose={() => setHistoryDevice(null)} />
       )}
       {dialog === 'scenes' && (
         <SceneEditor

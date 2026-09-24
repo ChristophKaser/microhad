@@ -136,11 +136,13 @@ function DeviceCard({
   action,
   onSettings,
   onDescriptors,
+  onHistory,
 }: {
   device: Device
   action: (url: string, body?: string) => void
   onSettings: () => void
   onDescriptors: () => void
+  onHistory: () => void
 }) {
   const [brightness, setBrightness] = useState(
     device.has_brightness ? device.brightness_percent : 100
@@ -195,6 +197,9 @@ function DeviceCard({
           </span>
         ))}
       </div>
+      {(device.has_temperature || device.has_humidity || device.has_contact) && (
+        <button className="button history-button" onClick={onHistory}>▥ History</button>
+      )}
       {device.has_light && (
         <div className="light-panel">
           <div className="light-row">
@@ -278,11 +283,13 @@ export function DeviceGroups({
   action,
   onSettings,
   onDescriptors,
+  onHistory,
 }: {
   status: Status | null
   action: (url: string, body?: string) => void
   onSettings: (device: Device) => void
   onDescriptors: (device: Device) => void
+  onHistory: (device: Device) => void
 }) {
   if (!status?.devices.length) return <div className="empty">No Zigbee devices discovered yet.</div>
   const sceneGroups = [...status.scene_groups].sort((left, right) =>
@@ -337,6 +344,7 @@ export function DeviceGroups({
                       action={action}
                       onSettings={() => onSettings(device)}
                       onDescriptors={() => onDescriptors(device)}
+                      onHistory={() => onHistory(device)}
                     />
                   ))}
                 </div>

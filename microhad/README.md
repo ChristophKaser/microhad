@@ -117,6 +117,15 @@ RAM-backed `/var` mount, not the `/tuya` flash volume. It keeps at most 512
 entries, so diagnostics do not create flash write
 cycles or consume unbounded memory.
 
+Sensor cards offer a History dialog for temperature, humidity, and contact
+state. The coordinator writes fixed-size binary records to
+`/tmp/microhad-zigbee-native-history.bin`; the file is limited to 512 KiB across
+the gateway, and the dashboard shows at most the newest 10,000 samples per
+device. Temperature and humidity are sampled at most once per metric per
+minute, while each contact transition is retained. The RAM-backed history
+survives a service restart but is cleared by a device reboot. Older readings
+may disappear sooner when several sensors share the ring.
+
 ## Web UI development
 
 The dashboard source is in `webui/src`. Build the React and TypeScript UI with

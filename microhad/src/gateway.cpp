@@ -11,6 +11,7 @@
 #include <climits>
 #include <cstdio>
 #include <cstring>
+#include <cmath>
 #include <ctime>
 #include <fcntl.h>
 #include <sstream>
@@ -278,9 +279,9 @@ std::string decodeFramePayload(unsigned short profile, unsigned short cluster, c
 
 Gateway::Gateway(const std::string& serialDevice, int serialBaud, const std::string& runtimeDirectory,
                  const std::string& firebaseServiceAccount, const std::string& firebaseTopic, const std::string& caBundle,
-                 NotificationWorker* notificationWorker) :
+                 NotificationWorker* notificationWorker, const std::string& historyPath) :
     serialDevice_(serialDevice), serialBaud_(serialBaud), runtimeDirectory_(runtimeDirectory), networkRandomSource_("/dev/urandom"),
-    firebaseServiceAccount_(firebaseServiceAccount), firebaseTopic_(firebaseTopic), caBundle_(caBundle), notificationWorker_(notificationWorker), serialFd_(-1),
+    firebaseServiceAccount_(firebaseServiceAccount), firebaseTopic_(firebaseTopic), caBundle_(caBundle), history_(historyPath), notificationWorker_(notificationWorker), serialFd_(-1),
     online_(false), joinUntil_(0), joinPermitRenewAt_(0), joinPermitClosePending_(false), joinPermitCloseDeadline_(0), pendingJoinSeconds_(0), joinPreparationStep_(0), joinPreparationDeadline_(0), ashSendSequence_(0), ashReceiveSequence_(0), ezspSequence_(0),
     ashAckDeadline_(0), ashRetries_(0), ashPendingSensitive_(false), ezspVersion_(4), zdoSequence_(0), zclTransactionSequence_(0), ezspVersionNegotiated_(false), stackTokenWritingRequested_(false), networkInitRequested_(false), tradfriBindGroupConfigured_(false), coordinatorInitializationStep_(0), coordinatorInitializationDeadline_(0), resetDeadline_(0), nextHeartbeatAt_(0), serialRxBytes_(0), ashRxFrames_(0), networkForming_(false), networkFormationStep_(0), networkFormationDeadline_(0), networkFormed_(false), networkPanId_(0),
     networkChannel_(0), interviewRequestInFlight_(false), interviewSendAccepted_(false), interviewEzspSequence_(0), interviewNode_(0xffff),
@@ -476,6 +477,7 @@ bool Gateway::isOnline() const {
 std::string Gateway::runtimeDirectory() const {
     return runtimeDirectory_;
 }
+std::string Gateway::historyPath() const { return history_.path(); }
 
 int Gateway::serialFd() const { return serialFd_; }
 bool Gateway::serialNeedsWrite() const { return !serialPendingBytes_.empty(); }
@@ -1179,28 +1181,46 @@ bool Gateway::logRemoteKeyEvent(unsigned short sender, unsigned short cluster, u
 bool Gateway::applyAttributeReport(const std::string& ieeeAddress, unsigned short cluster, unsigned short attribute,
                                    const std::vector<unsigned char>& value) {
     Device& device = devices_[ieeeAddress];
+    Device before = device;
     bool changed;
+    unsigned observed = 0;
+    long timestamp = time(0);
     bool wasOpen = device.contactOpen;
     bool hadTemperature = device.hasTemperature;
     double previousTemperature = device.temperatureCelsius;
     if (device.ieeeAddress.empty()) device.ieeeAddress = ieeeAddress;
-    changed = applyZclAttribute(&device, cluster, attribute, value, time(0));
+    changed = applyZclAttribute(&device, cluster, attribute, value, timestamp, &observed);
+    if (changed) recordHistory(before, device, observed, timestamp);
     if (changed) { markViewDirty(); updateContactAlert(ieeeAddress, wasOpen); updateTemperatureAlert(device, hadTemperature, previousTemperature); saveState(); }
     return changed;
 }
 
 bool Gateway::applyIasZoneStatus(const std::string& ieeeAddress, const std::vector<unsigned char>& payload) {
     Device& device = devices_[ieeeAddress];
+    Device before = device;
     bool changed;
     bool wasOpen = device.contactOpen;
     if (device.ieeeAddress.empty()) device.ieeeAddress = ieeeAddress;
     changed = ::applyIasZoneStatus(&device, payload, time(0));
     if (changed) {
+        recordHistory(before, device, ZclObservedContact, device.lastSeen);
         addLog(std::string("Contact status from ") + ieeeAddress + (device.contactOpen ? ": open" : ": closed"));
         updateContactAlert(ieeeAddress, wasOpen);
         saveState();
     }
     return changed;
+}
+
+void Gateway::recordHistory(const Device& before, const Device& after, unsigned observed, long timestamp) {
+    if ((observed & ZclObservedTemperature) && after.hasTemperature)
+        history_.append(after.ieeeAddress, SensorHistory::Temperature,
+                        static_cast<int>(after.temperatureCelsius * 100 + (after.temperatureCelsius >= 0 ? 0.5 : -0.5)), timestamp);
+    if ((observed & ZclObservedHumidity) && after.hasHumidity)
+        history_.append(after.ieeeAddress, SensorHistory::Humidity,
+                        static_cast<int>(after.humidityPercent * 100 + 0.5), timestamp);
+    if ((observed & ZclObservedContact) && after.hasContact &&
+        (!before.hasContact || before.contactOpen != after.contactOpen))
+        history_.append(after.ieeeAddress, SensorHistory::Contact, after.contactOpen ? 1 : 0, timestamp);
 }
 
 void Gateway::updateContactAlert(const std::string& ieeeAddress, bool wasOpen) {
@@ -3057,6 +3077,8 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
         applyIasZoneStatus(address->second, zone);
     } else if ((frameControl & 0x03) == 0 && command == 0x01) {
         std::vector<unsigned char> records(message.begin() + zclOffset, message.end());
+        Device before = devices_[address->second];
+        unsigned observed = 0;
         bool wasOpen = devices_[address->second].contactOpen;
         std::map<unsigned short, InterviewState>::iterator interview = interviews_.find(sender);
         bool matched = false;
@@ -3070,7 +3092,8 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
             if (matched && operation.type == InterviewBasicRead && updateBasicIdentity(&devices_[address->second], records))
                 interview->second.persistentDirty = true;
         }
-        if (applyZclReadAttributeResponse(&devices_[address->second], cluster, records, time(0))) {
+        if (applyZclReadAttributeResponse(&devices_[address->second], cluster, records, time(0), &observed)) {
+            recordHistory(before, devices_[address->second], observed, devices_[address->second].lastSeen);
             updateContactAlert(address->second, wasOpen);
             saveState();
         }

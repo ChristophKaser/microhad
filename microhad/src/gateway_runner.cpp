@@ -8,7 +8,7 @@
 
 GatewayRunner::GatewayRunner(Gateway* gateway) : gateway_(gateway), commandWakeRead_(-1), commandWakeWrite_(-1),
     commandHead_(0), commandTail_(0), started_(false), startupComplete_(false), startupSucceeded_(false), stopping_(false),
-    currentView_(0), runtimeDirectory_(gateway->runtimeDirectory()) {
+    currentView_(0), runtimeDirectory_(gateway->runtimeDirectory()), historyPath_(gateway->historyPath()) {
     int wakePipe[2];
     pthread_mutex_init(&mutex_, 0);
     pthread_cond_init(&startupReady_, 0);
@@ -237,6 +237,7 @@ void GatewayRunner::releaseView(ViewData* data) {
     pthread_mutex_unlock(&mutex_);
 }
 std::string GatewayRunner::runtimeDirectory() const { return runtimeDirectory_; }
+std::string GatewayRunner::historyPath() const { return historyPath_; }
 
 bool GatewayRunner::setJoining(unsigned int seconds, std::string* error) { Command command; command.type = Join; command.seconds = seconds; return invoke(&command, error); }
 bool GatewayRunner::createFreshNetwork(std::string* error) { Command command; command.type = CreateNetwork; return invoke(&command, error); }

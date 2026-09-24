@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "ash.h"
+#include "sensor_history.h"
 
 class NotificationWorker;
 
@@ -112,13 +113,15 @@ class Gateway {
 public:
     Gateway(const std::string& serialDevice, int serialBaud, const std::string& runtimeDirectory,
             const std::string& firebaseServiceAccount, const std::string& firebaseTopic, const std::string& caBundle,
-            NotificationWorker* notificationWorker = 0);
+            NotificationWorker* notificationWorker = 0,
+            const std::string& historyPath = "/tmp/microhad-zigbee-native-history.bin");
     ~Gateway();
     bool start(std::string* error);
     void stop();
     void poll();
     bool isOnline() const;
     std::string runtimeDirectory() const;
+    std::string historyPath() const;
     int serialFd() const;
     bool serialNeedsWrite() const;
     bool hasImmediateWork() const;
@@ -158,6 +161,7 @@ private:
     std::string firebaseServiceAccount_;
     std::string firebaseTopic_;
     std::string caBundle_;
+    SensorHistory history_;
     NotificationWorker* notificationWorker_;
     int serialFd_;
     bool online_;
@@ -354,6 +358,7 @@ private:
     bool generateNetworkMaterial(std::string* error);
     void continueNetworkFormation(unsigned short completedCommand);
     void updateContactAlert(const std::string& ieeeAddress, bool wasOpen);
+    void recordHistory(const Device& before, const Device& after, unsigned observed, long timestamp);
     void updateTemperatureAlert(const Device& device, bool hadTemperature, double previousTemperature);
     bool emitNotification(const std::string& title, const std::string& body, std::string* error);
     std::string deviceLogLabel(unsigned short node) const;

@@ -30,6 +30,7 @@ public:
     void stop();
     ViewLease* acquireView();
     std::string runtimeDirectory() const;
+    std::string historyPath() const;
     bool setJoining(unsigned int seconds, std::string* error);
     bool createFreshNetwork(std::string* error);
     bool setDeviceSettings(const std::string& ieeeAddress, const std::string& name,
@@ -95,6 +96,7 @@ private:
     };
     ViewData* currentView_;
     std::string runtimeDirectory_;
+    std::string historyPath_;
     static void* runThread(void* opaque);
     void run();
     bool invoke(Command* command, std::string* error);

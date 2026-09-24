@@ -16,7 +16,7 @@ unsigned long valueLength(unsigned char type, const std::vector<unsigned char>& 
     return 0;
 }
 
-bool applyXiaomiMeasurementData(Device* device, const std::vector<unsigned char>& value, long observedAt) {
+bool applyXiaomiMeasurementData(Device* device, const std::vector<unsigned char>& value, long observedAt, unsigned* observed) {
     unsigned long offset = 0;
     bool changed = false;
     /* Xiaomi/Lumi puts a length-prefixed TLV stream in Basic attribute 0xff01. */
@@ -32,11 +32,13 @@ bool applyXiaomiMeasurementData(Device* device, const std::vector<unsigned char>
             device->temperatureCelsius = static_cast<double>(static_cast<short>(littleEndian16(field))) / 100.0;
             device->kind = device->hasHumidity ? "temperature/humidity" : "temperature";
             changed = true;
+            if (observed != 0) *observed |= ZclObservedTemperature;
         } else if (identifier == 0x65 && type == 0x21 && field.size() == 2) {
             device->hasHumidity = true;
             device->humidityPercent = static_cast<double>(littleEndian16(field)) / 100.0;
             device->kind = device->hasTemperature ? "temperature/humidity" : "humidity";
             changed = true;
+            if (observed != 0) *observed |= ZclObservedHumidity;
         }
         offset += length;
     }
@@ -57,18 +59,20 @@ bool expectedAttributeType(unsigned short cluster, unsigned short attribute, uns
 }
 
 bool applyZclAttribute(Device* device, unsigned short cluster, unsigned short attribute,
-                       const std::vector<unsigned char>& value, long observedAt) {
+                       const std::vector<unsigned char>& value, long observedAt, unsigned* observed) {
     if (cluster == 0x0402 && attribute == 0x0000 && value.size() == 2) {
         short raw = static_cast<short>(littleEndian16(value));
         if (raw < -27315) return false;
         device->hasTemperature = true;
         device->temperatureCelsius = static_cast<double>(raw) / 100.0;
         device->kind = "temperature";
+        if (observed != 0) *observed |= ZclObservedTemperature;
     } else if (cluster == 0x0405 && attribute == 0x0000 && value.size() == 2) {
         if (littleEndian16(value) > 10000) return false;
         device->hasHumidity = true;
         device->humidityPercent = static_cast<double>(littleEndian16(value)) / 100.0;
         device->kind = device->hasTemperature ? "temperature/humidity" : "humidity";
+        if (observed != 0) *observed |= ZclObservedHumidity;
     } else if (cluster == 0x0406 && attribute == 0x0000 && value.size() == 1) {
         device->hasOccupancy = true;
         device->occupied = (value[0] & 0x01) != 0;
@@ -82,6 +86,7 @@ bool applyZclAttribute(Device* device, unsigned short cluster, unsigned short at
         device->hasContact = true;
         device->contactOpen = (littleEndian16(value) & 0x0001) != 0;
         device->kind = "contact";
+        if (observed != 0) *observed |= ZclObservedContact;
     } else if (cluster == 0x0006 && attribute == 0x0000 && value.size() == 1) {
         if (value[0] > 1) return false;
         device->hasLight = true;
@@ -94,7 +99,7 @@ bool applyZclAttribute(Device* device, unsigned short cluster, unsigned short at
         device->brightnessPercent = (static_cast<int>(value[0]) * 100 + 127) / 254;
         if (device->kind == "generic") device->kind = "dimmable light";
     } else if (cluster == 0x0000 && attribute == 0xff01) {
-        return applyXiaomiMeasurementData(device, value, observedAt);
+        return applyXiaomiMeasurementData(device, value, observedAt, observed);
     } else {
         return false;
     }
@@ -116,7 +121,7 @@ bool applyIasZoneStatus(Device* device, const std::vector<unsigned char>& payloa
 }
 
 bool applyZclReadAttributeResponse(Device* device, unsigned short cluster,
-                                   const std::vector<unsigned char>& payload, long observedAt) {
+                                   const std::vector<unsigned char>& payload, long observedAt, unsigned* observed) {
     unsigned long offset = 0;
     bool changed = false;
     while (offset + 3 <= payload.size()) {
@@ -134,7 +139,7 @@ bool applyZclReadAttributeResponse(Device* device, unsigned short cluster,
         if (length == 0) break;
         if (offset + 4 + length > payload.size()) break;
         value.assign(payload.begin() + offset + 4, payload.begin() + offset + 4 + length);
-        if (applyZclAttribute(device, cluster, attribute, value, observedAt)) changed = true;
+        if (applyZclAttribute(device, cluster, attribute, value, observedAt, observed)) changed = true;
         offset += 4 + length;
     }
     return changed;
