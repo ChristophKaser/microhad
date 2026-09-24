@@ -330,23 +330,29 @@ bool loadNetworkState(const std::string& filename, NetworkState* network, std::s
     std::ifstream input(filename.c_str());
     std::string content;
     std::string extendedPan, networkKey, preconfiguredKey;
-    std::string::size_type panAt, channelAt;
-    if (!input) return true;
+    std::string::size_type first, last;
+    long panId, channel, version;
+    NetworkState decoded;
+    if (!input) { *network = NetworkState(); return true; }
     content.assign((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
-    if (content.find("\"formed\":true") == std::string::npos || !jsonStringField(content, "extended_pan", &extendedPan) ||
+    first = content.find_first_not_of(" \t\r\n");
+    last = content.find_last_not_of(" \t\r\n");
+    if (first == std::string::npos || content[first] != '{' || content[last] != '}' ||
+        content.find("\"formed\":true") == std::string::npos || !jsonLongField(content, "version", &version) || version != 1 ||
+        !jsonStringField(content, "extended_pan", &extendedPan) ||
         !jsonStringField(content, "network_key", &networkKey) || !jsonStringField(content, "preconfigured_key", &preconfiguredKey) ||
-        !hexDecode(extendedPan, &network->extendedPan) || !hexDecode(networkKey, &network->networkKey) ||
-        !hexDecode(preconfiguredKey, &network->preconfiguredKey) || network->extendedPan.size() != 8 ||
-        network->networkKey.size() != 16 || network->preconfiguredKey.size() != 16) {
+        !hexDecode(extendedPan, &decoded.extendedPan) || !hexDecode(networkKey, &decoded.networkKey) ||
+        !hexDecode(preconfiguredKey, &decoded.preconfiguredKey) || decoded.extendedPan.size() != 8 ||
+        decoded.networkKey.size() != 16 || decoded.preconfiguredKey.size() != 16 ||
+        !jsonLongField(content, "pan_id", &panId) || !jsonLongField(content, "channel", &channel)) {
         *error = "invalid network state"; return false;
     }
-    panAt = content.find("\"pan_id\":"); channelAt = content.find("\"channel\":");
-    if (panAt == std::string::npos || channelAt == std::string::npos) { *error = "invalid network state"; return false; }
-    network->panId = static_cast<unsigned short>(strtoul(content.c_str() + panAt + 9, 0, 10));
-    network->channel = static_cast<unsigned char>(strtoul(content.c_str() + channelAt + 10, 0, 10));
-    if (network->channel < 11 || network->channel > 26 || network->panId == 0 || network->panId == 0xffff) {
+    if (panId <= 0 || panId >= 0xffff || channel < 11 || channel > 26) {
         *error = "invalid network state"; return false;
     }
-    network->formed = true;
+    decoded.panId = static_cast<unsigned short>(panId);
+    decoded.channel = static_cast<unsigned char>(channel);
+    decoded.formed = true;
+    *network = decoded;
     return true;
 }

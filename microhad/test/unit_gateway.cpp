@@ -791,6 +791,42 @@ static void testNetworkPersistence() {
     unlink(filename.c_str()); rmdir(directory.c_str());
 }
 
+static void testNetworkPersistenceRejectsInvalidState() {
+    std::ostringstream path;
+    std::string error;
+    NetworkState loaded;
+    path << "/tmp/microhad-zigbee-network-invalid-test-" << static_cast<long>(getpid());
+    std::string directory = path.str();
+    std::string filename = directory + "/network.json";
+    assert(ensureDirectory(directory, &error));
+
+    loaded.formed = true;
+    loaded.panId = 0x1234;
+    loaded.networkKey.assign(16, 0xa5);
+    assert(loadNetworkState(filename, &loaded, &error));
+    assert(!loaded.formed && loaded.panId == 0 && loaded.networkKey.empty());
+
+    const char* invalid[] = {
+        "{\"version\":1,\"formed\":true", /* truncated JSON */
+        "{\"version\":1,\"formed\":true,\"pan_id\":4660,\"channel\":15,\"extended_pan\":\"00\",\"network_key\":\"0011\",\"preconfigured_key\":\"0011\"}",
+        "{\"version\":1,\"formed\":true,\"pan_id\":70000,\"channel\":15,\"extended_pan\":\"1212121212121212\",\"network_key\":\"34343434343434343434343434343434\",\"preconfigured_key\":\"56565656565656565656565656565656\"}",
+        "{\"version\":1,\"formed\":true,\"pan_id\":4660,\"channel\":15,\"extended_pan\":\"1212121212121212\",\"network_key\":\"zz343434343434343434343434343434\",\"preconfigured_key\":\"56565656565656565656565656565656\"}",
+        "{\"version\":1,\"formed\":true,\"pan_id\":4660,\"channel\":15,\"extended_pan\":\"1212121212121212\",\"network_key\":\"34343434343434343434343434343434\"}"
+    };
+    for (unsigned long i = 0; i < sizeof(invalid) / sizeof(invalid[0]); ++i) {
+        std::ofstream output(filename.c_str());
+        output << invalid[i];
+        output.close();
+        loaded.formed = true;
+        loaded.panId = 0x1234;
+        loaded.networkKey.assign(16, 0xa5);
+        assert(!loadNetworkState(filename, &loaded, &error));
+        assert(error == "invalid network state");
+        assert(loaded.formed && loaded.panId == 0x1234 && loaded.networkKey.size() == 16 && loaded.networkKey[0] == 0xa5);
+    }
+    unlink(filename.c_str()); rmdir(directory.c_str());
+}
+
 static void testSceneConfigurationPersistence() {
     std::ostringstream path; std::string error; std::vector<SceneGroup> groups, loaded; std::vector<RemoteSceneBinding> bindings, loadedBindings;
     path << "/tmp/microhad-zigbee-scenes-test-" << static_cast<long>(getpid());
@@ -1113,6 +1149,7 @@ void runUnitTests() {
     testDevicePersistence();
     testDeviceSettings();
     testNetworkPersistence();
+    testNetworkPersistenceRejectsInvalidState();
     testSceneConfigurationPersistence();
     testGenericCapabilities();
     testConfigureReportingEncoding();
