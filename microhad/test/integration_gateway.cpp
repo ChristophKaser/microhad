@@ -3,7 +3,9 @@
 #include "gateway_integration_peer.h"
 
 #include <cassert>
+#include <cerrno>
 #include <csignal>
+#include <cstring>
 #include <cstdlib>
 #include <cstdio>
 #include <fcntl.h>
@@ -16,6 +18,9 @@
 #include <vector>
 
 namespace {
+volatile sig_atomic_t serialIoSignalSeen = 0;
+void noteSerialIoSignal(int) { serialIoSignalSeen = 1; }
+
 std::vector<unsigned char> readAvailable(int fd) {
     std::vector<unsigned char> bytes;
     unsigned char buffer[256];
@@ -117,10 +122,48 @@ void testSerialBackpressureAndFailures() {
     std::vector<unsigned char> tail = readAvailable(serial[1]);
     received.insert(received.end(), tail.begin(), tail.end());
     assert(received == expected);
+
+    struct sigaction action;
+    struct sigaction oldAction;
+    action.sa_handler = noteSerialIoSignal;
+    sigemptyset(&action.sa_mask);
+    action.sa_flags = 0;
+    assert(sigaction(SIGALRM, &action, &oldAction) == 0);
+    int flags = fcntl(serial[0], F_GETFL);
+    assert(flags >= 0 && fcntl(serial[0], F_SETFL, flags & ~O_NONBLOCK) == 0);
+    serialIoSignalSeen = 0;
+    alarm(1);
+    gateway.poll();
+    assert(serialIoSignalSeen && gateway.serialFd() == serial[0]);
+    assert(fcntl(serial[0], F_SETFL, flags) == 0);
     close(serial[1]);
     gateway.poll();
     assert(gateway.serialFd() == -1);
     assert(gateway.logsJson().find("Serial read failed: end of file") != std::string::npos);
+
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
+    Gateway interruptedWrite("/dev/null", 115200, "/tmp", "", "", "");
+    GatewayIntegrationTestPeer::attachSerial(&interruptedWrite, serial[0]);
+    unsigned char filler[4096];
+    memset(filler, 0x3c, sizeof(filler));
+    while (write(serial[0], filler, sizeof(filler)) > 0) {}
+    assert(errno == EAGAIN || errno == EWOULDBLOCK);
+    assert(GatewayIntegrationTestPeer::queueSerialBytes(&interruptedWrite,
+        std::vector<unsigned char>(1, 0x55)) == 1);
+    flags = fcntl(serial[0], F_GETFL);
+    assert(flags >= 0 && fcntl(serial[0], F_SETFL, flags & ~O_NONBLOCK) == 0);
+    serialIoSignalSeen = 0;
+    alarm(1);
+    GatewayIntegrationTestPeer::flushSerialOutput(&interruptedWrite);
+    assert(serialIoSignalSeen && GatewayIntegrationTestPeer::pendingSerialBytes(interruptedWrite) == 1);
+    assert(fcntl(serial[0], F_SETFL, flags) == 0);
+    readAvailable(serial[1]);
+    interruptedWrite.poll();
+    std::vector<unsigned char> retried = readAvailable(serial[1]);
+    assert(retried.size() == 1 && retried[0] == 0x55);
+    interruptedWrite.stop();
+    close(serial[1]);
+    assert(sigaction(SIGALRM, &oldAction, 0) == 0);
 
     assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
     Gateway writeFailure("/dev/null", 115200, "/tmp", "", "", "");

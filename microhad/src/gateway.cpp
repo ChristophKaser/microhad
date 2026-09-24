@@ -1368,7 +1368,8 @@ void Gateway::flushSerialOutput() {
     while (serialFd_ >= 0 && !serialPendingBytes_.empty()) {
         ssize_t count = write(serialFd_, &serialPendingBytes_[0], serialPendingBytes_.size());
         if (count > 0) serialPendingBytes_.erase(serialPendingBytes_.begin(), serialPendingBytes_.begin() + count);
-        else if (count < 0 && errno == EINTR) continue;
+        /* Leave the suffix queued; the next poll retries after a signal. */
+        else if (count < 0 && errno == EINTR) break;
         else if (count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) break;
         else { failSerial("write", count == 0 ? EIO : errno); break; }
     }
