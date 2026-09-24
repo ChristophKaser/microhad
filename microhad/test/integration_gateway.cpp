@@ -585,6 +585,11 @@ std::vector<unsigned char> apsPayload(unsigned short profile, unsigned short clu
 void sendApsCallback(int fd, unsigned char ashSequence, const std::vector<unsigned char>& aps);
 void sendApsCallbackV8(int fd, unsigned char ashSequence, const std::vector<unsigned char>& aps,
                        int acknowledgement = -1);
+std::vector<unsigned char> answerInterviewRequest(Gateway* gateway, int peerFd,
+                                                   const std::vector<unsigned char>& request,
+                                                   unsigned short profile, unsigned short cluster,
+                                                   unsigned char endpoint,
+                                                   const std::vector<unsigned char>& response);
 
 void testJoinWindowExtensionExpiryRenewalAndCloseFailure() {
     int serial[2];
@@ -807,6 +812,99 @@ void testDeviceAnnounceRejoinAndNodeReuse() {
     rmdir(directory.c_str());
 }
 
+void testCompleteSensorInterview() {
+    char name[] = "/tmp/microhad-zigbee-interview-XXXXXX";
+    char* temporary = mkdtemp(name);
+    assert(temporary != 0);
+    std::string directory(temporary);
+    int serial[2];
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
+    Gateway gateway("/dev/null", 115200, directory, "", "", "");
+    GatewayIntegrationTestPeer::attachSerial(&gateway, serial[0]);
+    GatewayIntegrationTestPeer::setNetworkReady(&gateway, true);
+    GatewayIntegrationTestPeer::setCoordinatorIeeeAddress(&gateway);
+    const unsigned char eui[] = {1, 2, 3, 4, 5, 6, 7, 8};
+
+    std::vector<unsigned char> announce = deviceAnnounceMessage(0x1234, eui);
+    sendApsCallbackV8(serial[1], 0, apsPayload(0x0000, 0x0013, 0, 80, announce), 1);
+    gateway.poll();
+    std::vector<unsigned char> request = firstAshData(readAvailable(serial[1]));
+    assert(request[3] == 0x34 && request[4] == 0 && request[6] == 0x34 && request[7] == 0x12);
+
+    std::vector<unsigned char> response;
+    response.push_back(request[21]); response.push_back(0); /* Node Descriptor response */
+    std::vector<unsigned char> wire = answerInterviewRequest(&gateway, serial[1], request, 0x0000, 0x8002, 0, response);
+    request = firstAshData(wire);
+    assert(request[10] == 0x05 && request[11] == 0x00); /* Active Endpoints */
+
+    response.clear(); response.push_back(request[21]); response.push_back(0);
+    response.push_back(0x34); response.push_back(0x12); response.push_back(1); response.push_back(1);
+    wire = answerInterviewRequest(&gateway, serial[1], request, 0x0000, 0x8005, 0, response);
+    request = firstAshData(wire);
+    assert(request[10] == 0x04 && request[11] == 0x00); /* Simple Descriptor */
+
+    response.clear();
+    response.push_back(request[21]); response.push_back(0); response.push_back(0x34); response.push_back(0x12);
+    response.push_back(12); /* descriptor bytes */
+    response.push_back(1); response.push_back(0x04); response.push_back(0x01);
+    response.push_back(0x01); response.push_back(0x00); response.push_back(0);
+    response.push_back(2); response.push_back(0x00); response.push_back(0x00);
+    response.push_back(0x02); response.push_back(0x04); response.push_back(0);
+    wire = answerInterviewRequest(&gateway, serial[1], request, 0x0000, 0x8004, 0, response);
+    request = firstAshData(wire);
+    assert(request[10] == 0x00 && request[11] == 0x00 && request[23] == 0x00);
+    assert(request[24] == 0x04 && request[26] == 0x05); /* Basic attributes 0004/0005/4000 */
+
+    response.clear();
+    response.push_back(0x18); response.push_back(request[22]); response.push_back(0x01);
+    response.push_back(0x04); response.push_back(0); response.push_back(0); response.push_back(0x42); response.push_back(4);
+    response.insert(response.end(), "Acme", "Acme" + 4);
+    response.push_back(0x05); response.push_back(0); response.push_back(0); response.push_back(0x42); response.push_back(6);
+    response.insert(response.end(), "ModelX", "ModelX" + 6);
+    response.push_back(0x00); response.push_back(0x40); response.push_back(0); response.push_back(0x42); response.push_back(3);
+    response.insert(response.end(), "1.0", "1.0" + 3);
+    wire = answerInterviewRequest(&gateway, serial[1], request, 0x0104, 0x0000, 1, response);
+    request = firstAshData(wire);
+    assert(request[10] == 0x21 && request[11] == 0x00); /* Bind temperature reports */
+    assert(request[21] != 0 && request[22] == 1 && request[23] == 2 &&
+           request[24] == 3 && request[25] == 4 && request[30] == 1);
+
+    response.clear(); response.push_back(request[21]); response.push_back(0);
+    wire = answerInterviewRequest(&gateway, serial[1], request, 0x0000, 0x8021, 0, response);
+    request = firstAshData(wire);
+    assert(request[10] == 0x02 && request[11] == 0x04 && request[23] == 0x06);
+    assert(request[27] == 0x29 && request[28] == 30 && request[29] == 0 &&
+           request[30] == 0x10 && request[31] == 0x0e);
+
+    response.clear(); response.push_back(0x18); response.push_back(request[22]);
+    response.push_back(0x07); response.push_back(0);
+    wire = answerInterviewRequest(&gateway, serial[1], request, 0x0104, 0x0402, 1, response);
+    request = firstAshData(wire);
+    assert(request[10] == 0x02 && request[11] == 0x04 && request[23] == 0x00);
+
+    response.clear(); response.push_back(0x18); response.push_back(request[22]); response.push_back(0x01);
+    response.push_back(0); response.push_back(0); response.push_back(0); response.push_back(0x29);
+    response.push_back(0x2c); response.push_back(0x09);
+    wire = answerInterviewRequest(&gateway, serial[1], request, 0x0104, 0x0402, 1, response);
+    std::vector<std::vector<unsigned char> > finishedFrames = decodeFrames(wire);
+    unsigned long i;
+    for (i = 0; i < finishedFrames.size(); ++i)
+        assert(finishedFrames[i].empty() || (finishedFrames[i][0] & 0x80) != 0);
+
+    std::vector<Device> devices = gateway.devices();
+    assert(devices.size() == 1 && devices[0].manufacturerName == "Acme" && devices[0].modelId == "ModelX");
+    assert(devices[0].hasTemperature && devices[0].temperatureCelsius > 23.4 && devices[0].temperatureCelsius < 23.6);
+    std::vector<Device> persisted;
+    std::string error;
+    assert(loadDevices(directory + "/devices.json", &persisted, &error));
+    assert(persisted.size() == 1 && persisted[0].endpoints.size() == 1);
+    assert(persisted[0].manufacturerName == "Acme" && persisted[0].modelId == "ModelX");
+    assert(gateway.logsJson().find("Sensor interview completed") != std::string::npos);
+    gateway.stop(); close(serial[1]);
+    unlink((directory + "/devices.json").c_str());
+    rmdir(directory.c_str());
+}
+
 void testCoordinatorInitializationSequence() {
     int serial[2];
     assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
@@ -927,6 +1025,25 @@ void sendApsCallbackV8(int fd, unsigned char ashSequence, const std::vector<unsi
                                                static_cast<unsigned char>(acknowledgement & 7);
     sendAshControl(fd, static_cast<unsigned char>(((ashSequence & 7) << 4) | ack),
                    obfuscateEzsp(ezsp));
+}
+
+std::vector<unsigned char> answerInterviewRequest(Gateway* gateway, int peerFd,
+                                                   const std::vector<unsigned char>& request,
+                                                   unsigned short profile, unsigned short cluster,
+                                                   unsigned char endpoint,
+                                                   const std::vector<unsigned char>& response) {
+    unsigned char receiveSequence = GatewayIntegrationTestPeer::ashReceiveSequence(*gateway);
+    unsigned char acknowledgement = static_cast<unsigned char>(
+        (GatewayIntegrationTestPeer::ashSendSequence(*gateway) + 1) & 7);
+    replyToFormationCommand(peerFd, request, receiveSequence, acknowledgement);
+    gateway->poll();
+    readAvailable(peerFd); /* transport ACK for the command response */
+    receiveSequence = GatewayIntegrationTestPeer::ashReceiveSequence(*gateway);
+    acknowledgement = static_cast<unsigned char>((GatewayIntegrationTestPeer::ashSendSequence(*gateway) + 1) & 7);
+    sendApsCallbackV8(peerFd, receiveSequence,
+                      apsPayload(profile, cluster, endpoint, 88, response), acknowledgement);
+    gateway->poll();
+    return readAvailable(peerFd);
 }
 
 void testApsCallbackValidationAndDispatch() {
@@ -1269,6 +1386,8 @@ void runGatewayIntegrationTests() {
     testIasEnrollmentAndZoneIdExhaustion();
     fprintf(stderr, "integration: device announce, rejoin, and node reuse\n");
     testDeviceAnnounceRejoinAndNodeReuse();
+    fprintf(stderr, "integration: complete sensor interview sequence\n");
+    testCompleteSensorInterview();
     fprintf(stderr, "integration: coordinator initialization, IEEE lookup, and Tradfri setup\n");
     testCoordinatorInitializationSequence();
     fprintf(stderr, "integration: coordinator initialization unexpected reply and timeout\n");

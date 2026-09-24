@@ -103,6 +103,12 @@ public:
         gateway->nodeAddresses_[device.networkAddress] = device.ieeeAddress;
     }
     static unsigned char ashReceiveSequence(const Gateway& gateway) { return gateway.ashReceiveSequence_; }
+    static unsigned char ashSendSequence(const Gateway& gateway) { return gateway.ashSendSequence_; }
+    static void setCoordinatorIeeeAddress(Gateway* gateway) {
+        gateway->coordinatorIeeeAddress_.assign(8, 0);
+        unsigned int i;
+        for (i = 0; i < 8; ++i) gateway->coordinatorIeeeAddress_[i] = static_cast<unsigned char>(i + 1);
+    }
     static unsigned char coordinatorInitializationStep(const Gateway& gateway) { return gateway.coordinatorInitializationStep_; }
     static void expireCoordinatorInitialization(Gateway* gateway) {
         gateway->coordinatorInitializationDeadline_ = time(0) - 1;
