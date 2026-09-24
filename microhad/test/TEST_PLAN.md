@@ -122,7 +122,7 @@ physical coordinator and radio interoperability testing.
 | --- | --- | --- | --- | --- |
 | STO-01 | U | Directory creation and every save path | Parent/create/write/rename failures propagate and leave previous file intact | G |
 | STO-02 | U | JSON strings, numbers, escapes, Unicode pairs, malformed escapes, duplicate/missing fields, trailing data | Accepted JSON is decoded accurately; malformed input is rejected | DONE |
-| NOT-01 | U | Notification worker initial enabled state, toggle, restart persistence | `notifications.json` is honored and updates atomically | P |
+| NOT-01 | U | Notification worker initial enabled state, toggle, restart persistence | `notifications.json` is honored and updates atomically | DONE |
 | NOT-02 | I | Start/stop twice, disabled enqueue, queue of 0/1/32/33 jobs, stop with queued work | Worker is race-safe; capacity/error/flush policy is deterministic | G |
 | NOT-03 | I | FCM and Browser Push configured/unconfigured and one/both delivery failures | One transport failure cannot crash worker or prevent the other intended attempt | G |
 | FCM-01 | U | Valid/minimal/missing/malformed Firebase account JSON, PEM escaping | Required account fields and private key are validated | DONE |

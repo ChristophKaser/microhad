@@ -1182,6 +1182,16 @@ static void testNotificationTogglePersistence() {
         assert(worker.setEnabled(true, &error));
         assert(worker.enabled());
     }
+    {
+        std::string persisted;
+        assert(readTextFile(directory + "/notifications.json", &persisted));
+        assert(persisted == "{\"enabled\":true}\n");
+        assert(access((directory + "/notifications.json.tmp").c_str(), F_OK) != 0);
+    }
+    {
+        NotificationWorker worker(directory, "", "", "");
+        assert(worker.enabled());
+    }
     unlink((directory + "/notifications.json").c_str());
     rmdir(directory.c_str());
 }
