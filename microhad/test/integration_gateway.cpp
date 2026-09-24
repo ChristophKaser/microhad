@@ -10,6 +10,7 @@
 #include <string>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <unistd.h>
 #include <vector>
 
@@ -22,6 +23,31 @@ std::vector<unsigned char> readAvailable(int fd) {
     while ((count = read(fd, buffer, sizeof(buffer))) > 0)
         bytes.insert(bytes.end(), buffer, buffer + count);
     return bytes;
+}
+
+void expectUsageFailure(bool missingConfigPath) {
+    int capture[2];
+    int status;
+    char buffer[512];
+    ssize_t count;
+    std::string output;
+    assert(pipe(capture) == 0);
+    pid_t child = fork();
+    assert(child >= 0);
+    if (child == 0) {
+        close(capture[0]);
+        assert(dup2(capture[1], STDERR_FILENO) >= 0);
+        close(capture[1]);
+        if (missingConfigPath) execl("build/host/microhad-zigbee-native", "microhad-zigbee-native", "--config", static_cast<char*>(0));
+        else execl("build/host/microhad-zigbee-native", "microhad-zigbee-native", "--invalid", static_cast<char*>(0));
+        _exit(127);
+    }
+    close(capture[1]);
+    while ((count = read(capture[0], buffer, sizeof(buffer))) > 0) output.append(buffer, static_cast<unsigned long>(count));
+    close(capture[0]);
+    assert(waitpid(child, &status, 0) == child);
+    assert(WIFEXITED(status) && WEXITSTATUS(status) == 2);
+    assert(output.find("usage: microhad-zigbee-native [--config /protected/path/config.json]") != std::string::npos);
 }
 
 void testResetAndVersionOverPipe() {
@@ -113,6 +139,11 @@ void testRuntimeDirectoryBoundaries() {
     }
     unlink(directory.c_str());
 }
+
+void testCliUsageFailures() {
+    expectUsageFailure(false);
+    expectUsageFailure(true);
+}
 }
 
 void runGatewayIntegrationTests() {
@@ -122,4 +153,6 @@ void runGatewayIntegrationTests() {
     testResetTimeoutRetriesOverPipe();
     fprintf(stderr, "integration: gateway runtime directory boundaries\n");
     testRuntimeDirectoryBoundaries();
+    fprintf(stderr, "integration: gateway CLI usage failures\n");
+    testCliUsageFailures();
 }
