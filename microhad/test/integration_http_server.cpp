@@ -148,6 +148,60 @@ std::string tlsRequest(int port, const std::string& request) {
     return response;
 }
 
+void tlsAbortAfterRequest(int port) {
+    mbedtls_net_context socket;
+    mbedtls_ssl_context ssl;
+    mbedtls_ssl_config config;
+    mbedtls_x509_crt certificate;
+    mbedtls_ctr_drbg_context random;
+    mbedtls_entropy_context entropy;
+    std::ostringstream portText;
+    const std::string request = "GET /api/status HTTP/1.1\r\nHost: localhost\r\n\r\n";
+    unsigned long offset = 0;
+    int result;
+    struct linger reset;
+    mbedtls_net_init(&socket); mbedtls_ssl_init(&ssl); mbedtls_ssl_config_init(&config);
+    mbedtls_x509_crt_init(&certificate); mbedtls_ctr_drbg_init(&random); mbedtls_entropy_init(&entropy);
+    portText << port;
+    result = mbedtls_ctr_drbg_seed(&random, mbedtls_entropy_func, &entropy,
+                                   reinterpret_cast<const unsigned char*>("abort-integration"), 18);
+    if (result == 0) result = mbedtls_x509_crt_parse_file(&certificate, "test/fixtures/tls/localhost.crt");
+    if (result == 0) result = mbedtls_net_connect(&socket, "127.0.0.1", portText.str().c_str(), MBEDTLS_NET_PROTO_TCP);
+    if (result == 0) result = mbedtls_ssl_config_defaults(&config, MBEDTLS_SSL_IS_CLIENT, MBEDTLS_SSL_TRANSPORT_STREAM, MBEDTLS_SSL_PRESET_DEFAULT);
+    if (result == 0) {
+        mbedtls_ssl_conf_authmode(&config, MBEDTLS_SSL_VERIFY_REQUIRED);
+        mbedtls_ssl_conf_ca_chain(&config, &certificate, 0);
+        mbedtls_ssl_conf_rng(&config, mbedtls_ctr_drbg_random, &random);
+        result = mbedtls_ssl_setup(&ssl, &config);
+    }
+    if (result == 0) result = mbedtls_ssl_set_hostname(&ssl, "localhost");
+    if (result == 0) {
+        mbedtls_ssl_set_bio(&ssl, &socket, mbedtls_net_send, mbedtls_net_recv, 0);
+        while ((result = mbedtls_ssl_handshake(&ssl)) != 0 &&
+               (result == MBEDTLS_ERR_SSL_WANT_READ || result == MBEDTLS_ERR_SSL_WANT_WRITE)) {}
+    }
+    assert(result == 0 && mbedtls_ssl_get_verify_result(&ssl) == 0);
+    while (offset < request.size()) {
+        result = mbedtls_ssl_write(&ssl, reinterpret_cast<const unsigned char*>(request.data()) + offset, request.size() - offset);
+        assert(result > 0);
+        offset += static_cast<unsigned long>(result);
+    }
+    reset.l_onoff = 1; reset.l_linger = 0;
+    assert(setsockopt(socket.fd, SOL_SOCKET, SO_LINGER, &reset, sizeof(reset)) == 0);
+    close(socket.fd); socket.fd = -1;
+    mbedtls_ssl_free(&ssl); mbedtls_ssl_config_free(&config); mbedtls_net_free(&socket);
+    mbedtls_x509_crt_free(&certificate); mbedtls_ctr_drbg_free(&random); mbedtls_entropy_free(&entropy);
+}
+
+void failTlsHandshake(int port) {
+    int fd = connectLoopback(port);
+    const char garbage[] = "not a TLS record";
+    assert(write(fd, garbage, sizeof(garbage) - 1) == static_cast<ssize_t>(sizeof(garbage) - 1));
+    assert(shutdown(fd, SHUT_WR) == 0);
+    readAll(fd);
+    close(fd);
+}
+
 std::string post(const std::string& path, const std::string& body) {
     std::ostringstream request;
     request << "POST " << path << " HTTP/1.1\r\nHost: localhost\r\nContent-Length: " << body.size()
@@ -173,6 +227,7 @@ void expectStatus(const char* name, const std::string& response, int code) {
 void testServers() {
     std::string directory = makeDirectory();
     std::string error;
+    std::string response;
     int inbound[2], outbound[2];
     assert(pipe(inbound) == 0 && pipe(outbound) == 0);
     assert(ensureDirectory(directory + "/webui", &error));
@@ -197,7 +252,14 @@ void testServers() {
     HttpServer invalidPrivateKey(0, &runner, directory + "/webui/index.html", "test/fixtures/tls/localhost.crt", "/dev/null");
     assert(!invalidPrivateKey.start(&error) && error.find("TLS certificate or key") != std::string::npos);
 
-    std::string response = plainRequest(http.boundPort(), "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n");
+    response = tlsRequest(https.boundPort(), "INVALID\r\nHost: localhost\r\n\r\n");
+    expectStatus("https reject malformed encrypted request", response, 400);
+    response = tlsRequest(https.boundPort(), "POST /api/join HTTP/1.1\r\nHost: localhost\r\nContent-Length: 20000\r\n\r\n");
+    expectStatus("https reject oversized encrypted request", response, 413);
+    failTlsHandshake(https.boundPort());
+    tlsAbortAfterRequest(https.boundPort());
+
+    response = plainRequest(http.boundPort(), "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n");
     expectStatus("http dashboard", response, 200);
     assert(response.find("Content-Type: text/html; charset=utf-8\r\n") != std::string::npos && response.find("<html>integration dashboard</html>") != std::string::npos);
     response = plainRequest(http.boundPort(), "GET /sw.js HTTP/1.1\r\nHost: localhost\r\n\r\n");
