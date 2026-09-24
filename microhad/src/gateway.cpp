@@ -46,6 +46,50 @@ Gateway::InterviewState::InterviewState() : operationIndex(0), refreshOnly(false
 }
 
 namespace {
+/* Wire values used by the scene paths. Keep names local to the encoder: the
+   same numeric command can mean different things in different ZCL clusters. */
+enum {
+    kHomeAutomationProfile = 0x0104,
+    kGroupsCluster = 0x0004,
+    kScenesCluster = 0x0005,
+    kOnOffCluster = 0x0006,
+    kLevelCluster = 0x0008,
+    kCoordinatorEndpoint = 1,
+    kZclClusterCommandNoDefaultResponse = 0x11,
+    kGroupsAddGroup = 0x00,
+    kScenesAddScene = 0x00,
+    kScenesRecallScene = 0x05,
+    kOnOffOff = 0x00,
+    kOnOffOn = 0x01,
+    kOnOffToggle = 0x02,
+    kLevelMoveToLevelWithOnOff = 0x04,
+    kLegacyRemoteGroup = 901,
+    kHighRamConcentrator = 0xfff9,
+    kApsRetryAndRouteDiscovery = 0x0140,
+    kEzspAddEndpoint = 0x0002,
+    kEzspSetConcentrator = 0x0010,
+    kEzspNetworkInit = 0x0017,
+    kEzspSendUnicast = 0x0034,
+    kEzspSendMulticast = 0x0038,
+    kEzspSetConfigurationValue = 0x0053,
+    kEzspSetPolicy = 0x0055,
+    kEzspSetSourceRouteDiscoveryMode = 0x005a,
+    kEzspSetMulticastTableEntry = 0x0064,
+    kEzspSetValue = 0x00ab
+};
+
+void appendLittleEndian16(std::vector<unsigned char>* bytes, unsigned short value) {
+    bytes->push_back(static_cast<unsigned char>(value));
+    bytes->push_back(static_cast<unsigned char>(value >> 8));
+}
+
+/* Add Scene extension: cluster ID (LE16), length, then one byte of state. */
+void appendSceneState(std::vector<unsigned char>* bytes, unsigned short cluster, unsigned char value) {
+    appendLittleEndian16(bytes, cluster);
+    bytes->push_back(1);
+    bytes->push_back(value);
+}
+
 long sensorRefreshDeadline(long now, unsigned long minutes) {
     if (minutes == 0) return 0;
     if (now >= LONG_MAX || minutes > static_cast<unsigned long>((LONG_MAX - now) / 60)) return LONG_MAX;
@@ -652,11 +696,11 @@ bool Gateway::endpointForCluster(const Device& device, unsigned short cluster, u
 void Gateway::sendZclLightCommand(unsigned short destination, unsigned char endpoint, unsigned short cluster,
                                   unsigned char command, const std::vector<unsigned char>& arguments) {
     std::vector<unsigned char> message;
-    message.push_back(0x11);
+    message.push_back(kZclClusterCommandNoDefaultResponse);
     message.push_back(++zclTransactionSequence_);
     message.push_back(command);
     message.insert(message.end(), arguments.begin(), arguments.end());
-    sendApsUnicast(destination, 0x0104, cluster, 1, endpoint, message);
+    sendApsUnicast(destination, kHomeAutomationProfile, cluster, kCoordinatorEndpoint, endpoint, message);
 }
 
 bool Gateway::setLightState(const std::string& ieeeAddress, const std::string& state, int brightnessPercent,
@@ -667,13 +711,14 @@ bool Gateway::setLightState(const std::string& ieeeAddress, const std::string& s
     if (!online_ || !networkFormed_ || coordinatorInitializationStep_ != 0) { *error = "Zigbee network is not ready"; return false; }
     if (found->second.networkAddress == 0xffff) { *error = "device has no active network address"; return false; }
     if (brightnessPercent >= 0) {
-        if (brightnessPercent > 100 || !endpointForCluster(found->second, 0x0008, &endpoint)) {
+        if (brightnessPercent > 100 || !endpointForCluster(found->second, kLevelCluster, &endpoint)) {
             *error = "brightness is unavailable for this light"; return false;
         }
         std::vector<unsigned char> arguments;
         unsigned int level = static_cast<unsigned int>((brightnessPercent * 254 + 50) / 100);
         arguments.push_back(static_cast<unsigned char>(level)); arguments.push_back(0); arguments.push_back(0);
-        sendZclLightCommand(found->second.networkAddress, endpoint, 0x0008, 0x04, arguments);
+        sendZclLightCommand(found->second.networkAddress, endpoint, kLevelCluster,
+                            kLevelMoveToLevelWithOnOff, arguments);
         found->second.hasBrightness = true;
         found->second.brightnessPercent = brightnessPercent;
         found->second.lightOn = brightnessPercent != 0;
@@ -682,12 +727,12 @@ bool Gateway::setLightState(const std::string& ieeeAddress, const std::string& s
         return true;
     }
     unsigned char command;
-    if (!endpointForCluster(found->second, 0x0006, &endpoint)) { *error = "power control is unavailable for this light"; return false; }
-    if (state == "off") command = 0x00;
-    else if (state == "on") command = 0x01;
-    else if (state == "toggle") command = 0x02;
+    if (!endpointForCluster(found->second, kOnOffCluster, &endpoint)) { *error = "power control is unavailable for this light"; return false; }
+    if (state == "off") command = kOnOffOff;
+    else if (state == "on") command = kOnOffOn;
+    else if (state == "toggle") command = kOnOffToggle;
     else { *error = "invalid light state"; return false; }
-    sendZclLightCommand(found->second.networkAddress, endpoint, 0x0006, command, std::vector<unsigned char>());
+    sendZclLightCommand(found->second.networkAddress, endpoint, kOnOffCluster, command, std::vector<unsigned char>());
     if (state == "toggle") found->second.lightOn = !found->second.lightOn;
     else found->second.lightOn = state == "on";
     saveState();
@@ -706,9 +751,9 @@ const SceneGroup* Gateway::findSceneGroup(unsigned short id) const {
 
 bool Gateway::sceneMemberNative(const Device& device, const Scene&, const SceneLightState& state) const {
     unsigned char endpoint;
-    if (!endpointForCluster(device, 0x0004, &endpoint) || !endpointForCluster(device, 0x0005, &endpoint) ||
-        !endpointForCluster(device, 0x0006, &endpoint)) return false;
-    return state.brightnessPercent < 0 || endpointForCluster(device, 0x0008, &endpoint);
+    if (!endpointForCluster(device, kGroupsCluster, &endpoint) || !endpointForCluster(device, kScenesCluster, &endpoint) ||
+        !endpointForCluster(device, kOnOffCluster, &endpoint)) return false;
+    return state.brightnessPercent < 0 || endpointForCluster(device, kLevelCluster, &endpoint);
 }
 
 void Gateway::provisionSceneGroup(const SceneGroup& group) {
@@ -716,12 +761,16 @@ void Gateway::provisionSceneGroup(const SceneGroup& group) {
         std::map<std::string, Device>::const_iterator found = devices_.find(group.members[i]);
         unsigned char endpoint;
         if (found == devices_.end() || found->second.networkAddress == 0xffff ||
-            !endpointForCluster(found->second, 0x0004, &endpoint)) continue;
+            !endpointForCluster(found->second, kGroupsCluster, &endpoint)) continue;
         std::vector<unsigned char> add;
-        add.push_back(0x11); add.push_back(++zclTransactionSequence_); add.push_back(0x00);
-        add.push_back(static_cast<unsigned char>(group.id)); add.push_back(static_cast<unsigned char>(group.id >> 8));
-        add.push_back(static_cast<unsigned char>(group.name.size())); add.insert(add.end(), group.name.begin(), group.name.end());
-        sendApsUnicast(found->second.networkAddress, 0x0104, 0x0004, 1, endpoint, add);
+        add.push_back(kZclClusterCommandNoDefaultResponse);
+        add.push_back(++zclTransactionSequence_);
+        add.push_back(kGroupsAddGroup);
+        appendLittleEndian16(&add, group.id);
+        add.push_back(static_cast<unsigned char>(group.name.size()));
+        add.insert(add.end(), group.name.begin(), group.name.end());
+        sendApsUnicast(found->second.networkAddress, kHomeAutomationProfile, kGroupsCluster,
+                       kCoordinatorEndpoint, endpoint, add);
         for (unsigned long j = 0; j < group.scenes.size(); ++j) {
             const Scene& scene = group.scenes[j];
             const SceneLightState* state = 0;
@@ -729,13 +778,20 @@ void Gateway::provisionSceneGroup(const SceneGroup& group) {
                 if (scene.states[k].ieeeAddress == group.members[i]) { state = &scene.states[k]; break; }
             if (state == 0 || !sceneMemberNative(found->second, scene, *state)) continue;
             std::vector<unsigned char> command;
-            command.push_back(0x11); command.push_back(++zclTransactionSequence_); command.push_back(0x00);
-            command.push_back(static_cast<unsigned char>(group.id)); command.push_back(static_cast<unsigned char>(group.id >> 8));
-            command.push_back(scene.id); command.push_back(0); command.push_back(0); /* transition */
-            command.push_back(static_cast<unsigned char>(scene.name.size())); command.insert(command.end(), scene.name.begin(), scene.name.end());
-            command.push_back(0x06); command.push_back(0); command.push_back(1); command.push_back(state->on ? 1 : 0);
-            if (state->brightnessPercent >= 0) { command.push_back(0x08); command.push_back(0); command.push_back(1); command.push_back(static_cast<unsigned char>((state->brightnessPercent * 254 + 50) / 100)); }
-            sendApsUnicast(found->second.networkAddress, 0x0104, 0x0005, 1, endpoint, command);
+            command.push_back(kZclClusterCommandNoDefaultResponse);
+            command.push_back(++zclTransactionSequence_);
+            command.push_back(kScenesAddScene);
+            appendLittleEndian16(&command, group.id);
+            command.push_back(scene.id);
+            appendLittleEndian16(&command, 0); /* transition time, in tenths of a second */
+            command.push_back(static_cast<unsigned char>(scene.name.size()));
+            command.insert(command.end(), scene.name.begin(), scene.name.end());
+            appendSceneState(&command, kOnOffCluster, state->on ? 1 : 0);
+            if (state->brightnessPercent >= 0)
+                appendSceneState(&command, kLevelCluster,
+                                 static_cast<unsigned char>((state->brightnessPercent * 254 + 50) / 100));
+            sendApsUnicast(found->second.networkAddress, kHomeAutomationProfile, kScenesCluster,
+                           kCoordinatorEndpoint, endpoint, command);
         }
     }
 }
@@ -782,8 +838,8 @@ bool Gateway::sendSceneRetry(unsigned short groupId, SceneRetry* retry) {
         for (unsigned long i = 0; i < group->members.size(); ++i) {
             std::map<std::string, Device>::const_iterator device = devices_.find(group->members[i]);
             unsigned char endpoint;
-            if (device != devices_.end() && endpointForCluster(device->second, 0x0004, &endpoint) &&
-                endpointForCluster(device->second, 0x0006, &endpoint)) multicast = true;
+            if (device != devices_.end() && endpointForCluster(device->second, kGroupsCluster, &endpoint) &&
+                endpointForCluster(device->second, kOnOffCluster, &endpoint)) multicast = true;
         }
     } else {
         for (unsigned long i = 0; i < scene->states.size(); ++i) {
@@ -801,13 +857,12 @@ bool Gateway::sendSceneRetry(unsigned short groupId, SceneRetry* retry) {
         return true;
     }
     std::vector<unsigned char> message;
-    message.push_back(0x11);
+    message.push_back(kZclClusterCommandNoDefaultResponse);
     message.push_back(++zclTransactionSequence_);
-    if (retry->off) message.push_back(0x00);
+    if (retry->off) message.push_back(kOnOffOff);
     else {
-        message.push_back(0x05);
-        message.push_back(static_cast<unsigned char>(groupId));
-        message.push_back(static_cast<unsigned char>(groupId >> 8));
+        message.push_back(kScenesRecallScene);
+        appendLittleEndian16(&message, groupId);
         message.push_back(retry->sceneId);
     }
     retry->sentOff = retry->off;
@@ -820,15 +875,15 @@ bool Gateway::sendSceneRetry(unsigned short groupId, SceneRetry* retry) {
             if (device == devices_.end()) return false;
             unsigned char endpoint;
             bool native = false;
-            if (retry->off) native = endpointForCluster(device->second, 0x0004, &endpoint);
+            if (retry->off) native = endpointForCluster(device->second, kGroupsCluster, &endpoint);
             else for (unsigned long i = 0; i < scene->states.size(); ++i)
                 if (scene->states[i].ieeeAddress == device->first)
                     native = sceneMemberNative(device->second, *scene, scene->states[i]);
             if (!native) continue; /* handled by completeSceneRetry */
             if (device->second.networkAddress == 0xffff ||
-                !endpointForCluster(device->second, retry->off ? 0x0006 : 0x0005, &endpoint)) return false;
-            retry->ezspSequence = sendApsUnicast(device->second.networkAddress, 0x0104,
-                retry->off ? 0x0006 : 0x0005, 1, endpoint, message);
+                !endpointForCluster(device->second, retry->off ? kOnOffCluster : kScenesCluster, &endpoint)) return false;
+            retry->ezspSequence = sendApsUnicast(device->second.networkAddress, kHomeAutomationProfile,
+                retry->off ? kOnOffCluster : kScenesCluster, kCoordinatorEndpoint, endpoint, message);
             retry->inFlight = true;
             retry->sentAt = time(0);
             return true;
@@ -837,7 +892,8 @@ bool Gateway::sendSceneRetry(unsigned short groupId, SceneRetry* retry) {
         retry->retryAt = LONG_MAX;
         return true;
     }
-    retry->ezspSequence = sendApsMulticast(groupId, 0x0104, retry->off ? 0x0006 : 0x0005, 1, message);
+    retry->ezspSequence = sendApsMulticast(groupId, kHomeAutomationProfile,
+        retry->off ? kOnOffCluster : kScenesCluster, kCoordinatorEndpoint, message);
     retry->inFlight = true;
     retry->sentAt = time(0);
     return true;
@@ -850,7 +906,7 @@ void Gateway::completeSceneRetry(unsigned short groupId, SceneRetry* retry) {
         for (unsigned long i = 0; i < group->members.size(); ++i) {
             std::map<std::string, Device>::const_iterator device = devices_.find(group->members[i]);
             unsigned char endpoint;
-            if (device != devices_.end() && !endpointForCluster(device->second, 0x0004, &endpoint)) {
+            if (device != devices_.end() && !endpointForCluster(device->second, kGroupsCluster, &endpoint)) {
                 std::string ignored;
                 setLightState(group->members[i], "off", -1, &ignored);
             }
@@ -1615,81 +1671,115 @@ unsigned char Gateway::sendEzspCommand(unsigned short command, const std::vector
 }
 
 unsigned short Gateway::coordinatorInitializationCommand() const {
-    if (coordinatorInitializationStep_ >= 1 && coordinatorInitializationStep_ <= 12) return 0x0053;
-    if (coordinatorInitializationStep_ >= 13 && coordinatorInitializationStep_ <= 15) return 0x0055;
-    if (coordinatorInitializationStep_ >= 16 && coordinatorInitializationStep_ <= 17) return 0x00ab;
-    if (coordinatorInitializationStep_ == 18) return 0x0010;
-    if (coordinatorInitializationStep_ == 19) return 0x005a;
-    if (coordinatorInitializationStep_ >= 20 && coordinatorInitializationStep_ <= 21) return 0x0002;
-    if (coordinatorInitializationStep_ == 22) return 0x0017;
+    /* The step is advanced before sending; these ranges match replies. */
+    if (coordinatorInitializationStep_ >= 1 && coordinatorInitializationStep_ <= 12) return kEzspSetConfigurationValue;
+    if (coordinatorInitializationStep_ >= 13 && coordinatorInitializationStep_ <= 15) return kEzspSetPolicy;
+    if (coordinatorInitializationStep_ >= 16 && coordinatorInitializationStep_ <= 17) return kEzspSetValue;
+    if (coordinatorInitializationStep_ == 18) return kEzspSetConcentrator;
+    if (coordinatorInitializationStep_ == 19) return kEzspSetSourceRouteDiscoveryMode;
+    if (coordinatorInitializationStep_ >= 20 && coordinatorInitializationStep_ <= 21) return kEzspAddEndpoint;
+    if (coordinatorInitializationStep_ == 22) return kEzspNetworkInit;
     return 0xffff;
 }
 
 void Gateway::continueCoordinatorInitialization() {
-    static const unsigned char configurationIds[] = {56, 25, 29, 34, 42, 18, 19, 13, 12, 28, 1, 6};
-    static const unsigned short configurationValues[] = {90, 2, 50, 2, 3, 7680, 14, 5, 2, 1, 255, 1};
+    struct Configuration { unsigned char id; unsigned short value; };
+    /* EZSP configuration IDs from Silicon Labs' protocol table:
+       https://docs.silabs.com/zigbee/8.2.0/sisdk-ezsp-reference-guide/03-protocol-format
+       Keep the established order: startup waits for each response before sending the
+       next setting. ID 0x01 is a legacy packet-buffer setting and may be
+       rejected by newer firmware. */
+    static const Configuration configurations[] = {
+        {0x38, 90},   /* Trust Center insecure-rejoin timeout, seconds */
+        {0x19, 2},    /* Trust Center address-cache entries */
+        {0x1d, 50},   /* delay between fragmented message blocks, ms */
+        {0x22, 2},    /* PAN ID conflict reports before changing PAN */
+        {0x2a, 3},    /* application ZDO request flags */
+        {0x12, 7680}, /* indirect transmission timeout, ms */
+        {0x13, 14},   /* end-device poll timeout exponent */
+        {0x0d, 5},    /* Zigbee security level */
+        {0x0c, 2},    /* Zigbee stack profile */
+        {0x1c, 1},    /* fragmentation window size */
+        {0x01, 255},  /* legacy buffer setting; newer firmware may reject it */
+        {0x06, 1}     /* multicast table entries */
+    };
     std::vector<unsigned char> payload;
     unsigned char step = coordinatorInitializationStep_;
     coordinatorInitializationDeadline_ = time(0) + 10;
     if (step < 12) {
-        payload.push_back(configurationIds[step]);
-        payload.push_back(static_cast<unsigned char>(configurationValues[step]));
-        payload.push_back(static_cast<unsigned char>(configurationValues[step] >> 8));
+        payload.push_back(configurations[step].id);
+        appendLittleEndian16(&payload, configurations[step].value);
         ++coordinatorInitializationStep_;
-        sendEzspCommand(0x0053, payload); /* setConfigurationValue */
+        sendEzspCommand(kEzspSetConfigurationValue, payload);
     } else if (step < 15) {
-        static const unsigned char policyIds[] = {6, 5, 0};
-        static const unsigned short decisions[] = {0x60, 0x51, 0x03};
+        struct Policy { unsigned char id; unsigned short decision; };
+        static const Policy policies[] = {
+            {6, 0x60}, /* application key requests */
+            {5, 0x51}, /* Trust Center key requests */
+            {0, 0x03}  /* Trust Center join policy */
+        };
         unsigned char policy = static_cast<unsigned char>(step - 12);
-        payload.push_back(policyIds[policy]);
-        payload.push_back(static_cast<unsigned char>(decisions[policy]));
-        payload.push_back(static_cast<unsigned char>(decisions[policy] >> 8));
+        payload.push_back(policies[policy].id);
+        appendLittleEndian16(&payload, policies[policy].decision);
         ++coordinatorInitializationStep_;
-        sendEzspCommand(0x0055, payload); /* setPolicy */
+        sendEzspCommand(kEzspSetPolicy, payload);
     } else if (step < 17) {
-        static const unsigned char valueIds[] = {63, 21};
-        static const unsigned char values[] = {3, 0};
+        struct Value { unsigned char id; unsigned char value; };
+        static const Value values[] = {
+            {0x3f, 3}, /* end-device keep-alive support mode */
+            {0x15, 0}  /* CCA energy-detect threshold */
+        };
         unsigned char value = static_cast<unsigned char>(step - 15);
-        payload.push_back(valueIds[value]); payload.push_back(1); payload.push_back(values[value]);
+        payload.push_back(values[value].id);
+        payload.push_back(1); /* length of value */
+        payload.push_back(values[value].value);
         ++coordinatorInitializationStep_;
-        sendEzspCommand(0x00ab, payload); /* setValue */
+        sendEzspCommand(kEzspSetValue, payload);
     } else if (step == 17) {
-        const unsigned char concentrator[] = {1, 0xf9, 0xff, 10, 0, 90, 0, 4, 3, 0};
-        payload.assign(concentrator, concentrator + sizeof(concentrator));
+        payload.push_back(1); /* enable */
+        appendLittleEndian16(&payload, kHighRamConcentrator);
+        appendLittleEndian16(&payload, 10); /* minimum route-discovery interval, seconds */
+        appendLittleEndian16(&payload, 90); /* maximum route-discovery interval, seconds */
+        payload.push_back(4); /* route-error threshold */
+        payload.push_back(3); /* delivery-failure threshold */
+        payload.push_back(0); /* maximum hops: stack default */
         ++coordinatorInitializationStep_;
-        sendEzspCommand(0x0010, payload); /* setConcentrator */
+        sendEzspCommand(kEzspSetConcentrator, payload);
     } else if (step == 18) {
-        payload.push_back(1);
+        payload.push_back(1); /* enable source-route discovery */
         ++coordinatorInitializationStep_;
-        sendEzspCommand(0x005a, payload); /* setSourceRouteDiscoveryMode */
+        sendEzspCommand(kEzspSetSourceRouteDiscoveryMode, payload);
     } else if (step == 19) {
         static const unsigned short inputClusters[] = {0, 3, 6, 10, 25, 26, 768};
         static const unsigned short outputClusters[] = {0, 3, 4, 5, 6, 8, 32, 768, 1024, 1026, 1029,
                                                         1030, 1280, 2817, 2819, 2820, 1794, 4096, 64513, 64514};
         unsigned long i;
-        payload.push_back(1); payload.push_back(0x04); payload.push_back(0x01);
-        payload.push_back(0xef); payload.push_back(0xbe); payload.push_back(0);
-        payload.push_back(7); payload.push_back(20);
+        payload.push_back(kCoordinatorEndpoint);
+        appendLittleEndian16(&payload, kHomeAutomationProfile);
+        appendLittleEndian16(&payload, 0xbeef); /* coordinator device ID */
+        payload.push_back(0); /* device version */
+        payload.push_back(7); /* input cluster count */
+        payload.push_back(20); /* output cluster count */
         for (i = 0; i < 7; ++i) {
-            payload.push_back(static_cast<unsigned char>(inputClusters[i]));
-            payload.push_back(static_cast<unsigned char>(inputClusters[i] >> 8));
+            appendLittleEndian16(&payload, inputClusters[i]);
         }
         for (i = 0; i < 20; ++i) {
-            payload.push_back(static_cast<unsigned char>(outputClusters[i]));
-            payload.push_back(static_cast<unsigned char>(outputClusters[i] >> 8));
+            appendLittleEndian16(&payload, outputClusters[i]);
         }
         ++coordinatorInitializationStep_;
-        sendEzspCommand(0x0002, payload); /* addEndpoint */
+        sendEzspCommand(kEzspAddEndpoint, payload);
     } else if (step == 20) {
+        /* endpoint 242, Green Power profile 0xa1e0, device 0x0061,
+           version 0, no input clusters, one output cluster 0x0021 */
         const unsigned char greenPowerEndpoint[] = {242, 0xe0, 0xa1, 0x61, 0, 0, 0, 1, 0x21, 0};
         payload.assign(greenPowerEndpoint, greenPowerEndpoint + sizeof(greenPowerEndpoint));
         ++coordinatorInitializationStep_;
-        sendEzspCommand(0x0002, payload); /* addEndpoint */
+        sendEzspCommand(kEzspAddEndpoint, payload);
     } else if (step == 21) {
         ++coordinatorInitializationStep_;
         networkInitRequested_ = true;
         addLog("Initializing NCP Zigbee network after coordinator configuration");
-        sendEzspCommand(0x0017, payload);
+        sendEzspCommand(kEzspNetworkInit, payload);
     }
 }
 
@@ -1700,7 +1790,7 @@ void Gateway::enableStackTokenWriting() {
     payload.push_back(1);    /* enabled */
     stackTokenWritingRequested_ = true;
     addLog("Enabling NCP stack token writing");
-    sendEzspCommand(0x00ab, payload);
+    sendEzspCommand(kEzspSetValue, payload);
 }
 
 void Gateway::configureTradfriBindGroup() {
@@ -1709,11 +1799,11 @@ void Gateway::configureTradfriBindGroup() {
     /* Pre-2.3.075 IKEA remotes, including E1743, use the legacy group
        binding rather than sending their commands to a coordinator endpoint. */
     payload.push_back(0); /* multicast table index */
-    payload.push_back(0x85); payload.push_back(0x03); /* group 901 */
-    payload.push_back(1); /* coordinator endpoint */
+    appendLittleEndian16(&payload, kLegacyRemoteGroup);
+    payload.push_back(kCoordinatorEndpoint);
     payload.push_back(0); /* primary network */
     tradfriBindGroupConfigured_ = true;
-    sendEzspCommand(0x0064, payload); /* setMulticastTableEntry */
+    sendEzspCommand(kEzspSetMulticastTableEntry, payload);
     addLog("Subscribing coordinator to IKEA legacy remote group 901");
 }
 
@@ -1731,15 +1821,15 @@ unsigned char Gateway::sendApsUnicast(unsigned short destination, unsigned short
     payload.push_back(static_cast<unsigned char>(cluster >> 8));
     payload.push_back(sourceEndpoint);
     payload.push_back(destinationEndpoint);
-    payload.push_back(0x40); payload.push_back(0x01); /* retry and route discovery */
+    appendLittleEndian16(&payload, kApsRetryAndRouteDiscovery);
     payload.push_back(0); payload.push_back(0); /* group id */
     payload.push_back(apsSequence++);
     payload.push_back(messageTag);
     payload.push_back(static_cast<unsigned char>(message.size()));
     payload.insert(payload.end(), message.begin(), message.end());
-    addFrameLog("TX", destination, profile, cluster, sourceEndpoint, destinationEndpoint, 0x0140, 0,
+    addFrameLog("TX", destination, profile, cluster, sourceEndpoint, destinationEndpoint, kApsRetryAndRouteDiscovery, 0,
                 static_cast<unsigned char>(apsSequence - 1), messageTag, -1, -129, message);
-    return sendEzspCommand(0x0034, payload); /* sendUnicast */
+    return sendEzspCommand(kEzspSendUnicast, payload);
 }
 
 unsigned char Gateway::sendApsMulticast(unsigned short groupId, unsigned short profile, unsigned short cluster,
@@ -1759,7 +1849,7 @@ unsigned char Gateway::sendApsMulticast(unsigned short groupId, unsigned short p
     payload.insert(payload.end(), message.begin(), message.end());
     addFrameLog("TX", groupId, profile, cluster, sourceEndpoint, 0xff, 0, groupId,
                 static_cast<unsigned char>(apsSequence - 1), 0, -1, -129, message);
-    return sendEzspCommand(0x0038, payload); /* sendMulticast */
+    return sendEzspCommand(kEzspSendMulticast, payload);
 }
 
 void Gateway::sendJoinPermit(unsigned int duration) {
@@ -2010,7 +2100,7 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
         addLog(message.str());
         return;
     }
-    if (command == 0x0034 && frame[payloadOffset] == 0x91) {
+    if (command == kEzspSendUnicast && frame[payloadOffset] == 0x91) {
         /* EMBER_NETWORK_DOWN: stop advertising the saved state as live and
            hold subsequent refreshes until the NCP reports NETWORK_UP. */
         networkFormed_ = false;
@@ -2019,11 +2109,11 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
         addLog("NCP rejected Zigbee transmit: network is down");
         return;
     }
-    if (command == 0x0038 || command == 0x0034) {
+    if (command == kEzspSendMulticast || command == kEzspSendUnicast) {
         for (std::map<unsigned short, SceneRetry>::iterator it=sceneRetries_.begin(); it!=sceneRetries_.end(); ++it) {
             SceneRetry& retry=it->second;
             if (!retry.inFlight || retry.ezspSequence != frame[0] ||
-                (retry.unicast ? command != 0x0034 : command != 0x0038)) continue;
+                (retry.unicast ? command != kEzspSendUnicast : command != kEzspSendMulticast)) continue;
             unsigned char status=frame[payloadOffset];
             bool stale=retry.sentOff!=retry.off || (!retry.off && retry.sentSceneId!=retry.sceneId);
             retry.inFlight=false;
@@ -2061,7 +2151,7 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
             return;
         }
     }
-    if (command == 0x0034 && interviewRequestInFlight_ && !interviewSendAccepted_ && frame[0] == interviewEzspSequence_) {
+    if (command == kEzspSendUnicast && interviewRequestInFlight_ && !interviewSendAccepted_ && frame[0] == interviewEzspSequence_) {
         if (frame[payloadOffset] == 0) interviewSendAccepted_ = true;
         else {
             std::ostringstream reason;
@@ -2727,7 +2817,7 @@ void Gateway::sendZdoBindRequest(unsigned short destination, unsigned char endpo
     }
     if (legacyGroup) {
         request.push_back(0x01); /* group destination, no endpoint */
-        request.push_back(0x85); request.push_back(0x03); /* Herdsman group 901 */
+        appendLittleEndian16(&request, kLegacyRemoteGroup);
     } else {
         request.push_back(0x03); /* 64-bit destination address */
         request.insert(request.end(), coordinatorIeeeAddress_.begin(), coordinatorIeeeAddress_.end());
