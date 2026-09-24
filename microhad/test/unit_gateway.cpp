@@ -894,6 +894,45 @@ static void testGenericCapabilities() {
     assert(!isLightAttribute(0x0008, 0x0001));
 }
 
+static void testZclRejectsMalformedAttributes() {
+    Device device;
+    std::vector<unsigned char> empty;
+    std::vector<unsigned char> one(1, 0);
+    std::vector<unsigned char> two(2, 0);
+    std::vector<unsigned char> three(3, 0);
+    std::vector<unsigned char> invalidHumidity;
+    std::vector<unsigned char> invalidBattery(1, 201);
+    std::vector<unsigned char> invalidOn(1, 2);
+    std::vector<unsigned char> invalidLevel(1, 255);
+    std::vector<unsigned char> wrongType;
+    const unsigned short twoByteClusters[] = {0x0402, 0x0405, 0x0500};
+    const unsigned short twoByteAttributes[] = {0x0000, 0x0000, 0x0002};
+    const unsigned short oneByteClusters[] = {0x0406, 0x0001, 0x0006, 0x0008};
+    const unsigned short oneByteAttributes[] = {0x0000, 0x0021, 0x0000, 0x0000};
+    for (unsigned long i = 0; i < sizeof(twoByteClusters) / sizeof(twoByteClusters[0]); ++i) {
+        assert(!applyZclAttribute(&device, twoByteClusters[i], twoByteAttributes[i], empty, 10));
+        assert(!applyZclAttribute(&device, twoByteClusters[i], twoByteAttributes[i], one, 10));
+        assert(!applyZclAttribute(&device, twoByteClusters[i], twoByteAttributes[i], three, 10));
+    }
+    for (unsigned long i = 0; i < sizeof(oneByteClusters) / sizeof(oneByteClusters[0]); ++i) {
+        assert(!applyZclAttribute(&device, oneByteClusters[i], oneByteAttributes[i], empty, 10));
+        assert(!applyZclAttribute(&device, oneByteClusters[i], oneByteAttributes[i], two, 10));
+    }
+    invalidHumidity.push_back(0x11); invalidHumidity.push_back(0x27); /* 100.01% */
+    assert(!applyZclAttribute(&device, 0x0405, 0x0000, invalidHumidity, 10));
+    assert(!applyZclAttribute(&device, 0x0001, 0x0021, invalidBattery, 10));
+    assert(!applyZclAttribute(&device, 0x0006, 0x0000, invalidOn, 10));
+    assert(!applyZclAttribute(&device, 0x0008, 0x0000, invalidLevel, 10));
+    assert(!applyZclAttribute(&device, 0x9999, 0x0000, one, 10));
+    assert(!applyIasZoneStatus(&device, empty, 10));
+    assert(!applyIasZoneStatus(&device, three, 10));
+    wrongType.push_back(0); wrongType.push_back(0); wrongType.push_back(0); /* attribute + success */
+    wrongType.push_back(0x21); wrongType.push_back(0); wrongType.push_back(0); /* unsigned instead of signed temperature */
+    assert(!applyZclReadAttributeResponse(&device, 0x0402, wrongType, 10));
+    assert(!device.hasTemperature && !device.hasHumidity && !device.hasOccupancy && !device.hasBattery &&
+           !device.hasContact && !device.hasLight && device.lastSeen == 0);
+}
+
 static void testConfigureReportingEncoding() {
     std::vector<unsigned char> battery = buildZclConfigureReporting(7, 0x0021, 0x20, 3600, 65000, 1);
     std::vector<unsigned char> temperature = buildZclConfigureReporting(8, 0x0000, 0x29, 30, 3600, 20);
@@ -1152,6 +1191,7 @@ void runUnitTests() {
     testNetworkPersistenceRejectsInvalidState();
     testSceneConfigurationPersistence();
     testGenericCapabilities();
+    testZclRejectsMalformedAttributes();
     testConfigureReportingEncoding();
     testInterviewDescriptorAndPlanning();
     testJoinStatusJson();

@@ -84,7 +84,7 @@ physical coordinator and radio interoperability testing.
 | ZCL-01 | U | Temperature, humidity, occupancy, battery, on/off, and level reports | Values, flags, last-seen, and brightness conversion are correct | E |
 | ZCL-02 | U | Xiaomi `0xff01` measurement data | Supported tagged values update only their respective measurements | E |
 | ZCL-03 | U | IAS open/closed status and read-attribute response records | Contact state and standard read responses are normalized | E |
-| ZCL-04 | U | Empty/truncated/wrong-type/out-of-range/unknown ZCL and IAS payloads | Returns false/no-op with no partial values or crash | G |
+| ZCL-04 | U | Empty/truncated/wrong-type/out-of-range/unknown ZCL and IAS payloads | Returns false/no-op with no partial values or crash | DONE |
 | ZCL-05 | U | Light-attribute classifier and command payload encoding | On/off, level, transition/default arguments and endpoint selection are exact | P |
 | ZCL-06 | I | APS message dispatch for reports, reads, default responses, IAS, remote events, and irrelevant clusters | Each valid message updates one intended subsystem; unsupported traffic is harmless | G |
 

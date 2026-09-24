@@ -43,36 +43,52 @@ bool applyXiaomiMeasurementData(Device* device, const std::vector<unsigned char>
     if (changed) device->lastSeen = observedAt;
     return changed;
 }
+
+bool expectedAttributeType(unsigned short cluster, unsigned short attribute, unsigned char type) {
+    if (cluster == 0x0402 && attribute == 0x0000) return type == 0x29;
+    if (cluster == 0x0405 && attribute == 0x0000) return type == 0x21;
+    if (cluster == 0x0406 && attribute == 0x0000) return type == 0x18;
+    if (cluster == 0x0001 && attribute == 0x0021) return type == 0x20;
+    if (cluster == 0x0500 && attribute == 0x0002) return type == 0x19;
+    if (cluster == 0x0006 && attribute == 0x0000) return type == 0x10;
+    if (cluster == 0x0008 && attribute == 0x0000) return type == 0x20;
+    return cluster != 0x0000 || attribute != 0xff01 || type == 0x41;
+}
 }
 
 bool applyZclAttribute(Device* device, unsigned short cluster, unsigned short attribute,
                        const std::vector<unsigned char>& value, long observedAt) {
-    if (cluster == 0x0402 && attribute == 0x0000 && value.size() >= 2) {
+    if (cluster == 0x0402 && attribute == 0x0000 && value.size() == 2) {
         short raw = static_cast<short>(littleEndian16(value));
+        if (raw < -27315) return false;
         device->hasTemperature = true;
         device->temperatureCelsius = static_cast<double>(raw) / 100.0;
         device->kind = "temperature";
-    } else if (cluster == 0x0405 && attribute == 0x0000 && value.size() >= 2) {
+    } else if (cluster == 0x0405 && attribute == 0x0000 && value.size() == 2) {
+        if (littleEndian16(value) > 10000) return false;
         device->hasHumidity = true;
         device->humidityPercent = static_cast<double>(littleEndian16(value)) / 100.0;
         device->kind = device->hasTemperature ? "temperature/humidity" : "humidity";
-    } else if (cluster == 0x0406 && attribute == 0x0000 && value.size() >= 1) {
+    } else if (cluster == 0x0406 && attribute == 0x0000 && value.size() == 1) {
         device->hasOccupancy = true;
         device->occupied = (value[0] & 0x01) != 0;
         device->kind = "occupancy";
-    } else if (cluster == 0x0001 && attribute == 0x0021 && value.size() >= 1) {
+    } else if (cluster == 0x0001 && attribute == 0x0021 && value.size() == 1) {
+        if (value[0] > 200) return false;
         device->hasBattery = true;
         /* Power Configuration reports half-percent units. */
         device->batteryPercent = static_cast<int>(value[0]) / 2;
-    } else if (cluster == 0x0500 && attribute == 0x0002 && value.size() >= 2) {
+    } else if (cluster == 0x0500 && attribute == 0x0002 && value.size() == 2) {
         device->hasContact = true;
         device->contactOpen = (littleEndian16(value) & 0x0001) != 0;
         device->kind = "contact";
-    } else if (cluster == 0x0006 && attribute == 0x0000 && value.size() >= 1) {
+    } else if (cluster == 0x0006 && attribute == 0x0000 && value.size() == 1) {
+        if (value[0] > 1) return false;
         device->hasLight = true;
         device->lightOn = value[0] != 0;
         if (device->kind == "generic") device->kind = "light";
-    } else if (cluster == 0x0008 && attribute == 0x0000 && value.size() >= 1) {
+    } else if (cluster == 0x0008 && attribute == 0x0000 && value.size() == 1) {
+        if (value[0] == 0xff) return false;
         device->hasLight = true;
         device->hasBrightness = true;
         device->brightnessPercent = (static_cast<int>(value[0]) * 100 + 127) / 254;
@@ -91,7 +107,7 @@ bool isLightAttribute(unsigned short cluster, unsigned short attribute) {
 }
 
 bool applyIasZoneStatus(Device* device, const std::vector<unsigned char>& payload, long observedAt) {
-    if (payload.size() < 2) return false;
+    if (payload.size() != 2) return false;
     device->hasContact = true;
     device->contactOpen = (littleEndian16(payload) & 0x0001) != 0;
     device->kind = "contact";
@@ -113,6 +129,7 @@ bool applyZclReadAttributeResponse(Device* device, unsigned short cluster,
         if (status != 0) { offset += 3; continue; }
         if (offset + 4 > payload.size()) break;
         type = payload[offset + 3];
+        if (!expectedAttributeType(cluster, attribute, type)) return changed;
         length = valueLength(type, payload, offset + 4);
         if (length == 0) break;
         if (offset + 4 + length > payload.size()) break;
