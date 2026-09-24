@@ -583,7 +583,8 @@ std::vector<unsigned char> apsPayload(unsigned short profile, unsigned short clu
                                       unsigned char sourceEndpoint, unsigned char lqi,
                                       const std::vector<unsigned char>& zcl, unsigned char declaredLength = 0xff);
 void sendApsCallback(int fd, unsigned char ashSequence, const std::vector<unsigned char>& aps);
-void sendApsCallbackV8(int fd, unsigned char ashSequence, const std::vector<unsigned char>& aps);
+void sendApsCallbackV8(int fd, unsigned char ashSequence, const std::vector<unsigned char>& aps,
+                       int acknowledgement = -1);
 
 void testJoinWindowExtensionExpiryRenewalAndCloseFailure() {
     int serial[2];
@@ -725,6 +726,87 @@ void testIasEnrollmentAndZoneIdExhaustion() {
     exhausted.stop(); close(serial[1]);
 }
 
+std::vector<unsigned char> deviceAnnounceMessage(unsigned short node, const unsigned char* eui) {
+    std::vector<unsigned char> message;
+    message.push_back(0x21); /* ZDO transaction */
+    message.push_back(static_cast<unsigned char>(node));
+    message.push_back(static_cast<unsigned char>(node >> 8));
+    message.insert(message.end(), eui, eui + 8); /* NCP byte order: least significant first */
+    message.push_back(0x8e); /* receiver-on-when-idle, router, secure join */
+    return message;
+}
+
+void testDeviceAnnounceRejoinAndNodeReuse() {
+    char name[] = "/tmp/microhad-zigbee-device-announce-XXXXXX";
+    char* temporary = mkdtemp(name);
+    assert(temporary != 0);
+    std::string directory(temporary);
+    int serial[2];
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
+    Gateway gateway("/dev/null", 115200, directory, "", "", "");
+    GatewayIntegrationTestPeer::attachSerial(&gateway, serial[0]);
+    GatewayIntegrationTestPeer::setNetworkReady(&gateway, true);
+    const unsigned char euiA[] = {1, 2, 3, 4, 5, 6, 7, 8};
+    const unsigned char euiB[] = {8, 7, 6, 5, 4, 3, 2, 1};
+
+    std::vector<unsigned char> announce = deviceAnnounceMessage(0x1234, euiA);
+    sendApsCallbackV8(serial[1], 0, apsPayload(0x0000, 0x0013, 0, 90, announce), 1);
+    gateway.poll();
+    std::vector<unsigned char> announceWire = readAvailable(serial[1]);
+    std::vector<unsigned char> interview = firstAshData(announceWire);
+    assert(interview[3] == 0x34 && interview[4] == 0);
+    assert(interview[6] == 0x34 && interview[7] == 0x12);
+    std::vector<Device> devices = gateway.devices();
+    assert(devices.size() == 1 && devices[0].ieeeAddress == "0x0807060504030201");
+    assert(devices[0].networkAddress == 0x1234 && devices[0].lastSeen != 0);
+
+    announce = deviceAnnounceMessage(0x1235, euiA);
+    sendApsCallbackV8(serial[1], 1, apsPayload(0x0000, 0x0013, 0, 91, announce), 1);
+    gateway.poll();
+    announceWire = readAvailable(serial[1]);
+    interview = firstAshData(announceWire);
+    assert(interview[3] == 0x34 && interview[6] == 0x35 && interview[7] == 0x12);
+    devices = gateway.devices();
+    assert(devices.size() == 1 && devices[0].networkAddress == 0x1235);
+
+    announce = deviceAnnounceMessage(0x1235, euiB);
+    sendApsCallbackV8(serial[1], 2, apsPayload(0x0000, 0x0013, 0, 92, announce), 2);
+    gateway.poll();
+    interview = firstAshData(readAvailable(serial[1]));
+    assert(interview[3] == 0x34 && interview[6] == 0x35 && interview[7] == 0x12);
+    devices = gateway.devices();
+    assert(devices.size() == 2);
+    bool stalePreserved = false, replacementMapped = false;
+    unsigned long i;
+    for (i = 0; i < devices.size(); ++i) {
+        if (devices[i].ieeeAddress == "0x0807060504030201") stalePreserved = devices[i].networkAddress == 0xffff;
+        if (devices[i].ieeeAddress == "0x0102030405060708") replacementMapped = devices[i].networkAddress == 0x1235;
+    }
+    assert(stalePreserved && replacementMapped);
+
+    announce = deviceAnnounceMessage(0x1235, euiB);
+    sendApsCallbackV8(serial[1], 3, apsPayload(0x0000, 0x0013, 0, 93, announce), 3);
+    gateway.poll();
+    std::vector<std::vector<unsigned char> > duplicateOutput = decodeFrames(readAvailable(serial[1]));
+    for (i = 0; i < duplicateOutput.size(); ++i)
+        assert(duplicateOutput[i].empty() || (duplicateOutput[i][0] & 0x80) != 0);
+    assert(gateway.logsJson().find("Ignoring duplicate device announcement during interview") != std::string::npos);
+
+    std::vector<Device> persisted;
+    std::string error;
+    assert(loadDevices(directory + "/devices.json", &persisted, &error));
+    assert(persisted.size() == 2);
+    stalePreserved = false; replacementMapped = false;
+    for (i = 0; i < persisted.size(); ++i) {
+        if (persisted[i].ieeeAddress == "0x0807060504030201") stalePreserved = persisted[i].networkAddress == 0xffff;
+        if (persisted[i].ieeeAddress == "0x0102030405060708") replacementMapped = persisted[i].networkAddress == 0x1235;
+    }
+    assert(stalePreserved && replacementMapped);
+    gateway.stop(); close(serial[1]);
+    unlink((directory + "/devices.json").c_str());
+    rmdir(directory.c_str());
+}
+
 void testCoordinatorInitializationSequence() {
     int serial[2];
     assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
@@ -835,12 +917,16 @@ void sendApsCallback(int fd, unsigned char ashSequence, const std::vector<unsign
     sendAshControl(fd, static_cast<unsigned char>((ashSequence & 7) << 4), obfuscateEzsp(ezsp));
 }
 
-void sendApsCallbackV8(int fd, unsigned char ashSequence, const std::vector<unsigned char>& aps) {
+void sendApsCallbackV8(int fd, unsigned char ashSequence, const std::vector<unsigned char>& aps,
+                       int acknowledgement) {
     std::vector<unsigned char> ezsp;
     ezsp.push_back(1); ezsp.push_back(0x80); ezsp.push_back(static_cast<unsigned char>(aps.size()));
     ezsp.push_back(0x45); ezsp.push_back(0);
     ezsp.insert(ezsp.end(), aps.begin(), aps.end());
-    sendAshControl(fd, static_cast<unsigned char>((ashSequence & 7) << 4), obfuscateEzsp(ezsp));
+    unsigned char ack = acknowledgement < 0 ? static_cast<unsigned char>((ashSequence + 1) & 7) :
+                                               static_cast<unsigned char>(acknowledgement & 7);
+    sendAshControl(fd, static_cast<unsigned char>(((ashSequence & 7) << 4) | ack),
+                   obfuscateEzsp(ezsp));
 }
 
 void testApsCallbackValidationAndDispatch() {
@@ -1181,6 +1267,8 @@ void runGatewayIntegrationTests() {
     testJoinWindowExtensionExpiryRenewalAndCloseFailure();
     fprintf(stderr, "integration: IAS enrollment and zone ID exhaustion\n");
     testIasEnrollmentAndZoneIdExhaustion();
+    fprintf(stderr, "integration: device announce, rejoin, and node reuse\n");
+    testDeviceAnnounceRejoinAndNodeReuse();
     fprintf(stderr, "integration: coordinator initialization, IEEE lookup, and Tradfri setup\n");
     testCoordinatorInitializationSequence();
     fprintf(stderr, "integration: coordinator initialization unexpected reply and timeout\n");
