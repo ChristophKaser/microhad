@@ -34,6 +34,7 @@ bool validSubscription(const std::string& subscriptionJson, std::string* endpoin
            jsonStringField(subscriptionJson, "p256dh", &publicText) &&
            jsonStringField(subscriptionJson, "auth", &authText) &&
            base64UrlDecode(publicText, &clientPublic) && clientPublic.size() == 65 &&
+           static_cast<unsigned char>(clientPublic[0]) == 4 &&
            base64UrlDecode(authText, &auth) && auth.size() == 16;
 }
 
