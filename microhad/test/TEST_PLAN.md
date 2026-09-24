@@ -126,7 +126,7 @@ physical coordinator and radio interoperability testing.
 | NOT-02 | I | Start/stop twice, disabled enqueue, queue of 0/1/32/33 jobs, stop with queued work | Worker is race-safe; capacity/error/flush policy is deterministic | G |
 | NOT-03 | I | FCM and Browser Push configured/unconfigured and one/both delivery failures | One transport failure cannot crash worker or prevent the other intended attempt | G |
 | FCM-01 | U | Valid/minimal/missing/malformed Firebase account JSON, PEM escaping | Required account fields and private key are validated | P |
-| FCM-02 | U | Base64url encode/decode padding, invalid alphabet/length, FCM message escaping, JWT claims/signing errors | Encodings and messages are exact; bad input returns errors | P |
+| FCM-02 | U | Base64url encode/decode padding, invalid alphabet/length, FCM message escaping, JWT claims/signing errors | Encodings and messages are exact; bad input returns errors | DONE |
 | FCM-03 | I | Token cache hit/expiry/account change, token endpoint failure, FCM non-2xx/malformed response | Correct cache behavior and propagated/redacted error | G |
 | PUSH-01 | U | VAPID key first create, reload, corrupted/partial keys, write failure | Stable valid public key or safe error; no accidental key replacement | G |
 | PUSH-02 | U | Valid subscription, duplicate, invalid scheme/JSON/keys, limit boundary | HTTPS-only unique subscriptions; 32-entry bound and useful errors | P |
