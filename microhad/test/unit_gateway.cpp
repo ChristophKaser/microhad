@@ -591,6 +591,46 @@ static void testAshRejectsBadCrc() {
     assert(!transport.popFrame(&frame));
 }
 
+static void testAshFragmentationAndFrameOrdering() {
+    AshTransport transport;
+    std::vector<unsigned char> empty;
+    std::vector<unsigned char> firstPayload;
+    std::vector<unsigned char> secondPayload;
+    std::vector<unsigned char> emptyFrame;
+    std::vector<unsigned char> firstFrame;
+    std::vector<unsigned char> secondFrame;
+    std::vector<unsigned char> combined;
+    std::vector<unsigned char> decoded;
+
+    firstPayload.push_back(0x41);
+    secondPayload.push_back(0x42);
+    secondPayload.push_back(0x43);
+    emptyFrame = AshTransport::encodeData(0x00, empty);
+    firstFrame = AshTransport::encodeData(0x01, firstPayload);
+    secondFrame = AshTransport::encodeData(0x02, secondPayload);
+
+    /* A frame split at every meaningful boundary is not visible early. */
+    transport.feed(&firstFrame[0], firstFrame.size() - 1);
+    assert(!transport.popFrame(&decoded));
+    transport.feed(&firstFrame[firstFrame.size() - 1], 1);
+    assert(transport.popFrame(&decoded));
+    assert(decoded.size() == 2 && decoded[0] == 0x01 && decoded[1] == 0x41);
+    assert(!transport.popFrame(&decoded));
+
+    /* Empty and back-to-back frames retain their ordering in one serial read. */
+    combined.insert(combined.end(), emptyFrame.begin(), emptyFrame.end());
+    combined.insert(combined.end(), firstFrame.begin(), firstFrame.end());
+    combined.insert(combined.end(), secondFrame.begin(), secondFrame.end());
+    transport.feed(&combined[0], combined.size());
+    assert(transport.popFrame(&decoded));
+    assert(decoded.size() == 1 && decoded[0] == 0x00);
+    assert(transport.popFrame(&decoded));
+    assert(decoded.size() == 2 && decoded[0] == 0x01 && decoded[1] == 0x41);
+    assert(transport.popFrame(&decoded));
+    assert(decoded.size() == 3 && decoded[0] == 0x02 && decoded[1] == 0x42 && decoded[2] == 0x43);
+    assert(!transport.popFrame(&decoded));
+}
+
 static void testDevicePersistence() {
     std::ostringstream path;
     path << "/tmp/microhad-zigbee-native-test-" << static_cast<long>(getpid());
@@ -1039,6 +1079,7 @@ void runUnitTests() {
     GatewayTestPeer::networkJoinWindowDoesNotClearNetworkState();
     testAshRoundTrip();
     testAshRejectsBadCrc();
+    testAshFragmentationAndFrameOrdering();
     testDevicePersistence();
     testDeviceSettings();
     testNetworkPersistence();
