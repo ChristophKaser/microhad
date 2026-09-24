@@ -30,7 +30,7 @@ physical coordinator and radio interoperability testing.
 | LIF-01 | U | Valid default and `--config PATH` invocation | Selected configuration is read; defaults apply to omitted optional fields | DONE |
 | LIF-02 | U | Invalid CLI arity or option | Exit code 2 and usage text; no daemon components start | DONE |
 | LIF-03 | U | Missing, unreadable, empty, malformed, or wrong-type configuration fields | Clear startup failure; no leaked worker, runner, listener, or descriptor | DONE |
-| LIF-04 | I | Optional config boundaries: serial baud/ports outside valid integer range, duplicate listener ports, unusable runtime path | Startup rejects invalid values or reports bind/open error safely | G |
+| LIF-04 | I | Optional config boundaries: serial baud/ports outside valid integer range, duplicate listener ports, unusable runtime path | Startup rejects invalid values or reports bind/open error safely | DONE |
 | LIF-05 | I | Runtime directory absent, already present, readonly, or a non-directory | Create/reuse only valid directories; propagate failure without partial state | DONE |
 | LIF-06 | I | Serial path absent, permission denied, invalid baud, and start/stop twice | Error is propagated; stop is idempotent and closes resources | DONE |
 | LIF-07 | I | HTTP-only, HTTPS-only configuration error (one TLS path), valid TLS pair, unreadable/invalid cert/key | Correct listener selection; pair is mandatory; failure cleans all started components | P |

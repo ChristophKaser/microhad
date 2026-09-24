@@ -87,6 +87,17 @@ void runGatewayConfigUnitTests() {
         GatewayConfig invalid;
         assert(!loadGatewayConfig(filename, &invalid, &error) && !error.empty());
     }
+    const std::string invalidSettings[] = {
+        "{\"serial_baud\":2147483648}", "{\"serial_baud\":9600}",
+        "{\"http_port\":0}", "{\"http_port\":65536}", "{\"https_port\":-1}",
+        "{\"http_port\":8080,\"https_port\":8080,\"tls_certificate\":\"cert\",\"tls_private_key\":\"key\"}",
+        "{\"runtime_dir\":\"\"}"
+    };
+    for (i = 0; i < sizeof(invalidSettings) / sizeof(invalidSettings[0]); ++i) {
+        replaceFileContents(filename, invalidSettings[i]);
+        GatewayConfig invalid;
+        assert(!loadGatewayConfig(filename, &invalid, &error) && !error.empty());
+    }
     assert(!loadGatewayConfig(std::string(filename) + ".missing", &selected, &error));
 
     char directoryName[] = "/tmp/microhad-zigbee-config-no-start-XXXXXX";
@@ -98,7 +109,12 @@ void runGatewayConfigUnitTests() {
     std::string output = runInvalidConfigProcess(filename, &exitCode);
     assert(exitCode == 2 && output.find("configuration field must be an integer: http_port") != std::string::npos);
     assert(access(runtimePath.c_str(), F_OK) != 0);
+    replaceFileContents(filename, std::string("{\"runtime_dir\":\"") + runtimePath + "\",\"http_port\":65536}");
+    output = runInvalidConfigProcess(filename, &exitCode);
+    assert(exitCode == 2 && output.find("listener ports must be between 1 and 65535") != std::string::npos);
+    assert(access(runtimePath.c_str(), F_OK) != 0);
     unlink(filename);
     rmdir(directoryPath);
     fprintf(stderr, "unit: malformed and wrong-type configuration rejected before startup\n");
+    fprintf(stderr, "unit: out-of-range gateway settings rejected before startup\n");
 }

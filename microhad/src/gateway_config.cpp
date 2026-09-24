@@ -5,6 +5,7 @@
 #include <cerrno>
 #include <cstdlib>
 #include <fstream>
+#include <limits.h>
 #include <map>
 
 namespace {
@@ -146,5 +147,20 @@ bool loadGatewayConfig(const std::string& path, GatewayConfig* config, std::stri
         !stringSetting(strings, numbers, "ca_bundle", &config->caBundle, error) ||
         !stringSetting(strings, numbers, "tls_certificate", &config->tlsCertificate, error) ||
         !stringSetting(strings, numbers, "tls_private_key", &config->tlsPrivateKey, error)) return false;
+    if (config->serialBaud < 0 || config->serialBaud > INT_MAX) {
+        *error = "serial_baud is outside the supported integer range"; return false;
+    }
+    if (config->serialBaud != 115200) {
+        *error = "only serial_baud 115200 is supported"; return false;
+    }
+    if (config->httpPort < 1 || config->httpPort > 65535 || config->httpsPort < 1 || config->httpsPort > 65535) {
+        *error = "listener ports must be between 1 and 65535"; return false;
+    }
+    if (!config->tlsCertificate.empty() && !config->tlsPrivateKey.empty() && config->httpPort == config->httpsPort) {
+        *error = "HTTP and HTTPS listener ports must be different"; return false;
+    }
+    if (config->runtimeDirectory.empty()) {
+        *error = "runtime_dir must not be empty"; return false;
+    }
     return true;
 }
