@@ -2842,7 +2842,7 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
                                   static_cast<unsigned char>(zoneId));
         } else addLog("IAS zone ID pool exhausted; enrollment response not sent");
     } else if (cluster == 0x0500 && command == 0x00 && message.size() >= zclOffset + 2) {
-        std::vector<unsigned char> zone(message.begin() + zclOffset, message.end());
+        std::vector<unsigned char> zone(message.begin() + zclOffset, message.begin() + zclOffset + 2);
         applyIasZoneStatus(address->second, zone);
     } else if ((frameControl & 0x03) == 0 && command == 0x01) {
         std::vector<unsigned char> records(message.begin() + zclOffset, message.end());

@@ -989,6 +989,94 @@ void testInterviewResponseMatchingAndTimeout() {
     gateway.stop(); close(serial[1]);
 }
 
+void testInterviewWakeContactAndRefreshOnly() {
+    int serial[2];
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
+    Gateway waking("/dev/null", 115200, "/tmp", "", "", "");
+    GatewayIntegrationTestPeer::attachSerial(&waking, serial[0]);
+    const std::string sensor = "0x00124b0000004201";
+    GatewayIntegrationTestPeer::addMeasurementDevice(&waking, 0x1234, sensor);
+    GatewayIntegrationTestPeer::startDeviceInterview(&waking, 0x1234);
+    waking.poll();
+    readAvailable(serial[1]);
+    GatewayIntegrationTestPeer::expireInterview(&waking);
+    waking.poll(); readAvailable(serial[1]);
+    assert(waking.logsJson().find("Interview paused until the device wakes again") != std::string::npos);
+
+    std::vector<unsigned char> report;
+    report.push_back(0x18); report.push_back(7); report.push_back(0x0a);
+    report.push_back(0); report.push_back(0); report.push_back(0x29); report.push_back(0x2c); report.push_back(0x09);
+    unsigned char receiveSequence = GatewayIntegrationTestPeer::ashReceiveSequence(waking);
+    unsigned char acknowledgement = static_cast<unsigned char>((GatewayIntegrationTestPeer::ashSendSequence(waking) + 1) & 7);
+    sendApsCallbackV8(serial[1], receiveSequence, apsPayload(0x0104, 0x0402, 1, 80, report), acknowledgement);
+    waking.poll();
+    std::vector<unsigned char> resumed = firstAshData(readAvailable(serial[1]));
+    assert(resumed[3] == 0x34 && resumed[10] == 0x02 && resumed[11] == 0x00);
+    assert(waking.logsJson().find("Resuming paused interview on device traffic") != std::string::npos);
+    assert(waking.devices()[0].temperatureCelsius > 23.4 && waking.devices()[0].temperatureCelsius < 23.6);
+    waking.stop(); close(serial[1]);
+
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
+    Gateway contact("/dev/null", 115200, "/tmp", "", "", "");
+    GatewayIntegrationTestPeer::attachSerial(&contact, serial[0]);
+    const std::string contactIeee = "0x00124b0000004202";
+    GatewayIntegrationTestPeer::addContactDevice(&contact, 0x1234, contactIeee);
+    GatewayIntegrationTestPeer::startDeviceInterview(&contact, 0x1234);
+    contact.poll();
+    std::vector<unsigned char> descriptorRequest = firstAshData(readAvailable(serial[1]));
+    std::vector<unsigned char> wire;
+    std::vector<unsigned char> zone;
+    zone.push_back(0x19); zone.push_back(1); zone.push_back(0x00);
+    zone.push_back(1); zone.push_back(0); zone.push_back(0); zone.push_back(0); zone.push_back(0); zone.push_back(0);
+    receiveSequence = GatewayIntegrationTestPeer::ashReceiveSequence(contact);
+    acknowledgement = static_cast<unsigned char>((GatewayIntegrationTestPeer::ashSendSequence(contact) + 1) & 7);
+    sendApsCallbackV8(serial[1], receiveSequence, apsPayload(0x0104, 0x0500, 1, 80, zone), acknowledgement);
+    contact.poll(); readAvailable(serial[1]);
+    assert(contact.devices()[0].contactOpen);
+    zone[3] = 0;
+    receiveSequence = GatewayIntegrationTestPeer::ashReceiveSequence(contact);
+    sendApsCallbackV8(serial[1], receiveSequence, apsPayload(0x0104, 0x0500, 1, 80, zone),
+                      (GatewayIntegrationTestPeer::ashSendSequence(contact) + 1) & 7);
+    contact.poll(); readAvailable(serial[1]);
+    assert(!contact.devices()[0].contactOpen);
+    std::vector<unsigned char> nodeDescriptor;
+    nodeDescriptor.push_back(descriptorRequest[21]); nodeDescriptor.push_back(0);
+    wire = answerInterviewRequest(&contact, serial[1], descriptorRequest, 0x0000, 0x8002, 0, nodeDescriptor);
+    std::vector<unsigned char> continued = firstAshData(wire);
+    assert(continued[10] == 0x05 && continued[11] == 0x00);
+    contact.stop(); close(serial[1]);
+
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
+    Gateway refresh("/dev/null", 115200, "/tmp", "", "", "");
+    GatewayIntegrationTestPeer::attachSerial(&refresh, serial[0]);
+    GatewayIntegrationTestPeer::addMeasurementDevice(&refresh, 0x1234, sensor);
+    std::string error;
+    assert(refresh.refreshDevice(sensor, &error));
+    refresh.poll();
+    std::vector<unsigned char> request = firstAshData(readAvailable(serial[1]));
+    assert(request[10] == 0x02 && request[11] == 0x00);
+    nodeDescriptor[0] = request[21];
+    wire = answerInterviewRequest(&refresh, serial[1], request, 0x0000, 0x8002, 0, nodeDescriptor);
+    request = firstAshData(wire);
+    std::vector<unsigned char> endpoints;
+    endpoints.push_back(request[21]); endpoints.push_back(0); endpoints.push_back(0x34); endpoints.push_back(0x12);
+    endpoints.push_back(1); endpoints.push_back(1);
+    wire = answerInterviewRequest(&refresh, serial[1], request, 0x0000, 0x8005, 0, endpoints);
+    request = firstAshData(wire);
+    assert(request[10] == 0x02 && request[11] == 0x04 && request[23] == 0x00);
+    assert(request[24] == 0 && request[25] == 0); /* read measurement; no descriptor/configuration request */
+    std::vector<unsigned char> reading;
+    reading.push_back(0x18); reading.push_back(request[22]); reading.push_back(0x01);
+    reading.push_back(0); reading.push_back(0); reading.push_back(0); reading.push_back(0x29);
+    reading.push_back(0x2c); reading.push_back(0x09);
+    wire = answerInterviewRequest(&refresh, serial[1], request, 0x0104, 0x0402, 1, reading);
+    std::vector<std::vector<unsigned char> > frames = decodeFrames(wire);
+    unsigned long i;
+    for (i = 0; i < frames.size(); ++i) assert(frames[i].empty() || (frames[i][0] & 0x80) != 0);
+    assert(refresh.logsJson().find("Sensor attribute refresh completed") != std::string::npos);
+    refresh.stop(); close(serial[1]);
+}
+
 void testCoordinatorInitializationSequence() {
     int serial[2];
     assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
@@ -1474,6 +1562,8 @@ void runGatewayIntegrationTests() {
     testCompleteSensorInterview();
     fprintf(stderr, "integration: interview response matching and timeout\n");
     testInterviewResponseMatchingAndTimeout();
+    fprintf(stderr, "integration: sleepy interview wake, contact closure, and refresh-only\n");
+    testInterviewWakeContactAndRefreshOnly();
     fprintf(stderr, "integration: coordinator initialization, IEEE lookup, and Tradfri setup\n");
     testCoordinatorInitializationSequence();
     fprintf(stderr, "integration: coordinator initialization unexpected reply and timeout\n");
