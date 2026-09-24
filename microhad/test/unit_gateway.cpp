@@ -996,6 +996,25 @@ static void testGenericCapabilities() {
     assert(applyZclAttribute(&device, 0x0000, 0xff01, xiaomi, 124));
     assert(device.hasTemperature && device.temperatureCelsius == 22.16);
     assert(device.hasHumidity && device.humidityPercent == 50.48);
+    {
+        std::vector<unsigned char> temperatureOnly;
+        std::vector<unsigned char> humidityOnly;
+        std::vector<unsigned char> unknown;
+        temperatureOnly.push_back(4); temperatureOnly.push_back(0x64); temperatureOnly.push_back(0x29);
+        temperatureOnly.push_back(0xa8); temperatureOnly.push_back(0x08);
+        humidityOnly.push_back(4); humidityOnly.push_back(0x65); humidityOnly.push_back(0x21);
+        humidityOnly.push_back(0xb8); humidityOnly.push_back(0x13);
+        unknown.push_back(4); unknown.push_back(0x99); unknown.push_back(0x21); unknown.push_back(1); unknown.push_back(0);
+        device = Device();
+        assert(applyZclAttribute(&device, 0x0000, 0xff01, temperatureOnly, 125));
+        assert(device.hasTemperature && !device.hasHumidity && device.temperatureCelsius == 22.16);
+        device = Device();
+        assert(applyZclAttribute(&device, 0x0000, 0xff01, humidityOnly, 126));
+        assert(!device.hasTemperature && device.hasHumidity && device.humidityPercent == 50.48);
+        device = Device();
+        assert(!applyZclAttribute(&device, 0x0000, 0xff01, unknown, 127));
+        assert(!device.hasTemperature && !device.hasHumidity && device.lastSeen == 0);
+    }
     occupancy.push_back(1);
     assert(applyZclAttribute(&device, 0x0406, 0x0000, occupancy, 123));
     assert(device.hasOccupancy && device.occupied && device.lastSeen == 123);
