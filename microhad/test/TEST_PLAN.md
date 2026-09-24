@@ -143,7 +143,7 @@ physical coordinator and radio interoperability testing.
 | HTTP-01 | H | `GET /`, `/api/status`, `/api/logs`, `/api/scenes/config`, `/sw.js`, `/api/push/vapid-key` | Correct status, content type, body/schema, and missing-dashboard/config behavior | DONE |
 | HTTP-02 | H | `POST /api/join`, `/api/network/create`, `/api/notifications/test`, `/api/notifications/enabled`, `/api/push/subscriptions` | Success and every body validation/coordinator/disabled/worker error serialize correctly | P |
 | HTTP-03 | H | `POST /api/devices/{ieee}/settings`, `/refresh`, `/light` | URL decoding, valid command, missing body/name, invalid decimals/minutes/brightness/state, and gateway errors | DONE |
-| HTTP-04 | H | `POST /api/scenes/config`, `/{group}/{scene}/activate`, `/{group}/off` | Valid dispatch plus malformed/missing/out-of-range IDs/actions/configuration | P |
+| HTTP-04 | H | `POST /api/scenes/config`, `/{group}/{scene}/activate`, `/{group}/off` | Valid dispatch plus malformed/missing/out-of-range IDs/actions/configuration | DONE |
 | HTTP-05 | H | `POST /api/service/restart` | Reply is flushed before SIGTERM; supervisor-facing exit is graceful | G |
 | HTTP-06 | H | Unknown routes/methods, malformed request line/headers, no terminator, partial reads, oversized request, duplicate/conflicting length, chunked transfer, invalid content length | 400 or 413 exactly as applicable; server continues serving later clients | DONE |
 | HTTP-07 | H | Acceptor/workers under multiple simultaneous clients, peer closes during read/write, queue pressure, bind/listen failure | Request handling remains bounded and service survives client faults | G |

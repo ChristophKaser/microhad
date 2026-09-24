@@ -203,7 +203,18 @@ void testServers() {
     expectStatus("http reject notification setting", plainRequest(http.boundPort(), post("/api/notifications/enabled", "enabled=maybe")), 400);
     expectStatus("http reject offline network creation", plainRequest(http.boundPort(), post("/api/network/create", "confirmation=DELETE")), 400);
     expectStatus("http reject invalid scene configuration", plainRequest(http.boundPort(), post("/api/scenes/config", "1 kitchen\n")), 400);
+    expectStatus("http reject invalid scene group", plainRequest(http.boundPort(), post("/api/scenes/65528/1/activate", "")), 400);
     expectStatus("http reject scene group zero", plainRequest(http.boundPort(), post("/api/scenes/0/1/activate", "")), 400);
+    expectStatus("http reject zero scene", plainRequest(http.boundPort(), post("/api/scenes/1/0/activate", "")), 400);
+    expectStatus("http reject oversized scene", plainRequest(http.boundPort(), post("/api/scenes/1/256/activate", "")), 400);
+    expectStatus("http reject unknown scene action", plainRequest(http.boundPort(), post("/api/scenes/1/1/delete", "")), 400);
+    expectStatus("http report unknown scene group", plainRequest(http.boundPort(), post("/api/scenes/1/off", "")), 400);
+    response = plainRequest(http.boundPort(), post("/api/scenes/config",
+        "G\t1\tRoom\nM\t1\tlight/test\nS\t1\t1\tReading\nT\t1\t1\tlight/test\t1\t50\n"));
+    expectStatus("http save valid scene configuration", response, 200);
+    assert(response.find("{\"ok\":true}") != std::string::npos);
+    expectStatus("http activate configured scene", plainRequest(http.boundPort(), post("/api/scenes/1/1/activate", "")), 200);
+    expectStatus("http turn off configured scene group", plainRequest(http.boundPort(), post("/api/scenes/1/off", "")), 200);
     expectStatus("http reject device settings without name", plainRequest(http.boundPort(), post("/api/devices/light%2Ftest/settings", "low=10")), 400);
     expectStatus("http reject invalid device decimal", plainRequest(http.boundPort(), post("/api/devices/light%2Ftest/settings", "name=Desk&low=ten")), 400);
     expectStatus("http reject invalid device minutes", plainRequest(http.boundPort(), post("/api/devices/light%2Ftest/settings", "name=Desk&initial_minutes=10x&reminder_minutes=5")), 400);
