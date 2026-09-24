@@ -1166,6 +1166,47 @@ void testSensorRefreshIntervalsAndPeriodicRead() {
     rmdir(directory.c_str());
 }
 
+void testManualRefreshRejectionsAndSerialFailure() {
+    int serial[2];
+    std::string error;
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
+    Gateway unsupported("/dev/null", 115200, "/tmp", "", "", "");
+    GatewayIntegrationTestPeer::attachSerial(&unsupported, serial[0]);
+    const std::string noReader = "0x00124b0000004401";
+    GatewayIntegrationTestPeer::addIasDevice(&unsupported, 0x1234, noReader, -1);
+    assert(!unsupported.refreshDevice("unknown", &error) && error == "device is unknown");
+    assert(!unsupported.refreshDevice(noReader, &error) && error == "device has no supported readable endpoint");
+    assert(unsupported.devices().size() == 1 && unsupported.logsJson().find("Manual attribute refresh queued") == std::string::npos);
+    unsupported.stop(); close(serial[1]);
+
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
+    Gateway busy("/dev/null", 115200, "/tmp", "", "", "");
+    GatewayIntegrationTestPeer::attachSerial(&busy, serial[0]);
+    const std::string sensor = "0x00124b0000004402";
+    GatewayIntegrationTestPeer::addMeasurementDevice(&busy, 0x1234, sensor);
+    GatewayIntegrationTestPeer::startDeviceInterview(&busy, 0x1234);
+    busy.poll(); readAvailable(serial[1]);
+    assert(!busy.refreshDevice(sensor, &error) && error == "device interview is already in progress");
+    assert(busy.devices()[0].temperatureCelsius == 15.0);
+    assert(busy.logsJson().find("Manual refresh rejected; interview is busy") != std::string::npos);
+    busy.stop(); close(serial[1]);
+
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
+    Gateway disconnected("/dev/null", 115200, "/tmp", "", "", "");
+    GatewayIntegrationTestPeer::attachSerial(&disconnected, serial[0]);
+    GatewayIntegrationTestPeer::addMeasurementDevice(&disconnected, 0x1234, sensor);
+    assert(disconnected.refreshDevice(sensor, &error));
+    disconnected.poll();
+    std::vector<unsigned char> outgoing = firstAshData(readAvailable(serial[1]));
+    assert(outgoing[3] == 0x34 && outgoing[4] == 0);
+    close(serial[1]);
+    disconnected.poll();
+    assert(!disconnected.isOnline());
+    assert(disconnected.logsJson().find("Serial read failed: end of file") != std::string::npos);
+    assert(disconnected.devices()[0].temperatureCelsius == 15.0);
+    disconnected.stop();
+}
+
 void testCoordinatorInitializationSequence() {
     int serial[2];
     assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
@@ -1655,6 +1696,8 @@ void runGatewayIntegrationTests() {
     testInterviewWakeContactAndRefreshOnly();
     fprintf(stderr, "integration: sensor refresh intervals and periodic attribute read\n");
     testSensorRefreshIntervalsAndPeriodicRead();
+    fprintf(stderr, "integration: manual refresh validation and serial failure\n");
+    testManualRefreshRejectionsAndSerialFailure();
     fprintf(stderr, "integration: coordinator initialization, IEEE lookup, and Tradfri setup\n");
     testCoordinatorInitializationSequence();
     fprintf(stderr, "integration: coordinator initialization unexpected reply and timeout\n");

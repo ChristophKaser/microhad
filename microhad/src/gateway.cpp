@@ -599,6 +599,27 @@ bool Gateway::refreshDevice(const std::string& ieeeAddress, std::string* error) 
         return false;
     }
     if (device->second.networkAddress == 0xffff) { *error = "device has no active network address"; return false; }
+    std::map<unsigned short, InterviewState>::const_iterator interview = interviews_.find(device->second.networkAddress);
+    if (interview != interviews_.end() && !interview->second.paused) {
+        *error = "device interview is already in progress";
+        addLog(std::string("Manual refresh rejected; interview is busy: ") + ieeeAddress);
+        return false;
+    }
+    if (!device->second.hasRemote) {
+        bool readable = false;
+        unsigned long endpoint;
+        for (endpoint = 0; endpoint < device->second.endpoints.size(); ++endpoint) {
+            const EndpointDescriptor& descriptor = device->second.endpoints[endpoint];
+            if (endpointSupports(descriptor, 0x0402) || endpointSupports(descriptor, 0x0405) ||
+                endpointSupports(descriptor, 0x0001) || endpointSupports(descriptor, 0x0006) ||
+                endpointSupports(descriptor, 0x0008)) readable = true;
+        }
+        if (!readable) {
+            *error = "device has no supported readable endpoint";
+            addLog(std::string("Manual refresh rejected; no readable endpoint: ") + ieeeAddress);
+            return false;
+        }
+    }
     /* A remote needs a full interview so its output command clusters are
        bound to the coordinator.  Measurement devices only need their
        persisted endpoints refreshed. */
