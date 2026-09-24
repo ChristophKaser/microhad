@@ -12,11 +12,11 @@ const namedId = (id: number, names: Record<number, string>) => `0x${id.toString(
 const dimmable = (device: Device) => device.has_brightness || device.endpoint_descriptors.some(endpoint => endpoint.input_clusters.includes(8))
 const icon = (d: Device) => d.has_light ? '💡' : d.has_remote ? '🎛️' : d.has_contact ? '🚪' : d.has_temperature ? '🌡️' : d.has_humidity ? '💧' : d.has_occupancy ? '👁️' : '📡'
 const deviceTypes = [
-  { name: 'Lights', matches: (device: Device) => device.has_light },
-  { name: 'Remotes', matches: (device: Device) => device.has_remote },
   { name: 'Contact sensors', matches: (device: Device) => device.has_contact },
   { name: 'Climate sensors', matches: (device: Device) => device.has_temperature || device.has_humidity },
   { name: 'Motion sensors', matches: (device: Device) => device.has_occupancy },
+  { name: 'Lights', matches: (device: Device) => device.has_light },
+  { name: 'Remotes', matches: (device: Device) => device.has_remote },
   { name: 'Other devices', matches: (_device: Device) => true },
 ]
 const deviceType = (device: Device) => deviceTypes.find(type => type.matches(device))!.name
