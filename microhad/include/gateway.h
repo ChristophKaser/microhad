@@ -188,6 +188,7 @@ private:
     bool networkInitRequested_;
     bool tradfriBindGroupConfigured_;
     unsigned char coordinatorInitializationStep_;
+    long coordinatorInitializationDeadline_;
     long resetDeadline_;
     long nextHeartbeatAt_;
     unsigned long serialRxBytes_;

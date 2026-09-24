@@ -234,7 +234,7 @@ Gateway::Gateway(const std::string& serialDevice, int serialBaud, const std::str
     serialDevice_(serialDevice), serialBaud_(serialBaud), runtimeDirectory_(runtimeDirectory),
     firebaseServiceAccount_(firebaseServiceAccount), firebaseTopic_(firebaseTopic), caBundle_(caBundle), notificationWorker_(notificationWorker), serialFd_(-1),
     online_(false), joinUntil_(0), joinPermitRenewAt_(0), pendingJoinSeconds_(0), joinPreparationStep_(0), joinPreparationDeadline_(0), ashSendSequence_(0), ashReceiveSequence_(0), ezspSequence_(0),
-    ashAckDeadline_(0), ashRetries_(0), ashPendingSensitive_(false), ezspVersion_(4), zdoSequence_(0), zclTransactionSequence_(0), ezspVersionNegotiated_(false), stackTokenWritingRequested_(false), networkInitRequested_(false), tradfriBindGroupConfigured_(false), coordinatorInitializationStep_(0), resetDeadline_(0), nextHeartbeatAt_(0), serialRxBytes_(0), ashRxFrames_(0), networkForming_(false), networkFormationStep_(0), networkFormed_(false), networkPanId_(0),
+    ashAckDeadline_(0), ashRetries_(0), ashPendingSensitive_(false), ezspVersion_(4), zdoSequence_(0), zclTransactionSequence_(0), ezspVersionNegotiated_(false), stackTokenWritingRequested_(false), networkInitRequested_(false), tradfriBindGroupConfigured_(false), coordinatorInitializationStep_(0), coordinatorInitializationDeadline_(0), resetDeadline_(0), nextHeartbeatAt_(0), serialRxBytes_(0), ashRxFrames_(0), networkForming_(false), networkFormationStep_(0), networkFormed_(false), networkPanId_(0),
     networkChannel_(0), interviewRequestInFlight_(false), interviewSendAccepted_(false), interviewEzspSequence_(0), interviewNode_(0xffff),
     interviewDeadline_(0), nextMessageTag_(1), coordinatorIeeeAddressRequested_(false), viewDirty_(true) {
 }
@@ -330,6 +330,12 @@ void Gateway::poll() {
         nextHeartbeatAt_ = time(0) + 20;
     }
     if (!online_ && resetDeadline_ != 0 && time(0) >= resetDeadline_) sendAshReset();
+    if (coordinatorInitializationDeadline_ != 0 && time(0) >= coordinatorInitializationDeadline_) {
+        addLog("Coordinator initialization response timed out; resetting serial link");
+        coordinatorInitializationDeadline_ = 0;
+        coordinatorInitializationStep_ = 0;
+        sendAshReset();
+    }
     if (interviewRequestInFlight_ && interviewDeadline_ != 0 && time(0) >= interviewDeadline_) {
         failInterviewOperation(interviewNode_, "response timed out");
     }
@@ -420,6 +426,7 @@ long Gateway::nextPollDeadline() const {
     if (!ashPendingData_.empty()) CONSIDER_DEADLINE(ashAckDeadline_);
     if (online_) CONSIDER_DEADLINE(nextHeartbeatAt_);
     if (!online_) CONSIDER_DEADLINE(resetDeadline_);
+    CONSIDER_DEADLINE(coordinatorInitializationDeadline_);
     if (interviewRequestInFlight_) CONSIDER_DEADLINE(interviewDeadline_);
     CONSIDER_DEADLINE(joinPreparationDeadline_);
     CONSIDER_DEADLINE(joinUntil_);
@@ -1389,6 +1396,7 @@ void Gateway::failSerial(const char* operation, int errorNumber) {
     ashTransmitSensitiveQueue_.clear();
     ashPendingSensitive_ = false;
     ashAckDeadline_ = 0;
+    coordinatorInitializationDeadline_ = 0;
     resetDeadline_ = 0;
     online_ = false;
     networkFormed_ = false;
@@ -1436,6 +1444,7 @@ void Gateway::sendAshReset() {
     ashPendingSensitive_ = false;
     serialPendingBytes_.clear();
     ashAckDeadline_ = 0;
+    coordinatorInitializationDeadline_ = 0;
     online_ = false;
     /* Persistent state describes the intended network.  Do not send traffic
        until this NCP boot reports NETWORK_UP. */
@@ -1491,6 +1500,7 @@ void Gateway::continueCoordinatorInitialization() {
     static const unsigned short configurationValues[] = {90, 2, 50, 2, 3, 7680, 14, 5, 2, 1, 255, 1};
     std::vector<unsigned char> payload;
     unsigned char step = coordinatorInitializationStep_;
+    coordinatorInitializationDeadline_ = time(0) + 10;
     if (step < 12) {
         payload.push_back(configurationIds[step]);
         payload.push_back(static_cast<unsigned char>(configurationValues[step]));
@@ -1753,6 +1763,7 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
         }
     }
     if (coordinatorInitializationStep_ != 0 && command == coordinatorInitializationCommand()) {
+        coordinatorInitializationDeadline_ = 0;
         bool truncated = frame.size() < payloadOffset + (command == 0x005a ? 4 : 1);
         /* Some v13 NCP builds fix packet-buffer allocation at compile time.
            ERROR_INVALID_ID for this optional legacy tuning is not a network

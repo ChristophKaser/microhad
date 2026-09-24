@@ -50,6 +50,10 @@ public:
         gateway->continueCoordinatorInitialization();
     }
     static unsigned char ashReceiveSequence(const Gateway& gateway) { return gateway.ashReceiveSequence_; }
+    static unsigned char coordinatorInitializationStep(const Gateway& gateway) { return gateway.coordinatorInitializationStep_; }
+    static void expireCoordinatorInitialization(Gateway* gateway) {
+        gateway->coordinatorInitializationDeadline_ = time(0) - 1;
+    }
     static void expireResetDeadline(Gateway* gateway) { gateway->resetDeadline_ = time(0) - 1; }
     static bool sceneCommandErrors(Gateway* gateway) {
         std::string error;

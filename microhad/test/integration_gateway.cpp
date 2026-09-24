@@ -80,14 +80,18 @@ std::vector<unsigned char> firstAshData(const std::vector<unsigned char>& wire) 
 }
 
 void replyToFormationCommand(int fd, const std::vector<unsigned char>& request, unsigned char ashSequence,
-                             int acknowledgement = -1) {
+                             int acknowledgement = -1, unsigned short responseCommand = 0xffff) {
     assert(request.size() >= 5);
     std::vector<unsigned char> reply;
     reply.push_back(request[0]); reply.push_back(0x80); reply.push_back(1);
-    reply.push_back(request[3]); reply.push_back(request[4]); reply.push_back(0);
-    if (request[3] == 0x5a && request[4] == 0) {
+    unsigned short command = responseCommand == 0xffff ?
+        static_cast<unsigned short>(request[3] | (static_cast<unsigned short>(request[4]) << 8)) : responseCommand;
+    reply.push_back(static_cast<unsigned char>(command));
+    reply.push_back(static_cast<unsigned char>(command >> 8));
+    reply.push_back(0);
+    if (command == 0x005a) {
         reply.push_back(0); reply.push_back(0); reply.push_back(0);
-    } else if (request[3] == 0x26 && request[4] == 0) {
+    } else if (command == 0x0026) {
         reply[5] = 0x10;
         reply.push_back(0x21); reply.push_back(0x32); reply.push_back(0x43); reply.push_back(0x54);
         reply.push_back(0x65); reply.push_back(0x76); reply.push_back(0x87);
@@ -429,6 +433,43 @@ void testCoordinatorInitializationSequence() {
     gateway.stop(); close(serial[1]);
 }
 
+void testCoordinatorInitializationUnexpectedReplyAndTimeout() {
+    int serial[2];
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
+    Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+    GatewayIntegrationTestPeer::attachSerial(&gateway, serial[0]);
+    GatewayIntegrationTestPeer::beginCoordinatorInitialization(&gateway);
+    std::vector<unsigned char> request = firstAshData(readAvailable(serial[1]));
+    replyToFormationCommand(serial[1], request, 0, -1, 0x0055);
+    gateway.poll();
+    std::vector<std::vector<unsigned char> > unexpected = decodeFrames(readAvailable(serial[1]));
+    assert(unexpected.size() == 1 && unexpected[0][0] == 0x81);
+    assert(GatewayIntegrationTestPeer::coordinatorInitializationStep(gateway) == 1);
+    assert(gateway.logsJson().find("EZSP <- v8 0x55") != std::string::npos);
+    replyToFormationCommand(serial[1], request, 1);
+    gateway.poll();
+    std::vector<unsigned char> delayed = firstAshData(readAvailable(serial[1]));
+    assert(delayed[3] == 0x53 && delayed[5] == 25);
+    assert(GatewayIntegrationTestPeer::coordinatorInitializationStep(gateway) == 2);
+    gateway.stop(); close(serial[1]);
+
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
+    Gateway timeout("/dev/null", 115200, "/tmp", "", "", "");
+    GatewayIntegrationTestPeer::attachSerial(&timeout, serial[0]);
+    GatewayIntegrationTestPeer::beginCoordinatorInitialization(&timeout);
+    readAvailable(serial[1]);
+    sendAshControl(serial[1], 0x81, std::vector<unsigned char>()); /* transport ACK, no EZSP reply */
+    timeout.poll(); readAvailable(serial[1]);
+    GatewayIntegrationTestPeer::expireCoordinatorInitialization(&timeout);
+    timeout.poll();
+    std::vector<unsigned char> reset = readAvailable(serial[1]);
+    assert(reset.size() >= 2 && reset[0] == 0x1a && reset[1] == 0xc0);
+    assert(!GatewayIntegrationTestPeer::online(timeout));
+    assert(GatewayIntegrationTestPeer::coordinatorInitializationStep(timeout) == 0);
+    assert(timeout.logsJson().find("Coordinator initialization response timed out") != std::string::npos);
+    timeout.stop(); close(serial[1]);
+}
+
 void testSerialBackpressureAndFailures() {
     int serial[2];
     assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
@@ -716,6 +757,8 @@ void runGatewayIntegrationTests() {
     testFreshNetworkFormationOverSerial();
     fprintf(stderr, "integration: coordinator initialization, IEEE lookup, and Tradfri setup\n");
     testCoordinatorInitializationSequence();
+    fprintf(stderr, "integration: coordinator initialization unexpected reply and timeout\n");
+    testCoordinatorInitializationUnexpectedReplyAndTimeout();
     fprintf(stderr, "integration: serial backpressure recovery and terminal failures\n");
     testSerialBackpressureAndFailures();
     fprintf(stderr, "integration: ASH acknowledgements, retries, duplicate suppression, and wrap\n");
