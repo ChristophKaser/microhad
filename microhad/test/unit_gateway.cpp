@@ -604,7 +604,7 @@ public:
         const char* configuration =
             "G\t1\tTest\nM\t1\t0xlight1\nM\t1\t0xlight2\nS\t1\t1\tScene\n"
             "T\t1\t1\t0xlight1\t1\t50\nT\t1\t1\t0xlight1\t0\t-1\n";
-        return !gateway.setSceneConfiguration(configuration, &error) && error == "scene contains a duplicate light state";
+        return !gateway.setSceneConfiguration(configuration, &error) && error == "invalid scene configuration";
     }
     static bool sceneBusyDoesNotAdvanceSelection() {
         Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
@@ -1024,6 +1024,39 @@ static void testSceneConfigurationPersistence() {
     assert(loaded[0].scenes.size()==2 && loaded[0].scenes[0].id==7 && loaded[0].scenes[0].name=="Dinner" && loaded[0].scenes[0].states[0].brightnessPercent==35);
     assert(loaded[0].scenes[1].id==8 && loaded[0].scenes[1].name=="Late");
     assert(loadedBindings.size()==1 && loadedBindings[0].ieeeAddress=="0x00124b0000000099" && loadedBindings[0].action=="on" && loadedBindings[0].groupId==42 && loadedBindings[0].off && loadedBindings[0].sceneIds.size()==2 && loadedBindings[0].sceneIds[0]==7 && loadedBindings[0].sceneIds[1]==8);
+    unlink((path.str()+"/scenes.conf").c_str()); rmdir(path.str().c_str());
+}
+
+static void testSceneConfigurationMalformedRecordsAreAtomic() {
+    std::ostringstream path; std::string error; std::vector<SceneGroup> groups; std::vector<RemoteSceneBinding> bindings;
+    const char* malformed[] = {
+        "G\t1\tRoom\nM\t1\tlight\nS\t1\t1\tScene\nT\t1\t1\tlight\tmaybe\t50\n",
+        "G\tbad\tRoom\n", "G\t1\tRoom\textra\n", "M\t1\tlight\n", "S\t1\t256\tScene\n",
+        "G\t65528\tRoom\n", "S\t1\t0\tScene\n", "T\t1\t1\tlight\t1\t101\n",
+        "B\tremote\ton\t1\t2\t1\n", "B\tremote\tflash\t1\t0\t1\n", "X\t1\n",
+        "G\t1\tRoom\nG\t1\tDuplicate\n", "G\t1\tRoom\nM\t1\tlight\nM\t1\tlight\n",
+        "G\t1\tRoom\nS\t1\t1\tOne\nS\t1\t1\tDuplicate\n",
+        "G\t1\tRoom\nS\t1\t1\tOne\nT\t1\t1\tlight\t1\t50\nT\t1\t1\tlight\t0\t20\n"
+    };
+    path << "/tmp/microhad-zigbee-scenes-malformed-" << static_cast<long>(getpid());
+    assert(ensureDirectory(path.str(), &error));
+    groups.push_back(SceneGroup()); groups[0].id = 77; groups[0].name = "unchanged";
+    bindings.push_back(RemoteSceneBinding()); bindings[0].ieeeAddress = "unchanged";
+    for (unsigned long i = 0; i < sizeof(malformed) / sizeof(malformed[0]); ++i) {
+        std::ofstream output((path.str() + "/scenes.conf").c_str());
+        assert(output); output << malformed[i]; output.close(); assert(output);
+        error.clear();
+        assert(!loadSceneConfiguration(path.str() + "/scenes.conf", &groups, &bindings, &error));
+        assert(error == "invalid scene configuration" && groups.size() == 1 && groups[0].id == 77 &&
+               groups[0].name == "unchanged" && bindings.size() == 1 && bindings[0].ieeeAddress == "unchanged");
+    }
+    {
+        std::ofstream output((path.str() + "/scenes.conf").c_str());
+        assert(output); output << "# comment only\n\n"; output.close(); assert(output);
+    }
+    error.clear();
+    assert(loadSceneConfiguration(path.str() + "/scenes.conf", &groups, &bindings, &error));
+    assert(groups.empty() && bindings.empty());
     unlink((path.str()+"/scenes.conf").c_str()); rmdir(path.str().c_str());
 }
 
@@ -1491,6 +1524,7 @@ void runUnitTests() {
     testNetworkPersistence();
     testNetworkPersistenceRejectsInvalidState();
     testSceneConfigurationPersistence();
+    testSceneConfigurationMalformedRecordsAreAtomic();
     testGenericCapabilities();
     testZclRejectsMalformedAttributes();
     testConfigureReportingEncoding();

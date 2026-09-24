@@ -108,7 +108,7 @@ physical coordinator and radio interoperability testing.
 | ID | Level | Feature / stimulus | Expected result | Status |
 | --- | --- | --- | --- | --- |
 | SCN-01 | U | Save/load valid groups, members, scenes, states, and bindings | Configuration round trips exactly | DONE |
-| SCN-02 | U | Empty/comment-only config and every malformed record, field count, ID/range, duplicate group/scene/state/member, bad brightness, unknown action | Configuration is rejected atomically with a useful error | P |
+| SCN-02 | U | Empty/comment-only config and every malformed record, field count, ID/range, duplicate group/scene/state/member, bad brightness, unknown action | Configuration is rejected atomically with a useful error | DONE |
 | SCN-03 | U | Binding references missing group/scene/remote; scene state missing/non-member; names with separators | Invalid cross-references and unrepresentable text are rejected | G |
 | SCN-04 | I | Set valid configuration | Saves first, provisions native-capable members/groups/scenes, publishes view | G |
 | SCN-05 | I | Activate/off unknown group/scene, empty group, offline/busy state, and send failure | No selected-state advance on failure; clear error is returned | P |

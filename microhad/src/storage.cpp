@@ -41,6 +41,26 @@ bool hexDecode(const std::string& input, std::vector<unsigned char>* output) {
     return true;
 }
 
+bool decimalField(const std::string& text, unsigned long maximum, unsigned long* value) {
+    unsigned long parsed = 0;
+    if (text.empty()) return false;
+    for (unsigned long i = 0; i < text.size(); ++i) {
+        if (text[i] < '0' || text[i] > '9' || parsed > (maximum - static_cast<unsigned long>(text[i] - '0')) / 10)
+            return false;
+        parsed = parsed * 10 + static_cast<unsigned long>(text[i] - '0');
+    }
+    *value = parsed;
+    return true;
+}
+
+bool brightnessField(const std::string& text, int* value) {
+    unsigned long parsed;
+    if (text == "-1") { *value = -1; return true; }
+    if (!decimalField(text, 100, &parsed)) return false;
+    *value = static_cast<int>(parsed);
+    return true;
+}
+
 std::string encodeEndpointDescriptors(const std::vector<EndpointDescriptor>& endpoints) {
     std::vector<unsigned char> bytes;
     if (endpoints.size() > 255) return "";
@@ -297,19 +317,41 @@ bool loadSceneConfiguration(const std::string& filename, std::vector<SceneGroup>
                             std::vector<RemoteSceneBinding>* bindings, std::string* error) {
     std::ifstream input(filename.c_str());
     std::string line;
-    groups->clear(); bindings->clear();
-    if (!input) return true;
+    std::vector<SceneGroup> parsedGroups;
+    std::vector<RemoteSceneBinding> parsedBindings;
+    if (!input) { groups->clear(); bindings->clear(); return true; }
     while (std::getline(input, line)) {
         std::vector<std::string> f = tabFields(line);
+        unsigned long groupId, sceneId;
         if (f.empty() || f[0].empty() || f[0][0] == '#') continue;
-        if (f[0] == "G" && f.size() == 3) { SceneGroup g; g.id = static_cast<unsigned short>(strtoul(f[1].c_str(), 0, 10)); g.name = f[2]; groups->push_back(g); }
-        else if (f[0] == "M" && f.size() == 3) { SceneGroup* g = sceneGroupById(groups, static_cast<unsigned short>(strtoul(f[1].c_str(), 0, 10))); if (g) g->members.push_back(f[2]); }
-        else if (f[0] == "S" && f.size() == 4) { SceneGroup* g = sceneGroupById(groups, static_cast<unsigned short>(strtoul(f[1].c_str(), 0, 10))); if (g) { Scene s; s.id = static_cast<unsigned char>(strtoul(f[2].c_str(), 0, 10)); s.name = f[3]; g->scenes.push_back(s); } }
-        else if (f[0] == "T" && f.size() == 6) { Scene* s = sceneById(sceneGroupById(groups, static_cast<unsigned short>(strtoul(f[1].c_str(), 0, 10))), static_cast<unsigned char>(strtoul(f[2].c_str(), 0, 10))); if (s) { SceneLightState t; t.ieeeAddress=f[3]; t.on=f[4]=="1"; t.brightnessPercent=atoi(f[5].c_str()); s->states.push_back(t); } }
-        else if (f[0] == "B" && f.size() == 6) { RemoteSceneBinding b; b.ieeeAddress=f[1]; b.action=f[2]; b.groupId=static_cast<unsigned short>(strtoul(f[3].c_str(),0,10)); b.off=f[4]=="1"; std::stringstream ids(f[5]); std::string id; while (std::getline(ids,id,',')) if (!id.empty()) b.sceneIds.push_back(static_cast<unsigned char>(strtoul(id.c_str(),0,10))); bindings->push_back(b); }
-        else { *error = "invalid scene configuration"; groups->clear(); bindings->clear(); return false; }
+        if (f[0] == "G" && f.size() == 3 && decimalField(f[1], 0xfff7, &groupId) && groupId != 0 && !f[2].empty()) { SceneGroup g; g.id = static_cast<unsigned short>(groupId); g.name = f[2]; parsedGroups.push_back(g); }
+        else if (f[0] == "M" && f.size() == 3 && decimalField(f[1], 0xfff7, &groupId) && !f[2].empty()) { SceneGroup* g = sceneGroupById(&parsedGroups, static_cast<unsigned short>(groupId)); if (!g) goto invalid; g->members.push_back(f[2]); }
+        else if (f[0] == "S" && f.size() == 4 && decimalField(f[1], 0xfff7, &groupId) && decimalField(f[2], 255, &sceneId) && sceneId != 0 && !f[3].empty()) { SceneGroup* g = sceneGroupById(&parsedGroups, static_cast<unsigned short>(groupId)); if (!g) goto invalid; Scene s; s.id = static_cast<unsigned char>(sceneId); s.name = f[3]; g->scenes.push_back(s); }
+        else if (f[0] == "T" && f.size() == 6 && decimalField(f[1], 0xfff7, &groupId) && decimalField(f[2], 255, &sceneId) && !f[3].empty() && (f[4] == "0" || f[4] == "1")) { Scene* s = sceneById(sceneGroupById(&parsedGroups, static_cast<unsigned short>(groupId)), static_cast<unsigned char>(sceneId)); int brightness; if (!s || !brightnessField(f[5], &brightness)) goto invalid; SceneLightState t; t.ieeeAddress=f[3]; t.on=f[4]=="1"; t.brightnessPercent=brightness; s->states.push_back(t); }
+        else if (f[0] == "B" && f.size() == 6 && decimalField(f[3], 0xfff7, &groupId) && groupId != 0 && !f[1].empty() && (f[4] == "0" || f[4] == "1") && (f[2] == "on" || f[2] == "off" || f[2] == "arrow_left" || f[2] == "arrow_right")) { RemoteSceneBinding b; b.ieeeAddress=f[1]; b.action=f[2]; b.groupId=static_cast<unsigned short>(groupId); b.off=f[4]=="1"; std::stringstream ids(f[5]); std::string id; while (std::getline(ids,id,',')) { if (!decimalField(id,255,&sceneId) || sceneId == 0) goto invalid; b.sceneIds.push_back(static_cast<unsigned char>(sceneId)); } parsedBindings.push_back(b); }
+        else { goto invalid; }
     }
+    for (unsigned long i = 0; i < parsedGroups.size(); ++i) {
+        for (unsigned long j = 0; j < i; ++j)
+            if (parsedGroups[i].id == parsedGroups[j].id) goto invalid;
+        for (unsigned long j = 0; j < parsedGroups[i].members.size(); ++j) {
+            for (unsigned long k = 0; k < j; ++k)
+                if (parsedGroups[i].members[j] == parsedGroups[i].members[k]) goto invalid;
+        }
+        for (unsigned long j = 0; j < parsedGroups[i].scenes.size(); ++j) {
+            for (unsigned long k = 0; k < j; ++k)
+                if (parsedGroups[i].scenes[j].id == parsedGroups[i].scenes[k].id) goto invalid;
+            for (unsigned long k = 0; k < parsedGroups[i].scenes[j].states.size(); ++k) {
+                for (unsigned long n = 0; n < k; ++n)
+                    if (parsedGroups[i].scenes[j].states[k].ieeeAddress == parsedGroups[i].scenes[j].states[n].ieeeAddress) goto invalid;
+            }
+        }
+    }
+    *groups = parsedGroups; *bindings = parsedBindings;
     return true;
+invalid:
+    *error = "invalid scene configuration";
+    return false;
 }
 
 bool saveNetworkState(const std::string& filename, const NetworkState& network, std::string* error) {

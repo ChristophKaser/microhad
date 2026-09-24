@@ -867,6 +867,8 @@ bool Gateway::setSceneConfiguration(const std::string& encoded, std::string* err
         for (unsigned long j=0;j<groups[i].scenes.size();++j) {
             Scene& scene=groups[i].scenes[j];
             if (scene.id==0 || scene.name.empty() || scene.states.size()!=groups[i].members.size()) { *error="scene must define every group light"; return false; }
+            for (unsigned long previous=0; previous<j; ++previous)
+                if (groups[i].scenes[previous].id == scene.id) { *error="duplicate scene"; return false; }
             for (unsigned long k=0;k<scene.states.size();++k) {
                 if (std::find(groups[i].members.begin(),groups[i].members.end(),scene.states[k].ieeeAddress)==groups[i].members.end() ||
                     scene.states[k].brightnessPercent < -1 || scene.states[k].brightnessPercent > 100) { *error="invalid scene light state"; return false; }
