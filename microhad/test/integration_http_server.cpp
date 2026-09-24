@@ -191,6 +191,12 @@ void testServers() {
     if (!https.start(&error)) { fprintf(stderr, "HTTPS start failed: %s\n", error.c_str()); assert(false); }
     assert(http.boundPort() > 0 && https.boundPort() > 0);
 
+    HttpServer missingCertificate(0, &runner, directory + "/webui/index.html", directory + "/missing.crt",
+                                  "test/fixtures/tls/localhost.key");
+    assert(!missingCertificate.start(&error) && error.find("TLS certificate or key") != std::string::npos);
+    HttpServer invalidPrivateKey(0, &runner, directory + "/webui/index.html", "test/fixtures/tls/localhost.crt", "/dev/null");
+    assert(!invalidPrivateKey.start(&error) && error.find("TLS certificate or key") != std::string::npos);
+
     std::string response = plainRequest(http.boundPort(), "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n");
     expectStatus("http dashboard", response, 200);
     assert(response.find("Content-Type: text/html; charset=utf-8\r\n") != std::string::npos && response.find("<html>integration dashboard</html>") != std::string::npos);

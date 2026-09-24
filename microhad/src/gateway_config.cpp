@@ -156,6 +156,9 @@ bool loadGatewayConfig(const std::string& path, GatewayConfig* config, std::stri
     if (config->httpPort < 1 || config->httpPort > 65535 || config->httpsPort < 1 || config->httpsPort > 65535) {
         *error = "listener ports must be between 1 and 65535"; return false;
     }
+    if (config->tlsCertificate.empty() != config->tlsPrivateKey.empty()) {
+        *error = "both tls_certificate and tls_private_key are required for HTTPS"; return false;
+    }
     if (!config->tlsCertificate.empty() && !config->tlsPrivateKey.empty() && config->httpPort == config->httpsPort) {
         *error = "HTTP and HTTPS listener ports must be different"; return false;
     }

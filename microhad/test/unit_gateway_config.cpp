@@ -91,6 +91,7 @@ void runGatewayConfigUnitTests() {
         "{\"serial_baud\":2147483648}", "{\"serial_baud\":9600}",
         "{\"http_port\":0}", "{\"http_port\":65536}", "{\"https_port\":-1}",
         "{\"http_port\":8080,\"https_port\":8080,\"tls_certificate\":\"cert\",\"tls_private_key\":\"key\"}",
+        "{\"tls_certificate\":\"cert\"}", "{\"tls_private_key\":\"key\"}",
         "{\"runtime_dir\":\"\"}"
     };
     for (i = 0; i < sizeof(invalidSettings) / sizeof(invalidSettings[0]); ++i) {
