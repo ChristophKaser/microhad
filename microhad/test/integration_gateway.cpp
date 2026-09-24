@@ -102,6 +102,17 @@ void testSceneCommandErrors() {
     assert(GatewayIntegrationTestPeer::sceneCommandErrors(&gateway));
 }
 
+void testSceneConfigurationProvisioning() {
+    char name[] = "/tmp/microhad-zigbee-scenes-integration-XXXXXX";
+    char* temporary = mkdtemp(name);
+    assert(temporary != 0);
+    std::string directory = temporary;
+    Gateway gateway("/dev/null", 115200, directory, "", "", "");
+    assert(GatewayIntegrationTestPeer::provisionSceneConfiguration(&gateway, directory));
+    unlink((directory + "/scenes.conf").c_str());
+    rmdir(directory.c_str());
+}
+
 void testRuntimeDirectoryBoundaries() {
     char name[] = "/tmp/microhad-zigbee-runtime-XXXXXX";
     char* temporary = mkdtemp(name);
@@ -158,6 +169,8 @@ void runGatewayIntegrationTests() {
     testResetTimeoutRetriesOverPipe();
     fprintf(stderr, "integration: scene command errors and state preservation\n");
     testSceneCommandErrors();
+    fprintf(stderr, "integration: scene configuration persistence, provisioning, and snapshot\n");
+    testSceneConfigurationProvisioning();
     fprintf(stderr, "integration: gateway runtime directory boundaries\n");
     testRuntimeDirectoryBoundaries();
     fprintf(stderr, "integration: gateway CLI usage failures\n");
