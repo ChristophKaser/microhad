@@ -880,8 +880,18 @@ bool Gateway::setSceneConfiguration(const std::string& encoded, std::string* err
     for (unsigned long i=0;i<bindings.size();++i) {
         const SceneGroup* group=findSceneGroup(bindings[i].groupId); /* old configuration is irrelevant */
         group=0; for (unsigned long j=0;j<groups.size();++j) if(groups[j].id==bindings[i].groupId) group=&groups[j];
-        if (group==0 || (bindings[i].action!="on" && bindings[i].action!="off" && bindings[i].action!="arrow_left" && bindings[i].action!="arrow_right") ||
+        std::map<std::string, Device>::const_iterator remote = devices_.find(bindings[i].ieeeAddress);
+        if (group==0 || remote == devices_.end() || !remote->second.hasRemote ||
+            (bindings[i].action!="on" && bindings[i].action!="off" && bindings[i].action!="arrow_left" && bindings[i].action!="arrow_right") ||
             (!bindings[i].off && bindings[i].sceneIds.empty())) { *error="invalid remote binding"; return false; }
+        if (!bindings[i].off) {
+            for (unsigned long j = 0; j < bindings[i].sceneIds.size(); ++j) {
+                bool sceneFound = false;
+                for (unsigned long k = 0; k < group->scenes.size(); ++k)
+                    if (group->scenes[k].id == bindings[i].sceneIds[j]) sceneFound = true;
+                if (!sceneFound) { *error="invalid remote binding"; return false; }
+            }
+        }
     }
     sceneGroups_=groups; sceneBindings_=bindings; saveScenes();
     for (unsigned long i=0;i<sceneGroups_.size();++i) provisionSceneGroup(sceneGroups_[i]);

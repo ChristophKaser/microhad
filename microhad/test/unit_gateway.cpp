@@ -606,6 +606,33 @@ public:
             "T\t1\t1\t0xlight1\t1\t50\nT\t1\t1\t0xlight1\t0\t-1\n";
         return !gateway.setSceneConfiguration(configuration, &error) && error == "invalid scene configuration";
     }
+    static bool rejectsInvalidSceneCrossReferences() {
+        Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+        Device light; light.ieeeAddress = "light1"; light.hasLight = true;
+        Device otherLight; otherLight.ieeeAddress = "light2"; otherLight.hasLight = true;
+        Device remote; remote.ieeeAddress = "remote1"; remote.hasRemote = true;
+        gateway.devices_[light.ieeeAddress] = light;
+        gateway.devices_[otherLight.ieeeAddress] = otherLight;
+        gateway.devices_[remote.ieeeAddress] = remote;
+        SceneGroup oldGroup; oldGroup.id = 77; oldGroup.name = "old";
+        gateway.sceneGroups_.push_back(oldGroup);
+        const char* invalid[] = {
+            "G\t1\tRoom\nM\t1\tlight1\nS\t1\t1\tScene\nT\t1\t1\tlight1\t1\t50\nB\tremote1\ton\t2\t0\t1\n",
+            "G\t1\tRoom\nM\t1\tlight1\nS\t1\t1\tScene\nT\t1\t1\tlight1\t1\t50\nB\tremote1\ton\t1\t0\t2\n",
+            "G\t1\tRoom\nM\t1\tlight1\nS\t1\t1\tScene\nT\t1\t1\tlight1\t1\t50\nB\tmissing\ton\t1\t0\t1\n",
+            "G\t1\tRoom\nM\t1\tlight1\nS\t1\t1\tScene\n",
+            "G\t1\tRoom\nM\t1\tlight1\nS\t1\t1\tScene\nT\t1\t1\tlight2\t1\t50\n",
+            "G\t1\tRoom\tTabbed\n",
+            "G\t1\tRoom\nM\t1\tlight1\nS\t1\t1\tScene\tTabbed\nT\t1\t1\tlight1\t1\t50\n"
+        };
+        for (unsigned long i = 0; i < sizeof(invalid) / sizeof(invalid[0]); ++i) {
+            std::string error;
+            if (gateway.setSceneConfiguration(invalid[i], &error) || error.empty() ||
+                gateway.sceneGroups_.size() != 1 || gateway.sceneGroups_[0].id != 77 ||
+                gateway.sceneGroups_[0].name != "old") return false;
+        }
+        return true;
+    }
     static bool sceneBusyDoesNotAdvanceSelection() {
         Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
         Gateway::SceneRetry& retry = gateway.sceneRetries_[1];
@@ -1299,6 +1326,10 @@ static void testSceneConfigurationRejectsDuplicateStates() {
     assert(GatewayTestPeer::rejectsDuplicateSceneStates());
 }
 
+static void testSceneConfigurationRejectsInvalidReferences() {
+    assert(GatewayTestPeer::rejectsInvalidSceneCrossReferences());
+}
+
 static void testSceneBusyDoesNotAdvanceSelection() {
     assert(GatewayTestPeer::sceneBusyDoesNotAdvanceSelection());
     GatewayTestPeer::sceneBusyUnicastFallback();
@@ -1537,6 +1568,7 @@ void runUnitTests() {
     testRemoteKeyEvents();
     testStyrbarArrowEvents();
     testSceneConfigurationRejectsDuplicateStates();
+    testSceneConfigurationRejectsInvalidReferences();
     testSceneBusyDoesNotAdvanceSelection();
     testPendingSceneIgnoresRemoteAction();
     testContactNotificationIsDeferred();
