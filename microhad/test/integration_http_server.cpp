@@ -173,10 +173,7 @@ void testServers() {
     GatewayIntegrationTestPeer::attachSerial(gateway, inbound[0]);
     GatewayRunner runner(gateway);
     assert(runner.start(&error));
-    {
-        const unsigned char resetAcknowledgement[] = {0x1a, 0xc1, 0x02, 0x0b, 0x0a, 0x52, 0x7e};
-        assert(write(inbound[1], resetAcknowledgement, sizeof(resetAcknowledgement)) == static_cast<ssize_t>(sizeof(resetAcknowledgement)));
-    }
+    GatewayIntegrationTestPeer::prepareHttpDevice(gateway);
 
     HttpServer http(0, &runner, directory + "/webui/index.html", "", "");
     HttpServer https(0, &runner, directory + "/webui/index.html", "test/fixtures/tls/localhost.crt", "test/fixtures/tls/localhost.key");
@@ -207,6 +204,20 @@ void testServers() {
     expectStatus("http reject offline network creation", plainRequest(http.boundPort(), post("/api/network/create", "confirmation=DELETE")), 400);
     expectStatus("http reject invalid scene configuration", plainRequest(http.boundPort(), post("/api/scenes/config", "1 kitchen\n")), 400);
     expectStatus("http reject scene group zero", plainRequest(http.boundPort(), post("/api/scenes/0/1/activate", "")), 400);
+    expectStatus("http reject device settings without name", plainRequest(http.boundPort(), post("/api/devices/light%2Ftest/settings", "low=10")), 400);
+    expectStatus("http reject invalid device decimal", plainRequest(http.boundPort(), post("/api/devices/light%2Ftest/settings", "name=Desk&low=ten")), 400);
+    expectStatus("http reject invalid device minutes", plainRequest(http.boundPort(), post("/api/devices/light%2Ftest/settings", "name=Desk&initial_minutes=10x&reminder_minutes=5")), 400);
+    response = plainRequest(http.boundPort(), post("/api/devices/light%2Ftest/settings", "name=Desk+sensor&low=10.5&high=28&initial_minutes=10&reminder_minutes=5&sensor_refresh_minutes=5"));
+    expectStatus("http save encoded device settings", response, 200);
+    assert(response.find("{\"ok\":true}") != std::string::npos);
+    response = plainRequest(http.boundPort(), post("/api/devices/light%2Ftest/refresh", ""));
+    expectStatus("http refresh encoded device", response, 200);
+    assert(response.find("Attribute refresh queued") != std::string::npos);
+    expectStatus("http report unknown refresh", plainRequest(http.boundPort(), post("/api/devices/unknown/refresh", "")), 400);
+    expectStatus("http reject invalid light state", plainRequest(http.boundPort(), post("/api/devices/light%2Ftest/light", "state=blink")), 400);
+    response = plainRequest(http.boundPort(), post("/api/devices/light%2Ftest/light", "state=on"));
+    expectStatus("http accept encoded light command", response, 200);
+    assert(response.find("{\"ok\":true}") != std::string::npos);
     expectStatus("http reject light brightness", plainRequest(http.boundPort(), post("/api/devices/not-a-device/light", "brightness=101")), 400);
     expectStatus("http unknown route", plainRequest(http.boundPort(), "GET /missing HTTP/1.1\r\nHost: localhost\r\n\r\n"), 400);
     expectStatus("http reject chunked request", plainRequest(http.boundPort(), "POST /api/join HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n"), 400);
