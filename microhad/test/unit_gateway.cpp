@@ -21,6 +21,27 @@
 
 class GatewayTestPeer {
 public:
+    static void completeViewSchema(Gateway* gateway) {
+        Device device;
+        EndpointDescriptor endpoint;
+        device.ieeeAddress = "0xview";
+        device.name = "Kitchen \"window\"\n";
+        device.kind = "temperature/humidity";
+        device.hasContact = true; device.contactOpen = true;
+        device.hasTemperature = true; device.temperatureCelsius = 21.5;
+        device.hasHumidity = true; device.humidityPercent = 40.5;
+        device.hasOccupancy = true; device.occupied = true;
+        device.hasBattery = true; device.batteryPercent = 80;
+        device.hasLight = true; device.lightOn = true; device.hasBrightness = true; device.brightnessPercent = 50;
+        device.hasRemote = true; device.hasLowTemperatureAlert = true; device.lowTemperatureAlert = 5;
+        device.hasHighTemperatureAlert = true; device.highTemperatureAlert = 30;
+        device.manufacturerName = "Acme\t"; device.modelId = "Model\\1";
+        endpoint.endpoint = 2; endpoint.profileId = 0x0104; endpoint.deviceId = 0x0101;
+        endpoint.inputClusters.push_back(0x0006); endpoint.outputClusters.push_back(0x0008);
+        device.endpoints.push_back(endpoint);
+        gateway->devices_[device.ieeeAddress] = device;
+        gateway->addLog("view control\n\001");
+    }
     static bool contactAlertIsCancelled(Gateway* gateway, const std::string& ieeeAddress) {
         std::vector<unsigned char> open;
         std::vector<unsigned char> closed;
@@ -1102,8 +1123,17 @@ static void testInterviewRetryDeadline() {
 }
 
 static void testGatewayViewIsImmutable() {
+    unlink("/tmp/microhad-zigbee-native.log");
     Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+    GatewayTestPeer::completeViewSchema(&gateway);
     GatewayView first = gateway.captureView();
+    std::string status = first.statusJson();
+    const char* fields[] = {"\"online\":", "\"network_forming\":", "\"network_formed\":", "\"serial_rx_bytes\":",
+                            "\"ash_rx_frames\":", "\"joining_until\":", "\"joining_preparing\":", "\"notifications_enabled\":",
+                            "\"devices\":[", "\"scene_groups\":[", "\"scene_bindings\":[", "\"endpoint_descriptors\":["};
+    for (unsigned long i = 0; i < sizeof(fields) / sizeof(fields[0]); ++i) assert(status.find(fields[i]) != std::string::npos);
+    assert(status.find("Kitchen \\\"window\\\"\\n") != std::string::npos);
+    assert(first.logsJson().find("view control\\n\\u0001") != std::string::npos);
     std::vector<unsigned char> temperature;
     temperature.push_back(0x10); temperature.push_back(0x27); /* 100.00 C */
     assert(gateway.takeViewDirty());
@@ -1113,6 +1143,7 @@ static void testGatewayViewIsImmutable() {
     assert(second.statusJson().find("0x00124b00000000fe") != std::string::npos);
     assert(gateway.takeViewDirty());
     assert(!gateway.takeViewDirty());
+    unlink("/tmp/microhad-zigbee-native.log");
 }
 
 static void testRamLog() {
