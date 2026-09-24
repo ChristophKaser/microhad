@@ -21,6 +21,21 @@
 
 class GatewayTestPeer {
 public:
+    static bool contactAlertDeadlines(Gateway* gateway, const std::string& ieeeAddress) {
+        std::vector<unsigned char> open(2, 0);
+        open[0] = 1;
+        if (!gateway->applyIasZoneStatus(ieeeAddress, open)) return false;
+        long firstDeadline = gateway->nextContactAlertAt_[ieeeAddress];
+        if (!gateway->applyIasZoneStatus(ieeeAddress, open) || gateway->nextContactAlertAt_[ieeeAddress] != firstDeadline)
+            return false;
+        gateway->nextContactAlertAt_[ieeeAddress] = time(0) - 1;
+        gateway->poll();
+        long reminderDeadline = gateway->nextContactAlertAt_[ieeeAddress];
+        if (reminderDeadline <= time(0)) return false;
+        gateway->nextContactAlertAt_[ieeeAddress] = time(0) - 1;
+        gateway->poll();
+        return true;
+    }
     static unsigned long logOccurrences(const Gateway& gateway, const std::string& text) {
         std::string logs = gateway.logsJson();
         std::string::size_type at = 0;
@@ -1314,6 +1329,22 @@ static void testTemperatureThresholdAlerts() {
     rmdir(directory.c_str());
 }
 
+static void testContactAlertReminders() {
+    std::ostringstream path;
+    std::string error;
+    path << "/tmp/microhad-zigbee-contact-alert-test-" << static_cast<long>(getpid());
+    std::string directory = path.str();
+    assert(ensureDirectory(directory, &error));
+    NotificationWorker worker(directory, "", "", "");
+    assert(worker.start(&error));
+    Gateway gateway("/dev/null", 115200, directory, "", "", "", &worker);
+    assert(GatewayTestPeer::contactAlertDeadlines(&gateway, "0x00124b0000000007"));
+    assert(GatewayTestPeer::logOccurrences(gateway, "Notification queued: Window open") == 2);
+    worker.stop();
+    unlink((directory + "/devices.json").c_str());
+    rmdir(directory.c_str());
+}
+
 static void testNotificationTogglePersistence() {
     std::ostringstream path;
     std::string error;
@@ -1459,6 +1490,7 @@ void runUnitTests() {
     testPendingSceneIgnoresRemoteAction();
     testContactNotificationIsDeferred();
     testTemperatureThresholdAlerts();
+    testContactAlertReminders();
     testNotificationTogglePersistence();
     testNotificationAuditDoesNotWriteRuntimeFlash();
     testBrowserPushSubscriptionBounds();
