@@ -152,6 +152,111 @@ void testResetTimeoutRetriesOverPipe() {
     close(serial[1]);
 }
 
+void runEzspVersionFailure(unsigned int scenario) {
+    int serial[2];
+    std::string error;
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
+    Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+    GatewayIntegrationTestPeer::attachSerial(&gateway, serial[0]);
+    assert(gateway.start(&error));
+    readAvailable(serial[1]);
+    const unsigned char resetAck[] = {0x1a, 0xc1, 0x02, 0x0b, 0x0a, 0x52, 0x7e};
+    assert(write(serial[1], resetAck, sizeof(resetAck)) == static_cast<ssize_t>(sizeof(resetAck)));
+    gateway.poll();
+    std::vector<unsigned char> request = readAvailable(serial[1]);
+    assert(!request.empty());
+    if (scenario == 0 || scenario == 1) {
+        std::vector<unsigned char> reply;
+        reply.push_back(0); reply.push_back(0x80); reply.push_back(0);
+        if (scenario == 0) {
+            reply.push_back(6); reply.push_back(2); reply.push_back(0x80); reply.push_back(0x67);
+        }
+        std::vector<unsigned char> response = AshTransport::encodeData(0x01, obfuscateEzsp(reply));
+        assert(write(serial[1], &response[0], response.size()) == static_cast<ssize_t>(response.size()));
+        gateway.poll();
+        readAvailable(serial[1]);
+        assert(!GatewayIntegrationTestPeer::online(gateway));
+        std::string logs = gateway.logsJson();
+        assert(logs.find(scenario == 0 ? "Unsupported EZSP protocol" : "Truncated EZSP version reply") != std::string::npos);
+    } else if (scenario == 2) {
+        std::vector<unsigned char> stale;
+        stale.push_back(0); stale.push_back(0x80); stale.push_back(0);
+        stale.push_back(8); stale.push_back(2); stale.push_back(0x80); stale.push_back(0x67);
+        std::vector<unsigned char> response = AshTransport::encodeData(0x11, obfuscateEzsp(stale));
+        assert(write(serial[1], &response[0], response.size()) == static_cast<ssize_t>(response.size()));
+        gateway.poll();
+        std::vector<unsigned char> nak = decodeSingleFrame(readAvailable(serial[1]));
+        assert(nak[0] == 0xa0 && !GatewayIntegrationTestPeer::online(gateway));
+        assert(gateway.logsJson().find("ASH receive gap; requested retransmission") != std::string::npos);
+    } else {
+        unsigned int retry;
+        for (retry = 0; retry < 3; ++retry) {
+            GatewayIntegrationTestPeer::expireAshAck(&gateway);
+            gateway.poll();
+            assert(!readAvailable(serial[1]).empty());
+        }
+        GatewayIntegrationTestPeer::expireAshAck(&gateway);
+        gateway.poll();
+        std::vector<unsigned char> reset = readAvailable(serial[1]);
+        assert(reset.size() >= 2 && reset[0] == 0x1a && reset[1] == 0xc0);
+        assert(gateway.logsJson().find("ASH acknowledgement failed repeatedly") != std::string::npos);
+        assert(!GatewayIntegrationTestPeer::online(gateway));
+    }
+    gateway.stop(); close(serial[1]);
+}
+
+void testEzspVersionFailureModes() {
+    runEzspVersionFailure(0); /* unsupported */
+    runEzspVersionFailure(1); /* malformed */
+    runEzspVersionFailure(2); /* stale ASH sequence */
+    runEzspVersionFailure(3); /* absent reply and bounded retry */
+}
+
+void testEzspFailedInitializationStatus() {
+    int serial[2];
+    std::string error;
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
+    Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+    GatewayIntegrationTestPeer::attachSerial(&gateway, serial[0]);
+    assert(gateway.start(&error));
+    readAvailable(serial[1]);
+    const unsigned char resetAck[] = {0x1a, 0xc1, 0x02, 0x0b, 0x0a, 0x52, 0x7e};
+    assert(write(serial[1], resetAck, sizeof(resetAck)) == static_cast<ssize_t>(sizeof(resetAck)));
+    gateway.poll(); readAvailable(serial[1]);
+    std::vector<unsigned char> supported;
+    supported.push_back(0); supported.push_back(0x80); supported.push_back(0);
+    supported.push_back(8); supported.push_back(2); supported.push_back(0x80); supported.push_back(0x67);
+    std::vector<unsigned char> response = AshTransport::encodeData(0x01, obfuscateEzsp(supported));
+    assert(write(serial[1], &response[0], response.size()) == static_cast<ssize_t>(response.size()));
+    gateway.poll();
+    std::vector<std::vector<unsigned char> > exchange = decodeFrames(readAvailable(serial[1]));
+    assert(exchange.size() == 2);
+    std::vector<unsigned char> request(exchange[1].begin() + 1, exchange[1].end());
+    request = obfuscateEzsp(request);
+    assert(request.size() >= 5 && request[3] == 0 && request[4] == 0);
+    std::vector<unsigned char> negotiated;
+    negotiated.push_back(1); negotiated.push_back(0x80); negotiated.push_back(0);
+    negotiated.push_back(0); negotiated.push_back(0); negotiated.push_back(8);
+    negotiated.push_back(2); negotiated.push_back(0x80); negotiated.push_back(0x67);
+    response = AshTransport::encodeData(0x12, obfuscateEzsp(negotiated));
+    assert(write(serial[1], &response[0], response.size()) == static_cast<ssize_t>(response.size()));
+    gateway.poll();
+    std::vector<std::vector<unsigned char> > initialization = decodeFrames(readAvailable(serial[1]));
+    assert(initialization.size() == 2 && GatewayIntegrationTestPeer::online(gateway));
+    std::vector<unsigned char> initRequest(initialization[1].begin() + 1, initialization[1].end());
+    initRequest = obfuscateEzsp(initRequest);
+    assert(initRequest.size() >= 5);
+    std::vector<unsigned char> failed;
+    failed.push_back(initRequest[0]); failed.push_back(0x80); failed.push_back(1);
+    failed.push_back(initRequest[3]); failed.push_back(initRequest[4]); failed.push_back(0x30);
+    response = AshTransport::encodeData(0x23, obfuscateEzsp(failed));
+    assert(write(serial[1], &response[0], response.size()) == static_cast<ssize_t>(response.size()));
+    gateway.poll();
+    assert(!GatewayIntegrationTestPeer::online(gateway));
+    assert(gateway.logsJson().find("Coordinator initialization command") != std::string::npos);
+    gateway.stop(); close(serial[1]);
+}
+
 void testSerialBackpressureAndFailures() {
     int serial[2];
     assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
@@ -431,6 +536,10 @@ void runGatewayIntegrationTests() {
     testResetAndVersionOverPipe();
     fprintf(stderr, "integration: gateway reset timeout retry over pipe\n");
     testResetTimeoutRetriesOverPipe();
+    fprintf(stderr, "integration: EZSP version negotiation failure modes\n");
+    testEzspVersionFailureModes();
+    fprintf(stderr, "integration: EZSP failed initialization status\n");
+    testEzspFailedInitializationStatus();
     fprintf(stderr, "integration: serial backpressure recovery and terminal failures\n");
     testSerialBackpressureAndFailures();
     fprintf(stderr, "integration: ASH acknowledgements, retries, duplicate suppression, and wrap\n");
