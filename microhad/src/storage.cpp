@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <climits>
 #include <fstream>
 #include <sstream>
 #include <sys/stat.h>
@@ -116,6 +117,38 @@ bool decodeEndpointDescriptors(const std::string& encoded, std::vector<EndpointD
     return offset == bytes.size();
 }
 
+bool validOptionalIntegerField(const std::string& line, const char* field, long minimum, long maximum) {
+    std::string key = std::string("\"") + field + "\":";
+    std::string::size_type at = line.find(key);
+    if (at == std::string::npos) return true;
+    if (line.find(key, at + key.size()) != std::string::npos) return false;
+    at += key.size();
+    while (at < line.size() && (line[at] == ' ' || line[at] == '\t')) ++at;
+    if (at == line.size() || !((line[at] >= '0' && line[at] <= '9') ||
+        (line[at] == '-' && at + 1 < line.size() && line[at + 1] >= '0' && line[at + 1] <= '9'))) return false;
+    errno = 0;
+    char* end = 0;
+    long value = strtol(line.c_str() + at, &end, 10);
+    if (errno != 0 || end == line.c_str() + at || value < minimum || value > maximum) return false;
+    while (*end == ' ' || *end == '\t') ++end;
+    return *end == ',' || *end == '}';
+}
+
+bool validOptionalDecimalField(const std::string& line, const char* field, double minimum, double maximum) {
+    std::string key = std::string("\"") + field + "\":";
+    std::string::size_type at = line.find(key);
+    if (at == std::string::npos) return true;
+    if (line.find(key, at + key.size()) != std::string::npos) return false;
+    at += key.size();
+    while (at < line.size() && (line[at] == ' ' || line[at] == '\t')) ++at;
+    errno = 0;
+    char* end = 0;
+    double value = strtod(line.c_str() + at, &end);
+    if (errno != 0 || end == line.c_str() + at || value != value || value < minimum || value > maximum) return false;
+    while (*end == ' ' || *end == '\t') ++end;
+    return *end == ',' || *end == '}';
+}
+
 }
 
 bool ensureDirectory(const std::string& directory, std::string* error) {
@@ -179,7 +212,9 @@ bool saveDevices(const std::string& filename, const std::vector<Device>& devices
 bool loadDevices(const std::string& filename, std::vector<Device>* devices, std::string* error) {
     std::ifstream input(filename.c_str());
     std::string line;
+    std::vector<Device> parsedDevices;
     if (!input) {
+        devices->clear();
         return true;
     }
     /* The state writer emits one device per line. Unknown fields are ignored so
@@ -188,13 +223,37 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
         std::string ieeeAddress;
         if (!line.empty() && line[line.size() - 1] == ',') line.erase(line.size() - 1);
         if (jsonStringField(line, "ieee_address", &ieeeAddress)) {
+            long networkAddress = 0;
+            std::string::size_type addressAt = line.find("\"network_address\":");
+            if (addressAt != std::string::npos) {
+                if (!validOptionalIntegerField(line, "network_address", 0, 0xffff)) continue;
+                networkAddress = strtol(line.c_str() + addressAt + 18, 0, 10);
+            }
+            if (ieeeAddress.empty() ||
+                !validOptionalDecimalField(line, "temperature_celsius", -100, 200) ||
+                !validOptionalDecimalField(line, "humidity_percent", 0, 100) ||
+                !validOptionalDecimalField(line, "low_temperature_alert", -100, 200) ||
+                !validOptionalDecimalField(line, "high_temperature_alert", -100, 200) ||
+                !validOptionalIntegerField(line, "battery_percent", -1, 100) ||
+                !validOptionalIntegerField(line, "link_quality", 0, 255) ||
+                !validOptionalIntegerField(line, "brightness_percent", -1, 100) ||
+                !validOptionalIntegerField(line, "last_seen", 0, LONG_MAX) ||
+                !validOptionalIntegerField(line, "ias_zone_id", -1, 254) ||
+                !validOptionalIntegerField(line, "contact_initial_alert_minutes", 0, LONG_MAX) ||
+                !validOptionalIntegerField(line, "contact_reminder_alert_minutes", 0, LONG_MAX) ||
+                !validOptionalIntegerField(line, "sensor_refresh_interval_minutes", 0, LONG_MAX)) continue;
+            bool duplicate = false;
+            for (unsigned long previous = 0; previous < parsedDevices.size(); ++previous) {
+                if (parsedDevices[previous].ieeeAddress == ieeeAddress ||
+                    (networkAddress != 0xffff && parsedDevices[previous].networkAddress == networkAddress)) {
+                    duplicate = true;
+                    break;
+                }
+            }
+            if (duplicate) continue;
             Device device;
             device.ieeeAddress = ieeeAddress;
-            std::string::size_type networkAddress = line.find("\"network_address\":");
-            if (networkAddress != std::string::npos) {
-                long parsed = strtol(line.c_str() + networkAddress + 18, 0, 10);
-                if (parsed >= 0 && parsed <= 0xffff) device.networkAddress = static_cast<unsigned short>(parsed);
-            }
+            if (addressAt != std::string::npos) device.networkAddress = static_cast<unsigned short>(networkAddress);
             const char* fields[] = {"name", "kind", "manufacturer_name", "model_id"};
             std::string* destinations[] = {&device.name, &device.kind, &device.manufacturerName, &device.modelId};
             int index;
@@ -250,9 +309,10 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
                     return false;
                 }
             }
-            devices->push_back(device);
+            parsedDevices.push_back(device);
         }
     }
+    *devices = parsedDevices;
     return true;
 }
 

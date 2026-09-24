@@ -995,6 +995,7 @@ static void testDevicePersistence() {
     devices.push_back(input);
     Device nondimmable = input;
     nondimmable.ieeeAddress = "0x00124b0000000002";
+    nondimmable.networkAddress = 0x1235;
     nondimmable.hasBrightness = false;
     nondimmable.brightnessPercent = -1;
     devices.push_back(nondimmable);
@@ -1023,6 +1024,48 @@ static void testDevicePersistence() {
     assert(loaded[1].ieeeAddress == nondimmable.ieeeAddress && !loaded[1].hasBrightness && loaded[1].brightnessPercent == -1);
     unlink(filename.c_str());
     rmdir(directory.c_str());
+}
+
+static void testDeviceLoadRejectsCorruptDuplicatesAndNumbers() {
+    std::ostringstream path;
+    std::string error;
+    std::vector<Device> loaded;
+    path << "/tmp/microhad-zigbee-device-corrupt-" << static_cast<long>(getpid());
+    assert(ensureDirectory(path.str(), &error));
+    const std::string filename = path.str() + "/devices.json";
+    {
+        std::ofstream output(filename.c_str());
+        assert(output);
+        output << "{\"ieee_address\":\"ieee-a\",\"network_address\":4660,\"name\":\"first\"}\n";
+        output << "{\"ieee_address\":\"ieee-a\",\"network_address\":4661,\"name\":\"duplicate ieee\"}\n";
+        output << "{\"ieee_address\":\"ieee-b\",\"network_address\":4660,\"name\":\"duplicate node\"}\n";
+        output << "{\"ieee_address\":\"bad-address\",\"network_address\":\"invalid\"}\n";
+        output << "{\"ieee_address\":\"bad-range\",\"network_address\":65536}\n";
+        output << "{\"ieee_address\":\"bad-brightness\",\"network_address\":4662,\"brightness_percent\":101}\n";
+        output << "{\"ieee_address\":\"bad-temperature\",\"network_address\":4666,\"temperature_celsius\":\"not-a-number\"}\n";
+        output << "{\"ieee_address\":\"bad-humidity\",\"network_address\":4667,\"humidity_percent\":101}\n";
+        output << "not json\n";
+        output << "{\"ieee_address\":\"ieee-c\",\"network_address\":4663,\"brightness_percent\":-1}\n";
+        output.close(); assert(output);
+    }
+    assert(loadDevices(filename, &loaded, &error));
+    assert(loaded.size() == 2 && loaded[0].ieeeAddress == "ieee-a" && loaded[0].name == "first" &&
+           loaded[1].ieeeAddress == "ieee-c" && loaded[1].brightnessPercent == -1);
+    Device sentinel; sentinel.ieeeAddress = "unchanged"; loaded.clear(); loaded.push_back(sentinel);
+    {
+        std::ofstream output(filename.c_str());
+        assert(output);
+        output << "{\"ieee_address\":\"valid-before-bad\",\"network_address\":4664}\n";
+        output << "{\"ieee_address\":\"invalid-descriptor\",\"network_address\":4665,\"endpoint_descriptors\":\"01zz\"}\n";
+        output.close(); assert(output);
+    }
+    error.clear();
+    assert(!loadDevices(filename, &loaded, &error) && error == "invalid endpoint descriptor state");
+    assert(loaded.size() == 1 && loaded[0].ieeeAddress == "unchanged");
+    unlink(filename.c_str());
+    loaded.push_back(Device());
+    assert(loadDevices(path.str() + "/missing.json", &loaded, &error) && loaded.empty());
+    rmdir(path.str().c_str());
 }
 
 static void testDeviceSettings() {
@@ -1722,6 +1765,7 @@ void runUnitTests() {
     testAshFragmentationAndFrameOrdering();
     testAshRejectsMalformedAndOverlongInput();
     testDevicePersistence();
+    testDeviceLoadRejectsCorruptDuplicatesAndNumbers();
     testDeviceSettings();
     testNetworkPersistence();
     testNetworkPersistenceRejectsInvalidState();
