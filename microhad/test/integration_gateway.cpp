@@ -558,6 +558,92 @@ void testSecureJoinPreparationFailuresAndRetries() {
     gateway.stop(); close(serial[1]);
 }
 
+std::vector<unsigned char> activateJoinWindow(Gateway* gateway, int peerFd, unsigned int seconds,
+                                             unsigned char firstSequence = 0) {
+    std::string error;
+    assert(GatewayIntegrationTestPeer::prepareJoining(gateway, seconds, &error));
+    unsigned int step;
+    std::vector<unsigned char> request;
+    for (step = 0; step < 4; ++step) {
+        request = firstAshData(readAvailable(peerFd));
+        replyToFormationCommand(peerFd, request, static_cast<unsigned char>((firstSequence + step) & 7));
+        gateway->poll();
+    }
+    return firstAshData(readAvailable(peerFd));
+}
+
+long joiningUntilFromStatus(Gateway* gateway) {
+    std::string status = gateway->statusJson();
+    std::string::size_type field = status.find("\"joining_until\":");
+    assert(field != std::string::npos);
+    return static_cast<long>(strtol(status.c_str() + field + 16, 0, 10));
+}
+
+void testJoinWindowExtensionExpiryRenewalAndCloseFailure() {
+    int serial[2];
+    std::string error;
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
+    Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+    GatewayIntegrationTestPeer::attachSerial(&gateway, serial[0]);
+
+    std::vector<unsigned char> permit = activateJoinWindow(&gateway, serial[1], 600);
+    assert(permit[3] == 0x22 && permit[5] == 254);
+    long firstDeadline = joiningUntilFromStatus(&gateway);
+    assert(firstDeadline > time(0) + 590);
+    replyToFormationCommand(serial[1], permit, 4);
+    gateway.poll(); readAvailable(serial[1]);
+
+    assert(gateway.setJoining(120, &error));
+    unsigned int step;
+    for (step = 0; step < 4; ++step) {
+        std::vector<unsigned char> request = firstAshData(readAvailable(serial[1]));
+        replyToFormationCommand(serial[1], request, static_cast<unsigned char>(5 + step));
+        gateway.poll();
+    }
+    permit = firstAshData(readAvailable(serial[1]));
+    assert(permit[3] == 0x22 && permit[5] == 120);
+    long extendedDeadline = joiningUntilFromStatus(&gateway);
+    assert(extendedDeadline > firstDeadline - 490 && extendedDeadline < firstDeadline);
+    replyToFormationCommand(serial[1], permit, 1);
+    gateway.poll(); readAvailable(serial[1]);
+
+    GatewayIntegrationTestPeer::setJoinDeadlines(&gateway, time(0) + 500, time(0) - 1);
+    gateway.poll();
+    permit = firstAshData(readAvailable(serial[1]));
+    assert(permit[3] == 0x22 && permit[5] == 254);
+    replyToFormationCommand(serial[1], permit, 2);
+    gateway.poll(); readAvailable(serial[1]);
+
+    GatewayIntegrationTestPeer::setJoinDeadlines(&gateway, time(0) - 1, 0);
+    gateway.poll();
+    permit = firstAshData(readAvailable(serial[1]));
+    assert(permit[3] == 0x22 && permit[5] == 0);
+    assert(gateway.statusJson().find("\"joining_until\":0") != std::string::npos);
+    replyToFormationCommand(serial[1], permit, 3);
+    gateway.poll(); readAvailable(serial[1]);
+
+    permit = activateJoinWindow(&gateway, serial[1], 120, 4);
+    assert(permit[3] == 0x22 && permit[5] == 120);
+    replyToFormationCommand(serial[1], permit, 0);
+    gateway.poll(); readAvailable(serial[1]);
+    assert(gateway.setJoining(0, &error));
+    permit = firstAshData(readAvailable(serial[1]));
+    assert(permit[3] == 0x22 && permit[5] == 0);
+    std::string beforeFailure = gateway.statusJson();
+    assert(beforeFailure.find("\"joining_until\":0") == std::string::npos);
+    replyToFormationCommand(serial[1], permit, 1, -1, 0xffff, 0x30);
+    gateway.poll(); readAvailable(serial[1]);
+    assert(gateway.statusJson().find("\"joining_until\":0") == std::string::npos);
+    assert(gateway.logsJson().find("Coordinator rejected closing pairing permit") != std::string::npos);
+
+    assert(gateway.setJoining(0, &error));
+    permit = firstAshData(readAvailable(serial[1]));
+    replyToFormationCommand(serial[1], permit, 2);
+    gateway.poll();
+    assert(gateway.statusJson().find("\"joining_until\":0") != std::string::npos);
+    gateway.stop(); close(serial[1]);
+}
+
 void testCoordinatorInitializationSequence() {
     int serial[2];
     assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
@@ -1002,6 +1088,8 @@ void runGatewayIntegrationTests() {
     testSecureJoinPreparationSuccess();
     fprintf(stderr, "integration: secure join policy failures, timeouts, and retry\n");
     testSecureJoinPreparationFailuresAndRetries();
+    fprintf(stderr, "integration: join extension, expiry, renewal, and close failure\n");
+    testJoinWindowExtensionExpiryRenewalAndCloseFailure();
     fprintf(stderr, "integration: coordinator initialization, IEEE lookup, and Tradfri setup\n");
     testCoordinatorInitializationSequence();
     fprintf(stderr, "integration: coordinator initialization unexpected reply and timeout\n");

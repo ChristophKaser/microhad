@@ -57,6 +57,10 @@ public:
         return gateway->setJoining(seconds, error);
     }
     static void expireJoinPreparation(Gateway* gateway) { gateway->joinPreparationDeadline_ = time(0) - 1; }
+    static void setJoinDeadlines(Gateway* gateway, long until, long renewAt) {
+        gateway->joinUntil_ = until;
+        gateway->joinPermitRenewAt_ = renewAt;
+    }
     static bool restoredNetworkMaterial(const Gateway& gateway) {
         return gateway.networkPanId_ != 0 && gateway.networkPanId_ != 0xffff &&
                gateway.networkChannel_ == 11 && gateway.networkExtendedPan_.size() == 8 &&

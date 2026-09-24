@@ -163,6 +163,7 @@ private:
     bool online_;
     long joinUntil_;
     long joinPermitRenewAt_;
+    bool joinPermitClosePending_;
     unsigned int pendingJoinSeconds_;
     unsigned char joinPreparationStep_;
     long joinPreparationDeadline_;

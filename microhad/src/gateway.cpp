@@ -233,7 +233,7 @@ Gateway::Gateway(const std::string& serialDevice, int serialBaud, const std::str
                  NotificationWorker* notificationWorker) :
     serialDevice_(serialDevice), serialBaud_(serialBaud), runtimeDirectory_(runtimeDirectory), networkRandomSource_("/dev/urandom"),
     firebaseServiceAccount_(firebaseServiceAccount), firebaseTopic_(firebaseTopic), caBundle_(caBundle), notificationWorker_(notificationWorker), serialFd_(-1),
-    online_(false), joinUntil_(0), joinPermitRenewAt_(0), pendingJoinSeconds_(0), joinPreparationStep_(0), joinPreparationDeadline_(0), ashSendSequence_(0), ashReceiveSequence_(0), ezspSequence_(0),
+    online_(false), joinUntil_(0), joinPermitRenewAt_(0), joinPermitClosePending_(false), pendingJoinSeconds_(0), joinPreparationStep_(0), joinPreparationDeadline_(0), ashSendSequence_(0), ashReceiveSequence_(0), ezspSequence_(0),
     ashAckDeadline_(0), ashRetries_(0), ashPendingSensitive_(false), ezspVersion_(4), zdoSequence_(0), zclTransactionSequence_(0), ezspVersionNegotiated_(false), stackTokenWritingRequested_(false), networkInitRequested_(false), tradfriBindGroupConfigured_(false), coordinatorInitializationStep_(0), coordinatorInitializationDeadline_(0), resetDeadline_(0), nextHeartbeatAt_(0), serialRxBytes_(0), ashRxFrames_(0), networkForming_(false), networkFormationStep_(0), networkFormationDeadline_(0), networkFormed_(false), networkPanId_(0),
     networkChannel_(0), interviewRequestInFlight_(false), interviewSendAccepted_(false), interviewEzspSequence_(0), interviewNode_(0xffff),
     interviewDeadline_(0), nextMessageTag_(1), coordinatorIeeeAddressRequested_(false), viewDirty_(true) {
@@ -385,11 +385,11 @@ void Gateway::poll() {
         joinPreparationDeadline_ = 0;
         pendingJoinSeconds_ = 0;
     }
-    if (joinUntil_ != 0 && time(0) >= joinUntil_) {
+    if (!joinPermitClosePending_ && joinUntil_ != 0 && time(0) >= joinUntil_) {
         sendJoinPermit(0);
         joinUntil_ = 0;
         joinPermitRenewAt_ = 0;
-    } else if (joinUntil_ != 0 && time(0) >= joinPermitRenewAt_) {
+    } else if (!joinPermitClosePending_ && joinUntil_ != 0 && time(0) >= joinPermitRenewAt_) {
         long remaining = joinUntil_ - time(0);
         unsigned int duration = remaining > 254 ? 254 : static_cast<unsigned int>(remaining);
         if (duration != 0) {
@@ -437,8 +437,10 @@ long Gateway::nextPollDeadline() const {
     if (networkForming_) CONSIDER_DEADLINE(networkFormationDeadline_);
     if (interviewRequestInFlight_) CONSIDER_DEADLINE(interviewDeadline_);
     CONSIDER_DEADLINE(joinPreparationDeadline_);
-    CONSIDER_DEADLINE(joinUntil_);
-    if (joinUntil_ != 0) CONSIDER_DEADLINE(joinPermitRenewAt_);
+    if (!joinPermitClosePending_) {
+        CONSIDER_DEADLINE(joinUntil_);
+        if (joinUntil_ != 0) CONSIDER_DEADLINE(joinPermitRenewAt_);
+    }
     for (alert = nextContactAlertAt_.begin(); alert != nextContactAlertAt_.end(); ++alert) CONSIDER_DEADLINE(alert->second);
     if (online_ && networkFormed_ && coordinatorInitializationStep_ == 0 && !interviewRequestInFlight_) {
         for (interview = interviews_.begin(); interview != interviews_.end(); ++interview) {
@@ -477,8 +479,7 @@ bool Gateway::setJoining(unsigned int seconds, std::string* error) {
     }
     if (seconds == 0) {
         sendJoinPermit(0);
-        joinUntil_ = 0;
-        joinPermitRenewAt_ = 0;
+        joinPermitClosePending_ = true;
         pendingJoinSeconds_ = 0;
         joinPreparationStep_ = 0;
         joinPreparationDeadline_ = 0;
@@ -1661,6 +1662,7 @@ void Gateway::sendJoinPermit(unsigned int duration) {
 void Gateway::beginJoinWindow(unsigned int seconds) {
     unsigned int duration = seconds > 254 ? 254 : seconds;
     sendJoinPermit(duration);
+    joinPermitClosePending_ = false;
     joinUntil_ = time(0) + seconds;
     joinPermitRenewAt_ = time(0) + (duration > 240 ? 240 : duration);
     pendingJoinSeconds_ = 0;
@@ -2044,9 +2046,16 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
     }
     if (command == 0x0022 && frame[payloadOffset] != 0) {
         fprintf(stderr, "EZSP permit joining failed: 0x%02x\n", frame[payloadOffset]);
-        addLog("Coordinator rejected pairing permit");
+        addLog(joinPermitClosePending_ ? "Coordinator rejected closing pairing permit" : "Coordinator rejected pairing permit");
+        if (!joinPermitClosePending_) {
+            joinUntil_ = 0;
+            joinPermitRenewAt_ = 0;
+        }
+        joinPermitClosePending_ = false;
+    } else if (command == 0x0022 && frame[payloadOffset] == 0 && joinPermitClosePending_) {
         joinUntil_ = 0;
         joinPermitRenewAt_ = 0;
+        joinPermitClosePending_ = false;
     }
     if (command == 0x24 && frame.size() >= payloadOffset + 10) {
         unsigned short nodeId = static_cast<unsigned short>(frame[payloadOffset]) |
