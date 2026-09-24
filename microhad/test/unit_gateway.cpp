@@ -919,6 +919,7 @@ static void testNetworkPersistence() {
     assert(loadNetworkState(filename, &loaded, &error));
     assert(loaded.formed && loaded.panId == input.panId && loaded.channel == input.channel);
     assert(loaded.extendedPan == input.extendedPan && loaded.networkKey == input.networkKey);
+    assert(loaded.preconfiguredKey == input.preconfiguredKey);
     unlink(filename.c_str()); rmdir(directory.c_str());
 }
 

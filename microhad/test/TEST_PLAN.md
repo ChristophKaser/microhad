@@ -58,7 +58,7 @@ physical coordinator and radio interoperability testing.
 
 | ID | Level | Feature / stimulus | Expected result | Status |
 | --- | --- | --- | --- | --- |
-| NET-01 | U | Save/load formed and unformed network state | PAN, channel, extended PAN, network/preconfigured keys round trip | E |
+| NET-01 | U | Save/load formed and unformed network state | PAN, channel, extended PAN, network/preconfigured keys round trip | DONE |
 | NET-02 | U | Missing, malformed JSON, invalid hex/length, incomplete network state | Safe defaults or explicit load failure; no partially trusted keys | DONE |
 | NET-03 | I | Create fresh network while online with confirmation | New material is generated, formation commands run, state becomes forming then formed and persists | G |
 | NET-04 | I | Create network offline, while forming, RNG failure, EZSP failure, and formation timeout | Operation is rejected or fails cleanly without overwriting known-good state | P |
