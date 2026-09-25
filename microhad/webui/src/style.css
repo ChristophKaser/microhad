@@ -252,6 +252,11 @@ button:disabled {
   padding: 3px 6px;
   font-size: 1rem;
 }
+.mini-actions button svg {
+  display: block;
+  width: 18px;
+  height: 18px;
+}
 .device-focus {
   display: flex;
   align-items: center;
@@ -429,8 +434,8 @@ button:disabled {
 .scene-summary > .button {
   margin-top: 13px;
 }
-.scene-summary > .group-light-states {
-  margin-top: 10px;
+.scene-summary .presets > .group-light-states {
+  width: 100%;
 }
 .panel > p.muted {
   margin: 0 0 18px;
@@ -792,15 +797,8 @@ button:disabled {
 .device-subgroup + .device-subgroup {
   margin-top: 16px;
 }
-.device-subgroup-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 7px 10px;
-  margin-bottom: 8px;
-}
 .device-subgroup-heading {
-  margin: 0;
+  margin: 0 0 8px;
   color: #607c91;
   font-size: 0.82rem;
   font-weight: 700;

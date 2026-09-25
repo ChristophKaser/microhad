@@ -42,14 +42,18 @@ const clusterNames: Record<number, string> = {
 }
 const namedId = (id: number, names: Record<number, string>) =>
   `0x${id.toString(16).padStart(4, '0').toUpperCase()}${names[id] ? ` — ${names[id]}` : ''}`
-function LightBulbIcon({ on }: { on: boolean }) {
+function LightBulbIcon({ on, level = on ? 1 : 0 }: { on: boolean; level?: number }) {
   return (
     <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M21 40c0-5-7-9-7-18a18 18 0 0 1 36 0c0 9-7 13-7 18H21Z" fill="currentColor" fillOpacity={on ? '.3' : '.08'} />
+      <path d="M21 40c0-5-7-9-7-18a18 18 0 0 1 36 0c0 9-7 13-7 18H21Z" fill="currentColor" fillOpacity={0.08 + 0.22 * level} />
       <path d="M24 46h16M26 52h12M29 57h6" />
-      {on && <path d="M32 1v4M7 11l4 3M57 11l-4 3M3 27h5M61 27h-5" />}
+      {on && <path d="M32 1v4M7 11l4 3M57 11l-4 3M3 27h5M61 27h-5" opacity={level} />}
     </svg>
   )
+}
+
+function blendColor(off: [number, number, number], on: [number, number, number], level: number) {
+  return `rgb(${off.map((channel, index) => Math.round(channel + (on[index] - channel) * level)).join(', ')})`
 }
 
 export function LightGroupStates({ members, devices }: { members: string[]; devices: Device[] }) {
@@ -58,8 +62,15 @@ export function LightGroupStates({ members, devices }: { members: string[]; devi
       {members.map((address) => {
         const device = devices.find((item) => item.ieee_address === address && item.has_light)
         const state = device ? (device.light_on ? 'on' : 'off') : 'unknown'
+        const brightness = device?.has_brightness ? Math.max(0, Math.min(100, device.brightness_percent)) : 100
+        const level = device?.light_on ? brightness / 100 : 0
         const label = `${device?.name || address}: ${device ? (device.light_on ? 'On' : 'Off') : 'State unavailable'}`
-        return <span key={address} className={`light-state-bulb ${state}`} role="img" title={label} aria-label={label}><LightBulbIcon on={!!device?.light_on} /></span>
+        const style = device ? {
+          color: blendColor([84, 117, 139], [173, 116, 0], level),
+          backgroundColor: blendColor([237, 244, 249], [255, 241, 203], level),
+          borderColor: blendColor([220, 229, 237], [243, 216, 139], level),
+        } : undefined
+        return <span key={address} className={`light-state-bulb ${state}`} role="img" title={label} aria-label={label} style={style}><LightBulbIcon on={!!device?.light_on} level={level} /></span>
       })}
     </div>
   )
@@ -300,7 +311,10 @@ function DeviceCard({
           </button>
           {(device.has_temperature || device.has_humidity || device.has_contact) && (
             <button title="History" aria-label={`History for ${device.name}`} onClick={onHistory}>
-              ▥
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M3 3v18h18" />
+                <path d="m6 16 4-5 4 3 5-7" />
+              </svg>
             </button>
           )}
           <button
@@ -371,10 +385,7 @@ export function DeviceGroups({
             {sections.map((section) => (
               <div className="device-subgroup" key={section.id}>
                 {type.name === 'Lights' && (
-                  <div className="device-subgroup-head">
-                    <h4 className="device-subgroup-heading">{section.name}</h4>
-                    <LightGroupStates members={section.devices.map((device) => device.ieee_address)} devices={section.devices} />
-                  </div>
+                  <h4 className="device-subgroup-heading">{section.name}</h4>
                 )}
                 <div className="device-grid">
                   {section.devices.map((device) => (

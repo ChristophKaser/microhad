@@ -371,8 +371,8 @@ function App() {
                 <p className="muted small">
                   Zigbee group {group.id} · {group.members.length} light(s)
                 </p>
-                <LightGroupStates members={group.members} devices={status?.devices ?? []} />
                 <div className="presets">
+                  <LightGroupStates members={group.members} devices={status?.devices ?? []} />
                   {group.scenes.map((scene) => (
                     <button
                       key={scene.id}
