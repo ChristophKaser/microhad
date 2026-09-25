@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Chart as ChartJS, LineController, LineElement, LinearScale, PointElement, Tooltip } from 'chart.js'
 import type { Device, HistoryPage, HistorySample } from './api'
 import { errorMessage, jsonRequest } from './api'
 
@@ -8,41 +9,72 @@ type Metric = 1 | 2 | 3
 const rangeSeconds: Record<Range, number> = { day: 86400, week: 604800, all: Infinity }
 const metricName: Record<Metric, string> = { 1: 'Temperature', 2: 'Humidity', 3: 'Contact' }
 const metricUnit: Record<Metric, string> = { 1: '°C', 2: '%', 3: '' }
+const metricColor: Record<Metric, string> = { 1: '#d97543', 2: '#3384aa', 3: '#7554a4' }
+
+ChartJS.register(LineController, LineElement, LinearScale, PointElement, Tooltip)
 
 function Chart({ samples, metric, now, start }: { samples: HistorySample[]; metric: Metric; now: number; start: number }) {
   const values = samples.filter((sample) => sample[2] === metric)
-  if (!values.length) return <div className="history-empty">No {metricName[metric].toLowerCase()} samples in this range.</div>
-  const first = Math.min(start, values[0][1])
-  const duration = Math.max(1, now - first)
-  const x = (sample: HistorySample) => 48 + ((sample[1] - first) / duration) * 650
-  const numeric = values.map((sample) => sample[3] / 100)
-  const low = metric === 3 ? 0 : Math.floor(Math.min(...numeric) - 1)
-  const high = metric === 3 ? 1 : Math.ceil(Math.max(...numeric) + 1)
-  const y = (sample: HistorySample) => metric === 3
-    ? (sample[3] ? 38 : 168)
-    : 168 - ((sample[3] / 100 - low) / Math.max(1, high - low)) * 130
-  let path = `M ${x(values[0]).toFixed(1)} ${y(values[0]).toFixed(1)}`
-  for (let i = 1; i < values.length; i++) {
-    const point = values[i]
-    if (metric === 3) path += ` H ${x(point).toFixed(1)} V ${y(point).toFixed(1)}`
-    else path += ` L ${x(point).toFixed(1)} ${y(point).toFixed(1)}`
-  }
-  if (metric === 3) path += ' H 698'
+  const canvas = useRef<HTMLCanvasElement>(null)
   const latest = values[values.length - 1]
-  const latestLabel = metric === 3 ? (latest[3] ? 'Open' : 'Closed') : `${(latest[3] / 100).toFixed(2)} ${metricUnit[metric]}`
+  const latestLabel = latest && (metric === 3 ? (latest[3] ? 'Open' : 'Closed') : `${(latest[3] / 100).toFixed(2)} ${metricUnit[metric]}`)
+
+  useEffect(() => {
+    if (!canvas.current || !values.length) return
+    const first = Math.min(start, values[0][1])
+    const numeric = values.map((sample) => metric === 3 ? sample[3] : sample[3] / 100)
+    const low = metric === 3 ? 0 : Math.floor(Math.min(...numeric) - 1)
+    const high = metric === 3 ? 1 : Math.ceil(Math.max(...numeric) + 1)
+    const points = values.map((sample) => ({ x: sample[1], y: metric === 3 ? sample[3] : sample[3] / 100 }))
+    if (metric === 3 && points[points.length - 1].x < now) points.push({ x: now, y: points[points.length - 1].y })
+    const chart = new ChartJS(canvas.current, {
+      type: 'line',
+      data: { datasets: [{
+        label: metricName[metric], data: points, borderColor: metricColor[metric],
+        backgroundColor: metricColor[metric], borderWidth: 2.5, tension: 0,
+        stepped: metric === 3 ? 'after' : false,
+        pointRadius: (context) => context.dataIndex === values.length - 1 ? 4 : 0,
+        pointHoverRadius: 5,
+      }] },
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: false,
+        parsing: false, normalized: false,
+        interaction: { intersect: false, mode: 'nearest' },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            filter: (context) => context.dataIndex < values.length,
+            callbacks: {
+              title: (items) => items.length ? new Date(Number(items[0].parsed.x) * 1000).toLocaleString() : '',
+              label: (item) => metric === 3 ? (item.parsed.y ? 'Open' : 'Closed') : `${Number(item.parsed.y).toFixed(2)} ${metricUnit[metric]}`,
+            },
+          },
+        },
+        scales: {
+          x: {
+            type: 'linear', min: Math.min(first, now - 1), max: now,
+            grid: { color: '#e9eef3' },
+            ticks: { maxTicksLimit: 4, maxRotation: 0, callback: (value) => {
+              const date = new Date(Number(value) * 1000)
+              return now - first <= 86400 ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : date.toLocaleDateString([], { month: 'short', day: 'numeric' })
+            } },
+          },
+          y: {
+            min: low, max: high, grid: { color: '#dbe6ed' },
+            ticks: { maxTicksLimit: metric === 3 ? 2 : 5, stepSize: metric === 3 ? 1 : undefined,
+              callback: (value) => metric === 3 ? (Number(value) ? 'Open' : 'Closed') : `${value}${metricUnit[metric]}` },
+          },
+        },
+      },
+    })
+    return () => chart.destroy()
+  }, [values, metric, now, start])
+
+  if (!latest) return <div className="history-empty">No {metricName[metric].toLowerCase()} samples in this range.</div>
   return (
     <section className="history-chart">
       <div className="history-chart-title"><h3>{metricName[metric]}</h3><span>{latestLabel} · {values.length} samples</span></div>
-      <svg viewBox="0 0 720 215" role="img" aria-label={`${metricName[metric]} history, latest ${latestLabel}`}>
-        <line x1="48" y1="38" x2="698" y2="38" className="history-grid" />
-        <line x1="48" y1="168" x2="698" y2="168" className="history-grid" />
-        <text x="4" y="42">{metric === 3 ? 'Open' : `${high}${metricUnit[metric]}`}</text>
-        <text x="4" y="172">{metric === 3 ? 'Closed' : `${low}${metricUnit[metric]}`}</text>
-        <path d={path} className={`history-line metric-${metric}`} />
-        <circle cx={x(latest)} cy={y(latest)} r="4" className={`history-point metric-${metric}`} />
-        <text x="48" y="202">{new Date(first * 1000).toLocaleString()}</text>
-        <text x="698" y="202" textAnchor="end">{new Date(now * 1000).toLocaleString()}</text>
-      </svg>
+      <div className="history-canvas"><canvas ref={canvas} role="img" aria-label={`${metricName[metric]} history, latest ${latestLabel}`} /></div>
     </section>
   )
 }
