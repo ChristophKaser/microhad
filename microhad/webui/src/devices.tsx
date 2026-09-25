@@ -181,6 +181,11 @@ function DeviceCard({
           <button title="Settings" aria-label={`Settings for ${device.name}`} onClick={onSettings}>
             ⚙
           </button>
+          {(device.has_temperature || device.has_humidity || device.has_contact) && (
+            <button title="History" aria-label={`History for ${device.name}`} onClick={onHistory}>
+              ▥
+            </button>
+          )}
           <button
             title="Refresh attributes"
             aria-label={`Refresh ${device.name}`}
@@ -197,9 +202,6 @@ function DeviceCard({
           </span>
         ))}
       </div>
-      {(device.has_temperature || device.has_humidity || device.has_contact) && (
-        <button className="button history-button" onClick={onHistory}>▥ History</button>
-      )}
       {device.has_light && (
         <div className="light-panel">
           <div className="light-row">

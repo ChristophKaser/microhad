@@ -260,7 +260,6 @@ button:disabled {
   flex-wrap: wrap;
   margin: 17px 0;
 }
-.history-button { margin: 0 0 12px; }
 .history-ranges { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0; }
 .history-chart { border-top: 1px solid #e9eef3; padding-top: 4px; }
 .history-chart-title { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
