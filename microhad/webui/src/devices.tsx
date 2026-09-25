@@ -42,6 +42,29 @@ const clusterNames: Record<number, string> = {
 }
 const namedId = (id: number, names: Record<number, string>) =>
   `0x${id.toString(16).padStart(4, '0').toUpperCase()}${names[id] ? ` — ${names[id]}` : ''}`
+function LightBulbIcon({ on }: { on: boolean }) {
+  return (
+    <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M21 40c0-5-7-9-7-18a18 18 0 0 1 36 0c0 9-7 13-7 18H21Z" fill="currentColor" fillOpacity={on ? '.3' : '.08'} />
+      <path d="M24 46h16M26 52h12M29 57h6" />
+      {on && <path d="M32 1v4M7 11l4 3M57 11l-4 3M3 27h5M61 27h-5" />}
+    </svg>
+  )
+}
+
+export function LightGroupStates({ members, devices }: { members: string[]; devices: Device[] }) {
+  return (
+    <div className="group-light-states" role="group" aria-label="Light states">
+      {members.map((address) => {
+        const device = devices.find((item) => item.ieee_address === address && item.has_light)
+        const state = device ? (device.light_on ? 'on' : 'off') : 'unknown'
+        const label = `${device?.name || address}: ${device ? (device.light_on ? 'On' : 'Off') : 'State unavailable'}`
+        return <span key={address} className={`light-state-bulb ${state}`} role="img" title={label} aria-label={label}><LightBulbIcon on={!!device?.light_on} /></span>
+      })}
+    </div>
+  )
+}
+
 function DeviceVisual({ device, type }: { device: Device; type: string }) {
   if (type === 'Contact sensors') return (
     <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" strokeWidth="3" strokeLinejoin="round" aria-hidden="true">
@@ -53,13 +76,7 @@ function DeviceVisual({ device, type }: { device: Device; type: string }) {
       )}
     </svg>
   )
-  if (type === 'Lights') return (
-    <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M21 40c0-5-7-9-7-18a18 18 0 0 1 36 0c0 9-7 13-7 18H21Z" fill="currentColor" fillOpacity={device.light_on ? '.3' : '.08'} />
-      <path d="M24 46h16M26 52h12M29 57h6" />
-      {device.light_on && <path d="M32 1v4M7 11l4 3M57 11l-4 3M3 27h5M61 27h-5" />}
-    </svg>
-  )
+  if (type === 'Lights') return <LightBulbIcon on={device.light_on} />
   if (type === 'Motion sensors') return <span aria-hidden="true">{device.occupied ? '◉' : '◎'}</span>
   return <span aria-hidden="true">{type === 'Remotes' ? '🎛️' : '📡'}</span>
 }
@@ -190,13 +207,13 @@ function DeviceCard({
         <div className="device-focus climate-focus">
           {device.has_temperature && (
             <div className="climate-reading">
-              <span className="reading-label">Temperature</span>
+              <span className="reading-label"><span className="reading-icon" aria-hidden="true">🌡️</span>Temperature</span>
               <strong>{device.temperature_celsius}<span className="reading-unit">°C</span></strong>
             </div>
           )}
           {device.has_humidity && (
             <div className="climate-reading">
-              <span className="reading-label">Humidity</span>
+              <span className="reading-label"><span className="reading-icon" aria-hidden="true">💧</span>Humidity</span>
               <strong>{device.humidity_percent}<span className="reading-unit">%</span></strong>
             </div>
           )}
@@ -354,7 +371,10 @@ export function DeviceGroups({
             {sections.map((section) => (
               <div className="device-subgroup" key={section.id}>
                 {type.name === 'Lights' && (
-                  <h4 className="device-subgroup-heading">{section.name}</h4>
+                  <div className="device-subgroup-head">
+                    <h4 className="device-subgroup-heading">{section.name}</h4>
+                    <LightGroupStates members={section.devices.map((device) => device.ieee_address)} devices={section.devices} />
+                  </div>
                 )}
                 <div className="device-grid">
                   {section.devices.map((device) => (

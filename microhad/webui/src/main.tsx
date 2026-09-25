@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import type { Device } from './api'
 import { errorMessage, form, jsonRequest, post } from './api'
-import { DeviceGroups, DeviceSettings } from './devices'
+import { DeviceGroups, DeviceSettings, LightGroupStates } from './devices'
 import { HistoryDialog } from './HistoryDialog'
 import { DeviceDetailsDialog, NetworkDialog, SceneTextDialog } from './DashboardDialogs'
 import { SceneEditor } from './SceneEditor'
@@ -371,6 +371,7 @@ function App() {
                 <p className="muted small">
                   Zigbee group {group.id} · {group.members.length} light(s)
                 </p>
+                <LightGroupStates members={group.members} devices={status?.devices ?? []} />
                 <div className="presets">
                   {group.scenes.map((scene) => (
                     <button

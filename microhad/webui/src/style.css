@@ -318,9 +318,16 @@ button:disabled {
   padding-top: 5px;
 }
 .reading-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
   color: #60788b;
   font-size: 0.72rem;
   font-weight: 650;
+}
+.reading-icon {
+  font-size: 1rem;
+  line-height: 1;
 }
 .climate-reading strong {
   font-size: 2rem;
@@ -421,6 +428,9 @@ button:disabled {
 }
 .scene-summary > .button {
   margin-top: 13px;
+}
+.scene-summary > .group-light-states {
+  margin-top: 10px;
 }
 .panel > p.muted {
   margin: 0 0 18px;
@@ -782,11 +792,47 @@ button:disabled {
 .device-subgroup + .device-subgroup {
   margin-top: 16px;
 }
+.device-subgroup-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px 10px;
+  margin-bottom: 8px;
+}
 .device-subgroup-heading {
-  margin: 0 0 8px;
+  margin: 0;
   color: #607c91;
   font-size: 0.82rem;
   font-weight: 700;
+}
+.group-light-states {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+.light-state-bulb {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid #dce5ed;
+  border-radius: 7px;
+  background: #edf4f9;
+  color: #54758b;
+}
+.light-state-bulb.on {
+  border-color: #f3d88b;
+  background: #fff1cb;
+  color: #ad7400;
+}
+.light-state-bulb.unknown {
+  background: #f3f5f7;
+  color: #929faa;
+}
+.light-state-bulb svg {
+  width: 18px;
+  height: 18px;
 }
 .mobile-top {
   display: none;
