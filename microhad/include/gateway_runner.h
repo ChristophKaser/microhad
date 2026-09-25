@@ -39,6 +39,7 @@ public:
                            unsigned long reminderAlertMinutes, bool hasSensorRefreshInterval,
                            unsigned long sensorRefreshIntervalMinutes, std::string* error);
     bool refreshDevice(const std::string& ieeeAddress, std::string* error);
+    bool identifyDevice(const std::string& ieeeAddress, std::string* error);
     bool setLightState(const std::string& ieeeAddress, const std::string& state, int brightnessPercent,
                        std::string* error);
     bool setSceneConfiguration(const std::string& configuration, std::string* error);
@@ -48,7 +49,7 @@ public:
     bool setNotificationsEnabled(bool enabled, std::string* error);
 
 private:
-    enum CommandType { Join, CreateNetwork, DeviceSettings, DeviceRefresh, LightState, SceneConfiguration, SceneActivate, SceneOff, TestNotification, NotificationSetting };
+    enum CommandType { Join, CreateNetwork, DeviceSettings, DeviceRefresh, DeviceIdentify, LightState, SceneConfiguration, SceneActivate, SceneOff, TestNotification, NotificationSetting };
     struct Command {
         CommandType type;
         unsigned int seconds;

@@ -391,6 +391,10 @@ void testServers() {
     expectStatus("http refresh encoded device", response, 200);
     assert(response.find("Attribute refresh queued") != std::string::npos);
     expectStatus("http report unknown refresh", plainRequest(http.boundPort(), post("/api/devices/unknown/refresh", "")), 400);
+    response = plainRequest(http.boundPort(), post("/api/devices/light%2Ftest/identify", ""));
+    expectStatus("http identify encoded device", response, 200);
+    assert(response.find("Identify command queued") != std::string::npos);
+    expectStatus("http reject unknown identify device", plainRequest(http.boundPort(), post("/api/devices/unknown/identify", "")), 400);
     expectStatus("http reject invalid light state", plainRequest(http.boundPort(), post("/api/devices/light%2Ftest/light", "state=blink")), 400);
     response = plainRequest(http.boundPort(), post("/api/devices/light%2Ftest/light", "state=on"));
     expectStatus("http accept encoded light command", response, 200);

@@ -133,6 +133,7 @@ void GatewayRunner::execute(Command* command) {
                                                                                       command->hasSensorRefreshInterval,
                                                                                       command->sensorRefreshIntervalMinutes, &error);
     else if (command->type == DeviceRefresh) result = gateway_->refreshDevice(command->address, &error);
+    else if (command->type == DeviceIdentify) result = gateway_->identifyDevice(command->address, &error);
     else if (command->type == LightState) result = gateway_->setLightState(command->address, command->name,
                                                                              command->brightnessPercent, &error);
     else if (command->type == SceneConfiguration) result = gateway_->setSceneConfiguration(command->configuration, &error);
@@ -264,6 +265,12 @@ bool GatewayRunner::setDeviceSettings(const std::string& address, const std::str
 bool GatewayRunner::refreshDevice(const std::string& address, std::string* error) {
     Command command;
     command.type = DeviceRefresh;
+    command.address = address;
+    return invoke(&command, error);
+}
+bool GatewayRunner::identifyDevice(const std::string& address, std::string* error) {
+    Command command;
+    command.type = DeviceIdentify;
     command.address = address;
     return invoke(&command, error);
 }

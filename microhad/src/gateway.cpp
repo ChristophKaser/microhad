@@ -704,6 +704,33 @@ bool Gateway::endpointForCluster(const Device& device, unsigned short cluster, u
     return false;
 }
 
+bool Gateway::identifyDevice(const std::string& ieeeAddress, std::string* error) {
+    std::map<std::string, Device>::const_iterator found = devices_.find(ieeeAddress);
+    if (found == devices_.end()) { *error = "device is unknown"; return false; }
+    if (!online_ || !networkFormed_ || coordinatorInitializationStep_ != 0) {
+        *error = "Zigbee network is not ready"; return false;
+    }
+    if (found->second.networkAddress == 0xffff) {
+        *error = "device has no active network address"; return false;
+    }
+    for (unsigned long i = 0; i < found->second.endpoints.size(); ++i) {
+        const EndpointDescriptor& descriptor = found->second.endpoints[i];
+        if (std::find(descriptor.inputClusters.begin(), descriptor.inputClusters.end(), 0x0003) ==
+            descriptor.inputClusters.end()) continue;
+        std::vector<unsigned char> message;
+        message.push_back(kZclClusterCommandNoDefaultResponse);
+        message.push_back(++zclTransactionSequence_);
+        message.push_back(0x00); /* Identify command */
+        message.push_back(5); message.push_back(0); /* five seconds, little endian */
+        sendApsUnicast(found->second.networkAddress, descriptor.profileId, 0x0003,
+                       kCoordinatorEndpoint, descriptor.endpoint, message);
+        addLog(std::string("Identify command queued: ") + ieeeAddress);
+        return true;
+    }
+    *error = "device has no Identify server endpoint";
+    return false;
+}
+
 void Gateway::sendZclLightCommand(unsigned short destination, unsigned char endpoint, unsigned short cluster,
                                   unsigned char command, const std::vector<unsigned char>& arguments) {
     std::vector<unsigned char> message;

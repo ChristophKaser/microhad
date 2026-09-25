@@ -484,6 +484,7 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
         const std::string prefix = "POST /api/devices/";
         std::string::size_type settingsAt = request.find("/settings ", prefix.size());
         std::string::size_type refreshAt = request.find("/refresh ", prefix.size());
+        std::string::size_type identifyAt = request.find("/identify ", prefix.size());
         std::string::size_type lightAt = request.find("/light ", prefix.size());
         std::string::size_type bodyAt = request.find("\r\n\r\n");
         if (lightAt != std::string::npos) {
@@ -499,6 +500,12 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
             } else if (gateway_->setLightState(ieeeAddress, hasState ? state : "", hasBrightness ? static_cast<int>(brightness) : -1, &error)) {
                 writeResponse(clientFd, 200, "application/json", "{\"ok\":true}");
             } else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + jsonEscape(error) + "\"}");
+        } else if (identifyAt != std::string::npos) {
+            std::string ieeeAddress = decodeComponent(request.substr(prefix.size(), identifyAt - prefix.size()));
+            std::string error;
+            if (gateway_->identifyDevice(ieeeAddress, &error))
+                writeResponse(clientFd, 200, "application/json", "{\"ok\":true,\"message\":\"Identify command queued for five seconds. A sleepy device may respond later.\"}");
+            else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + jsonEscape(error) + "\"}");
         } else if (refreshAt != std::string::npos) {
             std::string ieeeAddress = decodeComponent(request.substr(prefix.size(), refreshAt - prefix.size()));
             std::string error;

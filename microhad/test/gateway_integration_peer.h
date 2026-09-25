@@ -243,7 +243,9 @@ public:
         device.hasTemperature = true;
         device.hasContact = true;
         power.endpoint = 1;
+        power.profileId = 0x0104;
         power.inputClusters.push_back(0x0006);
+        power.inputClusters.push_back(0x0003);
         level.endpoint = 1;
         level.inputClusters.push_back(0x0008);
         device.endpoints.push_back(power);

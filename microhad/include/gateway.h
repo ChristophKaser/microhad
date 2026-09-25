@@ -134,6 +134,7 @@ public:
                            unsigned long reminderAlertMinutes, bool hasSensorRefreshInterval,
                            unsigned long sensorRefreshIntervalMinutes, std::string* error);
     bool refreshDevice(const std::string& ieeeAddress, std::string* error);
+    bool identifyDevice(const std::string& ieeeAddress, std::string* error);
     bool setLightState(const std::string& ieeeAddress, const std::string& state, int brightnessPercent,
                        std::string* error);
     bool setSceneConfiguration(const std::string& encoded, std::string* error);

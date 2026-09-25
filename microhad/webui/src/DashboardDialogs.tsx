@@ -7,6 +7,24 @@ import { ClipboardButton, DescriptorList } from './devices'
 type DialogCallbacks = { onClose: () => void; onSaved: () => void }
 
 export function DeviceDetailsDialog({ device, onClose }: { device: Device; onClose: () => void }) {
+  const [identifying, setIdentifying] = useState(false)
+  const [identifyResult, setIdentifyResult] = useState('')
+  const [identifyError, setIdentifyError] = useState('')
+  const canIdentify = device.endpoint_descriptors.some((endpoint) => endpoint.input_clusters.includes(0x0003))
+  const identify = async () => {
+    if (identifying) return
+    setIdentifying(true)
+    setIdentifyResult('')
+    setIdentifyError('')
+    try {
+      await post(`/api/devices/${encodeURIComponent(device.ieee_address)}/identify`)
+      setIdentifyResult('Identify command queued for 5 seconds.')
+    } catch (cause) {
+      setIdentifyError(errorMessage(cause))
+    } finally {
+      setIdentifying(false)
+    }
+  }
   const details = [
     `IEEE / EUI-64: ${device.ieee_address}`,
     device.manufacturer_name && `Vendor: ${device.manufacturer_name}`,
@@ -49,8 +67,15 @@ export function DeviceDetailsDialog({ device, onClose }: { device: Device; onClo
         ) : (
           <p className="muted">No endpoint descriptors have been saved for this device yet.</p>
         )}
+        {identifyError && <p className="error" role="alert">{identifyError}</p>}
+        {identifyResult && <p role="status">{identifyResult}</p>}
         <div className="dialog-actions">
           <ClipboardButton text={details} />
+          {canIdentify && (
+            <button className="button" disabled={identifying} onClick={identify}>
+              {identifying ? 'Sending…' : 'Identify (5 s)'}
+            </button>
+          )}
           <button className="button" onClick={onClose}>
             Close
           </button>

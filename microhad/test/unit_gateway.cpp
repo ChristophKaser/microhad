@@ -197,6 +197,41 @@ public:
         assert(!gateway.setLightState(unsupported.ieeeAddress, "on", -1, &error));
         assert(error == "power control is unavailable for this light");
     }
+    static void identifyCommandEncoding() {
+        Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+        Device device;
+        EndpointDescriptor clientOnly;
+        EndpointDescriptor identify;
+        std::string error;
+        device.ieeeAddress = "0x00124b00000000ee";
+        device.networkAddress = 0x4321;
+        clientOnly.endpoint = 1;
+        clientOnly.outputClusters.push_back(0x0003);
+        identify.endpoint = 4;
+        identify.profileId = 0x0104;
+        identify.inputClusters.push_back(0x0003);
+        device.endpoints.push_back(clientOnly);
+        device.endpoints.push_back(identify);
+        gateway.devices_[device.ieeeAddress] = device;
+        assert(!gateway.identifyDevice(device.ieeeAddress, &error));
+        assert(error == "Zigbee network is not ready");
+        gateway.online_ = true; gateway.networkFormed_ = true; gateway.ezspVersion_ = 8;
+        assert(gateway.identifyDevice(device.ieeeAddress, &error));
+        std::vector<unsigned char> command = decodedLastEzsp(gateway);
+        assert(command.size() == 26 && command[3] == 0x34 && command[4] == 0x00);
+        assert(command[6] == 0x21 && command[7] == 0x43);
+        assert(command[8] == 0x04 && command[9] == 0x01); /* endpoint profile */
+        assert(command[10] == 0x03 && command[11] == 0x00);
+        assert(command[12] == 1 && command[13] == 4);
+        assert(command[20] == 5 && command[21] == 0x11 && command[23] == 0x00);
+        assert(command[24] == 5 && command[25] == 0);
+        assert(!gateway.identifyDevice("missing", &error) && error == "device is unknown");
+        gateway.devices_[device.ieeeAddress].networkAddress = 0xffff;
+        assert(!gateway.identifyDevice(device.ieeeAddress, &error) && error == "device has no active network address");
+        gateway.devices_[device.ieeeAddress].networkAddress = 0x4321;
+        gateway.devices_[device.ieeeAddress].endpoints.erase(gateway.devices_[device.ieeeAddress].endpoints.begin() + 1);
+        assert(!gateway.identifyDevice(device.ieeeAddress, &error) && error == "device has no Identify server endpoint");
+    }
     static void ezspUpgradeCompatibility() {
         for (int protocol = 8; protocol <= 13; protocol += 5) {
             Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
@@ -1881,6 +1916,7 @@ void runUnitTests() {
     GatewayTestPeer::ezspUpgradeCompatibility();
     GatewayTestPeer::networkJoinWindowDoesNotClearNetworkState();
     GatewayTestPeer::lightCommandEncoding();
+    GatewayTestPeer::identifyCommandEncoding();
     testAshRoundTrip();
     testAshRejectsBadCrc();
     testAshFragmentationAndFrameOrdering();
