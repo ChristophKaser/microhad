@@ -6,7 +6,7 @@ import { ClipboardButton, DescriptorList } from './devices'
 
 type DialogCallbacks = { onClose: () => void; onSaved: () => void }
 
-export function DescriptorsDialog({ device, onClose }: { device: Device; onClose: () => void }) {
+export function DeviceDetailsDialog({ device, onClose }: { device: Device; onClose: () => void }) {
   const details = [
     `IEEE / EUI-64: ${device.ieee_address}`,
     device.manufacturer_name && `Vendor: ${device.manufacturer_name}`,
@@ -21,20 +21,27 @@ export function DescriptorsDialog({ device, onClose }: { device: Device; onClose
         className="dialog wide"
         role="dialog"
         aria-modal="true"
-        aria-labelledby="descriptor-title"
+        aria-labelledby="device-details-title"
       >
         <div className="dialog-heading">
           <div>
             <p className="eyebrow">Device details</p>
-            <h2 id="descriptor-title">Stored descriptors</h2>
+            <h2 id="device-details-title">{device.name}</h2>
           </div>
           <button className="icon-button" onClick={onClose} aria-label="Close">
             ✕
           </button>
         </div>
-        <p className="muted">
-          {device.name} · {device.ieee_address}
-        </p>
+        <dl className="device-identity">
+          <div><dt>Address</dt><dd className="mono">{device.ieee_address}</dd></div>
+          <div><dt>Type</dt><dd>{device.kind}</dd></div>
+          <div><dt>Manufacturer</dt><dd>{device.manufacturer_name || 'Unknown'}</dd></div>
+          <div><dt>Model</dt><dd>{device.model_id || 'Unknown'}</dd></div>
+          <div><dt>Battery</dt><dd>{device.has_battery ? `${device.battery_percent}%` : 'Not reported'}</dd></div>
+          <div><dt>Link quality</dt><dd>{device.link_quality}</dd></div>
+          <div><dt>Last contact</dt><dd>{device.last_seen ? new Date(device.last_seen * 1000).toLocaleString() : 'Never'}</dd></div>
+        </dl>
+        <h3>Endpoint descriptors</h3>
         {device.endpoint_descriptors.length ? (
           device.endpoint_descriptors.map((item) => (
             <DescriptorList key={item.endpoint} descriptor={item} />

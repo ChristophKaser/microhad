@@ -42,14 +42,26 @@ const clusterNames: Record<number, string> = {
 }
 const namedId = (id: number, names: Record<number, string>) =>
   `0x${id.toString(16).padStart(4, '0').toUpperCase()}${names[id] ? ` — ${names[id]}` : ''}`
-function icon(device: Device): string {
-  if (device.has_light) return '💡'
-  if (device.has_remote) return '🎛️'
-  if (device.has_contact) return '🚪'
-  if (device.has_temperature) return '🌡️'
-  if (device.has_humidity) return '💧'
-  if (device.has_occupancy) return '👁️'
-  return '📡'
+function DeviceVisual({ device, type }: { device: Device; type: string }) {
+  if (type === 'Contact sensors') return (
+    <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" strokeWidth="3" strokeLinejoin="round" aria-hidden="true">
+      <rect x="13" y="8" width="38" height="48" rx="2" />
+      {device.contact_open ? (
+        <><path d="M17 11 43 17v38L17 50Z" fill="currentColor" fillOpacity=".18" /><circle cx="37" cy="35" r="2" fill="currentColor" stroke="none" /></>
+      ) : (
+        <><rect x="18" y="12" width="28" height="40" rx="1" fill="currentColor" fillOpacity=".18" /><circle cx="40" cy="33" r="2" fill="currentColor" stroke="none" /></>
+      )}
+    </svg>
+  )
+  if (type === 'Lights') return (
+    <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M21 40c0-5-7-9-7-18a18 18 0 0 1 36 0c0 9-7 13-7 18H21Z" fill="currentColor" fillOpacity={device.light_on ? '.3' : '.08'} />
+      <path d="M24 46h16M26 52h12M29 57h6" />
+      {device.light_on && <path d="M32 1v4M7 11l4 3M57 11l-4 3M3 27h5M61 27h-5" />}
+    </svg>
+  )
+  if (type === 'Motion sensors') return <span aria-hidden="true">{device.occupied ? '◉' : '◎'}</span>
+  return <span aria-hidden="true">{type === 'Remotes' ? '🎛️' : '📡'}</span>
 }
 const deviceTypes = [
   { name: 'Contact sensors', matches: (device: Device) => device.has_contact },
@@ -135,13 +147,13 @@ function DeviceCard({
   device,
   action,
   onSettings,
-  onDescriptors,
+  onDetails,
   onHistory,
 }: {
   device: Device
   action: (url: string, body?: string) => void
   onSettings: () => void
-  onDescriptors: () => void
+  onDetails: () => void
   onHistory: () => void
 }) {
   const [brightness, setBrightness] = useState(
@@ -153,30 +165,118 @@ function DeviceCard({
   )
   const url = `/api/devices/${encodeURIComponent(device.ieee_address)}`
   const canDim = isDimmable(device)
-  const metrics = [
-    device.has_light && `💡 ${device.light_on ? 'On' : 'Off'}`,
-    device.has_contact && `${device.contact_open ? '🔓 Open' : '🔒 Closed'}`,
-    device.has_temperature && `🌡️ ${device.temperature_celsius} °C`,
-    device.has_humidity && `💧 ${device.humidity_percent}%`,
-    device.has_occupancy && `👁️ ${device.occupied ? 'Occupied' : 'Clear'}`,
-    device.has_battery && `🔋 ${device.battery_percent}%`,
-    `📶 LQI ${device.link_quality}`,
+  const type = deviceType(device)
+  const extraReadings = [
+    type !== 'Climate sensors' && device.has_temperature && `🌡 ${device.temperature_celsius} °C`,
+    type !== 'Climate sensors' && device.has_humidity && `💧 ${device.humidity_percent}%`,
+    type !== 'Contact sensors' && device.has_contact && (device.contact_open ? 'Open' : 'Closed'),
+    type !== 'Motion sensors' && device.has_occupancy && (device.occupied ? 'Motion' : 'Clear'),
+    type !== 'Lights' && device.has_light && (device.light_on ? 'Light on' : 'Light off'),
   ].filter(Boolean)
   return (
-    <article className="device-card">
+    <article className={`device-card device-card-${type.toLowerCase().replace(/[^a-z]+/g, '-')} ${
+      (type === 'Contact sensors' && device.contact_open) ||
+      (type === 'Motion sensors' && device.occupied) ||
+      (type === 'Lights' && device.light_on)
+        ? 'device-active'
+        : ''
+    }`}>
       <div className="device-head">
-        <span className="device-icon">{icon(device)}</span>
         <div className="grow">
           <h3>{device.name}</h3>
-          <p className="muted small">{device.kind}</p>
+        </div>
+      </div>
+      {type === 'Climate sensors' ? (
+        <div className="device-focus climate-focus">
+          {device.has_temperature && (
+            <div className="climate-reading">
+              <span className="reading-label">Temperature</span>
+              <strong>{device.temperature_celsius}<span className="reading-unit">°C</span></strong>
+            </div>
+          )}
+          {device.has_humidity && (
+            <div className="climate-reading">
+              <span className="reading-label">Humidity</span>
+              <strong>{device.humidity_percent}<span className="reading-unit">%</span></strong>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className={`device-focus ${type === 'Lights' ? 'light-focus' : ''}`}>
+          <span className="focus-icon"><DeviceVisual device={device} type={type} /></span>
+          <div className="focus-copy">
+            <strong>{type === 'Contact sensors' ? (device.contact_open ? 'Open' : 'Closed')
+              : type === 'Motion sensors' ? (device.occupied ? 'Occupied' : 'Clear')
+              : type === 'Lights' ? (device.light_on ? 'On' : 'Off')
+              : type === 'Remotes' ? 'Remote' : device.kind}</strong>
+            <span>{type === 'Contact sensors' ? 'Contact sensor'
+              : type === 'Motion sensors' ? 'Motion sensor'
+              : type === 'Lights' ? 'Light'
+              : type === 'Remotes' ? 'Control' : 'Device'}</span>
+          </div>
+        </div>
+      )}
+      {!!extraReadings.length && (
+        <div className="extra-readings">
+          {extraReadings.map((reading, index) => <span key={index}>{reading}</span>)}
+        </div>
+      )}
+      {device.has_light && (
+        <div className="light-panel">
+          <button
+            className={`button light-toggle ${device.light_on ? 'primary' : ''}`}
+            onClick={() => action(`${url}/light`, form({ state: device.light_on ? 'off' : 'on' }))}
+          >
+            {device.light_on ? 'Turn off' : 'Turn on'}
+          </button>
+          {canDim && (
+            <>
+              <div className="brightness-row">
+                <label htmlFor={`brightness-${device.ieee_address}`}>Brightness</label>
+                <span>{brightness}%</span>
+              </div>
+              <input
+                id={`brightness-${device.ieee_address}`}
+                type="range"
+                min="0"
+                max="100"
+                value={brightness}
+                aria-label={`Brightness for ${device.name}`}
+                onChange={(event) => setBrightness(Number(event.target.value))}
+                onPointerUp={(event) =>
+                  action(`${url}/light`, form({ brightness: event.currentTarget.value }))
+                }
+                onKeyUp={(event) => {
+                  if (['ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown', 'Enter'].includes(event.key))
+                    action(`${url}/light`, form({ brightness: event.currentTarget.value }))
+                }}
+              />
+              <div className="presets">
+                {[25, 50, 75, 100].map((level) => (
+                  <button className="button" key={level} onClick={() => action(`${url}/light`, form({ brightness: level }))}>
+                    {level}%
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+      <div className="device-bottom">
+        <div className="device-status">
+          {device.has_battery && <span title="Battery">🔋 {device.battery_percent}%</span>}
+          <span title="Link quality">LQI {device.link_quality}</span>
+          <span title={device.last_seen ? new Date(device.last_seen * 1000).toLocaleString() : undefined}>
+            Seen {relativeTime(device.last_seen)}
+          </span>
         </div>
         <div className="mini-actions">
           <button
-            title="Inspect descriptors"
-            aria-label={`Inspect descriptors for ${device.name}`}
-            onClick={onDescriptors}
+            title="Device details"
+            aria-label={`Details for ${device.name}`}
+            onClick={onDetails}
           >
-            ⌕
+            ⓘ
           </button>
           <button title="Settings" aria-label={`Settings for ${device.name}`} onClick={onSettings}>
             ⚙
@@ -195,88 +295,6 @@ function DeviceCard({
           </button>
         </div>
       </div>
-      <div className="metrics">
-        {metrics.map((metric, index) => (
-          <span className="metric" key={index}>
-            {metric}
-          </span>
-        ))}
-      </div>
-      {device.has_light && (
-        <div className="light-panel">
-          <div className="light-row">
-            <button
-              className={`button ${device.light_on ? 'primary' : ''}`}
-              onClick={() =>
-                action(`${url}/light`, form({ state: device.light_on ? 'off' : 'on' }))
-              }
-            >
-              {device.light_on ? '⏻ Turn off' : '⏻ Turn on'}
-            </button>
-            {canDim && (
-              <>
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={brightness}
-                  aria-label={`Brightness for ${device.name}`}
-                  onChange={(event) => setBrightness(Number(event.target.value))}
-                  onPointerUp={(event) =>
-                    action(`${url}/light`, form({ brightness: event.currentTarget.value }))
-                  }
-                  onKeyUp={(event) => {
-                    if (
-                      [
-                        'ArrowLeft',
-                        'ArrowRight',
-                        'Home',
-                        'End',
-                        'PageUp',
-                        'PageDown',
-                        'Enter',
-                      ].includes(event.key)
-                    )
-                      action(`${url}/light`, form({ brightness: event.currentTarget.value }))
-                  }}
-                />
-                <span>{brightness}%</span>
-              </>
-            )}
-          </div>
-          {canDim && (
-            <div className="presets">
-              {[25, 50, 75, 100].map((level) => (
-                <button
-                  className="button"
-                  key={level}
-                  onClick={() => action(`${url}/light`, form({ brightness: level }))}
-                >
-                  {level}%
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-      <div className="device-foot">
-        <span
-          title={device.last_seen ? new Date(device.last_seen * 1000).toLocaleString() : undefined}
-        >
-          Last contact: {relativeTime(device.last_seen)}
-        </span>
-        <span className="mono">{device.ieee_address}</span>
-      </div>
-      {(device.manufacturer_name || device.model_id) && (
-        <p className="muted small identity">
-          {[
-            device.manufacturer_name && `Vendor: ${device.manufacturer_name}`,
-            device.model_id && `Model: ${device.model_id}`,
-          ]
-            .filter(Boolean)
-            .join(' · ')}
-        </p>
-      )}
     </article>
   )
 }
@@ -284,13 +302,13 @@ export function DeviceGroups({
   status,
   action,
   onSettings,
-  onDescriptors,
+  onDetails,
   onHistory,
 }: {
   status: Status | null
   action: (url: string, body?: string) => void
   onSettings: (device: Device) => void
-  onDescriptors: (device: Device) => void
+  onDetails: (device: Device) => void
   onHistory: (device: Device) => void
 }) {
   if (!status?.devices.length) return <div className="empty">No Zigbee devices discovered yet.</div>
@@ -345,7 +363,7 @@ export function DeviceGroups({
                       device={device}
                       action={action}
                       onSettings={() => onSettings(device)}
-                      onDescriptors={() => onDescriptors(device)}
+                      onDetails={() => onDetails(device)}
                       onHistory={() => onHistory(device)}
                     />
                   ))}

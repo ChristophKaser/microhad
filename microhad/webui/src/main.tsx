@@ -4,7 +4,7 @@ import type { Device } from './api'
 import { errorMessage, form, jsonRequest, post } from './api'
 import { DeviceGroups, DeviceSettings } from './devices'
 import { HistoryDialog } from './HistoryDialog'
-import { DescriptorsDialog, NetworkDialog, SceneTextDialog } from './DashboardDialogs'
+import { DeviceDetailsDialog, NetworkDialog, SceneTextDialog } from './DashboardDialogs'
 import { SceneEditor } from './SceneEditor'
 import { useGatewayData } from './useGatewayData'
 import './style.css'
@@ -85,7 +85,7 @@ function App() {
   const { status, statusError, logs, logsError, refreshStatus } = useGatewayData()
   const [dialog, setDialog] = useState<'network' | 'scenes' | 'text' | null>(null)
   const [selected, setSelected] = useState<Device | null>(null)
-  const [descriptors, setDescriptors] = useState<Device | null>(null)
+  const [detailsDevice, setDetailsDevice] = useState<Device | null>(null)
   const [historyDevice, setHistoryDevice] = useState<Device | null>(null)
   const [restarting, setRestarting] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
@@ -340,7 +340,7 @@ function App() {
           status={status}
           action={action}
           onSettings={setSelected}
-          onDescriptors={setDescriptors}
+          onDetails={setDetailsDevice}
           onHistory={setHistoryDevice}
         />
       </section>
@@ -416,8 +416,8 @@ function App() {
           onSaved={() => void refreshStatus()}
         />
       )}
-      {descriptors && (
-        <DescriptorsDialog device={descriptors} onClose={() => setDescriptors(null)} />
+      {detailsDevice && (
+        <DeviceDetailsDialog device={detailsDevice} onClose={() => setDetailsDevice(null)} />
       )}
       {historyDevice && (
         <HistoryDialog key={historyDevice.ieee_address} device={historyDevice} onClose={() => setHistoryDevice(null)} />
