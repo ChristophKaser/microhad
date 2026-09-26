@@ -35,6 +35,16 @@ prefix_rule(
 )
 
 prefix_rule(
+    pattern = ["jq"],
+    decision = "allow",
+    justification = "Permit local JSON inspection for gateway status and logs.",
+    match = [
+        "jq '{online,network_formed}'",
+        "jq -r '.lines[]'",
+    ],
+)
+
+prefix_rule(
     pattern = ["make"],
     decision = "allow",
     justification = "Permit project builds and tests.",

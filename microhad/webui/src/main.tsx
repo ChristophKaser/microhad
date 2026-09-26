@@ -83,7 +83,7 @@ function PushToggle({
 
 function App() {
   const { status, statusError, logs, logsError, refreshStatus } = useGatewayData()
-  const [dialog, setDialog] = useState<'network' | 'scenes' | 'text' | null>(null)
+  const [dialog, setDialog] = useState<'network' | 'scenes' | 'remotes' | 'text' | null>(null)
   const [selected, setSelected] = useState<Device | null>(null)
   const [detailsDevice, setDetailsDevice] = useState<Device | null>(null)
   const [historyDevice, setHistoryDevice] = useState<Device | null>(null)
@@ -354,6 +354,9 @@ function App() {
             <button className="button primary" onClick={() => setDialog('scenes')}>
               Configure scenes & groups
             </button>
+            <button className="button" onClick={() => setDialog('remotes')}>
+              Configure remotes
+            </button>
             <button className="button" onClick={() => setDialog('text')}>
               Advanced text editor
             </button>
@@ -427,6 +430,16 @@ function App() {
         <SceneEditor
           devices={status?.devices ?? []}
           nativeStatuses={status?.native_bindings ?? []}
+          mode="scenes"
+          onClose={() => setDialog(null)}
+          onSaved={() => void refreshStatus()}
+        />
+      )}
+      {dialog === 'remotes' && (
+        <SceneEditor
+          devices={status?.devices ?? []}
+          nativeStatuses={status?.native_bindings ?? []}
+          mode="remotes"
           onClose={() => setDialog(null)}
           onSaved={() => void refreshStatus()}
         />

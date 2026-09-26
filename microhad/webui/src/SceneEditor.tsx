@@ -7,6 +7,7 @@ import type { SceneConfig, SceneState } from './scenes'
 type Props = {
   devices: Device[]
   nativeStatuses: { ieee_address: string; group_id: number; status: string }[]
+  mode: 'scenes' | 'remotes'
   onClose: () => void
   onSaved: () => void
 }
@@ -95,7 +96,7 @@ function SceneLightState({
   )
 }
 
-export function SceneEditor({ devices, nativeStatuses, onClose, onSaved }: Props) {
+export function SceneEditor({ devices, nativeStatuses, mode, onClose, onSaved }: Props) {
   const [config, setConfig] = useState<SceneConfig | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
@@ -237,18 +238,20 @@ export function SceneEditor({ devices, nativeStatuses, onClose, onSaved }: Props
         className="dialog wide"
         role="dialog"
         aria-modal="true"
-        aria-labelledby="scene-editor-title"
+        aria-labelledby={`${mode}-editor-title`}
       >
         <div className="dialog-heading">
           <div>
             <p className="eyebrow">Zigbee automation</p>
-            <h2 id="scene-editor-title">Scenes & groups</h2>
+            <h2 id={`${mode}-editor-title`}>{mode === 'scenes' ? 'Scenes & groups' : 'Remote controls'}</h2>
           </div>
           <button className="icon-button" onClick={onClose} aria-label="Close">
             ✕
           </button>
         </div>
-        <p className="muted">Assign lights to groups, set scene states, and bind remote actions.</p>
+        <p className="muted">{mode === 'scenes'
+          ? 'Assign lights to groups and set scene states.'
+          : 'Choose native light control or assign remote actions to gateway scenes.'}</p>
         {error && (
           <p className="error" role="alert">
             {error}
@@ -257,7 +260,7 @@ export function SceneEditor({ devices, nativeStatuses, onClose, onSaved }: Props
         {loading && <p>Loading scene configuration…</p>}
         {config && (
           <>
-            {config.groups.map((group, groupIndex) => (
+            {mode === 'scenes' && config.groups.map((group, groupIndex) => (
               <section className="editor-card" key={group.id}>
                 <AccordionToggle
                   title={group.name || 'Unnamed group'}
@@ -381,10 +384,10 @@ export function SceneEditor({ devices, nativeStatuses, onClose, onSaved }: Props
                 </div>
               </section>
             ))}
-            <button className="button" onClick={addGroup}>
+            {mode === 'scenes' && <button className="button" onClick={addGroup}>
               ＋ Add group
-            </button>
-            <section className="editor-card">
+            </button>}
+            {mode === 'remotes' && <section className="editor-card">
               <h3>Remote bindings</h3>
               <p className="muted">Choose native control for direct On/Off and dimming while the gateway is off. Gateway scene rules stay saved and resume when you choose Gateway scenes.</p>
               {remotes.map((remote) => {
@@ -565,7 +568,7 @@ export function SceneEditor({ devices, nativeStatuses, onClose, onSaved }: Props
               >
                 ＋ Add remote binding
               </button>
-            </section>
+            </section>}
           </>
         )}
         <div className="dialog-actions">

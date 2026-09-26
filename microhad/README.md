@@ -110,9 +110,9 @@ so it is the appropriate end-to-end check after credentials are installed.
 
 ## Remote control of lights
 
-In **Scenes & groups**, assign lights to a group and choose a control mode for
-each discovered remote. **Gateway scenes** keeps the existing button-to-scene
-rules. **Native light control** binds the remote's On/Off and Level Control
+In **Scenes & groups**, assign lights to a group. Open **Configure remotes** to
+choose a control mode for each discovered remote. **Gateway scenes** keeps the
+existing button-to-scene rules. **Native light control** binds the remote's On/Off and Level Control
 commands to the selected group, so compatible remotes can operate the lights
 without the gateway daemon. Gateway scene rules remain saved but are inactive
 for that remote until Gateway scenes is selected again. The dashboard shows
