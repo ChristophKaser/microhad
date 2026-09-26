@@ -202,6 +202,7 @@ bool saveDevices(const std::string& filename, const std::vector<Device>& devices
                << device.contactReminderAlertMinutes << ",\"sensor_refresh_interval_minutes\":"
                << device.sensorRefreshIntervalMinutes << ",\"manufacturer_name\":\""
                << jsonEscape(device.manufacturerName) << "\",\"model_id\":\"" << jsonEscape(device.modelId)
+               << "\",\"software_build_id\":\"" << jsonEscape(device.softwareBuildId)
                << "\",\"endpoint_descriptors\":\"" << encodeEndpointDescriptors(device.endpoints) << "\"}";
         output << (i + 1 == devices.size() ? "\n" : ",\n");
     }
@@ -260,10 +261,10 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
             Device device;
             device.ieeeAddress = ieeeAddress;
             if (addressValue != 0) device.networkAddress = static_cast<unsigned short>(networkAddress);
-            const char* fields[] = {"name", "kind", "manufacturer_name", "model_id"};
-            std::string* destinations[] = {&device.name, &device.kind, &device.manufacturerName, &device.modelId};
+            const char* fields[] = {"name", "kind", "manufacturer_name", "model_id", "software_build_id"};
+            std::string* destinations[] = {&device.name, &device.kind, &device.manufacturerName, &device.modelId, &device.softwareBuildId};
             int index;
-            for (index = 0; index < 4; ++index) {
+            for (index = 0; index < 5; ++index) {
                 jsonStringField(line, fields[index], destinations[index]);
             }
             device.contactOpen = line.find("\"contact_open\":true") != std::string::npos;
@@ -345,7 +346,8 @@ Scene* sceneById(SceneGroup* group, unsigned char id) {
 }
 
 bool parseSceneRecord(const std::vector<std::string>& fields, std::vector<SceneGroup>* groups,
-                      std::vector<RemoteSceneBinding>* bindings) {
+                      std::vector<RemoteSceneBinding>* bindings,
+                      std::vector<NativeRemoteBinding>* nativeBindings) {
     unsigned long groupId, sceneId;
     const std::string& type = fields[0];
 
@@ -410,6 +412,15 @@ bool parseSceneRecord(const std::vector<std::string>& fields, std::vector<SceneG
         bindings->push_back(binding);
         return true;
     }
+    if (type == "N") {
+        if (fields.size() != 3 || fields[1].empty() ||
+            !decimalField(fields[2], 0xfff7, &groupId) || groupId == 0) return false;
+        NativeRemoteBinding binding;
+        binding.ieeeAddress = fields[1];
+        binding.groupId = static_cast<unsigned short>(groupId);
+        nativeBindings->push_back(binding);
+        return true;
+    }
     return false;
 }
 
@@ -434,11 +445,12 @@ bool uniqueSceneGroups(const std::vector<SceneGroup>& groups) {
 }
 
 bool saveSceneConfiguration(const std::string& filename, const std::vector<SceneGroup>& groups,
-                            const std::vector<RemoteSceneBinding>& bindings, std::string* error) {
+                            const std::vector<RemoteSceneBinding>& bindings,
+                            const std::vector<NativeRemoteBinding>& nativeBindings, std::string* error) {
     std::string temporary = filename + ".tmp";
     std::ofstream output(temporary.c_str());
     if (!output) { *error = "cannot open scene configuration for writing"; return false; }
-    output << "# microhad-zigbee-scenes-v1\n";
+    output << "# microhad-zigbee-scenes-v2\n";
     for (unsigned long i = 0; i < groups.size(); ++i) {
         const SceneGroup& group = groups[i];
         output << "G\t" << group.id << "\t" << group.name << "\n";
@@ -462,22 +474,26 @@ bool saveSceneConfiguration(const std::string& filename, const std::vector<Scene
         }
         output << "\n";
     }
+    for (unsigned long i = 0; i < nativeBindings.size(); ++i)
+        output << "N\t" << nativeBindings[i].ieeeAddress << "\t" << nativeBindings[i].groupId << "\n";
     output.close();
     if (!output || rename(temporary.c_str(), filename.c_str()) != 0) { unlink(temporary.c_str()); *error = "cannot atomically save scene configuration"; return false; }
     return true;
 }
 
 bool loadSceneConfiguration(const std::string& filename, std::vector<SceneGroup>* groups,
-                            std::vector<RemoteSceneBinding>* bindings, std::string* error) {
+                            std::vector<RemoteSceneBinding>* bindings,
+                            std::vector<NativeRemoteBinding>* nativeBindings, std::string* error) {
     std::ifstream input(filename.c_str());
     std::string line;
     std::vector<SceneGroup> parsedGroups;
     std::vector<RemoteSceneBinding> parsedBindings;
-    if (!input) { groups->clear(); bindings->clear(); return true; }
+    std::vector<NativeRemoteBinding> parsedNativeBindings;
+    if (!input) { groups->clear(); bindings->clear(); nativeBindings->clear(); return true; }
     while (std::getline(input, line)) {
         std::vector<std::string> fields = tabFields(line);
         if (fields[0].empty() || fields[0][0] == '#') continue;
-        if (!parseSceneRecord(fields, &parsedGroups, &parsedBindings)) {
+        if (!parseSceneRecord(fields, &parsedGroups, &parsedBindings, &parsedNativeBindings)) {
             *error = "invalid scene configuration";
             return false;
         }
@@ -488,7 +504,19 @@ bool loadSceneConfiguration(const std::string& filename, std::vector<SceneGroup>
     }
     *groups = parsedGroups;
     *bindings = parsedBindings;
+    *nativeBindings = parsedNativeBindings;
     return true;
+}
+
+bool saveSceneConfiguration(const std::string& filename, const std::vector<SceneGroup>& groups,
+                            const std::vector<RemoteSceneBinding>& bindings, std::string* error) {
+    return saveSceneConfiguration(filename, groups, bindings, std::vector<NativeRemoteBinding>(), error);
+}
+
+bool loadSceneConfiguration(const std::string& filename, std::vector<SceneGroup>* groups,
+                            std::vector<RemoteSceneBinding>* bindings, std::string* error) {
+    std::vector<NativeRemoteBinding> ignored;
+    return loadSceneConfiguration(filename, groups, bindings, &ignored, error);
 }
 
 bool saveNetworkState(const std::string& filename, const NetworkState& network, std::string* error) {

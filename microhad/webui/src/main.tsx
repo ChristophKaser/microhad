@@ -426,6 +426,7 @@ function App() {
       {dialog === 'scenes' && (
         <SceneEditor
           devices={status?.devices ?? []}
+          nativeStatuses={status?.native_bindings ?? []}
           onClose={() => setDialog(null)}
           onSaved={() => void refreshStatus()}
         />

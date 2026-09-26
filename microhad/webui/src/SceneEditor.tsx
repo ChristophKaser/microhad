@@ -4,7 +4,12 @@ import { errorMessage, post, textRequest } from './api'
 import { isDimmable, newState, nextId, parseScenes, serializeScenes } from './scenes'
 import type { SceneConfig, SceneState } from './scenes'
 
-type Props = { devices: Device[]; onClose: () => void; onSaved: () => void }
+type Props = {
+  devices: Device[]
+  nativeStatuses: { ieee_address: string; group_id: number; status: string }[]
+  onClose: () => void
+  onSaved: () => void
+}
 
 const actionLabels: Record<string, string> = {
   on: 'Power on',
@@ -90,7 +95,7 @@ function SceneLightState({
   )
 }
 
-export function SceneEditor({ devices, onClose, onSaved }: Props) {
+export function SceneEditor({ devices, nativeStatuses, onClose, onSaved }: Props) {
   const [config, setConfig] = useState<SceneConfig | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
@@ -161,6 +166,7 @@ export function SceneEditor({ devices, onClose, onSaved }: Props) {
     change((draft) => {
       const [group] = draft.groups.splice(groupIndex, 1)
       draft.bindings = draft.bindings.filter((binding) => binding.groupId !== group.id)
+      draft.nativeBindings = draft.nativeBindings.filter((binding) => binding.groupId !== group.id)
     })
     if (openGroupId === groupId) setOpenGroupId(null)
     if (openSceneKey?.startsWith(`${groupId}/`)) setOpenSceneKey(null)
@@ -380,6 +386,45 @@ export function SceneEditor({ devices, onClose, onSaved }: Props) {
             </button>
             <section className="editor-card">
               <h3>Remote bindings</h3>
+              <p className="muted">Choose native control for direct On/Off and dimming while the gateway is off. Gateway scene rules stay saved and resume when you choose Gateway scenes.</p>
+              {remotes.map((remote) => {
+                const native = config.nativeBindings.find((binding) => binding.ieee === remote.ieee_address)
+                const provisioned = nativeStatuses.find((item) => item.ieee_address === remote.ieee_address)
+                return (
+                  <div className="editor-row" key={remote.ieee_address}>
+                    <span className="grow">{remote.name}</span>
+                    <label className="field compact">
+                      Control mode
+                      <select
+                        value={native ? 'native' : 'gateway'}
+                        onChange={(event) => change((draft) => {
+                          draft.nativeBindings = draft.nativeBindings.filter((item) => item.ieee !== remote.ieee_address)
+                          const group = draft.groups.find((item) => item.id !== 901)
+                          if (event.target.value === 'native' && group)
+                            draft.nativeBindings.push({ ieee: remote.ieee_address, groupId: group.id })
+                        })}
+                      >
+                        <option value="gateway">Gateway scenes</option>
+                        <option value="native" disabled={!config.groups.some((group) => group.id !== 901)}>Native light control</option>
+                      </select>
+                    </label>
+                    {native && (
+                      <label className="field compact">
+                        Light group
+                        <select value={native.groupId} onChange={(event) => change((draft) => {
+                          const entry = draft.nativeBindings.find((item) => item.ieee === remote.ieee_address)
+                          if (entry) entry.groupId = Number(event.target.value)
+                        })}>
+                          {config.groups.filter((group) => group.id !== 901).map((group) =>
+                            <option key={group.id} value={group.id}>{group.name}</option>
+                          )}
+                        </select>
+                      </label>
+                    )}
+                    {native && <span className="muted small">{provisioned?.status ?? 'Save to provision'}</span>}
+                  </div>
+                )
+              })}
               {config.bindings.map((binding, index) => {
                 const group = config.groups.find((item) => item.id === binding.groupId)
                 const remote = remotes.find((item) => item.ieee_address === binding.ieee)
@@ -387,7 +432,7 @@ export function SceneEditor({ devices, onClose, onSaved }: Props) {
                   <section className="scene-card" key={index}>
                     <AccordionToggle
                       title={remote?.name ?? binding.ieee}
-                      detail={`${actionLabels[binding.action] ?? binding.action} · ${group?.name ?? `Group ${binding.groupId}`}`}
+                      detail={`${actionLabels[binding.action] ?? binding.action} · ${group?.name ?? `Group ${binding.groupId}`}${config.nativeBindings.some((item) => item.ieee === binding.ieee) ? ' · paused in native mode' : ''}`}
                       id={`binding-panel-${index}`}
                       open={openBindingIndex === index}
                       onToggle={() => setOpenBindingIndex(openBindingIndex === index ? null : index)}

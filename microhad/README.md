@@ -108,6 +108,21 @@ alerts**. FCM uses the configured topic/service account for the same sensor
 events. The test action intentionally uses the configured delivery transports,
 so it is the appropriate end-to-end check after credentials are installed.
 
+## Remote control of lights
+
+In **Scenes & groups**, assign lights to a group and choose a control mode for
+each discovered remote. **Gateway scenes** keeps the existing button-to-scene
+rules. **Native light control** binds the remote's On/Off and Level Control
+commands to the selected group, so compatible remotes can operate the lights
+without the gateway daemon. Gateway scene rules remain saved but are inactive
+for that remote until Gateway scenes is selected again. The dashboard shows
+whether native binding is pending, active, or failed; press a sleepy remote's
+button again if provisioning is waiting for it to wake. Remotes that reject
+group binding are tried with individual bindings to the group's lights.
+
+Native control while the gateway is powered off also requires the remote to
+have another reachable Zigbee parent, such as a powered bulb or router.
+
 ## Live diagnostics
 
 The dashboard includes a live coordinator log, refreshed once per second from

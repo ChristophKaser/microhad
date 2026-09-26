@@ -621,6 +621,92 @@ public:
             assert((gateway.logsJson().find("payload=182a0b0100") != std::string::npos) == (type < 2));
         }
     }
+    static bool nativeRemoteBindingFlow() {
+        const std::string remoteIeee = "0x00124b0000000099";
+        const std::string lightIeee = "0x00124b0000000042";
+        Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+        EndpointDescriptor remoteEndpoint, lightEndpoint;
+        remoteEndpoint.endpoint = 1;
+        remoteEndpoint.outputClusters.push_back(0x0006);
+        lightEndpoint.endpoint = 1;
+        lightEndpoint.inputClusters.push_back(0x0004);
+        lightEndpoint.inputClusters.push_back(0x0006);
+        Device& remote = gateway.devices_[remoteIeee];
+        remote.ieeeAddress = remoteIeee; remote.networkAddress = 0x1234;
+        remote.hasRemote = true; remote.endpoints.push_back(remoteEndpoint);
+        Device& light = gateway.devices_[lightIeee];
+        light.ieeeAddress = lightIeee; light.networkAddress = 0x2345;
+        light.hasLight = true; light.endpoints.push_back(lightEndpoint);
+        gateway.nodeAddresses_[0x1234] = remoteIeee;
+        gateway.coordinatorIeeeAddress_.assign(8, 0x11);
+        gateway.online_ = true; gateway.networkFormed_ = true;
+        gateway.coordinatorInitializationStep_ = 0;
+        SceneGroup group; group.id = 42; group.name = "Room"; group.members.push_back(lightIeee);
+        gateway.sceneGroups_.push_back(group);
+        NativeRemoteBinding binding; binding.ieeeAddress = remoteIeee; binding.groupId = 42;
+        gateway.nativeBindings_.push_back(binding);
+        gateway.queueNativeBindingChanges(std::vector<NativeRemoteBinding>(), std::vector<SceneGroup>());
+        if (gateway.nativeBindOperations_.size() != 2 ||
+            !gateway.nativeBindOperations_[0].unbind ||
+            gateway.nativeBindOperations_[1].groupId != 42) return false;
+        gateway.pollNativeBindings();
+        if (gateway.nativeBindOperations_[0].deadline == 0 ||
+            gateway.logsJson().find("cluster=0x22") == std::string::npos) return false;
+        std::vector<unsigned char> reply(21, 0);
+        reply[3] = 0x22; reply[4] = 0x80;
+        reply[14] = 0x34; reply[15] = 0x12; reply[18] = 2;
+        reply[19] = gateway.nativeBindOperations_[0].sequence;
+        reply[20] = 0x88; /* no old coordinator entry */
+        gateway.handleIncomingMessage(reply);
+        if (gateway.nativeBindOperations_.size() != 1) return false;
+        gateway.pollNativeBindings();
+        if (gateway.nativeBindOperations_[0].deadline == 0 ||
+            gateway.logsJson().find("payload=") == std::string::npos) return false;
+        reply[3] = 0x21; reply[19] = gateway.nativeBindOperations_[0].sequence;
+        reply[20] = 0x84; /* group unsupported: bind to lights */
+        gateway.handleIncomingMessage(reply);
+        if (gateway.nativeBindOperations_.size() != 1 ||
+            gateway.nativeBindOperations_[0].destinationMode != 3 ||
+            gateway.nativeBindOperations_[0].targetIeee != lightIeee) return false;
+        gateway.pollNativeBindings();
+        reply[19] = gateway.nativeBindOperations_[0].sequence;
+        reply[20] = 0;
+        gateway.handleIncomingMessage(reply);
+        if (!gateway.nativeBindOperations_.empty() ||
+            gateway.nativeBindingStates_[remoteIeee] != "active") return false;
+        RemoteSceneBinding sceneRule; sceneRule.ieeeAddress = remoteIeee; sceneRule.action = "on";
+        sceneRule.groupId = 42; sceneRule.sceneIds.push_back(1);
+        gateway.sceneBindings_.push_back(sceneRule);
+        gateway.dispatchRemoteSceneAction(remoteIeee, "on");
+        return gateway.sceneRetries_.empty();
+    }
+    static bool nativeIkeaFirmwareModes() {
+        const std::string remoteIeee = "0x70ac08fffe75827b";
+        const std::string lightIeee = "0x84ba20fffea0e73c";
+        const char* versions[] = {"2.3.074", "2.3.075"};
+        for (unsigned int v = 0; v < 2; ++v) {
+            Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+            Device& remote = gateway.devices_[remoteIeee];
+            EndpointDescriptor endpoint; endpoint.endpoint = 1; endpoint.outputClusters.push_back(6);
+            remote.ieeeAddress = remoteIeee; remote.modelId = "TRADFRI on/off switch";
+            remote.softwareBuildId = versions[v]; remote.hasRemote = true;
+            remote.endpoints.push_back(endpoint);
+            Device& light = gateway.devices_[lightIeee];
+            endpoint.outputClusters.clear(); endpoint.inputClusters.push_back(4); endpoint.inputClusters.push_back(6);
+            light.ieeeAddress = lightIeee; light.hasLight = true; light.endpoints.push_back(endpoint);
+            SceneGroup group; group.id = 42; group.members.push_back(lightIeee);
+            gateway.sceneGroups_.push_back(group);
+            NativeRemoteBinding binding; binding.ieeeAddress = remoteIeee; binding.groupId = 42;
+            gateway.nativeBindings_.push_back(binding);
+            gateway.queueNativeBindingChanges(std::vector<NativeRemoteBinding>(), std::vector<SceneGroup>());
+            if (gateway.nativeBindOperations_.size() != 2) return false;
+            if (gateway.nativeBindOperations_[0].destinationMode != (v == 0 ? 1 : 3)) return false;
+            if (gateway.nativeBindOperations_[1].destinationMode != (v == 0 ? 1 : 3)) return false;
+            if (v == 0 && gateway.nativeBindOperations_[1].groupId != 42) return false;
+            if (v == 1 && gateway.nativeBindOperations_[1].targetIeee != lightIeee) return false;
+        }
+        return true;
+    }
     static bool styrbarArrowEventsAreLogged() {
         const unsigned short node = 0x4321;
         const std::string ieee = "0x00124b0000000022";
@@ -1258,6 +1344,7 @@ static void testNetworkPersistenceRejectsInvalidState() {
 
 static void testSceneConfigurationPersistence() {
     std::ostringstream path; std::string error; std::vector<SceneGroup> groups, loaded; std::vector<RemoteSceneBinding> bindings, loadedBindings;
+    std::vector<NativeRemoteBinding> nativeBindings, loadedNativeBindings;
     path << "/tmp/microhad-zigbee-scenes-test-" << static_cast<long>(getpid());
     assert(ensureDirectory(path.str(), &error));
     SceneGroup group; Scene scene; SceneLightState state; RemoteSceneBinding binding;
@@ -1266,12 +1353,14 @@ static void testSceneConfigurationPersistence() {
     Scene secondScene; secondScene.id=8; secondScene.name="Late"; group.scenes.push_back(secondScene);
     groups.push_back(group);
     binding.ieeeAddress="0x00124b0000000099"; binding.action="on"; binding.groupId=42; binding.off=true; binding.sceneIds.push_back(7); binding.sceneIds.push_back(8); bindings.push_back(binding);
-    assert(saveSceneConfiguration(path.str()+"/scenes.conf",groups,bindings,&error));
-    assert(loadSceneConfiguration(path.str()+"/scenes.conf",&loaded,&loadedBindings,&error));
+    NativeRemoteBinding native; native.ieeeAddress = binding.ieeeAddress; native.groupId = 42; nativeBindings.push_back(native);
+    assert(saveSceneConfiguration(path.str()+"/scenes.conf",groups,bindings,nativeBindings,&error));
+    assert(loadSceneConfiguration(path.str()+"/scenes.conf",&loaded,&loadedBindings,&loadedNativeBindings,&error));
     assert(loaded.size()==1 && loaded[0].id==42 && loaded[0].name=="Kitchen" && loaded[0].members.size()==1 && loaded[0].members[0]=="0x00124b0000000042");
     assert(loaded[0].scenes.size()==2 && loaded[0].scenes[0].id==7 && loaded[0].scenes[0].name=="Dinner" && loaded[0].scenes[0].states[0].brightnessPercent==35);
     assert(loaded[0].scenes[1].id==8 && loaded[0].scenes[1].name=="Late");
     assert(loadedBindings.size()==1 && loadedBindings[0].ieeeAddress=="0x00124b0000000099" && loadedBindings[0].action=="on" && loadedBindings[0].groupId==42 && loadedBindings[0].off && loadedBindings[0].sceneIds.size()==2 && loadedBindings[0].sceneIds[0]==7 && loadedBindings[0].sceneIds[1]==8);
+    assert(loadedNativeBindings.size()==1 && loadedNativeBindings[0].ieeeAddress==native.ieeeAddress && loadedNativeBindings[0].groupId==42);
     unlink((path.str()+"/scenes.conf").c_str()); rmdir(path.str().c_str());
 }
 
@@ -1596,6 +1685,8 @@ static void testRemoteKeyEvents() {
     unlink("/tmp/microhad-zigbee-native.log");
     assert(GatewayTestPeer::remoteKeyEventsAreLogged());
     GatewayTestPeer::tradfriFirmwareBindingAndOta();
+    assert(GatewayTestPeer::nativeRemoteBindingFlow());
+    assert(GatewayTestPeer::nativeIkeaFirmwareModes());
     unlink("/tmp/microhad-zigbee-native.log");
 }
 

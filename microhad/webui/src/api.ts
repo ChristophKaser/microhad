@@ -61,6 +61,7 @@ export interface Status {
   notifications_enabled: boolean
   devices: Device[]
   scene_groups: SceneGroupSummary[]
+  native_bindings: { ieee_address: string; group_id: number; status: string }[]
 }
 
 export type HistorySample = [sequence: number, timestamp: number, metric: 1 | 2 | 3, value: number]

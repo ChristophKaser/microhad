@@ -23,13 +23,18 @@ export interface Binding {
   off: boolean
   sceneIds: number[]
 }
+export interface NativeBinding {
+  ieee: string
+  groupId: number
+}
 export interface SceneConfig {
   groups: Group[]
   bindings: Binding[]
+  nativeBindings: NativeBinding[]
 }
 
 export function parseScenes(text: string): SceneConfig {
-  const config: SceneConfig = { groups: [], bindings: [] }
+  const config: SceneConfig = { groups: [], bindings: [], nativeBindings: [] }
   const groups = new Map<number, Group>()
   const scenes = new Map<string, Scene>()
   for (const [index, line] of text.split(/\r?\n/).entries()) {
@@ -82,6 +87,10 @@ export function parseScenes(text: string): SceneConfig {
           sceneIds: fields[5] ? fields[5].split(',').map(Number) : [],
         })
         break
+      case 'N':
+        if (fields.length !== 3) throw invalid()
+        config.nativeBindings.push({ ieee: fields[1], groupId: Number(fields[2]) })
+        break
       default:
         throw invalid()
     }
@@ -109,7 +118,7 @@ export function newState(address: string, devices: Device[]): SceneState {
 }
 
 export function serializeScenes(config: SceneConfig, devices: Device[]): string {
-  const lines = ['# microhad-zigbee-scenes-v1']
+  const lines = ['# microhad-zigbee-scenes-v2']
   const name = (value: string) => {
     if (!value.trim() || /[\t\r\n]/.test(value))
       throw new Error('Names must be nonempty and cannot contain tabs or line breaks')
@@ -139,6 +148,14 @@ export function serializeScenes(config: SceneConfig, devices: Device[]): string 
         binding.off ? '' : binding.sceneIds.join(',')
       }`
     )
+  }
+  const nativeRemotes = new Set<string>()
+  for (const binding of config.nativeBindings) {
+    if (!binding.ieee || nativeRemotes.has(binding.ieee) || binding.groupId === 901 ||
+        !config.groups.some((group) => group.id === binding.groupId))
+      throw new Error('Each native remote needs one valid light group')
+    nativeRemotes.add(binding.ieee)
+    lines.push(`N\t${binding.ieee}\t${binding.groupId}`)
   }
   return `${lines.join('\n')}\n`
 }

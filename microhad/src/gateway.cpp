@@ -9,12 +9,14 @@
 #include <cerrno>
 #include <algorithm>
 #include <climits>
+#include <cctype>
 #include <cstdio>
 #include <cstring>
 #include <cmath>
 #include <ctime>
 #include <fcntl.h>
 #include <sstream>
+#include <set>
 #include <iomanip>
 #include <fstream>
 #include <termios.h>
@@ -154,6 +156,13 @@ std::string hexBytes(const std::vector<unsigned char>& bytes) {
     output << std::hex << std::setfill('0');
     for (unsigned long i = 0; i < bytes.size(); ++i) output << std::setw(2) << static_cast<unsigned int>(bytes[i]);
     return output.str();
+}
+
+bool validIeeeAddress(const std::string& address) {
+    if (address.size() != 18 || address.substr(0, 2) != "0x") return false;
+    for (unsigned long i = 2; i < address.size(); ++i)
+        if (!std::isxdigit(static_cast<unsigned char>(address[i]))) return false;
+    return true;
 }
 
 const char* clusterName(unsigned short cluster) {
@@ -400,10 +409,13 @@ void Gateway::poll() {
     if (interviewRequestInFlight_ && interviewDeadline_ != 0 && time(0) >= interviewDeadline_) {
         failInterviewOperation(interviewNode_, "response timed out");
     }
-    if (online_ && networkFormed_ && coordinatorInitializationStep_ == 0 && !interviewRequestInFlight_) {
+    bool nativeBusy = false;
+    for (unsigned long native = 0; native < nativeBindOperations_.size(); ++native)
+        if (nativeBindOperations_[native].deadline != 0) nativeBusy = true;
+    if (online_ && networkFormed_ && coordinatorInitializationStep_ == 0 && !interviewRequestInFlight_ && !nativeBusy) {
         sendNextInterviewOperation();
     }
-    if (online_ && networkFormed_ && coordinatorInitializationStep_ == 0 && !interviewRequestInFlight_ &&
+    if (online_ && networkFormed_ && coordinatorInitializationStep_ == 0 && !interviewRequestInFlight_ && !nativeBusy &&
         !lightSetupPending_.empty()) {
         std::map<unsigned short, bool>::iterator pending = lightSetupPending_.begin();
         unsigned short node = pending->first;
@@ -413,7 +425,7 @@ void Gateway::poll() {
             addLog("Queued light reporting setup for existing device");
         }
     }
-    if (online_ && networkFormed_ && coordinatorInitializationStep_ == 0 && !interviewRequestInFlight_) {
+    if (online_ && networkFormed_ && coordinatorInitializationStep_ == 0 && !interviewRequestInFlight_ && !nativeBusy) {
         std::map<unsigned short, std::string>::const_iterator node;
         long now = time(0);
         for (node = nodeAddresses_.begin(); node != nodeAddresses_.end(); ++node) {
@@ -433,6 +445,7 @@ void Gateway::poll() {
             break; /* one sleepy-device request at a time */
         }
     }
+    pollNativeBindings();
     if (joinPreparationStep_ != 0 && joinPreparationDeadline_ != 0 && time(0) >= joinPreparationDeadline_) {
         addLog("Secure pairing preparation timed out; try allowing joining again");
         joinPreparationStep_ = 0;
@@ -482,7 +495,23 @@ std::string Gateway::historyPath() const { return history_.path(); }
 int Gateway::serialFd() const { return serialFd_; }
 bool Gateway::serialNeedsWrite() const { return !serialPendingBytes_.empty(); }
 bool Gateway::hasImmediateWork() const {
-    return serialPendingBytes_.empty() && ashPendingData_.empty() && !ashTransmitQueue_.empty();
+    if (serialPendingBytes_.empty() && ashPendingData_.empty() && !ashTransmitQueue_.empty()) return true;
+    if (!online_ || !networkFormed_ || coordinatorInitializationStep_ != 0 || interviewRequestInFlight_) return false;
+    bool inFlight = false;
+    for (unsigned long i = 0; i < nativeBindOperations_.size(); ++i)
+        if (nativeBindOperations_[i].deadline != 0) inFlight = true;
+    if (inFlight) return false;
+    for (unsigned long i = 0; i < nativeBindOperations_.size(); ++i) {
+        const NativeBindOperation& operation = nativeBindOperations_[i];
+        std::map<std::string, Device>::const_iterator device = devices_.find(operation.ieeeAddress);
+        std::map<std::string, std::string>::const_iterator state = nativeBindingStates_.find(operation.ieeeAddress);
+        if (operation.retryAt <= time(0) && state != nativeBindingStates_.end() &&
+            state->second.find("failed") != 0 && device != devices_.end() &&
+            device->second.networkAddress != 0xffff &&
+            (operation.destinationMode == 1 || !operation.targetIeee.empty() || coordinatorIeeeAddress_.size() == 8))
+            return true;
+    }
+    return false;
 }
 
 long Gateway::nextPollDeadline() const {
@@ -499,6 +528,12 @@ long Gateway::nextPollDeadline() const {
     CONSIDER_DEADLINE(coordinatorInitializationDeadline_);
     if (networkForming_) CONSIDER_DEADLINE(networkFormationDeadline_);
     if (interviewRequestInFlight_) CONSIDER_DEADLINE(interviewDeadline_);
+    bool nativeBusy = false;
+    for (unsigned long native = 0; native < nativeBindOperations_.size(); ++native)
+        if (nativeBindOperations_[native].deadline != 0) {
+            nativeBusy = true;
+            CONSIDER_DEADLINE(nativeBindOperations_[native].deadline);
+        }
     CONSIDER_DEADLINE(joinPreparationDeadline_);
     if (joinPermitClosePending_) CONSIDER_DEADLINE(joinPermitCloseDeadline_);
     if (!joinPermitClosePending_) {
@@ -506,7 +541,7 @@ long Gateway::nextPollDeadline() const {
         if (joinUntil_ != 0) CONSIDER_DEADLINE(joinPermitRenewAt_);
     }
     for (alert = nextContactAlertAt_.begin(); alert != nextContactAlertAt_.end(); ++alert) CONSIDER_DEADLINE(alert->second);
-    if (online_ && networkFormed_ && coordinatorInitializationStep_ == 0 && !interviewRequestInFlight_) {
+    if (online_ && networkFormed_ && coordinatorInitializationStep_ == 0 && !interviewRequestInFlight_ && !nativeBusy) {
         for (interview = interviews_.begin(); interview != interviews_.end(); ++interview) {
             const InterviewState& state = interview->second;
             if (!state.paused && state.operationIndex < state.operations.size())
@@ -1017,6 +1052,7 @@ void Gateway::pollSceneRetries() {
 }
 
 void Gateway::dispatchRemoteSceneAction(const std::string& ieeeAddress, const std::string& action) {
+    if (nativeBindingEnabled(ieeeAddress)) return;
     for (unsigned long i = 0; i < sceneBindings_.size(); ++i) {
         RemoteSceneBinding& binding = sceneBindings_[i];
         if (binding.ieeeAddress != ieeeAddress || binding.action != action) continue;
@@ -1061,14 +1097,195 @@ void Gateway::dispatchRemoteSceneAction(const std::string& ieeeAddress, const st
     }
 }
 
+bool Gateway::nativeBindingEnabled(const std::string& ieeeAddress) const {
+    for (unsigned long i = 0; i < nativeBindings_.size(); ++i)
+        if (nativeBindings_[i].ieeeAddress == ieeeAddress) return true;
+    return false;
+}
+
+void Gateway::queueNativeBindingChanges(const std::vector<NativeRemoteBinding>& oldBindings,
+                                        const std::vector<SceneGroup>& oldGroups) {
+    std::set<std::string> remotes;
+    unsigned long i;
+    for (i = 0; i < oldBindings.size(); ++i) remotes.insert(oldBindings[i].ieeeAddress);
+    for (i = 0; i < nativeBindings_.size(); ++i) remotes.insert(nativeBindings_[i].ieeeAddress);
+    for (std::set<std::string>::const_iterator name = remotes.begin(); name != remotes.end(); ++name) {
+        unsigned short oldGroup = 0, newGroup = 0;
+        const SceneGroup* oldSceneGroup = 0;
+        const SceneGroup* newSceneGroup = 0;
+        for (i = 0; i < oldBindings.size(); ++i)
+            if (oldBindings[i].ieeeAddress == *name) oldGroup = oldBindings[i].groupId;
+        for (i = 0; i < nativeBindings_.size(); ++i)
+            if (nativeBindings_[i].ieeeAddress == *name) newGroup = nativeBindings_[i].groupId;
+        for (i = 0; i < oldGroups.size(); ++i)
+            if (oldGroups[i].id == oldGroup) oldSceneGroup = &oldGroups[i];
+        for (i = 0; i < sceneGroups_.size(); ++i)
+            if (sceneGroups_[i].id == newGroup) newSceneGroup = &sceneGroups_[i];
+        if (oldGroup == newGroup && oldGroup != 0 && oldSceneGroup != 0 && newSceneGroup != 0 &&
+            oldSceneGroup->members == newSceneGroup->members) continue;
+        std::map<std::string, Device>::const_iterator remote = devices_.find(*name);
+        if (remote == devices_.end() || remote->second.endpoints.empty()) {
+            nativeBindingStates_[*name] = "pending: remote interview required";
+            markViewDirty();
+            continue;
+        }
+        /* A changed choice supersedes outstanding commands for that remote. */
+        for (i = 0; i < nativeBindOperations_.size(); ) {
+            if (nativeBindOperations_[i].ieeeAddress == *name)
+                nativeBindOperations_.erase(nativeBindOperations_.begin() + i);
+            else ++i;
+        }
+        bool legacyIkea = false;
+        if (remote->second.modelId == "TRADFRI on/off switch") {
+            unsigned int major = 0, minor = 0, patch = 0;
+            char dot1 = 0, dot2 = 0;
+            std::istringstream version(remote->second.softwareBuildId);
+            if ((version >> major >> dot1 >> minor >> dot2 >> patch) && dot1 == '.' && dot2 == '.')
+                legacyIkea = major < 2 || (major == 2 && (minor < 3 || (minor == 3 && patch < 75)));
+        }
+        for (i = 0; i < remote->second.endpoints.size(); ++i) {
+            const EndpointDescriptor& endpoint = remote->second.endpoints[i];
+            const unsigned short clusters[] = {kOnOffCluster, kLevelCluster};
+            for (unsigned int c = 0; c < 2; ++c) {
+                if (std::find(endpoint.outputClusters.begin(), endpoint.outputClusters.end(), clusters[c]) ==
+                    endpoint.outputClusters.end()) continue;
+                NativeBindOperation operation;
+                operation.ieeeAddress = *name;
+                operation.endpoint = endpoint.endpoint;
+                operation.cluster = clusters[c];
+                operation.unbind = true;
+                if (oldSceneGroup != 0) {
+                    operation.destinationMode = 1;
+                    operation.groupId = oldGroup;
+                    nativeBindOperations_.push_back(operation);
+                    operation.destinationMode = 3;
+                    for (unsigned long m = 0; m < oldSceneGroup->members.size(); ++m) {
+                        std::map<std::string, Device>::const_iterator target = devices_.find(oldSceneGroup->members[m]);
+                        unsigned char targetEndpoint = 0;
+                        if (target == devices_.end() || !endpointForCluster(target->second, clusters[c], &targetEndpoint)) continue;
+                        operation.targetIeee = oldSceneGroup->members[m];
+                        nativeBindOperations_.push_back(operation);
+                    }
+                } else if (newSceneGroup != 0) {
+                    operation.destinationMode = legacyIkea ? 1 : 3;
+                    operation.groupId = kLegacyRemoteGroup;
+                    nativeBindOperations_.push_back(operation);
+                    if (remote->second.modelId == "TRADFRI on/off switch" &&
+                        remote->second.softwareBuildId.empty()) {
+                        operation.destinationMode = 1;
+                        nativeBindOperations_.push_back(operation);
+                    }
+                }
+                operation.unbind = false;
+                if (newSceneGroup != 0) {
+                    if (remote->second.modelId == "TRADFRI on/off switch" && !legacyIkea &&
+                        !remote->second.softwareBuildId.empty()) {
+                        operation.destinationMode = 3;
+                        for (unsigned long m = 0; m < newSceneGroup->members.size(); ++m) {
+                            std::map<std::string, Device>::const_iterator target = devices_.find(newSceneGroup->members[m]);
+                            unsigned char targetEndpoint = 0;
+                            if (target == devices_.end() || !endpointForCluster(target->second, clusters[c], &targetEndpoint)) continue;
+                            operation.targetIeee = newSceneGroup->members[m];
+                            nativeBindOperations_.push_back(operation);
+                        }
+                    } else {
+                        operation.destinationMode = 1;
+                        operation.groupId = newGroup;
+                        operation.fallback = !legacyIkea;
+                        nativeBindOperations_.push_back(operation);
+                    }
+                } else if (oldSceneGroup != 0) {
+                    operation.destinationMode = legacyIkea ? 1 : 3;
+                    operation.groupId = kLegacyRemoteGroup;
+                    nativeBindOperations_.push_back(operation);
+                }
+            }
+        }
+        nativeBindingStates_[*name] = nativeBindOperations_.empty() ? "active" : "pending";
+        markViewDirty();
+    }
+}
+
+void Gateway::pollNativeBindings() {
+    if (!online_ || !networkFormed_ || coordinatorInitializationStep_ != 0 || interviewRequestInFlight_) return;
+    const long now = time(0);
+    for (unsigned long i = 0; i < nativeBindOperations_.size(); ++i) {
+        NativeBindOperation& operation = nativeBindOperations_[i];
+        if (operation.deadline == 0) continue;
+        if (now < operation.deadline) return;
+        operation.deadline = 0;
+        operation.retryAt = LONG_MAX;
+        nativeBindingStates_[operation.ieeeAddress] = "failed: remote did not answer";
+        addLog("Native binding timed out for " + operation.ieeeAddress);
+        markViewDirty();
+        return;
+    }
+    for (unsigned long i = 0; i < nativeBindOperations_.size(); ++i) {
+        NativeBindOperation& operation = nativeBindOperations_[i];
+        if (operation.retryAt > now || nativeBindingStates_[operation.ieeeAddress].find("failed") == 0) continue;
+        std::map<std::string, Device>::const_iterator device = devices_.find(operation.ieeeAddress);
+        if (device == devices_.end() || device->second.networkAddress == 0xffff) continue;
+        std::vector<unsigned char> request;
+        std::string source = operation.ieeeAddress;
+        if (!validIeeeAddress(source)) {
+            nativeBindingStates_[source] = "failed: invalid remote address";
+            markViewDirty();
+            return;
+        }
+        operation.sequence = zdoSequence_++;
+        request.push_back(operation.sequence);
+        for (int b = 7; b >= 0; --b) {
+            unsigned int byte = 0;
+            std::istringstream parser(source.substr(2 + b * 2, 2));
+            parser >> std::hex >> byte;
+            request.push_back(static_cast<unsigned char>(byte));
+        }
+        request.push_back(operation.endpoint);
+        appendLittleEndian16(&request, operation.cluster);
+        request.push_back(operation.destinationMode);
+        if (operation.destinationMode == 1) appendLittleEndian16(&request, operation.groupId);
+        else if (operation.targetIeee.empty()) {
+            if (coordinatorIeeeAddress_.size() != 8) return;
+            request.insert(request.end(), coordinatorIeeeAddress_.begin(), coordinatorIeeeAddress_.end());
+            request.push_back(kCoordinatorEndpoint);
+        } else {
+            if (!validIeeeAddress(operation.targetIeee)) {
+                nativeBindingStates_[source] = "failed: invalid light address";
+                markViewDirty();
+                return;
+            }
+            for (int b = 7; b >= 0; --b) {
+                unsigned int byte = 0;
+                std::istringstream parser(operation.targetIeee.substr(2 + b * 2, 2));
+                parser >> std::hex >> byte;
+                request.push_back(static_cast<unsigned char>(byte));
+            }
+            std::map<std::string, Device>::const_iterator target = devices_.find(operation.targetIeee);
+            unsigned char endpoint = 0;
+            if (target == devices_.end() || !endpointForCluster(target->second, operation.cluster, &endpoint)) {
+                nativeBindingStates_[operation.ieeeAddress] = "failed: target cluster unavailable";
+                markViewDirty();
+                return;
+            }
+            request.push_back(endpoint);
+        }
+        operation.deadline = now + 10;
+        sendApsUnicast(device->second.networkAddress, 0x0000,
+                       operation.unbind ? 0x0022 : 0x0021, 0, 0, request);
+        addLog(std::string("Native ") + (operation.unbind ? "unbind" : "bind") + " queued for " + source);
+        return;
+    }
+}
+
 bool Gateway::setSceneConfiguration(const std::string& encoded, std::string* error) {
     const std::string incoming = "/tmp/microhad-zigbee-scenes-import";
     std::ofstream output(incoming.c_str());
     std::vector<SceneGroup> groups;
     std::vector<RemoteSceneBinding> bindings;
+    std::vector<NativeRemoteBinding> nativeBindings;
     if (!output) { *error = "cannot stage scene configuration"; return false; }
     output << encoded; output.close();
-    if (!loadSceneConfiguration(incoming, &groups, &bindings, error)) { unlink(incoming.c_str()); return false; }
+    if (!loadSceneConfiguration(incoming, &groups, &bindings, &nativeBindings, error)) { unlink(incoming.c_str()); return false; }
     unlink(incoming.c_str());
     for (unsigned long i=0;i<groups.size();++i) {
         if (groups[i].id == 0 || groups[i].id > 0xfff7 || groups[i].name.empty() || groups[i].members.empty()) { *error="invalid scene group"; return false; }
@@ -1112,8 +1329,39 @@ bool Gateway::setSceneConfiguration(const std::string& encoded, std::string* err
             }
         }
     }
-    sceneGroups_=groups; sceneBindings_=bindings; saveScenes();
+    for (unsigned long i=0;i<nativeBindings.size();++i) {
+        const NativeRemoteBinding& binding = nativeBindings[i];
+        std::map<std::string, Device>::const_iterator remote = devices_.find(binding.ieeeAddress);
+        bool found = false;
+        bool commands = false;
+        if (remote != devices_.end()) for (unsigned long e=0;e<remote->second.endpoints.size();++e) {
+            const EndpointDescriptor& endpoint = remote->second.endpoints[e];
+            if (std::find(endpoint.outputClusters.begin(), endpoint.outputClusters.end(), static_cast<unsigned short>(kOnOffCluster)) != endpoint.outputClusters.end() ||
+                std::find(endpoint.outputClusters.begin(), endpoint.outputClusters.end(), static_cast<unsigned short>(kLevelCluster)) != endpoint.outputClusters.end())
+                commands = true;
+        }
+        for (unsigned long j=0;j<groups.size();++j) if (groups[j].id == binding.groupId) {
+            found = groups[j].id != kLegacyRemoteGroup;
+            for (unsigned long k=0;k<groups[j].members.size();++k) {
+                std::map<std::string, Device>::const_iterator light = devices_.find(groups[j].members[k]);
+                unsigned char endpoint = 0;
+                if (light == devices_.end() || !validIeeeAddress(groups[j].members[k]) ||
+                    !endpointForCluster(light->second, kGroupsCluster, &endpoint)) found = false;
+            }
+        }
+        if (!found || !validIeeeAddress(binding.ieeeAddress) || remote == devices_.end() ||
+            !remote->second.hasRemote || !commands) {
+            *error = "native binding requires a remote and group-capable lights"; return false;
+        }
+        for (unsigned long j=0;j<i;++j) if (nativeBindings[j].ieeeAddress == binding.ieeeAddress) {
+            *error = "remote has multiple native bindings"; return false;
+        }
+    }
+    std::vector<NativeRemoteBinding> oldBindings = nativeBindings_;
+    std::vector<SceneGroup> oldGroups = sceneGroups_;
+    sceneGroups_=groups; sceneBindings_=bindings; nativeBindings_=nativeBindings; saveScenes();
     for (unsigned long i=0;i<sceneGroups_.size();++i) provisionSceneGroup(sceneGroups_[i]);
+    queueNativeBindingChanges(oldBindings, oldGroups);
     addLog("Scene configuration saved; native provisioning queued");
     return true;
 }
@@ -1391,6 +1639,18 @@ std::string GatewayView::statusJson() const {
     }
     json << "],\"scene_bindings\":[";
     for (unsigned long bindingIndex=0;bindingIndex<sceneBindings.size();++bindingIndex) { const RemoteSceneBinding& binding=sceneBindings[bindingIndex]; if(bindingIndex)json<<','; json << "{\"ieee_address\":\"" << jsonEscape(binding.ieeeAddress) << "\",\"action\":\"" << jsonEscape(binding.action) << "\",\"group_id\":" << binding.groupId << ",\"off\":" << (binding.off?"true":"false") << "}"; }
+    json << "],\"native_bindings\":[";
+    for (unsigned long bindingIndex=0;bindingIndex<nativeBindings.size();++bindingIndex) {
+        if (bindingIndex) json << ',';
+        const NativeRemoteBinding& binding=nativeBindings[bindingIndex];
+        json << "{\"ieee_address\":\"" << jsonEscape(binding.ieeeAddress) << "\",\"group_id\":" << binding.groupId;
+        std::string state = "pending";
+        for (unsigned long stateIndex=0;stateIndex<nativeBindingStatuses.size();++stateIndex)
+            if (nativeBindingStatuses[stateIndex].ieeeAddress == binding.ieeeAddress)
+                state = nativeBindingStatuses[stateIndex].state;
+        json << ",\"status\":\"" << jsonEscape(state) << "\"";
+        json << '}';
+    }
     json << "]}";
     return json.str();
 }
@@ -1412,7 +1672,13 @@ GatewayView Gateway::captureView() const {
     view.online = online_; view.networkForming = networkForming_; view.networkFormed = networkFormed_;
     view.serialRxBytes = serialRxBytes_; view.ashRxFrames = ashRxFrames_; view.joiningUntil = joinUntil_;
     view.joiningPreparing = joinPreparationStep_ != 0; view.notificationsEnabled = notificationsEnabled();
-    view.devices = devices(); view.sceneGroups = sceneGroups_; view.sceneBindings = sceneBindings_; view.logs = logs_;
+    view.devices = devices(); view.sceneGroups = sceneGroups_; view.sceneBindings = sceneBindings_;
+    view.nativeBindings = nativeBindings_;
+    for (std::map<std::string, std::string>::const_iterator it = nativeBindingStates_.begin(); it != nativeBindingStates_.end(); ++it) {
+        NativeBindingStatus status; status.ieeeAddress = it->first; status.state = it->second;
+        view.nativeBindingStatuses.push_back(status);
+    }
+    view.logs = logs_;
     return view;
 }
 
@@ -1556,13 +1822,14 @@ void Gateway::savePersistentState() const {
 
 void Gateway::loadScenes() {
     std::string error;
-    if (!loadSceneConfiguration(runtimeDirectory_ + "/scenes.conf", &sceneGroups_, &sceneBindings_, &error) && !error.empty())
+    if (!loadSceneConfiguration(runtimeDirectory_ + "/scenes.conf", &sceneGroups_, &sceneBindings_, &nativeBindings_, &error) && !error.empty())
         addLog(std::string("Scene configuration ignored: ") + error);
+    queueNativeBindingChanges(std::vector<NativeRemoteBinding>(), std::vector<SceneGroup>());
 }
 
 void Gateway::saveScenes() {
     std::string error;
-    if (!saveSceneConfiguration(runtimeDirectory_ + "/scenes.conf", sceneGroups_, sceneBindings_, &error))
+    if (!saveSceneConfiguration(runtimeDirectory_ + "/scenes.conf", sceneGroups_, sceneBindings_, nativeBindings_, &error))
         addLog(std::string("Scene configuration save failed: ") + error);
 }
 
@@ -2462,6 +2729,13 @@ void Gateway::registerNode(unsigned short nodeId, const unsigned char* eui64) {
     message << "Device announced: " << address.str() << " (0x" << std::hex << nodeId << ")";
     addLog(message.str());
     wakeInterview(nodeId);
+    std::map<std::string, std::string>::iterator nativeState = nativeBindingStates_.find(address.str());
+    if (nativeState != nativeBindingStates_.end() && nativeState->second.find("failed") == 0) {
+        nativeState->second = "pending";
+        for (unsigned long i = 0; i < nativeBindOperations_.size(); ++i)
+            if (nativeBindOperations_[i].ieeeAddress == address.str()) nativeBindOperations_[i].retryAt = 0;
+        markViewDirty();
+    }
     /* EZSP reports the same rejoin through more than one callback.  One
        endpoint discovery/interview is sufficient and prevents overlapping
        sleepy-device setup transactions. */
@@ -2587,15 +2861,19 @@ void Gateway::buildConfigurationOperations(unsigned short destination) {
         if (endpointSupports(endpoint, 0x0405)) queueInterviewOperation(destination, InterviewBind, endpoint.endpoint, 0x0405);
         if (endpointSupports(endpoint, 0x0001)) queueInterviewOperation(destination, InterviewBind, endpoint.endpoint, 0x0001);
         if (endpointSupports(endpoint, 0x0406)) queueInterviewOperation(destination, InterviewBind, endpoint.endpoint, 0x0406);
-        if (endpointSupports(endpoint, 0x0006)) queueInterviewOperation(destination, InterviewBind, endpoint.endpoint, 0x0006);
-        if (endpointSupports(endpoint, 0x0008)) queueInterviewOperation(destination, InterviewBind, endpoint.endpoint, 0x0008);
+        if (!nativeBindingEnabled(state.ieeeAddress) && endpointSupports(endpoint, 0x0006))
+            queueInterviewOperation(destination, InterviewBind, endpoint.endpoint, 0x0006);
+        if (!nativeBindingEnabled(state.ieeeAddress) && endpointSupports(endpoint, 0x0008))
+            queueInterviewOperation(destination, InterviewBind, endpoint.endpoint, 0x0008);
         /* Remotes are clients of On/Off and Level Control, so those clusters
            appear in the output list.  Binding only input clusters configures
            sensor reports but leaves remotes (including IKEA E1743) sending
            their commands to their old/default target instead of us. */
-        if (std::find(endpoint.outputClusters.begin(), endpoint.outputClusters.end(), 0x0006) != endpoint.outputClusters.end())
+        if (!nativeBindingEnabled(state.ieeeAddress) &&
+            std::find(endpoint.outputClusters.begin(), endpoint.outputClusters.end(), 0x0006) != endpoint.outputClusters.end())
             queueInterviewOperation(destination, InterviewBind, endpoint.endpoint, 0x0006);
-        if (std::find(endpoint.outputClusters.begin(), endpoint.outputClusters.end(), 0x0008) != endpoint.outputClusters.end())
+        if (!nativeBindingEnabled(state.ieeeAddress) &&
+            std::find(endpoint.outputClusters.begin(), endpoint.outputClusters.end(), 0x0008) != endpoint.outputClusters.end())
             queueInterviewOperation(destination, InterviewBind, endpoint.endpoint, 0x0008);
     }
     for (unsigned long i = 0; i < device.endpoints.size(); ++i) {
@@ -2650,6 +2928,11 @@ void Gateway::sendNextInterviewOperation() {
 
 void Gateway::sendInterviewOperation(unsigned short destination, InterviewOperation* operation) {
     std::vector<unsigned char> request;
+    if (operation->type == InterviewBind && nativeBindingEnabled(interviews_[destination].ieeeAddress) &&
+        (operation->cluster == kOnOffCluster || operation->cluster == kLevelCluster)) {
+        completeInterviewOperation(destination);
+        return;
+    }
     /* Keep the transaction sequence stable across retries.  A sleepy child
        can answer just after the timeout; replacing the sequence made that
        valid response look unrelated to the retry. */
@@ -2774,8 +3057,9 @@ bool Gateway::updateBasicIdentity(Device* device, const std::vector<unsigned cha
         } else if (attribute == 0x0005 && device->modelId != value) {
             device->modelId = value;
             changed = true;
-        } else if (attribute == 0x4000) {
+        } else if (attribute == 0x4000 && device->softwareBuildId != value) {
             device->softwareBuildId = value;
+            changed = true;
             addLog("Device software build: " + device->ieeeAddress + " version=" + value);
         }
         offset += 5 + records[offset + 4];
@@ -2810,6 +3094,13 @@ void Gateway::completeInterviewOperation(unsigned short destination) {
         if (state.persistentDirty) {
             savePersistentState();
             state.persistentDirty = false;
+        }
+        if (nativeBindingEnabled(state.ieeeAddress) &&
+            nativeBindingStates_[state.ieeeAddress] == "pending: remote interview required") {
+            std::vector<NativeRemoteBinding> oldBindings;
+            for (unsigned long b = 0; b < nativeBindings_.size(); ++b)
+                if (nativeBindings_[b].ieeeAddress != state.ieeeAddress) oldBindings.push_back(nativeBindings_[b]);
+            queueNativeBindingChanges(oldBindings, sceneGroups_);
         }
         state.operations.clear();
         state.operationIndex = 0;
@@ -2950,6 +3241,16 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
        In particular Bind_rsp (0x8021) is valid at two bytes. */
     if (messageOffset + length > payload.size() || length < 2) return;
     message.assign(payload.begin() + messageOffset, payload.begin() + messageOffset + length);
+    std::map<unsigned short, std::string>::const_iterator nativeSender = nodeAddresses_.find(sender);
+    std::map<std::string, std::string>::iterator nativeState = nativeSender == nodeAddresses_.end() ?
+        nativeBindingStates_.end() : nativeBindingStates_.find(nativeSender->second);
+    if (nativeState != nativeBindingStates_.end() && cluster != 0x8021 && cluster != 0x8022 &&
+        nativeState->second.find("failed") == 0) {
+        nativeBindingStates_[nativeSender->second] = "pending";
+        for (unsigned long n = 0; n < nativeBindOperations_.size(); ++n)
+            if (nativeBindOperations_[n].ieeeAddress == nativeSender->second) nativeBindOperations_[n].retryAt = 0;
+        markViewDirty();
+    }
     addFrameLog("RX", sender,
                 profile, cluster,
                 payload[5], payload[6], static_cast<unsigned short>(payload[7]) | (static_cast<unsigned short>(payload[8]) << 8),
@@ -3027,6 +3328,52 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
             }
         }
         return;
+    }
+    if (profile == 0x0000 && (cluster == 0x8021 || cluster == 0x8022) && message.size() >= 2) {
+        for (unsigned long n = 0; n < nativeBindOperations_.size(); ++n) {
+            NativeBindOperation operation = nativeBindOperations_[n];
+            if (operation.deadline == 0 || operation.sequence != message[0] ||
+                (operation.unbind ? 0x8022 : 0x8021) != cluster ||
+                nodeAddresses_.find(sender) == nodeAddresses_.end() ||
+                nodeAddresses_[sender] != operation.ieeeAddress) continue;
+            if (message[1] == 0 || (operation.unbind && (message[1] == 0x88 || message[1] == 0x84))) {
+                nativeBindOperations_.erase(nativeBindOperations_.begin() + n);
+                bool more = false;
+                for (unsigned long k = 0; k < nativeBindOperations_.size(); ++k)
+                    if (nativeBindOperations_[k].ieeeAddress == operation.ieeeAddress) more = true;
+                nativeBindingStates_[operation.ieeeAddress] = more ? "pending" : "active";
+                addLog(std::string("Native ") + (operation.unbind ? "unbind" : "bind") + " accepted for " + operation.ieeeAddress);
+            } else if (operation.destinationMode == 1 && !operation.unbind && operation.fallback &&
+                       message[1] != 0x8c && message[1] != 0x8e) {
+                const SceneGroup* group = findSceneGroup(operation.groupId);
+                nativeBindOperations_.erase(nativeBindOperations_.begin() + n);
+                if (group != 0) {
+                    for (unsigned long m = 0; m < group->members.size(); ++m) {
+                        std::map<std::string, Device>::const_iterator target = devices_.find(group->members[m]);
+                        unsigned char targetEndpoint = 0;
+                        if (target == devices_.end() || !endpointForCluster(target->second, operation.cluster, &targetEndpoint)) continue;
+                        NativeBindOperation fallback = operation;
+                        fallback.destinationMode = 3;
+                        fallback.targetIeee = group->members[m];
+                        fallback.fallback = false;
+                        fallback.deadline = 0;
+                        fallback.retryAt = 0;
+                        nativeBindOperations_.insert(nativeBindOperations_.begin() + n + m, fallback);
+                    }
+                }
+                nativeBindingStates_[operation.ieeeAddress] = "pending: using individual light bindings";
+                addLog("Remote rejected group binding; trying individual lights for " + operation.ieeeAddress);
+            } else {
+                nativeBindOperations_[n].deadline = 0;
+                nativeBindOperations_[n].retryAt = LONG_MAX;
+                std::ostringstream reason;
+                reason << "failed: ZDO status 0x" << std::hex << static_cast<unsigned int>(message[1]);
+                nativeBindingStates_[operation.ieeeAddress] = reason.str();
+                addLog("Native binding rejected for " + operation.ieeeAddress + ": " + reason.str());
+            }
+            markViewDirty();
+            return;
+        }
     }
     if (profile == 0x0000 && cluster == 0x8021 && message.size() >= 2) {
         std::ostringstream bind;

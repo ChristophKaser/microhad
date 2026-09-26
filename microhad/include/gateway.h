@@ -52,7 +52,7 @@ struct Device {
     unsigned long sensorRefreshIntervalMinutes;
     std::string manufacturerName;
     std::string modelId;
-    std::string softwareBuildId; /* read during interview; RAM only */
+    std::string softwareBuildId; /* read during interview; persisted for remote binding compatibility */
     std::vector<EndpointDescriptor> endpoints;
     Device();
 };
@@ -86,6 +86,15 @@ struct RemoteSceneBinding {
     std::vector<unsigned char> sceneIds;
     RemoteSceneBinding();
 };
+struct NativeRemoteBinding {
+    std::string ieeeAddress;
+    unsigned short groupId;
+    NativeRemoteBinding() : groupId(0) {}
+};
+struct NativeBindingStatus {
+    std::string ieeeAddress;
+    std::string state;
+};
 
 /* Immutable data which may be safely handed from the coordinator to a web
    worker.  It deliberately contains only dashboard-visible state. */
@@ -102,6 +111,8 @@ public:
     std::vector<Device> devices;
     std::vector<SceneGroup> sceneGroups;
     std::vector<RemoteSceneBinding> sceneBindings;
+    std::vector<NativeRemoteBinding> nativeBindings;
+    std::vector<NativeBindingStatus> nativeBindingStatuses;
     std::vector<std::string> logs;
 
     GatewayView();
@@ -264,6 +275,24 @@ private:
     std::map<std::string, long> nextContactAlertAt_;
     std::vector<SceneGroup> sceneGroups_;
     std::vector<RemoteSceneBinding> sceneBindings_;
+    std::vector<NativeRemoteBinding> nativeBindings_;
+    std::map<std::string, std::string> nativeBindingStates_;
+    struct NativeBindOperation {
+        std::string ieeeAddress;
+        unsigned char endpoint;
+        unsigned short cluster;
+        unsigned char destinationMode; /* 1 group, 3 IEEE */
+        unsigned short groupId;
+        std::string targetIeee;
+        bool unbind;
+        bool fallback;
+        unsigned char sequence;
+        long deadline;
+        long retryAt;
+        NativeBindOperation() : endpoint(0), cluster(0), destinationMode(0), groupId(0),
+            unbind(false), fallback(false), sequence(0), deadline(0), retryAt(0) {}
+    };
+    std::vector<NativeBindOperation> nativeBindOperations_;
     struct SceneRetry {
         bool off;
         bool inFlight;
@@ -326,6 +355,10 @@ private:
     void sendZdoBindRequest(unsigned short destination, unsigned char endpoint, unsigned short cluster,
                             const std::string& sourceIeeeAddress, unsigned char transactionSequence,
                             unsigned char messageTag);
+    void queueNativeBindingChanges(const std::vector<NativeRemoteBinding>& oldBindings,
+                                   const std::vector<SceneGroup>& oldGroups);
+    void pollNativeBindings();
+    bool nativeBindingEnabled(const std::string& ieeeAddress) const;
     void sendZclReadAttribute(unsigned short destination, unsigned char endpoint, unsigned short cluster,
                               unsigned short attribute, unsigned char transactionSequence, unsigned char messageTag);
     void sendZclReadBasic(unsigned short destination, unsigned char endpoint,

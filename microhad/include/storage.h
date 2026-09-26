@@ -7,6 +7,7 @@
 struct Device;
 struct SceneGroup;
 struct RemoteSceneBinding;
+struct NativeRemoteBinding;
 
 struct NetworkState {
     bool formed;
@@ -25,6 +26,12 @@ bool loadNetworkState(const std::string& filename, NetworkState* network, std::s
 bool saveNetworkState(const std::string& filename, const NetworkState& network, std::string* error);
 bool loadSceneConfiguration(const std::string& filename, std::vector<SceneGroup>* groups,
                             std::vector<RemoteSceneBinding>* bindings, std::string* error);
+bool loadSceneConfiguration(const std::string& filename, std::vector<SceneGroup>* groups,
+                            std::vector<RemoteSceneBinding>* bindings,
+                            std::vector<NativeRemoteBinding>* nativeBindings, std::string* error);
 bool saveSceneConfiguration(const std::string& filename, const std::vector<SceneGroup>& groups,
                             const std::vector<RemoteSceneBinding>& bindings, std::string* error);
+bool saveSceneConfiguration(const std::string& filename, const std::vector<SceneGroup>& groups,
+                            const std::vector<RemoteSceneBinding>& bindings,
+                            const std::vector<NativeRemoteBinding>& nativeBindings, std::string* error);
 #endif
