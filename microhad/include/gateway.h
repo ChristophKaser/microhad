@@ -96,6 +96,23 @@ struct NativeBindingStatus {
     std::string state;
 };
 
+struct DeviceBindingEntry {
+    unsigned short clusterId;
+    bool groupDestination;
+    unsigned short groupId;
+    std::string ieeeAddress;
+    unsigned char endpoint;
+    DeviceBindingEntry() : clusterId(0), groupDestination(false), groupId(0), endpoint(0) {}
+};
+
+struct DeviceConfigurationStatus {
+    std::string ieeeAddress;
+    std::string groupsStatus;
+    std::vector<unsigned short> groups;
+    std::string bindingsStatus;
+    std::vector<DeviceBindingEntry> bindings;
+};
+
 /* Immutable data which may be safely handed from the coordinator to a web
    worker.  It deliberately contains only dashboard-visible state. */
 class GatewayView {
@@ -113,6 +130,7 @@ public:
     std::vector<RemoteSceneBinding> sceneBindings;
     std::vector<NativeRemoteBinding> nativeBindings;
     std::vector<NativeBindingStatus> nativeBindingStatuses;
+    std::vector<DeviceConfigurationStatus> deviceConfigurations;
     std::vector<std::string> logs;
 
     GatewayView();
@@ -146,6 +164,7 @@ public:
                            unsigned long sensorRefreshIntervalMinutes, std::string* error);
     bool refreshDevice(const std::string& ieeeAddress, std::string* error);
     bool identifyDevice(const std::string& ieeeAddress, std::string* error);
+    bool queryDeviceConfiguration(const std::string& ieeeAddress, std::string* error);
     bool setLightState(const std::string& ieeeAddress, const std::string& state, int brightnessPercent,
                        std::string* error);
     bool setSceneConfiguration(const std::string& encoded, std::string* error);
@@ -157,6 +176,7 @@ public:
     bool sendTestNotification(std::string* error);
     bool notificationsEnabled() const;
     bool setNotificationsEnabled(bool enabled, std::string* error);
+    void logEventLoopDiagnostic(const std::string& message);
     std::vector<Device> devices() const;
     GatewayView captureView() const;
     bool takeViewDirty();
@@ -277,6 +297,18 @@ private:
     std::vector<RemoteSceneBinding> sceneBindings_;
     std::vector<NativeRemoteBinding> nativeBindings_;
     std::map<std::string, std::string> nativeBindingStates_;
+    struct DeviceConfigurationQuery {
+        unsigned char groupsSequence;
+        unsigned char bindingsSequence;
+        long groupsDeadline;
+        long bindingsDeadline;
+        unsigned char bindingStartIndex;
+        unsigned char bindingTotal;
+        DeviceConfigurationQuery() : groupsSequence(0), bindingsSequence(0), groupsDeadline(0),
+            bindingsDeadline(0), bindingStartIndex(0), bindingTotal(0) {}
+    };
+    std::map<std::string, DeviceConfigurationStatus> deviceConfigurations_;
+    std::map<std::string, DeviceConfigurationQuery> deviceConfigurationQueries_;
     struct NativeBindOperation {
         std::string ieeeAddress;
         unsigned char endpoint;

@@ -132,6 +132,69 @@ RAM-backed `/var` mount, not the `/tuya` flash volume. It keeps at most 512
 entries, so diagnostics do not create flash write
 cycles or consume unbounded memory.
 
+### Event-loop diagnostics
+
+Event-loop diagnostics are off by default and can be toggled while the service
+is running. Send a form-encoded POST to `/api/debug/event-loop` with
+`enabled=true` to start, or `enabled=false` to stop:
+
+```sh
+curl --connect-timeout 5 --max-time 8 -sS -X POST \
+  -d 'enabled=true' http://192.168.178.62/api/debug/event-loop
+curl --connect-timeout 5 --max-time 8 -sS http://192.168.178.62/api/logs
+curl --connect-timeout 5 --max-time 8 -sS -X POST \
+  -d 'enabled=false' http://192.168.178.62/api/debug/event-loop
+```
+
+While enabled, the coordinator adds one `EVENT_LOOP_DEBUG` line about every
+five seconds to `/api/logs`. It reports loop counts, whether the loop skipped
+waiting for commands or immediate work, `select()` results and readiness, and
+the most recent poll deadline. For periodic reporting, the wait is capped at
+five seconds while diagnostics are enabled. Output remains in the existing
+512-line RAM log ring and `/tmp` log; it is never written beneath `/tuya`.
+Disable diagnostics after collecting a few intervals to avoid extra wakeups
+and profiling overhead during normal operation.
+
+### Sampling a hot MIPS thread
+
+`tools/gateway_cpu_sampler.c` samples the program counter of one running task
+without restarting the gateway. Build it with the same MIPS toolchain used for
+the gateway:
+
+```sh
+export RSDK_ROOT=../rsdk-4.4.7-4181-EB-2.6.30-0.9.30-m32u-140129
+"$RSDK_ROOT/bin/mips-linux-gcc" -O2 -static \
+  -o /tmp/gateway_cpu_sampler tools/gateway_cpu_sampler.c
+```
+
+Copy the executable to the gateway's RAM-backed `/tmp`, identify the hot task
+with `top`, and run the sampler as root with that task's PID:
+
+```sh
+top
+/tmp/gateway_cpu_sampler TID [samples]
+```
+
+The sample count defaults to 100 and can be set from 1 to 1000. Each sample
+attaches to the selected task, waits for its ptrace stop, reads MIPS EPC from
+register slot 34, detaches, and sleeps for 10 ms. The output lists each
+sampled instruction address and how many samples landed there. A larger count
+at an address suggests the task spent more sampled time there; these counts
+are estimates, not precise CPU percentages. Attaching briefly pauses that
+task and can interrupt a blocking system call, so use a bounded sample count.
+The tool reads registers only and writes no runtime data beneath `/tuya`.
+
+The gateway binary is stripped. To translate addresses into function names,
+use a matching unstripped MIPS build with debug information on the development
+machine, for example:
+
+```sh
+addr2line -f -C -e /path/to/matching-unstripped-binary 0xADDRESS
+```
+
+The executable and source revision must match the running gateway binary for
+the result to be reliable. Do not deploy the unstripped binary as the service.
+
 Sensor cards offer a History dialog for temperature, humidity, and contact
 state. The coordinator writes fixed-size binary records to
 `/tmp/microhad-zigbee-native-history.bin`; the file is limited to 512 KiB across

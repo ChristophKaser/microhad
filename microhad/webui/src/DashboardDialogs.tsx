@@ -1,15 +1,22 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
-import type { Device } from './api'
+import type { Device, DeviceConfiguration } from './api'
 import { errorMessage, form, post, textRequest } from './api'
 import { ClipboardButton, DescriptorList } from './devices'
 
 type DialogCallbacks = { onClose: () => void; onSaved: () => void }
 
-export function DeviceDetailsDialog({ device, onClose }: { device: Device; onClose: () => void }) {
+export function DeviceDetailsDialog({ device, configuration, onClose }: {
+  device: Device
+  configuration?: DeviceConfiguration
+  onClose: () => void
+}) {
   const [identifying, setIdentifying] = useState(false)
   const [identifyResult, setIdentifyResult] = useState('')
   const [identifyError, setIdentifyError] = useState('')
+  const [querying, setQuerying] = useState(false)
+  const [queryError, setQueryError] = useState('')
+  const [queryResult, setQueryResult] = useState('')
   const canIdentify = device.endpoint_descriptors.some((endpoint) => endpoint.input_clusters.includes(0x0003))
   const identify = async () => {
     if (identifying) return
@@ -23,6 +30,22 @@ export function DeviceDetailsDialog({ device, onClose }: { device: Device; onClo
       setIdentifyError(errorMessage(cause))
     } finally {
       setIdentifying(false)
+    }
+  }
+  const queryConfiguration = async () => {
+    if (querying) return
+    setQuerying(true)
+    setQueryError('')
+    setQueryResult('')
+    try {
+      const result = await post<{ message: string }>(
+        `/api/devices/${encodeURIComponent(device.ieee_address)}/configuration`,
+      )
+      setQueryResult(result.message)
+    } catch (cause) {
+      setQueryError(errorMessage(cause))
+    } finally {
+      setQuerying(false)
     }
   }
   const details = [
@@ -67,6 +90,33 @@ export function DeviceDetailsDialog({ device, onClose }: { device: Device; onClo
         ) : (
           <p className="muted">No endpoint descriptors have been saved for this device yet.</p>
         )}
+        <h3>Device configuration</h3>
+        <p className="muted">Read the Groups membership and the device’s Zigbee binding table. Battery devices may need to wake before replying.</p>
+        <div className="editor-card">
+          <p><strong>Groups membership:</strong> {configuration?.groups_status || 'Not queried'}</p>
+          {configuration?.groups_status === 'complete' && (
+            <p>Group IDs: {configuration.groups.length ? configuration.groups.join(', ') : 'None'}</p>
+          )}
+          <p><strong>Binding table:</strong> {configuration?.bindings_status || 'Not queried'}</p>
+          {configuration?.bindings_status === 'complete' && (
+            configuration.bindings.length ? (
+              <ul>
+                {configuration.bindings.map((binding, index) => (
+                  <li key={`${binding.cluster_id}-${index}`}>
+                    Cluster 0x{binding.cluster_id.toString(16).padStart(4, '0')} → {binding.group_destination
+                      ? `group ${binding.group_id}`
+                      : `${binding.ieee_address}, endpoint ${binding.endpoint}`}
+                  </li>
+                ))}
+              </ul>
+            ) : <p>No bindings reported.</p>
+          )}
+          {queryError && <p className="error" role="alert">{queryError}</p>}
+          {queryResult && <p role="status">{queryResult}</p>}
+          <button className="button" disabled={querying} onClick={queryConfiguration}>
+            {querying ? 'Querying…' : 'Read device configuration'}
+          </button>
+        </div>
         {identifyError && <p className="error" role="alert">{identifyError}</p>}
         {identifyResult && <p role="status">{identifyResult}</p>}
         <div className="dialog-actions">

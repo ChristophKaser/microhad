@@ -35,10 +35,11 @@ make mips
   --target /tuya/native --restart
 ```
 
-`--restart` is explicitly opt-in and only allowed for `/tuya/native`. It
-signals the exact `microhad-zigbee-native` daemon; the permanent launcher restarts
-it from the newly deployed binary. It does not reboot the device or alter
-Zigbee state.
+Service restarts are allowed when needed to load a deployed binary, unless the
+restart is expected to be destructive. `--restart` is only allowed for
+`/tuya/native`; it signals the exact `microhad-zigbee-native` daemon and the
+permanent launcher restarts it from the newly deployed binary. It does not
+reboot the device or alter Zigbee state.
 
 After successful verification, commit the implementation changes with a
 descriptive message. When the worktree already contains unrelated changes,

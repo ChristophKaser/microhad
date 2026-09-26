@@ -421,7 +421,11 @@ function App() {
         />
       )}
       {detailsDevice && (
-        <DeviceDetailsDialog device={detailsDevice} onClose={() => setDetailsDevice(null)} />
+        <DeviceDetailsDialog
+          device={status?.devices.find((device) => device.ieee_address === detailsDevice.ieee_address) ?? detailsDevice}
+          configuration={status?.device_configurations.find((item) => item.ieee_address === detailsDevice.ieee_address)}
+          onClose={() => setDetailsDevice(null)}
+        />
       )}
       {historyDevice && (
         <HistoryDialog key={historyDevice.ieee_address} device={historyDevice} onClose={() => setHistoryDevice(null)} />

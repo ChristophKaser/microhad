@@ -420,6 +420,17 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
         GatewayRunner::ViewLease* view = gateway_->acquireView();
         if (view == 0) writeResponse(clientFd, 503, "application/json", "{\"ok\":false,\"error\":\"coordinator is unavailable\"}");
         else { std::string body = view->logsJson(); delete view; writeResponse(clientFd, 200, "application/json", body); }
+    } else if (request.find("POST /api/debug/event-loop ") == 0) {
+        std::string::size_type bodyAt = request.find("\r\n\r\n");
+        std::string enabledValue;
+        std::string error;
+        bool hasEnabled = bodyAt != std::string::npos && formValue(request.substr(bodyAt + 4), "enabled", &enabledValue);
+        bool enabled = enabledValue == "true";
+        if (!hasEnabled || (enabledValue != "true" && enabledValue != "false")) {
+            writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"invalid event-loop debug setting\"}");
+        } else if (gateway_->setEventLoopDebug(enabled, &error)) {
+            writeResponse(clientFd, 200, "application/json", std::string("{\"ok\":true,\"enabled\":") + (enabled ? "true}" : "false}"));
+        } else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + jsonEscape(error) + "\"}");
     } else if (request.find("POST /api/join ") == 0) {
         std::string error;
         if (gateway_->setJoining(300, &error)) writeResponse(clientFd, 200, "application/json", "{\"ok\":true,\"seconds\":300,\"state\":\"preparing\"}");
@@ -485,9 +496,16 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
         std::string::size_type settingsAt = request.find("/settings ", prefix.size());
         std::string::size_type refreshAt = request.find("/refresh ", prefix.size());
         std::string::size_type identifyAt = request.find("/identify ", prefix.size());
+        std::string::size_type configurationAt = request.find("/configuration ", prefix.size());
         std::string::size_type lightAt = request.find("/light ", prefix.size());
         std::string::size_type bodyAt = request.find("\r\n\r\n");
-        if (lightAt != std::string::npos) {
+        if (configurationAt != std::string::npos) {
+            std::string ieeeAddress = decodeComponent(request.substr(prefix.size(), configurationAt - prefix.size()));
+            std::string error;
+            if (gateway_->queryDeviceConfiguration(ieeeAddress, &error))
+                writeResponse(clientFd, 200, "application/json", "{\"ok\":true,\"message\":\"Configuration query sent. A sleepy device may reply when it wakes.\"}");
+            else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + jsonEscape(error) + "\"}");
+        } else if (lightAt != std::string::npos) {
             std::string ieeeAddress = decodeComponent(request.substr(prefix.size(), lightAt - prefix.size()));
             std::string state;
             std::string brightnessValue;

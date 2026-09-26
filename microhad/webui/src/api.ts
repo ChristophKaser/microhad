@@ -62,6 +62,21 @@ export interface Status {
   devices: Device[]
   scene_groups: SceneGroupSummary[]
   native_bindings: { ieee_address: string; group_id: number; status: string }[]
+  device_configurations: DeviceConfiguration[]
+}
+
+export interface DeviceConfiguration {
+  ieee_address: string
+  groups_status: string
+  groups: number[]
+  bindings_status: string
+  bindings: {
+    cluster_id: number
+    group_destination: boolean
+    group_id?: number
+    ieee_address?: string
+    endpoint?: number
+  }[]
 }
 
 export type HistorySample = [sequence: number, timestamp: number, metric: 1 | 2 | 3, value: number]

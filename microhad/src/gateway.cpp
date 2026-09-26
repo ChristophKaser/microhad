@@ -375,6 +375,23 @@ void Gateway::poll() {
     unsigned char bytes[256];
     ssize_t count;
     std::vector<unsigned char> frame;
+    for (std::map<std::string, DeviceConfigurationQuery>::iterator query = deviceConfigurationQueries_.begin();
+         query != deviceConfigurationQueries_.end(); ) {
+        DeviceConfigurationStatus& status = deviceConfigurations_[query->first];
+        if (query->second.groupsDeadline != 0 && time(0) >= query->second.groupsDeadline) {
+            query->second.groupsDeadline = 0;
+            status.groupsStatus = "timed out; device may be asleep";
+            markViewDirty();
+        }
+        if (query->second.bindingsDeadline != 0 && time(0) >= query->second.bindingsDeadline) {
+            query->second.bindingsDeadline = 0;
+            status.bindingsStatus = "timed out; device may be asleep";
+            markViewDirty();
+        }
+        if (query->second.groupsDeadline == 0 && query->second.bindingsDeadline == 0)
+            deviceConfigurationQueries_.erase(query++);
+        else ++query;
+    }
     if (serialFd_ >= 0) {
         count = read(serialFd_, bytes, sizeof(bytes));
         if (count > 0) {
@@ -519,6 +536,7 @@ long Gateway::nextPollDeadline() const {
     long now = time(0);
     std::map<unsigned short, long>::const_iterator sensor;
     std::map<std::string, long>::const_iterator alert;
+    std::map<std::string, DeviceConfigurationQuery>::const_iterator configQuery;
     std::map<unsigned short, SceneRetry>::const_iterator scene;
     std::map<unsigned short, InterviewState>::const_iterator interview;
     #define CONSIDER_DEADLINE(value) do { long candidate = (value); if (candidate != 0 && (deadline == 0 || candidate < deadline)) deadline = candidate; } while (0)
@@ -541,6 +559,10 @@ long Gateway::nextPollDeadline() const {
         if (joinUntil_ != 0) CONSIDER_DEADLINE(joinPermitRenewAt_);
     }
     for (alert = nextContactAlertAt_.begin(); alert != nextContactAlertAt_.end(); ++alert) CONSIDER_DEADLINE(alert->second);
+    for (configQuery = deviceConfigurationQueries_.begin(); configQuery != deviceConfigurationQueries_.end(); ++configQuery) {
+        CONSIDER_DEADLINE(configQuery->second.groupsDeadline);
+        CONSIDER_DEADLINE(configQuery->second.bindingsDeadline);
+    }
     if (online_ && networkFormed_ && coordinatorInitializationStep_ == 0 && !interviewRequestInFlight_ && !nativeBusy) {
         for (interview = interviews_.begin(); interview != interviews_.end(); ++interview) {
             const InterviewState& state = interview->second;
@@ -764,6 +786,48 @@ bool Gateway::identifyDevice(const std::string& ieeeAddress, std::string* error)
     }
     *error = "device has no Identify server endpoint";
     return false;
+}
+
+bool Gateway::queryDeviceConfiguration(const std::string& ieeeAddress, std::string* error) {
+    std::map<std::string, Device>::const_iterator device = devices_.find(ieeeAddress);
+    if (device == devices_.end()) { *error = "device is unknown"; return false; }
+    if (!online_ || !networkFormed_ || coordinatorInitializationStep_ != 0) {
+        *error = "Zigbee network is not ready"; return false;
+    }
+    if (device->second.networkAddress == 0xffff) { *error = "device has no active network address"; return false; }
+    if (deviceConfigurationQueries_.count(ieeeAddress)) { *error = "configuration query is already in progress"; return false; }
+
+    DeviceConfigurationStatus& status = deviceConfigurations_[ieeeAddress];
+    status = DeviceConfigurationStatus();
+    status.ieeeAddress = ieeeAddress;
+    status.bindingsStatus = "waiting";
+    DeviceConfigurationQuery query;
+    query.bindingsSequence = zdoSequence_++;
+    query.bindingsDeadline = time(0) + 20;
+    std::vector<unsigned char> bindRequest;
+    bindRequest.push_back(query.bindingsSequence);
+    bindRequest.push_back(0); /* start index */
+    sendApsUnicast(device->second.networkAddress, 0x0000, 0x0033, 0, 0, bindRequest);
+
+    unsigned char endpoint = 0;
+    if (endpointForCluster(device->second, kGroupsCluster, &endpoint)) {
+        status.groupsStatus = "waiting";
+        query.groupsSequence = ++zclTransactionSequence_;
+        query.groupsDeadline = time(0) + 20;
+        std::vector<unsigned char> request;
+        request.push_back(0x01); /* cluster-specific, client to server */
+        request.push_back(query.groupsSequence);
+        request.push_back(0x02); /* Get Group Membership */
+        request.push_back(0); /* capacity: request all groups */
+        sendApsUnicast(device->second.networkAddress, kHomeAutomationProfile, kGroupsCluster,
+                       kCoordinatorEndpoint, endpoint, request);
+    } else {
+        status.groupsStatus = "unsupported: no Groups server endpoint";
+    }
+    deviceConfigurationQueries_[ieeeAddress] = query;
+    addLog("Device configuration query queued for " + ieeeAddress);
+    markViewDirty();
+    return true;
 }
 
 void Gateway::sendZclLightCommand(unsigned short destination, unsigned char endpoint, unsigned short cluster,
@@ -1535,6 +1599,10 @@ bool Gateway::setNotificationsEnabled(bool enabled, std::string* error) {
     return true;
 }
 
+void Gateway::logEventLoopDiagnostic(const std::string& message) {
+    addLog(message);
+}
+
 void Gateway::updateTemperatureAlert(const Device& device, bool hadTemperature, double previousTemperature) {
     if (!device.hasTemperature || !hadTemperature) return;
     if (device.hasHighTemperatureAlert && previousTemperature < device.highTemperatureAlert &&
@@ -1663,6 +1731,29 @@ std::string GatewayView::statusJson() const {
         json << ",\"status\":\"" << jsonEscape(state) << "\"";
         json << '}';
     }
+    json << "],\"device_configurations\":[";
+    for (unsigned long i = 0; i < deviceConfigurations.size(); ++i) {
+        const DeviceConfigurationStatus& config = deviceConfigurations[i];
+        if (i) json << ',';
+        json << "{\"ieee_address\":\"" << jsonEscape(config.ieeeAddress)
+             << "\",\"groups_status\":\"" << jsonEscape(config.groupsStatus) << "\",\"groups\":[";
+        for (unsigned long g = 0; g < config.groups.size(); ++g) {
+            if (g) json << ',';
+            json << config.groups[g];
+        }
+        json << "],\"bindings_status\":\"" << jsonEscape(config.bindingsStatus) << "\",\"bindings\":[";
+        for (unsigned long b = 0; b < config.bindings.size(); ++b) {
+            const DeviceBindingEntry& entry = config.bindings[b];
+            if (b) json << ',';
+            json << "{\"cluster_id\":" << entry.clusterId << ",\"group_destination\":"
+                 << (entry.groupDestination ? "true" : "false");
+            if (entry.groupDestination) json << ",\"group_id\":" << entry.groupId;
+            else json << ",\"ieee_address\":\"" << jsonEscape(entry.ieeeAddress)
+                      << "\",\"endpoint\":" << static_cast<unsigned int>(entry.endpoint);
+            json << '}';
+        }
+        json << "]}";
+    }
     json << "]}";
     return json.str();
 }
@@ -1690,6 +1781,9 @@ GatewayView Gateway::captureView() const {
         NativeBindingStatus status; status.ieeeAddress = it->first; status.state = it->second;
         view.nativeBindingStatuses.push_back(status);
     }
+    for (std::map<std::string, DeviceConfigurationStatus>::const_iterator it = deviceConfigurations_.begin();
+         it != deviceConfigurations_.end(); ++it)
+        view.deviceConfigurations.push_back(it->second);
     view.logs = logs_;
     return view;
 }
@@ -3353,6 +3447,79 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
         }
         return;
     }
+    if (profile == 0x0000 && cluster == 0x8033 && message.size() >= 2) {
+        std::map<unsigned short, std::string>::const_iterator owner = nodeAddresses_.find(sender);
+        if (owner != nodeAddresses_.end()) {
+            std::map<std::string, DeviceConfigurationQuery>::iterator query =
+                deviceConfigurationQueries_.find(owner->second);
+            if (query != deviceConfigurationQueries_.end() &&
+                query->second.bindingsDeadline != 0 &&
+                query->second.bindingsSequence == message[0]) {
+                DeviceConfigurationStatus& status = deviceConfigurations_[owner->second];
+                if (message[1] != 0) {
+                    std::ostringstream failure;
+                    failure << "failed: ZDO status 0x" << std::hex << static_cast<unsigned int>(message[1]);
+                    status.bindingsStatus = failure.str();
+                    query->second.bindingsDeadline = 0;
+                } else if (message.size() >= 5) {
+                    unsigned int total = message[2];
+                    unsigned int start = message[3];
+                    unsigned int count = message[4];
+                    unsigned long offset = 5;
+                    bool valid = start == query->second.bindingStartIndex;
+                    for (unsigned int i = 0; valid && i < count; ++i) {
+                        if (offset + 12 > message.size()) { valid = false; break; }
+                        DeviceBindingEntry entry;
+                        offset += 8; /* source IEEE-64 */
+                        offset += 1; /* source endpoint */
+                        entry.clusterId = static_cast<unsigned short>(message[offset]) |
+                                          (static_cast<unsigned short>(message[offset + 1]) << 8);
+                        offset += 2;
+                        unsigned char mode = message[offset++];
+                        if (mode == 0x01) {
+                            if (offset + 2 > message.size()) { valid = false; break; }
+                            entry.groupDestination = true;
+                            entry.groupId = static_cast<unsigned short>(message[offset]) |
+                                            (static_cast<unsigned short>(message[offset + 1]) << 8);
+                            offset += 2;
+                        } else if (mode == 0x03) {
+                            if (offset + 9 > message.size()) { valid = false; break; }
+                            std::ostringstream ieee;
+                            ieee << "0x" << std::hex << std::setfill('0');
+                            for (int byte = 7; byte >= 0; --byte)
+                                ieee << std::setw(2) << static_cast<unsigned int>(message[offset + byte]);
+                            entry.ieeeAddress = ieee.str();
+                            offset += 8;
+                            entry.endpoint = message[offset++];
+                        } else { valid = false; break; }
+                        status.bindings.push_back(entry);
+                    }
+                    if (!valid) {
+                        status.bindingsStatus = "failed: malformed binding table response";
+                        query->second.bindingsDeadline = 0;
+                    } else if (start + count < total) {
+                        query->second.bindingStartIndex = static_cast<unsigned char>(start + count);
+                        query->second.bindingsSequence = zdoSequence_++;
+                        query->second.bindingsDeadline = time(0) + 20;
+                        std::vector<unsigned char> next;
+                        next.push_back(query->second.bindingsSequence);
+                        next.push_back(query->second.bindingStartIndex);
+                        sendApsUnicast(devices_[owner->second].networkAddress, 0x0000, 0x0033, 0, 0, next);
+                    } else {
+                        status.bindingsStatus = "complete";
+                        query->second.bindingsDeadline = 0;
+                    }
+                } else {
+                    status.bindingsStatus = "failed: malformed binding table response";
+                    query->second.bindingsDeadline = 0;
+                }
+                if (query->second.groupsDeadline == 0 && query->second.bindingsDeadline == 0)
+                    deviceConfigurationQueries_.erase(query);
+                markViewDirty();
+                return;
+            }
+        }
+    }
     if (profile == 0x0000 && (cluster == 0x8021 || cluster == 0x8022) && message.size() >= 2) {
         for (unsigned long n = 0; n < nativeBindOperations_.size(); ++n) {
             NativeBindOperation operation = nativeBindOperations_[n];
@@ -3435,6 +3602,36 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
     unsigned char transactionSequence = message[zclOffset - 2];
     if ((frameControl & 0x04) != 0)
         manufacturer = static_cast<unsigned short>(message[1]) | (static_cast<unsigned short>(message[2]) << 8);
+    if (profile == 0x0104 && cluster == kGroupsCluster && command == 0x02 &&
+        message.size() >= zclOffset + 2) {
+        std::map<unsigned short, std::string>::const_iterator owner = nodeAddresses_.find(sender);
+        if (owner != nodeAddresses_.end()) {
+            std::map<std::string, DeviceConfigurationQuery>::iterator query =
+                deviceConfigurationQueries_.find(owner->second);
+            if (query != deviceConfigurationQueries_.end() &&
+                query->second.groupsDeadline != 0 &&
+                query->second.groupsSequence == transactionSequence) {
+                DeviceConfigurationStatus& status = deviceConfigurations_[owner->second];
+                unsigned int count = message[zclOffset + 1];
+                if (message.size() < zclOffset + 2 + count * 2) {
+                    status.groupsStatus = "failed: malformed group membership response";
+                } else {
+                    status.groups.clear();
+                    for (unsigned int i = 0; i < count; ++i) {
+                        unsigned long at = zclOffset + 2 + i * 2;
+                        status.groups.push_back(static_cast<unsigned short>(message[at]) |
+                                                (static_cast<unsigned short>(message[at + 1]) << 8));
+                    }
+                    status.groupsStatus = "complete";
+                }
+                query->second.groupsDeadline = 0;
+                if (query->second.groupsDeadline == 0 && query->second.bindingsDeadline == 0)
+                    deviceConfigurationQueries_.erase(query);
+                markViewDirty();
+                return;
+            }
+        }
+    }
     {
         std::map<unsigned short, std::string>::iterator known = nodeAddresses_.find(sender);
         if (known != nodeAddresses_.end()) {

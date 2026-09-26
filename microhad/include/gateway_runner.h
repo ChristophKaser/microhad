@@ -40,6 +40,7 @@ public:
                            unsigned long sensorRefreshIntervalMinutes, std::string* error);
     bool refreshDevice(const std::string& ieeeAddress, std::string* error);
     bool identifyDevice(const std::string& ieeeAddress, std::string* error);
+    bool queryDeviceConfiguration(const std::string& ieeeAddress, std::string* error);
     bool setLightState(const std::string& ieeeAddress, const std::string& state, int brightnessPercent,
                        std::string* error);
     bool setSceneConfiguration(const std::string& configuration, std::string* error);
@@ -47,9 +48,10 @@ public:
     bool turnOffSceneGroup(unsigned short groupId, std::string* error);
     bool sendTestNotification(std::string* error);
     bool setNotificationsEnabled(bool enabled, std::string* error);
+    bool setEventLoopDebug(bool enabled, std::string* error);
 
 private:
-    enum CommandType { Join, CreateNetwork, DeviceSettings, DeviceRefresh, DeviceIdentify, LightState, SceneConfiguration, SceneActivate, SceneOff, TestNotification, NotificationSetting };
+    enum CommandType { Join, CreateNetwork, DeviceSettings, DeviceRefresh, DeviceIdentify, DeviceConfiguration, LightState, SceneConfiguration, SceneActivate, SceneOff, TestNotification, NotificationSetting, EventLoopDebug };
     struct Command {
         CommandType type;
         unsigned int seconds;
@@ -69,6 +71,7 @@ private:
         unsigned char sceneId;
         std::string configuration;
         bool result;
+        bool enabled;
         bool complete;
         std::string error;
         pthread_mutex_t mutex;
@@ -88,7 +91,26 @@ private:
     bool startupComplete_;
     bool startupSucceeded_;
     bool stopping_;
+    bool eventLoopDebug_;
     std::string startupError_;
+    struct LoopDebugStats {
+        unsigned long iterations;
+        unsigned long commandSkips;
+        unsigned long immediateSkips;
+        unsigned long selectCalls;
+        unsigned long selectReady;
+        unsigned long selectTimeouts;
+        unsigned long selectInterrupted;
+        unsigned long selectErrors;
+        unsigned long serialReadReady;
+        unsigned long serialWriteReady;
+        unsigned long wakeReady;
+        int lastSelectResult;
+        int lastSelectErrno;
+        int lastTimeoutSeconds;
+        long lastDeadline;
+        LoopDebugStats();
+    };
     struct ViewData {
         GatewayView* view;
         unsigned long references;
@@ -105,7 +127,7 @@ private:
     void publishView(bool force);
     void releaseView(ViewData* data);
     void wakeCoordinator();
-    void waitForWork();
+    void waitForWork(LoopDebugStats* stats, bool debugEnabled);
 };
 
 #endif

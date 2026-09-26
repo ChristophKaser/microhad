@@ -2,13 +2,21 @@
 #include "gateway.h"
 
 #include <cerrno>
+#include <ctime>
 #include <fcntl.h>
+#include <sstream>
 #include <sys/select.h>
 #include <unistd.h>
 
+GatewayRunner::LoopDebugStats::LoopDebugStats() : iterations(0), commandSkips(0), immediateSkips(0),
+    selectCalls(0), selectReady(0), selectTimeouts(0), selectInterrupted(0), selectErrors(0),
+    serialReadReady(0), serialWriteReady(0), wakeReady(0), lastSelectResult(0), lastSelectErrno(0),
+    lastTimeoutSeconds(-1), lastDeadline(0) {
+}
+
 GatewayRunner::GatewayRunner(Gateway* gateway) : gateway_(gateway), commandWakeRead_(-1), commandWakeWrite_(-1),
     commandHead_(0), commandTail_(0), started_(false), startupComplete_(false), startupSucceeded_(false), stopping_(false),
-    currentView_(0), runtimeDirectory_(gateway->runtimeDirectory()), historyPath_(gateway->historyPath()) {
+    eventLoopDebug_(false), currentView_(0), runtimeDirectory_(gateway->runtimeDirectory()), historyPath_(gateway->historyPath()) {
     int wakePipe[2];
     pthread_mutex_init(&mutex_, 0);
     pthread_cond_init(&startupReady_, 0);
@@ -86,6 +94,8 @@ void GatewayRunner::run() {
     pthread_cond_broadcast(&startupReady_);
     pthread_mutex_unlock(&mutex_);
     if (!ready) return;
+    LoopDebugStats debugStats;
+    time_t nextDebugReportAt = 0;
     while (true) {
         Command* command = 0;
         pthread_mutex_lock(&mutex_);
@@ -98,9 +108,37 @@ void GatewayRunner::run() {
         pthread_mutex_unlock(&mutex_);
         if (command != 0) execute(command);
         if (stopNow) break;
+        if (!eventLoopDebug_) {
+            debugStats = LoopDebugStats();
+            nextDebugReportAt = 0;
+        } else {
+            if (nextDebugReportAt == 0) nextDebugReportAt = time(0) + 5;
+            ++debugStats.iterations;
+        }
         gateway_->poll();
         publishView(false);
-        waitForWork();
+        waitForWork(&debugStats, eventLoopDebug_);
+        if (eventLoopDebug_ && time(0) >= nextDebugReportAt) {
+            std::ostringstream report;
+            report << "EVENT_LOOP_DEBUG interval_s=5 loops=" << debugStats.iterations
+                   << " command_skips=" << debugStats.commandSkips
+                   << " immediate_skips=" << debugStats.immediateSkips
+                   << " select_calls=" << debugStats.selectCalls
+                   << " select_ready=" << debugStats.selectReady
+                   << " select_timeouts=" << debugStats.selectTimeouts
+                   << " select_eintr=" << debugStats.selectInterrupted
+                   << " select_errors=" << debugStats.selectErrors
+                   << " serial_read_ready=" << debugStats.serialReadReady
+                   << " serial_write_ready=" << debugStats.serialWriteReady
+                   << " wake_ready=" << debugStats.wakeReady
+                   << " last_select_result=" << debugStats.lastSelectResult
+                   << " last_errno=" << debugStats.lastSelectErrno
+                   << " last_timeout_s=" << debugStats.lastTimeoutSeconds
+                   << " last_deadline=" << debugStats.lastDeadline;
+            gateway_->logEventLoopDiagnostic(report.str());
+            debugStats = LoopDebugStats();
+            nextDebugReportAt = time(0) + 5;
+        }
     }
     gateway_->stop();
 }
@@ -134,6 +172,7 @@ void GatewayRunner::execute(Command* command) {
                                                                                       command->sensorRefreshIntervalMinutes, &error);
     else if (command->type == DeviceRefresh) result = gateway_->refreshDevice(command->address, &error);
     else if (command->type == DeviceIdentify) result = gateway_->identifyDevice(command->address, &error);
+    else if (command->type == DeviceConfiguration) result = gateway_->queryDeviceConfiguration(command->address, &error);
     else if (command->type == LightState) result = gateway_->setLightState(command->address, command->name,
                                                                              command->brightnessPercent, &error);
     else if (command->type == SceneConfiguration) result = gateway_->setSceneConfiguration(command->configuration, &error);
@@ -141,6 +180,14 @@ void GatewayRunner::execute(Command* command) {
     else if (command->type == SceneOff) result = gateway_->turnOffSceneGroup(command->groupId, &error);
     else if (command->type == TestNotification) result = gateway_->sendTestNotification(&error);
     else if (command->type == NotificationSetting) result = gateway_->setNotificationsEnabled(command->hasLow, &error);
+    else if (command->type == EventLoopDebug) {
+        if (eventLoopDebug_ != command->enabled) {
+            eventLoopDebug_ = command->enabled;
+            gateway_->logEventLoopDiagnostic(std::string("Event-loop diagnostics ") +
+                                             (eventLoopDebug_ ? "enabled" : "disabled"));
+        }
+        result = true;
+    }
     publishView(true);
     pthread_mutex_lock(&command->mutex);
     command->result = result;
@@ -183,7 +230,7 @@ void GatewayRunner::wakeCoordinator() {
     }
 }
 
-void GatewayRunner::waitForWork() {
+void GatewayRunner::waitForWork(LoopDebugStats* stats, bool debugEnabled) {
     fd_set readable;
     fd_set writable;
     struct timeval timeout;
@@ -196,8 +243,14 @@ void GatewayRunner::waitForWork() {
     pthread_mutex_unlock(&mutex_);
     /* Pipe bytes are deliberately coalesced when drained.  Do not sleep if
        another queued command remains after the previous loop iteration. */
-    if (commandQueued) return;
-    if (gateway_->hasImmediateWork()) return;
+    if (commandQueued) {
+        if (debugEnabled) ++stats->commandSkips;
+        return;
+    }
+    if (gateway_->hasImmediateWork()) {
+        if (debugEnabled) ++stats->immediateSkips;
+        return;
+    }
     FD_ZERO(&readable); FD_ZERO(&writable);
     FD_SET(commandWakeRead_, &readable);
     if (serial >= 0) {
@@ -206,13 +259,37 @@ void GatewayRunner::waitForWork() {
         if (serial > maximum) maximum = serial;
     }
     deadline = gateway_->nextPollDeadline();
+    if (debugEnabled) stats->lastDeadline = deadline;
     if (deadline != 0) {
         long seconds = deadline - time(0);
         if (seconds < 0) seconds = 0;
         timeout.tv_sec = seconds; timeout.tv_usec = 0;
         timeoutPointer = &timeout;
     }
-    if (select(maximum + 1, &readable, &writable, 0, timeoutPointer) > 0 && FD_ISSET(commandWakeRead_, &readable)) {
+    if (debugEnabled && (timeoutPointer == 0 || timeout.tv_sec > 5)) {
+        timeout.tv_sec = 5;
+        timeout.tv_usec = 0;
+        timeoutPointer = &timeout;
+    }
+    if (debugEnabled) {
+        ++stats->selectCalls;
+        stats->lastTimeoutSeconds = timeoutPointer == 0 ? -1 : static_cast<int>(timeout.tv_sec);
+    }
+    int selectResult = select(maximum + 1, &readable, &writable, 0, timeoutPointer);
+    int selectError = selectResult < 0 ? errno : 0;
+    if (debugEnabled) {
+        stats->lastSelectResult = selectResult;
+        stats->lastSelectErrno = selectError;
+        if (selectResult == 0) ++stats->selectTimeouts;
+        else if (selectResult > 0) {
+            ++stats->selectReady;
+            if (serial >= 0 && FD_ISSET(serial, &readable)) ++stats->serialReadReady;
+            if (serial >= 0 && FD_ISSET(serial, &writable)) ++stats->serialWriteReady;
+            if (FD_ISSET(commandWakeRead_, &readable)) ++stats->wakeReady;
+        } else if (selectError == EINTR) ++stats->selectInterrupted;
+        else ++stats->selectErrors;
+    }
+    if (selectResult > 0 && FD_ISSET(commandWakeRead_, &readable)) {
         char buffer[64];
         while (read(commandWakeRead_, buffer, sizeof(buffer)) > 0) {}
     }
@@ -274,6 +351,12 @@ bool GatewayRunner::identifyDevice(const std::string& address, std::string* erro
     command.address = address;
     return invoke(&command, error);
 }
+bool GatewayRunner::queryDeviceConfiguration(const std::string& address, std::string* error) {
+    Command command;
+    command.type = DeviceConfiguration;
+    command.address = address;
+    return invoke(&command, error);
+}
 bool GatewayRunner::setLightState(const std::string& address, const std::string& state, int brightnessPercent,
                                   std::string* error) {
     Command command;
@@ -294,3 +377,9 @@ bool GatewayRunner::turnOffSceneGroup(unsigned short groupId, std::string* error
 }
 bool GatewayRunner::sendTestNotification(std::string* error) { Command command; command.type = TestNotification; return invoke(&command, error); }
 bool GatewayRunner::setNotificationsEnabled(bool enabled, std::string* error) { Command command; command.type = NotificationSetting; command.hasLow = enabled; return invoke(&command, error); }
+bool GatewayRunner::setEventLoopDebug(bool enabled, std::string* error) {
+    Command command;
+    command.type = EventLoopDebug;
+    command.enabled = enabled;
+    return invoke(&command, error);
+}
