@@ -377,6 +377,7 @@ private:
                            unsigned short manufacturer, unsigned char command, const std::vector<unsigned char>& arguments);
     bool sceneMemberNative(const Device& device, const Scene& scene, const SceneLightState& state) const;
     void provisionSceneGroup(const SceneGroup& group);
+    void provisionSceneGroupsForDevice(const std::string& ieeeAddress);
     void dispatchRemoteSceneAction(const std::string& ieeeAddress, const std::string& action);
     void pollSceneRetries();
     bool sendSceneRetry(unsigned short groupId, SceneRetry* retry);

@@ -869,6 +869,18 @@ void Gateway::provisionSceneGroup(const SceneGroup& group) {
     }
 }
 
+void Gateway::provisionSceneGroupsForDevice(const std::string& ieeeAddress) {
+    for (unsigned long i = 0; i < sceneGroups_.size(); ++i) {
+        if (std::find(sceneGroups_[i].members.begin(), sceneGroups_[i].members.end(), ieeeAddress) ==
+            sceneGroups_[i].members.end()) continue;
+        SceneGroup deviceGroup = sceneGroups_[i];
+        deviceGroup.members.clear();
+        deviceGroup.members.push_back(ieeeAddress);
+        provisionSceneGroup(deviceGroup);
+        addLog("Reprovisioned Zigbee group " + deviceGroup.name + " for " + ieeeAddress);
+    }
+}
+
 bool Gateway::activateScene(unsigned short groupId, unsigned char sceneId, std::string* error) {
     SceneGroup* group = findSceneGroup(groupId);
     if (group == 0) { *error = "scene group not found"; return false; }
@@ -2376,7 +2388,15 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
     }
     if (frame.size() <= payloadOffset) return;
     if (command == 0x0017) {
-        if (frame[payloadOffset] == 0) addLog("NCP network initialization accepted");
+        if (frame[payloadOffset] == 0) {
+            addLog("NCP network initialization accepted");
+            if (networkFormed_) {
+                for (unsigned long i = 0; i < sceneGroups_.size(); ++i)
+                    provisionSceneGroup(sceneGroups_[i]);
+                if (!sceneGroups_.empty())
+                    addLog("Reprovisioned configured light groups after network initialization");
+            }
+        }
         else {
             networkFormed_ = false;
             std::ostringstream message;
@@ -2397,6 +2417,9 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
         if (frame[payloadOffset] == 0x90) {
             networkFormed_ = true;
             addLog("NCP Zigbee network is active");
+            for (unsigned long i = 0; i < sceneGroups_.size(); ++i)
+                provisionSceneGroup(sceneGroups_[i]);
+            if (!sceneGroups_.empty()) addLog("Reprovisioned configured light groups after network startup");
             requestCoordinatorIeeeAddress();
             configureTradfriBindGroup();
         } else if (frame[payloadOffset] == 0x9c || frame[payloadOffset] == 0x9d) {
@@ -3091,6 +3114,7 @@ void Gateway::completeInterviewOperation(unsigned short destination) {
             classifyDevice(&device);
             state.persistentDirty = true;
         }
+        provisionSceneGroupsForDevice(state.ieeeAddress);
         if (state.persistentDirty) {
             savePersistentState();
             state.persistentDirty = false;
