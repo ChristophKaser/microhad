@@ -22,6 +22,7 @@ struct ShellyDevice {
     unsigned int pollSeconds;
     bool invertContact;
     long nextPoll;
+    bool manualRefresh;
     ShellyDevice();
 };
 

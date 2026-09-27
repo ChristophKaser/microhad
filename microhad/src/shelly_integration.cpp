@@ -232,7 +232,7 @@ std::string deviceJson(const ShellyDevice& d, bool includeCallbackUrls) {
 
 }
 
-ShellyDevice::ShellyDevice() : inputIndex(0), temperatureIndex(0), relayIndex(0), pollSeconds(30), invertContact(false), nextPoll(0) {}
+ShellyDevice::ShellyDevice() : inputIndex(0), temperatureIndex(0), relayIndex(0), pollSeconds(30), invertContact(false), nextPoll(0), manualRefresh(false) {}
 
 ShellyIntegration::ShellyIntegration(const std::string& runtimeDirectory, GatewayRunner* gateway) : runtimeDirectory_(runtimeDirectory), gateway_(gateway), running_(false), started_(false) {
     pthread_mutex_init(&mutex_, 0);
@@ -355,10 +355,11 @@ void ShellyIntegration::pollDevices() {
         if (devices_[i].nextPoll <= now) devices_[i].nextPoll = now + static_cast<long>(devices_[i].pollSeconds);
     }
     snapshot = devices_;
+    for (unsigned long i = 0; i < devices_.size(); ++i) devices_[i].manualRefresh = false;
     pthread_mutex_unlock(&mutex_);
     for (unsigned long i = 0; i < snapshot.size(); ++i) {
         ShellyDevice& d = snapshot[i];
-        if ((!d.callbackToken.empty() && d.model == "uni" && d.temperatureIndex < 0) ||
+        if ((!d.manualRefresh && !d.callbackToken.empty() && d.model == "uni" && d.temperatureIndex < 0) ||
             d.nextPoll != now + static_cast<long>(d.pollSeconds)) continue;
         std::string body;
         if (!httpGet(d, "/status", &body)) continue;
@@ -379,8 +380,8 @@ void ShellyIntegration::pollDevices() {
         }
         if (gateway_ == 0) continue;
         std::string error;
-        if (d.callbackToken.empty() && hasContact) gateway_->applyShellyEvent(d.id, 1, contactOpen ? 1 : 0, &error);
-        if (d.callbackToken.empty() && hasActor) gateway_->applyShellyEvent(d.id, 3, actorOn ? 1 : 0, &error);
+        if ((d.callbackToken.empty() || d.manualRefresh) && hasContact) gateway_->applyShellyEvent(d.id, 1, contactOpen ? 1 : 0, &error);
+        if ((d.callbackToken.empty() || d.manualRefresh) && hasActor) gateway_->applyShellyEvent(d.id, 3, actorOn ? 1 : 0, &error);
         if (d.model == "uni" && d.temperatureIndex >= 0 &&
             extractIndexedNumber(body, "ext_temperature", d.temperatureIndex, "tC", &temperature))
             gateway_->applyShellyEvent(d.id, 2, temperature, &error);
@@ -490,6 +491,7 @@ bool ShellyIntegration::refresh(const std::string& id, std::string* error) {
     pthread_mutex_lock(&mutex_);
     for (unsigned long i = 0; i < devices_.size(); ++i) if (devices_[i].id == id) {
         devices_[i].nextPoll = 0;
+        devices_[i].manualRefresh = true;
         pthread_cond_signal(&ready_);
         pthread_mutex_unlock(&mutex_); return true;
     }
