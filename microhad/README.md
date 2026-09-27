@@ -104,11 +104,17 @@ while retaining the manual Refresh action.
 
 ## Shelly devices
 
-Use **Add Shelly** in the Devices section to add a Shelly Uni Gen1, Plug Gen1,
+Use **More ⋯ → Add Shelly** to add a Shelly Uni Gen1, Plug Gen1,
 or Plug S Gen1 by its local host or address. The Uni can expose one selected
 digital input as a contact, an optional temperature probe, and one relay as an
 actor. Plugs expose their relay as an actor. Optional HTTP Basic credentials
 are stored in `shelly-devices.jsonl` in the runtime directory with mode `0600`.
+Shelly readings, actors, and contact alerts appear alongside Zigbee devices in
+the dashboard's device type groups. A Uni appears as separate contact,
+temperature, and relay cards; a Plug combines its switch and power reading.
+The status API lists both sources in `devices` with stable `id` and `source`
+fields; Shelly history and actor commands use the regular `/api/devices/{id}`
+routes. `/api/shelly/config` manages only the Shelly connection settings.
 
 Shelly devices poll every 30 seconds by default; the interval can be changed
 from 5 to 3600 seconds. Callback mode can replace polling for contact and relay
@@ -119,6 +125,8 @@ matching **btn_on_url / btn_off_url** (Uni input) and **out_on_url / out_off_url
 keep them private. The Uni thermometer continues polling because Gen1
 temperature actions only report threshold crossings, not each reading. Select
 **None** for a Uni without a temperature probe.
+Plug power is polled even in callback mode. The shared RAM history records
+changed power readings in 0.1 W units and does not repeat unchanged readings.
 
 For Browser Push, visit the HTTPS dashboard, accept the certificate, select
 **Enable browser alerts**, grant the browser permission, then select **Test

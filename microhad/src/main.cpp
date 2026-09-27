@@ -63,13 +63,15 @@ int main(int argc, char** argv) {
     gateway = new Gateway(serialDevice, serialBaud, runtimeDirectory, firebaseServiceAccount, firebaseTopic, caBundle,
                           notificationWorker);
     gatewayRunner = new GatewayRunner(gateway);
+    shellyIntegration = new ShellyIntegration(runtimeDirectory, gatewayRunner);
+    gateway->setShellyTransport(shellyIntegration);
     if (!gatewayRunner->start(&error)) {
         fprintf(stderr, "gateway startup failed: %s\n", error.c_str());
+        delete shellyIntegration;
         delete gatewayRunner;
         delete notificationWorker;
         return 1;
     }
-    shellyIntegration = new ShellyIntegration(runtimeDirectory);
     if (!shellyIntegration->start(&error)) {
         fprintf(stderr, "Shelly integration startup failed: %s\n", error.c_str());
         delete shellyIntegration;

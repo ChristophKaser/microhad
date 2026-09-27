@@ -9,6 +9,7 @@
 #include "sensor_history.h"
 
 class NotificationWorker;
+class ShellyIntegration;
 
 struct EndpointDescriptor {
     unsigned char endpoint;
@@ -21,13 +22,18 @@ struct EndpointDescriptor {
 };
 
 struct Device {
+    std::string source;
+    std::string externalId;
+    std::string component;
     std::string ieeeAddress;
     unsigned short networkAddress;
     std::string name;
     std::string kind;
     bool contactOpen;
     bool hasContact;
+    bool contactKnown;
     bool hasTemperature;
+    bool temperatureKnown;
     double temperatureCelsius;
     bool hasHumidity;
     double humidityPercent;
@@ -40,6 +46,12 @@ struct Device {
     bool hasBrightness;
     int brightnessPercent;
     bool hasRemote;
+    bool hasActor;
+    bool actorKnown;
+    bool actorOn;
+    bool hasPower;
+    bool powerKnown;
+    double powerWatts;
     int linkQuality;
     long lastSeen;
     int iasZoneId;
@@ -151,6 +163,13 @@ public:
     bool isOnline() const;
     std::string runtimeDirectory() const;
     std::string historyPath() const;
+    void setShellyTransport(ShellyIntegration* transport);
+    bool registerShelly(const std::string& id, const std::string& name, const std::string& oldName,
+                        const std::string& model, int temperatureIndex, std::string* error);
+    bool removeShelly(const std::string& id, std::string* error);
+    bool reconcileShelly(const std::vector<std::string>& ids, std::string* error);
+    bool applyShellyEvent(const std::string& id, int metric, double value, std::string* error);
+    bool setActorState(const std::string& address, bool on, std::string* error);
     int serialFd() const;
     bool serialNeedsWrite() const;
     bool hasImmediateWork() const;
@@ -194,6 +213,7 @@ private:
     std::string firebaseTopic_;
     std::string caBundle_;
     SensorHistory history_;
+    ShellyIntegration* shellyTransport_;
     NotificationWorker* notificationWorker_;
     int serialFd_;
     bool online_;

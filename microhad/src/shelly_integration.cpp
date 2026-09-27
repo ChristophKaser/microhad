@@ -1,4 +1,5 @@
 #include "shelly_integration.h"
+#include "gateway_runner.h"
 
 #include "json_util.h"
 
@@ -218,14 +219,7 @@ std::string deviceJson(const ShellyDevice& d, bool includeCallbackUrls) {
         << ",\"input_index\":" << d.inputIndex << ",\"temperature_index\":" << d.temperatureIndex
         << ",\"relay_index\":" << d.relayIndex << ",\"poll_seconds\":" << d.pollSeconds
         << ",\"invert_contact\":" << (d.invertContact ? "true" : "false")
-        << ",\"callback_mode\":" << (d.callbackToken.empty() ? "false" : "true")
-        << ",\"has_contact\":" << (d.hasContact ? "true" : "false") << ",\"contact_known\":" << (d.contactKnown ? "true" : "false")
-        << ",\"contact_open\":" << (d.contactOpen ? "true" : "false")
-        << ",\"has_temperature\":" << (d.hasTemperature ? "true" : "false") << ",\"temperature_known\":" << (d.temperatureKnown ? "true" : "false")
-        << ",\"temperature_celsius\":" << d.temperatureCelsius
-        << ",\"has_actor\":" << (d.hasActor ? "true" : "false") << ",\"actor_known\":" << (d.actorKnown ? "true" : "false")
-        << ",\"actor_on\":" << (d.actorOn ? "true" : "false")
-        << ",\"last_seen\":" << d.lastSeen;
+        << ",\"callback_mode\":" << (d.callbackToken.empty() ? "false" : "true");
     if (includeCallbackUrls && !d.callbackToken.empty() && !d.callbackHost.empty()) {
         out << ",\"callback_urls\":{\"input_open\":\"" << jsonEscape(callbackUrl(d, "input-on"))
             << "\",\"input_closed\":\"" << jsonEscape(callbackUrl(d, "input-off"))
@@ -238,11 +232,9 @@ std::string deviceJson(const ShellyDevice& d, bool includeCallbackUrls) {
 
 }
 
-ShellyDevice::ShellyDevice() : inputIndex(0), temperatureIndex(0), relayIndex(0), pollSeconds(30), hasContact(false),
-    contactKnown(false), contactOpen(false), invertContact(false), hasTemperature(false), temperatureKnown(false),
-    temperatureCelsius(0), hasActor(false), actorKnown(false), actorOn(false), lastSeen(0), nextPoll(0) {}
+ShellyDevice::ShellyDevice() : inputIndex(0), temperatureIndex(0), relayIndex(0), pollSeconds(30), invertContact(false), nextPoll(0) {}
 
-ShellyIntegration::ShellyIntegration(const std::string& runtimeDirectory) : runtimeDirectory_(runtimeDirectory), running_(false), started_(false) {
+ShellyIntegration::ShellyIntegration(const std::string& runtimeDirectory, GatewayRunner* gateway) : runtimeDirectory_(runtimeDirectory), gateway_(gateway), running_(false), started_(false) {
     pthread_mutex_init(&mutex_, 0);
     pthread_cond_init(&ready_, 0);
 }
@@ -255,6 +247,14 @@ ShellyIntegration::~ShellyIntegration() {
 
 bool ShellyIntegration::start(std::string* error) {
     if (!load(error)) return false;
+    if (gateway_ != 0) {
+        std::vector<std::string> ids;
+        for (unsigned long i = 0; i < devices_.size(); ++i) ids.push_back(devices_[i].id);
+        if (!gateway_->reconcileShelly(ids, error)) return false;
+    }
+    for (unsigned long i = 0; gateway_ != 0 && i < devices_.size(); ++i)
+        if (!gateway_->registerShelly(devices_[i].id, devices_[i].name, devices_[i].name,
+                                      devices_[i].model, devices_[i].temperatureIndex, error)) return false;
     pthread_mutex_lock(&mutex_);
     if (started_) { pthread_mutex_unlock(&mutex_); *error = "Shelly integration already started"; return false; }
     running_ = true;
@@ -283,6 +283,7 @@ void ShellyIntegration::run() {
         pthread_mutex_lock(&mutex_);
         if (!running_) { pthread_mutex_unlock(&mutex_); break; }
         pthread_mutex_unlock(&mutex_);
+        executeCallbacks();
         executeCommands();
         pollDevices();
         pthread_mutex_lock(&mutex_);
@@ -292,6 +293,16 @@ void ShellyIntegration::run() {
             pthread_cond_timedwait(&ready_, &mutex_, &deadline);
         }
         pthread_mutex_unlock(&mutex_);
+    }
+}
+
+void ShellyIntegration::executeCallbacks() {
+    std::vector<CallbackEvent> events;
+    pthread_mutex_lock(&mutex_); events.swap(callbacks_); pthread_mutex_unlock(&mutex_);
+    if (gateway_ == 0) return;
+    for (unsigned long i = 0; i < events.size(); ++i) {
+        std::string error;
+        gateway_->applyShellyEvent(events[i].id, events[i].metric, events[i].value, &error);
     }
 }
 
@@ -311,16 +322,29 @@ void ShellyIntegration::executeCommands() {
             if (httpGet(device, path.str(), &response)) {
                 bool state = false;
                 if (jsonBoolField(response, "ison", &state)) {
-                    pthread_mutex_lock(&mutex_);
-                    for (unsigned long j = 0; j < devices_.size(); ++j) if (devices_[j].id == device.id) {
-                        devices_[j].actorOn = state; devices_[j].actorKnown = true;
-                        devices_[j].lastSeen = static_cast<long>(time(0)); break;
-                    }
-                    pthread_mutex_unlock(&mutex_);
+                    if (gateway_ != 0) { std::string error; gateway_->applyShellyEvent(device.id, 3, state ? 1 : 0, &error); }
                 }
             }
         }
     }
+}
+
+bool ShellyIntegration::parsePowerStatus(const std::string& body, double* watts) {
+    std::string meter = objectAt(body, "meters", 0);
+    std::string::size_type powerAt = meter.find("\"power\"");
+    bool reportedValid = true;
+    if (meter.empty() || powerAt == std::string::npos ||
+        (meter.find("\"is_valid\"") != std::string::npos &&
+         (!jsonBoolField(meter, "is_valid", &reportedValid) || !reportedValid))) return false;
+    powerAt = meter.find(':', powerAt + 7);
+    if (powerAt == std::string::npos) return false;
+    char* end = 0;
+    double value = strtod(meter.c_str() + powerAt + 1, &end);
+    if (end == meter.c_str() + powerAt + 1) return false;
+    while (*end == ' ' || *end == '\t') ++end;
+    if ((*end != ',' && *end != '}') || value != value || value < 0 || value > 6553.5) return false;
+    *watts = value;
+    return true;
 }
 
 void ShellyIntegration::pollDevices() {
@@ -334,7 +358,7 @@ void ShellyIntegration::pollDevices() {
     pthread_mutex_unlock(&mutex_);
     for (unsigned long i = 0; i < snapshot.size(); ++i) {
         ShellyDevice& d = snapshot[i];
-        if ((!d.callbackToken.empty() && (d.model != "uni" || d.temperatureIndex < 0)) ||
+        if ((!d.callbackToken.empty() && d.model == "uni" && d.temperatureIndex < 0) ||
             d.nextPoll != now + static_cast<long>(d.pollSeconds)) continue;
         std::string body;
         if (!httpGet(d, "/status", &body)) continue;
@@ -353,19 +377,17 @@ void ShellyIntegration::pollDevices() {
             std::string relay = objectAt(body, "relays", 0);
             hasActor = !relay.empty() && jsonBoolField(relay, "ison", &actorOn);
         }
-        pthread_mutex_lock(&mutex_);
-        for (unsigned long j = 0; j < devices_.size(); ++j) if (devices_[j].id == d.id) {
-            ShellyDevice& current = devices_[j];
-            bool callbackMode = !current.callbackToken.empty();
-            if ((!callbackMode || current.model != "uni") && hasContact) { current.contactKnown = true; current.contactOpen = contactOpen; }
-            if (hasActor && !callbackMode) { current.actorKnown = true; current.actorOn = actorOn; }
-            if (d.model == "uni" && d.temperatureIndex >= 0 && extractIndexedNumber(body, "ext_temperature", d.temperatureIndex, "tC", &temperature)) {
-                current.temperatureKnown = true; current.temperatureCelsius = temperature;
-            }
-            current.lastSeen = now;
-            break;
+        if (gateway_ == 0) continue;
+        std::string error;
+        if (d.callbackToken.empty() && hasContact) gateway_->applyShellyEvent(d.id, 1, contactOpen ? 1 : 0, &error);
+        if (d.callbackToken.empty() && hasActor) gateway_->applyShellyEvent(d.id, 3, actorOn ? 1 : 0, &error);
+        if (d.model == "uni" && d.temperatureIndex >= 0 &&
+            extractIndexedNumber(body, "ext_temperature", d.temperatureIndex, "tC", &temperature))
+            gateway_->applyShellyEvent(d.id, 2, temperature, &error);
+        if (d.model != "uni") {
+            double watts = 0;
+            if (parsePowerStatus(body, &watts)) gateway_->applyShellyEvent(d.id, 4, watts, &error);
         }
-        pthread_mutex_unlock(&mutex_);
     }
 }
 
@@ -398,6 +420,7 @@ bool ShellyIntegration::saveDevice(const std::string& id, const std::string& nam
     d.pollSeconds = pollSeconds; d.invertContact = invertContact;
     pthread_mutex_lock(&mutex_);
     std::vector<ShellyDevice> previous = devices_;
+    std::string previousName = name;
     if (id.empty()) {
         if (!randomToken(&d.id)) { pthread_mutex_unlock(&mutex_); *error = "cannot generate Shelly id"; return false; }
         d.id = d.id.substr(0, 16);
@@ -407,19 +430,14 @@ bool ShellyIntegration::saveDevice(const std::string& id, const std::string& nam
     }
     bool replaced = false;
     for (unsigned long i = 0; i < devices_.size(); ++i) if (devices_[i].id == d.id) {
+        previousName = devices_[i].name;
         if (!clearAuth && d.username.empty() && d.password.empty()) { d.username = devices_[i].username; d.password = devices_[i].password; }
         if (callbackMode) d.callbackToken = devices_[i].callbackToken;
-        d.contactKnown = devices_[i].contactKnown; d.contactOpen = devices_[i].contactOpen;
-        d.temperatureKnown = devices_[i].temperatureKnown; d.temperatureCelsius = devices_[i].temperatureCelsius;
-        d.actorKnown = devices_[i].actorKnown; d.actorOn = devices_[i].actorOn; d.lastSeen = devices_[i].lastSeen;
         replaced = true; break;
     }
     if (callbackMode && d.callbackToken.empty() && !randomToken(&d.callbackToken)) {
         pthread_mutex_unlock(&mutex_); *error = "cannot generate callback token"; return false;
     }
-    d.hasContact = model == "uni";
-    d.hasTemperature = model == "uni" && temperatureIndex >= 0;
-    d.hasActor = true;
     if (replaced) {
         for (unsigned long i = 0; i < devices_.size(); ++i) if (devices_[i].id == d.id) { devices_[i] = d; break; }
     } else devices_.push_back(d);
@@ -428,6 +446,10 @@ bool ShellyIntegration::saveDevice(const std::string& id, const std::string& nam
     if (!saved) devices_ = previous;
     pthread_cond_signal(&ready_);
     pthread_mutex_unlock(&mutex_);
+    if (saved && gateway_ != 0 && !gateway_->registerShelly(d.id, d.name, previousName, d.model, d.temperatureIndex, error)) {
+        pthread_mutex_lock(&mutex_); devices_ = previous; persist(error); pthread_mutex_unlock(&mutex_);
+        return false;
+    }
     return saved;
 }
 
@@ -438,14 +460,19 @@ bool ShellyIntegration::removeDevice(const std::string& id, std::string* error) 
         devices_.erase(devices_.begin() + i);
         bool saved = persist(error);
         if (!saved) devices_ = previous;
-        pthread_mutex_unlock(&mutex_); return saved;
+        pthread_mutex_unlock(&mutex_);
+        if (saved && gateway_ != 0 && !gateway_->removeShelly(id, error)) {
+            pthread_mutex_lock(&mutex_); devices_ = previous; persist(error); pthread_mutex_unlock(&mutex_);
+            return false;
+        }
+        return saved;
     }
     pthread_mutex_unlock(&mutex_); *error = "unknown Shelly device"; return false;
 }
 
 bool ShellyIntegration::setActor(const std::string& id, bool on, std::string* error) {
     pthread_mutex_lock(&mutex_);
-    for (unsigned long i = 0; i < devices_.size(); ++i) if (devices_[i].id == id && devices_[i].hasActor) {
+    for (unsigned long i = 0; i < devices_.size(); ++i) if (devices_[i].id == id) {
         for (unsigned long j = 0; j < commands_.size(); ++j) if (commands_[j].id == id) {
             commands_[j].on = on;
             pthread_mutex_unlock(&mutex_); return true;
@@ -459,17 +486,31 @@ bool ShellyIntegration::setActor(const std::string& id, bool on, std::string* er
     pthread_mutex_unlock(&mutex_); *error = "unknown Shelly actor"; return false;
 }
 
-bool ShellyIntegration::callback(const std::string& id, const std::string& event, const std::string& token) {
+bool ShellyIntegration::refresh(const std::string& id, std::string* error) {
+    pthread_mutex_lock(&mutex_);
+    for (unsigned long i = 0; i < devices_.size(); ++i) if (devices_[i].id == id) {
+        devices_[i].nextPoll = 0;
+        pthread_cond_signal(&ready_);
+        pthread_mutex_unlock(&mutex_); return true;
+    }
+    pthread_mutex_unlock(&mutex_); *error = "unknown Shelly device"; return false;
+}
+
+bool ShellyIntegration::callback(const std::string& id, const std::string& event, const std::string& token, bool* overloaded) {
+    if (overloaded != 0) *overloaded = false;
     pthread_mutex_lock(&mutex_);
     for (unsigned long i = 0; i < devices_.size(); ++i) {
         ShellyDevice& d = devices_[i];
         if (d.id != id || d.callbackToken.empty() || d.callbackToken != token) continue;
-        if (event == "input-on" && d.model == "uni") { d.contactKnown = true; d.contactOpen = !d.invertContact; }
-        else if (event == "input-off" && d.model == "uni") { d.contactKnown = true; d.contactOpen = d.invertContact; }
-        else if (event == "relay-on") { d.actorKnown = true; d.actorOn = true; }
-        else if (event == "relay-off") { d.actorKnown = true; d.actorOn = false; }
+        CallbackEvent update; update.id = id;
+        if (event == "input-on" && d.model == "uni") { update.metric = 1; update.value = !d.invertContact; }
+        else if (event == "input-off" && d.model == "uni") { update.metric = 1; update.value = d.invertContact; }
+        else if (event == "relay-on") { update.metric = 3; update.value = 1; }
+        else if (event == "relay-off") { update.metric = 3; update.value = 0; }
         else { pthread_mutex_unlock(&mutex_); return false; }
-        d.lastSeen = static_cast<long>(time(0));
+        if (callbacks_.size() >= 32) { if (overloaded != 0) *overloaded = true; pthread_mutex_unlock(&mutex_); return false; }
+        callbacks_.push_back(update);
+        pthread_cond_signal(&ready_);
         pthread_mutex_unlock(&mutex_); return true;
     }
     pthread_mutex_unlock(&mutex_); return false;
@@ -485,7 +526,8 @@ bool ShellyIntegration::load(std::string* error) {
         ShellyDevice d;
         long value = 0;
         if (!jsonStringField(line, "id", &d.id) || !jsonStringField(line, "name", &d.name) ||
-            !jsonStringField(line, "host", &d.host) || !jsonStringField(line, "model", &d.model) || d.id.empty() || !validHost(d.host)) continue;
+            !jsonStringField(line, "host", &d.host) || !jsonStringField(line, "model", &d.model) || !validId(d.id) || !validHost(d.host) ||
+            (d.model != "uni" && d.model != "plug" && d.model != "plugs")) continue;
         jsonStringField(line, "username", &d.username); jsonStringField(line, "password", &d.password);
         jsonStringField(line, "callback_host", &d.callbackHost);
         if (!d.callbackHost.empty() && !validHost(d.callbackHost)) d.callbackHost.clear();
@@ -495,9 +537,6 @@ bool ShellyIntegration::load(std::string* error) {
         if (jsonLongField(line, "relay_index", &value)) d.relayIndex = static_cast<int>(value);
         if (jsonLongField(line, "poll_seconds", &value) && value >= 5 && value <= 3600) d.pollSeconds = static_cast<unsigned int>(value);
         d.invertContact = line.find("\"invert_contact\":true") != std::string::npos;
-        d.hasContact = d.model == "uni";
-        d.hasTemperature = d.model == "uni" && d.temperatureIndex >= 0;
-        d.hasActor = true;
         loaded.push_back(d);
     }
     pthread_mutex_lock(&mutex_); devices_ = loaded; pthread_mutex_unlock(&mutex_);

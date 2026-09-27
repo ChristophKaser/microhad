@@ -392,9 +392,11 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
         std::string id = slash == std::string::npos ? "" : target.substr(0, slash);
         std::string event = slash == std::string::npos ? "" : target.substr(slash + 1, (query == std::string::npos ? target.size() : query) - slash - 1);
         std::string token;
+        bool overloaded = false;
         bool valid = query != std::string::npos && formValue(target.substr(query + 1), "token", &token) &&
-                     shelly_->callback(id, event, token);
+                     shelly_->callback(id, event, token, &overloaded);
         if (valid) writeResponse(clientFd, 200, "application/json", "{\"ok\":true}");
+        else if (overloaded) writeResponse(clientFd, 503, "application/json", "{\"ok\":false,\"error\":\"Shelly callback queue is full\"}");
         else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"invalid callback\"}");
     } else if (shelly_ != 0 && request.find("GET /api/shelly/config ") == 0) {
         writeResponse(clientFd, 200, "application/json", shelly_->json(true));
@@ -443,14 +445,16 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
     } else if (request.find("GET /api/status ") == 0) {
         GatewayRunner::ViewLease* view = gateway_->acquireView();
         if (view == 0) writeResponse(clientFd, 503, "application/json", "{\"ok\":false,\"error\":\"coordinator is unavailable\"}");
-        else {
-            std::string body = view->statusJson(); delete view;
-            if (shelly_ != 0 && !body.empty() && body[body.size() - 1] == '}') {
-                body.erase(body.size() - 1);
-                body += ",\"external_devices\":" + shelly_->json(false) + "}";
-            }
-            writeResponse(clientFd, 200, "application/json", body);
-        }
+        else { std::string body = view->statusJson(); delete view; writeResponse(clientFd, 200, "application/json", body); }
+    } else if (request.find("POST /api/devices/") == 0 && request.find("/actor ") != std::string::npos) {
+        const std::string prefix = "POST /api/devices/";
+        std::string::size_type suffix = request.find("/actor ", prefix.size());
+        std::string address = suffix == std::string::npos ? "" : decodeComponent(request.substr(prefix.size(), suffix - prefix.size()));
+        std::string::size_type bodyAt = request.find("\r\n\r\n");
+        std::string state, error;
+        bool valid = bodyAt != std::string::npos && formValue(request.substr(bodyAt + 4), "state", &state) && (state == "on" || state == "off");
+        if (valid && gateway_->setActorState(address, state == "on", &error)) writeResponse(clientFd, 200, "application/json", "{\"ok\":true}");
+        else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + jsonEscape(valid ? error : "invalid actor command") + "\"}");
     } else if (request.find("GET /api/devices/") == 0) {
         const std::string prefix = "GET /api/devices/";
         std::string::size_type end = request.find(' ', prefix.size());

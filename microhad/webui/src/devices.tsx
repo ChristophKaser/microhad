@@ -88,6 +88,7 @@ function DeviceVisual({ device, type }: { device: Device; type: string }) {
     </svg>
   )
   if (type === 'Lights') return <LightBulbIcon on={device.light_on} />
+  if (type === 'Smart plugs' || type === 'Switches') return <span aria-hidden="true">{type === 'Smart plugs' ? '🔌' : '⏻'}</span>
   if (type === 'Motion sensors') return <span aria-hidden="true">{device.occupied ? '◉' : '◎'}</span>
   return <span aria-hidden="true">{type === 'Remotes' ? '🎛️' : '📡'}</span>
 }
@@ -100,13 +101,15 @@ const deviceTypes = [
   { name: 'Motion sensors', matches: (device: Device) => device.has_occupancy },
   { name: 'Lights', matches: (device: Device) => device.has_light },
   { name: 'Remotes', matches: (device: Device) => device.has_remote },
+  { name: 'Switches', matches: (device: Device) => device.has_actor && !device.has_power },
+  { name: 'Smart plugs', matches: (device: Device) => device.has_power },
   { name: 'Other devices', matches: (_device: Device) => true },
 ]
 const deviceType = (device: Device) =>
   deviceTypes.find((type) => type.matches(device))?.name ?? 'Other devices'
 const byName = (left: Device, right: Device) =>
   left.name.localeCompare(right.name, undefined, { sensitivity: 'base', numeric: true }) ||
-  left.ieee_address.localeCompare(right.ieee_address)
+  left.id.localeCompare(right.id)
 function relativeTime(epoch: number): string {
   if (!epoch) return 'Never'
   const seconds = Math.max(0, Math.floor(Date.now() / 1000 - epoch))
@@ -177,12 +180,14 @@ function DeviceCard({
   onSettings,
   onDetails,
   onHistory,
+  onConnection,
 }: {
   device: Device
   action: (url: string, body?: string) => void
   onSettings: () => void
   onDetails: () => void
   onHistory: () => void
+  onConnection: () => void
 }) {
   const [brightness, setBrightness] = useState(
     device.has_brightness ? device.brightness_percent : 100
@@ -191,7 +196,7 @@ function DeviceCard({
     () => setBrightness(device.has_brightness ? device.brightness_percent : 100),
     [device.brightness_percent, device.has_brightness]
   )
-  const url = `/api/devices/${encodeURIComponent(device.ieee_address)}`
+  const url = `/api/devices/${encodeURIComponent(device.id)}`
   const canDim = isDimmable(device)
   const type = deviceType(device)
   const extraReadings = [
@@ -200,6 +205,7 @@ function DeviceCard({
     type !== 'Contact sensors' && device.has_contact && (device.contact_open ? 'Open' : 'Closed'),
     type !== 'Motion sensors' && device.has_occupancy && (device.occupied ? 'Motion' : 'Clear'),
     type !== 'Lights' && device.has_light && (device.light_on ? 'Light on' : 'Light off'),
+    type !== 'Smart plugs' && device.has_power && device.power_known && `${device.power_watts.toFixed(1)} W`,
   ].filter(Boolean)
   return (
     <article className={`device-card device-card-${type.toLowerCase().replace(/[^a-z]+/g, '-')} ${
@@ -219,7 +225,7 @@ function DeviceCard({
           {device.has_temperature && (
             <div className="climate-reading">
               <span className="reading-label"><span className="reading-icon" aria-hidden="true">🌡️</span>Temperature</span>
-              <strong>{device.temperature_celsius}<span className="reading-unit">°C</span></strong>
+            <strong>{device.temperature_known ? device.temperature_celsius : 'Unknown'}{device.temperature_known && <span className="reading-unit">°C</span>}</strong>
             </div>
           )}
           {device.has_humidity && (
@@ -233,13 +239,16 @@ function DeviceCard({
         <div className={`device-focus ${type === 'Lights' ? 'light-focus' : ''}`}>
           <span className="focus-icon"><DeviceVisual device={device} type={type} /></span>
           <div className="focus-copy">
-            <strong>{type === 'Contact sensors' ? (device.contact_open ? 'Open' : 'Closed')
+            <strong>{type === 'Contact sensors' ? (!device.contact_known ? 'Unknown' : device.contact_open ? 'Open' : 'Closed')
               : type === 'Motion sensors' ? (device.occupied ? 'Occupied' : 'Clear')
               : type === 'Lights' ? (device.light_on ? 'On' : 'Off')
+              : type === 'Switches' || type === 'Smart plugs' ? (!device.actor_known ? 'Unknown' : device.actor_on ? 'On' : 'Off')
               : type === 'Remotes' ? 'Remote' : device.kind}</strong>
             <span>{type === 'Contact sensors' ? 'Contact sensor'
               : type === 'Motion sensors' ? 'Motion sensor'
               : type === 'Lights' ? 'Light'
+              : type === 'Switches' ? 'Switch'
+              : type === 'Smart plugs' ? 'Smart plug'
               : type === 'Remotes' ? 'Control' : 'Device'}</span>
           </div>
         </div>
@@ -249,6 +258,8 @@ function DeviceCard({
           {extraReadings.map((reading, index) => <span key={index}>{reading}</span>)}
         </div>
       )}
+      {device.has_power && <div className="extra-readings"><span>Power: {device.power_known ? `${device.power_watts.toFixed(1)} W` : 'Unknown'}</span></div>}
+      {device.has_actor && <div className="light-panel"><button className={`button light-toggle ${device.actor_known && device.actor_on ? 'primary' : ''}`} onClick={() => action(`${url}/actor`, form({ state: device.actor_known && device.actor_on ? 'off' : 'on' }))}>{device.actor_known && device.actor_on ? 'Turn off' : 'Turn on'}</button></div>}
       {device.has_light && (
         <div className="light-panel">
           <button
@@ -293,7 +304,7 @@ function DeviceCard({
       <div className="device-bottom">
         <div className="device-status">
           {device.has_battery && <span title="Battery">🔋 {device.battery_percent}%</span>}
-          <span title="Link quality">LQI {device.link_quality}</span>
+          {device.source === 'zigbee' && <span title="Link quality">LQI {device.link_quality}</span>}
           <span title={device.last_seen ? new Date(device.last_seen * 1000).toLocaleString() : undefined}>
             Seen {relativeTime(device.last_seen)}
           </span>
@@ -309,7 +320,7 @@ function DeviceCard({
           <button title="Settings" aria-label={`Settings for ${device.name}`} onClick={onSettings}>
             ⚙
           </button>
-          {(device.has_temperature || device.has_humidity || device.has_contact) && (
+          {(device.has_temperature || device.has_humidity || device.has_contact || device.has_power) && (
             <button title="History" aria-label={`History for ${device.name}`} onClick={onHistory}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M3 3v18h18" />
@@ -317,6 +328,7 @@ function DeviceCard({
               </svg>
             </button>
           )}
+          {device.source === 'shelly' && <button title="Shelly connection setup" aria-label={`Connection setup for ${device.name}`} onClick={onConnection}>⌁</button>}
           <button
             title="Refresh attributes"
             aria-label={`Refresh ${device.name}`}
@@ -335,14 +347,16 @@ export function DeviceGroups({
   onSettings,
   onDetails,
   onHistory,
+  onConnection,
 }: {
   status: Status | null
   action: (url: string, body?: string) => void
   onSettings: (device: Device) => void
   onDetails: (device: Device) => void
   onHistory: (device: Device) => void
+  onConnection: (device: Device) => void
 }) {
-  if (!status?.devices.length) return <div className="empty">No Zigbee devices discovered yet.</div>
+  if (!status?.devices.length) return <div className="empty">No devices configured or discovered yet.</div>
   const sceneGroups = [...status.scene_groups].sort((left, right) =>
     left.name.localeCompare(right.name, undefined, { sensitivity: 'base', numeric: true })
   )
@@ -390,12 +404,13 @@ export function DeviceGroups({
                 <div className="device-grid">
                   {section.devices.map((device) => (
                     <DeviceCard
-                      key={device.ieee_address}
+                      key={device.id}
                       device={device}
                       action={action}
                       onSettings={() => onSettings(device)}
                       onDetails={() => onDetails(device)}
                       onHistory={() => onHistory(device)}
+                      onConnection={() => onConnection(device)}
                     />
                   ))}
                 </div>
@@ -441,9 +456,9 @@ export function DeviceSettings({
       fields.initial_minutes = initial
       fields.reminder_minutes = reminder
     }
-    if (device.has_temperature || device.has_humidity) fields.sensor_refresh_minutes = refresh
+    if (device.source === 'zigbee' && (device.has_temperature || device.has_humidity)) fields.sensor_refresh_minutes = refresh
     try {
-      await post(`/api/devices/${encodeURIComponent(device.ieee_address)}/settings`, form(fields))
+      await post(`/api/devices/${encodeURIComponent(device.id)}/settings`, form(fields))
       onSaved()
       onClose()
     } catch (e) {
@@ -526,7 +541,7 @@ export function DeviceSettings({
             </label>
           </>
         )}
-        {(device.has_temperature || device.has_humidity) && (
+          {device.source === 'zigbee' && (device.has_temperature || device.has_humidity) && (
           <label className="field">
             Fallback refresh interval (minutes; 0 disables)
             <input

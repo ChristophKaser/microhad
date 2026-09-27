@@ -1,4 +1,5 @@
 #include "gateway.h"
+#include "shelly_integration.h"
 #include "json_util.h"
 #include "notification_worker.h"
 #include "storage.h"
@@ -35,13 +36,37 @@ RemoteSceneBinding::RemoteSceneBinding() : groupId(0), off(false) {}
 Gateway::SceneRetry::SceneRetry() : off(false), inFlight(false), retryRequested(false), sentOff(false), unicast(false), memberIndex(0), sceneId(0), sentSceneId(0),
                                     ezspSequence(0), attempts(0), sentAt(0), retryAt(0) {}
 
-Device::Device() : networkAddress(0xffff), kind("generic"), contactOpen(false), hasContact(false), hasTemperature(false),
+Device::Device() : source("zigbee"), networkAddress(0xffff), kind("generic"), contactOpen(false), hasContact(false), contactKnown(false), hasTemperature(false), temperatureKnown(false),
                    temperatureCelsius(0), hasHumidity(false), humidityPercent(0), hasOccupancy(false), occupied(false),
                    hasBattery(false), batteryPercent(0), hasLight(false), lightOn(false), hasBrightness(false),
-                   brightnessPercent(0), hasRemote(false), linkQuality(0), lastSeen(0),
+                   brightnessPercent(0), hasRemote(false), hasActor(false), actorKnown(false), actorOn(false), hasPower(false), powerKnown(false), powerWatts(0), linkQuality(0), lastSeen(0),
                    iasZoneId(-1), hasLowTemperatureAlert(false), hasHighTemperatureAlert(false), lowTemperatureAlert(0),
                    highTemperatureAlert(0), contactInitialAlertMinutes(10), contactReminderAlertMinutes(5),
                    sensorRefreshIntervalMinutes(5) {
+}
+
+namespace {
+bool validShellyId(const std::string& id) {
+    if (id.size() != 16) return false;
+    for (unsigned long i = 0; i < id.size(); ++i)
+        if (std::string("0123456789abcdef").find(id[i]) == std::string::npos) return false;
+    return true;
+}
+std::string shellyAddress(const std::string& id, const std::string& component) {
+    const char* digits = "0123456789abcdef";
+    unsigned int suffix = component == "contact" ? 1 : component == "temperature" ? 2 : component == "relay" ? 3 : 4;
+    std::string address = "0x" + id;
+    std::string::size_type at = address.size() - 1;
+    std::string::size_type nibble = std::string(digits).find(address[at]);
+    address[at] = digits[(static_cast<unsigned int>(nibble) ^ suffix) & 15];
+    return address;
+}
+
+std::string shellyDefaultName(const std::string& name, const std::string& component) {
+    if (component == "plug") return name.substr(0, 64);
+    std::string suffix = component == "contact" ? " · Contact" : component == "temperature" ? " · Temperature" : " · Relay";
+    return name.substr(0, 64 - suffix.size()) + suffix;
+}
 }
 
 Gateway::InterviewOperation::InterviewOperation() : type(InterviewNodeDescriptor), endpoint(0), cluster(0), attribute(0),
@@ -128,12 +153,18 @@ unsigned long zclValueLength(unsigned char type, const std::vector<unsigned char
 
 void clearVolatileDeviceValues(Device* device) {
     device->contactOpen = false;
+    device->contactKnown = false;
     device->temperatureCelsius = 0;
+    device->temperatureKnown = false;
     device->humidityPercent = 0;
     device->occupied = false;
     device->hasBattery = false;
     device->batteryPercent = 0;
     device->lightOn = false;
+    device->actorOn = false;
+    device->actorKnown = false;
+    device->powerWatts = 0;
+    device->powerKnown = false;
     device->hasBrightness = false;
     device->brightnessPercent = 0;
     device->linkQuality = 0;
@@ -290,7 +321,7 @@ Gateway::Gateway(const std::string& serialDevice, int serialBaud, const std::str
                  const std::string& firebaseServiceAccount, const std::string& firebaseTopic, const std::string& caBundle,
                  NotificationWorker* notificationWorker, const std::string& historyPath) :
     serialDevice_(serialDevice), serialBaud_(serialBaud), runtimeDirectory_(runtimeDirectory), networkRandomSource_("/dev/urandom"),
-    firebaseServiceAccount_(firebaseServiceAccount), firebaseTopic_(firebaseTopic), caBundle_(caBundle), history_(historyPath), notificationWorker_(notificationWorker), serialFd_(-1),
+    firebaseServiceAccount_(firebaseServiceAccount), firebaseTopic_(firebaseTopic), caBundle_(caBundle), history_(historyPath), shellyTransport_(0), notificationWorker_(notificationWorker), serialFd_(-1),
     online_(false), joinUntil_(0), joinPermitRenewAt_(0), joinPermitClosePending_(false), joinPermitCloseDeadline_(0), pendingJoinSeconds_(0), joinPreparationStep_(0), joinPreparationDeadline_(0), ashSendSequence_(0), ashReceiveSequence_(0), ezspSequence_(0),
     ashAckDeadline_(0), ashRetries_(0), ashPendingSensitive_(false), ezspVersion_(4), zdoSequence_(0), zclTransactionSequence_(0), ezspVersionNegotiated_(false), stackTokenWritingRequested_(false), networkInitRequested_(false), tradfriBindGroupConfigured_(false), coordinatorInitializationStep_(0), coordinatorInitializationDeadline_(0), resetDeadline_(0), nextHeartbeatAt_(0), serialRxBytes_(0), ashRxFrames_(0), networkForming_(false), networkFormationStep_(0), networkFormationDeadline_(0), networkFormed_(false), networkPanId_(0),
     networkChannel_(0), interviewRequestInFlight_(false), interviewSendAccepted_(false), interviewEzspSequence_(0), interviewNode_(0xffff),
@@ -299,6 +330,136 @@ Gateway::Gateway(const std::string& serialDevice, int serialBaud, const std::str
 
 Gateway::~Gateway() {
     stop();
+}
+
+void Gateway::setShellyTransport(ShellyIntegration* transport) { shellyTransport_ = transport; }
+
+bool Gateway::registerShelly(const std::string& id, const std::string& name, const std::string& oldName,
+                             const std::string& model, int temperatureIndex, std::string* error) {
+    if (!validShellyId(id) || (model != "uni" && model != "plug" && model != "plugs")) {
+        *error = "invalid Shelly device"; return false;
+    }
+    std::vector<std::string> components;
+    if (model == "uni") {
+        components.push_back("contact");
+        if (temperatureIndex >= 0) components.push_back("temperature");
+        components.push_back("relay");
+    } else components.push_back("plug");
+    for (unsigned long i = 0; i < components.size(); ++i) {
+        std::map<std::string, Device>::const_iterator existing = devices_.find(shellyAddress(id, components[i]));
+        if (existing != devices_.end() && (existing->second.source != "shelly" || existing->second.externalId != id)) {
+            *error = "Shelly device address conflicts with an existing device"; return false;
+        }
+    }
+    bool changed = false;
+    for (std::map<std::string, Device>::iterator it = devices_.begin(); it != devices_.end();) {
+        if (it->second.source == "shelly" && it->second.externalId == id &&
+            std::find(components.begin(), components.end(), it->second.component) == components.end()) {
+            contactOpenedAt_.erase(it->first); nextContactAlertAt_.erase(it->first);
+            devices_.erase(it++); changed = true;
+        } else ++it;
+    }
+    for (unsigned long i = 0; i < components.size(); ++i) {
+        const std::string address = shellyAddress(id, components[i]);
+        std::map<std::string, Device>::iterator existing = devices_.find(address);
+        if (existing == devices_.end()) {
+            Device d;
+            d.ieeeAddress = address; d.source = "shelly"; d.externalId = id; d.component = components[i];
+            d.name = shellyDefaultName(name, components[i]); d.manufacturerName = "Shelly"; d.modelId = model;
+            d.kind = components[i] == "plug" ? "smart plug" : components[i];
+            d.hasContact = components[i] == "contact"; d.hasTemperature = components[i] == "temperature";
+            d.hasActor = components[i] == "relay" || components[i] == "plug"; d.hasPower = components[i] == "plug";
+            devices_[address] = d; changed = true;
+        } else {
+            Device& d = existing->second;
+            const std::string oldDefault = shellyDefaultName(oldName, components[i]);
+            if (d.name == oldDefault && d.name != shellyDefaultName(name, components[i])) {
+                d.name = shellyDefaultName(name, components[i]); changed = true;
+            }
+            if (d.modelId != model) { d.modelId = model; changed = true; }
+        }
+    }
+    if (changed) { markViewDirty(); saveState(); savePersistentState(); }
+    return true;
+}
+
+bool Gateway::removeShelly(const std::string& id, std::string* error) {
+    bool changed = false;
+    for (std::map<std::string, Device>::iterator it = devices_.begin(); it != devices_.end();) {
+        if (it->second.source == "shelly" && it->second.externalId == id) {
+            contactOpenedAt_.erase(it->first); nextContactAlertAt_.erase(it->first);
+            devices_.erase(it++); changed = true;
+        } else ++it;
+    }
+    if (!changed) { *error = "unknown Shelly device"; return false; }
+    markViewDirty(); saveState(); savePersistentState();
+    return true;
+}
+
+bool Gateway::reconcileShelly(const std::vector<std::string>& ids, std::string* error) {
+    (void)error;
+    bool changed = false;
+    for (std::map<std::string, Device>::iterator it = devices_.begin(); it != devices_.end();) {
+        if (it->second.source == "shelly" &&
+            std::find(ids.begin(), ids.end(), it->second.externalId) == ids.end()) {
+            contactOpenedAt_.erase(it->first); nextContactAlertAt_.erase(it->first);
+            devices_.erase(it++); changed = true;
+        } else ++it;
+    }
+    if (changed) { markViewDirty(); saveState(); savePersistentState(); }
+    return true;
+}
+
+bool Gateway::applyShellyEvent(const std::string& id, int metric, double value, std::string* error) {
+    if (!validShellyId(id) || value != value) { *error = "invalid Shelly event"; return false; }
+    const char* component = metric == 1 ? "contact" : metric == 2 ? "temperature" : metric == 3 ? "relay" : metric == 4 ? "plug" : "";
+    if (!*component) { *error = "invalid Shelly event"; return false; }
+    std::map<std::string, Device>::iterator it = devices_.find(shellyAddress(id, component));
+    if (metric == 3 && it == devices_.end()) it = devices_.find(shellyAddress(id, "plug"));
+    if (it == devices_.end() || it->second.source != "shelly" || it->second.externalId != id) {
+        *error = "unknown Shelly device"; return false;
+    }
+    Device& d = it->second;
+    if ((metric == 1 && !d.hasContact) || (metric == 2 && !d.hasTemperature) ||
+        (metric == 3 && !d.hasActor) || (metric == 4 && !d.hasPower)) {
+        *error = "Shelly capability is unavailable"; return false;
+    }
+    const long now = time(0);
+    if (metric == 1 || metric == 3) {
+        if (value != 0 && value != 1) { *error = "invalid Shelly state"; return false; }
+        if (metric == 1) {
+            const bool wasOpen = d.contactKnown && d.contactOpen;
+            const bool changed = !d.contactKnown || d.contactOpen != (value != 0);
+            d.contactOpen = value != 0; d.contactKnown = true;
+            if (changed) {
+                history_.append(d.ieeeAddress, SensorHistory::Contact, d.contactOpen ? 1 : 0, now);
+                updateContactAlert(d.ieeeAddress, wasOpen);
+            }
+        } else { d.actorOn = value != 0; d.actorKnown = true; }
+    } else if (metric == 2) {
+        if (value < -100 || value > 200) { *error = "invalid Shelly temperature"; return false; }
+        bool known = d.temperatureKnown;
+        double previous = d.temperatureCelsius;
+        d.temperatureCelsius = value; d.temperatureKnown = true;
+        history_.append(d.ieeeAddress, SensorHistory::Temperature,
+                        static_cast<int>(value * 100 + (value >= 0 ? 0.5 : -0.5)), now);
+        updateTemperatureAlert(d, known, previous);
+    } else {
+        if (value < 0 || value > 6553.5) { *error = "invalid Shelly power"; return false; }
+        d.powerWatts = value; d.powerKnown = true;
+        history_.append(d.ieeeAddress, SensorHistory::Power, static_cast<int>(value * 10 + 0.5), now);
+    }
+    d.lastSeen = now;
+    markViewDirty(); saveState();
+    return true;
+}
+
+bool Gateway::setActorState(const std::string& address, bool on, std::string* error) {
+    std::map<std::string, Device>::const_iterator it = devices_.find(address);
+    if (it == devices_.end() || it->second.source != "shelly" || !it->second.hasActor || shellyTransport_ == 0) {
+        *error = "actor is unavailable"; return false;
+    }
+    return shellyTransport_->setActor(it->second.externalId, on, error);
 }
 
 bool Gateway::configureSerial(std::string* error) {
@@ -680,7 +841,7 @@ bool Gateway::setDeviceSettings(const std::string& ieeeAddress, const std::strin
             return false;
         }
     }
-    if (hasSensorRefreshInterval && !it->second.hasTemperature && !it->second.hasHumidity) {
+    if (hasSensorRefreshInterval && (it->second.source == "shelly" || (!it->second.hasTemperature && !it->second.hasHumidity))) {
         *error = "sensor refresh interval applies only to measurement devices";
         return false;
     }
@@ -715,6 +876,7 @@ bool Gateway::setDeviceSettings(const std::string& ieeeAddress, const std::strin
 bool Gateway::refreshDevice(const std::string& ieeeAddress, std::string* error) {
     std::map<std::string, Device>::const_iterator device = devices_.find(ieeeAddress);
     if (device == devices_.end()) { *error = "device is unknown"; return false; }
+    if (device->second.source == "shelly") return shellyTransport_ != 0 && shellyTransport_->refresh(device->second.externalId, error);
     if (!online_ || !networkFormed_ || coordinatorInitializationStep_ != 0) {
         *error = "Zigbee network is not ready";
         addLog(std::string("Manual refresh rejected; Zigbee network not ready: ") + ieeeAddress);
@@ -1659,11 +1821,16 @@ std::string GatewayView::statusJson() const {
         const Device& device = devices[deviceIndex];
         if (!first) json << ',';
         first = false;
-        json << "{\"ieee_address\":\"" << jsonEscape(device.ieeeAddress) << "\",\"name\":\""
+        json << "{\"id\":\"" << jsonEscape(device.ieeeAddress) << "\",\"source\":\"" << jsonEscape(device.source)
+             << "\",\"component\":\"" << jsonEscape(device.component)
+             << "\",\"external_id\":\"" << jsonEscape(device.externalId)
+             << "\",\"ieee_address\":\"" << (device.source == "zigbee" ? jsonEscape(device.ieeeAddress) : "") << "\",\"name\":\""
              << jsonEscape(device.name) << "\",\"kind\":\"" << jsonEscape(device.kind)
              << "\",\"has_contact\":" << (device.hasContact ? "true" : "false")
+             << ",\"contact_known\":" << (device.source == "zigbee" || device.contactKnown ? "true" : "false")
              << ",\"contact_open\":" << (device.contactOpen ? "true" : "false")
              << ",\"has_temperature\":" << (device.hasTemperature ? "true" : "false")
+             << ",\"temperature_known\":" << (device.source == "zigbee" || device.temperatureKnown ? "true" : "false")
              << ",\"temperature_celsius\":" << device.temperatureCelsius
              << ",\"has_humidity\":" << (device.hasHumidity ? "true" : "false")
              << ",\"humidity_percent\":" << device.humidityPercent
@@ -1676,6 +1843,12 @@ std::string GatewayView::statusJson() const {
              << ",\"has_brightness\":" << (device.hasBrightness ? "true" : "false")
              << ",\"brightness_percent\":" << device.brightnessPercent
              << ",\"has_remote\":" << (device.hasRemote ? "true" : "false")
+             << ",\"has_actor\":" << (device.hasActor ? "true" : "false")
+             << ",\"actor_known\":" << (device.actorKnown ? "true" : "false")
+             << ",\"actor_on\":" << (device.actorOn ? "true" : "false")
+             << ",\"has_power\":" << (device.hasPower ? "true" : "false")
+             << ",\"power_known\":" << (device.powerKnown ? "true" : "false")
+             << ",\"power_watts\":" << device.powerWatts
              << ",\"has_low_temperature_alert\":" << (device.hasLowTemperatureAlert ? "true" : "false")
              << ",\"low_temperature_alert\":" << device.lowTemperatureAlert
              << ",\"has_high_temperature_alert\":" << (device.hasHighTemperatureAlert ? "true" : "false")
@@ -1880,7 +2053,7 @@ void Gateway::loadState() {
     if (loadDevices(runtimeDirectory_ + "/devices.json", &saved, &error)) {
         for (i = 0; i < saved.size(); ++i) {
             clearVolatileDeviceValues(&saved[i]);
-            classifyDevice(&saved[i]);
+            if (saved[i].source == "zigbee") classifyDevice(&saved[i]);
             devices_[saved[i].ieeeAddress] = saved[i];
             if (saved[i].networkAddress != 0xffff) nodeAddresses_[saved[i].networkAddress] = saved[i].ieeeAddress;
             if (saved[i].hasLight && saved[i].networkAddress != 0xffff) lightSetupPending_[saved[i].networkAddress] = true;
@@ -1894,7 +2067,7 @@ void Gateway::loadState() {
                 if (volatileValues[i].manufacturerName.empty()) volatileValues[i].manufacturerName = persistent.manufacturerName;
                 if (volatileValues[i].modelId.empty()) volatileValues[i].modelId = persistent.modelId;
                 if (volatileValues[i].endpoints.empty()) volatileValues[i].endpoints = persistent.endpoints;
-                classifyDevice(&volatileValues[i]);
+                if (volatileValues[i].source == "zigbee") classifyDevice(&volatileValues[i]);
                 devices_[volatileValues[i].ieeeAddress] = volatileValues[i];
             }
         }

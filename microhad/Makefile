@@ -87,9 +87,9 @@ endef
 verify-target: $(MIPS_BIN)
 	@$(call verify_elf,$(TARGET_READELF),$(MIPS_BIN))
 
-$(UNIT_TEST_BIN): $(UNIT_TEST_SOURCES) src/gateway_config.cpp src/ash.cpp src/json_util.cpp src/storage.cpp src/gateway.cpp src/notification_worker.cpp src/zcl.cpp src/sensor_history.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp src/shelly_integration.cpp $(HOST_C_OBJECTS) $(HOST_MBEDTLS_LIBS) $(wildcard include/*.h)
+$(UNIT_TEST_BIN): $(UNIT_TEST_SOURCES) src/gateway_config.cpp src/ash.cpp src/json_util.cpp src/storage.cpp src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/sensor_history.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp src/shelly_integration.cpp $(HOST_C_OBJECTS) $(HOST_MBEDTLS_LIBS) $(wildcard include/*.h)
 	@mkdir -p $(HOST_BUILD)
-	$(HOST_CXX) $(HOST_CXXFLAGS) $(UNIT_TEST_SOURCES) src/gateway_config.cpp src/ash.cpp src/json_util.cpp src/storage.cpp src/gateway.cpp src/notification_worker.cpp src/zcl.cpp src/sensor_history.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp src/shelly_integration.cpp $(HOST_C_OBJECTS) -o $@ $(HOST_MBEDTLS_LIBS) $(LDFLAGS)
+	$(HOST_CXX) $(HOST_CXXFLAGS) $(UNIT_TEST_SOURCES) src/gateway_config.cpp src/ash.cpp src/json_util.cpp src/storage.cpp src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/sensor_history.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp src/shelly_integration.cpp $(HOST_C_OBJECTS) -o $@ $(HOST_MBEDTLS_LIBS) $(LDFLAGS)
 
 $(INTEGRATION_TEST_BIN): $(INTEGRATION_TEST_SOURCES) src/ash.cpp src/json_util.cpp src/storage.cpp src/http_server.cpp src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/sensor_history.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp src/shelly_integration.cpp $(HOST_C_OBJECTS) $(HOST_MBEDTLS_LIBS) $(wildcard include/*.h)
 	@mkdir -p $(HOST_BUILD)

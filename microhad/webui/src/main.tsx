@@ -6,7 +6,7 @@ import { DeviceGroups, DeviceSettings, LightGroupStates } from './devices'
 import { HistoryDialog } from './HistoryDialog'
 import { DeviceDetailsDialog, NetworkDialog, SceneTextDialog } from './DashboardDialogs'
 import { SceneEditor } from './SceneEditor'
-import { ShellyDevices } from './ShellyDevices'
+import { ShellyDialog } from './ShellyDevices'
 import { useGatewayData } from './useGatewayData'
 import './style.css'
 
@@ -90,6 +90,8 @@ function App() {
   const [historyDevice, setHistoryDevice] = useState<Device | null>(null)
   const [restarting, setRestarting] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [desktopMenuOpen, setDesktopMenuOpen] = useState(false)
+  const [shellyId, setShellyId] = useState<string | null>(null)
   useEffect(() => {
     if (!mobileMenuOpen) return
     const closeOnEscape = (event: KeyboardEvent) => {
@@ -211,6 +213,7 @@ function App() {
               id="mobile-overflow"
               aria-label="More gateway controls"
             >
+              <button className="button" onClick={() => { setMobileMenuOpen(false); setShellyId('') }}>Add Shelly</button>
               <button
                 className="button danger"
                 onClick={() => {
@@ -249,14 +252,14 @@ function App() {
           <h1>MicroHAD</h1>
           <p className="hero-sub">Devices, scenes, and coordinator activity in one place.</p>
         </div>
-        <div className="serial-state">
+        <div className="hero-actions"><div className="serial-state">
           {restarting
             ? 'Restarting service…'
             : statusError ||
               (status
                 ? `Serial RX: ${status.serial_rx_bytes} bytes · ${status.ash_rx_frames} frames`
                 : 'Connecting…')}
-        </div>
+        </div><div className="global-menu"><button className="button" aria-expanded={desktopMenuOpen} onClick={() => setDesktopMenuOpen((open) => !open)}>More ⋯</button>{desktopMenuOpen && <><div className="global-menu-dismiss" onClick={() => setDesktopMenuOpen(false)} /><nav className="global-overflow" aria-label="More gateway controls"><button className="button" onClick={() => { setDesktopMenuOpen(false); setShellyId('') }}>Add Shelly</button></nav></>}</div></div>
       </header>
       <section className="overview">
         <div className={`overview-item ${statusError || !status?.online ? 'bad' : 'good'}`}>
@@ -280,7 +283,7 @@ function App() {
         <div className="overview-item">
           <span className="overview-icon">▦</span>
           <div>
-            <span className="overview-label">Paired devices</span>
+            <span className="overview-label">Devices</span>
             <strong>{status?.devices.length ?? '—'}</strong>
           </div>
         </div>
@@ -343,9 +346,9 @@ function App() {
           onSettings={setSelected}
           onDetails={setDetailsDevice}
           onHistory={setHistoryDevice}
+          onConnection={(device) => setShellyId(device.external_id)}
         />
       </section>
-      <ShellyDevices devices={status?.external_devices ?? []} refresh={() => void refreshStatus()} />
       <section className="panel">
         <div className="section-heading">
           <div>
@@ -424,14 +427,15 @@ function App() {
       )}
       {detailsDevice && (
         <DeviceDetailsDialog
-          device={status?.devices.find((device) => device.ieee_address === detailsDevice.ieee_address) ?? detailsDevice}
+          device={status?.devices.find((device) => device.id === detailsDevice.id) ?? detailsDevice}
           configuration={status?.device_configurations.find((item) => item.ieee_address === detailsDevice.ieee_address)}
           onClose={() => setDetailsDevice(null)}
         />
       )}
       {historyDevice && (
-        <HistoryDialog key={historyDevice.ieee_address} device={historyDevice} onClose={() => setHistoryDevice(null)} />
+        <HistoryDialog key={historyDevice.id} device={historyDevice} onClose={() => setHistoryDevice(null)} />
       )}
+      {shellyId !== null && <ShellyDialog key={shellyId || 'new'} id={shellyId} onClose={() => setShellyId(null)} onSaved={() => void refreshStatus()} />}
       {dialog === 'scenes' && (
         <SceneEditor
           devices={status?.devices ?? []}

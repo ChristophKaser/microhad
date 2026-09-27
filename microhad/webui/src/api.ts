@@ -8,12 +8,18 @@ export interface EndpointDescriptor {
 }
 
 export interface Device {
+  id: string
+  source: 'zigbee' | 'shelly'
+  component: string
+  external_id: string
   ieee_address: string
   name: string
   kind: string
   has_contact: boolean
+  contact_known: boolean
   contact_open: boolean
   has_temperature: boolean
+  temperature_known: boolean
   temperature_celsius: number
   has_humidity: boolean
   humidity_percent: number
@@ -27,6 +33,12 @@ export interface Device {
   has_brightness: boolean
   brightness_percent: number
   has_remote: boolean
+  has_actor: boolean
+  actor_known: boolean
+  actor_on: boolean
+  has_power: boolean
+  power_known: boolean
+  power_watts: number
   has_low_temperature_alert: boolean
   low_temperature_alert: number
   has_high_temperature_alert: boolean
@@ -60,7 +72,6 @@ export interface Status {
   joining_preparing: boolean
   notifications_enabled: boolean
   devices: Device[]
-  external_devices: ExternalDevice[]
   scene_groups: SceneGroupSummary[]
   native_bindings: { ieee_address: string; group_id: number; status: string }[]
   device_configurations: DeviceConfiguration[]
@@ -79,16 +90,6 @@ export interface ExternalDevice {
   poll_seconds: number
   invert_contact: boolean
   callback_mode: boolean
-  has_contact: boolean
-  contact_known: boolean
-  contact_open: boolean
-  has_temperature: boolean
-  temperature_known: boolean
-  temperature_celsius: number
-  has_actor: boolean
-  actor_known: boolean
-  actor_on: boolean
-  last_seen: number
   callback_urls?: { input_open: string; input_closed: string; relay_on: string; relay_off: string }
 }
 
@@ -106,7 +107,7 @@ export interface DeviceConfiguration {
   }[]
 }
 
-export type HistorySample = [sequence: number, timestamp: number, metric: 1 | 2 | 3, value: number]
+export type HistorySample = [sequence: number, timestamp: number, metric: 1 | 2 | 3 | 4, value: number]
 export interface HistoryPage {
   samples: HistorySample[]
   next_before: number

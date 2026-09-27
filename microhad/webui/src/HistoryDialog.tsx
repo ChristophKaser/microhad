@@ -4,12 +4,13 @@ import type { Device, HistoryPage, HistorySample } from './api'
 import { errorMessage, jsonRequest } from './api'
 
 type Range = 'day' | 'week' | 'all'
-type Metric = 1 | 2 | 3
+type Metric = 1 | 2 | 3 | 4
 
 const rangeSeconds: Record<Range, number> = { day: 86400, week: 604800, all: Infinity }
-const metricName: Record<Metric, string> = { 1: 'Temperature', 2: 'Humidity', 3: 'Contact' }
-const metricUnit: Record<Metric, string> = { 1: '°C', 2: '%', 3: '' }
-const metricColor: Record<Metric, string> = { 1: '#d97543', 2: '#3384aa', 3: '#7554a4' }
+const metricName: Record<Metric, string> = { 1: 'Temperature', 2: 'Humidity', 3: 'Contact', 4: 'Power' }
+const metricUnit: Record<Metric, string> = { 1: '°C', 2: '%', 3: '', 4: 'W' }
+const metricColor: Record<Metric, string> = { 1: '#d97543', 2: '#3384aa', 3: '#7554a4', 4: '#b77928' }
+const reading = (metric: Metric, raw: number) => metric === 3 ? raw : raw / (metric === 4 ? 10 : 100)
 
 ChartJS.register(LineController, LineElement, LinearScale, PointElement, Tooltip)
 
@@ -17,16 +18,16 @@ function Chart({ samples, metric, now, start }: { samples: HistorySample[]; metr
   const values = samples.filter((sample) => sample[2] === metric)
   const canvas = useRef<HTMLCanvasElement>(null)
   const latest = values[values.length - 1]
-  const latestLabel = latest && (metric === 3 ? (latest[3] ? 'Open' : 'Closed') : `${(latest[3] / 100).toFixed(2)} ${metricUnit[metric]}`)
+  const latestLabel = latest && (metric === 3 ? (latest[3] ? 'Open' : 'Closed') : `${reading(metric, latest[3]).toFixed(metric === 4 ? 1 : 2)} ${metricUnit[metric]}`)
 
   useEffect(() => {
     if (!canvas.current || !values.length) return
     const first = Math.min(start, values[0][1])
-    const numeric = values.map((sample) => metric === 3 ? sample[3] : sample[3] / 100)
+    const numeric = values.map((sample) => reading(metric, sample[3]))
     const low = metric === 3 ? 0 : Math.floor(Math.min(...numeric) - 1)
     const high = metric === 3 ? 1 : Math.ceil(Math.max(...numeric) + 1)
-    const points = values.map((sample) => ({ x: sample[1], y: metric === 3 ? sample[3] : sample[3] / 100 }))
-    if (metric === 3 && points[points.length - 1].x < now) points.push({ x: now, y: points[points.length - 1].y })
+    const points = values.map((sample) => ({ x: sample[1], y: reading(metric, sample[3]) }))
+    if (points[points.length - 1].x < now) points.push({ x: now, y: points[points.length - 1].y })
     const chart = new ChartJS(canvas.current, {
       type: 'line',
       data: { datasets: [{
@@ -46,7 +47,7 @@ function Chart({ samples, metric, now, start }: { samples: HistorySample[]; metr
             filter: (context) => context.dataIndex < values.length,
             callbacks: {
               title: (items) => items.length ? new Date(Number(items[0].parsed.x) * 1000).toLocaleString() : '',
-              label: (item) => metric === 3 ? (item.parsed.y ? 'Open' : 'Closed') : `${Number(item.parsed.y).toFixed(2)} ${metricUnit[metric]}`,
+              label: (item) => metric === 3 ? (item.parsed.y ? 'Open' : 'Closed') : `${Number(item.parsed.y).toFixed(metric === 4 ? 1 : 2)} ${metricUnit[metric]}`,
             },
           },
         },
@@ -94,7 +95,7 @@ export function HistoryDialog({ device, onClose }: { device: Device; onClose: ()
         let before = 0
         const loaded: HistorySample[] = []
         do {
-          const page = await jsonRequest<HistoryPage>(`/api/devices/${encodeURIComponent(device.ieee_address)}/history${before ? `?before=${before}` : ''}`)
+          const page = await jsonRequest<HistoryPage>(`/api/devices/${encodeURIComponent(device.id)}/history${before ? `?before=${before}` : ''}`)
           loaded.push(...page.samples)
           before = page.next_before
         } while (before && loaded.length < 10000)
@@ -110,9 +111,16 @@ export function HistoryDialog({ device, onClose }: { device: Device; onClose: ()
     }
     void load()
     return () => { active = false }
-  }, [device.ieee_address])
+  }, [device.id])
   const start = range === 'all' ? (samples[0]?.[1] ?? now) : now - rangeSeconds[range]
-  const visible = useMemo(() => samples.filter((sample) => sample[1] >= start && sample[1] <= now), [samples, start, now])
+  const visible = useMemo(() => {
+    const current = samples.filter((sample) => sample[1] >= start && sample[1] <= now)
+    for (const metric of [1, 2, 3, 4] as const) {
+      const prior = [...samples].reverse().find((sample) => sample[2] === metric && sample[1] < start)
+      if (prior) current.unshift([prior[0], start, metric, prior[3]])
+    }
+    return current.sort((left, right) => left[1] - right[1])
+  }, [samples, start, now])
   return (
     <div className="modal" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
       <div className="dialog wide history-dialog" role="dialog" aria-modal="true" aria-label={`History for ${device.name}`}>
@@ -127,6 +135,7 @@ export function HistoryDialog({ device, onClose }: { device: Device; onClose: ()
           {device.has_temperature && <Chart samples={visible} metric={1} now={now} start={start} />}
           {device.has_humidity && <Chart samples={visible} metric={2} now={now} start={start} />}
           {device.has_contact && <Chart samples={visible} metric={3} now={now} start={start} />}
+          {device.has_power && <Chart samples={visible} metric={4} now={now} start={start} />}
         </>}
       </div>
     </div>

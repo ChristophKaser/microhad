@@ -75,11 +75,12 @@ struct Sample {
 bool validRecord(const unsigned char* bytes, unsigned long slot, Sample* sample) {
     uint32_t sequence = get32(bytes);
     if (sequence == 0 || (sequence - 1) % capacity != slot || bytes[19] != checksum(bytes) ||
-        bytes[16] < SensorHistory::Temperature || bytes[16] > SensorHistory::Contact) return false;
+        bytes[16] < SensorHistory::Temperature || bytes[16] > SensorHistory::Power) return false;
     sample->sequence = sequence;
     sample->timestamp = get32(bytes + 4);
     sample->metric = bytes[16];
-    sample->value = static_cast<int16_t>((static_cast<unsigned int>(bytes[17]) << 8) | bytes[18]);
+    unsigned int raw = (static_cast<unsigned int>(bytes[17]) << 8) | bytes[18];
+    sample->value = sample->metric == SensorHistory::Power ? static_cast<int>(raw) : static_cast<int16_t>(raw);
     if (sample->metric == SensorHistory::Contact && (sample->value < 0 || sample->value > 1)) return false;
     return true;
 }
@@ -114,15 +115,23 @@ bool SensorHistory::initialize() {
     }
     sequence_ = 0;
     lastMinute_.clear();
+    lastValue_.clear();
+    recordCount_.clear();
     if (ok) {
         unsigned char bytes[recordBytes];
         Sample sample;
+        std::map<std::string, unsigned long> lastSequence;
         for (unsigned long slot = 0; slot < capacity && headerBytes + static_cast<off_t>((slot + 1) * recordBytes) <= info.st_size; ++slot) {
             if (pread(fd, bytes, recordBytes, headerBytes + static_cast<off_t>(slot * recordBytes)) == recordBytes &&
                 validRecord(bytes, slot, &sample)) {
                 if (sample.sequence > sequence_) sequence_ = sample.sequence;
+                std::string key = addressKey(bytes + 8, sample.metric);
+                ++recordCount_[key];
+                if (lastSequence.find(key) == lastSequence.end() || sample.sequence > lastSequence[key]) {
+                    lastSequence[key] = sample.sequence;
+                    lastValue_[key] = sample.value;
+                }
                 if (sample.metric != Contact) {
-                    std::string key = addressKey(bytes + 8, sample.metric);
                     long minute = sample.timestamp / 60;
                     rememberMinute(&lastMinute_, key, minute);
                 }
@@ -136,10 +145,12 @@ bool SensorHistory::initialize() {
 
 bool SensorHistory::append(const std::string& address, unsigned char metric, int value, long timestamp) {
     unsigned char ieee[8];
-    if (!decodeAddress(address, ieee) || metric < Temperature || metric > Contact ||
-        value < -32768 || value > 32767 || timestamp <= 0 || static_cast<unsigned long>(timestamp) > 0xffffffffUL) return false;
+    if (!decodeAddress(address, ieee) || metric < Temperature || metric > Power ||
+        value < (metric == Power ? 0 : -32768) || value > (metric == Power ? 65535 : 32767) ||
+        timestamp <= 0 || static_cast<unsigned long>(timestamp) > 0xffffffffUL) return false;
     if (!initialized_ && !initialize()) return false;
     std::string key = addressKey(ieee, metric);
+    if (lastValue_.find(key) != lastValue_.end() && lastValue_[key] == value) return true;
     if (metric != Contact) {
         std::map<std::string, long>::const_iterator previous = lastMinute_.find(key);
         if (previous != lastMinute_.end() && timestamp / 60 <= previous->second) return true;
@@ -152,6 +163,8 @@ bool SensorHistory::append(const std::string& address, unsigned char metric, int
         if (!reset) { initialized_ = false; return false; }
         sequence_ = 0;
         lastMinute_.clear();
+        lastValue_.clear();
+        recordCount_.clear();
     }
     unsigned char bytes[recordBytes];
     uint32_t next = static_cast<uint32_t>(sequence_ + 1);
@@ -165,10 +178,26 @@ bool SensorHistory::append(const std::string& address, unsigned char metric, int
     int fd = open(path_.c_str(), O_RDWR);
     if (fd < 0) { initialized_ = false; return false; }
     off_t offset = headerBytes + static_cast<off_t>((next - 1) % capacity) * recordBytes;
+    unsigned char oldBytes[recordBytes];
+    Sample oldSample;
+    std::string replacedKey;
+    if (pread(fd, oldBytes, recordBytes, offset) == recordBytes &&
+        validRecord(oldBytes, (next - 1) % capacity, &oldSample))
+        replacedKey = addressKey(oldBytes + 8, oldSample.metric);
     bool ok = pwrite(fd, bytes, recordBytes, offset) == recordBytes;
     close(fd);
     if (!ok) { initialized_ = false; return false; }
     sequence_ = next;
+    if (!replacedKey.empty()) {
+        std::map<std::string, unsigned long>::iterator existing = recordCount_.find(replacedKey);
+        if (existing != recordCount_.end() && --existing->second == 0) {
+            recordCount_.erase(existing);
+            lastValue_.erase(replacedKey);
+            lastMinute_.erase(replacedKey);
+        }
+    }
+    ++recordCount_[key];
+    lastValue_[key] = value;
     if (metric != Contact) rememberMinute(&lastMinute_, key, timestamp / 60);
     return true;
 }

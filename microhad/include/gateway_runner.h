@@ -3,6 +3,7 @@
 
 #include <pthread.h>
 #include <string>
+#include <vector>
 
 class Gateway;
 class GatewayView;
@@ -31,6 +32,12 @@ public:
     ViewLease* acquireView();
     std::string runtimeDirectory() const;
     std::string historyPath() const;
+    bool registerShelly(const std::string& id, const std::string& name, const std::string& oldName,
+                        const std::string& model, int temperatureIndex, std::string* error);
+    bool removeShelly(const std::string& id, std::string* error);
+    bool reconcileShelly(const std::vector<std::string>& ids, std::string* error);
+    bool applyShellyEvent(const std::string& id, int metric, double value, std::string* error);
+    bool setActorState(const std::string& address, bool on, std::string* error);
     bool setJoining(unsigned int seconds, std::string* error);
     bool createFreshNetwork(std::string* error);
     bool setDeviceSettings(const std::string& ieeeAddress, const std::string& name,
@@ -51,12 +58,19 @@ public:
     bool setEventLoopDebug(bool enabled, std::string* error);
 
 private:
-    enum CommandType { Join, CreateNetwork, DeviceSettings, DeviceRefresh, DeviceIdentify, DeviceConfiguration, LightState, SceneConfiguration, SceneActivate, SceneOff, TestNotification, NotificationSetting, EventLoopDebug };
+    enum CommandType { Join, CreateNetwork, DeviceSettings, DeviceRefresh, DeviceIdentify, DeviceConfiguration, LightState, SceneConfiguration, SceneActivate, SceneOff, TestNotification, NotificationSetting, EventLoopDebug, ShellyRegister, ShellyRemove, ShellyReconcile, ShellyEvent, ActorState };
     struct Command {
         CommandType type;
         unsigned int seconds;
         std::string address;
         std::string name;
+        std::string oldName;
+        std::string model;
+        std::vector<std::string> ids;
+        int metric;
+        double value;
+        bool on;
+        int temperatureIndex;
         bool hasLow;
         double low;
         bool hasHigh;

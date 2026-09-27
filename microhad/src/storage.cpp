@@ -179,11 +179,16 @@ bool saveDevices(const std::string& filename, const std::vector<Device>& devices
     for (i = 0; i < devices.size(); ++i) {
         const Device& device = devices[i];
         output << "    {\"ieee_address\":\"" << jsonEscape(device.ieeeAddress)
+               << "\",\"source\":\"" << jsonEscape(device.source)
+               << "\",\"external_id\":\"" << jsonEscape(device.externalId)
+               << "\",\"component\":\"" << jsonEscape(device.component)
                << "\",\"network_address\":" << device.networkAddress << ",\"name\":\"" << jsonEscape(device.name) << "\",\"kind\":\""
                << jsonEscape(device.kind) << "\",\"contact_open\":" << (device.contactOpen ? "true" : "false")
                << ",\"has_contact\":" << (device.hasContact ? "true" : "false")
+               << ",\"contact_known\":" << (device.contactKnown ? "true" : "false")
                << ",\"temperature_celsius\":" << device.temperatureCelsius << ",\"has_temperature\":"
                << (device.hasTemperature ? "true" : "false") << ",\"humidity_percent\":" << device.humidityPercent
+               << ",\"temperature_known\":" << (device.temperatureKnown ? "true" : "false")
                << ",\"has_humidity\":" << (device.hasHumidity ? "true" : "false") << ",\"occupied\":"
                << (device.occupied ? "true" : "false") << ",\"has_occupancy\":"
                << (device.hasOccupancy ? "true" : "false") << ",\"battery_percent\":" << device.batteryPercent
@@ -193,6 +198,12 @@ bool saveDevices(const std::string& filename, const std::vector<Device>& devices
                << (device.lightOn ? "true" : "false") << ",\"has_brightness\":"
                << (device.hasBrightness ? "true" : "false") << ",\"brightness_percent\":" << device.brightnessPercent
                << ",\"has_remote\":" << (device.hasRemote ? "true" : "false")
+               << ",\"has_actor\":" << (device.hasActor ? "true" : "false")
+               << ",\"actor_known\":" << (device.actorKnown ? "true" : "false")
+               << ",\"actor_on\":" << (device.actorOn ? "true" : "false")
+               << ",\"has_power\":" << (device.hasPower ? "true" : "false")
+               << ",\"power_known\":" << (device.powerKnown ? "true" : "false")
+               << ",\"power_watts\":" << device.powerWatts
                << ",\"has_low_temperature_alert\":"
                << (device.hasLowTemperatureAlert ? "true" : "false") << ",\"low_temperature_alert\":"
                << device.lowTemperatureAlert << ",\"has_high_temperature_alert\":"
@@ -239,6 +250,7 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
             if (ieeeAddress.empty() ||
                 !validOptionalDecimalField(line, "temperature_celsius", -100, 200) ||
                 !validOptionalDecimalField(line, "humidity_percent", 0, 100) ||
+                !validOptionalDecimalField(line, "power_watts", 0, 6553.5) ||
                 !validOptionalDecimalField(line, "low_temperature_alert", -100, 200) ||
                 !validOptionalDecimalField(line, "high_temperature_alert", -100, 200) ||
                 !validOptionalIntegerField(line, "battery_percent", -1, 100) ||
@@ -260,6 +272,10 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
             if (duplicate) continue;
             Device device;
             device.ieeeAddress = ieeeAddress;
+            jsonStringField(line, "source", &device.source);
+            if (device.source != "zigbee" && device.source != "shelly") continue;
+            jsonStringField(line, "external_id", &device.externalId);
+            jsonStringField(line, "component", &device.component);
             if (addressValue != 0) device.networkAddress = static_cast<unsigned short>(networkAddress);
             const char* fields[] = {"name", "kind", "manufacturer_name", "model_id", "software_build_id"};
             std::string* destinations[] = {&device.name, &device.kind, &device.manufacturerName, &device.modelId, &device.softwareBuildId};
@@ -269,7 +285,9 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
             }
             device.contactOpen = line.find("\"contact_open\":true") != std::string::npos;
             device.hasContact = line.find("\"has_contact\":true") != std::string::npos;
+            device.contactKnown = line.find("\"contact_known\":true") != std::string::npos;
             device.hasTemperature = line.find("\"has_temperature\":true") != std::string::npos;
+            device.temperatureKnown = line.find("\"temperature_known\":true") != std::string::npos;
             device.hasHumidity = line.find("\"has_humidity\":true") != std::string::npos;
             device.hasOccupancy = line.find("\"has_occupancy\":true") != std::string::npos;
             device.occupied = line.find("\"occupied\":true") != std::string::npos;
@@ -278,11 +296,18 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
             device.lightOn = line.find("\"light_on\":true") != std::string::npos;
             device.hasBrightness = line.find("\"has_brightness\":true") != std::string::npos;
             device.hasRemote = line.find("\"has_remote\":true") != std::string::npos;
+            device.hasActor = line.find("\"has_actor\":true") != std::string::npos;
+            device.actorKnown = line.find("\"actor_known\":true") != std::string::npos;
+            device.actorOn = line.find("\"actor_on\":true") != std::string::npos;
+            device.hasPower = line.find("\"has_power\":true") != std::string::npos;
+            device.powerKnown = line.find("\"power_known\":true") != std::string::npos;
             device.hasLowTemperatureAlert = line.find("\"has_low_temperature_alert\":true") != std::string::npos;
             device.hasHighTemperatureAlert = line.find("\"has_high_temperature_alert\":true") != std::string::npos;
             const char* value;
             value = numericField(line, "temperature_celsius");
             if (value != 0) device.temperatureCelsius = atof(value);
+            value = numericField(line, "power_watts");
+            if (value != 0) device.powerWatts = atof(value);
             value = numericField(line, "battery_percent");
             if (value != 0) device.batteryPercent = atoi(value);
             value = numericField(line, "humidity_percent");

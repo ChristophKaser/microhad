@@ -863,6 +863,11 @@ button:disabled {
 .mobile-top {
   display: none;
 }
+.hero-actions { display: flex; align-items: center; gap: 12px; }
+.global-menu { position: relative; z-index: 6; }
+.global-menu-dismiss { position: fixed; inset: 0; z-index: 1; }
+.global-overflow { position: absolute; right: 0; top: calc(100% + 5px); z-index: 2; min-width: 180px; padding: 7px; background: #fff; border: 1px solid #cad7e3; border-radius: 10px; box-shadow: 0 12px 28px #16304830; }
+.global-overflow .button { width: 100%; text-align: left; border: 0; }
 
 @media (max-width: 640px) {
   .shell {

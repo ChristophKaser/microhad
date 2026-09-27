@@ -6,6 +6,8 @@
 #include "fcm.h"
 #include "storage.h"
 #include "sensor_history.h"
+#include "shelly_integration.h"
+#include "json_util.h"
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wpedantic"
@@ -64,6 +66,7 @@ void removeDirectory(const std::string& directory) {
     unlink((directory + "/scenes.conf").c_str());
     unlink((directory + "/devices.json").c_str());
     unlink((directory + "/history.bin").c_str());
+    unlink((directory + "/shelly-devices.jsonl").c_str());
     rmdir(directory.c_str());
 }
 
@@ -304,11 +307,14 @@ void testServers() {
     Gateway* gateway = new Gateway("/dev/null", 115200, directory, "", "", "", &notifications, directory + "/history.bin");
     GatewayIntegrationTestPeer::attachSerial(gateway, inbound[0]);
     GatewayRunner runner(gateway);
+    ShellyIntegration shelly(directory, &runner);
+    gateway->setShellyTransport(&shelly);
     assert(runner.start(&error));
+    assert(shelly.start(&error));
     GatewayIntegrationTestPeer::prepareHttpDevice(gateway);
 
-    HttpServer http(0, &runner, directory + "/webui", "", "");
-    HttpServer https(0, &runner, directory + "/webui", "test/fixtures/tls/localhost.crt", "test/fixtures/tls/localhost.key");
+    HttpServer http(0, &runner, directory + "/webui", "", "", &shelly);
+    HttpServer https(0, &runner, directory + "/webui", "test/fixtures/tls/localhost.crt", "test/fixtures/tls/localhost.key", &shelly);
     if (!http.start(&error)) { fprintf(stderr, "HTTP start failed: %s\n", error.c_str()); assert(false); }
     if (!https.start(&error)) { fprintf(stderr, "HTTPS start failed: %s\n", error.c_str()); assert(false); }
     assert(http.boundPort() > 0 && https.boundPort() > 0);
@@ -443,6 +449,38 @@ void testServers() {
         assert(response.find("Dashboard is not installed.") != std::string::npos);
     }
 
+    response = plainRequest(http.boundPort(), post("/api/shelly/config", "id=&name=Test+Uni&host=127.0.0.1&callback_host=127.0.0.1&model=uni&input_index=0&temperature_index=-1&relay_index=0&poll_seconds=30&callback_mode=true"));
+    expectStatus("http save probe-free Shelly", response, 200);
+    std::string savedId;
+    assert(jsonStringField(response.substr(response.find("\r\n\r\n") + 4), "id", &savedId));
+    response = plainRequest(http.boundPort(), "GET /api/status HTTP/1.1\r\nHost: localhost\r\n\r\n");
+    expectStatus("http unified Shelly status", response, 200);
+    assert(response.find("\"source\":\"shelly\"") != std::string::npos);
+    assert(response.find("\"external_devices\"") == std::string::npos);
+    std::string config = shelly.json(true);
+    std::string callbackUrl;
+    assert(jsonStringField(config.substr(1, config.size() - 2), "input_open", &callbackUrl));
+    std::string target = callbackUrl.substr(callbackUrl.find("/api/"));
+    expectStatus("http Shelly callback", plainRequest(http.boundPort(), "GET " + target + " HTTP/1.1\r\nHost: localhost\r\n\r\n"), 200);
+    bool contactUpdated = false;
+    for (int tries = 0; tries < 100 && !contactUpdated; ++tries) {
+        response = plainRequest(http.boundPort(), "GET /api/status HTTP/1.1\r\nHost: localhost\r\n\r\n");
+        std::string::size_type shellyAt = response.find("\"component\":\"contact\",\"external_id\":\"" + savedId + "\"");
+        std::string::size_type shellyEnd = shellyAt == std::string::npos ? shellyAt : response.find('}', shellyAt);
+        contactUpdated = shellyAt != std::string::npos && shellyEnd != std::string::npos &&
+                         response.substr(shellyAt, shellyEnd - shellyAt).find("\"contact_open\":true") != std::string::npos;
+        if (!contactUpdated) usleep(20000);
+    }
+    assert(contactUpdated);
+    std::string relayAddress = "0x" + savedId;
+    const char* hex = "0123456789abcdef";
+    relayAddress[relayAddress.size() - 1] = hex[(static_cast<unsigned int>(std::string(hex).find(relayAddress[relayAddress.size() - 1])) ^ 3) & 15];
+    expectStatus("http unified Shelly actor", plainRequest(http.boundPort(), post("/api/devices/" + relayAddress + "/actor", "state=on")), 200);
+    expectStatus("http remove Shelly", plainRequest(http.boundPort(), "DELETE /api/shelly/" + savedId + " HTTP/1.1\r\nHost: localhost\r\n\r\n"), 200);
+    response = plainRequest(http.boundPort(), "GET /api/status HTTP/1.1\r\nHost: localhost\r\n\r\n");
+    assert(response.find("\"source\":\"shelly\"") == std::string::npos);
+
+    shelly.stop();
     runner.stop();
     notifications.stop();
     close(inbound[1]);

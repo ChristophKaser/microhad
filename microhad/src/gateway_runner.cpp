@@ -180,6 +180,14 @@ void GatewayRunner::execute(Command* command) {
     else if (command->type == SceneOff) result = gateway_->turnOffSceneGroup(command->groupId, &error);
     else if (command->type == TestNotification) result = gateway_->sendTestNotification(&error);
     else if (command->type == NotificationSetting) result = gateway_->setNotificationsEnabled(command->hasLow, &error);
+    else if (command->type == ShellyRegister) result = gateway_->registerShelly(command->address, command->name,
+                                                                                 command->oldName, command->model,
+                                                                                 command->temperatureIndex, &error);
+    else if (command->type == ShellyRemove) result = gateway_->removeShelly(command->address, &error);
+    else if (command->type == ShellyReconcile) result = gateway_->reconcileShelly(command->ids, &error);
+    else if (command->type == ShellyEvent) result = gateway_->applyShellyEvent(command->address, command->metric,
+                                                                                command->value, &error);
+    else if (command->type == ActorState) result = gateway_->setActorState(command->address, command->on, &error);
     else if (command->type == EventLoopDebug) {
         if (eventLoopDebug_ != command->enabled) {
             eventLoopDebug_ = command->enabled;
@@ -316,6 +324,26 @@ void GatewayRunner::releaseView(ViewData* data) {
 }
 std::string GatewayRunner::runtimeDirectory() const { return runtimeDirectory_; }
 std::string GatewayRunner::historyPath() const { return historyPath_; }
+
+bool GatewayRunner::registerShelly(const std::string& id, const std::string& name, const std::string& oldName,
+                                   const std::string& model, int temperatureIndex, std::string* error) {
+    Command command; command.type = ShellyRegister; command.address = id; command.name = name;
+    command.oldName = oldName; command.model = model; command.temperatureIndex = temperatureIndex;
+    return invoke(&command, error);
+}
+bool GatewayRunner::removeShelly(const std::string& id, std::string* error) {
+    Command command; command.type = ShellyRemove; command.address = id; return invoke(&command, error);
+}
+bool GatewayRunner::reconcileShelly(const std::vector<std::string>& ids, std::string* error) {
+    Command command; command.type = ShellyReconcile; command.ids = ids; return invoke(&command, error);
+}
+bool GatewayRunner::applyShellyEvent(const std::string& id, int metric, double value, std::string* error) {
+    Command command; command.type = ShellyEvent; command.address = id; command.metric = metric; command.value = value;
+    return invoke(&command, error);
+}
+bool GatewayRunner::setActorState(const std::string& address, bool on, std::string* error) {
+    Command command; command.type = ActorState; command.address = address; command.on = on; return invoke(&command, error);
+}
 
 bool GatewayRunner::setJoining(unsigned int seconds, std::string* error) { Command command; command.type = Join; command.seconds = seconds; return invoke(&command, error); }
 bool GatewayRunner::createFreshNetwork(std::string* error) { Command command; command.type = CreateNetwork; return invoke(&command, error); }

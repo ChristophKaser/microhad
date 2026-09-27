@@ -24,7 +24,7 @@ export function DeviceDetailsDialog({ device, configuration, onClose }: {
     setIdentifyResult('')
     setIdentifyError('')
     try {
-      await post(`/api/devices/${encodeURIComponent(device.ieee_address)}/identify`)
+      await post(`/api/devices/${encodeURIComponent(device.id)}/identify`)
       setIdentifyResult('Identify command queued for 5 seconds.')
     } catch (cause) {
       setIdentifyError(errorMessage(cause))
@@ -39,7 +39,7 @@ export function DeviceDetailsDialog({ device, configuration, onClose }: {
     setQueryResult('')
     try {
       const result = await post<{ message: string }>(
-        `/api/devices/${encodeURIComponent(device.ieee_address)}/configuration`,
+        `/api/devices/${encodeURIComponent(device.id)}/configuration`,
       )
       setQueryResult(result.message)
     } catch (cause) {
@@ -55,6 +55,12 @@ export function DeviceDetailsDialog({ device, configuration, onClose }: {
   ]
     .filter(Boolean)
     .join('\n')
+
+  if (device.source === 'shelly') return <div className="modal"><section className="dialog" role="dialog" aria-modal="true" aria-label={`Details for ${device.name}`}>
+    <div className="dialog-heading"><h2>{device.name}</h2><button className="icon-button" onClick={onClose} aria-label="Close">✕</button></div>
+    <dl className="device-identity"><div><dt>Type</dt><dd>{device.kind}</dd></div><div><dt>Source</dt><dd>Shelly HTTP</dd></div><div><dt>Model</dt><dd>{device.model_id}</dd></div><div><dt>Last contact</dt><dd>{device.last_seen ? new Date(device.last_seen * 1000).toLocaleString() : 'Never'}</dd></div></dl>
+    <div className="dialog-actions"><button className="button" onClick={onClose}>Close</button></div>
+  </section></div>
 
   return (
     <div className="modal">
