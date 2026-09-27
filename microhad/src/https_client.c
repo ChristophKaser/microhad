@@ -6,17 +6,10 @@
 #include <mbedtls/error.h>
 #include <mbedtls/net_sockets.h>
 #include <mbedtls/ssl.h>
-#include <mbedtls/ssl_ciphersuites.h>
 #include <mbedtls/x509_crt.h>
 
 /* This includes the request line, headers, separator, and body. */
 #define MICROHAD_HTTPS_REQUEST_CAPACITY 24576
-
-static const int google_ciphersuites[] = {
-    MBEDTLS_TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-    MBEDTLS_TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-    0
-};
 
 int microhad_https_post(const char* host, const char* path, const char* headers, const char* body,
                     unsigned long body_length, const char* ca_bundle, char* response, unsigned long response_capacity,
@@ -60,9 +53,6 @@ int microhad_https_post(const char* host, const char* path, const char* headers,
     result = mbedtls_ssl_config_defaults(&conf, MBEDTLS_SSL_IS_CLIENT,
                                          MBEDTLS_SSL_TRANSPORT_STREAM, MBEDTLS_SSL_PRESET_DEFAULT);
     if (result != 0) goto done;
-    /* Google's ECDSA chain includes a root this vendored parser cannot decode. */
-    if (strcmp(host, "oauth2.googleapis.com") == 0 || strcmp(host, "fcm.googleapis.com") == 0)
-        mbedtls_ssl_conf_ciphersuites(&conf, google_ciphersuites);
     mbedtls_ssl_conf_authmode(&conf, MBEDTLS_SSL_VERIFY_REQUIRED);
     mbedtls_ssl_conf_ca_chain(&conf, &ca, 0);
     mbedtls_ssl_conf_rng(&conf, mbedtls_ctr_drbg_random, &drbg);

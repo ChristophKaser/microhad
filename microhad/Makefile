@@ -54,13 +54,13 @@ mips: mbedtls-mips $(MIPS_BIN) verify-target
 
 mbedtls-host: $(HOST_MBEDTLS_LIBS)
 
-$(HOST_MBEDTLS_LIBS): $(MBEDTLS_DIR)/CMakeLists.txt
+$(HOST_MBEDTLS_LIBS): $(MBEDTLS_DIR)/CMakeLists.txt $(MBEDTLS_DIR)/include/mbedtls/config.h $(MBEDTLS_DIR)/include/mbedtls/microhad_config.h
 	$(CMAKE) -S $(MBEDTLS_DIR) -B $(HOST_MBEDTLS_BUILD) -DCMAKE_C_COMPILER=$(HOST_CC) -DENABLE_PROGRAMS=OFF -DENABLE_TESTING=OFF -DUSE_SHARED_MBEDTLS_LIBRARY=OFF -DMBEDTLS_FATAL_WARNINGS=OFF
 	$(CMAKE) --build $(HOST_MBEDTLS_BUILD) --target mbedtls mbedx509 mbedcrypto
 
 mbedtls-mips: $(MIPS_MBEDTLS_LIBS)
 
-$(MIPS_MBEDTLS_LIBS): $(MBEDTLS_DIR)/CMakeLists.txt
+$(MIPS_MBEDTLS_LIBS): $(MBEDTLS_DIR)/CMakeLists.txt $(MBEDTLS_DIR)/include/mbedtls/config.h $(MBEDTLS_DIR)/include/mbedtls/microhad_config.h
 	@test -x $(TARGET_CC) || (echo "RSDK compiler not found: $(TARGET_CC)"; exit 1)
 	$(CMAKE) -S $(MBEDTLS_DIR) -B $(MIPS_MBEDTLS_BUILD) -DCMAKE_C_COMPILER=$(TARGET_CC) -DCMAKE_AR=$(TARGET_AR) -DCMAKE_C_FLAGS='-O2 -std=gnu99 -ffunction-sections -fdata-sections' -DENABLE_PROGRAMS=OFF -DENABLE_TESTING=OFF -DUSE_SHARED_MBEDTLS_LIBRARY=OFF -DMBEDTLS_FATAL_WARNINGS=OFF
 	$(CMAKE) --build $(MIPS_MBEDTLS_BUILD) --target mbedtls mbedx509 mbedcrypto
