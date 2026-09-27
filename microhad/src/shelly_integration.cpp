@@ -206,15 +206,16 @@ bool randomToken(std::string* token) {
 }
 
 std::string callbackUrl(const ShellyDevice& device, const char* event) {
-    return std::string("http://<gateway-ip>/api/shelly/callback/") + device.id + "/" + event + "?token=" + device.callbackToken;
+    return std::string("http://") + device.callbackHost + "/api/shelly/callback/" + device.id + "/" + event + "?token=" + device.callbackToken;
 }
 
 std::string deviceJson(const ShellyDevice& d, bool includeCallbackUrls) {
     std::ostringstream out;
     out << "{\"id\":\"" << jsonEscape(d.id) << "\",\"name\":\"" << jsonEscape(d.name)
-        << "\",\"host\":\"" << jsonEscape(d.host) << "\",\"model\":\"" << jsonEscape(d.model)
+        << "\",\"host\":\"" << jsonEscape(d.host) << "\",\"callback_host\":\"" << jsonEscape(d.callbackHost)
+        << "\",\"model\":\"" << jsonEscape(d.model)
         << "\",\"http_auth\":" << (!d.username.empty() ? "true" : "false")
-        << "\",\"input_index\":" << d.inputIndex << ",\"temperature_index\":" << d.temperatureIndex
+        << ",\"input_index\":" << d.inputIndex << ",\"temperature_index\":" << d.temperatureIndex
         << ",\"relay_index\":" << d.relayIndex << ",\"poll_seconds\":" << d.pollSeconds
         << ",\"invert_contact\":" << (d.invertContact ? "true" : "false")
         << ",\"callback_mode\":" << (d.callbackToken.empty() ? "false" : "true")
@@ -225,7 +226,7 @@ std::string deviceJson(const ShellyDevice& d, bool includeCallbackUrls) {
         << ",\"has_actor\":" << (d.hasActor ? "true" : "false") << ",\"actor_known\":" << (d.actorKnown ? "true" : "false")
         << ",\"actor_on\":" << (d.actorOn ? "true" : "false")
         << ",\"last_seen\":" << d.lastSeen;
-    if (includeCallbackUrls && !d.callbackToken.empty()) {
+    if (includeCallbackUrls && !d.callbackToken.empty() && !d.callbackHost.empty()) {
         out << ",\"callback_urls\":{\"input_open\":\"" << jsonEscape(callbackUrl(d, "input-on"))
             << "\",\"input_closed\":\"" << jsonEscape(callbackUrl(d, "input-off"))
             << "\",\"relay_on\":\"" << jsonEscape(callbackUrl(d, "relay-on"))
@@ -378,20 +379,21 @@ std::string ShellyIntegration::json(bool includeCallbackUrls) const {
     return out.str();
 }
 
-bool ShellyIntegration::saveDevice(const std::string& id, const std::string& name, const std::string& host,
+bool ShellyIntegration::saveDevice(const std::string& id, const std::string& name, const std::string& host, const std::string& callbackHost,
                                    const std::string& model, const std::string& username, const std::string& password,
                                    int inputIndex, int temperatureIndex, int relayIndex, unsigned int pollSeconds,
                                    bool invertContact, bool callbackMode, bool clearAuth, std::string* resultId, std::string* error) {
     if (name.empty() || name.size() > 80 || !validHost(host) ||
+        (callbackMode && callbackHost.empty()) || (!callbackHost.empty() && !validHost(callbackHost)) ||
         (model != "uni" && model != "plug" && model != "plugs") ||
-        (model == "uni" && (inputIndex < 0 || inputIndex > 1 || temperatureIndex < 0 || temperatureIndex > 2 || relayIndex < 0 || relayIndex > 1)) ||
+        (model == "uni" && (inputIndex < 0 || inputIndex > 1 || temperatureIndex < -1 || temperatureIndex > 2 || relayIndex < 0 || relayIndex > 1)) ||
         (model != "uni" && (inputIndex != -1 || temperatureIndex != -1 || relayIndex != 0)) || pollSeconds < 5 || pollSeconds > 3600 ||
         username.size() > 128 || password.size() > 128 || username.find(':') != std::string::npos ||
         username.find('\r') != std::string::npos || username.find('\n') != std::string::npos || password.find('\r') != std::string::npos ||
         password.find('\n') != std::string::npos) { *error = "invalid Shelly settings"; return false; }
     if (username.empty() != password.empty()) { *error = "HTTP username and password must both be supplied"; return false; }
     ShellyDevice d;
-    d.name = name; d.host = host; d.model = model; d.username = username; d.password = password;
+    d.name = name; d.host = host; d.callbackHost = callbackHost; d.model = model; d.username = username; d.password = password;
     d.inputIndex = inputIndex; d.temperatureIndex = temperatureIndex; d.relayIndex = relayIndex;
     d.pollSeconds = pollSeconds; d.invertContact = invertContact;
     pthread_mutex_lock(&mutex_);
@@ -444,6 +446,13 @@ bool ShellyIntegration::removeDevice(const std::string& id, std::string* error) 
 bool ShellyIntegration::setActor(const std::string& id, bool on, std::string* error) {
     pthread_mutex_lock(&mutex_);
     for (unsigned long i = 0; i < devices_.size(); ++i) if (devices_[i].id == id && devices_[i].hasActor) {
+        for (unsigned long j = 0; j < commands_.size(); ++j) if (commands_[j].id == id) {
+            commands_[j].on = on;
+            pthread_mutex_unlock(&mutex_); return true;
+        }
+        if (commands_.size() >= 32) {
+            pthread_mutex_unlock(&mutex_); *error = "Shelly actor queue is full"; return false;
+        }
         ActorCommand command; command.id = id; command.on = on; commands_.push_back(command);
         pthread_cond_signal(&ready_); pthread_mutex_unlock(&mutex_); return true;
     }
@@ -478,6 +487,8 @@ bool ShellyIntegration::load(std::string* error) {
         if (!jsonStringField(line, "id", &d.id) || !jsonStringField(line, "name", &d.name) ||
             !jsonStringField(line, "host", &d.host) || !jsonStringField(line, "model", &d.model) || d.id.empty() || !validHost(d.host)) continue;
         jsonStringField(line, "username", &d.username); jsonStringField(line, "password", &d.password);
+        jsonStringField(line, "callback_host", &d.callbackHost);
+        if (!d.callbackHost.empty() && !validHost(d.callbackHost)) d.callbackHost.clear();
         jsonStringField(line, "callback_token", &d.callbackToken);
         if (jsonLongField(line, "input_index", &value)) d.inputIndex = static_cast<int>(value);
         if (jsonLongField(line, "temperature_index", &value)) d.temperatureIndex = static_cast<int>(value);
@@ -505,7 +516,8 @@ bool ShellyIntegration::persist(std::string* error) const {
         output << "{\"id\":\"" << jsonEscape(d.id) << "\",\"name\":\"" << jsonEscape(d.name)
                << "\",\"host\":\"" << jsonEscape(d.host) << "\",\"model\":\"" << jsonEscape(d.model)
                << "\",\"username\":\"" << jsonEscape(d.username) << "\",\"password\":\"" << jsonEscape(d.password)
-               << "\",\"callback_token\":\"" << jsonEscape(d.callbackToken) << "\",\"input_index\":" << d.inputIndex
+               << "\",\"callback_token\":\"" << jsonEscape(d.callbackToken)
+               << "\",\"callback_host\":\"" << jsonEscape(d.callbackHost) << "\",\"input_index\":" << d.inputIndex
                << ",\"temperature_index\":" << d.temperatureIndex << ",\"relay_index\":" << d.relayIndex
                << ",\"poll_seconds\":" << d.pollSeconds << ",\"invert_contact\":" << (d.invertContact ? "true" : "false") << "}\n";
     }

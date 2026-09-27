@@ -4,12 +4,15 @@ import { errorMessage, form, jsonRequest, post } from './api'
 
 type ConfigDevice = ExternalDevice
 
+const defaultCallbackHost = () => window.location.protocol === 'http:' ? window.location.host : window.location.hostname
+
 export function ShellyDevices({ devices, refresh }: { devices: ExternalDevice[]; refresh: () => void }) {
   const [configured, setConfigured] = useState<ConfigDevice[]>([])
   const [editing, setEditing] = useState<ConfigDevice | null>(null)
   const [model, setModel] = useState<'uni' | 'plug' | 'plugs'>('uni')
   const [name, setName] = useState('')
   const [host, setHost] = useState('')
+  const [callbackHost, setCallbackHost] = useState(defaultCallbackHost)
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [input, setInput] = useState(0)
@@ -30,19 +33,19 @@ export function ShellyDevices({ devices, refresh }: { devices: ExternalDevice[];
 
   const reset = () => {
     setShowForm(true)
-    setEditing(null); setModel('uni'); setName(''); setHost(''); setUsername(''); setPassword('')
+    setEditing(null); setModel('uni'); setName(''); setHost(''); setCallbackHost(defaultCallbackHost()); setUsername(''); setPassword('')
     setInput(0); setTemperature(0); setRelay(0); setPollSeconds(30); setInvert(false); setCallbackMode(false); setClearAuth(false); setError('')
   }
   const edit = (device: ConfigDevice) => {
     setShowForm(true)
-    setEditing(device); setModel(device.model); setName(device.name); setHost(device.host); setUsername(''); setPassword('')
+    setEditing(device); setModel(device.model); setName(device.name); setHost(device.host); setCallbackHost(device.callback_host || defaultCallbackHost()); setUsername(''); setPassword('')
     setInput(device.input_index); setTemperature(device.temperature_index); setRelay(device.relay_index)
     setPollSeconds(device.poll_seconds); setInvert(device.invert_contact); setCallbackMode(device.callback_mode); setClearAuth(false); setError('')
   }
   const save = async () => {
     try {
       await post('/api/shelly/config', form({
-        id: editing?.id ?? '', name, host, model, username, password,
+        id: editing?.id ?? '', name, host, callback_host: callbackHost, model, username, password,
         input_index: model === 'uni' ? input : -1,
         temperature_index: model === 'uni' ? temperature : -1,
         relay_index: model === 'uni' ? relay : 0,
@@ -86,14 +89,17 @@ export function ShellyDevices({ devices, refresh }: { devices: ExternalDevice[];
           {editing?.http_auth && <label className="check"><input type="checkbox" checked={clearAuth} onChange={(e) => setClearAuth(e.target.checked)} /> Disable saved HTTP authentication</label>}
           {model === 'uni' && <>
             <label className="field"><span>Contact input</span><select value={input} onChange={(e) => setInput(Number(e.target.value))}><option value={0}>Input 1</option><option value={1}>Input 2</option></select></label>
-            <label className="field"><span>Temperature probe</span><select value={temperature} onChange={(e) => setTemperature(Number(e.target.value))}><option value={0}>Probe 1</option><option value={1}>Probe 2</option><option value={2}>Probe 3</option></select></label>
+            <label className="field"><span>Temperature probe</span><select value={temperature} onChange={(e) => setTemperature(Number(e.target.value))}><option value={-1}>None</option><option value={0}>Probe 1</option><option value={1}>Probe 2</option><option value={2}>Probe 3</option></select></label>
             <label className="field"><span>Relay actor</span><select value={relay} onChange={(e) => setRelay(Number(e.target.value))}><option value={0}>Relay 1</option><option value={1}>Relay 2</option></select></label>
             <label className="check"><input type="checkbox" checked={invert} onChange={(e) => setInvert(e.target.checked)} /> Invert contact state</label>
           </>}
           <label className="field"><span>Polling interval (seconds)</span><input type="number" min={5} max={3600} value={pollSeconds} onChange={(e) => setPollSeconds(Number(e.target.value))} /></label>
           <label className="check"><input type="checkbox" checked={callbackMode} onChange={(e) => setCallbackMode(e.target.checked)} /> Use HTTP callbacks for contact and relay state</label>
-          {callbackMode && <p className="muted small">Temperature continues to poll. After saving, copy the callback URLs below into the Shelly action settings.</p>}
-          <div className="toolbar"><button className="button primary" onClick={() => void save()} disabled={!name.trim() || !host.trim()}>Save Shelly</button><button className="button" onClick={() => { reset(); setShowForm(false) }}>Cancel</button></div>
+          {callbackMode && <>
+            <label className="field"><span>Gateway callback address</span><input value={callbackHost} onChange={(e) => setCallbackHost(e.target.value)} placeholder="192.168.1.10" /></label>
+            <p className="muted small">Use the gateway's HTTP host or IP address, including the port if it is not 80. Shelly must be able to reach this address. {model === 'uni' && temperature >= 0 ? 'Temperature continues to poll. ' : ''}After saving, copy the callback URLs below into the Shelly action settings.</p>
+          </>}
+          <div className="toolbar"><button className="button primary" onClick={() => void save()} disabled={!name.trim() || !host.trim() || (callbackMode && !callbackHost.trim())}>Save Shelly</button><button className="button" onClick={() => { reset(); setShowForm(false) }}>Cancel</button></div>
         </div>
       ) : null}
       {!configured.length && !showForm && <div className="empty">No Shelly devices configured.</div>}
@@ -105,7 +111,8 @@ export function ShellyDevices({ devices, refresh }: { devices: ExternalDevice[];
             {device.has_contact && <p>Contact: <strong>{device.contact_known ? (device.contact_open ? 'Open' : 'Closed') : 'Unknown'}</strong></p>}
             {device.has_temperature && <p>Temperature: <strong>{device.temperature_known ? `${device.temperature_celsius} °C` : 'Unknown'}</strong></p>}
             {device.has_actor && <div className="toolbar"><span>Actor: <strong>{device.actor_known ? (device.actor_on ? 'On' : 'Off') : 'Unknown'}</strong></span><button className="button" onClick={() => void actor(device, device.actor_known && device.actor_on ? 'off' : 'on')}>{device.actor_known && device.actor_on ? 'Turn off' : 'Turn on'}</button></div>}
-            <p className="muted small">{config.callback_mode ? 'Callbacks enabled for contact and relay; temperature polling enabled.' : `Polling every ${config.poll_seconds}s.`}</p>
+            <p className="muted small">{config.callback_mode ? `Callbacks enabled for contact and relay${config.has_temperature ? '; temperature polling enabled' : ''}.` : `Polling every ${config.poll_seconds}s.`}</p>
+            {config.callback_mode && !config.callback_urls && <p className="muted small">Edit this device to set the gateway callback address and generate URLs.</p>}
             {config.callback_urls && <details><summary>Callback URLs and setup</summary>
               <p className="muted small">In Shelly Settings → Actions, assign each URL to the matching action and channel:</p>
               {config.model === 'uni' && <>

@@ -9,6 +9,7 @@ struct ShellyDevice {
     std::string id;
     std::string name;
     std::string host;
+    std::string callbackHost;
     std::string model; /* uni, plug, plugs */
     std::string username;
     std::string password;
@@ -39,7 +40,7 @@ public:
     bool start(std::string* error);
     void stop();
     std::string json(bool includeCallbackUrls = false) const;
-    bool saveDevice(const std::string& id, const std::string& name, const std::string& host,
+    bool saveDevice(const std::string& id, const std::string& name, const std::string& host, const std::string& callbackHost,
                     const std::string& model, const std::string& username, const std::string& password,
                     int inputIndex, int temperatureIndex, int relayIndex, unsigned int pollSeconds,
                     bool invertContact, bool callbackMode, bool clearAuth, std::string* resultId, std::string* error);

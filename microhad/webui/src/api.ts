@@ -70,6 +70,7 @@ export interface ExternalDevice {
   id: string
   name: string
   host: string
+  callback_host: string
   model: 'uni' | 'plug' | 'plugs'
   http_auth?: boolean
   input_index: number

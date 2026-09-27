@@ -401,7 +401,7 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
     } else if (shelly_ != 0 && request.find("POST /api/shelly/config ") == 0) {
         std::string::size_type bodyAt = request.find("\r\n\r\n");
         std::string body = bodyAt == std::string::npos ? "" : request.substr(bodyAt + 4);
-        std::string id, name, host, model, username, password, value, error;
+        std::string id, name, host, callbackHost, model, username, password, value, error;
         long input = -1, temperature = -1, relay = 0, seconds = 30;
         bool invert = false, callbackMode = false, clearAuth = false;
         bool valid = formValue(body, "id", &id) && formValue(body, "name", &name) && formValue(body, "host", &host) &&
@@ -414,11 +414,12 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
         valid = valid && formValue(body, "poll_seconds", &value);
         if (valid) seconds = strtol(value.c_str(), 0, 10);
         formValue(body, "username", &username); formValue(body, "password", &password);
+        formValue(body, "callback_host", &callbackHost);
         invert = formValue(body, "invert_contact", &value) && value == "true";
         callbackMode = formValue(body, "callback_mode", &value) && value == "true";
         clearAuth = formValue(body, "clear_auth", &value) && value == "true";
         std::string savedId;
-        if (!valid || seconds < 0 || !shelly_->saveDevice(id, name, host, model, username, password,
+        if (!valid || seconds < 0 || !shelly_->saveDevice(id, name, host, callbackHost, model, username, password,
                 static_cast<int>(input), static_cast<int>(temperature), static_cast<int>(relay),
                 static_cast<unsigned int>(seconds), invert, callbackMode, clearAuth, &savedId, &error)) {
             writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + jsonEscape(valid ? error : "invalid Shelly settings") + "\"}");

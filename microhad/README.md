@@ -106,17 +106,19 @@ while retaining the manual Refresh action.
 
 Use **Add Shelly** in the Devices section to add a Shelly Uni Gen1, Plug Gen1,
 or Plug S Gen1 by its local host or address. The Uni can expose one selected
-digital input as a contact, one selected temperature probe, and one relay as an
+digital input as a contact, an optional temperature probe, and one relay as an
 actor. Plugs expose their relay as an actor. Optional HTTP Basic credentials
 are stored in `shelly-devices.jsonl` in the runtime directory with mode `0600`.
 
 Shelly devices poll every 30 seconds by default; the interval can be changed
 from 5 to 3600 seconds. Callback mode can replace polling for contact and relay
-state. Enable it in the device settings, then copy the generated URLs into the
+state. Enable it in the device settings and set the gateway HTTP address that
+the Shelly can reach, then copy the generated URLs into the
 matching **btn_on_url / btn_off_url** (Uni input) and **out_on_url / out_off_url**
 (relay) actions in the Shelly interface. Callback URLs contain a secret token;
 keep them private. The Uni thermometer continues polling because Gen1
-temperature actions only report threshold crossings, not each reading.
+temperature actions only report threshold crossings, not each reading. Select
+**None** for a Uni without a temperature probe.
 
 For Browser Push, visit the HTTPS dashboard, accept the certificate, select
 **Enable browser alerts**, grant the browser permission, then select **Test
