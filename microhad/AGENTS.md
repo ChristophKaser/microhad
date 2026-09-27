@@ -101,3 +101,10 @@ ignored `diagnostics/` directory and must never be committed.
 Warning: daily operation must not write logs, diagnostics, or other
 high-frequency state beneath `/tuya` (flash). Keep transient output in `/tmp`
 and verify new runtime behavior does not introduce flash write cycles.
+
+## Garage Android app
+
+`garage-app/` is a separate Git repository copied into this workspace and
+ignored by the native gateway repository. Commit changes to the Garage app in
+`garage-app/` separately from changes to this repository. Do not stage or
+commit Garage app files in the native gateway repository.
