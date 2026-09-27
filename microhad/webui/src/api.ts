@@ -60,9 +60,35 @@ export interface Status {
   joining_preparing: boolean
   notifications_enabled: boolean
   devices: Device[]
+  external_devices: ExternalDevice[]
   scene_groups: SceneGroupSummary[]
   native_bindings: { ieee_address: string; group_id: number; status: string }[]
   device_configurations: DeviceConfiguration[]
+}
+
+export interface ExternalDevice {
+  id: string
+  name: string
+  host: string
+  model: 'uni' | 'plug' | 'plugs'
+  http_auth?: boolean
+  input_index: number
+  temperature_index: number
+  relay_index: number
+  poll_seconds: number
+  invert_contact: boolean
+  callback_mode: boolean
+  has_contact: boolean
+  contact_known: boolean
+  contact_open: boolean
+  has_temperature: boolean
+  temperature_known: boolean
+  temperature_celsius: number
+  has_actor: boolean
+  actor_known: boolean
+  actor_on: boolean
+  last_seen: number
+  callback_urls?: { input_open: string; input_closed: string; relay_on: string; relay_off: string }
 }
 
 export interface DeviceConfiguration {

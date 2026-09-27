@@ -554,6 +554,34 @@ button:disabled {
 .field.compact input {
   margin-top: 4px;
 }
+.shelly-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 18px;
+  padding: 8px 0 20px;
+  border-bottom: 1px solid #e7edf2;
+  margin-bottom: 20px;
+}
+.shelly-form > .muted,
+.shelly-form > .check,
+.shelly-form > .toolbar {
+  grid-column: 1 / -1;
+}
+.shelly-form .check {
+  margin-top: 18px;
+}
+.shelly-panel details code {
+  display: block;
+  overflow-wrap: anywhere;
+  padding: 7px 9px;
+  margin: 6px 0;
+  border-radius: 6px;
+  background: #eef3f7;
+  font-size: 0.78rem;
+}
+@media (max-width: 640px) {
+  .shelly-form { grid-template-columns: minmax(0, 1fr); }
+}
 .dialog-actions {
   justify-content: flex-end;
   margin-top: 22px;

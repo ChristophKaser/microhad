@@ -3,6 +3,7 @@
 #include "notification_worker.h"
 #include "http_server.h"
 #include "gateway_config.h"
+#include "shelly_integration.h"
 
 #include <cerrno>
 #include <csignal>
@@ -34,6 +35,7 @@ int main(int argc, char** argv) {
     GatewayRunner* gatewayRunner;
     NotificationWorker* notificationWorker;
     HttpServer* server;
+    ShellyIntegration* shellyIntegration;
 
     if (!selectGatewayConfigPath(argc, const_cast<const char* const*>(argv), &configPath, &error)) {
         fprintf(stderr, "%s\n", error.c_str());
@@ -51,6 +53,7 @@ int main(int argc, char** argv) {
     std::string firebaseServiceAccount = config.firebaseServiceAccount;
     std::string firebaseTopic = config.firebaseTopic;
     std::string caBundle = config.caBundle;
+    signal(SIGPIPE, SIG_IGN);
     notificationWorker = new NotificationWorker(runtimeDirectory, firebaseServiceAccount, firebaseTopic, caBundle);
     if (!notificationWorker->start(&error)) {
         fprintf(stderr, "notification worker startup failed: %s\n", error.c_str());
@@ -66,10 +69,19 @@ int main(int argc, char** argv) {
         delete notificationWorker;
         return 1;
     }
-    server = new HttpServer(httpPort, gatewayRunner, runtimeDirectory + "/webui", "", "");
+    shellyIntegration = new ShellyIntegration(runtimeDirectory);
+    if (!shellyIntegration->start(&error)) {
+        fprintf(stderr, "Shelly integration startup failed: %s\n", error.c_str());
+        delete shellyIntegration;
+        delete gatewayRunner;
+        delete notificationWorker;
+        return 1;
+    }
+    server = new HttpServer(httpPort, gatewayRunner, runtimeDirectory + "/webui", "", "", shellyIntegration);
     if (!server->start(&error)) {
         fprintf(stderr, "web startup failed: %s\n", error.c_str());
         delete server;
+        delete shellyIntegration;
         delete gatewayRunner;
         delete notificationWorker;
         return 1;
@@ -81,14 +93,17 @@ int main(int argc, char** argv) {
         if (certificatePath.empty() || privateKeyPath.empty()) {
             fprintf(stderr, "both tls_certificate and tls_private_key are required for HTTPS\n");
             delete server;
-            delete gateway;
+            delete shellyIntegration;
+            delete gatewayRunner;
+            delete notificationWorker;
             return 2;
         }
-        httpsServer = new HttpServer(httpsPort, gatewayRunner, runtimeDirectory + "/webui", certificatePath, privateKeyPath);
+        httpsServer = new HttpServer(httpsPort, gatewayRunner, runtimeDirectory + "/webui", certificatePath, privateKeyPath, shellyIntegration);
         if (!httpsServer->start(&error)) {
             fprintf(stderr, "HTTPS startup failed: %s\n", error.c_str());
             delete httpsServer;
             delete server;
+            delete shellyIntegration;
             delete gatewayRunner;
             delete notificationWorker;
             return 1;
@@ -96,9 +111,6 @@ int main(int argc, char** argv) {
     }
     signal(SIGINT, stopHandler);
     signal(SIGTERM, stopHandler);
-    /* A browser may close a keep-alive/TLS socket before a response write.
-       Treat that as a normal write failure instead of terminating the gateway. */
-    signal(SIGPIPE, SIG_IGN);
     fprintf(stderr, "microhad-zigbee-native: serial=%s http=%d https=%d\n", serialDevice.c_str(), httpPort,
             httpsServer == 0 ? 0 : httpsPort);
     while (running) {
@@ -108,6 +120,7 @@ int main(int argc, char** argv) {
     }
     delete server;
     delete httpsServer;
+    delete shellyIntegration;
     delete gatewayRunner;
     delete notificationWorker;
     return 0;

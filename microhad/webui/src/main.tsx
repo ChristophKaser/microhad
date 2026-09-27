@@ -6,6 +6,7 @@ import { DeviceGroups, DeviceSettings, LightGroupStates } from './devices'
 import { HistoryDialog } from './HistoryDialog'
 import { DeviceDetailsDialog, NetworkDialog, SceneTextDialog } from './DashboardDialogs'
 import { SceneEditor } from './SceneEditor'
+import { ShellyDevices } from './ShellyDevices'
 import { useGatewayData } from './useGatewayData'
 import './style.css'
 
@@ -344,6 +345,7 @@ function App() {
           onHistory={setHistoryDevice}
         />
       </section>
+      <ShellyDevices devices={status?.external_devices ?? []} refresh={() => void refreshStatus()} />
       <section className="panel">
         <div className="section-heading">
           <div>
