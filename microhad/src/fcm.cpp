@@ -134,7 +134,15 @@ static bool sendFcmTarget(const std::string& serviceAccountPath, const std::stri
         if (oauthBodyAt == std::string::npos) { *error = "OAuth response is malformed"; return false; }
         oauthBody = tokenResponse.substr(oauthBodyAt + 4);
         if (!jsonStringField(oauthBody, "access_token", &token) || token.empty()) {
-            *error = "OAuth response did not contain an access token"; return false;
+            std::string oauthError;
+            std::string oauthDescription;
+            std::string status = tokenResponse.substr(0, tokenResponse.find("\r\n"));
+            *error = "OAuth response did not contain an access token (" + status;
+            if (jsonStringField(oauthBody, "error", &oauthError)) *error += ", " + oauthError;
+            if (jsonStringField(oauthBody, "error_description", &oauthDescription))
+                *error += ": " + oauthDescription;
+            *error += ")";
+            return false;
         }
         long expiresIn = 0;
         if (!jsonLongField(oauthBody, "expires_in", &expiresIn) || expiresIn <= 60) {

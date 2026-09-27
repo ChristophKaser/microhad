@@ -116,7 +116,7 @@ void testFcmTokenCacheAndFailures(const std::string& directory, FakeHttpsTranspo
 
     transport->malformedOAuth = true;
     assert(!sendFcmNotification(first, "fake-ca-malformed", "alerts", "Window", "Kitchen", &error));
-    assert(error == "OAuth response did not contain an access token");
+    assert(error.find("OAuth response did not contain an access token (HTTP/1.1 200 OK") == 0);
     transport->malformedOAuth = false;
 
     transport->fcmResponse = "HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\n\r\n";

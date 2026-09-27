@@ -170,7 +170,8 @@ void NotificationWorker::deliver(const Job& job) {
             if (devices_[i].enabled) tokens.push_back(devices_[i].token);
         pthread_mutex_unlock(&mutex_);
         for (unsigned long i = 0; i < tokens.size() && enabled(); ++i)
-            sendFcmTokenNotification(firebaseServiceAccount_, caBundle_, tokens[i], job.title, job.body, &ignored);
+            if (!sendFcmTokenNotification(firebaseServiceAccount_, caBundle_, tokens[i], job.title, job.body, &ignored))
+                fprintf(stderr, "FCM delivery failed: %s\n", ignored.c_str());
     }
     if (!enabled()) return;
     if (!caBundle_.empty()) {
