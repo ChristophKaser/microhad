@@ -5,6 +5,7 @@
 #include "web_push.h"
 #include "sensor_history.h"
 #include "shelly_integration.h"
+#include "notification_worker.h"
 
 #include <cerrno>
 #include <climits>
@@ -231,8 +232,9 @@ bool safeAssetPath(const std::string& path) {
 }
 
 HttpServer::HttpServer(int port, GatewayRunner* gateway, const std::string& webuiDirectory,
-                       const std::string& certificatePath, const std::string& privateKeyPath, ShellyIntegration* shelly) :
-    port_(port), listenFd_(-1), gateway_(gateway), shelly_(shelly), webPush_(new WebPushStore(gateway->runtimeDirectory())), webuiDirectory_(webuiDirectory),
+                       const std::string& certificatePath, const std::string& privateKeyPath,
+                       ShellyIntegration* shelly, NotificationWorker* notifications) :
+    port_(port), listenFd_(-1), gateway_(gateway), shelly_(shelly), notifications_(notifications), webPush_(new WebPushStore(gateway->runtimeDirectory())), webuiDirectory_(webuiDirectory),
     certificatePath_(certificatePath), privateKeyPath_(privateKeyPath), tlsServer_(0), running_(false) {
     pthread_mutex_init(&queueMutex_, 0);
     pthread_cond_init(&queueReady_, 0);
@@ -519,6 +521,31 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
         } else if (gateway_->setNotificationsEnabled(enabled, &error)) {
             writeResponse(clientFd, 200, "application/json", std::string("{\"ok\":true,\"enabled\":") + (enabled ? "true}" : "false}"));
         } else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + jsonEscape(error) + "\"}");
+    } else if (request.find("POST /api/push/devices/register ") == 0) {
+        std::string::size_type bodyAt = request.find("\r\n\r\n");
+        std::string id, model, token, error;
+        bool valid = bodyAt != std::string::npos &&
+            jsonStringField(request.substr(bodyAt + 4), "installation_id", &id) &&
+            jsonStringField(request.substr(bodyAt + 4), "model", &model) &&
+            jsonStringField(request.substr(bodyAt + 4), "token", &token);
+        if (valid && notifications_ != 0 && notifications_->registerDevice(id, model, token, &error))
+            writeResponse(clientFd, 200, "application/json", "{\"ok\":true}");
+        else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + jsonEscape(valid ? error : "invalid push device registration") + "\"}");
+    } else if (request.find("GET /api/push/devices ") == 0) {
+        if (notifications_ != 0) writeResponse(clientFd, 200, "application/json", notifications_->devicesJson());
+        else writeResponse(clientFd, 503, "application/json", "{\"ok\":false,\"error\":\"notification worker is unavailable\"}");
+    } else if (request.find("POST /api/push/devices/") == 0) {
+        const std::string prefix = "POST /api/push/devices/";
+        std::string::size_type end = request.find(' ', prefix.size());
+        std::string id = end == std::string::npos ? "" : request.substr(prefix.size(), end - prefix.size());
+        std::string::size_type bodyAt = request.find("\r\n\r\n");
+        std::string label, enabledText, error;
+        bool valid = bodyAt != std::string::npos && formValue(request.substr(bodyAt + 4), "label", &label) &&
+                     formValue(request.substr(bodyAt + 4), "enabled", &enabledText) &&
+                     (enabledText == "true" || enabledText == "false");
+        if (valid && notifications_ != 0 && notifications_->updateDevice(id, label, enabledText == "true", &error))
+            writeResponse(clientFd, 200, "application/json", "{\"ok\":true}");
+        else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + jsonEscape(valid ? error : "invalid push device settings") + "\"}");
     } else if (request.find("GET /api/push/vapid-key ") == 0) {
         writeResponse(clientFd, 200, "application/json", "{\"public_key\":\"" + webPush_->publicKey() + "\"}");
     } else if (request.find("POST /api/push/subscriptions ") == 0) {

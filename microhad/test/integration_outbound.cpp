@@ -162,6 +162,7 @@ void cleanNotificationRuntime(const std::string& directory) {
     unlink((directory + "/vapid-public.key").c_str());
     unlink((directory + "/vapid-private.key").c_str());
     unlink((directory + "/web-push-subscriptions.ndjson").c_str());
+    unlink((directory + "/push-devices.ndjson").c_str());
     rmdir(directory.c_str());
 }
 
@@ -190,6 +191,7 @@ void testNotificationTransportIndependence(const std::string& root) {
     setHttpsPostHook(&fcmFailure);
     {
         NotificationWorker worker(directory, account, "alerts", "fake-ca-worker-failure");
+        assert(worker.registerDevice("11111111-1111-4111-8111-111111111111", "Pixel", "token-one", &error));
         assert(worker.start(&error));
         assert(worker.enqueue("Test", "fallback delivery", &error));
         worker.stop();
@@ -210,6 +212,7 @@ void testNotificationTransportIndependence(const std::string& root) {
     setHttpsPostHook(&pushFailure);
     {
         NotificationWorker worker(directory, secondAccount, "alerts", "fake-ca-push-failure");
+        assert(worker.registerDevice("11111111-1111-4111-8111-111111111111", "Pixel", "token-one", &error));
         assert(worker.start(&error));
         assert(worker.enqueue("Test", "FCM first", &error));
         worker.stop();
@@ -238,6 +241,7 @@ void testNotificationTransportIndependence(const std::string& root) {
     setHttpsPostHook(&bothFail);
     {
         NotificationWorker worker(directory, thirdAccount, "alerts", "fake-ca-both-fail");
+        assert(worker.registerDevice("11111111-1111-4111-8111-111111111111", "Pixel", "token-one", &error));
         assert(worker.start(&error));
         assert(worker.enqueue("Test", "both transports fail", &error));
         worker.stop();
@@ -255,11 +259,19 @@ void testNotificationTransportIndependence(const std::string& root) {
     setHttpsPostHook(&fcmOnly);
     {
         NotificationWorker worker(directory, fourthAccount, "alerts", "fake-ca-fcm-only");
+        assert(worker.registerDevice("11111111-1111-4111-8111-111111111111", "Pixel", "token-one", &error));
+        assert(worker.registerDevice("22222222-2222-4222-8222-222222222222", "Phone", "token-two", &error));
+        assert(worker.updateDevice("22222222-2222-4222-8222-222222222222", "Spare", false, &error));
         assert(worker.start(&error));
         assert(worker.enqueue("Test", "FCM only", &error));
         worker.stop();
     }
     assert(fcmOnly.countHost("fcm.googleapis.com") == 1);
+    for (unsigned long i = 0; i < fcmOnly.requests.size(); ++i)
+        if (fcmOnly.requests[i].host == "fcm.googleapis.com") {
+            assert(fcmOnly.requests[i].body.find("\"token\":\"token-one\"") != std::string::npos);
+            assert(fcmOnly.requests[i].body.find("\"topic\"") == std::string::npos);
+        }
     assert(fcmOnly.countHost("push.example.test") == 0);
     unlink(fourthAccount.c_str());
     cleanNotificationRuntime(directory);

@@ -73,6 +73,10 @@ std::string makeFcmMessage(const std::string& topic, const std::string& title, c
     return std::string("{\"message\":{\"topic\":\"") + jsonEscape(topic) + "\",\"notification\":{\"title\":\"" +
            jsonEscape(title) + "\",\"body\":\"" + jsonEscape(body) + "\"},\"android\":{\"priority\":\"high\"}}}";
 }
+std::string makeFcmTokenMessage(const std::string& token, const std::string& title, const std::string& body) {
+    return std::string("{\"message\":{\"token\":\"") + jsonEscape(token) + "\",\"notification\":{\"title\":\"" +
+           jsonEscape(title) + "\",\"body\":\"" + jsonEscape(body) + "\"},\"android\":{\"priority\":\"high\"}}}";
+}
 
 std::string makeGoogleAccessTokenJwt(const FirebaseServiceAccount& account, long issuedAt, std::string* error) {
 #ifdef MICROHAD_MBEDTLS_ENABLED
@@ -102,9 +106,9 @@ std::string makeGoogleAccessTokenJwt(const FirebaseServiceAccount& account, long
 #endif
 }
 
-bool sendFcmNotification(const std::string& serviceAccountPath, const std::string& caBundle,
-                         const std::string& topic, const std::string& title, const std::string& body,
-                         std::string* error) {
+static bool sendFcmTarget(const std::string& serviceAccountPath, const std::string& caBundle,
+                          const std::string& target, bool direct, const std::string& title,
+                          const std::string& body, std::string* error) {
     std::ifstream file(serviceAccountPath.c_str());
     FirebaseServiceAccount account;
     std::string contents;
@@ -142,7 +146,8 @@ bool sendFcmNotification(const std::string& serviceAccountPath, const std::strin
     }
     if (!httpsPost("fcm.googleapis.com", "/v1/projects/" + account.projectId + "/messages:send",
                    "Content-Type: application/json\r\nAuthorization: Bearer " + token + "\r\n",
-                   makeFcmMessage(topic, title, body), caBundle, &response, error)) return false;
+                   direct ? makeFcmTokenMessage(target, title, body) : makeFcmMessage(target, title, body),
+                   caBundle, &response, error)) return false;
     if (response.find("HTTP/1.1 200") != 0) { *error = "FCM rejected the notification"; return false; }
     std::string::size_type bodyAt = response.find("\r\n\r\n");
     std::string messageName;
@@ -152,4 +157,14 @@ bool sendFcmNotification(const std::string& serviceAccountPath, const std::strin
         return false;
     }
     return true;
+}
+bool sendFcmNotification(const std::string& serviceAccountPath, const std::string& caBundle,
+                         const std::string& topic, const std::string& title, const std::string& body,
+                         std::string* error) {
+    return sendFcmTarget(serviceAccountPath, caBundle, topic, false, title, body, error);
+}
+bool sendFcmTokenNotification(const std::string& serviceAccountPath, const std::string& caBundle,
+                              const std::string& token, const std::string& title, const std::string& body,
+                              std::string* error) {
+    return sendFcmTarget(serviceAccountPath, caBundle, token, true, title, body, error);
 }

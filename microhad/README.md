@@ -130,9 +130,12 @@ changed power readings in 0.1 W units and does not repeat unchanged readings.
 
 For Browser Push, visit the HTTPS dashboard, accept the certificate, select
 **Enable browser alerts**, grant the browser permission, then select **Test
-alerts**. FCM uses the configured topic/service account for the same sensor
-events. The test action intentionally uses the configured delivery transports,
-so it is the appropriate end-to-end check after credentials are installed.
+alerts**. The Pommern Garage app registers its FCM token from the home LAN at
+`http://192.168.178.62`. The dashboard's **Phones** section lets you label
+each installation and enable or disable its alerts. FCM sends directly to
+enabled phones using the configured service account. The legacy `firebase_topic`
+config field is accepted but no longer used for delivery. The test action uses
+the configured delivery transports for an end-to-end check.
 
 ## Remote control of lights
 

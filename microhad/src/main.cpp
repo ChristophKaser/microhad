@@ -79,7 +79,7 @@ int main(int argc, char** argv) {
         delete notificationWorker;
         return 1;
     }
-    server = new HttpServer(httpPort, gatewayRunner, runtimeDirectory + "/webui", "", "", shellyIntegration);
+    server = new HttpServer(httpPort, gatewayRunner, runtimeDirectory + "/webui", "", "", shellyIntegration, notificationWorker);
     if (!server->start(&error)) {
         fprintf(stderr, "web startup failed: %s\n", error.c_str());
         delete server;
@@ -100,7 +100,7 @@ int main(int argc, char** argv) {
             delete notificationWorker;
             return 2;
         }
-        httpsServer = new HttpServer(httpsPort, gatewayRunner, runtimeDirectory + "/webui", certificatePath, privateKeyPath, shellyIntegration);
+        httpsServer = new HttpServer(httpsPort, gatewayRunner, runtimeDirectory + "/webui", certificatePath, privateKeyPath, shellyIntegration, notificationWorker);
         if (!httpsServer->start(&error)) {
             fprintf(stderr, "HTTPS startup failed: %s\n", error.c_str());
             delete httpsServer;

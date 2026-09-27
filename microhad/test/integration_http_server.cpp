@@ -63,6 +63,7 @@ void removeDirectory(const std::string& directory) {
     unlink((directory + "/vapid-public.key").c_str());
     unlink((directory + "/vapid-private.key").c_str());
     unlink((directory + "/web-push-subscriptions.ndjson").c_str());
+    unlink((directory + "/push-devices.ndjson").c_str());
     unlink((directory + "/scenes.conf").c_str());
     unlink((directory + "/devices.json").c_str());
     unlink((directory + "/history.bin").c_str());
@@ -313,8 +314,8 @@ void testServers() {
     assert(shelly.start(&error));
     GatewayIntegrationTestPeer::prepareHttpDevice(gateway);
 
-    HttpServer http(0, &runner, directory + "/webui", "", "", &shelly);
-    HttpServer https(0, &runner, directory + "/webui", "test/fixtures/tls/localhost.crt", "test/fixtures/tls/localhost.key", &shelly);
+    HttpServer http(0, &runner, directory + "/webui", "", "", &shelly, &notifications);
+    HttpServer https(0, &runner, directory + "/webui", "test/fixtures/tls/localhost.crt", "test/fixtures/tls/localhost.key", &shelly, &notifications);
     if (!http.start(&error)) { fprintf(stderr, "HTTP start failed: %s\n", error.c_str()); assert(false); }
     if (!https.start(&error)) { fprintf(stderr, "HTTPS start failed: %s\n", error.c_str()); assert(false); }
     assert(http.boundPort() > 0 && https.boundPort() > 0);
@@ -373,6 +374,16 @@ void testServers() {
     expectStatus("http queue test notification", plainRequest(http.boundPort(), post("/api/notifications/test", "")), 200);
     expectStatus("http reject invalid push subscription", plainRequest(http.boundPort(), post("/api/push/subscriptions", "{}")), 400);
     expectStatus("http save push subscription", plainRequest(http.boundPort(), post("/api/push/subscriptions", subscription("https://push.example.test/subscription"))), 200);
+    expectStatus("http reject invalid phone", plainRequest(http.boundPort(), post("/api/push/devices/register", "{}")), 400);
+    expectStatus("http register phone", plainRequest(http.boundPort(), post("/api/push/devices/register",
+        "{\"installation_id\":\"11111111-1111-4111-8111-111111111111\",\"model\":\"Pixel\",\"token\":\"secret-token\"}")), 200);
+    response = plainRequest(http.boundPort(), "GET /api/push/devices HTTP/1.1\r\nHost: localhost\r\n\r\n");
+    expectStatus("http list phones", response, 200);
+    assert(response.find("Pixel") != std::string::npos && response.find("secret-token") == std::string::npos);
+    expectStatus("http update phone", plainRequest(http.boundPort(), post(
+        "/api/push/devices/11111111-1111-4111-8111-111111111111", "label=Kitchen+phone&enabled=false")), 200);
+    response = plainRequest(http.boundPort(), "GET /api/push/devices HTTP/1.1\r\nHost: localhost\r\n\r\n");
+    assert(response.find("Kitchen phone") != std::string::npos && response.find("\"enabled\":false") != std::string::npos);
     expectStatus("http reject offline network creation", plainRequest(http.boundPort(), post("/api/network/create", "confirmation=DELETE")), 400);
     expectStatus("http reject invalid scene configuration", plainRequest(http.boundPort(), post("/api/scenes/config", "1 kitchen\n")), 400);
     expectStatus("http reject invalid scene group", plainRequest(http.boundPort(), post("/api/scenes/65528/1/activate", "")), 400);

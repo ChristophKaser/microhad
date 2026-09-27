@@ -21,19 +21,26 @@ public:
     bool enqueue(const std::string& title, const std::string& body, std::string* error);
     bool enabled() const;
     bool setEnabled(bool enabled, std::string* error);
+    bool registerDevice(const std::string& id, const std::string& model, const std::string& token, std::string* error);
+    bool updateDevice(const std::string& id, const std::string& label, bool enabled, std::string* error);
+    std::string devicesJson() const;
 private:
     struct Job { std::string title; std::string body; };
+    struct Device { std::string id, model, token, label; bool enabled; };
     std::string runtimeDirectory_, firebaseServiceAccount_, firebaseTopic_, caBundle_;
     DeliveryHook* deliveryHook_;
     pthread_t thread_;
     mutable pthread_mutex_t mutex_;
     pthread_cond_t ready_;
     std::vector<Job> jobs_;
+    std::vector<Device> devices_;
     bool running_, started_, enabled_;
     static void* threadMain(void* opaque);
     void run();
     void deliver(const Job& job);
     void loadEnabled();
     bool saveEnabled(std::string* error) const;
+    void loadDevices();
+    bool saveDevices(std::string* error) const;
 };
 #endif

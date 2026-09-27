@@ -996,3 +996,9 @@ button:disabled {
     min-height: 38px;
   }
 }
+.push-phones { display: grid; gap: 0.75rem; }
+.push-phone { display: flex; flex-wrap: wrap; align-items: end; gap: 0.75rem; padding: 0.75rem; border: 1px solid var(--line, #555); border-radius: 0.5rem; }
+.push-phone > div { flex: 1 1 14rem; }
+.push-phone p { margin: 0.25rem 0 0; }
+.push-phone label:not(.check) { display: grid; gap: 0.25rem; }
+.push-phone input[type="text"], .push-phone label:not(.check) input { min-width: 10rem; }

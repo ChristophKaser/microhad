@@ -7,6 +7,7 @@ import { HistoryDialog } from './HistoryDialog'
 import { DeviceDetailsDialog, NetworkDialog, SceneTextDialog } from './DashboardDialogs'
 import { SceneEditor } from './SceneEditor'
 import { ShellyDialog } from './ShellyDevices'
+import { PushDevices } from './PushDevices'
 import { useGatewayData } from './useGatewayData'
 import './style.css'
 
@@ -333,6 +334,7 @@ function App() {
           )}
         </div>
       </section>
+      <PushDevices />
       <section className="content-section">
         <div className="section-heading">
           <div>

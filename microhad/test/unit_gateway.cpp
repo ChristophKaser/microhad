@@ -1837,6 +1837,40 @@ static void testNotificationTogglePersistence() {
     rmdir(directory.c_str());
 }
 
+static void testPushDeviceRegistry() {
+    char directoryName[] = "/tmp/microhad-zigbee-push-devices-XXXXXX";
+    char* directory = mkdtemp(directoryName);
+    assert(directory != 0);
+    const std::string id = "11111111-1111-4111-8111-111111111111";
+    std::string error, before, after;
+    struct stat firstStat, secondStat;
+    {
+        NotificationWorker worker(directory, "", "", "");
+        assert(!worker.registerDevice("wrong", "Pixel", "token", &error));
+        assert(worker.registerDevice(id, "Pixel 7", "token-one", &error));
+        assert(readTextFile(std::string(directory) + "/push-devices.ndjson", &before));
+        assert(stat((std::string(directory) + "/push-devices.ndjson").c_str(), &firstStat) == 0);
+        assert((firstStat.st_mode & 0777) == 0600);
+        assert(worker.registerDevice(id, "Pixel 7", "token-one", &error));
+        assert(readTextFile(std::string(directory) + "/push-devices.ndjson", &after) && before == after);
+        assert(stat((std::string(directory) + "/push-devices.ndjson").c_str(), &secondStat) == 0);
+        assert(firstStat.st_ino == secondStat.st_ino);
+        assert(worker.updateDevice(id, "Alice's phone", false, &error));
+        assert(worker.registerDevice(id, "Pixel 8", "token-two", &error));
+        assert(worker.devicesJson().find("Alice's phone") != std::string::npos);
+        assert(worker.devicesJson().find("\"enabled\":false") != std::string::npos);
+        assert(worker.devicesJson().find("token-two") == std::string::npos);
+    }
+    {
+        NotificationWorker worker(directory, "", "", "");
+        assert(worker.devicesJson().find("Alice's phone") != std::string::npos);
+        assert(worker.devicesJson().find("Pixel 8") != std::string::npos);
+        assert(worker.devicesJson().find("\"enabled\":false") != std::string::npos);
+    }
+    unlink((std::string(directory) + "/push-devices.ndjson").c_str());
+    rmdir(directory);
+}
+
 class BlockingNotificationDelivery : public NotificationWorker::DeliveryHook {
 public:
     BlockingNotificationDelivery() : entered_(false), released_(false), delivered_(0) {
@@ -2039,6 +2073,7 @@ void runUnitTests() {
     testTemperatureThresholdAlerts();
     testContactAlertReminders();
     testNotificationTogglePersistence();
+    testPushDeviceRegistry();
     testNotificationWorkerQueueLifecycle();
     testNotificationAuditDoesNotWriteRuntimeFlash();
     testBrowserPushSubscriptionBounds();
