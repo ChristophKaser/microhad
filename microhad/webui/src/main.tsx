@@ -81,15 +81,23 @@ function App() {
   const [dashboardSaving, setDashboardSaving] = useState(false)
   const [dashboardLoaded, setDashboardLoaded] = useState(false)
   const [dashboardError, setDashboardError] = useState('')
+  const prepareDashboard = (value: DashboardConfig): DashboardConfig => {
+    const safe = value && Array.isArray(value.widgets) ? value : { widgets: [] }
+    const widgets = [...safe.widgets]
+    if (!safe.gateway_widget_initialized && !widgets.some(widget => widget.kind === 'gateway')) {
+      widgets.unshift({ id: 'gateway-state', kind: 'gateway', target: 'gateway' })
+    }
+    return { ...safe, widgets, gateway_widget_initialized: true }
+  }
   useEffect(() => {
     let active = true
     void jsonRequest<DashboardConfig>('/api/dashboard/config').then(value => {
       if (!active) return
-      const config = value && Array.isArray(value.widgets) ? value : { widgets: [] }
+      const config = prepareDashboard(value)
       setDashboard(config)
       setDashboardDraft(config)
       setDashboardLoaded(true)
-    }).catch(error => { if (active) { setDashboardError(errorMessage(error)); setDashboardLoaded(true) } })
+    }).catch(error => { if (active) { const fallback = prepareDashboard({ widgets: [] }); setDashboard(fallback); setDashboardDraft(fallback); setDashboardError(errorMessage(error)); setDashboardLoaded(true) } })
     return () => { active = false }
   }, [])
   const saveDashboard = async () => {
@@ -218,6 +226,7 @@ function App() {
         devices={status?.devices ?? []}
         groups={status?.scene_groups ?? []}
         status={status}
+        restarting={restarting}
         action={action}
         onConfig={setDashboardDraft}
         onSettings={setSelected}
