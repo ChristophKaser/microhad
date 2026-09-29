@@ -700,6 +700,7 @@ void Gateway::poll() {
         }
     }
     pollNativeBindings();
+    pollSceneProvisioning();
     if (joinPreparationStep_ != 0 && joinPreparationDeadline_ != 0 && time(0) >= joinPreparationDeadline_) {
         addLog("Secure pairing preparation timed out; try allowing joining again");
         joinPreparationStep_ = 0;
@@ -755,6 +756,18 @@ bool Gateway::hasImmediateWork() const {
     for (unsigned long i = 0; i < nativeBindOperations_.size(); ++i)
         if (nativeBindOperations_[i].deadline != 0) inFlight = true;
     if (inFlight) return false;
+    bool sceneInFlight = false;
+    for (std::map<std::string, SceneProvisionState>::const_iterator scene = sceneProvisioning_.begin();
+         scene != sceneProvisioning_.end(); ++scene)
+        if (scene->second.deadline != 0) sceneInFlight = true;
+    if (!sceneInFlight) {
+        for (std::map<std::string, SceneProvisionState>::const_iterator scene = sceneProvisioning_.begin();
+             scene != sceneProvisioning_.end(); ++scene) {
+            std::map<std::string, Device>::const_iterator device = devices_.find(scene->first);
+            if (!scene->second.waitingForTraffic && scene->second.index < scene->second.commands.size() &&
+                device != devices_.end() && device->second.networkAddress != 0xffff) return true;
+        }
+    }
     for (unsigned long i = 0; i < nativeBindOperations_.size(); ++i) {
         const NativeBindOperation& operation = nativeBindOperations_[i];
         std::map<std::string, Device>::const_iterator device = devices_.find(operation.ieeeAddress);
@@ -800,6 +813,8 @@ long Gateway::nextPollDeadline() const {
         CONSIDER_DEADLINE(configQuery->second.groupsDeadline);
         CONSIDER_DEADLINE(configQuery->second.bindingsDeadline);
     }
+    for (std::map<std::string, SceneProvisionState>::const_iterator pending = sceneProvisioning_.begin();
+         pending != sceneProvisioning_.end(); ++pending) CONSIDER_DEADLINE(pending->second.deadline);
     if (online_ && networkFormed_ && coordinatorInitializationStep_ == 0 && !interviewRequestInFlight_ && !nativeBusy) {
         for (interview = interviews_.begin(); interview != interviews_.end(); ++interview) {
             const InterviewState& state = interview->second;
@@ -1132,56 +1147,114 @@ bool Gateway::sceneMemberNative(const Device& device, const Scene&, const SceneL
     return state.brightnessPercent < 0 || endpointForCluster(device, kLevelCluster, &endpoint);
 }
 
-void Gateway::provisionSceneGroup(const SceneGroup& group) {
-    for (unsigned long i = 0; i < group.members.size(); ++i) {
-        std::map<std::string, Device>::const_iterator found = devices_.find(group.members[i]);
-        unsigned char endpoint;
-        if (found == devices_.end() || found->second.networkAddress == 0xffff ||
-            !endpointForCluster(found->second, kGroupsCluster, &endpoint)) continue;
-        std::vector<unsigned char> add;
-        add.push_back(kZclClusterCommandNoDefaultResponse);
-        add.push_back(++zclTransactionSequence_);
-        add.push_back(kGroupsAddGroup);
-        appendLittleEndian16(&add, group.id);
-        add.push_back(static_cast<unsigned char>(group.name.size()));
-        add.insert(add.end(), group.name.begin(), group.name.end());
-        sendApsUnicast(found->second.networkAddress, kHomeAutomationProfile, kGroupsCluster,
-                       kCoordinatorEndpoint, endpoint, add);
-        for (unsigned long j = 0; j < group.scenes.size(); ++j) {
-            const Scene& scene = group.scenes[j];
-            const SceneLightState* state = 0;
-            for (unsigned long k = 0; k < scene.states.size(); ++k)
-                if (scene.states[k].ieeeAddress == group.members[i]) { state = &scene.states[k]; break; }
-            if (state == 0 || !sceneMemberNative(found->second, scene, *state)) continue;
-            std::vector<unsigned char> command;
-            command.push_back(kZclClusterCommandNoDefaultResponse);
-            command.push_back(++zclTransactionSequence_);
-            command.push_back(kScenesAddScene);
-            appendLittleEndian16(&command, group.id);
-            command.push_back(scene.id);
-            appendLittleEndian16(&command, 0); /* transition time, in tenths of a second */
-            command.push_back(static_cast<unsigned char>(scene.name.size()));
-            command.insert(command.end(), scene.name.begin(), scene.name.end());
-            appendSceneState(&command, kOnOffCluster, state->on ? 1 : 0);
-            if (state->brightnessPercent >= 0)
-                appendSceneState(&command, kLevelCluster,
-                                 static_cast<unsigned char>((state->brightnessPercent * 254 + 50) / 100));
-            sendApsUnicast(found->second.networkAddress, kHomeAutomationProfile, kScenesCluster,
-                           kCoordinatorEndpoint, endpoint, command);
+void Gateway::queueSceneProvisioning() {
+    sceneProvisioning_.clear(); /* A newer Save supersedes every unfinished write. */
+    for (unsigned long i = 0; i < sceneGroups_.size(); ++i) {
+        const SceneGroup& group = sceneGroups_[i];
+        for (unsigned long m = 0; m < group.members.size(); ++m) {
+            std::map<std::string, Device>::const_iterator found = devices_.find(group.members[m]);
+            unsigned char endpoint;
+            if (found == devices_.end() || !endpointForCluster(found->second, kGroupsCluster, &endpoint)) continue;
+            SceneProvisionState& pending = sceneProvisioning_[group.members[m]];
+            SceneProvisionCommand add;
+            add.cluster = kGroupsCluster; add.groupId = group.id; add.endpoint = endpoint;
+            add.payload.push_back(kGroupsAddGroup);
+            appendLittleEndian16(&add.payload, group.id);
+            add.payload.push_back(static_cast<unsigned char>(group.name.size()));
+            add.payload.insert(add.payload.end(), group.name.begin(), group.name.end());
+            pending.commands.push_back(add);
+            for (unsigned long j = 0; j < group.scenes.size(); ++j) {
+                const Scene& scene = group.scenes[j];
+                const SceneLightState* state = 0;
+                for (unsigned long k = 0; k < scene.states.size(); ++k)
+                    if (scene.states[k].ieeeAddress == group.members[m]) { state = &scene.states[k]; break; }
+                if (state == 0 || !sceneMemberNative(found->second, scene, *state)) continue;
+                SceneProvisionCommand addScene;
+                addScene.cluster = kScenesCluster; addScene.groupId = group.id;
+                addScene.sceneId = scene.id; addScene.endpoint = endpoint;
+                addScene.payload.push_back(kScenesAddScene);
+                appendLittleEndian16(&addScene.payload, group.id);
+                addScene.payload.push_back(scene.id);
+                appendLittleEndian16(&addScene.payload, 0); /* transition time */
+                addScene.payload.push_back(static_cast<unsigned char>(scene.name.size()));
+                addScene.payload.insert(addScene.payload.end(), scene.name.begin(), scene.name.end());
+                appendSceneState(&addScene.payload, kOnOffCluster, state->on ? 1 : 0);
+                if (state->brightnessPercent >= 0)
+                    appendSceneState(&addScene.payload, kLevelCluster,
+                                     static_cast<unsigned char>((state->brightnessPercent * 254 + 50) / 100));
+                pending.commands.push_back(addScene);
+            }
         }
+    }
+    pollSceneProvisioning();
+}
+
+void Gateway::pollSceneProvisioning() {
+    if (!online_ || !networkFormed_ || coordinatorInitializationStep_ != 0) return;
+    const long now = time(0);
+    for (std::map<std::string, SceneProvisionState>::iterator it = sceneProvisioning_.begin();
+         it != sceneProvisioning_.end(); ++it) {
+        if (it->second.deadline == 0) continue;
+        if (now >= it->second.deadline) {
+            it->second.deadline = 0;
+            it->second.waitingForTraffic = true;
+            addLog("Scene provisioning timed out; waiting for " + it->first);
+        } else return; /* Only one provisioning command may be in flight. */
+    }
+    for (std::map<std::string, SceneProvisionState>::iterator it = sceneProvisioning_.begin();
+         it != sceneProvisioning_.end(); ++it) {
+        SceneProvisionState& pending = it->second;
+        std::map<std::string, Device>::const_iterator device = devices_.find(it->first);
+        if (pending.waitingForTraffic || pending.index >= pending.commands.size() ||
+            device == devices_.end() || device->second.networkAddress == 0xffff) continue;
+        SceneProvisionCommand& command = pending.commands[pending.index];
+        std::vector<unsigned char> message;
+        message.push_back(kZclClusterCommandNoDefaultResponse);
+        command.transaction = ++zclTransactionSequence_;
+        message.push_back(command.transaction);
+        message.insert(message.end(), command.payload.begin(), command.payload.end());
+        pending.deadline = now + 10;
+        sendApsUnicast(device->second.networkAddress, kHomeAutomationProfile, command.cluster,
+                       kCoordinatorEndpoint, command.endpoint, message);
+        return;
     }
 }
 
-void Gateway::provisionSceneGroupsForDevice(const std::string& ieeeAddress) {
-    for (unsigned long i = 0; i < sceneGroups_.size(); ++i) {
-        if (std::find(sceneGroups_[i].members.begin(), sceneGroups_[i].members.end(), ieeeAddress) ==
-            sceneGroups_[i].members.end()) continue;
-        SceneGroup deviceGroup = sceneGroups_[i];
-        deviceGroup.members.clear();
-        deviceGroup.members.push_back(ieeeAddress);
-        provisionSceneGroup(deviceGroup);
-        addLog("Reprovisioned Zigbee group " + deviceGroup.name + " for " + ieeeAddress);
+void Gateway::wakeSceneProvisioning(const std::string& ieeeAddress) {
+    std::map<std::string, SceneProvisionState>::iterator pending = sceneProvisioning_.find(ieeeAddress);
+    if (pending != sceneProvisioning_.end() && pending->second.waitingForTraffic) {
+        pending->second.waitingForTraffic = false;
+        addLog("Retrying scene provisioning for " + ieeeAddress);
     }
+}
+
+bool Gateway::handleSceneProvisionResponse(const std::string& ieeeAddress, unsigned short cluster,
+                                            unsigned char transaction, unsigned char command,
+                                            const std::vector<unsigned char>& message, unsigned long argumentOffset) {
+    std::map<std::string, SceneProvisionState>::iterator pending = sceneProvisioning_.find(ieeeAddress);
+    if (pending == sceneProvisioning_.end() || pending->second.deadline == 0 ||
+        pending->second.index >= pending->second.commands.size()) return false;
+    const SceneProvisionCommand& expected = pending->second.commands[pending->second.index];
+    if (cluster != expected.cluster || command != 0 || transaction != expected.transaction ||
+        message.size() < argumentOffset + (cluster == kGroupsCluster ? 3u : 4u) ||
+        message[argumentOffset + 1] != static_cast<unsigned char>(expected.groupId) ||
+        message[argumentOffset + 2] != static_cast<unsigned char>(expected.groupId >> 8) ||
+        (cluster == kScenesCluster && message[argumentOffset + 3] != expected.sceneId)) return false;
+    pending->second.deadline = 0;
+    /* IKEA bulbs report 0x8a when an Add Group repeats an existing group.
+       The desired membership is already present, so proceed to its scenes. */
+    if (message[argumentOffset] == 0 ||
+        (cluster == kGroupsCluster && message[argumentOffset] == 0x8a)) {
+        ++pending->second.index;
+        if (pending->second.index == pending->second.commands.size()) {
+            addLog("Scene provisioning complete for " + ieeeAddress);
+            sceneProvisioning_.erase(pending);
+        }
+    } else {
+        pending->second.waitingForTraffic = true;
+        addLog("Scene provisioning rejected; waiting for " + ieeeAddress);
+    }
+    return true;
 }
 
 bool Gateway::activateScene(unsigned short groupId, unsigned char sceneId, std::string* error) {
@@ -1419,7 +1492,7 @@ bool Gateway::nativeBindingEnabled(const std::string& ieeeAddress) const {
 }
 
 void Gateway::queueNativeBindingChanges(const std::vector<NativeRemoteBinding>& oldBindings,
-                                        const std::vector<SceneGroup>& oldGroups) {
+                                        const std::vector<SceneGroup>& oldGroups, bool force) {
     std::set<std::string> remotes;
     unsigned long i;
     for (i = 0; i < oldBindings.size(); ++i) remotes.insert(oldBindings[i].ieeeAddress);
@@ -1436,19 +1509,20 @@ void Gateway::queueNativeBindingChanges(const std::vector<NativeRemoteBinding>& 
             if (oldGroups[i].id == oldGroup) oldSceneGroup = &oldGroups[i];
         for (i = 0; i < sceneGroups_.size(); ++i)
             if (sceneGroups_[i].id == newGroup) newSceneGroup = &sceneGroups_[i];
-        if (oldGroup == newGroup && oldGroup != 0 && oldSceneGroup != 0 && newSceneGroup != 0 &&
+        if (!force && oldGroup == newGroup && oldGroup != 0 && oldSceneGroup != 0 && newSceneGroup != 0 &&
             oldSceneGroup->members == newSceneGroup->members) continue;
+        /* A newer Save supersedes outstanding commands even if this remote
+           now needs an interview before replacement commands can be built. */
+        for (i = 0; i < nativeBindOperations_.size(); ) {
+            if (nativeBindOperations_[i].ieeeAddress == *name)
+                nativeBindOperations_.erase(nativeBindOperations_.begin() + i);
+            else ++i;
+        }
         std::map<std::string, Device>::const_iterator remote = devices_.find(*name);
         if (remote == devices_.end() || remote->second.endpoints.empty()) {
             nativeBindingStates_[*name] = "pending: remote interview required";
             markViewDirty();
             continue;
-        }
-        /* A changed choice supersedes outstanding commands for that remote. */
-        for (i = 0; i < nativeBindOperations_.size(); ) {
-            if (nativeBindOperations_[i].ieeeAddress == *name)
-                nativeBindOperations_.erase(nativeBindOperations_.begin() + i);
-            else ++i;
         }
         bool legacyIkea = false;
         if (remote->second.modelId == "TRADFRI on/off switch") {
@@ -1675,9 +1749,9 @@ bool Gateway::setSceneConfiguration(const std::string& encoded, std::string* err
     std::vector<NativeRemoteBinding> oldBindings = nativeBindings_;
     std::vector<SceneGroup> oldGroups = sceneGroups_;
     sceneGroups_=groups; sceneBindings_=bindings; nativeBindings_=nativeBindings; saveScenes();
-    for (unsigned long i=0;i<sceneGroups_.size();++i) provisionSceneGroup(sceneGroups_[i]);
-    queueNativeBindingChanges(oldBindings, oldGroups);
-    addLog("Scene configuration saved; native provisioning queued");
+    queueSceneProvisioning();
+    queueNativeBindingChanges(oldBindings, oldGroups, true);
+    addLog("Scene configuration saved; provisioning queued");
     return true;
 }
 
@@ -2190,7 +2264,8 @@ void Gateway::loadScenes() {
     std::string error;
     if (!loadSceneConfiguration(runtimeDirectory_ + "/scenes.conf", &sceneGroups_, &sceneBindings_, &nativeBindings_, &error) && !error.empty())
         addLog(std::string("Scene configuration ignored: ") + error);
-    queueNativeBindingChanges(std::vector<NativeRemoteBinding>(), std::vector<SceneGroup>());
+    for (unsigned long i = 0; i < nativeBindings_.size(); ++i)
+        nativeBindingStates_[nativeBindings_[i].ieeeAddress] = "configured; not verified since restart";
 }
 
 void Gateway::saveScenes() {
@@ -2744,12 +2819,6 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
     if (command == 0x0017) {
         if (frame[payloadOffset] == 0) {
             addLog("NCP network initialization accepted");
-            if (networkFormed_) {
-                for (unsigned long i = 0; i < sceneGroups_.size(); ++i)
-                    provisionSceneGroup(sceneGroups_[i]);
-                if (!sceneGroups_.empty())
-                    addLog("Reprovisioned configured light groups after network initialization");
-            }
         }
         else {
             networkFormed_ = false;
@@ -2771,9 +2840,6 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
         if (frame[payloadOffset] == 0x90) {
             networkFormed_ = true;
             addLog("NCP Zigbee network is active");
-            for (unsigned long i = 0; i < sceneGroups_.size(); ++i)
-                provisionSceneGroup(sceneGroups_[i]);
-            if (!sceneGroups_.empty()) addLog("Reprovisioned configured light groups after network startup");
             requestCoordinatorIeeeAddress();
             configureTradfriBindGroup();
         } else if (frame[payloadOffset] == 0x9c || frame[payloadOffset] == 0x9d) {
@@ -3106,6 +3172,7 @@ void Gateway::registerNode(unsigned short nodeId, const unsigned char* eui64) {
     message << "Device announced: " << address.str() << " (0x" << std::hex << nodeId << ")";
     addLog(message.str());
     wakeInterview(nodeId);
+    wakeSceneProvisioning(address.str());
     std::map<std::string, std::string>::iterator nativeState = nativeBindingStates_.find(address.str());
     if (nativeState != nativeBindingStates_.end() && nativeState->second.find("failed") == 0) {
         nativeState->second = "pending";
@@ -3468,7 +3535,6 @@ void Gateway::completeInterviewOperation(unsigned short destination) {
             classifyDevice(&device);
             state.persistentDirty = true;
         }
-        provisionSceneGroupsForDevice(state.ieeeAddress);
         if (state.persistentDirty) {
             savePersistentState();
             state.persistentDirty = false;
@@ -3620,6 +3686,7 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
     if (messageOffset + length > payload.size() || length < 2) return;
     message.assign(payload.begin() + messageOffset, payload.begin() + messageOffset + length);
     std::map<unsigned short, std::string>::const_iterator nativeSender = nodeAddresses_.find(sender);
+    if (nativeSender != nodeAddresses_.end()) wakeSceneProvisioning(nativeSender->second);
     std::map<std::string, std::string>::iterator nativeState = nativeSender == nodeAddresses_.end() ?
         nativeBindingStates_.end() : nativeBindingStates_.find(nativeSender->second);
     if (nativeState != nativeBindingStates_.end() && cluster != 0x8021 && cluster != 0x8022 &&
@@ -3862,6 +3929,9 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
     unsigned char transactionSequence = message[zclOffset - 2];
     if ((frameControl & 0x04) != 0)
         manufacturer = static_cast<unsigned short>(message[1]) | (static_cast<unsigned short>(message[2]) << 8);
+    if ((frameControl & 0x0b) == 0x09 &&
+        handleSceneProvisionResponse(address->second, cluster, transactionSequence, command, message, zclOffset))
+        return;
     if (profile == 0x0104 && cluster == kGroupsCluster && command == 0x02 &&
         message.size() >= zclOffset + 2) {
         std::map<unsigned short, std::string>::const_iterator owner = nodeAddresses_.find(sender);

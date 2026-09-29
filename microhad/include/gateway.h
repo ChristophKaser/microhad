@@ -328,6 +328,23 @@ private:
     std::vector<RemoteSceneBinding> sceneBindings_;
     std::vector<NativeRemoteBinding> nativeBindings_;
     std::map<std::string, std::string> nativeBindingStates_;
+    struct SceneProvisionCommand {
+        unsigned short cluster;
+        unsigned short groupId;
+        unsigned char sceneId;
+        unsigned char endpoint;
+        unsigned char transaction;
+        std::vector<unsigned char> payload;
+        SceneProvisionCommand() : cluster(0), groupId(0), sceneId(0), endpoint(0), transaction(0) {}
+    };
+    struct SceneProvisionState {
+        std::vector<SceneProvisionCommand> commands;
+        unsigned long index;
+        long deadline;
+        bool waitingForTraffic;
+        SceneProvisionState() : index(0), deadline(0), waitingForTraffic(false) {}
+    };
+    std::map<std::string, SceneProvisionState> sceneProvisioning_;
     struct DeviceConfigurationQuery {
         unsigned char groupsSequence;
         unsigned char bindingsSequence;
@@ -419,7 +436,7 @@ private:
                             const std::string& sourceIeeeAddress, unsigned char transactionSequence,
                             unsigned char messageTag);
     void queueNativeBindingChanges(const std::vector<NativeRemoteBinding>& oldBindings,
-                                   const std::vector<SceneGroup>& oldGroups);
+                                   const std::vector<SceneGroup>& oldGroups, bool force = false);
     void pollNativeBindings();
     bool nativeBindingEnabled(const std::string& ieeeAddress) const;
     void sendZclReadAttribute(unsigned short destination, unsigned char endpoint, unsigned short cluster,
@@ -439,8 +456,12 @@ private:
     bool logRemoteKeyEvent(unsigned short sender, unsigned short cluster, unsigned char endpoint,
                            unsigned short manufacturer, unsigned char command, const std::vector<unsigned char>& arguments);
     bool sceneMemberNative(const Device& device, const Scene& scene, const SceneLightState& state) const;
-    void provisionSceneGroup(const SceneGroup& group);
-    void provisionSceneGroupsForDevice(const std::string& ieeeAddress);
+    void queueSceneProvisioning();
+    void pollSceneProvisioning();
+    void wakeSceneProvisioning(const std::string& ieeeAddress);
+    bool handleSceneProvisionResponse(const std::string& ieeeAddress, unsigned short cluster,
+                                      unsigned char transaction, unsigned char command,
+                                      const std::vector<unsigned char>& message, unsigned long argumentOffset);
     void dispatchRemoteSceneAction(const std::string& ieeeAddress, const std::string& action);
     void pollSceneRetries();
     bool sendSceneRetry(unsigned short groupId, SceneRetry* retry);

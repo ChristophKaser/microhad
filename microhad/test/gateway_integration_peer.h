@@ -204,6 +204,7 @@ public:
         endpoint.inputClusters.push_back(0x0008);
         device.ieeeAddress = "native-light"; device.networkAddress = 0x2345; device.hasLight = true;
         device.endpoints.push_back(endpoint);
+        gateway->nodeAddresses_[device.networkAddress] = device.ieeeAddress;
         gateway->online_ = true; gateway->networkFormed_ = true; gateway->coordinatorInitializationStep_ = 0;
         const std::string configuration =
             "G\t42\tKitchen\nM\t42\tnative-light\nS\t42\t7\tDinner\nT\t42\t7\tnative-light\t1\t50\n";
@@ -215,10 +216,23 @@ public:
             groups.size() != 1 || groups[0].id != 42 || groups[0].scenes.size() != 1) return false;
         std::string logs = gateway->logsJson();
         std::string status = gateway->statusJson();
-        bool result = logs.find("cluster=0x4") != std::string::npos && logs.find("cluster=0x5") != std::string::npos &&
+        bool firstSent = logs.find("cluster=0x4") != std::string::npos &&
                       logs.find("payload=1101002a00074b69746368656e") != std::string::npos &&
-                      logs.find("payload=1102002a000700000644696e6e6572060001010800017f") != std::string::npos &&
                       status.find("\"scene_groups\":[{\"id\":42,\"name\":\"Kitchen\"") != std::string::npos;
+        if (!firstSent || gateway->sceneProvisioning_[device.ieeeAddress].commands.size() != 2) return false;
+        std::vector<unsigned char> response(19, 0);
+        response[1] = 0x04; response[2] = 0x01; response[3] = 0x04;
+        response[5] = 1; response[6] = 1;
+        response[14] = 0x45; response[15] = 0x23; response[18] = 6;
+        response.push_back(0x19); /* cluster response with default response disabled */
+        response.push_back(gateway->sceneProvisioning_[device.ieeeAddress].commands[0].transaction);
+        response.push_back(0x00); response.push_back(0x8a); response.push_back(42); response.push_back(0);
+        gateway->handleIncomingMessage(response);
+        if (gateway->sceneProvisioning_[device.ieeeAddress].index != 1) return false;
+        gateway->pollSceneProvisioning();
+        logs = gateway->logsJson();
+        bool result = logs.find("cluster=0x5") != std::string::npos &&
+                      logs.find("payload=1102002a000700000644696e6e6572060001010800017f") != std::string::npos;
         if (!result) fprintf(stderr, "scene provision logs: %s\nstatus: %s\n", logs.c_str(), status.c_str());
         return result;
     }

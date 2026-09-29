@@ -1873,7 +1873,8 @@ void testGatewayRunnerCommandDispatch() {
         assert(!runner.sendTestNotification(&error) && error == "push notifications are disabled");
         assert(runner.setNotificationsEnabled(true, &error));
         assert(!runner.refreshDevice("missing", &error) && error == "device is unknown");
-        assert(!readAvailable(serial[1]).empty());
+        /* Saving while the radio is offline stores the configuration without transmitting it. */
+        assert(readAvailable(serial[1]).empty());
         runner.stop();
     }
     notifications.stop();

@@ -826,6 +826,84 @@ public:
         }
         return true;
     }
+    static bool saveTriggeredProvisioning() {
+        std::ostringstream path;
+        path << "/tmp/microhad-zigbee-save-provision-" << static_cast<long>(getpid());
+        std::string error;
+        if (!ensureDirectory(path.str(), &error)) return false;
+        const std::string lightIeee = "0x00124b0000000042";
+        const std::string remoteIeee = "0x00124b0000000099";
+        const std::string encoded =
+            "G\t42\tKitchen\nM\t42\t0x00124b0000000042\nS\t42\t7\tDinner\n"
+            "T\t42\t7\t0x00124b0000000042\t1\t50\nN\t0x00124b0000000099\t42\n";
+        {
+            Gateway gateway("/dev/null", 115200, path.str(), "", "", "");
+            Device& light = gateway.devices_[lightIeee];
+            EndpointDescriptor lightEndpoint;
+            light.ieeeAddress = lightIeee; light.hasLight = true; light.networkAddress = 0x2345;
+            lightEndpoint.endpoint = 1;
+            lightEndpoint.inputClusters.push_back(4); lightEndpoint.inputClusters.push_back(5);
+            lightEndpoint.inputClusters.push_back(6); lightEndpoint.inputClusters.push_back(8);
+            light.endpoints.push_back(lightEndpoint);
+            Device& remote = gateway.devices_[remoteIeee];
+            EndpointDescriptor remoteEndpoint;
+            remote.ieeeAddress = remoteIeee; remote.hasRemote = true; remote.networkAddress = 0x1234;
+            remoteEndpoint.endpoint = 1; remoteEndpoint.outputClusters.push_back(6);
+            remote.endpoints.push_back(remoteEndpoint);
+            gateway.online_ = true; gateway.networkFormed_ = true;
+            if (!gateway.setSceneConfiguration(encoded, &error)) return false;
+            if (gateway.sceneProvisioning_[lightIeee].commands.size() != 2 ||
+                gateway.sceneProvisioning_[lightIeee].deadline == 0 ||
+                gateway.nativeBindOperations_.empty()) return false;
+            const unsigned char transaction = gateway.sceneProvisioning_[lightIeee].commands[0].transaction;
+            std::vector<unsigned char> response;
+            response.push_back(0x09); response.push_back(transaction); response.push_back(0);
+            response.push_back(0); response.push_back(42); response.push_back(0);
+            if (gateway.handleSceneProvisionResponse(lightIeee, 4, transaction + 1, 0, response, 3) ||
+                gateway.sceneProvisioning_[lightIeee].index != 0) return false;
+            if (!gateway.handleSceneProvisionResponse(lightIeee, 4, transaction, 0, response, 3) ||
+                gateway.sceneProvisioning_[lightIeee].index != 1) return false;
+            gateway.pollSceneProvisioning();
+            Gateway::SceneProvisionState& pending = gateway.sceneProvisioning_[lightIeee];
+            if (pending.deadline == 0 || pending.commands[1].transaction == 0) return false;
+            pending.deadline = time(0) - 1;
+            gateway.pollSceneProvisioning();
+            if (!pending.waitingForTraffic || pending.deadline != 0) return false;
+            gateway.wakeSceneProvisioning(lightIeee);
+            gateway.pollSceneProvisioning();
+            if (pending.waitingForTraffic || pending.deadline == 0 || pending.index != 1) return false;
+            response[1] = pending.commands[1].transaction;
+            response.push_back(7);
+            if (!gateway.handleSceneProvisionResponse(lightIeee, 5, response[1], 0, response, 3) ||
+                !gateway.sceneProvisioning_.empty()) return false;
+            if (!gateway.setSceneConfiguration(encoded, &error) || gateway.nativeBindOperations_.empty() ||
+                gateway.sceneProvisioning_.empty()) return false;
+        }
+        {
+            Gateway restarted("/dev/null", 115200, path.str(), "", "", "");
+            Device& light = restarted.devices_[lightIeee];
+            EndpointDescriptor endpoint;
+            light.ieeeAddress = lightIeee; light.networkAddress = 0x2345; light.hasLight = true;
+            endpoint.endpoint = 1;
+            endpoint.inputClusters.push_back(4); endpoint.inputClusters.push_back(5);
+            endpoint.inputClusters.push_back(6); endpoint.inputClusters.push_back(8);
+            light.endpoints.push_back(endpoint);
+            restarted.loadScenes();
+            if (!restarted.sceneProvisioning_.empty() || !restarted.nativeBindOperations_.empty() ||
+                restarted.nativeBindingStates_[remoteIeee] != "configured; not verified since restart") return false;
+            restarted.ezspVersion_ = 13;
+            std::vector<unsigned char> initialized(6, 0);
+            initialized[3] = 0x17;
+            restarted.networkFormed_ = true;
+            restarted.handleEzspFrame(initialized);
+            initialized[3] = 0x19; initialized[5] = 0x90;
+            restarted.handleEzspFrame(initialized);
+            if (!restarted.sceneProvisioning_.empty() || !restarted.nativeBindOperations_.empty() ||
+                restarted.logsJson().find("FRAME TX recipient=") != std::string::npos) return false;
+        }
+        unlink((path.str() + "/scenes.conf").c_str());
+        return rmdir(path.str().c_str()) == 0;
+    }
     static bool sceneBusyDoesNotAdvanceSelection() {
         Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
         Gateway::SceneRetry& retry = gateway.sceneRetries_[1];
@@ -1705,6 +1783,10 @@ static void testSceneConfigurationRejectsInvalidReferences() {
     assert(GatewayTestPeer::rejectsInvalidSceneCrossReferences());
 }
 
+static void testSaveTriggeredProvisioning() {
+    assert(GatewayTestPeer::saveTriggeredProvisioning());
+}
+
 static void testSceneBusyDoesNotAdvanceSelection() {
     assert(GatewayTestPeer::sceneBusyDoesNotAdvanceSelection());
     assert(GatewayTestPeer::sceneRuntimePersistence());
@@ -2091,6 +2173,7 @@ void runUnitTests() {
     testStyrbarArrowEvents();
     testSceneConfigurationRejectsDuplicateStates();
     testSceneConfigurationRejectsInvalidReferences();
+    testSaveTriggeredProvisioning();
     testSceneBusyDoesNotAdvanceSelection();
     testPendingSceneIgnoresRemoteAction();
     testContactNotificationIsDeferred();
