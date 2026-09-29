@@ -145,7 +145,7 @@ void GatewayRunner::run() {
 
 void GatewayRunner::publishView(bool force) {
     if (!force && !gateway_->takeViewDirty()) return;
-    GatewayView* view = new GatewayView(gateway_->captureView());
+    GatewayView* view = new GatewayView(gateway_->captureView(false));
     if (force) gateway_->takeViewDirty();
     pthread_mutex_lock(&mutex_);
     ViewData* previous = currentView_;
@@ -311,7 +311,6 @@ void GatewayRunner::waitForWork(LoopDebugStats* stats, bool debugEnabled) {
 GatewayRunner::ViewLease::ViewLease(GatewayRunner* owner, ViewData* data) : data_(data), owner_(owner) {}
 GatewayRunner::ViewLease::~ViewLease() { owner_->releaseView(data_); }
 std::string GatewayRunner::ViewLease::statusJson() const { return data_->view->statusJson(); }
-std::string GatewayRunner::ViewLease::logsJson() const { return data_->view->logsJson(); }
 
 GatewayRunner::ViewLease* GatewayRunner::acquireView() {
     pthread_mutex_lock(&mutex_);

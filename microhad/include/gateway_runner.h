@@ -15,7 +15,6 @@ public:
     public:
         ~ViewLease();
         std::string statusJson() const;
-        std::string logsJson() const;
     private:
         friend class GatewayRunner;
         ViewData* data_;

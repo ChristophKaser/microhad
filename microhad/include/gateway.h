@@ -4,6 +4,8 @@
 #include <map>
 #include <string>
 #include <vector>
+#include <deque>
+#include "log_ring.h"
 
 #include "ash.h"
 #include "sensor_history.h"
@@ -206,7 +208,7 @@ public:
     bool setNotificationsEnabled(bool enabled, std::string* error);
     void logEventLoopDiagnostic(const std::string& message);
     std::vector<Device> devices() const;
-    GatewayView captureView() const;
+    GatewayView captureView(bool includeLogs = true) const;
     bool takeViewDirty();
     std::string statusJson() const;
     std::string logsJson() const;
@@ -391,7 +393,9 @@ private:
     std::map<unsigned short, SceneRetry> sceneRetries_;
     std::map<unsigned short, unsigned char> selectedScenes_; /* RAM only */
     std::map<unsigned short, bool> sceneGroupOff_;
-    std::vector<std::string> logs_;
+    LogRing logRing_;
+    std::deque<std::string> logs_;
+    unsigned long logBytes_;
     bool viewDirty_;
     bool configureSerial(std::string* error);
     bool writeBytes(const std::vector<unsigned char>& bytes, bool sensitive = false);
@@ -489,7 +493,6 @@ private:
     void markViewDirty();
     void addHexLog(const std::string& direction, const unsigned char* bytes, unsigned long length);
     void loadLogs();
-    void saveLogs() const;
     void loadState();
     void saveState() const;
     void savePersistentState() const;

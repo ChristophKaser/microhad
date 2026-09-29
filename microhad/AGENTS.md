@@ -65,7 +65,8 @@ curl --connect-timeout 5 --max-time 8 -sS -X POST http://192.168.178.62/api/serv
 The dashboard serves HTTP on port 80 and HTTPS on port 443. The coordinator
 thread is the sole owner of the NCP serial connection and `Gateway` state.
 Each HTTP listener has an acceptor plus two request workers; all mutations use
-the coordinator command queue and status/log reads use its protected snapshots.
+the coordinator command queue. Status reads use protected snapshots; log reads
+validate the RAM-backed circular file directly without locking the coordinator.
 The single notification worker owns outbound FCM/browser-push calls and keeps
 at most 32 pending jobs in RAM. Do not call `Gateway` directly from a web or
 notification thread.
@@ -95,7 +96,8 @@ refreshes attributes after the device responds. This is intentionally
 serialized for sleepy battery devices.
 
 Coordinator logs are intentionally kept in `/tmp/microhad-zigbee-native.log`, a
-bounded 512-line RAM-only ring. Permanent radio captures belong under the
+bounded 1,000,000-byte binary ring in RAM. Read them through `/api/logs`.
+Permanent radio captures belong under the
 ignored `diagnostics/` directory and must never be committed.
 
 Warning: daily operation must not write logs, diagnostics, or other

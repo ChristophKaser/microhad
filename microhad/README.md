@@ -160,11 +160,13 @@ have another reachable Zigbee parent, such as a powered bulb or router.
 
 ## Live diagnostics
 
-The dashboard includes a live coordinator log, refreshed once per second from
-`/api/logs`. The on-device log is deliberately stored only at
+The dashboard includes a live coordinator log, refreshed every two seconds from
+`/api/logs`. The on-device log is a circular binary file at
 `/tmp/microhad-zigbee-native.log`; on this gateway `/tmp` resolves below the
-RAM-backed `/var` mount, not the `/tuya` flash volume. It keeps at most 512
-entries, so diagnostics do not create flash write
+RAM-backed `/var` mount, not the `/tuya` flash volume. Its total size is at
+most 1,000,000 bytes. The coordinator writes one record at a time, and HTTP
+workers read the ring directly without locking or waiting for the coordinator.
+Use `/api/logs` to read the log as text. Diagnostics do not create flash write
 cycles or consume unbounded memory.
 
 ### Event-loop diagnostics
@@ -186,7 +188,7 @@ five seconds to `/api/logs`. It reports loop counts, whether the loop skipped
 waiting for commands or immediate work, `select()` results and readiness, and
 the most recent poll deadline. For periodic reporting, the wait is capped at
 five seconds while diagnostics are enabled. Output remains in the existing
-512-line RAM log ring and `/tmp` log; it is never written beneath `/tuya`.
+1 MB RAM-backed log ring; it is never written beneath `/tuya`.
 Disable diagnostics after collecting a few intervals to avoid extra wakeups
 and profiling overhead during normal operation.
 

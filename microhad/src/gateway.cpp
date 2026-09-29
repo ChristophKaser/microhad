@@ -330,7 +330,7 @@ Gateway::Gateway(const std::string& serialDevice, int serialBaud, const std::str
     online_(false), joinUntil_(0), joinPermitRenewAt_(0), joinPermitClosePending_(false), joinPermitCloseDeadline_(0), pendingJoinSeconds_(0), joinPreparationStep_(0), joinPreparationDeadline_(0), ashSendSequence_(0), ashReceiveSequence_(0), ezspSequence_(0),
     ashAckDeadline_(0), ashRetries_(0), ashPendingSensitive_(false), ezspVersion_(4), zdoSequence_(0), zclTransactionSequence_(0), ezspVersionNegotiated_(false), stackTokenWritingRequested_(false), networkInitRequested_(false), tradfriBindGroupConfigured_(false), coordinatorInitializationStep_(0), coordinatorInitializationDeadline_(0), resetDeadline_(0), serialReconnectFailures_(0), zigbeeDownAlertQueued_(false), nextHeartbeatAt_(0), serialRxBytes_(0), ashRxFrames_(0), networkForming_(false), networkFormationStep_(0), networkFormationDeadline_(0), networkFormed_(false), networkPanId_(0),
     networkChannel_(0), interviewRequestInFlight_(false), interviewSendAccepted_(false), interviewEzspSequence_(0), interviewNode_(0xffff),
-    interviewDeadline_(0), nextMessageTag_(1), coordinatorIeeeAddressRequested_(false), viewDirty_(true) {
+    interviewDeadline_(0), nextMessageTag_(1), coordinatorIeeeAddressRequested_(false), logRing_(LogRing::defaultPath()), logBytes_(0), viewDirty_(true) {
 }
 
 Gateway::~Gateway() {
@@ -2104,7 +2104,7 @@ std::string GatewayView::logsJson() const {
     return json.str();
 }
 
-GatewayView Gateway::captureView() const {
+GatewayView Gateway::captureView(bool includeLogs) const {
     GatewayView view;
     view.online = online_; view.networkForming = networkForming_; view.networkFormed = networkFormed_;
     view.serialRxBytes = serialRxBytes_; view.ashRxFrames = ashRxFrames_; view.joiningUntil = joinUntil_;
@@ -2118,39 +2118,46 @@ GatewayView Gateway::captureView() const {
     for (std::map<std::string, DeviceConfigurationStatus>::const_iterator it = deviceConfigurations_.begin();
          it != deviceConfigurations_.end(); ++it)
         view.deviceConfigurations.push_back(it->second);
-    view.logs = logs_;
+    if (includeLogs) view.logs.assign(logs_.begin(), logs_.end());
     return view;
 }
 
 bool Gateway::takeViewDirty() { bool dirty = viewDirty_; viewDirty_ = false; return dirty; }
 void Gateway::markViewDirty() { viewDirty_ = true; }
-std::string Gateway::statusJson() const { return captureView().statusJson(); }
-std::string Gateway::logsJson() const { return captureView().logsJson(); }
-
-void Gateway::loadLogs() {
-    std::ifstream input("/tmp/microhad-zigbee-native.log");
-    std::string line;
-    while (std::getline(input, line)) {
-        if (!line.empty()) logs_.push_back(line);
+std::string Gateway::statusJson() const { return captureView(false).statusJson(); }
+std::string Gateway::logsJson() const {
+    std::ostringstream json;
+    json << "{\"lines\":[";
+    for (std::deque<std::string>::const_iterator it = logs_.begin(); it != logs_.end(); ++it) {
+        if (it != logs_.begin()) json << ',';
+        json << '"' << jsonEscape(*it) << '"';
     }
-    while (logs_.size() > 512) logs_.erase(logs_.begin());
+    json << "]}";
+    return json.str();
 }
 
-void Gateway::saveLogs() const {
-    std::ofstream output("/tmp/microhad-zigbee-native.log", std::ios::trunc);
-    unsigned long i;
-    if (!output) return;
-    for (i = 0; i < logs_.size(); ++i) output << logs_[i] << "\n";
+void Gateway::loadLogs() {
+    std::vector<std::string> lines;
+    if (!logRing_.initialize() || !LogRing::readLines(LogRing::defaultPath(), &lines)) return;
+    logs_.assign(lines.begin(), lines.end());
+    logBytes_ = 0;
+    for (std::deque<std::string>::const_iterator it = logs_.begin(); it != logs_.end(); ++it)
+        logBytes_ += static_cast<unsigned long>(it->size() + 1);
 }
 
 void Gateway::addLog(const std::string& message) {
     std::ostringstream line;
     std::string rendered = message.substr(0, 768);
     line << time(0) << " " << rendered;
-    logs_.push_back(line.str());
-    while (logs_.size() > 512) logs_.erase(logs_.begin());
+    const std::string entry = line.str();
+    logs_.push_back(entry);
+    logBytes_ += static_cast<unsigned long>(entry.size() + 1);
+    while (logBytes_ > LogRing::MaximumBytes && !logs_.empty()) {
+        logBytes_ -= static_cast<unsigned long>(logs_.front().size() + 1);
+        logs_.pop_front();
+    }
     markViewDirty();
-    saveLogs();
+    logRing_.append(entry);
 }
 
 std::string Gateway::deviceLogLabel(unsigned short node) const {

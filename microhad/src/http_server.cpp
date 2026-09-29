@@ -6,6 +6,7 @@
 #include "sensor_history.h"
 #include "external_http_device.h"
 #include "notification_worker.h"
+#include "log_ring.h"
 
 #include <cerrno>
 #include <algorithm>
@@ -54,31 +55,36 @@ void* activeTlsSession() { pthread_once(&tlsSessionKeyOnce, createTlsSessionKey)
 void setActiveTlsSession(void* value) { pthread_once(&tlsSessionKeyOnce, createTlsSessionKey); pthread_setspecific(tlsSessionKey, value); }
 #endif
 
-void writeResponse(int fd, int status, const char* contentType, const std::string& body) {
-    std::ostringstream response;
-    response << "HTTP/1.1 " << status << (status == 200 ? " OK" : status == 500 ? " Internal Server Error" :
-                                           status == 413 ? " Payload Too Large" : status == 404 ? " Not Found" : " Bad Request") << "\r\n"
-             << "Content-Type: " << contentType << "\r\nCache-Control: no-store\r\nConnection: close\r\n"
-             << "Content-Length: " << body.size() << "\r\n\r\n" << body;
-    std::string wire = response.str();
-    const char* cursor = wire.data();
-    unsigned long remaining = wire.size();
-    if (queuedResponse != 0) {
-        *queuedResponse = wire;
-        return;
-    }
+bool writeBytes(int fd, const std::string& bytes) {
 #ifdef MICROHAD_MBEDTLS_ENABLED
     if (activeTlsSession() != 0) {
-        microhad_tls_write(activeTlsSession(), wire.data(), wire.size());
-        return;
+        return microhad_tls_write(activeTlsSession(), bytes.data(), bytes.size()) == 0;
     }
 #endif
+    const char* cursor = bytes.data();
+    unsigned long remaining = bytes.size();
     while (remaining != 0) {
         ssize_t written = write(fd, cursor, remaining);
-        if (written <= 0) break;
+        if (written <= 0) return false;
         cursor += written;
         remaining -= static_cast<unsigned long>(written);
     }
+    return true;
+}
+
+void writeResponse(int fd, int status, const char* contentType, const std::string& body) {
+    std::ostringstream response;
+    response << "HTTP/1.1 " << status << (status == 200 ? " OK" : status == 500 ? " Internal Server Error" :
+                                           status == 503 ? " Service Unavailable" :
+                                           status == 413 ? " Payload Too Large" : status == 404 ? " Not Found" : " Bad Request") << "\r\n"
+             << "Content-Type: " << contentType << "\r\nCache-Control: no-store\r\nConnection: close\r\n"
+             << "Content-Length: " << body.size() << "\r\n\r\n";
+    std::string header = response.str();
+    if (queuedResponse != 0) {
+        *queuedResponse = header + body;
+        return;
+    }
+    if (writeBytes(fd, header)) writeBytes(fd, body);
 }
 
 bool equalHeaderName(const std::string& name, const char* expected) {
@@ -675,9 +681,9 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
         writeResponse(clientFd, 200, "application/json", "{\"ok\":true,\"state\":\"restarting\"}");
         kill(getpid(), SIGTERM);
     } else if (request.find("GET /api/logs ") == 0) {
-        GatewayRunner::ViewLease* view = gateway_->acquireView();
-        if (view == 0) writeResponse(clientFd, 503, "application/json", "{\"ok\":false,\"error\":\"coordinator is unavailable\"}");
-        else { std::string body = view->logsJson(); delete view; writeResponse(clientFd, 200, "application/json", body); }
+        std::string body;
+        if (LogRing::readJson(LogRing::defaultPath(), &body)) writeResponse(clientFd, 200, "application/json", body);
+        else writeResponse(clientFd, 503, "application/json", "{\"ok\":false,\"error\":\"log is unavailable\"}");
     } else if (request.find("POST /api/debug/event-loop ") == 0) {
         std::string::size_type bodyAt = request.find("\r\n\r\n");
         std::string enabledValue;

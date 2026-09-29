@@ -83,15 +83,14 @@ public:
     }
     static void logRingAndSerialization() {
         Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
-        for (int i = 0; i < 513; ++i) {
+        for (int i = 0; i < 1400; ++i) {
             std::ostringstream entry;
-            entry << "entry-" << i;
+            entry << "entry-" << i << std::string(760, 'a');
             gateway.addLog(entry.str());
         }
         std::string logs = gateway.logsJson();
-        assert(logs.find("entry-0\"") == std::string::npos);
-        assert(logs.find("entry-1\"") != std::string::npos);
-        assert(logs.find("entry-512\"") != std::string::npos);
+        assert(logs.find("entry-0") == std::string::npos);
+        assert(logs.find("entry-1399") != std::string::npos);
         gateway.addLog(std::string(800, 'x'));
         gateway.addLog("control\n\t\001");
         logs = gateway.logsJson();
@@ -539,7 +538,7 @@ public:
         Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
         std::vector<unsigned char> request;
         std::vector<unsigned char> incoming(24, 0);
-        gateway.logs_.clear();
+        gateway.logs_.clear(); gateway.logBytes_ = 0;
         gateway.nodeAddresses_[node] = ieee;
         gateway.devices_[ieee].ieeeAddress = ieee;
         gateway.devices_[ieee].name = "Kitchen sensor";
@@ -570,7 +569,7 @@ public:
         gateway.devices_[ieee].ieeeAddress = ieee;
         gateway.devices_[ieee].endpoints.push_back(endpoint);
         gateway.classifyDevice(&gateway.devices_[ieee]);
-        gateway.logs_.clear();
+        gateway.logs_.clear(); gateway.logBytes_ = 0;
         gateway.logRemoteKeyEvent(node, 0x0006, 1, 0, 0x01, std::vector<unsigned char>());
         gateway.logRemoteKeyEvent(node, 0x0008, 1, 0, 0x05, move);
         return gateway.logsJson().find("Remote key event") != std::string::npos &&
@@ -588,7 +587,7 @@ public:
         const char* versions[] = {"2.2.010", "2.3.074", "2.3.075", "24.4.6"};
         for (unsigned int i = 0; i < 4; ++i) {
             device.softwareBuildId = versions[i];
-            gateway.logs_.clear();
+            gateway.logs_.clear(); gateway.logBytes_ = 0;
             gateway.sendZdoBindRequest(0xd938, 1, 6, ieee, 42, 1);
             const std::string expected = i < 2 ? "payload=2a7b8275feff08ac70010600018503" :
                 "payload=2a7b8275feff08ac7001060003111111111111111101";
@@ -601,7 +600,7 @@ public:
         const unsigned char query[] = {1, 14, 1, 1, 0x7c, 0x11, 0xc5, 0x11, 0x31, 6, 1, 0x22, 1, 0};
         incoming[18] = sizeof(query);
         incoming.insert(incoming.end(), query, query + sizeof(query));
-        gateway.logs_.clear();
+        gateway.logs_.clear(); gateway.logBytes_ = 0;
         gateway.handleIncomingMessage(incoming);
         assert(gateway.logsJson().find("payload=190e0298") != std::string::npos);
         EndpointDescriptor endpoint;
