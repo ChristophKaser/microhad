@@ -540,12 +540,35 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
         std::string id = end == std::string::npos ? "" : request.substr(prefix.size(), end - prefix.size());
         std::string::size_type bodyAt = request.find("\r\n\r\n");
         std::string label, enabledText, error;
-        bool valid = bodyAt != std::string::npos && formValue(request.substr(bodyAt + 4), "label", &label) &&
+        bool deleting = id.size() > 7 && id.compare(id.size() - 7, 7, "/delete") == 0;
+        if (deleting) id.erase(id.size() - 7);
+        bool valid = deleting || (bodyAt != std::string::npos && formValue(request.substr(bodyAt + 4), "label", &label) &&
                      formValue(request.substr(bodyAt + 4), "enabled", &enabledText) &&
-                     (enabledText == "true" || enabledText == "false");
-        if (valid && notifications_ != 0 && notifications_->updateDevice(id, label, enabledText == "true", &error))
+                     (enabledText == "true" || enabledText == "false"));
+        if (valid && notifications_ != 0 && (deleting ? notifications_->removeDevice(id, &error) : notifications_->updateDevice(id, label, enabledText == "true", &error)))
             writeResponse(clientFd, 200, "application/json", "{\"ok\":true}");
         else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + jsonEscape(valid ? error : "invalid push device settings") + "\"}");
+    } else if (request.find("GET /api/push/browser-clients ") == 0) {
+        pthread_mutex_lock(&webPushMutex);
+        std::string body = webPush_->clientsJson();
+        pthread_mutex_unlock(&webPushMutex);
+        writeResponse(clientFd, 200, "application/json", body);
+    } else if (request.find("POST /api/push/browser-clients/") == 0) {
+        const std::string prefix = "POST /api/push/browser-clients/";
+        std::string::size_type end = request.find(' ', prefix.size());
+        std::string id = end == std::string::npos ? "" : request.substr(prefix.size(), end - prefix.size());
+        bool deleting = id.size() > 7 && id.compare(id.size() - 7, 7, "/delete") == 0;
+        if (deleting) id.erase(id.size() - 7);
+        std::string::size_type bodyAt = request.find("\r\n\r\n");
+        std::string label, enabledText, error;
+        bool valid = deleting || (bodyAt != std::string::npos && formValue(request.substr(bodyAt + 4), "label", &label) &&
+                     formValue(request.substr(bodyAt + 4), "enabled", &enabledText) &&
+                     (enabledText == "true" || enabledText == "false"));
+        pthread_mutex_lock(&webPushMutex);
+        bool changed = valid && (deleting ? webPush_->removeClient(id, &error) : webPush_->updateClient(id, label, enabledText == "true", &error));
+        pthread_mutex_unlock(&webPushMutex);
+        if (changed) writeResponse(clientFd, 200, "application/json", "{\"ok\":true}");
+        else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + jsonEscape(valid ? error : "invalid browser client settings") + "\"}");
     } else if (request.find("GET /api/push/vapid-key ") == 0) {
         writeResponse(clientFd, 200, "application/json", "{\"public_key\":\"" + webPush_->publicKey() + "\"}");
     } else if (request.find("POST /api/push/subscriptions ") == 0) {

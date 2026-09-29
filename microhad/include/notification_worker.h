@@ -23,6 +23,7 @@ public:
     bool setEnabled(bool enabled, std::string* error);
     bool registerDevice(const std::string& id, const std::string& model, const std::string& token, std::string* error);
     bool updateDevice(const std::string& id, const std::string& label, bool enabled, std::string* error);
+    bool removeDevice(const std::string& id, std::string* error);
     std::string devicesJson() const;
 private:
     struct Job { std::string title; std::string body; };

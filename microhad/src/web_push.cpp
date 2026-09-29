@@ -10,6 +10,8 @@
 #include <cstdlib>
 #include <sys/stat.h>
 #include <vector>
+#include <stdint.h>
+#include <iomanip>
 
 namespace {
 const unsigned long kMaximumSubscriptions = 32;
@@ -49,6 +51,53 @@ bool saveSubscriptions(const std::string& filename, const std::vector<std::strin
         remove(temporary.c_str());
         *error = "cannot persist Browser Push subscription";
         return false;
+    }
+    return true;
+}
+
+struct BrowserClient { std::string endpoint, label; bool enabled; };
+std::vector<BrowserClient> loadClients(const std::string& directory) {
+    std::vector<BrowserClient> clients;
+    std::ifstream subscriptions((directory + "/web-push-subscriptions.ndjson").c_str());
+    std::ifstream settings((directory + "/web-push-clients.ndjson").c_str());
+    std::string line;
+    while (std::getline(settings, line)) {
+        BrowserClient client; long enabled = 1;
+        if (jsonStringField(line, "endpoint", &client.endpoint) && jsonStringField(line, "label", &client.label) &&
+            jsonLongField(line, "enabled", &enabled) && (enabled == 0 || enabled == 1)) {
+            client.enabled = enabled != 0; clients.push_back(client);
+        }
+    }
+    while (std::getline(subscriptions, line)) {
+        std::string endpoint;
+        if (!validSubscription(line, &endpoint)) continue;
+        bool found = false;
+        for (unsigned long i = 0; i < clients.size(); ++i) if (clients[i].endpoint == endpoint) found = true;
+        if (!found) { BrowserClient client; client.endpoint = endpoint; client.label = "Browser"; client.enabled = true; clients.push_back(client); }
+    }
+    return clients;
+}
+std::string clientId(const std::string& endpoint) {
+    uint32_t first = 2166136261U, second = 2246822519U;
+    for (unsigned long i = 0; i < endpoint.size(); ++i) {
+        uint32_t byte = static_cast<unsigned char>(endpoint[i]);
+        first = (first ^ byte) * 16777619U;
+        second = (second ^ (byte + static_cast<uint32_t>(i))) * 3266489917U;
+    }
+    std::ostringstream out;
+    out << "browser-" << std::hex << std::setfill('0') << std::setw(8) << first << std::setw(8) << second;
+    return out.str();
+}
+bool saveClients(const std::string& directory, const std::vector<BrowserClient>& clients, std::string* error) {
+    const std::string filename = directory + "/web-push-clients.ndjson", temporary = filename + ".tmp";
+    std::ofstream output(temporary.c_str());
+    if (!output) { *error = "cannot persist Browser Push settings"; return false; }
+    for (unsigned long i = 0; i < clients.size(); ++i)
+        output << "{\"endpoint\":\"" << jsonEscape(clients[i].endpoint) << "\",\"label\":\"" << jsonEscape(clients[i].label)
+               << "\",\"enabled\":" << (clients[i].enabled ? 1 : 0) << "}\n";
+    output.close();
+    if (!output || chmod(temporary.c_str(), 0600) != 0 || rename(temporary.c_str(), filename.c_str()) != 0) {
+        remove(temporary.c_str()); *error = "cannot persist Browser Push settings"; return false;
     }
     return true;
 }
@@ -183,7 +232,44 @@ bool WebPushStore::addSubscription(const std::string& subscriptionJson, std::str
         }
         subscriptions.push_back(subscriptionJson);
     }
-    return saveSubscriptions(filename, subscriptions, error);
+    if (!saveSubscriptions(filename, subscriptions, error)) return false;
+    return saveClients(runtimeDirectory_, loadClients(runtimeDirectory_), error);
+}
+
+std::string WebPushStore::clientsJson() const {
+    std::vector<BrowserClient> clients = loadClients(runtimeDirectory_);
+    std::string json = "{\"clients\":[";
+    for (unsigned long i = 0; i < clients.size(); ++i) {
+        if (i) json += ",";
+        json += "{\"id\":\"" + clientId(clients[i].endpoint) + "\",\"model\":\"Browser\",\"label\":\"" +
+                jsonEscape(clients[i].label) + "\",\"enabled\":" + (clients[i].enabled ? "true}" : "false}");
+    }
+    return json + "]}";
+}
+
+bool WebPushStore::updateClient(const std::string& id, const std::string& label, bool enabled, std::string* error) {
+    if (label.size() > 64) { *error = "invalid push client label"; return false; }
+    std::vector<BrowserClient> clients = loadClients(runtimeDirectory_);
+    for (unsigned long i = 0; i < clients.size(); ++i) if (clientId(clients[i].endpoint) == id) {
+        clients[i].label = label; clients[i].enabled = enabled;
+        return saveClients(runtimeDirectory_, clients, error);
+    }
+    *error = "Browser Push client not found"; return false;
+}
+
+bool WebPushStore::removeClient(const std::string& id, std::string* error) {
+    const std::string filename = runtimeDirectory_ + "/web-push-subscriptions.ndjson";
+    std::vector<BrowserClient> clients = loadClients(runtimeDirectory_);
+    std::string endpoint;
+    for (unsigned long i = 0; i < clients.size(); ++i) if (clientId(clients[i].endpoint) == id) endpoint = clients[i].endpoint;
+    if (endpoint.empty()) { *error = "Browser Push client not found"; return false; }
+    std::ifstream input(filename.c_str()); std::string line, storedEndpoint;
+    std::vector<std::string> subscriptions;
+    while (std::getline(input, line)) if (validSubscription(line, &storedEndpoint) && storedEndpoint != endpoint) subscriptions.push_back(line);
+    if (!saveSubscriptions(filename, subscriptions, error)) return false;
+    std::vector<BrowserClient> retained;
+    for (unsigned long i = 0; i < clients.size(); ++i) if (clients[i].endpoint != endpoint) retained.push_back(clients[i]);
+    return saveClients(runtimeDirectory_, retained, error);
 }
 
 std::string WebPushStore::publicKey() const {
@@ -213,6 +299,10 @@ bool WebPushStore::send(const std::string& caBundle, const std::string& title, c
             pruneRequired = true;
             continue;
         }
+        std::vector<BrowserClient> clients = loadClients(runtimeDirectory_);
+        bool enabled = true;
+        for (unsigned long i = 0; i < clients.size(); ++i) if (clients[i].endpoint == endpoint) enabled = clients[i].enabled;
+        if (!enabled) { retainedSubscriptions.push_back(subscription); continue; }
         retainedSubscriptions.push_back(subscription);
         std::string payload = "{\"title\":\"" + jsonEscape(title) + "\",\"body\":\"" + jsonEscape(body) + "\"}";
         payload += static_cast<char>(2);

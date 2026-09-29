@@ -1002,3 +1002,6 @@ button:disabled {
 .push-phone p { margin: 0.25rem 0 0; }
 .push-phone label:not(.check) { display: grid; gap: 0.25rem; }
 .push-phone input[type="text"], .push-phone label:not(.check) input { min-width: 10rem; }
+.push-dialog { display: grid; gap: 1rem; }
+.push-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.65rem; }
+.push-dialog .push-phones { max-height: min(55vh, 620px); overflow: auto; padding: 1px; }

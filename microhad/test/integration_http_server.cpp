@@ -374,6 +374,24 @@ void testServers() {
     expectStatus("http queue test notification", plainRequest(http.boundPort(), post("/api/notifications/test", "")), 200);
     expectStatus("http reject invalid push subscription", plainRequest(http.boundPort(), post("/api/push/subscriptions", "{}")), 400);
     expectStatus("http save push subscription", plainRequest(http.boundPort(), post("/api/push/subscriptions", subscription("https://push.example.test/subscription"))), 200);
+    response = plainRequest(http.boundPort(), "GET /api/push/browser-clients HTTP/1.1\r\nHost: localhost\r\n\r\n");
+    expectStatus("http list browser clients", response, 200);
+    assert(response.find("Browser") != std::string::npos && response.find("https://push.example.test/subscription") == std::string::npos);
+    std::string browserId;
+    std::string::size_type browserAt = response.find("browser-");
+    assert(browserAt != std::string::npos);
+    browserAt += 8;
+    browserId = "browser-";
+    while (browserAt < response.size() && ((response[browserAt] >= '0' && response[browserAt] <= '9') || (response[browserAt] >= 'a' && response[browserAt] <= 'f')))
+        browserId += response[browserAt++];
+    expectStatus("http update browser client", plainRequest(http.boundPort(), post(
+        "/api/push/browser-clients/" + browserId, "label=Office+browser&enabled=false")), 200);
+    response = plainRequest(http.boundPort(), "GET /api/push/browser-clients HTTP/1.1\r\nHost: localhost\r\n\r\n");
+    assert(response.find("Office browser") != std::string::npos && response.find("\"enabled\":false") != std::string::npos);
+    expectStatus("http remove browser client", plainRequest(http.boundPort(), post(
+        "/api/push/browser-clients/" + browserId + "/delete", "")), 200);
+    response = plainRequest(http.boundPort(), "GET /api/push/browser-clients HTTP/1.1\r\nHost: localhost\r\n\r\n");
+    assert(response.find("browser-") == std::string::npos);
     expectStatus("http reject invalid phone", plainRequest(http.boundPort(), post("/api/push/devices/register", "{}")), 400);
     expectStatus("http register phone", plainRequest(http.boundPort(), post("/api/push/devices/register",
         "{\"installation_id\":\"11111111-1111-4111-8111-111111111111\",\"model\":\"Pixel\",\"token\":\"secret-token\"}")), 200);
@@ -384,6 +402,8 @@ void testServers() {
         "/api/push/devices/11111111-1111-4111-8111-111111111111", "label=Kitchen+phone&enabled=false")), 200);
     response = plainRequest(http.boundPort(), "GET /api/push/devices HTTP/1.1\r\nHost: localhost\r\n\r\n");
     assert(response.find("Kitchen phone") != std::string::npos && response.find("\"enabled\":false") != std::string::npos);
+    expectStatus("http remove phone", plainRequest(http.boundPort(), post(
+        "/api/push/devices/11111111-1111-4111-8111-111111111111/delete", "")), 200);
     expectStatus("http reject offline network creation", plainRequest(http.boundPort(), post("/api/network/create", "confirmation=DELETE")), 400);
     expectStatus("http reject invalid scene configuration", plainRequest(http.boundPort(), post("/api/scenes/config", "1 kitchen\n")), 400);
     expectStatus("http reject invalid scene group", plainRequest(http.boundPort(), post("/api/scenes/65528/1/activate", "")), 400);

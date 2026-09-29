@@ -97,6 +97,7 @@ void runWebPushUnitTests() {
     assert(!store.addSubscription(subscription("https://push.example.test/overflow"), &error));
     assert(error == "Browser Push subscription limit reached");
     unlink((path.str() + "/web-push-subscriptions.ndjson").c_str());
+    unlink((path.str() + "/web-push-clients.ndjson").c_str());
     unlink((path.str() + "/vapid-public.key").c_str());
     unlink((path.str() + "/vapid-private.key").c_str());
     rmdir(path.str().c_str());

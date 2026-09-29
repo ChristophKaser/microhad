@@ -162,6 +162,7 @@ void cleanNotificationRuntime(const std::string& directory) {
     unlink((directory + "/vapid-public.key").c_str());
     unlink((directory + "/vapid-private.key").c_str());
     unlink((directory + "/web-push-subscriptions.ndjson").c_str());
+    unlink((directory + "/web-push-clients.ndjson").c_str());
     unlink((directory + "/push-devices.ndjson").c_str());
     rmdir(directory.c_str());
 }
@@ -307,6 +308,16 @@ void testWebPushEncryptionAndRejection(const std::string& root) {
     assert(request.headers.find("Content-Encoding: aes128gcm") != std::string::npos);
     assert(request.headers.find("Authorization: vapid t=") != std::string::npos);
     assert(request.headers.find(", k=") != std::string::npos && !request.body.empty());
+
+    std::string browserClients = store.clientsJson();
+    std::string::size_type idAt = browserClients.find("browser-");
+    assert(idAt != std::string::npos);
+    std::string browserId = browserClients.substr(idAt, browserClients.find('"', idAt) - idAt);
+    assert(store.updateClient(browserId, "Disabled browser", false, &error));
+    FakeHttpsTransport disabled;
+    setHttpsPostHook(&disabled);
+    assert(!store.send("fake-ca", "Window open", "Kitchen", &error));
+    assert(disabled.countHost("push.example.test") == 0);
 
     FakeHttpsTransport connectionFailure;
     connectionFailure.failPush = true;

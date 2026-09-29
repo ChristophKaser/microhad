@@ -60,32 +60,9 @@ function JoinButton({
   )
 }
 
-function PushToggle({
-  enabled,
-  compact,
-  action,
-}: {
-  enabled: boolean
-  compact?: boolean
-  action: GatewayAction
-}) {
-  return (
-    <label className="check">
-      <input
-        type="checkbox"
-        checked={enabled}
-        onChange={(event) =>
-          void action('/api/notifications/enabled', form({ enabled: String(event.target.checked) }))
-        }
-      />{' '}
-      {compact ? 'Push' : 'Push notifications'}
-    </label>
-  )
-}
-
 function App() {
   const { status, statusError, logs, logsError, refreshStatus } = useGatewayData()
-  const [dialog, setDialog] = useState<'network' | 'scenes' | 'remotes' | 'text' | null>(null)
+  const [dialog, setDialog] = useState<'network' | 'scenes' | 'remotes' | 'text' | 'push' | null>(null)
   const [selected, setSelected] = useState<Device | null>(null)
   const [detailsDevice, setDetailsDevice] = useState<Device | null>(null)
   const [historyDevice, setHistoryDevice] = useState<Device | null>(null)
@@ -192,10 +169,6 @@ function App() {
         </div>
         <div className="mobile-controls">
           <JoinButton compact joinLeft={joinLeft} preparing={preparingJoin} action={action} />
-          <PushToggle compact enabled={!!status?.notifications_enabled} action={action} />
-          <button className="button" onClick={enablePush}>
-            Browser push
-          </button>
           <button
             className="button"
             type="button"
@@ -215,6 +188,7 @@ function App() {
               aria-label="More gateway controls"
             >
               <button className="button" onClick={() => { setMobileMenuOpen(false); setShellyId('') }}>Add Shelly</button>
+              <button className="button" onClick={() => { setMobileMenuOpen(false); setDialog('push') }}>Push clients</button>
               <button
                 className="button danger"
                 onClick={() => {
@@ -260,7 +234,7 @@ function App() {
               (status
                 ? `Serial RX: ${status.serial_rx_bytes} bytes · ${status.ash_rx_frames} frames`
                 : 'Connecting…')}
-        </div><div className="global-menu"><button className="button" aria-expanded={desktopMenuOpen} onClick={() => setDesktopMenuOpen((open) => !open)}>More ⋯</button>{desktopMenuOpen && <><div className="global-menu-dismiss" onClick={() => setDesktopMenuOpen(false)} /><nav className="global-overflow" aria-label="More gateway controls"><button className="button" onClick={() => { setDesktopMenuOpen(false); setShellyId('') }}>Add Shelly</button></nav></>}</div></div>
+        </div><div className="global-menu"><button className="button" aria-expanded={desktopMenuOpen} onClick={() => setDesktopMenuOpen((open) => !open)}>More ⋯</button>{desktopMenuOpen && <><div className="global-menu-dismiss" onClick={() => setDesktopMenuOpen(false)} /><nav className="global-overflow" aria-label="More gateway controls"><button className="button" onClick={() => { setDesktopMenuOpen(false); setShellyId('') }}>Add Shelly</button><button className="button" onClick={() => { setDesktopMenuOpen(false); setDialog('push') }}>Push clients</button></nav></>}</div></div>
       </header>
       <section className="overview">
         <div className={`overview-item ${statusError || !status?.online ? 'bad' : 'good'}`}>
@@ -314,27 +288,8 @@ function App() {
           <button className="button" onClick={restart}>
             Restart service
           </button>
-          <button className="button" onClick={enablePush}>
-            Enable browser alerts
-          </button>
-          <button
-            className="button"
-            disabled={!status?.notifications_enabled}
-            onClick={() => action('/api/notifications/test')}
-          >
-            Test alerts
-          </button>
-        </div>
-        <div className="toggle-row">
-          <PushToggle enabled={!!status?.notifications_enabled} action={action} />
-          {import.meta.env.DEV && (
-            <span className="muted small">
-              Browser-push enrollment is disabled in local development.
-            </span>
-          )}
         </div>
       </section>
-      <PushDevices />
       <section className="content-section">
         <div className="section-heading">
           <div>
@@ -468,6 +423,13 @@ function App() {
           onSaved={() => void refreshStatus()}
         />
       )}
+      {dialog === 'push' && <PushDevices
+        enabled={!!status?.notifications_enabled}
+        onClose={() => setDialog(null)}
+        onEnableBrowser={enablePush}
+        onTest={() => void action('/api/notifications/test')}
+        onToggle={(enabled) => void action('/api/notifications/enabled', form({ enabled: String(enabled) }))}
+      />}
     </main>
   )
 }

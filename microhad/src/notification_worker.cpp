@@ -225,6 +225,19 @@ bool NotificationWorker::updateDevice(const std::string& id, const std::string& 
     pthread_mutex_unlock(&mutex_);
     return saved;
 }
+bool NotificationWorker::removeDevice(const std::string& id, std::string* error) {
+    if (!validId(id)) { *error = "invalid push device id"; return false; }
+    pthread_mutex_lock(&mutex_);
+    unsigned long i = 0;
+    while (i < devices_.size() && devices_[i].id != id) ++i;
+    if (i == devices_.size()) { pthread_mutex_unlock(&mutex_); *error = "push device not found"; return false; }
+    Device old = devices_[i];
+    devices_.erase(devices_.begin() + i);
+    bool saved = saveDevices(error);
+    if (!saved) devices_.insert(devices_.begin() + i, old);
+    pthread_mutex_unlock(&mutex_);
+    return saved;
+}
 std::string NotificationWorker::devicesJson() const {
     std::string json = "{\"devices\":[";
     pthread_mutex_lock(&mutex_);
