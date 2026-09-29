@@ -244,7 +244,7 @@ function DeviceCard({
           <span className="focus-icon"><DeviceVisual device={device} type={type} /></span>
           <div className="focus-copy">
             <strong>{type === 'Contact sensors' ? (!device.contact_known ? 'Unknown' : device.contact_open ? 'Open' : 'Closed')
-              : type === 'Presence sensors' ? (!device.last_seen || Date.now() / 1000 - device.last_seen > 90 ? 'Unknown' : device.occupied ? 'Connected' : 'Not connected')
+              : type === 'Presence sensors' ? (!device.last_seen || Date.now() / 1000 - device.last_seen > 90 ? 'Unknown' : device.occupied ? 'Present' : 'Not present')
               : type === 'Motion sensors' ? (device.occupied ? 'Occupied' : 'Clear')
               : type === 'Lights' ? (device.light_on ? 'On' : 'Off')
               : type === 'Switches' || type === 'Smart plugs' ? (!device.actor_known ? 'Unknown' : device.actor_on ? 'On' : 'Off')

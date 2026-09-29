@@ -934,6 +934,21 @@ bool ExternalHttpDeviceWorker::refresh(const std::string& id, std::string* error
     pthread_mutex_unlock(&mutex_); *error = "unknown Shelly device"; return false;
 }
 
+bool ExternalHttpDeviceWorker::refreshFritzBox(const std::string& id, std::string* error) {
+    pthread_mutex_lock(&mutex_);
+    for (unsigned long i = 0; i < fritzBoxes_.size(); ++i)
+        for (unsigned long j = 0; j < fritzBoxes_[i].clients.size(); ++j)
+            if (fritzBoxes_[i].clients[j].id == id) {
+                fritzBoxes_[i].nextPoll = 0;
+                pthread_cond_signal(&ready_);
+                pthread_mutex_unlock(&mutex_);
+                return true;
+            }
+    pthread_mutex_unlock(&mutex_);
+    *error = "unknown FRITZ!Box";
+    return false;
+}
+
 bool ExternalHttpDeviceWorker::callback(const std::string& id, const std::string& event, const std::string& token, bool* overloaded) {
     if (overloaded != 0) *overloaded = false;
     pthread_mutex_lock(&mutex_);

@@ -33,6 +33,7 @@ public:
     bool setActor(const std::string& id, int relayIndex, bool on, std::string* error);
     bool setActor(const std::string& id, bool on, std::string* error) { return setActor(id, 0, on, error); }
     bool refresh(const std::string& id, std::string* error);
+    bool refreshFritzBox(const std::string& id, std::string* error);
     bool callback(const std::string& id, const std::string& event, const std::string& token, bool* overloaded = 0);
     static bool parsePowerStatus(const std::string& body, double* watts);
     std::string fritzJson() const;

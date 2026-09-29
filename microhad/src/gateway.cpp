@@ -936,6 +936,7 @@ bool Gateway::refreshDevice(const std::string& ieeeAddress, std::string* error) 
     std::map<std::string, Device>::const_iterator device = devices_.find(ieeeAddress);
     if (device == devices_.end()) { *error = "device is unknown"; return false; }
     if (device->second.source == "shelly") return shellyTransport_ != 0 && shellyTransport_->refresh(device->second.externalId, error);
+    if (device->second.source == "fritz_box") return shellyTransport_ != 0 && shellyTransport_->refreshFritzBox(device->second.externalId, error);
     if (!online_ || !networkFormed_ || coordinatorInitializationStep_ != 0) {
         *error = "Zigbee network is not ready";
         addLog(std::string("Manual refresh rejected; Zigbee network not ready: ") + ieeeAddress);
