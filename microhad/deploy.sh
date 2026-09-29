@@ -69,6 +69,11 @@ ssh_command() {
         -o PreferredAuthentications=password -o PubkeyAuthentication=no "$user@$host" "$1"
 }
 
+prune_web_bundles() {
+    assets_dir="$target/webui/assets"
+    ssh_command "index=\$(cat \"$target/webui/index.html\" 2>/dev/null || true); for asset in \"$assets_dir\"/index-*.js \"$assets_dir\"/index-*.css; do [ -f \"\$asset\" ] || continue; name=\${asset##*/}; case \"\$index\" in *\"\$name\"*) ;; *) rm -f \"\$asset\" ;; esac; done; rm -f \"$assets_dir\"/index-*.js.new \"$assets_dir\"/index-*.css.new"
+}
+
 if [ "$deploy_binary" = true ]; then
     printf 'Uploading native binary to %s:%s\n' "$host" "$target"
     ssh_command "mkdir -p \"$target\"; rm -f \"$target/.microhad-zigbee-native.new\" \"$target/.config.json.new\""
@@ -83,6 +88,9 @@ fi
 if [ "$deploy_webui" = true ]; then
     printf 'Uploading web UI to %s:%s/webui\n' "$host" "$target"
     webui_dist="$project_dir/webui/dist"
+    # Free flash before copying new assets while the active index and its
+    # referenced bundles remain available if the transfer is interrupted.
+    prune_web_bundles
     find "$webui_dist" -type f ! -name index.html | while IFS= read -r asset; do
         relative=${asset#"$webui_dist"/}
         case "$relative" in *[!A-Za-z0-9_./-]*|*..*) echo "unsupported Web UI asset path: $relative" >&2; exit 1 ;; esac
@@ -95,6 +103,7 @@ if [ "$deploy_webui" = true ]; then
     done
     ssh_command "dd of=\"$target/webui/.index.html.new\"" < "$webui_dist/index.html"
     ssh_command "chmod 644 \"$target/webui/.index.html.new\"; mv \"$target/webui/.index.html.new\" \"$target/webui/index.html\"; ls -l \"$target/webui/index.html\""
+    prune_web_bundles
 fi
 if [ -n "$certificate" ]; then
     ssh_command "mkdir -p \"$target/tls\"; dd of=\"$target/tls/.cert.pem.new\"" < "$certificate"
