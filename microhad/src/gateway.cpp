@@ -629,7 +629,18 @@ void Gateway::poll() {
         sendEzspCommand(0x0005, std::vector<unsigned char>()); /* nop */
         nextHeartbeatAt_ = time(0) + 20;
     }
-    if (!online_ && resetDeadline_ != 0 && time(0) >= resetDeadline_) sendAshReset();
+    if (!online_ && resetDeadline_ != 0 && time(0) >= resetDeadline_) {
+        if (serialFd_ < 0) {
+            std::string error;
+            if (!configureSerial(&error)) {
+                addLog(std::string("Serial reconnect failed: ") + error);
+                resetDeadline_ = time(0) + 1;
+            } else {
+                addLog(std::string("Serial connection reopened on ") + serialDevice_);
+                sendAshReset();
+            }
+        } else sendAshReset();
+    }
     if (coordinatorInitializationDeadline_ != 0 && time(0) >= coordinatorInitializationDeadline_) {
         addLog("Coordinator initialization response timed out; resetting serial link");
         coordinatorInitializationDeadline_ = 0;
@@ -2248,7 +2259,7 @@ void Gateway::failSerial(const char* operation, int errorNumber) {
     networkFormationDeadline_ = 0;
     networkForming_ = false;
     networkFormationStep_ = 0;
-    resetDeadline_ = 0;
+    resetDeadline_ = time(0) + 1;
     online_ = false;
     networkFormed_ = false;
 }
