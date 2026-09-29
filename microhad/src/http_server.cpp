@@ -45,7 +45,6 @@ enum RequestReadResult {
 };
 
 std::string* queuedResponse = 0;
-pthread_mutex_t webPushMutex = PTHREAD_MUTEX_INITIALIZER;
 #ifdef MICROHAD_MBEDTLS_ENABLED
 pthread_key_t tlsSessionKey;
 pthread_once_t tlsSessionKeyOnce = PTHREAD_ONCE_INIT;
@@ -549,9 +548,7 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
             writeResponse(clientFd, 200, "application/json", "{\"ok\":true}");
         else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + jsonEscape(valid ? error : "invalid push device settings") + "\"}");
     } else if (request.find("GET /api/push/browser-clients ") == 0) {
-        pthread_mutex_lock(&webPushMutex);
         std::string body = webPush_->clientsJson();
-        pthread_mutex_unlock(&webPushMutex);
         writeResponse(clientFd, 200, "application/json", body);
     } else if (request.find("POST /api/push/browser-clients/") == 0) {
         const std::string prefix = "POST /api/push/browser-clients/";
@@ -564,9 +561,7 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
         bool valid = deleting || (bodyAt != std::string::npos && formValue(request.substr(bodyAt + 4), "label", &label) &&
                      formValue(request.substr(bodyAt + 4), "enabled", &enabledText) &&
                      (enabledText == "true" || enabledText == "false"));
-        pthread_mutex_lock(&webPushMutex);
         bool changed = valid && (deleting ? webPush_->removeClient(id, &error) : webPush_->updateClient(id, label, enabledText == "true", &error));
-        pthread_mutex_unlock(&webPushMutex);
         if (changed) writeResponse(clientFd, 200, "application/json", "{\"ok\":true}");
         else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + jsonEscape(valid ? error : "invalid browser client settings") + "\"}");
     } else if (request.find("GET /api/push/vapid-key ") == 0) {
@@ -574,9 +569,7 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
     } else if (request.find("POST /api/push/subscriptions ") == 0) {
         std::string::size_type bodyAt = request.find("\r\n\r\n");
         std::string error;
-        pthread_mutex_lock(&webPushMutex);
         bool subscribed = bodyAt != std::string::npos && webPush_->addSubscription(request.substr(bodyAt + 4), &error);
-        pthread_mutex_unlock(&webPushMutex);
         if (subscribed)
             writeResponse(clientFd, 200, "application/json", "{\"ok\":true}");
         else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + error + "\"}");

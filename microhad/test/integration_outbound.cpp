@@ -27,7 +27,7 @@ struct HttpsRequest {
 
 class FakeHttpsTransport : public HttpsPostHook {
 public:
-    FakeHttpsTransport() : oauthFailure(false), malformedOAuth(false), failPush(false), expiresIn(3600), pushStatus(201) {}
+    FakeHttpsTransport() : oauthFailure(false), malformedOAuth(false), failPush(false), expiresIn(3600), pushStatus(201), removeStore(0) {}
     bool oauthFailure;
     bool malformedOAuth;
     bool failPush;
@@ -38,6 +38,8 @@ public:
     std::string oauthError;
     std::vector<HttpsRequest> requests;
     std::map<std::string, long> pushStatusByPath;
+    WebPushStore* removeStore;
+    std::string removeClientId, removeWhenPath;
 
     bool post(const std::string& host, const std::string& path, const std::string& headers,
               const std::string& body, const std::string&, std::string* response, std::string* error) {
@@ -61,6 +63,12 @@ public:
         long status = configured == pushStatusByPath.end() ? pushStatus : configured->second;
         push << "HTTP/1.1 " << status << " Fake Push\r\nContent-Length: 0\r\n\r\n";
         *response = push.str();
+        if (removeStore != 0 && path == removeWhenPath) {
+            std::string removeError;
+            WebPushStore* store = removeStore;
+            removeStore = 0;
+            assert(store->removeClient(removeClientId, &removeError));
+        }
         return true;
     }
 
@@ -341,6 +349,10 @@ void testWebPushEncryptionAndRejection(const std::string& root) {
     WebPushStore twoSubscriptions(directory);
     assert(twoSubscriptions.addSubscription(makeBrowserSubscription("https://push.example.test/gone"), &error));
     assert(twoSubscriptions.addSubscription(makeBrowserSubscription("https://push.example.test/transient"), &error));
+    browserClients = twoSubscriptions.clientsJson();
+    idAt = browserClients.find("browser-");
+    assert(idAt != std::string::npos);
+    const std::string goneId = browserClients.substr(idAt, browserClients.find('"', idAt) - idAt);
     FakeHttpsTransport rejected;
     rejected.pushStatusByPath["/gone"] = 410;
     rejected.pushStatusByPath["/transient"] = 503;
@@ -351,6 +363,32 @@ void testWebPushEncryptionAndRejection(const std::string& root) {
     assert(readTextFile(directory + "/web-push-subscriptions.ndjson", &persisted));
     assert(persisted.find("push.example.test/gone") == std::string::npos);
     assert(persisted.find("push.example.test/transient") != std::string::npos);
+    assert(sender.clientsJson().find(goneId) == std::string::npos);
+    assert(sender.clientsJson().find("browser-") != std::string::npos);
+    assert(readTextFile(directory + "/web-push-clients.ndjson", &persisted));
+    assert(persisted.find("push.example.test/gone") == std::string::npos);
+    cleanNotificationRuntime(directory);
+
+    directory = root + "/web-push-remove-during-send";
+    assert(mkdir(directory.c_str(), 0700) == 0);
+    WebPushStore concurrent(directory);
+    assert(concurrent.addSubscription(makeBrowserSubscription("https://push.example.test/gone"), &error));
+    assert(concurrent.addSubscription(makeBrowserSubscription("https://push.example.test/removed"), &error));
+    browserClients = concurrent.clientsJson();
+    idAt = browserClients.find("browser-", browserClients.find("browser-") + 8);
+    assert(idAt != std::string::npos);
+    browserId = browserClients.substr(idAt, browserClients.find('"', idAt) - idAt);
+    FakeHttpsTransport removing;
+    removing.pushStatusByPath["/gone"] = 410;
+    removing.removeStore = &concurrent;
+    removing.removeClientId = browserId;
+    removing.removeWhenPath = "/gone";
+    setHttpsPostHook(&removing);
+    assert(!concurrent.send("fake-ca", "Window open", "Kitchen", &error));
+    assert(readTextFile(directory + "/web-push-subscriptions.ndjson", &persisted));
+    assert(persisted.find("push.example.test/gone") == std::string::npos);
+    assert(persisted.find("push.example.test/removed") == std::string::npos);
+    assert(concurrent.clientsJson().find("browser-") == std::string::npos);
     cleanNotificationRuntime(directory);
 }
 }

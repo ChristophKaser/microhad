@@ -12,9 +12,20 @@
 #include <vector>
 #include <stdint.h>
 #include <iomanip>
+#include <pthread.h>
 
 namespace {
 const unsigned long kMaximumSubscriptions = 32;
+pthread_mutex_t storeMutex = PTHREAD_MUTEX_INITIALIZER;
+
+class StoreLock {
+public:
+    StoreLock() { pthread_mutex_lock(&storeMutex); }
+    ~StoreLock() { pthread_mutex_unlock(&storeMutex); }
+private:
+    StoreLock(const StoreLock&);
+    StoreLock& operator=(const StoreLock&);
+};
 
 bool validEndpoint(const std::string& endpoint) {
     const std::string prefix = "https://";
@@ -61,19 +72,20 @@ std::vector<BrowserClient> loadClients(const std::string& directory) {
     std::ifstream subscriptions((directory + "/web-push-subscriptions.ndjson").c_str());
     std::ifstream settings((directory + "/web-push-clients.ndjson").c_str());
     std::string line;
-    while (std::getline(settings, line)) {
-        BrowserClient client; long enabled = 1;
-        if (jsonStringField(line, "endpoint", &client.endpoint) && jsonStringField(line, "label", &client.label) &&
-            jsonLongField(line, "enabled", &enabled) && (enabled == 0 || enabled == 1)) {
-            client.enabled = enabled != 0; clients.push_back(client);
-        }
-    }
     while (std::getline(subscriptions, line)) {
         std::string endpoint;
         if (!validSubscription(line, &endpoint)) continue;
         bool found = false;
         for (unsigned long i = 0; i < clients.size(); ++i) if (clients[i].endpoint == endpoint) found = true;
         if (!found) { BrowserClient client; client.endpoint = endpoint; client.label = "Browser"; client.enabled = true; clients.push_back(client); }
+    }
+    while (std::getline(settings, line)) {
+        std::string endpoint, label; long enabled = 1;
+        if (!jsonStringField(line, "endpoint", &endpoint) || !jsonStringField(line, "label", &label) ||
+            !jsonLongField(line, "enabled", &enabled) || (enabled != 0 && enabled != 1)) continue;
+        for (unsigned long i = 0; i < clients.size(); ++i) if (clients[i].endpoint == endpoint) {
+            clients[i].label = label; clients[i].enabled = enabled != 0; break;
+        }
     }
     return clients;
 }
@@ -194,6 +206,7 @@ bool WebPushStore::loadOrCreateKey(std::string* error) {
 }
 
 bool WebPushStore::addSubscription(const std::string& subscriptionJson, std::string* error) {
+    StoreLock lock;
     std::string endpoint;
     std::string filename = runtimeDirectory_ + "/web-push-subscriptions.ndjson";
     std::ifstream input(filename.c_str());
@@ -237,6 +250,7 @@ bool WebPushStore::addSubscription(const std::string& subscriptionJson, std::str
 }
 
 std::string WebPushStore::clientsJson() const {
+    StoreLock lock;
     std::vector<BrowserClient> clients = loadClients(runtimeDirectory_);
     std::string json = "{\"clients\":[";
     for (unsigned long i = 0; i < clients.size(); ++i) {
@@ -248,6 +262,7 @@ std::string WebPushStore::clientsJson() const {
 }
 
 bool WebPushStore::updateClient(const std::string& id, const std::string& label, bool enabled, std::string* error) {
+    StoreLock lock;
     if (label.size() > 64) { *error = "invalid push client label"; return false; }
     std::vector<BrowserClient> clients = loadClients(runtimeDirectory_);
     for (unsigned long i = 0; i < clients.size(); ++i) if (clientId(clients[i].endpoint) == id) {
@@ -258,6 +273,7 @@ bool WebPushStore::updateClient(const std::string& id, const std::string& label,
 }
 
 bool WebPushStore::removeClient(const std::string& id, std::string* error) {
+    StoreLock lock;
     const std::string filename = runtimeDirectory_ + "/web-push-subscriptions.ndjson";
     std::vector<BrowserClient> clients = loadClients(runtimeDirectory_);
     std::string endpoint;
@@ -280,16 +296,23 @@ bool WebPushStore::send(const std::string& caBundle, const std::string& title, c
                         std::string* error) {
 #ifdef MICROHAD_MBEDTLS_ENABLED
     const std::string subscriptionFilename = runtimeDirectory_ + "/web-push-subscriptions.ndjson";
-    std::ifstream subscriptions(subscriptionFilename.c_str());
     std::ifstream privateFile((runtimeDirectory_ + "/vapid-private.key").c_str(), std::ios::binary);
-    std::string subscription;
-    std::vector<std::string> retainedSubscriptions;
+    std::vector<std::string> subscriptions, rejectedSubscriptions;
+    std::vector<BrowserClient> clients;
     std::string privateKey(32, '\0');
     bool delivered = false;
     bool pruneRequired = false;
-    if (!subscriptions) { *error = "no Browser Push subscriptions"; return false; }
+    {
+        StoreLock lock;
+        std::ifstream input(subscriptionFilename.c_str());
+        if (!input) { *error = "no Browser Push subscriptions"; return false; }
+        std::string line;
+        while (std::getline(input, line)) subscriptions.push_back(line);
+        clients = loadClients(runtimeDirectory_);
+    }
     if (!privateFile.read(&privateKey[0], privateKey.size())) { *error = "cannot read VAPID private key"; return false; }
-    while (std::getline(subscriptions, subscription)) {
+    for (unsigned long subscriptionIndex = 0; subscriptionIndex < subscriptions.size(); ++subscriptionIndex) {
+        const std::string& subscription = subscriptions[subscriptionIndex];
         std::string endpoint, publicText, authText, clientPublic, auth, encrypted(8192, '\0');
         std::string audience, header, jwtHeader, jwtPayload, jwtInput, signature(64, '\0'), token;
         unsigned long encryptedLength = 0;
@@ -299,11 +322,9 @@ bool WebPushStore::send(const std::string& caBundle, const std::string& title, c
             pruneRequired = true;
             continue;
         }
-        std::vector<BrowserClient> clients = loadClients(runtimeDirectory_);
         bool enabled = true;
         for (unsigned long i = 0; i < clients.size(); ++i) if (clients[i].endpoint == endpoint) enabled = clients[i].enabled;
-        if (!enabled) { retainedSubscriptions.push_back(subscription); continue; }
-        retainedSubscriptions.push_back(subscription);
+        if (!enabled) continue;
         std::string payload = "{\"title\":\"" + jsonEscape(title) + "\",\"body\":\"" + jsonEscape(body) + "\"}";
         payload += static_cast<char>(2);
         if (microhad_web_push_encrypt(reinterpret_cast<const unsigned char*>(clientPublic.data()),
@@ -322,10 +343,25 @@ bool WebPushStore::send(const std::string& caBundle, const std::string& title, c
                             reinterpret_cast<unsigned char*>(&signature[0])) != 0) continue;
         token = jwtInput + "." + base64UrlEncode(signature);
         header = "Content-Type: application/octet-stream\r\nContent-Encoding: aes128gcm\r\nTTL: 300\r\nAuthorization: vapid t=" + token + ", k=" + publicKey_ + "\r\n";
+        {
+            StoreLock lock;
+            std::ifstream current(subscriptionFilename.c_str());
+            std::string currentSubscription;
+            bool active = false;
+            while (std::getline(current, currentSubscription))
+                if (currentSubscription == subscription) { active = true; break; }
+            if (active) {
+                active = false;
+                std::vector<BrowserClient> currentClients = loadClients(runtimeDirectory_);
+                for (unsigned long i = 0; i < currentClients.size(); ++i)
+                    if (currentClients[i].endpoint == endpoint && currentClients[i].enabled) { active = true; break; }
+            }
+            if (!active) continue;
+        }
         std::string response, sendError;
         if (httpsPostUrl(endpoint, header, encrypted, caBundle, &response, &sendError)) {
             if (permanentlyRejected(response)) {
-                retainedSubscriptions.pop_back();
+                rejectedSubscriptions.push_back(subscription);
                 pruneRequired = true;
                 continue;
             }
@@ -333,12 +369,26 @@ bool WebPushStore::send(const std::string& caBundle, const std::string& title, c
             if (status >= 200 && status < 300) delivered = true;
         }
     }
-    subscriptions.close();
     if (pruneRequired) {
+        StoreLock lock;
+        std::ifstream current(subscriptionFilename.c_str());
+        std::vector<std::string> retainedSubscriptions;
+        std::string line, endpoint;
+        bool changed = false;
+        while (std::getline(current, line)) {
+            bool rejected = false;
+            for (unsigned long i = 0; i < rejectedSubscriptions.size(); ++i)
+                if (rejectedSubscriptions[i] == line) { rejected = true; break; }
+            if (!validSubscription(line, &endpoint) || rejected) changed = true;
+            else retainedSubscriptions.push_back(line);
+        }
         std::string saveError;
-        if (!saveSubscriptions(subscriptionFilename, retainedSubscriptions, &saveError)) {
-            *error = saveError;
-            return false;
+        if (changed) {
+            if (!saveSubscriptions(subscriptionFilename, retainedSubscriptions, &saveError) ||
+                !saveClients(runtimeDirectory_, loadClients(runtimeDirectory_), &saveError)) {
+                *error = saveError;
+                return false;
+            }
         }
     }
     if (!delivered) { *error = "Browser Push delivery failed"; return false; }
