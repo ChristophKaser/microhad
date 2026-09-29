@@ -16,7 +16,7 @@ WARNINGS := -Wall -Wextra -Werror -pedantic
 # GCC 3.4 in the supplied RSDK has no -std=gnu++03 switch; its default is
 # C++98/C++03-compatible. Keep target flags explicit and separate from host.
 HOST_CXXFLAGS := -std=gnu++03 $(WARNINGS) -Iinclude -Ithird_party/mbedtls/include -O2 -DMICROHAD_MBEDTLS_ENABLED=1 -DMICROHAD_BUILD_REVISION=\"$(BUILD_REVISION)\"
-TARGET_CXXFLAGS := $(WARNINGS) -Iinclude -O2 -ffunction-sections -fdata-sections -DMICROHAD_MIPS_TARGET=1 -DMICROHAD_MBEDTLS_ENABLED=1 -DMICROHAD_BUILD_REVISION=\"$(BUILD_REVISION)\"
+TARGET_CXXFLAGS := $(WARNINGS) -Iinclude -Ithird_party/mbedtls/include -O2 -ffunction-sections -fdata-sections -DMICROHAD_MIPS_TARGET=1 -DMICROHAD_MBEDTLS_ENABLED=1 -DMICROHAD_BUILD_REVISION=\"$(BUILD_REVISION)\"
 TARGET_CFLAGS := $(WARNINGS) -O2 -ffunction-sections -fdata-sections
 LDFLAGS := -lpthread
 SOURCES := src/main.cpp src/gateway_config.cpp src/ash.cpp src/json_util.cpp src/storage.cpp src/http_server.cpp src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/sensor_history.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp src/external_http_device.cpp src/device_shelly.cpp src/device_fritz_box.cpp

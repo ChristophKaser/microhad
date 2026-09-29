@@ -5,6 +5,8 @@
 
 #include "json_util.h"
 
+#include "mbedtls/md5.h"
+
 #include <arpa/inet.h>
 #include <algorithm>
 #include <cerrno>
@@ -61,11 +63,56 @@ std::string base64(const std::string& input) {
     return result;
 }
 
+std::string md5Hex(const std::string& value) {
+    unsigned char digest[16];
+    if (mbedtls_md5_ret(reinterpret_cast<const unsigned char*>(value.data()), value.size(), digest) != 0) return "";
+    static const char hex[] = "0123456789abcdef";
+    std::string result;
+    for (unsigned long i = 0; i < sizeof(digest); ++i) {
+        result.push_back(hex[digest[i] >> 4]); result.push_back(hex[digest[i] & 15]);
+    }
+    return result;
+}
+
+std::string digestParameter(const std::string& challenge, const std::string& name) {
+    std::string key = name + "=\"";
+    std::string::size_type at = challenge.find(key);
+    if (at == std::string::npos) return "";
+    at += key.size();
+    std::string::size_type end = challenge.find('"', at);
+    return end == std::string::npos ? "" : challenge.substr(at, end - at);
+}
+
+std::string digestAuthorization(const std::string& challenge, const std::string& username,
+                                const std::string& password, const std::string& method,
+                                const std::string& uri) {
+    std::string realm = digestParameter(challenge, "realm");
+    std::string nonce = digestParameter(challenge, "nonce");
+    std::string qop = digestParameter(challenge, "qop");
+    if (realm.empty() || nonce.empty()) return "";
+    bool useQop = qop.find("auth") != std::string::npos;
+    struct timeval now; gettimeofday(&now, 0);
+    std::ostringstream cnonceStream; cnonceStream << std::hex << now.tv_sec << now.tv_usec;
+    std::string cnonce = cnonceStream.str();
+    std::string ha1 = md5Hex(username + ":" + realm + ":" + password);
+    std::string ha2 = md5Hex(method + ":" + uri);
+    std::string response = useQop ? md5Hex(ha1 + ":" + nonce + ":00000001:" + cnonce + ":auth:" + ha2)
+                                  : md5Hex(ha1 + ":" + nonce + ":" + ha2);
+    if (response.empty()) return "";
+    std::ostringstream result;
+    result << "Authorization: Digest username=\"" << username << "\", realm=\"" << realm
+           << "\", nonce=\"" << nonce << "\", uri=\"" << uri << "\", response=\"" << response << "\"";
+    if (useQop) result << ", qop=auth, nc=00000001, cnonce=\"" << cnonce << "\"";
+    result << "\r\n";
+    return result.str();
+}
+
 bool httpRequest(const std::string& configuredHost, const std::string& username, const std::string& password,
                  const std::string& method, const std::string& path, const std::string& headers,
-                 const std::string& requestBody, std::string* body) {
+                 const std::string& requestBody, std::string* body, unsigned short defaultPort = 80,
+                 const std::string& authorization = "", bool digestOnly = false) {
     std::string host = configuredHost;
-    unsigned short port = 80;
+    unsigned short port = defaultPort;
     std::string::size_type colon = host.rfind(':');
     if (colon != std::string::npos && host.find(']') == std::string::npos) {
         char* end = 0;
@@ -106,7 +153,8 @@ bool httpRequest(const std::string& configuredHost, const std::string& username,
     if (fcntl(fd, F_SETFL, flags) != 0) { close(fd); return false; }
     std::ostringstream request;
     request << method << " " << path << " HTTP/1.1\r\nHost: " << configuredHost << "\r\nConnection: close\r\n";
-    if (!username.empty()) request << "Authorization: Basic " << base64(username + ":" + password) << "\r\n";
+    if (!authorization.empty()) request << authorization;
+    else if (!username.empty() && !digestOnly) request << "Authorization: Basic " << base64(username + ":" + password) << "\r\n";
     request << headers;
     if (!requestBody.empty()) request << "Content-Length: " << requestBody.size() << "\r\n";
     request << "\r\n" << requestBody;
@@ -126,10 +174,24 @@ bool httpRequest(const std::string& configuredHost, const std::string& username,
     }
     close(fd);
     std::string::size_type lineEnd = response.find("\r\n");
-    if (lineEnd == std::string::npos || (response.compare(0, 12, "HTTP/1.1 200") != 0 &&
-        response.compare(0, 12, "HTTP/1.0 200") != 0)) return false;
+    if (lineEnd == std::string::npos) return false;
     std::string::size_type headerEnd = response.find("\r\n\r\n");
     if (headerEnd == std::string::npos) return false;
+    bool unauthorized = response.compare(0, 12, "HTTP/1.1 401") == 0 || response.compare(0, 12, "HTTP/1.0 401") == 0;
+    if (unauthorized && !username.empty() && authorization.empty()) {
+        std::string::size_type challengeAt = response.find("WWW-Authenticate:");
+        if (challengeAt == std::string::npos) challengeAt = response.find("www-authenticate:");
+        if (challengeAt != std::string::npos) {
+            std::string::size_type challengeEnd = response.find("\r\n", challengeAt);
+            std::string challenge = response.substr(challengeAt, challengeEnd - challengeAt);
+            if (challenge.find("Digest ") != std::string::npos) {
+                std::string auth = digestAuthorization(challenge, username, password, method, path);
+                if (!auth.empty()) return httpRequest(configuredHost, username, password, method, path, headers,
+                                                     requestBody, body, defaultPort, auth, digestOnly);
+            }
+        }
+    }
+    if (response.compare(0, 12, "HTTP/1.1 200") != 0 && response.compare(0, 12, "HTTP/1.0 200") != 0) return false;
     *body = response.substr(headerEnd + 4);
     return true;
 }
@@ -302,12 +364,13 @@ std::string deviceJson(const ShellyDevice& d, bool includeCallbackUrls) {
 
 bool externalHttpRequest(const std::string& host, const std::string& username, const std::string& password,
                         const std::string& method, const std::string& path, const std::string& headers,
-                        const std::string& requestBody, std::string* responseBody) {
+                        const std::string& requestBody, std::string* responseBody, unsigned short defaultPort,
+                        bool digestOnly) {
     if (!validHost(host) || (method != "GET" && method != "POST") || path.empty() || path[0] != '/' ||
         path.find('\r') != std::string::npos || path.find('\n') != std::string::npos || path.find(' ') != std::string::npos ||
         username.find('\r') != std::string::npos || username.find('\n') != std::string::npos ||
         password.find('\r') != std::string::npos || password.find('\n') != std::string::npos) return false;
-    return httpRequest(host, username, password, method, path, headers, requestBody, responseBody);
+    return httpRequest(host, username, password, method, path, headers, requestBody, responseBody, defaultPort, "", digestOnly);
 }
 
 ShellyDevice::ShellyDevice() : pollSeconds(30), invertContact(false), nextPoll(0), manualRefresh(false) {}
@@ -456,14 +519,14 @@ bool ExternalHttpDeviceWorker::discoverFritzClientsNetwork(const std::string& ho
         *error = "cannot query Fritz!Box host list; check TR-064 access and credentials"; return false;
     }
     path = FritzBoxProtocol::xmlValue(reply, "NewX_AVM-DE_HostListPath");
-    if (path.empty() || !externalHttpRequest(host, user, pass, "GET", path, "", "", &reply) || !parseFritzHostList(reply, clients)) {
+    if (path.empty() || !externalHttpRequest(host, user, pass, "GET", path, "", "", &reply, 49000, true) || !parseFritzHostList(reply, clients)) {
         *error = "Fritz!Box returned an invalid host list"; return false;
     }
     std::string wlanReply;
     if (FritzBoxProtocol::soapAction(host, user, pass, wlanService, "X_AVM-DE_GetWLANDeviceListPath", "/upnp/control/wlanconfig1", "", &wlanReply)) {
         path = FritzBoxProtocol::xmlValue(wlanReply, "NewX_AVM-DE_WLANDeviceListPath");
         std::string wlanXml;
-        if (!path.empty() && externalHttpRequest(host, user, pass, "GET", path, "", "", &wlanXml))
+        if (!path.empty() && externalHttpRequest(host, user, pass, "GET", path, "", "", &wlanXml, 49000, true))
             FritzBoxProtocol::mergeSignalList(wlanXml, clients);
     }
     return true;

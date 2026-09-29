@@ -6,7 +6,8 @@
 
 bool externalHttpRequest(const std::string& host, const std::string& username, const std::string& password,
                          const std::string& method, const std::string& path, const std::string& headers,
-                         const std::string& requestBody, std::string* responseBody);
+                         const std::string& requestBody, std::string* responseBody, unsigned short defaultPort,
+                         bool digestOnly);
 
 namespace {
 std::string lowerAscii(std::string value) {
@@ -46,7 +47,7 @@ bool soapAction(const std::string& host, const std::string& username, const std:
                 const std::string& arguments, std::string* response) {
     std::string body = "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:" + action + " xmlns:u=\"" + service + "\">" + arguments + "</u:" + action + "></s:Body></s:Envelope>";
     std::string headers = "Content-Type: text/xml; charset=\"utf-8\"\r\nSOAPAction: \"" + service + "#" + action + "\"\r\n";
-    return externalHttpRequest(host, username, password, "POST", path, headers, body, response);
+    return externalHttpRequest(host, username, password, "POST", path, headers, body, response, 49000, true);
 }
 
 bool parseHostList(const std::string& xml, std::vector<FritzBoxClient>* clients) {
