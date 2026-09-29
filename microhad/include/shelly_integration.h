@@ -16,9 +16,9 @@ struct ShellyDevice {
     std::string username;
     std::string password;
     std::string callbackToken;
-    int inputIndex;
-    int temperatureIndex;
-    int relayIndex;
+    std::vector<int> inputIndices;
+    std::vector<int> temperatureIndices;
+    std::vector<int> relayIndices;
     unsigned int pollSeconds;
     bool invertContact;
     long nextPoll;
@@ -35,17 +35,23 @@ public:
     std::string json(bool includeCallbackUrls = false) const;
     bool saveDevice(const std::string& id, const std::string& name, const std::string& host, const std::string& callbackHost,
                     const std::string& model, const std::string& username, const std::string& password,
+                    const std::vector<int>& inputIndices, const std::vector<int>& temperatureIndices,
+                    const std::vector<int>& relayIndices, unsigned int pollSeconds,
+                    bool invertContact, bool callbackMode, bool clearAuth, std::string* resultId, std::string* error);
+    bool saveDevice(const std::string& id, const std::string& name, const std::string& host, const std::string& callbackHost,
+                    const std::string& model, const std::string& username, const std::string& password,
                     int inputIndex, int temperatureIndex, int relayIndex, unsigned int pollSeconds,
                     bool invertContact, bool callbackMode, bool clearAuth, std::string* resultId, std::string* error);
     bool removeDevice(const std::string& id, std::string* error);
-    bool setActor(const std::string& id, bool on, std::string* error);
+    bool setActor(const std::string& id, int relayIndex, bool on, std::string* error);
+    bool setActor(const std::string& id, bool on, std::string* error) { return setActor(id, 0, on, error); }
     bool refresh(const std::string& id, std::string* error);
     bool callback(const std::string& id, const std::string& event, const std::string& token, bool* overloaded = 0);
     static bool parsePowerStatus(const std::string& body, double* watts);
 
 private:
-    struct ActorCommand { std::string id; bool on; };
-    struct CallbackEvent { std::string id; int metric; double value; };
+    struct ActorCommand { std::string id; int relayIndex; bool on; };
+    struct CallbackEvent { std::string id; int metric; int channelIndex; double value; };
     std::string runtimeDirectory_;
     GatewayRunner* gateway_;
     mutable pthread_mutex_t mutex_;

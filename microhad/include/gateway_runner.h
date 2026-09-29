@@ -33,10 +33,12 @@ public:
     std::string runtimeDirectory() const;
     std::string historyPath() const;
     bool registerShelly(const std::string& id, const std::string& name, const std::string& oldName,
-                        const std::string& model, int temperatureIndex, std::string* error);
+                        const std::string& model, const std::vector<int>& inputIndices,
+                        const std::vector<int>& temperatureIndices, const std::vector<int>& relayIndices,
+                        std::string* error);
     bool removeShelly(const std::string& id, std::string* error);
     bool reconcileShelly(const std::vector<std::string>& ids, std::string* error);
-    bool applyShellyEvent(const std::string& id, int metric, double value, std::string* error);
+    bool applyShellyEvent(const std::string& id, int metric, int channelIndex, double value, std::string* error);
     bool setActorState(const std::string& address, bool on, std::string* error);
     bool setJoining(unsigned int seconds, std::string* error);
     bool createFreshNetwork(std::string* error);
@@ -67,10 +69,14 @@ private:
         std::string oldName;
         std::string model;
         std::vector<std::string> ids;
+        std::vector<int> inputIndices;
+        std::vector<int> temperatureIndices;
+        std::vector<int> relayIndices;
         int metric;
         double value;
         bool on;
         int temperatureIndex;
+        int channelIndex;
         bool hasLow;
         double low;
         bool hasHigh;

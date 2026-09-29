@@ -87,10 +87,13 @@ export interface ExternalDevice {
   input_index: number
   temperature_index: number
   relay_index: number
+  input_indices?: string
+  temperature_indices?: string
+  relay_indices?: string
   poll_seconds: number
   invert_contact: boolean
   callback_mode: boolean
-  callback_urls?: { input_open: string; input_closed: string; relay_on: string; relay_off: string }
+  callback_urls?: Record<string, string>
 }
 
 export interface DeviceConfiguration {

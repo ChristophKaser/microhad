@@ -28,11 +28,24 @@ void runShellyIntegrationUnitTests() {
         std::string config = shelly.json(true);
         assert(config.find("\"http_auth\":false,\"input_index\":0") != std::string::npos);
         assert(config.find("\"temperature_index\":-1") != std::string::npos);
+        assert(config.find("\"input_indices\":\"0\"") != std::string::npos);
         assert(config.find("<gateway-ip>") == std::string::npos);
         std::string url;
         assert(jsonStringField(config.substr(1, config.size() - 2), "input_open", &url));
         assert(url.find("http://192.168.178.62/api/shelly/callback/" + id + "/input-on?token=") == 0);
         assert(shelly.callback(id, "input-on", url.substr(url.find("token=") + 6)));
+        std::vector<int> selectedInputs; selectedInputs.push_back(0); selectedInputs.push_back(1);
+        std::vector<int> selectedTemperatures; selectedTemperatures.push_back(0); selectedTemperatures.push_back(2);
+        std::vector<int> selectedRelays; selectedRelays.push_back(0); selectedRelays.push_back(1);
+        std::string multiId;
+        assert(shelly.saveDevice("", "Multi Uni", "192.0.2.2", "192.168.178.62", "uni", "", "",
+                                 selectedInputs, selectedTemperatures, selectedRelays, 30, false, true, false,
+                                 &multiId, &error));
+        config = shelly.json(true);
+        assert(config.find("\"input_indices\":\"0,1\"") != std::string::npos);
+        assert(config.find("\"temperature_indices\":\"0,2\"") != std::string::npos);
+        assert(config.find("\"relay_indices\":\"0,1\"") != std::string::npos);
+        assert(config.find("input-on-2") != std::string::npos);
 
         std::string plugIds[33];
         for (unsigned int i = 0; i < 33; ++i) {
@@ -72,8 +85,27 @@ void runShellyIntegrationUnitTests() {
         assert(!plugAddress.empty());
         assert(SensorHistory::readJson(history, plugAddress, 0, &json, &error));
         assert(json.find(",4,35000]") != std::string::npos);
+        std::vector<int> inputs; inputs.push_back(0); inputs.push_back(1);
+        std::vector<int> temperatures; temperatures.push_back(0); temperatures.push_back(1); temperatures.push_back(2);
+        std::vector<int> relays; relays.push_back(0); relays.push_back(1);
+        assert(gateway.registerShelly("aaaaaaaaaaaaaaaa", "Multi Uni", "Multi Uni", "uni", inputs, temperatures, relays, &error));
+        devices = gateway.devices();
+        unsigned int channels = 0;
+        std::string secondContact;
+        for (unsigned long i = 0; i < devices.size(); ++i) {
+            if (devices[i].externalId != "aaaaaaaaaaaaaaaa") continue;
+            ++channels;
+            if (devices[i].component == "contact:1") secondContact = devices[i].ieeeAddress;
+        }
+        assert(channels == 7 && !secondContact.empty());
+        assert(gateway.applyShellyEvent("aaaaaaaaaaaaaaaa", 1, 1, 1, &error));
+        devices = gateway.devices();
+        bool secondContactOpen = false;
+        for (unsigned long i = 0; i < devices.size(); ++i)
+            if (devices[i].ieeeAddress == secondContact) secondContactOpen = devices[i].contactOpen && devices[i].contactKnown;
+        assert(secondContactOpen);
         assert(gateway.removeShelly("1234567890abcdef", &error));
-        assert(gateway.devices().size() == 1);
+        assert(gateway.devices().size() == 8);
         assert(unlink(history.c_str()) == 0);
     }
     std::string controllerState = std::string(directory) + "/devices.json";

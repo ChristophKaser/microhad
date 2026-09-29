@@ -8,6 +8,7 @@
 #include "notification_worker.h"
 
 #include <cerrno>
+#include <algorithm>
 #include <climits>
 #include <cstdlib>
 #include <cstdio>
@@ -129,6 +130,23 @@ RequestReadResult expectedRequestLength(const std::string& request, unsigned lon
     if (contentLength > maximumRequestBytes - static_cast<unsigned long>(headerEnd + 4)) return RequestReadTooLarge;
     *expected = static_cast<unsigned long>(headerEnd + 4) + contentLength;
     return RequestReadOk;
+}
+
+bool parseShellyIndices(const std::string& text, std::vector<int>* indices) {
+    indices->clear();
+    if (text.empty()) return true;
+    std::string::size_type start = 0;
+    while (start < text.size()) {
+        std::string::size_type end = text.find(',', start);
+        std::string part = text.substr(start, end == std::string::npos ? text.size() - start : end - start);
+        if (part.size() != 1 || part[0] < '0' || part[0] > '9') return false;
+        int index = part[0] - '0';
+        if (std::find(indices->begin(), indices->end(), index) != indices->end()) return false;
+        indices->push_back(index);
+        if (end == std::string::npos) break;
+        start = end + 1;
+    }
+    return true;
 }
 
 RequestReadResult readPlainRequest(int fd, std::string* request) {
@@ -517,14 +535,16 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
         std::string body = bodyAt == std::string::npos ? "" : request.substr(bodyAt + 4);
         std::string id, name, host, callbackHost, model, username, password, value, error;
         long input = -1, temperature = -1, relay = 0, seconds = 30;
+        std::vector<int> inputs, temperatures, relays;
         bool invert = false, callbackMode = false, clearAuth = false;
         bool valid = formValue(body, "id", &id) && formValue(body, "name", &name) && formValue(body, "host", &host) &&
-                     formValue(body, "model", &model) && formValue(body, "input_index", &value);
-        if (valid) input = strtol(value.c_str(), 0, 10);
-        valid = valid && formValue(body, "temperature_index", &value);
-        if (valid) temperature = strtol(value.c_str(), 0, 10);
-        valid = valid && formValue(body, "relay_index", &value);
-        if (valid) relay = strtol(value.c_str(), 0, 10);
+                     formValue(body, "model", &model);
+        if (valid && formValue(body, "input_indices", &value)) valid = parseShellyIndices(value, &inputs);
+        else if (valid && formValue(body, "input_index", &value)) { input = strtol(value.c_str(), 0, 10); if (input >= 0) inputs.push_back(static_cast<int>(input)); }
+        if (valid && formValue(body, "temperature_indices", &value)) valid = parseShellyIndices(value, &temperatures);
+        else if (valid && formValue(body, "temperature_index", &value)) { temperature = strtol(value.c_str(), 0, 10); if (temperature >= 0) temperatures.push_back(static_cast<int>(temperature)); }
+        if (valid && formValue(body, "relay_indices", &value)) valid = parseShellyIndices(value, &relays);
+        else if (valid && formValue(body, "relay_index", &value)) { relay = strtol(value.c_str(), 0, 10); if (relay >= 0) relays.push_back(static_cast<int>(relay)); }
         valid = valid && formValue(body, "poll_seconds", &value);
         if (valid) seconds = strtol(value.c_str(), 0, 10);
         formValue(body, "username", &username); formValue(body, "password", &password);
@@ -534,7 +554,7 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
         clearAuth = formValue(body, "clear_auth", &value) && value == "true";
         std::string savedId;
         if (!valid || seconds < 0 || !shelly_->saveDevice(id, name, host, callbackHost, model, username, password,
-                static_cast<int>(input), static_cast<int>(temperature), static_cast<int>(relay),
+                inputs, temperatures, relays,
                 static_cast<unsigned int>(seconds), invert, callbackMode, clearAuth, &savedId, &error)) {
             writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + jsonEscape(valid ? error : "invalid Shelly settings") + "\"}");
         } else writeResponse(clientFd, 200, "application/json", "{\"ok\":true,\"id\":\"" + jsonEscape(savedId) + "\"}");
@@ -552,7 +572,7 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
         std::string::size_type bodyAt = request.find("\r\n\r\n");
         std::string state, error;
         bool valid = bodyAt != std::string::npos && formValue(request.substr(bodyAt + 4), "state", &state) && (state == "on" || state == "off");
-        if (valid && shelly_->setActor(id, state == "on", &error)) writeResponse(clientFd, 200, "application/json", "{\"ok\":true}");
+        if (valid && shelly_->setActor(id, 0, state == "on", &error)) writeResponse(clientFd, 200, "application/json", "{\"ok\":true}");
         else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + jsonEscape(valid ? error : "invalid actor command") + "\"}");
     } else if (request.find("GET /api/dashboard/config ") == 0) {
         std::string content;

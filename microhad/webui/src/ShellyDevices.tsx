@@ -3,6 +3,8 @@ import type { ExternalDevice } from './api'
 import { errorMessage, form, jsonRequest, post } from './api'
 
 const gatewayHost = () => window.location.protocol === 'http:' ? window.location.host : window.location.hostname
+const indices = (value: string) => value ? value.split(',').map(Number).filter(Number.isInteger) : []
+const toggle = (values: number[], value: number) => values.includes(value) ? values.filter(item => item !== value) : [...values, value].sort()
 
 export function ShellyDialog({ id, onClose, onSaved }: { id: string; onClose: () => void; onSaved: () => void }) {
   const [editing, setEditing] = useState<ExternalDevice | null>(null)
@@ -12,9 +14,9 @@ export function ShellyDialog({ id, onClose, onSaved }: { id: string; onClose: ()
   const [callbackHost, setCallbackHost] = useState(gatewayHost)
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
-  const [input, setInput] = useState(0)
-  const [temperature, setTemperature] = useState(0)
-  const [relay, setRelay] = useState(0)
+  const [inputs, setInputs] = useState<number[]>([0])
+  const [temperatures, setTemperatures] = useState<number[]>([0])
+  const [relays, setRelays] = useState<number[]>([0])
   const [pollSeconds, setPollSeconds] = useState(30)
   const [invert, setInvert] = useState(false)
   const [callbackMode, setCallbackMode] = useState(false)
@@ -26,7 +28,9 @@ export function ShellyDialog({ id, onClose, onSaved }: { id: string; onClose: ()
   const fill = (device: ExternalDevice) => {
     setEditing(device); setModel(device.model); setName(device.name); setHost(device.host)
     setCallbackHost(device.callback_host || gatewayHost())
-    setInput(device.input_index); setTemperature(device.temperature_index); setRelay(device.relay_index)
+    setInputs(device.input_indices !== undefined ? indices(device.input_indices) : device.input_index >= 0 ? [device.input_index] : [])
+    setTemperatures(device.temperature_indices !== undefined ? indices(device.temperature_indices) : device.temperature_index >= 0 ? [device.temperature_index] : [])
+    setRelays(device.relay_indices !== undefined ? indices(device.relay_indices) : device.model === 'uni' ? [device.relay_index] : [])
     setPollSeconds(device.poll_seconds); setInvert(device.invert_contact); setCallbackMode(device.callback_mode)
     setClearAuth(false); setUsername(''); setPassword('')
   }
@@ -55,8 +59,8 @@ export function ShellyDialog({ id, onClose, onSaved }: { id: string; onClose: ()
     try {
       const result = await post<{ id: string }>('/api/shelly/config', form({
         id: editing?.id ?? '', name, host, callback_host: callbackHost, model, username, password,
-        input_index: model === 'uni' ? input : -1, temperature_index: model === 'uni' ? temperature : -1,
-        relay_index: model === 'uni' ? relay : 0, poll_seconds: pollSeconds,
+        input_indices: model === 'uni' ? inputs.join(',') : '', temperature_indices: model === 'uni' ? temperatures.join(',') : '',
+        relay_indices: model === 'uni' ? relays.join(',') : '', poll_seconds: pollSeconds,
         invert_contact: String(invert), callback_mode: String(callbackMode), clear_auth: String(clearAuth),
       }))
       onSaved()
@@ -85,9 +89,9 @@ export function ShellyDialog({ id, onClose, onSaved }: { id: string; onClose: ()
         {editing && <p className="muted small">Leave both credentials blank to keep the saved HTTP Basic credentials.</p>}
         {editing?.http_auth && <label className="check"><input type="checkbox" checked={clearAuth} onChange={(e) => setClearAuth(e.target.checked)} /> Disable saved HTTP authentication</label>}
         {model === 'uni' && <>
-          <label className="field"><span>Contact input</span><select value={input} onChange={(e) => setInput(Number(e.target.value))}><option value={0}>Input 1</option><option value={1}>Input 2</option></select></label>
-          <label className="field"><span>Temperature probe</span><select value={temperature} onChange={(e) => setTemperature(Number(e.target.value))}><option value={-1}>None</option><option value={0}>Probe 1</option><option value={1}>Probe 2</option><option value={2}>Probe 3</option></select></label>
-          <label className="field"><span>Relay actor</span><select value={relay} onChange={(e) => setRelay(Number(e.target.value))}><option value={0}>Relay 1</option><option value={1}>Relay 2</option></select></label>
+          <fieldset className="field"><legend>Contact inputs</legend>{[0, 1].map((channel) => <label className="check" key={`input-${channel}`}><input type="checkbox" checked={inputs.includes(channel)} onChange={() => setInputs(toggle(inputs, channel))} />Input {channel + 1}</label>)}</fieldset>
+          <fieldset className="field"><legend>Temperature probes</legend>{[0, 1, 2].map((channel) => <label className="check" key={`temperature-${channel}`}><input type="checkbox" checked={temperatures.includes(channel)} onChange={() => setTemperatures(toggle(temperatures, channel))} />Probe {channel + 1}</label>)}</fieldset>
+          <fieldset className="field"><legend>Relay actors</legend>{[0, 1].map((channel) => <label className="check" key={`relay-${channel}`}><input type="checkbox" checked={relays.includes(channel)} onChange={() => setRelays(toggle(relays, channel))} />Relay {channel + 1}</label>)}</fieldset>
           <label className="check"><input type="checkbox" checked={invert} onChange={(e) => setInvert(e.target.checked)} /> Invert contact state</label>
         </>}
         <label className="field"><span>Polling interval (seconds)</span><input type="number" min={5} max={3600} value={pollSeconds} onChange={(e) => setPollSeconds(Number(e.target.value))} /></label>
@@ -95,9 +99,7 @@ export function ShellyDialog({ id, onClose, onSaved }: { id: string; onClose: ()
         {callbackMode && <><label className="field"><span>Gateway callback address</span><input value={callbackHost} onChange={(e) => setCallbackHost(e.target.value)} /></label><p className="muted small">Use a gateway HTTP address reachable by the Shelly. Temperature and Plug power continue to poll.</p></>}
         {editing?.callback_urls && <details open={saved}><summary>Callback URLs and setup</summary>
           <p className="muted small">Assign each URL to the matching Shelly action. Keep these token-bearing URLs private.</p>
-          {model === 'uni' && <><p className="small">Input {input + 1} · btn_on_url</p><code>{editing.callback_urls.input_open}</code><p className="small">Input {input + 1} · btn_off_url</p><code>{editing.callback_urls.input_closed}</code></>}
-          <p className="small">Relay {model === 'uni' ? relay + 1 : 1} · out_on_url</p><code>{editing.callback_urls.relay_on}</code>
-          <p className="small">Relay {model === 'uni' ? relay + 1 : 1} · out_off_url</p><code>{editing.callback_urls.relay_off}</code>
+          {Object.entries(editing.callback_urls).map(([event, url]) => <div key={event}><p className="small">{event.replace(/_/g, ' ')}</p><code>{url}</code></div>)}
         </details>}
         <div className="dialog-actions"><button className="button primary" onClick={() => void save()} disabled={saving || !name.trim() || !host.trim() || (callbackMode && !callbackHost.trim())}>{saving ? 'Saving…' : 'Save Shelly'}</button>{editing && <button className="button danger" onClick={() => void remove()}>Remove</button>}<button className="button" onClick={onClose}>Close</button></div>
       </>}

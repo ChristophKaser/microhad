@@ -52,9 +52,10 @@ bool validShellyId(const std::string& id) {
         if (std::string("0123456789abcdef").find(id[i]) == std::string::npos) return false;
     return true;
 }
-std::string shellyAddress(const std::string& id, const std::string& component) {
+std::string shellyAddress(const std::string& id, const std::string& component, int channelIndex = 0) {
     const char* digits = "0123456789abcdef";
-    unsigned int suffix = component == "contact" ? 1 : component == "temperature" ? 2 : component == "relay" ? 3 : 4;
+    unsigned int base = component == "contact" ? 1 : component == "temperature" ? 2 : component == "relay" ? 3 : 4;
+    unsigned int suffix = base + static_cast<unsigned int>(channelIndex) * 4;
     std::string address = "0x" + id;
     std::string::size_type at = address.size() - 1;
     std::string::size_type nibble = std::string(digits).find(address[at]);
@@ -62,9 +63,10 @@ std::string shellyAddress(const std::string& id, const std::string& component) {
     return address;
 }
 
-std::string shellyDefaultName(const std::string& name, const std::string& component) {
+std::string shellyDefaultName(const std::string& name, const std::string& component, int channelIndex = 0) {
     if (component == "plug") return name.substr(0, 64);
     std::string suffix = component == "contact" ? " · Contact" : component == "temperature" ? " · Temperature" : " · Relay";
+    if (channelIndex > 0) { std::ostringstream indexed; indexed << suffix << " " << (channelIndex + 1); suffix = indexed.str(); }
     return name.substr(0, 64 - suffix.size()) + suffix;
 }
 }
@@ -335,52 +337,72 @@ Gateway::~Gateway() {
 void Gateway::setShellyTransport(ShellyIntegration* transport) { shellyTransport_ = transport; }
 
 bool Gateway::registerShelly(const std::string& id, const std::string& name, const std::string& oldName,
-                             const std::string& model, int temperatureIndex, std::string* error) {
+                             const std::string& model, const std::vector<int>& inputIndices,
+                             const std::vector<int>& temperatureIndices, const std::vector<int>& relayIndices,
+                             std::string* error) {
     if (!validShellyId(id) || (model != "uni" && model != "plug" && model != "plugs")) {
         *error = "invalid Shelly device"; return false;
     }
     std::vector<std::string> components;
     if (model == "uni") {
-        components.push_back("contact");
-        if (temperatureIndex >= 0) components.push_back("temperature");
-        components.push_back("relay");
+        for (unsigned long i = 0; i < inputIndices.size(); ++i) components.push_back("contact:" + std::string(1, static_cast<char>('0' + inputIndices[i])));
+        for (unsigned long i = 0; i < temperatureIndices.size(); ++i) components.push_back("temperature:" + std::string(1, static_cast<char>('0' + temperatureIndices[i])));
+        for (unsigned long i = 0; i < relayIndices.size(); ++i) components.push_back("relay:" + std::string(1, static_cast<char>('0' + relayIndices[i])));
     } else components.push_back("plug");
     for (unsigned long i = 0; i < components.size(); ++i) {
-        std::map<std::string, Device>::const_iterator existing = devices_.find(shellyAddress(id, components[i]));
+        std::string::size_type colon = components[i].find(':');
+        std::string type = colon == std::string::npos ? components[i] : components[i].substr(0, colon);
+        int channel = colon == std::string::npos ? 0 : atoi(components[i].c_str() + colon + 1);
+        std::map<std::string, Device>::const_iterator existing = devices_.find(shellyAddress(id, type, channel));
         if (existing != devices_.end() && (existing->second.source != "shelly" || existing->second.externalId != id)) {
             *error = "Shelly device address conflicts with an existing device"; return false;
         }
     }
     bool changed = false;
     for (std::map<std::string, Device>::iterator it = devices_.begin(); it != devices_.end();) {
+        std::string existingComponent = it->second.component;
+        if (existingComponent == "contact" || existingComponent == "temperature" || existingComponent == "relay")
+            existingComponent += ":0";
         if (it->second.source == "shelly" && it->second.externalId == id &&
-            std::find(components.begin(), components.end(), it->second.component) == components.end()) {
+            std::find(components.begin(), components.end(), existingComponent) == components.end()) {
             contactOpenedAt_.erase(it->first); nextContactAlertAt_.erase(it->first);
             devices_.erase(it++); changed = true;
         } else ++it;
     }
     for (unsigned long i = 0; i < components.size(); ++i) {
-        const std::string address = shellyAddress(id, components[i]);
+        std::string::size_type colon = components[i].find(':');
+        std::string type = colon == std::string::npos ? components[i] : components[i].substr(0, colon);
+        int channel = colon == std::string::npos ? 0 : atoi(components[i].c_str() + colon + 1);
+        const std::string address = shellyAddress(id, type, channel);
         std::map<std::string, Device>::iterator existing = devices_.find(address);
         if (existing == devices_.end()) {
             Device d;
-            d.ieeeAddress = address; d.source = "shelly"; d.externalId = id; d.component = components[i];
-            d.name = shellyDefaultName(name, components[i]); d.manufacturerName = "Shelly"; d.modelId = model;
-            d.kind = components[i] == "plug" ? "smart plug" : components[i];
-            d.hasContact = components[i] == "contact"; d.hasTemperature = components[i] == "temperature";
-            d.hasActor = components[i] == "relay" || components[i] == "plug"; d.hasPower = components[i] == "plug";
+            d.ieeeAddress = address; d.source = "shelly"; d.externalId = id;
+            d.component = channel == 0 ? type : components[i];
+            d.name = shellyDefaultName(name, type, channel); d.manufacturerName = "Shelly"; d.modelId = model;
+            d.kind = type == "plug" ? "smart plug" : type;
+            d.hasContact = type == "contact"; d.hasTemperature = type == "temperature";
+            d.hasActor = type == "relay" || type == "plug"; d.hasPower = type == "plug";
             devices_[address] = d; changed = true;
         } else {
             Device& d = existing->second;
-            const std::string oldDefault = shellyDefaultName(oldName, components[i]);
-            if (d.name == oldDefault && d.name != shellyDefaultName(name, components[i])) {
-                d.name = shellyDefaultName(name, components[i]); changed = true;
+            const std::string oldDefault = shellyDefaultName(oldName, type, channel);
+            if (d.name == oldDefault && d.name != shellyDefaultName(name, type, channel)) {
+                d.name = shellyDefaultName(name, type, channel); changed = true;
             }
             if (d.modelId != model) { d.modelId = model; changed = true; }
         }
     }
     if (changed) { markViewDirty(); saveState(); savePersistentState(); }
     return true;
+}
+
+bool Gateway::registerShelly(const std::string& id, const std::string& name, const std::string& oldName,
+                             const std::string& model, int temperatureIndex, std::string* error) {
+    std::vector<int> inputs, temperatures, relays;
+    inputs.push_back(0); relays.push_back(0);
+    if (temperatureIndex >= 0) temperatures.push_back(temperatureIndex);
+    return registerShelly(id, name, oldName, model, inputs, temperatures, relays, error);
 }
 
 bool Gateway::removeShelly(const std::string& id, std::string* error) {
@@ -410,12 +432,12 @@ bool Gateway::reconcileShelly(const std::vector<std::string>& ids, std::string* 
     return true;
 }
 
-bool Gateway::applyShellyEvent(const std::string& id, int metric, double value, std::string* error) {
+bool Gateway::applyShellyEvent(const std::string& id, int metric, int channelIndex, double value, std::string* error) {
     if (!validShellyId(id) || value != value) { *error = "invalid Shelly event"; return false; }
     const char* component = metric == 1 ? "contact" : metric == 2 ? "temperature" : metric == 3 ? "relay" : metric == 4 ? "plug" : "";
     if (!*component) { *error = "invalid Shelly event"; return false; }
-    std::map<std::string, Device>::iterator it = devices_.find(shellyAddress(id, component));
-    if (metric == 3 && it == devices_.end()) it = devices_.find(shellyAddress(id, "plug"));
+    std::map<std::string, Device>::iterator it = devices_.find(shellyAddress(id, component, channelIndex));
+    if (metric == 3 && it == devices_.end()) it = devices_.find(shellyAddress(id, "plug", 0));
     if (it == devices_.end() || it->second.source != "shelly" || it->second.externalId != id) {
         *error = "unknown Shelly device"; return false;
     }
@@ -454,12 +476,19 @@ bool Gateway::applyShellyEvent(const std::string& id, int metric, double value, 
     return true;
 }
 
+bool Gateway::applyShellyEvent(const std::string& id, int metric, double value, std::string* error) {
+    return applyShellyEvent(id, metric, 0, value, error);
+}
+
 bool Gateway::setActorState(const std::string& address, bool on, std::string* error) {
     std::map<std::string, Device>::const_iterator it = devices_.find(address);
     if (it == devices_.end() || it->second.source != "shelly" || !it->second.hasActor || shellyTransport_ == 0) {
         *error = "actor is unavailable"; return false;
     }
-    return shellyTransport_->setActor(it->second.externalId, on, error);
+    int relayIndex = 0;
+    std::string::size_type colon = it->second.component.find(':');
+    if (colon != std::string::npos) relayIndex = atoi(it->second.component.c_str() + colon + 1);
+    return shellyTransport_->setActor(it->second.externalId, relayIndex, on, error);
 }
 
 bool Gateway::configureSerial(std::string* error) {
