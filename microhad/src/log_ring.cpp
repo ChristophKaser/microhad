@@ -151,6 +151,21 @@ bool lineTimestamp(const unsigned char* line, unsigned long length, unsigned lon
     *timestamp = value;
     return true;
 }
+void appendJsonEscaped(const unsigned char* line, unsigned long length, std::string* output) {
+    static const char digits[] = "0123456789abcdef";
+    for (unsigned long i = 0; i < length; ++i) {
+        unsigned char value = line[i];
+        if (value == '\\' || value == '"') { output->push_back('\\'); output->push_back(static_cast<char>(value)); }
+        else if (value == '\b') output->append("\\b");
+        else if (value == '\f') output->append("\\f");
+        else if (value == '\n') output->append("\\n");
+        else if (value == '\r') output->append("\\r");
+        else if (value == '\t') output->append("\\t");
+        else if (value < 0x20) {
+            output->append("\\u00"); output->push_back(digits[value >> 4]); output->push_back(digits[value & 0x0f]);
+        } else output->push_back(static_cast<char>(value));
+    }
+}
 bool readSnapshotSince(int fd, unsigned long since, std::string* json) {
     for (int attempt = 0; attempt < 8; ++attempt) {
         DiskState before, after;
@@ -163,18 +178,19 @@ bool readSnapshotSince(int fd, unsigned long since, std::string* json) {
         if (!ok || !bestHeader(fd, &after)) return false;
         if (!sameHeader(before, after)) continue;
 
-        std::ostringstream output;
-        output << "{\"lines\":[";
+        std::string output("{\"lines\":[");
+        output.reserve(before.used + 16);
         bool firstLine = true;
         unsigned long consumed = 0;
+        unsigned long physical = before.tail;
         uint32_t previous = 0;
         while (consumed < before.used) {
-            unsigned long physical = (before.tail + consumed) % capacity;
             unsigned long atEnd = capacity - physical;
             if (atEnd < recordHeaderBytes ||
                 (before.used - consumed >= 4 && memcmp(&bytes[consumed], wrapMagic, 4) == 0)) {
                 if (atEnd > before.used - consumed) return false;
                 consumed += atEnd;
+                physical = 0;
                 continue;
             }
             if (before.used - consumed < recordHeaderBytes ||
@@ -189,17 +205,22 @@ bool readSnapshotSince(int fd, unsigned long since, std::string* json) {
             if (lineTimestamp(line, length, &timestamp) && timestamp >= since) {
                 uint32_t hash = hashBytes(2166136261UL, record, 12);
                 if (hashBytes(hash, line, length) != get32(record + 12)) return false;
-                if (!firstLine) output << ',';
-                output << '\"' << jsonEscape(std::string(reinterpret_cast<const char*>(line), length)) << '\"';
+                if (!firstLine) output.push_back(',');
+                output.push_back('"');
+                appendJsonEscaped(line, length, &output);
+                output.push_back('"');
                 firstLine = false;
             }
             previous = sequence;
-            consumed += recordHeaderBytes + length;
+            unsigned long recordSize = recordHeaderBytes + length;
+            consumed += recordSize;
+            physical += recordSize;
+            if (physical == capacity) physical = 0;
         }
         if ((before.used != 0 && previous != before.lastSequence) ||
-            (before.tail + before.used) % capacity != before.head) return false;
-        output << "]}";
-        *json = output.str();
+            ((before.tail + before.used >= capacity ? before.tail + before.used - capacity : before.tail + before.used) != before.head)) return false;
+        output.append("]}");
+        *json = output;
         return true;
     }
     return false;
