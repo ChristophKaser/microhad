@@ -137,18 +137,72 @@ bool readSnapshot(int fd, DiskState* state, std::vector<std::string>* lines) {
     }
     return false;
 }
-bool lineTimestamp(const std::string& line, unsigned long* timestamp) {
-    std::string::size_type end = line.find_first_of(" \t");
-    if (end == std::string::npos || end == 0) return false;
+bool lineTimestamp(const unsigned char* line, unsigned long length, unsigned long* timestamp) {
     unsigned long value = 0;
-    for (std::string::size_type i = 0; i < end; ++i) {
-        if (line[i] < '0' || line[i] > '9') return false;
+    unsigned long i = 0;
+    if (length == 0 || line[0] < '0' || line[0] > '9') return false;
+    while (i < length && line[i] >= '0' && line[i] <= '9') {
         unsigned int digit = static_cast<unsigned int>(line[i] - '0');
         if (value > (ULONG_MAX - digit) / 10) return false;
         value = value * 10 + digit;
+        ++i;
     }
+    if (i == length || (line[i] != ' ' && line[i] != '\t')) return false;
     *timestamp = value;
     return true;
+}
+bool readSnapshotSince(int fd, unsigned long since, std::string* json) {
+    for (int attempt = 0; attempt < 8; ++attempt) {
+        DiskState before, after;
+        if (!bestHeader(fd, &before)) return false;
+        std::vector<unsigned char> bytes(before.used);
+        unsigned long first = before.used < capacity - before.tail ? before.used : capacity - before.tail;
+        bool ok = first == 0 || readExact(fd, &bytes[0], first, dataStart + before.tail);
+        if (ok && before.used > first)
+            ok = readExact(fd, &bytes[first], before.used - first, dataStart);
+        if (!ok || !bestHeader(fd, &after)) return false;
+        if (!sameHeader(before, after)) continue;
+
+        std::ostringstream output;
+        output << "{\"lines\":[";
+        bool firstLine = true;
+        unsigned long consumed = 0;
+        uint32_t previous = 0;
+        while (consumed < before.used) {
+            unsigned long physical = (before.tail + consumed) % capacity;
+            unsigned long atEnd = capacity - physical;
+            if (atEnd < recordHeaderBytes ||
+                (before.used - consumed >= 4 && memcmp(&bytes[consumed], wrapMagic, 4) == 0)) {
+                if (atEnd > before.used - consumed) return false;
+                consumed += atEnd;
+                continue;
+            }
+            if (before.used - consumed < recordHeaderBytes ||
+                memcmp(&bytes[consumed], recordMagic, 4) != 0) return false;
+            const unsigned char* record = &bytes[consumed];
+            uint32_t sequence = get32(record + 4), length = get32(record + 8);
+            if (length > maximumLineBytes || recordHeaderBytes + length > atEnd ||
+                recordHeaderBytes + length > before.used - consumed ||
+                (previous != 0 && sequence != previous + 1) || sequence == 0) return false;
+            const unsigned char* line = record + recordHeaderBytes;
+            unsigned long timestamp = 0;
+            if (lineTimestamp(line, length, &timestamp) && timestamp >= since) {
+                uint32_t hash = hashBytes(2166136261UL, record, 12);
+                if (hashBytes(hash, line, length) != get32(record + 12)) return false;
+                if (!firstLine) output << ',';
+                output << '\"' << jsonEscape(std::string(reinterpret_cast<const char*>(line), length)) << '\"';
+                firstLine = false;
+            }
+            previous = sequence;
+            consumed += recordHeaderBytes + length;
+        }
+        if ((before.used != 0 && previous != before.lastSequence) ||
+            (before.tail + before.used) % capacity != before.head) return false;
+        output << "]}";
+        *json = output.str();
+        return true;
+    }
+    return false;
 }
 }
 
@@ -331,19 +385,10 @@ bool LogRing::readJson(const std::string& path, std::string* json) {
 }
 
 bool LogRing::readJson(const std::string& path, unsigned long since, std::string* json) {
-    std::vector<std::string> lines;
-    if (!readLines(path, &lines)) return false;
-    std::ostringstream output;
-    output << "{\"lines\":[";
-    bool first = true;
-    for (unsigned long i = 0; i < lines.size(); ++i) {
-        unsigned long timestamp = 0;
-        if (!lineTimestamp(lines[i], &timestamp) || timestamp < since) continue;
-        if (!first) output << ',';
-        output << '"' << jsonEscape(lines[i]) << '"';
-        first = false;
-    }
-    output << "]}";
-    *json = output.str();
-    return true;
+    int fd = open(path.c_str(), O_RDONLY);
+    if (fd < 0) return false;
+    struct stat info;
+    bool ok = fstat(fd, &info) == 0 && info.st_size == MaximumBytes && readSnapshotSince(fd, since, json);
+    close(fd);
+    return ok;
 }
