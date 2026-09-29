@@ -3,7 +3,7 @@
 #include "notification_worker.h"
 #include "http_server.h"
 #include "gateway_config.h"
-#include "shelly_integration.h"
+#include "external_http_device.h"
 
 #include <cerrno>
 #include <csignal>
@@ -35,7 +35,7 @@ int main(int argc, char** argv) {
     GatewayRunner* gatewayRunner;
     NotificationWorker* notificationWorker;
     HttpServer* server;
-    ShellyIntegration* shellyIntegration;
+    ExternalHttpDeviceWorker* shellyIntegration;
 
     if (!selectGatewayConfigPath(argc, const_cast<const char* const*>(argv), &configPath, &error)) {
         fprintf(stderr, "%s\n", error.c_str());
@@ -63,7 +63,7 @@ int main(int argc, char** argv) {
     gateway = new Gateway(serialDevice, serialBaud, runtimeDirectory, firebaseServiceAccount, firebaseTopic, caBundle,
                           notificationWorker);
     gatewayRunner = new GatewayRunner(gateway);
-    shellyIntegration = new ShellyIntegration(runtimeDirectory, gatewayRunner);
+    shellyIntegration = new ExternalHttpDeviceWorker(runtimeDirectory, gatewayRunner);
     gateway->setShellyTransport(shellyIntegration);
     if (!gatewayRunner->start(&error)) {
         fprintf(stderr, "gateway startup failed: %s\n", error.c_str());

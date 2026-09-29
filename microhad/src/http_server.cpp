@@ -4,7 +4,7 @@
 #include "json_util.h"
 #include "web_push.h"
 #include "sensor_history.h"
-#include "shelly_integration.h"
+#include "external_http_device.h"
 #include "notification_worker.h"
 
 #include <cerrno>
@@ -361,7 +361,7 @@ bool safeAssetPath(const std::string& path) {
 
 HttpServer::HttpServer(int port, GatewayRunner* gateway, const std::string& webuiDirectory,
                        const std::string& certificatePath, const std::string& privateKeyPath,
-                       ShellyIntegration* shelly, NotificationWorker* notifications) :
+                       ExternalHttpDeviceWorker* shelly, NotificationWorker* notifications) :
     port_(port), listenFd_(-1), gateway_(gateway), shelly_(shelly), notifications_(notifications), webPush_(new WebPushStore(gateway->runtimeDirectory())), webuiDirectory_(webuiDirectory),
     certificatePath_(certificatePath), privateKeyPath_(privateKeyPath), tlsServer_(0), running_(false) {
     pthread_mutex_init(&queueMutex_, 0);
@@ -513,7 +513,51 @@ void HttpServer::handleClient(int clientFd) {
 }
 
 void HttpServer::handleRequest(int clientFd, const std::string& request) {
-    if (shelly_ != 0 && request.find("GET /api/shelly/callback/") == 0) {
+    if (shelly_ != 0 && request.find("GET /api/external/fritz/config ") == 0) {
+        writeResponse(clientFd, 200, "application/json", shelly_->fritzJson());
+    } else if (shelly_ != 0 && request.find("POST /api/external/fritz/discover ") == 0) {
+        std::string::size_type bodyAt = request.find("\r\n\r\n");
+        std::string body = bodyAt == std::string::npos ? "" : request.substr(bodyAt + 4);
+        std::string host, username, password, error;
+        std::vector<FritzBoxClient> clients;
+        bool valid = formValue(body, "host", &host);
+        formValue(body, "username", &username); formValue(body, "password", &password);
+        if (!valid || !shelly_->discoverFritzClients(host, username, password, &clients, &error))
+            writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + jsonEscape(valid ? error : "Fritz!Box host is required") + "\"}");
+        else {
+            std::ostringstream out; out << "{\"ok\":true,\"clients\":[";
+            for (unsigned long i = 0; i < clients.size(); ++i) { if (i) out << ','; out << "{\"mac\":\"" << jsonEscape(clients[i].mac) << "\",\"name\":\"" << jsonEscape(clients[i].name) << "\",\"connected\":" << (clients[i].connected ? "true" : "false") << ",\"has_signal\":" << (clients[i].hasSignal ? "true" : "false") << ",\"signal_percent\":" << clients[i].signalPercent << "}"; }
+            out << "]}"; writeResponse(clientFd, 200, "application/json", out.str());
+        }
+    } else if (shelly_ != 0 && request.find("POST /api/external/fritz/config ") == 0) {
+        std::string::size_type bodyAt = request.find("\r\n\r\n");
+        std::string body = bodyAt == std::string::npos ? "" : request.substr(bodyAt + 4);
+        std::string id, name, host, username, password, selected, value, error, savedId;
+        bool valid = formValue(body, "id", &id) && formValue(body, "name", &name) && formValue(body, "host", &host) && formValue(body, "selected_macs", &selected);
+        formValue(body, "username", &username); formValue(body, "password", &password);
+        std::vector<FritzBoxClient> discovered, chosen;
+        if (valid) valid = shelly_->discoverFritzClients(host, username, password, &discovered, &error);
+        std::string::size_type start = 0;
+        while (valid && start < selected.size()) {
+            std::string::size_type end = selected.find(',', start);
+            std::string mac = selected.substr(start, end == std::string::npos ? selected.size() - start : end - start);
+            bool found = false;
+            for (unsigned long i = 0; i < discovered.size(); ++i) if (discovered[i].mac == mac) { chosen.push_back(discovered[i]); found = true; break; }
+            if (!found) { valid = false; error = "selected Fritz!Box client was not found"; }
+            if (end == std::string::npos) break;
+            start = end + 1;
+        }
+        if (!valid || !shelly_->saveFritzBox(id, name, host, username, password, chosen, &savedId, &error))
+            writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + jsonEscape(valid ? error : (error.empty() ? "invalid Fritz!Box settings" : error)) + "\"}");
+        else writeResponse(clientFd, 200, "application/json", "{\"ok\":true,\"id\":\"" + jsonEscape(savedId) + "\"}");
+    } else if (shelly_ != 0 && request.find("DELETE /api/external/fritz/") == 0) {
+        const std::string prefix = "DELETE /api/external/fritz/";
+        std::string::size_type end = request.find(' ', prefix.size());
+        std::string id = end == std::string::npos ? "" : decodeComponent(request.substr(prefix.size(), end - prefix.size()));
+        std::string error;
+        if (shelly_->removeFritzBox(id, &error)) writeResponse(clientFd, 200, "application/json", "{\"ok\":true}");
+        else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + jsonEscape(error) + "\"}");
+    } else if (shelly_ != 0 && request.find("GET /api/shelly/callback/") == 0) {
         const std::string prefix = "GET /api/shelly/callback/";
         std::string::size_type targetEnd = request.find(' ', prefix.size());
         std::string target = targetEnd == std::string::npos ? "" : request.substr(prefix.size(), targetEnd - prefix.size());

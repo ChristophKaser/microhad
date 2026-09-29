@@ -9,7 +9,7 @@
 #include "sensor_history.h"
 
 class NotificationWorker;
-class ShellyIntegration;
+class ExternalHttpDeviceWorker;
 
 struct EndpointDescriptor {
     unsigned char endpoint;
@@ -53,6 +53,8 @@ struct Device {
     bool powerKnown;
     double powerWatts;
     int linkQuality;
+    bool hasWifiSignal;
+    int wifiSignalPercent;
     long lastSeen;
     int iasZoneId;
     bool hasLowTemperatureAlert;
@@ -163,7 +165,7 @@ public:
     bool isOnline() const;
     std::string runtimeDirectory() const;
     std::string historyPath() const;
-    void setShellyTransport(ShellyIntegration* transport);
+    void setShellyTransport(ExternalHttpDeviceWorker* transport);
     bool registerShelly(const std::string& id, const std::string& name, const std::string& oldName,
                         const std::string& model, const std::vector<int>& inputIndices,
                         const std::vector<int>& temperatureIndices, const std::vector<int>& relayIndices,
@@ -172,7 +174,9 @@ public:
                         const std::string& model, int temperatureIndex, std::string* error);
     bool removeShelly(const std::string& id, std::string* error);
     bool reconcileShelly(const std::vector<std::string>& ids, std::string* error);
+    bool reconcileFritzClients(const std::vector<std::string>& ids, std::string* error);
     bool applyShellyEvent(const std::string& id, int metric, int channelIndex, double value, std::string* error);
+    bool applyFritzEvent(const std::string& id, bool connected, bool hasSignal, int signalPercent, std::string* error);
     bool applyShellyEvent(const std::string& id, int metric, double value, std::string* error);
     bool setActorState(const std::string& address, bool on, std::string* error);
     int serialFd() const;
@@ -218,7 +222,7 @@ private:
     std::string firebaseTopic_;
     std::string caBundle_;
     SensorHistory history_;
-    ShellyIntegration* shellyTransport_;
+    ExternalHttpDeviceWorker* shellyTransport_;
     NotificationWorker* notificationWorker_;
     int serialFd_;
     bool online_;

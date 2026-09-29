@@ -7,7 +7,7 @@ import { Dashboard, type DashboardConfig } from './Dashboard'
 import { HistoryDialog } from './HistoryDialog'
 import { DeviceDetailsDialog, NetworkDialog, SceneTextDialog } from './DashboardDialogs'
 import { SceneEditor } from './SceneEditor'
-import { ShellyDialog } from './ShellyDevices'
+import { ExternalDeviceDialog } from './ExternalDevices'
 import { PushDevices } from './PushDevices'
 import { useGatewayData } from './useGatewayData'
 import './style.css'
@@ -68,7 +68,7 @@ function App() {
   const [detailsDevice, setDetailsDevice] = useState<Device | null>(null)
   const [historyDevice, setHistoryDevice] = useState<Device | null>(null)
   const [restarting, setRestarting] = useState(false)
-  const [shellyId, setShellyId] = useState<string | null>(null)
+  const [externalDeviceId, setExternalDeviceId] = useState<string | null>(null)
   const [tab, setTab] = useState('Dashboard')
   const visibleDeviceTypes = deviceTypes.filter(type => status?.devices.some(device => getDeviceType(device) === type.name))
   const visibleTypeNames = visibleDeviceTypes.map(type => type.name).join('|')
@@ -232,7 +232,7 @@ function App() {
         onSettings={setSelected}
         onDetails={setDetailsDevice}
         onHistory={setHistoryDevice}
-        onConnection={(device) => setShellyId(device.external_id)}
+        onConnection={(device) => setExternalDeviceId(device.source === 'fritz_box' ? `fritz:${device.external_id}` : device.external_id)}
         onEdit={() => { setDashboardDraft(dashboard); setDashboardEditing(true); setDashboardError('') }}
         onCancel={() => { setDashboardDraft(dashboard); setDashboardEditing(false); setDashboardError('') }}
         onSave={() => void saveDashboard()}
@@ -293,7 +293,7 @@ function App() {
           <button className="button" onClick={restart}>
             Restart service
           </button>
-          <button className="button" onClick={() => setShellyId('')}>Add Shelly device</button>
+          <button className="button" onClick={() => setExternalDeviceId('')}>Add external device</button>
           <button className="button" onClick={() => setDialog('push')}>Push clients</button>
           <button className="button" disabled={!status?.notifications_enabled} onClick={() => void action('/api/notifications/test')}>Test alert</button>
         </div>
@@ -330,7 +330,7 @@ function App() {
           onSettings={setSelected}
           onDetails={setDetailsDevice}
           onHistory={setHistoryDevice}
-          onConnection={(device) => setShellyId(device.external_id)}
+          onConnection={(device) => setExternalDeviceId(device.source === 'fritz_box' ? `fritz:${device.external_id}` : device.external_id)}
           onlyType={tab}
         />
       </section>
@@ -367,7 +367,7 @@ function App() {
       {historyDevice && (
         <HistoryDialog key={historyDevice.id} device={historyDevice} onClose={() => setHistoryDevice(null)} />
       )}
-      {shellyId !== null && <ShellyDialog key={shellyId || 'new'} id={shellyId} onClose={() => setShellyId(null)} onSaved={() => void refreshStatus()} />}
+      {externalDeviceId !== null && <ExternalDeviceDialog key={externalDeviceId || 'new'} id={externalDeviceId} onClose={() => setExternalDeviceId(null)} onSaved={() => void refreshStatus()} />}
       {dialog === 'scenes' && (
         <SceneEditor
           devices={status?.devices ?? []}

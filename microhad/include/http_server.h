@@ -8,14 +8,14 @@
 class Gateway;
 class GatewayRunner;
 class WebPushStore;
-class ShellyIntegration;
+class ExternalHttpDeviceWorker;
 class NotificationWorker;
 
 class HttpServer {
 public:
     HttpServer(int port, GatewayRunner* gateway, const std::string& webuiDirectory,
                const std::string& certificatePath, const std::string& privateKeyPath,
-               ShellyIntegration* shelly = 0, NotificationWorker* notifications = 0);
+               ExternalHttpDeviceWorker* shelly = 0, NotificationWorker* notifications = 0);
     ~HttpServer();
     bool start(std::string* error);
     void poll();
@@ -25,7 +25,7 @@ private:
     int port_;
     int listenFd_;
     GatewayRunner* gateway_;
-    ShellyIntegration* shelly_;
+    ExternalHttpDeviceWorker* shelly_;
     NotificationWorker* notifications_;
     WebPushStore* webPush_;
     std::string webuiDirectory_;

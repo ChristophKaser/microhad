@@ -90,6 +90,7 @@ function DeviceVisual({ device, type }: { device: Device; type: string }) {
   if (type === 'Lights') return <LightBulbIcon on={device.light_on} />
   if (type === 'Smart plugs' || type === 'Switches') return <span aria-hidden="true">{type === 'Smart plugs' ? '🔌' : '⏻'}</span>
   if (type === 'Motion sensors') return <span aria-hidden="true">{device.occupied ? '◉' : '◎'}</span>
+  if (type === 'Presence sensors') return <span aria-hidden="true">{device.occupied ? '●' : '○'}</span>
   return <span aria-hidden="true">{type === 'Remotes' ? '🎛️' : '📡'}</span>
 }
 export const deviceTypes = [
@@ -98,7 +99,8 @@ export const deviceTypes = [
     name: 'Climate sensors',
     matches: (device: Device) => device.has_temperature || device.has_humidity,
   },
-  { name: 'Motion sensors', matches: (device: Device) => device.has_occupancy },
+  { name: 'Presence sensors', matches: (device: Device) => device.source === 'fritz_box' && device.has_occupancy },
+  { name: 'Motion sensors', matches: (device: Device) => device.has_occupancy && device.source !== 'fritz_box' },
   { name: 'Lights', matches: (device: Device) => device.has_light },
   { name: 'Remotes', matches: (device: Device) => device.has_remote },
   { name: 'Switches', matches: (device: Device) => device.has_actor && !device.has_power },
@@ -203,7 +205,8 @@ function DeviceCard({
     type !== 'Climate sensors' && device.has_temperature && `🌡 ${device.temperature_celsius} °C`,
     type !== 'Climate sensors' && device.has_humidity && `💧 ${device.humidity_percent}%`,
     type !== 'Contact sensors' && device.has_contact && (device.contact_open ? 'Open' : 'Closed'),
-    type !== 'Motion sensors' && device.has_occupancy && (device.occupied ? 'Motion' : 'Clear'),
+    type !== 'Motion sensors' && type !== 'Presence sensors' && device.has_occupancy && (device.occupied ? 'Motion' : 'Clear'),
+    type !== 'Presence sensors' && device.source === 'fritz_box' && device.has_wifi_signal && `Wi‑Fi ${device.wifi_signal_percent}%`,
     type !== 'Lights' && device.has_light && (device.light_on ? 'Light on' : 'Light off'),
     type !== 'Smart plugs' && device.has_power && device.power_known && `${device.power_watts.toFixed(1)} W`,
   ].filter(Boolean)
@@ -211,6 +214,7 @@ function DeviceCard({
     <article className={`device-card device-card-${type.toLowerCase().replace(/[^a-z]+/g, '-')} ${
       (type === 'Contact sensors' && device.contact_open) ||
       (type === 'Motion sensors' && device.occupied) ||
+      (type === 'Presence sensors' && device.occupied) ||
       (type === 'Lights' && device.light_on)
         ? 'device-active'
         : ''
@@ -240,11 +244,13 @@ function DeviceCard({
           <span className="focus-icon"><DeviceVisual device={device} type={type} /></span>
           <div className="focus-copy">
             <strong>{type === 'Contact sensors' ? (!device.contact_known ? 'Unknown' : device.contact_open ? 'Open' : 'Closed')
+              : type === 'Presence sensors' ? (!device.last_seen || Date.now() / 1000 - device.last_seen > 90 ? 'Unknown' : device.occupied ? 'Connected' : 'Not connected')
               : type === 'Motion sensors' ? (device.occupied ? 'Occupied' : 'Clear')
               : type === 'Lights' ? (device.light_on ? 'On' : 'Off')
               : type === 'Switches' || type === 'Smart plugs' ? (!device.actor_known ? 'Unknown' : device.actor_on ? 'On' : 'Off')
               : type === 'Remotes' ? 'Remote' : device.kind}</strong>
             <span>{type === 'Contact sensors' ? 'Contact sensor'
+              : type === 'Presence sensors' ? 'Wi‑Fi presence sensor'
               : type === 'Motion sensors' ? 'Motion sensor'
               : type === 'Lights' ? 'Light'
               : type === 'Switches' ? 'Switch'
@@ -328,7 +334,7 @@ function DeviceCard({
               </svg>
             </button>
           )}
-          {device.source === 'shelly' && <button title="Shelly connection setup" aria-label={`Connection setup for ${device.name}`} onClick={onConnection}>⌁</button>}
+          {(device.source === 'shelly' || device.source === 'fritz_box') && <button title="External device setup" aria-label={`Connection setup for ${device.name}`} onClick={onConnection}>⌁</button>}
           <button
             title="Refresh attributes"
             aria-label={`Refresh ${device.name}`}

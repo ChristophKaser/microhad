@@ -193,7 +193,8 @@ bool saveDevices(const std::string& filename, const std::vector<Device>& devices
                << (device.occupied ? "true" : "false") << ",\"has_occupancy\":"
                << (device.hasOccupancy ? "true" : "false") << ",\"battery_percent\":" << device.batteryPercent
                << ",\"has_battery\":" << (device.hasBattery ? "true" : "false") << ",\"link_quality\":"
-               << device.linkQuality << ",\"last_seen\":" << device.lastSeen << ",\"ias_zone_id\":" << device.iasZoneId
+               << device.linkQuality << ",\"has_wifi_signal\":" << (device.hasWifiSignal ? "true" : "false")
+               << ",\"wifi_signal_percent\":" << device.wifiSignalPercent << ",\"last_seen\":" << device.lastSeen << ",\"ias_zone_id\":" << device.iasZoneId
                << ",\"has_light\":" << (device.hasLight ? "true" : "false") << ",\"light_on\":"
                << (device.lightOn ? "true" : "false") << ",\"has_brightness\":"
                << (device.hasBrightness ? "true" : "false") << ",\"brightness_percent\":" << device.brightnessPercent
@@ -255,6 +256,7 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
                 !validOptionalDecimalField(line, "high_temperature_alert", -100, 200) ||
                 !validOptionalIntegerField(line, "battery_percent", -1, 100) ||
                 !validOptionalIntegerField(line, "link_quality", 0, 255) ||
+                !validOptionalIntegerField(line, "wifi_signal_percent", 0, 100) ||
                 !validOptionalIntegerField(line, "brightness_percent", -1, 100) ||
                 !validOptionalIntegerField(line, "last_seen", 0, LONG_MAX) ||
                 !validOptionalIntegerField(line, "ias_zone_id", -1, 254) ||
@@ -273,7 +275,7 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
             Device device;
             device.ieeeAddress = ieeeAddress;
             jsonStringField(line, "source", &device.source);
-            if (device.source != "zigbee" && device.source != "shelly") continue;
+            if (device.source != "zigbee" && device.source != "shelly" && device.source != "fritz_box") continue;
             jsonStringField(line, "external_id", &device.externalId);
             jsonStringField(line, "component", &device.component);
             if (addressValue != 0) device.networkAddress = static_cast<unsigned short>(networkAddress);
@@ -292,6 +294,7 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
             device.hasOccupancy = line.find("\"has_occupancy\":true") != std::string::npos;
             device.occupied = line.find("\"occupied\":true") != std::string::npos;
             device.hasBattery = line.find("\"has_battery\":true") != std::string::npos;
+            device.hasWifiSignal = line.find("\"has_wifi_signal\":true") != std::string::npos;
             device.hasLight = line.find("\"has_light\":true") != std::string::npos;
             device.lightOn = line.find("\"light_on\":true") != std::string::npos;
             device.hasBrightness = line.find("\"has_brightness\":true") != std::string::npos;
@@ -314,6 +317,8 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
             if (value != 0) device.humidityPercent = atof(value);
             value = numericField(line, "link_quality");
             if (value != 0) device.linkQuality = atoi(value);
+            value = numericField(line, "wifi_signal_percent");
+            if (value != 0) device.wifiSignalPercent = atoi(value);
             value = numericField(line, "brightness_percent");
             if (value != 0) device.brightnessPercent = atoi(value);
             value = numericField(line, "last_seen");

@@ -6,7 +6,7 @@
 #include "fcm.h"
 #include "storage.h"
 #include "sensor_history.h"
-#include "shelly_integration.h"
+#include "external_http_device.h"
 #include "json_util.h"
 
 #pragma GCC diagnostic push
@@ -310,7 +310,7 @@ void testServers() {
     Gateway* gateway = new Gateway("/dev/null", 115200, directory, "", "", "", &notifications, directory + "/history.bin");
     GatewayIntegrationTestPeer::attachSerial(gateway, inbound[0]);
     GatewayRunner runner(gateway);
-    ShellyIntegration shelly(directory, &runner);
+    ExternalHttpDeviceWorker shelly(directory, &runner);
     gateway->setShellyTransport(&shelly);
     assert(runner.start(&error));
     assert(shelly.start(&error));

@@ -1,5 +1,5 @@
 #include "gateway.h"
-#include "shelly_integration.h"
+#include "external_http_device.h"
 #include "json_util.h"
 #include "notification_worker.h"
 #include "storage.h"
@@ -39,7 +39,7 @@ Gateway::SceneRetry::SceneRetry() : off(false), inFlight(false), retryRequested(
 Device::Device() : source("zigbee"), networkAddress(0xffff), kind("generic"), contactOpen(false), hasContact(false), contactKnown(false), hasTemperature(false), temperatureKnown(false),
                    temperatureCelsius(0), hasHumidity(false), humidityPercent(0), hasOccupancy(false), occupied(false),
                    hasBattery(false), batteryPercent(0), hasLight(false), lightOn(false), hasBrightness(false),
-                   brightnessPercent(0), hasRemote(false), hasActor(false), actorKnown(false), actorOn(false), hasPower(false), powerKnown(false), powerWatts(0), linkQuality(0), lastSeen(0),
+                   brightnessPercent(0), hasRemote(false), hasActor(false), actorKnown(false), actorOn(false), hasPower(false), powerKnown(false), powerWatts(0), linkQuality(0), hasWifiSignal(false), wifiSignalPercent(0), lastSeen(0),
                    iasZoneId(-1), hasLowTemperatureAlert(false), hasHighTemperatureAlert(false), lowTemperatureAlert(0),
                    highTemperatureAlert(0), contactInitialAlertMinutes(10), contactReminderAlertMinutes(5),
                    sensorRefreshIntervalMinutes(5) {
@@ -54,7 +54,7 @@ bool validShellyId(const std::string& id) {
 }
 std::string shellyAddress(const std::string& id, const std::string& component, int channelIndex = 0) {
     const char* digits = "0123456789abcdef";
-    unsigned int base = component == "contact" ? 1 : component == "temperature" ? 2 : component == "relay" ? 3 : 4;
+    unsigned int base = component == "contact" ? 1 : component == "temperature" ? 2 : component == "relay" ? 3 : component == "presence" ? 5 : 4;
     unsigned int suffix = base + static_cast<unsigned int>(channelIndex) * 4;
     std::string address = "0x" + id;
     std::string::size_type at = address.size() - 1;
@@ -64,6 +64,7 @@ std::string shellyAddress(const std::string& id, const std::string& component, i
 }
 
 std::string shellyDefaultName(const std::string& name, const std::string& component, int channelIndex = 0) {
+    if (component == "presence") return name.substr(0, 64);
     if (component == "plug") return name.substr(0, 64);
     std::string suffix = component == "contact" ? " · Contact" : component == "temperature" ? " · Temperature" : " · Relay";
     if (channelIndex > 0) { std::ostringstream indexed; indexed << suffix << " " << (channelIndex + 1); suffix = indexed.str(); }
@@ -170,6 +171,8 @@ void clearVolatileDeviceValues(Device* device) {
     device->hasBrightness = false;
     device->brightnessPercent = 0;
     device->linkQuality = 0;
+    device->hasWifiSignal = false;
+    device->wifiSignalPercent = 0;
     device->lastSeen = 0;
 }
 
@@ -334,17 +337,18 @@ Gateway::~Gateway() {
     stop();
 }
 
-void Gateway::setShellyTransport(ShellyIntegration* transport) { shellyTransport_ = transport; }
+void Gateway::setShellyTransport(ExternalHttpDeviceWorker* transport) { shellyTransport_ = transport; }
 
 bool Gateway::registerShelly(const std::string& id, const std::string& name, const std::string& oldName,
                              const std::string& model, const std::vector<int>& inputIndices,
                              const std::vector<int>& temperatureIndices, const std::vector<int>& relayIndices,
                              std::string* error) {
-    if (!validShellyId(id) || (model != "uni" && model != "plug" && model != "plugs")) {
+    if (!validShellyId(id) || (model != "uni" && model != "plug" && model != "plugs" && model != "fritz")) {
         *error = "invalid Shelly device"; return false;
     }
     std::vector<std::string> components;
-    if (model == "uni") {
+    if (model == "fritz") components.push_back("presence");
+    else if (model == "uni") {
         for (unsigned long i = 0; i < inputIndices.size(); ++i) components.push_back("contact:" + std::string(1, static_cast<char>('0' + inputIndices[i])));
         for (unsigned long i = 0; i < temperatureIndices.size(); ++i) components.push_back("temperature:" + std::string(1, static_cast<char>('0' + temperatureIndices[i])));
         for (unsigned long i = 0; i < relayIndices.size(); ++i) components.push_back("relay:" + std::string(1, static_cast<char>('0' + relayIndices[i])));
@@ -354,7 +358,7 @@ bool Gateway::registerShelly(const std::string& id, const std::string& name, con
         std::string type = colon == std::string::npos ? components[i] : components[i].substr(0, colon);
         int channel = colon == std::string::npos ? 0 : atoi(components[i].c_str() + colon + 1);
         std::map<std::string, Device>::const_iterator existing = devices_.find(shellyAddress(id, type, channel));
-        if (existing != devices_.end() && (existing->second.source != "shelly" || existing->second.externalId != id)) {
+        if (existing != devices_.end() && (existing->second.source != (model == "fritz" ? "fritz_box" : "shelly") || existing->second.externalId != id)) {
             *error = "Shelly device address conflicts with an existing device"; return false;
         }
     }
@@ -363,7 +367,7 @@ bool Gateway::registerShelly(const std::string& id, const std::string& name, con
         std::string existingComponent = it->second.component;
         if (existingComponent == "contact" || existingComponent == "temperature" || existingComponent == "relay")
             existingComponent += ":0";
-        if (it->second.source == "shelly" && it->second.externalId == id &&
+        if ((it->second.source == "shelly" || it->second.source == "fritz_box") && it->second.externalId == id &&
             std::find(components.begin(), components.end(), existingComponent) == components.end()) {
             contactOpenedAt_.erase(it->first); nextContactAlertAt_.erase(it->first);
             devices_.erase(it++); changed = true;
@@ -377,11 +381,11 @@ bool Gateway::registerShelly(const std::string& id, const std::string& name, con
         std::map<std::string, Device>::iterator existing = devices_.find(address);
         if (existing == devices_.end()) {
             Device d;
-            d.ieeeAddress = address; d.source = "shelly"; d.externalId = id;
+            d.ieeeAddress = address; d.source = model == "fritz" ? "fritz_box" : "shelly"; d.externalId = id;
             d.component = channel == 0 ? type : components[i];
-            d.name = shellyDefaultName(name, type, channel); d.manufacturerName = "Shelly"; d.modelId = model;
-            d.kind = type == "plug" ? "smart plug" : type;
-            d.hasContact = type == "contact"; d.hasTemperature = type == "temperature";
+            d.name = shellyDefaultName(name, type, channel); d.manufacturerName = model == "fritz" ? "FRITZ!Box" : "Shelly"; d.modelId = model;
+            d.kind = type == "plug" ? "smart plug" : type == "presence" ? "presence" : type;
+            d.hasContact = type == "contact"; d.hasOccupancy = type == "presence"; d.hasTemperature = type == "temperature";
             d.hasActor = type == "relay" || type == "plug"; d.hasPower = type == "plug";
             devices_[address] = d; changed = true;
         } else {
@@ -408,7 +412,7 @@ bool Gateway::registerShelly(const std::string& id, const std::string& name, con
 bool Gateway::removeShelly(const std::string& id, std::string* error) {
     bool changed = false;
     for (std::map<std::string, Device>::iterator it = devices_.begin(); it != devices_.end();) {
-        if (it->second.source == "shelly" && it->second.externalId == id) {
+        if ((it->second.source == "shelly" || it->second.source == "fritz_box") && it->second.externalId == id) {
             contactOpenedAt_.erase(it->first); nextContactAlertAt_.erase(it->first);
             devices_.erase(it++); changed = true;
         } else ++it;
@@ -425,6 +429,18 @@ bool Gateway::reconcileShelly(const std::vector<std::string>& ids, std::string* 
         if (it->second.source == "shelly" &&
             std::find(ids.begin(), ids.end(), it->second.externalId) == ids.end()) {
             contactOpenedAt_.erase(it->first); nextContactAlertAt_.erase(it->first);
+            devices_.erase(it++); changed = true;
+        } else ++it;
+    }
+    if (changed) { markViewDirty(); saveState(); savePersistentState(); }
+    return true;
+}
+
+bool Gateway::reconcileFritzClients(const std::vector<std::string>& ids, std::string* error) {
+    (void)error;
+    bool changed = false;
+    for (std::map<std::string, Device>::iterator it = devices_.begin(); it != devices_.end();) {
+        if (it->second.source == "fritz_box" && std::find(ids.begin(), ids.end(), it->second.externalId) == ids.end()) {
             devices_.erase(it++); changed = true;
         } else ++it;
     }
@@ -478,6 +494,22 @@ bool Gateway::applyShellyEvent(const std::string& id, int metric, int channelInd
 
 bool Gateway::applyShellyEvent(const std::string& id, int metric, double value, std::string* error) {
     return applyShellyEvent(id, metric, 0, value, error);
+}
+
+bool Gateway::applyFritzEvent(const std::string& id, bool connected, bool hasSignal, int signalPercent, std::string* error) {
+    std::map<std::string, Device>::iterator it;
+    for (it = devices_.begin(); it != devices_.end(); ++it)
+        if (it->second.source == "fritz_box" && it->second.externalId == id) break;
+    if (it == devices_.end()) { *error = "unknown Fritz!Box client"; return false; }
+    if (hasSignal && (signalPercent < 0 || signalPercent > 100)) { *error = "invalid Wi-Fi signal strength"; return false; }
+    bool occupancyChanged = it->second.occupied != connected;
+    it->second.occupied = connected;
+    it->second.hasWifiSignal = hasSignal;
+    if (hasSignal) it->second.wifiSignalPercent = signalPercent;
+    it->second.lastSeen = time(0);
+    if (occupancyChanged) history_.append(it->second.ieeeAddress, SensorHistory::Occupancy, connected ? 1 : 0, it->second.lastSeen);
+    markViewDirty(); saveState();
+    return true;
 }
 
 bool Gateway::setActorState(const std::string& address, bool on, std::string* error) {
@@ -1871,6 +1903,8 @@ std::string GatewayView::statusJson() const {
              << ",\"occupied\":" << (device.occupied ? "true" : "false")
              << ",\"has_battery\":" << (device.hasBattery ? "true" : "false")
              << ",\"battery_percent\":" << device.batteryPercent << ",\"link_quality\":" << device.linkQuality
+             << ",\"has_wifi_signal\":" << (device.hasWifiSignal ? "true" : "false")
+             << ",\"wifi_signal_percent\":" << device.wifiSignalPercent
              << ",\"has_light\":" << (device.hasLight ? "true" : "false")
              << ",\"light_on\":" << (device.lightOn ? "true" : "false")
              << ",\"has_brightness\":" << (device.hasBrightness ? "true" : "false")

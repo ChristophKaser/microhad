@@ -9,7 +9,7 @@ export interface EndpointDescriptor {
 
 export interface Device {
   id: string
-  source: 'zigbee' | 'shelly'
+  source: 'zigbee' | 'shelly' | 'fritz_box'
   component: string
   external_id: string
   ieee_address: string
@@ -28,6 +28,8 @@ export interface Device {
   has_battery: boolean
   battery_percent: number
   link_quality: number
+  has_wifi_signal: boolean
+  wifi_signal_percent: number
   has_light: boolean
   light_on: boolean
   has_brightness: boolean

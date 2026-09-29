@@ -56,9 +56,9 @@ export function DeviceDetailsDialog({ device, configuration, onClose }: {
     .filter(Boolean)
     .join('\n')
 
-  if (device.source === 'shelly') return <div className="modal"><section className="dialog" role="dialog" aria-modal="true" aria-label={`Details for ${device.name}`}>
+  if (device.source === 'shelly' || device.source === 'fritz_box') return <div className="modal"><section className="dialog" role="dialog" aria-modal="true" aria-label={`Details for ${device.name}`}>
     <div className="dialog-heading"><h2>{device.name}</h2><button className="icon-button" onClick={onClose} aria-label="Close">✕</button></div>
-    <dl className="device-identity"><div><dt>Type</dt><dd>{device.kind}</dd></div><div><dt>Source</dt><dd>Shelly HTTP</dd></div><div><dt>Model</dt><dd>{device.model_id}</dd></div><div><dt>Last contact</dt><dd>{device.last_seen ? new Date(device.last_seen * 1000).toLocaleString() : 'Never'}</dd></div></dl>
+    <dl className="device-identity"><div><dt>Type</dt><dd>{device.kind}</dd></div><div><dt>Source</dt><dd>{device.source === 'fritz_box' ? 'Fritz!Box Wi‑Fi' : 'Shelly HTTP'}</dd></div><div><dt>Status</dt><dd>{device.source === 'fritz_box' ? (!device.last_seen || Date.now() / 1000 - device.last_seen > 90 ? 'Unknown' : device.occupied ? 'Connected' : 'Not connected') : device.model_id}</dd></div>{device.source === 'fritz_box' && <div><dt>Wi‑Fi signal</dt><dd>{device.has_wifi_signal ? `${device.wifi_signal_percent}%` : 'Unavailable'}</dd></div>}<div><dt>Last contact</dt><dd>{device.last_seen ? new Date(device.last_seen * 1000).toLocaleString() : 'Never'}</dd></div></dl>
     <div className="dialog-actions"><button className="button" onClick={onClose}>Close</button></div>
   </section></div>
 

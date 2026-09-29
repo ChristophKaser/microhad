@@ -189,6 +189,9 @@ void GatewayRunner::execute(Command* command) {
     else if (command->type == ShellyReconcile) result = gateway_->reconcileShelly(command->ids, &error);
     else if (command->type == ShellyEvent) result = gateway_->applyShellyEvent(command->address, command->metric,
                                                                                 command->channelIndex, command->value, &error);
+    else if (command->type == FritzEvent) result = gateway_->applyFritzEvent(command->address, command->on,
+                                                                               command->enabled, command->metric, &error);
+    else if (command->type == FritzReconcile) result = gateway_->reconcileFritzClients(command->ids, &error);
     else if (command->type == ActorState) result = gateway_->setActorState(command->address, command->on, &error);
     else if (command->type == EventLoopDebug) {
         if (eventLoopDebug_ != command->enabled) {
@@ -342,10 +345,17 @@ bool GatewayRunner::removeShelly(const std::string& id, std::string* error) {
 bool GatewayRunner::reconcileShelly(const std::vector<std::string>& ids, std::string* error) {
     Command command; command.type = ShellyReconcile; command.ids = ids; return invoke(&command, error);
 }
+bool GatewayRunner::reconcileFritzClients(const std::vector<std::string>& ids, std::string* error) {
+    Command command; command.type = FritzReconcile; command.ids = ids; return invoke(&command, error);
+}
 bool GatewayRunner::applyShellyEvent(const std::string& id, int metric, int channelIndex, double value, std::string* error) {
     Command command; command.type = ShellyEvent; command.address = id; command.metric = metric; command.value = value;
     command.channelIndex = channelIndex;
     return invoke(&command, error);
+}
+bool GatewayRunner::applyFritzEvent(const std::string& id, bool connected, bool hasSignal, int signalPercent, std::string* error) {
+    Command command; command.type = FritzEvent; command.address = id; command.on = connected;
+    command.enabled = hasSignal; command.metric = signalPercent; return invoke(&command, error);
 }
 bool GatewayRunner::setActorState(const std::string& address, bool on, std::string* error) {
     Command command; command.type = ActorState; command.address = address; command.on = on; return invoke(&command, error);

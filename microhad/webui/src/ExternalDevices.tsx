@@ -2,6 +2,77 @@ import { useEffect, useState } from 'react'
 import type { ExternalDevice } from './api'
 import { errorMessage, form, jsonRequest, post } from './api'
 
+export function ExternalDeviceDialog({ id, onClose, onSaved }: { id: string; onClose: () => void; onSaved: () => void }) {
+  const [kind, setKind] = useState<'choose' | 'shelly' | 'fritz'>(id.startsWith('fritz:') ? 'fritz' : id ? 'shelly' : 'choose')
+  if (id.startsWith('fritz:') || kind === 'fritz') return <FritzBoxDialog id={id.startsWith('fritz:') ? id.slice(6) : ''} onClose={onClose} onSaved={onSaved} />
+  if (id || kind === 'shelly') return <ShellyDialog id={id} onClose={onClose} onSaved={onSaved} />
+  return <div className="modal"><section className="dialog" role="dialog" aria-modal="true" aria-label="Add external device">
+    <div className="dialog-heading"><div><p className="eyebrow">Local HTTP device</p><h2>Add external device</h2></div><button className="icon-button" onClick={onClose} aria-label="Close">✕</button></div>
+    <p>Select a device type to set up.</p><div className="dialog-actions"><button className="button primary" onClick={() => setKind('shelly')}>Shelly</button><button className="button primary" onClick={() => setKind('fritz')}>Fritz!Box</button><button className="button" onClick={onClose}>Close</button></div>
+  </section></div>
+}
+
+interface FritzClient { mac: string; name: string; connected: boolean; has_signal?: boolean; signal_percent?: number }
+interface FritzSaved { id: string; name: string; host: string; username: string; clients: { id: string; mac: string; name: string }[] }
+
+function FritzBoxDialog({ id, onClose, onSaved }: { id: string; onClose: () => void; onSaved: () => void }) {
+  const [boxId, setBoxId] = useState('')
+  const [name, setName] = useState('Fritz!Box')
+  const [host, setHost] = useState('192.168.178.1')
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [clients, setClients] = useState<FritzClient[]>([])
+  const [selected, setSelected] = useState<string[]>([])
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    if (!id) return
+    let active = true
+    jsonRequest<FritzSaved[]>('/api/external/fritz/config').then(boxes => {
+      const box = boxes.find(item => item.id === id || item.clients.some(client => client.id === id))
+      if (!active || !box) return
+      setBoxId(box.id)
+      setName(box.name); setHost(box.host); setUsername(box.username)
+      const saved = box.clients.map(client => ({ mac: client.mac, name: client.name, connected: false }))
+      setClients(saved); setSelected(saved.map(client => client.mac))
+    }).catch(reason => { if (active) setError(errorMessage(reason)) })
+    return () => { active = false }
+  }, [id])
+  const discover = async () => {
+    setBusy(true); setError('')
+    try {
+      const result = await post<{ clients: FritzClient[] }>('/api/external/fritz/discover', form({ host, username, password }))
+      setClients(result.clients); setSelected(result.clients.map(client => client.mac))
+    } catch (reason) { setError(errorMessage(reason)) }
+    finally { setBusy(false) }
+  }
+  const save = async () => {
+    setBusy(true); setError('')
+    try {
+      await post('/api/external/fritz/config', form({ id: boxId, name, host, username, password, selected_macs: selected.join(',') }))
+      onSaved(); onClose()
+    } catch (reason) { setError(errorMessage(reason)) }
+    finally { setBusy(false) }
+  }
+  const remove = async () => {
+    try { await jsonRequest(`/api/external/fritz/${encodeURIComponent(boxId)}`, { method: 'DELETE' }); onSaved(); onClose() }
+    catch (reason) { setError(errorMessage(reason)) }
+  }
+  return <div className="modal"><section className="dialog wide" role="dialog" aria-modal="true" aria-label="Fritz!Box setup">
+    <div className="dialog-heading"><div><p className="eyebrow">External device</p><h2>Fritz!Box Wi‑Fi presence</h2></div><button className="icon-button" onClick={onClose} aria-label="Close">✕</button></div>
+    {error && <p className="error" role="alert">{error}</p>}
+    <label className="field"><span>Name</span><input value={name} onChange={event => setName(event.target.value)} /></label>
+    <label className="field"><span>Fritz!Box host</span><input value={host} onChange={event => setHost(event.target.value)} placeholder="192.168.178.1" /></label>
+    <label className="field"><span>TR‑064 user</span><input value={username} onChange={event => setUsername(event.target.value)} autoComplete="username" /></label>
+    <label className="field"><span>Password</span><input type="password" value={password} onChange={event => setPassword(event.target.value)} autoComplete="new-password" /></label>
+    {id && <p className="muted small">Leave password blank to retain the saved password.</p>}
+    <div className="dialog-actions"><button className="button" disabled={busy || !host.trim()} onClick={() => void discover()}>{busy ? 'Working…' : 'Discover Wi‑Fi devices'}</button></div>
+    {clients.length > 0 && <fieldset className="field"><legend>Wi‑Fi devices to track</legend>{clients.map(client => <label className="check" key={client.mac}><input type="checkbox" checked={selected.includes(client.mac)} onChange={() => setSelected(current => current.includes(client.mac) ? current.filter(mac => mac !== client.mac) : [...current, client.mac])} />{client.name} <span className="muted small">{client.mac}{client.connected ? ' · connected' : ' · offline'}{client.has_signal ? ` · ${client.signal_percent}% signal` : ''}</span></label>)}</fieldset>}
+    <p className="muted small">Presence and Wi‑Fi signal strength refresh every 30 seconds. FRITZ!Box reports signal strength as a percentage, and only while connected.</p>
+    <div className="dialog-actions"><button className="button primary" disabled={busy || !name.trim() || !selected.length} onClick={() => void save()}>{busy ? 'Saving…' : 'Save external device'}</button>{boxId && <button className="button danger" onClick={() => void remove()}>Remove</button>}<button className="button" onClick={onClose}>Close</button></div>
+  </section></div>
+}
+
 const gatewayHost = () => window.location.protocol === 'http:' ? window.location.host : window.location.hostname
 const indices = (value: string) => value ? value.split(',').map(Number).filter(Number.isInteger) : []
 const toggle = (values: number[], value: number) => values.includes(value) ? values.filter(item => item !== value) : [...values, value].sort()

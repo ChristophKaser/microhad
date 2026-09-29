@@ -102,19 +102,25 @@ interval in their settings. It defaults to five minutes for devices that
 ignore standard reporting; set it to `0` to disable automatic fallback refresh
 while retaining the manual Refresh action.
 
-## Shelly devices
+## External HTTP devices
 
-Use **More ⋯ → Add Shelly** to add a Shelly Uni Gen1, Plug Gen1,
-or Plug S Gen1 by its local host or address. The Uni can expose one selected
+Use **More ⋯ → Add external device** to add a Shelly or Fritz!Box. Shelly setup
+supports a Uni Gen1, Plug Gen1, or Plug S Gen1 by its local host or address. The Uni can expose one selected
 digital input as a contact, an optional temperature probe, and one relay as an
 actor. Plugs expose their relay as an actor. Optional HTTP Basic credentials
 are stored in `shelly-devices.jsonl` in the runtime directory with mode `0600`.
 Shelly readings, actors, and contact alerts appear alongside Zigbee devices in
 the dashboard's device type groups. A Uni appears as separate contact,
 temperature, and relay cards; a Plug combines its switch and power reading.
-The status API lists both sources in `devices` with stable `id` and `source`
+The status API lists all device sources in `devices` with stable `id` and `source`
 fields; Shelly history and actor commands use the regular `/api/devices/{id}`
 routes. `/api/shelly/config` manages only the Shelly connection settings.
+
+Fritz!Box setup uses local TR-064 credentials to discover known Wi-Fi hosts.
+Selected clients appear as connected/not-connected presence sensors. The
+Fritz!Box reports Wi-Fi signal strength as a percentage, available only while
+a client is connected. Shelly and Fritz!Box polling share one outbound device
+worker. Fritz!Box settings are stored in `fritz-boxes.tsv` with mode `0600`.
 
 Shelly devices poll every 30 seconds by default; the interval can be changed
 from 5 to 3600 seconds. Callback mode can replace polling for contact and relay

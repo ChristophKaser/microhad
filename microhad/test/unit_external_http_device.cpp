@@ -1,4 +1,4 @@
-#include "shelly_integration.h"
+#include "external_http_device.h"
 #include "gateway.h"
 #include "sensor_history.h"
 #include "json_util.h"
@@ -9,17 +9,24 @@
 #include <string>
 #include <unistd.h>
 
-void runShellyIntegrationUnitTests() {
+void runExternalHttpDeviceWorkerUnitTests() {
+    std::vector<FritzBoxClient> fritzClients;
+    assert(ExternalHttpDeviceWorker::parseFritzHostList("<List><Item><MACAddress>AA:BB:CC:DD:EE:01</MACAddress><Active>1</Active><HostName>Phone</HostName><InterfaceType>802.11</InterfaceType></Item><Item><MACAddress>aa:bb:cc:dd:ee:02</MACAddress><Active>0</Active><HostName>Tablet</HostName><InterfaceType>802.11</InterfaceType></Item><Item><MACAddress>aa:bb:cc:dd:ee:03</MACAddress><Active>1</Active><HostName>Wired</HostName><InterfaceType>Ethernet</InterfaceType></Item></List>", &fritzClients));
+    assert(fritzClients.size() == 2);
+    assert(fritzClients[0].mac == "aa:bb:cc:dd:ee:01" && fritzClients[0].connected);
+    assert(fritzClients[1].mac == "aa:bb:cc:dd:ee:02" && !fritzClients[1].connected);
+    FritzBoxProtocol::mergeSignalList("<List><Item><AssociatedDeviceMACAddress>AA:BB:CC:DD:EE:01</AssociatedDeviceMACAddress><X_AVM-DE_SignalStrength>72</X_AVM-DE_SignalStrength></Item></List>", &fritzClients);
+    assert(fritzClients[0].hasSignal && fritzClients[0].signalPercent == 72);
     double watts = 0;
-    assert(ShellyIntegration::parsePowerStatus("{\"meters\":[{\"power\":3500.04,\"is_valid\":true}]}", &watts));
+    assert(ExternalHttpDeviceWorker::parsePowerStatus("{\"meters\":[{\"power\":3500.04,\"is_valid\":true}]}", &watts));
     assert(watts == 3500.04);
-    assert(!ShellyIntegration::parsePowerStatus("{\"meters\":[{\"power\":100,\"is_valid\":false}]}", &watts));
-    assert(!ShellyIntegration::parsePowerStatus("{\"meters\":[{\"power\":-1}]}", &watts));
-    assert(!ShellyIntegration::parsePowerStatus("{\"meters\":[{\"power\":null}]}", &watts));
+    assert(!ExternalHttpDeviceWorker::parsePowerStatus("{\"meters\":[{\"power\":100,\"is_valid\":false}]}", &watts));
+    assert(!ExternalHttpDeviceWorker::parsePowerStatus("{\"meters\":[{\"power\":-1}]}", &watts));
+    assert(!ExternalHttpDeviceWorker::parsePowerStatus("{\"meters\":[{\"power\":null}]}", &watts));
     char directory[] = "/tmp/microhad-shelly-unit-XXXXXX";
     assert(mkdtemp(directory) != 0);
     {
-        ShellyIntegration shelly(directory);
+        ExternalHttpDeviceWorker shelly(directory);
         std::string id, error;
         assert(!shelly.saveDevice("", "No callback address", "192.0.2.1", "", "uni", "", "",
                                   0, -1, 0, 30, false, true, false, &id, &error));
@@ -85,6 +92,15 @@ void runShellyIntegrationUnitTests() {
         assert(!plugAddress.empty());
         assert(SensorHistory::readJson(history, plugAddress, 0, &json, &error));
         assert(json.find(",4,35000]") != std::string::npos);
+        assert(gateway.registerShelly("fb123456789abcde", "Wi-Fi Phone", "Wi-Fi Phone", "fritz", std::vector<int>(), std::vector<int>(), std::vector<int>(), &error));
+        assert(gateway.applyFritzEvent("fb123456789abcde", true, true, 72, &error));
+        devices = gateway.devices();
+        bool foundPresence = false;
+        for (unsigned long i = 0; i < devices.size(); ++i) if (devices[i].source == "fritz_box") {
+            foundPresence = devices[i].hasOccupancy && devices[i].occupied && devices[i].hasWifiSignal && devices[i].wifiSignalPercent == 72;
+        }
+        assert(foundPresence);
+        assert(gateway.applyFritzEvent("fb123456789abcde", false, false, 0, &error));
         std::vector<int> inputs; inputs.push_back(0); inputs.push_back(1);
         std::vector<int> temperatures; temperatures.push_back(0); temperatures.push_back(1); temperatures.push_back(2);
         std::vector<int> relays; relays.push_back(0); relays.push_back(1);
@@ -105,7 +121,7 @@ void runShellyIntegrationUnitTests() {
             if (devices[i].ieeeAddress == secondContact) secondContactOpen = devices[i].contactOpen && devices[i].contactKnown;
         assert(secondContactOpen);
         assert(gateway.removeShelly("1234567890abcdef", &error));
-        assert(gateway.devices().size() == 8);
+        assert(gateway.devices().size() == 9);
         assert(unlink(history.c_str()) == 0);
     }
     std::string controllerState = std::string(directory) + "/devices.json";
