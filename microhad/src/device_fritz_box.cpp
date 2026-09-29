@@ -3,13 +3,25 @@
 
 #include <cstdlib>
 #include <cstring>
+#include "mbedtls/md5.h"
 
 bool externalHttpRequest(const std::string& host, const std::string& username, const std::string& password,
                          const std::string& method, const std::string& path, const std::string& headers,
                          const std::string& requestBody, std::string* responseBody, unsigned short defaultPort,
-                         bool digestOnly);
+                         bool digestOnly, bool acceptSoapFault);
 
 namespace {
+std::string md5Hex(const std::string& value) {
+    unsigned char digest[16];
+    if (mbedtls_md5_ret(reinterpret_cast<const unsigned char*>(value.data()), value.size(), digest) != 0) return "";
+    static const char hex[] = "0123456789abcdef";
+    std::string result;
+    for (unsigned long i = 0; i < sizeof(digest); ++i) {
+        result.push_back(hex[digest[i] >> 4]); result.push_back(hex[digest[i] & 15]);
+    }
+    return result;
+}
+
 std::string lowerAscii(std::string value) {
     for (unsigned long i = 0; i < value.size(); ++i)
         if (value[i] >= 'A' && value[i] <= 'Z') value[i] = static_cast<char>(value[i] - 'A' + 'a');
@@ -44,10 +56,34 @@ std::string xmlUnescape(const std::string& input) {
 
 bool soapAction(const std::string& host, const std::string& username, const std::string& password,
                 const std::string& service, const std::string& action, const std::string& path,
-                const std::string& arguments, std::string* response) {
-    std::string body = "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:" + action + " xmlns:u=\"" + service + "\">" + arguments + "</u:" + action + "></s:Body></s:Envelope>";
+                const std::string& arguments, std::string* response, std::string* error) {
+    const std::string authNs = "http://soap-authentication.org/digest/2001/10/";
+    std::string actionXml = "<u:" + action + " xmlns:u=\"" + service + "\">" + arguments + "</u:" + action + ">";
+    std::string body = "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Header><h:InitChallenge xmlns:h=\"" + authNs + "\" s:mustUnderstand=\"1\"><UserID>" + username + "</UserID></h:InitChallenge></s:Header><s:Body>" + actionXml + "</s:Body></s:Envelope>";
     std::string headers = "Content-Type: text/xml; charset=\"utf-8\"\r\nSOAPAction: \"" + service + "#" + action + "\"\r\n";
-    return externalHttpRequest(host, username, password, "POST", path, headers, body, response, 49000, true);
+    if (!externalHttpRequest(host, username, password, "POST", path, headers, body, response, 49000, true, true)) return false;
+    std::string nonce = xmlValue(*response, "Nonce");
+    std::string realm = xmlValue(*response, "Realm");
+    if (nonce.empty() || realm.empty()) {
+        std::string code = xmlValue(*response, "errorCode");
+        if (!code.empty()) {
+            if (error != 0) *error = "FRITZ!Box denied the TR-064 action (error " + code + ")";
+            return false;
+        }
+        return true;
+    }
+    std::string secret = md5Hex(username + ":" + realm + ":" + password);
+    std::string auth = md5Hex(secret + ":" + nonce);
+    if (secret.empty() || auth.empty()) return false;
+    std::string clientHeader = "<s:Header><h:ClientAuth xmlns:h=\"" + authNs + "\" s:mustUnderstand=\"1\"><Nonce>" + nonce + "</Nonce><Auth>" + auth + "</Auth><UserID>" + username + "</UserID><Realm>" + realm + "</Realm></h:ClientAuth></s:Header>";
+    body = "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\">" + clientHeader + "<s:Body>" + actionXml + "</s:Body></s:Envelope>";
+    if (!externalHttpRequest(host, username, password, "POST", path, headers, body, response, 49000, true, true)) return false;
+    std::string code = xmlValue(*response, "errorCode");
+    if (!code.empty()) {
+        if (error != 0) *error = "FRITZ!Box denied the TR-064 action (error " + code + ")";
+        return false;
+    }
+    return true;
 }
 
 bool parseHostList(const std::string& xml, std::vector<FritzBoxClient>* clients) {

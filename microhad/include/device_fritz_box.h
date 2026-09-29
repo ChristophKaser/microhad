@@ -10,7 +10,7 @@ struct FritzBoxDevice { std::string id, name, host, username, password; unsigned
 namespace FritzBoxProtocol {
 bool soapAction(const std::string& host, const std::string& username, const std::string& password,
                 const std::string& service, const std::string& action, const std::string& path,
-                const std::string& arguments, std::string* response);
+                const std::string& arguments, std::string* response, std::string* error = 0);
 std::string xmlValue(const std::string& xml, const std::string& tag);
 std::string xmlUnescape(const std::string& value);
 bool parseHostList(const std::string& xml, std::vector<FritzBoxClient>* clients);

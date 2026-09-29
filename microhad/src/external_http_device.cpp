@@ -110,7 +110,8 @@ std::string digestAuthorization(const std::string& challenge, const std::string&
 bool httpRequest(const std::string& configuredHost, const std::string& username, const std::string& password,
                  const std::string& method, const std::string& path, const std::string& headers,
                  const std::string& requestBody, std::string* body, unsigned short defaultPort = 80,
-                 const std::string& authorization = "", bool digestOnly = false) {
+                 const std::string& authorization = "", bool digestOnly = false,
+                 bool acceptSoapFault = false) {
     std::string host = configuredHost;
     unsigned short port = defaultPort;
     std::string::size_type colon = host.rfind(':');
@@ -187,11 +188,13 @@ bool httpRequest(const std::string& configuredHost, const std::string& username,
             if (challenge.find("Digest ") != std::string::npos) {
                 std::string auth = digestAuthorization(challenge, username, password, method, path);
                 if (!auth.empty()) return httpRequest(configuredHost, username, password, method, path, headers,
-                                                     requestBody, body, defaultPort, auth, digestOnly);
+                                                     requestBody, body, defaultPort, auth, digestOnly, acceptSoapFault);
             }
         }
     }
-    if (response.compare(0, 12, "HTTP/1.1 200") != 0 && response.compare(0, 12, "HTTP/1.0 200") != 0) return false;
+    bool ok = response.compare(0, 12, "HTTP/1.1 200") == 0 || response.compare(0, 12, "HTTP/1.0 200") == 0;
+    bool soapFault = response.compare(0, 12, "HTTP/1.1 500") == 0 || response.compare(0, 12, "HTTP/1.0 500") == 0;
+    if (!ok && !(acceptSoapFault && soapFault)) return false;
     *body = response.substr(headerEnd + 4);
     return true;
 }
@@ -365,12 +368,12 @@ std::string deviceJson(const ShellyDevice& d, bool includeCallbackUrls) {
 bool externalHttpRequest(const std::string& host, const std::string& username, const std::string& password,
                         const std::string& method, const std::string& path, const std::string& headers,
                         const std::string& requestBody, std::string* responseBody, unsigned short defaultPort,
-                        bool digestOnly) {
+                        bool digestOnly, bool acceptSoapFault) {
     if (!validHost(host) || (method != "GET" && method != "POST") || path.empty() || path[0] != '/' ||
         path.find('\r') != std::string::npos || path.find('\n') != std::string::npos || path.find(' ') != std::string::npos ||
         username.find('\r') != std::string::npos || username.find('\n') != std::string::npos ||
         password.find('\r') != std::string::npos || password.find('\n') != std::string::npos) return false;
-    return httpRequest(host, username, password, method, path, headers, requestBody, responseBody, defaultPort, "", digestOnly);
+    return httpRequest(host, username, password, method, path, headers, requestBody, responseBody, defaultPort, "", digestOnly, acceptSoapFault);
 }
 
 ShellyDevice::ShellyDevice() : pollSeconds(30), invertContact(false), nextPoll(0), manualRefresh(false) {}
@@ -515,18 +518,46 @@ bool ExternalHttpDeviceWorker::discoverFritzClientsNetwork(const std::string& ho
     const std::string hostsService = "urn:dslforum-org:service:Hosts:1";
     const std::string wlanService = "urn:dslforum-org:service:WLANConfiguration:1";
     std::string reply, path;
-    if (!FritzBoxProtocol::soapAction(host, user, pass, hostsService, "X_AVM-DE_GetHostListPath", "/upnp/control/hosts", "", &reply)) {
-        *error = "cannot query Fritz!Box host list; check TR-064 access and credentials"; return false;
+    /* The AVM host-list download action requires an administrator role on
+       newer FRITZ!OS releases. The standard Hosts:1 enumeration actions are
+       readable by an ordinary home-network user and provide the same fields. */
+    bool enumerated = false;
+    if (FritzBoxProtocol::soapAction(host, user, pass, hostsService, "GetHostNumberOfEntries", "/upnp/control/hosts", "", &reply, error)) {
+        std::string countText = FritzBoxProtocol::xmlValue(reply, "NewHostNumberOfEntries");
+        char* end = 0;
+        long count = strtol(countText.c_str(), &end, 10);
+        if (end != countText.c_str() && *end == 0 && count >= 0 && count <= 512) {
+            clients->clear(); enumerated = true;
+            for (long index = 0; index < count; ++index) {
+                std::ostringstream args; args << "<NewIndex>" << index << "</NewIndex>";
+                std::string entry;
+                if (!FritzBoxProtocol::soapAction(host, user, pass, hostsService, "GetGenericHostEntry", "/upnp/control/hosts", args.str(), &entry)) { enumerated = false; break; }
+                std::string interfaceType = FritzBoxProtocol::xmlValue(entry, "NewInterfaceType");
+                if (interfaceType != "802.11") continue;
+                FritzBoxClient client;
+                client.mac = FritzBoxProtocol::xmlValue(entry, "NewMACAddress");
+                for (unsigned long j = 0; j < client.mac.size(); ++j) if (client.mac[j] >= 'A' && client.mac[j] <= 'F') client.mac[j] = static_cast<char>(client.mac[j] - 'A' + 'a');
+                client.name = FritzBoxProtocol::xmlUnescape(FritzBoxProtocol::xmlValue(entry, "NewHostName"));
+                client.connected = FritzBoxProtocol::xmlValue(entry, "NewActive") == "1";
+                if (!client.mac.empty()) clients->push_back(client);
+            }
+        }
     }
-    path = FritzBoxProtocol::xmlValue(reply, "NewX_AVM-DE_HostListPath");
-    if (path.empty() || !externalHttpRequest(host, user, pass, "GET", path, "", "", &reply, 49000, true) || !parseFritzHostList(reply, clients)) {
-        *error = "Fritz!Box returned an invalid host list"; return false;
+    if (!enumerated) {
+        if (!FritzBoxProtocol::soapAction(host, user, pass, hostsService, "X_AVM-DE_GetHostListPath", "/upnp/control/hosts", "", &reply, error)) {
+            if (error->empty()) *error = "cannot query Fritz!Box host list; check TR-064 access and credentials";
+            return false;
+        }
+        path = FritzBoxProtocol::xmlValue(reply, "NewX_AVM-DE_HostListPath");
+        if (path.empty() || !externalHttpRequest(host, user, pass, "GET", path, "", "", &reply, 49000, true, false) || !parseFritzHostList(reply, clients)) {
+            *error = "Fritz!Box returned an invalid host list"; return false;
+        }
     }
     std::string wlanReply;
     if (FritzBoxProtocol::soapAction(host, user, pass, wlanService, "X_AVM-DE_GetWLANDeviceListPath", "/upnp/control/wlanconfig1", "", &wlanReply)) {
         path = FritzBoxProtocol::xmlValue(wlanReply, "NewX_AVM-DE_WLANDeviceListPath");
         std::string wlanXml;
-        if (!path.empty() && externalHttpRequest(host, user, pass, "GET", path, "", "", &wlanXml, 49000, true))
+        if (!path.empty() && externalHttpRequest(host, user, pass, "GET", path, "", "", &wlanXml, 49000, true, false))
             FritzBoxProtocol::mergeSignalList(wlanXml, clients);
     }
     return true;
