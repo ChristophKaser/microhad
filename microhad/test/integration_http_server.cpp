@@ -65,6 +65,8 @@ void removeDirectory(const std::string& directory) {
     unlink((directory + "/web-push-subscriptions.ndjson").c_str());
     unlink((directory + "/push-devices.ndjson").c_str());
     unlink((directory + "/scenes.conf").c_str());
+    unlink((directory + "/dashboard.json").c_str());
+    unlink((directory + "/dashboard.json.tmp").c_str());
     unlink((directory + "/devices.json").c_str());
     unlink((directory + "/history.bin").c_str());
     unlink((directory + "/shelly-devices.jsonl").c_str());
@@ -352,6 +354,14 @@ void testServers() {
     response = plainRequest(http.boundPort(), "GET /api/status HTTP/1.1\r\nHost: localhost\r\n\r\n");
     expectStatus("http status", response, 200);
     assert(response.find("Content-Type: application/json\r\n") != std::string::npos && response.find("\"online\":") != std::string::npos && response.find("\"devices\":") != std::string::npos);
+    response = plainRequest(http.boundPort(), "GET /api/dashboard/config HTTP/1.1\r\nHost: localhost\r\n\r\n");
+    expectStatus("http default dashboard config", response, 200);
+    assert(response.find("{\"widgets\":[]}") != std::string::npos);
+    expectStatus("http reject malformed dashboard config", plainRequest(http.boundPort(), post("/api/dashboard/config", "{\"widgets\":[,]}")), 400);
+    expectStatus("http save dashboard config", plainRequest(http.boundPort(), post("/api/dashboard/config", "{\"widgets\":[{\"id\":\"one\"}]}")), 200);
+    response = plainRequest(http.boundPort(), "GET /api/dashboard/config HTTP/1.1\r\nHost: localhost\r\n\r\n");
+    expectStatus("http read saved dashboard config", response, 200);
+    assert(response.find("{\"widgets\":[{\"id\":\"one\"}]}") != std::string::npos);
     response = plainRequest(http.boundPort(), "GET /api/logs HTTP/1.1\r\nHost: localhost\r\n\r\n");
     expectStatus("http logs", response, 200);
     assert(response.find("Content-Type: application/json\r\n") != std::string::npos && response.find("\"lines\":") != std::string::npos);

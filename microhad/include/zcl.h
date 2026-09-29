@@ -5,7 +5,8 @@
 #include <vector>
 
 struct Device;
-enum { ZclObservedTemperature = 1, ZclObservedHumidity = 2, ZclObservedContact = 4 };
+enum { ZclObservedTemperature = 1, ZclObservedHumidity = 2, ZclObservedContact = 4,
+       ZclObservedOccupancy = 8, ZclObservedBattery = 16 };
 
 /* Applies standard, model-independent ZCL attributes. Returns true only when
    the attribute is understood and changed the normalized device state. */

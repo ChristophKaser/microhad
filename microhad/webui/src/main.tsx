@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import type { Device } from './api'
 import { errorMessage, form, jsonRequest, post } from './api'
-import { DeviceGroups, DeviceSettings, LightGroupStates } from './devices'
+import { DeviceGroups, DeviceSettings, LightGroupStates, deviceTypes, getDeviceType } from './devices'
+import { Dashboard, type DashboardConfig } from './Dashboard'
 import { HistoryDialog } from './HistoryDialog'
 import { DeviceDetailsDialog, NetworkDialog, SceneTextDialog } from './DashboardDialogs'
 import { SceneEditor } from './SceneEditor'
@@ -67,17 +68,40 @@ function App() {
   const [detailsDevice, setDetailsDevice] = useState<Device | null>(null)
   const [historyDevice, setHistoryDevice] = useState<Device | null>(null)
   const [restarting, setRestarting] = useState(false)
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  const [desktopMenuOpen, setDesktopMenuOpen] = useState(false)
   const [shellyId, setShellyId] = useState<string | null>(null)
+  const [tab, setTab] = useState('Dashboard')
+  const visibleDeviceTypes = deviceTypes.filter(type => status?.devices.some(device => getDeviceType(device) === type.name))
+  const visibleTypeNames = visibleDeviceTypes.map(type => type.name).join('|')
   useEffect(() => {
-    if (!mobileMenuOpen) return
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setMobileMenuOpen(false)
-    }
-    document.addEventListener('keydown', closeOnEscape)
-    return () => document.removeEventListener('keydown', closeOnEscape)
-  }, [mobileMenuOpen])
+    if (deviceTypes.some(type => type.name === tab) && !visibleTypeNames.split('|').includes(tab)) setTab('Dashboard')
+  }, [tab, visibleTypeNames])
+  const [dashboard, setDashboard] = useState<DashboardConfig>({ widgets: [] })
+  const [dashboardDraft, setDashboardDraft] = useState<DashboardConfig>({ widgets: [] })
+  const [dashboardEditing, setDashboardEditing] = useState(false)
+  const [dashboardSaving, setDashboardSaving] = useState(false)
+  const [dashboardLoaded, setDashboardLoaded] = useState(false)
+  const [dashboardError, setDashboardError] = useState('')
+  useEffect(() => {
+    let active = true
+    void jsonRequest<DashboardConfig>('/api/dashboard/config').then(value => {
+      if (!active) return
+      const config = value && Array.isArray(value.widgets) ? value : { widgets: [] }
+      setDashboard(config)
+      setDashboardDraft(config)
+      setDashboardLoaded(true)
+    }).catch(error => { if (active) { setDashboardError(errorMessage(error)); setDashboardLoaded(true) } })
+    return () => { active = false }
+  }, [])
+  const saveDashboard = async () => {
+    setDashboardSaving(true)
+    setDashboardError('')
+    try {
+      await jsonRequest('/api/dashboard/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(dashboardDraft) })
+      setDashboard(dashboardDraft)
+      setDashboardEditing(false)
+    } catch (error) { setDashboardError(errorMessage(error)) }
+    finally { setDashboardSaving(false) }
+  }
   const action = async (url: string, body = '') => {
     try {
       const result = await post<{ message?: string }>(url, body)
@@ -139,7 +163,7 @@ function App() {
   const preparingJoin = !!status?.joining_preparing
   return (
     <main className="shell">
-      <section className="mobile-top" aria-label="Gateway status and controls">
+      <section className="mobile-top" aria-label="Gateway status">
         <div className="mobile-state">
           <strong>MicroHAD</strong>
           <span
@@ -167,59 +191,6 @@ function App() {
               : 'Join closed'}
           </span>
         </div>
-        <div className="mobile-controls">
-          <JoinButton compact joinLeft={joinLeft} preparing={preparingJoin} action={action} />
-          <button
-            className="button"
-            type="button"
-            aria-expanded={mobileMenuOpen}
-            aria-controls="mobile-overflow"
-            onClick={() => setMobileMenuOpen((open) => !open)}
-          >
-            More ⋯
-          </button>
-        </div>
-        {mobileMenuOpen && (
-          <>
-            <div className="mobile-menu-dismiss" onClick={() => setMobileMenuOpen(false)} />
-            <nav
-              className="mobile-overflow"
-              id="mobile-overflow"
-              aria-label="More gateway controls"
-            >
-              <button className="button" onClick={() => { setMobileMenuOpen(false); setShellyId('') }}>Add Shelly</button>
-              <button className="button" onClick={() => { setMobileMenuOpen(false); setDialog('push') }}>Push clients</button>
-              <button
-                className="button danger"
-                onClick={() => {
-                  setMobileMenuOpen(false)
-                  setDialog('network')
-                }}
-              >
-                Create new network
-              </button>
-              <button
-                className="button"
-                onClick={() => {
-                  setMobileMenuOpen(false)
-                  void restart()
-                }}
-              >
-                Restart service
-              </button>
-              <button
-                className="button"
-                disabled={!status?.notifications_enabled}
-                onClick={() => {
-                  setMobileMenuOpen(false)
-                  void action('/api/notifications/test')
-                }}
-              >
-                Test alert
-              </button>
-            </nav>
-          </>
-        )}
       </section>
       <header className="hero">
         <div>
@@ -234,8 +205,33 @@ function App() {
               (status
                 ? `Serial RX: ${status.serial_rx_bytes} bytes · ${status.ash_rx_frames} frames`
                 : 'Connecting…')}
-        </div><div className="global-menu"><button className="button" aria-expanded={desktopMenuOpen} onClick={() => setDesktopMenuOpen((open) => !open)}>More ⋯</button>{desktopMenuOpen && <><div className="global-menu-dismiss" onClick={() => setDesktopMenuOpen(false)} /><nav className="global-overflow" aria-label="More gateway controls"><button className="button" onClick={() => { setDesktopMenuOpen(false); setShellyId('') }}>Add Shelly</button><button className="button" onClick={() => { setDesktopMenuOpen(false); setDialog('push') }}>Push clients</button></nav></>}</div></div>
+        </div></div>
       </header>
+      <nav className="main-tabs" role="tablist" aria-label="Gateway views">
+        {['Dashboard', 'Controls', 'Groups', ...visibleDeviceTypes.map(type => type.name), 'Diagnostics'].map(name => (
+          <button key={name} role="tab" aria-selected={tab === name} className={`main-tab ${tab === name ? 'active' : ''}`} onClick={() => setTab(name)}>{name}</button>
+        ))}
+      </nav>
+      {tab === 'Dashboard' && <Dashboard
+        config={dashboardEditing ? dashboardDraft : dashboard}
+        editing={dashboardEditing}
+        devices={status?.devices ?? []}
+        groups={status?.scene_groups ?? []}
+        status={status}
+        action={action}
+        onConfig={setDashboardDraft}
+        onSettings={setSelected}
+        onDetails={setDetailsDevice}
+        onHistory={setHistoryDevice}
+        onConnection={(device) => setShellyId(device.external_id)}
+        onEdit={() => { setDashboardDraft(dashboard); setDashboardEditing(true); setDashboardError('') }}
+        onCancel={() => { setDashboardDraft(dashboard); setDashboardEditing(false); setDashboardError('') }}
+        onSave={() => void saveDashboard()}
+        saving={dashboardSaving}
+        loaded={dashboardLoaded}
+        configError={dashboardError}
+      />}
+      {tab === 'Controls' && <>
       <section className="overview">
         <div className={`overview-item ${statusError || !status?.online ? 'bad' : 'good'}`}>
           <span className="overview-icon">●</span>
@@ -288,9 +284,31 @@ function App() {
           <button className="button" onClick={restart}>
             Restart service
           </button>
+          <button className="button" onClick={() => setShellyId('')}>Add Shelly device</button>
+          <button className="button" onClick={() => setDialog('push')}>Push clients</button>
+          <button className="button" disabled={!status?.notifications_enabled} onClick={() => void action('/api/notifications/test')}>Test alert</button>
         </div>
       </section>
-      <section className="content-section">
+      </>}
+      {tab === 'Groups' && <section className="panel">
+        <div className="section-heading">
+          <div><p className="eyebrow">Lighting</p><h2>Scenes &amp; groups</h2></div>
+          <div className="toolbar">
+            <button className="button primary" onClick={() => setDialog('scenes')}>Configure scenes &amp; groups</button>
+            <button className="button" onClick={() => setDialog('remotes')}>Configure remotes</button>
+            <button className="button" onClick={() => setDialog('text')}>Advanced text editor</button>
+          </div>
+        </div>
+        <p className="muted">Native-capable bulbs are recalled together with Zigbee Groups and Scenes; unsupported bulbs use a direct fallback.</p>
+        <div className="scene-grid">
+          {status?.scene_groups.length ? status.scene_groups.map(group => <article className="scene-summary" key={group.id}>
+            <h3>{group.name}</h3><p className="muted small">Zigbee group {group.id} · {group.members.length} light(s)</p>
+            <div className="presets"><LightGroupStates members={group.members} devices={status?.devices ?? []} />{group.scenes.map(scene => <button key={scene.id} className="button" onClick={() => action(`/api/scenes/${group.id}/${scene.id}/activate`)}>▶ {scene.name}</button>)}</div>
+            <button className="button danger" onClick={() => action(`/api/scenes/${group.id}/off`)}>⏻ Turn group off</button>
+          </article>) : <div className="empty">No scene groups configured yet.</div>}
+        </div>
+      </section>}
+      {visibleDeviceTypes.some(type => type.name === tab) && <section className="content-section">
         <div className="section-heading">
           <div>
             <p className="eyebrow">Connected home</p>
@@ -304,64 +322,11 @@ function App() {
           onDetails={setDetailsDevice}
           onHistory={setHistoryDevice}
           onConnection={(device) => setShellyId(device.external_id)}
+          onlyType={tab}
         />
       </section>
-      <section className="panel">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">Lighting</p>
-            <h2>Scenes & groups</h2>
-          </div>
-          <div className="toolbar">
-            <button className="button primary" onClick={() => setDialog('scenes')}>
-              Configure scenes & groups
-            </button>
-            <button className="button" onClick={() => setDialog('remotes')}>
-              Configure remotes
-            </button>
-            <button className="button" onClick={() => setDialog('text')}>
-              Advanced text editor
-            </button>
-          </div>
-        </div>
-        <p className="muted">
-          Native-capable bulbs are recalled together with Zigbee Groups and Scenes; unsupported
-          bulbs use a direct fallback.
-        </p>
-        <div className="scene-grid">
-          {status?.scene_groups.length ? (
-            status.scene_groups.map((group) => (
-              <article className="scene-summary" key={group.id}>
-                <h3>{group.name}</h3>
-                <p className="muted small">
-                  Zigbee group {group.id} · {group.members.length} light(s)
-                </p>
-                <div className="presets">
-                  <LightGroupStates members={group.members} devices={status?.devices ?? []} />
-                  {group.scenes.map((scene) => (
-                    <button
-                      key={scene.id}
-                      className="button"
-                      onClick={() => action(`/api/scenes/${group.id}/${scene.id}/activate`)}
-                    >
-                      ▶ {scene.name}
-                    </button>
-                  ))}
-                </div>
-                <button
-                  className="button danger"
-                  onClick={() => action(`/api/scenes/${group.id}/off`)}
-                >
-                  ⏻ Turn group off
-                </button>
-              </article>
-            ))
-          ) : (
-            <div className="empty">No scene groups configured yet.</div>
-          )}
-        </div>
-      </section>
-      <section className="panel">
+      }
+      {tab === 'Diagnostics' && <section className="panel">
         <details open>
           <summary>
             <span className="eyebrow">Diagnostics</span>
@@ -374,6 +339,7 @@ function App() {
           </pre>
         </details>
       </section>
+      }
       {selected && (
         <DeviceSettings
           key={selected.ieee_address}

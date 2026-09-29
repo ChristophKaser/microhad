@@ -1734,6 +1734,10 @@ void Gateway::recordHistory(const Device& before, const Device& after, unsigned 
     if ((observed & ZclObservedContact) && after.hasContact &&
         (!before.hasContact || before.contactOpen != after.contactOpen))
         history_.append(after.ieeeAddress, SensorHistory::Contact, after.contactOpen ? 1 : 0, timestamp);
+    if ((observed & ZclObservedOccupancy) && after.hasOccupancy)
+        history_.append(after.ieeeAddress, SensorHistory::Occupancy, after.occupied ? 1 : 0, timestamp);
+    if ((observed & ZclObservedBattery) && after.hasBattery)
+        history_.append(after.ieeeAddress, SensorHistory::Battery, after.batteryPercent, timestamp);
 }
 
 void Gateway::updateContactAlert(const std::string& ieeeAddress, bool wasOpen) {

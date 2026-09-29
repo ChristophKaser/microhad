@@ -198,6 +198,117 @@ bool parseMinutes(const std::string& value, unsigned long* result) {
     return errno == 0 && end != value.c_str() && *end == 0;
 }
 
+void jsonWhitespace(const std::string& text, std::string::size_type* at) {
+    while (*at < text.size() && (text[*at] == ' ' || text[*at] == '\t' || text[*at] == '\r' || text[*at] == '\n')) ++*at;
+}
+
+bool jsonString(const std::string& text, std::string::size_type* at, std::string* result) {
+    if (*at >= text.size() || text[(*at)++] != '"') return false;
+    result->clear();
+    while (*at < text.size()) {
+        unsigned char c = static_cast<unsigned char>(text[(*at)++]);
+        if (c == '"') return true;
+        if (c < 0x20) return false;
+        if (c != '\\') { result->push_back(static_cast<char>(c)); continue; }
+        if (*at >= text.size()) return false;
+        c = static_cast<unsigned char>(text[(*at)++]);
+        if (c == '"' || c == '\\' || c == '/') result->push_back(static_cast<char>(c));
+        else if (c == 'b' || c == 'f' || c == 'n' || c == 'r' || c == 't') result->push_back(' ');
+        else if (c == 'u') {
+            for (int i = 0; i < 4; ++i) {
+                if (*at >= text.size() || !((text[*at] >= '0' && text[*at] <= '9') ||
+                    (text[*at] >= 'a' && text[*at] <= 'f') || (text[*at] >= 'A' && text[*at] <= 'F'))) return false;
+                ++*at;
+            }
+            result->push_back('?');
+        } else return false;
+    }
+    return false;
+}
+
+bool jsonValue(const std::string& text, std::string::size_type* at, unsigned depth, bool* widgets) {
+    if (depth > 24) return false;
+    jsonWhitespace(text, at);
+    if (*at >= text.size()) return false;
+    if (text[*at] == '"') { std::string ignored; return jsonString(text, at, &ignored); }
+    if (text[*at] == '{') {
+        ++*at; jsonWhitespace(text, at);
+        if (*at < text.size() && text[*at] == '}') { ++*at; return true; }
+        while (*at < text.size()) {
+            std::string key;
+            if (!jsonString(text, at, &key)) return false;
+            jsonWhitespace(text, at);
+            if (*at >= text.size() || text[(*at)++] != ':') return false;
+            if (depth == 0 && key == "widgets") *widgets = true;
+            if (!jsonValue(text, at, depth + 1, widgets)) return false;
+            jsonWhitespace(text, at);
+            if (*at < text.size() && text[(*at)] == '}') { ++*at; return true; }
+            if (*at >= text.size() || text[(*at)++] != ',') return false;
+            jsonWhitespace(text, at);
+        }
+        return false;
+    }
+    if (text[*at] == '[') {
+        ++*at; jsonWhitespace(text, at);
+        if (*at < text.size() && text[*at] == ']') { ++*at; return true; }
+        while (*at < text.size()) {
+            if (!jsonValue(text, at, depth + 1, widgets)) return false;
+            jsonWhitespace(text, at);
+            if (*at < text.size() && text[*at] == ']') { ++*at; return true; }
+            if (*at >= text.size() || text[(*at)++] != ',') return false;
+            jsonWhitespace(text, at);
+        }
+        return false;
+    }
+    const char* literals[] = { "true", "false", "null" };
+    for (unsigned i = 0; i < 3; ++i) {
+        std::string literal(literals[i]);
+        if (text.compare(*at, literal.size(), literal) == 0) { *at += literal.size(); return true; }
+    }
+    std::string::size_type start = *at;
+    if (text[*at] == '-') ++*at;
+    if (*at >= text.size() || text[*at] < '0' || text[*at] > '9') return false;
+    if (text[*at] == '0') ++*at;
+    else while (*at < text.size() && text[*at] >= '0' && text[*at] <= '9') ++*at;
+    if (*at < text.size() && text[*at] == '.') { ++*at; if (*at >= text.size() || text[*at] < '0' || text[*at] > '9') return false; while (*at < text.size() && text[*at] >= '0' && text[*at] <= '9') ++*at; }
+    if (*at < text.size() && (text[*at] == 'e' || text[*at] == 'E')) { ++*at; if (*at < text.size() && (text[*at] == '+' || text[*at] == '-')) ++*at; if (*at >= text.size() || text[*at] < '0' || text[*at] > '9') return false; while (*at < text.size() && text[*at] >= '0' && text[*at] <= '9') ++*at; }
+    return *at > start;
+}
+
+bool dashboardConfigJson(const std::string& value) {
+    if (value.size() > 12000) return false;
+    std::string::size_type at = 0;
+    bool widgets = false;
+    jsonWhitespace(value, &at);
+    if (at >= value.size() || value[at] != '{' || !jsonValue(value, &at, 0, &widgets)) return false;
+    jsonWhitespace(value, &at);
+    return widgets && at == value.size();
+}
+
+bool saveDashboardConfig(const std::string& filename, const std::string& value) {
+    static pthread_mutex_t sequenceMutex = PTHREAD_MUTEX_INITIALIZER;
+    static unsigned long sequence = 0;
+    pthread_mutex_lock(&sequenceMutex);
+    unsigned long current = ++sequence;
+    pthread_mutex_unlock(&sequenceMutex);
+    std::ostringstream temporaryName;
+    temporaryName << filename << ".tmp." << static_cast<long>(getpid()) << "." << current;
+    const std::string temporary = temporaryName.str();
+    int fd = open(temporary.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
+    if (fd < 0) return false;
+    unsigned long written = 0;
+    while (written < value.size()) {
+        ssize_t count = write(fd, value.data() + written, value.size() - written);
+        if (count <= 0) { close(fd); unlink(temporary.c_str()); return false; }
+        written += static_cast<unsigned long>(count);
+    }
+    bool synced = fsync(fd) == 0;
+    bool closed = close(fd) == 0;
+    bool ok = synced && closed && rename(temporary.c_str(), filename.c_str()) == 0;
+    if (!ok) unlink(temporary.c_str());
+    return ok;
+}
+
 const char* assetContentType(const std::string& path) {
     std::string::size_type dot = path.rfind('.');
     if (dot == std::string::npos) return 0;
@@ -443,6 +554,19 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
         bool valid = bodyAt != std::string::npos && formValue(request.substr(bodyAt + 4), "state", &state) && (state == "on" || state == "off");
         if (valid && shelly_->setActor(id, state == "on", &error)) writeResponse(clientFd, 200, "application/json", "{\"ok\":true}");
         else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + jsonEscape(valid ? error : "invalid actor command") + "\"}");
+    } else if (request.find("GET /api/dashboard/config ") == 0) {
+        std::string content;
+        if (!readTextFile(gateway_->runtimeDirectory() + "/dashboard.json", &content)) content = "{\"widgets\":[]}";
+        if (!dashboardConfigJson(content)) content = "{\"widgets\":[]}";
+        writeResponse(clientFd, 200, "application/json", content);
+    } else if (request.find("POST /api/dashboard/config ") == 0) {
+        std::string::size_type bodyAt = request.find("\r\n\r\n");
+        std::string body = bodyAt == std::string::npos ? "" : request.substr(bodyAt + 4);
+        if (!dashboardConfigJson(body))
+            writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"invalid dashboard configuration\"}");
+        else if (!saveDashboardConfig(gateway_->runtimeDirectory() + "/dashboard.json", body))
+            writeResponse(clientFd, 500, "application/json", "{\"ok\":false,\"error\":\"cannot save dashboard configuration\"}");
+        else writeResponse(clientFd, 200, "application/json", "{\"ok\":true}");
     } else if (request.find("GET /api/status ") == 0) {
         GatewayRunner::ViewLease* view = gateway_->acquireView();
         if (view == 0) writeResponse(clientFd, 503, "application/json", "{\"ok\":false,\"error\":\"coordinator is unavailable\"}");

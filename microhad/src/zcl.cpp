@@ -77,11 +77,13 @@ bool applyZclAttribute(Device* device, unsigned short cluster, unsigned short at
         device->hasOccupancy = true;
         device->occupied = (value[0] & 0x01) != 0;
         device->kind = "occupancy";
+        if (observed != 0) *observed |= ZclObservedOccupancy;
     } else if (cluster == 0x0001 && attribute == 0x0021 && value.size() == 1) {
         if (value[0] > 200) return false;
         device->hasBattery = true;
         /* Power Configuration reports half-percent units. */
         device->batteryPercent = static_cast<int>(value[0]) / 2;
+        if (observed != 0) *observed |= ZclObservedBattery;
     } else if (cluster == 0x0500 && attribute == 0x0002 && value.size() == 2) {
         device->hasContact = true;
         device->contactOpen = (littleEndian16(value) & 0x0001) != 0;

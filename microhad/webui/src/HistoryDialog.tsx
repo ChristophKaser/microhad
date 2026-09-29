@@ -4,13 +4,13 @@ import type { Device, HistoryPage, HistorySample } from './api'
 import { errorMessage, jsonRequest } from './api'
 
 type Range = 'day' | 'week' | 'all'
-type Metric = 1 | 2 | 3 | 4
+type Metric = 1 | 2 | 3 | 4 | 5 | 6
 
 const rangeSeconds: Record<Range, number> = { day: 86400, week: 604800, all: Infinity }
-const metricName: Record<Metric, string> = { 1: 'Temperature', 2: 'Humidity', 3: 'Contact', 4: 'Power' }
-const metricUnit: Record<Metric, string> = { 1: '°C', 2: '%', 3: '', 4: 'W' }
-const metricColor: Record<Metric, string> = { 1: '#d97543', 2: '#3384aa', 3: '#7554a4', 4: '#b77928' }
-const reading = (metric: Metric, raw: number) => metric === 3 ? raw : raw / (metric === 4 ? 10 : 100)
+const metricName: Record<Metric, string> = { 1: 'Temperature', 2: 'Humidity', 3: 'Contact', 4: 'Power', 5: 'Occupancy', 6: 'Battery' }
+const metricUnit: Record<Metric, string> = { 1: '°C', 2: '%', 3: '', 4: 'W', 5: '', 6: '%' }
+const metricColor: Record<Metric, string> = { 1: '#d97543', 2: '#3384aa', 3: '#7554a4', 4: '#b77928', 5: '#4b956a', 6: '#71859a' }
+const reading = (metric: Metric, raw: number) => metric === 3 || metric === 5 || metric === 6 ? raw : raw / (metric === 4 ? 10 : 100)
 
 ChartJS.register(LineController, LineElement, LinearScale, PointElement, Tooltip)
 
@@ -24,8 +24,9 @@ function Chart({ samples, metric, now, start }: { samples: HistorySample[]; metr
     if (!canvas.current || !values.length) return
     const first = Math.min(start, values[0][1])
     const numeric = values.map((sample) => reading(metric, sample[3]))
-    const low = metric === 3 ? 0 : Math.floor(Math.min(...numeric) - 1)
-    const high = metric === 3 ? 1 : Math.ceil(Math.max(...numeric) + 1)
+    const discrete = metric === 3 || metric === 5
+    const low = discrete ? 0 : Math.floor(Math.min(...numeric) - 1)
+    const high = discrete ? 1 : Math.ceil(Math.max(...numeric) + 1)
     const points = values.map((sample) => ({ x: sample[1], y: reading(metric, sample[3]) }))
     if (points[points.length - 1].x < now) points.push({ x: now, y: points[points.length - 1].y })
     const chart = new ChartJS(canvas.current, {
@@ -33,7 +34,7 @@ function Chart({ samples, metric, now, start }: { samples: HistorySample[]; metr
       data: { datasets: [{
         label: metricName[metric], data: points, borderColor: metricColor[metric],
         backgroundColor: metricColor[metric], borderWidth: 2.5, tension: 0,
-        stepped: metric === 3 ? 'after' : false,
+        stepped: discrete ? 'after' : false,
         pointRadius: (context) => context.dataIndex === values.length - 1 ? 4 : 0,
         pointHoverRadius: 5,
       }] },
@@ -47,7 +48,7 @@ function Chart({ samples, metric, now, start }: { samples: HistorySample[]; metr
             filter: (context) => context.dataIndex < values.length,
             callbacks: {
               title: (items) => items.length ? new Date(Number(items[0].parsed.x) * 1000).toLocaleString() : '',
-              label: (item) => metric === 3 ? (item.parsed.y ? 'Open' : 'Closed') : `${Number(item.parsed.y).toFixed(metric === 4 ? 1 : 2)} ${metricUnit[metric]}`,
+                label: (item) => metric === 3 ? (item.parsed.y ? 'Open' : 'Closed') : metric === 5 ? (item.parsed.y ? 'Occupied' : 'Clear') : `${Number(item.parsed.y).toFixed(metric === 4 ? 1 : 2)} ${metricUnit[metric]}`,
             },
           },
         },
@@ -62,8 +63,8 @@ function Chart({ samples, metric, now, start }: { samples: HistorySample[]; metr
           },
           y: {
             min: low, max: high, grid: { color: '#dbe6ed' },
-            ticks: { maxTicksLimit: metric === 3 ? 2 : 5, stepSize: metric === 3 ? 1 : undefined,
-              callback: (value) => metric === 3 ? (Number(value) ? 'Open' : 'Closed') : `${value}${metricUnit[metric]}` },
+            ticks: { maxTicksLimit: discrete ? 2 : 5, stepSize: discrete ? 1 : undefined,
+              callback: (value) => metric === 3 ? (Number(value) ? 'Open' : 'Closed') : metric === 5 ? (Number(value) ? 'Occupied' : 'Clear') : `${value}${metricUnit[metric]}` },
           },
         },
       },
@@ -115,7 +116,7 @@ export function HistoryDialog({ device, onClose }: { device: Device; onClose: ()
   const start = range === 'all' ? (samples[0]?.[1] ?? now) : now - rangeSeconds[range]
   const visible = useMemo(() => {
     const current = samples.filter((sample) => sample[1] >= start && sample[1] <= now)
-    for (const metric of [1, 2, 3, 4] as const) {
+    for (const metric of [1, 2, 3, 4, 5, 6] as const) {
       const prior = [...samples].reverse().find((sample) => sample[2] === metric && sample[1] < start)
       if (prior) current.unshift([prior[0], start, metric, prior[3]])
     }
@@ -136,6 +137,8 @@ export function HistoryDialog({ device, onClose }: { device: Device; onClose: ()
           {device.has_humidity && <Chart samples={visible} metric={2} now={now} start={start} />}
           {device.has_contact && <Chart samples={visible} metric={3} now={now} start={start} />}
           {device.has_power && <Chart samples={visible} metric={4} now={now} start={start} />}
+          {device.has_occupancy && <Chart samples={visible} metric={5} now={now} start={start} />}
+          {device.has_battery && <Chart samples={visible} metric={6} now={now} start={start} />}
         </>}
       </div>
     </div>

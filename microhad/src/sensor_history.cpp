@@ -75,13 +75,14 @@ struct Sample {
 bool validRecord(const unsigned char* bytes, unsigned long slot, Sample* sample) {
     uint32_t sequence = get32(bytes);
     if (sequence == 0 || (sequence - 1) % capacity != slot || bytes[19] != checksum(bytes) ||
-        bytes[16] < SensorHistory::Temperature || bytes[16] > SensorHistory::Power) return false;
+        bytes[16] < SensorHistory::Temperature || bytes[16] > SensorHistory::Battery) return false;
     sample->sequence = sequence;
     sample->timestamp = get32(bytes + 4);
     sample->metric = bytes[16];
     unsigned int raw = (static_cast<unsigned int>(bytes[17]) << 8) | bytes[18];
-    sample->value = sample->metric == SensorHistory::Power ? static_cast<int>(raw) : static_cast<int16_t>(raw);
-    if (sample->metric == SensorHistory::Contact && (sample->value < 0 || sample->value > 1)) return false;
+    sample->value = (sample->metric == SensorHistory::Power || sample->metric == SensorHistory::Battery) ? static_cast<int>(raw) : static_cast<int16_t>(raw);
+    if ((sample->metric == SensorHistory::Contact || sample->metric == SensorHistory::Occupancy) &&
+        (sample->value < 0 || sample->value > 1)) return false;
     return true;
 }
 bool newer(const Sample& left, const Sample& right) { return left.sequence > right.sequence; }
@@ -145,8 +146,9 @@ bool SensorHistory::initialize() {
 
 bool SensorHistory::append(const std::string& address, unsigned char metric, int value, long timestamp) {
     unsigned char ieee[8];
-    if (!decodeAddress(address, ieee) || metric < Temperature || metric > Power ||
-        value < (metric == Power ? 0 : -32768) || value > (metric == Power ? 65535 : 32767) ||
+    if (!decodeAddress(address, ieee) || metric < Temperature || metric > Battery ||
+        ((metric == Contact || metric == Occupancy) && value != 0 && value != 1) ||
+        value < ((metric == Power || metric == Battery) ? 0 : -32768) || value > ((metric == Power || metric == Battery) ? 65535 : 32767) ||
         timestamp <= 0 || static_cast<unsigned long>(timestamp) > 0xffffffffUL) return false;
     if (!initialized_ && !initialize()) return false;
     std::string key = addressKey(ieee, metric);

@@ -217,6 +217,53 @@ button:disabled {
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr));
   gap: 11px;
 }
+.main-tabs {
+  display: flex;
+  gap: 7px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+  border-bottom: 1px solid #dce5ed;
+  padding: 0 0 9px;
+  margin: 2px 0 20px;
+  -webkit-overflow-scrolling: touch;
+}
+.main-tab {
+  flex: 0 0 auto;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: #526b80;
+  padding: 10px 14px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+.main-tab:hover { background: #e8eff5; }
+.main-tab.active { color: #145f89; background: #fff; border-color: #cfdae4; box-shadow: 0 2px 6px #1630480a; }
+.dashboard-heading, .dashboard-widget-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.dashboard-heading { margin: 0 0 16px; }
+.dashboard-heading h2 { margin: 0; font-size: 1.45rem; }
+.dashboard-editor { margin-top: 0; }
+.dashboard-editor .toolbar { margin-top: 10px; }
+.dashboard-editor select, .dashboard-chart-settings select { border: 1px solid #cad7e3; border-radius: 8px; background: #fff; color: #20415c; padding: 9px 11px; min-width: 150px; }
+.dashboard-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); align-items: start; gap: 14px; }
+.dashboard-widget-shell { min-width: 0; position: relative; }
+.dashboard-widget { min-width: 0; padding: 16px; background: #fff; border: 1px solid #dce5ed; border-radius: 16px; box-shadow: 0 4px 14px #16304808; }
+.dashboard-widget h3 { margin: 0; font-size: 1rem; overflow-wrap: anywhere; }
+.dashboard-widget-title span { display: block; margin-top: 4px; color: #687e90; font-size: .82rem; }
+.dashboard-widget-actions { display: flex; justify-content: end; gap: 4px; margin-bottom: 5px; }
+.dashboard-widget-actions .icon-button { min-width: 35px; min-height: 35px; padding: 3px; }
+.dashboard-chart-canvas { height: 190px; position: relative; margin-top: 12px; }
+.dashboard-chart-settings { display: flex; flex-wrap: wrap; gap: 12px; padding: 10px 14px 14px; background: #f8fafc; border: 1px solid #dce5ed; border-top: 0; border-radius: 0 0 14px 14px; }
+.dashboard-chart-settings label { display: flex; align-items: center; gap: 7px; color: #61768a; font-size: .82rem; }
+.dashboard-member { display: inline-block; margin: 2px 5px 2px 0; border-radius: 7px; background: #edf3f8; padding: 5px 7px; font-size: .77rem; }
+@media (max-width: 640px) {
+  .main-tabs { gap: 4px; margin: 0 -12px 16px; padding: 0 12px 7px; }
+  .main-tab { padding: 9px 11px; font-size: .86rem; }
+  .dashboard-grid { grid-template-columns: minmax(0, 1fr); }
+  .dashboard-editor .toolbar { align-items: stretch; }
+  .dashboard-editor select { min-width: 0; flex: 1 1 100%; }
+}
 .device-card {
   padding: 13px;
   min-width: 0;

@@ -134,6 +134,8 @@ void runSensorHistoryUnitTests() {
         assert(history.append(sensor, SensorHistory::Power, 35000, 1702000060L));
         assert(history.append(sensor, SensorHistory::Temperature, 2100, 1702000000L));
         assert(history.append(sensor, SensorHistory::Temperature, 2100, 1702000060L));
+        assert(history.append(sensor, SensorHistory::Occupancy, 1, 1702000061L));
+        assert(history.append(sensor, SensorHistory::Battery, 87, 1702000062L));
     }
     {
         SensorHistory restarted(path);
@@ -145,6 +147,8 @@ void runSensorHistoryUnitTests() {
     assert(json.find(",4,35000]") != std::string::npos);
     assert(json.find(",4,35001]") != std::string::npos);
     assert(json.find(",1,2100]") != std::string::npos);
+    assert(json.find(",5,1]") != std::string::npos);
+    assert(json.find(",6,87]") != std::string::npos);
     assert(json.find("1702000060") == std::string::npos);
     unlink(path.c_str());
 }

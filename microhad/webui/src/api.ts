@@ -107,7 +107,7 @@ export interface DeviceConfiguration {
   }[]
 }
 
-export type HistorySample = [sequence: number, timestamp: number, metric: 1 | 2 | 3 | 4, value: number]
+export type HistorySample = [sequence: number, timestamp: number, metric: 1 | 2 | 3 | 4 | 5 | 6, value: number]
 export interface HistoryPage {
   samples: HistorySample[]
   next_before: number

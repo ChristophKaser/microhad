@@ -92,7 +92,7 @@ function DeviceVisual({ device, type }: { device: Device; type: string }) {
   if (type === 'Motion sensors') return <span aria-hidden="true">{device.occupied ? '◉' : '◎'}</span>
   return <span aria-hidden="true">{type === 'Remotes' ? '🎛️' : '📡'}</span>
 }
-const deviceTypes = [
+export const deviceTypes = [
   { name: 'Contact sensors', matches: (device: Device) => device.has_contact },
   {
     name: 'Climate sensors',
@@ -105,7 +105,7 @@ const deviceTypes = [
   { name: 'Smart plugs', matches: (device: Device) => device.has_power },
   { name: 'Other devices', matches: (_device: Device) => true },
 ]
-const deviceType = (device: Device) =>
+export const getDeviceType = (device: Device) =>
   deviceTypes.find((type) => type.matches(device))?.name ?? 'Other devices'
 const byName = (left: Device, right: Device) =>
   left.name.localeCompare(right.name, undefined, { sensitivity: 'base', numeric: true }) ||
@@ -198,7 +198,7 @@ function DeviceCard({
   )
   const url = `/api/devices/${encodeURIComponent(device.id)}`
   const canDim = isDimmable(device)
-  const type = deviceType(device)
+  const type = getDeviceType(device)
   const extraReadings = [
     type !== 'Climate sensors' && device.has_temperature && `🌡 ${device.temperature_celsius} °C`,
     type !== 'Climate sensors' && device.has_humidity && `💧 ${device.humidity_percent}%`,
@@ -348,6 +348,8 @@ export function DeviceGroups({
   onDetails,
   onHistory,
   onConnection,
+  onlyType,
+  hideContext,
 }: {
   status: Status | null
   action: (url: string, body?: string) => void
@@ -355,6 +357,8 @@ export function DeviceGroups({
   onDetails: (device: Device) => void
   onHistory: (device: Device) => void
   onConnection: (device: Device) => void
+  onlyType?: string
+  hideContext?: boolean
 }) {
   if (!status?.devices.length) return <div className="empty">No devices configured or discovered yet.</div>
   const sceneGroups = [...status.scene_groups].sort((left, right) =>
@@ -368,13 +372,14 @@ export function DeviceGroups({
   }
   return (
     <div className="device-groups">
-      {deviceTypes.map((type) => {
+      {deviceTypes.filter((type) => !onlyType || type.name === onlyType).map((type) => {
         const devices = status.devices
-          .filter((device) => deviceType(device) === type.name)
+          .filter((device) => getDeviceType(device) === type.name)
           .sort(byName)
         if (!devices.length) return null
-        const sections =
-          type.name === 'Lights'
+        const sections = hideContext
+          ? [{ id: 'dashboard', name: '', devices }]
+          : type.name === 'Lights'
             ? [
                 ...sceneGroups.map((group) => ({
                   id: String(group.id),
@@ -392,13 +397,13 @@ export function DeviceGroups({
             : [{ id: type.name, name: '', devices }]
         return (
           <section className="device-type" key={type.name}>
-            <div className="device-type-heading">
+            {!hideContext && <div className="device-type-heading">
               <h3>{type.name}</h3>
               <span>{devices.length}</span>
-            </div>
+            </div>}
             {sections.map((section) => (
               <div className="device-subgroup" key={section.id}>
-                {type.name === 'Lights' && (
+                {!hideContext && type.name === 'Lights' && (
                   <h4 className="device-subgroup-heading">{section.name}</h4>
                 )}
                 <div className="device-grid">
