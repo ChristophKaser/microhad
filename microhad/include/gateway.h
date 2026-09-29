@@ -258,6 +258,8 @@ private:
     unsigned char coordinatorInitializationStep_;
     long coordinatorInitializationDeadline_;
     long resetDeadline_;
+    unsigned int serialReconnectFailures_;
+    bool zigbeeDownAlertQueued_;
     long nextHeartbeatAt_;
     unsigned long serialRxBytes_;
     unsigned long ashRxFrames_;

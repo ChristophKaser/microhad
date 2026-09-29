@@ -328,7 +328,7 @@ Gateway::Gateway(const std::string& serialDevice, int serialBaud, const std::str
     serialDevice_(serialDevice), serialBaud_(serialBaud), runtimeDirectory_(runtimeDirectory), networkRandomSource_("/dev/urandom"),
     firebaseServiceAccount_(firebaseServiceAccount), firebaseTopic_(firebaseTopic), caBundle_(caBundle), history_(historyPath), shellyTransport_(0), notificationWorker_(notificationWorker), serialFd_(-1),
     online_(false), joinUntil_(0), joinPermitRenewAt_(0), joinPermitClosePending_(false), joinPermitCloseDeadline_(0), pendingJoinSeconds_(0), joinPreparationStep_(0), joinPreparationDeadline_(0), ashSendSequence_(0), ashReceiveSequence_(0), ezspSequence_(0),
-    ashAckDeadline_(0), ashRetries_(0), ashPendingSensitive_(false), ezspVersion_(4), zdoSequence_(0), zclTransactionSequence_(0), ezspVersionNegotiated_(false), stackTokenWritingRequested_(false), networkInitRequested_(false), tradfriBindGroupConfigured_(false), coordinatorInitializationStep_(0), coordinatorInitializationDeadline_(0), resetDeadline_(0), nextHeartbeatAt_(0), serialRxBytes_(0), ashRxFrames_(0), networkForming_(false), networkFormationStep_(0), networkFormationDeadline_(0), networkFormed_(false), networkPanId_(0),
+    ashAckDeadline_(0), ashRetries_(0), ashPendingSensitive_(false), ezspVersion_(4), zdoSequence_(0), zclTransactionSequence_(0), ezspVersionNegotiated_(false), stackTokenWritingRequested_(false), networkInitRequested_(false), tradfriBindGroupConfigured_(false), coordinatorInitializationStep_(0), coordinatorInitializationDeadline_(0), resetDeadline_(0), serialReconnectFailures_(0), zigbeeDownAlertQueued_(false), nextHeartbeatAt_(0), serialRxBytes_(0), ashRxFrames_(0), networkForming_(false), networkFormationStep_(0), networkFormationDeadline_(0), networkFormed_(false), networkPanId_(0),
     networkChannel_(0), interviewRequestInFlight_(false), interviewSendAccepted_(false), interviewEzspSequence_(0), interviewNode_(0xffff),
     interviewDeadline_(0), nextMessageTag_(1), coordinatorIeeeAddressRequested_(false), viewDirty_(true) {
 }
@@ -634,9 +634,15 @@ void Gateway::poll() {
             std::string error;
             if (!configureSerial(&error)) {
                 addLog(std::string("Serial reconnect failed: ") + error);
+                if (serialReconnectFailures_ < 3) ++serialReconnectFailures_;
+                if (serialReconnectFailures_ == 3 && !zigbeeDownAlertQueued_ && notificationsEnabled())
+                    zigbeeDownAlertQueued_ = emitNotification(
+                        "Zigbee down", "Coordinator serial connection could not be reopened.", 0);
                 resetDeadline_ = time(0) + 1;
             } else {
                 addLog(std::string("Serial connection reopened on ") + serialDevice_);
+                serialReconnectFailures_ = 0;
+                zigbeeDownAlertQueued_ = false;
                 sendAshReset();
             }
         } else sendAshReset();
@@ -1858,7 +1864,8 @@ bool Gateway::emitNotification(const std::string& title, const std::string& body
         if (error != 0) *error = "push notifications are disabled";
         return false;
     }
-    if (!notificationWorker_->enqueue(title, body, error)) {
+    std::string enqueueError;
+    if (!notificationWorker_->enqueue(title, body, error != 0 ? error : &enqueueError)) {
         addLog(std::string("Notification queue failed: ") + title + " - " + body);
         return false;
     }

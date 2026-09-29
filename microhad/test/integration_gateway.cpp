@@ -195,6 +195,54 @@ void testResetTimeoutRetriesOverPipe() {
     close(serial[1]);
 }
 
+void testSerialReconnectAlertAfterThreeFailures() {
+    char directoryName[] = "/tmp/microhad-zigbee-reconnect-alert-XXXXXX";
+    char* directory = mkdtemp(directoryName);
+    assert(directory != 0);
+    NotificationWorker notifications(directory, "", "", "");
+    std::string error;
+    assert(notifications.start(&error));
+    int serial[2];
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
+    Gateway gateway("/tmp/microhad-zigbee-missing-serial", 115200, directory, "", "", "", &notifications);
+    GatewayIntegrationTestPeer::attachSerial(&gateway, serial[0]);
+    close(serial[1]);
+    gateway.poll();
+    assert(gateway.logsJson().find("Serial read failed: end of file") != std::string::npos);
+
+    for (unsigned int attempt = 1; attempt <= 4; ++attempt) {
+        GatewayIntegrationTestPeer::expireResetDeadline(&gateway);
+        gateway.poll();
+        std::string logs = gateway.logsJson();
+        assert(logs.find("Serial reconnect failed:") != std::string::npos);
+        if (attempt < 3) assert(logs.find("Notification queued: Zigbee down") == std::string::npos);
+        else {
+            std::string::size_type first = logs.find("Notification queued: Zigbee down");
+            assert(first != std::string::npos && logs.find("Notification queued: Zigbee down", first + 1) == std::string::npos);
+        }
+    }
+    gateway.stop();
+    assert(notifications.setEnabled(false, &error));
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
+    Gateway disabledGateway("/tmp/microhad-zigbee-missing-serial", 115200, directory, "", "", "", &notifications);
+    GatewayIntegrationTestPeer::attachSerial(&disabledGateway, serial[0]);
+    close(serial[1]);
+    disabledGateway.poll();
+    for (unsigned int attempt = 0; attempt < 3; ++attempt) {
+        GatewayIntegrationTestPeer::expireResetDeadline(&disabledGateway);
+        disabledGateway.poll();
+    }
+    assert(disabledGateway.logsJson().find("Notification queued: Zigbee down") == std::string::npos);
+    assert(notifications.setEnabled(true, &error));
+    GatewayIntegrationTestPeer::expireResetDeadline(&disabledGateway);
+    disabledGateway.poll();
+    assert(disabledGateway.logsJson().find("Notification queued: Zigbee down") != std::string::npos);
+    disabledGateway.stop();
+    notifications.stop();
+    assert(unlink((std::string(directory) + "/notifications.json").c_str()) == 0);
+    assert(rmdir(directory) == 0);
+}
+
 void runEzspVersionFailure(unsigned int scenario) {
     int serial[2];
     std::string error;
@@ -1951,6 +1999,8 @@ void runGatewayIntegrationTests() {
     testResetAndVersionOverPipe();
     fprintf(stderr, "integration: gateway reset timeout retry over pipe\n");
     testResetTimeoutRetriesOverPipe();
+    fprintf(stderr, "integration: serial reconnect alert after three failures\n");
+    testSerialReconnectAlertAfterThreeFailures();
     fprintf(stderr, "integration: EZSP version negotiation failure modes\n");
     testEzspVersionFailureModes();
     fprintf(stderr, "integration: EZSP failed initialization status\n");

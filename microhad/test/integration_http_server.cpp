@@ -436,7 +436,7 @@ void testServers() {
     assert(response.find("{\"ok\":true}") != std::string::npos);
     response = plainRequest(http.boundPort(), post("/api/devices/light%2Ftest/refresh", ""));
     expectStatus("http refresh encoded device", response, 200);
-    assert(response.find("Attribute refresh queued") != std::string::npos);
+    assert(response.find("Device refresh queued.") != std::string::npos);
     expectStatus("http report unknown refresh", plainRequest(http.boundPort(), post("/api/devices/unknown/refresh", "")), 400);
     response = plainRequest(http.boundPort(), post("/api/devices/light%2Ftest/identify", ""));
     expectStatus("http identify encoded device", response, 200);
