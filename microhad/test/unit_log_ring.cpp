@@ -140,11 +140,26 @@ void testConcurrentReads() {
     assert(lines.back().find("concurrent-1799") == 0);
     unlink(path.c_str());
 }
+
+void testInclusiveSinceFilter() {
+    const std::string path = temporaryPath();
+    LogRing ring(path);
+    assert(ring.append("10 first"));
+    assert(ring.append("20 same"));
+    assert(ring.append("20 same"));
+    assert(ring.append("21 later"));
+    assert(ring.append("legacy line"));
+    std::string json;
+    assert(LogRing::readJson(path, 20, &json));
+    assert(json == "{\"lines\":[\"20 same\",\"20 same\",\"21 later\"]}");
+    unlink(path.c_str());
+}
 }
 
 void runLogRingUnitTests() {
     testWrapAndRestart();
     testLegacyMigrationAndInterruptedCommit();
     testConcurrentReads();
+    testInclusiveSinceFilter();
     printf("unit: bounded circular log, migration, and recovery\n");
 }

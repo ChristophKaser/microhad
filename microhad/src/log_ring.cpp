@@ -2,6 +2,7 @@
 #include "json_util.h"
 
 #include <cerrno>
+#include <climits>
 #include <cstring>
 #include <deque>
 #include <fcntl.h>
@@ -135,6 +136,19 @@ bool readSnapshot(int fd, DiskState* state, std::vector<std::string>* lines) {
         return true;
     }
     return false;
+}
+bool lineTimestamp(const std::string& line, unsigned long* timestamp) {
+    std::string::size_type end = line.find_first_of(" \t");
+    if (end == std::string::npos || end == 0) return false;
+    unsigned long value = 0;
+    for (std::string::size_type i = 0; i < end; ++i) {
+        if (line[i] < '0' || line[i] > '9') return false;
+        unsigned int digit = static_cast<unsigned int>(line[i] - '0');
+        if (value > (ULONG_MAX - digit) / 10) return false;
+        value = value * 10 + digit;
+    }
+    *timestamp = value;
+    return true;
 }
 }
 
@@ -310,6 +324,24 @@ bool LogRing::readJson(const std::string& path, std::string* json) {
     for (unsigned long i = 0; i < lines.size(); ++i) {
         if (i != 0) output << ',';
         output << '"' << jsonEscape(lines[i]) << '"';
+    }
+    output << "]}";
+    *json = output.str();
+    return true;
+}
+
+bool LogRing::readJson(const std::string& path, unsigned long since, std::string* json) {
+    std::vector<std::string> lines;
+    if (!readLines(path, &lines)) return false;
+    std::ostringstream output;
+    output << "{\"lines\":[";
+    bool first = true;
+    for (unsigned long i = 0; i < lines.size(); ++i) {
+        unsigned long timestamp = 0;
+        if (!lineTimestamp(lines[i], &timestamp) || timestamp < since) continue;
+        if (!first) output << ',';
+        output << '"' << jsonEscape(lines[i]) << '"';
+        first = false;
     }
     output << "]}";
     *json = output.str();

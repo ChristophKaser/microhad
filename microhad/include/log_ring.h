@@ -16,6 +16,7 @@ public:
     bool append(const std::string& line);
     static bool readLines(const std::string& path, std::vector<std::string>* lines);
     static bool readJson(const std::string& path, std::string* json);
+    static bool readJson(const std::string& path, unsigned long since, std::string* json);
     static const char* defaultPath();
 
 private:

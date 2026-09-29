@@ -2,7 +2,14 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Status } from './api'
 import { errorMessage, jsonRequest } from './api'
 
-export function useGatewayData() {
+function timestampOf(line: string): number | null {
+  const match = line.match(/^(\d+)\s/)
+  if (!match) return null
+  const value = Number(match[1])
+  return Number.isSafeInteger(value) ? value : null
+}
+
+export function useGatewayData(diagnosticsActive: boolean) {
   const [status, setStatus] = useState<Status | null>(null)
   const [statusError, setStatusError] = useState('')
   const [logs, setLogs] = useState<string[]>([])
@@ -11,6 +18,9 @@ export function useGatewayData() {
   const logsRequest = useRef(0)
   const statusPending = useRef(false)
   const logsPending = useRef(false)
+  const logsLoaded = useRef(false)
+  const logsActivated = useRef(false)
+  const latestLogTimestamp = useRef<number | null>(null)
   const active = useRef(true)
 
   const refreshStatus = useCallback(async (force = true) => {
@@ -35,9 +45,40 @@ export function useGatewayData() {
     const request = ++logsRequest.current
     logsPending.current = true
     try {
-      const response = await jsonRequest<{ lines: string[] }>('/api/logs')
+      const since = latestLogTimestamp.current
+      const url = logsLoaded.current ? `/api/logs?since=${since ?? 0}` : '/api/logs'
+      const response = await jsonRequest<{ lines: string[] }>(url)
       if (active.current && request === logsRequest.current) {
-        setLogs(response.lines)
+        if (!logsLoaded.current) {
+          setLogs(response.lines)
+          logsLoaded.current = true
+        } else {
+          const boundary = since ?? 0
+          setLogs(current => {
+            const remaining = new Map<string, number>()
+            for (const line of current) {
+              const timestamp = timestampOf(line)
+              if (timestamp !== null && timestamp >= boundary) {
+                const key = `${timestamp}\u0000${line}`
+                remaining.set(key, (remaining.get(key) ?? 0) + 1)
+              }
+            }
+            const additions: string[] = []
+            for (const line of response.lines) {
+              const timestamp = timestampOf(line)
+              const key = timestamp === null ? '' : `${timestamp}\u0000${line}`
+              const count = key ? remaining.get(key) ?? 0 : 0
+              if (count > 0) remaining.set(key, count - 1)
+              else additions.push(line)
+            }
+            return additions.length ? [...current, ...additions] : current
+          })
+        }
+        for (const line of response.lines) {
+          const timestamp = timestampOf(line)
+          if (timestamp !== null && (latestLogTimestamp.current === null || timestamp > latestLogTimestamp.current))
+            latestLogTimestamp.current = timestamp
+        }
         setLogsError('')
       }
     } catch (error) {
@@ -51,7 +92,8 @@ export function useGatewayData() {
     active.current = true
     const refresh = () => {
       void refreshStatus(false)
-      void refreshLogs()
+      if (diagnosticsActive) logsActivated.current = true
+      if (logsActivated.current) void refreshLogs()
     }
     refresh()
     const timer = window.setInterval(refresh, 2000)
@@ -59,7 +101,7 @@ export function useGatewayData() {
       active.current = false
       window.clearInterval(timer)
     }
-  }, [refreshStatus, refreshLogs])
+  }, [diagnosticsActive, refreshStatus, refreshLogs])
 
   return { status, statusError, logs, logsError, refreshStatus }
 }

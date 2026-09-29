@@ -62,14 +62,14 @@ function JoinButton({
 }
 
 function App() {
-  const { status, statusError, logs, logsError, refreshStatus } = useGatewayData()
+  const [tab, setTab] = useState('Dashboard')
+  const { status, statusError, logs, logsError, refreshStatus } = useGatewayData(tab === 'Diagnostics')
   const [dialog, setDialog] = useState<'network' | 'scenes' | 'remotes' | 'text' | 'push' | null>(null)
   const [selected, setSelected] = useState<Device | null>(null)
   const [detailsDevice, setDetailsDevice] = useState<Device | null>(null)
   const [historyDevice, setHistoryDevice] = useState<Device | null>(null)
   const [restarting, setRestarting] = useState(false)
   const [externalDeviceId, setExternalDeviceId] = useState<string | null>(null)
-  const [tab, setTab] = useState('Dashboard')
   const visibleDeviceTypes = deviceTypes.filter(type => status?.devices.some(device => getDeviceType(device) === type.name))
   const visibleTypeNames = visibleDeviceTypes.map(type => type.name).join('|')
   useEffect(() => {

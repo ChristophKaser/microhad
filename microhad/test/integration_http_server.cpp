@@ -365,6 +365,11 @@ void testServers() {
     response = plainRequest(http.boundPort(), "GET /api/logs HTTP/1.1\r\nHost: localhost\r\n\r\n");
     expectStatus("http logs", response, 200);
     assert(response.find("Content-Type: application/json\r\n") != std::string::npos && response.find("\"lines\":") != std::string::npos);
+    response = plainRequest(http.boundPort(), "GET /api/logs?since=9999999999 HTTP/1.1\r\nHost: localhost\r\n\r\n");
+    expectStatus("http logs since", response, 200);
+    assert(response.find("{\"lines\":[]}") != std::string::npos);
+    expectStatus("http reject invalid log timestamp", plainRequest(http.boundPort(), "GET /api/logs?since=bad HTTP/1.1\r\nHost: localhost\r\n\r\n"), 400);
+    expectStatus("http reject negative log timestamp", plainRequest(http.boundPort(), "GET /api/logs?since=-1 HTTP/1.1\r\nHost: localhost\r\n\r\n"), 400);
     response = plainRequest(http.boundPort(), "GET /api/devices/0x00124b0000000042/history HTTP/1.1\r\nHost: localhost\r\n\r\n");
     expectStatus("http sensor history", response, 200);
     assert(response.find(",1,2245]") != std::string::npos);

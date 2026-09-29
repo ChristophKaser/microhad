@@ -214,6 +214,19 @@ bool parseDecimal(const std::string& value, double* result) {
     return errno == 0 && end != value.c_str() && *end == 0 && *result == *result;
 }
 
+bool parseLogTimestamp(const std::string& text, unsigned long* timestamp) {
+    if (text.empty()) return false;
+    unsigned long value = 0;
+    for (std::string::size_type i = 0; i < text.size(); ++i) {
+        if (text[i] < '0' || text[i] > '9') return false;
+        unsigned int digit = static_cast<unsigned int>(text[i] - '0');
+        if (value > (ULONG_MAX - digit) / 10) return false;
+        value = value * 10 + digit;
+    }
+    *timestamp = value;
+    return true;
+}
+
 bool parseMinutes(const std::string& value, unsigned long* result) {
     char* end = 0;
     errno = 0;
@@ -680,9 +693,19 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
     } else if (request.find("POST /api/service/restart ") == 0) {
         writeResponse(clientFd, 200, "application/json", "{\"ok\":true,\"state\":\"restarting\"}");
         kill(getpid(), SIGTERM);
-    } else if (request.find("GET /api/logs ") == 0) {
+    } else if (request.find("GET /api/logs ") == 0 || request.find("GET /api/logs?") == 0) {
         std::string body;
-        if (LogRing::readJson(LogRing::defaultPath(), &body)) writeResponse(clientFd, 200, "application/json", body);
+        std::string::size_type targetStart = request.find(' ') + 1;
+        std::string::size_type targetEnd = request.find(' ', targetStart);
+        std::string target = request.substr(targetStart, targetEnd - targetStart);
+        std::string::size_type query = target.find('?');
+        std::string sinceText;
+        unsigned long since = 0;
+        bool hasSince = query != std::string::npos && formValue(target.substr(query + 1), "since", &sinceText);
+        bool validSince = !hasSince || parseLogTimestamp(sinceText, &since);
+        if (!validSince) writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"invalid log timestamp\"}");
+        else if ((hasSince ? LogRing::readJson(LogRing::defaultPath(), since, &body) : LogRing::readJson(LogRing::defaultPath(), &body)))
+            writeResponse(clientFd, 200, "application/json", body);
         else writeResponse(clientFd, 503, "application/json", "{\"ok\":false,\"error\":\"log is unavailable\"}");
     } else if (request.find("POST /api/debug/event-loop ") == 0) {
         std::string::size_type bodyAt = request.find("\r\n\r\n");
