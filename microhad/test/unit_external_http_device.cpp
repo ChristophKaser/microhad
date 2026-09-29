@@ -96,11 +96,16 @@ void runExternalHttpDeviceWorkerUnitTests() {
         assert(gateway.applyFritzEvent("fb123456789abcde", true, true, 72, &error));
         devices = gateway.devices();
         bool foundPresence = false;
+        std::string fritzAddress;
         for (unsigned long i = 0; i < devices.size(); ++i) if (devices[i].source == "fritz_box") {
             foundPresence = devices[i].hasOccupancy && devices[i].occupied && devices[i].hasWifiSignal && devices[i].wifiSignalPercent == 72;
+            fritzAddress = devices[i].ieeeAddress;
         }
         assert(foundPresence);
+        assert(!fritzAddress.empty());
         assert(gateway.applyFritzEvent("fb123456789abcde", false, false, 0, &error));
+        assert(SensorHistory::readJson(history, fritzAddress, 0, &json, &error));
+        assert(json.find("\"samples\":[]") != std::string::npos);
         std::vector<int> inputs; inputs.push_back(0); inputs.push_back(1);
         std::vector<int> temperatures; temperatures.push_back(0); temperatures.push_back(1); temperatures.push_back(2);
         std::vector<int> relays; relays.push_back(0); relays.push_back(1);

@@ -502,12 +502,10 @@ bool Gateway::applyFritzEvent(const std::string& id, bool connected, bool hasSig
         if (it->second.source == "fritz_box" && it->second.externalId == id) break;
     if (it == devices_.end()) { *error = "unknown Fritz!Box client"; return false; }
     if (hasSignal && (signalPercent < 0 || signalPercent > 100)) { *error = "invalid Wi-Fi signal strength"; return false; }
-    bool occupancyChanged = it->second.occupied != connected;
     it->second.occupied = connected;
     it->second.hasWifiSignal = hasSignal;
     if (hasSignal) it->second.wifiSignalPercent = signalPercent;
     it->second.lastSeen = time(0);
-    if (occupancyChanged) history_.append(it->second.ieeeAddress, SensorHistory::Occupancy, connected ? 1 : 0, it->second.lastSeen);
     markViewDirty(); saveState();
     return true;
 }
