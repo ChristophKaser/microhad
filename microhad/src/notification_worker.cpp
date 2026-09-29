@@ -86,7 +86,8 @@ void NotificationWorker::stop() {
     pthread_mutex_unlock(&mutex_);
 }
 
-bool NotificationWorker::enqueue(const std::string& title, const std::string& body, std::string* error) {
+bool NotificationWorker::enqueue(const std::string& title, const std::string& body,
+                                 const std::vector<std::string>& presentSensorIds, std::string* error) {
     Job job;
     pthread_mutex_lock(&mutex_);
     if (!running_) {
@@ -106,10 +107,14 @@ bool NotificationWorker::enqueue(const std::string& title, const std::string& bo
     }
     job.title = title;
     job.body = body;
+    job.presentSensorIds = presentSensorIds;
     jobs_.push_back(job);
     pthread_cond_signal(&ready_);
     pthread_mutex_unlock(&mutex_);
     return true;
+}
+bool NotificationWorker::enqueue(const std::string& title, const std::string& body, std::string* error) {
+    return enqueue(title, body, std::vector<std::string>(), error);
 }
 
 bool NotificationWorker::enabled() const {
@@ -117,6 +122,22 @@ bool NotificationWorker::enabled() const {
     bool value = enabled_;
     pthread_mutex_unlock(&mutex_);
     return value;
+}
+
+std::vector<std::string> NotificationWorker::selectRecipients(const std::vector<RouteClient>& clients,
+                                                               const std::vector<std::string>& presentSensorIds) {
+    bool anyAssignedPresent = false;
+    std::vector<std::string> selected;
+    for (unsigned long i = 0; i < clients.size(); ++i) if (clients[i].enabled && !clients[i].presenceSensorId.empty())
+        for (unsigned long j = 0; j < presentSensorIds.size(); ++j)
+            if (clients[i].presenceSensorId == presentSensorIds[j]) anyAssignedPresent = true;
+    for (unsigned long i = 0; i < clients.size(); ++i) if (clients[i].enabled) {
+        bool present = clients[i].presenceSensorId.empty();
+        for (unsigned long j = 0; j < presentSensorIds.size(); ++j)
+            if (clients[i].presenceSensorId == presentSensorIds[j]) present = true;
+        if (!anyAssignedPresent || present) selected.push_back(clients[i].id);
+    }
+    return selected;
 }
 
 bool NotificationWorker::setEnabled(bool enabled, std::string* error) {
@@ -163,20 +184,45 @@ void NotificationWorker::deliver(const Job& job) {
         deliveryHook_->deliver(job.title, job.body);
         return;
     }
+    std::vector<std::string> allowedPhones, allowedBrowsers;
+    std::vector<RouteClient> routeClients;
+    WebPushStore* browserPush = caBundle_.empty() ? 0 : new WebPushStore(runtimeDirectory_);
+    std::vector<WebPushStore::RoutingClient> browserClients;
+    if (browserPush != 0) browserPush->routingClients(&browserClients);
+    pthread_mutex_lock(&mutex_);
+    for (unsigned long i = 0; i < devices_.size(); ++i) {
+        RouteClient client; client.id = devices_[i].id; client.presenceSensorId = devices_[i].presenceSensorId;
+        client.enabled = devices_[i].enabled; routeClients.push_back(client);
+    }
+    pthread_mutex_unlock(&mutex_);
+    for (unsigned long i = 0; i < browserClients.size(); ++i) {
+        RouteClient client; client.id = browserClients[i].id; client.presenceSensorId = browserClients[i].presenceSensorId;
+        client.enabled = browserClients[i].enabled; routeClients.push_back(client);
+    }
+    std::vector<std::string> selected = selectRecipients(routeClients, job.presentSensorIds);
+    for (unsigned long i = 0; i < selected.size(); ++i) {
+        bool phone = false;
+        pthread_mutex_lock(&mutex_);
+        for (unsigned long j = 0; j < devices_.size(); ++j) if (devices_[j].id == selected[i]) { phone = true; break; }
+        pthread_mutex_unlock(&mutex_);
+        if (phone) allowedPhones.push_back(selected[i]);
+        else allowedBrowsers.push_back(selected[i]);
+    }
     if (!firebaseServiceAccount_.empty() && !caBundle_.empty()) {
         std::vector<std::string> tokens;
         pthread_mutex_lock(&mutex_);
         for (unsigned long i = 0; i < devices_.size(); ++i)
-            if (devices_[i].enabled) tokens.push_back(devices_[i].token);
+            if (devices_[i].enabled) for (unsigned long j = 0; j < allowedPhones.size(); ++j)
+                if (devices_[i].id == allowedPhones[j]) { tokens.push_back(devices_[i].token); break; }
         pthread_mutex_unlock(&mutex_);
         for (unsigned long i = 0; i < tokens.size() && enabled(); ++i)
             if (!sendFcmTokenNotification(firebaseServiceAccount_, caBundle_, tokens[i], job.title, job.body, &ignored))
                 fprintf(stderr, "FCM delivery failed: %s\n", ignored.c_str());
     }
     if (!enabled()) return;
-    if (!caBundle_.empty()) {
-        WebPushStore browserPush(runtimeDirectory_);
-        browserPush.send(caBundle_, job.title, job.body, &ignored);
+    if (browserPush != 0) {
+        browserPush->send(caBundle_, job.title, job.body, allowedBrowsers, &ignored);
+        delete browserPush;
     }
 }
 bool NotificationWorker::registerDevice(const std::string& id, const std::string& model,
@@ -197,7 +243,7 @@ bool NotificationWorker::registerDevice(const std::string& id, const std::string
     std::vector<Device> old = devices_;
     if (i == devices_.size()) {
         Device device; device.id = id; device.model = model; device.token = token;
-        device.label = ""; device.enabled = true; devices_.push_back(device);
+        device.label = ""; device.presenceSensorId = ""; device.enabled = true; devices_.push_back(device);
     } else { devices_[i].model = model; devices_[i].token = token; }
     bool saved = saveDevices(error);
     if (!saved) devices_.swap(old);
@@ -205,8 +251,8 @@ bool NotificationWorker::registerDevice(const std::string& id, const std::string
     return saved;
 }
 bool NotificationWorker::updateDevice(const std::string& id, const std::string& label,
-                                       bool enabled, std::string* error) {
-    if (!validId(id) || label.size() > 64 || !printable(label)) {
+                                       bool enabled, const std::string& presenceSensorId, std::string* error) {
+    if (!validId(id) || label.size() > 64 || !printable(label) || presenceSensorId.size() > 128 || !printable(presenceSensorId)) {
         *error = "invalid push device settings"; return false;
     }
     pthread_mutex_lock(&mutex_);
@@ -215,15 +261,22 @@ bool NotificationWorker::updateDevice(const std::string& id, const std::string& 
     if (i == devices_.size()) {
         pthread_mutex_unlock(&mutex_); *error = "push device not found"; return false;
     }
-    if (devices_[i].label == label && devices_[i].enabled == enabled) {
+    if (devices_[i].label == label && devices_[i].enabled == enabled && devices_[i].presenceSensorId == presenceSensorId) {
         pthread_mutex_unlock(&mutex_); return true;
     }
     Device old = devices_[i];
-    devices_[i].label = label; devices_[i].enabled = enabled;
+    devices_[i].label = label; devices_[i].enabled = enabled; devices_[i].presenceSensorId = presenceSensorId;
     bool saved = saveDevices(error);
     if (!saved) devices_[i] = old;
     pthread_mutex_unlock(&mutex_);
     return saved;
+}
+bool NotificationWorker::updateDevice(const std::string& id, const std::string& label, bool enabled, std::string* error) {
+    std::string presenceSensorId;
+    pthread_mutex_lock(&mutex_);
+    for (unsigned long i = 0; i < devices_.size(); ++i) if (devices_[i].id == id) presenceSensorId = devices_[i].presenceSensorId;
+    pthread_mutex_unlock(&mutex_);
+    return updateDevice(id, label, enabled, presenceSensorId, error);
 }
 bool NotificationWorker::removeDevice(const std::string& id, std::string* error) {
     if (!validId(id)) { *error = "invalid push device id"; return false; }
@@ -245,7 +298,8 @@ std::string NotificationWorker::devicesJson() const {
         if (i) json += ",";
         json += "{\"id\":\"" + jsonEscape(devices_[i].id) + "\",\"model\":\"" +
                 jsonEscape(devices_[i].model) + "\",\"label\":\"" + jsonEscape(devices_[i].label) +
-                "\",\"enabled\":" + (devices_[i].enabled ? "true}" : "false}");
+                "\",\"enabled\":" + (devices_[i].enabled ? "true" : "false") +
+                ",\"presence_sensor_id\":\"" + jsonEscape(devices_[i].presenceSensorId) + "\"}";
     }
     pthread_mutex_unlock(&mutex_);
     return json + "]}";
@@ -260,6 +314,7 @@ void NotificationWorker::loadDevices() {
             jsonStringField(line, "token", &device.token) && !device.token.empty() && device.token.size() <= 4096 &&
             jsonStringField(line, "label", &device.label) && device.label.size() <= 64 &&
             jsonLongField(line, "enabled", &enabled) && (enabled == 0 || enabled == 1)) {
+            jsonStringField(line, "presence_sensor_id", &device.presenceSensorId);
             device.enabled = enabled == 1;
             bool duplicate = false;
             for (unsigned long i = 0; i < devices_.size(); ++i) if (devices_[i].id == device.id) duplicate = true;
@@ -280,7 +335,8 @@ bool NotificationWorker::saveDevices(std::string* error) const {
         const Device& d = devices_[i];
         std::string line = "{\"id\":\"" + jsonEscape(d.id) + "\",\"model\":\"" + jsonEscape(d.model) +
             "\",\"token\":\"" + jsonEscape(d.token) + "\",\"label\":\"" + jsonEscape(d.label) +
-            "\",\"enabled\":" + (d.enabled ? "1}\n" : "0}\n");
+            "\",\"enabled\":" + (d.enabled ? "1" : "0") +
+            ",\"presence_sensor_id\":\"" + jsonEscape(d.presenceSensorId) + "\"}\n";
         if (fwrite(line.data(), 1, line.size(), output) != line.size()) { ok = false; break; }
     }
     if (fclose(output) != 0) ok = false;

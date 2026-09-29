@@ -7,6 +7,7 @@
 
 class NotificationWorker {
 public:
+    struct RouteClient { std::string id, presenceSensorId; bool enabled; };
     class DeliveryHook {
     public:
         virtual ~DeliveryHook() {}
@@ -18,16 +19,22 @@ public:
     ~NotificationWorker();
     bool start(std::string* error);
     void stop();
+    bool enqueue(const std::string& title, const std::string& body,
+                 const std::vector<std::string>& presentSensorIds, std::string* error);
     bool enqueue(const std::string& title, const std::string& body, std::string* error);
     bool enabled() const;
     bool setEnabled(bool enabled, std::string* error);
     bool registerDevice(const std::string& id, const std::string& model, const std::string& token, std::string* error);
+    bool updateDevice(const std::string& id, const std::string& label, bool enabled,
+                      const std::string& presenceSensorId, std::string* error);
     bool updateDevice(const std::string& id, const std::string& label, bool enabled, std::string* error);
     bool removeDevice(const std::string& id, std::string* error);
     std::string devicesJson() const;
+    static std::vector<std::string> selectRecipients(const std::vector<RouteClient>& clients,
+                                                     const std::vector<std::string>& presentSensorIds);
 private:
-    struct Job { std::string title; std::string body; };
-    struct Device { std::string id, model, token, label; bool enabled; };
+    struct Job { std::string title; std::string body; std::vector<std::string> presentSensorIds; };
+    struct Device { std::string id, model, token, label, presenceSensorId; bool enabled; };
     std::string runtimeDirectory_, firebaseServiceAccount_, firebaseTopic_, caBundle_;
     DeliveryHook* deliveryHook_;
     pthread_t thread_;

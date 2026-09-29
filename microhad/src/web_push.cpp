@@ -41,6 +41,13 @@ bool validEndpoint(const std::string& endpoint) {
     return true;
 }
 
+bool validPresenceSensorId(const std::string& id) {
+    if (id.size() > 128) return false;
+    for (unsigned long i = 0; i < id.size(); ++i)
+        if (static_cast<unsigned char>(id[i]) < 0x20 || static_cast<unsigned char>(id[i]) == 0x7f) return false;
+    return true;
+}
+
 bool validSubscription(const std::string& subscriptionJson, std::string* endpoint) {
     std::string publicText, authText, clientPublic, auth;
     return jsonStringField(subscriptionJson, "endpoint", endpoint) && validEndpoint(*endpoint) &&
@@ -66,7 +73,7 @@ bool saveSubscriptions(const std::string& filename, const std::vector<std::strin
     return true;
 }
 
-struct BrowserClient { std::string endpoint, label; bool enabled; };
+struct BrowserClient { std::string endpoint, label, presenceSensorId; bool enabled; };
 std::vector<BrowserClient> loadClients(const std::string& directory) {
     std::vector<BrowserClient> clients;
     std::ifstream subscriptions((directory + "/web-push-subscriptions.ndjson").c_str());
@@ -77,14 +84,17 @@ std::vector<BrowserClient> loadClients(const std::string& directory) {
         if (!validSubscription(line, &endpoint)) continue;
         bool found = false;
         for (unsigned long i = 0; i < clients.size(); ++i) if (clients[i].endpoint == endpoint) found = true;
-        if (!found) { BrowserClient client; client.endpoint = endpoint; client.label = "Browser"; client.enabled = true; clients.push_back(client); }
+        if (!found) { BrowserClient client; client.endpoint = endpoint; client.label = "Browser"; client.presenceSensorId = ""; client.enabled = true; clients.push_back(client); }
     }
     while (std::getline(settings, line)) {
         std::string endpoint, label; long enabled = 1;
+        std::string presenceSensorId;
         if (!jsonStringField(line, "endpoint", &endpoint) || !jsonStringField(line, "label", &label) ||
             !jsonLongField(line, "enabled", &enabled) || (enabled != 0 && enabled != 1)) continue;
+        jsonStringField(line, "presence_sensor_id", &presenceSensorId);
         for (unsigned long i = 0; i < clients.size(); ++i) if (clients[i].endpoint == endpoint) {
-            clients[i].label = label; clients[i].enabled = enabled != 0; break;
+            clients[i].label = label; clients[i].enabled = enabled != 0;
+            clients[i].presenceSensorId = presenceSensorId; break;
         }
     }
     return clients;
@@ -106,7 +116,8 @@ bool saveClients(const std::string& directory, const std::vector<BrowserClient>&
     if (!output) { *error = "cannot persist Browser Push settings"; return false; }
     for (unsigned long i = 0; i < clients.size(); ++i)
         output << "{\"endpoint\":\"" << jsonEscape(clients[i].endpoint) << "\",\"label\":\"" << jsonEscape(clients[i].label)
-               << "\",\"enabled\":" << (clients[i].enabled ? 1 : 0) << "}\n";
+               << "\",\"enabled\":" << (clients[i].enabled ? 1 : 0)
+               << ",\"presence_sensor_id\":\"" << jsonEscape(clients[i].presenceSensorId) << "\"}\n";
     output.close();
     if (!output || chmod(temporary.c_str(), 0600) != 0 || rename(temporary.c_str(), filename.c_str()) != 0) {
         remove(temporary.c_str()); *error = "cannot persist Browser Push settings"; return false;
@@ -256,20 +267,40 @@ std::string WebPushStore::clientsJson() const {
     for (unsigned long i = 0; i < clients.size(); ++i) {
         if (i) json += ",";
         json += "{\"id\":\"" + clientId(clients[i].endpoint) + "\",\"model\":\"Browser\",\"label\":\"" +
-                jsonEscape(clients[i].label) + "\",\"enabled\":" + (clients[i].enabled ? "true}" : "false}");
+                jsonEscape(clients[i].label) + "\",\"enabled\":" + (clients[i].enabled ? "true" : "false") +
+                ",\"presence_sensor_id\":\"" + jsonEscape(clients[i].presenceSensorId) + "\"}";
     }
     return json + "]}";
 }
 
-bool WebPushStore::updateClient(const std::string& id, const std::string& label, bool enabled, std::string* error) {
+void WebPushStore::routingClients(std::vector<RoutingClient>* output) const {
     StoreLock lock;
-    if (label.size() > 64) { *error = "invalid push client label"; return false; }
+    std::vector<BrowserClient> clients = loadClients(runtimeDirectory_);
+    output->clear();
+    for (unsigned long i = 0; i < clients.size(); ++i) {
+        RoutingClient client; client.id = clientId(clients[i].endpoint);
+        client.presenceSensorId = clients[i].presenceSensorId; client.enabled = clients[i].enabled;
+        output->push_back(client);
+    }
+}
+
+bool WebPushStore::updateClient(const std::string& id, const std::string& label, bool enabled,
+                                const std::string& presenceSensorId, std::string* error) {
+    StoreLock lock;
+    if (label.size() > 64 || !validPresenceSensorId(presenceSensorId)) { *error = "invalid push client settings"; return false; }
     std::vector<BrowserClient> clients = loadClients(runtimeDirectory_);
     for (unsigned long i = 0; i < clients.size(); ++i) if (clientId(clients[i].endpoint) == id) {
-        clients[i].label = label; clients[i].enabled = enabled;
+        clients[i].label = label; clients[i].enabled = enabled; clients[i].presenceSensorId = presenceSensorId;
         return saveClients(runtimeDirectory_, clients, error);
     }
     *error = "Browser Push client not found"; return false;
+}
+bool WebPushStore::updateClient(const std::string& id, const std::string& label, bool enabled, std::string* error) {
+    std::string presenceSensorId;
+    std::vector<RoutingClient> clients;
+    routingClients(&clients);
+    for (unsigned long i = 0; i < clients.size(); ++i) if (clients[i].id == id) presenceSensorId = clients[i].presenceSensorId;
+    return updateClient(id, label, enabled, presenceSensorId, error);
 }
 
 bool WebPushStore::removeClient(const std::string& id, std::string* error) {
@@ -293,7 +324,7 @@ std::string WebPushStore::publicKey() const {
 }
 
 bool WebPushStore::send(const std::string& caBundle, const std::string& title, const std::string& body,
-                        std::string* error) {
+                        const std::vector<std::string>& allowedClientIds, std::string* error) {
 #ifdef MICROHAD_MBEDTLS_ENABLED
     const std::string subscriptionFilename = runtimeDirectory_ + "/web-push-subscriptions.ndjson";
     std::ifstream privateFile((runtimeDirectory_ + "/vapid-private.key").c_str(), std::ios::binary);
@@ -323,8 +354,13 @@ bool WebPushStore::send(const std::string& caBundle, const std::string& title, c
             continue;
         }
         bool enabled = true;
-        for (unsigned long i = 0; i < clients.size(); ++i) if (clients[i].endpoint == endpoint) enabled = clients[i].enabled;
-        if (!enabled) continue;
+        bool allowed = false;
+        for (unsigned long i = 0; i < clients.size(); ++i) if (clients[i].endpoint == endpoint) {
+            enabled = clients[i].enabled;
+            for (unsigned long j = 0; j < allowedClientIds.size(); ++j)
+                if (allowedClientIds[j] == clientId(endpoint)) allowed = true;
+        }
+        if (!enabled || !allowed) continue;
         std::string payload = "{\"title\":\"" + jsonEscape(title) + "\",\"body\":\"" + jsonEscape(body) + "\"}";
         payload += static_cast<char>(2);
         if (microhad_web_push_encrypt(reinterpret_cast<const unsigned char*>(clientPublic.data()),
@@ -354,7 +390,11 @@ bool WebPushStore::send(const std::string& caBundle, const std::string& title, c
                 active = false;
                 std::vector<BrowserClient> currentClients = loadClients(runtimeDirectory_);
                 for (unsigned long i = 0; i < currentClients.size(); ++i)
-                    if (currentClients[i].endpoint == endpoint && currentClients[i].enabled) { active = true; break; }
+                    if (currentClients[i].endpoint == endpoint && currentClients[i].enabled) {
+                        for (unsigned long j = 0; j < allowedClientIds.size(); ++j)
+                            if (allowedClientIds[j] == clientId(endpoint)) active = true;
+                        break;
+                    }
             }
             if (!active) continue;
         }
@@ -398,4 +438,13 @@ bool WebPushStore::send(const std::string& caBundle, const std::string& title, c
     *error = "Browser Push delivery requires the MIPS crypto backend";
     return false;
 #endif
+}
+
+bool WebPushStore::send(const std::string& caBundle, const std::string& title, const std::string& body,
+                        std::string* error) {
+    std::vector<RoutingClient> clients;
+    std::vector<std::string> allowed;
+    routingClients(&clients);
+    for (unsigned long i = 0; i < clients.size(); ++i) if (clients[i].enabled) allowed.push_back(clients[i].id);
+    return send(caBundle, title, body, allowed, error);
 }

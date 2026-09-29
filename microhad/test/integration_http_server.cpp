@@ -395,9 +395,10 @@ void testServers() {
     while (browserAt < response.size() && ((response[browserAt] >= '0' && response[browserAt] <= '9') || (response[browserAt] >= 'a' && response[browserAt] <= 'f')))
         browserId += response[browserAt++];
     expectStatus("http update browser client", plainRequest(http.boundPort(), post(
-        "/api/push/browser-clients/" + browserId, "label=Office+browser&enabled=false")), 200);
+        "/api/push/browser-clients/" + browserId, "label=Office+browser&enabled=false&presence_sensor_id=presence%2Fhall")), 200);
     response = plainRequest(http.boundPort(), "GET /api/push/browser-clients HTTP/1.1\r\nHost: localhost\r\n\r\n");
-    assert(response.find("Office browser") != std::string::npos && response.find("\"enabled\":false") != std::string::npos);
+    assert(response.find("Office browser") != std::string::npos && response.find("\"enabled\":false") != std::string::npos &&
+           response.find("\"presence_sensor_id\":\"presence/hall\"") != std::string::npos);
     expectStatus("http remove browser client", plainRequest(http.boundPort(), post(
         "/api/push/browser-clients/" + browserId + "/delete", "")), 200);
     response = plainRequest(http.boundPort(), "GET /api/push/browser-clients HTTP/1.1\r\nHost: localhost\r\n\r\n");
@@ -409,9 +410,10 @@ void testServers() {
     expectStatus("http list phones", response, 200);
     assert(response.find("Pixel") != std::string::npos && response.find("secret-token") == std::string::npos);
     expectStatus("http update phone", plainRequest(http.boundPort(), post(
-        "/api/push/devices/11111111-1111-4111-8111-111111111111", "label=Kitchen+phone&enabled=false")), 200);
+        "/api/push/devices/11111111-1111-4111-8111-111111111111", "label=Kitchen+phone&enabled=false&presence_sensor_id=presence%2Fhall")), 200);
     response = plainRequest(http.boundPort(), "GET /api/push/devices HTTP/1.1\r\nHost: localhost\r\n\r\n");
-    assert(response.find("Kitchen phone") != std::string::npos && response.find("\"enabled\":false") != std::string::npos);
+    assert(response.find("Kitchen phone") != std::string::npos && response.find("\"enabled\":false") != std::string::npos &&
+           response.find("\"presence_sensor_id\":\"presence/hall\"") != std::string::npos);
     expectStatus("http remove phone", plainRequest(http.boundPort(), post(
         "/api/push/devices/11111111-1111-4111-8111-111111111111/delete", "")), 200);
     expectStatus("http reject offline network creation", plainRequest(http.boundPort(), post("/api/network/create", "confirmation=DELETE")), 400);

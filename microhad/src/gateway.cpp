@@ -1865,7 +1865,10 @@ bool Gateway::emitNotification(const std::string& title, const std::string& body
         return false;
     }
     std::string enqueueError;
-    if (!notificationWorker_->enqueue(title, body, error != 0 ? error : &enqueueError)) {
+    std::vector<std::string> presentSensorIds;
+    for (std::map<std::string, Device>::const_iterator device = devices_.begin(); device != devices_.end(); ++device)
+        if (device->second.hasOccupancy && device->second.occupied) presentSensorIds.push_back(device->second.ieeeAddress);
+    if (!notificationWorker_->enqueue(title, body, presentSensorIds, error != 0 ? error : &enqueueError)) {
         addLog(std::string("Notification queue failed: ") + title + " - " + body);
         return false;
     }

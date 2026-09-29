@@ -6,6 +6,7 @@ interface PushClient {
   model: string
   label: string
   enabled: boolean
+  presence_sensor_id: string
   kind: 'phone' | 'browser'
 }
 
@@ -19,12 +20,15 @@ export function PushDevices({ enabled, onClose, onEnableBrowser, onTest, onToggl
   const [clients, setClients] = useState<PushClient[]>([])
   const [error, setError] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
+  const [presenceSensors, setPresenceSensors] = useState<{ id: string; name: string }[]>([])
   const refresh = async () => {
     try {
-      const [phones, browsers] = await Promise.all([
+      const [phones, browsers, status] = await Promise.all([
         jsonRequest<{ devices: Omit<PushClient, 'kind'>[] }>('/api/push/devices'),
         jsonRequest<{ clients: Omit<PushClient, 'kind'>[] }>('/api/push/browser-clients'),
+        jsonRequest<{ devices: { id: string; name: string; has_occupancy: boolean }[] }>('/api/status').catch(() => ({ devices: [] })),
       ])
+      setPresenceSensors(status.devices.filter((device) => device.has_occupancy).map(({ id, name }) => ({ id, name })))
       setClients([
         ...phones.devices.map((client) => ({ ...client, kind: 'phone' as const })),
         ...browsers.clients.map((client) => ({ ...client, kind: 'browser' as const })),
@@ -33,12 +37,12 @@ export function PushDevices({ enabled, onClose, onEnableBrowser, onTest, onToggl
     } catch (failure) { setError(errorMessage(failure)) }
   }
   useEffect(() => { void refresh() }, [])
-  const update = async (client: PushClient, changes: Partial<Pick<PushClient, 'label' | 'enabled'>>) => {
+  const update = async (client: PushClient, changes: Partial<Pick<PushClient, 'label' | 'enabled' | 'presence_sensor_id'>>) => {
     const updated = { ...client, ...changes }
     setBusy(client.id)
     try {
       const base = client.kind === 'phone' ? '/api/push/devices/' : '/api/push/browser-clients/'
-      await post(`${base}${encodeURIComponent(client.id)}`, form({ label: updated.label, enabled: String(updated.enabled) }))
+      await post(`${base}${encodeURIComponent(client.id)}`, form({ label: updated.label, enabled: String(updated.enabled), presence_sensor_id: updated.presence_sensor_id }))
       await refresh()
     } catch (failure) { setError(errorMessage(failure)) }
     finally { setBusy(null) }
@@ -72,6 +76,10 @@ export function PushDevices({ enabled, onClose, onEnableBrowser, onTest, onToggl
           <div><strong>{client.label || client.model}</strong><p className="muted small">{client.kind === 'browser' ? 'Browser' : client.model} · {client.id}</p></div>
           <label>Label<input aria-label={`Label for ${client.label || client.model}`} maxLength={64} value={client.label}
             onChange={(event) => setClients((current) => current.map((item) => item.id === client.id && item.kind === client.kind ? { ...item, label: event.target.value } : item))} /></label>
+          <label>Presence sensor<select aria-label={`Presence sensor for ${client.label || client.model}`} value={client.presence_sensor_id || ''} disabled={busy === client.id}
+            onChange={(event) => void update(client, { presence_sensor_id: event.target.value })}>
+            <option value="">Unassigned</option>{presenceSensors.map((sensor) => <option key={sensor.id} value={sensor.id}>{sensor.name || sensor.id}</option>)}
+          </select></label>
           <label className="check"><input type="checkbox" checked={client.enabled} disabled={busy === client.id}
             onChange={(event) => void update(client, { enabled: event.target.checked })} /> Enabled</label>
           <button className="button" type="submit" disabled={busy === client.id}>Save</button>

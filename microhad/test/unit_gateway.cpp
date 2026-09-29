@@ -1837,6 +1837,28 @@ static void testNotificationTogglePersistence() {
     rmdir(directory.c_str());
 }
 
+static void testPresenceBasedPushRouting() {
+    std::vector<NotificationWorker::RouteClient> clients;
+    NotificationWorker::RouteClient client;
+    client.id = "phone-home"; client.presenceSensorId = "sensor-home"; client.enabled = true; clients.push_back(client);
+    client.id = "browser-away"; client.presenceSensorId = "sensor-away"; clients.push_back(client);
+    client.id = "phone-unassigned"; client.presenceSensorId = ""; clients.push_back(client);
+    client.id = "disabled-home"; client.presenceSensorId = "sensor-home"; client.enabled = false; clients.push_back(client);
+    std::vector<std::string> present, selected;
+    present.push_back("sensor-home");
+    selected = NotificationWorker::selectRecipients(clients, present);
+    assert(selected.size() == 2 && selected[0] == "phone-home" && selected[1] == "phone-unassigned");
+    present.clear();
+    selected = NotificationWorker::selectRecipients(clients, present);
+    assert(selected.size() == 3 && selected[0] == "phone-home" && selected[1] == "browser-away" && selected[2] == "phone-unassigned");
+    present.push_back("unknown-sensor");
+    selected = NotificationWorker::selectRecipients(clients, present);
+    assert(selected.size() == 3);
+    present.clear(); present.push_back("sensor-away");
+    selected = NotificationWorker::selectRecipients(clients, present);
+    assert(selected.size() == 2 && selected[0] == "browser-away" && selected[1] == "phone-unassigned");
+}
+
 static void testPushDeviceRegistry() {
     char directoryName[] = "/tmp/microhad-zigbee-push-devices-XXXXXX";
     char* directory = mkdtemp(directoryName);
@@ -1855,10 +1877,12 @@ static void testPushDeviceRegistry() {
         assert(readTextFile(std::string(directory) + "/push-devices.ndjson", &after) && before == after);
         assert(stat((std::string(directory) + "/push-devices.ndjson").c_str(), &secondStat) == 0);
         assert(firstStat.st_ino == secondStat.st_ino);
+        assert(worker.updateDevice(id, "Alice's phone", true, "sensor-hall", &error));
         assert(worker.updateDevice(id, "Alice's phone", false, &error));
         assert(worker.registerDevice(id, "Pixel 8", "token-two", &error));
         assert(worker.devicesJson().find("Alice's phone") != std::string::npos);
         assert(worker.devicesJson().find("\"enabled\":false") != std::string::npos);
+        assert(worker.devicesJson().find("\"presence_sensor_id\":\"sensor-hall\"") != std::string::npos);
         assert(worker.devicesJson().find("token-two") == std::string::npos);
     }
     {
@@ -2073,6 +2097,7 @@ void runUnitTests() {
     testTemperatureThresholdAlerts();
     testContactAlertReminders();
     testNotificationTogglePersistence();
+    testPresenceBasedPushRouting();
     testPushDeviceRegistry();
     testNotificationWorkerQueueLifecycle();
     testNotificationAuditDoesNotWriteRuntimeFlash();
