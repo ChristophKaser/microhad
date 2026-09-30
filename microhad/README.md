@@ -234,13 +234,14 @@ the result to be reliable. Do not deploy the unstripped binary as the service.
 
 Sensor cards offer a History dialog for temperature, humidity, and contact
 state. The coordinator writes fixed-size binary records to
-`/tmp/microhad-zigbee-native-history.bin`; the file is limited to 2 MiB across
-the gateway and history is returned in pages of up to 2,000 samples. There is
-no per-device sample limit beyond the shared ring capacity. Temperature and
-humidity are sampled at most once per metric per minute, while each contact
-transition is retained. The RAM-backed history
-survives a service restart but is cleared by a device reboot. Older readings
-may disappear sooner when several sensors share the ring.
+`/tmp/microhad-zigbee-native-history.bin`. V2 stores 128 samples per
+device/metric page in an initially 2 MiB page pool; it can grow in the
+exceptional case where every page is a protected device/metric's only page.
+History is returned in pages of up to 2,000 samples. Temperature and humidity
+are sampled at most once per metric per minute, while each contact transition
+is retained. The RAM-backed history survives a service restart but is cleared
+by a device reboot. See [Sensor history format](SENSOR_HISTORY_FORMAT.md) for
+the binary layout, retention, and legacy conversion contract.
 
 ## Web UI development
 
