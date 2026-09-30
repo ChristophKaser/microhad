@@ -126,7 +126,23 @@ if [ "$activate" = true ]; then
 fi
 if [ "$restart" = true ]; then
     printf 'Restarting the supervised native daemon\n'
-    ssh_command "if ! killall -TERM microhad-zigbee-native >/dev/null 2>&1; then echo 'ERROR: restart check failed: killall could not signal microhad-zigbee-native' >&2; exit 1; fi; sleep 3; retries=0; while [ \$retries -lt 10 ]; do if ps w | grep -q '[t]uya-zigbee-native'; then exit 0; fi; retries=\$((retries + 1)); sleep 1; done; echo 'ERROR: restart check failed: microhad-zigbee-native was not found by ps within 13 seconds' >&2; ps w >&2; exit 1"
+    ssh_command "killall -TERM microhad-zigbee-native >/dev/null 2>&1 || true
+is_deployed_binary_running() {
+    for executable in /proc/[0-9]*/exe; do
+        [ -e \"\$executable\" ] || continue
+        [ \"\$executable\" -ef \"$target/tuya-zigbee-native\" ] && return 0
+    done
+    return 1
+}
+retries=0
+while [ \$retries -lt 13 ]; do
+    if is_deployed_binary_running; then exit 0; fi
+    retries=\$((retries + 1))
+    sleep 1
+done
+echo 'ERROR: restart check failed: deployed microhad-zigbee-native binary was not running within 13 seconds' >&2
+ps w >&2
+exit 1"
     echo "Selected assets uploaded and service restarted."
 elif [ "$activate" = true ]; then
     echo "Selected assets uploaded and activated for the next boot. Existing processes were not restarted."

@@ -142,7 +142,7 @@ The pre-upgrade v8-only executable was extracted under
 matched the running pre-upgrade daemon. It can be redeployed with `deploy.sh`
 using `--binary` and `--binary-only`, the explicit password-file pathname,
 `--target /tuya/native`, and `--restart`. Do not replace configuration.
-The legacy device's restart check can report failure despite a successful
-restart; reconcile that using the running `/proc/PID/exe` checksum and dashboard.
+The deploy restart check signals the daemon on a best-effort basis, then waits
+for `/proc/PID/exe` to match the newly installed binary before reporting success.
 Do not deploy that v8-only executable while the radio is on v13.
 Do not treat this daemon rollback as a radio/network rollback.
