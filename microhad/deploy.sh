@@ -64,9 +64,15 @@ case "$target" in *[!A-Za-z0-9_./-]*) echo "target contains unsupported characte
 [ "$deploy_binary" = true ] || { [ -z "$config" ] && [ "$activate" = false ] && [ "$restart" = false ]; } || { echo "--config, --activate, and --restart require binary deployment" >&2; exit 2; }
 
 ssh_command() {
+    remote_command=$1
     sshpass -f "$password_file" ssh -o ConnectTimeout=8 -o StrictHostKeyChecking=yes \
         -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa \
-        -o PreferredAuthentications=password -o PubkeyAuthentication=no "$user@$host" "$1"
+        -o PreferredAuthentications=password -o PubkeyAuthentication=no "$user@$host" "$remote_command" || {
+            status=$?
+            printf 'ERROR: SSH command failed for %s@%s (exit %s): %s\n' \
+                "$user" "$host" "$status" "$remote_command" >&2
+            return "$status"
+        }
 }
 
 prune_web_bundles() {
@@ -120,7 +126,7 @@ if [ "$activate" = true ]; then
 fi
 if [ "$restart" = true ]; then
     printf 'Restarting the supervised native daemon\n'
-    ssh_command "killall -TERM microhad-zigbee-native >/dev/null 2>&1 || exit 1; sleep 3; retries=0; while [ \$retries -lt 10 ]; do if ps w | grep -q '[t]uya-zigbee-native'; then exit 0; fi; retries=\$((retries + 1)); sleep 1; done; exit 1"
+    ssh_command "if ! killall -TERM microhad-zigbee-native >/dev/null 2>&1; then echo 'ERROR: restart check failed: killall could not signal microhad-zigbee-native' >&2; exit 1; fi; sleep 3; retries=0; while [ \$retries -lt 10 ]; do if ps w | grep -q '[t]uya-zigbee-native'; then exit 0; fi; retries=\$((retries + 1)); sleep 1; done; echo 'ERROR: restart check failed: microhad-zigbee-native was not found by ps within 13 seconds' >&2; ps w >&2; exit 1"
     echo "Selected assets uploaded and service restarted."
 elif [ "$activate" = true ]; then
     echo "Selected assets uploaded and activated for the next boot. Existing processes were not restarted."
