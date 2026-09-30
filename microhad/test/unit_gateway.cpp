@@ -140,7 +140,7 @@ public:
         gateway.networkFormed_ = true;
         assert(gateway.refreshDevice(device.ieeeAddress, &error));
         assert(gateway.interviews_[device.networkAddress].refreshOnly);
-        assert(gateway.interviews_[device.networkAddress].operations[0].type == Gateway::InterviewNodeDescriptor);
+        assert(gateway.interviews_[device.networkAddress].operations[0].type == Gateway::InterviewActiveEndpoints);
     }
     static void lightCommandEncoding() {
         Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
@@ -346,17 +346,8 @@ public:
         state.ieeeAddress = "0x00124b00000000ab";
         state.operations.push_back(Gateway::InterviewOperation());
         gateway.interviews_[node] = state;
-        std::vector<unsigned char> response(21, 0);
-        response[3] = 2; response[4] = 0x80;
-        response[14] = 0x21; response[15] = 0x43;
-        response[18] = 2; /* seq 0, status success */
-        gateway.handleIncomingMessage(response);
-        assert(gateway.interviews_[node].operations[0].type == Gateway::InterviewNodeDescriptor);
-        gateway.interviews_[node].operations[0].transactionSequenceAssigned = true;
-        gateway.interviews_[node].paused = true;
-        gateway.handleIncomingMessage(response);
+        std::vector<unsigned char> response;
         assert(gateway.interviews_[node].operations[0].type == Gateway::InterviewActiveEndpoints);
-        assert(!gateway.interviews_[node].paused);
 
         const Gateway::InterviewOperationType types[] = {
             Gateway::InterviewActiveEndpoints, Gateway::InterviewSimpleDescriptor,
@@ -369,7 +360,7 @@ public:
             state.operations[0].type = types[i];
             state.operations[0].cluster = clusters[i];
             gateway.interviews_[node] = state;
-            response.assign(32, 0);
+        response.assign(32, 0);
             response[3] = static_cast<unsigned char>(clusters[i]);
             response[4] = static_cast<unsigned char>(clusters[i] >> 8);
             if (i >= 3) { response[1] = 0x04; response[2] = 0x01; }
@@ -1674,7 +1665,7 @@ static void testInterviewDescriptorAndPlanning() {
     GatewayTestPeer::buildConfiguration(&gateway, 0x1234, "0x00124b0000000010", descriptor);
     assert(gateway.statusJson().find("\"endpoint_descriptors\":[{\"endpoint\":1,\"profile_id\":260,\"device_id\":770,\"device_version\":1,\"input_clusters\":[0,1,1026,1029],\"output_clusters\":[3]}") != std::string::npos);
     assert(GatewayTestPeer::operationCount(gateway, 0x1234) == 10);
-    assert(GatewayTestPeer::operationType(gateway, 0x1234, 0) == 4); /* InterviewBind */
+    assert(GatewayTestPeer::operationType(gateway, 0x1234, 0) == 3); /* InterviewBind */
     assert(GatewayTestPeer::operationCluster(gateway, 0x1234, 0) == 0x0402);
     assert(GatewayTestPeer::operationCluster(gateway, 0x1234, 1) == 0x0405);
     assert(GatewayTestPeer::operationCluster(gateway, 0x1234, 2) == 0x0001);
@@ -1686,9 +1677,9 @@ static void testInterviewDescriptorAndPlanning() {
         remote.outputClusters.push_back(0x0008);
         GatewayTestPeer::buildConfiguration(&remoteGateway, 0x1235, "0x00124b0000000012", remote);
         assert(GatewayTestPeer::operationCount(remoteGateway, 0x1235) == 2);
-        assert(GatewayTestPeer::operationType(remoteGateway, 0x1235, 0) == 4);
+        assert(GatewayTestPeer::operationType(remoteGateway, 0x1235, 0) == 3);
         assert(GatewayTestPeer::operationCluster(remoteGateway, 0x1235, 0) == 0x0006);
-        assert(GatewayTestPeer::operationType(remoteGateway, 0x1235, 1) == 4);
+        assert(GatewayTestPeer::operationType(remoteGateway, 0x1235, 1) == 3);
         assert(GatewayTestPeer::operationCluster(remoteGateway, 0x1235, 1) == 0x0008);
     }
     assert(GatewayTestPeer::pauseAndWake(&gateway, 0x1235));

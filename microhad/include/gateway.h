@@ -70,6 +70,7 @@ struct Device {
     std::string modelId;
     std::string softwareBuildId; /* read during interview; persisted for remote binding compatibility */
     std::vector<EndpointDescriptor> endpoints;
+    std::vector<unsigned char> nodeDescriptor; /* raw 13-byte Zigbee Node Descriptor body */
     Device();
 };
 
@@ -123,6 +124,7 @@ struct DeviceBindingEntry {
 
 struct DeviceConfigurationStatus {
     std::string ieeeAddress;
+    std::string nodeDescriptorStatus;
     std::string groupsStatus;
     std::vector<unsigned short> groups;
     std::string bindingsStatus;
@@ -278,7 +280,6 @@ private:
     std::map<std::string, Device> devices_;
     std::map<unsigned short, std::string> nodeAddresses_;
     enum InterviewOperationType {
-        InterviewNodeDescriptor,
         InterviewActiveEndpoints,
         InterviewSimpleDescriptor,
         InterviewBasicRead,
@@ -349,13 +350,16 @@ private:
     };
     std::map<std::string, SceneProvisionState> sceneProvisioning_;
     struct DeviceConfigurationQuery {
+        unsigned char nodeDescriptorSequence;
         unsigned char groupsSequence;
         unsigned char bindingsSequence;
+        long nodeDescriptorDeadline;
         long groupsDeadline;
         long bindingsDeadline;
         unsigned char bindingStartIndex;
         unsigned char bindingTotal;
-        DeviceConfigurationQuery() : groupsSequence(0), bindingsSequence(0), groupsDeadline(0),
+        DeviceConfigurationQuery() : nodeDescriptorSequence(0), groupsSequence(0), bindingsSequence(0),
+            nodeDescriptorDeadline(0), groupsDeadline(0),
             bindingsDeadline(0), bindingStartIndex(0), bindingTotal(0) {}
     };
     std::map<std::string, DeviceConfigurationStatus> deviceConfigurations_;
@@ -420,7 +424,7 @@ private:
     void sendIasEnrollResponse(unsigned short destination, unsigned char sourceEndpoint,
                                unsigned char destinationEndpoint, unsigned char transactionSequence,
                                unsigned char zoneId);
-    void startInterview(unsigned short destination, bool refreshOnly);
+    void startInterview(unsigned short destination, bool refreshOnly, bool forceEndpointDiscovery = false);
     void queueInterviewOperation(unsigned short destination, InterviewOperationType type, unsigned char endpoint,
                                  unsigned short cluster = 0, unsigned short attribute = 0,
                                  unsigned char dataType = 0, unsigned short reportableChange = 0,

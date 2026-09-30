@@ -72,7 +72,7 @@ std::string shellyDefaultName(const std::string& name, const std::string& compon
 }
 }
 
-Gateway::InterviewOperation::InterviewOperation() : type(InterviewNodeDescriptor), endpoint(0), cluster(0), attribute(0),
+Gateway::InterviewOperation::InterviewOperation() : type(InterviewActiveEndpoints), endpoint(0), cluster(0), attribute(0),
     dataType(0), minimumInterval(0), maximumInterval(0), reportableChange(0), transactionSequence(0),
     transactionSequenceAssigned(false), messageTag(0), attempts(0), retryAt(0) {
 }
@@ -609,6 +609,11 @@ void Gateway::poll() {
     for (std::map<std::string, DeviceConfigurationQuery>::iterator query = deviceConfigurationQueries_.begin();
          query != deviceConfigurationQueries_.end(); ) {
         DeviceConfigurationStatus& status = deviceConfigurations_[query->first];
+        if (query->second.nodeDescriptorDeadline != 0 && time(0) >= query->second.nodeDescriptorDeadline) {
+            query->second.nodeDescriptorDeadline = 0;
+            status.nodeDescriptorStatus = "timed out; device may be asleep";
+            markViewDirty();
+        }
         if (query->second.groupsDeadline != 0 && time(0) >= query->second.groupsDeadline) {
             query->second.groupsDeadline = 0;
             status.groupsStatus = "timed out; device may be asleep";
@@ -619,7 +624,8 @@ void Gateway::poll() {
             status.bindingsStatus = "timed out; device may be asleep";
             markViewDirty();
         }
-        if (query->second.groupsDeadline == 0 && query->second.bindingsDeadline == 0)
+        if (query->second.nodeDescriptorDeadline == 0 && query->second.groupsDeadline == 0 &&
+            query->second.bindingsDeadline == 0)
             deviceConfigurationQueries_.erase(query++);
         else ++query;
     }
@@ -686,7 +692,7 @@ void Gateway::poll() {
         unsigned short node = pending->first;
         lightSetupPending_.erase(pending);
         if (nodeAddresses_.find(node) != nodeAddresses_.end()) {
-            startInterview(node, false);
+            startInterview(node, false, true);
             addLog("Queued light reporting setup for existing device");
         }
     }
@@ -824,6 +830,7 @@ long Gateway::nextPollDeadline() const {
     for (configQuery = deviceConfigurationQueries_.begin(); configQuery != deviceConfigurationQueries_.end(); ++configQuery) {
         CONSIDER_DEADLINE(configQuery->second.groupsDeadline);
         CONSIDER_DEADLINE(configQuery->second.bindingsDeadline);
+        CONSIDER_DEADLINE(configQuery->second.nodeDescriptorDeadline);
     }
     for (std::map<std::string, SceneProvisionState>::const_iterator pending = sceneProvisioning_.begin();
          pending != sceneProvisioning_.end(); ++pending) CONSIDER_DEADLINE(pending->second.deadline);
@@ -1011,7 +1018,7 @@ bool Gateway::refreshDevice(const std::string& ieeeAddress, std::string* error) 
     /* A remote needs a full interview so its output command clusters are
        bound to the coordinator.  Measurement devices only need their
        persisted endpoints refreshed. */
-    startInterview(device->second.networkAddress, !device->second.hasRemote);
+    startInterview(device->second.networkAddress, !device->second.hasRemote, true);
     if (device->second.sensorRefreshIntervalMinutes == 0) nextSensorRefreshAt_.erase(device->second.networkAddress);
     else nextSensorRefreshAt_[device->second.networkAddress] =
         sensorRefreshDeadline(time(0), device->second.sensorRefreshIntervalMinutes);
@@ -1066,8 +1073,17 @@ bool Gateway::queryDeviceConfiguration(const std::string& ieeeAddress, std::stri
     DeviceConfigurationStatus& status = deviceConfigurations_[ieeeAddress];
     status = DeviceConfigurationStatus();
     status.ieeeAddress = ieeeAddress;
+    status.nodeDescriptorStatus = "waiting";
     status.bindingsStatus = "waiting";
     DeviceConfigurationQuery query;
+    query.nodeDescriptorSequence = zdoSequence_++;
+    query.nodeDescriptorDeadline = time(0) + 20;
+    std::vector<unsigned char> descriptorRequest;
+    descriptorRequest.push_back(query.nodeDescriptorSequence);
+    descriptorRequest.push_back(static_cast<unsigned char>(device->second.networkAddress));
+    descriptorRequest.push_back(static_cast<unsigned char>(device->second.networkAddress >> 8));
+    sendApsUnicast(device->second.networkAddress, 0x0000, 0x0002, 0, 0, descriptorRequest);
+
     query.bindingsSequence = zdoSequence_++;
     query.bindingsDeadline = time(0) + 20;
     std::vector<unsigned char> bindRequest;
@@ -2032,7 +2048,44 @@ std::string GatewayView::statusJson() const {
              << ",\"last_seen\":" << device.lastSeen
              << ",\"manufacturer_name\":\"" << jsonEscape(device.manufacturerName)
              << "\",\"model_id\":\"" << jsonEscape(device.modelId)
-             << "\",\"endpoint_descriptors\":[";
+             << "\",\"node_descriptor\":";
+        if (device.nodeDescriptor.size() == 13) {
+            const std::vector<unsigned char>& d = device.nodeDescriptor;
+            unsigned short manufacturerCode = static_cast<unsigned short>(d[3]) |
+                                              (static_cast<unsigned short>(d[4]) << 8);
+            unsigned short maxIncoming = static_cast<unsigned short>(d[6]) |
+                                         (static_cast<unsigned short>(d[7]) << 8);
+            unsigned short serverMask = static_cast<unsigned short>(d[8]) |
+                                        (static_cast<unsigned short>(d[9]) << 8);
+            unsigned short maxOutgoing = static_cast<unsigned short>(d[10]) |
+                                         (static_cast<unsigned short>(d[11]) << 8);
+            const char* hex = "0123456789abcdef";
+            std::string rawHex;
+            for (unsigned long i = 0; i < d.size(); ++i) {
+                rawHex += hex[d[i] >> 4];
+                rawHex += hex[d[i] & 0x0f];
+            }
+            json << "{\"raw_hex\":\"" << rawHex << "\",\"logical_device_type\":"
+                 << static_cast<unsigned int>(d[0] & 0x03)
+                 << ",\"complex_descriptor_available\":" << ((d[0] & 0x04) ? "true" : "false")
+                 << ",\"user_descriptor_available\":" << ((d[0] & 0x08) ? "true" : "false")
+                 << ",\"aps_flags\":" << static_cast<unsigned int>(d[1] & 0x07)
+                 << ",\"frequency_band\":" << static_cast<unsigned int>(d[1] >> 3)
+                 << ",\"mac_capability_flags\":" << static_cast<unsigned int>(d[2])
+                 << ",\"alternate_pan_coordinator\":" << ((d[2] & 0x01) ? "true" : "false")
+                 << ",\"full_function_device\":" << ((d[2] & 0x02) ? "true" : "false")
+                 << ",\"mains_powered\":" << ((d[2] & 0x04) ? "true" : "false")
+                 << ",\"receiver_on_when_idle\":" << ((d[2] & 0x08) ? "true" : "false")
+                 << ",\"security_capability\":" << ((d[2] & 0x40) ? "true" : "false")
+                 << ",\"allocate_address\":" << ((d[2] & 0x80) ? "true" : "false")
+                 << ",\"manufacturer_code\":" << manufacturerCode
+                 << ",\"max_buffer_size\":" << static_cast<unsigned int>(d[5])
+                 << ",\"max_incoming_transfer_size\":" << maxIncoming
+                 << ",\"server_mask\":" << serverMask
+                 << ",\"max_outgoing_transfer_size\":" << maxOutgoing
+                 << ",\"descriptor_capability\":" << static_cast<unsigned int>(d[12]) << '}';
+        } else json << "null";
+        json << ",\"endpoint_descriptors\":[";
         for (unsigned long endpointIndex = 0; endpointIndex < device.endpoints.size(); ++endpointIndex) {
             const EndpointDescriptor& endpoint = device.endpoints[endpointIndex];
             if (endpointIndex != 0) json << ',';
@@ -2082,6 +2135,7 @@ std::string GatewayView::statusJson() const {
         const DeviceConfigurationStatus& config = deviceConfigurations[i];
         if (i) json << ',';
         json << "{\"ieee_address\":\"" << jsonEscape(config.ieeeAddress)
+             << "\",\"node_descriptor_status\":\"" << jsonEscape(config.nodeDescriptorStatus)
              << "\",\"groups_status\":\"" << jsonEscape(config.groupsStatus) << "\",\"groups\":[";
         for (unsigned long g = 0; g < config.groups.size(); ++g) {
             if (g) json << ',';
@@ -2247,6 +2301,7 @@ void Gateway::loadState() {
                 if (volatileValues[i].manufacturerName.empty()) volatileValues[i].manufacturerName = persistent.manufacturerName;
                 if (volatileValues[i].modelId.empty()) volatileValues[i].modelId = persistent.modelId;
                 if (volatileValues[i].endpoints.empty()) volatileValues[i].endpoints = persistent.endpoints;
+                if (volatileValues[i].nodeDescriptor.empty()) volatileValues[i].nodeDescriptor = persistent.nodeDescriptor;
                 if (volatileValues[i].source == "zigbee") classifyDevice(&volatileValues[i]);
                 devices_[volatileValues[i].ieeeAddress] = volatileValues[i];
             }
@@ -3242,7 +3297,7 @@ void Gateway::sendIasEnrollResponse(unsigned short destination, unsigned char so
     sendApsUnicast(destination, 0x0104, 0x0500, sourceEndpoint, destinationEndpoint, response);
 }
 
-void Gateway::startInterview(unsigned short destination, bool refreshOnly) {
+void Gateway::startInterview(unsigned short destination, bool refreshOnly, bool forceEndpointDiscovery) {
     std::map<unsigned short, std::string>::const_iterator address = nodeAddresses_.find(destination);
     if (address == nodeAddresses_.end()) return;
     std::map<unsigned short, InterviewState>::iterator existing = interviews_.find(destination);
@@ -3254,7 +3309,16 @@ void Gateway::startInterview(unsigned short destination, bool refreshOnly) {
     state.ieeeAddress = address->second;
     state.refreshOnly = refreshOnly;
     interviews_[destination] = state;
-    queueInterviewOperation(destination, InterviewNodeDescriptor, 0);
+    const Device& device = devices_[address->second];
+    if (refreshOnly && !forceEndpointDiscovery && !device.endpoints.empty()) {
+        buildRefreshOperations(destination);
+        return;
+    }
+    if (!refreshOnly && !forceEndpointDiscovery && !device.endpoints.empty()) {
+        buildRefreshOperations(destination);
+        return;
+    }
+    queueInterviewOperation(destination, InterviewActiveEndpoints, 0);
 }
 
 void Gateway::queueInterviewOperation(unsigned short destination, InterviewOperationType type, unsigned char endpoint,
@@ -3400,7 +3464,7 @@ void Gateway::sendInterviewOperation(unsigned short destination, InterviewOperat
        can answer just after the timeout; replacing the sequence made that
        valid response look unrelated to the retry. */
     if (!operation->transactionSequenceAssigned) {
-        operation->transactionSequence = operation->type == InterviewNodeDescriptor || operation->type == InterviewActiveEndpoints ||
+        operation->transactionSequence = operation->type == InterviewActiveEndpoints ||
             operation->type == InterviewSimpleDescriptor || operation->type == InterviewBind ? zdoSequence_++ : zclTransactionSequence_++;
         operation->transactionSequenceAssigned = true;
     }
@@ -3412,12 +3476,7 @@ void Gateway::sendInterviewOperation(unsigned short destination, InterviewOperat
     interviewEzspSequence_ = ezspSequence_;
     interviewNode_ = destination;
     interviewDeadline_ = time(0) + 20;
-    if (operation->type == InterviewNodeDescriptor) {
-        request.push_back(operation->transactionSequence);
-        request.push_back(static_cast<unsigned char>(destination));
-        request.push_back(static_cast<unsigned char>(destination >> 8));
-        sendApsUnicast(destination, 0x0000, 0x0002, 0, 0, request, operation->messageTag);
-    } else if (operation->type == InterviewActiveEndpoints) {
+    if (operation->type == InterviewActiveEndpoints) {
         request.push_back(operation->transactionSequence);
         request.push_back(static_cast<unsigned char>(destination));
         request.push_back(static_cast<unsigned char>(destination >> 8));
@@ -3544,11 +3603,7 @@ void Gateway::completeInterviewOperation(unsigned short destination) {
 
     InterviewState& state = found->second;
     Device& device = devices_[state.ieeeAddress];
-    if (completedType == InterviewNodeDescriptor) {
-        state.operations.clear();
-        state.operationIndex = 0;
-        queueInterviewOperation(destination, InterviewActiveEndpoints, 0);
-    } else if (completedType == InterviewSimpleDescriptor) {
+    if (completedType == InterviewSimpleDescriptor) {
         if (!endpointDescriptorsEqual(device.endpoints, state.discoveredEndpoints)) {
             device.endpoints = state.discoveredEndpoints;
             classifyDevice(&device);
@@ -3742,15 +3797,37 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
         registerNode(announcedNode, &message[3]);
         return;
     }
-    if (profile == 0x0000 && cluster == 0x8002 && message.size() >= 2 && message[1] == 0) {
-        std::map<unsigned short, InterviewState>::iterator interview = interviews_.find(sender);
-        if (interview != interviews_.end() &&
-            interview->second.operationIndex < interview->second.operations.size() &&
-            interview->second.operations[interview->second.operationIndex].transactionSequenceAssigned) {
-            InterviewOperation& operation = interview->second.operations[interview->second.operationIndex];
-            if (operation.type == InterviewNodeDescriptor && operation.transactionSequence == message[0]) {
-                addLog("Node descriptor received");
-                completeInterviewOperation(sender);
+    if (profile == 0x0000 && cluster == 0x8002 && message.size() >= 2) {
+        std::map<unsigned short, std::string>::const_iterator owner = nodeAddresses_.find(sender);
+        if (owner != nodeAddresses_.end()) {
+            std::map<std::string, DeviceConfigurationQuery>::iterator query =
+                deviceConfigurationQueries_.find(owner->second);
+            if (query != deviceConfigurationQueries_.end() && query->second.nodeDescriptorDeadline != 0 &&
+                query->second.nodeDescriptorSequence == message[0]) {
+                DeviceConfigurationStatus& status = deviceConfigurations_[owner->second];
+                if (message[1] != 0) {
+                    std::ostringstream failure;
+                    failure << "failed: ZDO status 0x" << std::hex << static_cast<unsigned int>(message[1]);
+                    status.nodeDescriptorStatus = failure.str();
+                } else if (message.size() < 17 ||
+                           (static_cast<unsigned short>(message[2]) |
+                            (static_cast<unsigned short>(message[3]) << 8)) != sender) {
+                    status.nodeDescriptorStatus = "failed: malformed node descriptor response";
+                } else {
+                    Device& device = devices_[owner->second];
+                    std::vector<unsigned char> descriptor(message.begin() + 4, message.begin() + 17);
+                    if (device.nodeDescriptor != descriptor) {
+                        device.nodeDescriptor = descriptor;
+                        savePersistentState();
+                    }
+                    status.nodeDescriptorStatus = "complete";
+                    addLog("Node descriptor stored for " + owner->second);
+                }
+                query->second.nodeDescriptorDeadline = 0;
+                if (query->second.nodeDescriptorDeadline == 0 && query->second.groupsDeadline == 0 &&
+                    query->second.bindingsDeadline == 0)
+                    deviceConfigurationQueries_.erase(query);
+                markViewDirty();
             }
         }
         return;
@@ -3859,7 +3936,8 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
                     status.bindingsStatus = "failed: malformed binding table response";
                     query->second.bindingsDeadline = 0;
                 }
-                if (query->second.groupsDeadline == 0 && query->second.bindingsDeadline == 0)
+                if (query->second.nodeDescriptorDeadline == 0 && query->second.groupsDeadline == 0 &&
+                    query->second.bindingsDeadline == 0)
                     deviceConfigurationQueries_.erase(query);
                 markViewDirty();
                 return;
@@ -3974,7 +4052,8 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
                     status.groupsStatus = "complete";
                 }
                 query->second.groupsDeadline = 0;
-                if (query->second.groupsDeadline == 0 && query->second.bindingsDeadline == 0)
+                if (query->second.nodeDescriptorDeadline == 0 && query->second.groupsDeadline == 0 &&
+                    query->second.bindingsDeadline == 0)
                     deviceConfigurationQueries_.erase(query);
                 markViewDirty();
                 return;

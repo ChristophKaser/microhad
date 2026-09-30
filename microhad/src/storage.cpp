@@ -215,7 +215,8 @@ bool saveDevices(const std::string& filename, const std::vector<Device>& devices
                << device.sensorRefreshIntervalMinutes << ",\"manufacturer_name\":\""
                << jsonEscape(device.manufacturerName) << "\",\"model_id\":\"" << jsonEscape(device.modelId)
                << "\",\"software_build_id\":\"" << jsonEscape(device.softwareBuildId)
-               << "\",\"endpoint_descriptors\":\"" << encodeEndpointDescriptors(device.endpoints) << "\"}";
+               << "\",\"endpoint_descriptors\":\"" << encodeEndpointDescriptors(device.endpoints)
+               << "\",\"node_descriptor\":\"" << hexEncode(device.nodeDescriptor) << "\"}";
         output << (i + 1 == devices.size() ? "\n" : ",\n");
     }
     output << "  ]\n}\n";
@@ -343,6 +344,14 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
                 if (jsonStringField(line, "endpoint_descriptors", &encodedDescriptors) && !encodedDescriptors.empty() &&
                     !decodeEndpointDescriptors(encodedDescriptors, &device.endpoints)) {
                     *error = "invalid endpoint descriptor state";
+                    return false;
+                }
+            }
+            {
+                std::string encodedNodeDescriptor;
+                if (jsonStringField(line, "node_descriptor", &encodedNodeDescriptor) && !encodedNodeDescriptor.empty() &&
+                    (!hexDecode(encodedNodeDescriptor, &device.nodeDescriptor) || device.nodeDescriptor.size() != 13)) {
+                    *error = "invalid node descriptor state";
                     return false;
                 }
             }

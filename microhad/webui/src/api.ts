@@ -7,6 +7,28 @@ export interface EndpointDescriptor {
   output_clusters: number[]
 }
 
+export interface NodeDescriptor {
+  raw_hex: string
+  logical_device_type: number
+  complex_descriptor_available: boolean
+  user_descriptor_available: boolean
+  aps_flags: number
+  frequency_band: number
+  mac_capability_flags: number
+  alternate_pan_coordinator: boolean
+  full_function_device: boolean
+  mains_powered: boolean
+  receiver_on_when_idle: boolean
+  security_capability: boolean
+  allocate_address: boolean
+  manufacturer_code: number
+  max_buffer_size: number
+  max_incoming_transfer_size: number
+  server_mask: number
+  max_outgoing_transfer_size: number
+  descriptor_capability: number
+}
+
 export interface Device {
   id: string
   source: 'zigbee' | 'shelly' | 'fritz_box'
@@ -51,6 +73,7 @@ export interface Device {
   last_seen: number
   manufacturer_name: string
   model_id: string
+  node_descriptor: NodeDescriptor | null
   endpoint_descriptors: EndpointDescriptor[]
 }
 
@@ -100,6 +123,7 @@ export interface ExternalDevice {
 
 export interface DeviceConfiguration {
   ieee_address: string
+  node_descriptor_status: string
   groups_status: string
   groups: number[]
   bindings_status: string

@@ -97,8 +97,37 @@ export function DeviceDetailsDialog({ device, configuration, onClose }: {
           <p className="muted">No endpoint descriptors have been saved for this device yet.</p>
         )}
         <h3>Device configuration</h3>
-        <p className="muted">Read the Groups membership and the device’s Zigbee binding table. Battery devices may need to wake before replying.</p>
+        <p className="muted">Read the node descriptor, Groups membership, and the device’s Zigbee binding table. Battery devices may need to wake before replying.</p>
         <div className="editor-card">
+          <p><strong>Node descriptor:</strong> {configuration?.node_descriptor_status || (device.node_descriptor ? 'stored' : 'Not queried')}</p>
+          {device.node_descriptor && (() => {
+            const descriptor = device.node_descriptor
+            const logicalTypes = ['Coordinator', 'Router', 'End device', 'Reserved']
+            const frequencyBands = [
+              descriptor.frequency_band & 0x01 ? '868 MHz' : '',
+              descriptor.frequency_band & 0x02 ? '902–928 MHz' : '',
+              descriptor.frequency_band & 0x04 ? '2.4 GHz' : '',
+            ].filter(Boolean)
+            return <>
+              <dl className="device-identity">
+                <div><dt>Logical type</dt><dd>{logicalTypes[descriptor.logical_device_type] || 'Unknown'}</dd></div>
+                <div><dt>Frequency bands</dt><dd>{frequencyBands.length ? frequencyBands.join(', ') : `Unknown (0x${descriptor.frequency_band.toString(16)})`}</dd></div>
+                <div><dt>APS flags</dt><dd>0x{descriptor.aps_flags.toString(16).padStart(2, '0')}</dd></div>
+                <div><dt>Manufacturer code</dt><dd>0x{descriptor.manufacturer_code.toString(16).padStart(4, '0')}</dd></div>
+                <div><dt>Maximum buffer</dt><dd>{descriptor.max_buffer_size} bytes</dd></div>
+                <div><dt>Maximum incoming transfer</dt><dd>{descriptor.max_incoming_transfer_size} bytes</dd></div>
+                <div><dt>Maximum outgoing transfer</dt><dd>{descriptor.max_outgoing_transfer_size} bytes</dd></div>
+                <div><dt>Server mask</dt><dd>0x{descriptor.server_mask.toString(16).padStart(4, '0')}</dd></div>
+                <div><dt>Descriptor capability</dt><dd>0x{descriptor.descriptor_capability.toString(16).padStart(2, '0')}</dd></div>
+              </dl>
+              <p><strong>MAC capabilities:</strong> {[descriptor.alternate_pan_coordinator && 'Alternate coordinator', descriptor.full_function_device && 'Full function device', descriptor.mains_powered && 'Mains powered', descriptor.receiver_on_when_idle && 'Receiver on when idle', descriptor.security_capability && 'Security capable', descriptor.allocate_address && 'Can allocate addresses'].filter(Boolean).join(', ') || 'None reported'}</p>
+              <p><strong>Optional descriptors:</strong> {[
+                descriptor.complex_descriptor_available && 'Complex descriptor available',
+                descriptor.user_descriptor_available && 'User descriptor available',
+              ].filter(Boolean).join(', ') || 'None reported'}</p>
+              <p><strong>Raw descriptor:</strong> <code>{descriptor.raw_hex}</code></p>
+            </>
+          })()}
           <p><strong>Groups membership:</strong> {configuration?.groups_status || 'Not queried'}</p>
           {configuration?.groups_status === 'complete' && (
             <p>Group IDs: {configuration.groups.length ? configuration.groups.join(', ') : 'None'}</p>

@@ -157,7 +157,7 @@ public:
         for (i = 0; i < 8; ++i) gateway->coordinatorIeeeAddress_[i] = static_cast<unsigned char>(i + 1);
     }
     static void startDeviceInterview(Gateway* gateway, unsigned short node) {
-        gateway->startInterview(node, false);
+        gateway->startInterview(node, false, true);
     }
     static void expireInterview(Gateway* gateway) { gateway->interviewDeadline_ = time(0) - 1; }
     static void expireSensorRefresh(Gateway* gateway, unsigned short node) {
