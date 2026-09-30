@@ -13,7 +13,7 @@
 #include <vector>
 
 namespace {
-enum { headerBytes = 16, recordBytes = 20, maximumBytes = 512 * 1024,
+enum { headerBytes = 16, recordBytes = 20, maximumBytes = 2 * 1024 * 1024,
        capacity = (maximumBytes - headerBytes) / recordBytes, pageLimit = 2000 };
 const unsigned char header[headerBytes] = { 'T', 'Z', 'H', '1', 1, recordBytes, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
 

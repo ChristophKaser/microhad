@@ -104,11 +104,11 @@ void runSensorHistoryUnitTests() {
     assert(json.find(",1700100000,1,0]") != std::string::npos); /* oldest retained sample */
     {
         SensorHistory history(path);
-        for (int i = 0; i < 26220; ++i)
+        for (int i = 0; i < 104860; ++i)
             assert(history.append(filler, SensorHistory::Temperature, i % 100, 1701000000L + i * 60L));
     }
     struct stat info;
-    assert(stat(path.c_str(), &info) == 0 && info.st_size <= 512 * 1024);
+    assert(stat(path.c_str(), &info) == 0 && info.st_size <= 2 * 1024 * 1024);
     assert(SensorHistory::readJson(path, sensor, 0, &json, &error));
     assert(json == "{\"samples\":[],\"next_before\":0}");
     unlink(path.c_str());
