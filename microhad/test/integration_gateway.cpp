@@ -1163,7 +1163,7 @@ void testSensorRefreshIntervalsAndPeriodicRead() {
     const unsigned short node = 0x1234;
     GatewayIntegrationTestPeer::addMeasurementDevice(&gateway, node, ieee);
     std::vector<Device> devices = gateway.devices();
-    assert(devices[0].sensorRefreshIntervalMinutes == 5);
+    assert(devices[0].sensorRefreshIntervalMinutes == 60);
     long deadline = gateway.nextPollDeadline();
     assert(deadline >= time(0) + 298 && deadline <= time(0) + 300);
 

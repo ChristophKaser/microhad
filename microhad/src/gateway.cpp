@@ -42,7 +42,7 @@ Device::Device() : source("zigbee"), networkAddress(0xffff), kind("generic"), co
                    brightnessPercent(0), hasRemote(false), hasActor(false), actorKnown(false), actorOn(false), hasPower(false), powerKnown(false), powerWatts(0), linkQuality(0), hasWifiSignal(false), wifiSignalPercent(0), lastSeen(0),
                    iasZoneId(-1), hasLowTemperatureAlert(false), hasHighTemperatureAlert(false), lowTemperatureAlert(0),
                    highTemperatureAlert(0), contactInitialAlertMinutes(10), contactReminderAlertMinutes(5),
-                   sensorRefreshIntervalMinutes(5) {
+                   sensorRefreshIntervalMinutes(60) {
 }
 
 namespace {

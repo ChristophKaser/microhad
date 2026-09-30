@@ -1318,7 +1318,7 @@ static void testDeviceSettings() {
     assert(gateway.applyAttributeReport("0x00124b0000000004", 0x0402, 0x0000, temperature));
     assert(gateway.statusJson().find("\"contact_initial_alert_minutes\":10") != std::string::npos);
     assert(gateway.statusJson().find("\"contact_reminder_alert_minutes\":5") != std::string::npos);
-    assert(gateway.statusJson().find("\"sensor_refresh_interval_minutes\":5") != std::string::npos);
+    assert(gateway.statusJson().find("\"sensor_refresh_interval_minutes\":60") != std::string::npos);
     assert(gateway.setDeviceSettings("0x00124b0000000004", "Office window", true, 5, true, 30,
                                      true, 20, 7, true, 17, &error));
     assert(gateway.statusJson().find("\"name\":\"Office window\"") != std::string::npos);
