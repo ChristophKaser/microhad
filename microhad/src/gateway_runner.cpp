@@ -170,6 +170,7 @@ void GatewayRunner::execute(Command* command) {
                                                                                       command->reminderAlertMinutes,
                                                                                       command->hasSensorRefreshInterval,
                                                                                       command->sensorRefreshIntervalMinutes, &error);
+    else if (command->type == DeviceValueAlerts) result = gateway_->setDeviceValueAlerts(command->address, command->valueAlerts, &error);
     else if (command->type == DeviceRefresh) result = gateway_->refreshDevice(command->address, &error);
     else if (command->type == DeviceIdentify) result = gateway_->identifyDevice(command->address, &error);
     else if (command->type == DeviceConfiguration) result = gateway_->queryDeviceConfiguration(command->address, &error);
@@ -384,6 +385,15 @@ bool GatewayRunner::setDeviceSettings(const std::string& address, const std::str
     command.reminderAlertMinutes = reminderAlertMinutes;
     command.hasSensorRefreshInterval = hasSensorRefreshInterval;
     command.sensorRefreshIntervalMinutes = sensorRefreshIntervalMinutes;
+    return invoke(&command, error);
+}
+bool GatewayRunner::setDeviceValueAlerts(const std::string& address,
+                                         const std::map<std::string, DeviceValueAlert>& alerts,
+                                         std::string* error) {
+    Command command;
+    command.type = DeviceValueAlerts;
+    command.address = address;
+    command.valueAlerts = alerts;
     return invoke(&command, error);
 }
 bool GatewayRunner::refreshDevice(const std::string& address, std::string* error) {

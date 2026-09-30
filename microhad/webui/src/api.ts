@@ -70,6 +70,7 @@ export interface Device {
   contact_initial_alert_minutes: number
   contact_reminder_alert_minutes: number
   sensor_refresh_interval_minutes: number
+  value_alerts: Record<string, { has_low: boolean; low: number; has_high: boolean; high: number; hysteresis: number }>
   last_seen: number
   manufacturer_name: string
   model_id: string

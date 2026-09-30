@@ -480,6 +480,7 @@ bool Gateway::applyShellyEvent(const std::string& id, int metric, int channelInd
             }
         } else { d.actorOn = value != 0; d.actorKnown = true; }
     } else if (metric == 2) {
+        Device before = d;
         if (value < -100 || value > 200) { *error = "invalid Shelly temperature"; return false; }
         bool known = d.temperatureKnown;
         double previous = d.temperatureCelsius;
@@ -487,10 +488,13 @@ bool Gateway::applyShellyEvent(const std::string& id, int metric, int channelInd
         history_.append(d.ieeeAddress, SensorHistory::Temperature,
                         static_cast<int>(value * 100 + (value >= 0 ? 0.5 : -0.5)), now);
         updateTemperatureAlert(d, known, previous);
+        updateValueAlerts(d, before);
     } else {
+        Device before = d;
         if (value < 0 || value > 6553.5) { *error = "invalid Shelly power"; return false; }
         d.powerWatts = value; d.powerKnown = true;
         history_.append(d.ieeeAddress, SensorHistory::Power, static_cast<int>(value * 10 + 0.5), now);
+        updateValueAlerts(d, before);
     }
     d.lastSeen = now;
     markViewDirty(); saveState();
@@ -507,9 +511,11 @@ bool Gateway::applyFritzEvent(const std::string& id, bool connected, bool hasSig
         if (it->second.source == "fritz_box" && it->second.externalId == id) break;
     if (it == devices_.end()) { *error = "unknown Fritz!Box client"; return false; }
     if (hasSignal && (signalPercent < 0 || signalPercent > 100)) { *error = "invalid Wi-Fi signal strength"; return false; }
+    Device before = it->second;
     it->second.occupied = connected;
     it->second.hasWifiSignal = hasSignal;
     if (hasSignal) it->second.wifiSignalPercent = signalPercent;
+    if (hasSignal) updateValueAlerts(it->second, before);
     it->second.lastSeen = time(0);
     markViewDirty(); saveState();
     return true;
@@ -980,6 +986,43 @@ bool Gateway::setDeviceSettings(const std::string& ieeeAddress, const std::strin
     }
     saveState();
     savePersistentState();
+    return true;
+}
+
+bool Gateway::setDeviceValueAlerts(const std::string& ieeeAddress,
+                                   const std::map<std::string, DeviceValueAlert>& alerts,
+                                   std::string* error) {
+    static const char* names[] = {"temperature", "humidity", "battery", "link_quality", "wifi_signal", "brightness", "power"};
+    static const double minimum[] = {-100, 0, 0, 0, 0, 0, 0};
+    static const double maximum[] = {200, 100, 100, 255, 100, 100, 6553.5};
+    std::map<std::string, Device>::iterator found = devices_.find(ieeeAddress);
+    if (found == devices_.end()) { *error = "device not found"; return false; }
+    Device& device = found->second;
+    for (unsigned int i = 0; i < 7; ++i) {
+        std::map<std::string, DeviceValueAlert>::const_iterator setting = alerts.find(names[i]);
+        if (setting == alerts.end()) continue;
+        const DeviceValueAlert& alert = setting->second;
+        if ((alert.hasLow && (alert.low != alert.low || alert.low < minimum[i] || alert.low > maximum[i])) ||
+            (alert.hasHigh && (alert.high != alert.high || alert.high < minimum[i] || alert.high > maximum[i])) ||
+            alert.hysteresis != alert.hysteresis || alert.hysteresis < 0 || alert.hysteresis > maximum[i] - minimum[i] ||
+            (alert.hasLow && alert.hasHigh && alert.low >= alert.high)) {
+            *error = std::string("invalid ") + names[i] + " alert limits"; return false;
+        }
+        if ((i == 0 && !device.hasTemperature) || (i == 1 && !device.hasHumidity) ||
+            (i == 2 && !device.hasBattery) || (i == 3 && device.source != "zigbee") ||
+            (i == 4 && !device.hasWifiSignal) || (i == 5 && !device.hasBrightness) ||
+            (i == 6 && !device.hasPower)) {
+            if (alert.hasLow || alert.hasHigh || alert.hysteresis != 0) {
+                *error = std::string("alert limits unavailable for ") + names[i]; return false;
+            }
+        }
+    }
+    for (std::map<std::string, DeviceValueAlert>::const_iterator setting = alerts.begin(); setting != alerts.end(); ++setting) {
+        DeviceValueAlert value = setting->second;
+        value.lowActive = false; value.highActive = false;
+        device.valueAlerts[setting->first] = value;
+    }
+    saveState(); savePersistentState(); markViewDirty();
     return true;
 }
 
@@ -1883,7 +1926,7 @@ bool Gateway::applyAttributeReport(const std::string& ieeeAddress, unsigned shor
     if (device.ieeeAddress.empty()) device.ieeeAddress = ieeeAddress;
     changed = applyZclAttribute(&device, cluster, attribute, value, timestamp, &observed);
     if (changed) recordHistory(before, device, observed, timestamp);
-    if (changed) { markViewDirty(); updateContactAlert(ieeeAddress, wasOpen); updateTemperatureAlert(device, hadTemperature, previousTemperature); saveState(); }
+    if (changed) { markViewDirty(); updateContactAlert(ieeeAddress, wasOpen); updateTemperatureAlert(device, hadTemperature, previousTemperature); updateValueAlerts(device, before); saveState(); }
     return changed;
 }
 
@@ -1957,6 +2000,45 @@ void Gateway::updateTemperatureAlert(const Device& device, bool hadTemperature, 
     if (device.hasLowTemperatureAlert && previousTemperature > device.lowTemperatureAlert &&
         device.temperatureCelsius <= device.lowTemperatureAlert) {
         emitNotification("Temperature low", device.name.empty() ? device.ieeeAddress : device.name, 0);
+    }
+}
+
+void Gateway::updateValueAlerts(Device& device, const Device& before) {
+    struct Reading { const char* name; const char* label; bool supported; bool known; double current; double previous; };
+    Reading readings[] = {
+        {"temperature", "Temperature", device.hasTemperature,
+         before.source == "zigbee" ? before.hasTemperature : before.temperatureKnown,
+         device.temperatureCelsius, before.temperatureCelsius},
+        {"humidity", "Humidity", device.hasHumidity, before.hasHumidity && before.lastSeen != 0, device.humidityPercent, before.humidityPercent},
+        {"battery", "Battery", device.hasBattery, before.hasBattery, static_cast<double>(device.batteryPercent), static_cast<double>(before.batteryPercent)},
+        {"link_quality", "Link quality", device.source == "zigbee", before.source == "zigbee" && before.lastSeen != 0, static_cast<double>(device.linkQuality), static_cast<double>(before.linkQuality)},
+        {"wifi_signal", "Wi-Fi signal", device.hasWifiSignal, before.hasWifiSignal, static_cast<double>(device.wifiSignalPercent), static_cast<double>(before.wifiSignalPercent)},
+        {"brightness", "Brightness", device.hasBrightness, before.hasBrightness, static_cast<double>(device.brightnessPercent), static_cast<double>(before.brightnessPercent)},
+        {"power", "Power", device.hasPower, before.powerKnown, device.powerWatts, before.powerWatts}
+    };
+    for (unsigned int i = 0; i < sizeof(readings) / sizeof(readings[0]); ++i) {
+        std::map<std::string, DeviceValueAlert>::iterator found = device.valueAlerts.find(readings[i].name);
+        if (!readings[i].supported || found == device.valueAlerts.end()) continue;
+        DeviceValueAlert& alert = found->second;
+        if (!readings[i].known) {
+            alert.highActive = alert.hasHigh && readings[i].current >= alert.high;
+            alert.lowActive = alert.hasLow && readings[i].current <= alert.low;
+            continue;
+        }
+        if (alert.hasHigh) {
+            if (!alert.highActive && readings[i].previous < alert.high && readings[i].current >= alert.high) {
+                emitNotification((std::string(readings[i].label) + " high").c_str(),
+                                 (device.name.empty() ? device.ieeeAddress : device.name).c_str(), 0);
+                alert.highActive = true;
+            } else if (alert.highActive && readings[i].current <= alert.high - alert.hysteresis) alert.highActive = false;
+        }
+        if (alert.hasLow) {
+            if (!alert.lowActive && readings[i].previous > alert.low && readings[i].current <= alert.low) {
+                emitNotification((std::string(readings[i].label) + " low").c_str(),
+                                 (device.name.empty() ? device.ieeeAddress : device.name).c_str(), 0);
+                alert.lowActive = true;
+            } else if (alert.lowActive && readings[i].current >= alert.low + alert.hysteresis) alert.lowActive = false;
+        }
     }
 }
 
@@ -2045,7 +2127,14 @@ std::string GatewayView::statusJson() const {
              << ",\"contact_initial_alert_minutes\":" << device.contactInitialAlertMinutes
              << ",\"contact_reminder_alert_minutes\":" << device.contactReminderAlertMinutes
              << ",\"sensor_refresh_interval_minutes\":" << device.sensorRefreshIntervalMinutes
-             << ",\"last_seen\":" << device.lastSeen
+             << ",\"value_alerts\":{";
+        for (std::map<std::string, DeviceValueAlert>::const_iterator alert = device.valueAlerts.begin(); alert != device.valueAlerts.end(); ++alert) {
+            if (alert != device.valueAlerts.begin()) json << ',';
+            json << "\"" << jsonEscape(alert->first) << "\":{\"has_low\":" << (alert->second.hasLow ? "true" : "false")
+                 << ",\"low\":" << alert->second.low << ",\"has_high\":" << (alert->second.hasHigh ? "true" : "false")
+                 << ",\"high\":" << alert->second.high << ",\"hysteresis\":" << alert->second.hysteresis << '}';
+        }
+        json << "},\"last_seen\":" << device.lastSeen
              << ",\"manufacturer_name\":\"" << jsonEscape(device.manufacturerName)
              << "\",\"model_id\":\"" << jsonEscape(device.modelId)
              << "\",\"node_descriptor\":";
@@ -4064,8 +4153,10 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
         std::map<unsigned short, std::string>::iterator known = nodeAddresses_.find(sender);
         if (known != nodeAddresses_.end()) {
             Device& device = devices_[known->second];
+            Device before = device;
             device.linkQuality = payload[12];
             device.lastSeen = time(0);
+            updateValueAlerts(device, before);
             markViewDirty();
         }
     }

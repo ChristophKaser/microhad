@@ -442,12 +442,31 @@ export function DeviceSettings({
   onClose: () => void
   onSaved: () => void
 }) {
+  const alertMetrics = [
+    { id: 'temperature', label: 'Temperature', unit: '°C', available: device.has_temperature },
+    { id: 'humidity', label: 'Humidity', unit: '%', available: device.has_humidity },
+    { id: 'battery', label: 'Battery', unit: '%', available: device.has_battery },
+    { id: 'link_quality', label: 'Link quality', unit: 'LQI', available: device.source === 'zigbee' },
+    { id: 'wifi_signal', label: 'Wi-Fi signal', unit: '%', available: device.has_wifi_signal },
+    { id: 'brightness', label: 'Brightness', unit: '%', available: device.has_brightness },
+    { id: 'power', label: 'Power', unit: 'W', available: device.has_power },
+  ]
+  const initialAlert = (metric: string, field: 'low' | 'high' | 'hysteresis') => {
+    const alert = device.value_alerts?.[metric]
+    if (alert) {
+      if (field === 'low') return alert.has_low ? String(alert.low) : ''
+      if (field === 'high') return alert.has_high ? String(alert.high) : ''
+      return String(alert.hysteresis)
+    }
+    if (metric === 'temperature' && field === 'low' && device.has_low_temperature_alert) return String(device.low_temperature_alert)
+    if (metric === 'temperature' && field === 'high' && device.has_high_temperature_alert) return String(device.high_temperature_alert)
+    return field === 'hysteresis' ? '0' : ''
+  }
   const [name, setName] = useState(device.name)
-  const [low, setLow] = useState(
-    device.has_low_temperature_alert ? String(device.low_temperature_alert) : ''
-  )
-  const [high, setHigh] = useState(
-    device.has_high_temperature_alert ? String(device.high_temperature_alert) : ''
+  const [alertValues, setAlertValues] = useState<Record<string, { low: string; high: string; hysteresis: string }>>(
+    Object.fromEntries(alertMetrics.map(metric => [metric.id, {
+      low: initialAlert(metric.id, 'low'), high: initialAlert(metric.id, 'high'), hysteresis: initialAlert(metric.id, 'hysteresis'),
+    }]))
   )
   const [initial, setInitial] = useState(String(device.contact_initial_alert_minutes))
   const [reminder, setReminder] = useState(String(device.contact_reminder_alert_minutes))
@@ -459,9 +478,13 @@ export function DeviceSettings({
     setSaving(true)
     setError('')
     const fields: Record<string, string> = { name }
-    if (device.has_temperature) {
-      fields.low = low
-      fields.high = high
+    if (device.has_temperature) { fields.low = ''; fields.high = '' }
+    for (const metric of alertMetrics) {
+      if (!metric.available) continue
+      const value = alertValues[metric.id]
+      fields[`value_alert_${metric.id}_low`] = value.low
+      fields[`value_alert_${metric.id}_high`] = value.high
+      fields[`value_alert_${metric.id}_hysteresis`] = value.hysteresis
     }
     if (device.has_contact) {
       fields.initial_minutes = initial
@@ -530,28 +553,23 @@ export function DeviceSettings({
             </label>
           </>
         )}
-        {device.has_temperature && (
-          <>
-            <label className="field">
-              Low threshold °C (blank disables)
-              <input
-                type="number"
-                step=".1"
-                value={low}
-                onChange={(event) => setLow(event.target.value)}
-              />
+        {alertMetrics.filter(metric => metric.available).map(metric => (
+          <fieldset className="field" key={metric.id}>
+            <legend>{metric.label} alerts ({metric.unit})</legend>
+            <label>Lower limit (blank disables)
+              <input type="number" step="any" value={alertValues[metric.id].low}
+                onChange={event => setAlertValues(values => ({ ...values, [metric.id]: { ...values[metric.id], low: event.target.value } }))} />
             </label>
-            <label className="field">
-              High threshold °C (blank disables)
-              <input
-                type="number"
-                step=".1"
-                value={high}
-                onChange={(event) => setHigh(event.target.value)}
-              />
+            <label>Upper limit (blank disables)
+              <input type="number" step="any" value={alertValues[metric.id].high}
+                onChange={event => setAlertValues(values => ({ ...values, [metric.id]: { ...values[metric.id], high: event.target.value } }))} />
             </label>
-          </>
-        )}
+            <label>Hysteresis
+              <input type="number" min="0" step="any" value={alertValues[metric.id].hysteresis}
+                onChange={event => setAlertValues(values => ({ ...values, [metric.id]: { ...values[metric.id], hysteresis: event.target.value } }))} />
+            </label>
+          </fieldset>
+        ))}
           {device.source === 'zigbee' && (device.has_temperature || device.has_humidity) && (
           <label className="field">
             Fallback refresh interval (minutes; 0 disables)

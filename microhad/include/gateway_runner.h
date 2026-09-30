@@ -2,8 +2,10 @@
 #define MICROHAD_ZIGBEE_GATEWAY_RUNNER_H
 
 #include <pthread.h>
+#include <map>
 #include <string>
 #include <vector>
+#include "gateway.h"
 
 class Gateway;
 class GatewayView;
@@ -51,6 +53,8 @@ public:
                            bool hasContactTimings, unsigned long initialAlertMinutes,
                            unsigned long reminderAlertMinutes, bool hasSensorRefreshInterval,
                            unsigned long sensorRefreshIntervalMinutes, std::string* error);
+    bool setDeviceValueAlerts(const std::string& address, const std::map<std::string, DeviceValueAlert>& alerts,
+                              std::string* error);
     bool refreshDevice(const std::string& ieeeAddress, std::string* error);
     bool identifyDevice(const std::string& ieeeAddress, std::string* error);
     bool queryDeviceConfiguration(const std::string& ieeeAddress, std::string* error);
@@ -64,7 +68,7 @@ public:
     bool setEventLoopDebug(bool enabled, std::string* error);
 
 private:
-    enum CommandType { Join, CreateNetwork, DeviceSettings, DeviceRefresh, DeviceIdentify, DeviceConfiguration, LightState, SceneConfiguration, SceneActivate, SceneOff, TestNotification, NotificationSetting, EventLoopDebug, ShellyRegister, ShellyRemove, ShellyReconcile, ShellyEvent, FritzEvent, FritzReconcile, ActorState };
+    enum CommandType { Join, CreateNetwork, DeviceSettings, DeviceValueAlerts, DeviceRefresh, DeviceIdentify, DeviceConfiguration, LightState, SceneConfiguration, SceneActivate, SceneOff, TestNotification, NotificationSetting, EventLoopDebug, ShellyRegister, ShellyRemove, ShellyReconcile, ShellyEvent, FritzEvent, FritzReconcile, ActorState };
     struct Command {
         CommandType type;
         unsigned int seconds;
@@ -90,6 +94,7 @@ private:
         unsigned long reminderAlertMinutes;
         bool hasSensorRefreshInterval;
         unsigned long sensorRefreshIntervalMinutes;
+        std::map<std::string, DeviceValueAlert> valueAlerts;
         int brightnessPercent;
         unsigned short groupId;
         unsigned char sceneId;

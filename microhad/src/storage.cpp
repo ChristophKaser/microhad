@@ -212,7 +212,15 @@ bool saveDevices(const std::string& filename, const std::vector<Device>& devices
                << device.highTemperatureAlert << ",\"contact_initial_alert_minutes\":"
                << device.contactInitialAlertMinutes << ",\"contact_reminder_alert_minutes\":"
                << device.contactReminderAlertMinutes << ",\"sensor_refresh_interval_minutes\":"
-               << device.sensorRefreshIntervalMinutes << ",\"manufacturer_name\":\""
+               << device.sensorRefreshIntervalMinutes;
+        for (std::map<std::string, DeviceValueAlert>::const_iterator alert = device.valueAlerts.begin(); alert != device.valueAlerts.end(); ++alert) {
+            output << ",\"alert_" << alert->first << "_has_low\":" << (alert->second.hasLow ? "true" : "false")
+                   << ",\"alert_" << alert->first << "_low\":" << alert->second.low
+                   << ",\"alert_" << alert->first << "_has_high\":" << (alert->second.hasHigh ? "true" : "false")
+                   << ",\"alert_" << alert->first << "_high\":" << alert->second.high
+                   << ",\"alert_" << alert->first << "_hysteresis\":" << alert->second.hysteresis;
+        }
+        output << ",\"manufacturer_name\":\""
                << jsonEscape(device.manufacturerName) << "\",\"model_id\":\"" << jsonEscape(device.modelId)
                << "\",\"software_build_id\":\"" << jsonEscape(device.softwareBuildId)
                << "\",\"endpoint_descriptors\":\"" << encodeEndpointDescriptors(device.endpoints)
@@ -339,6 +347,23 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
             if (value != 0) device.contactReminderAlertMinutes = strtoul(value, 0, 10);
             value = numericField(line, "sensor_refresh_interval_minutes");
             if (value != 0) device.sensorRefreshIntervalMinutes = strtoul(value, 0, 10);
+            {
+                static const char* alertNames[] = {"temperature", "humidity", "battery", "link_quality", "wifi_signal", "brightness", "power"};
+                for (unsigned int alertIndex = 0; alertIndex < 7; ++alertIndex) {
+                    std::string prefix = std::string("alert_") + alertNames[alertIndex];
+                    const char* low = numericField(line, (prefix + "_low").c_str());
+                    const char* high = numericField(line, (prefix + "_high").c_str());
+                    const char* hysteresis = numericField(line, (prefix + "_hysteresis").c_str());
+                    if (low == 0 && high == 0 && hysteresis == 0) continue;
+                    DeviceValueAlert alert;
+                    alert.hasLow = line.find("\"" + prefix + "_has_low\":true") != std::string::npos;
+                    alert.hasHigh = line.find("\"" + prefix + "_has_high\":true") != std::string::npos;
+                    if (low != 0) alert.low = atof(low);
+                    if (high != 0) alert.high = atof(high);
+                    if (hysteresis != 0) alert.hysteresis = atof(hysteresis);
+                    device.valueAlerts[alertNames[alertIndex]] = alert;
+                }
+            }
             {
                 std::string encodedDescriptors;
                 if (jsonStringField(line, "endpoint_descriptors", &encodedDescriptors) && !encodedDescriptors.empty() &&

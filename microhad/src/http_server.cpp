@@ -883,6 +883,24 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
             bool hasInitial = formValue(body, "initial_minutes", &initialValue);
             bool hasReminder = formValue(body, "reminder_minutes", &reminderValue);
             bool hasSensorRefresh = formValue(body, "sensor_refresh_minutes", &sensorRefreshValue);
+            std::map<std::string, DeviceValueAlert> valueAlerts;
+            static const char* alertNames[] = {"temperature", "humidity", "battery", "link_quality", "wifi_signal", "brightness", "power"};
+            bool validAlerts = true;
+            for (unsigned int alertIndex = 0; alertIndex < 7; ++alertIndex) {
+                std::string prefix = std::string("value_alert_") + alertNames[alertIndex] + "_";
+                std::string lowLimit, highLimit, hysteresisValue;
+                bool lowProvided = formValue(body, (prefix + "low").c_str(), &lowLimit);
+                bool highProvided = formValue(body, (prefix + "high").c_str(), &highLimit);
+                bool marginProvided = formValue(body, (prefix + "hysteresis").c_str(), &hysteresisValue);
+                if (!lowProvided && !highProvided && !marginProvided) continue;
+                DeviceValueAlert alert;
+                alert.hasLow = !lowLimit.empty(); alert.hasHigh = !highLimit.empty();
+                if ((alert.hasLow && !parseDecimal(lowLimit, &alert.low)) ||
+                    (alert.hasHigh && !parseDecimal(highLimit, &alert.high)) ||
+                    (marginProvided && !hysteresisValue.empty() && !parseDecimal(hysteresisValue, &alert.hysteresis)) ||
+                    (!hysteresisValue.empty() && alert.hysteresis < 0)) validAlerts = false;
+                valueAlerts[alertNames[alertIndex]] = alert;
+            }
             bool hasLow = !lowValue.empty();
             bool hasHigh = !highValue.empty();
             double low = 0;
@@ -890,14 +908,15 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
             unsigned long initial = 0;
             unsigned long reminder = 0;
             unsigned long sensorRefresh = 0;
-            if (!hasName || (hasLow && !parseDecimal(lowValue, &low)) || (hasHigh && !parseDecimal(highValue, &high)) ||
+            if (!hasName || !validAlerts || (hasLow && !parseDecimal(lowValue, &low)) || (hasHigh && !parseDecimal(highValue, &high)) ||
                 (hasInitial && !parseMinutes(initialValue, &initial)) ||
                 (hasReminder && !parseMinutes(reminderValue, &reminder)) ||
                 (hasSensorRefresh && !parseMinutes(sensorRefreshValue, &sensorRefresh))) {
                 writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"invalid device settings\"}");
             } else if (gateway_->setDeviceSettings(ieeeAddress, name, hasLow, low, hasHigh, high,
                                                     hasInitial && hasReminder, initial, reminder, hasSensorRefresh,
-                                                    sensorRefresh, &error)) {
+                                                    sensorRefresh, &error) &&
+                       (valueAlerts.empty() || gateway_->setDeviceValueAlerts(ieeeAddress, valueAlerts, &error))) {
                 writeResponse(clientFd, 200, "application/json", "{\"ok\":true}");
             } else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + jsonEscape(error) + "\"}");
         }

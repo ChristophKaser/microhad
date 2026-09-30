@@ -23,6 +23,17 @@ struct EndpointDescriptor {
     EndpointDescriptor();
 };
 
+struct DeviceValueAlert {
+    bool hasLow;
+    bool hasHigh;
+    double low;
+    double high;
+    double hysteresis;
+    bool lowActive;
+    bool highActive;
+    DeviceValueAlert() : hasLow(false), hasHigh(false), low(0), high(0), hysteresis(0), lowActive(false), highActive(false) {}
+};
+
 struct Device {
     std::string source;
     std::string externalId;
@@ -66,6 +77,7 @@ struct Device {
     unsigned long contactInitialAlertMinutes;
     unsigned long contactReminderAlertMinutes;
     unsigned long sensorRefreshIntervalMinutes;
+    std::map<std::string, DeviceValueAlert> valueAlerts;
     std::string manufacturerName;
     std::string modelId;
     std::string softwareBuildId; /* read during interview; persisted for remote binding compatibility */
@@ -195,6 +207,8 @@ public:
                            bool hasContactTimings, unsigned long initialAlertMinutes,
                            unsigned long reminderAlertMinutes, bool hasSensorRefreshInterval,
                            unsigned long sensorRefreshIntervalMinutes, std::string* error);
+    bool setDeviceValueAlerts(const std::string& ieeeAddress, const std::map<std::string, DeviceValueAlert>& alerts,
+                              std::string* error);
     bool refreshDevice(const std::string& ieeeAddress, std::string* error);
     bool identifyDevice(const std::string& ieeeAddress, std::string* error);
     bool queryDeviceConfiguration(const std::string& ieeeAddress, std::string* error);
@@ -488,6 +502,7 @@ private:
     void updateContactAlert(const std::string& ieeeAddress, bool wasOpen);
     void recordHistory(const Device& before, const Device& after, unsigned observed, long timestamp);
     void updateTemperatureAlert(const Device& device, bool hadTemperature, double previousTemperature);
+    void updateValueAlerts(Device& device, const Device& before);
     bool emitNotification(const std::string& title, const std::string& body, std::string* error);
     std::string deviceLogLabel(unsigned short node) const;
     void addFrameLog(const std::string& direction, unsigned short node, unsigned short profile, unsigned short cluster,

@@ -1854,6 +1854,32 @@ static void testTemperatureThresholdAlerts() {
     temperature[0] = 0x1c; temperature[1] = 0x0c;
     assert(gateway.applyAttributeReport("0x00124b0000000006", 0x0402, 0x0000, temperature));
     assert(GatewayTestPeer::logOccurrences(gateway, "Notification queued: Temperature high") == 2);
+    {
+        std::map<std::string, DeviceValueAlert> alerts;
+        DeviceValueAlert temperatureAlert;
+        temperatureAlert.hasLow = true; temperatureAlert.low = 10;
+        temperatureAlert.hasHigh = true; temperatureAlert.high = 30;
+        temperatureAlert.hysteresis = 2;
+        alerts["temperature"] = temperatureAlert;
+        assert(gateway.setDeviceValueAlerts("0x00124b0000000006", alerts, &error));
+        assert(gateway.statusJson().find("\"hysteresis\":2") != std::string::npos);
+        temperature[0] = 0x54; temperature[1] = 0x0b; /* 29.00 C */
+        assert(gateway.applyAttributeReport("0x00124b0000000006", 0x0402, 0x0000, temperature));
+        temperature[0] = 0xb8; temperature[1] = 0x0b; /* 30.00 C */
+        assert(gateway.applyAttributeReport("0x00124b0000000006", 0x0402, 0x0000, temperature));
+        assert(GatewayTestPeer::logOccurrences(gateway, "Notification queued: Temperature high") == 3);
+        temperature[0] = 0x84; temperature[1] = 0x03; /* 9.00 C */
+        assert(gateway.applyAttributeReport("0x00124b0000000006", 0x0402, 0x0000, temperature));
+        assert(GatewayTestPeer::logOccurrences(gateway, "Notification queued: Temperature low") == 2);
+        temperature[0] = 0xe8; temperature[1] = 0x03; /* 10.00 C, still inside hysteresis band */
+        assert(gateway.applyAttributeReport("0x00124b0000000006", 0x0402, 0x0000, temperature));
+        assert(GatewayTestPeer::logOccurrences(gateway, "Notification queued: Temperature low") == 2);
+        temperature[0] = 0xb0; temperature[1] = 0x04; /* 12.00 C, clear low state */
+        assert(gateway.applyAttributeReport("0x00124b0000000006", 0x0402, 0x0000, temperature));
+        temperature[0] = 0xe8; temperature[1] = 0x03;
+        assert(gateway.applyAttributeReport("0x00124b0000000006", 0x0402, 0x0000, temperature));
+        assert(GatewayTestPeer::logOccurrences(gateway, "Notification queued: Temperature low") == 3);
+    }
     worker.stop();
     unlink((directory + "/devices.json").c_str());
     rmdir(directory.c_str());
