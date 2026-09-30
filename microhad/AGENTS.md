@@ -11,6 +11,21 @@ make mips
 `make mips` builds the vendored Mbed TLS dependency and produces the static,
 big-endian MIPS binary at `build/mips/microhad-zigbee-native`.
 
+## Mandatory verification and commits
+
+After every change to a C++ source or header (`.cpp` or `.h`), run both
+`make host test` and `make mips` before considering that change successful.
+Do not defer these checks until later changes are grouped together.
+
+After every change to files under `webui/`, run `make webui` before
+considering that change successful.
+
+After each successfully verified change, commit the files changed for that
+task with a descriptive commit message. If the worktree contains unrelated
+changes, stage and commit only the files changed for the current task. Never
+commit device configuration, credentials, production TLS keys, persistent
+network state, or Zigbee keys.
+
 Deploy with `deploy.sh` and the password file explicitly. Deployment updates
 both the binary and web UI by default and preserves the device configuration;
 pass `--binary-only`, `--webui-only`, or `--both` to select assets, and pass
@@ -40,10 +55,6 @@ restart is expected to be destructive. `--restart` is only allowed for
 `/tuya/native`; it signals the exact `microhad-zigbee-native` daemon and the
 permanent launcher restarts it from the newly deployed binary. It does not
 reboot the device or alter Zigbee state.
-
-After successful verification, commit the implementation changes with a
-descriptive message. When the worktree already contains unrelated changes,
-stage and commit only files changed for the current task.
 
 Check the external dashboard rather than using `curl` on the device (it is not
 installed there):
