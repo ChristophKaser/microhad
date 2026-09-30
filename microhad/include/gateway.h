@@ -167,6 +167,7 @@ public:
     bool isOnline() const;
     std::string runtimeDirectory() const;
     std::string historyPath() const;
+    SensorHistory* historyStore();
     void setShellyTransport(ExternalHttpDeviceWorker* transport);
     bool registerShelly(const std::string& id, const std::string& name, const std::string& oldName,
                         const std::string& model, const std::vector<int>& inputIndices,

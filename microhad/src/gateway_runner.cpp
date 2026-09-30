@@ -14,7 +14,7 @@ GatewayRunner::LoopDebugStats::LoopDebugStats() : iterations(0), commandSkips(0)
     lastTimeoutSeconds(-1), lastDeadline(0) {
 }
 
-GatewayRunner::GatewayRunner(Gateway* gateway) : gateway_(gateway), commandWakeRead_(-1), commandWakeWrite_(-1),
+GatewayRunner::GatewayRunner(Gateway* gateway) : gateway_(gateway), historyStore_(gateway->historyStore()), commandWakeRead_(-1), commandWakeWrite_(-1),
     commandHead_(0), commandTail_(0), started_(false), startupComplete_(false), startupSucceeded_(false), stopping_(false),
     eventLoopDebug_(false), currentView_(0), runtimeDirectory_(gateway->runtimeDirectory()), historyPath_(gateway->historyPath()) {
     int wakePipe[2];
@@ -328,6 +328,10 @@ void GatewayRunner::releaseView(ViewData* data) {
 }
 std::string GatewayRunner::runtimeDirectory() const { return runtimeDirectory_; }
 std::string GatewayRunner::historyPath() const { return historyPath_; }
+bool GatewayRunner::readHistoryJson(const std::string& address, unsigned long before,
+                                    std::string* json, std::string* error) const {
+    return historyStore_ != 0 && historyStore_->readForDevice(address, before, json, error);
+}
 
 bool GatewayRunner::registerShelly(const std::string& id, const std::string& name, const std::string& oldName,
                                    const std::string& model, const std::vector<int>& inputIndices,

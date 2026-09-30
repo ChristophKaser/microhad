@@ -682,7 +682,7 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
         }
         std::string json;
         std::string error;
-        if (!valid || !SensorHistory::readJson(gateway_->historyPath(), address, before, &json, &error))
+        if (!valid || !gateway_->readHistoryJson(address, before, &json, &error))
             writeResponse(clientFd, valid && error != "invalid device address" ? 500 : 400, "application/json",
                           "{\"ok\":false,\"error\":\"" + jsonEscape(valid ? error : "invalid history request") + "\"}");
         else writeResponse(clientFd, 200, "application/json", json);

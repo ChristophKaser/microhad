@@ -7,6 +7,7 @@
 
 class Gateway;
 class GatewayView;
+class SensorHistory;
 
 class GatewayRunner {
     struct ViewData;
@@ -31,6 +32,8 @@ public:
     ViewLease* acquireView();
     std::string runtimeDirectory() const;
     std::string historyPath() const;
+    bool readHistoryJson(const std::string& address, unsigned long before,
+                         std::string* json, std::string* error) const;
     bool registerShelly(const std::string& id, const std::string& name, const std::string& oldName,
                         const std::string& model, const std::vector<int>& inputIndices,
                         const std::vector<int>& temperatureIndices, const std::vector<int>& relayIndices,
@@ -101,6 +104,7 @@ private:
     };
 
     Gateway* gateway_;
+    SensorHistory* historyStore_;
     pthread_t thread_;
     mutable pthread_mutex_t mutex_;
     pthread_cond_t startupReady_;
