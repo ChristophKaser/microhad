@@ -49,50 +49,6 @@ unsigned char testCrc8(const unsigned char* bytes, unsigned long length) {
     }
     return crc;
 }
-void put32be(unsigned char* bytes, uint32_t value) {
-    bytes[0] = static_cast<unsigned char>(value >> 24); bytes[1] = static_cast<unsigned char>(value >> 16);
-    bytes[2] = static_cast<unsigned char>(value >> 8); bytes[3] = static_cast<unsigned char>(value);
-}
-void writeLegacyFixture(const std::string& path) {
-    unsigned char header[16] = {'T','Z','H','1',1,20,0,0,0,0,0,0,0,0,0,0};
-    unsigned char record[20];
-    memset(record, 0, sizeof(record));
-    put32be(record, 1); put32be(record + 4, 1703000000U);
-    const unsigned char address[8] = {0,0x12,0x4b,0,0,0,0,0x42};
-    memcpy(record + 8, address, 8); record[16] = SensorHistory::Humidity;
-    record[17] = 0x13; record[18] = 0x88; record[19] = testCrc8(record, 19);
-    int fd = open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
-    assert(fd >= 0 && write(fd, header, sizeof(header)) == sizeof(header));
-    assert(write(fd, record, sizeof(record)) == sizeof(record));
-    close(fd);
-}
-void putLegacyRecord(unsigned char* record, uint32_t sequence, const char* address,
-                     unsigned char metric, unsigned int value) {
-    memset(record, 0, 20);
-    put32be(record, sequence); put32be(record + 4, 1703000000U + sequence);
-    for (int i = 0; i < 8; ++i) {
-        char octet[3] = {address[2 + i * 2], address[3 + i * 2], 0};
-        record[8 + i] = static_cast<unsigned char>(strtoul(octet, 0, 16));
-    }
-    record[16] = metric; record[17] = static_cast<unsigned char>(value >> 8);
-    record[18] = static_cast<unsigned char>(value); record[19] = testCrc8(record, 19);
-}
-void writeWrappedLegacyFixture(const std::string& path) {
-    const unsigned long capacity = (2 * 1024 * 1024 - 16) / 20;
-    unsigned char header[16] = {'T','Z','H','1',1,20,0,0,0,0,0,0,0,0,0,0};
-    unsigned char record[20];
-    int fd = open(path.c_str(), O_RDWR | O_CREAT | O_TRUNC, 0600);
-    assert(fd >= 0 && write(fd, header, sizeof(header)) == sizeof(header));
-    assert(ftruncate(fd, 16 + capacity * 20) == 0);
-    putLegacyRecord(record, static_cast<uint32_t>(capacity), sensor, SensorHistory::Humidity, 4300);
-    assert(pwrite(fd, record, sizeof(record), 16 + (capacity - 1) * 20) == sizeof(record));
-    putLegacyRecord(record, static_cast<uint32_t>(capacity + 1), sensor, SensorHistory::Humidity, 4400);
-    assert(pwrite(fd, record, sizeof(record), 16) == sizeof(record));
-    putLegacyRecord(record, 2, other, SensorHistory::Temperature, 2100);
-    record[19] ^= 1; /* damaged record must not be migrated */
-    assert(pwrite(fd, record, sizeof(record), 16 + 20) == sizeof(record));
-    close(fd);
-}
 }
 
 void runSensorHistoryUnitTests() {
@@ -234,60 +190,16 @@ void runSensorHistoryUnitTests() {
     unlink(path.c_str());
 
     path = historyPath();
-    writeLegacyFixture(path);
-    assert(SensorHistory::readJson(path, sensor, 0, &json, &error));
-    assert(json.find(",2,5000]") != std::string::npos);
-    std::string backup = path + ".v1.bak";
-    assert(access(backup.c_str(), F_OK) == 0);
-    assert(stat(path.c_str(), &info) == 0 && info.st_size == 16 + 1424);
-    unlink(path.c_str()); unlink(backup.c_str());
-
-    path = historyPath();
-    writeWrappedLegacyFixture(path);
-    assert(SensorHistory::readJson(path, sensor, 0, &json, &error));
-    assert(json.find(",2,4300]") != std::string::npos && json.find(",2,4400]") != std::string::npos);
-    assert(SensorHistory::readJson(path, other, 0, &json, &error));
-    assert(json == "{\"samples\":[],\"next_before\":0}");
-    backup = path + ".v1.bak";
-    unlink(path.c_str()); unlink(backup.c_str());
-
-    /* Simulate the first rename in a conversion transaction: V2 temp and the
-       untouched V1 backup exist while the active path is absent. */
-    path = historyPath();
+    int unsupported = open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
+    assert(unsupported >= 0 && write(unsupported, "OLD!unsupported", 15) == 15);
+    close(unsupported);
     {
         SensorHistory history(path);
-        assert(history.append(sensor, SensorHistory::Humidity, 5500, 1703100000L));
+        assert(!history.initialize(&error));
+        assert(error.find("file preserved") != std::string::npos);
     }
-    std::string temporary = path + ".v2.tmp";
-    std::string backupPath = path + ".v1.bak";
-    assert(rename(path.c_str(), temporary.c_str()) == 0);
-    writeLegacyFixture(backupPath);
-    {
-        SensorHistory recovered(path);
-        assert(recovered.initialize(&error));
-        assert(recovered.readForDevice(sensor, 0, &json, &error));
-        assert(json.find(",2,5500]") != std::string::npos);
-    }
-    assert(access(backupPath.c_str(), F_OK) == 0);
-    unlink(path.c_str()); unlink(temporary.c_str()); unlink(backupPath.c_str());
-
-    /* If the active file vanished with a damaged temporary but an untouched
-       legacy backup remains, restore the backup and retry conversion. */
-    path = historyPath();
-    temporary = path + ".v2.tmp";
-    backupPath = path + ".v1.bak";
-    writeLegacyFixture(backupPath);
-    int damaged = open(temporary.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
-    assert(damaged >= 0 && write(damaged, "partial", 7) == 7);
-    close(damaged);
-    {
-        SensorHistory recovered(path);
-        assert(recovered.initialize(&error));
-        assert(recovered.readForDevice(sensor, 0, &json, &error));
-        assert(json.find(",2,5000]") != std::string::npos);
-    }
-    backupPath = path + ".v1.bak";
-    unlink(path.c_str()); unlink(temporary.c_str()); unlink(backupPath.c_str());
+    assert(stat(path.c_str(), &info) == 0 && info.st_size == 15);
+    unlink(path.c_str());
 
     path = historyPath();
     {

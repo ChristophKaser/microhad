@@ -241,7 +241,7 @@ History is returned in pages of up to 2,000 samples. Temperature and humidity
 are sampled at most once per metric per minute, while each contact transition
 is retained. The RAM-backed history survives a service restart but is cleared
 by a device reboot. See [Sensor history format](SENSOR_HISTORY_FORMAT.md) for
-the binary layout, retention, and legacy conversion contract.
+the V2 binary layout and retention rules.
 
 ## Web UI development
 

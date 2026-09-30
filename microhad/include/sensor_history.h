@@ -51,7 +51,6 @@ private:
     std::string path_;
     unsigned long sequence_;
     bool initialized_;
-    bool legacyMode_;
     mutable pthread_mutex_t catalogMutex_;
     std::vector<PageInfo> pages_;
     std::map<std::string, std::vector<unsigned long> > pairPages_;
@@ -60,19 +59,11 @@ private:
     std::map<std::string, int> lastValue_;
     std::map<std::string, unsigned long> recordCount_;
     bool initializeV2(int fd, off_t size, std::string* error);
-    bool initializeLegacy(int fd, off_t size, std::string* error);
-    bool migrateLegacy(int fd, off_t size, std::string* error);
-    bool appendLegacy(const std::string& address, unsigned char metric, int value, long timestamp);
-    bool readLegacyJson(const std::string& address, unsigned long before,
-                        std::string* json, std::string* error, ReadStats* stats) const;
     bool readV2Json(const std::string& address, unsigned long before,
                     std::string* json, std::string* error, ReadStats* stats) const;
     bool allocatePage(const unsigned char* address, unsigned char metric,
                       unsigned long* pageId);
     bool writeNewFileHeader(int fd);
-    bool scanLegacyRecords(int fd, off_t size,
-                           std::map<std::string, std::vector<unsigned char> >* grouped,
-                           unsigned long* maximumSequence, std::string* error) const;
     void rebuildPairState(const std::string& key);
 };
 

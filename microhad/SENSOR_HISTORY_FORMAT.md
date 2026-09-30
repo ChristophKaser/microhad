@@ -109,28 +109,6 @@ On startup, scan materialized page headers and records to recover the global
 sequence, valid-sample counts, page fullness, per-pair page lists, last values,
 and minute-sampling state. Invalid headers and records are not returned. A
 corrupt page is never silently attributed to a different pair. The sequence
-is 32-bit, matching the existing API cursor and legacy format; sequence
-exhaustion resets history as the current implementation does.
-
-## Legacy conversion and rollout
-
-The deployed legacy format is `TZH1`: a 16-byte global header and a 2 MiB
-ring of 20-byte records. The transitional release recognizes it, validates
-its records, groups valid samples by address and metric, and writes every
-valid sample to a temporary V2 file with its sequence, timestamp, and value
-preserved. Conversion may allocate overflow pages if page-per-pair slack
-requires them.
-
-Before replacing the active file, reopen and validate the temporary V2 file
-and compare its complete sorted sample set with the valid legacy sample set.
-Keep the original as a `.v1.bak` until deployed conversion is verified. Use
-same-filesystem renames and startup recovery so an interrupted conversion can
-promote a validated temporary file or restore the untouched legacy file.
-If conversion fails, keep the service operating against the intact legacy
-file and report the failure; do not truncate or reinterpret it as empty.
-
-Deploy this transitional reader/writer first. Confirm the service is online,
-the active file is V2, and values from before conversion remain available via
-the history API. Only then remove legacy-format support in a follow-up change;
-remove the backup after that verification. Both formats and all temporary
-conversion files remain in RAM-backed `/tmp`.
+is 32-bit, matching the existing API cursor. Sequence exhaustion resets
+history as the current implementation does. Only V2 files are recognized;
+an unknown or damaged file is preserved and initialization fails.

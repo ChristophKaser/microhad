@@ -14,16 +14,11 @@ namespace {
 enum {
     fileHeaderBytes = 16, pageHeaderBytes = 16, sampleBytes = 11,
     samplesPerPage = 128, pageBytes = pageHeaderBytes + sampleBytes * samplesPerPage,
-    baselinePages = 1472, legacyRecordBytes = 20, legacyMaximumBytes = 2 * 1024 * 1024,
-    legacyCapacity = (legacyMaximumBytes - fileHeaderBytes) / legacyRecordBytes,
-    pageLimit = 2000
+    baselinePages = 1472, pageLimit = 2000
 };
 const unsigned char v2Header[fileHeaderBytes] = {
     'T', 'Z', 'H', '2', 2, fileHeaderBytes, pageHeaderBytes, sampleBytes,
     0, samplesPerPage, 5, 192, 0, 0, 0, 0
-};
-const unsigned char v1Header[fileHeaderBytes] = {
-    'T', 'Z', 'H', '1', 1, legacyRecordBytes, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 };
 const unsigned char zeroPageHeader[pageHeaderBytes] = { 0 };
 
@@ -108,12 +103,6 @@ bool validV2Header(const unsigned char* bytes, off_t size) {
     expected[15] = crc8(expected, 15);
     return size >= fileHeaderBytes && memcmp(bytes, expected, sizeof(expected)) == 0;
 }
-bool validV1Header(int fd, off_t size) {
-    unsigned char bytes[fileHeaderBytes];
-    return size >= fileHeaderBytes && size <= legacyMaximumBytes &&
-           pread(fd, bytes, sizeof(bytes), 0) == fileHeaderBytes &&
-           memcmp(bytes, v1Header, sizeof(bytes)) == 0;
-}
 bool validPageHeader(const unsigned char* bytes) {
     if (bytes[9] != 1 || bytes[8] < SensorHistory::Temperature || bytes[8] > SensorHistory::Battery ||
         bytes[15] != 0 || bytes[14] != pageHeaderChecksum(bytes)) return false;
@@ -128,18 +117,6 @@ bool parseSample(const unsigned char* header, const unsigned char* bytes, Sample
     unsigned int raw = get16(bytes + 8);
     sample->value = unsignedMetric(sample->metric) ? static_cast<int>(raw) : static_cast<int16_t>(raw);
     return sample->sequence != 0 && sample->timestamp != 0 && metricValueValid(sample->metric, sample->value);
-}
-bool validLegacyRecord(const unsigned char* bytes, unsigned long slot, Sample* sample) {
-    uint32_t sequence = get32(bytes);
-    if (sequence == 0 || (sequence - 1) % legacyCapacity != slot || crc8(bytes, 19) != bytes[19] ||
-        bytes[16] < SensorHistory::Temperature || bytes[16] > SensorHistory::Battery) return false;
-    sample->sequence = sequence;
-    sample->timestamp = get32(bytes + 4);
-    memcpy(sample->address, bytes + 8, 8);
-    sample->metric = bytes[16];
-    unsigned int raw = get16(bytes + 17);
-    sample->value = unsignedMetric(sample->metric) ? static_cast<int>(raw) : static_cast<int16_t>(raw);
-    return sample->timestamp != 0 && metricValueValid(sample->metric, sample->value);
 }
 bool newer(const Sample& left, const Sample& right) { return left.sequence > right.sequence; }
 void rememberLatest(std::map<std::string, unsigned long>* sequences,
@@ -220,7 +197,7 @@ SensorHistory::PageInfo::PageInfo() : pageId(0), allocated(false), metric(0), ge
 }
 
 SensorHistory::SensorHistory(const std::string& path) : path_(path), sequence_(0), initialized_(false),
-    legacyMode_(false) {
+    pages_() {
     pthread_mutex_init(&catalogMutex_, 0);
 }
 SensorHistory::~SensorHistory() { pthread_mutex_destroy(&catalogMutex_); }
@@ -237,30 +214,6 @@ bool SensorHistory::initialize(std::string* error) {
     if (initialized_) return true;
     if (error != 0) error->clear();
 
-    std::string backup = path_ + ".v1.bak";
-    std::string temporary = path_ + ".v2.tmp";
-    if (access(path_.c_str(), F_OK) != 0 && errno == ENOENT) {
-        int recoveryFd = open(temporary.c_str(), O_RDONLY);
-        if (recoveryFd >= 0) {
-            struct stat recoveryInfo;
-            unsigned char fileHeader[fileHeaderBytes];
-            bool valid = fstat(recoveryFd, &recoveryInfo) == 0 &&
-                         pread(recoveryFd, fileHeader, sizeof(fileHeader), 0) == fileHeaderBytes &&
-                         validV2Header(fileHeader, recoveryInfo.st_size);
-            close(recoveryFd);
-            if (valid && rename(temporary.c_str(), path_.c_str()) != 0 && errno != ENOENT) {
-                if (error != 0) *error = "cannot recover converted history";
-                return false;
-            }
-        }
-        if (access(path_.c_str(), F_OK) != 0 && access(backup.c_str(), F_OK) == 0) {
-            if (rename(backup.c_str(), path_.c_str()) != 0) {
-                if (error != 0) *error = "cannot restore legacy history backup";
-                return false;
-            }
-        }
-    }
-
     int fd = open(path_.c_str(), O_RDWR | O_CREAT, 0600);
     if (fd < 0) { if (error != 0) *error = "cannot open sensor history"; return false; }
     struct stat info;
@@ -273,25 +226,6 @@ bool SensorHistory::initialize(std::string* error) {
     if (ok) ok = pread(fd, fileHeader, sizeof(fileHeader), 0) == fileHeaderBytes;
     if (ok && validV2Header(fileHeader, info.st_size)) {
         ok = initializeV2(fd, info.st_size, error);
-        legacyMode_ = false;
-    } else if (ok && validV1Header(fd, info.st_size)) {
-        if (migrateLegacy(fd, info.st_size, error)) {
-            close(fd);
-            fd = open(path_.c_str(), O_RDWR);
-            if (fd < 0 || fstat(fd, &info) != 0 || !readAllAt(fd, fileHeader, sizeof(fileHeader), 0) ||
-                !validV2Header(fileHeader, info.st_size)) {
-                if (fd >= 0) close(fd);
-                if (error != 0) *error = "converted history failed validation after replacement";
-                return false;
-            }
-            ok = initializeV2(fd, info.st_size, error);
-            legacyMode_ = false;
-        } else {
-            std::string migrationError = error == 0 ? "legacy conversion failed" : *error;
-            ok = initializeLegacy(fd, info.st_size, 0);
-            legacyMode_ = ok;
-            if (ok && error != 0) *error = std::string("history conversion deferred; using legacy format: ") + migrationError;
-        }
     } else {
         ok = false;
         if (error != 0) *error = "unrecognized or damaged sensor history header; file preserved";
@@ -354,138 +288,6 @@ bool SensorHistory::initializeV2(int fd, off_t size, std::string* error) {
         }
         if (info.nextSlot >= samplesPerPage) info.nextSlot = samplesPerPage;
     }
-    return true;
-}
-
-bool SensorHistory::scanLegacyRecords(int fd, off_t size,
-        std::map<std::string, std::vector<unsigned char> >* grouped,
-        unsigned long* maximumSequence, std::string* error) const {
-    (void)error;
-    grouped->clear();
-    *maximumSequence = 0;
-    unsigned char bytes[legacyRecordBytes];
-    for (unsigned long slot = 0; slot < legacyCapacity &&
-         fileHeaderBytes + static_cast<off_t>((slot + 1) * legacyRecordBytes) <= size; ++slot) {
-        Sample sample;
-        off_t offset = fileHeaderBytes + static_cast<off_t>(slot * legacyRecordBytes);
-        if (pread(fd, bytes, sizeof(bytes), offset) != legacyRecordBytes ||
-            !validLegacyRecord(bytes, slot, &sample)) continue;
-        if (sample.sequence > *maximumSequence) *maximumSequence = sample.sequence;
-        std::string key = pairKey(sample.address, sample.metric);
-        std::vector<unsigned char>& records = (*grouped)[key];
-        records.insert(records.end(), bytes, bytes + legacyRecordBytes);
-    }
-    return true;
-}
-
-bool SensorHistory::migrateLegacy(int fd, off_t size, std::string* error) {
-    std::map<std::string, std::vector<unsigned char> > grouped;
-    unsigned long maximumSequence = 0;
-    if (!scanLegacyRecords(fd, size, &grouped, &maximumSequence, error)) return false;
-    std::string temporary = path_ + ".v2.tmp";
-    std::string backup = path_ + ".v1.bak";
-    if (access(backup.c_str(), F_OK) == 0) {
-        if (error != 0) *error = "legacy history backup already exists";
-        return false;
-    }
-    unlink(temporary.c_str());
-    int out = open(temporary.c_str(), O_RDWR | O_CREAT | O_EXCL, 0600);
-    if (out < 0) { if (error != 0) *error = "cannot create converted history"; return false; }
-    bool ok = writeNewFileHeader(out);
-    unsigned long pageId = 0;
-    unsigned char page[pageBytes];
-    for (std::map<std::string, std::vector<unsigned char> >::iterator it = grouped.begin(); ok && it != grouped.end(); ++it) {
-        std::vector<unsigned char>& records = it->second;
-        std::vector<Sample> samples;
-        for (unsigned long offset = 0; offset + legacyRecordBytes <= records.size(); offset += legacyRecordBytes) {
-            Sample sample;
-            if (validLegacyRecord(&records[offset], (get32(&records[offset]) - 1) % legacyCapacity, &sample)) samples.push_back(sample);
-        }
-        std::sort(samples.begin(), samples.end(), newer);
-        std::reverse(samples.begin(), samples.end());
-        for (unsigned long begin = 0; ok && begin < samples.size(); begin += samplesPerPage, ++pageId) {
-            memset(page, 0, sizeof(page));
-            unsigned char address[8];
-            memcpy(address, samples[begin].address, 8);
-            unsigned char metric = samples[begin].metric;
-            encodePageHeader(page, address, metric, 1);
-            unsigned long count = std::min(static_cast<unsigned long>(samplesPerPage), samples.size() - begin);
-            for (unsigned long i = 0; i < count; ++i) {
-                const Sample& sample = samples[begin + i];
-                encodeSample(page + pageHeaderBytes + i * sampleBytes, page,
-                             sample.sequence, sample.timestamp, sample.value);
-            }
-            ok = writeAllAt(out, page, sizeof(page), fileHeaderBytes + static_cast<off_t>(pageId * pageBytes));
-        }
-    }
-    off_t finalSize = fileHeaderBytes + static_cast<off_t>(pageId * pageBytes);
-    if (ok) ok = ftruncate(out, finalSize) == 0 && fsync(out) == 0;
-    close(out);
-    if (!ok) { unlink(temporary.c_str()); if (error != 0) *error = "cannot write converted history"; return false; }
-
-    int verify = open(temporary.c_str(), O_RDONLY);
-    struct stat verifyInfo;
-    unsigned char verifyHeader[fileHeaderBytes];
-    ok = verify >= 0 && fstat(verify, &verifyInfo) == 0 &&
-         pread(verify, verifyHeader, sizeof(verifyHeader), 0) == fileHeaderBytes &&
-         validV2Header(verifyHeader, verifyInfo.st_size);
-    std::vector<Sample> actual;
-    if (ok) {
-        unsigned long pages = static_cast<unsigned long>((verifyInfo.st_size - fileHeaderBytes) / pageBytes);
-        for (unsigned long id = 0; id < pages && ok; ++id) {
-            unsigned char contents[pageBytes];
-            if (!readAllAt(verify, contents, sizeof(contents), fileHeaderBytes + static_cast<off_t>(id * pageBytes))) { ok = false; break; }
-            if (!validPageHeader(contents)) continue;
-            for (unsigned int slot = 0; slot < samplesPerPage; ++slot) {
-                Sample sample;
-                if (parseSample(contents, contents + pageHeaderBytes + slot * sampleBytes, &sample)) actual.push_back(sample);
-            }
-        }
-    }
-    if (verify >= 0) close(verify);
-    std::vector<Sample> expected;
-    for (std::map<std::string, std::vector<unsigned char> >::const_iterator it = grouped.begin(); it != grouped.end(); ++it)
-        for (unsigned long offset = 0; offset + legacyRecordBytes <= it->second.size(); offset += legacyRecordBytes) {
-            Sample sample;
-            if (validLegacyRecord(&it->second[offset], (get32(&it->second[offset]) - 1) % legacyCapacity, &sample)) expected.push_back(sample);
-        }
-    std::sort(actual.begin(), actual.end(), newer);
-    std::sort(expected.begin(), expected.end(), newer);
-    if (ok && actual.size() != expected.size()) ok = false;
-    for (unsigned long i = 0; ok && i < actual.size(); ++i)
-        if (actual[i].sequence != expected[i].sequence || actual[i].timestamp != expected[i].timestamp ||
-            actual[i].metric != expected[i].metric || actual[i].value != expected[i].value ||
-            memcmp(actual[i].address, expected[i].address, 8) != 0) ok = false;
-    if (!ok) { unlink(temporary.c_str()); if (error != 0) *error = "converted history did not match legacy samples"; return false; }
-
-    if (rename(path_.c_str(), backup.c_str()) != 0) {
-        unlink(temporary.c_str()); if (error != 0) *error = "cannot preserve legacy history backup"; return false;
-    }
-    if (rename(temporary.c_str(), path_.c_str()) != 0) {
-        rename(backup.c_str(), path_.c_str());
-        if (error != 0) *error = "cannot activate converted history";
-        return false;
-    }
-    return true;
-}
-
-bool SensorHistory::initializeLegacy(int fd, off_t size, std::string* error) {
-    (void)error;
-    pages_.clear(); pairPages_.clear(); lastMinute_.clear(); lastValue_.clear(); recordCount_.clear(); sequence_ = 0;
-    unsigned char bytes[legacyRecordBytes];
-    std::map<std::string, unsigned long> latestSequence;
-    for (unsigned long slot = 0; slot < legacyCapacity &&
-         fileHeaderBytes + static_cast<off_t>((slot + 1) * legacyRecordBytes) <= size; ++slot) {
-        Sample sample;
-        if (pread(fd, bytes, sizeof(bytes), fileHeaderBytes + static_cast<off_t>(slot * legacyRecordBytes)) != legacyRecordBytes ||
-            !validLegacyRecord(bytes, slot, &sample)) continue;
-        if (sample.sequence > sequence_) sequence_ = sample.sequence;
-        std::string key = pairKey(sample.address, sample.metric);
-        ++recordCount_[key];
-        rememberLatest(&latestSequence, &lastValue_, key, sample.sequence, sample.value);
-        if (sample.metric != Contact) rememberMinute(&lastMinute_, key, sample.timestamp / 60);
-    }
-    legacyMode_ = true;
     return true;
 }
 
@@ -619,60 +421,12 @@ bool SensorHistory::allocatePage(const unsigned char* address, unsigned char met
     return true;
 }
 
-bool SensorHistory::appendLegacy(const std::string& address, unsigned char metric, int value, long timestamp) {
-    unsigned char ieee[8];
-    if (!decodeAddress(address, ieee) || !metricValueValid(metric, value) || timestamp <= 0 ||
-        static_cast<unsigned long>(timestamp) > 0xffffffffUL) return false;
-    std::string key = pairKey(ieee, metric);
-    if (lastValue_.find(key) != lastValue_.end() && lastValue_[key] == value) return true;
-    if (metric != Contact && lastMinute_.find(key) != lastMinute_.end() && timestamp / 60 <= lastMinute_[key]) return true;
-    if (sequence_ == 0xffffffffUL) return false;
-    unsigned char bytes[legacyRecordBytes];
-    uint32_t next = static_cast<uint32_t>(sequence_ + 1);
-    put32(bytes, next); put32(bytes + 4, static_cast<uint32_t>(timestamp));
-    memcpy(bytes + 8, ieee, 8); bytes[16] = metric; put16(bytes + 17, static_cast<unsigned int>(value));
-    bytes[19] = crc8(bytes, 19);
-    int fd = open(path_.c_str(), O_RDWR);
-    if (fd < 0) return false;
-    off_t offset = fileHeaderBytes + static_cast<off_t>((next - 1) % legacyCapacity) * legacyRecordBytes;
-    unsigned char oldBytes[legacyRecordBytes]; Sample oldSample;
-    std::string replacedKey;
-    if (pread(fd, oldBytes, sizeof(oldBytes), offset) == legacyRecordBytes &&
-        validLegacyRecord(oldBytes, (next - 1) % legacyCapacity, &oldSample))
-        replacedKey = pairKey(oldSample.address, oldSample.metric);
-    bool ok = writeAllAt(fd, bytes, sizeof(bytes), offset);
-    close(fd);
-    if (!ok) return false;
-    sequence_ = next;
-    if (!replacedKey.empty() && replacedKey != key && recordCount_[replacedKey] > 0 && --recordCount_[replacedKey] == 0) {
-        recordCount_.erase(replacedKey); lastValue_.erase(replacedKey); lastMinute_.erase(replacedKey);
-    }
-    ++recordCount_[key]; lastValue_[key] = value;
-    if (metric != Contact) rememberMinute(&lastMinute_, key, timestamp / 60);
-    return true;
-}
-
 bool SensorHistory::append(const std::string& address, unsigned char metric, int value, long timestamp) {
     unsigned char ieee[8];
     if (!decodeAddress(address, ieee) || !metricValueValid(metric, value) || timestamp <= 0 ||
         static_cast<unsigned long>(timestamp) > 0xffffffffUL) return false;
     if (!initialized_ && !initialize()) return false;
     pthread_mutex_lock(&catalogMutex_);
-    if (legacyMode_) {
-        if (sequence_ != 0xffffffffUL) {
-            bool legacyResult = appendLegacy(address, metric, value, timestamp);
-            pthread_mutex_unlock(&catalogMutex_);
-            return legacyResult;
-        }
-        /* Move sequence exhaustion to V2 without recursive locking. */
-        int resetFd = open(path_.c_str(), O_RDWR | O_TRUNC);
-        bool reset = resetFd >= 0 && writeNewFileHeader(resetFd);
-        if (resetFd >= 0) close(resetFd);
-        if (!reset) { pthread_mutex_unlock(&catalogMutex_); return false; }
-        sequence_ = 0; pages_.clear(); pairPages_.clear();
-        lastMinute_.clear(); lastValue_.clear(); recordCount_.clear();
-        legacyMode_ = false;
-    }
     std::string key = pairKey(ieee, metric);
     if (lastValue_.find(key) != lastValue_.end() && lastValue_[key] == value) {
         pthread_mutex_unlock(&catalogMutex_); return true;
@@ -763,38 +517,13 @@ bool SensorHistory::append(const std::string& address, unsigned char metric, int
     return true;
 }
 
-bool SensorHistory::readLegacyJson(const std::string& address, unsigned long before,
-        std::string* json, std::string* error, ReadStats* stats) const {
-    unsigned char ieee[8];
-    if (!decodeAddress(address, ieee)) { *error = "invalid device address"; return false; }
-    int fd = open(path_.c_str(), O_RDONLY);
-    if (fd < 0) { if (errno == ENOENT) { *json = "{\"samples\":[],\"next_before\":0}"; return true; }
-        *error = "cannot read sensor history"; return false; }
-    struct stat info;
-    if (fstat(fd, &info) != 0 || !validV1Header(fd, info.st_size)) {
-        close(fd); *error = "invalid legacy sensor history file"; return false;
-    }
-    std::vector<Sample> samples;
-    unsigned char bytes[legacyRecordBytes];
-    for (unsigned long slot = 0; slot < legacyCapacity &&
-         fileHeaderBytes + static_cast<off_t>((slot + 1) * legacyRecordBytes) <= info.st_size; ++slot) {
-        Sample sample;
-        if (pread(fd, bytes, sizeof(bytes), fileHeaderBytes + static_cast<off_t>(slot * legacyRecordBytes)) != legacyRecordBytes) continue;
-        if (stats != 0) { ++stats->recordsChecked; stats->bytesRead += legacyRecordBytes; }
-        if (validLegacyRecord(bytes, slot, &sample) && memcmp(sample.address, ieee, 8) == 0) samples.push_back(sample);
-    }
-    close(fd);
-    buildJson(samples, before, json);
-    return true;
-}
-
 bool SensorHistory::readV2Json(const std::string& address, unsigned long before,
         std::string* json, std::string* error, ReadStats* stats) const {
     unsigned char ieee[8];
     if (!decodeAddress(address, ieee)) { *error = "invalid device address"; return false; }
     std::vector<PageInfo> snapshot;
     pthread_mutex_lock(&catalogMutex_);
-    if (!initialized_ || legacyMode_) {
+    if (!initialized_) {
         pthread_mutex_unlock(&catalogMutex_); *error = "sensor history catalog is unavailable"; return false;
     }
     for (unsigned char metric = Temperature; metric <= Battery; ++metric) {
@@ -834,12 +563,6 @@ bool SensorHistory::readV2Json(const std::string& address, unsigned long before,
 
 bool SensorHistory::readForDevice(const std::string& address, unsigned long before,
         std::string* json, std::string* error, ReadStats* stats) const {
-    pthread_mutex_lock(&catalogMutex_);
-    bool legacy = legacyMode_;
-    bool initialized = initialized_;
-    pthread_mutex_unlock(&catalogMutex_);
-    if (!initialized) { *error = "sensor history catalog is unavailable"; return false; }
-    if (legacy) return readLegacyJson(address, before, json, error, stats);
     return readV2Json(address, before, json, error, stats);
 }
 
