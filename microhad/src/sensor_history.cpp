@@ -14,7 +14,7 @@
 
 namespace {
 enum { headerBytes = 16, recordBytes = 20, maximumBytes = 512 * 1024,
-       capacity = (maximumBytes - headerBytes) / recordBytes, perDeviceLimit = 10000, pageLimit = 2000 };
+       capacity = (maximumBytes - headerBytes) / recordBytes, pageLimit = 2000 };
 const unsigned char header[headerBytes] = { 'T', 'Z', 'H', '1', 1, recordBytes, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
 
 void put32(unsigned char* bytes, uint32_t value) {
@@ -225,7 +225,6 @@ bool SensorHistory::readJson(const std::string& path, const std::string& address
         close(fd);
     }
     std::sort(samples.begin(), samples.end(), newer);
-    if (samples.size() > perDeviceLimit) samples.resize(perDeviceLimit);
     std::vector<Sample> page;
     bool more = false;
     for (unsigned long i = 0; i < samples.size(); ++i) {
