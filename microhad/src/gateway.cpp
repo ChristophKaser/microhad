@@ -825,11 +825,13 @@ long Gateway::nextPollDeadline(std::string* source) const {
     CONSIDER_DEADLINE(coordinatorInitializationDeadline_, "coordinator_initialization");
     if (networkForming_) CONSIDER_DEADLINE(networkFormationDeadline_, "network_formation");
     if (interviewRequestInFlight_) CONSIDER_DEADLINE(interviewDeadline_, "interview");
+    const bool nativePollReady = online_ && networkFormed_ && coordinatorInitializationStep_ == 0 &&
+        !interviewRequestInFlight_;
     bool nativeBusy = false;
     for (unsigned long native = 0; native < nativeBindOperations_.size(); ++native)
         if (nativeBindOperations_[native].deadline != 0) {
             nativeBusy = true;
-            CONSIDER_DEADLINE(nativeBindOperations_[native].deadline, "native_bind");
+            if (nativePollReady) CONSIDER_DEADLINE(nativeBindOperations_[native].deadline, "native_bind");
         }
     CONSIDER_DEADLINE(joinPreparationDeadline_, "join_preparation");
     if (joinPermitClosePending_) CONSIDER_DEADLINE(joinPermitCloseDeadline_, "join_permit_close");
@@ -843,8 +845,11 @@ long Gateway::nextPollDeadline(std::string* source) const {
         CONSIDER_DEADLINE(configQuery->second.bindingsDeadline, "configuration_bindings");
         CONSIDER_DEADLINE(configQuery->second.nodeDescriptorDeadline, "configuration_node_descriptor");
     }
-    for (std::map<std::string, SceneProvisionState>::const_iterator pending = sceneProvisioning_.begin();
-         pending != sceneProvisioning_.end(); ++pending) CONSIDER_DEADLINE(pending->second.deadline, "scene_provisioning");
+    if (online_ && networkFormed_ && coordinatorInitializationStep_ == 0) {
+        for (std::map<std::string, SceneProvisionState>::const_iterator pending = sceneProvisioning_.begin();
+             pending != sceneProvisioning_.end(); ++pending)
+            CONSIDER_DEADLINE(pending->second.deadline, "scene_provisioning");
+    }
     if (online_ && networkFormed_ && coordinatorInitializationStep_ == 0 && !interviewRequestInFlight_ && !nativeBusy) {
         for (interview = interviews_.begin(); interview != interviews_.end(); ++interview) {
             const InterviewState& state = interview->second;

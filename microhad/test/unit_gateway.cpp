@@ -29,6 +29,29 @@ public:
         assert(gateway.nextPollDeadline(&source) == 0);
         assert(source == "none");
     }
+    static void pausedTimersDoNotWinDeadline() {
+        Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+        std::string source;
+        long now = time(0);
+        Gateway::NativeBindOperation operation;
+        operation.deadline = now - 1;
+        gateway.nativeBindOperations_.push_back(operation);
+        gateway.online_ = true;
+        gateway.networkFormed_ = true;
+        gateway.interviewRequestInFlight_ = true;
+        gateway.interviewDeadline_ = now + 10;
+        assert(gateway.nextPollDeadline(&source) >= now + 9);
+        assert(source == "interview");
+
+        gateway.interviewRequestInFlight_ = false;
+        gateway.coordinatorInitializationStep_ = 1;
+        gateway.coordinatorInitializationDeadline_ = now + 10;
+        Gateway::SceneProvisionState pending;
+        pending.deadline = now - 1;
+        gateway.sceneProvisioning_["device"] = pending;
+        assert(gateway.nextPollDeadline(&source) >= now + 9);
+        assert(source == "coordinator_initialization");
+    }
     static bool hasContactReminder(const Gateway& gateway, const std::string& ieeeAddress) {
         return gateway.nextContactAlertAt_.count(ieeeAddress) != 0;
     }
@@ -2181,6 +2204,7 @@ static void testSharedJsonUtilities() {
 
 void runUnitTests() {
     GatewayTestPeer::emptyDeadlineIsUnscheduled();
+    GatewayTestPeer::pausedTimersDoNotWinDeadline();
     GatewayTestPeer::closingPermitReplyTimeout();
     GatewayTestPeer::refreshDiscoversMissingEndpoints();
     GatewayTestPeer::reviewAndTransportRegressions();
