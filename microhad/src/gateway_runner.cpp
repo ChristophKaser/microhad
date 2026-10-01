@@ -169,7 +169,10 @@ void GatewayRunner::execute(Command* command) {
                                                                                       command->initialAlertMinutes,
                                                                                       command->reminderAlertMinutes,
                                                                                       command->hasSensorRefreshInterval,
-                                                                                      command->sensorRefreshIntervalMinutes, &error);
+                                                                                      command->sensorRefreshIntervalMinutes, &error,
+                                                                                      command->hasContactTriggerSettings,
+                                                                                      command->contactTriggerMode,
+                                                                                      command->contactTriggerCooldownSeconds);
     else if (command->type == DeviceValueAlerts) result = gateway_->setDeviceValueAlerts(command->address, command->valueAlerts, &error);
     else if (command->type == DeviceRefresh) result = gateway_->refreshDevice(command->address, &error);
     else if (command->type == DeviceIdentify) result = gateway_->identifyDevice(command->address, &error);
@@ -372,7 +375,9 @@ bool GatewayRunner::setDeviceSettings(const std::string& address, const std::str
                                       bool hasLow, double low, bool hasHigh, double high,
                                       bool hasContactTimings, unsigned long initialAlertMinutes,
                                       unsigned long reminderAlertMinutes, bool hasSensorRefreshInterval,
-                                      unsigned long sensorRefreshIntervalMinutes, std::string* error) {
+                                      unsigned long sensorRefreshIntervalMinutes, std::string* error,
+                                      bool hasContactTriggerSettings, bool contactTriggerMode,
+                                      unsigned long contactTriggerCooldownSeconds) {
     Command command;
     command.type = DeviceSettings;
     command.address = address;
@@ -386,6 +391,9 @@ bool GatewayRunner::setDeviceSettings(const std::string& address, const std::str
     command.reminderAlertMinutes = reminderAlertMinutes;
     command.hasSensorRefreshInterval = hasSensorRefreshInterval;
     command.sensorRefreshIntervalMinutes = sensorRefreshIntervalMinutes;
+    command.hasContactTriggerSettings = hasContactTriggerSettings;
+    command.contactTriggerMode = contactTriggerMode;
+    command.contactTriggerCooldownSeconds = contactTriggerCooldownSeconds;
     return invoke(&command, error);
 }
 bool GatewayRunner::setDeviceValueAlerts(const std::string& address,

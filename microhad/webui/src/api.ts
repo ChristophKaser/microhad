@@ -69,6 +69,8 @@ export interface Device {
   high_temperature_alert: number
   contact_initial_alert_minutes: number
   contact_reminder_alert_minutes: number
+  contact_trigger_mode: boolean
+  contact_trigger_cooldown_seconds: number
   sensor_refresh_interval_minutes: number
   value_alerts: Record<string, { has_low: boolean; low: number; has_high: boolean; high: number; hysteresis: number }>
   last_seen: number

@@ -933,6 +933,8 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
             std::string initialValue;
             std::string reminderValue;
             std::string sensorRefreshValue;
+            std::string triggerModeValue;
+            std::string triggerCooldownValue;
             std::string error;
             bool hasName = formValue(body, "name", &name);
             formValue(body, "low", &lowValue);
@@ -940,6 +942,8 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
             bool hasInitial = formValue(body, "initial_minutes", &initialValue);
             bool hasReminder = formValue(body, "reminder_minutes", &reminderValue);
             bool hasSensorRefresh = formValue(body, "sensor_refresh_minutes", &sensorRefreshValue);
+            bool hasTriggerMode = formValue(body, "contact_trigger_mode", &triggerModeValue);
+            bool hasTriggerCooldown = formValue(body, "contact_trigger_cooldown_seconds", &triggerCooldownValue);
             std::map<std::string, DeviceValueAlert> valueAlerts;
             static const char* alertNames[] = {"temperature", "humidity", "battery", "link_quality", "wifi_signal", "brightness", "power"};
             bool validAlerts = true;
@@ -965,14 +969,22 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
             unsigned long initial = 0;
             unsigned long reminder = 0;
             unsigned long sensorRefresh = 0;
+            unsigned long triggerCooldown = 60;
+            bool triggerMode = false;
+            bool validTrigger = hasTriggerMode == hasTriggerCooldown;
+            if (hasTriggerMode) {
+                validTrigger = validTrigger && (triggerModeValue == "true" || triggerModeValue == "false") &&
+                               parseMinutes(triggerCooldownValue, &triggerCooldown) && triggerCooldown != 0;
+                triggerMode = triggerModeValue == "true";
+            }
             if (!hasName || !validAlerts || (hasLow && !parseDecimal(lowValue, &low)) || (hasHigh && !parseDecimal(highValue, &high)) ||
                 (hasInitial && !parseMinutes(initialValue, &initial)) ||
                 (hasReminder && !parseMinutes(reminderValue, &reminder)) ||
-                (hasSensorRefresh && !parseMinutes(sensorRefreshValue, &sensorRefresh))) {
+                (hasSensorRefresh && !parseMinutes(sensorRefreshValue, &sensorRefresh)) || !validTrigger) {
                 writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"invalid device settings\"}");
             } else if (gateway_->setDeviceSettings(ieeeAddress, name, hasLow, low, hasHigh, high,
                                                     hasInitial && hasReminder, initial, reminder, hasSensorRefresh,
-                                                    sensorRefresh, &error) &&
+                                                    sensorRefresh, &error, hasTriggerMode, triggerMode, triggerCooldown) &&
                        (valueAlerts.empty() || gateway_->setDeviceValueAlerts(ieeeAddress, valueAlerts, &error))) {
                 writeResponse(clientFd, 200, "application/json", "{\"ok\":true}");
             } else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + jsonEscape(error) + "\"}");

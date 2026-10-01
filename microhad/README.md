@@ -95,6 +95,9 @@ Occupancy Sensing (`0x0406`), Power Configuration battery percentage, link
 quality, and last-seen state are retained and surfaced in the dashboard. An
 opened contact starts a ten-minute notification window, followed by five-minute
 reminders while it remains open; closing it cancels the pending alert.
+Contact sensor settings can switch to Trigger mode, which sends an immediate
+push for each known open/closed transition and suppresses further transitions
+for the configured cooldown (60 seconds by default).
 Temperature thresholds can be set per device in the dashboard.
 
 Temperature and humidity devices also have a per-device fallback refresh

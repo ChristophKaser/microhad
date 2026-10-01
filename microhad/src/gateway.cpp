@@ -42,6 +42,7 @@ Device::Device() : source("zigbee"), networkAddress(0xffff), kind("generic"), co
                    brightnessPercent(0), hasRemote(false), hasActor(false), actorKnown(false), actorOn(false), hasPower(false), powerKnown(false), powerWatts(0), linkQuality(0), hasWifiSignal(false), wifiSignalPercent(0), lastSeen(0),
                    iasZoneId(-1), hasLowTemperatureAlert(false), hasHighTemperatureAlert(false), lowTemperatureAlert(0),
                    highTemperatureAlert(0), contactInitialAlertMinutes(10), contactReminderAlertMinutes(5),
+                   contactTriggerMode(false), contactTriggerCooldownSeconds(60),
                    sensorRefreshIntervalMinutes(60) {
 }
 
@@ -370,7 +371,7 @@ bool Gateway::registerShelly(const std::string& id, const std::string& name, con
         if ((it->second.source == "shelly" || it->second.source == "fritz_box") && it->second.externalId == id &&
             std::find(components.begin(), components.end(), existingComponent) == components.end()) {
             history_.setDevicePresent(it->first, false);
-            contactOpenedAt_.erase(it->first); nextContactAlertAt_.erase(it->first);
+            contactOpenedAt_.erase(it->first); nextContactAlertAt_.erase(it->first); nextContactTriggerAt_.erase(it->first);
             devices_.erase(it++); changed = true;
         } else ++it;
     }
@@ -416,7 +417,7 @@ bool Gateway::removeShelly(const std::string& id, std::string* error) {
     for (std::map<std::string, Device>::iterator it = devices_.begin(); it != devices_.end();) {
         if ((it->second.source == "shelly" || it->second.source == "fritz_box") && it->second.externalId == id) {
             history_.setDevicePresent(it->first, false);
-            contactOpenedAt_.erase(it->first); nextContactAlertAt_.erase(it->first);
+            contactOpenedAt_.erase(it->first); nextContactAlertAt_.erase(it->first); nextContactTriggerAt_.erase(it->first);
             devices_.erase(it++); changed = true;
         } else ++it;
     }
@@ -432,7 +433,7 @@ bool Gateway::reconcileShelly(const std::vector<std::string>& ids, std::string* 
         if (it->second.source == "shelly" &&
             std::find(ids.begin(), ids.end(), it->second.externalId) == ids.end()) {
             history_.setDevicePresent(it->first, false);
-            contactOpenedAt_.erase(it->first); nextContactAlertAt_.erase(it->first);
+            contactOpenedAt_.erase(it->first); nextContactAlertAt_.erase(it->first); nextContactTriggerAt_.erase(it->first);
             devices_.erase(it++); changed = true;
         } else ++it;
     }
@@ -471,12 +472,13 @@ bool Gateway::applyShellyEvent(const std::string& id, int metric, int channelInd
     if (metric == 1 || metric == 3) {
         if (value != 0 && value != 1) { *error = "invalid Shelly state"; return false; }
         if (metric == 1) {
+            const bool hadKnownState = d.contactKnown;
             const bool wasOpen = d.contactKnown && d.contactOpen;
             const bool changed = !d.contactKnown || d.contactOpen != (value != 0);
             d.contactOpen = value != 0; d.contactKnown = true;
             if (changed) {
                 history_.append(d.ieeeAddress, SensorHistory::Contact, d.contactOpen ? 1 : 0, now);
-                updateContactAlert(d.ieeeAddress, wasOpen);
+                updateContactAlert(d.ieeeAddress, wasOpen, hadKnownState);
             }
         } else { d.actorOn = value != 0; d.actorKnown = true; }
     } else if (metric == 2) {
@@ -933,7 +935,9 @@ bool Gateway::setDeviceSettings(const std::string& ieeeAddress, const std::strin
                                 bool hasLow, double low, bool hasHigh, double high,
                                 bool hasContactTimings, unsigned long initialAlertMinutes,
                                 unsigned long reminderAlertMinutes, bool hasSensorRefreshInterval,
-                                unsigned long sensorRefreshIntervalMinutes, std::string* error) {
+                                unsigned long sensorRefreshIntervalMinutes, std::string* error,
+                                bool hasContactTriggerSettings, bool contactTriggerMode,
+                                unsigned long contactTriggerCooldownSeconds) {
     std::map<std::string, Device>::iterator it = devices_.find(ieeeAddress);
     if (it == devices_.end()) {
         *error = "device not found";
@@ -959,6 +963,11 @@ bool Gateway::setDeviceSettings(const std::string& ieeeAddress, const std::strin
             return false;
         }
     }
+    if (it->second.hasContact && hasContactTriggerSettings &&
+        (contactTriggerCooldownSeconds == 0 || contactTriggerCooldownSeconds > static_cast<unsigned long>(LONG_MAX - time(0)))) {
+        *error = "invalid contact trigger cooldown";
+        return false;
+    }
     if (hasSensorRefreshInterval && (it->second.source == "shelly" || (!it->second.hasTemperature && !it->second.hasHumidity))) {
         *error = "sensor refresh interval applies only to measurement devices";
         return false;
@@ -974,7 +983,15 @@ bool Gateway::setDeviceSettings(const std::string& ieeeAddress, const std::strin
         long now = time(0);
         it->second.contactInitialAlertMinutes = initialAlertMinutes;
         it->second.contactReminderAlertMinutes = reminderAlertMinutes;
-        if (it->second.contactOpen) {
+        if (hasContactTriggerSettings) {
+            it->second.contactTriggerMode = contactTriggerMode;
+            it->second.contactTriggerCooldownSeconds = contactTriggerCooldownSeconds;
+            nextContactTriggerAt_.erase(ieeeAddress);
+        }
+        if (it->second.contactTriggerMode) {
+            contactOpenedAt_.erase(ieeeAddress);
+            nextContactAlertAt_.erase(ieeeAddress);
+        } else if (it->second.contactOpen) {
             long openedAt = contactOpenedAt_.count(ieeeAddress) ? contactOpenedAt_[ieeeAddress] : now;
             long dueAt = openedAt + static_cast<long>(initialAlertMinutes * 60);
             contactOpenedAt_[ieeeAddress] = openedAt;
@@ -1923,12 +1940,13 @@ bool Gateway::applyAttributeReport(const std::string& ieeeAddress, unsigned shor
     unsigned observed = 0;
     long timestamp = time(0);
     bool wasOpen = device.contactOpen;
+    bool hadKnownContact = device.contactKnown;
     bool hadTemperature = device.hasTemperature;
     double previousTemperature = device.temperatureCelsius;
     if (device.ieeeAddress.empty()) device.ieeeAddress = ieeeAddress;
     changed = applyZclAttribute(&device, cluster, attribute, value, timestamp, &observed);
     if (changed) recordHistory(before, device, observed, timestamp);
-    if (changed) { markViewDirty(); updateContactAlert(ieeeAddress, wasOpen); updateTemperatureAlert(device, hadTemperature, previousTemperature); updateValueAlerts(device, before); saveState(); }
+    if (changed) { markViewDirty(); updateContactAlert(ieeeAddress, wasOpen, hadKnownContact); updateTemperatureAlert(device, hadTemperature, previousTemperature); updateValueAlerts(device, before); saveState(); }
     return changed;
 }
 
@@ -1937,12 +1955,13 @@ bool Gateway::applyIasZoneStatus(const std::string& ieeeAddress, const std::vect
     Device before = device;
     bool changed;
     bool wasOpen = device.contactOpen;
+    bool hadKnownContact = device.contactKnown;
     if (device.ieeeAddress.empty()) device.ieeeAddress = ieeeAddress;
     changed = ::applyIasZoneStatus(&device, payload, time(0));
     if (changed) {
         recordHistory(before, device, ZclObservedContact, device.lastSeen);
         addLog(std::string("Contact status from ") + ieeeAddress + (device.contactOpen ? ": open" : ": closed"));
-        updateContactAlert(ieeeAddress, wasOpen);
+        updateContactAlert(ieeeAddress, wasOpen, hadKnownContact);
         saveState();
     }
     return changed;
@@ -1964,9 +1983,23 @@ void Gateway::recordHistory(const Device& before, const Device& after, unsigned 
         history_.append(after.ieeeAddress, SensorHistory::Battery, after.batteryPercent, timestamp);
 }
 
-void Gateway::updateContactAlert(const std::string& ieeeAddress, bool wasOpen) {
+void Gateway::updateContactAlert(const std::string& ieeeAddress, bool wasOpen, bool hadKnownState) {
     std::map<std::string, Device>::const_iterator device = devices_.find(ieeeAddress);
     if (device == devices_.end() || !device->second.hasContact) return;
+    if (device->second.contactTriggerMode) {
+        if (hadKnownState && device->second.contactOpen != wasOpen && notificationsEnabled()) {
+            long now = time(0);
+            std::map<std::string, long>::const_iterator due = nextContactTriggerAt_.find(ieeeAddress);
+            if (due == nextContactTriggerAt_.end() || now >= due->second) {
+                if (emitNotification("Contact changed", (device->second.name.empty() ? device->second.ieeeAddress : device->second.name) +
+                                     (device->second.contactOpen ? " is open" : " is closed"), 0))
+                    nextContactTriggerAt_[ieeeAddress] = now + static_cast<long>(device->second.contactTriggerCooldownSeconds);
+            }
+        }
+        contactOpenedAt_.erase(ieeeAddress);
+        nextContactAlertAt_.erase(ieeeAddress);
+        return;
+    }
     if (device->second.contactOpen && !wasOpen) {
         contactOpenedAt_[ieeeAddress] = time(0);
         nextContactAlertAt_[ieeeAddress] = time(0) + static_cast<long>(device->second.contactInitialAlertMinutes * 60);
@@ -2128,6 +2161,8 @@ std::string GatewayView::statusJson() const {
              << ",\"high_temperature_alert\":" << device.highTemperatureAlert
              << ",\"contact_initial_alert_minutes\":" << device.contactInitialAlertMinutes
              << ",\"contact_reminder_alert_minutes\":" << device.contactReminderAlertMinutes
+             << ",\"contact_trigger_mode\":" << (device.contactTriggerMode ? "true" : "false")
+             << ",\"contact_trigger_cooldown_seconds\":" << device.contactTriggerCooldownSeconds
              << ",\"sensor_refresh_interval_minutes\":" << device.sensorRefreshIntervalMinutes
              << ",\"value_alerts\":{";
         for (std::map<std::string, DeviceValueAlert>::const_iterator alert = device.valueAlerts.begin(); alert != device.valueAlerts.end(); ++alert) {
@@ -4198,6 +4233,7 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
         Device before = devices_[address->second];
         unsigned observed = 0;
         bool wasOpen = devices_[address->second].contactOpen;
+        bool hadKnownContact = devices_[address->second].contactKnown;
         std::map<unsigned short, InterviewState>::iterator interview = interviews_.find(sender);
         bool matched = false;
         if (interview != interviews_.end() &&
@@ -4212,7 +4248,7 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
         }
         if (applyZclReadAttributeResponse(&devices_[address->second], cluster, records, time(0), &observed)) {
             recordHistory(before, devices_[address->second], observed, devices_[address->second].lastSeen);
-            updateContactAlert(address->second, wasOpen);
+            updateContactAlert(address->second, wasOpen, hadKnownContact);
             saveState();
         }
         if (matched) completeInterviewOperation(sender);

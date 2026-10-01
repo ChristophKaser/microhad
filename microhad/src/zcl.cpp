@@ -86,6 +86,7 @@ bool applyZclAttribute(Device* device, unsigned short cluster, unsigned short at
         if (observed != 0) *observed |= ZclObservedBattery;
     } else if (cluster == 0x0500 && attribute == 0x0002 && value.size() == 2) {
         device->hasContact = true;
+        device->contactKnown = true;
         device->contactOpen = (littleEndian16(value) & 0x0001) != 0;
         device->kind = "contact";
         if (observed != 0) *observed |= ZclObservedContact;
@@ -116,6 +117,7 @@ bool isLightAttribute(unsigned short cluster, unsigned short attribute) {
 bool applyIasZoneStatus(Device* device, const std::vector<unsigned char>& payload, long observedAt) {
     if (payload.size() != 2) return false;
     device->hasContact = true;
+    device->contactKnown = true;
     device->contactOpen = (littleEndian16(payload) & 0x0001) != 0;
     device->kind = "contact";
     device->lastSeen = observedAt;

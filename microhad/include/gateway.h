@@ -76,6 +76,8 @@ struct Device {
     double highTemperatureAlert;
     unsigned long contactInitialAlertMinutes;
     unsigned long contactReminderAlertMinutes;
+    bool contactTriggerMode;
+    unsigned long contactTriggerCooldownSeconds;
     unsigned long sensorRefreshIntervalMinutes;
     std::map<std::string, DeviceValueAlert> valueAlerts;
     std::string manufacturerName;
@@ -207,7 +209,9 @@ public:
                            bool hasLow, double low, bool hasHigh, double high,
                            bool hasContactTimings, unsigned long initialAlertMinutes,
                            unsigned long reminderAlertMinutes, bool hasSensorRefreshInterval,
-                           unsigned long sensorRefreshIntervalMinutes, std::string* error);
+                           unsigned long sensorRefreshIntervalMinutes, std::string* error,
+                           bool hasContactTriggerSettings = false, bool contactTriggerMode = false,
+                           unsigned long contactTriggerCooldownSeconds = 60);
     bool setDeviceValueAlerts(const std::string& ieeeAddress, const std::map<std::string, DeviceValueAlert>& alerts,
                               std::string* error);
     bool refreshDevice(const std::string& ieeeAddress, std::string* error);
@@ -344,6 +348,7 @@ private:
     std::map<unsigned short, long> lastActiveEndpointRequestAt_;
     std::map<std::string, long> contactOpenedAt_;
     std::map<std::string, long> nextContactAlertAt_;
+    std::map<std::string, long> nextContactTriggerAt_;
     std::vector<SceneGroup> sceneGroups_;
     std::vector<RemoteSceneBinding> sceneBindings_;
     std::vector<NativeRemoteBinding> nativeBindings_;
@@ -501,7 +506,7 @@ private:
     void handleIncomingMessage(const std::vector<unsigned char>& payload);
     bool generateNetworkMaterial(std::string* error);
     void continueNetworkFormation(unsigned short completedCommand);
-    void updateContactAlert(const std::string& ieeeAddress, bool wasOpen);
+    void updateContactAlert(const std::string& ieeeAddress, bool wasOpen, bool hadKnownState);
     void recordHistory(const Device& before, const Device& after, unsigned observed, long timestamp);
     void updateTemperatureAlert(const Device& device, bool hadTemperature, double previousTemperature);
     void updateValueAlerts(Device& device, const Device& before);

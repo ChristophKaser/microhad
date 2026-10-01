@@ -211,7 +211,9 @@ bool saveDevices(const std::string& filename, const std::vector<Device>& devices
                << (device.hasHighTemperatureAlert ? "true" : "false") << ",\"high_temperature_alert\":"
                << device.highTemperatureAlert << ",\"contact_initial_alert_minutes\":"
                << device.contactInitialAlertMinutes << ",\"contact_reminder_alert_minutes\":"
-               << device.contactReminderAlertMinutes << ",\"sensor_refresh_interval_minutes\":"
+               << device.contactReminderAlertMinutes << ",\"contact_trigger_mode\":"
+               << (device.contactTriggerMode ? "true" : "false") << ",\"contact_trigger_cooldown_seconds\":"
+               << device.contactTriggerCooldownSeconds << ",\"sensor_refresh_interval_minutes\":"
                << device.sensorRefreshIntervalMinutes;
         for (std::map<std::string, DeviceValueAlert>::const_iterator alert = device.valueAlerts.begin(); alert != device.valueAlerts.end(); ++alert) {
             output << ",\"alert_" << alert->first << "_has_low\":" << (alert->second.hasLow ? "true" : "false")
@@ -271,6 +273,7 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
                 !validOptionalIntegerField(line, "ias_zone_id", -1, 254) ||
                 !validOptionalIntegerField(line, "contact_initial_alert_minutes", 0, LONG_MAX) ||
                 !validOptionalIntegerField(line, "contact_reminder_alert_minutes", 0, LONG_MAX) ||
+                !validOptionalIntegerField(line, "contact_trigger_cooldown_seconds", 1, LONG_MAX) ||
                 !validOptionalIntegerField(line, "sensor_refresh_interval_minutes", 0, LONG_MAX)) continue;
             bool duplicate = false;
             for (unsigned long previous = 0; previous < parsedDevices.size(); ++previous) {
@@ -345,6 +348,9 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
             if (value != 0) device.contactInitialAlertMinutes = strtoul(value, 0, 10);
             value = numericField(line, "contact_reminder_alert_minutes");
             if (value != 0) device.contactReminderAlertMinutes = strtoul(value, 0, 10);
+            value = numericField(line, "contact_trigger_cooldown_seconds");
+            if (value != 0) device.contactTriggerCooldownSeconds = strtoul(value, 0, 10);
+            device.contactTriggerMode = line.find("\"contact_trigger_mode\":true") != std::string::npos;
             value = numericField(line, "sensor_refresh_interval_minutes");
             if (value != 0) device.sensorRefreshIntervalMinutes = strtoul(value, 0, 10);
             {

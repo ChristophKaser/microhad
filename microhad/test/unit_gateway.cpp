@@ -23,6 +23,9 @@
 
 class GatewayTestPeer {
 public:
+    static bool hasContactReminder(const Gateway& gateway, const std::string& ieeeAddress) {
+        return gateway.nextContactAlertAt_.count(ieeeAddress) != 0;
+    }
     static bool contactAlertDeadlines(Gateway* gateway, const std::string& ieeeAddress) {
         std::vector<unsigned char> open(2, 0);
         open[0] = 1;
@@ -1309,6 +1312,8 @@ static void testDeviceSettings() {
     assert(gateway.applyAttributeReport("0x00124b0000000004", 0x0402, 0x0000, temperature));
     assert(gateway.statusJson().find("\"contact_initial_alert_minutes\":10") != std::string::npos);
     assert(gateway.statusJson().find("\"contact_reminder_alert_minutes\":5") != std::string::npos);
+    assert(gateway.statusJson().find("\"contact_trigger_mode\":false") != std::string::npos);
+    assert(gateway.statusJson().find("\"contact_trigger_cooldown_seconds\":60") != std::string::npos);
     assert(gateway.statusJson().find("\"sensor_refresh_interval_minutes\":60") != std::string::npos);
     assert(gateway.setDeviceSettings("0x00124b0000000004", "Office window", true, 5, true, 30,
                                      true, 20, 7, true, 17, &error));
@@ -1316,6 +1321,18 @@ static void testDeviceSettings() {
     assert(gateway.statusJson().find("\"contact_initial_alert_minutes\":20") != std::string::npos);
     assert(gateway.statusJson().find("\"contact_reminder_alert_minutes\":7") != std::string::npos);
     assert(gateway.statusJson().find("\"sensor_refresh_interval_minutes\":17") != std::string::npos);
+    assert(gateway.setDeviceSettings("0x00124b0000000004", "Office window", true, 5, true, 30,
+                                     true, 20, 7, true, 17, &error, true, true, 12));
+    assert(!GatewayTestPeer::hasContactReminder(gateway, "0x00124b0000000004"));
+    assert(gateway.statusJson().find("\"contact_trigger_mode\":true") != std::string::npos);
+    assert(gateway.statusJson().find("\"contact_trigger_cooldown_seconds\":12") != std::string::npos);
+    std::vector<Device> persistedDevices;
+    assert(loadDevices(directory + "/devices.json", &persistedDevices, &error));
+    assert(persistedDevices.size() == 1 && persistedDevices[0].contactTriggerMode &&
+           persistedDevices[0].contactTriggerCooldownSeconds == 12);
+    assert(!gateway.setDeviceSettings("0x00124b0000000004", "Office window", true, 5, true, 30,
+                                      true, 20, 7, true, 17, &error, true, true, 0));
+    assert(error == "invalid contact trigger cooldown");
     assert(gateway.statusJson().find("\"manufacturer_name\":\"\"") != std::string::npos);
     assert(gateway.statusJson().find("\"model_id\":\"\"") != std::string::npos);
     assert(gateway.setDeviceSettings("0x00124b0000000004", "Office window", true, 5, true, 30,

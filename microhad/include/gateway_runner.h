@@ -53,7 +53,9 @@ public:
                            bool hasLow, double low, bool hasHigh, double high,
                            bool hasContactTimings, unsigned long initialAlertMinutes,
                            unsigned long reminderAlertMinutes, bool hasSensorRefreshInterval,
-                           unsigned long sensorRefreshIntervalMinutes, std::string* error);
+                           unsigned long sensorRefreshIntervalMinutes, std::string* error,
+                           bool hasContactTriggerSettings = false, bool contactTriggerMode = false,
+                           unsigned long contactTriggerCooldownSeconds = 60);
     bool setDeviceValueAlerts(const std::string& address, const std::map<std::string, DeviceValueAlert>& alerts,
                               std::string* error);
     bool refreshDevice(const std::string& ieeeAddress, std::string* error);
@@ -95,6 +97,9 @@ private:
         unsigned long reminderAlertMinutes;
         bool hasSensorRefreshInterval;
         unsigned long sensorRefreshIntervalMinutes;
+        bool hasContactTriggerSettings;
+        bool contactTriggerMode;
+        unsigned long contactTriggerCooldownSeconds;
         std::map<std::string, DeviceValueAlert> valueAlerts;
         int brightnessPercent;
         unsigned short groupId;

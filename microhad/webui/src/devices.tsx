@@ -470,6 +470,8 @@ export function DeviceSettings({
   )
   const [initial, setInitial] = useState(String(device.contact_initial_alert_minutes))
   const [reminder, setReminder] = useState(String(device.contact_reminder_alert_minutes))
+  const [triggerMode, setTriggerMode] = useState(device.contact_trigger_mode)
+  const [triggerCooldown, setTriggerCooldown] = useState(String(device.contact_trigger_cooldown_seconds))
   const [refresh, setRefresh] = useState(String(device.sensor_refresh_interval_minutes))
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
@@ -489,6 +491,8 @@ export function DeviceSettings({
     if (device.has_contact) {
       fields.initial_minutes = initial
       fields.reminder_minutes = reminder
+      fields.contact_trigger_mode = String(triggerMode)
+      fields.contact_trigger_cooldown_seconds = triggerCooldown
     }
     if (device.source === 'zigbee' && (device.has_temperature || device.has_humidity)) fields.sensor_refresh_minutes = refresh
     try {
@@ -529,28 +533,26 @@ export function DeviceSettings({
         </label>
         {device.has_contact && (
           <>
-            <label className="field">
-              First alert after (minutes)
-              <input
-                type="number"
-                min="1"
-                step="1"
-                value={initial}
-                onChange={(event) => setInitial(event.target.value)}
-                required
-              />
+            <label className="check">
+              <input type="checkbox" checked={triggerMode} onChange={(event) => setTriggerMode(event.target.checked)} /> Trigger mode
             </label>
-            <label className="field">
-              Reminder every (minutes)
-              <input
-                type="number"
-                min="1"
-                step="1"
-                value={reminder}
-                onChange={(event) => setReminder(event.target.value)}
-                required
-              />
-            </label>
+            {triggerMode ? (
+              <label className="field">
+                Cooldown (seconds)
+                <input type="number" min="1" step="1" value={triggerCooldown} onChange={(event) => setTriggerCooldown(event.target.value)} required />
+              </label>
+            ) : (
+              <>
+                <label className="field">
+                  First alert after (minutes)
+                  <input type="number" min="1" step="1" value={initial} onChange={(event) => setInitial(event.target.value)} required />
+                </label>
+                <label className="field">
+                  Reminder every (minutes)
+                  <input type="number" min="1" step="1" value={reminder} onChange={(event) => setReminder(event.target.value)} required />
+                </label>
+              </>
+            )}
           </>
         )}
         {alertMetrics.filter(metric => metric.available).map(metric => (
