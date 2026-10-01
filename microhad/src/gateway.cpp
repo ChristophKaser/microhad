@@ -42,7 +42,7 @@ Device::Device() : source("zigbee"), networkAddress(0xffff), kind("generic"), co
                    brightnessPercent(0), hasRemote(false), hasActor(false), actorKnown(false), actorOn(false), hasPower(false), powerKnown(false), powerWatts(0), linkQuality(0), hasWifiSignal(false), wifiSignalPercent(0), lastSeen(0),
                    iasZoneId(-1), hasLowTemperatureAlert(false), hasHighTemperatureAlert(false), lowTemperatureAlert(0),
                    highTemperatureAlert(0), contactInitialAlertMinutes(10), contactReminderAlertMinutes(5),
-                   contactTriggerMode(false), contactTriggerCooldownSeconds(60),
+                   contactTriggerMode(false), contactTriggerCooldownSeconds(60), contactTriggerUntil(0),
                    sensorRefreshIntervalMinutes(60) {
 }
 
@@ -2068,7 +2068,10 @@ void Gateway::updateContactAlert(const std::string& ieeeAddress, bool wasOpen, b
             if (due == nextContactTriggerAt_.end() || now >= due->second) {
                 if (emitNotification("Contact changed", (device->second.name.empty() ? device->second.ieeeAddress : device->second.name) +
                                      (device->second.contactOpen ? " is open" : " is closed"), 0))
+                {
                     nextContactTriggerAt_[ieeeAddress] = now + static_cast<long>(device->second.contactTriggerCooldownSeconds);
+                    markViewDirty();
+                }
             }
         }
         contactOpenedAt_.erase(ieeeAddress);
@@ -2238,6 +2241,7 @@ std::string GatewayView::statusJson() const {
              << ",\"contact_reminder_alert_minutes\":" << device.contactReminderAlertMinutes
              << ",\"contact_trigger_mode\":" << (device.contactTriggerMode ? "true" : "false")
              << ",\"contact_trigger_cooldown_seconds\":" << device.contactTriggerCooldownSeconds
+             << ",\"contact_trigger_active\":" << (device.contactTriggerMode && device.contactTriggerUntil > time(0) ? "true" : "false")
              << ",\"sensor_refresh_interval_minutes\":" << device.sensorRefreshIntervalMinutes
              << ",\"value_alerts\":{";
         for (std::map<std::string, DeviceValueAlert>::const_iterator alert = device.valueAlerts.begin(); alert != device.valueAlerts.end(); ++alert) {
@@ -2377,7 +2381,12 @@ GatewayView Gateway::captureView(bool includeLogs) const {
     view.serialRxBytes = serialRxBytes_; view.ashRxFrames = ashRxFrames_; view.joiningUntil = joinUntil_;
     view.serialOpenedAt = serialOpenedAt_;
     view.joiningPreparing = joinPreparationStep_ != 0; view.notificationsEnabled = notificationsEnabled();
-    view.devices = devices(); view.sceneGroups = sceneGroups_; view.sceneBindings = sceneBindings_;
+    view.devices = devices();
+    for (unsigned long i = 0; i < view.devices.size(); ++i) {
+        std::map<std::string, long>::const_iterator trigger = nextContactTriggerAt_.find(view.devices[i].ieeeAddress);
+        if (trigger != nextContactTriggerAt_.end()) view.devices[i].contactTriggerUntil = trigger->second;
+    }
+    view.sceneGroups = sceneGroups_; view.sceneBindings = sceneBindings_;
     view.nativeBindings = nativeBindings_;
     for (std::map<std::string, std::string>::const_iterator it = nativeBindingStates_.begin(); it != nativeBindingStates_.end(); ++it) {
         NativeBindingStatus status; status.ieeeAddress = it->first; status.state = it->second;

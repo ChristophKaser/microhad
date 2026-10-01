@@ -78,6 +78,7 @@ struct Device {
     unsigned long contactReminderAlertMinutes;
     bool contactTriggerMode;
     unsigned long contactTriggerCooldownSeconds;
+    long contactTriggerUntil; /* transient status snapshot only; never persisted */
     unsigned long sensorRefreshIntervalMinutes;
     std::map<std::string, DeviceValueAlert> valueAlerts;
     std::string manufacturerName;

@@ -252,6 +252,12 @@ public:
     static bool hasContactReminder(const Gateway& gateway, const std::string& ieeeAddress) {
         return gateway.nextContactAlertAt_.count(ieeeAddress) != 0;
     }
+    static bool contactTriggerStatusExpires(Gateway* gateway, const std::string& ieeeAddress) {
+        gateway->nextContactTriggerAt_[ieeeAddress] = time(0) + 30;
+        if (gateway->statusJson().find("\"contact_trigger_active\":true") == std::string::npos) return false;
+        gateway->nextContactTriggerAt_[ieeeAddress] = time(0) - 1;
+        return gateway->statusJson().find("\"contact_trigger_active\":false") != std::string::npos;
+    }
     static bool contactAlertDeadlines(Gateway* gateway, const std::string& ieeeAddress) {
         std::vector<unsigned char> open(2, 0);
         open[0] = 1;
@@ -1552,6 +1558,7 @@ static void testDeviceSettings() {
     assert(!GatewayTestPeer::hasContactReminder(gateway, "0x00124b0000000004"));
     assert(gateway.statusJson().find("\"contact_trigger_mode\":true") != std::string::npos);
     assert(gateway.statusJson().find("\"contact_trigger_cooldown_seconds\":12") != std::string::npos);
+    assert(GatewayTestPeer::contactTriggerStatusExpires(&gateway, "0x00124b0000000004"));
     std::vector<Device> persistedDevices;
     assert(loadDevices(directory + "/devices.json", &persistedDevices, &error));
     assert(persistedDevices.size() == 1 && persistedDevices[0].contactTriggerMode &&

@@ -77,6 +77,12 @@ export function LightGroupStates({ members, devices }: { members: string[]; devi
 }
 
 function DeviceVisual({ device, type }: { device: Device; type: string }) {
+  if (type === 'Contact sensors' && device.contact_trigger_mode) return (
+    <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M24 49h16M27 55h10M29 10a3 3 0 0 1 6 0c9 2 14 10 14 20 0 8 3 12 6 15H9c3-3 6-7 6-15 0-10 5-18 14-20Z" fill="currentColor" fillOpacity=".12" />
+      <circle cx="32" cy="49" r="2" fill="currentColor" stroke="none" />
+    </svg>
+  )
   if (type === 'Contact sensors') return (
     <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" strokeWidth="3" strokeLinejoin="round" aria-hidden="true">
       <rect x="13" y="8" width="38" height="48" rx="2" />
@@ -204,7 +210,9 @@ function DeviceCard({
   const extraReadings = [
     type !== 'Climate sensors' && device.has_temperature && `🌡 ${device.temperature_celsius} °C`,
     type !== 'Climate sensors' && device.has_humidity && `💧 ${device.humidity_percent}%`,
-    type !== 'Contact sensors' && device.has_contact && (device.contact_open ? 'Open' : 'Closed'),
+    type !== 'Contact sensors' && device.has_contact && (device.contact_trigger_mode
+      ? (device.contact_trigger_active ? 'Triggered' : 'Idle')
+      : (device.contact_open ? 'Open' : 'Closed')),
     type !== 'Motion sensors' && type !== 'Presence sensors' && device.has_occupancy && (device.occupied ? 'Motion' : 'Clear'),
     type !== 'Presence sensors' && device.source === 'fritz_box' && device.has_wifi_signal && `Wi‑Fi ${device.wifi_signal_percent}%`,
     type !== 'Lights' && device.has_light && (device.light_on ? 'Light on' : 'Light off'),
@@ -212,7 +220,7 @@ function DeviceCard({
   ].filter(Boolean)
   return (
     <article className={`device-card device-card-${type.toLowerCase().replace(/[^a-z]+/g, '-')} ${
-      (type === 'Contact sensors' && device.contact_open) ||
+      (type === 'Contact sensors' && !device.contact_trigger_mode && device.contact_open) ||
       (type === 'Motion sensors' && device.occupied) ||
       (type === 'Presence sensors' && device.occupied) ||
       (type === 'Lights' && device.light_on)
@@ -243,13 +251,15 @@ function DeviceCard({
         <div className={`device-focus ${type === 'Lights' ? 'light-focus' : ''}`}>
           <span className="focus-icon"><DeviceVisual device={device} type={type} /></span>
           <div className="focus-copy">
-            <strong>{type === 'Contact sensors' ? (!device.contact_known ? 'Unknown' : device.contact_open ? 'Open' : 'Closed')
+            <strong>{type === 'Contact sensors' ? (device.contact_trigger_mode
+              ? (device.contact_trigger_active ? 'Triggered' : 'Idle')
+              : (!device.contact_known ? 'Unknown' : device.contact_open ? 'Open' : 'Closed'))
               : type === 'Presence sensors' ? (!device.last_seen || Date.now() / 1000 - device.last_seen > 90 ? 'Unknown' : device.occupied ? 'Present' : 'Not present')
               : type === 'Motion sensors' ? (device.occupied ? 'Occupied' : 'Clear')
               : type === 'Lights' ? (device.light_on ? 'On' : 'Off')
               : type === 'Switches' || type === 'Smart plugs' ? (!device.actor_known ? 'Unknown' : device.actor_on ? 'On' : 'Off')
               : type === 'Remotes' ? 'Remote' : device.kind}</strong>
-            <span>{type === 'Contact sensors' ? 'Contact sensor'
+            <span>{type === 'Contact sensors' ? (device.contact_trigger_mode ? 'Trigger mode' : 'Contact sensor')
               : type === 'Presence sensors' ? 'Wi‑Fi presence sensor'
               : type === 'Motion sensors' ? 'Motion sensor'
               : type === 'Lights' ? 'Light'
