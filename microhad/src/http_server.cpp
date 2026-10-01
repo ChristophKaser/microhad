@@ -14,6 +14,7 @@
 #include <cstdlib>
 #include <cstdio>
 #include <cstring>
+#include <dirent.h>
 #include <fcntl.h>
 #include <fstream>
 #include <iomanip>
@@ -428,6 +429,62 @@ uint64_t fileBytes(const std::string& path) {
     return stat(path.c_str(), &info) == 0 && info.st_size >= 0 ? static_cast<uint64_t>(info.st_size) : 0;
 }
 
+struct ThreadCpuReading {
+    uint64_t tid;
+    uint64_t startTicks;
+    uint64_t cpuTicks;
+    double usage;
+    bool sampled;
+    std::string name;
+};
+
+bool numericName(const char* name, uint64_t* value) {
+    char* end = 0;
+    if (!name || !*name) return false;
+    errno = 0;
+    unsigned long parsed = strtoul(name, &end, 10);
+    if (errno || end == name || *end) return false;
+    *value = parsed;
+    return true;
+}
+
+bool readTaskCpu(uint64_t tid, uint64_t* startTicks, uint64_t* cpuTicks, std::string* name) {
+    std::ostringstream path;
+    path << "/proc/self/task/" << tid << "/stat";
+    std::ifstream input(path.str().c_str());
+    std::string line;
+    if (!std::getline(input, line)) return false;
+    std::string::size_type close = line.rfind(')');
+    if (close == std::string::npos || close + 2 >= line.size()) return false;
+    std::istringstream fields(line.substr(close + 2));
+    std::string field;
+    uint64_t user = 0, system = 0;
+    for (int number = 3; number <= 22; ++number) {
+        if (!(fields >> field)) return false;
+        if (number == 14 || number == 15 || number == 22) {
+            char* end = 0;
+            uint64_t parsed = strtoull(field.c_str(), &end, 10);
+            if (end == field.c_str() || *end) return false;
+            if (number == 14) user = parsed;
+            else if (number == 15) system = parsed;
+            else *startTicks = parsed;
+        }
+    }
+    *cpuTicks = user + system;
+    std::ostringstream commPath;
+    commPath << "/proc/self/task/" << tid << "/comm";
+    std::ifstream comm(commPath.str().c_str());
+    if (!std::getline(comm, *name)) *name = "unknown";
+    return true;
+}
+
+bool threadUsageOrder(const ThreadCpuReading& left, const ThreadCpuReading& right) {
+    if (left.sampled != right.sampled) return left.sampled;
+    if (left.sampled && left.usage != right.usage) return left.usage > right.usage;
+    if (left.name != right.name) return left.name < right.name;
+    return left.tid < right.tid;
+}
+
 }
 
 HttpServer::HttpServer(int port, GatewayRunner* gateway, const std::string& webuiDirectory,
@@ -435,7 +492,7 @@ HttpServer::HttpServer(int port, GatewayRunner* gateway, const std::string& webu
                        ExternalHttpDeviceWorker* shelly, NotificationWorker* notifications) :
     port_(port), listenFd_(-1), gateway_(gateway), shelly_(shelly), notifications_(notifications), webPush_(new WebPushStore(gateway->runtimeDirectory())), webuiDirectory_(webuiDirectory),
     certificatePath_(certificatePath), privateKeyPath_(privateKeyPath), tlsServer_(0), running_(false),
-    previousCpuTotal_(0), previousCpuIdle_(0), hasPreviousCpu_(false) {
+    previousCpuTotal_(0), previousCpuIdle_(0), hasPreviousCpu_(false), previousThreadSampleUptime_(0) {
     pthread_mutex_init(&queueMutex_, 0);
     pthread_cond_init(&queueReady_, 0);
     pthread_mutex_init(&statsMutex_, 0);
@@ -1054,6 +1111,38 @@ std::string HttpServer::controllerStatsJson() {
     bool hasStart = readProcessStartTicks(&startTicks);
     long ticksPerSecond = sysconf(_SC_CLK_TCK);
     double serviceUptime = hasUptime && hasStart && ticksPerSecond > 0 ? uptime - static_cast<double>(startTicks) / ticksPerSecond : -1;
+    std::vector<ThreadCpuReading> threads;
+    pthread_mutex_lock(&statsMutex_);
+    DIR* taskDirectory = opendir("/proc/self/task");
+    if (taskDirectory != 0) {
+        std::map<uint64_t, ThreadCpuSample> currentSamples;
+        struct dirent* entry;
+        while ((entry = readdir(taskDirectory)) != 0) {
+            uint64_t tid, threadStart = 0, threadCpu = 0;
+            std::string threadName;
+            if (!numericName(entry->d_name, &tid) || !readTaskCpu(tid, &threadStart, &threadCpu, &threadName)) continue;
+            ThreadCpuReading reading;
+            reading.tid = tid; reading.startTicks = threadStart; reading.cpuTicks = threadCpu;
+            reading.usage = 0; reading.sampled = false; reading.name = threadName;
+            std::map<uint64_t, ThreadCpuSample>::const_iterator previous = previousThreadSamples_.find(tid);
+            if (previous != previousThreadSamples_.end() && previous->second.startTicks == threadStart &&
+                threadCpu >= previous->second.cpuTicks && hasUptime && previousThreadSampleUptime_ > 0 &&
+                uptime > previousThreadSampleUptime_ && ticksPerSecond > 0) {
+                double elapsedTicks = (uptime - previousThreadSampleUptime_) * ticksPerSecond;
+                reading.usage = elapsedTicks > 0 ? 100.0 * (threadCpu - previous->second.cpuTicks) / elapsedTicks : 0;
+                reading.sampled = true;
+            }
+            ThreadCpuSample sample;
+            sample.startTicks = threadStart; sample.cpuTicks = threadCpu;
+            currentSamples[tid] = sample;
+            threads.push_back(reading);
+        }
+        closedir(taskDirectory);
+        previousThreadSamples_.swap(currentSamples);
+        if (hasUptime) previousThreadSampleUptime_ = uptime;
+    }
+    pthread_mutex_unlock(&statsMutex_);
+    std::sort(threads.begin(), threads.end(), threadUsageOrder);
     long serialOpenedAt = 0;
     GatewayRunner::ViewLease* view = gateway_->acquireView();
     if (view != 0) { serialOpenedAt = view->serialOpenedAt(); delete view; }
@@ -1077,6 +1166,14 @@ std::string HttpServer::controllerStatsJson() {
          << ",\"storage_total_bytes\":"; if (hasFilesystem) json << storageTotal; else json << "null";
     json << ",\"storage_free_bytes\":"; if (hasFilesystem) json << storageFree; else json << "null";
     json << ",\"storage_used_bytes\":"; if (hasFilesystem) json << (storageTotal >= storageFree ? storageTotal - storageFree : 0); else json << "null";
-    json << "}";
+    json << ",\"threads\":[";
+    for (unsigned long i = 0; i < threads.size(); ++i) {
+        if (i) json << ',';
+        json << "{\"tid\":" << threads[i].tid << ",\"name\":\"" << jsonEscape(threads[i].name)
+             << "\",\"cpu_usage_percent\":";
+        if (threads[i].sampled) json << threads[i].usage; else json << "null";
+        json << '}';
+    }
+    json << "]}";
     return json.str();
 }

@@ -360,7 +360,10 @@ void testServers() {
            response.find("\"memory_free_bytes\":") != std::string::npos &&
            response.find("\"values_file_bytes\":") != std::string::npos &&
            response.find("\"serial_uptime_seconds\":") != std::string::npos &&
-           response.find("\"storage_total_bytes\":") != std::string::npos);
+           response.find("\"storage_total_bytes\":") != std::string::npos &&
+           response.find("\"threads\":[{\"tid\":") != std::string::npos &&
+           response.find("\"name\":") != std::string::npos &&
+           response.find("\"cpu_usage_percent\":null") != std::string::npos);
     response = plainRequest(http.boundPort(), "GET /api/dashboard/config HTTP/1.1\r\nHost: localhost\r\n\r\n");
     expectStatus("http default dashboard config", response, 200);
     assert(response.find("{\"widgets\":[]}") != std::string::npos);

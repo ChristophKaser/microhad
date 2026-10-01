@@ -3,6 +3,7 @@
 
 #include <string>
 #include <vector>
+#include <map>
 #include <pthread.h>
 #include <stdint.h>
 
@@ -43,6 +44,9 @@ private:
     uint64_t previousCpuTotal_;
     uint64_t previousCpuIdle_;
     bool hasPreviousCpu_;
+    struct ThreadCpuSample { uint64_t startTicks; uint64_t cpuTicks; };
+    std::map<uint64_t, ThreadCpuSample> previousThreadSamples_;
+    double previousThreadSampleUptime_;
     void handleClient(int clientFd);
     void handleRequest(int clientFd, const std::string& request);
     std::string controllerStatsJson();
