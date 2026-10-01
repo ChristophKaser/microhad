@@ -2066,8 +2066,8 @@ void Gateway::updateContactAlert(const std::string& ieeeAddress, bool wasOpen, b
             long now = time(0);
             std::map<std::string, long>::const_iterator due = nextContactTriggerAt_.find(ieeeAddress);
             if (due == nextContactTriggerAt_.end() || now >= due->second) {
-                if (emitNotification("Contact changed", (device->second.name.empty() ? device->second.ieeeAddress : device->second.name) +
-                                     (device->second.contactOpen ? " is open" : " is closed"), 0))
+                if (emitNotification("Trigger", (device->second.name.empty() ? device->second.ieeeAddress : device->second.name) +
+                                     " triggered", 0, "de.caser.garage.triggers"))
                 {
                     nextContactTriggerAt_[ieeeAddress] = now + static_cast<long>(device->second.contactTriggerCooldownSeconds);
                     markViewDirty();
@@ -2155,7 +2155,8 @@ void Gateway::updateValueAlerts(Device& device, const Device& before) {
     }
 }
 
-bool Gateway::emitNotification(const std::string& title, const std::string& body, std::string* error) {
+bool Gateway::emitNotification(const std::string& title, const std::string& body, std::string* error,
+                               const std::string& androidChannelId) {
     if (notificationWorker_ == 0) { if (error != 0) *error = "no notification delivery is configured"; return false; }
     if (!notificationWorker_->enabled()) {
         if (error != 0) *error = "push notifications are disabled";
@@ -2165,7 +2166,8 @@ bool Gateway::emitNotification(const std::string& title, const std::string& body
     std::vector<std::string> presentSensorIds;
     for (std::map<std::string, Device>::const_iterator device = devices_.begin(); device != devices_.end(); ++device)
         if (device->second.hasOccupancy && device->second.occupied) presentSensorIds.push_back(device->second.ieeeAddress);
-    if (!notificationWorker_->enqueue(title, body, presentSensorIds, error != 0 ? error : &enqueueError)) {
+    if (!notificationWorker_->enqueue(title, body, presentSensorIds, error != 0 ? error : &enqueueError,
+                                      androidChannelId)) {
         addLog(std::string("Notification queue failed: ") + title + " - " + body);
         return false;
     }

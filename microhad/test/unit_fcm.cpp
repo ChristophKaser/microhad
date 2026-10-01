@@ -29,6 +29,10 @@ static void testFcmEncodingsAndJwt() {
     assert(!base64UrlDecode("Zm8!", &decoded));
     assert(makeFcmMessage("a\"b", "line\n", "slash\\\001").
            compare("{\"message\":{\"topic\":\"a\\\"b\",\"notification\":{\"title\":\"line\\n\",\"body\":\"slash\\\\\\u0001\"},\"android\":{\"priority\":\"high\"}}}") == 0);
+    assert(makeFcmTokenMessage("token", "Trigger", "Entry triggered") ==
+           "{\"message\":{\"token\":\"token\",\"notification\":{\"title\":\"Trigger\",\"body\":\"Entry triggered\"},\"android\":{\"priority\":\"high\"}}}");
+    assert(makeFcmTokenMessage("token", "Trigger", "Entry triggered", "de.caser.garage.triggers") ==
+           "{\"message\":{\"token\":\"token\",\"notification\":{\"title\":\"Trigger\",\"body\":\"Entry triggered\"},\"android\":{\"priority\":\"high\",\"notification\":{\"channel_id\":\"de.caser.garage.triggers\"}}}}");
 
     assert(readTextFile("test/fixtures/tls/localhost.key", &key));
     account.projectId = "project";

@@ -2253,9 +2253,10 @@ public:
         pthread_cond_destroy(&changed_);
         pthread_mutex_destroy(&mutex_);
     }
-    void deliver(const std::string&, const std::string&) {
+    void deliver(const std::string&, const std::string&, const std::string& androidChannelId) {
         pthread_mutex_lock(&mutex_);
         ++delivered_;
+        lastChannelId_ = androidChannelId;
         if (delivered_ == 1) {
             entered_ = true;
             pthread_cond_broadcast(&changed_);
@@ -2289,11 +2290,18 @@ public:
         pthread_mutex_unlock(&mutex_);
         return value;
     }
+    std::string lastChannelId() {
+        pthread_mutex_lock(&mutex_);
+        std::string value = lastChannelId_;
+        pthread_mutex_unlock(&mutex_);
+        return value;
+    }
 private:
     pthread_mutex_t mutex_;
     pthread_cond_t changed_;
     bool entered_, released_;
     int delivered_;
+    std::string lastChannelId_;
 };
 
 static void testNotificationWorkerQueueLifecycle() {
@@ -2306,8 +2314,9 @@ static void testNotificationWorkerQueueLifecycle() {
     NotificationWorker worker(directory, "", "", "", &delivery);
     assert(worker.start(&error));
     assert(!worker.start(&error) && error == "notification worker already started");
-    assert(worker.enqueue("first", "body", &error));
+    assert(worker.enqueue("first", "body", &error, "de.caser.garage.triggers"));
     assert(delivery.waitUntilEntered());
+    assert(delivery.lastChannelId() == "de.caser.garage.triggers");
     for (i = 0; i < 32; ++i) assert(worker.enqueue("queued", "body", &error));
     assert(!worker.enqueue("overflow", "body", &error) && error == "notification queue is full");
     delivery.release();

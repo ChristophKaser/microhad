@@ -88,7 +88,8 @@ void NotificationWorker::stop() {
 }
 
 bool NotificationWorker::enqueue(const std::string& title, const std::string& body,
-                                 const std::vector<std::string>& presentSensorIds, std::string* error) {
+                                 const std::vector<std::string>& presentSensorIds, std::string* error,
+                                 const std::string& androidChannelId) {
     Job job;
     pthread_mutex_lock(&mutex_);
     if (!running_) {
@@ -108,14 +109,16 @@ bool NotificationWorker::enqueue(const std::string& title, const std::string& bo
     }
     job.title = title;
     job.body = body;
+    job.androidChannelId = androidChannelId;
     job.presentSensorIds = presentSensorIds;
     jobs_.push_back(job);
     pthread_cond_signal(&ready_);
     pthread_mutex_unlock(&mutex_);
     return true;
 }
-bool NotificationWorker::enqueue(const std::string& title, const std::string& body, std::string* error) {
-    return enqueue(title, body, std::vector<std::string>(), error);
+bool NotificationWorker::enqueue(const std::string& title, const std::string& body, std::string* error,
+                                 const std::string& androidChannelId) {
+    return enqueue(title, body, std::vector<std::string>(), error, androidChannelId);
 }
 
 bool NotificationWorker::enabled() const {
@@ -183,7 +186,7 @@ void NotificationWorker::deliver(const Job& job) {
     std::string ignored;
     if (!enabled()) return;
     if (deliveryHook_ != 0) {
-        deliveryHook_->deliver(job.title, job.body);
+        deliveryHook_->deliver(job.title, job.body, job.androidChannelId);
         return;
     }
     std::vector<std::string> allowedPhones, allowedBrowsers;
@@ -218,7 +221,8 @@ void NotificationWorker::deliver(const Job& job) {
                 if (devices_[i].id == allowedPhones[j]) { tokens.push_back(devices_[i].token); break; }
         pthread_mutex_unlock(&mutex_);
         for (unsigned long i = 0; i < tokens.size() && enabled(); ++i)
-            if (!sendFcmTokenNotification(firebaseServiceAccount_, caBundle_, tokens[i], job.title, job.body, &ignored))
+            if (!sendFcmTokenNotification(firebaseServiceAccount_, caBundle_, tokens[i], job.title, job.body,
+                                          &ignored, job.androidChannelId))
                 fprintf(stderr, "FCM delivery failed: %s\n", ignored.c_str());
     }
     if (!enabled()) return;

@@ -515,7 +515,8 @@ private:
     void recordHistory(const Device& before, const Device& after, unsigned observed, long timestamp);
     void updateTemperatureAlert(const Device& device, bool hadTemperature, double previousTemperature);
     void updateValueAlerts(Device& device, const Device& before);
-    bool emitNotification(const std::string& title, const std::string& body, std::string* error);
+    bool emitNotification(const std::string& title, const std::string& body, std::string* error,
+                          const std::string& androidChannelId = "");
     std::string deviceLogLabel(unsigned short node) const;
     void addFrameLog(const std::string& direction, unsigned short node, unsigned short profile, unsigned short cluster,
                      unsigned char sourceEndpoint, unsigned char destinationEndpoint, unsigned short options,

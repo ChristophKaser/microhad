@@ -97,7 +97,9 @@ opened contact starts a ten-minute notification window, followed by five-minute
 reminders while it remains open; closing it cancels the pending alert.
 Contact sensor settings can switch to Trigger mode, which sends an immediate
 push for each known open/closed transition and suppresses further transitions
-for the configured cooldown (60 seconds by default).
+for the configured cooldown (60 seconds by default). Trigger alerts use the
+separate **Triggers** notification channel in the Pommern Garage Android app;
+its notification settings can be managed independently in Android settings.
 Temperature thresholds can be set per device in the dashboard.
 
 Temperature and humidity devices also have a per-device fallback refresh
