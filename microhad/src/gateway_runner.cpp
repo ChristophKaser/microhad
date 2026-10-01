@@ -312,6 +312,7 @@ void GatewayRunner::waitForWork(LoopDebugStats* stats, bool debugEnabled) {
 GatewayRunner::ViewLease::ViewLease(GatewayRunner* owner, ViewData* data) : data_(data), owner_(owner) {}
 GatewayRunner::ViewLease::~ViewLease() { owner_->releaseView(data_); }
 std::string GatewayRunner::ViewLease::statusJson() const { return data_->view->statusJson(); }
+long GatewayRunner::ViewLease::serialOpenedAt() const { return data_->view->serialOpenedAt; }
 
 GatewayRunner::ViewLease* GatewayRunner::acquireView() {
     pthread_mutex_lock(&mutex_);

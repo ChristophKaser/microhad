@@ -16,10 +16,12 @@
 #include <cstring>
 #include <fcntl.h>
 #include <fstream>
+#include <iomanip>
 #include <netinet/in.h>
 #include <sstream>
 #include <sys/stat.h>
 #include <sys/socket.h>
+#include <sys/statvfs.h>
 #include <sys/time.h>
 #include <ctime>
 #include <pthread.h>
@@ -376,15 +378,61 @@ bool safeAssetPath(const std::string& path) {
     return true;
 }
 
+bool readCpuCounters(uint64_t* total, uint64_t* idle) {
+    std::ifstream input("/proc/stat");
+    std::string label;
+    uint64_t user, nice, system, idleTicks, iowait, irq, softirq, steal;
+    if (!(input >> label >> user >> nice >> system >> idleTicks >> iowait >> irq >> softirq >> steal) || label != "cpu") return false;
+    *idle = idleTicks + iowait;
+    *total = user + nice + system + idleTicks + iowait + irq + softirq + steal;
+    return true;
+}
+
+bool readMemoryKb(const char* key, uint64_t* value) {
+    std::ifstream input("/proc/meminfo");
+    std::string name, unit;
+    uint64_t amount;
+    while (input >> name >> amount >> unit) if (name == key) { *value = amount; return true; }
+    return false;
+}
+
+bool readUptime(double* uptime) {
+    std::ifstream input("/proc/uptime");
+    double idle;
+    return static_cast<bool>(input >> *uptime >> idle);
+}
+
+bool readProcessStartTicks(uint64_t* ticks) {
+    std::ifstream input("/proc/self/stat");
+    std::string line;
+    if (!std::getline(input, line)) return false;
+    std::string::size_type close = line.rfind(')');
+    if (close == std::string::npos || close + 2 >= line.size()) return false;
+    std::istringstream fields(line.substr(close + 2));
+    std::string field;
+    for (int number = 3; number <= 22; ++number) {
+        if (!(fields >> field)) return false;
+        if (number == 22) { char* end = 0; *ticks = strtoull(field.c_str(), &end, 10); return end != field.c_str() && *end == 0; }
+    }
+    return false;
+}
+
+uint64_t fileBytes(const std::string& path) {
+    struct stat info;
+    return stat(path.c_str(), &info) == 0 && info.st_size >= 0 ? static_cast<uint64_t>(info.st_size) : 0;
+}
+
 }
 
 HttpServer::HttpServer(int port, GatewayRunner* gateway, const std::string& webuiDirectory,
                        const std::string& certificatePath, const std::string& privateKeyPath,
                        ExternalHttpDeviceWorker* shelly, NotificationWorker* notifications) :
     port_(port), listenFd_(-1), gateway_(gateway), shelly_(shelly), notifications_(notifications), webPush_(new WebPushStore(gateway->runtimeDirectory())), webuiDirectory_(webuiDirectory),
-    certificatePath_(certificatePath), privateKeyPath_(privateKeyPath), tlsServer_(0), running_(false) {
+    certificatePath_(certificatePath), privateKeyPath_(privateKeyPath), tlsServer_(0), running_(false),
+    previousCpuTotal_(0), previousCpuIdle_(0), hasPreviousCpu_(false) {
     pthread_mutex_init(&queueMutex_, 0);
     pthread_cond_init(&queueReady_, 0);
+    pthread_mutex_init(&statsMutex_, 0);
 }
 
 HttpServer::~HttpServer() {
@@ -401,6 +449,7 @@ HttpServer::~HttpServer() {
     while (!clientQueue_.empty()) { close(clientQueue_.back()); clientQueue_.pop_back(); }
     pthread_cond_destroy(&queueReady_);
     pthread_mutex_destroy(&queueMutex_);
+    pthread_mutex_destroy(&statsMutex_);
 #ifdef MICROHAD_MBEDTLS_ENABLED
     if (tlsServer_ != 0) microhad_tls_server_destroy(tlsServer_);
 #endif
@@ -532,7 +581,9 @@ void HttpServer::handleClient(int clientFd) {
 }
 
 void HttpServer::handleRequest(int clientFd, const std::string& request) {
-    if (shelly_ != 0 && request.find("GET /api/external/fritz/config ") == 0) {
+    if (request.find("GET /api/controller-stats ") == 0) {
+        writeResponse(clientFd, 200, "application/json", controllerStatsJson());
+    } else if (shelly_ != 0 && request.find("GET /api/external/fritz/config ") == 0) {
         writeResponse(clientFd, 200, "application/json", shelly_->fritzJson());
     } else if (shelly_ != 0 && request.find("POST /api/external/fritz/discover ") == 0) {
         std::string::size_type bodyAt = request.find("\r\n\r\n");
@@ -943,4 +994,71 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
     } else {
         writeResponse(clientFd, 400, "application/json", "{\"error\":\"unknown endpoint\"}");
     }
+}
+
+std::string HttpServer::controllerStatsJson() {
+    double uptime = 0;
+    double cpuUsage = -1;
+    uint64_t totalTicks = 0, idleTicks = 0, startTicks = 0;
+    uint64_t memoryTotal = 0, memoryFree = 0, processPages = 0;
+    struct statvfs filesystem;
+    uint64_t storageTotal = 0, storageFree = 0;
+    double load1 = 0, load5 = 0, load15 = 0;
+    bool hasUptime = readUptime(&uptime);
+    bool hasCpu = readCpuCounters(&totalTicks, &idleTicks);
+    if (hasCpu) {
+        pthread_mutex_lock(&statsMutex_);
+        if (hasPreviousCpu_ && totalTicks > previousCpuTotal_) {
+            uint64_t totalDelta = totalTicks - previousCpuTotal_;
+            uint64_t idleDelta = idleTicks >= previousCpuIdle_ ? idleTicks - previousCpuIdle_ : 0;
+            cpuUsage = totalDelta ? 100.0 * (totalDelta - (idleDelta > totalDelta ? totalDelta : idleDelta)) / totalDelta : 0;
+        }
+        previousCpuTotal_ = totalTicks; previousCpuIdle_ = idleTicks; hasPreviousCpu_ = true;
+        pthread_mutex_unlock(&statsMutex_);
+    }
+    bool hasMemory = readMemoryKb("MemTotal:", &memoryTotal);
+    bool hasFree = readMemoryKb("MemAvailable:", &memoryFree);
+    if (!hasFree) hasFree = readMemoryKb("MemFree:", &memoryFree);
+    if (hasMemory) memoryTotal *= 1024;
+    if (hasFree) memoryFree *= 1024;
+    std::ifstream statm("/proc/self/statm");
+    uint64_t virtualPages = 0;
+    bool hasProcessMemory = static_cast<bool>(statm >> virtualPages >> processPages);
+    long pageSize = sysconf(_SC_PAGESIZE);
+    if (hasProcessMemory && pageSize > 0) processPages *= static_cast<uint64_t>(pageSize);
+    bool hasFilesystem = statvfs(gateway_->runtimeDirectory().c_str(), &filesystem) == 0;
+    if (hasFilesystem) {
+        storageTotal = static_cast<uint64_t>(filesystem.f_blocks) * filesystem.f_frsize;
+        storageFree = static_cast<uint64_t>(filesystem.f_bavail) * filesystem.f_frsize;
+    }
+    std::ifstream load("/proc/loadavg");
+    bool hasLoad = static_cast<bool>(load >> load1 >> load5 >> load15);
+    bool hasStart = readProcessStartTicks(&startTicks);
+    long ticksPerSecond = sysconf(_SC_CLK_TCK);
+    double serviceUptime = hasUptime && hasStart && ticksPerSecond > 0 ? uptime - static_cast<double>(startTicks) / ticksPerSecond : -1;
+    long serialOpenedAt = 0;
+    GatewayRunner::ViewLease* view = gateway_->acquireView();
+    if (view != 0) { serialOpenedAt = view->serialOpenedAt(); delete view; }
+    std::ostringstream json;
+    json << std::setprecision(6) << "{\"device_uptime_seconds\":";
+    if (hasUptime) json << static_cast<unsigned long>(uptime); else json << "null";
+    json << ",\"service_uptime_seconds\":";
+    if (serviceUptime >= 0) json << static_cast<unsigned long>(serviceUptime); else json << "null";
+    json << ",\"serial_opened_at\":" << (serialOpenedAt ? serialOpenedAt : 0) << ",\"serial_uptime_seconds\":";
+    if (serialOpenedAt && time(0) >= serialOpenedAt) json << static_cast<unsigned long>(time(0) - serialOpenedAt); else json << "null";
+    json << ",\"cpu_usage_percent\":";
+    if (cpuUsage >= 0) json << cpuUsage; else json << "null";
+    json << ",\"cpu_load_1\":"; if (hasLoad) json << load1; else json << "null";
+    json << ",\"cpu_load_5\":"; if (hasLoad) json << load5; else json << "null";
+    json << ",\"cpu_load_15\":"; if (hasLoad) json << load15; else json << "null";
+    json << ",\"memory_total_bytes\":"; if (hasMemory) json << memoryTotal; else json << "null";
+    json << ",\"memory_free_bytes\":"; if (hasFree) json << memoryFree; else json << "null";
+    json << ",\"process_memory_bytes\":"; if (hasProcessMemory && pageSize > 0) json << processPages; else json << "null";
+    json << ",\"log_file_bytes\":" << fileBytes("/tmp/microhad-zigbee-native.log")
+         << ",\"values_file_bytes\":" << fileBytes(gateway_->historyPath())
+         << ",\"storage_total_bytes\":"; if (hasFilesystem) json << storageTotal; else json << "null";
+    json << ",\"storage_free_bytes\":"; if (hasFilesystem) json << storageFree; else json << "null";
+    json << ",\"storage_used_bytes\":"; if (hasFilesystem) json << (storageTotal >= storageFree ? storageTotal - storageFree : 0); else json << "null";
+    json << "}";
+    return json.str();
 }

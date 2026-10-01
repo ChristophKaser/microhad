@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <pthread.h>
+#include <stdint.h>
 
 class Gateway;
 class GatewayRunner;
@@ -38,8 +39,13 @@ private:
     pthread_cond_t queueReady_;
     std::vector<int> clientQueue_;
     bool running_;
+    pthread_mutex_t statsMutex_;
+    uint64_t previousCpuTotal_;
+    uint64_t previousCpuIdle_;
+    bool hasPreviousCpu_;
     void handleClient(int clientFd);
     void handleRequest(int clientFd, const std::string& request);
+    std::string controllerStatsJson();
     static void* acceptThreadMain(void* opaque);
     static void* workerThreadMain(void* opaque);
     void acceptLoop();

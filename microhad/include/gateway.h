@@ -152,6 +152,7 @@ public:
     bool networkFormed;
     unsigned long serialRxBytes;
     unsigned long ashRxFrames;
+    long serialOpenedAt;
     long joiningUntil;
     bool joiningPreparing;
     bool notificationsEnabled;
@@ -244,6 +245,7 @@ private:
     ExternalHttpDeviceWorker* shellyTransport_;
     NotificationWorker* notificationWorker_;
     int serialFd_;
+    long serialOpenedAt_;
     bool online_;
     long joinUntil_;
     long joinPermitRenewAt_;

@@ -326,7 +326,7 @@ Gateway::Gateway(const std::string& serialDevice, int serialBaud, const std::str
                  const std::string& firebaseServiceAccount, const std::string& firebaseTopic, const std::string& caBundle,
                  NotificationWorker* notificationWorker, const std::string& historyPath) :
     serialDevice_(serialDevice), serialBaud_(serialBaud), runtimeDirectory_(runtimeDirectory), networkRandomSource_("/dev/urandom"),
-    firebaseServiceAccount_(firebaseServiceAccount), firebaseTopic_(firebaseTopic), caBundle_(caBundle), history_(historyPath), shellyTransport_(0), notificationWorker_(notificationWorker), serialFd_(-1),
+    firebaseServiceAccount_(firebaseServiceAccount), firebaseTopic_(firebaseTopic), caBundle_(caBundle), history_(historyPath), shellyTransport_(0), notificationWorker_(notificationWorker), serialFd_(-1), serialOpenedAt_(0),
     online_(false), joinUntil_(0), joinPermitRenewAt_(0), joinPermitClosePending_(false), joinPermitCloseDeadline_(0), pendingJoinSeconds_(0), joinPreparationStep_(0), joinPreparationDeadline_(0), ashSendSequence_(0), ashReceiveSequence_(0), ezspSequence_(0),
     ashAckDeadline_(0), ashRetries_(0), ashPendingSensitive_(false), ezspVersion_(4), zdoSequence_(0), zclTransactionSequence_(0), ezspVersionNegotiated_(false), stackTokenWritingRequested_(false), networkInitRequested_(false), tradfriBindGroupConfigured_(false), coordinatorInitializationStep_(0), coordinatorInitializationDeadline_(0), resetDeadline_(0), serialReconnectFailures_(0), zigbeeDownAlertQueued_(false), nextHeartbeatAt_(0), serialRxBytes_(0), ashRxFrames_(0), networkForming_(false), networkFormationStep_(0), networkFormationDeadline_(0), networkFormed_(false), networkPanId_(0),
     networkChannel_(0), interviewRequestInFlight_(false), interviewSendAccepted_(false), interviewEzspSequence_(0), interviewNode_(0xffff),
@@ -569,6 +569,7 @@ bool Gateway::configureSerial(std::string* error) {
         serialFd_ = -1;
         return false;
     }
+    serialOpenedAt_ = time(0);
     return true;
 }
 
@@ -605,6 +606,7 @@ void Gateway::stop() {
         close(serialFd_);
         serialFd_ = -1;
     }
+    serialOpenedAt_ = 0;
     online_ = false;
 }
 
@@ -2073,7 +2075,7 @@ std::vector<Device> Gateway::devices() const {
 }
 
 GatewayView::GatewayView() : online(false), networkForming(false), networkFormed(false), serialRxBytes(0), ashRxFrames(0),
-    joiningUntil(0), joiningPreparing(false), notificationsEnabled(false) {
+    serialOpenedAt(0), joiningUntil(0), joiningPreparing(false), notificationsEnabled(false) {
 }
 
 std::string GatewayView::statusJson() const {
@@ -2263,6 +2265,7 @@ GatewayView Gateway::captureView(bool includeLogs) const {
     GatewayView view;
     view.online = online_; view.networkForming = networkForming_; view.networkFormed = networkFormed_;
     view.serialRxBytes = serialRxBytes_; view.ashRxFrames = ashRxFrames_; view.joiningUntil = joinUntil_;
+    view.serialOpenedAt = serialOpenedAt_;
     view.joiningPreparing = joinPreparationStep_ != 0; view.notificationsEnabled = notificationsEnabled();
     view.devices = devices(); view.sceneGroups = sceneGroups_; view.sceneBindings = sceneBindings_;
     view.nativeBindings = nativeBindings_;
@@ -2497,6 +2500,7 @@ void Gateway::failSerial(const char* operation, int errorNumber) {
     addLog(message.str());
     if (serialFd_ >= 0) close(serialFd_);
     serialFd_ = -1;
+    serialOpenedAt_ = 0;
     serialPendingBytes_.clear();
     ashPendingData_.clear();
     ashTransmitQueue_.clear();

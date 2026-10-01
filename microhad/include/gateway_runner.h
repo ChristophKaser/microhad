@@ -18,6 +18,7 @@ public:
     public:
         ~ViewLease();
         std::string statusJson() const;
+        long serialOpenedAt() const;
     private:
         friend class GatewayRunner;
         ViewData* data_;

@@ -354,6 +354,13 @@ void testServers() {
     response = plainRequest(http.boundPort(), "GET /api/status HTTP/1.1\r\nHost: localhost\r\n\r\n");
     expectStatus("http status", response, 200);
     assert(response.find("Content-Type: application/json\r\n") != std::string::npos && response.find("\"online\":") != std::string::npos && response.find("\"devices\":") != std::string::npos);
+    response = plainRequest(http.boundPort(), "GET /api/controller-stats HTTP/1.1\r\nHost: localhost\r\n\r\n");
+    expectStatus("http controller stats", response, 200);
+    assert(response.find("\"cpu_usage_percent\":") != std::string::npos &&
+           response.find("\"memory_free_bytes\":") != std::string::npos &&
+           response.find("\"values_file_bytes\":") != std::string::npos &&
+           response.find("\"serial_uptime_seconds\":") != std::string::npos &&
+           response.find("\"storage_total_bytes\":") != std::string::npos);
     response = plainRequest(http.boundPort(), "GET /api/dashboard/config HTTP/1.1\r\nHost: localhost\r\n\r\n");
     expectStatus("http default dashboard config", response, 200);
     assert(response.find("{\"widgets\":[]}") != std::string::npos);
