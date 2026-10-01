@@ -29,6 +29,24 @@ public:
         assert(gateway.nextPollDeadline(&source) == 0);
         assert(source == "none");
     }
+    static void pausedRefreshWaitsForScheduledWake() {
+        Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+        const unsigned short node = 0x1234;
+        const std::string ieee = "0x00124b0000000011";
+        Gateway::InterviewState state;
+        Gateway::InterviewOperation operation;
+        state.ieeeAddress = ieee;
+        state.refreshOnly = true;
+        state.paused = true;
+        state.operations.push_back(operation);
+        gateway.interviews_[node] = state;
+        gateway.devices_[ieee].ieeeAddress = ieee;
+        gateway.nodeAddresses_[node] = ieee;
+        gateway.wakeInterview(node);
+        assert(gateway.interviews_[node].paused);
+        gateway.startInterview(node, true);
+        assert(!gateway.interviews_[node].paused);
+    }
     static void pausedTimersDoNotWinDeadline() {
         Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
         std::string source;
@@ -2204,6 +2222,7 @@ static void testSharedJsonUtilities() {
 
 void runUnitTests() {
     GatewayTestPeer::emptyDeadlineIsUnscheduled();
+    GatewayTestPeer::pausedRefreshWaitsForScheduledWake();
     GatewayTestPeer::pausedTimersDoNotWinDeadline();
     GatewayTestPeer::closingPermitReplyTimeout();
     GatewayTestPeer::refreshDiscoversMissingEndpoints();

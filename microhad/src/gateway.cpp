@@ -3663,6 +3663,11 @@ void Gateway::failInterviewOperation(unsigned short destination, const std::stri
 void Gateway::wakeInterview(unsigned short destination) {
     std::map<unsigned short, InterviewState>::iterator found = interviews_.find(destination);
     if (found != interviews_.end() && found->second.paused) {
+        /* A sleepy sensor's unsolicited report is already the refresh result.
+           Do not turn every report into another read request after a failed
+           refresh; the scheduled sensor refresh or an announcement will
+           resume this state when another query is due. */
+        if (found->second.refreshOnly) return;
         found->second.paused = false;
         if (found->second.operationIndex < found->second.operations.size())
             found->second.operations[found->second.operationIndex].attempts = 0;
