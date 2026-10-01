@@ -364,6 +364,8 @@ void testServers() {
            response.find("\"threads\":[{\"tid\":") != std::string::npos &&
            response.find("},{\"tid\":") != std::string::npos &&
            response.find("\"name\":") != std::string::npos &&
+           response.find("\"name\":\"coordinator\"") != std::string::npos &&
+           response.find("\"name\":\"http-worker\"") != std::string::npos &&
            response.find("\"cpu_usage_percent\":null") != std::string::npos);
     response = plainRequest(http.boundPort(), "GET /api/dashboard/config HTTP/1.1\r\nHost: localhost\r\n\r\n");
     expectStatus("http default dashboard config", response, 200);

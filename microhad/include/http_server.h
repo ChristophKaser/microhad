@@ -28,6 +28,7 @@ private:
     int listenFd_;
     GatewayRunner* gateway_;
     unsigned long processId_;
+    std::string threadNamePrefix_;
     ExternalHttpDeviceWorker* shelly_;
     NotificationWorker* notifications_;
     WebPushStore* webPush_;

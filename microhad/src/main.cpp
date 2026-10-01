@@ -4,6 +4,7 @@
 #include "http_server.h"
 #include "gateway_config.h"
 #include "external_http_device.h"
+#include "thread_name.h"
 
 #include <cerrno>
 #include <csignal>
@@ -23,6 +24,7 @@ void stopHandler(int) {
 }
 
 int main(int argc, char** argv) {
+    setCurrentThreadName("gateway-main");
     std::string configPath;
     std::string error;
     GatewayConfig config;

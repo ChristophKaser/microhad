@@ -2,6 +2,7 @@
 #include "fcm.h"
 #include "web_push.h"
 #include "json_util.h"
+#include "thread_name.h"
 
 #include <cstdio>
 #include <fstream>
@@ -157,6 +158,7 @@ bool NotificationWorker::setEnabled(bool enabled, std::string* error) {
     return true;
 }
 void* NotificationWorker::threadMain(void* opaque) {
+    setCurrentThreadName("notification");
     static_cast<NotificationWorker*>(opaque)->run();
     return 0;
 }

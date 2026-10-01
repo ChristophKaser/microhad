@@ -7,6 +7,7 @@
 #include "external_http_device.h"
 #include "notification_worker.h"
 #include "log_ring.h"
+#include "thread_name.h"
 
 #include <cerrno>
 #include <algorithm>
@@ -512,7 +513,8 @@ bool threadUsageOrder(const ThreadCpuReading& left, const ThreadCpuReading& righ
 HttpServer::HttpServer(int port, GatewayRunner* gateway, const std::string& webuiDirectory,
                        const std::string& certificatePath, const std::string& privateKeyPath,
                        ExternalHttpDeviceWorker* shelly, NotificationWorker* notifications) :
-    port_(port), listenFd_(-1), gateway_(gateway), processId_(static_cast<unsigned long>(getpid())), shelly_(shelly), notifications_(notifications), webPush_(new WebPushStore(gateway->runtimeDirectory())), webuiDirectory_(webuiDirectory),
+    port_(port), listenFd_(-1), gateway_(gateway), processId_(static_cast<unsigned long>(getpid())),
+    threadNamePrefix_(certificatePath.empty() ? "http" : "https"), shelly_(shelly), notifications_(notifications), webPush_(new WebPushStore(gateway->runtimeDirectory())), webuiDirectory_(webuiDirectory),
     certificatePath_(certificatePath), privateKeyPath_(privateKeyPath), tlsServer_(0), running_(false),
     previousCpuTotal_(0), previousCpuIdle_(0), hasPreviousCpu_(false), previousThreadSampleUptime_(0) {
     pthread_mutex_init(&queueMutex_, 0);
@@ -589,8 +591,20 @@ int HttpServer::boundPort() const {
     return static_cast<int>(ntohs(address.sin_port));
 }
 
-void* HttpServer::acceptThreadMain(void* opaque) { static_cast<HttpServer*>(opaque)->acceptLoop(); return 0; }
-void* HttpServer::workerThreadMain(void* opaque) { static_cast<HttpServer*>(opaque)->workerLoop(); return 0; }
+void* HttpServer::acceptThreadMain(void* opaque) {
+    HttpServer* server = static_cast<HttpServer*>(opaque);
+    std::string name = server->threadNamePrefix_ + "-accept";
+    setCurrentThreadName(name.c_str());
+    server->acceptLoop();
+    return 0;
+}
+void* HttpServer::workerThreadMain(void* opaque) {
+    HttpServer* server = static_cast<HttpServer*>(opaque);
+    std::string name = server->threadNamePrefix_ + "-worker";
+    setCurrentThreadName(name.c_str());
+    server->workerLoop();
+    return 0;
+}
 
 void HttpServer::acceptLoop() {
     int clientFd;

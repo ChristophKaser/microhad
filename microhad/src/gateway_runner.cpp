@@ -1,5 +1,6 @@
 #include "gateway_runner.h"
 #include "gateway.h"
+#include "thread_name.h"
 
 #include <cerrno>
 #include <ctime>
@@ -79,6 +80,7 @@ void GatewayRunner::stop() {
 }
 
 void* GatewayRunner::runThread(void* opaque) {
+    setCurrentThreadName("coordinator");
     static_cast<GatewayRunner*>(opaque)->run();
     return 0;
 }

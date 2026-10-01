@@ -2,6 +2,7 @@
 #include "device_fritz_box.h"
 #include "device_shelly.h"
 #include "gateway_runner.h"
+#include "thread_name.h"
 
 #include "json_util.h"
 
@@ -440,7 +441,11 @@ void ExternalHttpDeviceWorker::stop() {
     pthread_mutex_lock(&mutex_); started_ = false; pthread_mutex_unlock(&mutex_);
 }
 
-void* ExternalHttpDeviceWorker::threadMain(void* opaque) { static_cast<ExternalHttpDeviceWorker*>(opaque)->run(); return 0; }
+void* ExternalHttpDeviceWorker::threadMain(void* opaque) {
+    setCurrentThreadName("external-device");
+    static_cast<ExternalHttpDeviceWorker*>(opaque)->run();
+    return 0;
+}
 
 void ExternalHttpDeviceWorker::run() {
     while (true) {
