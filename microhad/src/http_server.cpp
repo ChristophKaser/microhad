@@ -1134,13 +1134,13 @@ std::string HttpServer::controllerStatsJson() {
     long ticksPerSecond = sysconf(_SC_CLK_TCK);
     double serviceUptime = hasUptime && hasStart && ticksPerSecond > 0 ? uptime - static_cast<double>(startTicks) / ticksPerSecond : -1;
     std::vector<ThreadCpuReading> threads;
+    std::map<uint64_t, ThreadCpuSample> currentSamples;
     pthread_mutex_lock(&statsMutex_);
     std::ostringstream taskRootBuilder;
     taskRootBuilder << "/proc/" << processId_ << "/task";
     std::string taskRoot = taskRootBuilder.str();
     DIR* taskDirectory = opendir(taskRoot.c_str());
     if (taskDirectory != 0) {
-        std::map<uint64_t, ThreadCpuSample> currentSamples;
         struct dirent* entry;
         while ((entry = readdir(taskDirectory)) != 0) {
             uint64_t tid, threadStart = 0, threadCpu = 0;
@@ -1163,7 +1163,6 @@ std::string HttpServer::controllerStatsJson() {
             threads.push_back(reading);
         }
         closedir(taskDirectory);
-        previousThreadSamples_.swap(currentSamples);
     }
     /* LinuxThreads on older embedded libc versions represents pthreads as
        separate PIDs, so /proc/<leader>/task can contain only the leader. */
@@ -1203,13 +1202,14 @@ std::string HttpServer::controllerStatsJson() {
                     }
                     ThreadCpuSample sample;
                     sample.startTicks = threadStart; sample.cpuTicks = threadCpu;
-                    previousThreadSamples_[pid] = sample;
+                    currentSamples[pid] = sample;
                     threads.push_back(reading);
                 }
                 closedir(procDirectory);
             }
         }
     }
+    previousThreadSamples_.swap(currentSamples);
     if (hasUptime) previousThreadSampleUptime_ = uptime;
     pthread_mutex_unlock(&statsMutex_);
     std::sort(threads.begin(), threads.end(), threadUsageOrder);
