@@ -478,6 +478,28 @@ bool readTaskCpu(const std::string& taskRoot, uint64_t tid, uint64_t* startTicks
     return true;
 }
 
+bool readProcessGroup(uint64_t pid, uint64_t* group) {
+    std::ostringstream path;
+    path << "/proc/" << pid << "/stat";
+    std::ifstream input(path.str().c_str());
+    std::string line;
+    if (!std::getline(input, line)) return false;
+    std::string::size_type close = line.rfind(')');
+    if (close == std::string::npos || close + 2 >= line.size()) return false;
+    std::istringstream fields(line.substr(close + 2));
+    std::string field;
+    for (int number = 3; number <= 5; ++number) {
+        if (!(fields >> field)) return false;
+        if (number == 5) {
+            char* end = 0;
+            unsigned long parsed = strtoul(field.c_str(), &end, 10);
+            if (end == field.c_str() || *end) return false;
+            *group = parsed;
+        }
+    }
+    return true;
+}
+
 bool threadUsageOrder(const ThreadCpuReading& left, const ThreadCpuReading& right) {
     if (left.sampled != right.sampled) return left.sampled;
     if (left.sampled && left.usage != right.usage) return left.usage > right.usage;
@@ -1142,8 +1164,53 @@ std::string HttpServer::controllerStatsJson() {
         }
         closedir(taskDirectory);
         previousThreadSamples_.swap(currentSamples);
-        if (hasUptime) previousThreadSampleUptime_ = uptime;
     }
+    /* LinuxThreads on older embedded libc versions represents pthreads as
+       separate PIDs, so /proc/<leader>/task can contain only the leader. */
+    if (threads.size() <= 1) {
+        struct stat executable;
+        uint64_t processGroup = 0;
+        if (stat("/proc/self/exe", &executable) == 0 && readProcessGroup(processId_, &processGroup)) {
+            DIR* procDirectory = opendir("/proc");
+            if (procDirectory != 0) {
+                struct dirent* entry;
+                while ((entry = readdir(procDirectory)) != 0) {
+                    uint64_t pid, candidateGroup = 0;
+                    struct stat candidateExecutable;
+                    if (!numericName(entry->d_name, &pid) ||
+                        !readProcessGroup(pid, &candidateGroup) || candidateGroup != processGroup) continue;
+                    std::ostringstream executablePath;
+                    executablePath << "/proc/" << pid << "/exe";
+                    if (stat(executablePath.str().c_str(), &candidateExecutable) != 0 ||
+                        candidateExecutable.st_dev != executable.st_dev || candidateExecutable.st_ino != executable.st_ino) continue;
+                    bool alreadyPresent = false;
+                    for (unsigned long i = 0; i < threads.size(); ++i)
+                        if (threads[i].tid == pid) { alreadyPresent = true; break; }
+                    if (alreadyPresent) continue;
+                    uint64_t threadStart = 0, threadCpu = 0;
+                    std::string threadName;
+                    if (!readTaskCpu("/proc", pid, &threadStart, &threadCpu, &threadName)) continue;
+                    ThreadCpuReading reading;
+                    reading.tid = pid; reading.startTicks = threadStart; reading.cpuTicks = threadCpu;
+                    reading.usage = 0; reading.sampled = false; reading.name = threadName;
+                    std::map<uint64_t, ThreadCpuSample>::const_iterator previous = previousThreadSamples_.find(pid);
+                    if (previous != previousThreadSamples_.end() && previous->second.startTicks == threadStart &&
+                        threadCpu >= previous->second.cpuTicks && hasUptime && previousThreadSampleUptime_ > 0 &&
+                        uptime > previousThreadSampleUptime_ && ticksPerSecond > 0) {
+                        double elapsedTicks = (uptime - previousThreadSampleUptime_) * ticksPerSecond;
+                        reading.usage = elapsedTicks > 0 ? 100.0 * (threadCpu - previous->second.cpuTicks) / elapsedTicks : 0;
+                        reading.sampled = true;
+                    }
+                    ThreadCpuSample sample;
+                    sample.startTicks = threadStart; sample.cpuTicks = threadCpu;
+                    previousThreadSamples_[pid] = sample;
+                    threads.push_back(reading);
+                }
+                closedir(procDirectory);
+            }
+        }
+    }
+    if (hasUptime) previousThreadSampleUptime_ = uptime;
     pthread_mutex_unlock(&statsMutex_);
     std::sort(threads.begin(), threads.end(), threadUsageOrder);
     long serialOpenedAt = 0;

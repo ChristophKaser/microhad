@@ -362,6 +362,7 @@ void testServers() {
            response.find("\"serial_uptime_seconds\":") != std::string::npos &&
            response.find("\"storage_total_bytes\":") != std::string::npos &&
            response.find("\"threads\":[{\"tid\":") != std::string::npos &&
+           response.find("},{\"tid\":") != std::string::npos &&
            response.find("\"name\":") != std::string::npos &&
            response.find("\"cpu_usage_percent\":null") != std::string::npos);
     response = plainRequest(http.boundPort(), "GET /api/dashboard/config HTTP/1.1\r\nHost: localhost\r\n\r\n");
