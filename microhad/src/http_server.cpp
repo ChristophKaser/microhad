@@ -448,9 +448,9 @@ bool numericName(const char* name, uint64_t* value) {
     return true;
 }
 
-bool readTaskCpu(uint64_t tid, uint64_t* startTicks, uint64_t* cpuTicks, std::string* name) {
+bool readTaskCpu(const std::string& taskRoot, uint64_t tid, uint64_t* startTicks, uint64_t* cpuTicks, std::string* name) {
     std::ostringstream path;
-    path << "/proc/self/task/" << tid << "/stat";
+    path << taskRoot << '/' << tid << "/stat";
     std::ifstream input(path.str().c_str());
     std::string line;
     if (!std::getline(input, line)) return false;
@@ -472,7 +472,7 @@ bool readTaskCpu(uint64_t tid, uint64_t* startTicks, uint64_t* cpuTicks, std::st
     }
     *cpuTicks = user + system;
     std::ostringstream commPath;
-    commPath << "/proc/self/task/" << tid << "/comm";
+    commPath << taskRoot << '/' << tid << "/comm";
     std::ifstream comm(commPath.str().c_str());
     if (!std::getline(comm, *name)) *name = "unknown";
     return true;
@@ -1113,14 +1113,17 @@ std::string HttpServer::controllerStatsJson() {
     double serviceUptime = hasUptime && hasStart && ticksPerSecond > 0 ? uptime - static_cast<double>(startTicks) / ticksPerSecond : -1;
     std::vector<ThreadCpuReading> threads;
     pthread_mutex_lock(&statsMutex_);
-    DIR* taskDirectory = opendir("/proc/self/task");
+    std::ostringstream taskRootBuilder;
+    taskRootBuilder << "/proc/" << static_cast<unsigned long>(getpid()) << "/task";
+    std::string taskRoot = taskRootBuilder.str();
+    DIR* taskDirectory = opendir(taskRoot.c_str());
     if (taskDirectory != 0) {
         std::map<uint64_t, ThreadCpuSample> currentSamples;
         struct dirent* entry;
         while ((entry = readdir(taskDirectory)) != 0) {
             uint64_t tid, threadStart = 0, threadCpu = 0;
             std::string threadName;
-            if (!numericName(entry->d_name, &tid) || !readTaskCpu(tid, &threadStart, &threadCpu, &threadName)) continue;
+            if (!numericName(entry->d_name, &tid) || !readTaskCpu(taskRoot, tid, &threadStart, &threadCpu, &threadName)) continue;
             ThreadCpuReading reading;
             reading.tid = tid; reading.startTicks = threadStart; reading.cpuTicks = threadCpu;
             reading.usage = 0; reading.sampled = false; reading.name = threadName;
