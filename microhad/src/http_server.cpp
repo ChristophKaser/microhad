@@ -490,7 +490,7 @@ bool threadUsageOrder(const ThreadCpuReading& left, const ThreadCpuReading& righ
 HttpServer::HttpServer(int port, GatewayRunner* gateway, const std::string& webuiDirectory,
                        const std::string& certificatePath, const std::string& privateKeyPath,
                        ExternalHttpDeviceWorker* shelly, NotificationWorker* notifications) :
-    port_(port), listenFd_(-1), gateway_(gateway), shelly_(shelly), notifications_(notifications), webPush_(new WebPushStore(gateway->runtimeDirectory())), webuiDirectory_(webuiDirectory),
+    port_(port), listenFd_(-1), gateway_(gateway), processId_(static_cast<unsigned long>(getpid())), shelly_(shelly), notifications_(notifications), webPush_(new WebPushStore(gateway->runtimeDirectory())), webuiDirectory_(webuiDirectory),
     certificatePath_(certificatePath), privateKeyPath_(privateKeyPath), tlsServer_(0), running_(false),
     previousCpuTotal_(0), previousCpuIdle_(0), hasPreviousCpu_(false), previousThreadSampleUptime_(0) {
     pthread_mutex_init(&queueMutex_, 0);
@@ -1114,7 +1114,7 @@ std::string HttpServer::controllerStatsJson() {
     std::vector<ThreadCpuReading> threads;
     pthread_mutex_lock(&statsMutex_);
     std::ostringstream taskRootBuilder;
-    taskRootBuilder << "/proc/" << static_cast<unsigned long>(getpid()) << "/task";
+    taskRootBuilder << "/proc/" << processId_ << "/task";
     std::string taskRoot = taskRootBuilder.str();
     DIR* taskDirectory = opendir(taskRoot.c_str());
     if (taskDirectory != 0) {

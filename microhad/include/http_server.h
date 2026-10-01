@@ -27,6 +27,7 @@ private:
     int port_;
     int listenFd_;
     GatewayRunner* gateway_;
+    unsigned long processId_;
     ExternalHttpDeviceWorker* shelly_;
     NotificationWorker* notifications_;
     WebPushStore* webPush_;
