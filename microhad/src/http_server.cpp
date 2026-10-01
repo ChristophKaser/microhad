@@ -380,11 +380,17 @@ bool safeAssetPath(const std::string& path) {
 
 bool readCpuCounters(uint64_t* total, uint64_t* idle) {
     std::ifstream input("/proc/stat");
-    std::string label;
-    uint64_t user, nice, system, idleTicks, iowait, irq, softirq, steal;
-    if (!(input >> label >> user >> nice >> system >> idleTicks >> iowait >> irq >> softirq >> steal) || label != "cpu") return false;
-    *idle = idleTicks + iowait;
-    *total = user + nice + system + idleTicks + iowait + irq + softirq + steal;
+    std::string line, label;
+    uint64_t value;
+    std::vector<uint64_t> counters;
+    if (!std::getline(input, line)) return false;
+    std::istringstream fields(line);
+    if (!(fields >> label) || label != "cpu") return false;
+    while (fields >> value) counters.push_back(value);
+    if (counters.size() < 4) return false;
+    *idle = counters[3] + (counters.size() > 4 ? counters[4] : 0);
+    *total = 0;
+    for (unsigned long i = 0; i < counters.size(); ++i) *total += counters[i];
     return true;
 }
 
