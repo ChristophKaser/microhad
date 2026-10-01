@@ -809,52 +809,55 @@ bool Gateway::hasImmediateWork() const {
     return false;
 }
 
-long Gateway::nextPollDeadline() const {
+long Gateway::nextPollDeadline(std::string* source) const {
     long deadline = 0;
+    std::string deadlineSource;
     long now = time(0);
     std::map<unsigned short, long>::const_iterator sensor;
     std::map<std::string, long>::const_iterator alert;
     std::map<std::string, DeviceConfigurationQuery>::const_iterator configQuery;
     std::map<unsigned short, SceneRetry>::const_iterator scene;
     std::map<unsigned short, InterviewState>::const_iterator interview;
-    #define CONSIDER_DEADLINE(value) do { long candidate = (value); if (candidate != 0 && (deadline == 0 || candidate < deadline)) deadline = candidate; } while (0)
-    if (!ashPendingData_.empty()) CONSIDER_DEADLINE(ashAckDeadline_);
-    if (online_) CONSIDER_DEADLINE(nextHeartbeatAt_);
-    if (!online_) CONSIDER_DEADLINE(resetDeadline_);
-    CONSIDER_DEADLINE(coordinatorInitializationDeadline_);
-    if (networkForming_) CONSIDER_DEADLINE(networkFormationDeadline_);
-    if (interviewRequestInFlight_) CONSIDER_DEADLINE(interviewDeadline_);
+    #define CONSIDER_DEADLINE(value, label) do { long candidate = (value); if (candidate != 0 && (deadline == 0 || candidate < deadline)) { deadline = candidate; deadlineSource = (label); } } while (0)
+    if (!ashPendingData_.empty()) CONSIDER_DEADLINE(ashAckDeadline_, "ash_ack");
+    if (online_) CONSIDER_DEADLINE(nextHeartbeatAt_, "heartbeat");
+    if (!online_) CONSIDER_DEADLINE(resetDeadline_, "serial_reset");
+    CONSIDER_DEADLINE(coordinatorInitializationDeadline_, "coordinator_initialization");
+    if (networkForming_) CONSIDER_DEADLINE(networkFormationDeadline_, "network_formation");
+    if (interviewRequestInFlight_) CONSIDER_DEADLINE(interviewDeadline_, "interview");
     bool nativeBusy = false;
     for (unsigned long native = 0; native < nativeBindOperations_.size(); ++native)
         if (nativeBindOperations_[native].deadline != 0) {
             nativeBusy = true;
-            CONSIDER_DEADLINE(nativeBindOperations_[native].deadline);
+            CONSIDER_DEADLINE(nativeBindOperations_[native].deadline, "native_bind");
         }
-    CONSIDER_DEADLINE(joinPreparationDeadline_);
-    if (joinPermitClosePending_) CONSIDER_DEADLINE(joinPermitCloseDeadline_);
+    CONSIDER_DEADLINE(joinPreparationDeadline_, "join_preparation");
+    if (joinPermitClosePending_) CONSIDER_DEADLINE(joinPermitCloseDeadline_, "join_permit_close");
     if (!joinPermitClosePending_) {
-        CONSIDER_DEADLINE(joinUntil_);
-        if (joinUntil_ != 0) CONSIDER_DEADLINE(joinPermitRenewAt_);
+        CONSIDER_DEADLINE(joinUntil_, "join_window");
+        if (joinUntil_ != 0) CONSIDER_DEADLINE(joinPermitRenewAt_, "join_permit_renewal");
     }
-    for (alert = nextContactAlertAt_.begin(); alert != nextContactAlertAt_.end(); ++alert) CONSIDER_DEADLINE(alert->second);
+    for (alert = nextContactAlertAt_.begin(); alert != nextContactAlertAt_.end(); ++alert) CONSIDER_DEADLINE(alert->second, "contact_alert");
     for (configQuery = deviceConfigurationQueries_.begin(); configQuery != deviceConfigurationQueries_.end(); ++configQuery) {
-        CONSIDER_DEADLINE(configQuery->second.groupsDeadline);
-        CONSIDER_DEADLINE(configQuery->second.bindingsDeadline);
-        CONSIDER_DEADLINE(configQuery->second.nodeDescriptorDeadline);
+        CONSIDER_DEADLINE(configQuery->second.groupsDeadline, "configuration_groups");
+        CONSIDER_DEADLINE(configQuery->second.bindingsDeadline, "configuration_bindings");
+        CONSIDER_DEADLINE(configQuery->second.nodeDescriptorDeadline, "configuration_node_descriptor");
     }
     for (std::map<std::string, SceneProvisionState>::const_iterator pending = sceneProvisioning_.begin();
-         pending != sceneProvisioning_.end(); ++pending) CONSIDER_DEADLINE(pending->second.deadline);
+         pending != sceneProvisioning_.end(); ++pending) CONSIDER_DEADLINE(pending->second.deadline, "scene_provisioning");
     if (online_ && networkFormed_ && coordinatorInitializationStep_ == 0 && !interviewRequestInFlight_ && !nativeBusy) {
         for (interview = interviews_.begin(); interview != interviews_.end(); ++interview) {
             const InterviewState& state = interview->second;
             if (!state.paused && state.operationIndex < state.operations.size())
-                CONSIDER_DEADLINE(state.operations[state.operationIndex].retryAt);
+                CONSIDER_DEADLINE(state.operations[state.operationIndex].retryAt, "interview_retry");
         }
-        for (sensor = nextSensorRefreshAt_.begin(); sensor != nextSensorRefreshAt_.end(); ++sensor) CONSIDER_DEADLINE(sensor->second);
+        for (sensor = nextSensorRefreshAt_.begin(); sensor != nextSensorRefreshAt_.end(); ++sensor) CONSIDER_DEADLINE(sensor->second, "sensor_refresh");
         for (scene = sceneRetries_.begin(); scene != sceneRetries_.end(); ++scene)
-            CONSIDER_DEADLINE(scene->second.inFlight ? scene->second.sentAt + 2 : scene->second.retryAt);
+            CONSIDER_DEADLINE(scene->second.inFlight ? scene->second.sentAt + 2 : scene->second.retryAt, "scene_retry");
     }
     #undef CONSIDER_DEADLINE
+    if (source != 0) *source = deadlineSource.empty() ? "none" : deadlineSource;
+    if (deadline == 0) return 0;
     return deadline < now ? now : deadline;
 }
 

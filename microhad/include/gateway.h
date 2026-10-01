@@ -202,7 +202,7 @@ public:
     int serialFd() const;
     bool serialNeedsWrite() const;
     bool hasImmediateWork() const;
-    long nextPollDeadline() const;
+    long nextPollDeadline(std::string* source = 0) const;
     bool setJoining(unsigned int seconds, std::string* error);
     bool createFreshNetwork(std::string* error);
     bool setDeviceSettings(const std::string& ieeeAddress, const std::string& name,

@@ -23,6 +23,12 @@
 
 class GatewayTestPeer {
 public:
+    static void emptyDeadlineIsUnscheduled() {
+        Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+        std::string source;
+        assert(gateway.nextPollDeadline(&source) == 0);
+        assert(source == "none");
+    }
     static bool hasContactReminder(const Gateway& gateway, const std::string& ieeeAddress) {
         return gateway.nextContactAlertAt_.count(ieeeAddress) != 0;
     }
@@ -2174,6 +2180,7 @@ static void testSharedJsonUtilities() {
 }
 
 void runUnitTests() {
+    GatewayTestPeer::emptyDeadlineIsUnscheduled();
     GatewayTestPeer::closingPermitReplyTimeout();
     GatewayTestPeer::refreshDiscoversMissingEndpoints();
     GatewayTestPeer::reviewAndTransportRegressions();

@@ -145,6 +145,7 @@ private:
         int lastSelectErrno;
         int lastTimeoutSeconds;
         long lastDeadline;
+        std::string lastDeadlineSource;
         LoopDebugStats();
     };
     struct ViewData {

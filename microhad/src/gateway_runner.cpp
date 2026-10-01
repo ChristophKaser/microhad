@@ -11,7 +11,7 @@
 GatewayRunner::LoopDebugStats::LoopDebugStats() : iterations(0), commandSkips(0), immediateSkips(0),
     selectCalls(0), selectReady(0), selectTimeouts(0), selectInterrupted(0), selectErrors(0),
     serialReadReady(0), serialWriteReady(0), wakeReady(0), lastSelectResult(0), lastSelectErrno(0),
-    lastTimeoutSeconds(-1), lastDeadline(0) {
+    lastTimeoutSeconds(-1), lastDeadline(0), lastDeadlineSource("none") {
 }
 
 GatewayRunner::GatewayRunner(Gateway* gateway) : gateway_(gateway), historyStore_(gateway->historyStore()), commandWakeRead_(-1), commandWakeWrite_(-1),
@@ -134,7 +134,8 @@ void GatewayRunner::run() {
                    << " last_select_result=" << debugStats.lastSelectResult
                    << " last_errno=" << debugStats.lastSelectErrno
                    << " last_timeout_s=" << debugStats.lastTimeoutSeconds
-                   << " last_deadline=" << debugStats.lastDeadline;
+                   << " last_deadline=" << debugStats.lastDeadline
+                   << " deadline_source=" << debugStats.lastDeadlineSource;
             gateway_->logEventLoopDiagnostic(report.str());
             debugStats = LoopDebugStats();
             nextDebugReportAt = time(0) + 5;
@@ -275,8 +276,12 @@ void GatewayRunner::waitForWork(LoopDebugStats* stats, bool debugEnabled) {
         if (gateway_->serialNeedsWrite()) FD_SET(serial, &writable);
         if (serial > maximum) maximum = serial;
     }
-    deadline = gateway_->nextPollDeadline();
-    if (debugEnabled) stats->lastDeadline = deadline;
+    if (debugEnabled) {
+        stats->lastDeadline = gateway_->nextPollDeadline(&stats->lastDeadlineSource);
+    } else {
+        deadline = gateway_->nextPollDeadline();
+    }
+    if (debugEnabled) deadline = stats->lastDeadline;
     if (deadline != 0) {
         long seconds = deadline - time(0);
         if (seconds < 0) seconds = 0;
