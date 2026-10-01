@@ -706,19 +706,25 @@ void Gateway::poll() {
             addLog("Queued light reporting setup for existing device");
         }
     }
+    /* Refresh timers can survive a serial reset. Remove entries whose devices
+       cannot be refreshed, even while interviews or network setup are busy. */
+    for (std::map<unsigned short, long>::iterator timer = nextSensorRefreshAt_.begin();
+         timer != nextSensorRefreshAt_.end();) {
+        std::map<unsigned short, long>::iterator current = timer++;
+        if (!sensorRefreshEligible(current->first)) {
+            std::ostringstream message;
+            message << "Discarded ineligible sensor refresh timer: " << deviceLogLabel(current->first)
+                    << " deadline=" << current->second << " now=" << time(0);
+            addLog(message.str());
+            nextSensorRefreshAt_.erase(current);
+        }
+    }
     if (online_ && networkFormed_ && coordinatorInitializationStep_ == 0 && !interviewRequestInFlight_ && !nativeBusy) {
         std::map<unsigned short, std::string>::const_iterator node;
         long now = time(0);
         for (node = nodeAddresses_.begin(); node != nodeAddresses_.end(); ++node) {
             std::map<std::string, Device>::const_iterator device = devices_.find(node->second);
-            bool measurement = false;
-            if (device == devices_.end()) continue;
-            for (unsigned long endpoint = 0; endpoint < device->second.endpoints.size(); ++endpoint) {
-                if (endpointSupports(device->second.endpoints[endpoint], 0x0402) ||
-                    endpointSupports(device->second.endpoints[endpoint], 0x0405)) measurement = true;
-            }
-            if (!measurement && !device->second.hasTemperature && !device->second.hasHumidity) continue;
-            if (device->second.sensorRefreshIntervalMinutes == 0) continue;
+            if (!sensorRefreshEligible(node->first)) continue;
             if (nextSensorRefreshAt_[node->first] > now) continue;
             startInterview(node->first, true);
             nextSensorRefreshAt_[node->first] = sensorRefreshDeadline(now, device->second.sensorRefreshIntervalMinutes);
@@ -856,7 +862,12 @@ long Gateway::nextPollDeadline(std::string* source) const {
             if (!state.paused && state.operationIndex < state.operations.size())
                 CONSIDER_DEADLINE(state.operations[state.operationIndex].retryAt, "interview_retry");
         }
-        for (sensor = nextSensorRefreshAt_.begin(); sensor != nextSensorRefreshAt_.end(); ++sensor) CONSIDER_DEADLINE(sensor->second, "sensor_refresh");
+        for (sensor = nextSensorRefreshAt_.begin(); sensor != nextSensorRefreshAt_.end(); ++sensor) {
+            if (!sensorRefreshEligible(sensor->first)) continue;
+            std::ostringstream label;
+            label << "sensor_refresh node=0x" << std::hex << sensor->first;
+            CONSIDER_DEADLINE(sensor->second, label.str());
+        }
         for (scene = sceneRetries_.begin(); scene != sceneRetries_.end(); ++scene)
             CONSIDER_DEADLINE(scene->second.inFlight ? scene->second.sentAt + 2 : scene->second.retryAt, "scene_retry");
     }
@@ -1089,7 +1100,7 @@ bool Gateway::refreshDevice(const std::string& ieeeAddress, std::string* error) 
        bound to the coordinator.  Measurement devices only need their
        persisted endpoints refreshed. */
     startInterview(device->second.networkAddress, !device->second.hasRemote, true);
-    if (device->second.sensorRefreshIntervalMinutes == 0) nextSensorRefreshAt_.erase(device->second.networkAddress);
+    if (!sensorRefreshEligible(device->second.networkAddress)) nextSensorRefreshAt_.erase(device->second.networkAddress);
     else nextSensorRefreshAt_[device->second.networkAddress] =
         sensorRefreshDeadline(time(0), device->second.sensorRefreshIntervalMinutes);
     addLog(std::string(device->second.hasRemote ? "Manual remote configuration queued: " :
@@ -3368,7 +3379,7 @@ void Gateway::registerNode(unsigned short nodeId, const unsigned char* eui64) {
     Device& device = devices_[address.str()];
     bool persistentChanged = device.networkAddress != nodeId;
     device.networkAddress = nodeId;
-    if (device.sensorRefreshIntervalMinutes == 0) nextSensorRefreshAt_.erase(nodeId);
+    if (!sensorRefreshEligible(nodeId)) nextSensorRefreshAt_.erase(nodeId);
     else nextSensorRefreshAt_[nodeId] = sensorRefreshDeadline(time(0), device.sensorRefreshIntervalMinutes);
     if (device.ieeeAddress.empty()) {
         device.ieeeAddress = address.str();
@@ -3475,6 +3486,20 @@ void Gateway::queueInterviewOperation(unsigned short destination, InterviewOpera
 
 bool Gateway::endpointSupports(const EndpointDescriptor& endpoint, unsigned short cluster) const {
     return std::find(endpoint.inputClusters.begin(), endpoint.inputClusters.end(), cluster) != endpoint.inputClusters.end();
+}
+
+bool Gateway::sensorRefreshEligible(unsigned short nodeId) const {
+    std::map<unsigned short, std::string>::const_iterator node = nodeAddresses_.find(nodeId);
+    if (node == nodeAddresses_.end() || nodeId == 0xffff) return false;
+    std::map<std::string, Device>::const_iterator device = devices_.find(node->second);
+    if (device == devices_.end() || device->second.source != "zigbee" ||
+        device->second.networkAddress != nodeId || device->second.sensorRefreshIntervalMinutes == 0) return false;
+    if (device->second.hasTemperature || device->second.hasHumidity) return true;
+    for (unsigned long endpoint = 0; endpoint < device->second.endpoints.size(); ++endpoint) {
+        if (endpointSupports(device->second.endpoints[endpoint], 0x0402) ||
+            endpointSupports(device->second.endpoints[endpoint], 0x0405)) return true;
+    }
+    return false;
 }
 
 void Gateway::buildDescriptorOperations(unsigned short destination, const std::vector<unsigned char>& endpoints) {

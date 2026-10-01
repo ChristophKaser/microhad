@@ -459,6 +459,7 @@ private:
     void buildRefreshOperations(unsigned short destination);
     bool parseSimpleDescriptor(const std::vector<unsigned char>& message, EndpointDescriptor* descriptor) const;
     bool endpointSupports(const EndpointDescriptor& endpoint, unsigned short cluster) const;
+    bool sensorRefreshEligible(unsigned short nodeId) const;
     bool updateBasicIdentity(Device* device, const std::vector<unsigned char>& records);
     void wakeInterview(unsigned short destination);
     void requestCoordinatorIeeeAddress();

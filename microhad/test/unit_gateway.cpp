@@ -23,6 +23,79 @@
 
 class GatewayTestPeer {
 public:
+    static void ineligibleSensorRefreshCannotSpin() {
+        char directory[] = "/tmp/microhad-refresh-timers-XXXXXX";
+        assert(mkdtemp(directory) != 0);
+        {
+            Gateway gateway("/dev/null", 115200, directory, "", "", "");
+            const unsigned short contactNode = 0x86fe;
+            const unsigned short sensorNode = 0x77e1;
+            const std::string contactIeee = "0x00124b00292bfbd8";
+            const std::string sensorIeee = "0x00124b0000000002";
+            Device contact;
+            contact.ieeeAddress = contactIeee;
+            contact.networkAddress = contactNode;
+            contact.hasContact = true;
+            contact.sensorRefreshIntervalMinutes = 5;
+            gateway.devices_[contactIeee] = contact;
+            gateway.nodeAddresses_[contactNode] = contactIeee;
+            Device sensor;
+            sensor.ieeeAddress = sensorIeee;
+            sensor.networkAddress = sensorNode;
+            EndpointDescriptor endpoint;
+            endpoint.inputClusters.push_back(0x0402);
+            sensor.endpoints.push_back(endpoint);
+            gateway.devices_[sensorIeee] = sensor;
+            gateway.nodeAddresses_[sensorNode] = sensorIeee;
+            const long now = time(0);
+            gateway.online_ = true;
+            gateway.networkFormed_ = true;
+            gateway.nextHeartbeatAt_ = now + 20;
+            gateway.nextSensorRefreshAt_[contactNode] = now - 3600;
+            gateway.nextSensorRefreshAt_[sensorNode] = now + 60;
+            gateway.nextSensorRefreshAt_[0x9999] = now - 1; /* orphan */
+            std::string source;
+            assert(gateway.nextPollDeadline(&source) == now + 20);
+            assert(source == "heartbeat");
+            gateway.poll();
+            assert(gateway.nextSensorRefreshAt_.count(contactNode) == 0);
+            assert(gateway.nextSensorRefreshAt_.count(0x9999) == 0);
+            assert(gateway.nextSensorRefreshAt_[sensorNode] == now + 60);
+            assert(logOccurrences(gateway, "Discarded ineligible sensor refresh timer:") == 2);
+            gateway.poll();
+            assert(logOccurrences(gateway, "Discarded ineligible sensor refresh timer:") == 2);
+
+            /* Announcements and manual refreshes must not recreate the contact timer. */
+            const unsigned char eui64[] = {0xd8, 0xfb, 0x2b, 0x29, 0x00, 0x4b, 0x12, 0x00};
+            gateway.registerNode(contactNode, eui64);
+            assert(gateway.nextSensorRefreshAt_.count(contactNode) == 0);
+            gateway.interviews_.clear();
+            gateway.interviewRequestInFlight_ = false;
+            gateway.interviewDeadline_ = 0;
+            std::string error;
+            assert(gateway.refreshDevice(contactIeee, &error));
+            assert(gateway.nextSensorRefreshAt_.count(contactNode) == 0);
+            gateway.interviews_.clear();
+            gateway.interviewRequestInFlight_ = false;
+            gateway.interviewDeadline_ = 0;
+
+            gateway.nextHeartbeatAt_ = now + 120;
+            assert(gateway.nextPollDeadline(&source) == now + 60);
+            assert(source == "sensor_refresh node=0x77e1");
+            gateway.devices_[sensorIeee].sensorRefreshIntervalMinutes = 0;
+            gateway.nextSensorRefreshAt_[sensorNode] = now - 1;
+            assert(gateway.nextPollDeadline(&source) == now + 120);
+            gateway.poll();
+            assert(gateway.nextSensorRefreshAt_.empty());
+            gateway.devices_[sensorIeee].sensorRefreshIntervalMinutes = 60;
+            gateway.nextSensorRefreshAt_[sensorNode] = now - 1;
+            gateway.devices_[sensorIeee].networkAddress = 0x1234; /* stale mapping */
+            assert(gateway.nextPollDeadline(&source) == now + 120);
+        }
+        unlink((std::string(directory) + "/devices.json").c_str());
+        unlink((std::string(directory) + "/devices-state.json").c_str());
+        assert(rmdir(directory) == 0);
+    }
     static void emptyDeadlineIsUnscheduled() {
         Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
         std::string source;
@@ -2222,6 +2295,7 @@ static void testSharedJsonUtilities() {
 
 void runUnitTests() {
     GatewayTestPeer::emptyDeadlineIsUnscheduled();
+    GatewayTestPeer::ineligibleSensorRefreshCannotSpin();
     GatewayTestPeer::pausedRefreshWaitsForScheduledWake();
     GatewayTestPeer::pausedTimersDoNotWinDeadline();
     GatewayTestPeer::closingPermitReplyTimeout();
