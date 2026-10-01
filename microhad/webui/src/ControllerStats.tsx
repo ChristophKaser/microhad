@@ -99,5 +99,12 @@ export function ControllerStats() {
       <div><span>Load average · 5 min</span><strong>{stats?.cpu_load_5?.toFixed(2) ?? 'Unavailable'}</strong></div>
       <div><span>Load average · 15 min</span><strong>{stats?.cpu_load_15?.toFixed(2) ?? 'Unavailable'}</strong></div>
     </div>
+    <article className="panel controller-threads">
+      <div className="controller-stat-heading"><div><h3>CPU by thread</h3><span className="muted small">Percent of one core · current poll sample</span></div><span className="muted small">{stats?.threads.length ?? 0} threads</span></div>
+      <div className="controller-thread-table-wrap"><table><thead><tr><th>Thread</th><th>TID</th><th>CPU</th></tr></thead><tbody>
+        {(stats?.threads ?? []).map(thread => <tr key={`${thread.tid}-${thread.name}`}><td>{thread.name}</td><td>{thread.tid}</td><td>{thread.cpu_usage_percent === null ? <span className="muted">Sampling…</span> : <div className="controller-thread-usage"><span>{thread.cpu_usage_percent.toFixed(1)}%</span><i><b style={{ width: `${Math.min(100, Math.max(0, thread.cpu_usage_percent))}%` }} /></i></div>}</td></tr>)}
+        {stats && stats.threads.length === 0 && <tr><td colSpan={3} className="muted">Thread statistics unavailable.</td></tr>}
+      </tbody></table></div>
+    </article>
   </section>
 }

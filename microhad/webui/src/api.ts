@@ -123,6 +123,7 @@ export interface ControllerStats {
   storage_total_bytes: number | null
   storage_free_bytes: number | null
   storage_used_bytes: number | null
+  threads: { tid: number; name: string; cpu_usage_percent: number | null }[]
 }
 
 export interface ExternalDevice {
