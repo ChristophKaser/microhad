@@ -9,6 +9,7 @@ import { DeviceDetailsDialog, NetworkDialog, SceneTextDialog } from './Dashboard
 import { SceneEditor } from './SceneEditor'
 import { ExternalDeviceDialog } from './ExternalDevices'
 import { PushDevices } from './PushDevices'
+import { ControllerStats } from './ControllerStats'
 import { useGatewayData } from './useGatewayData'
 import './style.css'
 
@@ -298,6 +299,7 @@ function App() {
           <button className="button" disabled={!status?.notifications_enabled} onClick={() => void action('/api/notifications/test')}>Test alert</button>
         </div>
       </section>
+      <ControllerStats />
       </>}
       {tab === 'Groups' && <section className="panel">
         <div className="section-heading">

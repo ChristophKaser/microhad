@@ -103,6 +103,25 @@ export interface Status {
   device_configurations: DeviceConfiguration[]
 }
 
+export interface ControllerStats {
+  device_uptime_seconds: number | null
+  service_uptime_seconds: number | null
+  serial_opened_at: number
+  serial_uptime_seconds: number | null
+  cpu_usage_percent: number | null
+  cpu_load_1: number | null
+  cpu_load_5: number | null
+  cpu_load_15: number | null
+  memory_total_bytes: number | null
+  memory_free_bytes: number | null
+  process_memory_bytes: number | null
+  log_file_bytes: number
+  values_file_bytes: number
+  storage_total_bytes: number | null
+  storage_free_bytes: number | null
+  storage_used_bytes: number | null
+}
+
 export interface ExternalDevice {
   id: string
   name: string
