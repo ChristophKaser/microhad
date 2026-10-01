@@ -613,6 +613,7 @@ void Gateway::stop() {
 }
 
 void Gateway::poll() {
+    resetInactiveDeadlines();
     unsigned char bytes[256];
     ssize_t count;
     std::vector<unsigned char> frame;
@@ -706,19 +707,7 @@ void Gateway::poll() {
             addLog("Queued light reporting setup for existing device");
         }
     }
-    /* Refresh timers can survive a serial reset. Remove entries whose devices
-       cannot be refreshed, even while interviews or network setup are busy. */
-    for (std::map<unsigned short, long>::iterator timer = nextSensorRefreshAt_.begin();
-         timer != nextSensorRefreshAt_.end();) {
-        std::map<unsigned short, long>::iterator current = timer++;
-        if (!sensorRefreshEligible(current->first)) {
-            std::ostringstream message;
-            message << "Discarded ineligible sensor refresh timer: " << deviceLogLabel(current->first)
-                    << " deadline=" << current->second << " now=" << time(0);
-            addLog(message.str());
-            nextSensorRefreshAt_.erase(current);
-        }
-    }
+    resetInactiveDeadlines(); /* Serial callbacks may have changed timer owners. */
     if (online_ && networkFormed_ && coordinatorInitializationStep_ == 0 && !interviewRequestInFlight_ && !nativeBusy) {
         std::map<unsigned short, std::string>::const_iterator node;
         long now = time(0);
@@ -815,7 +804,70 @@ bool Gateway::hasImmediateWork() const {
     return false;
 }
 
-long Gateway::nextPollDeadline(std::string* source) const {
+void Gateway::resetInactiveDeadline(long* deadline, const std::string& source) {
+    if (*deadline == 0) return;
+    std::ostringstream message;
+    message << "Reset inactive deadline: source=" << source << " deadline=" << *deadline << " now=" << time(0);
+    addLog(message.str());
+    *deadline = 0;
+}
+
+void Gateway::resetInactiveDeadlines() {
+    if (ashPendingData_.empty() || !serialPendingBytes_.empty())
+        resetInactiveDeadline(&ashAckDeadline_, "ash_ack");
+    if (!online_) resetInactiveDeadline(&nextHeartbeatAt_, "heartbeat");
+    else resetInactiveDeadline(&resetDeadline_, "serial_reset");
+    if (coordinatorInitializationStep_ == 0)
+        resetInactiveDeadline(&coordinatorInitializationDeadline_, "coordinator_initialization");
+    if (!networkForming_) resetInactiveDeadline(&networkFormationDeadline_, "network_formation");
+    if (!interviewRequestInFlight_) resetInactiveDeadline(&interviewDeadline_, "interview");
+    if (joinPreparationStep_ == 0) resetInactiveDeadline(&joinPreparationDeadline_, "join_preparation");
+    if (!joinPermitClosePending_) resetInactiveDeadline(&joinPermitCloseDeadline_, "join_permit_close");
+    if (joinUntil_ == 0) resetInactiveDeadline(&joinPermitRenewAt_, "join_permit_renewal");
+    for (std::map<unsigned short, long>::iterator timer = nextSensorRefreshAt_.begin();
+         timer != nextSensorRefreshAt_.end();) {
+        std::map<unsigned short, long>::iterator current = timer++;
+        if (!sensorRefreshEligible(current->first)) {
+            resetInactiveDeadline(&current->second, "sensor_refresh " + deviceLogLabel(current->first));
+            nextSensorRefreshAt_.erase(current);
+        }
+    }
+    for (std::map<std::string, long>::iterator timer = nextContactAlertAt_.begin();
+         timer != nextContactAlertAt_.end();) {
+        std::map<std::string, long>::iterator current = timer++;
+        std::map<std::string, Device>::const_iterator device = devices_.find(current->first);
+        if (device == devices_.end() || !device->second.hasContact || !device->second.contactOpen ||
+            device->second.contactTriggerMode || device->second.contactReminderAlertMinutes == 0) {
+            resetInactiveDeadline(&current->second, "contact_alert " + current->first);
+            contactOpenedAt_.erase(current->first);
+            nextContactAlertAt_.erase(current);
+        }
+    }
+    for (std::map<unsigned short, InterviewState>::iterator interview = interviews_.begin();
+         interview != interviews_.end(); ++interview) {
+        for (unsigned long i = 0; i < interview->second.operations.size(); ++i)
+            if (interview->second.paused || i < interview->second.operationIndex)
+                resetInactiveDeadline(&interview->second.operations[i].retryAt, "inactive interview_retry");
+    }
+    for (std::map<std::string, SceneProvisionState>::iterator pending = sceneProvisioning_.begin();
+         pending != sceneProvisioning_.end(); ++pending) {
+        std::map<std::string, Device>::const_iterator device = devices_.find(pending->first);
+        if (pending->second.waitingForTraffic || pending->second.index >= pending->second.commands.size() ||
+            device == devices_.end() || device->second.networkAddress == 0xffff)
+            resetInactiveDeadline(&pending->second.deadline, "scene_provisioning " + pending->first);
+    }
+    for (std::map<unsigned short, SceneRetry>::iterator scene = sceneRetries_.begin(); scene != sceneRetries_.end();) {
+        std::map<unsigned short, SceneRetry>::iterator current = scene++;
+        if (findSceneGroup(current->first) == 0) {
+            long deadline = current->second.inFlight ? current->second.sentAt + 2 : current->second.retryAt;
+            resetInactiveDeadline(&deadline, "orphan scene_retry");
+            sceneRetries_.erase(current);
+        }
+    }
+}
+
+long Gateway::nextPollDeadline(std::string* source) {
+    resetInactiveDeadlines();
     long deadline = 0;
     std::string deadlineSource;
     long now = time(0);
@@ -838,6 +890,7 @@ long Gateway::nextPollDeadline(std::string* source) const {
         if (nativeBindOperations_[native].deadline != 0) {
             nativeBusy = true;
             if (nativePollReady) CONSIDER_DEADLINE(nativeBindOperations_[native].deadline, "native_bind");
+            break; /* pollNativeBindings handles the first outstanding reply. */
         }
     CONSIDER_DEADLINE(joinPreparationDeadline_, "join_preparation");
     if (joinPermitClosePending_) CONSIDER_DEADLINE(joinPermitCloseDeadline_, "join_permit_close");
@@ -853,8 +906,10 @@ long Gateway::nextPollDeadline(std::string* source) const {
     }
     if (online_ && networkFormed_ && coordinatorInitializationStep_ == 0) {
         for (std::map<std::string, SceneProvisionState>::const_iterator pending = sceneProvisioning_.begin();
-             pending != sceneProvisioning_.end(); ++pending)
+             pending != sceneProvisioning_.end(); ++pending) {
             CONSIDER_DEADLINE(pending->second.deadline, "scene_provisioning");
+            if (pending->second.deadline > now) break; /* Handler waits for this reply. */
+        }
     }
     if (online_ && networkFormed_ && coordinatorInitializationStep_ == 0 && !interviewRequestInFlight_ && !nativeBusy) {
         for (interview = interviews_.begin(); interview != interviews_.end(); ++interview) {
@@ -868,9 +923,10 @@ long Gateway::nextPollDeadline(std::string* source) const {
             label << "sensor_refresh node=0x" << std::hex << sensor->first;
             CONSIDER_DEADLINE(sensor->second, label.str());
         }
+    }
+    if (online_ && networkFormed_ && coordinatorInitializationStep_ == 0)
         for (scene = sceneRetries_.begin(); scene != sceneRetries_.end(); ++scene)
             CONSIDER_DEADLINE(scene->second.inFlight ? scene->second.sentAt + 2 : scene->second.retryAt, "scene_retry");
-    }
     #undef CONSIDER_DEADLINE
     if (source != 0) *source = deadlineSource.empty() ? "none" : deadlineSource;
     if (deadline == 0) return 0;
@@ -2587,6 +2643,9 @@ void Gateway::pollAshTransmit() {
     flushSerialOutput();
     if (!serialPendingBytes_.empty()) return;
     if (!ashPendingData_.empty()) {
+        /* A blocked write suspends the ACK clock. Re-arm after the complete
+           frame reaches the serial descriptor instead of selecting an old timeout. */
+        if (ashAckDeadline_ == 0) ashAckDeadline_ = time(0) + 2;
         if (time(0) >= ashAckDeadline_) retransmitAsh();
         return;
     }

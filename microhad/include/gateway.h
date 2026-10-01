@@ -202,7 +202,8 @@ public:
     int serialFd() const;
     bool serialNeedsWrite() const;
     bool hasImmediateWork() const;
-    long nextPollDeadline(std::string* source = 0) const;
+    /* Coordinator-only: clears inactive timers before choosing a deadline. */
+    long nextPollDeadline(std::string* source = 0);
     bool setJoining(unsigned int seconds, std::string* error);
     bool createFreshNetwork(std::string* error);
     bool setDeviceSettings(const std::string& ieeeAddress, const std::string& name,
@@ -460,6 +461,8 @@ private:
     bool parseSimpleDescriptor(const std::vector<unsigned char>& message, EndpointDescriptor* descriptor) const;
     bool endpointSupports(const EndpointDescriptor& endpoint, unsigned short cluster) const;
     bool sensorRefreshEligible(unsigned short nodeId) const;
+    void resetInactiveDeadlines();
+    void resetInactiveDeadline(long* deadline, const std::string& source);
     bool updateBasicIdentity(Device* device, const std::vector<unsigned char>& records);
     void wakeInterview(unsigned short destination);
     void requestCoordinatorIeeeAddress();

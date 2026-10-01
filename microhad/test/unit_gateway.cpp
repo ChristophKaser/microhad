@@ -61,9 +61,9 @@ public:
             assert(gateway.nextSensorRefreshAt_.count(contactNode) == 0);
             assert(gateway.nextSensorRefreshAt_.count(0x9999) == 0);
             assert(gateway.nextSensorRefreshAt_[sensorNode] == now + 60);
-            assert(logOccurrences(gateway, "Discarded ineligible sensor refresh timer:") == 2);
+            assert(logOccurrences(gateway, "Reset inactive deadline: source=sensor_refresh") == 2);
             gateway.poll();
-            assert(logOccurrences(gateway, "Discarded ineligible sensor refresh timer:") == 2);
+            assert(logOccurrences(gateway, "Reset inactive deadline: source=sensor_refresh") == 2);
 
             /* Announcements and manual refreshes must not recreate the contact timer. */
             const unsigned char eui64[] = {0xd8, 0xfb, 0x2b, 0x29, 0x00, 0x4b, 0x12, 0x00};
@@ -102,6 +102,70 @@ public:
         assert(gateway.nextPollDeadline(&source) == 0);
         assert(source == "none");
     }
+    static void inactiveDeadlinesAreResetBeforeSelection() {
+        Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+        const long now = time(0);
+        gateway.online_ = true;
+        gateway.networkFormed_ = true;
+        gateway.nextHeartbeatAt_ = now + 20;
+        gateway.ashAckDeadline_ = now - 1;
+        gateway.resetDeadline_ = now - 1;
+        gateway.coordinatorInitializationDeadline_ = now - 1;
+        gateway.networkFormationDeadline_ = now - 1;
+        gateway.interviewDeadline_ = now - 1;
+        gateway.joinPreparationDeadline_ = now - 1;
+        gateway.joinPermitCloseDeadline_ = now - 1;
+        gateway.joinPermitRenewAt_ = now - 1;
+        Device contact;
+        contact.hasContact = true;
+        gateway.devices_["closed"] = contact;
+        contact.contactOpen = true;
+        contact.contactTriggerMode = true;
+        gateway.devices_["trigger"] = contact;
+        gateway.nextContactAlertAt_["closed"] = now - 1;
+        gateway.nextContactAlertAt_["missing"] = now - 1;
+        gateway.nextContactAlertAt_["trigger"] = now - 1;
+        Gateway::InterviewState paused;
+        paused.paused = true;
+        Gateway::InterviewOperation operation;
+        operation.retryAt = now - 1;
+        paused.operations.push_back(operation);
+        gateway.interviews_[0x1234] = paused;
+        Gateway::SceneProvisionState pending;
+        pending.deadline = now - 1;
+        pending.waitingForTraffic = true;
+        gateway.sceneProvisioning_["missing"] = pending;
+        Gateway::SceneRetry retry;
+        retry.retryAt = now - 1;
+        gateway.sceneRetries_[123] = retry;
+        std::string source;
+        assert(gateway.nextPollDeadline(&source) == now + 20);
+        assert(source == "heartbeat");
+        assert(gateway.ashAckDeadline_ == 0 && gateway.resetDeadline_ == 0);
+        assert(gateway.coordinatorInitializationDeadline_ == 0 && gateway.networkFormationDeadline_ == 0);
+        assert(gateway.interviewDeadline_ == 0 && gateway.joinPreparationDeadline_ == 0);
+        assert(gateway.joinPermitCloseDeadline_ == 0 && gateway.joinPermitRenewAt_ == 0);
+        assert(gateway.nextContactAlertAt_.empty());
+        assert(gateway.interviews_[0x1234].operations[0].retryAt == 0);
+        assert(gateway.sceneProvisioning_["missing"].deadline == 0);
+        assert(gateway.sceneRetries_.empty());
+        unsigned long resets = logOccurrences(gateway, "Reset inactive deadline:");
+        gateway.nextPollDeadline();
+        assert(logOccurrences(gateway, "Reset inactive deadline:") == resets);
+
+        /* Backpressure suspends the ACK timer without discarding its frame. */
+        gateway.ashPendingData_.push_back(1);
+        gateway.serialPendingBytes_.push_back(2);
+        gateway.ashAckDeadline_ = now - 1;
+        assert(gateway.nextPollDeadline(&source) == now + 20);
+        assert(gateway.ashAckDeadline_ == 0 && !gateway.ashPendingData_.empty());
+        gateway.serialPendingBytes_.clear();
+        gateway.pollAshTransmit();
+        assert(gateway.ashAckDeadline_ >= now + 2);
+        assert(gateway.ashRetries_ == 0);
+        assert(gateway.nextPollDeadline(&source) == gateway.ashAckDeadline_);
+        assert(source == "ash_ack");
+    }
     static void pausedRefreshWaitsForScheduledWake() {
         Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
         const unsigned short node = 0x1234;
@@ -119,6 +183,48 @@ public:
         assert(gateway.interviews_[node].paused);
         gateway.startInterview(node, true);
         assert(!gateway.interviews_[node].paused);
+    }
+    static void deadlineSelectionMatchesHandlerOrdering() {
+        Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+        const long now = time(0);
+        gateway.online_ = true;
+        gateway.networkFormed_ = true;
+        gateway.nextHeartbeatAt_ = now + 20;
+        Gateway::NativeBindOperation first;
+        first.deadline = now + 10;
+        gateway.nativeBindOperations_.push_back(first);
+        Gateway::NativeBindOperation second;
+        second.deadline = now - 1;
+        gateway.nativeBindOperations_.push_back(second);
+        std::string source;
+        assert(gateway.nextPollDeadline(&source) == now + 10);
+        assert(source == "native_bind");
+        gateway.interviewRequestInFlight_ = true;
+        gateway.interviewDeadline_ = now + 5;
+        assert(gateway.nextPollDeadline(&source) == now + 5);
+        assert(source == "interview");
+        assert(gateway.nativeBindOperations_[1].deadline == now - 1); /* valid work is retained */
+        gateway.interviewRequestInFlight_ = false;
+        gateway.nativeBindOperations_.clear();
+        Gateway::SceneProvisionState pending;
+        Gateway::SceneProvisionCommand command;
+        pending.commands.push_back(command);
+        pending.deadline = now + 10;
+        gateway.sceneProvisioning_["a"] = pending;
+        pending.deadline = now - 1;
+        gateway.sceneProvisioning_["b"] = pending;
+        gateway.devices_["a"].networkAddress = 1;
+        gateway.devices_["b"].networkAddress = 2;
+        assert(gateway.nextPollDeadline(&source) == now + 10);
+        assert(source == "scene_provisioning");
+        gateway.coordinatorInitializationStep_ = 1;
+        gateway.coordinatorInitializationDeadline_ = now + 5;
+        assert(gateway.nextPollDeadline(&source) == now + 5);
+        assert(gateway.sceneProvisioning_["b"].deadline == now - 1);
+        gateway.coordinatorInitializationStep_ = 0;
+        gateway.sceneProvisioning_["a"].deadline = 0;
+        assert(gateway.nextPollDeadline(&source) == time(0));
+        assert(source == "scene_provisioning");
     }
     static void pausedTimersDoNotWinDeadline() {
         Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
@@ -454,7 +560,7 @@ public:
         gateway.handleAshFrame(std::vector<unsigned char>(1, 0x81));
         gateway.pollAshTransmit();
         assert(gateway.ashSendSequence_ == 1 && gateway.ashTransmitQueue_.empty());
-        gateway.ashAckDeadline_ = 0;
+        gateway.ashAckDeadline_ = time(0) - 1;
         gateway.pollAshTransmit();
         assert(gateway.ashRetries_ == 1);
         gateway.handleAshFrame(std::vector<unsigned char>(1, 0x10)); /* gap */
@@ -2295,6 +2401,8 @@ static void testSharedJsonUtilities() {
 
 void runUnitTests() {
     GatewayTestPeer::emptyDeadlineIsUnscheduled();
+    GatewayTestPeer::inactiveDeadlinesAreResetBeforeSelection();
+    GatewayTestPeer::deadlineSelectionMatchesHandlerOrdering();
     GatewayTestPeer::ineligibleSensorRefreshCannotSpin();
     GatewayTestPeer::pausedRefreshWaitsForScheduledWake();
     GatewayTestPeer::pausedTimersDoNotWinDeadline();
