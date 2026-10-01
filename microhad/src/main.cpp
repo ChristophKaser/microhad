@@ -57,7 +57,12 @@ int main(int argc, char** argv) {
     std::string caBundle = config.caBundle;
     signal(SIGPIPE, SIG_IGN);
     notificationWorker = new NotificationWorker(runtimeDirectory, firebaseServiceAccount, firebaseTopic, caBundle);
-    if (!notificationWorker->start(&error)) {
+    /* LinuxThreads creates its manager task on the first pthread_create and
+       inherits the caller's task name. Give that task its own diagnostic name. */
+    setCurrentThreadName("pthread-manager");
+    bool notificationStarted = notificationWorker->start(&error);
+    setCurrentThreadName("gateway-main");
+    if (!notificationStarted) {
         fprintf(stderr, "notification worker startup failed: %s\n", error.c_str());
         delete notificationWorker;
         return 1;
