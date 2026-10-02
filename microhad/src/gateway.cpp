@@ -3155,9 +3155,11 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
     {
         std::ostringstream message;
         unsigned int status = frame.size() > payloadOffset ? frame[payloadOffset] : 0xff;
-        message << "EZSP <- v" << std::dec << static_cast<unsigned int>(ezspVersion_) << " 0x" << std::hex
-                << command << (command == 0x003f ? " type=0x" : " first_byte=0x")
-                << status << " bytes=" << std::dec << frame.size();
+        message << "EZSP <- v" << std::dec << static_cast<unsigned int>(ezspVersion_) << " 0x" << std::hex << command;
+        if (command == 0x0114 || command == 0x010f || command == 0x0102 || command == 0x006a)
+            message << " sensitive_payload=redacted";
+        else message << (command == 0x003f ? " type=0x" : " first_byte=0x") << status;
+        message << " bytes=" << std::dec << frame.size();
         addLog(message.str());
     }
     if (command == 0x00aa || command == 0x0116) {

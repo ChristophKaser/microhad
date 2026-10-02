@@ -46,10 +46,10 @@ bool NetworkBackupExport::start(const std::string& id, const std::string& direct
     }
     final_ = directory + "/" + id + ".json"; partial_ = final_ + ".partial";
     if (lstat(final_.c_str(), &state) == 0 || errno != ENOENT) {
-        *error = "backup output already exists or cannot be checked"; return false;
+        *error = "backup output already exists or cannot be checked"; partial_.clear(); return false;
     }
     fd_ = open(partial_.c_str(), O_WRONLY | O_CREAT | O_EXCL, 0600);
-    if (fd_ < 0) { *error = "cannot create exclusive backup file"; return false; }
+    if (fd_ < 0) { *error = "cannot create exclusive backup file"; partial_.clear(); return false; }
     bytes_ = 0; first_ = true; closing_ = false; queries_.clear();
     const std::vector<unsigned char> empty;
     enqueue(0x0026, empty); enqueue(0x0027, empty); enqueue(0x0028, empty);

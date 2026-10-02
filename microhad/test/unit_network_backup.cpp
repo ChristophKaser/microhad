@@ -16,6 +16,11 @@ void runNetworkBackupUnitTests() {
     std::string error;
     NetworkBackupExport exporter;
     assert(!exporter.start("../bad", directory, &error));
+    const std::string occupied = directory + "/1234567890123459.json.partial";
+    assert(mkdir(directory.c_str(),0700)==0);
+    { std::ofstream existing(occupied.c_str()); existing << "keep"; }
+    assert(!exporter.start("1234567890123459", directory, &error));
+    exporter.abort(); assert(access(occupied.c_str(),F_OK)==0); unlink(occupied.c_str());
     assert(exporter.start(id, directory, &error));
     assert(!exporter.start(id, directory, &error));
     struct stat state;
