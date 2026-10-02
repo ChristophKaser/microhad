@@ -65,6 +65,12 @@ curl --connect-timeout 5 --max-time 8 -sS http://192.168.178.62/api/logs
 curl --connect-timeout 5 --max-time 8 -k -sS https://192.168.178.62/api/status
 ```
 
+When a `curl` request to `http://192.168.178.62/` or any endpoint beneath it
+fails, the cause is almost always the sandbox. Rerun the failed command with
+elevated permissions (`sandbox_permissions: "require_escalated"`), even if
+previous `curl` invocations succeeded without elevation. Do not conclude that
+the gateway is unreachable until the elevated retry has been attempted.
+
 The dashboard's **Restart service** button uses the following endpoint. It
 gracefully restarts only the supervised native daemon; it does not reboot the
 device or replace Zigbee state:
