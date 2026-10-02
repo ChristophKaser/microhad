@@ -54,6 +54,10 @@ void runNetworkBackupUnitTests() {
     NetworkBackupExport::Query bad(0x52, std::vector<unsigned char>(1, 0x1e));
     assert(!exporter.accept(bad, std::vector<unsigned char>(1, 0), &error));
     exporter.abort();
+    assert(exporter.start("1234567890123458", directory, &error));
+    NetworkBackupExport::Query unavailable(0x101, std::vector<unsigned char>(1, 0));
+    assert(exporter.accept(unavailable, std::vector<unsigned char>(1, 0xb5), &error));
+    exporter.abort();
     assert(access((directory + "/1234567890123457.json.partial").c_str(), F_OK) != 0);
     unlink(output.c_str()); rmdir(directory.c_str()); rmdir(parent);
 }

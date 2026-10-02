@@ -102,6 +102,14 @@ bool NetworkBackupExport::accept(const Query& query, const std::vector<unsigned 
         if (response.size() != 1) { *error = "invalid token-count response"; return false; }
         for (unsigned int i = 0; i < response[0]; ++i) enqueue(0x0101, std::vector<unsigned char>(1, i));
     } else if (query.command == 0x0101) {
+        if (response.size() == 1 && response[0] == 0xb5) {
+            // Some NCPs expose command IDs but omit the token-interface library.
+            // Preserve the explicit failure record; logical exports can still work.
+            for (std::deque<Query>::iterator it = queries_.begin(); it != queries_.end();) {
+                if (it->command == 0x0101) it = queries_.erase(it); else ++it;
+            }
+            return true;
+        }
         if (response.size() != 9 || response[0] != 0) {
             std::ostringstream detail; detail << "invalid token-info response: index=" << static_cast<unsigned int>(query.payload[0]) << " bytes=" << response.size() << " status=" << (response.empty() ? 255 : static_cast<unsigned int>(response[0]));
             *error = detail.str(); return false;
