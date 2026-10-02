@@ -1,0 +1,70 @@
+# OpenThread RCP for Lidl Silvercrest Gateway
+# Based on SDK sample: protocol/openthread/sample-apps/ot-ncp/ot-rcp.slcp
+# Target: EFR32MG1B232F256GM48
+# UART: USART0, PA0/PA1/PA4/PA5, 460800 baud, HW flow control
+
+project_name: ot-rcp-multipan
+label: OpenThread - HDLC Multi-PAN RCP (Lidl Gateway)
+package: OpenThread
+description: >
+  OpenThread RCP for Lidl Silvercrest Gateway (EFR32MG1B232F256GM48).
+  For Thread/Matter or Zigbee via zigbee-on-host.
+category: OpenThread Examples
+quality: production
+
+# SDK sample components - minimal set that works
+component:
+  - id: ot_stack_rcp
+  - id: ot_crash_handler
+  - id: uartdrv_usart
+    instance:
+      - vcom
+  - id: rail_util_pti
+  - id: bootloader_interface
+  - id: udelay  # For RTL8196E boot delay
+
+include:
+  - path: .
+    file_list:
+    - path: app.h
+    - path: reset_util.h
+
+source:
+  - path: main.c
+  - path: app.c
+
+configuration:
+  - name: OPENTHREAD_CONFIG_MULTIPAN_RCP_ENABLE
+    value: 1
+  - name: OPENTHREAD_CONFIG_MULTIPLE_INSTANCE_ENABLE
+    value: 1
+  - name: OPENTHREAD_CONFIG_MULTIPLE_STATIC_INSTANCE_ENABLE
+    value: 1
+  - name: OPENTHREAD_CONFIG_MULTIPLE_INSTANCE_NUM
+    value: 2
+  - name: OPENTHREAD_CONFIG_MULTIPAN_RCP_BROADCAST_IID
+    value: 0
+  - name: OPENTHREAD_ENABLE_NCP_VENDOR_HOOK
+    value: 0
+  - name: SL_BOARD_ENABLE_VCOM
+    value: 1
+  # UART: 460800 baud (matches S50uart_bridge default on the gateway)
+  - name: SL_UARTDRV_USART_VCOM_BAUDRATE
+    value: 460800
+  - name: OPENTHREAD_CONFIG_HEAP_EXTERNAL_ENABLE
+    value: 0
+  # Hardware flow control (GPIO-managed, must match the gateway UART bridge CRTSCTS)
+  - name: SL_UARTDRV_USART_VCOM_FLOW_CONTROL_TYPE
+    value: uartdrvFlowControlHw
+    condition: [uartdrv_usart]
+
+tag:
+  - prebuilt_demo
+
+filter:
+  - name: "Wireless Technology"
+    value: ["Thread"]
+  - name: "Device Type"
+    value: ["RCP"]
+  - name: "Project Difficulty"
+    value: ["Advanced"]
