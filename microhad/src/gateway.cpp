@@ -2207,8 +2207,9 @@ bool Gateway::emitStateNotification(const std::string& title, const std::string&
         return false;
     }
     std::vector<std::string> presentSensorIds;
-    for (std::map<std::string, Device>::const_iterator device = devices_.begin(); device != devices_.end(); ++device)
-        if (device->second.hasOccupancy && device->second.occupied) presentSensorIds.push_back(device->second.ieeeAddress);
+    if (!clear)
+        for (std::map<std::string, Device>::const_iterator device = devices_.begin(); device != devices_.end(); ++device)
+            if (device->second.hasOccupancy && device->second.occupied) presentSensorIds.push_back(device->second.ieeeAddress);
     std::string enqueueError;
     if (!notificationWorker_->enqueueState(title, body, key, clear ? "clear" : "show", presentSensorIds,
                                            error != 0 ? error : &enqueueError,
