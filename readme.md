@@ -36,6 +36,8 @@ Sources are pinned Git submodules:
 - `ziggurat/`: upstream Rust Zigbee stack and Spinel radio transport.
 - `rtl8196e-gateway/`: modern Lexra GCC/binutils/musl toolchain, kernel patches,
   and board-specific OpenThread RCP firmware.
+- `cpc-daemon/`: Silicon Labs CPCd v4.5.3, pinned for the stock-gateway CPC
+  feasibility test below.
 
 Clone this experiment with `git clone --recurse-submodules <repository-url>`.
 For an existing checkout, run `git submodule update --init --recursive`.
@@ -450,6 +452,89 @@ unsupported-operation handling, LinuxThreads CPU aggregation, and completion
 notifications arriving before admission responses with rate-limit rejections.
 All passed. Existing native gateway services and physical radio state were
 preserved; both temporary Ziggurat and `top` stopped after each run.
+
+## CPC daemon on the stock Tuya — 2026-10-02
+
+**CPCd builds and runs on the gateway without reflashing its radio.** This
+experiment tests the daemon and transport startup, not a real CPC secondary
+or a working shared-radio Zigbee/Thread stack.
+
+The added Silicon Labs submodule is pinned to v4.5.3, commit
+`0c9fb76e16a4df765132131f26dd292bb9267514`, matching the pinned gateway project's
+CPC baseline. It reports daemon version 4.5.3.0, library API 3 and CPC protocol 5.
+Its upstream checkout stays clean; patches are applied in a detached worktree.
+
+```sh
+git submodule update --init --recursive
+bash scripts/build-cpc.sh
+python3 scripts/cpc-device-smoke.py
+python3 scripts/cpc-device-smoke.py --handshake
+```
+
+The CMake build uses the existing stock RSDK GCC 4.4.7/uClibc toolchain and
+produces `build/cpc-stock/cpcd` and `build/cpc-stock/libcpc.a`. The daemon is a
+static, big-endian ELF32 MIPS-I executable, about 494 KiB without stripping.
+No modern toolchain build or system-wide installation is required.
+
+Applied changes and build choices:
+
+- Apply the pinned gateway project's
+  [TCP transport patch](rtl8196e-gateway/2-Zigbee-Radio-Silabs-EFR32/25-RCP-UART-HW/cpcd/tcp-bus.patch),
+  allowing a host test peer instead of any physical UART or SPI device.
+- Disable CPC encryption for this test, matching that project's RCP security
+  setting; encrypted CPC and MbedTLS cross-linking are not validated here.
+- Compile the legacy GPIO implementation, but configure recovery pins off.
+  No GPIO, bootloader entry or firmware-update mode was exercised.
+- Supply stock-libc syscall wrappers for `epoll_create1`, `eventfd`, `accept4`,
+  `timerfd_*` and `signalfd`. Correct timer/signal nonblocking flags to the MIPS
+  `O_NONBLOCK` value; the old headers contain generic Linux constants.
+- Replace unsupported `-fstack-protector-strong` with GCC 4.4's
+  `-fstack-protector-all`. The RSDK has no libssp, so an isolated runtime
+  supplies its global guard from `/dev/urandom` and terminates on stack-check
+  failure. Entropy/guard contents are never logged. Its initializer is compiled
+  without stack protection so setting the guard cannot invalidate its own frame.
+- Thread naming is diagnostic only: the shim names the current thread with
+  `prctl`; foreign-thread naming is skipped on old LinuxThreads.
+- Use `/tmp` for CPC sockets and record the pinned Git revision explicitly,
+  since upstream's CMake Git helper does not identify this detached worktree.
+
+The CMake changes are recorded in `patches/cpc-stock.patch`; compatibility
+sources and the toolchain file are under `cpc/`. The static `libcpc.a` was built
+but a client linked against it has not yet been exercised. Its stack-protected
+objects require the guard runtime when linking a future static client.
+
+The host smoke harness transfers a new binary through SSH stdin, checks its
+checksum, and creates a fresh `/tmp/cpc-smoke-<timestamp>/` directory with a
+generated configuration and no production keys. It runs `--version` and
+`--help`, then starts normal mode against a host TCP listener for five seconds.
+Core dumps are disabled and a 15-second watchdog bounds the daemon test.
+
+The first final run set `reset_sequence: false`, verified a live TCP connection
+and the daemon's local control socket, and reported 420 KiB RSS / 8,880 KiB
+virtual memory for the main PID. Bypassing negotiation deliberately produces
+no secondary traffic and does not validate secondary compatibility. Report:
+`logs/cpc-smoke-1790949572631664862.json`.
+
+The second final run enabled the normal reset/handshake sequence against the
+same kind of silent host peer. The host received **63 CPC bytes**. CPCd logged
+normal reboot-mode commands, a two-second command timeout, and a connection
+retry; it remained alive. Main-PID RSS was 432 KiB. No secondary replied, so
+version negotiation and endpoint traffic were not completed. Report:
+`logs/cpc-smoke-1790949581761965860.json`. Both tested copies matched MD5
+`79d0dd37396db813546e8cc13c9bbb77` (transfer integrity only).
+
+Memory figures describe startup and are not active-traffic process-tree
+measurements. All test sockets/configuration stayed under `/tmp`; no installed
+daemon, launcher or configuration was replaced. No radio UART was opened and
+no firmware was flashed. Test processes were stopped, and the production
+`gateway-main` process remained running.
+
+For the Matter dual-mode goal, this clears the CPC daemon build/startup gate.
+Remaining work includes a compatible simulated/real CPC secondary handshake,
+client-library validation, a CPC transport adapter for Ziggurat, Spinel
+multi-interface routing, and joint Thread/Zigbee radio ownership. CPC frames
+and raw Spinel/HDLC are different transports; the previous Spinel simulator
+cannot serve as a CPC secondary without another protocol layer.
 
 ## Next gates
 

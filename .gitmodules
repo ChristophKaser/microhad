@@ -4,3 +4,6 @@
 [submodule "rtl8196e-gateway"]
 	path = rtl8196e-gateway
 	url = https://github.com/jnilo1/rtl8196e-gateway.git
+[submodule "cpc-daemon"]
+	path = cpc-daemon
+	url = https://github.com/SiliconLabs/cpc-daemon.git

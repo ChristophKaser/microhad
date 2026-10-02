@@ -1,0 +1,31 @@
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -67,7 +67,7 @@
+ 
+ ###
+ 
+-add_compile_options(-fno-omit-frame-pointer -fstack-protector-strong)
++add_compile_options(-fno-omit-frame-pointer -fstack-protector-all)
+ if(TARGET LTTng::UST)
+   link_libraries(LTTng::UST)
+ endif()
+@@ -77,6 +77,8 @@
+ endif()
+ 
+ get_git_head_revision(GIT_REFSPEC GIT_SHA1 ALLOW_LOOKING_ABOVE_CMAKE_SOURCE_DIR)
++execute_process(COMMAND git rev-parse HEAD WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}" OUTPUT_VARIABLE GIT_SHA1 OUTPUT_STRIP_TRAILING_WHITESPACE)
++set(GIT_REFSPEC "pinned-v4.5.3-stock-experiment")
+ configure_file("./misc/config.h.in" "config.h" @ONLY)
+ configure_file("./libcpc.pc.in" "libcpc.pc" @ONLY)
+ 
+@@ -176,3 +178,10 @@
+ install(TARGETS cpcd
+   RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+ install(FILES "./cpcd.conf" DESTINATION "${CMAKE_INSTALL_FULL_SYSCONFDIR}")
++
++# Isolated stock-uClibc compatibility, never installed globally.
++target_sources(cpcd PRIVATE "${PROJECT_SOURCE_DIR}/../../cpc/stock_compat.c")
++target_include_directories(cpcd PRIVATE "${PROJECT_SOURCE_DIR}/../../cpc/include")
++target_compile_options(cpcd PRIVATE -include "${PROJECT_SOURCE_DIR}/../../cpc/include/stock_compat.h")
++target_sources(cpcd PRIVATE "${PROJECT_SOURCE_DIR}/../../cpc/stack_guard.c")
++set_source_files_properties("${PROJECT_SOURCE_DIR}/../../cpc/stack_guard.c" PROPERTIES COMPILE_FLAGS "-fno-stack-protector")
