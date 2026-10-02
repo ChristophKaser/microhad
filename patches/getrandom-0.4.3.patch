@@ -1,0 +1,26 @@
+--- a/src/backends.rs
++++ b/src/backends.rs
+@@ -58,6 +58,8 @@
+         mod getentropy;
+         pub use getentropy::*;
+     } else if #[cfg(any(
++        // Stock MIPS/uClibc may run Linux before getrandom(2) existed.
++        all(target_os = "linux", target_env = "uclibc"),
+         // Rust supports Android API level 19 (KitKat) [0] and the next upgrade targets
+         // level 21 (Lollipop) [1], while `getrandom(2)` was added only in
+         // level 23 (Marshmallow). Note that it applies only to the "old" `target_arch`es,
+--- a/src/backends/linux_android_with_fallback.rs
++++ b/src/backends/linux_android_with_fallback.rs
+@@ -20,8 +20,11 @@
+ #[inline(never)]
+ fn init() -> NonNull<c_void> {
+     // Use static linking to `libc::getrandom` on MUSL targets and `dlsym` everywhere else
+-    #[cfg(not(target_env = "musl"))]
++    #[cfg(not(any(target_env = "musl", target_env = "uclibc")))]
+     let raw_ptr = unsafe { libc::dlsym(libc::RTLD_DEFAULT, c"getrandom".as_ptr()) };
++    // Static stock uClibc has no usable dynamic symbol lookup.
++    #[cfg(target_env = "uclibc")]
++    let raw_ptr = core::ptr::null_mut();
+     #[cfg(target_env = "musl")]
+     let raw_ptr = {
+         let fptr: GetRandomFn = libc::getrandom;

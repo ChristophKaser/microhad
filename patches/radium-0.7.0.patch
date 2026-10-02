@@ -1,0 +1,19 @@
+--- a/build.rs
++++ b/build.rs
+@@ -98,6 +98,16 @@
+         _ => {}
+     }
+ 
++    // Use compiler capabilities for custom target names as well.
++    if let Ok(widths) = env::var("CARGO_CFG_TARGET_HAS_ATOMIC") {
++        let widths: Vec<_> = widths.split(",").collect();
++        atomics.has_8 = widths.contains(&"8");
++        atomics.has_16 = widths.contains(&"16");
++        atomics.has_32 = widths.contains(&"32");
++        atomics.has_64 = widths.contains(&"64");
++        atomics.has_ptr = widths.contains(&"ptr");
++    }
++
+     if atomics.has_8 {
+         println!("cargo:rustc-cfg=radium_atomic_8");
+     }

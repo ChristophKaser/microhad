@@ -39,7 +39,8 @@ recorded in this repository rather than silently changing a source checkout.
   an atomic increment (`Cannot select ... MipsISD::Sync`). This is evidence
   of an obstacle, not proof that every newer Rust/LLVM implementation fails.
 - The modern kernel project documents emulation of `ll/sc` and `sync` on
-  Lexra. Support on the stock kernel and its performance remain unverified.
+  Lexra. The stock kernel passed the atomic-counter test below; emulation
+  performance under a real Zigbee workload remains unmeasured.
 - The inspected Ziggurat workspace requires Rust 1.98 and its host server
   uses Tokio. Its protocol core supports `no_std`. Its client protocol is
   different from EZSP; native gateway or Zigbee2MQTT integration is separate
@@ -96,12 +97,13 @@ that compiler rather than maintaining an outdated JSON schema by hand.
 
 The stock target disables compiler-provided thread-local storage using
 `has-thread-local: false`, selecting Rust's pthread-key implementation. The
-prototype-only C shim supplies missing `accept4` and `clock_nanosleep` wrappers
+experiment's C shim supplies missing `accept4` and `clock_nanosleep` wrappers
 using the RSDK headers' syscall numbers, and `pthread_setname_np` for the current
 thread using `prctl`. Errors are preserved; socket flags are passed atomically
 to the kernel. The shim supports neither naming another thread nor a name
 longer than 15 bytes. A diagnostic constructor reports the PC of SIGILL using
-an async-signal-safe write and exits without a core dump.
+an async-signal-safe write and exits without a core dump. The same shim now
+supplies `epoll_create1` and `eventfd` through the kernel syscalls for Tokio/Mio.
 
 Output: `prototype/target/lexra-stock-uclibc/release/lexra-rust-prototype`.
 The old linker rejects `-no-pie`; rustc automatically retries without it.
@@ -152,12 +154,87 @@ Build and run logs are retained locally under ignored `logs/`. Toolchains,
 caches, checkouts and prototype artifacts together use about 1 GiB at this
 stage; the modern GCC toolchain has not been built.
 
+## Dependency and Ziggurat builds — 2026-10-02
+
+```sh
+bash scripts/dependencies.sh host
+bash scripts/dependencies.sh stock
+bash scripts/build-ziggurat.sh
+```
+
+The dependency probe pins Tokio 1.53.1, tokio-serial 5.5.0, getrandom 0.4.3,
+rand 0.10.3 and parking_lot 0.12.5, matching the main dependencies investigated
+in Ziggurat. Its lockfile records the probe's transitive dependencies.
+
+`build-ziggurat.sh` creates an ignored detached Git worktree at
+`worktrees/ziggurat/`, matching the pinned submodule revision. The primary
+source submodules stay clean. It applies the recorded server patch there and
+builds the `ziggurat-server` package, whose executable is named `ziggurat`.
+
+The scripts make disposable crate copies in `build/patched-crates/` and use
+Cargo path overrides. Registry sources are not edited. Reviewable diffs are
+recorded under `patches/`:
+
+- `getrandom`: enable its existing old-Linux file fallback on uClibc and bypass
+  dynamic symbol lookup for this static target. The first dependency-device
+  run crashed before its first checkpoint; bypassing `dlsym` removed the crash.
+  The fallback waits for entropy readiness before reading `/dev/urandom`.
+- `nix`: fix the uClibc signal-flag type and exclude a duplicate MIPS
+  `SIGEV_THREAD_ID` match arm.
+- `radium`: use the compiler's reported atomic capabilities, including the
+  absence of 64-bit atomics, rather than guessing from our custom target name.
+- `ziggurat-stock-compat`: link the experiment's compatibility crate on uClibc.
+
+Do not run the two build scripts concurrently: both refresh shared disposable
+crate sources. Rust still labels MIPS-I support experimental.
+
+The host dependency probe passed entropy, Tokio scheduling/timers, loopback
+networking and bidirectional anonymous PTY I/O. On the gateway, entropy,
+Tokio's two-worker runtime, parking_lot and loopback networking passed. Creating
+an anonymous PTY then failed with `No such device or address`; `/dev/ptmx`
+exists but `devpts` is not mounted. The probe consequently exits with status 1,
+and serial I/O on this device remains unverified. No mounts or UARTs were
+changed to work around this limitation.
+
+The full Ziggurat build succeeded with the stock RSDK linker. Output:
+
+`build/ziggurat/lexra-stock-uclibc/release/ziggurat`
+
+It is a stripped, statically linked, big-endian ELF32 MIPS-I executable,
+approximately 3.4 MiB. Its MD5 for the tested build is
+`4036fee6a048b0bb33451936f6c68ca0` (transfer integrity, not a security signature).
+It was copied through SSH stdin into a new RAM-backed path,
+`/tmp/ziggurat-server-smoke-20261002`, and the device checksum matched.
+
+`scripts/device-ziggurat.sh` is the bounded smoke harness, passed through SSH
+stdin with that temporary executable path as its sole argument. It runs
+`--version`, `--help`, then starts the server for three seconds with
+`--device tcp://127.0.0.1:9 --listen 127.0.0.1:0`. Upstream opens its radio
+transport lazily; no client connected and no radio transport was opened.
+The server logged a successful listen, then was stopped by its test harness:
+
+```text
+ziggurat-server 0.1.0
+Listening for WebSocket clients on 127.0.0.1:0
+VmSize: 5720 kB
+VmRSS:  1024 kB
+Threads: 1
+PASS CLI and three-second localhost-only server startup; no radio client connected.
+```
+
+These memory figures describe an idle server before a Zigbee stack exists.
+They do not establish active-network memory, CPU performance or reliability.
+Existing gateway services, radio firmware, configuration and network state
+were preserved. Credentials were read only by `sshpass -f` using the existing
+password-file pathname and were not added to this repository.
+
 ## Next gates
 
-- Build a small Tokio/serial/entropy-dependency probe with this target. Passing
-  `std` does not prove Ziggurat's third-party dependencies work on Linux 3.10.
-- Try compiling Ziggurat, then measure resident memory and CPU use; the simple
-  prototype's success is not a production-readiness claim.
+- Exercise protocol handling with a simulated TCP RCP and measure memory/CPU
+  while the Zigbee stack is active. Idle startup is not a production-readiness
+  claim.
+- Validate serial I/O on the target without disrupting its coordinator; the
+  anonymous-PTY probe cannot run with the current device setup.
 - Validate RCP firmware, UART flow control and client integration separately,
   with explicit authorization and a backup before any firmware change.
 - Build the modern Lexra/musl toolchain if old-libc compatibility becomes too

@@ -19,7 +19,7 @@ static void report_illegal_instruction(int signal_number, siginfo_t *info,
 }
 
 /* Install before Rust's std startup, so early faults remain diagnosable.
- * Only diagnostic prototypes built with stock-compat include this object.
+ * Experiment executables built with stock-compat include this object.
  */
 __attribute__((constructor)) static void install_fault_report(void)
 {

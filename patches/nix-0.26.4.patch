@@ -1,0 +1,20 @@
+--- a/src/sys/signal.rs
++++ b/src/sys/signal.rs
+@@ -421,7 +421,7 @@
+         SA_NOCLDSTOP;
+         /// When catching a [`Signal::SIGCHLD`] signal, the system will not
+         /// create zombie processes when children of the calling process exit.
+-        SA_NOCLDWAIT;
++        SA_NOCLDWAIT as SaFlags_t;
+         /// Further occurrences of the delivered signal are not masked during
+         /// the execution of the handler.
+         SA_NODEFER;
+@@ -1069,7 +1069,7 @@
+                 SigevNotify::SigevThreadId{..} => libc::SIGEV_THREAD_ID,
+                 #[cfg(all(target_os = "linux", target_env = "uclibc"))]
+                 SigevNotify::SigevThreadId{..} => libc::SIGEV_THREAD_ID,
+-                #[cfg(any(all(target_os = "linux", target_env = "musl"), target_arch = "mips"))]
++                #[cfg(any(all(target_os = "linux", target_env = "musl"), all(target_arch = "mips", not(target_env = "uclibc"))))]
+                 SigevNotify::SigevThreadId{..} => 4  // No SIGEV_THREAD_ID defined
+             };
+             sev.sigev_signo = match sigev_notify {

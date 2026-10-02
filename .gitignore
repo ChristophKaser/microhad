@@ -2,5 +2,8 @@
 /logs/
 /targets/
 /prototype/target/
+/dependency-probe/target/
+/worktrees/
+/build/
 *.core
 core

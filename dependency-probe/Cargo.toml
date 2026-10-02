@@ -1,0 +1,19 @@
+[package]
+name = "lexra-dependency-probe"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98"
+
+[dependencies]
+tokio = { version = "=1.53.1", features = ["rt-multi-thread", "macros", "time", "sync", "net", "io-util"] }
+tokio-serial = "=5.5.0"
+getrandom = "=0.4.3"
+rand = "=0.10.3"
+parking_lot = "=0.12.5"
+
+[target.'cfg(target_env = "uclibc")'.dependencies]
+lexra-rust-prototype = { path = "../prototype", features = ["stock-compat"] }
+
+[profile.release]
+panic = "abort"
+opt-level = 2
