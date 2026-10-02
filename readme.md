@@ -16,6 +16,10 @@ EFR32MG1 radio through HDLC, without cpcd.
 - **Still pending:** firmware flashing and real radio ACK/source-match tests,
   an actual OTBR/Thread stack, Matter functionality and the
   `microhad-zigbee-native` adapter. These are not provided by the simulator.
+- **Existing network:** retaining pairings across NCP-to-RCP migration is a
+  goal, not yet validated. The native network-state file is not a complete
+  migration backup; export/import and rollback must be verified before flashing
+  the production radio. See the [network preservation gate](docs/hdlc-implementation-plan.md#network-preservation-before-flashing).
 - **Known issue:** one cold-boot configuration attempt stalled; kernel RNG
   readiness is a suspected cause. Device tests now check free RAM and clean
   their uploads after an earlier suspected ramfs memory-pressure incident.
