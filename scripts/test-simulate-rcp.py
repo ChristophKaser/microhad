@@ -10,6 +10,15 @@ spec.loader.exec_module(simulator)
 
 
 class WireTests(unittest.TestCase):
+    def test_linuxthreads_cpu_aggregation(self):
+        output = ["TOP_PID 100", "TOP_ROW 1 100 50 90% 6000",
+                  "TOP_ROW 2 102 101 13% 6000", "TOP_ROW 2 200 50 50% 2000",
+                  "TOP_ROW 2 100 50 1% 6000", "TOP_ROW 2 101 100 0% 6000"]
+        samples = simulator.top_samples(output)
+        self.assertEqual(len(samples), 1)
+        self.assertEqual(samples[0]["cpu_percent"], 14)
+        self.assertEqual({row["pid"] for row in samples[0]["threads"]}, {100, 101, 102})
+
     def test_upstream_hdlc_vector(self):
         self.assertEqual(simulator.encode(bytes.fromhex("810202")), bytes.fromhex("7e8102025e807e"))
         self.assertEqual(simulator.decode(bytes.fromhex("8102025e80")), bytes.fromhex("810202"))

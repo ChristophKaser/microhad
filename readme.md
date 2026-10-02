@@ -297,15 +297,63 @@ and stack shutdown. The simulator observed 12 transmitted frames (including
 stack-generated traffic), two resets and 47 channel property writes.
 Active-stack sampled RSS stayed at 2,240 KiB, compared with 1,712 KiB before
 configuration; the final shutdown sample was 2,248 KiB. CPU counters were
-sampled in kernel clock ticks and showed no tick increase between samples.
-Treat that as inconclusive CPU accounting on this kernel, rather than a
-reliable CPU percentage or throughput benchmark. The final JSON report is
+sampled only for the main PID and showed no tick increase. The subsequent
+`top` measurement below identified the missing LinuxThreads worker accounting;
+the original samples did not measure the complete runtime. That run's JSON is
 `logs/simulation-1790943782386518400.json` (ignored, retained locally).
 
 The harness also matches its HDLC encoding against the upstream test vector
 `7e8102025e807e`. WebSocket reconnects use normal closing handshakes. Expected
 simulated reset notifications appear at ERROR level in upstream logs; both
 resets were intentional, and recovery was checked.
+
+## CPU and response timing with the host simulator
+
+The harness now runs `top -b -d 1 -n 45` concurrently on the gateway. This
+uClibc uses LinuxThreads: the main thread, pthread manager and Tokio worker
+appear as three separate PIDs. The report discovers descendants of the test's
+main PID in each `top` snapshot and sums their CPU percentages. Sampling just
+the main PID misses the worker's CPU use. The first snapshot and intervals
+overlapping the request-soak boundaries are excluded from the soak summary.
+Shared memory is not summed across these PIDs.
+
+In the final instrumented 25-second soak, **Ziggurat averaged 11.3% CPU**,
+with **8–14%** across 22 full one-second `top` samples. The loop completed
+856 network-info queries with a 20 ms host pause between queries and 43 channel
+changes. Sampled peak RSS remained 2,248 KiB. `top` monitoring, SSH forwarding,
+and the existing native gateway daemon ran alongside the test; the percentage
+is Ziggurat's process tree, not total gateway CPU usage. BusyBox `top` reports
+whole percentages, so these are approximate measurements for this workload,
+not a maximum-capacity or real-mesh benchmark.
+
+Host timing uses `time.perf_counter_ns()` from request send to receipt of the
+matching protocol response, grouped by command and status. Raw samples and
+minimum, mean, median, nearest-rank p95/p99 and maximum are retained in JSON.
+These are end-to-end timings including the WebSocket SSH tunnel, gateway
+scheduling and, for radio operations, the LAN trip to the simulated RCP.
+They do not isolate Ziggurat's internal execution time.
+
+| Request | Samples | Median | p95 | Maximum |
+| --- | ---: | ---: | ---: | ---: |
+| Network info | 858 | 7.43 ms | 17.50 ms | 28.66 ms |
+| Set channel | 43 | 10.16 ms | 15.65 ms | 19.69 ms |
+| Broadcast admission response | 10 | 9.34 ms | 20.01 ms | 20.01 ms |
+
+The network-info count also includes the two checks outside the soak.
+Single-operation measurements were 36.78 ms for address lookup, 13.77 ms
+for configuration and 46.43 ms for network startup. Broadcast timings measure
+admission responses; asynchronous completion notifications were validated but
+their delivery latency was not measured.
+
+The host simulator's HDLC decode, command handling and response socket write
+averaged **0.074 ms** across 96 commands (p95 0.127 ms, maximum 0.186 ms).
+This excludes network transit and gateway processing. One injected receive
+frame took **5.59 ms** from host injection to client capture-event receipt.
+
+Results are retained locally in
+`logs/simulation-1790944335723529010.json`; sanitized `top` rows are included.
+The complete gateway `top` log remains in that report's `remote_top_log`
+temporary path. The harness stops both Ziggurat and `top` after the test.
 
 This simulator does not model RF timing, contention, real peers, joins,
 interference, routing load or a Thread network. It checks transport, API and

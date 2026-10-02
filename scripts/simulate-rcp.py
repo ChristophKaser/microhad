@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import shlex
 import socket
+import statistics
 import struct
 import subprocess
 import threading
@@ -95,6 +96,7 @@ class Rcp:
         self.counts = Counter()
         self.properties = {8: EUI[::-1], 2: b"host-simulated-rcp\x00"}
         self.error = None
+        self.response_times_ms = []
         self.worker = threading.Thread(target=self.run, daemon=True)
         self.worker.start()
 
@@ -164,7 +166,9 @@ class Rcp:
                 for byte in chunk:
                     if byte == 0x7e:
                         if buffer:
+                            response_started = time.perf_counter_ns()
                             self.receive_frame(decode(buffer))
+                            self.response_times_ms.append((time.perf_counter_ns() - response_started) / 1e6)
                             buffer.clear()
                     else:
                         buffer.append(byte)
@@ -183,7 +187,7 @@ class Rcp:
 
 
 class Client:
-    def __init__(self, port):
+    def __init__(self, port, timings=None):
         self.conn = socket.create_connection(("127.0.0.1", port), timeout=5)
         key = base64.b64encode(os.urandom(16)).decode()
         self.conn.sendall((f"GET / HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\n"
@@ -199,6 +203,7 @@ class Client:
         if not header.startswith(b"HTTP/1.1 101 ") or expected not in header:
             raise ValueError("WebSocket handshake failed")
         self.sequence = 0
+        self.timings = timings if timings is not None else []
         self.events = []
         self.hello = self.receive()
         assert self.hello[:4] == b"\x00\x03\x00\x02", self.hello
@@ -237,11 +242,14 @@ class Client:
     def request(self, command, payload=b"", status=0):
         self.sequence += 1
         data = bytes([command]) + struct.pack("<H", self.sequence << 2) + payload
+        started = time.perf_counter_ns()
         self.send(2, data)
         while True:
             frame = self.receive()
             if frame[:3] == bytes([command]) + struct.pack("<H", (self.sequence << 2) | 1):
                 assert frame[3] == status, (command, frame.hex())
+                self.timings.append({"command": command, "status": status,
+                                     "elapsed_ms": (time.perf_counter_ns() - started) / 1e6})
                 return frame[4:]
             self.events.append(frame)
 
@@ -274,6 +282,44 @@ def ssh_args(args):
             "-o", "PubkeyAuthentication=no"]
 
 
+def timing_summary(values):
+    if not values:
+        return None
+    ordered = sorted(values)
+    # Nearest-rank quantiles keep single-operation samples interpretable.
+    def percentile(percent):
+        import math
+        return ordered[max(0, math.ceil(len(ordered) * percent / 100) - 1)]
+    return {"count": len(values), "min_ms": ordered[0], "mean_ms": statistics.mean(values),
+            "median_ms": statistics.median(values), "p95_ms": percentile(95),
+            "p99_ms": percentile(99), "max_ms": ordered[-1]}
+
+
+def top_samples(output):
+    """Sum LinuxThreads descendants, which have their own PIDs on stock uClibc."""
+    root_pid = next((int(line.split()[1]) for line in output if line.startswith("TOP_PID ")), None)
+    frames = {}
+    for line in output:
+        if line.startswith("TOP_ROW "):
+            _, frame, pid, parent, cpu, vsz = line.split()
+            frames.setdefault(int(frame), []).append({"pid": int(pid), "parent": int(parent),
+                "cpu_percent": float(cpu.rstrip("%")), "vsz_kib": int(vsz)})
+    result = []
+    for frame, rows in sorted(frames.items()):
+        if frame == 1 or not any(row["pid"] == root_pid for row in rows):
+            continue
+        owned = {root_pid}
+        while True:
+            added = {row["pid"] for row in rows if row["parent"] in owned} - owned
+            if not added:
+                break
+            owned.update(added)
+        members = [row for row in rows if row["pid"] in owned]
+        result.append({"frame": frame, "cpu_percent": sum(row["cpu_percent"] for row in members),
+                       "threads": members})
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--host", default="192.168.178.62")
@@ -293,19 +339,25 @@ def main():
     remote_port = 19997
     token = str(time.time_ns())
     remote_log = f"/tmp/ziggurat-simulation-{token}.log"
+    top_log = remote_log + ".top"
     remote = f"""set -u
 ulimit -c 0 || exit 1
 test -x {shlex.quote(args.binary)} || exit 2
 test ! -e {remote_log} || exit 2
 {shlex.quote(args.binary)} --device tcp://{rcp.address}:{rcp.port} --listen 127.0.0.1:{remote_port} --log-level info > {remote_log} 2>&1 &
 child=$!
+echo TOP_PID "$child"
+top -b -d 1 -n 45 > {top_log} 2>&1 &
+top_pid=$!
 (sleep 55; kill -9 "$child" 2>/dev/null) &
 watchdog=$!
 cleanup() {{
-    kill "$child" "$watchdog" 2>/dev/null
+    kill "$top_pid" "$child" "$watchdog" 2>/dev/null
+    wait "$top_pid" 2>/dev/null
     wait "$child" 2>/dev/null
     wait "$watchdog" 2>/dev/null
     cat {remote_log}
+    awk '/^CPU:/ {{frame++; print "TOP_CPU", frame, $0}} $1 ~ /^[0-9]+$/ && NF >= 8 {{print "TOP_ROW", frame, $1, $2, $7, $5}}' {top_log}
 }}
 trap cleanup EXIT HUP INT TERM
 sleep 1
@@ -314,6 +366,8 @@ echo READY
 while read action; do
     case "$action" in
         sample) echo SAMPLE; cat /proc/$child/stat; awk '/^(VmSize|VmRSS|Threads):/' /proc/$child/status ;;
+        phase-start) echo TOP_SOAK_START $(awk '/^CPU:/ {{n++}} END {{print n+0}}' {top_log}) ;;
+        phase-end) echo TOP_SOAK_END $(awk '/^CPU:/ {{n++}} END {{print n+0}}' {top_log}) ;;
         stop) exit 0 ;;
     esac
 done
@@ -334,6 +388,8 @@ done
     reader = threading.Thread(target=read_output, daemon=True)
     reader.start()
     client = None
+    timings = []
+    receive_latency_ms = None
     results = []
     failure = None
     started = time.monotonic()
@@ -350,7 +406,7 @@ done
         print(f"Host RCP listening on {rcp.address}:{rcp.port}; gateway API through SSH localhost forward", flush=True)
         if not ready.wait(12):
             raise RuntimeError("Gateway failed to start: " + "\n".join(output))
-        client = Client(client_port)
+        client = Client(client_port, timings)
         assert client.hello[4] == 0
         passed("WebSocket handshake and protocol-v2 unconfigured Hello")
         sample()
@@ -359,13 +415,15 @@ done
         client.request(0x42, b"\x0f")
         psdu = bytes.fromhex("01087e7d1113f8")
         time.sleep(0.1)
+        injected_at = time.perf_counter_ns()
         rcp.inject(psdu)
         received = client.receive()
+        receive_latency_ms = (time.perf_counter_ns() - injected_at) / 1e6
         assert received[0] == 0x42 and received[1] & 3 == 2
         assert received[3:] == struct.pack("<BbBH", 15, -42, 200, len(psdu)) + psdu
         passed("Simulated receive → Spinel decoding → client capture event, including escaped bytes")
         client.close()
-        client = Client(client_port)
+        client = Client(client_port, timings)
         client.request(0x10, config())
         passed("Configure with synthetic coordinator state")
         client.request(0x16)
@@ -393,6 +451,8 @@ done
         assert rcp.properties[33] == b"\x0f" and rcp.properties[55] == b"\x01"
         passed("Hard reset of simulated RCP and active-stack reprogramming")
         queries = 0
+        ssh.stdin.write("phase-start\n")
+        ssh.stdin.flush()
         soak_start = time.monotonic()
         while time.monotonic() - soak_start < args.seconds:
             client.request(0x20)
@@ -401,6 +461,8 @@ done
                 sample()
             queries += 1
             time.sleep(0.02)
+        ssh.stdin.write("phase-end\n")
+        ssh.stdin.flush()
         assert rcp.counts["tx_frames"] >= 10, rcp.counts
         confirms = [event for event in client.events
                     if event[0] == 0x13 and event[1] & 3 == 3]
@@ -408,7 +470,7 @@ done
         passed("Ten successful asynchronous BroadcastConfirm notifications")
         passed(f"{args.seconds}-second active-stack soak, {queries} network queries and channel changes")
         client.close()
-        client = Client(client_port)
+        client = Client(client_port, timings)
         assert client.hello[4] & 1
         assert client.request(0x20)[-1] & 1
         passed("Client reconnect preserves configured, running stack")
@@ -439,7 +501,8 @@ done
         rcp.close()
         report = {"passed": results, "failure": failure, "rcp_error": rcp.error,
                   "rcp_counts": dict(rcp.counts), "elapsed_seconds": time.monotonic() - started,
-                  "remote_log": remote_log, "gateway_output": output, "ssh_exit": ssh.returncode}
+                  "remote_log": remote_log, "remote_top_log": top_log,
+                  "gateway_output": output, "ssh_exit": ssh.returncode}
         rss = [int(line.split()[1]) for line in output if line.startswith("VmRSS:")]
         cpu = []
         for line in output:
@@ -447,8 +510,33 @@ done
                 fields = line.split(") ", 1)[1].split()
                 cpu.append(int(fields[11]) + int(fields[12]))
         report["resources"] = {"rss_kib_samples": rss, "cpu_ticks_samples": cpu,
+                               "cpu_ticks_scope": "main PID only; excludes LinuxThreads workers",
+                               "top_interval_seconds": 1,
                                "peak_sampled_rss_kib": max(rss) if rss else None,
                                "sampled_cpu_ticks_delta": cpu[-1] - cpu[0] if cpu else None}
+        # top's initial snapshot is not an interval sample.
+        samples = top_samples(output)
+        report["resources"]["top_process_tree_samples"] = samples
+        report["resources"]["top_cpu_mean_percent"] = statistics.mean(
+            sample["cpu_percent"] for sample in samples) if samples else None
+        report["resources"]["top_cpu_max_percent"] = max(
+            (sample["cpu_percent"] for sample in samples), default=None)
+        soak_first = next((int(line.split()[1]) for line in output if line.startswith("TOP_SOAK_START ")), None)
+        soak_last = next((int(line.split()[1]) for line in output if line.startswith("TOP_SOAK_END ")), None)
+        active = [sample["cpu_percent"] for sample in samples
+                  if soak_first is not None and soak_last is not None
+                  and soak_first + 1 < sample["frame"] <= soak_last]
+        report["resources"]["top_soak_cpu_percent"] = {
+            "samples": len(active), "mean": statistics.mean(active) if active else None,
+            "min": min(active, default=None), "max": max(active, default=None)}
+        report["request_timings"] = timings
+        report["latency_by_command"] = {
+            f"0x{command:02x}/status0x{status:02x}": timing_summary(
+                [entry["elapsed_ms"] for entry in timings
+                 if entry["command"] == command and entry["status"] == status])
+            for command, status in sorted({(entry["command"], entry["status"]) for entry in timings})}
+        report["simulated_rcp_response_ms"] = timing_summary(rcp.response_times_ms)
+        report["injected_receive_to_client_ms"] = receive_latency_ms
         (ROOT / "logs").mkdir(exist_ok=True)
         path = ROOT / "logs" / f"simulation-{token}.json"
         path.write_text(json.dumps(report, indent=2) + "\n")
