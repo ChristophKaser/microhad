@@ -333,6 +333,8 @@ Gateway::Gateway(const std::string& serialDevice, int serialBaud, const std::str
     networkChannel_(0), interviewRequestInFlight_(false), interviewSendAccepted_(false), interviewEzspSequence_(0), interviewNode_(0xffff),
     interviewDeadline_(0), nextMessageTag_(1), coordinatorIeeeAddressRequested_(false), logRing_(LogRing::defaultPath()), logBytes_(0), viewDirty_(true) {
     lastSecurityDiagnosticsAt_ = 0;
+    unsupportedSecurityValues_ = 0;
+    lastNetworkKeySequence_ = -1;
 }
 
 Gateway::~Gateway() {
@@ -2723,6 +2725,7 @@ void Gateway::sendAshReset() {
     logSecurityCounterSnapshot("before ASH reset (last sampled values)");
     securityDiagnosticQueries_.clear();
     std::vector<unsigned char> raw;
+    unsupportedSecurityValues_ = 0;
     std::vector<unsigned char> reset = AshTransport::encodeData(0xc0, raw);
     reset.insert(reset.begin(), 0x1a);
     ash_.reset();
@@ -2928,8 +2931,13 @@ void Gateway::requestSecurityDiagnostics(const std::string& reason) {
     const unsigned char values[] = {0x23, 0x24, 0x07};
     lastSecurityDiagnosticsAt_ = now;
     for (unsigned int i = 0; i < sizeof(values); ++i) {
+        if (unsupportedSecurityValues_ & (1U << i)) continue;
         std::vector<unsigned char> payload(1, values[i]);
-        unsigned char sequence = sendEzspCommand(0x00aa, payload); /* getValue */
+        const bool networkInfo = values[i] == 0x23 && ezspVersion_ >= 13;
+        if (networkInfo) payload.clear();
+        /* v13 counter VALUE IDs are setters only. getNetworkKeyInfo returns
+           sequence and counter metadata without exporting any key bytes. */
+        unsigned char sequence = sendEzspCommand(networkInfo ? 0x0116 : 0x00aa, payload);
         SecurityDiagnosticQuery query;
         query.value = values[i]; query.requestedAt = now; query.reason = reason;
         securityDiagnosticQueries_[sequence] = query;
@@ -3113,34 +3121,56 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
                 << status << " bytes=" << std::dec << frame.size();
         addLog(message.str());
     }
-    if (command == 0x00aa) {
+    if (command == 0x00aa || command == 0x0116) {
         std::map<unsigned char, SecurityDiagnosticQuery>::iterator found = securityDiagnosticQueries_.find(frame[0]);
         if (found == securityDiagnosticQueries_.end()) return;
         SecurityDiagnosticQuery query = found->second;
+        const bool networkInfo = query.value == 0x23 && ezspVersion_ >= 13;
+        if (command != (networkInfo ? 0x0116 : 0x00aa)) return;
         securityDiagnosticQueries_.erase(found);
         std::ostringstream message;
         message << "NCP security diagnostic: reason=" << query.reason << " value=0x" << std::hex
                 << static_cast<unsigned int>(query.value);
         const unsigned int expected = query.value == 0x07 ? 1 : 4;
+        unsigned long status = 0xff;
+        if (networkInfo && frame.size() >= payloadOffset + 4) {
+            status = 0;
+            for (unsigned int i = 0; i < 4; ++i)
+                status |= static_cast<unsigned long>(frame[payloadOffset + i]) << (8 * i);
+        } else if (!networkInfo && frame.size() > payloadOffset) status = frame[payloadOffset];
+        const bool valid = networkInfo ? (frame.size() == payloadOffset + 12 && frame[payloadOffset + 4] == 1) :
+            (frame.size() >= payloadOffset + 2 && frame[payloadOffset + 1] == expected &&
+             frame.size() == payloadOffset + 2 + expected);
         if (time(0) - query.requestedAt >= 10) message << " expired reply";
-        else if (frame.size() < payloadOffset + 2 || frame[payloadOffset] != 0 ||
-                 frame[payloadOffset + 1] != expected || frame.size() != payloadOffset + 2 + expected) {
+        else if (status != 0 || !valid) {
             message << " unavailable status=0x"
-                    << (frame.size() > payloadOffset ? static_cast<unsigned int>(frame[payloadOffset]) : 0xff)
+                    << status
                     << " bytes=" << std::dec << frame.size() - payloadOffset;
+            if (!networkInfo && status == 0x37) {
+                unsupportedSecurityValues_ |= query.value == 0x23 ? 1U : query.value == 0x24 ? 2U : 4U;
+                message << " unsupported; skipping until next radio reset";
+            }
         } else {
             unsigned long value = 0;
             for (unsigned int i = 0; i < expected; ++i)
-                value |= static_cast<unsigned long>(frame[payloadOffset + 2 + i]) << (8 * i);
+                value |= static_cast<unsigned long>(frame[payloadOffset + (networkInfo ? 8 : 2) + i]) << (8 * i);
             message << std::dec;
             if (query.value == 0x07) message << " stack_token_writing=" << value;
             else {
                 message << (query.value == 0x23 ? " nwk_counter=" : " aps_counter=") << value;
+                const int keySequence = networkInfo ? frame[payloadOffset + 6] : -1;
+                if (networkInfo)
+                    message << " key_sequence=" << keySequence
+                            << " alternate_key_set=" << static_cast<unsigned int>(frame[payloadOffset + 5]);
                 std::map<unsigned char, std::pair<unsigned long, long> >::const_iterator previous =
                     securityCounterSamples_.find(query.value);
-                if (previous != securityCounterSamples_.end())
+                if (previous != securityCounterSamples_.end()) {
                     message << " previous=" << previous->second.first << " previous_sampled_at=" << previous->second.second
                             << " decreased=" << (value < previous->second.first ? "true" : "false");
+                    if (networkInfo) message << " previous_key_sequence=" << lastNetworkKeySequence_
+                                             << " same_key_sequence=" << (keySequence == lastNetworkKeySequence_ ? "true" : "false");
+                }
+                if (networkInfo) lastNetworkKeySequence_ = keySequence;
                 securityCounterSamples_[query.value] = std::make_pair(value, static_cast<long>(time(0)));
             }
         }

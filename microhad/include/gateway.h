@@ -296,6 +296,8 @@ private:
     std::map<unsigned char, SecurityDiagnosticQuery> securityDiagnosticQueries_;
     std::map<unsigned char, std::pair<unsigned long, long> > securityCounterSamples_;
     long lastSecurityDiagnosticsAt_;
+    unsigned int unsupportedSecurityValues_;
+    int lastNetworkKeySequence_;
     unsigned long serialRxBytes_;
     unsigned long ashRxFrames_;
     bool networkForming_;

@@ -2060,7 +2060,13 @@ void testSecurityCountersAndDeliveryDiagnostics() {
         unsigned char persistence = GatewayIntegrationTestPeer::securityDiagnosticSequence(gateway, 0x07);
         /* Replies can arrive out of order; counters are unsigned little-endian. */
         GatewayIntegrationTestPeer::injectEzspFrame(&gateway, diagnosticReply(aps, 0, 4, 0xffffffffUL), versions[version]);
-        GatewayIntegrationTestPeer::injectEzspFrame(&gateway, diagnosticReply(nwk, 0, 4, 65536), versions[version]);
+        std::vector<unsigned char> nwkReply = diagnosticReply(nwk, 0, 4, 65536);
+        if (versions[version] == 13) {
+            nwkReply.resize(17, 0); nwkReply[3] = 0x16; nwkReply[4] = 1;
+            for (unsigned int i = 5; i < 17; ++i) nwkReply[i] = 0;
+            nwkReply[9] = 1; nwkReply[11] = 7; nwkReply[15] = 1;
+        }
+        GatewayIntegrationTestPeer::injectEzspFrame(&gateway, nwkReply, versions[version]);
         GatewayIntegrationTestPeer::injectEzspFrame(&gateway, diagnosticReply(persistence, 0, 1, 0), versions[version]);
         assert(gateway.logsJson().find("aps_counter=4294967295") != std::string::npos);
         assert(gateway.logsJson().find("nwk_counter=65536") != std::string::npos);
@@ -2070,7 +2076,10 @@ void testSecurityCountersAndDeliveryDiagnostics() {
         nwk = GatewayIntegrationTestPeer::securityDiagnosticSequence(gateway, 0x23);
         aps = GatewayIntegrationTestPeer::securityDiagnosticSequence(gateway, 0x24);
         persistence = GatewayIntegrationTestPeer::securityDiagnosticSequence(gateway, 0x07);
-        GatewayIntegrationTestPeer::injectEzspFrame(&gateway, diagnosticReply(nwk, 0, 3, 9), versions[version]);
+        std::vector<unsigned char> shortReply = versions[version] == 13 ? nwkReply : diagnosticReply(nwk, 0, 3, 9);
+        shortReply[0] = nwk;
+        if (versions[version] == 13) shortReply.pop_back();
+        GatewayIntegrationTestPeer::injectEzspFrame(&gateway, shortReply, versions[version]);
         GatewayIntegrationTestPeer::injectEzspFrame(&gateway, diagnosticReply(aps, 0x37, 0, 0), versions[version]);
         GatewayIntegrationTestPeer::injectEzspFrame(&gateway, diagnosticReply(persistence, 0, 1, 1), versions[version]);
         assert(gateway.logsJson().find("value=0x23 unavailable") != std::string::npos);
@@ -2082,8 +2091,15 @@ void testSecurityCountersAndDeliveryDiagnostics() {
         GatewayIntegrationTestPeer::setNetworkReady(&gateway, true);
         GatewayIntegrationTestPeer::requestSecurityDiagnostics(&gateway);
         nwk = GatewayIntegrationTestPeer::securityDiagnosticSequence(gateway, 0x23);
-        GatewayIntegrationTestPeer::injectEzspFrame(&gateway, diagnosticReply(nwk, 0, 4, 12), versions[version]);
-        assert(gateway.logsJson().find("nwk_counter=12 previous=65536") != std::string::npos);
+        std::vector<unsigned char> lowerReply = versions[version] == 13 ? nwkReply : diagnosticReply(nwk, 0, 4, 12);
+        lowerReply[0] = nwk;
+        if (versions[version] == 13) {
+            lowerReply[13] = 12; lowerReply[14] = 0; lowerReply[15] = 0; lowerReply[16] = 0;
+        }
+        GatewayIntegrationTestPeer::injectEzspFrame(&gateway, lowerReply, versions[version]);
+        assert(gateway.logsJson().find("nwk_counter=12") != std::string::npos);
+        assert(gateway.logsJson().find("previous=65536") != std::string::npos);
+        if (versions[version] == 13) assert(gateway.logsJson().find("same_key_sequence=true") != std::string::npos);
         assert(gateway.logsJson().find("decreased=true") != std::string::npos);
         delivery[20] = 0;
         GatewayIntegrationTestPeer::injectEzspFrame(&gateway, delivery, versions[version]);
