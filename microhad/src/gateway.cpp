@@ -332,6 +332,7 @@ Gateway::Gateway(const std::string& serialDevice, int serialBaud, const std::str
     ashAckDeadline_(0), ashRetries_(0), ashPendingSensitive_(false), ezspVersion_(4), zdoSequence_(0), zclTransactionSequence_(0), ezspVersionNegotiated_(false), stackTokenWritingRequested_(false), networkInitRequested_(false), tradfriBindGroupConfigured_(false), coordinatorInitializationStep_(0), coordinatorInitializationDeadline_(0), resetDeadline_(0), serialReconnectFailures_(0), zigbeeDownAlertQueued_(false), nextHeartbeatAt_(0), serialRxBytes_(0), ashRxFrames_(0), networkForming_(false), networkFormationStep_(0), networkFormationDeadline_(0), networkFormed_(false), networkPanId_(0),
     networkChannel_(0), interviewRequestInFlight_(false), interviewSendAccepted_(false), interviewEzspSequence_(0), interviewNode_(0xffff),
     interviewDeadline_(0), nextMessageTag_(1), coordinatorIeeeAddressRequested_(false), logRing_(LogRing::defaultPath()), logBytes_(0), viewDirty_(true) {
+    lastSecurityDiagnosticsAt_ = 0;
 }
 
 Gateway::~Gateway() {
@@ -656,6 +657,7 @@ void Gateway::poll() {
         addLog("Coordinator heartbeat");
         sendEzspCommand(0x0005, std::vector<unsigned char>()); /* nop */
         nextHeartbeatAt_ = time(0) + 20;
+        if (time(0) - lastSecurityDiagnosticsAt_ >= 60) requestSecurityDiagnostics("periodic");
     }
     if (!online_ && resetDeadline_ != 0 && time(0) >= resetDeadline_) {
         if (serialFd_ < 0) {
@@ -2658,6 +2660,8 @@ void Gateway::flushSerialOutput() {
 }
 
 void Gateway::failSerial(const char* operation, int errorNumber) {
+    logSecurityCounterSnapshot("serial failure");
+    securityDiagnosticQueries_.clear();
     std::ostringstream message;
     message << "Serial " << operation << " failed";
     if (errorNumber != 0) message << ": " << strerror(errorNumber);
@@ -2716,6 +2720,8 @@ void Gateway::pollAshTransmit() {
 }
 
 void Gateway::sendAshReset() {
+    logSecurityCounterSnapshot("before ASH reset (last sampled values)");
+    securityDiagnosticQueries_.clear();
     std::vector<unsigned char> raw;
     std::vector<unsigned char> reset = AshTransport::encodeData(0xc0, raw);
     reset.insert(reset.begin(), 0x1a);
@@ -2746,6 +2752,8 @@ void Gateway::sendAshReset() {
 unsigned char Gateway::sendEzspCommand(unsigned short command, const std::vector<unsigned char>& payload) {
     std::vector<unsigned char> ezsp;
     unsigned char sequence = ezspSequence_++;
+    /* A wrapped sequence must never identify an expired diagnostic query. */
+    securityDiagnosticQueries_.erase(sequence);
     ezsp.push_back(sequence);
     if (ezspVersion_ >= 8) {
         ezsp.push_back(0x00); ezsp.push_back(0x01);
@@ -2890,6 +2898,42 @@ void Gateway::enableStackTokenWriting() {
     stackTokenWritingRequested_ = true;
     addLog("Enabling NCP stack token writing");
     sendEzspCommand(kEzspSetValue, payload);
+}
+
+void Gateway::logSecurityCounterSnapshot(const char* reason) {
+    std::ostringstream message;
+    message << "NCP security counter snapshot: reason=" << reason;
+    for (std::map<unsigned char, std::pair<unsigned long, long> >::const_iterator it =
+             securityCounterSamples_.begin(); it != securityCounterSamples_.end(); ++it)
+        message << (it->first == 0x23 ? " nwk=" : " aps=") << it->second.first
+                << " sampled_at=" << it->second.second;
+    if (securityCounterSamples_.empty()) message << " no samples available";
+    addLog(message.str());
+}
+
+void Gateway::requestSecurityDiagnostics(const std::string& reason) {
+    if (!online_ || !networkFormed_ || coordinatorInitializationStep_ != 0) return;
+    const long now = time(0);
+    for (std::map<unsigned char, SecurityDiagnosticQuery>::iterator it = securityDiagnosticQueries_.begin();
+         it != securityDiagnosticQueries_.end(); ) {
+        if (now - it->second.requestedAt < 10) return;
+        std::ostringstream message;
+        message << "NCP security diagnostic timed out: value=0x" << std::hex
+                << static_cast<unsigned int>(it->second.value) << " reason=" << it->second.reason;
+        addLog(message.str());
+        securityDiagnosticQueries_.erase(it++);
+    }
+    /* Read counters and persistence mode only. Never request key material,
+       modify counters, or introduce additional token/flash writes. */
+    const unsigned char values[] = {0x23, 0x24, 0x07};
+    lastSecurityDiagnosticsAt_ = now;
+    for (unsigned int i = 0; i < sizeof(values); ++i) {
+        std::vector<unsigned char> payload(1, values[i]);
+        unsigned char sequence = sendEzspCommand(0x00aa, payload); /* getValue */
+        SecurityDiagnosticQuery query;
+        query.value = values[i]; query.requestedAt = now; query.reason = reason;
+        securityDiagnosticQueries_[sequence] = query;
+    }
 }
 
 void Gateway::configureTradfriBindGroup() {
@@ -3065,8 +3109,70 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
         std::ostringstream message;
         unsigned int status = frame.size() > payloadOffset ? frame[payloadOffset] : 0xff;
         message << "EZSP <- v" << std::dec << static_cast<unsigned int>(ezspVersion_) << " 0x" << std::hex
-                << command << " status=0x" << status << " bytes=" << std::dec << frame.size();
+                << command << (command == 0x003f ? " type=0x" : " first_byte=0x")
+                << status << " bytes=" << std::dec << frame.size();
         addLog(message.str());
+    }
+    if (command == 0x00aa) {
+        std::map<unsigned char, SecurityDiagnosticQuery>::iterator found = securityDiagnosticQueries_.find(frame[0]);
+        if (found == securityDiagnosticQueries_.end()) return;
+        SecurityDiagnosticQuery query = found->second;
+        securityDiagnosticQueries_.erase(found);
+        std::ostringstream message;
+        message << "NCP security diagnostic: reason=" << query.reason << " value=0x" << std::hex
+                << static_cast<unsigned int>(query.value);
+        const unsigned int expected = query.value == 0x07 ? 1 : 4;
+        if (time(0) - query.requestedAt >= 10) message << " expired reply";
+        else if (frame.size() < payloadOffset + 2 || frame[payloadOffset] != 0 ||
+                 frame[payloadOffset + 1] != expected || frame.size() != payloadOffset + 2 + expected) {
+            message << " unavailable status=0x"
+                    << (frame.size() > payloadOffset ? static_cast<unsigned int>(frame[payloadOffset]) : 0xff)
+                    << " bytes=" << std::dec << frame.size() - payloadOffset;
+        } else {
+            unsigned long value = 0;
+            for (unsigned int i = 0; i < expected; ++i)
+                value |= static_cast<unsigned long>(frame[payloadOffset + 2 + i]) << (8 * i);
+            message << std::dec;
+            if (query.value == 0x07) message << " stack_token_writing=" << value;
+            else {
+                message << (query.value == 0x23 ? " nwk_counter=" : " aps_counter=") << value;
+                std::map<unsigned char, std::pair<unsigned long, long> >::const_iterator previous =
+                    securityCounterSamples_.find(query.value);
+                if (previous != securityCounterSamples_.end())
+                    message << " previous=" << previous->second.first << " previous_sampled_at=" << previous->second.second
+                            << " decreased=" << (value < previous->second.first ? "true" : "false");
+                securityCounterSamples_[query.value] = std::make_pair(value, static_cast<long>(time(0)));
+            }
+        }
+        addLog(message.str());
+        return;
+    }
+    if (command == 0x003f) {
+        if (frame.size() < payloadOffset + 17 ||
+            frame.size() != payloadOffset + 17 + frame[payloadOffset + 16]) {
+            addLog("Truncated or malformed NCP delivery callback");
+            return;
+        }
+        const unsigned char* p = &frame[payloadOffset];
+        unsigned short destination = static_cast<unsigned short>(p[1]) | (static_cast<unsigned short>(p[2]) << 8);
+        unsigned int status = p[15];
+        std::ostringstream message;
+        message << "APS delivery: type=" << static_cast<unsigned int>(p[0]) << " recipient=";
+        if (p[0] == 0 || p[0] == 1 || p[0] == 2) message << deviceLogLabel(destination);
+        else message << "group/index=0x" << std::hex << destination;
+        message << " profile=0x" << std::hex << (static_cast<unsigned int>(p[3]) | (static_cast<unsigned int>(p[4]) << 8))
+                << " cluster=0x" << (static_cast<unsigned int>(p[5]) | (static_cast<unsigned int>(p[6]) << 8))
+                << " src_ep=" << std::dec << static_cast<unsigned int>(p[7])
+                << " dst_ep=" << static_cast<unsigned int>(p[8]) << " radio_aps_seq=" << static_cast<unsigned int>(p[13])
+                << " tag=" << static_cast<unsigned int>(p[14]) << " status=0x" << std::hex << status;
+        if (status == 0) message << " (success)";
+        else if (status == 0xc9) message << " (no APS acknowledgement)";
+        else if (status == 0x40) message << " (no MAC acknowledgement)";
+        else if (status == 0xcf) message << " (no route)";
+        else if (status == 0x66) message << " (delivery failed)";
+        addLog(message.str());
+        if (status != 0 && time(0) - lastSecurityDiagnosticsAt_ >= 10)
+            requestSecurityDiagnostics("delivery failure");
     }
     if (command == 0 && ezspVersionNegotiated_) {
         std::ostringstream version;
@@ -3177,6 +3283,7 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
             addLog("NCP Zigbee network is active");
             requestCoordinatorIeeeAddress();
             configureTradfriBindGroup();
+            requestSecurityDiagnostics("network active after initialization");
         } else if (frame[payloadOffset] == 0x9c || frame[payloadOffset] == 0x9d) {
             /* NETWORK_OPENED and NETWORK_CLOSED describe the permit-join
                window, not whether the coordinator left the network. */

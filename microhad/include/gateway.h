@@ -288,6 +288,14 @@ private:
     unsigned int serialReconnectFailures_;
     bool zigbeeDownAlertQueued_;
     long nextHeartbeatAt_;
+    struct SecurityDiagnosticQuery {
+        unsigned char value;
+        long requestedAt;
+        std::string reason;
+    };
+    std::map<unsigned char, SecurityDiagnosticQuery> securityDiagnosticQueries_;
+    std::map<unsigned char, std::pair<unsigned long, long> > securityCounterSamples_;
+    long lastSecurityDiagnosticsAt_;
     unsigned long serialRxBytes_;
     unsigned long ashRxFrames_;
     bool networkForming_;
@@ -432,6 +440,8 @@ private:
     void continueCoordinatorInitialization();
     unsigned short coordinatorInitializationCommand() const;
     void enableStackTokenWriting();
+    void requestSecurityDiagnostics(const std::string& reason);
+    void logSecurityCounterSnapshot(const char* reason);
     void configureTradfriBindGroup();
     unsigned char sendApsUnicast(unsigned short destination, unsigned short profile, unsigned short cluster,
                         unsigned char sourceEndpoint, unsigned char destinationEndpoint,
