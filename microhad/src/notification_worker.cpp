@@ -30,7 +30,8 @@ NotificationWorker::NotificationWorker(const std::string& runtimeDirectory, cons
                                        const std::string& firebaseTopic, const std::string& caBundle,
                                        DeliveryHook* deliveryHook) :
     runtimeDirectory_(runtimeDirectory), firebaseServiceAccount_(firebaseServiceAccount), firebaseTopic_(firebaseTopic),
-    caBundle_(caBundle), deliveryHook_(deliveryHook), running_(false), started_(false), enabled_(true) {
+    caBundle_(caBundle), firebaseAccountLoaded_(false), deliveryHook_(deliveryHook),
+    running_(false), started_(false), enabled_(true) {
     pthread_mutex_init(&mutex_, 0);
     pthread_cond_init(&ready_, 0);
     loadEnabled();
@@ -50,6 +51,14 @@ bool NotificationWorker::start(std::string* error) {
         pthread_mutex_unlock(&mutex_);
         *error = "notification worker already started";
         return false;
+    }
+    firebaseAccountLoaded_ = false;
+    firebaseAccount_ = FirebaseServiceAccount();
+    if (!firebaseServiceAccount_.empty()) {
+        std::string accountError;
+        firebaseAccountLoaded_ = loadFirebaseServiceAccount(firebaseServiceAccount_, &firebaseAccount_, &accountError);
+        if (!firebaseAccountLoaded_)
+            fprintf(stderr, "Firebase service account unavailable; FCM disabled: %s\n", accountError.c_str());
     }
     running_ = true;
     if (pthread_attr_init(&attributes) != 0) {
@@ -247,7 +256,7 @@ void NotificationWorker::deliver(const Job& job, HttpsSession* fcmSession) {
         if (phone) allowedPhones.push_back(selected[i]);
         else allowedBrowsers.push_back(selected[i]);
     }
-    if (!firebaseServiceAccount_.empty() && !caBundle_.empty()) {
+    if (firebaseAccountLoaded_ && !caBundle_.empty()) {
         std::vector<std::string> tokens;
         pthread_mutex_lock(&mutex_);
         for (unsigned long i = 0; i < devices_.size(); ++i)
@@ -256,9 +265,9 @@ void NotificationWorker::deliver(const Job& job, HttpsSession* fcmSession) {
         pthread_mutex_unlock(&mutex_);
         for (unsigned long i = 0; i < tokens.size() && enabled(); ++i) {
             bool sent = job.key.empty() ?
-                sendFcmTokenNotification(firebaseServiceAccount_, caBundle_, tokens[i], job.title, job.body,
+                sendFcmTokenNotification(firebaseAccount_, firebaseServiceAccount_, caBundle_, tokens[i], job.title, job.body,
                                          &ignored, job.androidChannelId, fcmSession) :
-                sendFcmTokenStateMessage(firebaseServiceAccount_, caBundle_, tokens[i], job.action, job.key,
+                sendFcmTokenStateMessage(firebaseAccount_, firebaseServiceAccount_, caBundle_, tokens[i], job.action, job.key,
                                          job.title, job.body, &ignored, job.androidChannelId, fcmSession);
             if (!sent)
                 fprintf(stderr, "FCM delivery failed: %s\n", ignored.c_str());

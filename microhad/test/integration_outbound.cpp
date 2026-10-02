@@ -231,12 +231,13 @@ void testNotificationTransportIndependence(const std::string& root) {
     FakeHttpsTransport browserOnly;
     setFakeTransport(&browserOnly);
     {
-        NotificationWorker worker(directory, "", "", "fake-ca");
+        NotificationWorker worker(directory, directory + "/missing-service-account.json", "", "fake-ca");
         assert(worker.start(&error));
         assert(worker.enqueue("Test", "browser only", &error));
         worker.stop();
     }
     assert(browserOnly.countHost("push.example.test") == 1);
+    assert(browserOnly.countHost("fcm.googleapis.com") == 0);
     cleanNotificationRuntime(directory);
 
     directory = root + "/fcm-failure";
@@ -319,6 +320,7 @@ void testNotificationTransportIndependence(const std::string& root) {
         assert(worker.registerDevice("11111111-1111-4111-8111-111111111111", "Pixel", "token-one", &error));
         assert(worker.registerDevice("22222222-2222-4222-8222-222222222222", "Phone", "token-two", &error));
         assert(worker.start(&error));
+        assert(unlink(fourthAccount.c_str()) == 0);
         assert(worker.enqueue("Test", "FCM only", &error));
         worker.stop();
     }

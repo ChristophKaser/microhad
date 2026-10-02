@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 #include "https_client.h"
+#include "fcm.h"
 
 class NotificationWorker {
 public:
@@ -49,6 +50,8 @@ private:
     struct Job { std::string title; std::string body; std::string androidChannelId; std::string key, action; std::vector<std::string> presentSensorIds; };
     struct Device { std::string id, model, token, label, presenceSensorId; bool enabled; };
     std::string runtimeDirectory_, firebaseServiceAccount_, firebaseTopic_, caBundle_;
+    FirebaseServiceAccount firebaseAccount_;
+    bool firebaseAccountLoaded_;
     DeliveryHook* deliveryHook_;
     pthread_t thread_;
     mutable pthread_mutex_t mutex_;
