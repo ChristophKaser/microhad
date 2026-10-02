@@ -11,6 +11,19 @@
 
 class GatewayIntegrationTestPeer {
 public:
+    static void injectEzspFrame(Gateway* gateway, const std::vector<unsigned char>& frame, unsigned char version) {
+        gateway->ezspVersion_ = version;
+        gateway->handleEzspFrame(frame);
+    }
+    static void requestSecurityDiagnostics(Gateway* gateway) { gateway->requestSecurityDiagnostics("integration"); }
+    static unsigned char securityDiagnosticSequence(const Gateway& gateway, unsigned char value) {
+        for (std::map<unsigned char, Gateway::SecurityDiagnosticQuery>::const_iterator it =
+                 gateway.securityDiagnosticQueries_.begin(); it != gateway.securityDiagnosticQueries_.end(); ++it)
+            if (it->second.value == value) return it->first;
+        assert(false); return 0;
+    }
+    static unsigned long securityDiagnosticCount(const Gateway& gateway) { return gateway.securityDiagnosticQueries_.size(); }
+    static void resetRadio(Gateway* gateway) { gateway->sendAshReset(); }
     static void attachSerial(Gateway* gateway, int fd) {
         assert(fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK) == 0);
         gateway->serialFd_ = fd;

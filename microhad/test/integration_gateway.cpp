@@ -2022,7 +2022,79 @@ void testCliUsageFailures() {
 }
 }
 
+namespace {
+std::vector<unsigned char> diagnosticReply(unsigned char sequence, unsigned char status,
+                                            unsigned char length, unsigned long value) {
+    std::vector<unsigned char> frame;
+    frame.push_back(sequence); frame.push_back(0x80); frame.push_back(1);
+    frame.push_back(0xaa); frame.push_back(0);
+    frame.push_back(status); frame.push_back(length);
+    for (unsigned int i = 0; i < length; ++i) frame.push_back(static_cast<unsigned char>(value >> (8 * i)));
+    return frame;
+}
+
+void testSecurityCountersAndDeliveryDiagnostics() {
+    const unsigned char versions[] = {8, 13};
+    for (unsigned int version = 0; version < sizeof(versions); ++version) {
+        Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+        GatewayIntegrationTestPeer::setNetworkReady(&gateway, true);
+        std::vector<unsigned char> delivery(22, 0);
+        delivery[1] = 0x80; delivery[2] = 1; delivery[3] = 0x3f;
+        delivery[6] = 0x34; delivery[7] = 0x12; /* direct destination */
+        delivery[8] = 4; delivery[9] = 1; /* HA profile */
+        delivery[10] = 6; /* On/Off cluster */
+        delivery[12] = 1; delivery[13] = 1;
+        delivery[18] = 37; delivery[19] = 4; delivery[20] = 0xc9;
+        std::vector<unsigned char> truncated(delivery.begin(), delivery.end() - 1);
+        GatewayIntegrationTestPeer::injectEzspFrame(&gateway, truncated, versions[version]);
+        assert(GatewayIntegrationTestPeer::securityDiagnosticCount(gateway) == 0);
+        assert(gateway.logsJson().find("malformed NCP delivery callback") != std::string::npos);
+        GatewayIntegrationTestPeer::injectEzspFrame(&gateway, delivery, versions[version]);
+        assert(gateway.logsJson().find("radio_aps_seq=37 tag=4 status=0xc9 (no APS acknowledgement)") != std::string::npos);
+        assert(GatewayIntegrationTestPeer::securityDiagnosticCount(gateway) == 3);
+        for (unsigned int i = 0; i < 40; ++i)
+            GatewayIntegrationTestPeer::injectEzspFrame(&gateway, delivery, versions[version]);
+        assert(GatewayIntegrationTestPeer::securityDiagnosticCount(gateway) == 3);
+        unsigned char nwk = GatewayIntegrationTestPeer::securityDiagnosticSequence(gateway, 0x23);
+        unsigned char aps = GatewayIntegrationTestPeer::securityDiagnosticSequence(gateway, 0x24);
+        unsigned char persistence = GatewayIntegrationTestPeer::securityDiagnosticSequence(gateway, 0x07);
+        /* Replies can arrive out of order; counters are unsigned little-endian. */
+        GatewayIntegrationTestPeer::injectEzspFrame(&gateway, diagnosticReply(aps, 0, 4, 0xffffffffUL), versions[version]);
+        GatewayIntegrationTestPeer::injectEzspFrame(&gateway, diagnosticReply(nwk, 0, 4, 65536), versions[version]);
+        GatewayIntegrationTestPeer::injectEzspFrame(&gateway, diagnosticReply(persistence, 0, 1, 0), versions[version]);
+        assert(gateway.logsJson().find("aps_counter=4294967295") != std::string::npos);
+        assert(gateway.logsJson().find("nwk_counter=65536") != std::string::npos);
+        assert(gateway.logsJson().find("stack_token_writing=0") != std::string::npos);
+        assert(GatewayIntegrationTestPeer::securityDiagnosticCount(gateway) == 0);
+        GatewayIntegrationTestPeer::requestSecurityDiagnostics(&gateway);
+        nwk = GatewayIntegrationTestPeer::securityDiagnosticSequence(gateway, 0x23);
+        aps = GatewayIntegrationTestPeer::securityDiagnosticSequence(gateway, 0x24);
+        persistence = GatewayIntegrationTestPeer::securityDiagnosticSequence(gateway, 0x07);
+        GatewayIntegrationTestPeer::injectEzspFrame(&gateway, diagnosticReply(nwk, 0, 3, 9), versions[version]);
+        GatewayIntegrationTestPeer::injectEzspFrame(&gateway, diagnosticReply(aps, 0x37, 0, 0), versions[version]);
+        GatewayIntegrationTestPeer::injectEzspFrame(&gateway, diagnosticReply(persistence, 0, 1, 1), versions[version]);
+        assert(gateway.logsJson().find("value=0x23 unavailable") != std::string::npos);
+        assert(gateway.logsJson().find("value=0x24 unavailable status=0x37") != std::string::npos);
+        GatewayIntegrationTestPeer::requestSecurityDiagnostics(&gateway);
+        GatewayIntegrationTestPeer::resetRadio(&gateway);
+        assert(GatewayIntegrationTestPeer::securityDiagnosticCount(gateway) == 0);
+        assert(gateway.logsJson().find("nwk=65536 sampled_at=") != std::string::npos);
+        GatewayIntegrationTestPeer::setNetworkReady(&gateway, true);
+        GatewayIntegrationTestPeer::requestSecurityDiagnostics(&gateway);
+        nwk = GatewayIntegrationTestPeer::securityDiagnosticSequence(gateway, 0x23);
+        GatewayIntegrationTestPeer::injectEzspFrame(&gateway, diagnosticReply(nwk, 0, 4, 12), versions[version]);
+        assert(gateway.logsJson().find("nwk_counter=12 previous=65536") != std::string::npos);
+        assert(gateway.logsJson().find("decreased=true") != std::string::npos);
+        delivery[20] = 0;
+        GatewayIntegrationTestPeer::injectEzspFrame(&gateway, delivery, versions[version]);
+        assert(gateway.logsJson().find("radio_aps_seq=37 tag=4 status=0x0 (success)") != std::string::npos);
+    }
+}
+}
+
 void runGatewayIntegrationTests() {
+    fprintf(stderr, "integration: security counters and decoded delivery diagnostics\n");
+    testSecurityCountersAndDeliveryDiagnostics();
     fprintf(stderr, "integration: gateway reset and EZSP version over pipe\n");
     testResetAndVersionOverPipe();
     fprintf(stderr, "integration: gateway reset timeout retry over pipe\n");
