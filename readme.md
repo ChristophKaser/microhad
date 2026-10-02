@@ -1,5 +1,127 @@
 # Ziggurat on the Tuya RTL8196E gateway
 
+## Current state — 2026-10-02
+
+The goal is a **standalone Tuya gateway running Zigbee and Matter-over-Thread**,
+with `microhad-zigbee-native` as Ziggurat's client and both networks sharing the
+EFR32MG1 radio through HDLC, without cpcd.
+
+- **Built:** two-instance HDLC RCP firmware and a patched static MIPS Ziggurat.
+  The transport shares one reader/writer, routes Zigbee IID 1 and Thread IID 2,
+  and provides a local Unix HDLC endpoint for a future Thread consumer.
+- **Validated:** 10 upstream Spinel tests, 5 new multi-PAN tests, 7 simulator
+  tests, and all 8 host/Tuya simulated-radio scenario checks pass. The Tuya
+  test reported 2,068 KiB Ziggurat RSS and 7.21/7.82 ms median/p95 Thread
+  endpoint query timing, including the SSH test bridge.
+- **Still pending:** firmware flashing and real radio ACK/source-match tests,
+  an actual OTBR/Thread stack, Matter functionality and the
+  `microhad-zigbee-native` adapter. These are not provided by the simulator.
+- **Known issue:** one cold-boot configuration attempt stalled; kernel RNG
+  readiness is a suspected cause. Device tests now check free RAM and clean
+  their uploads after an earlier suspected ramfs memory-pressure incident.
+- **Published:** [private GitHub repository](https://github.com/ChristophKaser/ziggurat-compilation).
+  The existing gateway radio firmware and production services were not replaced.
+
+## Next steps
+
+1. Resolve cold-boot RNG readiness and report startup failures without blocking
+   the async worker; retain the randomness safety check.
+2. Connect a local Thread stack/OTBR to the shared endpoint with coordinated
+   reset, scan and common-channel ownership; measure combined gateway resources.
+3. Prepare a backed-up firmware test and validate real dual-PAN operation,
+   especially MG1 auto-ACK, sleepy children and overlapping short addresses.
+4. Add the `microhad-zigbee-native` adapter and local Matter functionality, then
+   test the complete standalone gateway.
+
+[Implementation plan](docs/hdlc-implementation-plan.md) ·
+[Usage and results](docs/hdlc-multipan-usage.md) ·
+[Radio/licensing audit](docs/radio-dual-mode.md)
+
+## Firmware build prerequisites
+
+The firmware build runs on an **x86_64 Linux development computer**. The
+installer downloads the x86_64 ARM compiler; it does not run on the Tuya.
+Allow about **10 GiB free disk space** for downloads, SDK, tools and outputs
+(the installed Silicon Labs tools currently occupy about 5.5 GiB).
+Internet access and GitHub access to this private repository are required.
+
+Required system tools are Bash, Git, **Git LFS**, curl, CA certificates, tar,
+xz, Python 3, GNU make, ripgrep and **Java 17**. On Ubuntu/Debian:
+
+```sh
+sudo apt-get update
+sudo apt-get install git git-lfs curl ca-certificates tar xz-utils \
+  python3 make ripgrep openjdk-17-jre-headless
+```
+
+`scripts/silabs-env.sh` selects `/usr/lib/jvm/java-17-openjdk-amd64/bin`.
+Adjust that path on a different distribution. Rust and the MIPS RSDK are
+needed for Ziggurat builds, but are not required for this ARM firmware build.
+The installer supplies pinned **GSDK 4.5.0**, **SLC 5.6.3** and
+**ARM GCC 12.2.rel1** under ignored `tools/silabs/`.
+
+## Firmware build commands
+
+Run from the experiment repository, **not** its parent `../`:
+
+```sh
+cd .
+git submodule update --init --recursive
+bash scripts/install-silabs.sh
+
+# Ensure SDK binary libraries are downloaded, rather than LFS pointer files.
+git -C tools/silabs/gecko_sdk lfs install --local
+sdk_lfs_libraries='platform/emdrv/nvm3/lib/libnvm3_CM4_gcc.a'
+sdk_lfs_libraries+=',protocol/openthread/libs/libsl_openthread_efr32mg1x_gcc.a'
+sdk_lfs_libraries+=',platform/radio/rail_lib/autogen/librail_release/librail_efr32xg1_gcc_release.a'
+git -C tools/silabs/gecko_sdk lfs pull --include="$sdk_lfs_libraries" --exclude=''
+
+BUILD_JOBS=4 bash scripts/build-hdlc-firmware.sh
+```
+
+Use Bash for this sequence (`+=` appends to the LFS path list). On another
+computer, replace the `cd` path with your checkout directory. The build script
+loads the tool environment itself, trusts the pinned SDK, generates the
+project, compiles it and verifies both multi-instance initialization symbols.
+It does not access the gateway or flash firmware.
+
+Outputs are in `build/firmware-hdlc/build/debug/`:
+
+- `ot-rcp-multipan.out`: ELF firmware.
+- `ot-rcp-multipan.bin`: raw application binary, **Flash base `0x4000`**.
+- `ot-rcp-multipan.map`: Flash/RAM allocation map.
+
+Generation/build logs are `logs/hdlc-firmware-generate.log` and
+`logs/hdlc-firmware-build.log`. A bootloader-update **GBL is not produced**;
+the raw binary is not a complete chip image. Firmware remains unflashed.
+
+To inspect the output independently:
+
+```sh
+source scripts/silabs-env.sh
+arm-none-eabi-size build/firmware-hdlc/build/debug/ot-rcp-multipan.out
+arm-none-eabi-nm build/firmware-hdlc/build/debug/ot-rcp-multipan.out \
+  | rg 'otAppNcpInitMulti|otNcpHdlcInitMulti'
+```
+
+## Repository commands
+
+The Git repository is the `ziggurat-compilation/` subdirectory. From anywhere
+in this workspace, push with:
+
+```sh
+git -C . push
+```
+
+A new checkout requires access to the private GitHub repository:
+
+```sh
+git clone --recurse-submodules https://github.com/ChristophKaser/ziggurat-compilation.git
+cd ziggurat-compilation
+```
+
+## Project background
+
 This repository investigates compiling and running the open-source Rust
 [Ziggurat](https://github.com/zigpy/ziggurat) Zigbee stack on the gateway's
 big-endian Lexra CPU. The aim is a standalone host stack using OpenThread RCP
@@ -34,9 +156,9 @@ standalone Matter remain unvalidated goals.
 
 The [radio firmware and dual-network audit](docs/radio-dual-mode.md), dated
 2026-10-02, finds an alternative to CPC: GSDK 4.5.0 already implements
-multi-instance Spinel over HDLC and multiple radio address filters. Reusing
-that implementation is the preferred next firmware experiment; CPC is not
-inherently necessary. The existing HDLC image is configured for one instance.
+multi-instance Spinel over HDLC and multiple radio address filters. The experiment reuses
+that implementation; CPC is not inherently necessary. The gateway project's
+original HDLC image is configured for one instance.
 The two-instance HDLC image now compiles, and host ownership is implemented;
 MG1 source-matching limitations still need hardware validation.
 The firmware is partly open source and rebuildable from SDK source plus
