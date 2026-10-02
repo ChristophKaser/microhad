@@ -6,6 +6,7 @@ bellows==1.0.2 zigpy==2.2.0. Defaults to offline validation; --restore writes
 network state and requires --output for a verified post-restore backup.
 """
 import argparse
+import copy
 import asyncio
 import json
 import logging
@@ -14,9 +15,39 @@ from pathlib import Path
 
 from bellows.zigbee.application import ControllerApplication
 from zigpy.backups import NetworkBackup
+import bellows.types as t
+
+COUNTER_INCREMENT = 10000
+
+def prepared_restore_backup(backup):
+    prepared = copy.deepcopy(backup)
+    nwk = prepared.network_info.network_key.tx_counter
+    aps = max([prepared.network_info.tc_link_key.tx_counter] +
+              [key.tx_counter for key in prepared.network_info.key_table])
+    if aps == 0:
+        raise ValueError("APS counter evidence is missing; obtain a fresh native export")
+    if nwk > 0xFFFFFFFF - COUNTER_INCREMENT or aps > 0xFFFFFFFF - COUNTER_INCREMENT:
+        raise ValueError("Security counters cannot safely be advanced")
+    prepared.network_info.tc_link_key.tx_counter = aps + COUNTER_INCREMENT
+    for key in prepared.network_info.key_table:
+        key.tx_counter = aps + COUNTER_INCREMENT
+    return prepared
+
+async def read_aps_counter(ezsp):
+    if ezsp.ezsp_version != 13:
+        raise ValueError("Counter-verified restore currently requires EZSP v13")
+    context = t.SecurityManagerContextV13(core_key_type=t.SecurityManagerKeyType.TC_LINK,
+        key_index=0, derived_type=0, eui64=t.EUI64([0]*8), multi_network_index=0, flags=0,
+        psa_key_alg_permission=0)
+    _, metadata, status = await ezsp.getApsKeyInfo(context_in=context)
+    if int(status) != 0 or not int(metadata.bitmask) & 0x02:
+        raise ValueError("APS counter verification is unavailable")
+    return int(metadata.outgoing_frame_counter)
+
 
 
 async def restore(args, backup):
+    prepared = prepared_restore_backup(backup)
     app = ControllerApplication({
         "device": {"path": f"socket://{args.host}:{args.port}", "baudrate": 115200},
         "backup_enabled": False, "startup_energy_scan": False,
@@ -27,12 +58,18 @@ async def restore(args, backup):
         ieee, = await app._ezsp.getEui64()
         if ieee != backup.node_info.ieee:
             raise ValueError("Coordinator IEEE differs; refusing identity rewrite")
+        if app._ezsp.ezsp_version != 13:
+            raise ValueError("Only the retained EZSP v13 recovery firmware is verified by this tool")
+        # Check read capability before any restoration writes.
+        await read_aps_counter(app._ezsp)
         if not args.verify_only:
-            print("Coordinator identity matches; restoring with frame counter +10000", flush=True)
-            await app.backups.restore_backup(backup, counter_increment=10000, create_new=False)
+            print("Coordinator identity matches; restoring with both NWK and APS counters advanced", flush=True)
+            await app.backups.restore_backup(prepared, counter_increment=COUNTER_INCREMENT, create_new=False)
         actual = await app.backups.create_backup(load_devices=True)
         expected = backup.network_info
         found = actual.network_info
+        actual_aps_counter = await read_aps_counter(app._ezsp)
+        found.tc_link_key.tx_counter = actual_aps_counter
         checks = {
             "ieee": actual.node_info.ieee == backup.node_info.ieee,
             "pan": found.pan_id == expected.pan_id,
@@ -40,7 +77,10 @@ async def restore(args, backup):
             "channel": found.channel == expected.channel,
             "network_key": found.network_key.key == expected.network_key.key,
             "sequence": found.network_key.seq == expected.network_key.seq,
-            "counter": found.network_key.tx_counter >= expected.network_key.tx_counter + 10000,
+            "counter": found.network_key.tx_counter >= expected.network_key.tx_counter + COUNTER_INCREMENT,
+            "aps_counter": actual_aps_counter >= prepared.network_info.tc_link_key.tx_counter,
+            "device_keys": {key.partner_ieee:key.key for key in found.key_table} ==
+                           {key.partner_ieee:key.key for key in expected.key_table},
             "trust_center_secret": found.stack_specific.get("ezsp", {}).get("hashed_tclk") ==
                                    expected.stack_specific.get("ezsp", {}).get("hashed_tclk"),
         }
@@ -50,7 +90,7 @@ async def restore(args, backup):
         with os.fdopen(fd, "w") as output:
             json.dump(actual.as_open_coordinator_json(), output, indent=2)
             output.write("\n")
-        print("Network identity, keys and advanced frame counter verified; backup saved", flush=True)
+        print("Network identity, keys and advanced NWK/APS counters verified; backup saved", flush=True)
     finally:
         await app.shutdown()
 
@@ -70,8 +110,10 @@ def main():
     backup = NetworkBackup.from_dict(json.loads(Path(args.backup).read_text()))
     if not backup.is_complete() or not backup.network_info.stack_specific.get("ezsp", {}).get("hashed_tclk"):
         parser.error("Backup lacks required network identity or hashed trust-center secret")
-    if backup.network_info.network_key.tx_counter > 0xFFFFFFFF - 10000:
-        parser.error("Frame counter cannot safely be advanced")
+    try:
+        prepared_restore_backup(backup)
+    except ValueError as error:
+        parser.error(str(error))
     print("Backup validated without printing keys")
     if args.restore and args.verify_only:
         parser.error("Choose restore or verify-only, not both")

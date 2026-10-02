@@ -1,5 +1,18 @@
 # EZSP upgrade and recovery record
 
+## Latest recovery tooling — 2026-10-02
+
+A read-only export is now available through the running native UART owner,
+without stopping it for a second EZSP client. The fresh export includes live
+APS metadata through `getApsKeyInfo(TC_LINK)`; raw token enumeration returns
+`LIBRARY_NOT_PRESENT`. Ziggurat stopped imports and orderly freeze/export
+rollback preparation pass host simulation. `ezsp_restore.py` now advances and
+verifies **both NWK and APS** counters and requires their evidence; its verified
+live-write path is currently restricted to EZSP v13. See the current
+[network migration procedure](../NETWORK_MIGRATION.md). This follow-up did not
+flash radio firmware or execute live restoration. The record below describes
+the earlier September upgrade, not actions performed in this follow-up.
+
 ## Current outcome (2026-09-23)
 
 Upgraded the radio from EmberZNet 6.7.8.0 build 373 (EZSP v8) to

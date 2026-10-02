@@ -5,6 +5,15 @@ the Lidl/Tuya gateway. It is built specifically with the bundled RSDK for the
 gateway's 32-bit big-endian MIPS/uClibc environment; it does not use low.js,
 Node.js, or the TCP serial bridge.
 
+## Network migration preparation — 2026-10-02
+
+The read-only EZSP v13 backup exporter is deployed. Actual private network
+state imports correctly into stopped host Ziggurat with a simulated radio;
+orderly counter-safe rollback preparation is tested. Radio firmware and the
+production network remain in use. Hardware migration/recovery, the native
+Ziggurat adapter and crash-safe persistence remain pending. See
+[commands, evidence and recovery limits](NETWORK_MIGRATION.md).
+
 ## Build
 
 ```sh
