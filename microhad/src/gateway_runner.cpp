@@ -179,6 +179,7 @@ void GatewayRunner::execute(Command* command) {
     else if (command->type == DeviceValueAlerts) result = gateway_->setDeviceValueAlerts(command->address, command->valueAlerts, &error);
     else if (command->type == DeviceRefresh) result = gateway_->refreshDevice(command->address, &error);
     else if (command->type == DeviceIdentify) result = gateway_->identifyDevice(command->address, &error);
+    else if (command->type == NetworkBackup) result = gateway_->exportNetworkBackup(command->address, &error);
     else if (command->type == DeviceConfiguration) result = gateway_->queryDeviceConfiguration(command->address, &error);
     else if (command->type == LightState) result = gateway_->setLightState(command->address, command->name,
                                                                              command->brightnessPercent, &error);
@@ -455,4 +456,8 @@ bool GatewayRunner::setEventLoopDebug(bool enabled, std::string* error) {
     command.type = EventLoopDebug;
     command.enabled = enabled;
     return invoke(&command, error);
+}
+
+bool GatewayRunner::exportNetworkBackup(const std::string& id, std::string* error) {
+    Command command; command.type = NetworkBackup; command.address = id; return invoke(&command, error);
 }

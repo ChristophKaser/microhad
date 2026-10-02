@@ -946,6 +946,14 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
         if (subscribed)
             writeResponse(clientFd, 200, "application/json", "{\"ok\":true}");
         else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + error + "\"}");
+    } else if (request.find("POST /api/network/backup ") == 0) {
+        std::string::size_type bodyAt = request.find("\r\n\r\n");
+        std::string id, error;
+        if (bodyAt == std::string::npos || !formValue(request.substr(bodyAt + 4), "id", &id))
+            writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"missing backup id\"}");
+        else if (gateway_->exportNetworkBackup(id, &error))
+            writeResponse(clientFd, 200, "application/json", "{\"ok\":true,\"state\":\"exporting\"}");
+        else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + jsonEscape(error) + "\"}");
     } else if (request.find("POST /api/network/create ") == 0) {
         std::string::size_type bodyAt = request.find("\r\n\r\n");
         std::string confirmation;

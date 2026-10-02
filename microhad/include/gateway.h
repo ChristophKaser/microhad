@@ -8,6 +8,7 @@
 #include "log_ring.h"
 
 #include "ash.h"
+#include "network_backup.h"
 #include "sensor_history.h"
 
 class NotificationWorker;
@@ -207,6 +208,7 @@ public:
     long nextPollDeadline(std::string* source = 0);
     bool setJoining(unsigned int seconds, std::string* error);
     bool createFreshNetwork(std::string* error);
+    bool exportNetworkBackup(const std::string& id, std::string* error);
     bool setDeviceSettings(const std::string& ieeeAddress, const std::string& name,
                            bool hasLow, double low, bool hasHigh, double high,
                            bool hasContactTimings, unsigned long initialAlertMinutes,
@@ -275,6 +277,12 @@ private:
     void failSerial(const char* operation, int errorNumber);
     void pollAshTransmit();
     void retransmitAsh();
+    NetworkBackupExport networkBackup_;
+    NetworkBackupExport::Query networkBackupQuery_;
+    unsigned char networkBackupSequence_;
+    long networkBackupDeadline_;
+    long networkBackupStarted_;
+    void advanceNetworkBackup();
     unsigned char ezspVersion_;
     unsigned char zdoSequence_;
     unsigned char zclTransactionSequence_;

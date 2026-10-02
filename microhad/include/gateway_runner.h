@@ -49,6 +49,7 @@ public:
     bool setActorState(const std::string& address, bool on, std::string* error);
     bool setJoining(unsigned int seconds, std::string* error);
     bool createFreshNetwork(std::string* error);
+    bool exportNetworkBackup(const std::string& id, std::string* error);
     bool setDeviceSettings(const std::string& ieeeAddress, const std::string& name,
                            bool hasLow, double low, bool hasHigh, double high,
                            bool hasContactTimings, unsigned long initialAlertMinutes,
@@ -71,7 +72,7 @@ public:
     bool setEventLoopDebug(bool enabled, std::string* error);
 
 private:
-    enum CommandType { Join, CreateNetwork, DeviceSettings, DeviceValueAlerts, DeviceRefresh, DeviceIdentify, DeviceConfiguration, LightState, SceneConfiguration, SceneActivate, SceneOff, TestNotification, NotificationSetting, EventLoopDebug, ShellyRegister, ShellyRemove, ShellyReconcile, ShellyEvent, FritzEvent, FritzReconcile, ActorState };
+    enum CommandType { NetworkBackup, Join, CreateNetwork, DeviceSettings, DeviceValueAlerts, DeviceRefresh, DeviceIdentify, DeviceConfiguration, LightState, SceneConfiguration, SceneActivate, SceneOff, TestNotification, NotificationSetting, EventLoopDebug, ShellyRegister, ShellyRemove, ShellyReconcile, ShellyEvent, FritzEvent, FritzReconcile, ActorState };
     struct Command {
         CommandType type;
         unsigned int seconds;

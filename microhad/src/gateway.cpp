@@ -329,7 +329,7 @@ Gateway::Gateway(const std::string& serialDevice, int serialBaud, const std::str
     serialDevice_(serialDevice), serialBaud_(serialBaud), runtimeDirectory_(runtimeDirectory), networkRandomSource_("/dev/urandom"),
     firebaseServiceAccount_(firebaseServiceAccount), firebaseTopic_(firebaseTopic), caBundle_(caBundle), history_(historyPath), shellyTransport_(0), notificationWorker_(notificationWorker), serialFd_(-1), serialOpenedAt_(0),
     online_(false), joinUntil_(0), joinPermitRenewAt_(0), joinPermitClosePending_(false), joinPermitCloseDeadline_(0), pendingJoinSeconds_(0), joinPreparationStep_(0), joinPreparationDeadline_(0), ashSendSequence_(0), ashReceiveSequence_(0), ezspSequence_(0),
-    ashAckDeadline_(0), ashRetries_(0), ashPendingSensitive_(false), ezspVersion_(4), zdoSequence_(0), zclTransactionSequence_(0), ezspVersionNegotiated_(false), stackTokenWritingRequested_(false), networkInitRequested_(false), tradfriBindGroupConfigured_(false), coordinatorInitializationStep_(0), coordinatorInitializationDeadline_(0), resetDeadline_(0), serialReconnectFailures_(0), zigbeeDownAlertQueued_(false), nextHeartbeatAt_(0), serialRxBytes_(0), ashRxFrames_(0), networkForming_(false), networkFormationStep_(0), networkFormationDeadline_(0), networkFormed_(false), networkPanId_(0),
+    ashAckDeadline_(0), ashRetries_(0), ashPendingSensitive_(false), networkBackupQuery_(0, std::vector<unsigned char>()), networkBackupSequence_(0), networkBackupDeadline_(0), networkBackupStarted_(0), ezspVersion_(4), zdoSequence_(0), zclTransactionSequence_(0), ezspVersionNegotiated_(false), stackTokenWritingRequested_(false), networkInitRequested_(false), tradfriBindGroupConfigured_(false), coordinatorInitializationStep_(0), coordinatorInitializationDeadline_(0), resetDeadline_(0), serialReconnectFailures_(0), zigbeeDownAlertQueued_(false), nextHeartbeatAt_(0), serialRxBytes_(0), ashRxFrames_(0), networkForming_(false), networkFormationStep_(0), networkFormationDeadline_(0), networkFormed_(false), networkPanId_(0),
     networkChannel_(0), interviewRequestInFlight_(false), interviewSendAccepted_(false), interviewEzspSequence_(0), interviewNode_(0xffff),
     interviewDeadline_(0), nextMessageTag_(1), coordinatorIeeeAddressRequested_(false), logRing_(LogRing::defaultPath()), logBytes_(0), viewDirty_(true) {
     lastSecurityDiagnosticsAt_ = 0;
@@ -607,6 +607,7 @@ bool Gateway::start(std::string* error) {
 }
 
 void Gateway::stop() {
+    networkBackup_.abort(); networkBackupDeadline_ = 0;
     if (serialFd_ >= 0) {
         close(serialFd_);
         serialFd_ = -1;
@@ -616,6 +617,9 @@ void Gateway::stop() {
 }
 
 void Gateway::poll() {
+    if (networkBackup_.active() && (time(0) >= networkBackupDeadline_ || time(0) - networkBackupStarted_ >= 120)) {
+        networkBackup_.abort(); networkBackupDeadline_ = 0; addLog("Network backup timed out; radio state unchanged");
+    }
     resetInactiveDeadlines();
     unsigned char bytes[256];
     ssize_t count;
@@ -647,7 +651,8 @@ void Gateway::poll() {
         count = read(serialFd_, bytes, sizeof(bytes));
         if (count > 0) {
             serialRxBytes_ += static_cast<unsigned long>(count);
-            addHexLog("SERIAL RX", bytes, static_cast<unsigned long>(count));
+            /* Raw UART chunks can contain exported or transported keys, including late replies. */
+            std::ostringstream rx; rx << "SERIAL RX redacted bytes=" << count; addLog(rx.str());
             ash_.feed(bytes, static_cast<unsigned long>(count));
             while (ash_.popFrame(&frame)) handleAshFrame(frame);
         } else if (count == 0) failSerial("read", 0);
@@ -885,6 +890,7 @@ long Gateway::nextPollDeadline(std::string* source) {
     if (!ashPendingData_.empty()) CONSIDER_DEADLINE(ashAckDeadline_, "ash_ack");
     if (online_) CONSIDER_DEADLINE(nextHeartbeatAt_, "heartbeat");
     if (!online_) CONSIDER_DEADLINE(resetDeadline_, "serial_reset");
+    CONSIDER_DEADLINE(networkBackupDeadline_, "network_backup");
     CONSIDER_DEADLINE(coordinatorInitializationDeadline_, "coordinator_initialization");
     if (networkForming_) CONSIDER_DEADLINE(networkFormationDeadline_, "network_formation");
     if (interviewRequestInFlight_) CONSIDER_DEADLINE(interviewDeadline_, "interview");
@@ -939,6 +945,7 @@ long Gateway::nextPollDeadline(std::string* source) {
 }
 
 bool Gateway::setJoining(unsigned int seconds, std::string* error) {
+    if (networkBackup_.active()) { *error = "network backup is active"; return false; }
     if (!online_) {
         *error = "Zigbee coordinator is offline";
         addLog("Pairing request rejected: coordinator offline");
@@ -982,7 +989,30 @@ bool Gateway::setJoining(unsigned int seconds, std::string* error) {
     return true;
 }
 
+bool Gateway::exportNetworkBackup(const std::string& id, std::string* error) {
+    if (!online_ || !networkFormed_ || coordinatorInitializationStep_ != 0 || networkForming_ ||
+        ezspVersion_ != 13 || joinUntil_ != 0 || joinPreparationStep_ != 0 || joinPermitClosePending_) {
+        *error = "backup requires a running EZSP v13 coordinator with joining closed"; return false;
+    }
+    if (!networkBackup_.start(id, "/tmp/microhad-network-backup", error)) return false;
+    networkBackupStarted_ = time(0);
+    addLog("Read-only network backup started; keys restricted to private file");
+    advanceNetworkBackup(); return true;
+}
+void Gateway::advanceNetworkBackup() {
+    if (networkBackup_.next(&networkBackupQuery_)) {
+        networkBackupDeadline_ = time(0) + 10;
+        networkBackupSequence_ = sendEzspCommand(networkBackupQuery_.command, networkBackupQuery_.payload);
+    } else {
+        std::string error;
+        const bool ok = networkBackup_.finish(&error);
+        networkBackupDeadline_ = 0;
+        addLog(ok ? "Read-only network backup complete" : "Network backup failed: " + error);
+    }
+}
+
 bool Gateway::createFreshNetwork(std::string* error) {
+    if (networkBackup_.active()) { *error = "network backup is active"; return false; }
     bool leaveExisting;
     if (!online_) { *error = "Zigbee coordinator is offline"; return false; }
     if (!networkInitRequested_ || coordinatorInitializationStep_ != 0) {
@@ -2722,6 +2752,7 @@ void Gateway::pollAshTransmit() {
 }
 
 void Gateway::sendAshReset() {
+    networkBackup_.abort(); networkBackupDeadline_ = 0;
     logSecurityCounterSnapshot("before ASH reset (last sampled values)");
     securityDiagnosticQueries_.clear();
     std::vector<unsigned char> raw;
@@ -3094,6 +3125,14 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
             command = frame[4];
             payloadOffset = 5;
         }
+    }
+    if (networkBackup_.active() && frame[0] == networkBackupSequence_ && command == networkBackupQuery_.command) {
+        std::string error;
+        std::vector<unsigned char> response(frame.begin() + payloadOffset, frame.end());
+        if (!networkBackup_.accept(networkBackupQuery_, response, &error)) {
+            networkBackup_.abort(); networkBackupDeadline_ = 0; addLog("Network backup failed: " + error);
+        } else advanceNetworkBackup();
+        return; // Never log a response that may contain plaintext key material.
     }
     if (command == 0) {
         if (frame.size() < payloadOffset + 4) { addLog("Truncated EZSP version reply"); return; }
