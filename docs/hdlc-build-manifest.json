@@ -1,0 +1,33 @@
+{
+  "date": "2026-10-02",
+  "gecko_sdk": "90fc93e1f95a10c981f0e49ca6787192e82fd8f2",
+  "slc": "a2cef4434600379695bef23bfbdcc8e604f7f305",
+  "slc_version": "5.6.3",
+  "arm_gcc_version": "12.2.rel1",
+  "firmware_flash_base": "0x4000",
+  "firmware_flash_limit": "0x40000",
+  "firmware_ram_limit": "0x20007c00",
+  "firmware_heap_base": "0x200043a0",
+  "firmware_heap_capacity_bytes": 14432,
+  "firmware_stack_bytes": 4096,
+  "firmware_size": {
+    "text": 103088,
+    "data": 636,
+    "bss": 16688
+  },
+  "artifacts": {
+    "build/firmware-hdlc/build/debug/ot-rcp-multipan.bin": {
+      "size_bytes": 103724,
+      "sha256": "e59cfb9b0d722d8a20543bab17115de4072fb233e0735e95edafd38ff2e67dc3"
+    },
+    "build/firmware-hdlc/build/debug/ot-rcp-multipan.out": {
+      "size_bytes": 2259592,
+      "sha256": "82a6013f1b97cf4a0efcda2fb7f5d82a5b3fe13c4c6f604954df10323182de08"
+    },
+    "build/ziggurat-hdlc/lexra-stock-uclibc/release/ziggurat.stripped": {
+      "size_bytes": 3516272,
+      "sha256": "45137c4b9823f2ac5dda3b8b3cabe85b48730693610d854cf480dcce77ad4ece"
+    }
+  },
+  "flashed": false
+}

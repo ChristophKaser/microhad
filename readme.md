@@ -27,22 +27,26 @@ coexistence. The pinned gateway project's
 [radio-mode guide](rtl8196e-gateway/docs/radio-options.md) describes experimental
 same-channel Zigbee + Thread on this Series-1 radio through a separate CPC
 multi-PAN path. That path uses `zigbeed`; Ziggurat is not a drop-in replacement.
-The pinned Ziggurat Spinel client currently uses link/interface ID 0, so
-simultaneous shared-radio operation will require further design and likely
-code changes. Dual mode is a goal, not a capability validated by these tests.
+The pinned upstream Ziggurat client uses interface ID 0. This experiment now
+adds IID 1/2 routing and a shared HDLC transport, validated with simulated RCP
+traffic on the Tuya. Actual simultaneous Zigbee/Thread radio operation and
+standalone Matter remain unvalidated goals.
 
 The [radio firmware and dual-network audit](docs/radio-dual-mode.md), dated
 2026-10-02, finds an alternative to CPC: GSDK 4.5.0 already implements
 multi-instance Spinel over HDLC and multiple radio address filters. Reusing
 that implementation is the preferred next firmware experiment; CPC is not
 inherently necessary. The existing HDLC image is configured for one instance.
-MG1 source-matching limitations and host ownership still need validation.
+The two-instance HDLC image now compiles, and host ownership is implemented;
+MG1 source-matching limitations still need hardware validation.
 The firmware is partly open source and rebuildable from SDK source plus
 precompiled RAIL libraries; it is not a completely source-available image.
 
 The [HDLC implementation plan and progress](docs/hdlc-implementation-plan.md)
 tracks firmware builds, shared-interface transport changes, simulation and
 private GitHub publication. Hardware flashing remains a separate validation gate.
+Build commands, transport ownership, endpoint limitations and actual validation
+results are in [HDLC multi-PAN usage](docs/hdlc-multipan-usage.md).
 
 ## Source projects
 
@@ -54,7 +58,9 @@ Sources are pinned Git submodules:
 - `cpc-daemon/`: Silicon Labs CPCd v4.5.3, pinned for the stock-gateway CPC
   feasibility test below.
 
-Clone this experiment with `git clone --recurse-submodules <repository-url>`.
+The experiment is hosted privately at
+https://github.com/ChristophKaser/ziggurat-compilation. Clone it with
+`git clone --recurse-submodules https://github.com/ChristophKaser/ziggurat-compilation.git`.
 For an existing checkout, run `git submodule update --init --recursive`.
 Upstream sources remain separate from experiment code; any patches will be
 recorded in this repository rather than silently changing a source checkout.

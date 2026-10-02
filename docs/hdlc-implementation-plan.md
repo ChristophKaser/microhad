@@ -32,3 +32,36 @@ and Thread IID 2, without cpcd. The eventual Zigbee client is
 - Existing source audit: [radio-dual-mode.md](radio-dual-mode.md).
 - Existing Ziggurat/MIPS and CPC experiments remain separate baselines.
 - GitHub authentication checked: account `ChristophKaser`.
+- Private repository created and privacy verified:
+  https://github.com/ChristophKaser/ziggurat-compilation.
+- Two-instance HDLC firmware compiled successfully with GSDK 4.5.0, ARM GCC
+  12.2.rel1 and Silicon Labs' published SLC 5.6.3 package. Both
+  `otAppNcpInitMulti` and `otNcpHdlcInitMulti` are linked. Application Flash
+  starts at `0x4000`; the map fits its configured Flash/RAM regions.
+- Shared reader/writer, per-interface transactions and receive routing,
+  reset ownership, server IID selection and a local Thread HDLC endpoint are
+  implemented in a disposable worktree and recorded as a patch.
+- Ten existing Spinel tests plus five new multi-PAN integration tests pass.
+  Seven Python simulator checks also pass. The actual host-server/two-PAN
+  simulation passes all eight scenario checks.
+- The MIPS binary builds. The first device simulation passed configuration,
+  isolation, reset/channel rejection, receive and mixed-query checks. The
+  recovery test initially expected an extra reset instead of reprogramming;
+  that assertion is corrected. A subsequent upload timed out, followed by
+  unresponsive SSH/dashboard; RAM-backed uploads were a suspected cause.
+- The user power-cycled the gateway. SSH and HTTP recovered. `/tmp` is ramfs,
+  so the harness now requires genuinely free RAM, reserves an 8 MiB margin
+  beyond uploaded file sizes and cleans every experiment file afterward.
+- The final safeguarded device test **passes all eight checks**. It started
+  with 17,300 KiB free against an 11,659 KiB requirement. The running Ziggurat
+  reported 2,068 KiB RSS; this excludes an actual Thread/Matter stack.
+  Thirty Thread-interface queries had median 7.21 ms and p95 7.82 ms,
+  including the SSH test bridge. Cleanup left no test files/processes; the
+  production dashboard returned HTTP 200 afterward.
+- One cold-boot attempt stalled during Zigbee configuration. The Rust RNG
+  fallback waits for `/dev/random` readiness; low startup entropy is the
+  suspected cause. A later run succeeded after the entropy pool recovered.
+  RNG safety checks were retained. Reliable cold-boot startup is still a gate.
+- Firmware remains unflashed. OTBR transport integration, local Thread/Matter
+  builds, real radio ACK/source-match behavior and joint resource use remain
+  future work, as explicitly scoped in this plan.

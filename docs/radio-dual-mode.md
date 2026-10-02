@@ -3,6 +3,10 @@
 Source audit, 2026-10-02. No firmware was compiled or flashed in this audit;
 the physical UART and production gateway services were not touched.
 
+Subsequent firmware builds and transport implementation are tracked in
+[the implementation plan](hdlc-implementation-plan.md) and
+[usage/results](hdlc-multipan-usage.md); statements below describe this initial audit.
+
 ## Outcome
 
 CPC is a transport choice, not a requirement for sending Zigbee and Thread

@@ -1,0 +1,47 @@
+{
+  "date": "2026-10-02",
+  "rust_upstream_tests_passed": 10,
+  "rust_multipan_tests_passed": 5,
+  "python_simulator_tests_passed": 7,
+  "host_scenario_checks": [
+    "Zigbee API uses IID 1 through actual server",
+    "Local Thread HDLC consumer IID 0 maps to RCP IID 2",
+    "Zigbee starts with synthetic state and owner reset",
+    "PAN, short address and source-match configuration stay separate",
+    "Secondary reset and conflicting channel are rejected before reaching RCP",
+    "Thread raw receive reaches local consumer with IID translation",
+    "Thirty mixed Thread queries and Zigbee NetworkInfo requests complete",
+    "Global reset notifies Thread consumer and triggers Zigbee recovery"
+  ],
+  "microhad_scenario_checks": [
+    "Zigbee API uses IID 1 through actual server",
+    "Local Thread HDLC consumer IID 0 maps to RCP IID 2",
+    "Zigbee starts with synthetic state and owner reset",
+    "PAN, short address and source-match configuration stay separate",
+    "Secondary reset and conflicting channel are rejected before reaching RCP",
+    "Thread raw receive reaches local consumer with IID translation",
+    "Thirty mixed Thread queries and Zigbee NetworkInfo requests complete",
+    "Global reset notifies Thread consumer and triggers Zigbee recovery"
+  ],
+  "microhad_memory_preflight_kib": {
+    "available": 17300,
+    "required": 11659
+  },
+  "microhad_rss_kib": 2068,
+  "microhad_thread_query_ms": {
+    "count": 30,
+    "min_ms": 6.110092,
+    "mean_ms": 7.014730133333333,
+    "median_ms": 7.208061,
+    "p95_ms": 7.821474,
+    "p99_ms": 8.007963,
+    "max_ms": 8.007963
+  },
+  "microhad_post_cleanup_free_kib": 17216,
+  "post_cleanup_http_status": 200,
+  "test_files_or_processes_left": false,
+  "physical_radio_accessed": false,
+  "firmware_flashed": false,
+  "real_thread_or_matter_stack_tested": false,
+  "suspected_cold_boot_rng_readiness_issue": true
+}
