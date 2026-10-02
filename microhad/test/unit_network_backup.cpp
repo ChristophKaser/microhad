@@ -22,7 +22,7 @@ void runNetworkBackupUnitTests() {
     assert(stat((output + ".partial").c_str(), &state) == 0 && (state.st_mode & 0777) == 0600);
     NetworkBackupExport::Query query(0, std::vector<unsigned char>());
     std::set<unsigned short> allowed;
-    const unsigned short commands[] = {0x26,0x27,0x28,0x69,0x116,0x91,0x114,0x52,0x100,0x101,0x102,0x10f,0x4a};
+    const unsigned short commands[] = {0x26,0x27,0x28,0x69,0x116,0x91,0x114,0x52,0x100,0x101,0x102,0x10f,0x4a,0x10c};
     for (unsigned int i = 0; i < sizeof(commands)/sizeof(commands[0]); ++i) allowed.insert(commands[i]);
     unsigned int count = 0, keys = 0, children = 0, tokens = 0;
     while (exporter.next(&query)) {
@@ -42,7 +42,7 @@ void runNetworkBackupUnitTests() {
         assert(exporter.accept(query, response, &error));
         assert(count < 100);
     }
-    assert(keys == 2 && children == 2 && tokens == 1 && count == 21);
+    assert(keys == 2 && children == 2 && tokens == 1 && count == 26);
     assert(exporter.finish(&error));
     assert(!exporter.active());
     assert(stat(output.c_str(), &state) == 0 && (state.st_mode & 0777) == 0600);

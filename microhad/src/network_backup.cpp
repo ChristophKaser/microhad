@@ -61,6 +61,8 @@ bool NetworkBackupExport::start(const std::string& id, const std::string& direct
     enqueue(0x0052, std::vector<unsigned char>(1, 0x1e)); // key table size
     enqueue(0x0052, std::vector<unsigned char>(1, 0x11)); // children
     enqueue(0x0052, std::vector<unsigned char>(1, 0x0d)); // security level
+    std::vector<unsigned char> tcContext(18, 0); tcContext[0] = 2;
+    enqueue(0x010c, tcContext); // APS metadata, if the installed stack supports TC context
     enqueue(0x0100, empty); // token count; enumerate all persisted stack state
     if (!append("{\"format\":\"microhad-ezsp-export\",\"version\":1,\"ezsp_version\":13,\"records\":[\n")) {
         *error = "cannot write backup header"; abort(); return false;
@@ -72,6 +74,13 @@ bool NetworkBackupExport::next(Query* query) {
         closing_ = true;
         const std::vector<unsigned char> empty;
         enqueue(0x0028, empty); enqueue(0x0069, empty); enqueue(0x0116, empty);
+        enqueue(0x0026, empty);
+        for (unsigned char key = 1; key <= 2; ++key) {
+            std::vector<unsigned char> context(18, 0); context[0] = key;
+            enqueue(0x0114, context);
+        }
+        std::vector<unsigned char> tcContext(18, 0); tcContext[0] = 2;
+        enqueue(0x010c, tcContext);
     }
     if (queries_.empty()) return false;
     *query = queries_.front(); queries_.pop_front(); return true;
@@ -93,7 +102,7 @@ bool NetworkBackupExport::accept(const Query& query, const std::vector<unsigned 
         if (response.size() != 1) { *error = "invalid token-count response"; return false; }
         for (unsigned int i = 0; i < response[0]; ++i) enqueue(0x0101, std::vector<unsigned char>(1, i));
     } else if (query.command == 0x0101) {
-        if (response.size() != 9 || response[0] != 0 || response[8] == 0) {
+        if (response.size() != 9 || response[0] != 0) {
             *error = "invalid token-info response"; return false;
         }
         for (unsigned int i = 0; i < response[8]; ++i) {
