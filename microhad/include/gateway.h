@@ -517,6 +517,8 @@ private:
     void updateValueAlerts(Device& device, const Device& before);
     bool emitNotification(const std::string& title, const std::string& body, std::string* error,
                           const std::string& androidChannelId = "");
+    bool emitStateNotification(const std::string& title, const std::string& body, const std::string& key,
+                               bool clear, std::string* error);
     std::string deviceLogLabel(unsigned short node) const;
     void addFrameLog(const std::string& direction, unsigned short node, unsigned short profile, unsigned short cluster,
                      unsigned char sourceEndpoint, unsigned char destinationEndpoint, unsigned short options,

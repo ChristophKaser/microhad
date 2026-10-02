@@ -2090,6 +2090,7 @@ static void testTemperatureThresholdAlerts() {
     assert(GatewayTestPeer::logOccurrences(gateway, "Notification queued: Temperature high") == 1);
     temperature[0] = 0xd0; temperature[1] = 0x07; /* back inside */
     assert(gateway.applyAttributeReport("0x00124b0000000006", 0x0402, 0x0000, temperature));
+    assert(GatewayTestPeer::logOccurrences(gateway, "Notification clear queued: legacy:0x00124b0000000006:temperature:high") == 1);
     temperature[0] = 0x1c; temperature[1] = 0x0c;
     assert(gateway.applyAttributeReport("0x00124b0000000006", 0x0402, 0x0000, temperature));
     assert(GatewayTestPeer::logOccurrences(gateway, "Notification queued: Temperature high") == 2);
@@ -2126,6 +2127,7 @@ static void testTemperatureThresholdAlerts() {
         assert(GatewayTestPeer::logOccurrences(gateway, "Notification queued: Temperature low") == 2);
         temperature[0] = 0xb0; temperature[1] = 0x04; /* 12.00 C, clear low state */
         assert(gateway.applyAttributeReport("0x00124b0000000006", 0x0402, 0x0000, temperature));
+        assert(GatewayTestPeer::logOccurrences(gateway, "Notification clear queued: value:0x00124b0000000006:temperature:low") == 1);
         temperature[0] = 0xe8; temperature[1] = 0x03;
         assert(gateway.applyAttributeReport("0x00124b0000000006", 0x0402, 0x0000, temperature));
         assert(GatewayTestPeer::logOccurrences(gateway, "Notification queued: Temperature low") == 3);

@@ -33,6 +33,9 @@ static void testFcmEncodingsAndJwt() {
            "{\"message\":{\"token\":\"token\",\"notification\":{\"title\":\"Trigger\",\"body\":\"Entry triggered\"},\"android\":{\"priority\":\"high\"}}}");
     assert(makeFcmTokenMessage("token", "Trigger", "Entry triggered", "de.caser.garage.triggers") ==
            "{\"message\":{\"token\":\"token\",\"notification\":{\"title\":\"Trigger\",\"body\":\"Entry triggered\"},\"android\":{\"priority\":\"high\",\"notification\":{\"channel_id\":\"de.caser.garage.triggers\"}}}}");
+    assert(makeFcmTokenStateMessage("token", "clear", "value:sensor:humidity:high", "", "",
+                                    "de.caser.garage.gateway_alerts") ==
+           "{\"message\":{\"token\":\"token\",\"data\":{\"action\":\"clear\",\"key\":\"value:sensor:humidity:high\",\"title\":\"\",\"body\":\"\",\"channel_id\":\"de.caser.garage.gateway_alerts\"},\"android\":{\"priority\":\"HIGH\"}}}");
 
     assert(readTextFile("test/fixtures/tls/localhost.key", &key));
     account.projectId = "project";

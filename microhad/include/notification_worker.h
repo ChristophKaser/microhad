@@ -13,6 +13,12 @@ public:
         virtual ~DeliveryHook() {}
         virtual void deliver(const std::string& title, const std::string& body,
                              const std::string& androidChannelId) = 0;
+        virtual void deliverState(const std::string& title, const std::string& body,
+                                  const std::string& androidChannelId, const std::string& key,
+                                  const std::string& action) {
+            (void)key; (void)action;
+            deliver(title, body, androidChannelId);
+        }
     };
     NotificationWorker(const std::string& runtimeDirectory, const std::string& firebaseServiceAccount,
                        const std::string& firebaseTopic, const std::string& caBundle,
@@ -25,6 +31,9 @@ public:
                  const std::string& androidChannelId = "");
     bool enqueue(const std::string& title, const std::string& body, std::string* error,
                  const std::string& androidChannelId = "");
+    bool enqueueState(const std::string& title, const std::string& body, const std::string& key,
+                      const std::string& action, const std::vector<std::string>& presentSensorIds,
+                      std::string* error, const std::string& androidChannelId = "");
     bool enabled() const;
     bool setEnabled(bool enabled, std::string* error);
     bool registerDevice(const std::string& id, const std::string& model, const std::string& token, std::string* error);
@@ -36,7 +45,7 @@ public:
     static std::vector<std::string> selectRecipients(const std::vector<RouteClient>& clients,
                                                      const std::vector<std::string>& presentSensorIds);
 private:
-    struct Job { std::string title; std::string body; std::string androidChannelId; std::vector<std::string> presentSensorIds; };
+    struct Job { std::string title; std::string body; std::string androidChannelId; std::string key, action; std::vector<std::string> presentSensorIds; };
     struct Device { std::string id, model, token, label, presenceSensorId; bool enabled; };
     std::string runtimeDirectory_, firebaseServiceAccount_, firebaseTopic_, caBundle_;
     DeliveryHook* deliveryHook_;

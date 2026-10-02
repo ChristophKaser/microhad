@@ -121,6 +121,32 @@ bool NotificationWorker::enqueue(const std::string& title, const std::string& bo
     return enqueue(title, body, std::vector<std::string>(), error, androidChannelId);
 }
 
+bool NotificationWorker::enqueueState(const std::string& title, const std::string& body, const std::string& key,
+                                       const std::string& action, const std::vector<std::string>& presentSensorIds,
+                                       std::string* error, const std::string& androidChannelId) {
+    if (key.empty() || (action != "show" && action != "clear")) {
+        *error = "invalid Android notification state message";
+        return false;
+    }
+    pthread_mutex_lock(&mutex_);
+    if (!running_) {
+        pthread_mutex_unlock(&mutex_); *error = "notification worker is unavailable"; return false;
+    }
+    if (!enabled_) {
+        pthread_mutex_unlock(&mutex_); *error = "push notifications are disabled"; return false;
+    }
+    if (jobs_.size() >= 32) {
+        pthread_mutex_unlock(&mutex_); *error = "notification queue is full"; return false;
+    }
+    Job job;
+    job.title = title; job.body = body; job.androidChannelId = androidChannelId;
+    job.key = key; job.action = action; job.presentSensorIds = presentSensorIds;
+    jobs_.push_back(job);
+    pthread_cond_signal(&ready_);
+    pthread_mutex_unlock(&mutex_);
+    return true;
+}
+
 bool NotificationWorker::enabled() const {
     pthread_mutex_lock(&mutex_);
     bool value = enabled_;
@@ -186,7 +212,8 @@ void NotificationWorker::deliver(const Job& job) {
     std::string ignored;
     if (!enabled()) return;
     if (deliveryHook_ != 0) {
-        deliveryHook_->deliver(job.title, job.body, job.androidChannelId);
+        if (job.key.empty()) deliveryHook_->deliver(job.title, job.body, job.androidChannelId);
+        else deliveryHook_->deliverState(job.title, job.body, job.androidChannelId, job.key, job.action);
         return;
     }
     std::vector<std::string> allowedPhones, allowedBrowsers;
@@ -220,13 +247,18 @@ void NotificationWorker::deliver(const Job& job) {
             if (devices_[i].enabled) for (unsigned long j = 0; j < allowedPhones.size(); ++j)
                 if (devices_[i].id == allowedPhones[j]) { tokens.push_back(devices_[i].token); break; }
         pthread_mutex_unlock(&mutex_);
-        for (unsigned long i = 0; i < tokens.size() && enabled(); ++i)
-            if (!sendFcmTokenNotification(firebaseServiceAccount_, caBundle_, tokens[i], job.title, job.body,
-                                          &ignored, job.androidChannelId))
+        for (unsigned long i = 0; i < tokens.size() && enabled(); ++i) {
+            bool sent = job.key.empty() ?
+                sendFcmTokenNotification(firebaseServiceAccount_, caBundle_, tokens[i], job.title, job.body,
+                                         &ignored, job.androidChannelId) :
+                sendFcmTokenStateMessage(firebaseServiceAccount_, caBundle_, tokens[i], job.action, job.key,
+                                         job.title, job.body, &ignored, job.androidChannelId);
+            if (!sent)
                 fprintf(stderr, "FCM delivery failed: %s\n", ignored.c_str());
+        }
     }
     if (!enabled()) return;
-    if (browserPush != 0) {
+    if (browserPush != 0 && job.action != "clear") {
         browserPush->send(caBundle_, job.title, job.body, allowedBrowsers, &ignored);
         delete browserPush;
     }

@@ -754,7 +754,8 @@ void Gateway::poll() {
     for (alert = nextContactAlertAt_.begin(); alert != nextContactAlertAt_.end(); ++alert) {
         std::map<std::string, Device>::const_iterator device = devices_.find(alert->first);
         if (device != devices_.end() && device->second.contactOpen && now >= alert->second) {
-            emitNotification("Window open", device->second.name.empty() ? device->second.ieeeAddress : device->second.name, 0);
+            emitStateNotification("Window open", device->second.name.empty() ? device->second.ieeeAddress : device->second.name,
+                                  "contact:" + device->second.ieeeAddress + ":window", false, 0);
             alert->second = now + static_cast<long>(device->second.contactReminderAlertMinutes * 60);
         }
     }
@@ -2082,6 +2083,8 @@ void Gateway::updateContactAlert(const std::string& ieeeAddress, bool wasOpen, b
         contactOpenedAt_[ieeeAddress] = time(0);
         nextContactAlertAt_[ieeeAddress] = time(0) + static_cast<long>(device->second.contactInitialAlertMinutes * 60);
     } else if (!device->second.contactOpen && wasOpen) {
+        if (hadKnownState && notificationsEnabled())
+            emitStateNotification("", "", "contact:" + device->second.ieeeAddress + ":window", true, 0);
         contactOpenedAt_.erase(ieeeAddress);
         nextContactAlertAt_.erase(ieeeAddress);
     }
@@ -2108,11 +2111,19 @@ void Gateway::updateTemperatureAlert(const Device& device, bool hadTemperature, 
     if (!device.hasTemperature || !hadTemperature) return;
     if (device.hasHighTemperatureAlert && previousTemperature < device.highTemperatureAlert &&
         device.temperatureCelsius >= device.highTemperatureAlert) {
-        emitNotification("Temperature high", device.name.empty() ? device.ieeeAddress : device.name, 0);
+        emitStateNotification("Temperature high", device.name.empty() ? device.ieeeAddress : device.name,
+                              "legacy:" + device.ieeeAddress + ":temperature:high", false, 0);
+    } else if (device.hasHighTemperatureAlert && previousTemperature >= device.highTemperatureAlert &&
+               device.temperatureCelsius < device.highTemperatureAlert && notificationsEnabled()) {
+        emitStateNotification("", "", "legacy:" + device.ieeeAddress + ":temperature:high", true, 0);
     }
     if (device.hasLowTemperatureAlert && previousTemperature > device.lowTemperatureAlert &&
         device.temperatureCelsius <= device.lowTemperatureAlert) {
-        emitNotification("Temperature low", device.name.empty() ? device.ieeeAddress : device.name, 0);
+        emitStateNotification("Temperature low", device.name.empty() ? device.ieeeAddress : device.name,
+                              "legacy:" + device.ieeeAddress + ":temperature:low", false, 0);
+    } else if (device.hasLowTemperatureAlert && previousTemperature <= device.lowTemperatureAlert &&
+               device.temperatureCelsius > device.lowTemperatureAlert && notificationsEnabled()) {
+        emitStateNotification("", "", "legacy:" + device.ieeeAddress + ":temperature:low", true, 0);
     }
 }
 
@@ -2140,17 +2151,27 @@ void Gateway::updateValueAlerts(Device& device, const Device& before) {
         }
         if (alert.hasHigh) {
             if (!alert.highActive && readings[i].previous < alert.high && readings[i].current >= alert.high) {
-                emitNotification((std::string(readings[i].label) + " high").c_str(),
-                                 (device.name.empty() ? device.ieeeAddress : device.name).c_str(), 0);
+                emitStateNotification(std::string(readings[i].label) + " high",
+                                      device.name.empty() ? device.ieeeAddress : device.name,
+                                      "value:" + device.ieeeAddress + ":" + readings[i].name + ":high", false, 0);
                 alert.highActive = true;
-            } else if (alert.highActive && readings[i].current <= alert.high - alert.hysteresis) alert.highActive = false;
+            } else if (alert.highActive && readings[i].current <= alert.high - alert.hysteresis) {
+                if (notificationsEnabled())
+                    emitStateNotification("", "", "value:" + device.ieeeAddress + ":" + readings[i].name + ":high", true, 0);
+                alert.highActive = false;
+            }
         }
         if (alert.hasLow) {
             if (!alert.lowActive && readings[i].previous > alert.low && readings[i].current <= alert.low) {
-                emitNotification((std::string(readings[i].label) + " low").c_str(),
-                                 (device.name.empty() ? device.ieeeAddress : device.name).c_str(), 0);
+                emitStateNotification(std::string(readings[i].label) + " low",
+                                      device.name.empty() ? device.ieeeAddress : device.name,
+                                      "value:" + device.ieeeAddress + ":" + readings[i].name + ":low", false, 0);
                 alert.lowActive = true;
-            } else if (alert.lowActive && readings[i].current >= alert.low + alert.hysteresis) alert.lowActive = false;
+            } else if (alert.lowActive && readings[i].current >= alert.low + alert.hysteresis) {
+                if (notificationsEnabled())
+                    emitStateNotification("", "", "value:" + device.ieeeAddress + ":" + readings[i].name + ":low", true, 0);
+                alert.lowActive = false;
+            }
         }
     }
 }
@@ -2175,6 +2196,28 @@ bool Gateway::emitNotification(const std::string& title, const std::string& body
        in /tmp.  Do not append an outbox beneath runtimeDirectory_: contact
        alerts can be frequent and that directory is normally flash-backed. */
     addLog(std::string("Notification queued: ") + title + " - " + body);
+    return true;
+}
+
+bool Gateway::emitStateNotification(const std::string& title, const std::string& body, const std::string& key,
+                                    bool clear, std::string* error) {
+    if (notificationWorker_ == 0) { if (error != 0) *error = "no notification delivery is configured"; return false; }
+    if (!notificationWorker_->enabled()) {
+        if (error != 0) *error = "push notifications are disabled";
+        return false;
+    }
+    std::vector<std::string> presentSensorIds;
+    for (std::map<std::string, Device>::const_iterator device = devices_.begin(); device != devices_.end(); ++device)
+        if (device->second.hasOccupancy && device->second.occupied) presentSensorIds.push_back(device->second.ieeeAddress);
+    std::string enqueueError;
+    if (!notificationWorker_->enqueueState(title, body, key, clear ? "clear" : "show", presentSensorIds,
+                                           error != 0 ? error : &enqueueError,
+                                           "de.caser.garage.gateway_alerts")) {
+        if (!clear) addLog(std::string("Notification queue failed: ") + title + " - " + body);
+        return false;
+    }
+    addLog(std::string(clear ? "Notification clear queued: " : "Notification queued: ") +
+           (clear ? key : title + " - " + body));
     return true;
 }
 
