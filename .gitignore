@@ -1,0 +1,7 @@
+/tools/
+/logs/
+/targets/
+/prototype/target/
+/prototype/Cargo.lock
+*.core
+core

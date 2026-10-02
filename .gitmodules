@@ -1,0 +1,6 @@
+[submodule "ziggurat"]
+	path = ziggurat
+	url = https://github.com/zigpy/ziggurat.git
+[submodule "rtl8196e-gateway"]
+	path = rtl8196e-gateway
+	url = https://github.com/jnilo1/rtl8196e-gateway.git
