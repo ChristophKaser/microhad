@@ -45,6 +45,24 @@ prefix_rule(
 )
 
 prefix_rule(
+    pattern = ["tail"],
+    decision = "allow",
+    justification = "Permit local inspection of gateway log and command output endings.",
+    match = [
+        "tail -n 150 /tmp/microhad-zigbee-native.log",
+    ],
+)
+
+prefix_rule(
+    pattern = ["head"],
+    decision = "allow",
+    justification = "Permit local inspection of gateway log and command output beginnings.",
+    match = [
+        "head -n 150 /tmp/microhad-zigbee-native.log",
+    ],
+)
+
+prefix_rule(
     pattern = ["make"],
     decision = "allow",
     justification = "Permit project builds and tests.",
