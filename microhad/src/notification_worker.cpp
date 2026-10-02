@@ -193,22 +193,29 @@ void* NotificationWorker::threadMain(void* opaque) {
 }
 
 void NotificationWorker::run() {
+    HttpsSession fcmSession;
     while (true) {
         Job job;
         pthread_mutex_lock(&mutex_);
-        while (running_ && jobs_.empty()) pthread_cond_wait(&ready_, &mutex_);
+        while (running_ && jobs_.empty()) {
+            pthread_mutex_unlock(&mutex_);
+            fcmSession.close();
+            pthread_mutex_lock(&mutex_);
+            if (running_ && jobs_.empty()) pthread_cond_wait(&ready_, &mutex_);
+        }
         if (!running_ && jobs_.empty()) {
             pthread_mutex_unlock(&mutex_);
+            fcmSession.close();
             break;
         }
         job = jobs_.front();
         jobs_.erase(jobs_.begin());
         pthread_mutex_unlock(&mutex_);
-        deliver(job);
+        deliver(job, &fcmSession);
     }
 }
 
-void NotificationWorker::deliver(const Job& job) {
+void NotificationWorker::deliver(const Job& job, HttpsSession* fcmSession) {
     std::string ignored;
     if (!enabled()) return;
     if (deliveryHook_ != 0) {
@@ -250,9 +257,9 @@ void NotificationWorker::deliver(const Job& job) {
         for (unsigned long i = 0; i < tokens.size() && enabled(); ++i) {
             bool sent = job.key.empty() ?
                 sendFcmTokenNotification(firebaseServiceAccount_, caBundle_, tokens[i], job.title, job.body,
-                                         &ignored, job.androidChannelId) :
+                                         &ignored, job.androidChannelId, fcmSession) :
                 sendFcmTokenStateMessage(firebaseServiceAccount_, caBundle_, tokens[i], job.action, job.key,
-                                         job.title, job.body, &ignored, job.androidChannelId);
+                                         job.title, job.body, &ignored, job.androidChannelId, fcmSession);
             if (!sent)
                 fprintf(stderr, "FCM delivery failed: %s\n", ignored.c_str());
         }

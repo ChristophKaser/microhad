@@ -7,6 +7,7 @@
 namespace {
 pthread_mutex_t httpsHookMutex = PTHREAD_MUTEX_INITIALIZER;
 HttpsPostHook* httpsPostHook = 0;
+HttpsSessionHook* httpsSessionHook = 0;
 
 bool decodeChunkedResponse(std::string* response, std::string* error) {
     std::string::size_type bodyAt = response->find("\r\n\r\n");
@@ -56,6 +57,74 @@ void setHttpsPostHook(HttpsPostHook* hook) {
     pthread_mutex_lock(&httpsHookMutex);
     httpsPostHook = hook;
     pthread_mutex_unlock(&httpsHookMutex);
+}
+
+void setHttpsSessionHook(HttpsSessionHook* hook) {
+    pthread_mutex_lock(&httpsHookMutex);
+    httpsSessionHook = hook;
+    pthread_mutex_unlock(&httpsHookMutex);
+}
+
+HttpsSession::HttpsSession() : session_(0), hook_(0), hookConnected_(false) {}
+HttpsSession::~HttpsSession() { close(); }
+
+#ifdef MICROHAD_MBEDTLS_ENABLED
+extern "C" void* microhad_https_session_open(const char* host, const char* caBundle);
+extern "C" int microhad_https_session_post(void* session, const char* path, const char* headers, const char* body,
+                                        unsigned long bodyLength, char* response, unsigned long responseCapacity,
+                                        unsigned long* responseLength);
+extern "C" void microhad_https_session_close(void* session);
+#endif
+
+void HttpsSession::close() {
+    if (hookConnected_) { hook_->close(); hookConnected_ = false; hook_ = 0; }
+#ifdef MICROHAD_MBEDTLS_ENABLED
+    if (session_ != 0) microhad_https_session_close(session_);
+#endif
+    session_ = 0; host_.clear(); caBundle_.clear();
+}
+
+bool HttpsSession::post(const std::string& host, const std::string& path, const std::string& headers,
+                        const std::string& body, const std::string& caBundle,
+                        std::string* response, std::string* error) {
+#ifdef MICROHAD_MBEDTLS_ENABLED
+    std::string buffer(16384, '\0');
+    unsigned long length = 0;
+    if (caBundle.empty()) { *error = "a CA bundle is required for HTTPS"; return false; }
+    if ((session_ != 0 || hookConnected_) && (host_ != host || caBundle_ != caBundle)) close();
+    if (session_ == 0 && !hookConnected_) {
+        pthread_mutex_lock(&httpsHookMutex); hook_ = httpsSessionHook; pthread_mutex_unlock(&httpsHookMutex);
+        if (hook_ != 0) {
+            hookConnected_ = hook_->open(host, caBundle, error);
+            if (!hookConnected_) { hook_ = 0; return false; }
+        }
+        else {
+            session_ = microhad_https_session_open(host.c_str(), caBundle.c_str());
+            if (session_ == 0) { *error = "HTTPS connection failed"; return false; }
+        }
+        host_ = host; caBundle_ = caBundle;
+    }
+    bool ok;
+    if (hookConnected_) ok = hook_->post(host, path, headers, body, caBundle, response, error);
+    else {
+        int transportResult = microhad_https_session_post(session_, path.c_str(), headers.c_str(), body.data(), body.size(),
+                                                      &buffer[0], buffer.size(), &length);
+        ok = transportResult == 0 || transportResult == 1;
+        if (ok) { response->assign(buffer.data(), length); ok = decodeChunkedResponse(response, error); }
+        else *error = "HTTPS session request failed";
+        if (transportResult == 1) {
+            microhad_https_session_close(session_);
+            session_ = 0;
+            host_.clear(); caBundle_.clear();
+        }
+    }
+    if (!ok) close();
+    return ok;
+#else
+    (void)host; (void)path; (void)headers; (void)body; (void)caBundle; (void)response;
+    *error = "HTTPS transport is available only in the RSDK MIPS build";
+    return false;
+#endif
 }
 
 #ifdef MICROHAD_MBEDTLS_ENABLED

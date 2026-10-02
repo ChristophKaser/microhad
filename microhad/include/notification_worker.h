@@ -4,6 +4,7 @@
 #include <pthread.h>
 #include <string>
 #include <vector>
+#include "https_client.h"
 
 class NotificationWorker {
 public:
@@ -57,7 +58,7 @@ private:
     bool running_, started_, enabled_;
     static void* threadMain(void* opaque);
     void run();
-    void deliver(const Job& job);
+    void deliver(const Job& job, HttpsSession* fcmSession);
     void loadEnabled();
     bool saveEnabled(std::string* error) const;
     void loadDevices();

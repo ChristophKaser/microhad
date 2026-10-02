@@ -25,9 +25,9 @@ struct HttpsRequest {
     std::string body;
 };
 
-class FakeHttpsTransport : public HttpsPostHook {
+class FakeHttpsTransport : public HttpsPostHook, public HttpsSessionHook {
 public:
-    FakeHttpsTransport() : oauthFailure(false), malformedOAuth(false), failPush(false), expiresIn(3600), pushStatus(201), removeStore(0) {}
+    FakeHttpsTransport() : oauthFailure(false), malformedOAuth(false), failPush(false), expiresIn(3600), pushStatus(201), removeStore(0), sessionOpens(0), sessionCloses(0) {}
     bool oauthFailure;
     bool malformedOAuth;
     bool failPush;
@@ -40,6 +40,10 @@ public:
     std::map<std::string, long> pushStatusByPath;
     WebPushStore* removeStore;
     std::string removeClientId, removeWhenPath;
+    unsigned int sessionOpens, sessionCloses;
+
+    bool open(const std::string&, const std::string&, std::string*) { ++sessionOpens; return true; }
+    void close() { ++sessionCloses; }
 
     bool post(const std::string& host, const std::string& path, const std::string& headers,
               const std::string& body, const std::string&, std::string* response, std::string* error) {
@@ -78,6 +82,50 @@ public:
         return count;
     }
 };
+
+class BlockingFcmTransport : public FakeHttpsTransport {
+public:
+    BlockingFcmTransport() : blocked(false), released(false) {
+        pthread_mutex_init(&mutex, 0);
+        pthread_cond_init(&condition, 0);
+    }
+    ~BlockingFcmTransport() {
+        pthread_cond_destroy(&condition);
+        pthread_mutex_destroy(&mutex);
+    }
+    bool blocked, released;
+    pthread_mutex_t mutex;
+    pthread_cond_t condition;
+    bool post(const std::string& host, const std::string& path, const std::string& headers,
+              const std::string& body, const std::string& ca, std::string* response, std::string* error) {
+        if (host == "fcm.googleapis.com") {
+            pthread_mutex_lock(&mutex);
+            if (!blocked) {
+                blocked = true;
+                pthread_cond_broadcast(&condition);
+                while (!released) pthread_cond_wait(&condition, &mutex);
+            }
+            pthread_mutex_unlock(&mutex);
+        }
+        return FakeHttpsTransport::post(host, path, headers, body, ca, response, error);
+    }
+    void waitUntilBlocked() {
+        pthread_mutex_lock(&mutex);
+        while (!blocked) pthread_cond_wait(&condition, &mutex);
+        pthread_mutex_unlock(&mutex);
+    }
+    void release() {
+        pthread_mutex_lock(&mutex);
+        released = true;
+        pthread_cond_broadcast(&condition);
+        pthread_mutex_unlock(&mutex);
+    }
+};
+
+void setFakeTransport(FakeHttpsTransport* transport) {
+    setHttpsPostHook(transport);
+    setHttpsSessionHook(transport);
+}
 
 std::string makeAccount(const std::string& path, const std::string& email) {
     std::string key;
@@ -181,7 +229,7 @@ void testNotificationTransportIndependence(const std::string& root) {
     assert(mkdir(directory.c_str(), 0700) == 0);
     prepareBrowserSubscription(directory);
     FakeHttpsTransport browserOnly;
-    setHttpsPostHook(&browserOnly);
+    setFakeTransport(&browserOnly);
     {
         NotificationWorker worker(directory, "", "", "fake-ca");
         assert(worker.start(&error));
@@ -197,7 +245,7 @@ void testNotificationTransportIndependence(const std::string& root) {
     const std::string account = makeAccount(directory + "/service-account.json", "worker@example.test");
     FakeHttpsTransport fcmFailure;
     fcmFailure.oauthFailure = true;
-    setHttpsPostHook(&fcmFailure);
+    setFakeTransport(&fcmFailure);
     {
         NotificationWorker worker(directory, account, "alerts", "fake-ca-worker-failure");
         assert(worker.registerDevice("11111111-1111-4111-8111-111111111111", "Pixel", "token-one", &error));
@@ -218,7 +266,7 @@ void testNotificationTransportIndependence(const std::string& root) {
     FakeHttpsTransport pushFailure;
     pushFailure.failPush = true;
     pushFailure.fcmResponse = "HTTP/1.1 200 OK\r\nContent-Length: 34\r\n\r\n{\"name\":\"projects/p/messages/m\"}";
-    setHttpsPostHook(&pushFailure);
+    setFakeTransport(&pushFailure);
     {
         NotificationWorker worker(directory, secondAccount, "alerts", "fake-ca-push-failure");
         assert(worker.registerDevice("11111111-1111-4111-8111-111111111111", "Pixel", "token-one", &error));
@@ -247,7 +295,7 @@ void testNotificationTransportIndependence(const std::string& root) {
     FakeHttpsTransport bothFail;
     bothFail.oauthFailure = true;
     bothFail.failPush = true;
-    setHttpsPostHook(&bothFail);
+    setFakeTransport(&bothFail);
     {
         NotificationWorker worker(directory, thirdAccount, "alerts", "fake-ca-both-fail");
         assert(worker.registerDevice("11111111-1111-4111-8111-111111111111", "Pixel", "token-one", &error));
@@ -265,30 +313,55 @@ void testNotificationTransportIndependence(const std::string& root) {
     const std::string fourthAccount = makeAccount(directory + "/service-account.json", "worker-four@example.test");
     FakeHttpsTransport fcmOnly;
     fcmOnly.fcmResponse = "HTTP/1.1 200 OK\r\nContent-Length: 31\r\n\r\n{\"name\":\"projects/p/messages/m\"}";
-    setHttpsPostHook(&fcmOnly);
+    setFakeTransport(&fcmOnly);
     {
         NotificationWorker worker(directory, fourthAccount, "alerts", "fake-ca-fcm-only");
         assert(worker.registerDevice("11111111-1111-4111-8111-111111111111", "Pixel", "token-one", &error));
         assert(worker.registerDevice("22222222-2222-4222-8222-222222222222", "Phone", "token-two", &error));
-        assert(worker.updateDevice("22222222-2222-4222-8222-222222222222", "Spare", false, &error));
         assert(worker.start(&error));
         assert(worker.enqueue("Test", "FCM only", &error));
         worker.stop();
     }
-    assert(fcmOnly.countHost("fcm.googleapis.com") == 1);
+    assert(fcmOnly.countHost("fcm.googleapis.com") == 2);
+    assert(fcmOnly.sessionOpens == 1);
+    assert(fcmOnly.sessionCloses == 1);
+    bool tokenOneSent = false, tokenTwoSent = false;
     for (unsigned long i = 0; i < fcmOnly.requests.size(); ++i)
         if (fcmOnly.requests[i].host == "fcm.googleapis.com") {
-            assert(fcmOnly.requests[i].body.find("\"token\":\"token-one\"") != std::string::npos);
+            if (fcmOnly.requests[i].body.find("\"token\":\"token-one\"") != std::string::npos) tokenOneSent = true;
+            if (fcmOnly.requests[i].body.find("\"token\":\"token-two\"") != std::string::npos) tokenTwoSent = true;
             assert(fcmOnly.requests[i].body.find("\"topic\"") == std::string::npos);
         }
+    assert(tokenOneSent && tokenTwoSent);
     assert(fcmOnly.countHost("push.example.test") == 0);
     unlink(fourthAccount.c_str());
+    cleanNotificationRuntime(directory);
+
+    directory = root + "/queued-fcm-reuse";
+    assert(mkdir(directory.c_str(), 0700) == 0);
+    const std::string queuedAccount = makeAccount(directory + "/service-account.json", "queued@example.test");
+    BlockingFcmTransport queued;
+    queued.fcmResponse = "HTTP/1.1 200 OK\r\nContent-Length: 31\r\n\r\n{\"name\":\"projects/p/messages/m\"}";
+    setFakeTransport(&queued);
+    {
+        NotificationWorker worker(directory, queuedAccount, "alerts", "fake-ca-queued");
+        assert(worker.registerDevice("11111111-1111-4111-8111-111111111111", "Pixel", "token-one", &error));
+        assert(worker.start(&error));
+        assert(worker.enqueue("Test", "first queued message", &error));
+        queued.waitUntilBlocked();
+        assert(worker.enqueue("Test", "second queued message", &error));
+        queued.release();
+        worker.stop();
+    }
+    assert(queued.countHost("fcm.googleapis.com") == 2);
+    assert(queued.sessionOpens == 1 && queued.sessionCloses == 1);
+    unlink(queuedAccount.c_str());
     cleanNotificationRuntime(directory);
 
     directory = root + "/unconfigured";
     assert(mkdir(directory.c_str(), 0700) == 0);
     FakeHttpsTransport unconfigured;
-    setHttpsPostHook(&unconfigured);
+    setFakeTransport(&unconfigured);
     {
         NotificationWorker worker(directory, "", "", "");
         assert(worker.start(&error));
@@ -398,11 +471,12 @@ void runOutboundIntegrationTests() {
     char* directory = mkdtemp(directoryName);
     assert(directory != 0);
     FakeHttpsTransport transport;
-    setHttpsPostHook(&transport);
+    setFakeTransport(&transport);
     testFcmTokenCacheAndFailures(directory, &transport);
     testNotificationTransportIndependence(directory);
     testWebPushEncryptionAndRejection(directory);
     setHttpsPostHook(0);
+    setHttpsSessionHook(0);
     unlink((std::string(directory) + "/account-one.json").c_str());
     unlink((std::string(directory) + "/account-two.json").c_str());
     unlink((std::string(directory) + "/account-expiring.json").c_str());
