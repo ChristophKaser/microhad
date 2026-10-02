@@ -103,7 +103,8 @@ bool NetworkBackupExport::accept(const Query& query, const std::vector<unsigned 
         for (unsigned int i = 0; i < response[0]; ++i) enqueue(0x0101, std::vector<unsigned char>(1, i));
     } else if (query.command == 0x0101) {
         if (response.size() != 9 || response[0] != 0) {
-            *error = "invalid token-info response"; return false;
+            std::ostringstream detail; detail << "invalid token-info response: index=" << static_cast<unsigned int>(query.payload[0]) << " bytes=" << response.size() << " status=" << (response.empty() ? 255 : static_cast<unsigned int>(response[0]));
+            *error = detail.str(); return false;
         }
         for (unsigned int i = 0; i < response[8]; ++i) {
             std::vector<unsigned char> payload(response.begin() + 1, response.begin() + 5);
