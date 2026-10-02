@@ -6,6 +6,29 @@ big-endian Lexra CPU. The aim is a standalone host stack using OpenThread RCP
 firmware on its EFR32MG1 radio, without Silicon Labs' precompiled host Zigbee
 stack libraries.
 
+The intended production client is **`microhad-zigbee-native`**, running on the
+gateway and talking to Ziggurat's protocol-v2 API. Its Ziggurat adapter is
+future work; the Python client in this experiment only exercises that API.
+Direct Zigbee2MQTT integration is not the immediate client plan.
+
+The ultimate goal is **dual-mode Zigbee and Matter-over-Thread**, aiming to
+share the gateway's existing EFR32 radio while retaining Zigbee support through
+Ziggurat and `microhad-zigbee-native`. Matter requires Thread connectivity and a
+Matter controller/application layer; Ziggurat supplies the Zigbee stack.
+Where to run the Thread border router and Matter controller remains a design
+decision to validate against gateway resources.
+
+Sharing an OpenThread RCP firmware image between alternative Zigbee and Thread
+uses does not establish simultaneous operation. We must investigate multi-PAN
+firmware, multiplexed radio access, reset ownership, channel constraints and
+coexistence. The pinned gateway project's
+[radio-mode guide](rtl8196e-gateway/docs/radio-options.md) describes experimental
+same-channel Zigbee + Thread on this Series-1 radio through a separate CPC
+multi-PAN path. That path uses `zigbeed`; Ziggurat is not a drop-in replacement.
+The pinned Ziggurat Spinel client currently uses link/interface ID 0, so
+simultaneous shared-radio operation will require further design and likely
+code changes. Dual mode is a goal, not a capability validated by these tests.
+
 ## Source projects
 
 Sources are pinned Git submodules:
@@ -43,8 +66,8 @@ recorded in this repository rather than silently changing a source checkout.
   performance under a real Zigbee workload remains unmeasured.
 - The inspected Ziggurat workspace requires Rust 1.98 and its host server
   uses Tokio. Its protocol core supports `no_std`. Its client protocol is
-  different from EZSP; native gateway or Zigbee2MQTT integration is separate
-  work from compiling the stack.
+  different from EZSP; implementing the planned `microhad-zigbee-native` client
+  adapter is separate work from compiling the stack.
 
 ## First experiment: Rust prototype
 
@@ -228,17 +251,84 @@ Existing gateway services, radio firmware, configuration and network state
 were preserved. Credentials were read only by `sshpass -f` using the existing
 password-file pathname and were not added to this repository.
 
+## Host RCP simulation against gateway Ziggurat
+
+```sh
+python3 scripts/simulate-rcp.py --host 192.168.178.62 \
+  --password-file ../ssh_password.txt \
+  --binary /tmp/ziggurat-server-smoke-20261002 --seconds 25
+```
+
+Run the host wire-format/error-path checks without contacting a gateway:
+`PYTHONDONTWRITEBYTECODE=1 python3 scripts/test-simulate-rcp.py`.
+
+The already-uploaded binary must exist; it disappears if the gateway reboots.
+The script creates a Python-standard-library Spinel simulator on this computer,
+bound to its gateway-facing LAN address and an ephemeral TCP port. The gateway
+Ziggurat process connects directly to that host socket. The test accepts an RCP
+connection only from the selected gateway IP. The host's temporary WebSocket
+test client reaches Ziggurat's localhost-only API through SSH forwarding:
+
+```text
+Host test client -- WebSocket through SSH --> Tuya Ziggurat
+Host simulated RCP <-- Spinel/HDLC over LAN TCP -- Tuya Ziggurat
+
+Planned client: microhad-zigbee-native --> Ziggurat --> physical RCP
+```
+
+No radio UART is opened. The simulator implements the subset needed for address
+lookup, coordinator configuration, raw transmit completions and reset recovery.
+It validates HDLC CRCs and acknowledges supported property setters; unsupported
+operations report `Unimplemented`. Resets clear its simulated radio settings.
+The client generates fresh synthetic coordinator settings with explicit dummy
+keys, without reading or restoring any production network configuration.
+
+The gateway test process uses a new log in `/tmp`, core dumps disabled, a
+55-second watchdog, and cleanup on SSH termination. It is stopped at the end;
+existing services keep running. Logs, protocol results and sampled resources
+are saved locally to ignored `logs/simulation-<timestamp>.json`.
+
+The final device run passed address lookup, an injected receive/capture event
+including HDLC-escaped bytes, configuration, network startup, ten broadcast
+requests and ten successful asynchronous `BroadcastConfirm` notifications.
+It also passed simulated RCP reset recovery with cleared properties,
+865 network queries during a 25-second soak, channel changes, client reconnect
+and stack shutdown. The simulator observed 12 transmitted frames (including
+stack-generated traffic), two resets and 47 channel property writes.
+Active-stack sampled RSS stayed at 2,240 KiB, compared with 1,712 KiB before
+configuration; the final shutdown sample was 2,248 KiB. CPU counters were
+sampled in kernel clock ticks and showed no tick increase between samples.
+Treat that as inconclusive CPU accounting on this kernel, rather than a
+reliable CPU percentage or throughput benchmark. The final JSON report is
+`logs/simulation-1790943782386518400.json` (ignored, retained locally).
+
+The harness also matches its HDLC encoding against the upstream test vector
+`7e8102025e807e`. WebSocket reconnects use normal closing handshakes. Expected
+simulated reset notifications appear at ERROR level in upstream logs; both
+resets were intentional, and recovery was checked.
+
+This simulator does not model RF timing, contention, real peers, joins,
+interference, routing load or a Thread network. It checks transport, API and
+host-stack lifecycle; it does not validate over-the-air delivery, Zigbee
+interoperability, cryptographic correctness or dual-mode Matter operation.
+
 ## Next gates
 
-- Exercise protocol handling with a simulated TCP RCP and measure memory/CPU
-  while the Zigbee stack is active. Idle startup is not a production-readiness
-  claim.
+- Implement the Ziggurat protocol-v2 adapter in `microhad-zigbee-native`, including
+  notifications, asynchronous send confirmations, persistent state and
+  reconnect behavior. Exercise it against this simulator before physical RCP
+  integration.
+- Extend simulated traffic and duration, then benchmark real peer/routing load.
+  A short synthetic active-stack test is not a production-readiness claim.
 - Validate serial I/O on the target without disrupting its coordinator; the
   anonymous-PTY probe cannot run with the current device setup.
 - Validate RCP firmware, UART flow control and client integration separately,
   with explicit authorization and a backup before any firmware change.
 - Build the modern Lexra/musl toolchain if old-libc compatibility becomes too
   restrictive. Keep the successful stock-RSDK path as a reproducible baseline.
+- Evaluate the shared-radio Zigbee + Thread architecture for the ultimate
+  Matter dual-mode goal, including Spinel interface IDs/multiplexing, firmware
+  compatibility, Series-1 same-channel limits and combined memory demand.
 
 ## References
 

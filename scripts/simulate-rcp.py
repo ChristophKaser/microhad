@@ -1,0 +1,462 @@
+#!/usr/bin/env python3
+"""Bounded host Spinel simulator and protocol-v2 client for the stock gateway.
+
+Only generated test state is sent. No production configuration is read.
+"""
+import argparse
+import base64
+from collections import Counter
+import hashlib
+import json
+import os
+from pathlib import Path
+import shlex
+import socket
+import struct
+import subprocess
+import threading
+import time
+
+ROOT = Path(__file__).resolve().parent.parent
+EUI = bytes.fromhex("0200000000000042")
+SPECIAL = {0x7e, 0x7d, 0x11, 0x13, 0xf8}
+
+
+def packed(value):
+    result = bytearray()
+    while value >= 128:
+        result.append((value & 127) | 128)
+        value >>= 7
+    result.append(value)
+    return bytes(result)
+
+
+def unpacked(data, offset):
+    value = 0
+    for shift in (0, 7, 14):
+        byte = data[offset]
+        offset += 1
+        value |= (byte & 127) << shift
+        if byte < 128:
+            return value, offset
+    raise ValueError("Invalid Spinel packed integer")
+
+
+def crc(data):
+    value = 0xffff
+    for byte in data:
+        value ^= byte
+        for _ in range(8):
+            value = (value >> 1) ^ (0x8408 if value & 1 else 0)
+    return value ^ 0xffff
+
+
+def encode(data):
+    framed = bytearray([0x7e])
+    for byte in data + struct.pack("<H", crc(data)):
+        if byte in SPECIAL:
+            framed.extend((0x7d, byte ^ 0x20))
+        else:
+            framed.append(byte)
+    return bytes(framed + b"\x7e")
+
+
+def decode(data):
+    result = bytearray()
+    escaped = False
+    for byte in data:
+        if escaped:
+            result.append(byte ^ 0x20)
+            escaped = False
+        elif byte == 0x7d:
+            escaped = True
+        else:
+            result.append(byte)
+    if escaped or len(result) < 2 or crc(result[:-2]) != struct.unpack("<H", result[-2:])[0]:
+        raise ValueError("Invalid HDLC checksum or escape")
+    return bytes(result[:-2])
+
+
+class Rcp:
+    def __init__(self, device):
+        route = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        route.connect((device, 9))  # Route selection only; no datagram is sent.
+        self.address = route.getsockname()[0]
+        route.close()
+        self.listener = socket.socket()
+        self.listener.bind((self.address, 0))
+        self.listener.listen(1)
+        self.listener.settimeout(1)
+        self.port = self.listener.getsockname()[1]
+        self.device = device
+        self.conn = None
+        self.lock = threading.Lock()
+        self.stop = threading.Event()
+        self.counts = Counter()
+        self.properties = {8: EUI[::-1], 2: b"host-simulated-rcp\x00"}
+        self.error = None
+        self.worker = threading.Thread(target=self.run, daemon=True)
+        self.worker.start()
+
+    def send(self, header, prop, value):
+        with self.lock:
+            self.conn.sendall(encode(bytes([header, 6]) + packed(prop) + value))
+
+    def receive_frame(self, data):
+        command, offset = unpacked(data, 1)
+        self.counts[f"command_{command}"] += 1
+        if command == 1:
+            self.counts["resets"] += 1
+            self.properties = {8: EUI[::-1], 2: b"host-simulated-rcp\x00"}
+            self.send(0x80, 0, packed(114))
+            return
+        prop, offset = unpacked(data, offset)
+        self.counts[f"property_{prop}"] += 1
+        if command == 2 and prop in self.properties:
+            self.send(data[0], prop, self.properties[prop])
+        elif command == 3:
+            value = data[offset:]
+            if prop == 113:
+                length = struct.unpack("<H", value[:2])[0]
+                if not 0 < length <= 127 or len(value) < length + 2:
+                    raise ValueError("Invalid transmitted PSDU length")
+                self.counts["tx_frames"] += 1
+                self.counts["tx_bytes"] += length
+                self.send(data[0], 0, b"\x00")
+            elif prop in {32, 33, 37, 52, 53, 54, 55, 56, 59, 4867, 4868, 4869}:
+                self.properties[prop] = value
+                self.send(data[0], prop, value)
+            else:
+                self.send(data[0], 0, packed(2))  # Unimplemented, never silently succeed.
+        else:
+            self.send(data[0], 0, packed(2))
+
+    def inject(self, psdu):
+        # Raw receive framing includes an FCS, removed by SpinelPhy.
+        frame = psdu + b"\x00\x00"
+        metadata = struct.pack("<bbIBBQB", -42, -100, 0, 15, 200, 123456, 0)
+        self.send(0x80, 113, struct.pack("<H", len(frame)) + frame + metadata)
+        self.counts["rx_injected"] += 1
+
+    def run(self):
+        try:
+            while not self.stop.is_set():
+                try:
+                    conn, peer = self.listener.accept()
+                    break
+                except socket.timeout:
+                    continue
+            else:
+                return
+            if peer[0] != self.device:
+                conn.close()
+                raise ValueError(f"Unexpected RCP peer: {peer[0]}")
+            self.conn = conn
+            conn.settimeout(1)
+            buffer = bytearray()
+            while not self.stop.is_set():
+                try:
+                    chunk = conn.recv(4096)
+                except socket.timeout:
+                    continue
+                if not chunk:
+                    return
+                for byte in chunk:
+                    if byte == 0x7e:
+                        if buffer:
+                            self.receive_frame(decode(buffer))
+                            buffer.clear()
+                    else:
+                        buffer.append(byte)
+                        if len(buffer) > 4096:
+                            raise ValueError("Oversized HDLC frame")
+        except Exception as error:
+            if not self.stop.is_set():
+                self.error = str(error)
+
+    def close(self):
+        self.stop.set()
+        if self.conn:
+            self.conn.close()
+        self.listener.close()
+        self.worker.join(2)
+
+
+class Client:
+    def __init__(self, port):
+        self.conn = socket.create_connection(("127.0.0.1", port), timeout=5)
+        key = base64.b64encode(os.urandom(16)).decode()
+        self.conn.sendall((f"GET / HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\n"
+                           f"Connection: Upgrade\r\nSec-WebSocket-Key: {key}\r\n"
+                           "Sec-WebSocket-Version: 13\r\n\r\n").encode())
+        header = bytearray()
+        while not header.endswith(b"\r\n\r\n"):
+            header.extend(self.exact(1))
+            if len(header) > 8192:
+                raise ValueError("Oversized WebSocket handshake")
+        expected = base64.b64encode(hashlib.sha1(
+            (key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode()).digest())
+        if not header.startswith(b"HTTP/1.1 101 ") or expected not in header:
+            raise ValueError("WebSocket handshake failed")
+        self.sequence = 0
+        self.events = []
+        self.hello = self.receive()
+        assert self.hello[:4] == b"\x00\x03\x00\x02", self.hello
+
+    def exact(self, length):
+        result = bytearray()
+        while len(result) < length:
+            chunk = self.conn.recv(length - len(result))
+            if not chunk:
+                raise ConnectionError("WebSocket closed")
+            result.extend(chunk)
+        return bytes(result)
+
+    def websocket_frame(self):
+        first, second = self.exact(2)
+        assert first & 0x80 and not second & 128, (first, second)
+        length = second & 127
+        if length == 126:
+            length = struct.unpack("!H", self.exact(2))[0]
+        elif length == 127:
+            length = struct.unpack("!Q", self.exact(8))[0]
+        assert length <= 65536
+        return first & 15, self.exact(length)
+
+    def receive(self):
+        opcode, data = self.websocket_frame()
+        assert opcode == 2, opcode
+        return data
+
+    def send(self, opcode, data):
+        mask = os.urandom(4)
+        length = len(data)
+        header = bytes([0x80 | opcode, 128 | length]) if length < 126 else bytes([0x80 | opcode, 0xfe]) + struct.pack("!H", length)
+        self.conn.sendall(header + mask + bytes(byte ^ mask[i % 4] for i, byte in enumerate(data)))
+
+    def request(self, command, payload=b"", status=0):
+        self.sequence += 1
+        data = bytes([command]) + struct.pack("<H", self.sequence << 2) + payload
+        self.send(2, data)
+        while True:
+            frame = self.receive()
+            if frame[:3] == bytes([command]) + struct.pack("<H", (self.sequence << 2) | 1):
+                assert frame[3] == status, (command, frame.hex())
+                return frame[4:]
+            self.events.append(frame)
+
+    def close(self):
+        try:
+            self.send(8, struct.pack("!H", 1000))
+            for _ in range(128):
+                opcode, _ = self.websocket_frame()
+                if opcode == 8:
+                    break
+        except (OSError, AssertionError):
+            pass
+        finally:
+            self.conn.close()
+
+
+def config():
+    # Disposable synthetic coordinator state, never copied from gateway data.
+    return (b"\x00\x01" + struct.pack("<BBH", 15, 0, 0x1a62)
+            + bytes.fromhex("0200000000000062") + b"\x00\x00" + EUI
+            + bytes(range(16)) + b"\x00" + struct.pack("<I", 0)
+            + bytes(range(16, 32)) + b"\x00" + bytes(16) + b"\x01\x08"
+            + struct.pack("<I", 0))
+
+
+def ssh_args(args):
+    return ["sshpass", "-f", str(args.password_file), "ssh", "-o", "ConnectTimeout=8",
+            "-o", "StrictHostKeyChecking=yes", "-o", "HostKeyAlgorithms=+ssh-rsa",
+            "-o", "PubkeyAcceptedAlgorithms=+ssh-rsa", "-o", "PreferredAuthentications=password",
+            "-o", "PubkeyAuthentication=no"]
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--host", default="192.168.178.62")
+    parser.add_argument("--password-file", type=Path, default=ROOT.parent / "ssh_password.txt")
+    parser.add_argument("--binary", default="/tmp/ziggurat-server-smoke-20261002")
+    parser.add_argument("--seconds", type=int, default=15)
+    args = parser.parse_args()
+    if not args.binary.startswith("/tmp/ziggurat-server-smoke-") or not 1 <= args.seconds <= 25:
+        parser.error("Use a temporary smoke binary and a 1–25 second soak")
+    # Independent upstream HDLC vector, not only an encode/decode round trip.
+    assert encode(bytes.fromhex("810202")) == bytes.fromhex("7e8102025e807e")
+    rcp = Rcp(args.host)
+    reservation = socket.socket()
+    reservation.bind(("127.0.0.1", 0))
+    client_port = reservation.getsockname()[1]
+    reservation.close()
+    remote_port = 19997
+    token = str(time.time_ns())
+    remote_log = f"/tmp/ziggurat-simulation-{token}.log"
+    remote = f"""set -u
+ulimit -c 0 || exit 1
+test -x {shlex.quote(args.binary)} || exit 2
+test ! -e {remote_log} || exit 2
+{shlex.quote(args.binary)} --device tcp://{rcp.address}:{rcp.port} --listen 127.0.0.1:{remote_port} --log-level info > {remote_log} 2>&1 &
+child=$!
+(sleep 55; kill -9 "$child" 2>/dev/null) &
+watchdog=$!
+cleanup() {{
+    kill "$child" "$watchdog" 2>/dev/null
+    wait "$child" 2>/dev/null
+    wait "$watchdog" 2>/dev/null
+    cat {remote_log}
+}}
+trap cleanup EXIT HUP INT TERM
+sleep 1
+kill -0 "$child" 2>/dev/null || exit 1
+echo READY
+while read action; do
+    case "$action" in
+        sample) echo SAMPLE; cat /proc/$child/stat; awk '/^(VmSize|VmRSS|Threads):/' /proc/$child/status ;;
+        stop) exit 0 ;;
+    esac
+done
+"""
+    ssh = subprocess.Popen(ssh_args(args) + ["-o", "ExitOnForwardFailure=yes", "-L",
+                           f"127.0.0.1:{client_port}:127.0.0.1:{remote_port}",
+                           f"root@{args.host}", "sh -c " + shlex.quote(remote)],
+                           stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                           stderr=subprocess.STDOUT, text=True)
+    output = []
+    ready = threading.Event()
+
+    def read_output():
+        for line in ssh.stdout:
+            output.append(line.rstrip())
+            if line.strip() == "READY":
+                ready.set()
+    reader = threading.Thread(target=read_output, daemon=True)
+    reader.start()
+    client = None
+    results = []
+    failure = None
+    started = time.monotonic()
+
+    def passed(message):
+        results.append(message)
+        print("PASS " + message, flush=True)
+
+    def sample():
+        ssh.stdin.write("sample\n")
+        ssh.stdin.flush()
+
+    try:
+        print(f"Host RCP listening on {rcp.address}:{rcp.port}; gateway API through SSH localhost forward", flush=True)
+        if not ready.wait(12):
+            raise RuntimeError("Gateway failed to start: " + "\n".join(output))
+        client = Client(client_port)
+        assert client.hello[4] == 0
+        passed("WebSocket handshake and protocol-v2 unconfigured Hello")
+        sample()
+        assert client.request(2) == EUI
+        passed("GetHwAddress through gateway → host Spinel RCP")
+        client.request(0x42, b"\x0f")
+        psdu = bytes.fromhex("01087e7d1113f8")
+        time.sleep(0.1)
+        rcp.inject(psdu)
+        received = client.receive()
+        assert received[0] == 0x42 and received[1] & 3 == 2
+        assert received[3:] == struct.pack("<BbBH", 15, -42, 200, len(psdu)) + psdu
+        passed("Simulated receive → Spinel decoding → client capture event, including escaped bytes")
+        client.close()
+        client = Client(client_port)
+        client.request(0x10, config())
+        passed("Configure with synthetic coordinator state")
+        client.request(0x16)
+        passed("StartNetwork, reset notification and radio property programming")
+        info = client.request(0x20)
+        assert info[-1] & 1 == 1
+        sample()
+        # APS broadcasts exercise NWK security, the sender task and completion tracking.
+        for _ in range(10):
+            broadcast = struct.pack("<BHHHBBBBbH", 0, 0xfffc, 0x104, 6, 1, 1, 0, 3, 0, 4) + b"test"
+            client.request(0x31, broadcast)
+            time.sleep(0.05)
+        passed("Ten APS broadcasts accepted by active stack")
+        before_reset = rcp.counts["resets"]
+        programmed = rcp.counts["property_32"]
+        client.request(0, b"\x01")
+        deadline = time.monotonic() + 4
+        while rcp.counts["property_32"] <= programmed and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert rcp.counts["resets"] > before_reset and rcp.counts["property_32"] > programmed
+        # Wait for the last programmed property, not just the first setter.
+        while 4869 not in rcp.properties and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert rcp.properties[54] == struct.pack("<H", 0x1a62)
+        assert rcp.properties[33] == b"\x0f" and rcp.properties[55] == b"\x01"
+        passed("Hard reset of simulated RCP and active-stack reprogramming")
+        queries = 0
+        soak_start = time.monotonic()
+        while time.monotonic() - soak_start < args.seconds:
+            client.request(0x20)
+            if queries % 20 == 0:
+                client.request(0x35, bytes([15 + (queries // 20) % 2]))
+                sample()
+            queries += 1
+            time.sleep(0.02)
+        assert rcp.counts["tx_frames"] >= 10, rcp.counts
+        confirms = [event for event in client.events
+                    if event[0] == 0x13 and event[1] & 3 == 3]
+        assert len(confirms) == 10 and all(event[3] == 0 for event in confirms), [e.hex() for e in confirms]
+        passed("Ten successful asynchronous BroadcastConfirm notifications")
+        passed(f"{args.seconds}-second active-stack soak, {queries} network queries and channel changes")
+        client.close()
+        client = Client(client_port)
+        assert client.hello[4] & 1
+        assert client.request(0x20)[-1] & 1
+        passed("Client reconnect preserves configured, running stack")
+        client.request(3)
+        client.request(0x20, status=0x10)
+        passed("Shutdown releases stack; subsequent query reports NotConfigured")
+        sample()
+        if rcp.error:
+            raise RuntimeError(rcp.error)
+    except Exception as error:
+        failure = f"{type(error).__name__}: {error}"
+        print("FAIL " + failure, flush=True)
+    finally:
+        if client:
+            client.close()
+        try:
+            ssh.stdin.write("stop\n")
+            ssh.stdin.flush()
+            ssh.wait(timeout=8)
+        except (BrokenPipeError, subprocess.TimeoutExpired):
+            ssh.terminate()
+            try:
+                ssh.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                ssh.kill()
+                ssh.wait()
+        reader.join(2)
+        rcp.close()
+        report = {"passed": results, "failure": failure, "rcp_error": rcp.error,
+                  "rcp_counts": dict(rcp.counts), "elapsed_seconds": time.monotonic() - started,
+                  "remote_log": remote_log, "gateway_output": output, "ssh_exit": ssh.returncode}
+        rss = [int(line.split()[1]) for line in output if line.startswith("VmRSS:")]
+        cpu = []
+        for line in output:
+            if "(ziggurat-server) " in line:
+                fields = line.split(") ", 1)[1].split()
+                cpu.append(int(fields[11]) + int(fields[12]))
+        report["resources"] = {"rss_kib_samples": rss, "cpu_ticks_samples": cpu,
+                               "peak_sampled_rss_kib": max(rss) if rss else None,
+                               "sampled_cpu_ticks_delta": cpu[-1] - cpu[0] if cpu else None}
+        (ROOT / "logs").mkdir(exist_ok=True)
+        path = ROOT / "logs" / f"simulation-{token}.json"
+        path.write_text(json.dumps(report, indent=2) + "\n")
+        print(f"Report: {path}", flush=True)
+        for line in output:
+            print(line)
+    return 1 if failure or rcp.error or ssh.returncode else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
