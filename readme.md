@@ -15,8 +15,10 @@ The ultimate goal is **dual-mode Zigbee and Matter-over-Thread**, aiming to
 share the gateway's existing EFR32 radio while retaining Zigbee support through
 Ziggurat and `microhad-zigbee-native`. Matter requires Thread connectivity and a
 Matter controller/application layer; Ziggurat supplies the Zigbee stack.
-Where to run the Thread border router and Matter controller remains a design
-decision to validate against gateway resources.
+The production goal is **fully standalone on the Tuya**: the Zigbee client,
+Ziggurat, Thread border-router functionality and required Matter application
+functionality must run locally. The development computer is only a build and
+test tool. Combined memory/CPU demand remains an unvalidated feasibility gate.
 
 Sharing an OpenThread RCP firmware image between alternative Zigbee and Thread
 uses does not establish simultaneous operation. We must investigate multi-PAN
@@ -28,6 +30,15 @@ multi-PAN path. That path uses `zigbeed`; Ziggurat is not a drop-in replacement.
 The pinned Ziggurat Spinel client currently uses link/interface ID 0, so
 simultaneous shared-radio operation will require further design and likely
 code changes. Dual mode is a goal, not a capability validated by these tests.
+
+The [radio firmware and dual-network audit](docs/radio-dual-mode.md), dated
+2026-10-02, finds an alternative to CPC: GSDK 4.5.0 already implements
+multi-instance Spinel over HDLC and multiple radio address filters. Reusing
+that implementation is the preferred next firmware experiment; CPC is not
+inherently necessary. The existing HDLC image is configured for one instance.
+MG1 source-matching limitations and host ownership still need validation.
+The firmware is partly open source and rebuildable from SDK source plus
+precompiled RAIL libraries; it is not a completely source-available image.
 
 ## Source projects
 

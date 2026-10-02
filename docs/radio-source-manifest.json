@@ -1,0 +1,78 @@
+{
+  "date": "2026-10-02",
+  "repository": "https://github.com/SiliconLabs/gecko_sdk",
+  "tag": "v4.5.0",
+  "commit": "90fc93e1f95a10c981f0e49ca6787192e82fd8f2",
+  "files": [
+    {
+      "path": "License.txt",
+      "sha256": "d2abb2ff8f2882b3c46687889caf81af543461c60442292c7385b461d216b20e",
+      "url": "https://raw.githubusercontent.com/SiliconLabs/gecko_sdk/90fc93e1f95a10c981f0e49ca6787192e82fd8f2/License.txt"
+    },
+    {
+      "path": "platform/radio/rail_lib/component/rail_lib.slcc",
+      "sha256": "3b18d5fa873b0ec03a4efa95b18caae102dc7a20eed3b1fc1bdf94b82e3f8f16",
+      "url": "https://raw.githubusercontent.com/SiliconLabs/gecko_sdk/90fc93e1f95a10c981f0e49ca6787192e82fd8f2/platform/radio/rail_lib/component/rail_lib.slcc"
+    },
+    {
+      "path": "platform/radio/rail_lib/component/rail_lib_singleprotocol.slcc",
+      "sha256": "1c24598d3fcc43247bf4d5cc224fc493c114fd96fac3607d8faf26f369f4f261",
+      "url": "https://raw.githubusercontent.com/SiliconLabs/gecko_sdk/90fc93e1f95a10c981f0e49ca6787192e82fd8f2/platform/radio/rail_lib/component/rail_lib_singleprotocol.slcc"
+    },
+    {
+      "path": "platform/radio/rail_lib/protocol/ieee802154/rail_ieee802154.h",
+      "sha256": "4c9274394fdd84ff8a05db980c94501a98ee506f89a880eed8432f1c07542bb5",
+      "url": "https://raw.githubusercontent.com/SiliconLabs/gecko_sdk/90fc93e1f95a10c981f0e49ca6787192e82fd8f2/platform/radio/rail_lib/protocol/ieee802154/rail_ieee802154.h"
+    },
+    {
+      "path": "protocol/openthread/platform-abstraction/efr32/radio.c",
+      "sha256": "572d63138f102f43196a4af5b873612771711304498483668f540bb3987309e6",
+      "url": "https://raw.githubusercontent.com/SiliconLabs/gecko_sdk/90fc93e1f95a10c981f0e49ca6787192e82fd8f2/protocol/openthread/platform-abstraction/efr32/radio.c"
+    },
+    {
+      "path": "protocol/openthread/platform-abstraction/efr32/sl_multipan.h",
+      "sha256": "fbf004be6afb8dcd9c9e90be326c38be05afe8f69628c10c509125b8d9b9ef05",
+      "url": "https://raw.githubusercontent.com/SiliconLabs/gecko_sdk/90fc93e1f95a10c981f0e49ca6787192e82fd8f2/protocol/openthread/platform-abstraction/efr32/sl_multipan.h"
+    },
+    {
+      "path": "protocol/openthread/platform-abstraction/efr32/soft_source_match_table.c",
+      "sha256": "4621267f6c6c7ddd151725fadcc47f27cc99e66cba7aeebc084d51eb82a2dadc",
+      "url": "https://raw.githubusercontent.com/SiliconLabs/gecko_sdk/90fc93e1f95a10c981f0e49ca6787192e82fd8f2/protocol/openthread/platform-abstraction/efr32/soft_source_match_table.c"
+    },
+    {
+      "path": "protocol/openthread/platform-abstraction/ncp/ncp_init.cpp",
+      "sha256": "4088468fd349d540751d1c8846212463e99bea3ca532cd5de272816f9b6569ea",
+      "url": "https://raw.githubusercontent.com/SiliconLabs/gecko_sdk/90fc93e1f95a10c981f0e49ca6787192e82fd8f2/protocol/openthread/platform-abstraction/ncp/ncp_init.cpp"
+    },
+    {
+      "path": "protocol/openthread/sample-apps/ot-ncp/app.c",
+      "sha256": "943760d5bb0a573ff49178721eb933bbee2bb7138cc825f2c30fd91946a5ff8b",
+      "url": "https://raw.githubusercontent.com/SiliconLabs/gecko_sdk/90fc93e1f95a10c981f0e49ca6787192e82fd8f2/protocol/openthread/sample-apps/ot-ncp/app.c"
+    },
+    {
+      "path": "util/third_party/openthread/examples/apps/ncp/ncp.c",
+      "sha256": "6151beff80e883476ecd63241b3249c12cfe2355679881f55a2ba340c32a2720",
+      "url": "https://raw.githubusercontent.com/SiliconLabs/gecko_sdk/90fc93e1f95a10c981f0e49ca6787192e82fd8f2/util/third_party/openthread/examples/apps/ncp/ncp.c"
+    },
+    {
+      "path": "util/third_party/openthread/examples/platforms/utils/soft_source_match_table.c",
+      "sha256": "934cde1afe72b2930d4879d3bc73eded51923157821c5635bc31ab357879ff6e",
+      "url": "https://raw.githubusercontent.com/SiliconLabs/gecko_sdk/90fc93e1f95a10c981f0e49ca6787192e82fd8f2/util/third_party/openthread/examples/platforms/utils/soft_source_match_table.c"
+    },
+    {
+      "path": "util/third_party/openthread/examples/platforms/utils/soft_source_match_table.h",
+      "sha256": "e91b46c5191f8ee06c8f8642da9620ad8ceb6f97eb70559eef2bd320e5b07cd3",
+      "url": "https://raw.githubusercontent.com/SiliconLabs/gecko_sdk/90fc93e1f95a10c981f0e49ca6787192e82fd8f2/util/third_party/openthread/examples/platforms/utils/soft_source_match_table.h"
+    },
+    {
+      "path": "util/third_party/openthread/src/ncp/ncp_base.cpp",
+      "sha256": "469b43f9a65daac7e651841459ca06253935698a201eefdb38159d95597fbffb",
+      "url": "https://raw.githubusercontent.com/SiliconLabs/gecko_sdk/90fc93e1f95a10c981f0e49ca6787192e82fd8f2/util/third_party/openthread/src/ncp/ncp_base.cpp"
+    },
+    {
+      "path": "util/third_party/openthread/src/ncp/ncp_hdlc.cpp",
+      "sha256": "10159d0ae2ded344e590af05a4339e98423aa10111e656534c23b2078633c9db",
+      "url": "https://raw.githubusercontent.com/SiliconLabs/gecko_sdk/90fc93e1f95a10c981f0e49ca6787192e82fd8f2/util/third_party/openthread/src/ncp/ncp_hdlc.cpp"
+    }
+  ]
+}
