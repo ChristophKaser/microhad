@@ -40,6 +40,10 @@ MG1 source-matching limitations and host ownership still need validation.
 The firmware is partly open source and rebuildable from SDK source plus
 precompiled RAIL libraries; it is not a completely source-available image.
 
+The [HDLC implementation plan and progress](docs/hdlc-implementation-plan.md)
+tracks firmware builds, shared-interface transport changes, simulation and
+private GitHub publication. Hardware flashing remains a separate validation gate.
+
 ## Source projects
 
 Sources are pinned Git submodules:
