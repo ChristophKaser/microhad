@@ -60,12 +60,108 @@ Before building Ziggurat, establish a usable Rust target through small tests:
    CPU and radio performance.
 
 The prototype does not open the coordinator UART, change network state, or
-flash firmware. Device upload/execution and firmware changes are separate
-steps requiring a planned backup and explicit authorization.
+flash firmware. The user explicitly authorized harmless device testing, and
+the runs described below used new paths in RAM-backed `/tmp`, leaving existing
+files untouched. Radio firmware changes remain a separate, unauthorized step.
 
 Toolchains, caches, generated target specifications and build logs live in
 ignored directories. Credentials, device configuration and network keys must
 never be copied into this repository.
+
+## Reproduce the builds
+
+The setup assumes an x86_64 Linux build host. Rust is installed entirely under
+`tools/`; the installer does not modify the global PATH or shell configuration.
+
+```sh
+bash scripts/install-rust.sh
+bash scripts/prototype.sh host
+bash scripts/prototype.sh codegen
+bash scripts/prototype.sh stock-compat
+```
+
+`rust-toolchain.toml` pins nightly-2026-10-02 (Rust 1.101.0-nightly, LLVM 23.1.1).
+Nightly is needed for custom JSON targets and rebuilding `core`/`std`.
+`scripts/make-llvm-target.sh` derives experimental target specifications from
+that compiler rather than maintaining an outdated JSON schema by hand.
+
+- `host`: run the full prototype on the development machine.
+- `codegen`: rebuild `core` and compile arithmetic, little-endian decoding and
+  an atomic increment as a MIPS-I library, with assembly output.
+- `stock`: attempt the full static uClibc build without compatibility wrappers;
+  this is a diagnostic baseline expected to fail at linking.
+- `stock-compat`: build the full static prototype using the stock RSDK located
+  in the parent directory, plus the compatibility wrappers below. This does
+  not require building the modern GCC toolchain yet.
+
+The stock target disables compiler-provided thread-local storage using
+`has-thread-local: false`, selecting Rust's pthread-key implementation. The
+prototype-only C shim supplies missing `accept4` and `clock_nanosleep` wrappers
+using the RSDK headers' syscall numbers, and `pthread_setname_np` for the current
+thread using `prctl`. Errors are preserved; socket flags are passed atomically
+to the kernel. The shim supports neither naming another thread nor a name
+longer than 15 bytes. A diagnostic constructor reports the PC of SIGILL using
+an async-signal-safe write and exits without a core dump.
+
+Output: `prototype/target/lexra-stock-uclibc/release/lexra-rust-prototype`.
+The old linker rejects `-no-pie`; rustc automatically retries without it.
+That warning does not prevent the successful static build.
+
+## Prototype results — 2026-10-02
+
+Pinned sources: Ziggurat `392d4c7fe5c497d553977492bc02cb305573b7fc` and
+RTL8196E gateway `30eb5e5b9ee334d2c6d76812acd4a6cdf2923423`.
+
+1. The host baseline passed all checks.
+2. LLVM 23 compiled the MIPS-I library, including the atomic increment. Its
+   assembly contains `ll/sc`; the LLVM 18 failure is not reproduced with this
+   compiler. Unaligned decoding uses `lwl/lwr` with load-delay padding.
+3. Rust's `std` compiled for the stock target. Linking initially failed on the
+   three missing libc wrappers listed above; the compatibility shim fixed it.
+4. The first device run exited with SIGILL before entering the prototype.
+   A diagnostic run identified PC `0x0041cd84` in `std::rt::lang_start_internal`:
+   opcode `0x7c03e83b`, `rdhwr $3, $29`, used to obtain the TLS pointer. The old
+   Realtek disassembler labels this encoding as `swp.c0`; that label is not the
+   standard MIPS32 decoding. The stock kernel rejected it.
+5. Rebuilding `std` with native TLS disabled produced a working executable.
+   On `192.168.178.62` it printed every checkpoint and exited with status 0:
+
+```text
+PASS arithmetic and explicit byte order
+PASS heap allocation (64 KiB)
+PASS threads and atomic read-modify-write
+PASS monotonic timer and sleep
+PASS OS random-device read
+PASS localhost TCP I/O
+Prototype completed; radio and gateway configuration untouched.
+Prototype exit status: 0
+```
+
+The atomic test runs two threads, each performing 10,000 sequentially consistent
+increments, and verifies 20,000. The I/O check binds an ephemeral localhost
+port and echoes four bytes. `/dev/urandom` is read without printing entropy;
+this does not validate Ziggurat's separate `getrandom` crate.
+
+ELF inspection confirmed a static ELF32 big-endian MIPS-I/O32 executable with
+soft-float attributes and no dynamic interpreter. Device tests disabled core
+dumps and used a 15-second watchdog plus an outer SSH timeout. No daemon was
+stopped or restarted. The passing binary was installed only at
+`/tmp/ziggurat-rust-prototype-20261002-pthread-tls`.
+
+Build and run logs are retained locally under ignored `logs/`. Toolchains,
+caches, checkouts and prototype artifacts together use about 1 GiB at this
+stage; the modern GCC toolchain has not been built.
+
+## Next gates
+
+- Build a small Tokio/serial/entropy-dependency probe with this target. Passing
+  `std` does not prove Ziggurat's third-party dependencies work on Linux 3.10.
+- Try compiling Ziggurat, then measure resident memory and CPU use; the simple
+  prototype's success is not a production-readiness claim.
+- Validate RCP firmware, UART flow control and client integration separately,
+  with explicit authorization and a backup before any firmware change.
+- Build the modern Lexra/musl toolchain if old-libc compatibility becomes too
+  restrictive. Keep the successful stock-RSDK path as a reproducible baseline.
 
 ## References
 
