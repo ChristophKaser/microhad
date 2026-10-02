@@ -16,10 +16,13 @@ EFR32MG1 radio through HDLC, without cpcd.
 - **Still pending:** firmware flashing and real radio ACK/source-match tests,
   an actual OTBR/Thread stack, Matter functionality and the
   `microhad-zigbee-native` adapter. These are not provided by the simulator.
-- **Existing network:** retaining pairings across NCP-to-RCP migration is a
-  goal, not yet validated. The native network-state file is not a complete
-  migration backup; export/import and rollback must be verified before flashing
-  the production radio. See the [network preservation gate](docs/hdlc-implementation-plan.md#network-preservation-before-flashing).
+- **Network migration preparation:** the native read-only exporter is deployed
+  on the existing EZSP v13 firmware. A fresh logical backup round-trips through
+  stopped host Ziggurat with a simulated RCP. Live NWK/APS counters and the
+  hashed trust-center seed are exported; raw-token enumeration is unsupported.
+  `FreezeNetwork` and orderly counter-safe rollback preparation pass simulation.
+  Hardware migration/recovery and crash-safe native persistence remain unverified.
+  See [commands and evidence](docs/network-migration.md).
 - **Known issue:** one cold-boot configuration attempt stalled; kernel RNG
   readiness is a suspected cause. Device tests now check free RAM and clean
   their uploads after an earlier suspected ramfs memory-pressure incident.
@@ -32,7 +35,8 @@ EFR32MG1 radio through HDLC, without cpcd.
    the async worker; retain the randomness safety check.
 2. Connect a local Thread stack/OTBR to the shared endpoint with coordinated
    reset, scan and common-channel ownership; measure combined gateway resources.
-3. Prepare a backed-up firmware test and validate real dual-PAN operation,
+3. Rehearse the prepared network migration and firmware recovery on a spare
+   radio/network, then validate real dual-PAN operation,
    especially MG1 auto-ACK, sleepy children and overlapping short addresses.
 4. Add the `microhad-zigbee-native` adapter and local Matter functionality, then
    test the complete standalone gateway.

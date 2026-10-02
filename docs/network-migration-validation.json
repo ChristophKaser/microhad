@@ -1,0 +1,38 @@
+{
+  "date": "2026-10-02",
+  "native_base_revision": "24dc1b0",
+  "native_revision": "a84e864bccf956d9c512a545fc55ef898c069a50",
+  "native_export_deployed": true,
+  "radio_firmware": "EmberZNet 7.5.1.0 / EZSP v13",
+  "raw_token_export_available": false,
+  "live_tc_aps_metadata_available": true,
+  "fresh_logical_backup_verified": true,
+  "network_identity_matches_retained_backup": true,
+  "actual_snapshot_stopped_import": {
+    "passed": true,
+    "key_entries": 0,
+    "direct_children": 1,
+    "transmitted_frames": 0
+  },
+  "synthetic_running_freeze_rollback": {
+    "passed": true,
+    "key_entries": 1,
+    "direct_children": 1,
+    "startup_frames": 1,
+    "transmissions_stopped_after_freeze": true
+  },
+  "python_migration_tests": 13,
+  "rust_spinel_tests": 15,
+  "native_host_tests_passed": true,
+  "native_mips_build_verified": true,
+  "ziggurat_host_build_passed": true,
+  "ziggurat_mips_build_passed": true,
+  "ncp_restore_executed_on_device": false,
+  "firmware_flashed": false,
+  "hardware_rollback_verified": false,
+  "crash_safe_counter_persistence_implemented": false,
+  "host_hdlc_regression_checks": 8,
+  "python_simulator_tests": 7,
+  "native_deployed_binary_md5": "7a508ac880516642572a70e87bdc5014",
+  "temporary_gateway_exports_cleaned": true
+}

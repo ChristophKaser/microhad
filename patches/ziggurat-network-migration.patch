@@ -1,0 +1,144 @@
+--- a/crates/ziggurat-protocol/src/wire.rs
++++ b/crates/ziggurat-protocol/src/wire.rs
+@@ -55,6 +55,8 @@
+     GetFirmwareInfo = 0x01,
+     GetHwAddress = 0x02,
+     Shutdown = 0x03,
++    /// Stop all stack tasks but retain state for a final migration snapshot.
++    FreezeNetwork = 0x04,
+     // Phased bring-up: configure, load state into the stopped stack, start.
+     Configure = 0x10,
+     LoadKeyTable = 0x11,
+@@ -785,6 +787,7 @@
+     GetFirmwareInfo,
+     GetHwAddress,
+     Shutdown,
++    FreezeNetwork,
+     Configure(ConfigurePayload),
+     LoadKeyTable(LoadKeyTablePayload),
+     LoadChildren(LoadChildrenPayload),
+@@ -819,6 +822,7 @@
+             RequestCommand::GetFirmwareInfo => Self::GetFirmwareInfo,
+             RequestCommand::GetHwAddress => Self::GetHwAddress,
+             RequestCommand::Shutdown => Self::Shutdown,
++            RequestCommand::FreezeNetwork => Self::FreezeNetwork,
+             RequestCommand::Configure => Self::Configure(require(payload)?),
+             RequestCommand::LoadKeyTable => Self::LoadKeyTable(require(payload)?),
+             RequestCommand::LoadChildren => Self::LoadChildren(require(payload)?),
+--- a/crates/ziggurat-server/src/main.rs
++++ b/crates/ziggurat-server/src/main.rs
+@@ -6,7 +6,7 @@
+ use futures_util::{SinkExt, StreamExt};
+ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+ use tokio::net::{TcpListener, TcpStream, UnixListener};
+-use tokio::sync::{Mutex as AsyncMutex, broadcast, mpsc};
++use tokio::sync::{Mutex as AsyncMutex, RwLock as AsyncRwLock, broadcast, mpsc};
+ use tokio::task::JoinHandle;
+ use tokio_serial::{FlowControl, SerialPortBuilderExt};
+ use tokio_tungstenite::tungstenite::Message;
+@@ -78,6 +78,8 @@
+     phy: AsyncMutex<Option<Arc<SpinelPhy>>>,
+     stack: Mutex<Option<Arc<ZigbeeStack<SpinelPhy>>>>,
+     started: AtomicBool,
++    frozen: AtomicBool,
++    lifecycle: AsyncRwLock<()>,
+     notification_tx: broadcast::Sender<ZigbeeNotification>,
+     notification_forwarder: Mutex<Option<JoinHandle<()>>>,
+ }
+@@ -93,6 +95,8 @@
+             phy: AsyncMutex::new(None),
+             stack: Mutex::new(None),
+             started: AtomicBool::new(false),
++            frozen: AtomicBool::new(false),
++            lifecycle: AsyncRwLock::new(()),
+             notification_tx,
+             notification_forwarder: Mutex::new(None),
+         }
+@@ -501,6 +505,9 @@
+ 
+     /// The stack, if it is in the load window (configured but not started).
+     fn loadable(&self) -> Result<Arc<ZigbeeStack<SpinelPhy>>, proto::Error> {
++        if self.frozen.load(Ordering::SeqCst) {
++            return Err(proto::Status::NotStarted.into());
++        }
+         match self.current_stack() {
+             Some(_) if self.started.load(Ordering::SeqCst) => {
+                 Err(proto::Status::AlreadyStarted.into())
+@@ -529,6 +536,40 @@
+         sends: &Sends,
+     ) -> Result<proto::Response, proto::Error> {
+         use proto::Request as R;
++        // Lifecycle operations wait for all admitted request handlers. After freezing,
++        // snapshots see counters after every tracked stack task has terminated.
++        let exclusive = matches!(
++            &request,
++            R::Reset(_) | R::Shutdown | R::Configure(_) | R::FreezeNetwork
++        );
++        let _read_guard = if exclusive {
++            None
++        } else {
++            Some(self.lifecycle.read().await)
++        };
++        let _write_guard = if exclusive {
++            Some(self.lifecycle.write().await)
++        } else {
++            None
++        };
++        if self.frozen.load(Ordering::SeqCst)
++            && !matches!(
++                &request,
++                R::GetFirmwareInfo
++                    | R::GetHwAddress
++                    | R::GetNetworkInfo
++                    | R::ScanKeyTable
++                    | R::ScanChildren
++                    | R::ScanAddressCache
++                    | R::ScanRouteTable
++                    | R::Shutdown
++                    | R::Configure(_)
++                    | R::Reset(_)
++                    | R::FreezeNetwork
++            )
++        {
++            return Err(proto::Status::NotStarted.into());
++        }
+         match request {
+             R::Reset(payload) => self.handle_reset(payload).await,
+             R::GetFirmwareInfo => Ok(proto::Response::FirmwareInfo(proto::FirmwareInfoPayload {
+@@ -539,6 +580,7 @@
+             })),
+             R::GetHwAddress => self.handle_get_hw_address().await,
+             R::Shutdown => self.handle_shutdown().await,
++            R::FreezeNetwork => self.handle_freeze_network().await,
+             R::Configure(payload) => self.handle_configure(payload).await,
+             R::LoadKeyTable(payload) => {
+                 proto::apply_key_table(&*self.loadable()?, payload);
+@@ -675,6 +717,20 @@
+         let phy = self.phy().await.map_err(radio_error)?;
+         let ieee = phy.hw_address().await.map_err(radio_error)?;
+         Ok(proto::Response::HwAddress(proto::HwAddressPayload { ieee }))
++    }
++
++    /// Stop processing traffic without discarding final counters, keys or tables.
++    /// Configure is required to run again; shutdown releases this retained snapshot.
++    async fn handle_freeze_network(&self) -> Result<proto::Response, proto::Error> {
++        let stack = self.configured()?;
++        stack.shutdown().await;
++        let forwarder = self.notification_forwarder.lock().unwrap().take();
++        if let Some(forwarder) = forwarder {
++            forwarder.abort();
++        }
++        self.started.store(false, Ordering::SeqCst);
++        self.frozen.store(true, Ordering::SeqCst);
++        Ok(proto::Response::Empty)
+     }
+ 
+     /// Tear the stack fully down and clear the source-match table.
+@@ -775,6 +831,7 @@
+         }
+ 
+         self.started.store(false, Ordering::SeqCst);
++        self.frozen.store(false, Ordering::SeqCst);
+     }
+ 
+     /// Stream a table scan's events, then respond with the count.

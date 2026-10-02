@@ -22,6 +22,10 @@ if [[ ${ZIGGURAT_MULTIPAN:-0} == 1 ]]; then
         git -C "$build_worktree" apply --check "$experiment_root/patches/ziggurat-hdlc-multipan.patch"
         git -C "$build_worktree" apply "$experiment_root/patches/ziggurat-hdlc-multipan.patch"
     fi
+    if ! git -C "$build_worktree" apply --reverse --check "$experiment_root/patches/ziggurat-network-migration.patch" 2>/dev/null; then
+        git -C "$build_worktree" apply --check "$experiment_root/patches/ziggurat-network-migration.patch"
+        git -C "$build_worktree" apply "$experiment_root/patches/ziggurat-network-migration.patch"
+    fi
 fi
 if ! git -C ${build_worktree} apply --reverse --check \
     "$experiment_root/patches/ziggurat-stock-compat.patch" 2>/dev/null; then

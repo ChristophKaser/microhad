@@ -6,6 +6,9 @@
 MG1 two-instance HDLC firmware compiles; Ziggurat's shared transport and local
 Thread endpoint work against a simulated RCP on both the host and stock Tuya.
 All 8 device scenario checks pass, alongside 15 Rust and 7 Python tests.
+The latest freeze/export extension passes host migration tests and all 8 host
+multi-PAN regressions, and compiles for MIPS; it was not run on the Tuya.
+The earlier Tuya transport measurements precede this extension.
 The linked firmware fits the configured Flash/RAM regions and contains both
 multi-instance initialization functions. **It has not been flashed.**
 
@@ -16,6 +19,15 @@ The goal is fully standalone on the Tuya, with Zigbee IID 1 and Thread IID 2
 sharing one radio without cpcd. Common-channel operation, one reset owner and
 MG1 source-match limitations remain constraints. Cold-boot RNG readiness also
 needs investigation before production.
+
+The native read-only backup exporter is now deployed on the original EZSP v13
+radio firmware. Actual private state passes a stopped-stack import check on the
+host simulator. Ziggurat's new freeze/export operation and orderly rollback
+preparation pass synthetic running tests; the retained NCP image and RCP
+bootloader/storage layout pass offline checks. **No firmware was flashed.**
+Raw-token export is unavailable; live APS metadata is available through
+`getApsKeyInfo(TC_LINK)`. Hardware rollback and crash-safe counter persistence
+remain unverified. See [network migration details](network-migration.md).
 
 Source, patches and documentation are in the
 [private repository](https://github.com/ChristophKaser/ziggurat-compilation).
@@ -29,7 +41,8 @@ and [validation summary](hdlc-validation.json) record the evidence.
 2. Implement and test a local OTBR Unix-socket transport adapter or embedded
    Thread platform interface. Coordinate reset/recovery, scans and channel
    changes with Ziggurat; benchmark combined RAM and CPU on the Tuya.
-3. Prepare firmware backup/recovery and a separately authorized hardware test.
+3. Rehearse the prepared firmware/network backup and recovery on spare hardware
+   before a separately authorized production-radio test.
    Complete the network-preservation gate below before using the production radio.
    Validate both PANs' ACKs, sleepy-child polls, address collisions, broadcast
    routing, scanning interference and sustained traffic on MG1.
@@ -44,41 +57,47 @@ the Zigbee stack from the radio into Ziggurat. The RCP does not run the old
 Zigbee stack or automatically consume its saved network tokens; the existing
 native EZSP client also needs its planned Ziggurat adapter.
 
-Source inspection of `microhad-zigbee-native/src/storage.cpp` (`saveNetworkState`)
-shows that the native state file saves PAN ID, extended PAN ID, channel,
-network key and preconfigured key. It does not save the operational coordinator
-EUI64, key sequence, NWK/APS outgoing counters or device link-key table.
-Copying this file alone therefore does not establish a safe migration.
-Ziggurat's protocol has network-state and key-table restoration interfaces,
-but our native export/conversion/import path has not been implemented or tested.
+The native `network.json` remains insufficient by itself. The new fixed-command
+export runs through the existing UART owner and captures identity, network and
+trust-center key material, NWK/APS counters, key-table slots and direct children.
+The installed NCP omits the token-interface library (`0xb5`), so this is a
+logical migration backup, not a complete token or flash dump.
 
-Before a production flash:
+Completed without flashing:
 
-1. Identify the installed NCP firmware, token storage and available EZSP
-   export commands. Obtain a protected backup through the UART owner without
-   competing for `/dev/ttyS1`. Never commit network keys or token dumps.
-2. Export and map the operational coordinator identity, PAN/channel settings,
-   network key and sequence, trust-center security material (including any
-   hashed-link-key seed), device keys and outgoing security counters. Evaluate
-   child and other persistent tables supported by the installed stack.
-3. Implement restoration into Ziggurat and persistence through the native
-   client. Verify that transmitted security counters exceed previously used
-   values; devices can reject packets when counters go backwards.
-4. Check bootloader compatibility, flash/NVM erase boundaries and whether the
-   RCP initializes overlapping storage. Establish an obtainable original NCP
-   image or recoverable flash backup and a tested recovery method. Leaving
-   token pages untouched alone does not preserve operation under an RCP.
-5. Rehearse migration and rollback on a spare radio/network. Rollback after
-   Ziggurat has transmitted must also account for counter advancement; an old
-   firmware image and stale token backup are not a demonstrated rollback.
+1. Identified live EmberZNet 7.5.1.0 / EZSP v13 and obtained a fresh private
+   logical backup through the deployed native service. Earlier coordinator
+   identity, PAN/channel, network key and trust-center seed match.
+2. Converted state to standard coordinator JSON and a Ziggurat protocol-v2
+   import bundle. Actual state round-trips through a stopped host Ziggurat
+   stack, including its direct child; zero frames are transmitted in that test.
+3. Added `FreezeNetwork` (`0x04`) to stop tracked tasks while retaining final
+   state. A synthetic running network freezes with stable counters; restart and
+   key mutation are refused. Orderly rollback requires this final frozen state
+   and advances both NWK and APS counters with overflow/identity checks.
+4. Updated the guarded NCP restore tool to advance and verify APS as well as
+   NWK counters. Mocked restoration tests pass; no live restoration was executed.
+5. Validated the retained, previously installed NCP GBL's CRC, SHA256 and
+   application-only range. RCP NVM occupies `[0x37000,0x40000)` (36 KiB), and its
+   strong Spinel-to-Gecko bootloader entry implementation is linked.
 
-Silicon Labs documents an
-[NCP-to-Zigbeed/RCP token migration](https://docs.silabs.com/zigbee/9.0.0/multiprotocol-solution-linux/host-ncp-rcp-migration),
-requiring NVM3 and token-export support and explicitly warning about frame
-counter rollback. This establishes a supported migration concept for Zigbeed,
-not a ready-made importer for Ziggurat or proof that our installed NCP supports
-the necessary export. Expect a service interruption even if pairings survive.
-No radio flashing or production-service changes were performed for this audit.
+Remaining before production migration:
+
+- Rehearse firmware bootloader entry, flashing and logical restoration on spare
+  hardware, including recovery from an unresponsive application. The compiled
+  Spinel recovery path needs a responding RCP; no verified SWD fallback exists.
+- Implement the native Ziggurat adapter and durable security upper bounds/current
+  key persistence. Orderly rollback preparation is tested; crash rollback without
+  final state is not established. Take a new backup immediately before handover.
+- Validate real device pairing preservation and dual-PAN traffic. Identical NVM
+  allocation alone does not establish storage compatibility or functional recovery.
+
+See [commands, private artifacts and limitations](network-migration.md).
+Silicon Labs' documented
+[NCP-to-host token migration](https://docs.silabs.com/zigbee/9.0.0/multiprotocol-solution-linux/host-ncp-rcp-migration)
+requires token-export support absent from this installed NCP; our implemented
+path uses logical metadata and key export instead. The native service was
+updated/restarted with authorization; radio firmware was not replaced.
 
 ## Firmware prerequisites
 

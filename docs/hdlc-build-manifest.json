@@ -25,9 +25,13 @@
       "sha256": "82a6013f1b97cf4a0efcda2fb7f5d82a5b3fe13c4c6f604954df10323182de08"
     },
     "build/ziggurat-hdlc/lexra-stock-uclibc/release/ziggurat.stripped": {
-      "size_bytes": 3516272,
-      "sha256": "45137c4b9823f2ac5dda3b8b3cabe85b48730693610d854cf480dcce77ad4ece"
+      "size_bytes": 3520368,
+      "sha256": "15a839dfbe5b9cf593fdec2f47fb641b4343dfe35f03ffcd664a1a5866df99c1"
     }
   },
-  "flashed": false
+  "flashed": false,
+  "rcp_nvm_begin": "0x37000",
+  "rcp_nvm_end": "0x40000",
+  "rcp_nvm_size_bytes": 36864,
+  "network_migration_patch": "patches/ziggurat-network-migration.patch"
 }
