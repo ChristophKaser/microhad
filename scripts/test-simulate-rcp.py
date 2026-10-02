@@ -88,6 +88,25 @@ class WireTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             simulator.unpacked(b"\x80\x80\x80", 0)
 
+    def test_multipan_properties_and_source_match_are_isolated(self):
+        rcp = simulator.Rcp.__new__(simulator.Rcp)
+        rcp.iid = 1
+        rcp.counts = Counter()
+        rcp.reset_properties()
+        replies = []
+        rcp.send = lambda *args: replies.append(args)
+        for iid, pan, child in ((1, 0x1a62, 0x1234), (2, 0x2b73, 0x5678)):
+            for prop, value in ((54, struct.pack("<H", pan)), (4868, struct.pack("<H", child))):
+                rcp.receive_frame(bytes([0x80 | iid << 4 | 1, 3]) + simulator.packed(prop) + value)
+                self.assertEqual(replies.pop(), (0x80 | iid << 4 | 1, prop, value))
+        self.assertNotEqual(rcp.interfaces[1][54], rcp.interfaces[2][54])
+        self.assertNotEqual(rcp.interfaces[1][4868], rcp.interfaces[2][4868])
+        rcp.receive_frame(bytes([0xb1, 2]) + simulator.packed(54))
+        self.assertEqual(replies.pop(), (0xb1, 0, b"\x06"))
+        rcp.receive_frame(b"\x80\x01\x02")
+        self.assertNotIn(54, rcp.interfaces[1])
+        self.assertNotIn(54, rcp.interfaces[2])
+
     def test_reset_and_unsupported_property(self):
         rcp = simulator.Rcp.__new__(simulator.Rcp)
         rcp.counts = Counter()

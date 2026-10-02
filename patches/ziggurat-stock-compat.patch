@@ -10,15 +10,10 @@ index bcf586c..edd076c 100644
 +[target.'cfg(target_env = "uclibc")'.dependencies]
 +lexra-rust-prototype = { path = "../../../../prototype", features = ["stock-compat"] }
 diff --git a/crates/ziggurat-server/src/main.rs b/crates/ziggurat-server/src/main.rs
-index e5933a0..706e0ef 100644
 --- a/crates/ziggurat-server/src/main.rs
 +++ b/crates/ziggurat-server/src/main.rs
-@@ -1011,6 +1011,8 @@ struct Args {
- }
- 
+@@ -1013,2 +1013,4 @@
  fn main() -> Result<(), Box<dyn std::error::Error>> {
 +    #[cfg(target_env = "uclibc")]
 +    assert_eq!(lexra_rust_prototype::probe_add(1, 2), 3);
      let args = Args::parse();
- 
-     let rt = tokio::runtime::Runtime::new()?;

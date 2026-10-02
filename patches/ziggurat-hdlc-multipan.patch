@@ -1,0 +1,845 @@
+diff --git a/crates/ziggurat-server/src/main.rs b/crates/ziggurat-server/src/main.rs
+index e5933a0..94c71a3 100644
+--- a/crates/ziggurat-server/src/main.rs
++++ b/crates/ziggurat-server/src/main.rs
+@@ -162,7 +162,33 @@ impl ZigguratServer {
+         }
+ 
+         let transport = open_transport(&self.serial).await?;
+-        let new_phy = Arc::new(SpinelPhy::new(Arc::new(SpinelClient::new(transport))));
++        let client = Arc::new(
++            SpinelClient::new_for_interface(transport, self.serial.spinel_iid)
++                .map_err(std::io::Error::other)?,
++        );
++        if let Some(path) = &self.serial.thread_socket {
++            use std::os::unix::fs::PermissionsExt;
++            let thread = client.interface(2).map_err(std::io::Error::other)?;
++            let listener = UnixListener::bind(path)?;
++            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
++            tracing::info!("Local Thread HDLC endpoint: {path} (IID 0 translated to RCP IID 2)");
++            tokio::spawn(async move {
++                loop {
++                    match listener.accept().await {
++                        Ok((stream, _)) => {
++                            if let Err(error) = thread.serve_hdlc(stream).await {
++                                tracing::warn!("Thread endpoint disconnected: {error}");
++                            }
++                        }
++                        Err(error) => {
++                            tracing::error!("Thread listener failed: {error}");
++                            break;
++                        }
++                    }
++                }
++            });
++        }
++        let new_phy = Arc::new(SpinelPhy::new(client));
+         *phy = Some(new_phy.clone());
+         drop(phy);
+ 
+@@ -923,6 +949,8 @@ pub struct SerialConfig {
+     device: String,
+     baudrate: u32,
+     flow_control: FlowControlMode,
++    spinel_iid: u8,
++    thread_socket: Option<String>,
+ }
+ 
+ /// A local network hop should establish in well under this; past it, something (a
+@@ -1000,6 +1028,14 @@ struct Args {
+     #[arg(long, value_enum, default_value_t = FlowControlMode::Hardware)]
+     flow_control: FlowControlMode,
+ 
++    /// Spinel network interface: 0 for single-PAN, 1 for multi-PAN Zigbee
++    #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(u8).range(0..=3))]
++    spinel_iid: u8,
++
++    /// Local Thread HDLC socket (requires --spinel-iid 1; no-reset consumer)
++    #[arg(long)]
++    thread_socket: Option<String>,
++
+     /// WebSocket listen address: `host:port` for TCP, `unix:/path/to.sock` for a
+     /// UNIX socket
+     #[arg(long, default_value = "0.0.0.0:9999")]
+@@ -1011,7 +1047,10 @@ struct Args {
+ }
+ 
+ fn main() -> Result<(), Box<dyn std::error::Error>> {
+     let args = Args::parse();
++    if args.thread_socket.is_some() && args.spinel_iid != 1 {
++        return Err("--thread-socket requires --spinel-iid 1".into());
++    }
+ 
+     let rt = tokio::runtime::Runtime::new()?;
+     rt.block_on(async {
+@@ -1040,8 +1081,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
+             device: args.device,
+             baudrate: args.baudrate,
+             flow_control: args.flow_control,
++            spinel_iid: args.spinel_iid,
++            thread_socket: args.thread_socket,
+         }));
+ 
++        if server.serial.thread_socket.is_some() {
++            server.phy().await?; // Start the local endpoint even before a Zigbee client connects.
++        }
+         match args.api {
+             ApiMode::Ws => server.run(&args.listen).await?,
+             ApiMode::Stdio => server.run_stdio().await?,
+diff --git a/crates/ziggurat-spinel/Cargo.toml b/crates/ziggurat-spinel/Cargo.toml
+index 6696f05..dfc86dc 100644
+--- a/crates/ziggurat-spinel/Cargo.toml
++++ b/crates/ziggurat-spinel/Cargo.toml
+@@ -15,7 +15,7 @@ crc_all = "0.2.2"
+ tracing = "0.1"
+ num_enum = "0.7.6"
+ thiserror = "2.0.20"
+-tokio = { version = "1.53.1", features = ["rt", "time", "sync", "io-util"] }
++tokio = { version = "1.53.1", features = ["rt", "time", "sync", "io-util", "macros"] }
+ tokio-serial = "5.5"
+ 
+ [dev-dependencies]
+diff --git a/crates/ziggurat-spinel/src/client.rs b/crates/ziggurat-spinel/src/client.rs
+index 4790d92..9ed21ee 100644
+--- a/crates/ziggurat-spinel/src/client.rs
++++ b/crates/ziggurat-spinel/src/client.rs
+@@ -8,6 +8,7 @@ use thiserror::Error;
+ use ziggurat_ieee_802154::FrameBytes;
+ use ziggurat_ieee_802154::types::Eui64;
+ 
++use std::collections::HashMap;
+ use std::sync::Arc;
+ use std::sync::Mutex;
+ use std::sync::atomic::{AtomicU32, Ordering};
+@@ -205,6 +206,12 @@ impl SpinelRxFrame {
+ 
+ #[derive(Error, Debug)]
+ pub enum SpinelError {
++    #[error("invalid or already registered Spinel interface {0}")]
++    InvalidInterface(u8),
++    #[error("only the physical transport owner may reset the RCP")]
++    ResetNotOwner,
++    #[error("shared radio setting rejected: {0}")]
++    SharedSettingDenied(&'static str),
+     #[error("io error")]
+     IoError(#[from] std::io::Error),
+     #[error("command cancelled by an RCP reset")]
+@@ -240,35 +247,85 @@ struct SpinelWriter {
+     hdlc_scratch: Vec<u8>,
+ }
+ 
+-pub struct SpinelClient {
+-    /// The reader half of the port, owned by the task spawned in `spawn_reader`.
++/// One physical link. Each logical client has its own protocol/TID state.
++struct SpinelLink {
+     reader: Mutex<Option<ReadHalf<Box<dyn RcpTransport>>>>,
+-    /// The writer half of the port. The mutex also serializes outbound HDLC writes so
+-    /// concurrent commands cannot interleave partial frames inside the byte stream.
+     writer: AsyncMutex<SpinelWriter>,
+-    pub protocol: Arc<Mutex<SpinelProtocol>>,
+-    /// Functional ownership of the radio (scan, reset recovery, channel retune), taken via
+-    /// [`Self::lock_radio`].
++    protocols: Arc<Mutex<HashMap<u8, Arc<Mutex<SpinelProtocol>>>>>,
+     exclusive_lock: AsyncMutex<()>,
++    channel: Mutex<Option<u8>>,
++}
++
++pub struct SpinelClient {
++    link: Arc<SpinelLink>,
++    pub protocol: Arc<Mutex<SpinelProtocol>>,
++    network_link_id: u8,
++    reset_owner: bool,
+     consecutive_timeouts: AtomicU32,
+ }
+ 
+ impl SpinelClient {
+     pub fn new(port: Box<dyn RcpTransport>) -> Self {
+-        let (reader, writer) = tokio::io::split(port);
++        Self::new_for_interface(port, 0).expect("IID 0 is valid")
++    }
+ 
+-        Self {
+-            reader: Mutex::new(Some(reader)),
+-            writer: AsyncMutex::new(SpinelWriter {
+-                port: writer,
+-                frame_scratch: Vec::with_capacity(SPINEL_FRAME_MAX_SIZE),
+-                // Worst-case HDLC escaping doubles the frame, plus two flags
+-                hdlc_scratch: Vec::with_capacity(2 * SPINEL_FRAME_MAX_SIZE + 2),
++    /// Create the physical UART owner, normally IID 1 in a multi-PAN build.
++    pub fn new_for_interface(port: Box<dyn RcpTransport>, iid: u8) -> Result<Self, SpinelError> {
++        if iid > 3 {
++            return Err(SpinelError::InvalidInterface(iid));
++        }
++        let (reader, writer) = tokio::io::split(port);
++        let protocol = Arc::new(Mutex::new(SpinelProtocol::for_interface(iid)));
++        let protocols = Arc::new(Mutex::new(HashMap::from([(iid, Arc::clone(&protocol))])));
++        Ok(Self {
++            link: Arc::new(SpinelLink {
++                reader: Mutex::new(Some(reader)),
++                writer: AsyncMutex::new(SpinelWriter {
++                    port: writer,
++                    frame_scratch: Vec::with_capacity(SPINEL_FRAME_MAX_SIZE),
++                    hdlc_scratch: Vec::with_capacity(2 * SPINEL_FRAME_MAX_SIZE + 2),
++                }),
++                protocols,
++                exclusive_lock: AsyncMutex::new(()),
++                channel: Mutex::new(None),
+             }),
+-            protocol: Arc::new(Mutex::new(SpinelProtocol::new())),
+-            exclusive_lock: AsyncMutex::new(()),
++            protocol,
++            network_link_id: iid,
++            reset_owner: true,
+             consecutive_timeouts: AtomicU32::new(0),
++        })
++    }
++
++    /// Register another network on the same reader/writer. It cannot reset the RCP.
++    pub fn interface(&self, iid: u8) -> Result<Self, SpinelError> {
++        let mut protocols = self
++            .link
++            .protocols
++            .lock()
++            .expect("Failed to lock interfaces");
++        if iid == 0 || iid > 3 || self.network_link_id == 0 || protocols.contains_key(&iid) {
++            return Err(SpinelError::InvalidInterface(iid));
+         }
++        let protocol = Arc::new(Mutex::new(SpinelProtocol::for_interface(iid)));
++        protocols.insert(iid, Arc::clone(&protocol));
++        Ok(Self {
++            link: Arc::clone(&self.link),
++            protocol,
++            network_link_id: iid,
++            reset_owner: false,
++            consecutive_timeouts: AtomicU32::new(0),
++        })
++    }
++
++    pub const fn interface_id(&self) -> u8 {
++        self.network_link_id
++    }
++
++    pub fn set_unsolicited_frame_receiver(&self, tx: mpsc::Sender<SpinelFrame>) {
++        self.protocol
++            .lock()
++            .expect("Failed to lock Spinel")
++            .set_unsolicited_frame_receiver(tx);
+     }
+ 
+     pub fn set_property_update_receiver(
+@@ -295,29 +352,56 @@ impl SpinelClient {
+     /// Serial death (USB yank, EOF) exits the whole process: the supervisor (Docker)
+     /// restarts us. A half-dead process with a deaf radio is the worst failure mode.
+     pub fn spawn_reader(&self) {
+-        let mut reader = self
++        let Some(mut reader) = self
++            .link
+             .reader
+             .lock()
+             .expect("Failed to lock reader")
+             .take()
+-            .expect("Reader already taken");
+-        let protocol = Arc::clone(&self.protocol);
+-
++        else {
++            return; // Multiple logical PHYs share the already-running reader.
++        };
++        let protocols = Arc::clone(&self.link.protocols);
+         tokio::spawn(async move {
++            let mut decoder = SpinelProtocol::new();
+             let mut buffer = [0u8; 2048];
+-
+             loop {
+                 match reader.read(&mut buffer).await {
+                     Ok(n) if n > 0 => {
+-                        let mut protocol = protocol.lock().expect("Failed to lock Spinel");
+-                        protocol.handle_inbound_bytes(&buffer[..n])
++                        for frame in decoder.parse_frames_from_bytes(&buffer[..n]) {
++                            let protocols = protocols.lock().expect("Failed to lock interfaces");
++                            if let Some(status) = global_reset_status(&frame) {
++                                for protocol in protocols.values() {
++                                    protocol
++                                        .lock()
++                                        .expect("Failed to lock Spinel")
++                                        .notify_reset(status);
++                                }
++                            } else if let Some(protocol) =
++                                protocols.get(&frame.header.network_link_id)
++                            {
++                                protocol
++                                    .lock()
++                                    .expect("Failed to lock Spinel")
++                                    .handle_inbound_frame(
++                                        frame.header,
++                                        frame.command_id,
++                                        &frame.payload,
++                                    );
++                            } else {
++                                tracing::debug!(
++                                    "Ignoring unregistered IID {}",
++                                    frame.header.network_link_id
++                                );
++                            }
++                        }
+                     }
+                     Ok(_) => {
+-                        tracing::error!("Serial port EOF, exiting");
++                        tracing::error!("RCP EOF, exiting");
+                         std::process::exit(1);
+                     }
+                     Err(e) => {
+-                        tracing::error!("Serial port read failed ({e}), exiting");
++                        tracing::error!("RCP read failed ({e}), exiting");
+                         std::process::exit(1);
+                     }
+                 }
+@@ -331,7 +415,7 @@ impl SpinelClient {
+     // serializes outbound frames on the wire
+     #[allow(clippy::significant_drop_tightening)]
+     async fn send_frame(&self, frame: &SpinelFrame) -> Result<(), SpinelError> {
+-        let mut writer = self.writer.lock().await;
++        let mut writer = self.link.writer.lock().await;
+         let SpinelWriter {
+             port,
+             frame_scratch,
+@@ -358,6 +442,9 @@ impl SpinelClient {
+     /// `CMD_RESET` is acknowledged with an unsolicited `LastStatus = RESET_*`
+     /// notification rather than a tid-matched response, so this only sends.
+     pub async fn send_reset(&self, reason: SpinelResetReason) -> Result<(), SpinelError> {
++        if !self.reset_owner {
++            return Err(SpinelError::ResetNotOwner);
++        }
+         let frame = SpinelFrame {
+             header: SpinelHeader {
+                 flag: 0b10,
+@@ -376,6 +463,10 @@ impl SpinelClient {
+         command_id: SpinelCommandId,
+         payload: Vec<u8>,
+     ) -> Result<SpinelFrame, SpinelError> {
++        if command_id == SpinelCommandId::Reset {
++            return Err(SpinelError::ResetNotOwner); // Resets must use the owner-only send_reset API.
++        }
++        self.check_shared_setting(command_id, &payload)?;
+         let (frame, rx) = {
+             self.protocol
+                 .lock()
+@@ -385,7 +476,13 @@ impl SpinelClient {
+ 
+         tracing::trace!("Sending frame {frame:?}");
+ 
+-        self.send_frame(&frame).await?;
++        if let Err(error) = self.send_frame(&frame).await {
++            self.protocol
++                .lock()
++                .expect("Failed to lock Spinel")
++                .cancel_request(frame.header.transaction_id);
++            return Err(error);
++        }
+ 
+         match timeout(TIMEOUT, rx).await {
+             Ok(Ok(response_frame)) => {
+@@ -412,10 +509,18 @@ impl SpinelClient {
+                     tracing::error!(
+                         "RCP unresponsive after {timeouts} consecutive command timeouts, triggering reset recovery"
+                     );
+-                    self.protocol
++                    for protocol in self
++                        .link
++                        .protocols
+                         .lock()
+-                        .expect("Failed to lock Spinel")
+-                        .notify_reset(SpinelStatus::ResponseTimeout);
++                        .expect("Failed to lock interfaces")
++                        .values()
++                    {
++                        protocol
++                            .lock()
++                            .expect("Failed to lock Spinel")
++                            .notify_reset(SpinelStatus::ResponseTimeout);
++                    }
+                 }
+ 
+                 Err(SpinelError::Timeout)
+@@ -423,6 +528,117 @@ impl SpinelClient {
+         }
+     }
+ 
++    /// Shared MG1 policy: one channel, normal filtering, source matching enabled.
++    /// Scans are denied while two interfaces are registered because they retune RX.
++    fn check_shared_setting(
++        &self,
++        command: SpinelCommandId,
++        payload: &[u8],
++    ) -> Result<(), SpinelError> {
++        if self
++            .link
++            .protocols
++            .lock()
++            .expect("Failed to lock interfaces")
++            .len()
++            < 2
++            || command != SpinelCommandId::PropValueSet
++        {
++            return Ok(());
++        }
++        let (property, value) = packed_uint21_deserialize(payload)?;
++        if (property == SpinelPropertyId::PhyEnabled as u32
++            || property == SpinelPropertyId::MacRxOnWhenIdleMode as u32)
++            && value != [1]
++        {
++            return Err(SpinelError::SharedSettingDenied(
++                "both PANs require the radio receiving",
++            ));
++        }
++        if property == SpinelPropertyId::MacPromiscuousMode as u32 && value != [0] {
++            return Err(SpinelError::SharedSettingDenied("promiscuous mode"));
++        }
++        if property == SpinelPropertyId::MacSrcMatchEnabled as u32 && value != [1] {
++            return Err(SpinelError::SharedSettingDenied(
++                "source matching must stay enabled",
++            ));
++        }
++        if property == SpinelPropertyId::MacScanState as u32 && value != [0] {
++            return Err(SpinelError::SharedSettingDenied(
++                "scan coordination is not implemented",
++            ));
++        }
++        if property == SpinelPropertyId::PhyChan as u32 {
++            if value.len() != 1 {
++                return Err(SpinelError::SharedSettingDenied("invalid channel"));
++            }
++            let mut channel = self.link.channel.lock().expect("Failed to lock channel");
++            if channel.is_some_and(|current| current != value[0]) {
++                return Err(SpinelError::SharedSettingDenied(
++                    "both PANs must use the same channel",
++                ));
++            }
++            *channel = Some(value[0]);
++        }
++        Ok(())
++    }
++
++    /// Local HDLC endpoint for one Thread consumer. Its IID 0 is translated to
++    /// this client's IID; resets are rejected, and global reset events are relayed.
++    /// Use otbr-agent's no-reset option and a transport adapter for a Unix socket.
++    pub async fn serve_hdlc<T: AsyncRead + AsyncWrite + Send + Unpin>(
++        &self,
++        mut stream: T,
++    ) -> Result<(), SpinelError> {
++        let (tx, mut notifications) = mpsc::channel(256);
++        self.set_unsolicited_frame_receiver(tx);
++        let mut decoder = SpinelProtocol::new();
++        let mut buffer = [0u8; 2048];
++        loop {
++            tokio::select! {
++                frame = notifications.recv() => {
++                    let Some(mut frame) = frame else { return Err(SpinelError::TransportClosed); };
++                    frame.header.network_link_id = 0;
++                    write_hdlc(&mut stream, &frame).await?;
++                }
++                read = stream.read(&mut buffer) => {
++                    let n = read?;
++                    if n == 0 { return Ok(()); }
++                    for frame in decoder.parse_frames_from_bytes(&buffer[..n]) {
++                        if frame.command_id == SpinelCommandId::Noop { continue; }
++                        let header = frame.header;
++                        let result = if header.network_link_id != 0 {
++                            Err(SpinelError::InvalidInterface(header.network_link_id))
++                        } else if frame.command_id == SpinelCommandId::Reset {
++                            Err(SpinelError::ResetNotOwner)
++                        } else {
++                            let _radio = self.link.exclusive_lock.lock().await;
++                            self.send_command(frame.command_id, frame.payload).await
++                        };
++                        let response = match result {
++                            Ok(mut response) => { response.header = header; response }
++                            Err(error) => {
++                                tracing::warn!("Thread endpoint request rejected: {error}");
++                                let status = match error {
++                                    SpinelError::InvalidInterface(_) => SpinelStatus::InvalidInterface,
++                                    SpinelError::ResetNotOwner | SpinelError::CancelledByReset => SpinelStatus::InvalidState,
++                                    SpinelError::SharedSettingDenied(_) => SpinelStatus::InvalidArgument,
++                                    _ => SpinelStatus::Failure,
++                                };
++                                SpinelFrame {
++                                    header, command_id: SpinelCommandId::PropValueIs,
++                                    payload: [packed_uint21_to_bytes(SpinelPropertyId::LastStatus as u32),
++                                        packed_uint21_to_bytes(status as u32)].concat(),
++                                }
++                            }
++                        };
++                        write_hdlc(&mut stream, &response).await?;
++                    }
++                }
++            }
++        }
++    }
++
+     pub async fn prop_value_get(
+         &self,
+         property_id: SpinelPropertyId,
+@@ -502,7 +718,7 @@ impl SpinelClient {
+     pub async fn lock_radio(&self) -> ExclusiveRadio<'_> {
+         ExclusiveRadio {
+             client: self,
+-            _guard: self.exclusive_lock.lock().await,
++            _guard: self.link.exclusive_lock.lock().await,
+         }
+     }
+ 
+@@ -533,7 +749,7 @@ impl SpinelClient {
+         &self,
+         tx_frame: &SpinelTxFrame,
+     ) -> Result<SpinelStatus, SpinelError> {
+-        let _exclusive_lock = self.exclusive_lock.lock().await;
++        let _exclusive_lock = self.link.exclusive_lock.lock().await;
+         self.transmit_frame_inner(tx_frame).await
+     }
+ 
+@@ -578,3 +794,27 @@ impl ExclusiveRadio<'_> {
+         self.client.transmit_frame_inner(tx_frame).await
+     }
+ }
++
++fn global_reset_status(frame: &SpinelFrame) -> Option<SpinelStatus> {
++    if frame.header.transaction_id != 0 || frame.command_id != SpinelCommandId::PropValueIs {
++        return None;
++    }
++    let (property, value) = packed_uint21_deserialize(&frame.payload).ok()?;
++    if property != SpinelPropertyId::LastStatus as u32 {
++        return None;
++    }
++    let (status, _) = packed_uint21_deserialize(value).ok()?;
++    let status = SpinelStatus::try_from(u8::try_from(status).ok()?).ok()?;
++    status.is_reset().then_some(status)
++}
++
++async fn write_hdlc<T: AsyncWrite + Unpin>(
++    stream: &mut T,
++    frame: &SpinelFrame,
++) -> Result<(), SpinelError> {
++    let mut bytes = vec![HdlcSpecial::Flag as u8];
++    hdlc_escape_into(&frame.to_bytes(), &mut bytes);
++    bytes.push(HdlcSpecial::Flag as u8);
++    stream.write_all(&bytes).await?;
++    Ok(())
++}
+diff --git a/crates/ziggurat-spinel/src/lib.rs b/crates/ziggurat-spinel/src/lib.rs
+index 8b9c049..6c82120 100644
+--- a/crates/ziggurat-spinel/src/lib.rs
++++ b/crates/ziggurat-spinel/src/lib.rs
+@@ -602,6 +602,7 @@ pub struct SpinelProtocol {
+     /// exactly one frame's worth of scratch, since frames arrive serially.
+     unescape_scratch: Vec<u8>,
+     pub ignoring_until_next_flag: bool,
++    pub network_link_id: u8,
+     pub next_tid: u8,
+     pub pending_frames: HashMap<u8, oneshot::Sender<SpinelFrame>>,
+     pub unsolicited_frame_receiver: Option<mpsc::Sender<SpinelFrame>>,
+@@ -617,7 +618,13 @@ impl Default for SpinelProtocol {
+ 
+ impl SpinelProtocol {
+     pub fn new() -> Self {
++        Self::for_interface(0)
++    }
++
++    pub fn for_interface(network_link_id: u8) -> Self {
++        assert!(network_link_id <= 3);
+         Self {
++            network_link_id,
+             buffer: Vec::new(),
+             unescape_scratch: Vec::with_capacity(SPINEL_FRAME_MAX_SIZE),
+             ignoring_until_next_flag: true,
+@@ -654,6 +661,22 @@ impl SpinelProtocol {
+     pub fn notify_reset(&mut self, status: SpinelStatus) {
+         self.fail_all_pending_requests();
+ 
++        if let Some(tx) = &self.unsolicited_frame_receiver {
++            let _ = tx.try_send(SpinelFrame {
++                header: SpinelHeader {
++                    flag: 0b10,
++                    network_link_id: self.network_link_id,
++                    transaction_id: 0,
++                },
++                command_id: SpinelCommandId::PropValueIs,
++                payload: [
++                    packed_uint21_to_bytes(SpinelPropertyId::LastStatus as u32),
++                    packed_uint21_to_bytes(status as u32),
++                ]
++                .concat(),
++            });
++        }
++
+         if let Some(tx) = &self.reset_notification_receiver {
+             let _ = tx.try_send(status);
+         }
+@@ -743,9 +766,20 @@ impl SpinelProtocol {
+         payload: &[u8],
+     ) {
+         tracing::trace!("RX: {header:?} {command_id:?} {payload:02X?}");
++        if header.network_link_id != self.network_link_id {
++            tracing::warn!("Ignoring frame for another interface: {header:?}");
++            return;
++        }
+         let tid = header.transaction_id;
+ 
+         if tid == 0 {
++            if let Some(tx) = &self.unsolicited_frame_receiver {
++                let _ = tx.try_send(SpinelFrame {
++                    header,
++                    command_id,
++                    payload: payload.to_vec(),
++                });
++            }
+             if command_id == SpinelCommandId::PropValueIs {
+                 let property = match packed_uint21_deserialize(payload) {
+                     Ok((property_id, value)) => SpinelPropertyId::try_from(property_id)
+@@ -840,7 +874,7 @@ impl SpinelProtocol {
+ 
+         let header = SpinelHeader {
+             flag: 0b10,
+-            network_link_id: 0,
++            network_link_id: self.network_link_id,
+             transaction_id: tid,
+         };
+ 
+diff --git a/crates/ziggurat-spinel/tests/multipan.rs b/crates/ziggurat-spinel/tests/multipan.rs
+new file mode 100644
+index 0000000..447f6e9
+--- /dev/null
++++ b/crates/ziggurat-spinel/tests/multipan.rs
+@@ -0,0 +1,234 @@
++use std::collections::VecDeque;
++use std::sync::Arc;
++use tokio::io::{AsyncReadExt, DuplexStream};
++use tokio::sync::mpsc;
++use tokio::time::{Duration, timeout};
++use ziggurat_spinel::client::{SpinelClient, SpinelError};
++use ziggurat_spinel::{
++    SpinelCommandId as Cmd, SpinelFrame, SpinelHeader, SpinelPropertyId as Prop, SpinelProtocol,
++    SpinelStatus, packed_uint21_to_bytes,
++};
++
++struct Peer {
++    stream: DuplexStream,
++    decoder: SpinelProtocol,
++    frames: VecDeque<SpinelFrame>,
++}
++impl Peer {
++    fn new(stream: DuplexStream) -> Self {
++        Self {
++            stream,
++            decoder: SpinelProtocol::new(),
++            frames: VecDeque::new(),
++        }
++    }
++    async fn read(&mut self) -> SpinelFrame {
++        timeout(Duration::from_secs(1), async {
++            loop {
++                if let Some(frame) = self.frames.pop_front() {
++                    return frame;
++                }
++                let mut bytes = [0; 2048];
++                let n = self.stream.read(&mut bytes).await.unwrap();
++                assert!(n > 0);
++                self.frames
++                    .extend(self.decoder.parse_frames_from_bytes(&bytes[..n]));
++            }
++        })
++        .await
++        .expect("framed response")
++    }
++    async fn send(&mut self, frame: &SpinelFrame) {
++        use tokio::io::AsyncWriteExt;
++        let mut bytes = vec![0x7e];
++        ziggurat_spinel::hdlc_escape_into(&frame.to_bytes(), &mut bytes);
++        bytes.push(0x7e);
++        self.stream.write_all(&bytes).await.unwrap();
++    }
++}
++fn notification(iid: u8, prop: Prop, value: &[u8]) -> SpinelFrame {
++    SpinelFrame {
++        header: SpinelHeader {
++            flag: 2,
++            network_link_id: iid,
++            transaction_id: 0,
++        },
++        command_id: Cmd::PropValueIs,
++        payload: [packed_uint21_to_bytes(prop as u32), value.to_vec()].concat(),
++    }
++}
++fn setup() -> (Arc<SpinelClient>, Arc<SpinelClient>, Peer) {
++    let (host, peer) = tokio::io::duplex(8192);
++    let zigbee = Arc::new(SpinelClient::new_for_interface(Box::new(host), 1).unwrap());
++    let thread = Arc::new(zigbee.interface(2).unwrap());
++    zigbee.spawn_reader();
++    thread.spawn_reader(); // Idempotent; never starts a second physical reader.
++    (zigbee, thread, Peer::new(peer))
++}
++
++#[tokio::test(flavor = "current_thread")]
++async fn same_tid_reversed_responses_and_unknown_iid_are_isolated() {
++    let (zigbee, thread, mut peer) = setup();
++    let z = tokio::spawn(async move { zigbee.prop_value_get(Prop::NcpVersion).await });
++    let t = tokio::spawn(async move { thread.prop_value_get(Prop::NcpVersion).await });
++    let a = peer.read().await;
++    let b = peer.read().await;
++    assert_ne!(a.header.network_link_id, b.header.network_link_id);
++    assert_eq!(a.header.transaction_id, b.header.transaction_id);
++    let mut wrong = notification(3, Prop::NcpVersion, b"wrong");
++    wrong.header.transaction_id = a.header.transaction_id;
++    peer.send(&wrong).await;
++    tokio::task::yield_now().await;
++    assert!(!z.is_finished() && !t.is_finished());
++    for request in [b, a] {
++        let value = if request.header.network_link_id == 1 {
++            b"zigbee".as_slice()
++        } else {
++            b"thread".as_slice()
++        };
++        let mut reply = notification(request.header.network_link_id, Prop::NcpVersion, value);
++        reply.header.transaction_id = request.header.transaction_id;
++        peer.send(&reply).await;
++    }
++    assert_eq!(z.await.unwrap().unwrap(), b"zigbee");
++    assert_eq!(t.await.unwrap().unwrap(), b"thread");
++}
++
++#[tokio::test(flavor = "current_thread")]
++async fn receive_notifications_stay_on_their_interface() {
++    let (zigbee, thread, mut peer) = setup();
++    let (ztx, mut zrx) = mpsc::channel(4);
++    let (ttx, mut trx) = mpsc::channel(4);
++    zigbee.set_property_update_receiver(Prop::StreamRaw, ztx);
++    thread.set_property_update_receiver(Prop::StreamRaw, ttx);
++    peer.send(&notification(2, Prop::StreamRaw, b"thread frame"))
++        .await;
++    assert_eq!(
++        timeout(Duration::from_secs(1), trx.recv())
++            .await
++            .unwrap()
++            .unwrap()
++            .value,
++        b"thread frame"
++    );
++    assert!(zrx.try_recv().is_err());
++    peer.send(&notification(1, Prop::StreamRaw, b"zigbee frame"))
++        .await;
++    assert_eq!(
++        timeout(Duration::from_secs(1), zrx.recv())
++            .await
++            .unwrap()
++            .unwrap()
++            .value,
++        b"zigbee frame"
++    );
++    assert!(trx.try_recv().is_err());
++}
++
++#[tokio::test(flavor = "current_thread")]
++async fn physical_reset_cancels_both_interfaces_and_secondary_cannot_reset() {
++    let (zigbee, thread, mut peer) = setup();
++    assert!(matches!(
++        thread
++            .send_reset(ziggurat_spinel::SpinelResetReason::Stack)
++            .await,
++        Err(SpinelError::ResetNotOwner)
++    ));
++    let (ztx, mut zrx) = mpsc::channel(4);
++    let (ttx, mut trx) = mpsc::channel(4);
++    zigbee.set_reset_notification_receiver(ztx);
++    thread.set_reset_notification_receiver(ttx);
++    let z = tokio::spawn(async move { zigbee.prop_value_get(Prop::NcpVersion).await });
++    let t = tokio::spawn(async move { thread.prop_value_get(Prop::NcpVersion).await });
++    peer.read().await;
++    peer.read().await;
++    peer.send(&notification(0, Prop::LastStatus, &[114])).await;
++    assert!(matches!(
++        z.await.unwrap(),
++        Err(SpinelError::CancelledByReset)
++    ));
++    assert!(matches!(
++        t.await.unwrap(),
++        Err(SpinelError::CancelledByReset)
++    ));
++    assert!(zrx.recv().await.unwrap().is_reset());
++    assert!(trx.recv().await.unwrap().is_reset());
++}
++
++#[tokio::test(flavor = "current_thread")]
++async fn shared_settings_are_rejected_without_leaking_pending_requests() {
++    let (zigbee, thread, mut peer) = setup();
++    let z = Arc::clone(&zigbee);
++    let request = tokio::spawn(async move { z.prop_value_set(Prop::PhyChan, vec![15]).await });
++    let frame = peer.read().await;
++    peer.send(&SpinelFrame {
++        command_id: Cmd::PropValueIs,
++        ..frame
++    })
++    .await;
++    request.await.unwrap().unwrap();
++    for (property, value) in [
++        (Prop::PhyChan, vec![20]),
++        (Prop::MacPromiscuousMode, vec![1]),
++        (Prop::MacSrcMatchEnabled, vec![0]),
++        (Prop::MacScanState, vec![1]),
++        (Prop::PhyEnabled, vec![0]),
++        (Prop::MacRxOnWhenIdleMode, vec![0]),
++    ] {
++        assert!(matches!(
++            thread.prop_value_set(property, value).await,
++            Err(SpinelError::SharedSettingDenied(_))
++        ));
++    }
++    assert!(thread.protocol.lock().unwrap().pending_frames.is_empty());
++    assert!(matches!(
++        zigbee.interface(2),
++        Err(SpinelError::InvalidInterface(2))
++    ));
++    assert!(matches!(
++        zigbee.interface(0),
++        Err(SpinelError::InvalidInterface(0))
++    ));
++}
++
++#[tokio::test(flavor = "current_thread")]
++async fn local_hdlc_endpoint_translates_iid_and_preserves_consumer_tid() {
++    let (_zigbee, thread, mut radio) = setup();
++    let (endpoint, local) = tokio::io::duplex(8192);
++    let task = tokio::spawn(async move { thread.serve_hdlc(endpoint).await });
++    let mut local = Peer::new(local);
++    let request = SpinelFrame {
++        header: SpinelHeader {
++            flag: 2,
++            network_link_id: 0,
++            transaction_id: 7,
++        },
++        command_id: Cmd::PropValueGet,
++        payload: packed_uint21_to_bytes(Prop::NcpVersion as u32),
++    };
++    local.send(&request).await;
++    let forwarded = radio.read().await;
++    assert_eq!(forwarded.header.network_link_id, 2);
++    assert_eq!(forwarded.header.transaction_id, 1);
++    let mut response = notification(2, Prop::NcpVersion, b"RCP");
++    response.header.transaction_id = 1;
++    radio.send(&response).await;
++    let reply = local.read().await;
++    assert_eq!(reply.header, request.header);
++    radio
++        .send(&notification(2, Prop::StreamRaw, b"incoming"))
++        .await;
++    assert_eq!(local.read().await.header.network_link_id, 0);
++    local
++        .send(&SpinelFrame {
++            command_id: Cmd::Reset,
++            payload: vec![2],
++            ..request
++        })
++        .await;
++    let rejected = local.read().await;
++    assert_eq!(rejected.payload, vec![0, SpinelStatus::InvalidState as u8]);
++    radio.send(&notification(0, Prop::LastStatus, &[114])).await;
++    assert_eq!(local.read().await.payload, vec![0, 114]);
++    task.abort();
++}

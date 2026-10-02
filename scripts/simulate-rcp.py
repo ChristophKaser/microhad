@@ -79,7 +79,7 @@ def decode(data):
 
 
 class Rcp:
-    def __init__(self, device, tcp_nodelay=False):
+    def __init__(self, device, tcp_nodelay=False, iid=0):
         self.tcp_nodelay = tcp_nodelay
         route = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         route.connect((device, 9))  # Route selection only; no datagram is sent.
@@ -95,7 +95,8 @@ class Rcp:
         self.lock = threading.Lock()
         self.stop = threading.Event()
         self.counts = Counter()
-        self.properties = {8: EUI[::-1], 2: b"host-simulated-rcp\x00"}
+        self.iid = iid
+        self.reset_properties()
         self.error = None
         self.response_times_ms = []
         self.beacon_times_ms = []
@@ -103,6 +104,11 @@ class Rcp:
         self.beacon_lock = threading.Lock()
         self.worker = threading.Thread(target=self.run, daemon=True)
         self.worker.start()
+
+    def reset_properties(self):
+        ids = (1, 2) if getattr(self, "iid", 0) else (0,)
+        self.interfaces = {iid: {8: EUI[::-1], 2: b"host-simulated-rcp\x00"} for iid in ids}
+        self.properties = self.interfaces[getattr(self, "iid", 0)]
 
     def send(self, header, prop, value):
         with self.lock:
@@ -113,19 +119,27 @@ class Rcp:
         self.counts[f"command_{command}"] += 1
         if command == 1:
             self.counts["resets"] += 1
-            self.properties = {8: EUI[::-1], 2: b"host-simulated-rcp\x00"}
+            self.reset_properties()
             self.send(0x80, 0, packed(114))
             return
+        iid = (data[0] >> 4) & 3
+        interfaces = getattr(self, "interfaces", {0: self.properties})
+        if iid not in interfaces:
+            self.send(data[0], 0, packed(6))
+            return
+        properties = interfaces[iid]
         prop, offset = unpacked(data, offset)
+        self.counts[f"iid_{iid}_property_{prop}"] += 1
         self.counts[f"property_{prop}"] += 1
-        if command == 2 and prop in self.properties:
-            self.send(data[0], prop, self.properties[prop])
+        if command == 2 and prop in properties:
+            self.send(data[0], prop, properties[prop])
         elif command == 3:
             value = data[offset:]
             if prop == 113:
                 length = struct.unpack("<H", value[:2])[0]
                 if not 0 < length <= 127 or len(value) < length + 2:
                     raise ValueError("Invalid transmitted PSDU length")
+                self.counts[f"iid_{iid}_tx_frames"] += 1
                 self.counts["tx_frames"] += 1
                 self.counts["tx_bytes"] += length
                 if value[2] & 7 == 0:
@@ -135,21 +149,22 @@ class Rcp:
                             self.beacon_times_ms.append((time.perf_counter_ns() - self.beacon_pending.popleft()) / 1e6)
                 self.send(data[0], 0, b"\x00")
             elif prop in {32, 33, 37, 52, 53, 54, 55, 56, 59, 4867, 4868, 4869}:
-                self.properties[prop] = value
+                properties[prop] = value
                 self.send(data[0], prop, value)
             else:
                 self.send(data[0], 0, packed(2))  # Unimplemented, never silently succeed.
         else:
             self.send(data[0], 0, packed(2))
 
-    def inject(self, psdu):
+    def inject(self, psdu, iid=None):
+        iid = self.iid if iid is None else iid
         # Raw receive framing includes an FCS, removed by SpinelPhy.
         frame = psdu + b"\x00\x00"
         metadata = struct.pack("<bbIBBQB", -42, -100, 0, 15, 200, 123456, 0)
         if len(psdu) == 8 and psdu[:2] == b"\x03\x08" and psdu[-1] == 7:
             with self.beacon_lock:
                 self.beacon_pending.append(time.perf_counter_ns())
-        self.send(0x80, 113, struct.pack("<H", len(frame)) + frame + metadata)
+        self.send(0x80 | iid << 4, 113, struct.pack("<H", len(frame)) + frame + metadata)
         self.counts["rx_injected"] += 1
 
     def run(self):
