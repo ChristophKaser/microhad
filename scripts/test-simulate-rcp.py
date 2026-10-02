@@ -3,6 +3,9 @@ from collections import Counter
 import importlib.util
 from pathlib import Path
 import unittest
+import queue
+import struct
+from load_rcp import run_load
 
 spec = importlib.util.spec_from_file_location("simulator", Path(__file__).with_name("simulate-rcp.py"))
 simulator = importlib.util.module_from_spec(spec)
@@ -10,6 +13,50 @@ spec.loader.exec_module(simulator)
 
 
 class WireTests(unittest.TestCase):
+    def test_load_confirm_before_admission_and_backpressure(self):
+        class Radio:
+            counts = Counter()
+            beacon_times_ms = []
+
+            def inject(self, psdu):
+                self.counts["rx_injected"] += 1
+                self.counts["beacon_replies"] += 1
+                self.beacon_times_ms.append(0.1)
+
+        radio = Radio()
+
+        class Client:
+            def __init__(self, port):
+                self.sequence = 0
+                self.frames = queue.Queue()
+                self.conn = self
+
+            def websocket_frame(self):
+                return self.frames.get(timeout=1)
+
+            def send(self, opcode, payload):
+                if opcode == 8:
+                    self.frames.put((8, payload))
+                    return
+                request_id = struct.unpack("<H", payload[1:3])[0] >> 2
+                status = 0 if request_id % 2 else 0x20
+                if status == 0:
+                    radio.counts["tx_frames"] += 1
+                    self.frames.put((2, b"\x13" + struct.pack("<H", request_id << 2 | 3) + b"\x00"))
+                self.frames.put((2, b"\x31" + struct.pack("<H", request_id << 2 | 1) + bytes([status])))
+
+            def close(self):
+                pass
+
+        stages = []
+        run_load(Client, 0, radio, [100], 0.06, simulator.timing_summary,
+                 lambda _: None, lambda: None, stages)
+        result = stages[0]
+        self.assertEqual(result["pending_after_drain"], 0)
+        self.assertGreater(result["counts"]["accepted"], 0)
+        self.assertGreater(result["counts"]["rejected"], 0)
+        self.assertEqual(result["counts"]["accepted"], result["counts"]["completed"])
+
     def test_linuxthreads_cpu_aggregation(self):
         output = ["TOP_PID 100", "TOP_ROW 1 100 50 90% 6000",
                   "TOP_ROW 2 102 101 13% 6000", "TOP_ROW 2 200 50 50% 2000",

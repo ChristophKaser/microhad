@@ -284,7 +284,7 @@ The client generates fresh synthetic coordinator settings with explicit dummy
 keys, without reading or restoring any production network configuration.
 
 The gateway test process uses a new log in `/tmp`, core dumps disabled, a
-55-second watchdog, and cleanup on SSH termination. It is stopped at the end;
+70-second watchdog, and cleanup on SSH termination. It is stopped at the end;
 existing services keep running. Logs, protocol results and sampled resources
 are saved locally to ignored `logs/simulation-<timestamp>.json`.
 
@@ -309,7 +309,7 @@ resets were intentional, and recovery was checked.
 
 ## CPU and response timing with the host simulator
 
-The harness now runs `top -b -d 1 -n 45` concurrently on the gateway. This
+The harness now runs `top -b -d 1 -n 65` concurrently on the gateway. This
 uClibc uses LinuxThreads: the main thread, pthread manager and Tokio worker
 appear as three separate PIDs. The report discovers descendants of the test's
 main PID in each `top` snapshot and sums their CPU percentages. Sampling just
@@ -360,7 +360,110 @@ interference, routing load or a Thread network. It checks transport, API and
 host-stack lifecycle; it does not validate over-the-air delivery, Zigbee
 interoperability, cryptographic correctness or dual-mode Matter operation.
 
+## Increasing transmit/receive load — 2026-10-02
+
+Run the default-policy experiment and then the synthetic capacity experiment:
+
+```sh
+python3 scripts/simulate-rcp.py --load
+python3 scripts/simulate-rcp.py --load --unlimited-broadcasts --tcp-nodelay
+```
+
+Both use six-second stages at 5, 20, 50 and 100 requests/second **in each
+direction**. The host pipelines APS broadcast requests with 32-byte synthetic
+payloads while a separate reader measures asynchronous `BroadcastConfirm`
+latency from submission. Concurrent injected IEEE 802.15.4 beacon requests
+exercise the active MAC receive path and generate outgoing beacon replies.
+Each offered pair therefore creates an APS transmission, an incoming beacon
+request and an outgoing beacon response. This is not encrypted incoming APS
+traffic or a simulation of joined devices, routing or passive acknowledgments.
+
+The scheduler records missed host pacing slots; none were observed in these
+runs. Its 256-request pending cap was never reached. After each stage it stops
+offering work and allows up to four seconds for confirmations and beacon
+replies to drain. It records pending admission/completion work and unanswered
+beacon requests over time. These are host-observed outstanding counts, not
+direct measurements of internal queue depth. Beacon reply latency uses FIFO
+association in this isolated one-source test, without packet IDs echoed in
+the replies; all injected requests received one reply in the measured runs.
+
+The default broadcast policy refills one token every 675 ms (~1.48/s) after
+an initial burst, reserving tokens for critical/forwarded traffic. Across the
+four stages it admitted 30/30, 13/120, 9/300 and 9/600 broadcast requests;
+the remainder returned explicit `RateLimited` responses. Every admitted
+request completed successfully and all 1,050 injected beacon requests were
+answered. The six-second 5/s stage fits the burst allowance; this does not
+establish 5/s sustained broadcast admission with default policy. Its report:
+`logs/simulation-1790944905764309763.json`.
+
+For capacity testing, `--unlimited-broadcasts` sets the temporary stack's
+`broadcast_token_refill` tunable to zero. This is a test-only change and does
+not alter the running production daemon, stored configuration or radio.
+`--tcp-nodelay` disables Nagle buffering on the host simulator and client
+sockets. Without this option, a preceding capacity run showed substantially
+larger beacon-reply delays; transport settings affect this benchmark.
+
+In the final capacity run, all 1,050 broadcasts were admitted and received
+successful completion notifications, and all 1,050 beacon requests produced
+replies. There were no disconnects or lost replies; every stage drained to
+zero before the next one. The table reports full stage CPU intervals, measured
+with `top` across all LinuxThreads PIDs:
+
+| Offered TX + RX rate | Mean CPU | CPU peak | Broadcast completion median / p95 | Beacon reply median / p95 | Sampled peak RSS |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 5 + 5/s | 4.8% | 6% | 15.9 / 38.4 ms | 4.5 / 30.3 ms | 2,392 KiB |
+| 20 + 20/s | 17.3% | 19% | 42.3 / 54.7 ms | 4.5 / 11.1 ms | 2,392 KiB |
+| 50 + 50/s | 51.5% | 54% | 24.6 / 64.4 ms | 6.4 / 494.2 ms | 2,392 KiB |
+| 100 + 100/s | 69.8% | 87% | 34.5 / 178.1 ms | 4,691 / 6,583 ms | 2,508 KiB |
+
+CPU averages have only 4–5 full one-second samples per stage and vary between
+runs; this is a short load sweep, not a steady-state capacity bound. Overall
+sampled RSS peaked at 2,544 KiB, including the post-load samples. The report is
+`logs/simulation-1790945205494517613.json`.
+
+Host-observed pending broadcast work peaked at 1, 2, 10 and 30 requests.
+Unanswered beacon requests peaked at 1, 2, 36 and 599. At 100/s, 599 beacon
+replies were still outstanding when offering stopped, then drained in about
+2.49 seconds. Thus the 100/s stage completed everything eventually but did
+not maintain prompt beacon replies. Completion latencies include client SSH
+forwarding; beacon reply times run from host injection to observation of the
+outgoing beacon at the simulated RCP. Neither is an over-the-air measurement.
+
+The pinned driver's [beacon handler](ziggurat/crates/ziggurat-driver/src/zigbee_stack/mac.rs)
+assigns background priority to beacon replies when joins are closed, as in
+this test. Its documented intent is to keep unexpected beacon requests from
+competing with normal traffic. That supports a reply-priority explanation for
+the backlog; the experiment does not isolate receive processing from outgoing
+reply scheduling, and it does not prove encrypted incoming APS packets would
+experience the same delay. Permitting joins changes both priority and the
+beacon-spam behavior and requires a separate test.
+
+The practical assessment is encouraging for ordinary automation loads,
+especially the 20 + 20/s case, with all work keeping up and modest CPU/memory.
+Higher rates expose background-reply delay and increasing CPU demand. We have
+not established a safe maximum traffic rate or the remaining capacity for
+Thread/Matter. Next steps should include longer realistic APS receive/peer
+tests, real radio timing/retries and shared-radio/Thread integration.
+
+Six focused host checks cover HDLC vectors/corruption, property IDs, reset and
+unsupported-operation handling, LinuxThreads CPU aggregation, and completion
+notifications arriving before admission responses with rate-limit rejections.
+All passed. Existing native gateway services and physical radio state were
+preserved; both temporary Ziggurat and `top` stopped after each run.
+
 ## Next gates
+
+The measurements so far look sufficient for ordinary home-automation command
+traffic: single-digit/low-double-digit millisecond replies and roughly 11%
+Ziggurat CPU leave useful room. This is a provisional assessment based on
+queries and channel changes, not a capacity measurement for real Zigbee
+traffic. Joins, encrypted transmissions, routing, retries and message bursts
+still need load testing. Dual-mode Zigbee plus Matter/Thread remains
+unproven: Thread resources and shared-radio scheduling may become the limits.
+
+The increasing-load experiment below distinguishes host-side pending requests
+and replies from an internal Zigbee queue, which the existing API does not
+expose directly.
 
 - Implement the Ziggurat protocol-v2 adapter in `microhad-zigbee-native`, including
   notifications, asynchronous send confirmations, persistent state and
