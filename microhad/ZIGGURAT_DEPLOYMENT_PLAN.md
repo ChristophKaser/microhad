@@ -2,7 +2,7 @@
 
 ## Current state and next action — 2026-10-03
 
-**This is a plan, not an executed deployment.** Use the existing gateway at
+**Deployment is in progress.** Use the existing gateway at
 `192.168.178.62`; no spare gateway or radio is required. This plan supersedes
 older recommendations to rehearse on spare hardware.
 
@@ -21,9 +21,9 @@ installed on the gateway during step 1.
 network export are saved and validated. Production stayed online; its binary and
 processes were not replaced/restarted. Joining was already closed.
 
-**Next action:** step 3 (isolated staging and a synthetic test), after checking the
-combined storage budget. Step 3 has not been performed. The first flash remains
-step 7. Steps 5–10 require a later maintenance cutover.
+**Execution checkpoint:** steps 1–4 completed.
+
+**Next action:** step 5; reread its procedure before execution.
 
 The objective of this deployment is existing-network Zigbee operation through
 native → COBS Unix socket → Ziggurat → HDLC RCP. Thread and Matter follow later;
@@ -232,6 +232,9 @@ binary. Check production remains online/formed and its executable unchanged.
 radio recovery is needed.
 
 ## 4. Prepare private configuration and a preliminary import
+
+**Completed.** A private staged configuration preserves `/tuya/native` application state and all TLS/notification paths, and selects `/tmp/ziggurat/native.sock`. A fresh preliminary export was converted to normalized state, import bundle and checksum-protected native wire state. Actual-state stopped host import passes with zero transmitted frames. The private state is only on the host at this stage; final counters/keys will be recaptured during maintenance. Security state remains persistent on flash; identical snapshots skip writes, counter events occur every 100 sends, and changed tables are checkpointed every 60 seconds. Hardware write-rate/endurance remains an observation gate in step 10; logs remain in RAM. No alternate native service was started.
+
 
 Create a staged configuration from the backed-up production configuration. Retain
 all application settings and TLS paths; choose the intended persistent runtime
