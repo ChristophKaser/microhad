@@ -1,9 +1,15 @@
 # Real-radio Ziggurat migration — 2026-10-03
 
+> **Reporting correction (2026-10-03):** cached-endpoint rejoins previously
+> skipped binding/reporting setup. The native fix is tested for both backends
+> and deployed. Küche accepted setup and sent four reports, but sustained
+> reporting after a later rejoin remains unresolved.
+> [Current thermometer status](THERMOMETER_RECOVERY.md).
+
 > **Post-deployment correction (2026-10-03):** investigation of Küche TH01
 > reproduced and fixed child loss on relayed own parent announcements, and fixed
 > rejection of TH01 signed humidity reads. Both fixes are deployed; the child
-> survives startup. [Evidence and current verification](thermometer-recovery.md).
+> survives startup. [Evidence and current verification](THERMOMETER_RECOVERY.md).
 
 
 ## Current checkpoint
@@ -12,7 +18,7 @@ Permanent paired production startup is installed under `/tuya/native` and
 controlled reboot returned online automatically. All 12 Zigbee deployment steps are complete;
 final frozen recovery state and offline-validated NCP rollback backup are archived. The original
 EZSP launcher/binary/config and NCP recovery image remain available. Follow
-[the deployment plan](ziggurat-deployment-plan.md) for current checkpoint and
+[the deployment plan](ZIGGURAT_DEPLOYMENT_PLAN.md) for current checkpoint and
 orderly rollback; restoring the old launcher alone cannot undo an RCP migration.
 Thread IID 2 remains unused; standalone Thread/Matter is a separate next phase.
 

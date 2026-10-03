@@ -149,12 +149,18 @@ index 6d87db8..74cc403 100644
  Sources: the retained [EZSP upgrade record](scripts/EZSP_UPGRADE.md), the
  [Silicon Labs NCP-to-host migration note](https://docs.silabs.com/zigbee/9.0.0/multiprotocol-solution-linux/host-ncp-rcp-migration),
 diff --git a/README.md b/README.md
-index c4042f0..6160e24 100644
+index c4042f0..eab1fad 100644
 --- a/README.md
 +++ b/README.md
-@@ -1,18 +1,40 @@
+@@ -1,18 +1,46 @@
  # MicroHAD Native
  
++> **Reporting correction (2026-10-03):** cached-endpoint rejoins previously
++> skipped binding/reporting setup. The native fix is tested for both backends
++> and deployed. Küche accepted setup and sent four reports, but sustained
++> reporting after a later rejoin remains unresolved.
++> [Current thermometer status](THERMOMETER_RECOVERY.md).
++
 +> **Post-deployment correction (2026-10-03):** investigation of Küche TH01
 +> reproduced and fixed child loss on relayed own parent announcements, and fixed
 +> rejection of TH01 signed humidity reads. Both fixes are deployed; the child
@@ -201,7 +207,7 @@ index c4042f0..6160e24 100644
  
  ## Build
  
-@@ -20,6 +42,10 @@ Ziggurat adapter and crash-safe persistence remain pending. See
+@@ -20,6 +48,10 @@ Ziggurat adapter and crash-safe persistence remain pending. See
  make host
  make test
  make mips
@@ -214,11 +220,17 @@ index c4042f0..6160e24 100644
  `make mips` uses only
 diff --git a/REAL_RADIO_MIGRATION.md b/REAL_RADIO_MIGRATION.md
 new file mode 100644
-index 0000000..89afacf
+index 0000000..ceb4714
 --- /dev/null
 +++ b/REAL_RADIO_MIGRATION.md
-@@ -0,0 +1,180 @@
+@@ -0,0 +1,186 @@
 +# Real-radio Ziggurat migration — 2026-10-03
++
++> **Reporting correction (2026-10-03):** cached-endpoint rejoins previously
++> skipped binding/reporting setup. The native fix is tested for both backends
++> and deployed. Küche accepted setup and sent four reports, but sustained
++> reporting after a later rejoin remains unresolved.
++> [Current thermometer status](THERMOMETER_RECOVERY.md).
 +
 +> **Post-deployment correction (2026-10-03):** investigation of Küche TH01
 +> reproduced and fixed child loss on relayed own parent announcements, and fixed
@@ -595,24 +607,34 @@ index 0000000..34ae5d3
 +switches. See the step 8 execution record for the physical verification result.
 diff --git a/THERMOMETER_RECOVERY.md b/THERMOMETER_RECOVERY.md
 new file mode 100644
-index 0000000..8c5c324
+index 0000000..0d09dde
 --- /dev/null
 +++ b/THERMOMETER_RECOVERY.md
-@@ -0,0 +1,83 @@
+@@ -0,0 +1,279 @@
 +# Küche TH01 recovery — 2026-10-03
 +
 +## Current state and plan
 +
-+Two confirmed bugs are fixed and host-tested: relayed own parent announcements
++The latest reporting investigation found a third bug: a known device rejoining
++with cached endpoints queued only attribute reads, skipping reporting bindings
++and Configure Reporting. A read-only refresh already in progress could also
++prevent configuration. The correction is verified for both native
++backends, committed as d33899e, and deployed. Küche accepted all three bindings and reporting configurations, and sent
++unsolicited temperature/humidity reports. The 15-minute window is complete:
++four early reports, no later updates after a subsequent rejoin, and no gateway
++offline samples. Sustained reporting remains unresolved; successful attribute reads alone do not prove reporting is configured.
++
++Two earlier confirmed bugs are fixed and host-tested: relayed own parent announcements
 +could delete restored sleepy children in Ziggurat, and the native parser rejected
 +signed humidity readings from eWeLink TH01. Both fixes are deployed. The restored child survives fixed production startup;
-+a fresh post-fix humidity read and sustained reporting are still being checked. Preserve current private state; no device removal, radio flash,
++a fresh post-fix signed humidity read is now accepted, but the thermometer
++still did not sustain reports after the later rejoin. Preserve current private state; no device removal, radio flash,
 +network recreation or security reset is needed.
 +
 +The real trace already received temperature 21.82°C, humidity 83.53% and battery
 +100% from Küche. The original dashboard still showed humidity zero because it
-+rejected that read-response type. Continued automatic reporting remains to be
-+checked after deployment. The other TH01 continues reporting normally.
++rejected that read-response type. Automatic reports were received after configuration; continued reporting
++after sleep remains unresolved. The other TH01 continues reporting normally.
 +
 +## Evidence and causes
 +
@@ -682,13 +704,205 @@ index 0000000..8c5c324
 +Ziggurat `53046d62702c6b06f06bc1ef7bf01f0b`. Host-held original executables,
 +frozen snapshots and repaired state are private and Git-ignored. Diagnostic
 +logging is disabled in normal production; the added debug line is dormant.
++
++## Reporting configuration correction
++
++A full interview of a known device now uses cached descriptors to bind its
++sensor clusters and configure reporting, rather than running the read-only
++refresh plan. If a rejoin overlaps a refresh, the refresh finishes with its
++existing transaction and then starts configuration. Routine/manual measurement
++refreshes remain read-only. Regression tests check cached rejoin, paused refresh
++promotion, preservation of the in-flight transaction, and ordinary refresh
++completion for both EZSP and Ziggurat builds.
++
++The intended TH01 setup binds endpoint 1 temperature (0x0402), humidity
++(0x0405), and battery (0x0001) to coordinator endpoint 1. Temperature reporting
++uses int16, minimum 30 seconds, maximum 300 seconds, change 0.20 °C. Humidity
++uses the standard uint16, minimum 30 seconds, maximum 300 seconds, change 1%.
++Battery percentage uses uint8, minimum 3600 seconds, maximum 65000 seconds,
++change 0.5 percentage points. Some TH01 read responses use signed humidity;
++a successful humidity Configure Reporting response must be checked rather
++than assuming that read-response quirk also applies to configuration.
++
++Verification requires accepted Bind responses and Configure Reporting responses
++from Küche, followed by unsolicited Report Attributes (ZCL command 0x0a).
++Read Attributes responses (0x01), operation admission, and interview completion
++alone are insufficient. Rejected configuration is currently logged and the
++interview advances; inspect status codes explicitly. Preserve the live network
++and snapshot before updating only the native executable. No radio firmware
++change is required.
++
++Reporting fix validation: `make host test`, `make mips`,
++`make ZIGGURAT=1 host test`, and `make ZIGGURAT=1 mips` all passed, as did
++the nine actual-server host lifecycle scenarios. Production native MD5 is
++`cfea133ccc3f06d088facd95e5df783a`. Fresh private frozen state and the previous
++executable were archived on the host before a clean pair restart. All 23
++inventory entries remain and the network is formed. The radio image and
++Ziggurat executable were unchanged. A bounded 15-minute host COBS capture
++is observing device replies; a five-minute pairing window was opened for the
++user's wake attempt. All three bindings and reporting configurations were accepted, and automatic
++reports were received; the completed window did not establish sustained reporting.
++
++## Accepted configuration and real reports
++
++At gateway timestamps 1791024388–1791024389 Küche returned three successful
++Bind responses (status 0x00). At 1791024392–1791024395 it accepted Configure
++Reporting for temperature, humidity and battery (all status 0x00). No signed
++humidity configuration fallback was needed: standard uint16 reporting setup
++was accepted, and its subsequent humidity reports use uint16, even though
++its Read Attributes response uses int16. The corrected parser accepted a
++fresh read of 81.11% humidity.
++
++Unsolicited Report Attributes frames followed at 1791024394: 22.29 °C and
++85.74% humidity. Further humidity reports at 1791024424 and 1791024454
++reported 74.75% and 72.55%, confirming 30-second change-triggered reporting.
++Battery readback was 100%. A later announcement at 1791024496 was followed
++by an interview send failure at 1791024506; do not treat the early success
++as proof of sustained operation after this later rejoin. The completed 15-minute
++observation window from the first report received only the four early reports.
++
++A read-only Read Reporting Configuration attempt after the wake yielded no
++responses in its bounded 35-second window; exact stored intervals have not
++been independently read back. The gateway maintenance COBS bridge has an
++intentional 120-second alarm, so the initial COBS trace closed before this
++wake. Real acceptance/report evidence above comes from the retained native
++RAM log, journaled privately on the host. The continued window uses HTTP
++status and log snapshots, without extra data written to device flash.
++
++The user's requested action alerts use POST `/api/notifications/test`,
++which queues the gateway's existing generic push notification. The pairing
++alert request was accepted and logged at 1791024464. This endpoint has fixed
++text; the specific action is explained in chat. Do not claim REST acceptance
++as proof of handset delivery. No additional pairing action is currently
++requested while the reporting window runs.
++
++## Reproducible diagnostic tools and commands
++
++The ad hoc host trace, readback, observation, and REST-alert scripts used during
++this investigation are consolidated in `scripts/diagnose_ziggurat_reporting.py`.
++Its five host tests cover captured-report parsing, truncated frames, manufacturer
++headers, reads versus unsolicited reports, IEEE byte order, and explicit-action
++guards. Trace mode rotates the maintenance bridge before its 120-second alarm.
++Observe mode counts only Kitchen's unsolicited report log entries and records
++network readiness; readback mode never sends binding/configuration writes.
++It uses the already tracked `network_backup.py` SSH helper and
++`ziggurat_cobs.py` codec/client. No debugging process is installed on the gateway.
++
++Prerequisites: Python 3; `ssh`/`sshpass` for COBS modes; password file outside
++Git; the deployed maintenance bridge and existing COBS socket. Store all output
++in a directory with mode 0700; the tool creates new files with mode 0600 and
++refuses overwrite. Never commit raw captures, device state, or credentials.
++
++```sh
++cd microhad-zigbee-native
++python3 scripts/test_diagnose_ziggurat_reporting.py
++mkdir -m 700 /tmp/thermometer-diagnostic
++
++# Read-only 15-minute status/log journal. --since can include retained earlier
++# traffic; otherwise the window starts now.
++python3 scripts/diagnose_ziggurat_reporting.py --host 192.168.178.62 \
++  --mode observe --duration 900 \
++  --output /tmp/thermometer-diagnostic/observation.jsonl
++
++# Read-only APS capture. Socket bridge sessions rotate before 120 seconds.
++python3 scripts/diagnose_ziggurat_reporting.py --host 192.168.178.62 \
++  --password-file ../ssh_password.txt --mode trace --duration 900 \
++  --output /tmp/thermometer-diagnostic/aps.jsonl
++
++# When the device is awake: read its stored reporting configuration.
++python3 scripts/diagnose_ziggurat_reporting.py --host 192.168.178.62 \
++  --password-file ../ssh_password.txt --mode readback --duration 35 --execute \
++  --output /tmp/thermometer-diagnostic/readback.jsonl
++
++# Only when asking the user for a pairing attempt: opens the existing join
++# window and queues the existing generic notification, as explicitly requested.
++python3 scripts/diagnose_ziggurat_reporting.py --host 192.168.178.62 \
++  --mode alert --execute --output /tmp/thermometer-diagnostic/alert.jsonl
++```
++
++The original COBS trace had the 120-second bridge limit and yielded no frames
++before the physical wake; the native RAM log contains the successful sequence.
++The readback command above consolidates the same three ZCL 0x08 requests
++(temperature attribute 0x0000, humidity 0x0000, battery percentage 0x0021).
++Its asynchronous 0x09 responses are recorded separately from send admission.
++The tool's 30-second read-only production trace validation completed normally.
++
++For rollback evidence and deployment, the existing tracked tools were used:
++
++```sh
++# Set this to a NEW directory for each maintenance operation.
++mkdir -m 700 /tmp/thermometer-maintenance
++# SSH calls use network_backup.ssh_args and the password-file pathname, never
++# a password literal. Quiesce with /tuya/native/paired_control.sh quiesce.
++../ziggurat-compilation/tools/network-migration-venv/bin/python \
++  scripts/ziggurat_freeze.py --template /private/final-normalized-state.json \
++  --host 192.168.178.62 --password-file ../ssh_password.txt \
++  --bridge /tuya/native/gateway-maintenance --quiesced --execute \
++  --output /tmp/thermometer-maintenance/frozen.json
++# After snapshot success, stop with paired_control.sh stop
++# --frozen-snapshot-saved and wait for gateway-maintenance check-free /dev/ttyS1.
++./deploy.sh --host 192.168.178.62 --password-file ../ssh_password.txt \
++  --target /tuya/native --binary build/mips-ziggurat/microhad-zigbee-native --binary-only
++# Start /tuya/tuya_start.sh through SSH; verify /api/status readiness and
++# inventory. The previous executable is archived on the host, not copied
++# again into scarce device flash. The existing final-state rollback procedure
++# in ZIGGURAT_DEPLOYMENT_PLAN.md remains authoritative.
++```
++
++Other validation commands used: both `make host test`/`make mips` and
++`make ZIGGURAT=1 host test`/`make ZIGGURAT=1 mips`, followed by
++`python3 scripts/test_ziggurat_service.py` (nine real-server lifecycle scenarios).
++SSH `df -k /tuya`, `md5sum`, and `ps w` verified space, executable identity
++and the production pair. Read-only ScanChildren (COBS 0x22) and address-cache
++(0x23) checks verified device mappings without starting/reconfiguring the stack.
++
++A child-table caveat remains: the pre-deployment frozen snapshot had the child,
++but a running scan immediately before the fresh wake returned zero children.
++After the successful association, the scan returned the expected child again.
++The earlier own-parent guard remains deployed, but this additional disappearance
++is not yet explained. Do not claim long-lived child restoration proven from
++one successful startup or association. Retain snapshots and use poll/parent
++traces if reports stop after sleep.
++
++## Final bounded observation and remaining uncertainty
++
++The 900-second window started at 1791024394 and ended at 1791025294.
++There were four unsolicited reports total (one temperature, three humidity),
++all within the first minute. No later Küche reports followed its announcement
++at 1791024496. The host sampled 32 times from attachment onward, with zero
++offline/network-unformed samples; retained RAM logs supplied the earlier
++report evidence. The comparison Bad Thermometer continued to report.
++
++Thus the missing configuration path is fixed and hardware acceptance was
++verified, but this is not a complete thermometer recovery. A thermometer
++fault is plausible given its pre-Ziggurat history and failure to sustain
++updates. It is not proven: a reset/rejoin can change device reporting state,
++and the unexplained child-table discrepancy leaves gateway behavior as an
++alternative. No fresh reporting-configuration readback was obtained after
++the later rejoin. Last observed values were 22.29 °C, 72.55% humidity, 100%
++battery; the percentage is a device reading, not a battery load test.
++
++Next, if the user wants another check: verify battery/contact condition,
++briefly wake without a factory reset, capture polls and stored reporting
++configuration while awake, then observe sleep without another pairing attempt.
++Use the requested gateway REST notification only when an action is actually
++needed, and explain the specific action in chat. No new action is requested
++now. The extra read-only trace attached for a possible wake was stopped;
++no host diagnostic or extra production process remains. Production remains
++on the committed reporting fix with the existing radio/network intact.
 diff --git a/ZIGGURAT_DEPLOYMENT_PLAN.md b/ZIGGURAT_DEPLOYMENT_PLAN.md
 new file mode 100644
-index 0000000..2343978
+index 0000000..99fdbd4
 --- /dev/null
 +++ b/ZIGGURAT_DEPLOYMENT_PLAN.md
-@@ -0,0 +1,610 @@
+@@ -0,0 +1,616 @@
 +# Deploy Ziggurat on the existing gateway gateway
++
++> **Reporting correction (2026-10-03):** cached-endpoint rejoins previously
++> skipped binding/reporting setup. The native fix is tested for both backends
++> and deployed. Küche accepted setup and sent four reports, but sustained
++> reporting after a later rejoin remains unresolved.
++> [Current thermometer status](THERMOMETER_RECOVERY.md).
 +
 +> **Post-deployment correction (2026-10-03):** investigation of Küche TH01
 +> reproduced and fixed child loss on relayed own parent announcements, and fixed
@@ -1587,7 +1801,7 @@ index 472f008..dc097e2 100644
 +  "ziggurat_socket": "/tmp/ziggurat/native.sock"
  }
 diff --git a/include/gateway.h b/include/gateway.h
-index 24b5e5c..ea946b9 100644
+index 24b5e5c..f50fcbb 100644
 --- a/include/gateway.h
 +++ b/include/gateway.h
 @@ -11,6 +11,7 @@
@@ -1636,7 +1850,15 @@ index 24b5e5c..ea946b9 100644
      std::string serialDevice_;
      int serialBaud_;
      std::string runtimeDirectory_;
-@@ -528,6 +546,11 @@ private:
+@@ -349,6 +367,7 @@ private:
+         unsigned long operationIndex;
+         std::vector<EndpointDescriptor> discoveredEndpoints;
+         bool refreshOnly;
++        bool configurationPending;
+         bool paused;
+         bool persistentDirty;
+         InterviewState();
+@@ -528,6 +547,11 @@ private:
      void saveScenes();
      void loadSceneRuntime();
      void saveSceneRuntime() const;
@@ -1862,6 +2084,246 @@ index 0000000..4141731
 +    fi
 +    sleep 1
 +done
+diff --git a/scripts/diagnose_ziggurat_reporting.py b/scripts/diagnose_ziggurat_reporting.py
+new file mode 100644
+index 0000000..818ffaf
+--- /dev/null
++++ b/scripts/diagnose_ziggurat_reporting.py
+@@ -0,0 +1,234 @@
++#!/usr/bin/env python3
++"""Bounded TH01 reporting diagnostics; no UART access, firmware or network reset.
++
++observe/trace are read-only. readback sends Read Reporting Configuration only.
++alert uses the gateway's existing generic test push and opens its join window.
++Keep output private: it contains device identifiers and application payloads.
++"""
++import argparse
++import json
++import os
++from pathlib import Path
++import struct
++import subprocess
++import time
++import urllib.request
++
++from network_backup import ssh_args
++from ziggurat_cobs import Client
++
++
++def http(args, path, post=False):
++    request = urllib.request.Request('http://' + args.host + path,
++                                     data=b'' if post else None)
++    with urllib.request.urlopen(request, timeout=10) as response:
++        return json.load(response)
++
++
++def aps(frame):
++    if len(frame) < 20 or frame[0] != 0x10:
++        return None
++    value = frame[3:]
++    length = int.from_bytes(value[15:17], 'little')
++    if len(value) != 17 + length:
++        return None
++    data = value[17:]
++    offset = 5 if data and data[0] & 4 else 3
++    return {'timestamp': int(time.time()), 'source': int.from_bytes(value[:2], 'little'),
++            'profile': int.from_bytes(value[7:9], 'little'),
++            'cluster': int.from_bytes(value[9:11], 'little'),
++            'source_endpoint': value[11], 'data': data.hex(),
++            'command': data[offset - 1] if len(data) >= offset else None,
++            'transaction': data[offset - 2] if len(data) >= offset else None}
++
++
++class Bridge:
++    def __init__(self, args):
++        self.process = subprocess.Popen(ssh_args(args) + [args.bridge +
++            ' cobs-bridge /tmp/ziggurat/native.sock'], stdin=subprocess.PIPE,
++            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
++        try:
++            self.client = Client(self.process.stdout, self.process.stdin)
++        except Exception:
++            self.process.terminate()
++            try:
++                self.process.wait(timeout=5)
++            except subprocess.TimeoutExpired:
++                self.process.kill()
++                self.process.wait()
++            raise
++
++    def close(self):
++        self.client.close()
++        self.process.terminate()
++        try:
++            self.process.wait(timeout=5)
++        except subprocess.TimeoutExpired:
++            self.process.kill()
++            self.process.wait()
++
++
++def observe(args, emit):
++    start = args.since if args.since is not None else int(time.time())
++    end = start + args.duration
++    seen = set()
++    reports = samples = offline = 0
++    while True:
++        now = int(time.time())
++        try:
++            status = http(args, '/api/status')
++            logs = http(args, '/api/logs')['lines']
++            device = next(d for d in status['devices'] if d['ieee_address'] == args.ieee)
++            healthy = bool(status.get('online') and status.get('network_formed'))
++            offline += int(not healthy)
++            for line in logs:
++                if line in seen:
++                    continue
++                seen.add(line)
++                timestamp = int(line.split(' ', 1)[0])
++                if timestamp < start or args.ieee not in line:
++                    continue
++                emit({'kind': 'log', 'line': line})
++                if 'command=0xa(Report Attributes)' in line:
++                    reports += 1
++                    print(line, flush=True)
++            emit({'kind': 'sample', 'timestamp': now, 'healthy': healthy,
++                  'last_seen': device['last_seen'],
++                  'temperature_celsius': device['temperature_celsius'],
++                  'humidity_percent': device['humidity_percent'], 'reports': reports})
++        except (OSError, ValueError, KeyError, StopIteration):
++            offline += 1
++            emit({'kind': 'sample_error', 'timestamp': now})
++        samples += 1
++        if now >= end:
++            break
++        time.sleep(min(20, end - now))
++    result = {'kind': 'summary', 'start': start, 'end': now,
++              'reports': reports, 'samples': samples, 'offline_samples': offline}
++    emit(result)
++    print(json.dumps(result), flush=True)
++
++
++def wire_ieee(args):
++    return bytes.fromhex(args.ieee[2:])[::-1]
++
++
++def scan_node(client, args):
++    before = len(client.events)
++    reply = client.request(0x23)
++    rows = [frame[3:] for frame in client.events[before:]
++            if frame[0] == 0x23 and frame[1] & 3 == 2]
++    if len(reply) != 2 or int.from_bytes(reply, 'little') != len(rows):
++        raise ValueError('incomplete address scan')
++    for row in rows:
++        if len(row) == 10 and row[:8] == wire_ieee(args):
++            return int.from_bytes(row[8:10], 'little')
++    raise ValueError('device absent from live address cache')
++
++
++def trace(args, emit):
++    end = time.monotonic() + args.duration
++    count = 0
++    # The gateway bridge intentionally expires at 120 seconds. Rotate at 110.
++    while time.monotonic() < end and count < 12000:
++        bridge = Bridge(args)
++        try:
++            node = scan_node(bridge.client, args)
++            rotate = min(end, time.monotonic() + 110)
++            while time.monotonic() < rotate and count < 12000:
++                try:
++                    frame = (bridge.client.events.pop(0) if bridge.client.events
++                             else bridge.client.receive(min(5, rotate - time.monotonic())))
++                except TimeoutError:
++                    continue
++                row = aps(frame)
++                if row is None:
++                    continue
++                if (row['profile'] == 0 and row['cluster'] == 0x13 and
++                        wire_ieee(args) in bytes.fromhex(row['data'])):
++                    node = row['source']
++                if row['source'] != node:
++                    continue
++                emit(row)
++                count += 1
++                print(json.dumps(row), flush=True)
++        finally:
++            bridge.close()
++    emit({'kind': 'summary', 'frames': count})
++
++
++def readback(args, emit):
++    bridge = Bridge(args)
++    received = set()
++    try:
++        node = scan_node(bridge.client, args)
++        for index, (cluster, attribute) in enumerate([(0x402, 0), (0x405, 0), (1, 0x21)]):
++            asdu = bytes([0x10, 0xe1 + index, 8, 0]) + struct.pack('<H', attribute)
++            payload = (bytes([11]) + struct.pack('<H', node) + wire_ieee(args) +
++                       struct.pack('<HHBBBBbBH', 0x104, cluster, 1, 1, 0, 30, 0, 0, len(asdu)) + asdu)
++            bridge.client.request(0x30, payload)
++        end = time.monotonic() + min(args.duration, 35)
++        while time.monotonic() < end and len(received) < 3:
++            try:
++                frame = (bridge.client.events.pop(0) if bridge.client.events else
++                         bridge.client.receive(min(5, end - time.monotonic())))
++            except TimeoutError:
++                continue
++            row = aps(frame)
++            if (row is not None and row['source'] == node and row['profile'] == 0x104 and
++                    row['command'] == 9 and row['transaction'] in [0xe1, 0xe2, 0xe3]):
++                emit(row)
++                print(json.dumps(row), flush=True)
++                received.add(row['transaction'])
++        emit({'kind': 'summary', 'readbacks': len(received)})
++        print('Reporting readbacks received:', len(received), flush=True)
++    finally:
++        bridge.close()
++
++
++def main():
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument('--mode', choices=['observe', 'trace', 'readback', 'alert'], default='observe')
++    parser.add_argument('--host', required=True)
++    parser.add_argument('--password-file')
++    parser.add_argument('--bridge', default='/tuya/native/gateway-maintenance')
++    parser.add_argument('--ieee', default='0x00124b002a52140a')
++    parser.add_argument('--duration', type=int, default=900)
++    parser.add_argument('--since', type=int)
++    parser.add_argument('--output', required=True)
++    parser.add_argument('--execute', action='store_true')
++    args = parser.parse_args()
++    if not 1 <= args.duration <= 900:
++        parser.error('duration must be 1..900 seconds')
++    try:
++        if not args.ieee.startswith('0x') or len(args.ieee) != 18 or len(wire_ieee(args)) != 8:
++            raise ValueError()
++    except ValueError:
++        parser.error('IEEE must be 0x followed by 16 hexadecimal digits')
++    if args.mode in ['trace', 'readback'] and not args.password_file:
++        parser.error('SSH modes require --password-file')
++    if args.mode in ['readback', 'alert'] and not args.execute:
++        parser.error('readback/alert require explicit --execute')
++    if args.bridge != '/tuya/native/gateway-maintenance':
++        parser.error('only the production maintenance bridge is allowed')
++    destination = Path(args.output)
++    if destination.parent.stat().st_mode & 0o077:
++        parser.error('output parent must be private (mode 0700)')
++    with os.fdopen(os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w') as output:
++        def emit(value):
++            output.write(json.dumps(value) + '\n')
++            output.flush()
++        if args.mode == 'alert':
++            status = http(args, '/api/status')
++            if not status.get('online') or not status.get('network_formed'):
++                raise ValueError('gateway is not ready')
++            result = {'join': http(args, '/api/join', True),
++                      'notification': http(args, '/api/notifications/test', True)}
++            emit(result)
++            print(json.dumps(result), flush=True)
++        else:
++            {'observe': observe, 'trace': trace, 'readback': readback}[args.mode](args, emit)
++
++
++if __name__ == '__main__':
++    main()
 diff --git a/scripts/ezsp_final_capture.py b/scripts/ezsp_final_capture.py
 new file mode 100644
 index 0000000..cbfd589
@@ -2197,6 +2659,81 @@ index 0000000..c3a446d
 +
 +
 +if __name__=='__main__':unittest.main()
+diff --git a/scripts/test_diagnose_ziggurat_reporting.py b/scripts/test_diagnose_ziggurat_reporting.py
+new file mode 100644
+index 0000000..5a35d09
+--- /dev/null
++++ b/scripts/test_diagnose_ziggurat_reporting.py
+@@ -0,0 +1,69 @@
++#!/usr/bin/env python3
++"""Reporting diagnostic decoding and safety guards; no hardware access."""
++import contextlib
++import io
++import struct
++import sys
++import tempfile
++from pathlib import Path
++import unittest
++from unittest.mock import patch
++from types import SimpleNamespace
++import diagnose_ziggurat_reporting as diagnostic
++
++
++class ReportingDiagnosticTests(unittest.TestCase):
++    def frame(self, data):
++        payload = struct.pack('<HHBHHHBBBBH', 0xa8d1, 0, 0, 0, 0x104,
++                              0x402, 1, 1, 212, 186, len(data)) + data
++        return b'\x10\x03\x00' + payload
++
++    def test_real_temperature_report_and_truncation(self):
++        frame = self.frame(bytes.fromhex('18000a000029b508'))
++        row = diagnostic.aps(frame)
++        self.assertEqual((row['source'], row['cluster'], row['command'], row['transaction']),
++                         (0xa8d1, 0x402, 10, 0))
++        self.assertIsNone(diagnostic.aps(frame[:-1]))
++        self.assertIsNone(diagnostic.aps(b'\x11' + frame[1:]))
++
++    def test_manufacturer_header_and_read_response_distinction(self):
++        row = diagnostic.aps(self.frame(bytes.fromhex('1c3412e909000000')))
++        self.assertEqual((row['command'], row['transaction']), (9, 0xe9))
++        row = diagnostic.aps(self.frame(bytes.fromhex('180d0100000029c408')))
++        self.assertEqual(row['command'], 1)
++
++    def test_readback_and_alert_require_execute_before_output(self):
++        with tempfile.TemporaryDirectory() as directory:
++            destination = Path(directory) / 'out.jsonl'
++            for mode in ['readback', 'alert']:
++                argv = ['diagnostic', '--mode', mode, '--host', '127.0.0.1',
++                        '--password-file', '/unused', '--output', str(destination)]
++                with patch.object(sys, 'argv', argv), contextlib.redirect_stderr(io.StringIO()):
++                    with self.assertRaises(SystemExit):
++                        diagnostic.main()
++                self.assertFalse(destination.exists())
++
++    def test_observation_counts_reports_not_reads_or_other_devices(self):
++        args = SimpleNamespace(since=100, duration=1, ieee='0x00124b002a52140a')
++        rows = []
++        status = {'online': True, 'network_formed': True, 'devices': [
++            {'ieee_address': args.ieee, 'last_seen': 101,
++             'temperature_celsius': 22.29, 'humidity_percent': 72.55}]}
++        logs = {'lines': [
++            '100 ' + args.ieee + ' command=0x1(Read Attributes Response)',
++            '101 ' + args.ieee + ' command=0xa(Report Attributes)',
++            '101 0x00124b002a5226de command=0xa(Report Attributes)']}
++        with patch.object(diagnostic, 'http', side_effect=[status, logs]), \
++             patch.object(diagnostic.time, 'time', return_value=101), \
++             contextlib.redirect_stdout(io.StringIO()):
++            diagnostic.observe(args, rows.append)
++        self.assertEqual(rows[-1]['reports'], 1)
++        self.assertEqual(rows[-1]['offline_samples'], 0)
++
++    def test_wire_ieee_uses_device_byte_order(self):
++        self.assertEqual(diagnostic.wire_ieee(SimpleNamespace(ieee='0x00124b002a52140a')),
++                         bytes.fromhex('0a14522a004b1200'))
++
++
++if __name__ == '__main__':
++    unittest.main()
 diff --git a/scripts/test_network_migration.py b/scripts/test_network_migration.py
 index 7f80b26..512fe81 100644
 --- a/scripts/test_network_migration.py
@@ -3054,7 +3591,7 @@ index 3c0a099..996eb65 100644
              state=rollback_state(json.loads(Path(args.original).read_text()),json.loads(Path(args.last_stopped_state).read_text()),args.aps_upper_bound)
              bundle=open_coordinator(state)
 diff --git a/src/gateway.cpp b/src/gateway.cpp
-index 614e4c8..c6d2909 100644
+index 614e4c8..54f69f9 100644
 --- a/src/gateway.cpp
 +++ b/src/gateway.cpp
 @@ -1,4 +1,7 @@
@@ -3065,7 +3602,17 @@ index 614e4c8..c6d2909 100644
  #include "external_http_device.h"
  #include "json_util.h"
  #include "notification_worker.h"
-@@ -332,6 +335,9 @@ Gateway::Gateway(const std::string& serialDevice, int serialBaud, const std::str
+@@ -78,7 +81,8 @@ Gateway::InterviewOperation::InterviewOperation() : type(InterviewActiveEndpoint
+     transactionSequenceAssigned(false), messageTag(0), attempts(0), retryAt(0) {
+ }
+ 
+-Gateway::InterviewState::InterviewState() : operationIndex(0), refreshOnly(false), paused(false), persistentDirty(false) {
++Gateway::InterviewState::InterviewState() : operationIndex(0), refreshOnly(false), configurationPending(false),
++                                          paused(false), persistentDirty(false) {
+ }
+ 
+ namespace {
+@@ -332,6 +336,9 @@ Gateway::Gateway(const std::string& serialDevice, int serialBaud, const std::str
      ashAckDeadline_(0), ashRetries_(0), ashPendingSensitive_(false), networkBackupQuery_(0, std::vector<unsigned char>()), networkBackupSequence_(0), networkBackupDeadline_(0), networkBackupStarted_(0), ezspVersion_(4), zdoSequence_(0), zclTransactionSequence_(0), ezspVersionNegotiated_(false), stackTokenWritingRequested_(false), networkInitRequested_(false), tradfriBindGroupConfigured_(false), coordinatorInitializationStep_(0), coordinatorInitializationDeadline_(0), resetDeadline_(0), serialReconnectFailures_(0), zigbeeDownAlertQueued_(false), nextHeartbeatAt_(0), serialRxBytes_(0), ashRxFrames_(0), networkForming_(false), networkFormationStep_(0), networkFormationDeadline_(0), networkFormed_(false), networkPanId_(0),
      networkChannel_(0), interviewRequestInFlight_(false), interviewSendAccepted_(false), interviewEzspSequence_(0), interviewNode_(0xffff),
      interviewDeadline_(0), nextMessageTag_(1), coordinatorIeeeAddressRequested_(false), logRing_(LogRing::defaultPath()), logBytes_(0), viewDirty_(true) {
@@ -3075,7 +3622,7 @@ index 614e4c8..c6d2909 100644
      lastSecurityDiagnosticsAt_ = 0;
      unsupportedSecurityValues_ = 0;
      lastNetworkKeySequence_ = -1;
-@@ -339,7 +345,16 @@ Gateway::Gateway(const std::string& serialDevice, int serialBaud, const std::str
+@@ -339,7 +346,16 @@ Gateway::Gateway(const std::string& serialDevice, int serialBaud, const std::str
  
  Gateway::~Gateway() {
      stop();
@@ -3092,7 +3639,7 @@ index 614e4c8..c6d2909 100644
  
  void Gateway::setShellyTransport(ExternalHttpDeviceWorker* transport) { shellyTransport_ = transport; }
  
-@@ -595,6 +610,13 @@ bool Gateway::start(std::string* error) {
+@@ -595,6 +611,13 @@ bool Gateway::start(std::string* error) {
          build << "Build: " << __DATE__ << " " << __TIME__ << " revision=" << MICROHAD_BUILD_REVISION;
          addLog(build.str());
      }
@@ -3106,7 +3653,7 @@ index 614e4c8..c6d2909 100644
      /* Tests may inject a pipe descriptor before the coordinator thread starts.
         Production always reaches this branch with serialFd_ == -1. */
      if (serialFd_ < 0 && !configureSerial(error)) {
-@@ -607,6 +629,9 @@ bool Gateway::start(std::string* error) {
+@@ -607,6 +630,9 @@ bool Gateway::start(std::string* error) {
  }
  
  void Gateway::stop() {
@@ -3116,7 +3663,7 @@ index 614e4c8..c6d2909 100644
      networkBackup_.abort(); networkBackupDeadline_ = 0;
      if (serialFd_ >= 0) {
          close(serialFd_);
-@@ -616,7 +641,123 @@ void Gateway::stop() {
+@@ -616,7 +642,123 @@ void Gateway::stop() {
      online_ = false;
  }
  
@@ -3240,7 +3787,7 @@ index 614e4c8..c6d2909 100644
      if (networkBackup_.active() && (time(0) >= networkBackupDeadline_ || time(0) - networkBackupStarted_ >= 120)) {
          networkBackup_.abort(); networkBackupDeadline_ = 0; addLog("Network backup timed out; radio state unchanged");
      }
-@@ -780,8 +921,18 @@ std::string Gateway::runtimeDirectory() const {
+@@ -780,8 +922,18 @@ std::string Gateway::runtimeDirectory() const {
  std::string Gateway::historyPath() const { return history_.path(); }
  SensorHistory* Gateway::historyStore() { return &history_; }
  
@@ -3261,7 +3808,7 @@ index 614e4c8..c6d2909 100644
  bool Gateway::hasImmediateWork() const {
      if (serialPendingBytes_.empty() && ashPendingData_.empty() && !ashTransmitQueue_.empty()) return true;
      if (!online_ || !networkFormed_ || coordinatorInitializationStep_ != 0 || interviewRequestInFlight_) return false;
-@@ -887,6 +1038,9 @@ long Gateway::nextPollDeadline(std::string* source) {
+@@ -887,6 +1039,9 @@ long Gateway::nextPollDeadline(std::string* source) {
      std::map<unsigned short, SceneRetry>::const_iterator scene;
      std::map<unsigned short, InterviewState>::const_iterator interview;
      #define CONSIDER_DEADLINE(value, label) do { long candidate = (value); if (candidate != 0 && (deadline == 0 || candidate < deadline)) { deadline = candidate; deadlineSource = (label); } } while (0)
@@ -3271,7 +3818,7 @@ index 614e4c8..c6d2909 100644
      if (!ashPendingData_.empty()) CONSIDER_DEADLINE(ashAckDeadline_, "ash_ack");
      if (online_) CONSIDER_DEADLINE(nextHeartbeatAt_, "heartbeat");
      if (!online_) CONSIDER_DEADLINE(resetDeadline_, "serial_reset");
-@@ -945,6 +1099,17 @@ long Gateway::nextPollDeadline(std::string* source) {
+@@ -945,6 +1100,17 @@ long Gateway::nextPollDeadline(std::string* source) {
  }
  
  bool Gateway::setJoining(unsigned int seconds, std::string* error) {
@@ -3289,7 +3836,7 @@ index 614e4c8..c6d2909 100644
      if (networkBackup_.active()) { *error = "network backup is active"; return false; }
      if (!online_) {
          *error = "Zigbee coordinator is offline";
-@@ -990,6 +1155,9 @@ bool Gateway::setJoining(unsigned int seconds, std::string* error) {
+@@ -990,6 +1156,9 @@ bool Gateway::setJoining(unsigned int seconds, std::string* error) {
  }
  
  bool Gateway::exportNetworkBackup(const std::string& id, std::string* error) {
@@ -3299,7 +3846,7 @@ index 614e4c8..c6d2909 100644
      if (!online_ || !networkFormed_ || coordinatorInitializationStep_ != 0 || networkForming_ ||
          ezspVersion_ != 13 || joinUntil_ != 0 || joinPreparationStep_ != 0 || joinPermitClosePending_) {
          *error = "backup requires a running EZSP v13 coordinator with joining closed"; return false;
-@@ -1012,6 +1180,9 @@ void Gateway::advanceNetworkBackup() {
+@@ -1012,6 +1181,9 @@ void Gateway::advanceNetworkBackup() {
  }
  
  bool Gateway::createFreshNetwork(std::string* error) {
@@ -3309,7 +3856,7 @@ index 614e4c8..c6d2909 100644
      if (networkBackup_.active()) { *error = "network backup is active"; return false; }
      bool leaveExisting;
      if (!online_) { *error = "Zigbee coordinator is offline"; return false; }
-@@ -2271,7 +2442,7 @@ GatewayView::GatewayView() : online(false), networkForming(false), networkFormed
+@@ -2271,7 +2443,7 @@ GatewayView::GatewayView() : online(false), networkForming(false), networkFormed
  
  std::string GatewayView::statusJson() const {
      std::ostringstream json;
@@ -3318,7 +3865,7 @@ index 614e4c8..c6d2909 100644
           << (networkForming ? "true" : "false") << ",\"network_formed\":" << (networkFormed ? "true" : "false")
           << ",\"serial_rx_bytes\":" << serialRxBytes << ",\"ash_rx_frames\":" << ashRxFrames
           << ",\"joining_until\":" << joiningUntil << ",\"joining_preparing\":"
-@@ -2457,6 +2628,10 @@ std::string GatewayView::logsJson() const {
+@@ -2457,6 +2629,10 @@ std::string GatewayView::logsJson() const {
  
  GatewayView Gateway::captureView(bool includeLogs) const {
      GatewayView view;
@@ -3329,7 +3876,7 @@ index 614e4c8..c6d2909 100644
      view.online = online_; view.networkForming = networkForming_; view.networkFormed = networkFormed_;
      view.serialRxBytes = serialRxBytes_; view.ashRxFrames = ashRxFrames_; view.joiningUntil = joinUntil_;
      view.serialOpenedAt = serialOpenedAt_;
-@@ -2784,6 +2959,9 @@ void Gateway::sendAshReset() {
+@@ -2784,6 +2960,9 @@ void Gateway::sendAshReset() {
  }
  
  unsigned char Gateway::sendEzspCommand(unsigned short command, const std::vector<unsigned char>& payload) {
@@ -3339,7 +3886,7 @@ index 614e4c8..c6d2909 100644
      std::vector<unsigned char> ezsp;
      unsigned char sequence = ezspSequence_++;
      /* A wrapped sequence must never identify an expired diagnostic query. */
-@@ -2976,6 +3154,9 @@ void Gateway::requestSecurityDiagnostics(const std::string& reason) {
+@@ -2976,6 +3155,9 @@ void Gateway::requestSecurityDiagnostics(const std::string& reason) {
  }
  
  void Gateway::configureTradfriBindGroup() {
@@ -3349,7 +3896,7 @@ index 614e4c8..c6d2909 100644
      std::vector<unsigned char> payload;
      if (tradfriBindGroupConfigured_) return;
      /* Pre-2.3.075 IKEA remotes, including E1743, use the legacy group
-@@ -2992,6 +3173,57 @@ void Gateway::configureTradfriBindGroup() {
+@@ -2992,6 +3174,57 @@ void Gateway::configureTradfriBindGroup() {
  unsigned char Gateway::sendApsUnicast(unsigned short destination, unsigned short profile, unsigned short cluster,
                               unsigned char sourceEndpoint, unsigned char destinationEndpoint,
                               const std::vector<unsigned char>& message, unsigned char messageTag) {
@@ -3407,7 +3954,7 @@ index 614e4c8..c6d2909 100644
      std::vector<unsigned char> payload;
      static unsigned char apsSequence = 0;
      payload.push_back(0); /* EMBER_OUTGOING_DIRECT */
-@@ -3016,6 +3248,32 @@ unsigned char Gateway::sendApsUnicast(unsigned short destination, unsigned short
+@@ -3016,6 +3249,32 @@ unsigned char Gateway::sendApsUnicast(unsigned short destination, unsigned short
  
  unsigned char Gateway::sendApsMulticast(unsigned short groupId, unsigned short profile, unsigned short cluster,
                                          unsigned char sourceEndpoint, const std::vector<unsigned char>& message) {
@@ -3440,7 +3987,7 @@ index 614e4c8..c6d2909 100644
      std::vector<unsigned char> payload;
      static unsigned char apsSequence = 0;
      payload.push_back(static_cast<unsigned char>(profile)); payload.push_back(static_cast<unsigned char>(profile >> 8));
-@@ -3035,6 +3293,12 @@ unsigned char Gateway::sendApsMulticast(unsigned short groupId, unsigned short p
+@@ -3035,6 +3294,12 @@ unsigned char Gateway::sendApsMulticast(unsigned short groupId, unsigned short p
  }
  
  void Gateway::sendJoinPermit(unsigned int duration) {
@@ -3453,7 +4000,44 @@ index 614e4c8..c6d2909 100644
      std::vector<unsigned char> payload;
      payload.push_back(static_cast<unsigned char>(duration > 254 ? 254 : duration));
      sendEzspCommand(0x0022, payload);
-@@ -4100,6 +4364,9 @@ void Gateway::completeInterviewOperation(unsigned short destination) {
+@@ -3741,6 +4006,9 @@ void Gateway::startInterview(unsigned short destination, bool refreshOnly, bool
+     if (address == nodeAddresses_.end()) return;
+     std::map<unsigned short, InterviewState>::iterator existing = interviews_.find(destination);
+     if (existing != interviews_.end()) {
++        /* A rejoin must configure reporting even if a scheduled refresh is
++           already running. Preserve its outstanding transaction until reply. */
++        if (!refreshOnly && existing->second.refreshOnly) existing->second.configurationPending = true;
+         existing->second.paused = false;
+         return;
+     }
+@@ -3754,7 +4022,7 @@ void Gateway::startInterview(unsigned short destination, bool refreshOnly, bool
+         return;
+     }
+     if (!refreshOnly && !forceEndpointDiscovery && !device.endpoints.empty()) {
+-        buildRefreshOperations(destination);
++        buildConfigurationOperations(destination);
+         return;
+     }
+     queueInterviewOperation(destination, InterviewActiveEndpoints, 0);
+@@ -3832,6 +4100,8 @@ void Gateway::buildRefreshOperations(unsigned short destination) {
+ 
+ void Gateway::buildConfigurationOperations(unsigned short destination) {
+     InterviewState& state = interviews_[destination];
++    if (state.configurationPending) state.refreshOnly = false;
++    state.configurationPending = false;
+     Device& device = devices_[state.ieeeAddress];
+     state.operations.clear();
+     state.operationIndex = 0;
+@@ -4093,6 +4363,8 @@ void Gateway::completeInterviewOperation(unsigned short destination) {
+             state.persistentDirty = false;
+         }
+         buildConfigurationOperations(destination);
++    } else if (state.configurationPending) {
++        buildConfigurationOperations(destination);
+     } else {
+         addLog(state.refreshOnly ? "Sensor attribute refresh completed" : "Sensor interview completed");
+         interviews_.erase(destination);
+@@ -4100,6 +4372,9 @@ void Gateway::completeInterviewOperation(unsigned short destination) {
  }
  
  void Gateway::requestCoordinatorIeeeAddress() {
@@ -3463,7 +4047,7 @@ index 614e4c8..c6d2909 100644
      if (coordinatorIeeeAddressRequested_) return;
      coordinatorIeeeAddressRequested_ = true;
      addLog("Requesting coordinator IEEE address for device reporting bindings");
-@@ -4204,7 +4471,6 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
+@@ -4204,7 +4479,6 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
      unsigned short profile;
      unsigned long messageOffset;
      unsigned long length;
@@ -3471,7 +4055,7 @@ index 614e4c8..c6d2909 100644
      std::vector<unsigned char> message;
      if (payload.size() < 20) return;
      /* type(1), APS frame(11), LQI/RSSI(2), sender(2), binding/address(2), LVBytes */
-@@ -4217,6 +4483,19 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
+@@ -4217,6 +4491,19 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
         In particular Bind_rsp (0x8021) is valid at two bytes. */
      if (messageOffset + length > payload.size() || length < 2) return;
      message.assign(payload.begin() + messageOffset, payload.begin() + messageOffset + length);
@@ -3491,7 +4075,7 @@ index 614e4c8..c6d2909 100644
      std::map<unsigned short, std::string>::const_iterator nativeSender = nodeAddresses_.find(sender);
      if (nativeSender != nodeAddresses_.end()) wakeSceneProvisioning(nativeSender->second);
      std::map<std::string, std::string>::iterator nativeState = nativeSender == nodeAddresses_.end() ?
-@@ -4230,14 +4509,14 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
+@@ -4230,14 +4517,14 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
      }
      addFrameLog("RX", sender,
                  profile, cluster,
@@ -3511,7 +4095,7 @@ index 614e4c8..c6d2909 100644
          addLog(diagnostic.str());
      }
      if (profile != 0x0000 && profile != 0x0104) {
-@@ -4468,7 +4747,7 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
+@@ -4468,7 +4755,7 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
      if (profile == 0x0104 && !devices_[address->second].endpoints.empty()) {
          bool endpointKnown = false;
          for (unsigned long i = 0; i < devices_[address->second].endpoints.size(); ++i) {
@@ -3520,7 +4104,7 @@ index 614e4c8..c6d2909 100644
          }
          if (!endpointKnown) {
              addLog("Ignoring APS message from an undiscovered endpoint");
-@@ -4523,7 +4802,7 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
+@@ -4523,7 +4810,7 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
          if (known != nodeAddresses_.end()) {
              Device& device = devices_[known->second];
              Device before = device;
@@ -3529,7 +4113,7 @@ index 614e4c8..c6d2909 100644
              device.lastSeen = time(0);
              updateValueAlerts(device, before);
              markViewDirty();
-@@ -4536,7 +4815,7 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
+@@ -4536,7 +4823,7 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
          std::vector<unsigned char> response;
          response.push_back(0x19); response.push_back(transactionSequence);
          response.push_back(0x02); response.push_back(0x98); /* NO_IMAGE_AVAILABLE */
@@ -3538,7 +4122,7 @@ index 614e4c8..c6d2909 100644
          addLog("OTA query answered: no image available for " + address->second);
          return;
      }
-@@ -4545,14 +4824,14 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
+@@ -4545,14 +4832,14 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
          /* Only unicast commands receive default responses. Group/broadcast
             commands may use destination endpoint 255, which is not a valid
             source endpoint for a reply. Still dispatch their key events. */
@@ -3557,7 +4141,7 @@ index 614e4c8..c6d2909 100644
                                    static_cast<unsigned char>(zoneId));
          } else addLog("IAS zone ID pool exhausted; enrollment response not sent");
      } else if (cluster == 0x0500 && command == 0x00 && message.size() >= zclOffset + 2) {
-@@ -4572,7 +4851,7 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
+@@ -4572,7 +4859,7 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
              InterviewOperation& operation = interview->second.operations[interview->second.operationIndex];
              matched = (operation.type == InterviewAttributeRead || operation.type == InterviewBasicRead) &&
                        operation.transactionSequence == transactionSequence && operation.cluster == cluster &&
@@ -3566,7 +4150,7 @@ index 614e4c8..c6d2909 100644
              if (matched && operation.type == InterviewBasicRead && updateBasicIdentity(&devices_[address->second], records))
                  interview->second.persistentDirty = true;
          }
-@@ -4617,7 +4896,7 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
+@@ -4617,7 +4904,7 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
              interview->second.operations[interview->second.operationIndex].transactionSequenceAssigned) {
              InterviewOperation& operation = interview->second.operations[interview->second.operationIndex];
              if (operation.type == InterviewConfigureReporting && operation.transactionSequence == transactionSequence &&
@@ -4157,10 +4741,62 @@ index 035e88a..a3063d3 100644
      runUnitTests();
      runFcmUnitTests();
 diff --git a/test/unit_gateway.cpp b/test/unit_gateway.cpp
-index ad652c5..28c9225 100644
+index ad652c5..c2607f7 100644
 --- a/test/unit_gateway.cpp
 +++ b/test/unit_gateway.cpp
-@@ -1890,6 +1890,27 @@ static void testZclRejectsMalformedAttributes() {
+@@ -184,6 +184,51 @@ public:
+         gateway.startInterview(node, true);
+         assert(!gateway.interviews_[node].paused);
+     }
++    static void cachedRejoinConfiguresReporting() {
++        Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
++        const unsigned short node = 0x1234;
++        const std::string ieee = "0x00124b002a52140a";
++        EndpointDescriptor endpoint;
++        endpoint.endpoint = 1;
++        endpoint.inputClusters.push_back(0x0402);
++        gateway.devices_[ieee].ieeeAddress = ieee;
++        gateway.devices_[ieee].endpoints.push_back(endpoint);
++        gateway.nodeAddresses_[node] = ieee;
++
++        gateway.startInterview(node, false);
++        assert(!gateway.interviews_[node].refreshOnly);
++        assert(gateway.interviews_[node].operations.size() == 3);
++        assert(gateway.interviews_[node].operations[0].type == Gateway::InterviewBind);
++        assert(gateway.interviews_[node].operations[1].type == Gateway::InterviewConfigureReporting);
++        gateway.interviews_.clear();
++
++        /* Ordinary refreshes remain reads; a rejoin upgrades only after the
++           existing request completes, preserving its sequence and deadline. */
++        gateway.startInterview(node, true);
++        assert(gateway.interviews_[node].operations.size() == 1);
++        Gateway::InterviewOperation& operation = gateway.interviews_[node].operations[0];
++        assert(operation.type == Gateway::InterviewAttributeRead);
++        operation.transactionSequence = 42;
++        operation.transactionSequenceAssigned = true;
++        gateway.interviewRequestInFlight_ = true;
++        gateway.interviewNode_ = node;
++        gateway.interviewDeadline_ = time(0) + 20;
++        gateway.interviews_[node].paused = true;
++        gateway.startInterview(node, false);
++        assert(!gateway.interviews_[node].paused && gateway.interviews_[node].configurationPending);
++        assert(gateway.interviewRequestInFlight_ && gateway.interviewDeadline_ != 0);
++        assert(operation.type == Gateway::InterviewAttributeRead && operation.transactionSequence == 42);
++        gateway.completeInterviewOperation(node);
++        assert(!gateway.interviewRequestInFlight_);
++        assert(!gateway.interviews_[node].refreshOnly && !gateway.interviews_[node].configurationPending);
++        assert(gateway.interviews_[node].operations[0].type == Gateway::InterviewBind);
++        assert(gateway.interviews_[node].operations[1].type == Gateway::InterviewConfigureReporting);
++        gateway.interviews_.clear();
++
++        gateway.startInterview(node, true);
++        gateway.completeInterviewOperation(node);
++        assert(gateway.interviews_.empty());
++    }
+     static void deadlineSelectionMatchesHandlerOrdering() {
+         Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+         const long now = time(0);
+@@ -1890,6 +1935,27 @@ static void testZclRejectsMalformedAttributes() {
             !device.hasContact && !device.hasLight && device.lastSeen == 0);
  }
  
@@ -4188,7 +4824,15 @@ index ad652c5..28c9225 100644
  static void testConfigureReportingEncoding() {
      std::vector<unsigned char> battery = buildZclConfigureReporting(7, 0x0021, 0x20, 3600, 65000, 1);
      std::vector<unsigned char> temperature = buildZclConfigureReporting(8, 0x0000, 0x29, 30, 3600, 20);
-@@ -2445,6 +2466,7 @@ void runUnitTests() {
+@@ -1900,6 +1966,7 @@ static void testConfigureReportingEncoding() {
+ }
+ 
+ static void testInterviewDescriptorAndPlanning() {
++    GatewayTestPeer::cachedRejoinConfiguresReporting();
+     Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+     std::vector<unsigned char> response;
+     EndpointDescriptor descriptor;
+@@ -2445,6 +2512,7 @@ void runUnitTests() {
      testStorageSaveFailuresPreserveDestinations();
      testGenericCapabilities();
      testZclRejectsMalformedAttributes();

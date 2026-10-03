@@ -1,5 +1,11 @@
 # Ziggurat on the Tuya RTL8196E gateway
 
+> **Reporting correction (2026-10-03):** cached-endpoint rejoins previously
+> skipped binding/reporting setup. The native fix is tested for both backends
+> and deployed. Küche accepted setup and sent four reports, but sustained
+> reporting after a later rejoin remains unresolved.
+> [Current thermometer status](docs/thermometer-recovery.md).
+
 > **Post-deployment fixes (2026-10-03):** encrypted host traffic reproduced
 > loss of a restored sleepy child on a relayed own parent announcement. Fixed
 > Ziggurat and TH01 signed-humidity parsing are deployed; the child survives

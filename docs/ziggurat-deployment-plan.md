@@ -1,9 +1,15 @@
 # Deploy Ziggurat on the existing Tuya gateway
 
+> **Reporting correction (2026-10-03):** cached-endpoint rejoins previously
+> skipped binding/reporting setup. The native fix is tested for both backends
+> and deployed. Küche accepted setup and sent four reports, but sustained
+> reporting after a later rejoin remains unresolved.
+> [Current thermometer status](THERMOMETER_RECOVERY.md).
+
 > **Post-deployment correction (2026-10-03):** investigation of Küche TH01
 > reproduced and fixed child loss on relayed own parent announcements, and fixed
 > rejection of TH01 signed humidity reads. Both fixes are deployed; the child
-> survives startup. [Evidence and current verification](thermometer-recovery.md).
+> survives startup. [Evidence and current verification](THERMOMETER_RECOVERY.md).
 
 
 ## Current state and next action — 2026-10-03
@@ -20,11 +26,11 @@ Network identity/security match the final private backup; NWK/APS counters advan
 Steps 1–12 completed. Controlled reboot recovered automatically with a
 121-second native readiness delay; final frozen recovery state is archived.
 Sleepy-child stimulation was waived and remains physically unverified; broadcast
-relay-quorum/CCA verdicts are intermittent. See [measured findings](real-radio-migration.md). Thread IID 2 remains unused.
+relay-quorum/CCA verdicts are intermittent. See [measured findings](REAL_RADIO_MIGRATION.md). Thread IID 2 remains unused.
 
 **Step 1 is complete:** images are packaged/validated, binaries rebuilt, recovery
 commands and candidate paired launcher implemented, and host tests pass. Exact
-commands and limits are in [RECOVERY_TOOLING.md](recovery-tooling.md). Nothing was
+commands and limits are in [RECOVERY_TOOLING.md](RECOVERY_TOOLING.md). Nothing was
 installed on the gateway during step 1.
 
 **Step 2 is complete:** private live service/application archive and fresh logical
@@ -123,7 +129,7 @@ bash scripts/package-hdlc-gbl.sh
 bash scripts/build-maintenance.sh
 ```
 
-See [tool commands, prerequisites and verified results](recovery-tooling.md).
+See [tool commands, prerequisites and verified results](RECOVERY_TOOLING.md).
 Hardware entry/return still needs later same-device checks. Final NCP capture plus
 immediate entry narrows the counter gap; it does not supply an atomic NCP freeze.
 
@@ -466,7 +472,7 @@ with 35–38 ms APS acknowledgements. A later group read returned delivery succe
 broadcast descriptor reads reached the router but relay quorum/CCA verdicts were
 intermittent. The user shortened the window to 15 minutes; it has completed. The user said no sleepy device
 can be stimulated now and authorized assuming that check; retain it as physically
-unverified. See [hardware findings and measurements](real-radio-migration.md).
+unverified. See [hardware findings and measurements](REAL_RADIO_MIGRATION.md).
 The inventory contains 17 Zigbee plus six non-Zigbee entries; count radio reports
 separately. Memory/RSS is stable, and high top `%MEM` reflects virtual allocation.
 

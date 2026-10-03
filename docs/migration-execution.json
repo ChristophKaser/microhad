@@ -65,8 +65,9 @@
   ],
   "artifact_hashes": {
     "native": {
-      "bytes": 1503796,
-      "sha256": "f562aa0e023c1785f06a8ddbb009240fd8e3e9cf13709ffbabdb9b84d106162e"
+      "bytes": 1503988,
+      "sha256": "d462e6ab87fea7402f70bede16a6f0087cc0851d3707d5c86d242a94fc01414b",
+      "md5": "cfea133ccc3f06d088facd95e5df783a"
     },
     "ziggurat": {
       "bytes": 3565488,
@@ -115,7 +116,7 @@
       1
     ]
   },
-  "native_commit": "8df6b971f41a2bee7149bbfcfab4eb89a6fe3845",
+  "native_commit": "04a7a363d216f6512613d88e9ac9e5f8c5d87bfb",
   "group_broadcast_followup": {
     "group_read_terminal_status": 0,
     "group_read_ms": 68.4,
@@ -156,9 +157,25 @@
     "real_trace_temperature_c": 21.82,
     "real_trace_humidity_percent": 83.53,
     "real_trace_battery_percent": 100,
-    "fresh_post_fix_humidity_read": "pending device wake",
-    "sustained_reporting": "not yet verified",
+    "fresh_post_fix_humidity_read": 81.11,
+    "sustained_reporting": "unresolved: four initial reports, none after later rejoin",
     "radio_flashed_again": false,
-    "actual_host_lifecycle_scenarios": 9
+    "actual_host_lifecycle_scenarios": 9,
+    "cached_endpoint_rejoin_configures_reporting": true,
+    "inflight_refresh_then_configuration": true,
+    "reporting_configuration_accepted": true,
+    "reporting_fix_commit": "d33899e",
+    "reporting_window_seconds": 900,
+    "reporting_window_samples": 32,
+    "reporting_window_offline_samples": 0,
+    "unsolicited_temperature_reports": 1,
+    "unsolicited_humidity_reports": 3,
+    "reporting_readback_responses": 0,
+    "action_alert_rest_accepted": true,
+    "action_alert_handset_delivery_verified": false,
+    "restored_child_long_lived": "unresolved: absent before wake, present after association",
+    "diagnostic_tools_tracked": true,
+    "diagnostic_tool_tests": 5,
+    "diagnostic_processes_remaining": false
   }
 }
