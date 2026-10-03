@@ -101,8 +101,9 @@ instructions. The bounded device simulation now exercises OpenThread startup,
 dataset generation, channel/state calls, and internal IPv6/UDP. This still does
 not independently prove every runtime helper or instruction path. Final
 disassembly has no `teq` or `rdhwr`; `ll/sc` and unaligned instructions remain.
-Peak RSS/CPU, long-running entropy behavior, and real radio load need further
-measurements before production deployment.
+The longer [resource profile](openthread-resource-profile.md) measures sampled
+RSS and CPU under synthetic load. Long-running entropy behavior, broader ABI
+coverage, and real radio load need further measurements before production deployment.
 
 ## Unix adapter
 
@@ -151,8 +152,8 @@ startup through actual Ziggurat and real-device acceptance remain untested.
    with a private forwarded radio endpoint. An embedded userspace Thread/Matter
    platform is another possible design, but requires its own networking port;
    it is not provided by this POSIX build.
-2. Extend the successful bounded target simulation to peak memory/CPU and ABI
-   coverage, without touching the production UART. Binary size is not RSS.
+2. Extend the documented synthetic CPU/RSS profile to real mesh load and broader
+   ABI coverage. Binary size is not RSS, and sampled RSS is not an absolute peak.
 3. Test the full OpenThread startup handshake against the multiplexer. Its
    shared policy currently rejects scans, promiscuous mode, disabling source
    matching, disabling the radio, and idle RX. OpenThread initialization and
@@ -248,7 +249,8 @@ Safeguards and observations:
   avoiding the pinned RAM cost of large `/tmp` uploads. Socket/settings were in
   a private `/tmp/ot-sim-*` directory. Logs stayed on the development host.
 - CLI virtual address space capped at 4 MiB; watchdog aborts above 2 MiB RSS,
-  below 1 MiB MemFree, or after 35 seconds. Relay has a 45-second alarm.
+  below 1 MiB MemFree, or after 35 watchdog samples. Relay has a 45-second alarm.
+  The later `--profile` mode extends these time bounds; see the resource report.
 - Final preflight MemFree: 3,624 KiB. One startup sample reported RSS 280 KiB
   and MemFree 2,280 KiB. This single sample is not peak memory measurement.
 - Production reported `online=true`, `network_formed=true`, backend `ziggurat`

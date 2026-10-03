@@ -15,7 +15,6 @@ import shlex
 import socket
 import struct
 import subprocess
-import tempfile
 import threading
 import time
 import urllib.request
@@ -61,6 +60,22 @@ class ThreadRcp(sim.Rcp):
             self.send(data[0], prop, struct.pack("<Q", time.monotonic_ns() // 1000))
         elif command == 2 and prop in props:
             self.send(data[0], prop, props[prop])
+        elif command == 3 and prop == 113:
+            # Explicitly synthetic TX completion: no peer exists to acknowledge unicast.
+            value = data[offset:]
+            length = struct.unpack_from('<H', value)[0]
+            if not 0 < length <= 127 or len(value) < length + 3:
+                raise ValueError('Invalid simulated radio frame')
+            self.counts['radio_tx_frames'] += 1
+            if value[2] & 0x20:
+                self.counts['radio_tx_no_ack'] += 1
+                self.send(data[0], 0, sim.packed(17) + b'\0\0')
+            else:
+                # Empty ACK with the SDK's required radio metadata and MAC-data struct.
+                ack = struct.pack('<HbbH', 0, 0, -128, 0)
+                ack += struct.pack('<HBBQ', 10, value[2 + length], 0, time.monotonic_ns() // 1000)
+                ack += struct.pack('<HB', 1, 0) + struct.pack('<HBI', 5, 0, 0)
+                self.send(data[0], 0, sim.packed(0) + b'\0\0' + ack)
         elif command == 3 and prop in props:
             props[prop] = data[offset:]
             self.send(data[0], prop, props[prop])
@@ -83,7 +98,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--host")
     parser.add_argument("--password-file", type=Path, default=ROOT.parent / "ssh_password.txt")
+    parser.add_argument('--profile', action='store_true', help='20s disabled idle, 60s loaded UDP/RCP calls, 20s enabled idle')
+    parser.add_argument('--profile-load-seconds', type=int, default=60)
     args = parser.parse_args()
+    if not 5 <= args.profile_load_seconds <= 120:
+        parser.error('--profile-load-seconds must be between 5 and 120')
+    limit_seconds = (args.profile_load_seconds + 75) if args.profile else 35
+    relay_seconds = limit_seconds + 10
+    phase = 'startup'
+    resource_samples = []
     device = args.host or "127.0.0.1"
     token = str(time.time_ns())
     ram = f"/tmp/ot-sim-{token}"
@@ -110,7 +133,7 @@ def main():
         report["checks"].append(label)
         print("PASS", label, flush=True)
 
-    def command(value, timeout=7):
+    def command(value, timeout=7, record=True):
         process.stdin.write(value + "\n")
         process.stdin.flush()
         result = []
@@ -130,7 +153,8 @@ def main():
                 raise RuntimeError(f"CLI rejected {value}: {line}")
             if line.strip().removeprefix('> ').strip() == 'Done':
                 break
-        report["commands"].append({"command": value, "response": result})
+        if record:
+            report["commands"].append({"command": value, "response": result})
         return "\n".join(result)
 
     try:
@@ -157,7 +181,7 @@ def main():
 exec 3<&0
 ulimit -c 0
 cd {ram} || exit 1
-{staged}/relay {ram}/radio.sock {radio.address} {radio.port} &
+{staged}/relay {ram}/radio.sock {radio.address} {radio.port} {relay_seconds} &
 relay_pid=$!
 child=0
 watchdog=0
@@ -183,8 +207,13 @@ child=$!
   count=$((count + 1))
   rss=$(awk '/^VmRSS:/ {{print $2}}' /proc/$child/status)
   free=$(awk '/^MemFree:/ {{print $2}}' /proc/meminfo)
-  echo "SAMPLE rss_kib=$rss free_kib=$free"
-  if [ "$count" -ge 35 ] || [ "${{rss:-0}}" -gt 2048 ] || [ "${{free:-0}}" -lt 1024 ]; then
+  ticks=$(awk '{{print $14 + $15}}' /proc/$child/stat)
+  uptime=$(awk '{{print $1}}' /proc/uptime)
+  threads=$(awk '/^Threads:/ {{print $2}}' /proc/$child/status)
+  relay_rss=$(awk '/^VmRSS:/ {{print $2}}' /proc/$relay_pid/status)
+  relay_ticks=$(awk '{{print $14 + $15}}' /proc/$relay_pid/stat)
+  echo "SAMPLE uptime_s=$uptime cpu_ticks=$ticks rss_kib=$rss free_kib=$free threads=$threads relay_rss_kib=$relay_rss relay_cpu_ticks=$relay_ticks"
+  if [ "$count" -ge {limit_seconds} ] || [ "${{rss:-0}}" -gt 2048 ] || [ "${{free:-0}}" -lt 1024 ]; then
    echo TEST_LIMIT_REACHED
    kill -9 "$child" 2>/dev/null
    exit 1
@@ -202,7 +231,7 @@ exit "$result"
                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         else:
             os.mkdir(ram, 0o700)
-            relay = subprocess.Popen([str(binary_dir / 'sim-relay-host'), ram+'/radio.sock', radio.address, str(radio.port)])
+            relay = subprocess.Popen([str(binary_dir / 'sim-relay-host'), ram+'/radio.sock', radio.address, str(radio.port), str(relay_seconds)])
             deadline = time.monotonic() + 3
             while not Path(ram+'/radio.sock').exists():
                 if relay.poll() is not None or time.monotonic() >= deadline:
@@ -213,9 +242,26 @@ exit "$result"
                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
 
         def collect():
+            pending = ''
             with log_path.open('w') as log:
                 for line in process.stdout:
                     line = line.rstrip()
+                    # The watchdog and CLI share stdout; a sample may land between
+                    # the CLI's response text and its terminating newline.
+                    sample = re.search(r'SAMPLE (?:\w+=[0-9.]+ ?){7}', line)
+                    if sample:
+                        fields = dict(re.findall(r'(\w+)=([0-9.]+)', sample.group()))
+                        resource_samples.append({**{key: float(value) for key, value in fields.items()}, 'phase': phase})
+                        lines.append(sample.group().strip())
+                        log.write(sample.group().strip()+'\n')
+                        prefix, suffix = line[:sample.start()], line[sample.end():]
+                        if not suffix:
+                            pending += prefix
+                            log.flush()
+                            continue
+                        line = prefix + suffix
+                    line = pending + line
+                    pending = ''
                     lines.append(line)
                     log.write(line+'\n')
                     log.flush()
@@ -231,6 +277,10 @@ exit "$result"
         command('channel 15')
         assert '15' in command('channel')
         check("CLI identity, state and channel read/write work")
+        if args.profile:
+            phase = 'disabled_idle'
+            check('Profiling 20 seconds of disabled idle')
+            time.sleep(20)
         command('dataset init new')
         command('dataset networkname OpenThreadSim')
         command('dataset commit active')
@@ -254,6 +304,45 @@ exit "$result"
             received += '\n'+line
         assert re.search(r'18 bytes from .* 12345 simulator-loopback', received), received
         check("Internal IPv6/UDP sends to own Thread address without Linux IPv6/TUN")
+        if args.profile:
+            phase = 'loaded'
+            load_started = time.monotonic()
+            cycles = 0
+            payload = 'x' * 256
+            latencies = []
+            while time.monotonic() - load_started < args.profile_load_seconds:
+                cycle_started = time.monotonic()
+                command('ccathreshold', record=False)
+                command('txpower', record=False)
+                output = command(f'udp send {address} 12345 {payload}', record=False)
+                receive_deadline = time.monotonic() + 3
+                while not re.search(r'256 bytes from .* 12345 ' + payload, output):
+                    remaining = receive_deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise TimeoutError('Profile UDP receive timed out')
+                    line = events.get(timeout=remaining)
+                    if line is None:
+                        raise RuntimeError('CLI ended during profile UDP receive')
+                    output += '\n' + line
+                cycles += 1
+                latencies.append((time.monotonic() - cycle_started) * 1000)
+                pause = 0.05 - (time.monotonic() - cycle_started)
+                if pause > 0:
+                    time.sleep(pause)
+            elapsed = time.monotonic() - load_started
+            report['profile_workload'] = {
+                'loaded_seconds': elapsed, 'completed_cycles': cycles,
+                'cycles_per_second': cycles / elapsed,
+                'udp_payload_bytes': 256, 'udp_payload_bytes_total': cycles * 256,
+                'radio_get_calls': cycles * 2,
+                'cycle_latency_ms': sim.timing_summary(latencies),
+                'description': 'up to 20 cycles/s: ccathreshold GET, txpower GET, 256-byte internal UDP send/receive',
+            }
+            check(f'Completed {cycles} UDP/radio-query cycles over {elapsed:.1f} seconds')
+            phase = 'enabled_idle'
+            check('Profiling 20 seconds of enabled idle')
+            time.sleep(20)
+        phase = 'shutdown'
         command('udp close')
         command('thread stop')
         command('ifconfig down')
@@ -295,7 +384,41 @@ exit "$result"
         report['requests'] = radio.requests
         report['simulator_counts'] = dict(radio.counts)
         report['simulator_error'] = radio.error
-        report['samples'] = [line for line in lines if line.startswith('SAMPLE ')]
+        report['samples'] = [line.removeprefix('> ') for line in lines if line.removeprefix('> ').startswith('SAMPLE ')]
+        report['resource_samples'] = resource_samples
+        metadata = next((line for line in lines if line.startswith('RELAY_META ')), '')
+        clock_match = re.search(r'clk_tck=(\d+)', metadata)
+        if clock_match and resource_samples:
+            hz = int(clock_match.group(1))
+            report['clock_ticks_per_second'] = hz
+            summaries = {}
+            for label in ('startup', 'disabled_idle', 'loaded', 'enabled_idle', 'shutdown'):
+                points = [point for point in resource_samples if point['phase'] == label]
+                if not points:
+                    continue
+                intervals = [(b['uptime_s'] - a['uptime_s'], b['cpu_ticks'] - a['cpu_ticks'],
+                              b['relay_cpu_ticks'] - a['relay_cpu_ticks']) for a, b in zip(points, points[1:])
+                             if b['uptime_s'] > a['uptime_s']]
+                elapsed = sum(item[0] for item in intervals)
+                summaries[label] = {
+                    'sample_count': len(points),
+                    'sampled_rss_min_kib': min(point['rss_kib'] for point in points),
+                    'sampled_rss_max_kib': max(point['rss_kib'] for point in points),
+                    'sampled_free_min_kib': min(point['free_kib'] for point in points),
+                    'max_threads': max(point['threads'] for point in points),
+                    'measured_interval_seconds': elapsed,
+                    'cpu_mean_percent_one_core': sum(item[1] for item in intervals) / hz / elapsed * 100 if elapsed else None,
+                    'cpu_peak_interval_percent_one_core': max(item[1] / hz / item[0] * 100 for item in intervals) if intervals else None,
+                    'relay_cpu_mean_percent_one_core': sum(item[2] for item in intervals) / hz / elapsed * 100 if elapsed else None,
+                    'relay_sampled_rss_max_kib': max(point['relay_rss_kib'] for point in points),
+                }
+            report['resource_summary'] = summaries
+            report['cpu_scope'] = 'OpenThread main PID utime+stime / remote uptime; Threads checked; relay separately measured; SSH/sampler/production excluded'
+        if args.profile and not report.get('error') and args.host:
+            if len(resource_samples) < 10 or not report.get('resource_summary', {}).get('loaded', {}).get('measured_interval_seconds'):
+                report['error'] = 'Insufficient resource samples for profile'
+            if any(point['threads'] != 1 for point in resource_samples):
+                report['error'] = 'Unexpected worker threads; main-PID CPU scope incomplete'
         radio.close()
         report_path = logs / f'openthread-device-{token}.json'
         report_path.write_text(json.dumps(report, indent=2)+'\n')

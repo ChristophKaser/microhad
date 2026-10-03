@@ -33,9 +33,9 @@ int main(int argc, char **argv)
     struct sockaddr_in remote;
     struct stat existing;
     char *end;
-    long port;
+    long port, lifetime = 45;
     int listener = -1, backend = -1, client = -1, result = 1;
-    if (argc != 4 || strncmp(argv[1], "/tmp/ot-sim-", 12) != 0) return 2;
+    if ((argc != 4 && argc != 5) || strncmp(argv[1], "/tmp/ot-sim-", 12) != 0) return 2;
     memset(&local, 0, sizeof(local));
     local.sun_family = AF_UNIX;
     if (strlen(argv[1]) >= sizeof(local.sun_path)) return 2;
@@ -47,7 +47,13 @@ int main(int argc, char **argv)
     port = strtol(argv[3], &end, 10);
     if (*end || port <= 0 || port > 65535) return 2;
     remote.sin_port = htons((unsigned short)port);
-    alarm(45);
+    if (argc == 5) {
+        lifetime = strtol(argv[4], &end, 10);
+        if (*end || lifetime < 10 || lifetime > 300) return 2;
+    }
+    alarm((unsigned int)lifetime);
+    printf("RELAY_META clk_tck=%ld\n", sysconf(_SC_CLK_TCK));
+    fflush(stdout);
     umask(077);
     backend = socket(AF_INET, SOCK_STREAM, 0);
     if (backend < 0 || connect(backend, (struct sockaddr *)&remote, sizeof(remote)) != 0) goto done;

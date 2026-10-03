@@ -1,0 +1,962 @@
+{
+  "target": "192.168.178.62",
+  "radio": "host simulation only",
+  "checks": [
+    "MIPS executable runs --help on factory Linux",
+    "OpenThread initializes against synthetic RCP through Unix adapter",
+    "CLI identity, state and channel read/write work",
+    "Profiling 20 seconds of disabled idle",
+    "Internal IPv6/UDP sends to own Thread address without Linux IPv6/TUN",
+    "Completed 1188 UDP/radio-query cycles over 60.0 seconds",
+    "Profiling 20 seconds of enabled idle",
+    "Clean exit with no radio reset commands",
+    "Temporary binaries/settings/socket removed; production dashboard responds"
+  ],
+  "production_before": {
+    "online": true,
+    "network_formed": true,
+    "coordinator_backend": "ziggurat"
+  },
+  "production_after": {
+    "online": true,
+    "network_formed": true,
+    "coordinator_backend": "ziggurat"
+  },
+  "memory_preflight_kib": 3220,
+  "profile_workload": {
+    "loaded_seconds": 60.03385015000822,
+    "completed_cycles": 1188,
+    "cycles_per_second": 19.78883574902346,
+    "udp_payload_bytes": 256,
+    "udp_payload_bytes_total": 304128,
+    "radio_get_calls": 2376,
+    "cycle_latency_ms": {
+      "count": 1188,
+      "min_ms": 19.004066998604685,
+      "mean_ms": 28.393269822509843,
+      "median_ms": 25.177219999022782,
+      "p95_ms": 48.28401100530755,
+      "p99_ms": 63.106145011261106,
+      "max_ms": 108.28676199889742
+    },
+    "description": "up to 20 cycles/s: ccathreshold GET, txpower GET, 256-byte internal UDP send/receive"
+  },
+  "exit_code": 0,
+  "cleanup_verified": true,
+  "simulator_counts": {
+    "command_2": 2386,
+    "iid_0_property_1": 1,
+    "iid_0_property_2": 1,
+    "iid_0_property_5": 1,
+    "iid_0_property_8": 1,
+    "iid_0_property_4619": 1,
+    "iid_0_property_34": 1,
+    "command_3": 29,
+    "iid_0_property_32": 1,
+    "iid_0_property_54": 2,
+    "iid_0_property_53": 3,
+    "iid_0_property_39": 1,
+    "iid_0_property_2048": 2,
+    "iid_0_property_52": 1,
+    "iid_0_property_4868": 1,
+    "iid_0_property_4869": 1,
+    "iid_0_property_41": 1,
+    "iid_0_property_33": 1,
+    "iid_0_property_55": 2,
+    "iid_0_property_2050": 2,
+    "iid_0_property_36": 1188,
+    "iid_0_property_37": 1188,
+    "iid_0_property_113": 15,
+    "radio_tx_frames": 15
+  },
+  "simulator_error": null,
+  "clock_ticks_per_second": 100,
+  "cpu_scope": "OpenThread main PID utime+stime / remote uptime; Threads checked; relay separately measured; SSH/sampler/production excluded",
+  "resource_summary": {
+    "disabled_idle": {
+      "sample_count": 18,
+      "sampled_rss_min_kib": 280.0,
+      "sampled_rss_max_kib": 660.0,
+      "sampled_free_min_kib": 1752.0,
+      "max_threads": 1.0,
+      "measured_interval_seconds": 19.600000000002183,
+      "cpu_mean_percent_one_core": 0.0,
+      "cpu_peak_interval_percent_one_core": 0.0,
+      "relay_cpu_mean_percent_one_core": 0.0,
+      "relay_sampled_rss_max_kib": 56.0
+    },
+    "loaded": {
+      "sample_count": 48,
+      "sampled_rss_min_kib": 740.0,
+      "sampled_rss_max_kib": 764.0,
+      "sampled_free_min_kib": 1752.0,
+      "max_threads": 1.0,
+      "measured_interval_seconds": 58.090000000000146,
+      "cpu_mean_percent_one_core": 11.01738681356513,
+      "cpu_peak_interval_percent_one_core": 14.634146341468607,
+      "relay_cpu_mean_percent_one_core": 3.597865381304863,
+      "relay_sampled_rss_max_kib": 56.0
+    },
+    "enabled_idle": {
+      "sample_count": 18,
+      "sampled_rss_min_kib": 764.0,
+      "sampled_rss_max_kib": 764.0,
+      "sampled_free_min_kib": 1752.0,
+      "max_threads": 1.0,
+      "measured_interval_seconds": 19.5,
+      "cpu_mean_percent_one_core": 0.05128205128205128,
+      "cpu_peak_interval_percent_one_core": 0.869565217390204,
+      "relay_cpu_mean_percent_one_core": 0.0,
+      "relay_sampled_rss_max_kib": 56.0
+    }
+  },
+  "resource_samples": [
+    {
+      "uptime_s": 29296.73,
+      "cpu_ticks": 3.0,
+      "rss_kib": 280.0,
+      "free_kib": 1796.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 5.0,
+      "phase": "disabled_idle"
+    },
+    {
+      "uptime_s": 29297.88,
+      "cpu_ticks": 3.0,
+      "rss_kib": 660.0,
+      "free_kib": 1764.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 5.0,
+      "phase": "disabled_idle"
+    },
+    {
+      "uptime_s": 29299.03,
+      "cpu_ticks": 3.0,
+      "rss_kib": 660.0,
+      "free_kib": 1764.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 5.0,
+      "phase": "disabled_idle"
+    },
+    {
+      "uptime_s": 29300.21,
+      "cpu_ticks": 3.0,
+      "rss_kib": 660.0,
+      "free_kib": 1760.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 5.0,
+      "phase": "disabled_idle"
+    },
+    {
+      "uptime_s": 29301.35,
+      "cpu_ticks": 3.0,
+      "rss_kib": 660.0,
+      "free_kib": 1768.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 5.0,
+      "phase": "disabled_idle"
+    },
+    {
+      "uptime_s": 29302.49,
+      "cpu_ticks": 3.0,
+      "rss_kib": 660.0,
+      "free_kib": 1760.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 5.0,
+      "phase": "disabled_idle"
+    },
+    {
+      "uptime_s": 29303.63,
+      "cpu_ticks": 3.0,
+      "rss_kib": 660.0,
+      "free_kib": 1764.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 5.0,
+      "phase": "disabled_idle"
+    },
+    {
+      "uptime_s": 29304.77,
+      "cpu_ticks": 3.0,
+      "rss_kib": 660.0,
+      "free_kib": 1760.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 5.0,
+      "phase": "disabled_idle"
+    },
+    {
+      "uptime_s": 29305.91,
+      "cpu_ticks": 3.0,
+      "rss_kib": 660.0,
+      "free_kib": 1764.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 5.0,
+      "phase": "disabled_idle"
+    },
+    {
+      "uptime_s": 29307.09,
+      "cpu_ticks": 3.0,
+      "rss_kib": 660.0,
+      "free_kib": 1764.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 5.0,
+      "phase": "disabled_idle"
+    },
+    {
+      "uptime_s": 29308.3,
+      "cpu_ticks": 3.0,
+      "rss_kib": 660.0,
+      "free_kib": 1764.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 5.0,
+      "phase": "disabled_idle"
+    },
+    {
+      "uptime_s": 29309.44,
+      "cpu_ticks": 3.0,
+      "rss_kib": 660.0,
+      "free_kib": 1768.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 5.0,
+      "phase": "disabled_idle"
+    },
+    {
+      "uptime_s": 29310.58,
+      "cpu_ticks": 3.0,
+      "rss_kib": 660.0,
+      "free_kib": 1764.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 5.0,
+      "phase": "disabled_idle"
+    },
+    {
+      "uptime_s": 29311.72,
+      "cpu_ticks": 3.0,
+      "rss_kib": 660.0,
+      "free_kib": 1764.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 5.0,
+      "phase": "disabled_idle"
+    },
+    {
+      "uptime_s": 29312.86,
+      "cpu_ticks": 3.0,
+      "rss_kib": 660.0,
+      "free_kib": 1768.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 5.0,
+      "phase": "disabled_idle"
+    },
+    {
+      "uptime_s": 29314.0,
+      "cpu_ticks": 3.0,
+      "rss_kib": 660.0,
+      "free_kib": 1752.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 5.0,
+      "phase": "disabled_idle"
+    },
+    {
+      "uptime_s": 29315.18,
+      "cpu_ticks": 3.0,
+      "rss_kib": 660.0,
+      "free_kib": 1764.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 5.0,
+      "phase": "disabled_idle"
+    },
+    {
+      "uptime_s": 29316.33,
+      "cpu_ticks": 3.0,
+      "rss_kib": 660.0,
+      "free_kib": 1760.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 5.0,
+      "phase": "disabled_idle"
+    },
+    {
+      "uptime_s": 29317.5,
+      "cpu_ticks": 10.0,
+      "rss_kib": 740.0,
+      "free_kib": 1764.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 7.0,
+      "phase": "loaded"
+    },
+    {
+      "uptime_s": 29318.7,
+      "cpu_ticks": 24.0,
+      "rss_kib": 740.0,
+      "free_kib": 1764.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 9.0,
+      "phase": "loaded"
+    },
+    {
+      "uptime_s": 29319.9,
+      "cpu_ticks": 38.0,
+      "rss_kib": 740.0,
+      "free_kib": 1764.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 14.0,
+      "phase": "loaded"
+    },
+    {
+      "uptime_s": 29321.15,
+      "cpu_ticks": 48.0,
+      "rss_kib": 740.0,
+      "free_kib": 1760.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 19.0,
+      "phase": "loaded"
+    },
+    {
+      "uptime_s": 29322.39,
+      "cpu_ticks": 61.0,
+      "rss_kib": 740.0,
+      "free_kib": 1764.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 26.0,
+      "phase": "loaded"
+    },
+    {
+      "uptime_s": 29323.64,
+      "cpu_ticks": 69.0,
+      "rss_kib": 740.0,
+      "free_kib": 1756.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 28.0,
+      "phase": "loaded"
+    },
+    {
+      "uptime_s": 29324.85,
+      "cpu_ticks": 79.0,
+      "rss_kib": 764.0,
+      "free_kib": 1756.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 34.0,
+      "phase": "loaded"
+    },
+    {
+      "uptime_s": 29326.04,
+      "cpu_ticks": 86.0,
+      "rss_kib": 764.0,
+      "free_kib": 1760.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 38.0,
+      "phase": "loaded"
+    },
+    {
+      "uptime_s": 29327.25,
+      "cpu_ticks": 102.0,
+      "rss_kib": 764.0,
+      "free_kib": 1760.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 44.0,
+      "phase": "loaded"
+    },
+    {
+      "uptime_s": 29328.51,
+      "cpu_ticks": 116.0,
+      "rss_kib": 764.0,
+      "free_kib": 1756.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 49.0,
+      "phase": "loaded"
+    },
+    {
+      "uptime_s": 29329.74,
+      "cpu_ticks": 130.0,
+      "rss_kib": 764.0,
+      "free_kib": 1764.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 54.0,
+      "phase": "loaded"
+    },
+    {
+      "uptime_s": 29330.94,
+      "cpu_ticks": 145.0,
+      "rss_kib": 764.0,
+      "free_kib": 1760.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 56.0,
+      "phase": "loaded"
+    },
+    {
+      "uptime_s": 29332.15,
+      "cpu_ticks": 161.0,
+      "rss_kib": 764.0,
+      "free_kib": 1760.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 65.0,
+      "phase": "loaded"
+    },
+    {
+      "uptime_s": 29333.42,
+      "cpu_ticks": 177.0,
+      "rss_kib": 764.0,
+      "free_kib": 1760.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 69.0,
+      "phase": "loaded"
+    },
+    {
+      "uptime_s": 29334.62,
+      "cpu_ticks": 193.0,
+      "rss_kib": 764.0,
+      "free_kib": 1760.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 74.0,
+      "phase": "loaded"
+    },
+    {
+      "uptime_s": 29335.88,
+      "cpu_ticks": 207.0,
+      "rss_kib": 764.0,
+      "free_kib": 1760.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 77.0,
+      "phase": "loaded"
+    },
+    {
+      "uptime_s": 29337.19,
+      "cpu_ticks": 222.0,
+      "rss_kib": 764.0,
+      "free_kib": 1764.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 83.0,
+      "phase": "loaded"
+    },
+    {
+      "uptime_s": 29338.51,
+      "cpu_ticks": 236.0,
+      "rss_kib": 764.0,
+      "free_kib": 1764.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 87.0,
+      "phase": "loaded"
+    },
+    {
+      "uptime_s": 29339.73,
+      "cpu_ticks": 250.0,
+      "rss_kib": 764.0,
+      "free_kib": 1756.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 92.0,
+      "phase": "loaded"
+    },
+    {
+      "uptime_s": 29340.99,
+      "cpu_ticks": 262.0,
+      "rss_kib": 764.0,
+      "free_kib": 1760.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 95.0,
+      "phase": "loaded"
+    },
+    {
+      "uptime_s": 29342.19,
+      "cpu_ticks": 275.0,
+      "rss_kib": 764.0,
+      "free_kib": 1756.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 98.0,
+      "phase": "loaded"
+    },
+    {
+      "uptime_s": 29343.45,
+      "cpu_ticks": 284.0,
+      "rss_kib": 764.0,
+      "free_kib": 1756.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 106.0,
+      "phase": "loaded"
+    },
+    {
+      "uptime_s": 29344.7,
+      "cpu_ticks": 298.0,
+      "rss_kib": 764.0,
+      "free_kib": 1756.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 112.0,
+      "phase": "loaded"
+    },
+    {
+      "uptime_s": 29345.9,
+      "cpu_ticks": 309.0,
+      "rss_kib": 764.0,
+      "free_kib": 1756.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 115.0,
+      "phase": "loaded"
+    },
+    {
+      "uptime_s": 29347.15,
+      "cpu_ticks": 327.0,
+      "rss_kib": 764.0,
+      "free_kib": 1756.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 117.0,
+      "phase": "loaded"
+    },
+    {
+      "uptime_s": 29348.34,
+      "cpu_ticks": 337.0,
+      "rss_kib": 764.0,
+      "free_kib": 1756.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 124.0,
+      "phase": "loaded"
+    },
+    {
+      "uptime_s": 29349.52,
+      "cpu_ticks": 351.0,
+      "rss_kib": 764.0,
+      "free_kib": 1764.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 130.0,
+      "phase": "loaded"
+    },
+    {
+      "uptime_s": 29350.75,
+      "cpu_ticks": 367.0,
+      "rss_kib": 764.0,
+      "free_kib": 1756.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 132.0,
+      "phase": "loaded"
+    },
+    {
+      "uptime_s": 29351.97,
+      "cpu_ticks": 382.0,
+      "rss_kib": 764.0,
+      "free_kib": 1752.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 135.0,
+      "phase": "loaded"
+    },
+    {
+      "uptime_s": 29353.2,
+      "cpu_ticks": 396.0,
+      "rss_kib": 764.0,
+      "free_kib": 1760.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 143.0,
+      "phase": "loaded"
+    },
+    {
+      "uptime_s": 29354.41,
+      "cpu_ticks": 408.0,
+      "rss_kib": 764.0,
+      "free_kib": 1756.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 148.0,
+      "phase": "loaded"
+    },
+    {
+      "uptime_s": 29355.64,
+      "cpu_ticks": 421.0,
+      "rss_kib": 764.0,
+      "free_kib": 1756.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 152.0,
+      "phase": "loaded"
+    },
+    {
+      "uptime_s": 29356.87,
+      "cpu_ticks": 435.0,
+      "rss_kib": 764.0,
+      "free_kib": 1756.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 155.0,
+      "phase": "loaded"
+    },
+    {
+      "uptime_s": 29358.09,
+      "cpu_ticks": 449.0,
+      "rss_kib": 764.0,
+      "free_kib": 1760.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 157.0,
+      "phase": "loaded"
+    },
+    {
+      "uptime_s": 29359.33,
+      "cpu_ticks": 465.0,
+      "rss_kib": 764.0,
+      "free_kib": 1764.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 162.0,
+      "phase": "loaded"
+    },
+    {
+      "uptime_s": 29360.61,
+      "cpu_ticks": 480.0,
+      "rss_kib": 764.0,
+      "free_kib": 1760.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 162.0,
+      "phase": "loaded"
+    },
+    {
+      "uptime_s": 29361.82,
+      "cpu_ticks": 493.0,
+      "rss_kib": 764.0,
+      "free_kib": 1760.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 172.0,
+      "phase": "loaded"
+    },
+    {
+      "uptime_s": 29363.03,
+      "cpu_ticks": 506.0,
+      "rss_kib": 764.0,
+      "free_kib": 1760.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 174.0,
+      "phase": "loaded"
+    },
+    {
+      "uptime_s": 29364.24,
+      "cpu_ticks": 517.0,
+      "rss_kib": 764.0,
+      "free_kib": 1756.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 179.0,
+      "phase": "loaded"
+    },
+    {
+      "uptime_s": 29365.52,
+      "cpu_ticks": 533.0,
+      "rss_kib": 764.0,
+      "free_kib": 1760.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 182.0,
+      "phase": "loaded"
+    },
+    {
+      "uptime_s": 29366.83,
+      "cpu_ticks": 544.0,
+      "rss_kib": 764.0,
+      "free_kib": 1760.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 189.0,
+      "phase": "loaded"
+    },
+    {
+      "uptime_s": 29368.11,
+      "cpu_ticks": 559.0,
+      "rss_kib": 764.0,
+      "free_kib": 1760.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 194.0,
+      "phase": "loaded"
+    },
+    {
+      "uptime_s": 29369.34,
+      "cpu_ticks": 574.0,
+      "rss_kib": 764.0,
+      "free_kib": 1764.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 198.0,
+      "phase": "loaded"
+    },
+    {
+      "uptime_s": 29370.56,
+      "cpu_ticks": 588.0,
+      "rss_kib": 764.0,
+      "free_kib": 1756.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 202.0,
+      "phase": "loaded"
+    },
+    {
+      "uptime_s": 29371.85,
+      "cpu_ticks": 606.0,
+      "rss_kib": 764.0,
+      "free_kib": 1760.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 206.0,
+      "phase": "loaded"
+    },
+    {
+      "uptime_s": 29373.07,
+      "cpu_ticks": 618.0,
+      "rss_kib": 764.0,
+      "free_kib": 1760.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 210.0,
+      "phase": "loaded"
+    },
+    {
+      "uptime_s": 29374.3,
+      "cpu_ticks": 636.0,
+      "rss_kib": 764.0,
+      "free_kib": 1764.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 214.0,
+      "phase": "loaded"
+    },
+    {
+      "uptime_s": 29375.59,
+      "cpu_ticks": 650.0,
+      "rss_kib": 764.0,
+      "free_kib": 1756.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 216.0,
+      "phase": "loaded"
+    },
+    {
+      "uptime_s": 29376.82,
+      "cpu_ticks": 668.0,
+      "rss_kib": 764.0,
+      "free_kib": 1756.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 220.0,
+      "phase": "enabled_idle"
+    },
+    {
+      "uptime_s": 29377.97,
+      "cpu_ticks": 669.0,
+      "rss_kib": 764.0,
+      "free_kib": 1752.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 220.0,
+      "phase": "enabled_idle"
+    },
+    {
+      "uptime_s": 29379.11,
+      "cpu_ticks": 669.0,
+      "rss_kib": 764.0,
+      "free_kib": 1764.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 220.0,
+      "phase": "enabled_idle"
+    },
+    {
+      "uptime_s": 29380.25,
+      "cpu_ticks": 669.0,
+      "rss_kib": 764.0,
+      "free_kib": 1764.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 220.0,
+      "phase": "enabled_idle"
+    },
+    {
+      "uptime_s": 29381.39,
+      "cpu_ticks": 669.0,
+      "rss_kib": 764.0,
+      "free_kib": 1756.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 220.0,
+      "phase": "enabled_idle"
+    },
+    {
+      "uptime_s": 29382.53,
+      "cpu_ticks": 669.0,
+      "rss_kib": 764.0,
+      "free_kib": 1760.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 220.0,
+      "phase": "enabled_idle"
+    },
+    {
+      "uptime_s": 29383.72,
+      "cpu_ticks": 669.0,
+      "rss_kib": 764.0,
+      "free_kib": 1760.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 220.0,
+      "phase": "enabled_idle"
+    },
+    {
+      "uptime_s": 29384.86,
+      "cpu_ticks": 669.0,
+      "rss_kib": 764.0,
+      "free_kib": 1760.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 220.0,
+      "phase": "enabled_idle"
+    },
+    {
+      "uptime_s": 29386.01,
+      "cpu_ticks": 669.0,
+      "rss_kib": 764.0,
+      "free_kib": 1760.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 220.0,
+      "phase": "enabled_idle"
+    },
+    {
+      "uptime_s": 29387.15,
+      "cpu_ticks": 669.0,
+      "rss_kib": 764.0,
+      "free_kib": 1756.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 220.0,
+      "phase": "enabled_idle"
+    },
+    {
+      "uptime_s": 29388.29,
+      "cpu_ticks": 669.0,
+      "rss_kib": 764.0,
+      "free_kib": 1756.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 220.0,
+      "phase": "enabled_idle"
+    },
+    {
+      "uptime_s": 29389.43,
+      "cpu_ticks": 669.0,
+      "rss_kib": 764.0,
+      "free_kib": 1756.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 220.0,
+      "phase": "enabled_idle"
+    },
+    {
+      "uptime_s": 29390.57,
+      "cpu_ticks": 669.0,
+      "rss_kib": 764.0,
+      "free_kib": 1764.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 220.0,
+      "phase": "enabled_idle"
+    },
+    {
+      "uptime_s": 29391.75,
+      "cpu_ticks": 669.0,
+      "rss_kib": 764.0,
+      "free_kib": 1760.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 220.0,
+      "phase": "enabled_idle"
+    },
+    {
+      "uptime_s": 29392.89,
+      "cpu_ticks": 669.0,
+      "rss_kib": 764.0,
+      "free_kib": 1764.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 220.0,
+      "phase": "enabled_idle"
+    },
+    {
+      "uptime_s": 29394.03,
+      "cpu_ticks": 669.0,
+      "rss_kib": 764.0,
+      "free_kib": 1760.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 220.0,
+      "phase": "enabled_idle"
+    },
+    {
+      "uptime_s": 29395.18,
+      "cpu_ticks": 669.0,
+      "rss_kib": 764.0,
+      "free_kib": 1760.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 220.0,
+      "phase": "enabled_idle"
+    },
+    {
+      "uptime_s": 29396.32,
+      "cpu_ticks": 669.0,
+      "rss_kib": 764.0,
+      "free_kib": 1752.0,
+      "threads": 1.0,
+      "relay_rss_kib": 56.0,
+      "relay_cpu_ticks": 220.0,
+      "phase": "enabled_idle"
+    }
+  ],
+  "observed_at_utc": "2026-10-03T17:19:51.681340+00:00",
+  "source_report": "logs/openthread-device-1791047991681340297.json",
+  "source_log": "logs/openthread-device-1791047991681340297.log",
+  "binary_sha256": {
+    "ot-cli-mips": "27a55270564874449e0bff93a4c941da01deded960c94e32139fde68e22ae08f",
+    "sim-relay-mips": "75323c9a15d39aa94dec6c48621b997d38f6538e8c9d900a0640c04e6664b96e"
+  }
+}
