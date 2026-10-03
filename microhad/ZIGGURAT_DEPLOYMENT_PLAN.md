@@ -22,9 +22,9 @@ installed on the gateway during step 1.
 network export are saved and validated. Production stayed online; its binary and
 processes were not replaced/restarted. Joining was already closed.
 
-**Execution checkpoint:** steps 1–9 completed.
+**Execution checkpoint:** steps 1–10 completed.
 
-**Next action:** step 10; reread its procedure before execution.
+**Next action:** step 11; reread its procedure before execution.
 
 The objective of this deployment is existing-network Zigbee operation through
 native → COBS Unix socket → Ziggurat → HDLC RCP. Thread and Matter follow later;
@@ -436,10 +436,24 @@ If no frames were sent, prove that before considering the pre-cutover backup.
 
 ## 10. Validate the existing network during a reversible observation window
 
-**In progress 2026-10-03:** real native light toggle/readback/restore passed
+**Completed 2026-10-03 with explicit limits:** user shortened the window
+to 15 minutes; actual observation was 1215 seconds / 113 online snapshots with
+zero offline/error samples. Six Zigbee devices (lights and temperature/humidity)
+reported; six non-Zigbee inventory entries are excluded from that count. Real
+native light toggle, APS-acknowledged readback and restore passed. Group delivery
+returned success after settling; broadcasts obtained actual descriptor responses
+but relay quorum/CCA verdicts remained intermittent. Retain this limitation.
+User waived sleepy-child stimulation: physically unverified, not a claimed pass.
+Summed top CPU was native 0–13%, Ziggurat 0–1%; RSS about 3600/2012 KiB and memory
+stable. Security checkpoint state changes approximately once/minute. Native
+SIGTERM completed, complete frozen snapshot and offline rollback preparation
+passed, and manual native restart returned online with 23 inventory entries.
+
+
+**Observation details 2026-10-03:** real native light toggle/readback/restore passed
 with 35–38 ms APS acknowledgements. A later group read returned delivery success;
 broadcast descriptor reads reached the router but relay quorum/CCA verdicts were
-intermittent. Thirty-minute observation continues. The user said no sleepy device
+intermittent. The user shortened the window to 15 minutes; it has completed. The user said no sleepy device
 can be stimulated now and authorized assuming that check; retain it as physically
 unverified. See [hardware findings and measurements](REAL_RADIO_MIGRATION.md).
 The inventory contains 17 Zigbee plus six non-Zigbee entries; count radio reports
@@ -452,8 +466,9 @@ APS success rather than HTTP admission alone. Check group/broadcast behavior,
 existing routers, temperature/humidity/contact reports and a naturally waking
 sleepy child. Preserve existing pairings; do not re-pair to hide failures.
 
-Observe for at least 30 minutes of active traffic and until representative sleepy
-devices have reported (extend the window for their actual reporting periods).
+Observe for at least 15 minutes of active traffic (user reduced the window on
+2026-10-03). The user waived physical sleepy-child verification for this cutover;
+retain it as unverified rather than extending the window until a remote is pressed.
 Measure `top` summed LinuxThreads CPU, RSS, MemFree, control latency, UART errors,
 state-write rate and reconnect behavior. Use current EZSP observations as the
 baseline; synthetic 5.27 ms query timing is not a required radio latency target.

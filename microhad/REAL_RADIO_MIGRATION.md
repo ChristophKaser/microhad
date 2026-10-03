@@ -4,7 +4,7 @@
 
 Steps 1–9 are complete. The original network runs through the staged native
 Ziggurat backend, a private COBS Unix stream socket, and real IID 1 HDLC RCP.
-The original EZSP launcher remains suspended. Step 10's 30-minute observation
+The original EZSP launcher remains suspended. Step 10's user-approved 15-minute observation
 and graceful-recovery check are in progress; permanent startup and reboot are
 not yet complete. Follow [the deployment plan](ZIGGURAT_DEPLOYMENT_PLAN.md) for
 current status and rollback instructions.
