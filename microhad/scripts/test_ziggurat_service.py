@@ -1,0 +1,119 @@
+#!/usr/bin/env python3
+"""Native service + actual Ziggurat + loopback RCP; synthetic state only."""
+import argparse
+import importlib.util
+import json
+import os
+from pathlib import Path
+import socket
+import struct
+import subprocess
+import tempfile
+import time
+import urllib.request
+
+from test_network_migration import fixture
+from ziggurat_migration import prepared_state, native_state
+from ziggurat_cobs import Client, encode
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def wait_for(check, timeout=12):
+    end=time.monotonic()+timeout
+    while time.monotonic()<end:
+        try:
+            value=check()
+            if value: return value
+        except (OSError, ValueError): pass
+        time.sleep(0.025)
+    raise TimeoutError("host integration condition")
+
+
+def free_port():
+    with socket.socket() as stream:
+        stream.bind(("127.0.0.1",0)); return stream.getsockname()[1]
+
+
+def main():
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--experiment",type=Path,default=ROOT.parent/"ziggurat-compilation")
+    args=parser.parse_args()
+    spec=importlib.util.spec_from_file_location("sim",args.experiment/"scripts/simulate-rcp.py")
+    sim=importlib.util.module_from_spec(spec);spec.loader.exec_module(sim)
+    radio=sim.Rcp("127.0.0.1",iid=1)
+    native=ROOT/"build/host-ziggurat/microhad-zigbee-native"
+    server=args.experiment/"build/host/debug/ziggurat"
+    process=service=observer=None
+    report={"synthetic_state_only":True,"physical_radio_accessed":False,"service_deployed":False,"results":[]}
+    def passed(text):report["results"].append(text);print("PASS",text,flush=True)
+    try:
+        with tempfile.TemporaryDirectory(prefix="native-ziggurat-") as tmp, tempfile.TemporaryFile() as log:
+            directory=Path(tmp);path=directory/"api.sock";state_path=directory/"ziggurat-state.json"
+            state=native_state(prepared_state(fixture()))
+            state_path.write_text(json.dumps(state));state_path.chmod(0o600)
+            config_path=directory/"config.json";port=free_port()
+            config_path.write_text(json.dumps({"serial_device":"/dev/forbidden-physical-radio", "runtime_dir":tmp,
+                "ziggurat_socket":str(path),"http_port":port,"https_port":free_port()}));config_path.chmod(0o600)
+            process=subprocess.Popen([str(server),"--device",f"tcp://127.0.0.1:{radio.port}","--spinel-iid","1",
+                "--api","cobs-unix","--listen",f"unix:{path}","--log-level","error"],stdout=log,stderr=log)
+            wait_for(lambda:path.exists());assert path.stat().st_mode&0o777==0o600
+            def launch():return subprocess.Popen([str(native),"--config",str(config_path)],stdout=log,stderr=log)
+            def status():
+                with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/status",timeout=1) as response:return json.load(response)
+            service=launch()
+            try:
+                current=wait_for(lambda: (s if (s:=status())["online"] else None))
+            except Exception:
+                log.seek(0);print(log.read().decode(errors="replace")[-5000:]);raise
+            assert current["network_formed"] and current["coordinator_backend"]=="ziggurat"
+            saved=json.loads(state_path.read_text());network=bytes.fromhex(saved["network"])
+            assert int.from_bytes(network[39:43],"little")>=int.from_bytes(bytes.fromhex(state["network"])[39:43],"little")+1000
+            assert int.from_bytes(network[78:82],"little")>=int.from_bytes(bytes.fromhex(state["network"])[78:82],"little")+1000
+            passed("Native COBS startup restores synthetic identity, keys and both counters")
+            with urllib.request.urlopen(urllib.request.Request(f"http://127.0.0.1:{port}/api/join",data=b"",method="POST"),timeout=2) as response:
+                assert json.load(response)["ok"]
+            passed("Native HTTP permit-join maps to Ziggurat")
+            observer=Client.connect(path);info=observer.request(0x20);assert info[84]==1
+            before=json.loads(state_path.read_text())
+            service.terminate();service.wait(timeout=10);service=None
+            info=observer.request(0x20);assert info[84]==0
+            saved=json.loads(state_path.read_text());assert bytes.fromhex(saved["network"])==info[:82]
+            passed("Orderly native stop freezes and persists actual Ziggurat state")
+            old=bytes.fromhex(saved["network"])
+            service=launch();wait_for(lambda:status()["online"])
+            info=observer.request(0x20);assert info[84]==1
+            assert int.from_bytes(info[39:43],"little")>=int.from_bytes(old[39:43],"little")+1000
+            assert int.from_bytes(info[78:82],"little")>=int.from_bytes(old[78:82],"little")+1000
+            passed("Service restart reloads frozen stack with advanced NWK/APS counters")
+            # A crash leaves the stack running: reconnect must not configure/start it again.
+            service.kill();service.wait(timeout=3);service=None
+            info=observer.request(0x20);old=info[:82];resets=radio.counts["resets"]
+            service=launch();wait_for(lambda:status()["online"])
+            info=observer.request(0x20);assert info[:82]==old and radio.counts["resets"]==resets
+            passed("Native crash/reconnect attaches to the running stack without reset")
+            observer.close();observer=None
+            service.kill();service.wait(timeout=3);service=None
+            process.terminate();process.wait(timeout=5);process=None
+            path.unlink(missing_ok=True)
+            radio.close();radio=sim.Rcp("127.0.0.1",iid=1)
+            process=subprocess.Popen([str(server),"--device",f"tcp://127.0.0.1:{radio.port}","--spinel-iid","1",
+                "--api","cobs-unix","--listen",f"unix:{path}","--log-level","error"],stdout=log,stderr=log)
+            wait_for(lambda:path.exists());service=launch();wait_for(lambda:status()["online"])
+            passed("Ziggurat process restart recovers network from native durable state")
+            report["simulated_radio_transmissions"]=radio.counts["tx_frames"]
+    finally:
+        if observer:observer.close()
+        if service:
+            service.terminate()
+            try:service.wait(timeout=10)
+            except subprocess.TimeoutExpired:service.kill();service.wait()
+        if process:
+            process.terminate()
+            try:process.wait(timeout=5)
+            except subprocess.TimeoutExpired:process.kill();process.wait()
+        radio.close()
+    if radio.error:raise RuntimeError("host radio simulator failed")
+    print(json.dumps(report,indent=2))
+
+if __name__=="__main__":main()

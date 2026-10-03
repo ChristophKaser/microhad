@@ -1,4 +1,7 @@
 #include "gateway.h"
+#if MICROHAD_ZIGGURAT_ENABLED
+#include "ziggurat_client.h"
+#endif
 #include "external_http_device.h"
 #include "json_util.h"
 #include "notification_worker.h"
@@ -332,6 +335,9 @@ Gateway::Gateway(const std::string& serialDevice, int serialBaud, const std::str
     ashAckDeadline_(0), ashRetries_(0), ashPendingSensitive_(false), networkBackupQuery_(0, std::vector<unsigned char>()), networkBackupSequence_(0), networkBackupDeadline_(0), networkBackupStarted_(0), ezspVersion_(4), zdoSequence_(0), zclTransactionSequence_(0), ezspVersionNegotiated_(false), stackTokenWritingRequested_(false), networkInitRequested_(false), tradfriBindGroupConfigured_(false), coordinatorInitializationStep_(0), coordinatorInitializationDeadline_(0), resetDeadline_(0), serialReconnectFailures_(0), zigbeeDownAlertQueued_(false), nextHeartbeatAt_(0), serialRxBytes_(0), ashRxFrames_(0), networkForming_(false), networkFormationStep_(0), networkFormationDeadline_(0), networkFormed_(false), networkPanId_(0),
     networkChannel_(0), interviewRequestInFlight_(false), interviewSendAccepted_(false), interviewEzspSequence_(0), interviewNode_(0xffff),
     interviewDeadline_(0), nextMessageTag_(1), coordinatorIeeeAddressRequested_(false), logRing_(LogRing::defaultPath()), logBytes_(0), viewDirty_(true) {
+#if MICROHAD_ZIGGURAT_ENABLED
+    ziggurat_ = 0;
+#endif
     lastSecurityDiagnosticsAt_ = 0;
     unsupportedSecurityValues_ = 0;
     lastNetworkKeySequence_ = -1;
@@ -339,7 +345,16 @@ Gateway::Gateway(const std::string& serialDevice, int serialBaud, const std::str
 
 Gateway::~Gateway() {
     stop();
+#if MICROHAD_ZIGGURAT_ENABLED
+    delete ziggurat_;
+#endif
 }
+#if MICROHAD_ZIGGURAT_ENABLED
+void Gateway::useZiggurat(const std::string& socketPath) {
+    if (serialFd_ >= 0 || ziggurat_ != 0) return;
+    ziggurat_ = new ZigguratClient(); zigguratSocket_ = socketPath;
+}
+#endif
 
 void Gateway::setShellyTransport(ExternalHttpDeviceWorker* transport) { shellyTransport_ = transport; }
 
@@ -595,6 +610,13 @@ bool Gateway::start(std::string* error) {
         build << "Build: " << __DATE__ << " " << __TIME__ << " revision=" << MICROHAD_BUILD_REVISION;
         addLog(build.str());
     }
+#if MICROHAD_ZIGGURAT_ENABLED
+    if (ziggurat_ != 0) {
+        bool started = ziggurat_->start(zigguratSocket_, runtimeDirectory_ + "/ziggurat-state.json", error);
+        addLog(started ? "Gateway starting with Ziggurat COBS Unix socket" : "Ziggurat startup failed: " + *error);
+        return started;
+    }
+#endif
     /* Tests may inject a pipe descriptor before the coordinator thread starts.
        Production always reaches this branch with serialFd_ == -1. */
     if (serialFd_ < 0 && !configureSerial(error)) {
@@ -607,6 +629,9 @@ bool Gateway::start(std::string* error) {
 }
 
 void Gateway::stop() {
+#if MICROHAD_ZIGGURAT_ENABLED
+    if (ziggurat_ != 0) ziggurat_->stop();
+#endif
     networkBackup_.abort(); networkBackupDeadline_ = 0;
     if (serialFd_ >= 0) {
         close(serialFd_);
@@ -616,7 +641,101 @@ void Gateway::stop() {
     online_ = false;
 }
 
+#if MICROHAD_ZIGGURAT_ENABLED
+void Gateway::zigguratSendResult(unsigned char sequence, bool unicast, unsigned char status) {
+    for (std::map<unsigned short, SceneRetry>::iterator it=sceneRetries_.begin(); it!=sceneRetries_.end(); ++it) {
+        SceneRetry& retry=it->second;
+        if (!retry.inFlight || retry.ezspSequence!=sequence || retry.unicast!=unicast) continue;
+        bool stale=retry.sentOff!=retry.off || (!retry.off && retry.sentSceneId!=retry.sceneId);
+        retry.inFlight=false;
+        if (stale) { retry.unicast=false; retry.memberIndex=0; retry.retryRequested=false; retry.retryAt=time(0); }
+        else if (!status && unicast) { ++retry.memberIndex; retry.attempts=0; retry.retryRequested=false; retry.retryAt=time(0); }
+        else if (!status) { completeSceneRetry(it->first,&retry); retry.retryRequested=false; retry.retryAt=LONG_MAX; }
+        else { retry.retryRequested=false; scheduleSceneRetry(&retry,time(0)); addLog("Ziggurat scene delivery failed; bounded retry scheduled"); }
+        return;
+    }
+    if (unicast && status && interviewRequestInFlight_ && sequence==interviewEzspSequence_)
+        failInterviewOperation(interviewNode_,"Ziggurat send failed");
+}
+
+void Gateway::pollZiggurat() {
+    ziggurat_->poll();
+    ZigguratClient::Event event(ZigguratClient::Event::Diagnostic);
+    while (ziggurat_->pop(&event)) {
+        if (event.type==ZigguratClient::Event::Down) {
+            online_=false; networkFormed_=false; zigguratSends_.clear();
+            interviewRequestInFlight_=false; interviewDeadline_=0;
+            for (std::map<unsigned short, SceneRetry>::iterator i=sceneRetries_.begin();i!=sceneRetries_.end();++i)
+                if (i->second.inFlight) { i->second.inFlight=false; i->second.retryAt=LONG_MAX; }
+            addLog(event.message); markViewDirty(); continue;
+        }
+        if (event.type==ZigguratClient::Event::Ready) {
+            const ZigguratWire::Bytes& n=ziggurat_->state().network;
+            online_=true; networkFormed_=true; networkInitRequested_=true; nextHeartbeatAt_=0;
+            coordinatorIeeeAddress_.assign(n.begin()+14,n.begin()+22); coordinatorIeeeAddressRequested_=true;
+            networkChannel_=n[0]; networkPanId_=static_cast<unsigned short>(n[2] | (static_cast<unsigned short>(n[3])<<8));
+            networkExtendedPan_.assign(n.begin()+4,n.begin()+12); networkKey_.assign(n.begin()+22,n.begin()+38);
+            preconfiguredKey_.assign(n.begin()+43,n.begin()+59);
+            addLog("Ziggurat network ready; native state reconciled"); markViewDirty(); continue;
+        }
+        if (event.type==ZigguratClient::Event::Admission || event.type==ZigguratClient::Event::Confirmation) {
+            std::map<unsigned int,ZigguratSend>::iterator send=zigguratSends_.find(event.id);
+            if (send==zigguratSends_.end()) continue;
+            if (event.type==ZigguratClient::Event::Admission) {
+                if (event.status) { zigguratSendResult(send->second.sequence,send->second.unicast,event.status); zigguratSends_.erase(send); }
+                else if (send->second.unicast && interviewRequestInFlight_ && send->second.sequence==interviewEzspSequence_)
+                    interviewSendAccepted_=true;
+            } else if (event.command!=0x11 || event.status) {
+                zigguratSendResult(send->second.sequence,send->second.unicast,event.status); zigguratSends_.erase(send);
+            }
+            continue;
+        }
+        if (event.type==ZigguratClient::Event::JoinReply) {
+            if (event.status) { joinUntil_=0; addLog("Ziggurat permit-joining request failed"); }
+            joinPermitClosePending_=false; joinPermitCloseDeadline_=0; markViewDirty(); continue;
+        }
+        const ZigguratWire::Bytes& b=event.payload;
+        if (event.type==ZigguratClient::Event::Joined && b.size()==13) {
+            unsigned short node=static_cast<unsigned short>(b[0] | (static_cast<unsigned short>(b[1])<<8));
+            registerNode(node,&b[2]);
+        } else if (event.type==ZigguratClient::Event::Left && b.size()==22) {
+            unsigned short node=static_cast<unsigned short>(b[0] | (static_cast<unsigned short>(b[1])<<8));
+            std::map<unsigned short,std::string>::iterator known=nodeAddresses_.find(node);
+            if (known!=nodeAddresses_.end()) { devices_[known->second].networkAddress=0xffff; nodeAddresses_.erase(known); }
+            interviews_.erase(node); nextSensorRefreshAt_.erase(node); savePersistentState(); markViewDirty();
+        } else if (event.type==ZigguratClient::Event::ReceivedAps && b.size()>=17) {
+            unsigned int length=b[15] | (static_cast<unsigned int>(b[16])<<8);
+            if (length!=b.size()-17) { addLog("Malformed Ziggurat APS length"); continue; }
+            unsigned short sender=static_cast<unsigned short>(b[0] | (static_cast<unsigned short>(b[1])<<8));
+            unsigned short destination=static_cast<unsigned short>(b[2] | (static_cast<unsigned short>(b[3])<<8));
+            unsigned short profile=static_cast<unsigned short>(b[7] | (static_cast<unsigned short>(b[8])<<8));
+            unsigned short cluster=static_cast<unsigned short>(b[9] | (static_cast<unsigned short>(b[10])<<8));
+            ZigguratWire::Bytes message(b.begin()+17,b.end());
+            // Ziggurat does not loop back coordinator ZDO. Answer its discovery queries here.
+            if (profile==0 && message.size()>=3 && cluster==0x0002 && message[1]==0 && message[2]==0) {
+                ZigguratWire::Bytes response; response.push_back(message[0]); response.push_back(0);
+                response.push_back(0); response.push_back(0);
+                const unsigned char descriptor[]={0,0,0x40,0x8e,0x4b,0x13,82,128,0,1,0x2c,128,0};
+                response.insert(response.end(),descriptor,descriptor+sizeof(descriptor));
+                sendApsUnicast(sender,0,0x8002,0,0,response); continue;
+            }
+            if (profile==0 && message.size()>=3 && cluster==0x0005 && message[1]==0 && message[2]==0) {
+                ZigguratWire::Bytes response; response.push_back(message[0]); response.push_back(0);
+                response.push_back(0); response.push_back(0); response.push_back(1); response.push_back(kCoordinatorEndpoint);
+                sendApsUnicast(sender,0,0x8005,0,0,response); continue;
+            }
+            unsigned short group=static_cast<unsigned short>(b[5] | (static_cast<unsigned short>(b[6])<<8));
+            handleApsMessage(sender,profile,cluster,b[11],b[12],0,group,0,
+                b[4]&1 ? 2 : destination>=0xfff8 ? 1 : 0,b[13],static_cast<signed char>(b[14]),message);
+        }
+    }
+}
+#endif
+
 void Gateway::poll() {
+#if MICROHAD_ZIGGURAT_ENABLED
+    if (ziggurat_ != 0) pollZiggurat();
+#endif
     if (networkBackup_.active() && (time(0) >= networkBackupDeadline_ || time(0) - networkBackupStarted_ >= 120)) {
         networkBackup_.abort(); networkBackupDeadline_ = 0; addLog("Network backup timed out; radio state unchanged");
     }
@@ -780,8 +899,18 @@ std::string Gateway::runtimeDirectory() const {
 std::string Gateway::historyPath() const { return history_.path(); }
 SensorHistory* Gateway::historyStore() { return &history_; }
 
-int Gateway::serialFd() const { return serialFd_; }
-bool Gateway::serialNeedsWrite() const { return !serialPendingBytes_.empty(); }
+int Gateway::serialFd() const {
+#if MICROHAD_ZIGGURAT_ENABLED
+    if (ziggurat_ != 0) return ziggurat_->fd();
+#endif
+    return serialFd_;
+}
+bool Gateway::serialNeedsWrite() const {
+#if MICROHAD_ZIGGURAT_ENABLED
+    if (ziggurat_ != 0) return ziggurat_->needsWrite();
+#endif
+    return !serialPendingBytes_.empty();
+}
 bool Gateway::hasImmediateWork() const {
     if (serialPendingBytes_.empty() && ashPendingData_.empty() && !ashTransmitQueue_.empty()) return true;
     if (!online_ || !networkFormed_ || coordinatorInitializationStep_ != 0 || interviewRequestInFlight_) return false;
@@ -887,6 +1016,9 @@ long Gateway::nextPollDeadline(std::string* source) {
     std::map<unsigned short, SceneRetry>::const_iterator scene;
     std::map<unsigned short, InterviewState>::const_iterator interview;
     #define CONSIDER_DEADLINE(value, label) do { long candidate = (value); if (candidate != 0 && (deadline == 0 || candidate < deadline)) { deadline = candidate; deadlineSource = (label); } } while (0)
+#if MICROHAD_ZIGGURAT_ENABLED
+    if (ziggurat_ != 0) CONSIDER_DEADLINE(ziggurat_->deadline(), "ziggurat");
+#endif
     if (!ashPendingData_.empty()) CONSIDER_DEADLINE(ashAckDeadline_, "ash_ack");
     if (online_) CONSIDER_DEADLINE(nextHeartbeatAt_, "heartbeat");
     if (!online_) CONSIDER_DEADLINE(resetDeadline_, "serial_reset");
@@ -945,6 +1077,17 @@ long Gateway::nextPollDeadline(std::string* source) {
 }
 
 bool Gateway::setJoining(unsigned int seconds, std::string* error) {
+#if MICROHAD_ZIGGURAT_ENABLED
+    if (ziggurat_ != 0) {
+        if (!online_ || !networkFormed_) { *error = "Ziggurat network is not ready"; return false; }
+        if (seconds > 3600) { *error = "joining window must not exceed one hour"; return false; }
+        ZigguratWire::Bytes payload; ZigguratWire::put16(&payload, seconds); payload.push_back(1);
+        if (!ziggurat_->request(0x34, payload)) { *error = "Ziggurat request queue is full"; return false; }
+        joinUntil_ = seconds ? time(0) + seconds : 0;
+        joinPermitRenewAt_ = 0; pendingJoinSeconds_ = 0; joinPreparationStep_ = 0;
+        markViewDirty(); return true;
+    }
+#endif
     if (networkBackup_.active()) { *error = "network backup is active"; return false; }
     if (!online_) {
         *error = "Zigbee coordinator is offline";
@@ -990,6 +1133,9 @@ bool Gateway::setJoining(unsigned int seconds, std::string* error) {
 }
 
 bool Gateway::exportNetworkBackup(const std::string& id, std::string* error) {
+#if MICROHAD_ZIGGURAT_ENABLED
+    if (ziggurat_ != 0) { *error = "EZSP raw export is unavailable with Ziggurat; use its native private state snapshot"; return false; }
+#endif
     if (!online_ || !networkFormed_ || coordinatorInitializationStep_ != 0 || networkForming_ ||
         ezspVersion_ != 13 || joinUntil_ != 0 || joinPreparationStep_ != 0 || joinPermitClosePending_) {
         *error = "backup requires a running EZSP v13 coordinator with joining closed"; return false;
@@ -1012,6 +1158,9 @@ void Gateway::advanceNetworkBackup() {
 }
 
 bool Gateway::createFreshNetwork(std::string* error) {
+#if MICROHAD_ZIGGURAT_ENABLED
+    if (ziggurat_ != 0) { *error = "Ziggurat requires explicit offline network initialization; existing network preserved"; return false; }
+#endif
     if (networkBackup_.active()) { *error = "network backup is active"; return false; }
     bool leaveExisting;
     if (!online_) { *error = "Zigbee coordinator is offline"; return false; }
@@ -2271,7 +2420,7 @@ GatewayView::GatewayView() : online(false), networkForming(false), networkFormed
 
 std::string GatewayView::statusJson() const {
     std::ostringstream json;
-    json << "{\"online\":" << (online ? "true" : "false") << ",\"network_forming\":"
+    json << "{\"coordinator_backend\":\"" << (coordinatorBackend.empty() ? "ezsp" : coordinatorBackend) << "\",\"online\":" << (online ? "true" : "false") << ",\"network_forming\":"
          << (networkForming ? "true" : "false") << ",\"network_formed\":" << (networkFormed ? "true" : "false")
          << ",\"serial_rx_bytes\":" << serialRxBytes << ",\"ash_rx_frames\":" << ashRxFrames
          << ",\"joining_until\":" << joiningUntil << ",\"joining_preparing\":"
@@ -2457,6 +2606,10 @@ std::string GatewayView::logsJson() const {
 
 GatewayView Gateway::captureView(bool includeLogs) const {
     GatewayView view;
+    view.coordinatorBackend = "ezsp";
+#if MICROHAD_ZIGGURAT_ENABLED
+    if (ziggurat_ != 0) view.coordinatorBackend = "ziggurat";
+#endif
     view.online = online_; view.networkForming = networkForming_; view.networkFormed = networkFormed_;
     view.serialRxBytes = serialRxBytes_; view.ashRxFrames = ashRxFrames_; view.joiningUntil = joinUntil_;
     view.serialOpenedAt = serialOpenedAt_;
@@ -2784,6 +2937,9 @@ void Gateway::sendAshReset() {
 }
 
 unsigned char Gateway::sendEzspCommand(unsigned short command, const std::vector<unsigned char>& payload) {
+#if MICROHAD_ZIGGURAT_ENABLED
+    if (ziggurat_ != 0) { addLog("Unsupported EZSP-only coordinator operation on Ziggurat backend"); return ezspSequence_++; }
+#endif
     std::vector<unsigned char> ezsp;
     unsigned char sequence = ezspSequence_++;
     /* A wrapped sequence must never identify an expired diagnostic query. */
@@ -2976,6 +3132,9 @@ void Gateway::requestSecurityDiagnostics(const std::string& reason) {
 }
 
 void Gateway::configureTradfriBindGroup() {
+#if MICROHAD_ZIGGURAT_ENABLED
+    if (ziggurat_ != 0) { tradfriBindGroupConfigured_ = true; return; }
+#endif
     std::vector<unsigned char> payload;
     if (tradfriBindGroupConfigured_) return;
     /* Pre-2.3.075 IKEA remotes, including E1743, use the legacy group
@@ -2992,6 +3151,44 @@ void Gateway::configureTradfriBindGroup() {
 unsigned char Gateway::sendApsUnicast(unsigned short destination, unsigned short profile, unsigned short cluster,
                              unsigned char sourceEndpoint, unsigned char destinationEndpoint,
                              const std::vector<unsigned char>& message, unsigned char messageTag) {
+#if MICROHAD_ZIGGURAT_ENABLED
+    if (ziggurat_ != 0) {
+        const bool broadcast = destination >= 0xfff8;
+        unsigned char command = broadcast ? 0x31 : 0x30;
+        ZigguratWire::Bytes request;
+        unsigned char flags = broadcast ? 0 : 2; // APS ack, no APS encryption
+        std::map<unsigned short, std::string>::const_iterator known = nodeAddresses_.find(destination);
+        if (!broadcast && known != nodeAddresses_.end()) flags |= 1;
+        request.push_back(flags); ZigguratWire::put16(&request, destination);
+        if (!broadcast) {
+            ZigguratWire::Bytes ieee(8, 0);
+            if (known != nodeAddresses_.end()) {
+                const std::string& text = known->second;
+                if (text.size() == 18) {
+                    for (unsigned int i=0;i<8;++i) {
+                        std::istringstream digit(text.substr(2+i*2,2)); unsigned int value=0; digit >> std::hex >> value;
+                        ieee[7-i]=static_cast<unsigned char>(value);
+                    }
+                    const Device& device = devices_[text];
+                    if (device.hasContact || device.hasTemperature || device.hasHumidity || device.hasRemote) request[0] |= 8;
+                }
+            }
+            request.insert(request.end(), ieee.begin(), ieee.end());
+        }
+        ZigguratWire::put16(&request, profile); ZigguratWire::put16(&request, cluster);
+        request.push_back(sourceEndpoint); request.push_back(destinationEndpoint);
+        request.push_back(0); request.push_back(30); request.push_back(0);
+        if (!broadcast) request.push_back(0); // StackDecides
+        ZigguratWire::put16(&request, message.size()); request.insert(request.end(), message.begin(), message.end());
+        (void)messageTag;
+
+        unsigned char cookie = ezspSequence_++;
+        unsigned int id = ziggurat_->request(command, request);
+        if (id) { ZigguratSend context; context.sequence=cookie; context.unicast=true; zigguratSends_[id]=context; }
+        else addLog("Ziggurat send could not be queued");
+        return cookie;
+    }
+#endif
     std::vector<unsigned char> payload;
     static unsigned char apsSequence = 0;
     payload.push_back(0); /* EMBER_OUTGOING_DIRECT */
@@ -3016,6 +3213,21 @@ unsigned char Gateway::sendApsUnicast(unsigned short destination, unsigned short
 
 unsigned char Gateway::sendApsMulticast(unsigned short groupId, unsigned short profile, unsigned short cluster,
                                         unsigned char sourceEndpoint, const std::vector<unsigned char>& message) {
+#if MICROHAD_ZIGGURAT_ENABLED
+    if (ziggurat_ != 0) {
+        unsigned char command = 0x32;
+        ZigguratWire::Bytes request(1, 0); ZigguratWire::put16(&request, groupId);
+        ZigguratWire::put16(&request, profile); ZigguratWire::put16(&request, cluster);
+        request.push_back(sourceEndpoint); request.push_back(0); request.push_back(30); request.push_back(0);
+        ZigguratWire::put16(&request, message.size()); request.insert(request.end(), message.begin(), message.end());
+
+        unsigned char cookie = ezspSequence_++;
+        unsigned int id = ziggurat_->request(command, request);
+        if (id) { ZigguratSend context; context.sequence=cookie; context.unicast=false; zigguratSends_[id]=context; }
+        else addLog("Ziggurat send could not be queued");
+        return cookie;
+    }
+#endif
     std::vector<unsigned char> payload;
     static unsigned char apsSequence = 0;
     payload.push_back(static_cast<unsigned char>(profile)); payload.push_back(static_cast<unsigned char>(profile >> 8));
@@ -3035,6 +3247,12 @@ unsigned char Gateway::sendApsMulticast(unsigned short groupId, unsigned short p
 }
 
 void Gateway::sendJoinPermit(unsigned int duration) {
+#if MICROHAD_ZIGGURAT_ENABLED
+    if (ziggurat_ != 0) {
+        ZigguratWire::Bytes request; ZigguratWire::put16(&request, duration); request.push_back(1);
+        ziggurat_->request(0x34, request); return;
+    }
+#endif
     std::vector<unsigned char> payload;
     payload.push_back(static_cast<unsigned char>(duration > 254 ? 254 : duration));
     sendEzspCommand(0x0022, payload);
@@ -4100,6 +4318,9 @@ void Gateway::completeInterviewOperation(unsigned short destination) {
 }
 
 void Gateway::requestCoordinatorIeeeAddress() {
+#if MICROHAD_ZIGGURAT_ENABLED
+    if (ziggurat_ != 0) return;
+#endif
     if (coordinatorIeeeAddressRequested_) return;
     coordinatorIeeeAddressRequested_ = true;
     addLog("Requesting coordinator IEEE address for device reporting bindings");
@@ -4204,7 +4425,6 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
     unsigned short profile;
     unsigned long messageOffset;
     unsigned long length;
-    std::map<unsigned short, std::string>::const_iterator address;
     std::vector<unsigned char> message;
     if (payload.size() < 20) return;
     /* type(1), APS frame(11), LQI/RSSI(2), sender(2), binding/address(2), LVBytes */
@@ -4217,6 +4437,19 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
        In particular Bind_rsp (0x8021) is valid at two bytes. */
     if (messageOffset + length > payload.size() || length < 2) return;
     message.assign(payload.begin() + messageOffset, payload.begin() + messageOffset + length);
+    handleApsMessage(sender, profile, cluster, payload[5], payload[6],
+                     static_cast<unsigned short>(payload[7]) | (static_cast<unsigned short>(payload[8]) << 8),
+                     static_cast<unsigned short>(payload[9]) | (static_cast<unsigned short>(payload[10]) << 8),
+                     payload[11], payload[0], payload[12], static_cast<signed char>(payload[13]), message);
+}
+
+void Gateway::handleApsMessage(unsigned short sender, unsigned short profile, unsigned short cluster,
+                              unsigned char sourceEndpoint, unsigned char destinationEndpoint,
+                              unsigned short options, unsigned short group, unsigned char sequence,
+                              unsigned char messageType, unsigned char lqi, signed char rssi,
+                              const std::vector<unsigned char>& message) {
+    if (message.size() < 2) return;
+    std::map<unsigned short, std::string>::const_iterator address;
     std::map<unsigned short, std::string>::const_iterator nativeSender = nodeAddresses_.find(sender);
     if (nativeSender != nodeAddresses_.end()) wakeSceneProvisioning(nativeSender->second);
     std::map<std::string, std::string>::iterator nativeState = nativeSender == nodeAddresses_.end() ?
@@ -4230,14 +4463,14 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
     }
     addFrameLog("RX", sender,
                 profile, cluster,
-                payload[5], payload[6], static_cast<unsigned short>(payload[7]) | (static_cast<unsigned short>(payload[8]) << 8),
-                0, payload[11], 0,
-                static_cast<int>(payload[12]), static_cast<int>(static_cast<signed char>(payload[13])), message);
+                sourceEndpoint, destinationEndpoint, options,
+                group, sequence, 0,
+                static_cast<int>(lqi), static_cast<int>(static_cast<signed char>(rssi)), message);
     {
         std::ostringstream diagnostic;
         diagnostic << "APS <- node=0x" << std::hex << sender << " profile=0x"
-                   << (static_cast<unsigned short>(payload[1]) | (static_cast<unsigned short>(payload[2]) << 8))
-                   << " cluster=0x" << cluster << " length=" << std::dec << length;
+                   << profile
+                   << " cluster=0x" << cluster << " length=" << std::dec << message.size();
         addLog(diagnostic.str());
     }
     if (profile != 0x0000 && profile != 0x0104) {
@@ -4468,7 +4701,7 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
     if (profile == 0x0104 && !devices_[address->second].endpoints.empty()) {
         bool endpointKnown = false;
         for (unsigned long i = 0; i < devices_[address->second].endpoints.size(); ++i) {
-            if (devices_[address->second].endpoints[i].endpoint == payload[5]) endpointKnown = true;
+            if (devices_[address->second].endpoints[i].endpoint == sourceEndpoint) endpointKnown = true;
         }
         if (!endpointKnown) {
             addLog("Ignoring APS message from an undiscovered endpoint");
@@ -4523,7 +4756,7 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
         if (known != nodeAddresses_.end()) {
             Device& device = devices_[known->second];
             Device before = device;
-            device.linkQuality = payload[12];
+            device.linkQuality = lqi;
             device.lastSeen = time(0);
             updateValueAlerts(device, before);
             markViewDirty();
@@ -4536,7 +4769,7 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
         std::vector<unsigned char> response;
         response.push_back(0x19); response.push_back(transactionSequence);
         response.push_back(0x02); response.push_back(0x98); /* NO_IMAGE_AVAILABLE */
-        sendApsUnicast(sender, 0x0104, cluster, payload[6], payload[5], response);
+        sendApsUnicast(sender, 0x0104, cluster, destinationEndpoint, sourceEndpoint, response);
         addLog("OTA query answered: no image available for " + address->second);
         return;
     }
@@ -4545,14 +4778,14 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
         /* Only unicast commands receive default responses. Group/broadcast
            commands may use destination endpoint 255, which is not a valid
            source endpoint for a reply. Still dispatch their key events. */
-        if (logRemoteKeyEvent(sender, cluster, payload[5], manufacturer, command, arguments) &&
-            (frameControl & 0x10) == 0 && payload[0] <= 1 && payload[6] != 255)
-            sendZclDefaultResponse(sender, payload[6], payload[5], cluster, transactionSequence, command);
+        if (logRemoteKeyEvent(sender, cluster, sourceEndpoint, manufacturer, command, arguments) &&
+            (frameControl & 0x10) == 0 && messageType <= 1 && destinationEndpoint != 255)
+            sendZclDefaultResponse(sender, destinationEndpoint, sourceEndpoint, cluster, transactionSequence, command);
     }
     if (cluster == 0x0500 && command == 0x01 && message.size() >= zclOffset + 4) {
         int zoneId = allocateIasZoneId(address->second);
         if (zoneId >= 0) {
-            sendIasEnrollResponse(sender, payload[6], payload[5], message[zclOffset - 2],
+            sendIasEnrollResponse(sender, destinationEndpoint, sourceEndpoint, message[zclOffset - 2],
                                   static_cast<unsigned char>(zoneId));
         } else addLog("IAS zone ID pool exhausted; enrollment response not sent");
     } else if (cluster == 0x0500 && command == 0x00 && message.size() >= zclOffset + 2) {
@@ -4572,7 +4805,7 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
             InterviewOperation& operation = interview->second.operations[interview->second.operationIndex];
             matched = (operation.type == InterviewAttributeRead || operation.type == InterviewBasicRead) &&
                       operation.transactionSequence == transactionSequence && operation.cluster == cluster &&
-                      operation.endpoint == payload[5];
+                      operation.endpoint == sourceEndpoint;
             if (matched && operation.type == InterviewBasicRead && updateBasicIdentity(&devices_[address->second], records))
                 interview->second.persistentDirty = true;
         }
@@ -4617,7 +4850,7 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
             interview->second.operations[interview->second.operationIndex].transactionSequenceAssigned) {
             InterviewOperation& operation = interview->second.operations[interview->second.operationIndex];
             if (operation.type == InterviewConfigureReporting && operation.transactionSequence == transactionSequence &&
-                operation.cluster == cluster && operation.endpoint == payload[5]) completeInterviewOperation(sender);
+                operation.cluster == cluster && operation.endpoint == sourceEndpoint) completeInterviewOperation(sender);
         }
     }
 }

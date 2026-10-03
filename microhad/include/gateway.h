@@ -11,6 +11,7 @@
 #include "network_backup.h"
 #include "sensor_history.h"
 
+class ZigguratClient;
 class NotificationWorker;
 class ExternalHttpDeviceWorker;
 
@@ -151,6 +152,7 @@ struct DeviceConfigurationStatus {
    worker.  It deliberately contains only dashboard-visible state. */
 class GatewayView {
 public:
+    std::string coordinatorBackend;
     bool online;
     bool networkForming;
     bool networkFormed;
@@ -180,6 +182,9 @@ public:
             NotificationWorker* notificationWorker = 0,
             const std::string& historyPath = "/tmp/microhad-zigbee-native-history.bin");
     ~Gateway();
+#if MICROHAD_ZIGGURAT_ENABLED
+    void useZiggurat(const std::string& socketPath);
+#endif
     bool start(std::string* error);
     void stop();
     void poll();
@@ -242,6 +247,18 @@ public:
 private:
     friend class GatewayTestPeer;
     friend class GatewayIntegrationTestPeer;
+#if MICROHAD_ZIGGURAT_ENABLED
+    ZigguratClient* ziggurat_;
+    std::string zigguratSocket_;
+    struct ZigguratSend {
+        unsigned char sequence;
+        bool unicast;
+        ZigguratSend() : sequence(0), unicast(false) {}
+    };
+    std::map<unsigned int, ZigguratSend> zigguratSends_;
+    void pollZiggurat();
+    void zigguratSendResult(unsigned char sequence, bool unicast, unsigned char status);
+#endif
     std::string serialDevice_;
     int serialBaud_;
     std::string runtimeDirectory_;
@@ -528,6 +545,11 @@ private:
     void saveScenes();
     void loadSceneRuntime();
     void saveSceneRuntime() const;
+    void handleApsMessage(unsigned short sender, unsigned short profile, unsigned short cluster,
+                          unsigned char sourceEndpoint, unsigned char destinationEndpoint,
+                          unsigned short options, unsigned short group, unsigned char sequence,
+                          unsigned char messageType, unsigned char lqi, signed char rssi,
+                          const std::vector<unsigned char>& message);
     void handleIncomingMessage(const std::vector<unsigned char>& payload);
     bool generateNetworkMaterial(std::string* error);
     void continueNetworkFormation(unsigned short completedCommand);

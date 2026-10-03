@@ -69,6 +69,9 @@ int main(int argc, char** argv) {
     }
     gateway = new Gateway(serialDevice, serialBaud, runtimeDirectory, firebaseServiceAccount, firebaseTopic, caBundle,
                           notificationWorker);
+#if MICROHAD_ZIGGURAT_ENABLED
+    gateway->useZiggurat(config.zigguratSocket);
+#endif
     gatewayRunner = new GatewayRunner(gateway);
     shellyIntegration = new ExternalHttpDeviceWorker(runtimeDirectory, gatewayRunner);
     gateway->setShellyTransport(shellyIntegration);

@@ -4,6 +4,7 @@
 #include <string>
 
 struct GatewayConfig {
+    std::string zigguratSocket;
     std::string serialDevice;
     long serialBaud;
     std::string runtimeDirectory;
