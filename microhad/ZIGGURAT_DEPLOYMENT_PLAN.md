@@ -6,11 +6,12 @@
 `192.168.178.62`; no spare gateway or radio is required. This plan supersedes
 older recommendations to rehearse on spare hardware.
 
-Production is in maintenance with the original native supervisor suspended.
-The validated two-instance HDLC RCP application has been flashed successfully;
-no migrated Zigbee network has started. Host backups retain the original native
-service/application and final network security state. The native Ziggurat backend
-and static MIPS Ziggurat are staged. Next verify real RCP and reverse entry.
+The existing Zigbee network is online through native → COBS Unix socket →
+Ziggurat → real HDLC RCP (IID 1), with all 23 inventory devices retained.
+Original EZSP supervisor remains suspended; manual staged processes are running.
+Network identity/security match the final private backup; NWK/APS counters advanced.
+Steps 1–9 completed; step 10 real-traffic/recovery observation is next.
+Permanent startup is not installed. Thread IID 2 remains unused.
 
 **Step 1 is complete:** images are packaged/validated, binaries rebuilt, recovery
 commands and candidate paired launcher implemented, and host tests pass. Exact
@@ -21,9 +22,9 @@ installed on the gateway during step 1.
 network export are saved and validated. Production stayed online; its binary and
 processes were not replaced/restarted. Joining was already closed.
 
-**Execution checkpoint:** steps 1–8 completed.
+**Execution checkpoint:** steps 1–9 completed.
 
-**Next action:** step 9; reread its procedure before execution.
+**Next action:** step 10; reread its procedure before execution.
 
 The objective of this deployment is existing-network Zigbee operation through
 native → COBS Unix socket → Ziggurat → HDLC RCP. Thread and Matter follow later;
@@ -397,6 +398,14 @@ verify/restore the final pre-cutover logical backup as described below. If start
 is merely a process/config issue, stop Ziggurat and correct it without reflashing.
 
 ## 9. Start the staged native client with final state
+
+**Completed 2026-10-03:** corrected static MIPS Ziggurat deployed; native
+online/formed on backend `ziggurat`, 23 existing devices retained, HTTP/HTTPS
+healthy. Live stack identity/security match the final backup privately and both
+NWK/APS counters are advanced. State persists privately under `/tuya/native`.
+Checkpoint E now applies: rollback requires a fresh frozen stack snapshot.
+Eight actual native/host-Ziggurat/simulator lifecycle scenarios pass after fix.
+
 
 **In progress 2026-10-03:** final private state installed, original 23-device
 inventory retained. First network start failed before reset completion because
