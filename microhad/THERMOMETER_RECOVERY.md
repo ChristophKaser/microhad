@@ -2,7 +2,14 @@
 
 ## Current state and plan
 
-Two confirmed bugs are fixed and host-tested: relayed own parent announcements
+The latest reporting investigation found a third bug: a known device rejoining
+with cached endpoints queued only attribute reads, skipping reporting bindings
+and Configure Reporting. A read-only refresh already in progress could also
+prevent configuration. The correction is verified for both native
+backends, committed as d33899e, and deployed. Hardware acceptance and unsolicited reports remain
+pending; successful attribute reads alone do not prove reporting is configured.
+
+Two earlier confirmed bugs are fixed and host-tested: relayed own parent announcements
 could delete restored sleepy children in Ziggurat, and the native parser rejected
 signed humidity readings from eWeLink TH01. Both fixes are deployed. The restored child survives fixed production startup;
 a fresh post-fix humidity read and sustained reporting are still being checked. Preserve current private state; no device removal, radio flash,
@@ -81,3 +88,40 @@ Installed MD5s: native `6f462ee32142e5510e3def94446fc415`,
 Ziggurat `53046d62702c6b06f06bc1ef7bf01f0b`. Host-held original executables,
 frozen snapshots and repaired state are private and Git-ignored. Diagnostic
 logging is disabled in normal production; the added debug line is dormant.
+
+## Reporting configuration correction
+
+A full interview of a known device now uses cached descriptors to bind its
+sensor clusters and configure reporting, rather than running the read-only
+refresh plan. If a rejoin overlaps a refresh, the refresh finishes with its
+existing transaction and then starts configuration. Routine/manual measurement
+refreshes remain read-only. Regression tests check cached rejoin, paused refresh
+promotion, preservation of the in-flight transaction, and ordinary refresh
+completion for both EZSP and Ziggurat builds.
+
+The intended TH01 setup binds endpoint 1 temperature (0x0402), humidity
+(0x0405), and battery (0x0001) to coordinator endpoint 1. Temperature reporting
+uses int16, minimum 30 seconds, maximum 300 seconds, change 0.20 °C. Humidity
+uses the standard uint16, minimum 30 seconds, maximum 300 seconds, change 1%.
+Battery percentage uses uint8, minimum 3600 seconds, maximum 65000 seconds,
+change 0.5 percentage points. Some TH01 read responses use signed humidity;
+a successful humidity Configure Reporting response must be checked rather
+than assuming that read-response quirk also applies to configuration.
+
+Verification requires accepted Bind responses and Configure Reporting responses
+from Küche, followed by unsolicited Report Attributes (ZCL command 0x0a).
+Read Attributes responses (0x01), operation admission, and interview completion
+alone are insufficient. Rejected configuration is currently logged and the
+interview advances; inspect status codes explicitly. Preserve the live network
+and snapshot before updating only the native executable. No radio firmware
+change is required.
+
+Reporting fix validation: `make host test`, `make mips`,
+`make ZIGGURAT=1 host test`, and `make ZIGGURAT=1 mips` all passed, as did
+the nine actual-server host lifecycle scenarios. Production native MD5 is
+`cfea133ccc3f06d088facd95e5df783a`. Fresh private frozen state and the previous
+executable were archived on the host before a clean pair restart. All 23
+inventory entries remain and the network is formed. The radio image and
+Ziggurat executable were unchanged. A bounded 15-minute host COBS capture
+is observing device replies; a five-minute pairing window was opened for the
+user's wake attempt. Hardware reporting verification remains pending.

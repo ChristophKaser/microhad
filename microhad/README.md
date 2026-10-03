@@ -1,5 +1,10 @@
 # MicroHAD Native
 
+> **Reporting correction (2026-10-03):** cached-endpoint rejoins previously
+> skipped binding/reporting setup. The native fix is tested for both backends
+> and deployed; device acceptance and unsolicited reports are being checked.
+> [Current thermometer status](THERMOMETER_RECOVERY.md).
+
 > **Post-deployment correction (2026-10-03):** investigation of Küche TH01
 > reproduced and fixed child loss on relayed own parent announcements, and fixed
 > rejection of TH01 signed humidity reads. Both fixes are deployed; the child
