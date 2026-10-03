@@ -1,73 +1,49 @@
 # Ziggurat on the Tuya RTL8196E gateway
 
-## Current state — 2026-10-03
+## Current state and plan — 2026-10-03
 
 The goal is a **standalone Tuya gateway running Zigbee and Matter-over-Thread**,
 with `microhad-zigbee-native` as Ziggurat's client and both networks sharing the
 EFR32MG1 radio through HDLC, without cpcd.
 
-- **Built:** two-instance HDLC RCP firmware and a patched static MIPS Ziggurat.
-  The transport shares one reader/writer, routes Zigbee IID 1 and Thread IID 2,
-  and provides a local Unix HDLC endpoint for a future Thread consumer.
-- **Native client implemented:** optional `ZIGGURAT=1` backend uses COBS over a
-  private Unix stream socket. The native service owns persisted state following
-  ZHA's model; Ziggurat remains stateless. EZSP remains the default. Both host
-  suites and MIPS builds pass, including 13 scripted-peer cases and six actual
-  native/Ziggurat/host-RCP lifecycle scenarios.
-- **Validated:** 15 Rust transport tests, 7 simulator tests, 8 HDLC host scenarios,
-  7 COBS host scenarios and 8 Tuya COBS checks pass. Tuya Ziggurat RSS was
-  **1,620 KiB**, `top` samples **0–7% CPU**, and median/p95 socket query response
-  **5.27/8.23 ms** including the SSH bridge. This is synthetic load, not evidence
-  of real-radio or Matter capacity. Temporary executable uploads were removed.
-- **Production migration underway:** direct user approval permits deployment and
-  flashing. Steps 1–7 completed; the application-only RCP image was accepted.
-  Original supervisor is suspended; final private network/application backups
-  are saved. Ziggurat reads the real radio identity correctly. Step 8 is checking
-  reverse bootloader entry before starting migrated Zigbee. The helper now targets
-  IID 1 because IID 0 is reserved in this SDK build.
-- **Still pending:** real-radio migration/recovery and ACK/source-match tests,
-  an actual Thread/OTBR stack and standalone Matter. The native ZHA-style
-  1000-frame restart margin is not an unconditional crash-safety guarantee.
-- **Network migration preparation:** the read-only EZSP v13 exporter was deployed
-  on 2026-10-02. A private logical backup round-trips through stopped host
-  Ziggurat with a simulated RCP. Freeze/export and orderly rollback preparation
-  pass simulation; raw-token enumeration is unsupported. Take a new exclusive
-  handover backup before any real migration.
-  See [native integration and commands](docs/native-ziggurat-integration.md),
-  [validation record](docs/native-ziggurat-validation.json) and
-  [migration evidence](docs/network-migration.md).
-- **Known issue:** one cold-boot configuration attempt stalled; kernel RNG
-  readiness is a suspected cause. Device tests now check free RAM and clean
-  their uploads after an earlier suspected ramfs memory-pressure incident.
-- **Published:** [private GitHub repository](https://github.com/ChristophKaser/ziggurat-compilation).
-  Migration execution is recorded in the deployment plan.
+**The 12-step Zigbee deployment is complete.** The existing gateway runs the
+application-only two-instance HDLC RCP, patched static MIPS Ziggurat on IID 1,
+and the enabled native COBS client over a private Unix stream socket. Native owns
+durable Zigbee state following ZHA's model. Permanent paired startup and controlled
+reboot recovered automatically; all 23 inventory entries (17 Zigbee) remain.
+Real existing-light toggle/readback/restore and temperature/humidity reports passed.
+The user-approved 15-minute observation completed without offline samples.
+Final frozen recovery state and an offline-validated advanced NCP rollback backup
+are archived privately; original service/application/network backups are retained.
+
+See [deployment and rollback](docs/ziggurat-deployment-plan.md),
+[real-radio findings and timings](docs/real-radio-migration.md),
+[native integration](docs/native-ziggurat-integration.md) and
+[sanitized execution record](docs/migration-execution.json).
+Measured light APS acknowledgements were 35–38 ms. Native/Ziggurat RSS was about
+3600/2012 KiB; top CPU 0–13%/0–1%. After reboot free RAM was 12844 KiB.
+Host tests cover both native backends; corrected transport tests include 16 Rust,
+7 simulator, 8 HDLC host and 8 actual native/stack/simulator lifecycle scenarios.
+
+**Limits:** cold boot required 121 seconds from native startup to readiness;
+RNG blocking is suspected, not proven. Sleepy-child wake/rejoin was waived and
+remains physically unverified; the live direct-child table was empty versus two
+original archived records. Broadcast reads produced responses but intermittent
+relay-quorum/CCA failure verdicts. The ZHA-style restart margin does not guarantee
+recovery after arbitrary crashes. Live reverse NCP restore was not performed.
 
 ## Next steps
 
-Follow the [same-device deployment and rollback plan](docs/ziggurat-deployment-plan.md).
-No spare gateway is required. Step 1 is complete: application-only GBL packaging,
-guarded recovery commands and paired supervision pass host tests. See
-[prepared tools](docs/recovery-tooling.md) and [artifact pins](docs/deployment-preparation.json).
-Step 2 is also complete: private online service/application and network backups
-are verified; production stayed online with 23 devices and an unchanged binary.
-See [sanitized baseline](docs/deployment-baseline.json). Steps 3–4 are now complete: isolated binaries are staged and preliminary
-actual-state stopped import passes. No service restart or radio flashing occurred.
-Steps 5–7 completed under explicit user approval. Follow the current checkpoint
-in the plan; real radio migration and validation are still in progress.
+1. Investigate cold-boot Configure blocking without weakening randomness checks;
+   validate sleepy-child continuity when devices can be stimulated.
+2. Connect a local Thread/OTBR consumer on the separate private HDLC endpoint,
+   with coordinated reset, common channel and scans; measure combined RAM/CPU.
+3. Validate real dual-PAN ACKs, polls, address collisions and interference on MG1.
+4. Add local Matter functionality and measure the full standalone resource budget.
 
-1. Resolve cold-boot RNG readiness and report startup failures without blocking
-   the async worker; retain the randomness safety check.
-2. Connect a local Thread stack/OTBR to the shared endpoint with coordinated
-   reset, scan and common-channel ownership; measure combined gateway resources.
-3. Follow the staged maintenance and rollback checkpoints on this gateway,
-   then validate real dual-PAN operation,
-   especially MG1 auto-ACK, sleepy children and overlapping short addresses.
-4. Validate the implemented native adapter with real Zigbee traffic and add
-   local Matter functionality; measure the complete standalone gateway.
-
-[Implementation plan](docs/hdlc-implementation-plan.md) ·
-[Usage and results](docs/hdlc-multipan-usage.md) ·
-[Radio/licensing audit](docs/radio-dual-mode.md)
+Thread IID 2 is currently unused. Thread/OTBR and Matter are not implemented.
+No spare gateway is required. Source, patches and documentation are published in
+[the private repository](https://github.com/ChristophKaser/ziggurat-compilation).
 
 ## Firmware build prerequisites
 

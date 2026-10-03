@@ -1,9 +1,17 @@
 # Prepared deployment/recovery tools — 2026-10-03
 
-Step 1 is complete on the host. Nothing here was installed on the gateway, and
-no radio was accessed. The hardware round trips remain steps 6–8 of the deployment
-plan. These tools provide guarded procedures, not guaranteed recovery from an
-unresponsive RCP or arbitrary stale counters.
+Recovery tools are deployed under `/tuya/native`. Both NCP and RCP bootloader
+entry/run round trips passed on this gateway; the pinned RCP application was
+flashed without changing bootloader or NVM3. Fresh complete frozen rollback
+state is saved privately on the host. No live reverse NCP restoration was
+performed. Recovery from an unresponsive RCP or arbitrary stale counters remains
+unproven. See [current checkpoint](ziggurat-deployment-plan.md).
+
+Remote freeze examples below that use the former staging path must now specify
+`--bridge /tuya/native/gateway-maintenance`. Quiesce with
+`/tuya/native/paired_control.sh quiesce`, export complete frozen state, then
+stop with `paired_control.sh stop --frozen-snapshot-saved`. Start a fresh pair
+with `/tuya/tuya_start.sh`; do not merely remove the quiesce marker.
 
 ## Artifacts and offline packaging
 
@@ -158,3 +166,24 @@ actual socket reclamation is also tested against the patched real server. All
 UART tests use host PTYs. Real device timing/menu/ownership compatibility still
 needs the later maintenance checks. No code here guarantees recovery if both
 application and bootloader cannot be reached.
+
+### Real-device capture behavior (2026-10-03)
+
+An exclusive Bellows connection resets this NCP and leaves `networkState` at
+`NO_NETWORK`. The capture helper sets runtime security level 5 and Zigbee PRO stack profile 2,
+then calls `networkInit(0)` to resume the saved
+network and requires `JOINED_NETWORK` before reading. It never calls formation
+or joining commands. Initialization can transmit and advance counters, so final
+capture and bootloader entry must use the same connection. If initialization
+fails, stop; do not substitute network formation. Seven focused tool tests pass.
+
+A daemon whose supervisor is SIGSTOPped can remain as a zombie after graceful
+exit. Confirm state `Z`, zero file descriptors and the device-side UART-free
+check; disappearance from `/proc` cannot be required until its parent reaps it.
+
+The first real RCP reverse-entry check exposed a helper addressing error: IID 0
+is reserved in this SDK's two-instance build, and `IidToInstance(0)` returns null.
+The corrected helper sends `90 01 03` (IID 1, RESET, BOOTLOADER), with HDLC FCS.
+The previous `80 01 03` frame was rejected; firmware flashing itself succeeded.
+Four host PTY tests pass for the corrected helper, including framing and baud/flow
+switches. See the step 8 execution record for the physical verification result.

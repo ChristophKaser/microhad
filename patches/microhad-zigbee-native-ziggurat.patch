@@ -149,42 +149,49 @@ index 6d87db8..74cc403 100644
  Sources: the retained [EZSP upgrade record](scripts/EZSP_UPGRADE.md), the
  [Silicon Labs NCP-to-host migration note](https://docs.silabs.com/zigbee/9.0.0/multiprotocol-solution-linux/host-ncp-rcp-migration),
 diff --git a/README.md b/README.md
-index c4042f0..3c8ce19 100644
+index c4042f0..085fb50 100644
 --- a/README.md
 +++ b/README.md
-@@ -5,14 +5,24 @@ the Lidl/gateway gateway. It is built specifically with the bundled RSDK for the
+@@ -5,14 +5,30 @@ the Lidl/gateway gateway. It is built specifically with the bundled RSDK for the
  gateway's 32-bit big-endian MIPS/uClibc environment; it does not use low.js,
  Node.js, or the TCP serial bridge.
  
 -## Network migration preparation — 2026-10-02
-+## Current state and plan — 2026-10-03
- 
+-
 -The read-only EZSP v13 backup exporter is deployed. Actual private network
 -state imports correctly into stopped host Ziggurat with a simulated radio;
 -orderly counter-safe rollback preparation is tested. Radio firmware and the
 -production network remain in use. Hardware migration/recovery, the native
 -Ziggurat adapter and crash-safe persistence remain pending. See
 -[commands, evidence and recovery limits](NETWORK_MIGRATION.md).
-+The optional Ziggurat backend is implemented: COBS over a Unix stream socket,
-+with the native service owning persistent state following ZHA's model. EZSP is
-+still the default. Both host suites and MIPS builds pass; actual host stack and
-+gateway Ziggurat-only simulations pass. Production remains on EZSP: no native
-+service replacement/restart, radio access or firmware flashing occurred in this work.
++## Current state and plan — 2026-10-03
 +
-+Next, follow the [same-device deployment and rollback plan](ZIGGURAT_DEPLOYMENT_PLAN.md)
-+to validate migration/recovery and real Zigbee traffic, then integrate standalone
-+Thread and Matter. No spare gateway is required. The restart counter margin
-+has explicit crash-safety limits. See [integration, commands and results](ZIGGURAT_INTEGRATION.md)
-+and [network migration evidence](NETWORK_MIGRATION.md).
++Production uses the enabled `ZIGGURAT=1` native backend: COBS over a private
++Unix stream socket, Ziggurat, and the application-only two-instance HDLC RCP.
++The native service owns durable state following ZHA's model. The permanent
++paired launcher starts both processes from `/tuya/native`; controlled reboot
++returned online automatically with all 23 inventory entries (17 Zigbee).
++Existing light commands/readbacks and temperature/humidity reports work.
 +
-+Deployment steps 1–4 are complete: recovery preparation, private backups,
-+verified isolated staging and preliminary import. Step 5 is waiting for the
-+direct approval required by automatic action review. Production remains on EZSP. See
-+[prepared tools and commands](RECOVERY_TOOLING.md). Production has not been changed.
++See the [deployment checkpoint and rollback procedure](ZIGGURAT_DEPLOYMENT_PLAN.md)
++and [real-radio measurements and limitations](REAL_RADIO_MIGRATION.md).
++The user-approved 15-minute observation completed with zero offline samples.
++Sleepy-child wake/rejoin remains physically unverified; broadcasts can reach
++routers despite intermittent relay-quorum/CCA failure verdicts. Cold boot needed
++121 seconds from native start to readiness; RNG blocking is suspected, unproven.
++The 1000-frame restart margin is not a guarantee after arbitrary crashes.
++Private original and fresh frozen recovery backups are retained outside Git.
++
++Next: investigate the startup delay, validate sleepy devices when available,
++then integrate local Thread on IID 2 and standalone Matter with coordinated
++channel/reset/scan ownership and combined RAM/CPU measurements. IID 2 is unused;
++Thread/Matter is not yet implemented. No cpcd or spare gateway is required.
++Both backend host suites and MIPS builds remain supported; EZSP is the build
++default, while this gateway runs the explicitly enabled Ziggurat binary.
  
  ## Build
  
-@@ -20,6 +30,10 @@ Ziggurat adapter and crash-safe persistence remain pending. See
+@@ -20,6 +36,10 @@ Ziggurat adapter and crash-safe persistence remain pending. See
  make host
  make test
  make mips
@@ -195,18 +202,206 @@ index c4042f0..3c8ce19 100644
  ```
  
  `make mips` uses only
+diff --git a/REAL_RADIO_MIGRATION.md b/REAL_RADIO_MIGRATION.md
+new file mode 100644
+index 0000000..c4b2e59
+--- /dev/null
++++ b/REAL_RADIO_MIGRATION.md
+@@ -0,0 +1,174 @@
++# Real-radio Ziggurat migration — 2026-10-03
++
++## Current checkpoint
++
++Permanent paired production startup is installed under `/tuya/native` and
++controlled reboot returned online automatically. All 12 Zigbee deployment steps are complete;
++final frozen recovery state and offline-validated NCP rollback backup are archived. The original
++EZSP launcher/binary/config and NCP recovery image remain available. Follow
++[the deployment plan](ZIGGURAT_DEPLOYMENT_PLAN.md) for current checkpoint and
++orderly rollback; restoring the old launcher alone cannot undo an RCP migration.
++Thread IID 2 remains unused; standalone Thread/Matter is a separate next phase.
++
++The preserved inventory has **23 entries: 17 Zigbee, four Shelly and two FRITZ!Box**.
++Inventory preservation alone does not prove radio communication. The real light
++test below and fresh Zigbee reports provide separate physical-radio evidence.
++The user waived physical sleepy-child stimulation; report that check as assumed,
++not verified. The imported temperature child was already silent for over two
++hours, and the imported remote requires a button press to wake.
++
++## What the hardware revealed
++
++1. The native daemon exits after SIGTERM, but remains a zombie while its verified
++   parent launcher is SIGSTOPped. A zombie with no descriptors does not own the
++   UART. Check its state and the device-side UART ownership helper rather than
++   waiting for its `/proc` directory to disappear.
++2. Bellows connection initialization resets the NCP. This NCP defaults to stack
++   profile 0. Set runtime security level 5 and Zigbee PRO profile 2, then
++   `networkInit(0)` restores the saved network. Without that runtime profile,
++   initialization returns `NOT_JOINED`. The final capture helper now performs
++   this guarded initialization and never forms a replacement network. It can
++   transmit after initialization, so capture and final bootloader entry share a
++   connection and migration counters advance with margins.
++3. TCP urgent-data flow switching did not reliably expose this bootloader menu.
++   Stop the exact bridge and use the direct UART helper to verify/run the menu;
++   for upload, restart `/tuya/serialgateway -f -p 8888` to set no hardware flow
++   explicitly. Confirm the recognizable menu before any upload.
++4. In this SDK's multi-PAN RCP, IID 0 is reserved and `IidToInstance(0)` returns
++   null. Both bootloader entry and normal radio reset must address active IID 1.
++   The original helper and Ziggurat owner reset sent IID 0; the physical radio
++   rejected them, while the simulator incorrectly accepted them. Both are fixed.
++   Broadcast reset notifications on IID 0 are still dispatched to consumers.
++
++The helper's corrected reset bytes are `90 01 03` before HDLC framing/FCS. Its
++host/MIPS build and four PTY tests pass, followed by physical bootloader entry,
++menu recognition and run without upload. Ziggurat's reset correction passes 16
++Rust transport tests, seven simulator checks, eight multi-PAN host scenarios and
++eight actual native/Ziggurat/simulator lifecycle scenarios. The MIPS binary was
++rebuilt and uploaded; this correction did not require another radio flash.
++
++## Firmware and first network start
++
++The bootloader accepted the application-only 103800-byte RCP image. Program
++range was `[0x4000,0x1d52c)`; the bootloader and NVM3 region were excluded.
++SHA256: `5e835cf429dbc25ded9e6217f620d0d2243c11c98935de0e29e387657063bb48`.
++The retained recovery NCP GBL and original service/application archive remain
++privately on the host, together with the final pre-cutover network export.
++
++Real RCP hardware identity matched the NCP backup before Configure/StartNetwork.
++After the corrected normal reset, native became online/formed with backend
++`ziggurat`. HTTP and HTTPS pass. Identity, PAN/channel, key metadata and advanced
++NWK/APS counters match privately. Native owns persistent state at
++`/tuya/native/ziggurat-state.json`; Ziggurat owns `/dev/ttyS1` at 460800 with RTS/CTS.
++Thread IID 2 remains unused.
++
++Once this stack transmitted, rollback moved to checkpoint E: freeze the current
++stack and export its latest counters/keys before preparing the NCP return. The
++pre-cutover export is no longer a sufficient rollback snapshot by itself.
++
++## Physical delivery measurements
++
++An existing light's physical on/off value was first read with a COBS unicast
++request requiring an APS acknowledgement. The light was toggled through the
++native HTTP API, read back through the real radio, then restored in a `finally`
++block and read back again. This distinguishes HTTP command acceptance from
++physical execution and end-to-end radio acknowledgement.
++
++| Read | APS acknowledgement | Matching attribute response |
++| --- | ---: | ---: |
++| Initial state | 35.48 ms | 80.93 ms |
++| Toggled state | 37.54 ms | 37.54 ms |
++| Restored state | 35.61 ms | 35.61 ms |
++
++These timings include the host SSH/Unix-socket bridge. They are real-radio samples,
++not synthetic throughput measurements or a general latency guarantee.
++
++Non-actuating group/broadcast reads were also exercised. An initial group read
++reported terminal status 8 (relay quorum incomplete); a later group read returned
++status 0 in 68.4 ms. Broadcast descriptor reads for an existing router obtained
++matching successful descriptor responses on all three attempts, while terminal
++statuses were 8, 5, 8 (incomplete relay quorum / CCA failure). Delivery occurred,
++but complete broadcast acknowledgement is intermittent. Preserve these weaker
++results; do not convert HTTP admission or a device reply into a claim that every
++relay acknowledged. Native scene handling retains bounded retry/unicast fallback.
++Warnings also identify a next hop that sometimes does not MAC-ACK. This needs
++continued observation after cutover and comparison with physical connectivity.
++
++## Memory and CPU interpretation
++
++This BusyBox `top` displays **VSZ** and computes `%MEM` from virtual address space.
++Native reserves roughly 20 MB of virtual space, including thread stacks. Its
++measured RSS was about 3600 KiB; Ziggurat RSS was about 2012 KiB. LinuxThreads
++appear as separate PIDs sharing an address space: sum their CPU, but do not sum
++repeated RSS/VSZ figures as if each were a separate daemon.
++
++A kernel sample showed 27892 KiB total, 2664 KiB free, 15820 KiB cached, 6948 KiB
++inactive file pages, and 416 KiB reclaimable slab. Much file cache is reclaimable;
++RAM-backed files and anonymous memory are not. Do not equate `MemFree` alone with
++allocatable headroom or treat all cache as reclaimable. The stock kernel has no
++`MemAvailable` field. Diagnostic files totalled under 9 KiB at this checkpoint;
++the existing native log is a bounded 1 MB RAM ring. Executables reside on flash,
++not on `/tmp` ramfs.
++
++Early second-frame `top` samples showed summed CPU ranges of native 0–13% and
++Ziggurat 0–1%. `top` itself creates measurable load, so discard its first frame.
++State checksum changes were approximately once per minute, consistent with the
++native checkpoint timer; this is deliberate security persistence, not flash
++logging. Final window/restart/reboot measurements belong in the execution record.
++These measurements do not establish capacity for a standalone Matter/Thread host.
++
++## Records and privacy
++
++Private host evidence is under ignored `diagnostics/ziggurat-deployment/`, with
++0700 directories and 0600 files. It includes immutable original application
++archives, raw/final network exports, prepared import/native/recovery state, live
++identity checks, light readbacks, observation samples and final frozen snapshots.
++Do not publish those files, keys, configuration, TLS credentials or device data.
++Only sanitized execution status, artifact hashes and measurements are mirrored
++into the private experiment repository.
++
++### Child-table checkpoint
++
++The post-start frozen snapshot contains zero direct children, versus two in the
++original NCP export. Original child records remain in immutable private backups.
++No child-timeout warnings appeared in the recorded warning log; the cause of the
++table difference is not certified. Some devices may have moved to router parents,
++but that is an inference, not a verified explanation. Network credentials remain
++unchanged. The user waived physical sleepy-device validation; retain this explicit
++limit and inspect polling/rejoin behavior when those devices are next available.
++
++## Permanent startup and controlled reboot
++
++The paired supervisor owns startup order, bounded restarts and maintenance
++quiesce. Production uses `/tuya/native/paired_start.sh`, `paired_control.sh`,
++`ziggurat`, `gateway-maintenance` and the enabled native binary. The boot wrapper
++is `/tuya/tuya_start.sh`; original EZSP files are retained. Private configuration
++and checksummed wire state remain mode 0600. Child console output is discarded;
++native logs use the bounded RAM ring and must be read through `/api/logs`.
++
++Quiesce → complete freeze/export → clean stop → restart passed before reboot.
++`/bin/reboot` then automatically started supervisor 126, Ziggurat 134 and native
++149. Native logged readiness 121 seconds after startup, following lifecycle/hello
++timeouts; it recovered without manual restart. HTTP/HTTPS, pinned binary MD5s,
++23-entry inventory, actual light read/bind/reporting replies and a humidity report
++passed after reboot. The initial host observation deadline expired before the
++confirmation. Cold-boot Configure blocking requires further investigation;
++kernel RNG readiness is suspected, not established, and randomness checks remain.
++
++After reboot memory was 12844 KiB free and 8136 KiB cached out of 27892 KiB.
++The earlier low free-memory reading included filesystem caches and testing
++artifacts; it did not establish a production heap leak. Do not sum LinuxThreads
++RSS entries sharing the same address space.
++
++## Final recovery checkpoint
++
++The final controlled quiesce/export saved complete frozen network, key, child
++and address state plus native persisted state privately. Rollback preparation
++verified identity/security and nonregressing NWK/APS counters and applied safety
++margins. The standard NCP backup passed offline validation. The pair then stopped
++and restarted through the permanent launcher; HTTP/HTTPS returned online with
++23 inventory entries. Artifact hashes and validation evidence are archived in
++Git-ignored diagnostics. This certifies backup preparation, not a performed live
++reverse restore. Any later rollback needs a newly frozen snapshot after subsequent
++traffic. Original two child records remain archived; the post-start child table
++was empty, so direct-child continuity/wake/rejoin remains unproven.
 diff --git a/RECOVERY_TOOLING.md b/RECOVERY_TOOLING.md
 new file mode 100644
-index 0000000..ac603e5
+index 0000000..34ae5d3
 --- /dev/null
 +++ b/RECOVERY_TOOLING.md
-@@ -0,0 +1,160 @@
+@@ -0,0 +1,189 @@
 +# Prepared deployment/recovery tools — 2026-10-03
 +
-+Step 1 is complete on the host. Nothing here was installed on the gateway, and
-+no radio was accessed. The hardware round trips remain steps 6–8 of the deployment
-+plan. These tools provide guarded procedures, not guaranteed recovery from an
-+unresponsive RCP or arbitrary stale counters.
++Recovery tools are deployed under `/tuya/native`. Both NCP and RCP bootloader
++entry/run round trips passed on this gateway; the pinned RCP application was
++flashed without changing bootloader or NVM3. Fresh complete frozen rollback
++state is saved privately on the host. No live reverse NCP restoration was
++performed. Recovery from an unresponsive RCP or arbitrary stale counters remains
++unproven. See [current checkpoint](ZIGGURAT_DEPLOYMENT_PLAN.md).
++
++Remote freeze examples below that use the former staging path must now specify
++`--bridge /tuya/native/gateway-maintenance`. Quiesce with
++`/tuya/native/paired_control.sh quiesce`, export complete frozen state, then
++stop with `paired_control.sh stop --frozen-snapshot-saved`. Start a fresh pair
++with `/tuya/tuya_start.sh`; do not merely remove the quiesce marker.
 +
 +## Artifacts and offline packaging
 +
@@ -361,25 +556,50 @@ index 0000000..ac603e5
 +UART tests use host PTYs. Real device timing/menu/ownership compatibility still
 +needs the later maintenance checks. No code here guarantees recovery if both
 +application and bootloader cannot be reached.
++
++### Real-device capture behavior (2026-10-03)
++
++An exclusive Bellows connection resets this NCP and leaves `networkState` at
++`NO_NETWORK`. The capture helper sets runtime security level 5 and Zigbee PRO stack profile 2,
++then calls `networkInit(0)` to resume the saved
++network and requires `JOINED_NETWORK` before reading. It never calls formation
++or joining commands. Initialization can transmit and advance counters, so final
++capture and bootloader entry must use the same connection. If initialization
++fails, stop; do not substitute network formation. Seven focused tool tests pass.
++
++A daemon whose supervisor is SIGSTOPped can remain as a zombie after graceful
++exit. Confirm state `Z`, zero file descriptors and the device-side UART-free
++check; disappearance from `/proc` cannot be required until its parent reaps it.
++
++The first real RCP reverse-entry check exposed a helper addressing error: IID 0
++is reserved in this SDK's two-instance build, and `IidToInstance(0)` returns null.
++The corrected helper sends `90 01 03` (IID 1, RESET, BOOTLOADER), with HDLC FCS.
++The previous `80 01 03` frame was rejected; firmware flashing itself succeeded.
++Four host PTY tests pass for the corrected helper, including framing and baud/flow
++switches. See the step 8 execution record for the physical verification result.
 diff --git a/ZIGGURAT_DEPLOYMENT_PLAN.md b/ZIGGURAT_DEPLOYMENT_PLAN.md
 new file mode 100644
-index 0000000..5510ece
+index 0000000..45c18e8
 --- /dev/null
 +++ b/ZIGGURAT_DEPLOYMENT_PLAN.md
-@@ -0,0 +1,516 @@
+@@ -0,0 +1,604 @@
 +# Deploy Ziggurat on the existing gateway gateway
 +
 +## Current state and next action — 2026-10-03
 +
-+**Deployment is in progress.** Use the existing gateway at
++**All 12 Zigbee deployment steps are complete, with the limits below.** Use the existing gateway at
 +`192.168.178.62`; no spare gateway or radio is required. This plan supersedes
 +older recommendations to rehearse on spare hardware.
 +
-+Production currently uses the native EZSP service and EmberZNet 7.5.1.0 / EZSP
-+v13 on `/dev/ttyS1`. The optional native Ziggurat backend, COBS Unix API and
-+native-owned persistence pass host tests; both native variants and Ziggurat
-+build for MIPS. Ziggurat-only device simulations pass. Multi-PAN HDLC firmware
-+is built but **has not been flashed**.
++The existing Zigbee network is online through native → COBS Unix socket →
++Ziggurat → real HDLC RCP (IID 1), with all 23 inventory devices retained.
++Permanent paired supervision is installed and running from `/tuya/native`;
++the original EZSP supervisor was retired with its files retained for rollback.
++Network identity/security match the final private backup; NWK/APS counters advanced.
++Steps 1–12 completed. Controlled reboot recovered automatically with a
++121-second native readiness delay; final frozen recovery state is archived.
++Sleepy-child stimulation was waived and remains physically unverified; broadcast
++relay-quorum/CCA verdicts are intermittent. See [measured findings](REAL_RADIO_MIGRATION.md). Thread IID 2 remains unused.
 +
 +**Step 1 is complete:** images are packaged/validated, binaries rebuilt, recovery
 +commands and candidate paired launcher implemented, and host tests pass. Exact
@@ -390,13 +610,11 @@ index 0000000..5510ece
 +network export are saved and validated. Production stayed online; its binary and
 +processes were not replaced/restarted. Joining was already closed.
 +
-+**Execution checkpoint:** steps 1–4 completed.
++**Execution checkpoint:** steps 1–12 completed.
 +
-+**Next action:** step 5, awaiting direct approval required by automatic action
-+review. The maintenance command was rejected twice and executed nothing.
-+The active goal requests migration, but the reviewer does not accept goal/tool
-+context as trusted permission to supersede the earlier simulation-only restriction.
-+A direct approval request for steps 5–12 is pending. Production remains on EZSP.
++**Next action:** investigate cold-boot Configure latency and verify sleepy devices
++when available, then plan local Thread/Matter integration and combined resource
++measurements. IID 2 remains unused; no Thread/Matter deployment is claimed.
 +
 +The objective of this deployment is existing-network Zigbee operation through
 +native → COBS Unix socket → Ziggurat → HDLC RCP. Thread and Matter follow later;
@@ -641,10 +859,17 @@ index 0000000..5510ece
 +
 +## 5. Begin maintenance: stop production and finalize the handover backup
 +
-+**Not started:** automatic review rejected the maintenance action before execution.
-+No SIGSTOP/SIGTERM or serial bridge launch occurred. Steps 3 and 4 remain complete;
-+private backups and staged binaries are ready. Wait for the pending direct user
-+approval before another maintenance attempt.
++**Completed 2026-10-03:** fresh 65-record native export, consistent private
++application archive and exclusive normalized/security backups saved. Supervisor
++126 is suspended; exited daemon 655 is a zombie with no descriptors; bridge 1344
++is the verified sole UART owner. Existing saved network initializes after setting
++runtime Zigbee PRO profile 2 (boot default is 0). The guarded capture helper and
++seven focused tests cover this requirement; no formation/flash was performed.
++Repeat capture immediately before upload after the step 6 round trip.
++
++
++Direct user approval permits maintenance and flashing. The earlier rejected
++attempts executed no maintenance commands.
 +
 +1. Disable automated controls/joins and take a new native export through the
 +   running owner. Use a new private filename for every capture.
@@ -671,6 +896,15 @@ index 0000000..5510ece
 +
 +## 6. Verify bootloader entry and return on this gateway
 +
++**Completed 2026-10-03:** bootloader entry acknowledged, direct UART helper
++verified its menu and selected run without uploading. EZSP v13 returned and the
++fresh final capture retained identity/security. The same capture connection then
++entered bootloader. Final normalized/import/native/recovery files are saved
++privately. TCP OOB flow switching failed to expose the menu; restarting the exact
++bridge with explicit `-f` at 115200 made the menu verifiable. Use that no-flow
++bridge for upload, not an assumed OOB setting.
++
++
 +With exclusive bridge ownership, run the existing non-upload round trip:
 +
 +```sh
@@ -688,6 +922,13 @@ index 0000000..5510ece
 +entry/bridge settings; do not upload to compensate for an unverified connection.
 +
 +## 7. Upload only the RCP application
++
++**Completed 2026-10-03:** bootloader accepted the pinned 103800-byte RCP
++GBL at 100% and run was requested. Only application range `[0x4000,0x1d52c)`
++was programmed; bootloader/NVM3 were excluded. Exact serial bridge stopped and
++UART-free check passed. Original supervisor remains suspended. No migrated
++Zigbee network has started yet (checkpoint D).
++
 +
 +Use the validated RCP GBL and its recorded SHA256. With the confirmed bootloader
 +menu, correct 115200/no-flow-control bridge and exclusive ownership:
@@ -711,6 +952,14 @@ index 0000000..5510ece
 +physical recovery; there is no honest guaranteed software rollback for that case.
 +
 +## 8. Start Ziggurat alone and test reverse entry before starting Zigbee
++
++**Completed 2026-10-03:** real IID 1 RCP identity matches the final NCP
++backup; COBS v2 readiness/firmware queries passed (5.34/9.65 ms through SSH;
++RSS 1252 KiB before network load). First reverse-entry attempt exposed reserved
++IID 0 addressing in the helper. Corrected to IID 1; host/MIPS rebuild and four
++PTY tests passed, then physical Gecko menu and run were verified without upload.
++Ziggurat restarted and real hardware identity matched again. No network Start.
++
 +
 +Keep the original launcher suspended. Create the private socket directory and
 +manually start only Ziggurat, with console output bounded in RAM. The following
@@ -740,6 +989,22 @@ index 0000000..5510ece
 +
 +## 9. Start the staged native client with final state
 +
++**Completed 2026-10-03:** corrected static MIPS Ziggurat deployed; native
++online/formed on backend `ziggurat`, 23 existing devices retained, HTTP/HTTPS
++healthy. Live stack identity/security match the final backup privately and both
++NWK/APS counters are advanced. State persists privately under `/tuya/native`.
++Checkpoint E now applies: rollback requires a fresh frozen stack snapshot.
++Eight actual native/host-Ziggurat/simulator lifecycle scenarios pass after fix.
++
++
++**In progress 2026-10-03:** final private state installed, original 23-device
++inventory retained. First network start failed before reset completion because
++Ziggurat's owner reset also targeted reserved IID 0. Fixed to active IID 1;
++16 Rust transport tests, seven simulator checks and eight host multi-PAN
++scenarios pass. Rebuilding the MIPS binary before retry. Native remains offline;
++permanent startup has not been installed.
++
++
 +Install only the **final** prepared private native state and consistent application
 +files in the chosen runtime directory, verifying ownership/checksum. Keep host
 +copies immutable. Start the staged enabled native daemon manually, using the
@@ -761,14 +1026,39 @@ index 0000000..5510ece
 +
 +## 10. Validate the existing network during a reversible observation window
 +
++**Completed 2026-10-03 with explicit limits:** user shortened the window
++to 15 minutes; actual observation was 1215 seconds / 113 online snapshots with
++zero offline/error samples. Six Zigbee devices (lights and temperature/humidity)
++reported; six non-Zigbee inventory entries are excluded from that count. Real
++native light toggle, APS-acknowledged readback and restore passed. Group delivery
++returned success after settling; broadcasts obtained actual descriptor responses
++but relay quorum/CCA verdicts remained intermittent. Retain this limitation.
++User waived sleepy-child stimulation: physically unverified, not a claimed pass.
++Summed top CPU was native 0–13%, Ziggurat 0–1%; RSS about 3600/2012 KiB and memory
++stable. Security checkpoint state changes approximately once/minute. Native
++SIGTERM completed, complete frozen snapshot and offline rollback preparation
++passed, and manual native restart returned online with 23 inventory entries.
++
++
++**Observation details 2026-10-03:** real native light toggle/readback/restore passed
++with 35–38 ms APS acknowledgements. A later group read returned delivery success;
++broadcast descriptor reads reached the router but relay quorum/CCA verdicts were
++intermittent. The user shortened the window to 15 minutes; it has completed. The user said no sleepy device
++can be stimulated now and authorized assuming that check; retain it as physically
++unverified. See [hardware findings and measurements](REAL_RADIO_MIGRATION.md).
++The inventory contains 17 Zigbee plus six non-Zigbee entries; count radio reports
++separately. Memory/RSS is stable, and high top `%MEM` reflects virtual allocation.
++
++
 +Keep joining and security rotation closed. Test one already-paired light with
 +an explicit reversible command, then restore its previous state. Verify real
 +APS success rather than HTTP admission alone. Check group/broadcast behavior,
 +existing routers, temperature/humidity/contact reports and a naturally waking
 +sleepy child. Preserve existing pairings; do not re-pair to hide failures.
 +
-+Observe for at least 30 minutes of active traffic and until representative sleepy
-+devices have reported (extend the window for their actual reporting periods).
++Observe for at least 15 minutes of active traffic (user reduced the window on
++2026-10-03). The user waived physical sleepy-child verification for this cutover;
++retain it as unverified rather than extending the window until a remote is pressed.
 +Measure `top` summed LinuxThreads CPU, RSS, MemFree, control latency, UART errors,
 +state-write rate and reconnect behavior. Use current EZSP observations as the
 +baseline; synthetic 5.27 ms query timing is not a required radio latency target.
@@ -786,6 +1076,16 @@ index 0000000..5510ece
 +
 +## 11. Install permanent paired supervision only after manual validation
 +
++**Completed 2026-10-03 with a startup latency limit:** permanent paired launcher, private configuration/state and pinned binaries installed under `/tuya/native`. Supervised startup, quiesce, complete freeze/export and clean UART release passed. Controlled `/bin/reboot` automatically started the pair (supervisor 126, Ziggurat 134, native 149); HTTP/HTTPS returned online/formed with 23 inventory entries and real existing-light descriptor, bind, reporting and read-attribute replies, plus a humidity report. Native logged readiness 121 seconds after its start, following lifecycle/hello timeouts; the initial host deadline expired before verification. No manual restart was needed. Cold-boot Configure blocking remains a follow-up investigation, with RNG readiness suspected but unproven. Device binary MD5s match the installed artifacts. Free RAM after reboot was 12844 KiB, cached 8136 KiB. Step 12 must save the newest frozen state before closure.
++
++
++**In progress 2026-10-03:** fresh pre-install frozen export saved, staged
++processes stopped, UART release verified. Original launcher/binary/config retained
++as `.ezsp-backup` files plus immutable host archives. Verified binaries/config
++moved atomically into `/tuya/native`; paired launcher installed. Supervised startup
++returned online with 23 inventory entries. Next test quiesce/freeze/stop and reboot.
++
++
 +Prepare an atomic launcher update retaining the original `/tuya/tuya_start.sh`
 +and v13-compatible binary/config privately. The prepared `ziggurat_start.sh` uses the paired supervisor. The old `native_start.sh` only
 +supervises the native daemon: it is **not sufficient** for the two-process backend.
@@ -801,7 +1101,8 @@ index 0000000..5510ece
 +
 +Install intended binaries/config atomically with enough room for rollback and
 +state temporary files; recheck all hashes. Test supervised process startup first,
-+then a controlled gateway reboot. Preserve the host's latest private snapshot
++then a controlled gateway reboot (`gateway_ssh /bin/reboot`; this device has
++no `/sbin/reboot`). Preserve the host's latest private snapshot
 +before reboot; `/tmp` sockets/logs are ephemeral, network state is not.
 +
 +**Pass:** startup order, reboot, service health, persistence and maintenance stop
@@ -810,6 +1111,9 @@ index 0000000..5510ece
 +resume it. Restoring a launcher alone does not undo a radio migration.
 +
 +## 12. Close the Zigbee deployment, then add Thread/Matter separately
++
++**Completed 2026-10-03:** permanent supervisor quiesced; latest complete frozen stack and native persisted state archived privately. Network/security identity and nonregressing NWK/APS counters passed rollback preparation; the advanced standard NCP recovery backup passed offline validation. Pair stopped cleanly and a fresh permanent launcher returned online/formed with 23 inventory entries; HTTP and HTTPS passed. Final private artifact hashes/validation record saved, original network/application/service files and pinned NCP GBL retained. No reverse NCP restore was executed. Zigbee deployment is closed with the documented sleepy-child, intermittent broadcast, cold-boot latency and crash-recovery limits. Thread/Matter remains a separate future phase on this same gateway.
++
 +
 +Save a fresh private frozen recovery snapshot during a controlled stop, resume
 +Zigbee and archive the deployment hashes/validation record. Retain the NCP GBL,
@@ -885,32 +1189,30 @@ index 0000000..5510ece
 +plan, rather than a requirement for another gateway.
 diff --git a/ZIGGURAT_INTEGRATION.md b/ZIGGURAT_INTEGRATION.md
 new file mode 100644
-index 0000000..5efdb41
+index 0000000..be6c64f
 --- /dev/null
 +++ b/ZIGGURAT_INTEGRATION.md
-@@ -0,0 +1,273 @@
+@@ -0,0 +1,270 @@
 +# Native service ↔ Ziggurat integration
 +
 +## Current state and plan — 2026-10-03
 +
-+**Implemented and verified in simulation.** The optional native COBS/Unix socket
-+backend, native-owned state store and recovery lifecycle are complete. Both EZSP
-+and Ziggurat host suites and MIPS builds pass. Thirteen scripted-peer cases and
-+six actual native-service/Ziggurat/host-RCP scenarios pass. The gateway ran only
-+Ziggurat and a socket probe against synthetic host radio state; all eight checks
-+passed and temporary uploads were removed. Production remains on EZSP with its
-+network formed, 23 known devices and an unchanged executable checksum.
++**Implemented and deployed on the real gateway.** The native COBS/Unix socket
++backend, native-owned state store and paired supervision are running against
++the flashed HDLC RCP. Both backend host suites and MIPS builds pass; actual
++host simulation and real existing-network traffic passed. Controlled reboot
++returned online automatically with 23 inventory entries. See
++[deployment and rollback](ZIGGURAT_DEPLOYMENT_PLAN.md) and
++[hardware findings, timings and limitations](REAL_RADIO_MIGRATION.md).
 +
-+**Next:** follow the [same-device deployment/rollback plan](ZIGGURAT_DEPLOYMENT_PLAN.md),
-+validate real Zigbee traffic, then integrate the Thread consumer and Matter.
-+No spare gateway is required. No firmware was flashed;
-+the native service was neither deployed nor restarted. The 1000-frame restart
-+margin follows ZHA's policy and does not guarantee safety after arbitrary outages.
++Cold-boot readiness took 121 seconds; RNG readiness is suspected, not proven.
++Sleepy-child stimulation was waived and remains physically unverified.
++Broadcast terminal verdicts remain intermittent. The 1000-frame restart margin
++follows ZHA's policy and does not guarantee safety after arbitrary outages.
 +
-+The goal is a standalone gateway gateway: native device/application handling talks
-+to Ziggurat over a Unix stream socket; Ziggurat speaks HDLC/Spinel to the radio.
-+The later Thread consumer uses a separate HDLC endpoint, not this Zigbee API.
-+This work does not implement Thread, OTBR or Matter.
++Next: local Thread/OTBR on the separate HDLC endpoint and standalone Matter,
++with coordinated channel/reset/scans and combined gateway resource measurements.
++IID 2 is unused. Thread, OTBR and Matter are not implemented by this deployment.
 +
 +## Ownership and processes
 +
@@ -932,8 +1234,7 @@ index 0000000..5efdb41
 +
 +Disabled outputs remain `build/host` and `build/mips`. Enabled outputs live in
 +`build/host-ziggurat` and `build/mips-ziggurat`. No executable is deployed by make.
-+The native project requires its stock RSDK and C++03. Do not deploy these native
-+binaries during this task.
++The native project requires its stock RSDK and C++03. The production gateway runs `build/mips-ziggurat/microhad-zigbee-native`.
 +
 +## Local API and configuration
 +
@@ -1452,16 +1753,18 @@ index 0000000..4141731
 +done
 diff --git a/scripts/ezsp_final_capture.py b/scripts/ezsp_final_capture.py
 new file mode 100644
-index 0000000..a2ae13a
+index 0000000..cbfd589
 --- /dev/null
 +++ b/scripts/ezsp_final_capture.py
-@@ -0,0 +1,157 @@
+@@ -0,0 +1,183 @@
 +#!/usr/bin/env python3
 +"""Exclusive EZSP v13 final read-only capture, optionally enter bootloader immediately.
 +
 +Default validates the comparison export offline. Live mode requires the native
 +supervisor/daemon stopped and exactly one inspected serial bridge owning UART.
 +No flash, network formation, joining, key or counter write commands are issued.
++After the connection reset, networkInit may resume the existing token-backed
++network. This can transmit; capture must follow initialization on this connection.
 +"""
 +import argparse
 +import asyncio
@@ -1502,6 +1805,29 @@ index 0000000..a2ae13a
 +        if cid in (0x26,0x27,0x28,0x69,0x116,0x91,0x114,0x52,0x10c,0x100,0x101,0x102,0x10f,0x4a):
 +            protocol.COMMANDS[name]=(cid,tx,RawResponse)
 +            protocol.COMMANDS_BY_ID[cid]=(name,tx,RawResponse)
++
++
++async def resume_existing_network(ezsp):
++    import bellows.types as t
++    state, = await asyncio.wait_for(ezsp.networkState(),10)
++    if state == t.EmberNetworkStatus.NO_NETWORK:
++        # The retained NCP boots with stack profile 0; production sets Zigbee
++        # PRO profile 2 before networkInit. These are runtime settings only.
++        for config, value in ((t.EzspConfigId.CONFIG_SECURITY_LEVEL,5),
++                              (t.EzspConfigId.CONFIG_STACK_PROFILE,2)):
++            status, = await asyncio.wait_for(ezsp.setConfigurationValue(config,value),10)
++            if int(status):
++                raise ValueError('saved-network runtime configuration failed')
++        status, = await asyncio.wait_for(ezsp.networkInit(networkInitBitmask=t.EmberNetworkInitBitmask(0)),10)
++        if status != t.EmberStatus.SUCCESS:
++            raise ValueError('persisted network initialization failed; formation forbidden')
++        for _ in range(20):
++            state, = await asyncio.wait_for(ezsp.networkState(),10)
++            if state == t.EmberNetworkStatus.JOINED_NETWORK:
++                break
++            await asyncio.sleep(0.1)
++    if state != t.EmberNetworkStatus.JOINED_NETWORK:
++        raise ValueError('existing network is not joined; formation forbidden')
 +
 +
 +async def capture(ezsp):
@@ -1576,6 +1902,7 @@ index 0000000..a2ae13a
 +        await ezsp.connect(use_thread=False)
 +        if ezsp.ezsp_version != 13:
 +            raise ValueError('EZSP v13 required')
++        await resume_existing_network(ezsp)
 +        raw_read_protocol(ezsp)
 +        raw = await asyncio.wait_for(capture(ezsp),120)
 +        compare(original,normalize(raw))
@@ -1639,10 +1966,10 @@ index 0000000..87a7c4a
 +esac
 diff --git a/scripts/test_deployment_tools.py b/scripts/test_deployment_tools.py
 new file mode 100644
-index 0000000..a2c8dea
+index 0000000..c3a446d
 --- /dev/null
 +++ b/scripts/test_deployment_tools.py
-@@ -0,0 +1,96 @@
+@@ -0,0 +1,116 @@
 +#!/usr/bin/env python3
 +"""Synthetic deployment-tool checks; no gateway access or production secrets."""
 +import asyncio
@@ -1659,7 +1986,7 @@ index 0000000..a2c8dea
 +
 +from test_network_migration import fixture, raw_fixture
 +from network_backup import normalize
-+from ezsp_final_capture import capture, compare, raw_read_protocol
++from ezsp_final_capture import capture, compare, raw_read_protocol, resume_existing_network
 +from ziggurat_migration import freeze_and_export, encode_network
 +from ziggurat_cobs import encode
 +
@@ -1667,6 +1994,26 @@ index 0000000..a2c8dea
 +
 +
 +class Tools(unittest.TestCase):
++    def test_existing_network_init_without_formation_and_refusal(self):
++        import bellows.types as t
++        class Peer:
++            def __init__(self, state, status=t.EmberStatus.SUCCESS):
++                self.state=state; self.status=status; self.initializations=0
++            async def networkState(self): return (self.state,)
++            async def setConfigurationValue(self, config, value): return (t.EzspStatus.SUCCESS,)
++            async def networkInit(self, networkInitBitmask):
++                self.initializations+=1
++                if self.status==t.EmberStatus.SUCCESS:self.state=t.EmberNetworkStatus.JOINED_NETWORK
++                return (self.status,)
++        p=Peer(t.EmberNetworkStatus.NO_NETWORK)
++        asyncio.run(resume_existing_network(p));self.assertEqual(p.initializations,1)
++        asyncio.run(resume_existing_network(p));self.assertEqual(p.initializations,1)
++        p=Peer(t.EmberNetworkStatus.NO_NETWORK,t.EmberStatus.NOT_JOINED)
++        with self.assertRaises(ValueError):asyncio.run(resume_existing_network(p))
++        p=Peer(t.EmberNetworkStatus.LEAVING_NETWORK)
++        with self.assertRaises(ValueError):asyncio.run(resume_existing_network(p))
++        self.assertEqual(p.initializations,0)
++
 +    def test_final_capture_raw_error_rows_and_read_only_commands(self):
 +        from bellows.ezsp.v13.commands import COMMANDS
 +        source=raw_fixture()

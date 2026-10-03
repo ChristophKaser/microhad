@@ -4,19 +4,128 @@
     1,
     2,
     3,
-    4
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12
   ],
-  "next_step": 5,
-  "native_documentation_commit": "baea5574560457b61c6c949d1ca7eba9de081a29",
-  "staged_path": "/tuya/ziggurat-stage",
-  "production_backend": "ezsp",
-  "production_online": true,
-  "firmware_flashed": false,
-  "service_stopped_or_restarted": false,
-  "staging_flash_remaining_kib": 3568,
-  "inactive_native_test_archived_before_removal": true,
-  "synthetic_device_checks_passed": 8,
-  "preliminary_import_started_network": false,
-  "approval_review_rejections": 2,
-  "pending": "Direct user approval for steps 5\u201312 required by action reviewer"
+  "active_step": null,
+  "radio_flashed": true,
+  "application_only": true,
+  "original_supervisor_suspended": false,
+  "permanent_startup_installed": true,
+  "network_online": true,
+  "inventory_count": 23,
+  "zigbee_inventory_count": 17,
+  "joining_closed": true,
+  "thread_iid2_active": false,
+  "private_backups_git_ignored": true,
+  "real_light_test": {
+    "native_http_command": true,
+    "real_aps_ack_and_readback": true,
+    "results": [
+      {
+        "phase": "initial-read",
+        "actual_on": true,
+        "aps_ack_ms": 35.47797100327443,
+        "response_ms": 80.92932800354902
+      },
+      {
+        "phase": "toggled",
+        "actual_on": false,
+        "aps_ack_ms": 37.53852999943774,
+        "response_ms": 37.54042400396429
+      },
+      {
+        "phase": "restored",
+        "actual_on": true,
+        "aps_ack_ms": 35.61374499986414,
+        "response_ms": 35.61496699694544
+      }
+    ]
+  },
+  "group_broadcast_tests": [
+    {
+      "test": "group-read",
+      "terminal_status": 8,
+      "elapsed_ms": 1595.507229998475,
+      "received_aps_frames": 15
+    },
+    {
+      "test": "broadcast-descriptor-read",
+      "terminal_status": 8,
+      "elapsed_ms": 1639.868967991788,
+      "received_aps_frames": 1
+    }
+  ],
+  "artifact_hashes": {
+    "native": {
+      "bytes": 1503604,
+      "sha256": "be9937847d07fb3b6589b0242ae652bf39f80f36256316231f032483df2bb099"
+    },
+    "ziggurat": {
+      "bytes": 3565456,
+      "sha256": "d7f163a92aa2d0f00a1220ea8ce69e2978a9c43e8fe3ee4f2691849428176c8b"
+    },
+    "maintenance": {
+      "bytes": 47804,
+      "sha256": "87fe590105715b73380981934a999357593924062747dc25256bec549df449f1"
+    },
+    "rcp": {
+      "bytes": 103800,
+      "sha256": "5e835cf429dbc25ded9e6217f620d0d2243c11c98935de0e29e387657063bb48"
+    }
+  },
+  "original_supervisor_retired": true,
+  "controlled_reboot_verified": true,
+  "cold_boot_native_ready_seconds": 121,
+  "cold_boot_rng_cause": "suspected, unproven",
+  "final_frozen_backup_archived": true,
+  "ncp_rollback_backup_offline_validated": true,
+  "live_ncp_reverse_restore_performed": false,
+  "sleepy_child_check": "user waived; physically unverified",
+  "original_child_count": 2,
+  "post_start_child_count": 0,
+  "post_reboot_memory_kib": {
+    "free": 12844,
+    "cached": 8136,
+    "total": 27892
+  },
+  "observation": {
+    "requested_seconds": 900,
+    "actual_seconds": 1215,
+    "samples": 113,
+    "offline_samples": 0,
+    "zigbee_devices_reporting": 6
+  },
+  "resource_observation": {
+    "native_rss_kib": 3600,
+    "ziggurat_rss_kib": 2012,
+    "native_top_cpu_percent_range": [
+      0,
+      13
+    ],
+    "ziggurat_top_cpu_percent_range": [
+      0,
+      1
+    ]
+  },
+  "native_commit": "5fb1fe0fc134ae55d95395886af5188e6be794d7",
+  "group_broadcast_followup": {
+    "group_read_terminal_status": 0,
+    "group_read_ms": 68.4,
+    "broadcast_matching_responses": 3,
+    "broadcast_attempts": 3,
+    "broadcast_terminal_statuses": [
+      8,
+      5,
+      8
+    ],
+    "limit": "intermittent relay quorum/CCA verdicts despite actual responses"
+  }
 }

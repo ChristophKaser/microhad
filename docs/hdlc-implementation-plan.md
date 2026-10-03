@@ -1,60 +1,41 @@
 # HDLC multi-PAN implementation plan
 
-## Current state — 2026-10-03
+## Current state and plan — 2026-10-03
 
-**The initial implementation is complete and published privately.** The
-MG1 two-instance HDLC firmware compiles; Ziggurat's shared transport and local
-Thread endpoint work against a simulated RCP on both the host and stock Tuya.
-All 8 device scenario checks pass, alongside 15 Rust and 7 Python tests.
-The freeze/export and COBS Unix extensions now pass all eight Tuya COBS checks
-and host migration/lifecycle tests. The native COBS client and ZHA-style native
-state persistence pass both backend suites, 13 scripted-peer cases and six actual
-stack lifecycle scenarios. Both native variants compile for MIPS. Production
-remains on EZSP; the native service was not deployed/restarted. See
-[native integration commands and results](native-ziggurat-integration.md).
-The linked firmware fits the configured Flash/RAM regions and contains both
-multi-instance initialization functions. **It has not been flashed.**
+**Zigbee production deployment is complete.** The two-instance MG1 HDLC RCP was
+flashed application-only on the existing Tuya. Patched MIPS Ziggurat owns IID 1;
+the native client uses COBS over a private Unix socket and owns durable state.
+All 12 migration steps, permanent supervision, automatic reboot recovery and
+final frozen recovery backup preparation are complete. Existing lights and
+measurement reports work. Thread IID 2 is unused. See
+[deployment/rollback](ziggurat-deployment-plan.md),
+[hardware measurements and limits](real-radio-migration.md) and
+[native protocol/state](native-ziggurat-integration.md).
 
-This is a transport prototype, not a working Thread border router or Matter
-controller. Actual OTBR/Thread integration, production native-client validation,
-Matter functionality and real-radio dual-network operation remain pending.
-The goal is fully standalone on the Tuya, with Zigbee IID 1 and Thread IID 2
-sharing one radio without cpcd. Common-channel operation, one reset owner and
-MG1 source-match limitations remain constraints. Cold-boot RNG readiness also
-needs investigation before production.
+The firmware, patches and build commands below remain the reproducible inputs.
+Owner reset and bootloader entry address IID 1; IID 0 is reserved for broadcast
+notifications in this SDK. Host/simulator checks now reject a reset to IID 0.
+The UART helper's reverse bootloader entry/run passed on hardware, while no live
+reverse NCP restoration was performed. Original backups and fresh frozen exports
+remain private and outside Git.
 
-The native read-only backup exporter is now deployed on the original EZSP v13
-radio firmware. Actual private state passes a stopped-stack import check on the
-host simulator. Ziggurat's new freeze/export operation and orderly rollback
-preparation pass synthetic running tests; the retained NCP image and RCP
-bootloader/storage layout pass offline checks. **No firmware was flashed.**
-Raw-token export is unavailable; live APS metadata is available through
-`getApsKeyInfo(TC_LINK)`. Hardware rollback remains unverified. Native checkpoint persistence is tested,
-but the ZHA-style restart margin does not guarantee safety after arbitrary crashes. See [network migration details](network-migration.md).
-
-Source, patches and documentation are in the
-[private repository](https://github.com/ChristophKaser/ziggurat-compilation).
-[Usage/results](hdlc-multipan-usage.md), [build manifest](hdlc-build-manifest.json)
-and [validation summary](hdlc-validation.json) record the evidence.
+Sleepy-child continuity is physically unverified (user waived stimulation),
+broadcast relay-quorum/CCA verdicts remain intermittent, and cold-boot readiness
+took 121 seconds. RNG blocking is suspected, not established. Crash recovery
+requires sufficiently fresh state; the restart margin is not an unconditional
+guarantee. Production memory after reboot had 12844 KiB free out of 27892 KiB.
 
 ## Remaining plan
 
-The [same-device deployment plan](ziggurat-deployment-plan.md) supersedes earlier
-suggestions to use spare hardware. It defines maintenance and rollback checkpoints
-for this gateway; no spare device is required.
+1. Investigate Configure/cold-boot readiness and verify sleepy devices.
+2. Add a local OTBR Unix transport or embedded Thread interface on IID 2;
+   coordinate reset, common channel and scans, then measure combined resources.
+3. Validate simultaneous PAN ACKs/polls, overlapping addresses and scan interference.
+4. Add standalone Matter and benchmark the complete gateway.
 
-1. Investigate cold-boot RNG readiness; add bounded, explicit startup error
-   handling without bypassing the RNG safety check.
-2. Implement and test a local OTBR Unix-socket transport adapter or embedded
-   Thread platform interface. Coordinate reset/recovery, scans and channel
-   changes with Ziggurat; benchmark combined RAM and CPU on the Tuya.
-3. Complete the recovery tools, then follow the staged firmware/network migration
-   and recovery checks on this gateway in a separately authorized maintenance window.
-   Complete the network-preservation gate below before using the production radio.
-   Validate both PANs' ACKs, sleepy-child polls, address collisions, broadcast
-   routing, scanning interference and sustained traffic on MG1.
-4. Validate the implemented native protocol-v2 client on this gateway,
-   add local Matter functionality, and measure the full standalone resource budget.
+No cpcd or spare gateway is required. Current deployment is Zigbee-only.
+Historical pre-flash preparation below explains backup design; the current
+execution evidence is in the linked deployment plan and hardware findings.
 
 ## Network preservation before flashing
 
@@ -88,7 +69,7 @@ Completed without flashing:
    application-only range. RCP NVM occupies `[0x37000,0x40000)` (36 KiB), and its
    strong Spinel-to-Gecko bootloader entry implementation is linked.
 
-Remaining before production migration:
+Preparation requirements (now see completed deployment evidence above):
 
 - Follow the same-device bootloader entry, flashing and logical restoration
   checkpoints, including the limits of recovery from an unresponsive application. The compiled
