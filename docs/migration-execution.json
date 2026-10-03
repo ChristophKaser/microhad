@@ -65,13 +65,14 @@
   ],
   "artifact_hashes": {
     "native": {
-      "bytes": 1503988,
-      "sha256": "d462e6ab87fea7402f70bede16a6f0087cc0851d3707d5c86d242a94fc01414b",
-      "md5": "cfea133ccc3f06d088facd95e5df783a"
+      "bytes": 1504596,
+      "md5": "9e2a0a853419f3818409bc757cec7a85",
+      "sha256": "380cbcebf06f18f64f403957e8f504aae81bc8dac1228c39acd7f24e4181c255"
     },
     "ziggurat": {
       "bytes": 3565488,
-      "sha256": "ac7402e0db872904d8999760bbea4e6bc1f1f640648d6a723b94c49d4bafe81d"
+      "md5": "f92b4c90422968a1420e965f51cb7115",
+      "sha256": "55473ed1f4ecf517e7276c76e8b796c7994e59a6225d97cba3510f5f52b4347e"
     },
     "maintenance": {
       "bytes": 47804,
@@ -116,7 +117,7 @@
       1
     ]
   },
-  "native_commit": "d8e2ae4c5a38e6626111bcae8c13e1a5c5905351",
+  "native_commit": "61c721817498efb70a2392a33f03f439a56a2b53",
   "group_broadcast_followup": {
     "group_read_terminal_status": 0,
     "group_read_ms": 68.4,
@@ -180,9 +181,31 @@
     "herdsman_comparison": {
       "document": "herdsman-th01-comparison.md",
       "profile_mismatch_confirmed": true,
-      "nwk_replay_counter_reset_hypothesis": "source-supported, not yet reproduced or confirmed live",
+      "nwk_replay_counter_reset_hypothesis": "actual host server defect reproduced and fixed; live failure attribution pending",
       "production_changed_during_review": false,
       "hardware_fault_proven": false
+    },
+    "herdsman_profile_and_replay_fix": {
+      "document": "th01-herdsman-fix.md",
+      "native_source_commit": "8954776",
+      "experiment_source_commit": "fe1a787",
+      "deployed": true,
+      "encrypted_regression_fails_before_passes_after": true,
+      "secured_trustcenter_denied_join_replay_guards_preserved": true,
+      "invalid_mic_rejected_without_baseline_poisoning": true,
+      "direct_association_guard_source_reviewed": true,
+      "direct_association_end_to_end_simulated": false,
+      "profile_acceptance_on_device": "pending: user unavailable",
+      "sustained_reporting": "pending",
+      "temporary_capture_running": false,
+      "rest_alert_accepted": true,
+      "rest_alert_handset_delivery_verified": false,
+      "joining_closed": true,
+      "online": true,
+      "inventory_count": 23,
+      "radio_flashed_for_this_fix": false,
+      "rollback_pair_archived_on_host": true,
+      "fresh_frozen_snapshot_archived": true
     }
   }
 }

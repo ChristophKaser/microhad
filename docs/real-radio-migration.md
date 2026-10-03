@@ -1,15 +1,23 @@
 # Real-radio Ziggurat migration — 2026-10-03
 
+> **Current fix and plan (2026-10-03):** the herdsman TH01 profile and scoped
+> fresh-join replay fix are host-tested and deployed. The replay defect failed
+> before and passes after the patch in the actual host server. Production is
+> online; joining is closed and temporary captures are stopped. Device acceptance
+> and sustained reporting await user availability. No radio flash was performed
+> for these fixes. Next: capture, REST alert, one pairing attempt, then observe.
+> [Implementation, tests, deployment and rollback](th01-herdsman-fix.md).
+
 > **Reporting correction (2026-10-03):** cached-endpoint rejoins previously
 > skipped binding/reporting setup. The native fix is tested for both backends
 > and deployed. Küche accepted setup and sent four reports, but sustained
 > reporting after a later rejoin remains unresolved.
-> [Current thermometer status](THERMOMETER_RECOVERY.md).
+> [Current thermometer status](thermometer-recovery.md).
 
 > **Post-deployment correction (2026-10-03):** investigation of Küche TH01
 > reproduced and fixed child loss on relayed own parent announcements, and fixed
 > rejection of TH01 signed humidity reads. Both fixes are deployed; the child
-> survives startup. [Evidence and current verification](THERMOMETER_RECOVERY.md).
+> survives startup. [Evidence and current verification](thermometer-recovery.md).
 
 
 ## Current checkpoint

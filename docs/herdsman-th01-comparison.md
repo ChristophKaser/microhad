@@ -1,6 +1,12 @@
 # TH01 / SNZB-02 herdsman comparison — 2026-10-03
 
-## Current state and next steps
+> **Fix checkpoint (2026-10-03):** native now matches the current herdsman TH01
+> profile. The fresh-join replay defect was reproduced and fixed on the host;
+> both verified MIPS executables are deployed. Device acceptance and sustained
+> reporting await user availability; temporary captures are stopped.
+> [Implementation, validation and current plan](th01-herdsman-fix.md).
+
+## State at the source-review checkpoint (superseded by deployed fix above)
 
 The thermometer is **not recovered**. Hardware failure is not established.
 Herdsman's device definition and our native setup differ, and inspection found

@@ -1,8 +1,14 @@
 # Küche TH01 recovery — 2026-10-03
 
+> **Fix checkpoint (2026-10-03):** native now matches the current herdsman TH01
+> profile. The fresh-join replay defect was reproduced and fixed on the host;
+> both verified MIPS executables are deployed. Device acceptance and sustained
+> reporting await user availability; temporary captures are stopped.
+> [Implementation, validation and current plan](th01-herdsman-fix.md).
+
 > **Herdsman comparison (2026-10-03):** hardware failure is not established.
-> Current TH01 setup differs from ours; a retained NWK replay baseline across
-> fresh joins is a concrete unverified Ziggurat hypothesis.
+> The herdsman profile is now deployed. The fresh-join replay defect is
+> reproduced and fixed on the host; its role in the live failure remains unverified.
 > [Profile, lifecycle, evidence and next steps](herdsman-th01-comparison.md).
 
 ## Current state and plan

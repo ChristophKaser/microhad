@@ -1,12 +1,18 @@
 diff --git a/HERDSMAN_TH01_COMPARISON.md b/HERDSMAN_TH01_COMPARISON.md
 new file mode 100644
-index 0000000..cf5a9d6
+index 0000000..84a80d2
 --- /dev/null
 +++ b/HERDSMAN_TH01_COMPARISON.md
-@@ -0,0 +1,187 @@
+@@ -0,0 +1,193 @@
 +# TH01 / SNZB-02 herdsman comparison — 2026-10-03
 +
-+## Current state and next steps
++> **Fix checkpoint (2026-10-03):** native now matches the current herdsman TH01
++> profile. The fresh-join replay defect was reproduced and fixed on the host;
++> both verified MIPS executables are deployed. Device acceptance and sustained
++> reporting await user availability; temporary captures are stopped.
++> [Implementation, validation and current plan](TH01_HERDSMAN_FIX.md).
++
++## State at the source-review checkpoint (superseded by deployed fix above)
 +
 +The thermometer is **not recovered**. Hardware failure is not established.
 +Herdsman's device definition and our native setup differ, and inspection found
@@ -342,15 +348,21 @@ index 6d87db8..74cc403 100644
  Sources: the retained [EZSP upgrade record](scripts/EZSP_UPGRADE.md), the
  [Silicon Labs NCP-to-host migration note](https://docs.silabs.com/zigbee/9.0.0/multiprotocol-solution-linux/host-ncp-rcp-migration),
 diff --git a/README.md b/README.md
-index c4042f0..c499988 100644
+index c4042f0..2c7fa8c 100644
 --- a/README.md
 +++ b/README.md
-@@ -1,18 +1,51 @@
+@@ -1,18 +1,57 @@
  # MicroHAD Native
  
++> **Fix checkpoint (2026-10-03):** native now matches the current herdsman TH01
++> profile. The fresh-join replay defect was reproduced and fixed on the host;
++> both verified MIPS executables are deployed. Device acceptance and sustained
++> reporting await user availability; temporary captures are stopped.
++> [Implementation, validation and current plan](TH01_HERDSMAN_FIX.md).
++
 +> **Herdsman comparison (2026-10-03):** hardware failure is not established.
-+> Current TH01 setup differs from ours; a retained NWK replay baseline across
-+> fresh joins is a concrete unverified Ziggurat hypothesis.
++> The herdsman profile is now deployed. The fresh-join replay defect is
++> reproduced and fixed on the host; its role in the live failure remains unverified.
 +> [Profile, lifecycle, evidence and next steps](HERDSMAN_TH01_COMPARISON.md).
 +
 +> **Reporting correction (2026-10-03):** cached-endpoint rejoins previously
@@ -405,7 +417,7 @@ index c4042f0..c499988 100644
  
  ## Build
  
-@@ -20,6 +53,10 @@ Ziggurat adapter and crash-safe persistence remain pending. See
+@@ -20,6 +59,10 @@ Ziggurat adapter and crash-safe persistence remain pending. See
  make host
  make test
  make mips
@@ -803,17 +815,175 @@ index 0000000..34ae5d3
 +The previous `80 01 03` frame was rejected; firmware flashing itself succeeded.
 +Four host PTY tests pass for the corrected helper, including framing and baud/flow
 +switches. See the step 8 execution record for the physical verification result.
+diff --git a/TH01_HERDSMAN_FIX.md b/TH01_HERDSMAN_FIX.md
+new file mode 100644
+index 0000000..ab0f608
+--- /dev/null
++++ b/TH01_HERDSMAN_FIX.md
+@@ -0,0 +1,146 @@
++# TH01 herdsman profile and fresh-join replay fix — 2026-10-03
++
++## Current state and plan
++
++Both fixes are implemented, host-tested and compiled for stock MIPS. Native
++commit 8954776 matches current upstream herdsman's eWeLink TH01 settings/order
++and fixes pending full configuration wakeups behind paused refreshes. Experiment
++commit fe1a787 contains the Ziggurat replay patch and actual-server encrypted
++regression. Both verified executables are deployed on the gateway. Readiness
++checks confirmed online=true, network_formed=true and 23 inventory entries.
++The five-minute joining window has closed and the temporary host capture has
++been stopped. A fresh private frozen network snapshot and the previous
++executable pair are archived on the host. Radio firmware, network identity
++and existing device inventory are preserved.
++
++The user is unavailable for a pairing attempt. The software profile is deployed,
++but acceptance of the new reporting settings by the thermometer and sustained
++reporting are **pending**, not confirmed. No action is required now.
++
++Next, when the user is available: attach a bounded rotating host capture, send
++the gateway REST alert, and request **one** pairing attempt. Inspect successful
++Bind/Configure Reporting responses and unsolicited reports. Do not ask for
++repeated resets while the sensor is already configured. One-hour reporting
++maxima require a full hour or a controlled change-triggered report to assess
++continued reporting; a quiet 15-minute window alone is not sufficient under
++these new settings.
++
++## Native profile
++
++Only manufacturer eWeLink / model TH01 receives this profile. On endpoint 1:
++
++1. Bind temperature (0x0402), humidity (0x0405), Power Configuration (0x0001).
++2. Temperature attribute 0x0000: int16 0x29, min 30 s, max 3600 s, change 20
++   (0.20 °C).
++3. Humidity attribute 0x0000: uint16 0x21, min 30 s, max 3600 s, change 100 (1%).
++4. Battery voltage 0x0020: uint8 0x20, min 3600 s, max 65000 s, change 0; read it.
++5. Battery percentage 0x0021: uint8 0x20, min 3600 s, max 65000 s, change 0; read it.
++
++There are no extra temperature/humidity reads between configuration writes.
++Other devices keep their previous generic configuration. A paused refresh now
++resumes on device traffic when configurationPending is true, so a queued full
++configuration can finish; ordinary read-only refreshes remain quiet on reports.
++Focused C++ tests check the full nine-operation TH01 plan, attributes, types,
++intervals, changes, order, manufacturer scoping, and pending wake behavior.
++
++## Confirmed replay defect and bounded fix
++
++Before the patch, the actual host Ziggurat server accepted an encrypted report
++with network counter 100. After an authorized fresh join, it rejected a new
++report with counter 4. Its security log explicitly reported a rollback from
++100 to 4. This reproduces a real stack defect; it is not yet proof that the
++same defect accounts for every real-device failure.
++
++NwkSecurity now has reset_incoming_counter_for_fresh_join(sender), which removes
++only the incoming NWK baseline for that IEEE. The shared begin_join calls it
++only after a fresh MAC association or a router-reported unsecured **new join**
++has passed the permit-window checks. Secured and trust-center rejoins do not
++call it. An authorized new join is the intended security-state replacement
++boundary; replay checks are not disabled for ordinary received traffic.
++
++The incoming counter belongs to the actual relaying IEEE. Other relayers and
++all unrelated device baselines remain intact. Network key, key sequence and
++coordinator outgoing frame counter are retained. Failed authentication does
++not install a new incoming baseline.
++
++scripts/test-fresh-join-replay.py uses only synthetic keys and a localhost RCP
++with the actual server. A valid processing-fence frame ensures negative cases
++were processed before assertions. It verifies initial acceptance, stale-frame
++rejection, secured rejoin and trust-center rejoin preserving counters, denied
++fresh joins preserving counters, authorized fresh joins accepting reset
++counters, invalid MIC rejection, duplicate rejection after the new baseline,
++unrelated relayer protection, wrong key-sequence rejection, and retained
++network identity/outgoing counters. The baseline test failed before the patch
++at the fresh-join report and passes afterward.
++
++The direct-association path and router new-join path share begin_join. The
++end-to-end regression exercises the router Update-Device path; the direct
++path's permit guard was source-reviewed, not independently radio-tested here.
++A legitimate parent change must still remove a child from its old parent's
++table. Do not suppress such changes to make a restored-child count look stable.
++
++## Verification and artifacts
++
++All passed:
++
++```sh
++cd microhad-zigbee-native
++make host test
++make mips
++make ZIGGURAT=1 host test
++make ZIGGURAT=1 mips
++
++cd ../ziggurat-compilation
++source scripts/rust-env.sh
++CARGO_TARGET_DIR="$PWD/build/host" cargo +nightly-2026-10-02 build \
++  --manifest-path worktrees/ziggurat-hdlc/Cargo.toml -p ziggurat-server
++python3 scripts/test-fresh-join-replay.py
++python3 scripts/test-hdlc-multipan.py
++python3 scripts/test-cobs-unix.py
++python3 ../microhad-zigbee-native/scripts/test_ziggurat_service.py
++ZIGGURAT_MULTIPAN=1 bash scripts/build-ziggurat.sh
++```
++
++The build script applies patches/ziggurat-fresh-join-replay.patch reproducibly
++alongside existing multipan, migration, stock compatibility and diagnostic
++patches. The pristine source checkout remains unchanged.
++
++New artifacts:
++
++- Native: 1504596 bytes, MD5 9e2a0a853419f3818409bc757cec7a85;
++  SHA-256 380cbcebf06f18f64f403957e8f504aae81bc8dac1228c39acd7f24e4181c255.
++- Ziggurat: 3565488 bytes, MD5 f92b4c90422968a1420e965f51cb7115;
++  SHA-256 55473ed1f4ecf517e7276c76e8b796c7994e59a6225d97cba3510f5f52b4347e.
++
++Old rollback executables: native MD5 cfea133ccc3f06d088facd95e5df783a,
++Ziggurat MD5 53046d62702c6b06f06bc1ef7bf01f0b. Both are archived privately
++on the host, avoiding extra copies on scarce device flash. Follow the existing
++quiesce/freeze/final-counter rollback procedure in ZIGGURAT_DEPLOYMENT_PLAN.md;
++never restart from stale pre-migration counters. The network snapshot was saved
++before stopping the pair. The two replacements were staged atomically and verified by MD5 before
++/tuya/tuya_start.sh started the pair. A subsequent read-only check verified
++both deployed MD5 values again and confirmed the network remains online with
++joining closed. No radio image was flashed during this update.
++
++## Diagnostic tools and production commands
++
++Use the existing scripts/diagnose_ziggurat_reporting.py modes (observe, rotating
++trace, bounded readback, and explicit REST pairing alert). Raw state/captures
++remain private and outside Git. The tools and commands are described in
++THERMOMETER_RECOVERY.md. A gateway REST notification request is proof of queue
++acceptance, not proof the handset displayed it.
++
++Native-only transfer uses:
++
++```sh
++./deploy.sh --host 192.168.178.62 --password-file ../ssh_password.txt \
++  --target /tuya/native --binary build/mips-ziggurat/microhad-zigbee-native --binary-only
++```
++
++Ziggurat transfer uses SSH stdin to a new /tuya/native/ziggurat.new, chmod 700,
++then atomic rename; no SCP subsystem exists. Check flash space before transfer,
++verify the checksum, and retain the old file on transfer failure. Preserve the
++paired launcher, runtime configuration and radio image.
++
++See HERDSMAN_TH01_COMPARISON.md for pinned upstream source revisions and
++THERMOMETER_RECOVERY.md for the complete earlier evidence and limitations.
 diff --git a/THERMOMETER_RECOVERY.md b/THERMOMETER_RECOVERY.md
 new file mode 100644
-index 0000000..bc0ac9d
+index 0000000..d3ada5c
 --- /dev/null
 +++ b/THERMOMETER_RECOVERY.md
-@@ -0,0 +1,284 @@
+@@ -0,0 +1,290 @@
 +# Küche TH01 recovery — 2026-10-03
 +
++> **Fix checkpoint (2026-10-03):** native now matches the current herdsman TH01
++> profile. The fresh-join replay defect was reproduced and fixed on the host;
++> both verified MIPS executables are deployed. Device acceptance and sustained
++> reporting await user availability; temporary captures are stopped.
++> [Implementation, validation and current plan](TH01_HERDSMAN_FIX.md).
++
 +> **Herdsman comparison (2026-10-03):** hardware failure is not established.
-+> Current TH01 setup differs from ours; a retained NWK replay baseline across
-+> fresh joins is a concrete unverified Ziggurat hypothesis.
++> The herdsman profile is now deployed. The fresh-join replay defect is
++> reproduced and fixed on the host; its role in the live failure remains unverified.
 +> [Profile, lifecycle, evidence and next steps](HERDSMAN_TH01_COMPARISON.md).
 +
 +## Current state and plan
@@ -3794,7 +3964,7 @@ index 3c0a099..996eb65 100644
              state=rollback_state(json.loads(Path(args.original).read_text()),json.loads(Path(args.last_stopped_state).read_text()),args.aps_upper_bound)
              bundle=open_coordinator(state)
 diff --git a/src/gateway.cpp b/src/gateway.cpp
-index 614e4c8..54f69f9 100644
+index 614e4c8..db87321 100644
 --- a/src/gateway.cpp
 +++ b/src/gateway.cpp
 @@ -1,4 +1,7 @@
@@ -4222,16 +4392,59 @@ index 614e4c8..54f69f9 100644
          return;
      }
      queueInterviewOperation(destination, InterviewActiveEndpoints, 0);
-@@ -3832,6 +4100,8 @@ void Gateway::buildRefreshOperations(unsigned short destination) {
+@@ -3832,7 +4100,10 @@ void Gateway::buildRefreshOperations(unsigned short destination) {
  
  void Gateway::buildConfigurationOperations(unsigned short destination) {
      InterviewState& state = interviews_[destination];
 +    if (state.configurationPending) state.refreshOnly = false;
 +    state.configurationPending = false;
      Device& device = devices_[state.ieeeAddress];
++    const bool herdsmanTh01 = device.manufacturerName == "eWeLink" && device.modelId == "TH01";
      state.operations.clear();
      state.operationIndex = 0;
-@@ -4093,6 +4363,8 @@ void Gateway::completeInterviewOperation(unsigned short destination) {
+     for (unsigned long i = 0; i < device.endpoints.size(); ++i) {
+@@ -3859,17 +4130,25 @@ void Gateway::buildConfigurationOperations(unsigned short destination) {
+     for (unsigned long i = 0; i < device.endpoints.size(); ++i) {
+         const EndpointDescriptor& endpoint = device.endpoints[i];
+         if (endpointSupports(endpoint, 0x0402)) {
+-            queueInterviewOperation(destination, InterviewConfigureReporting, endpoint.endpoint, 0x0402, 0x0000, 0x29, 20, 30, 300);
+-            queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0402, 0x0000);
++            queueInterviewOperation(destination, InterviewConfigureReporting, endpoint.endpoint, 0x0402, 0x0000, 0x29, 20,
++                                    30, herdsmanTh01 ? 3600 : 300);
++            if (!herdsmanTh01) queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0402, 0x0000);
+         }
+         if (endpointSupports(endpoint, 0x0405)) {
+-            queueInterviewOperation(destination, InterviewConfigureReporting, endpoint.endpoint, 0x0405, 0x0000, 0x21, 100, 30, 300);
+-            queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0405, 0x0000);
++            queueInterviewOperation(destination, InterviewConfigureReporting, endpoint.endpoint, 0x0405, 0x0000, 0x21, 100,
++                                    30, herdsmanTh01 ? 3600 : 300);
++            if (!herdsmanTh01) queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0405, 0x0000);
+         }
+         if (endpointSupports(endpoint, 0x0001)) {
+-            queueInterviewOperation(destination, InterviewConfigureReporting, endpoint.endpoint, 0x0001, 0x0021, 0x20, 1, 3600, 65000);
++            if (herdsmanTh01) {
++                queueInterviewOperation(destination, InterviewConfigureReporting, endpoint.endpoint, 0x0001, 0x0020, 0x20,
++                                        0, 3600, 65000);
++                queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0001, 0x0020);
++            }
++            queueInterviewOperation(destination, InterviewConfigureReporting, endpoint.endpoint, 0x0001, 0x0021, 0x20,
++                                    herdsmanTh01 ? 0 : 1, 3600, 65000);
+             queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0001, 0x0021);
+-            queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0001, 0x0020);
++            if (!herdsmanTh01) queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0001, 0x0020);
+         }
+         if (endpointSupports(endpoint, 0x0406)) {
+             queueInterviewOperation(destination, InterviewConfigureReporting, endpoint.endpoint, 0x0406, 0x0000, 0x18, 0, 0, 3600);
+@@ -3984,7 +4263,7 @@ void Gateway::wakeInterview(unsigned short destination) {
+            Do not turn every report into another read request after a failed
+            refresh; the scheduled sensor refresh or an announcement will
+            resume this state when another query is due. */
+-        if (found->second.refreshOnly) return;
++        if (found->second.refreshOnly && !found->second.configurationPending) return;
+         found->second.paused = false;
+         if (found->second.operationIndex < found->second.operations.size())
+             found->second.operations[found->second.operationIndex].attempts = 0;
+@@ -4093,6 +4372,8 @@ void Gateway::completeInterviewOperation(unsigned short destination) {
              state.persistentDirty = false;
          }
          buildConfigurationOperations(destination);
@@ -4240,7 +4453,7 @@ index 614e4c8..54f69f9 100644
      } else {
          addLog(state.refreshOnly ? "Sensor attribute refresh completed" : "Sensor interview completed");
          interviews_.erase(destination);
-@@ -4100,6 +4372,9 @@ void Gateway::completeInterviewOperation(unsigned short destination) {
+@@ -4100,6 +4381,9 @@ void Gateway::completeInterviewOperation(unsigned short destination) {
  }
  
  void Gateway::requestCoordinatorIeeeAddress() {
@@ -4250,7 +4463,7 @@ index 614e4c8..54f69f9 100644
      if (coordinatorIeeeAddressRequested_) return;
      coordinatorIeeeAddressRequested_ = true;
      addLog("Requesting coordinator IEEE address for device reporting bindings");
-@@ -4204,7 +4479,6 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
+@@ -4204,7 +4488,6 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
      unsigned short profile;
      unsigned long messageOffset;
      unsigned long length;
@@ -4258,7 +4471,7 @@ index 614e4c8..54f69f9 100644
      std::vector<unsigned char> message;
      if (payload.size() < 20) return;
      /* type(1), APS frame(11), LQI/RSSI(2), sender(2), binding/address(2), LVBytes */
-@@ -4217,6 +4491,19 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
+@@ -4217,6 +4500,19 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
         In particular Bind_rsp (0x8021) is valid at two bytes. */
      if (messageOffset + length > payload.size() || length < 2) return;
      message.assign(payload.begin() + messageOffset, payload.begin() + messageOffset + length);
@@ -4278,7 +4491,7 @@ index 614e4c8..54f69f9 100644
      std::map<unsigned short, std::string>::const_iterator nativeSender = nodeAddresses_.find(sender);
      if (nativeSender != nodeAddresses_.end()) wakeSceneProvisioning(nativeSender->second);
      std::map<std::string, std::string>::iterator nativeState = nativeSender == nodeAddresses_.end() ?
-@@ -4230,14 +4517,14 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
+@@ -4230,14 +4526,14 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
      }
      addFrameLog("RX", sender,
                  profile, cluster,
@@ -4298,7 +4511,7 @@ index 614e4c8..54f69f9 100644
          addLog(diagnostic.str());
      }
      if (profile != 0x0000 && profile != 0x0104) {
-@@ -4468,7 +4755,7 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
+@@ -4468,7 +4764,7 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
      if (profile == 0x0104 && !devices_[address->second].endpoints.empty()) {
          bool endpointKnown = false;
          for (unsigned long i = 0; i < devices_[address->second].endpoints.size(); ++i) {
@@ -4307,7 +4520,7 @@ index 614e4c8..54f69f9 100644
          }
          if (!endpointKnown) {
              addLog("Ignoring APS message from an undiscovered endpoint");
-@@ -4523,7 +4810,7 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
+@@ -4523,7 +4819,7 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
          if (known != nodeAddresses_.end()) {
              Device& device = devices_[known->second];
              Device before = device;
@@ -4316,7 +4529,7 @@ index 614e4c8..54f69f9 100644
              device.lastSeen = time(0);
              updateValueAlerts(device, before);
              markViewDirty();
-@@ -4536,7 +4823,7 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
+@@ -4536,7 +4832,7 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
          std::vector<unsigned char> response;
          response.push_back(0x19); response.push_back(transactionSequence);
          response.push_back(0x02); response.push_back(0x98); /* NO_IMAGE_AVAILABLE */
@@ -4325,7 +4538,7 @@ index 614e4c8..54f69f9 100644
          addLog("OTA query answered: no image available for " + address->second);
          return;
      }
-@@ -4545,14 +4832,14 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
+@@ -4545,14 +4841,14 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
          /* Only unicast commands receive default responses. Group/broadcast
             commands may use destination endpoint 255, which is not a valid
             source endpoint for a reply. Still dispatch their key events. */
@@ -4344,7 +4557,7 @@ index 614e4c8..54f69f9 100644
                                    static_cast<unsigned char>(zoneId));
          } else addLog("IAS zone ID pool exhausted; enrollment response not sent");
      } else if (cluster == 0x0500 && command == 0x00 && message.size() >= zclOffset + 2) {
-@@ -4572,7 +4859,7 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
+@@ -4572,7 +4868,7 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
              InterviewOperation& operation = interview->second.operations[interview->second.operationIndex];
              matched = (operation.type == InterviewAttributeRead || operation.type == InterviewBasicRead) &&
                        operation.transactionSequence == transactionSequence && operation.cluster == cluster &&
@@ -4353,7 +4566,7 @@ index 614e4c8..54f69f9 100644
              if (matched && operation.type == InterviewBasicRead && updateBasicIdentity(&devices_[address->second], records))
                  interview->second.persistentDirty = true;
          }
-@@ -4617,7 +4904,7 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
+@@ -4617,7 +4913,7 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
              interview->second.operations[interview->second.operationIndex].transactionSequenceAssigned) {
              InterviewOperation& operation = interview->second.operations[interview->second.operationIndex];
              if (operation.type == InterviewConfigureReporting && operation.transactionSequence == transactionSequence &&
@@ -4944,10 +5157,10 @@ index 035e88a..a3063d3 100644
      runUnitTests();
      runFcmUnitTests();
 diff --git a/test/unit_gateway.cpp b/test/unit_gateway.cpp
-index ad652c5..c2607f7 100644
+index ad652c5..269c6a1 100644
 --- a/test/unit_gateway.cpp
 +++ b/test/unit_gateway.cpp
-@@ -184,6 +184,51 @@ public:
+@@ -184,6 +184,54 @@ public:
          gateway.startInterview(node, true);
          assert(!gateway.interviews_[node].paused);
      }
@@ -4985,6 +5198,9 @@ index ad652c5..c2607f7 100644
 +        assert(!gateway.interviews_[node].paused && gateway.interviews_[node].configurationPending);
 +        assert(gateway.interviewRequestInFlight_ && gateway.interviewDeadline_ != 0);
 +        assert(operation.type == Gateway::InterviewAttributeRead && operation.transactionSequence == 42);
++        gateway.interviews_[node].paused = true;
++        gateway.wakeInterview(node);
++        assert(!gateway.interviews_[node].paused);
 +        gateway.completeInterviewOperation(node);
 +        assert(!gateway.interviewRequestInFlight_);
 +        assert(!gateway.interviews_[node].refreshOnly && !gateway.interviews_[node].configurationPending);
@@ -4999,7 +5215,49 @@ index ad652c5..c2607f7 100644
      static void deadlineSelectionMatchesHandlerOrdering() {
          Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
          const long now = time(0);
-@@ -1890,6 +1935,27 @@ static void testZclRejectsMalformedAttributes() {
+@@ -676,6 +724,41 @@ public:
+     static unsigned short operationCluster(const Gateway& gateway, unsigned short node, unsigned long index) {
+         return gateway.interviews_.find(node)->second.operations[index].cluster;
+     }
++    static void th01HerdsmanReportingPlan() {
++        const std::string ieee = "0x00124b002a52140a";
++        const unsigned short node = 0x1234;
++        EndpointDescriptor endpoint;
++        endpoint.endpoint = 1;
++        endpoint.inputClusters.push_back(0x0402);
++        endpoint.inputClusters.push_back(0x0405);
++        endpoint.inputClusters.push_back(0x0001);
++        Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
++        gateway.devices_[ieee].manufacturerName = "eWeLink";
++        gateway.devices_[ieee].modelId = "TH01";
++        buildConfiguration(&gateway, node, ieee, endpoint);
++        const std::vector<Gateway::InterviewOperation>& operations = gateway.interviews_[node].operations;
++        assert(operations.size() == 9);
++        for (unsigned int i = 0; i < 3; ++i) assert(operations[i].type == Gateway::InterviewBind);
++        assert(operations[0].cluster == 0x0402 && operations[1].cluster == 0x0405 && operations[2].cluster == 1);
++        assert(operations[3].type == Gateway::InterviewConfigureReporting && operations[3].cluster == 0x0402);
++        assert(operations[3].dataType == 0x29 && operations[3].minimumInterval == 30 &&
++               operations[3].maximumInterval == 3600 && operations[3].reportableChange == 20);
++        assert(operations[4].type == Gateway::InterviewConfigureReporting && operations[4].cluster == 0x0405);
++        assert(operations[4].dataType == 0x21 && operations[4].minimumInterval == 30 &&
++               operations[4].maximumInterval == 3600 && operations[4].reportableChange == 100);
++        assert(operations[5].type == Gateway::InterviewConfigureReporting && operations[5].attribute == 0x0020);
++        assert(operations[5].dataType == 0x20 && operations[5].minimumInterval == 3600 &&
++               operations[5].maximumInterval == 65000 && operations[5].reportableChange == 0);
++        assert(operations[6].type == Gateway::InterviewAttributeRead && operations[6].attribute == 0x0020);
++        assert(operations[7].type == Gateway::InterviewConfigureReporting && operations[7].attribute == 0x0021);
++        assert(operations[7].dataType == 0x20 && operations[7].minimumInterval == 3600 &&
++               operations[7].maximumInterval == 65000 && operations[7].reportableChange == 0);
++        assert(operations[8].type == Gateway::InterviewAttributeRead && operations[8].attribute == 0x0021);
++        /* The TH01 quirk is scoped to eWeLink; other devices retain their plan. */
++        gateway.devices_[ieee].manufacturerName = "Other";
++        gateway.buildConfigurationOperations(node);
++        assert(operations.size() == 10 && operations[3].maximumInterval == 300);
++    }
+     static bool pauseAndWake(Gateway* gateway, unsigned short node) {
+         Gateway::InterviewState state;
+         Gateway::InterviewOperation operation;
+@@ -1890,6 +1973,27 @@ static void testZclRejectsMalformedAttributes() {
             !device.hasContact && !device.hasLight && device.lastSeen == 0);
  }
  
@@ -5027,15 +5285,16 @@ index ad652c5..c2607f7 100644
  static void testConfigureReportingEncoding() {
      std::vector<unsigned char> battery = buildZclConfigureReporting(7, 0x0021, 0x20, 3600, 65000, 1);
      std::vector<unsigned char> temperature = buildZclConfigureReporting(8, 0x0000, 0x29, 30, 3600, 20);
-@@ -1900,6 +1966,7 @@ static void testConfigureReportingEncoding() {
+@@ -1900,6 +2004,8 @@ static void testConfigureReportingEncoding() {
  }
  
  static void testInterviewDescriptorAndPlanning() {
 +    GatewayTestPeer::cachedRejoinConfiguresReporting();
++    GatewayTestPeer::th01HerdsmanReportingPlan();
      Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
      std::vector<unsigned char> response;
      EndpointDescriptor descriptor;
-@@ -2445,6 +2512,7 @@ void runUnitTests() {
+@@ -2445,6 +2551,7 @@ void runUnitTests() {
      testStorageSaveFailuresPreserveDestinations();
      testGenericCapabilities();
      testZclRejectsMalformedAttributes();

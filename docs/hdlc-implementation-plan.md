@@ -1,8 +1,16 @@
 # HDLC multi-PAN implementation plan
 
+> **Current fix and plan (2026-10-03):** the herdsman TH01 profile and scoped
+> fresh-join replay fix are host-tested and deployed. The replay defect failed
+> before and passes after the patch in the actual host server. Production is
+> online; joining is closed and temporary captures are stopped. Device acceptance
+> and sustained reporting await user availability. No radio flash was performed
+> for these fixes. Next: capture, REST alert, one pairing attempt, then observe.
+> [Implementation, tests, deployment and rollback](th01-herdsman-fix.md).
+
 > **Herdsman review (2026-10-03):** hardware failure is not established.
-> TH01 reporting/lifecycle differs from native; retained network replay counters
-> across fresh joins are a concrete unverified Ziggurat hypothesis.
+> The comparison led to the deployed profile and reproduced replay fix above;
+> its role in the real thermometer failure still needs a live capture.
 > [Comparison and next software tests](herdsman-th01-comparison.md).
 
 > **Reporting correction (2026-10-03):** cached-endpoint rejoins previously
