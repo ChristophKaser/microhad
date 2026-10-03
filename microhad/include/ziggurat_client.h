@@ -52,7 +52,7 @@ public:
     unsigned int request(unsigned char command, const Bytes& payload);
     const ZigguratState& state() const { return state_; }
 private:
-    struct Pending { unsigned char command; long expires; bool admitted; Pending() : command(0), expires(0), admitted(false) {} };
+    struct Pending { unsigned char command; long expires; bool admitted; bool apsAck; Pending() : command(0), expires(0), admitted(false), apsAck(false) {} };
     int fd_;
     int lockFd_;
     bool connecting_;

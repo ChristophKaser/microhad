@@ -35,7 +35,7 @@ std::string runInvalidConfigProcess(const std::string& filename, int* exitCode) 
         close(output[0]);
         assert(dup2(output[1], STDERR_FILENO) == STDERR_FILENO);
         close(output[1]);
-        execl("build/host/microhad-zigbee-native", "microhad-zigbee-native", "--config", filename.c_str(), static_cast<char*>(0));
+        execl(MICROHAD_TEST_BINARY, "microhad-zigbee-native", "--config", filename.c_str(), static_cast<char*>(0));
         _exit(127);
     }
     close(output[1]);

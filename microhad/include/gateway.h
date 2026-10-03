@@ -256,6 +256,7 @@ private:
         ZigguratSend() : sequence(0), unicast(false) {}
     };
     std::map<unsigned int, ZigguratSend> zigguratSends_;
+    std::deque<ZigguratSend> zigguratFailedSends_;
     void pollZiggurat();
     void zigguratSendResult(unsigned char sequence, bool unicast, unsigned char status);
 #endif

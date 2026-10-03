@@ -36,6 +36,7 @@ HOST_BUILD := build/host$(BACKEND_SUFFIX)
 MIPS_BUILD := build/mips$(BACKEND_SUFFIX)
 HOST_BIN := $(HOST_BUILD)/microhad-zigbee-native
 MIPS_BIN := $(MIPS_BUILD)/microhad-zigbee-native
+HOST_CXXFLAGS += -DMICROHAD_TEST_BINARY=\"$(HOST_BIN)\"
 TLS_C_SOURCES := src/fcm_signer.c src/https_client.c src/vapid_key.c src/web_push_crypto.c src/tls_server.c
 HOST_C_OBJECTS := $(patsubst src/%.c,$(HOST_BUILD)/%.o,$(TLS_C_SOURCES))
 MIPS_C_OBJECTS := $(patsubst src/%.c,$(MIPS_BUILD)/%.o,$(TLS_C_SOURCES))
@@ -112,6 +113,9 @@ unit-test: mbedtls-host $(HOST_BIN) $(UNIT_TEST_BIN)
 
 integration-test: mbedtls-host $(HOST_BIN) $(INTEGRATION_TEST_BIN)
 	$(INTEGRATION_TEST_BIN)
+ifeq ($(ZIGGURAT),1)
+	python3 scripts/test_ziggurat_native_peer.py
+endif
 
 target-verifier-test: $(UNIT_TEST_BIN)
 	@if $(call verify_elf,$(HOST_READELF),$(UNIT_TEST_BIN)) >/dev/null 2>&1; then \

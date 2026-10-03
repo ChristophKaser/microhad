@@ -162,7 +162,6 @@ bool ZigguratClient::start(const std::string& socket, const std::string& state, 
     if (socket.empty() || socket[0]!='/' || socket.size()>=sizeof(sockaddr_un().sun_path)) {
         *error="invalid Ziggurat Unix socket path"; return false;
     }
-    if (!state_.load(state,error)) return false;
     statePath_=state; socketPath_=socket;
     lockFd_=open((state+".lock").c_str(),O_RDWR|O_CREAT|O_NOFOLLOW,0600);
     struct stat st; struct flock lock; memset(&lock,0,sizeof(lock)); lock.l_type=F_WRLCK; lock.l_whence=SEEK_SET;
@@ -170,6 +169,7 @@ bool ZigguratClient::start(const std::string& socket, const std::string& state, 
         if (lockFd_>=0) close(lockFd_);
         lockFd_=-1; *error="Ziggurat state is locked or unsafe"; return false;
     }
+    if (!state_.load(state,error)) { close(lockFd_); lockFd_=-1; return false; }
     failed_=false; stopping_=false; reconnectAt_=time(0);
     return true;
 }
@@ -179,12 +179,12 @@ bool ZigguratClient::connectSocket(std::string* error) {
     sockaddr_un address; memset(&address,0,sizeof(address)); address.sun_family=AF_UNIX; strcpy(address.sun_path,socketPath_.c_str());
     int result=connect(fd_,reinterpret_cast<sockaddr*>(&address),sizeof(address));
     if (result<0 && errno!=EINPROGRESS) { close(fd_); fd_=-1; *error="Ziggurat socket unavailable"; return false; }
-    connecting_=result<0; hello_=false; helloDeadline_=time(0)+10; reconnectAt_=0; return true;
+    connecting_=true; hello_=false; helloDeadline_=time(0)+10; reconnectAt_=0; return true;
 }
 void ZigguratClient::disconnect(const std::string& reason, bool permanent) {
     if (fd_>=0) close(fd_);
     fd_=-1; ready_=false; connecting_=false; hello_=false; failed_=permanent;
-    output_.clear(); input_.clear(); pending_.clear(); controlId_=0; phase_=0;
+    output_.clear(); input_.clear(); discarding_=false; pending_.clear(); controlId_=0; phase_=0;
     reconnectAt_=permanent || stopping_ ? 0 : time(0)+1; helloDeadline_=0; checkpointAt_=0;
     Event event(Event::Down); event.message=reason; events_.push_back(event);
 }
@@ -203,7 +203,7 @@ unsigned int ZigguratClient::request(unsigned char command, const Bytes& payload
     Bytes raw(1,command); ZigguratWire::put16(&raw,id<<2); raw.insert(raw.end(),payload.begin(),payload.end());
     Bytes wire=ZigguratWire::encode(raw); if (output_.size()+wire.size()>kMaxOutput) return 0;
     output_.insert(output_.end(),wire.begin(),wire.end());
-    Pending pending; pending.command=command; pending.expires=time(0)+10; pending_[id]=pending; return id;
+    Pending pending; pending.command=command; pending.apsAck=command==0x30 && !payload.empty() && (payload[0]&2)!=0; pending.expires=time(0)+10; pending_[id]=pending; return id;
 }
 void ZigguratClient::control(unsigned char command, const Bytes& payload, unsigned char phase) {
     phase_=phase; controlId_=request(command,payload);
@@ -227,7 +227,9 @@ void ZigguratClient::finishSnapshot() {
     if (!snapshot_.valid()) { disconnect("invalid Ziggurat table snapshot",true); return; }
     if (snapshotRevision_!=keyRevision_) { snapshot(!ready_); return; }
     mergeCounter(&snapshot_.network,state_.network,39); mergeCounter(&snapshot_.network,state_.network,78);
-    state_=snapshot_; if (!persist()) return;
+    bool changed=state_.network!=snapshot_.network || state_.keys!=snapshot_.keys ||
+        state_.children!=snapshot_.children || state_.addresses!=snapshot_.addresses;
+    state_=snapshot_; if (changed && !persist()) return;
     checkpointAt_=time(0)+60; phase_=0; controlId_=0;
     if (!ready_ && !stopping_) { ready_=true; Event event(Event::Ready); events_.push_back(event); }
 }
@@ -240,12 +242,9 @@ void ZigguratClient::controlReply(unsigned char command, unsigned char status, c
     }
     if (status) { disconnect("Ziggurat lifecycle request failed",true); return; }
     if (phase_==1) {
-        if (body.size()!=85 || !sameIdentity(body,state_.network)) {
-            // NetworkInfo includes 3 trailing bytes; compare its state explicitly.
-            Bytes network(body.begin(),body.begin()+std::min<unsigned long>(82,body.size()));
-            if (body.size()!=85 || !sameIdentity(network,state_.network)) { disconnect("Ziggurat network identity mismatch",true); return; }
-        }
+        if (body.size()!=85) { disconnect("malformed Ziggurat network info",true); return; }
         Bytes network(body.begin(),body.begin()+82);
+        if (!sameIdentity(network,state_.network)) { disconnect("Ziggurat network identity mismatch",true); return; }
         if (ZigguratWire::get32(network,39)<ZigguratWire::get32(state_.network,39) ||
             ZigguratWire::get32(network,78)<ZigguratWire::get32(state_.network,78)) { disconnect("Ziggurat live counters below saved state",true); return; }
         state_.network=network;
@@ -277,6 +276,7 @@ void ZigguratClient::controlReply(unsigned char command, unsigned char status, c
     }
 }
 void ZigguratClient::frame(const Bytes& raw) {
+    if (events_.size()>=256) { disconnect("Ziggurat notification queue exceeded",true); return; }
     if (raw.size()<3) return;
     unsigned char command=raw[0]; unsigned int bits=get16(raw,1), type=bits&3, id=bits>>2;
     Bytes body(raw.begin()+3,raw.end());
@@ -315,7 +315,7 @@ void ZigguratClient::frame(const Bytes& raw) {
         unsigned char sendCommand=found->second.command;
         if ((command==0x13 && sendCommand!=0x30) || (command==0x11 && sendCommand==0x30) || (command==0x12 && sendCommand==0x30)) {
             Event event(Event::Confirmation); event.id=id; event.command=command; event.status=body[0]; events_.push_back(event);
-            if (body[0] || command!=0x11) pending_.erase(found);
+            if (body[0] || command!=0x11 || !found->second.apsAck) pending_.erase(found);
         }
         return;
     }
@@ -352,6 +352,11 @@ void ZigguratClient::poll() {
     if (connecting_) {
         int error=0; socklen_t size=sizeof(error);
         if (getsockopt(fd_,SOL_SOCKET,SO_ERROR,&error,&size)!=0 || error) { disconnect("Ziggurat connect failed"); return; }
+        struct PeerCredentials { pid_t pid; uid_t uid; gid_t gid; } credentials;
+        socklen_t credentialsSize=sizeof(credentials);
+        if (getsockopt(fd_,SOL_SOCKET,SO_PEERCRED,&credentials,&credentialsSize)!=0 || credentials.uid!=geteuid()) {
+            disconnect("Ziggurat socket peer has a different owner",true); return;
+        }
         connecting_=false;
     }
     if (!output_.empty()) {

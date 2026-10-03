@@ -659,6 +659,10 @@ void Gateway::zigguratSendResult(unsigned char sequence, bool unicast, unsigned 
 }
 
 void Gateway::pollZiggurat() {
+    while (!zigguratFailedSends_.empty()) {
+        ZigguratSend failed=zigguratFailedSends_.front(); zigguratFailedSends_.pop_front();
+        zigguratSendResult(failed.sequence,failed.unicast,0xff);
+    }
     ziggurat_->poll();
     ZigguratClient::Event event(ZigguratClient::Event::Diagnostic);
     while (ziggurat_->pop(&event)) {
@@ -723,6 +727,24 @@ void Gateway::pollZiggurat() {
                 ZigguratWire::Bytes response; response.push_back(message[0]); response.push_back(0);
                 response.push_back(0); response.push_back(0); response.push_back(1); response.push_back(kCoordinatorEndpoint);
                 sendApsUnicast(sender,0,0x8005,0,0,response); continue;
+            }
+            if (profile==0 && message.size()>=4 && cluster==0x0004 && message[1]==0 && message[2]==0) {
+                ZigguratWire::Bytes response; response.push_back(message[0]);
+                bool supported=message[3]==kCoordinatorEndpoint;
+                response.push_back(supported ? 0 : 0x82); response.push_back(0); response.push_back(0);
+                if (supported) {
+                    ZigguratWire::Bytes descriptor(1,kCoordinatorEndpoint);
+                    ZigguratWire::put16(&descriptor,kHomeAutomationProfile); ZigguratWire::put16(&descriptor,0xbeef);
+                    descriptor.push_back(0);
+                    const unsigned short inputs[]={0,3,6,10,25,26,768};
+                    const unsigned short outputs[]={0,3,4,5,6,8,32,768,1024,1026,1029,1030,1280,2817,2819,2820,1794,4096,64513,64514};
+                    descriptor.push_back(sizeof(inputs)/sizeof(inputs[0]));
+                    for (unsigned int i=0;i<sizeof(inputs)/sizeof(inputs[0]);++i) ZigguratWire::put16(&descriptor,inputs[i]);
+                    descriptor.push_back(sizeof(outputs)/sizeof(outputs[0]));
+                    for (unsigned int i=0;i<sizeof(outputs)/sizeof(outputs[0]);++i) ZigguratWire::put16(&descriptor,outputs[i]);
+                    response.push_back(descriptor.size()); response.insert(response.end(),descriptor.begin(),descriptor.end());
+                }
+                sendApsUnicast(sender,0,0x8004,0,0,response); continue;
             }
             unsigned short group=static_cast<unsigned short>(b[5] | (static_cast<unsigned short>(b[6])<<8));
             handleApsMessage(sender,profile,cluster,b[11],b[12],0,group,0,
@@ -3180,12 +3202,25 @@ unsigned char Gateway::sendApsUnicast(unsigned short destination, unsigned short
         request.push_back(0); request.push_back(30); request.push_back(0);
         if (!broadcast) request.push_back(0); // StackDecides
         ZigguratWire::put16(&request, message.size()); request.insert(request.end(), message.begin(), message.end());
-        (void)messageTag;
+
 
         unsigned char cookie = ezspSequence_++;
+        for (unsigned int attempt=0;attempt<256;++attempt) {
+            bool used=false;
+            for (std::map<unsigned int,ZigguratSend>::const_iterator pending=zigguratSends_.begin();pending!=zigguratSends_.end();++pending)
+                if (pending->second.sequence==cookie) used=true;
+            if (!used) break;
+            cookie=ezspSequence_++;
+        }
+        if (messageTag && interviewRequestInFlight_ && destination==interviewNode_)
+            interviewEzspSequence_=cookie;
         unsigned int id = ziggurat_->request(command, request);
         if (id) { ZigguratSend context; context.sequence=cookie; context.unicast=true; zigguratSends_[id]=context; }
-        else addLog("Ziggurat send could not be queued");
+        else {
+            ZigguratSend failed; failed.sequence=cookie; failed.unicast=true;
+            if (zigguratFailedSends_.size()<64) zigguratFailedSends_.push_back(failed);
+            addLog("Ziggurat send could not be queued");
+        }
         return cookie;
     }
 #endif
@@ -3222,9 +3257,20 @@ unsigned char Gateway::sendApsMulticast(unsigned short groupId, unsigned short p
         ZigguratWire::put16(&request, message.size()); request.insert(request.end(), message.begin(), message.end());
 
         unsigned char cookie = ezspSequence_++;
+        for (unsigned int attempt=0;attempt<256;++attempt) {
+            bool used=false;
+            for (std::map<unsigned int,ZigguratSend>::const_iterator pending=zigguratSends_.begin();pending!=zigguratSends_.end();++pending)
+                if (pending->second.sequence==cookie) used=true;
+            if (!used) break;
+            cookie=ezspSequence_++;
+        }
         unsigned int id = ziggurat_->request(command, request);
         if (id) { ZigguratSend context; context.sequence=cookie; context.unicast=false; zigguratSends_[id]=context; }
-        else addLog("Ziggurat send could not be queued");
+        else {
+            ZigguratSend failed; failed.sequence=cookie; failed.unicast=false;
+            if (zigguratFailedSends_.size()<64) zigguratFailedSends_.push_back(failed);
+            addLog("Ziggurat send could not be queued");
+        }
         return cookie;
     }
 #endif

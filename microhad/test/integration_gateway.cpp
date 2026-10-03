@@ -122,8 +122,8 @@ void expectUsageFailure(bool missingConfigPath) {
         close(capture[0]);
         assert(dup2(capture[1], STDERR_FILENO) >= 0);
         close(capture[1]);
-        if (missingConfigPath) execl("build/host/microhad-zigbee-native", "microhad-zigbee-native", "--config", static_cast<char*>(0));
-        else execl("build/host/microhad-zigbee-native", "microhad-zigbee-native", "--invalid", static_cast<char*>(0));
+        if (missingConfigPath) execl(MICROHAD_TEST_BINARY, "microhad-zigbee-native", "--config", static_cast<char*>(0));
+        else execl(MICROHAD_TEST_BINARY, "microhad-zigbee-native", "--invalid", static_cast<char*>(0));
         _exit(127);
     }
     close(capture[1]);
