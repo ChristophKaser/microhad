@@ -193,6 +193,9 @@ production keeps running. Keep joining closed for a later retry.
 
 ## 3. Stage isolated binaries and test synthetic communication
 
+**Completed.** The inactive `/tuya/native-test` copy was privately archived (13 files), checksum-verified and removed; no process used it. Free flash increased from 5,380 to 6,148 KiB. The synthetic COBS/Tuya test passed all eight checks and cleaned its temporary uploads before permanent staging. Enabled native, Ziggurat and the maintenance helper are now staged in private `/tuya/ziggurat-stage`, with transfer checksums verified. Production stayed online/formed with 23 devices and its original binary checksum. No staged daemon has been started on the real radio.
+
+
 Measure `df -k /tuya` and `MemFree`; budget both binaries, old recovery copies,
 state, logs, process RSS and atomic state temporary files. Previous free flash
 was only about 5 MiB, so do not assume two additional executables fit. Keep host
