@@ -1,0 +1,721 @@
+/*
+ *
+ *    Copyright (c) 2026 Project CHIP Authors
+ *
+ *    Licensed under the Apache License, Version 2.0 (the "License");
+ *    you may not use this file except in compliance with the License.
+ *    You may obtain a copy of the License at
+ *
+ *        http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *    Unless required by applicable law or agreed to in writing, software
+ *    distributed under the License is distributed on an "AS IS" BASIS,
+ *    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *    See the License for the specific language governing permissions and
+ *    limitations under the License.
+ */
+
+//! Synthetic accessory commissioning over the factory userspace OpenThread transport.
+//! Adapted from the pinned upstream commissioning fixture; never production state.
+use core::cell::{Cell, RefCell};
+use core::pin::pin;
+use embassy_futures::select::{select, select3, Either};
+use embassy_time::{Duration, Timer};
+use lexra_rs_matter_probe::store::PrivateStore;
+use lexra_rs_matter_probe::{
+    ble::BleRelay, commissioning as gateway_commissioning, openthread::OpenThread,
+};
+use rs_matter::cert::gen::VALID_FOREVER;
+use rs_matter::cert::{MAX_CERT_TLV_AND_ASN1_LEN, MAX_CERT_TLV_LEN};
+use rs_matter::crypto::{
+    default_crypto, CanonAeadKey, CanonPkcSecretKey, Crypto, CryptoSensitiveRef, Rng, SecretKey,
+    SigningSecretKey,
+};
+use rs_matter::dm::clusters::app::level_control::LevelControlHooks;
+use rs_matter::dm::clusters::app::on_off::{
+    self, test::TestOnOffDeviceLogic, OnOffClient, OnOffHooks,
+};
+use rs_matter::dm::clusters::decl::network_commissioning::{self, NetworkCommissioningStatusEnum};
+use rs_matter::dm::clusters::desc::{self, ClusterHandler as _};
+use rs_matter::dm::clusters::net_comm::DummyNetworks;
+use rs_matter::dm::devices::test::{TEST_DEV_ATT, TEST_DEV_COMM, TEST_DEV_DET};
+use rs_matter::dm::devices::DEV_TYPE_ON_OFF_LIGHT;
+use rs_matter::dm::{endpoints, Async, DataModel, Dataver, Endpoint, Handler, Node, Reply};
+use rs_matter::error::Error;
+use rs_matter::fabric::FabricPersist;
+use rs_matter::im::subscriptions::DEFAULT_MAX_SUBSCRIPTIONS;
+use rs_matter::im::{InteractionModel, InteractionModelState};
+use rs_matter::onboard::cac::{IcacGenerator, RcacGenerator};
+use rs_matter::onboard::noc::NocGenerator;
+use rs_matter::onboard::{CommissionResult, Commissioner};
+use rs_matter::persist::DummyKvBlobStore;
+use rs_matter::respond::DefaultResponder;
+use rs_matter::sc::pase::MAX_COMM_WINDOW_TIMEOUT_SECS;
+use rs_matter::tlv::{Nullable, TLVTag, TLVWrite};
+use rs_matter::transport::exchange::{Exchange, MatterBuffers};
+use rs_matter::transport::network::mdns::{DottedName, MdnsRemoteService};
+use rs_matter::transport::network::{
+    btp::Btp, Address, BtAddr, ChainedNetwork, IpAddr, MatterRemoteService, NoNetwork, SocketAddr,
+    SocketAddrV6,
+};
+use rs_matter::utils::init::InitMaybeUninit;
+use rs_matter::utils::select::Coalesce;
+use rs_matter::{clusters, devices, root_endpoint, Matter, MATTER_PORT};
+use static_cell::StaticCell;
+
+const TEST_PASSCODE: u32 = 20202021;
+type DeviceDmState = InteractionModelState<DummyNetworks, DEFAULT_MAX_SUBSCRIPTIONS, 0>;
+static DEVICE_MATTER: StaticCell<Matter> = StaticCell::new();
+static DEVICE_BUFFERS: StaticCell<MatterBuffers> = StaticCell::new();
+static DEVICE_STATE: StaticCell<DeviceDmState> = StaticCell::new();
+static CTRL_MATTER: StaticCell<Matter> = StaticCell::new();
+static RESTART_MATTER: StaticCell<Matter> = StaticCell::new();
+// Synthetic accessory only: accept credentials but never create a real mesh.
+struct TestThreadNetwork {
+    dataset: RefCell<Vec<u8>>,
+    add_status: Cell<NetworkCommissioningStatusEnum>,
+    connect_status: Cell<NetworkCommissioningStatusEnum>,
+    connect_calls: Cell<usize>,
+}
+impl TestThreadNetwork {
+    fn new() -> Self {
+        Self {
+            dataset: RefCell::new(Vec::new()),
+            add_status: Cell::new(NetworkCommissioningStatusEnum::Success),
+            connect_status: Cell::new(NetworkCommissioningStatusEnum::Success),
+            connect_calls: Cell::new(0),
+        }
+    }
+}
+impl rs_matter::dm::NonBlockingHandler for TestThreadNetwork {}
+impl Handler for TestThreadNetwork {
+    fn read(
+        &self,
+        _: impl rs_matter::dm::ReadContext,
+        _: impl rs_matter::dm::ReadReply,
+    ) -> Result<(), Error> {
+        Err(rs_matter::error::ErrorCode::AttributeNotFound.into())
+    }
+    fn bump_dataver(&self, _: impl rs_matter::dm::MatchContext) {}
+    fn invoke(
+        &self,
+        ctx: impl rs_matter::dm::InvokeContext,
+        reply: impl rs_matter::dm::InvokeReply,
+    ) -> Result<(), Error> {
+        let (response_id, status) = match ctx.cmd().cmd_id {
+            3 => {
+                let request =
+                    network_commissioning::AddOrUpdateThreadNetworkRequest::new(ctx.data().clone());
+                let bytes = request.operational_dataset()?.0;
+                gateway_commissioning::ThreadDataset::parse(bytes, 15)?;
+                let status = self.add_status.get();
+                if status == NetworkCommissioningStatusEnum::Success {
+                    *self.dataset.borrow_mut() = bytes.to_vec();
+                }
+                (5, status)
+            }
+            6 => {
+                let request = network_commissioning::ConnectNetworkRequest::new(ctx.data().clone());
+                assert_eq!(request.network_id()?.0, &[1; 8]);
+                assert!(!self.dataset.borrow().is_empty());
+                self.connect_calls.set(self.connect_calls.get() + 1);
+                (7, self.connect_status.get())
+            }
+            _ => return Err(rs_matter::error::ErrorCode::CommandNotFound.into()),
+        };
+        let mut writer = reply.with_command(response_id)?;
+        let tag = writer.tag();
+        writer.writer().start_struct(tag)?;
+        writer.writer().u8(&TLVTag::Context(0), status as u8)?;
+        if response_id == 7 {
+            writer.writer().null(&TLVTag::Context(2))?;
+        } else if status == NetworkCommissioningStatusEnum::Success {
+            writer.writer().u8(&TLVTag::Context(2), 0)?;
+        }
+        writer.writer().end_container()?;
+        writer.complete()
+    }
+}
+
+use rs_matter::dm::clusters::decl::temperature_measurement::{
+    self, ClusterHandler as _, TemperatureMeasurementClient,
+};
+
+// Test-only sensor: exercise signed and unknown measurements over actual CASE exchanges.
+struct TestTemperature {
+    value: Cell<Option<i16>>,
+    dataver: Cell<u32>,
+}
+impl temperature_measurement::ClusterHandler for TestTemperature {
+    const CLUSTER: rs_matter::dm::Cluster<'static> = temperature_measurement::FULL_CLUSTER;
+    fn dataver(&self) -> u32 {
+        self.dataver.get()
+    }
+    fn dataver_changed(&self) {
+        self.dataver.set(self.dataver.get().wrapping_add(1));
+    }
+    fn measured_value(&self, _: impl rs_matter::dm::ReadContext) -> Result<Nullable<i16>, Error> {
+        Ok(self
+            .value
+            .get()
+            .map(Nullable::some)
+            .unwrap_or_else(Nullable::none))
+    }
+    fn min_measured_value(
+        &self,
+        _: impl rs_matter::dm::ReadContext,
+    ) -> Result<Nullable<i16>, Error> {
+        Ok(Nullable::some(-27315))
+    }
+    fn max_measured_value(
+        &self,
+        _: impl rs_matter::dm::ReadContext,
+    ) -> Result<Nullable<i16>, Error> {
+        Ok(Nullable::some(32767))
+    }
+}
+const NODE: Node<'static> = Node {
+    endpoints: &[
+        root_endpoint!(thread),
+        Endpoint::new(
+            1,
+            devices!(DEV_TYPE_ON_OFF_LIGHT),
+            clusters!(
+                desc::DescHandler::CLUSTER,
+                TestOnOffDeviceLogic::CLUSTER,
+                TestTemperature::CLUSTER
+            ),
+        ),
+    ],
+};
+
+fn data_model<'a, OH: OnOffHooks, LH: LevelControlHooks>(
+    mut rand: impl Rng + Copy,
+    on_off: &'a on_off::OnOffHandler<'a, OH, LH>,
+    temperature: &'a TestTemperature,
+    thread_network: &'a TestThreadNetwork,
+) -> impl DataModel + 'a {
+    (
+        NODE,
+        endpoints::EthSysHandlerBuilder::new()
+            .build(rand)
+            .chain(
+                |e, c| e == 1 && c == desc::DescHandler::CLUSTER.id,
+                Async(desc::DescHandler::new(Dataver::new_rand(&mut rand)).adapt()),
+            )
+            .chain(
+                |e, c| e == 1 && c == TestOnOffDeviceLogic::CLUSTER.id,
+                Async(on_off::HandlerAdaptor(on_off)),
+            )
+            .chain(
+                |e, c| e == 1 && c == TestTemperature::CLUSTER.id,
+                Async(temperature_measurement::HandlerAdaptor(temperature)),
+            )
+            .chain(|e, c| e == 0 && c == 49, Async(thread_network)),
+    )
+}
+
+fn dataset() -> Vec<u8> {
+    let mut bytes = Vec::new();
+    for (kind, value) in [
+        (0, vec![0, 0, 15]),
+        (1, vec![0x12, 0x34]),
+        (2, vec![1; 8]),
+        (3, b"fixture".to_vec()),
+        (4, vec![0x22; 16]),
+        (5, vec![0x33; 16]),
+        (7, vec![0xfd, 0, 0, 0, 0, 0, 0, 1]),
+        (12, vec![2, 160, 0xff, 0xf8]),
+        (14, vec![0, 0, 0, 0, 0, 1, 0, 0]),
+        (53, vec![0, 4, 7, 0xff, 0xf8, 0]),
+    ] {
+        bytes.extend([kind, value.len() as u8]);
+        bytes.extend(value);
+    }
+    bytes
+}
+use core::convert::Infallible;
+use rs_matter::crypto::{TryCryptoRng, TryRng};
+use std::fs::File;
+use std::io::Read;
+// Actual OS entropy; read failures abort this test rather than returning weak bytes.
+struct OsEntropy(File);
+impl TryRng for OsEntropy {
+    type Error = Infallible;
+    fn try_next_u32(&mut self) -> Result<u32, Infallible> {
+        let mut bytes = [0; 4];
+        self.try_fill_bytes(&mut bytes)?;
+        Ok(u32::from_ne_bytes(bytes))
+    }
+    fn try_next_u64(&mut self) -> Result<u64, Infallible> {
+        let mut bytes = [0; 8];
+        self.try_fill_bytes(&mut bytes)?;
+        Ok(u64::from_ne_bytes(bytes))
+    }
+    fn try_fill_bytes(&mut self, bytes: &mut [u8]) -> Result<(), Infallible> {
+        self.0.read_exact(bytes).expect("OS entropy read failed");
+        Ok(())
+    }
+}
+impl TryCryptoRng for OsEntropy {}
+
+async fn run(thread: &OpenThread, use_ble: bool) -> Result<(), Error> {
+    let mut entropy =
+        OsEntropy(std::fs::File::open("/dev/urandom").expect("OS entropy unavailable"));
+    let mut singleton = [0; 32];
+    rs_matter::crypto::TryRng::try_fill_bytes(&mut entropy, &mut singleton).unwrap();
+    let crypto = default_crypto(entropy, CryptoSensitiveRef::new(&singleton));
+    let device_matter = DEVICE_MATTER.uninit().init_with(Matter::init(
+        &TEST_DEV_DET,
+        TEST_DEV_COMM,
+        &TEST_DEV_ATT,
+        MATTER_PORT,
+    ));
+
+    let device_crypto = &crypto;
+    let mut rand = device_crypto.rand()?;
+
+    let device_buffers = DEVICE_BUFFERS.uninit().init_with(MatterBuffers::init());
+    let device_state = DEVICE_STATE.init(InteractionModelState::new(DummyNetworks));
+
+    let on_off_handler = on_off::OnOffHandler::new_standalone(
+        Dataver::new_rand(&mut rand),
+        1,
+        rs_matter::persist::VENDOR_KEYS_START + 0x10,
+        TestOnOffDeviceLogic::new(false),
+    );
+
+    let temperature = TestTemperature {
+        value: Cell::new(Some(2315)),
+        dataver: Cell::new(1),
+    };
+    let thread_network = TestThreadNetwork::new();
+    let device_kv = device_matter.kv(DummyKvBlobStore);
+
+    let dm = InteractionModel::new(
+        device_matter,
+        &device_crypto,
+        device_buffers,
+        data_model(rand, &on_off_handler, &temperature, &thread_network),
+        &device_kv,
+        device_state,
+    );
+
+    // Open commissioning window before starting the mDNS responder so the
+    // `wait_mdns` signal is already set when the broadcast loop first runs.
+    device_matter.open_basic_comm_window(MAX_COMM_WINDOW_TIMEOUT_SECS, &device_crypto, &())?;
+
+    let device_net = thread.bind(5540)?;
+    let ctrl_net = thread.bind(5541)?;
+
+    let ctrl_matter = CTRL_MATTER.uninit().init_with(Matter::init(
+        &TEST_DEV_DET,
+        TEST_DEV_COMM,
+        &TEST_DEV_ATT,
+        0,
+    ));
+    let ctrl_crypto = &crypto;
+    let state_directory = std::env::var_os("MICROHAD_MATTER_TEST_STATE_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| "controller-state".into());
+    let store = RefCell::new(Some(
+        PrivateStore::open(&state_directory).expect("private fixture state"),
+    ));
+    {
+        let active_store = store.borrow().as_ref().unwrap().clone();
+        let kv = ctrl_matter.kv(active_store);
+        ctrl_matter.startup(&kv)?;
+        assert!(!ctrl_matter.has_fabrics());
+    }
+    let phone_connected = Cell::new(use_ble);
+
+    let responder = DefaultResponder::new(&dm);
+    let ble = BleRelay::new();
+    let generation = ble.connect(BtAddr([0xbb; 6]), 247)?;
+    let accessory_btp = Btp::new();
+    let controller_btp = ble.network(generation)?;
+    let can_btp = |address: &Address| matches!(address, Address::Btp(_));
+    let device_send = ChainedNetwork::new(can_btp, &accessory_btp, &device_net);
+    let device_receive = device_send.clone();
+    let controller_send = ChainedNetwork::new(can_btp, controller_btp, &ctrl_net);
+    let controller_receive = controller_send.clone();
+    let gatt = async {
+        loop {
+            if !phone_connected.get() {
+                Timer::after(Duration::from_millis(10)).await;
+                continue;
+            }
+            if let Some(packet) = ble.next_write(generation)? {
+                accessory_btp.process_incoming(Some(247), BtAddr([0xaa; 6]), &packet.bytes)?;
+                ble.write_complete(generation, packet.sequence, true)?;
+            }
+            let mut bytes = [0; 512];
+            let length = accessory_btp.process_outgoing(Some(247), &mut bytes)?;
+            if length != 0 {
+                ble.indication(generation, &bytes[..length])?;
+            }
+            Timer::after(Duration::from_millis(1)).await;
+        }
+        #[allow(unreachable_code)]
+        Ok::<_, Error>(())
+    };
+    let device = async {
+        select3(
+            device_matter.run(device_crypto, device_send, device_receive, NoNetwork),
+            responder.run::<4, 4>(),
+            dm.run(),
+        )
+        .coalesce()
+        .await
+    };
+    let controller = async {
+        let active_store = store.borrow().as_ref().unwrap().clone();
+        let operational = thread.own_address(5540)?;
+        let Address::Udp(SocketAddr::V6(operational)) = operational else {
+            unreachable!()
+        };
+        let peer = if use_ble {
+            Address::Btp(BtAddr([0xbb; 6]))
+        } else {
+            thread.own_address(5540)?
+        };
+        let (fab, node) = test_commission(
+            ctrl_matter,
+            ctrl_crypto,
+            peer,
+            operational,
+            &thread_network,
+            &active_store,
+        )
+        .await?;
+        println!(
+            "PASS PASE and Thread provisioning over {}; CASE and completion over OpenThread",
+            if use_ble {
+                "synthetic phone GATT/BTP"
+            } else {
+                "OpenThread"
+            }
+        );
+        let exchange = Exchange::initiate(ctrl_matter, ctrl_crypto, fab, node).await?;
+        assert!(!exchange.on_off().on_off_read(1).await?);
+        let exchange = Exchange::initiate(ctrl_matter, ctrl_crypto, fab, node).await?;
+        exchange.on_off().toggle(1).await?;
+        let exchange = Exchange::initiate(ctrl_matter, ctrl_crypto, fab, node).await?;
+        assert!(exchange.on_off().on_off_read(1).await?);
+        println!("PASS CASE OnOff read, toggle and readback over OpenThread");
+        for expected in [Some(2315), Some(-525), None] {
+            temperature.value.set(expected);
+            temperature.dataver_changed();
+            let exchange = Exchange::initiate(ctrl_matter, ctrl_crypto, fab, node).await?;
+            let actual = exchange
+                .temperature_measurement()
+                .measured_value_read(1)
+                .await?;
+            assert_eq!(actual.as_opt_ref().copied(), expected);
+        }
+        println!("PASS CASE signed and unknown temperature values over OpenThread");
+        Ok::<_, Error>((fab, node, operational))
+    };
+    let controller = async {
+        let (fab, node, operational) = match select(
+            ctrl_matter.run(ctrl_crypto, controller_send, controller_receive, NoNetwork),
+            controller,
+        )
+        .await
+        {
+            Either::First(result) => {
+                result?;
+                return Err(rs_matter::error::ErrorCode::InvalidState.into());
+            }
+            Either::Second(result) => result?,
+        };
+        // Replace the controller stack, including all sessions, with a fresh instance.
+        // The accessory and OpenThread instance keep running; the phone is detached.
+        phone_connected.set(false);
+        ble.disconnect(generation)?;
+        let restarted = RESTART_MATTER.uninit().init_with(Matter::init(
+            &TEST_DEV_DET,
+            TEST_DEV_COMM,
+            &TEST_DEV_ATT,
+            0,
+        ));
+        drop(store.borrow_mut().take());
+        let reopened =
+            PrivateStore::open(&state_directory).expect("reopen committed fixture state from disk");
+        let kv = restarted.kv(reopened);
+        restarted.startup(&kv)?;
+        assert!(restarted.has_fabrics());
+        let recovered = async {
+            let exchange = Exchange::initiate(restarted, ctrl_crypto, fab, node).await?;
+            assert!(exchange.on_off().on_off_read(1).await?);
+            println!(
+                "PASS committed flash fabric reopen, fresh CASE and OnOff readback with phone detached"
+            );
+            Ok::<_, Error>(())
+        };
+        match select3(
+            restarted.run(ctrl_crypto, &ctrl_net, &ctrl_net, NoNetwork),
+            recovered,
+            resolve_fixture(restarted, node, operational),
+        )
+        .await
+        {
+            embassy_futures::select::Either3::First(result) => {
+                result?;
+                Err(rs_matter::error::ErrorCode::InvalidState.into())
+            }
+            embassy_futures::select::Either3::Second(result) => result,
+            embassy_futures::select::Either3::Third(_) => unreachable!(),
+        }
+    };
+    let peers = async {
+        match select(device, controller).await {
+            Either::First(result) => {
+                result?;
+                Err(rs_matter::error::ErrorCode::InvalidState.into())
+            }
+            Either::Second(result) => result,
+        }
+    };
+    match select(peers, gatt).await {
+        Either::First(result) => result,
+        Either::Second(result) => {
+            result?;
+            Err(rs_matter::error::ErrorCode::InvalidState.into())
+        }
+    }
+}
+
+async fn run_commissioner<C: Crypto>(
+    matter: &Matter<'_>,
+    commissioner: &mut Commissioner<'_, '_, C>,
+    peer: Address,
+    operational: SocketAddrV6,
+    crypto: &C,
+    network: &TestThreadNetwork,
+) -> Result<CommissionResult, Error> {
+    let result = commissioner
+        .commission(
+            peer,
+            TEST_PASSCODE,
+            &gateway_commissioning::CommissioningPolicy::default().options(),
+            DEVICE_NODE_ID,
+            VALID_FOREVER,
+        )
+        .await?;
+    let bytes = dataset();
+    let parsed = gateway_commissioning::ThreadDataset::parse(&bytes, 15)?;
+    gateway_commissioning::provision_thread(matter, crypto, peer, TEST_PASSCODE, &parsed).await?;
+    assert_eq!(*network.dataset.borrow(), bytes);
+    assert_eq!(network.connect_calls.get(), 1);
+    let sock = operational;
+    match select(
+        commissioner.complete_via_case(&result),
+        resolve_fixture(matter, result.device_node_id, sock),
+    )
+    .await
+    {
+        Either::First(result) => result?,
+        Either::Second(_) => unreachable!(),
+    }
+    Ok(result)
+}
+
+// Fixture-only rendezvous; external multicast discovery is a separate gate.
+async fn resolve_fixture(matter: &Matter<'_>, node: u64, sock: SocketAddrV6) -> ! {
+    loop {
+        let service = matter.transport().wait_mdns_resolve_request().await;
+        if !matches!(service, MatterRemoteService::Operational { node_id, .. } if node_id == node) {
+            continue;
+        }
+        let mut name = heapless::String::<128>::new();
+        service.instance_name(&mut name);
+        matter.transport().try_deposit_mdns_resolve(
+            &MdnsRemoteService {
+                instance_name: DottedName(name.as_str()),
+                port: Some(sock.port()),
+                addrs: core::iter::once(IpAddr::V6(*sock.ip())),
+                txt: core::iter::empty(),
+                scope_id: 0,
+            },
+            &[],
+        );
+    }
+}
+const FABRIC_ID: u64 = 1;
+// chip-tool's conventional admin NodeID; matches the
+// CaseAdminSubject the device-side ACL is seeded with.
+const CONTROLLER_NODE_ID: u64 = 112233;
+// The single device this test commissions. Real callers pick
+// these from whatever NodeID allocation scheme they prefer.
+const DEVICE_NODE_ID: u64 = 112234;
+const ADMIN_VENDOR_ID: u16 = 0xFFF1;
+
+/// Drive both phases of the commissioner flow against the peer that
+/// PASE was just negotiated with. Returns the
+/// `(controller_local_fab_idx, device_node_id)` needed to open
+/// post-commissioning CASE exchanges.
+///
+/// All of the "build a fabric for the controller" plumbing lives in
+/// this test, not the `commissioner` crate: generate RCAC + ICAC,
+/// drop the RCAC priv key (in production it'd be HSM-resident), mint
+/// the controller's own operational keypair + NOC, generate an IPK,
+/// install the fabric in `matter.state.fabrics`. Then build a
+/// [`NocGenerator`] and hand it (plus the fab_idx) to the
+/// [`Commissioner`].
+async fn test_commission<C: Crypto>(
+    matter: &Matter<'_>,
+    crypto: &C,
+    peer_addr: Address,
+    operational: SocketAddrV6,
+    thread_network: &TestThreadNetwork,
+    store: &PrivateStore,
+) -> Result<(core::num::NonZeroU8, u64), Error> {
+    // ---- Offline CA chain: RCAC then ICAC; RCAC priv discarded ----
+
+    let mut rcac_buf = [0u8; MAX_CERT_TLV_AND_ASN1_LEN];
+    let mut rcac_gen = RcacGenerator::new(&mut rcac_buf);
+    let (rcac_priv, rcac) = rcac_gen.generate(crypto, FABRIC_ID, VALID_FOREVER)?;
+
+    let mut icac_buf = [0u8; MAX_CERT_TLV_AND_ASN1_LEN];
+    let mut icac_gen = IcacGenerator::new(&mut icac_buf);
+    let (icac_priv, icac) =
+        icac_gen.generate(crypto, rcac_priv.reference(), rcac, VALID_FOREVER)?;
+    drop(rcac_priv);
+
+    // ---- NocGenerator: signs the controller NOC now, then the
+    //      device NOC during commissioning. The NOC serial is derived
+    //      from the NodeID internally. ----
+
+    let mut noc_buf = [0u8; MAX_CERT_TLV_AND_ASN1_LEN];
+    let mut noc_generator = NocGenerator::create(icac_priv.reference(), rcac, icac, &mut noc_buf)?;
+
+    let controller_fab_idx =
+        install_controller_fabric(matter, crypto, &mut noc_generator, rcac, icac)?;
+    let kv = matter.kv(store.clone());
+    let mut persist = FabricPersist::new(&kv);
+    matter.with_state(|state| persist.store(state.fabrics.get(controller_fab_idx).unwrap()))?;
+    persist.run()?;
+
+    // Scratch buffer for Commissioner — used to stage the fabric's
+    // RCAC / ICAC bytes across the async on-wire calls. One
+    // `MAX_CERT_TLV_LEN` slot is enough; see `Commissioner::new`.
+    let mut commissioner_buf = [0u8; MAX_CERT_TLV_LEN];
+    let mut commissioner = Commissioner::new(
+        matter,
+        crypto,
+        controller_fab_idx,
+        &mut noc_generator,
+        &mut commissioner_buf,
+    );
+
+    let result = run_commissioner(
+        matter,
+        &mut commissioner,
+        peer_addr,
+        operational,
+        &crypto,
+        thread_network,
+    )
+    .await?;
+
+    Ok((controller_fab_idx, result.device_node_id))
+}
+
+fn install_controller_fabric<C: Crypto>(
+    matter: &Matter<'_>,
+    crypto: &C,
+    noc_generator: &mut NocGenerator<'_>,
+    rcac: &[u8],
+    icac: &[u8],
+) -> Result<core::num::NonZeroU8, Error> {
+    // ---- Controller operational keypair + CSR ----
+
+    let controller_secret_key = crypto.generate_secret_key()?;
+    let mut controller_csr_buf = [0u8; 256];
+    let controller_csr = controller_secret_key.csr(&mut controller_csr_buf)?;
+    let mut controller_secret_key_canon = CanonPkcSecretKey::new();
+    controller_secret_key.write_canon(&mut controller_secret_key_canon)?;
+
+    let controller_noc = noc_generator.generate(
+        crypto,
+        controller_csr,
+        CONTROLLER_NODE_ID,
+        &[],
+        VALID_FOREVER,
+    )?;
+
+    // ---- Fabric IPK: 16 random bytes, shared across the fabric ----
+    let mut ipk = CanonAeadKey::new();
+    crypto.rand()?.fill_bytes(ipk.access_mut());
+
+    // ---- Install the controller's fabric in matter.state.fabrics ----
+    matter.with_state(|state| {
+        state
+            .fabrics
+            .add(
+                crypto,
+                controller_secret_key_canon.reference(),
+                rcac,
+                controller_noc,
+                icac,
+                Some(ipk.reference()),
+                ADMIN_VENDOR_ID,
+                CONTROLLER_NODE_ID,
+            )
+            .map(|f| f.fab_idx())
+    })
+}
+
+fn main() {
+    let url = std::env::args()
+        .nth(1)
+        .expect("Pass an isolated synthetic Unix radio URL");
+    // Real UART URLs and missing reset guard must be rejected before initialization.
+    assert!(OpenThread::init("spinel+hdlc+uart:///dev/ttyS1?no-reset").is_err());
+    assert!(OpenThread::init("spinel+hdlc+unix:///tmp/missing").is_err());
+    let thread = OpenThread::init(&url).expect("OpenThread initialization");
+    thread
+        .set_dataset(&dataset(), 15)
+        .expect("public fixture dataset");
+    let use_ble = std::env::args().nth(2).as_deref() == Some("--ble");
+    let work = async {
+        run(&thread, use_ble)
+            .await
+            .expect("encrypted Matter fixture");
+    };
+    let pump = async {
+        loop {
+            thread.poll(0).unwrap();
+            Timer::after(Duration::from_millis(5)).await;
+        }
+    };
+    // Tiny local executor: poll the async work and timer futures while pumping OpenThread.
+    // Existing probe has no desktop network/runtime dependency.
+    let wake = std::sync::Arc::new(NoopWake);
+    let waker = std::task::Waker::from(wake);
+    let mut context = std::task::Context::from_waker(&waker);
+    let mut work = pin!(work);
+    let mut pump = pin!(pump);
+    let started = std::time::Instant::now();
+    loop {
+        use std::future::Future;
+        if work.as_mut().poll(&mut context).is_ready() {
+            break;
+        }
+        let _ = pump.as_mut().poll(&mut context);
+        assert!(
+            started.elapsed().as_secs() < 90,
+            "transport smoke test timeout"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    println!(
+        "PASS commissioning complete elapsed_ms={}",
+        started.elapsed().as_millis()
+    );
+}
+struct NoopWake;
+impl std::task::Wake for NoopWake {
+    fn wake(self: std::sync::Arc<Self>) {}
+}

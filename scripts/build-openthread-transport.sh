@@ -22,5 +22,7 @@ endif()
 ''')
 PY
 cmake -S "$source_copy" -B "$project_root/build/openthread-unix/$mode" \
-    -DGATEWAY_OT_TRANSPORT_SOURCE="$project_root/openthread-transport/adapter.cpp"
+    -DGATEWAY_OT_TRANSPORT_SOURCE="$project_root/openthread-transport/adapter.cpp" \
+    -DCMAKE_C_FLAGS_RELEASE='-Os -DNDEBUG -ffunction-sections -fdata-sections' \
+    -DCMAKE_CXX_FLAGS_RELEASE='-Os -DNDEBUG -ffunction-sections -fdata-sections'
 cmake --build "$project_root/build/openthread-unix/$mode" --target gateway-thread-transport --parallel "${BUILD_JOBS:-4}"

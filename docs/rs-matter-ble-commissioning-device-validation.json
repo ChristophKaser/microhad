@@ -1,0 +1,50 @@
+{
+  "target": "192.168.178.62",
+  "radio": "synthetic RCP",
+  "real_radio_access": false,
+  "linux_ipv6_or_tun": false,
+  "encrypted_commissioning_tested": true,
+  "synthetic_phone_gatt_tested": true,
+  "real_ble_access": false,
+  "binary_bytes": 1953452,
+  "binary_sha256": "21cddc6c567f5af28a100577f9d2426d8999fd82e17fa8e2880f6b6d7fbf89bc",
+  "memory_preflight_kib": 3532,
+  "limits": {
+    "rss_kib": 3072,
+    "memfree_floor_kib": 512,
+    "free_plus_clean_inactive_file_floor_kib": 4096,
+    "seconds": 100
+  },
+  "production_before": {
+    "online": true,
+    "network_formed": true,
+    "coordinator_backend": "ziggurat"
+  },
+  "production_after": {
+    "online": true,
+    "network_formed": true,
+    "coordinator_backend": "ziggurat"
+  },
+  "exit_code": 0,
+  "controller_state_reload_tested": true,
+  "fixture_controller_state_location": "isolated flash stage",
+  "passed": true,
+  "synthetic_radio_error": null,
+  "upload_cache_dropped_for_test_artifacts": true,
+  "cleanup_completed": true,
+  "output": [
+    "RELAY_META clk_tck=100",
+    "SAMPLE rss_kib=8 memfree_kib=2844 free_plus_clean_inactive_file_kib=12124 cpu_ticks=10 uptime_s=42877.67",
+    "SAMPLE rss_kib=1216 memfree_kib=956 free_plus_clean_inactive_file_kib=11868 cpu_ticks=62 uptime_s=42878.87",
+    "SAMPLE rss_kib=1508 memfree_kib=908 free_plus_clean_inactive_file_kib=11820 cpu_ticks=165 uptime_s=42880.05",
+    "SAMPLE rss_kib=1604 memfree_kib=896 free_plus_clean_inactive_file_kib=11808 cpu_ticks=252 uptime_s=42881.21",
+    "SAMPLE rss_kib=1644 memfree_kib=892 free_plus_clean_inactive_file_kib=11804 cpu_ticks=338 uptime_s=42882.38",
+    "PASS PASE and Thread provisioning over synthetic phone GATT/BTP; CASE and completion over OpenThread",
+    "PASS CASE OnOff read, toggle and readback over OpenThread",
+    "PASS CASE signed and unknown temperature values over OpenThread",
+    "SAMPLE rss_kib=1692 memfree_kib=880 free_plus_clean_inactive_file_kib=11788 cpu_ticks=404 uptime_s=42883.54",
+    "PASS committed flash fabric reopen, fresh CASE and OnOff readback with phone detached",
+    "PASS commissioning complete elapsed_ms=5030",
+    "EXIT 0"
+  ]
+}

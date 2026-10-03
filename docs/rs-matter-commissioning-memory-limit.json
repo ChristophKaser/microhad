@@ -1,0 +1,41 @@
+{
+  "target": "192.168.178.62",
+  "radio": "synthetic RCP",
+  "real_radio_access": false,
+  "linux_ipv6_or_tun": false,
+  "encrypted_commissioning_tested": true,
+  "binary_bytes": 1896104,
+  "binary_sha256": "3d59a359a12ba0be4010f60f22f5665d9e82ca57a996fb259986a4fba9937bce",
+  "memory_preflight_kib": 3392,
+  "limits": {
+    "rss_kib": 1536,
+    "memfree_floor_kib": 512,
+    "free_plus_clean_inactive_file_floor_kib": 4096,
+    "seconds": 100
+  },
+  "production_before": {
+    "online": true,
+    "network_formed": true,
+    "coordinator_backend": "ziggurat"
+  },
+  "production_after": {
+    "online": true,
+    "network_formed": true,
+    "coordinator_backend": "ziggurat"
+  },
+  "exit_code": 137,
+  "passed": false,
+  "synthetic_radio_error": null,
+  "upload_cache_dropped_for_test_artifacts": true,
+  "cleanup_completed": true,
+  "output": [
+    "RELAY_META clk_tck=100",
+    "SAMPLE rss_kib=8 memfree_kib=2456 free_plus_clean_inactive_file_kib=12180 cpu_ticks=8 uptime_s=40755.42",
+    "SAMPLE rss_kib=708 memfree_kib=900 free_plus_clean_inactive_file_kib=12032 cpu_ticks=41 uptime_s=40756.68",
+    "SAMPLE rss_kib=1408 memfree_kib=988 free_plus_clean_inactive_file_kib=11924 cpu_ticks=141 uptime_s=40757.84",
+    "SAMPLE rss_kib=1496 memfree_kib=980 free_plus_clean_inactive_file_kib=11916 cpu_ticks=234 uptime_s=40759.01",
+    "SAMPLE rss_kib=1548 memfree_kib=1004 free_plus_clean_inactive_file_kib=11940 cpu_ticks=315 uptime_s=40760.19",
+    "TEST_LIMIT_REACHED",
+    "EXIT 137"
+  ]
+}

@@ -99,3 +99,9 @@ persistent fabric storage, then actual accessory commissioning/control. The
 owner-selected manufacturer-attestation bypass is already in the shared
 controller policy; PASE and CASE remain enabled. Gateway HTTPS certificate
 trust is not required by the selected trusted-LAN HTTP/WebSocket flow.
+
+The later [encrypted commissioning checkpoint](rs-matter-openthread-commissioning.md)
+exercises PASE/CASE, real BTP segmentation with synthetic phone callbacks and
+Matter control/sensor operations. It also records the revised test memory
+budget and failed guards; the earlier smoke-test measurements above remain
+historical rather than a complete controller budget.
