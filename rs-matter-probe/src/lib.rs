@@ -5,6 +5,8 @@ pub mod commissioning;
 pub mod control;
 pub mod entropy;
 pub mod ipc;
+#[cfg(feature = "control-ipc")]
+pub mod sessions;
 pub mod store;
 
 #[cfg(feature = "controller-service")]

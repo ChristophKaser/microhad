@@ -83,6 +83,30 @@ impl BleRelay {
         self.clear();
         Ok(())
     }
+    /// Drop transport state and invalidate callbacks before a new attempt.
+    pub fn invalidate(&self) -> Result<(), Error> {
+        self.clear();
+        let next = self
+            .generation
+            .get()
+            .checked_add(1)
+            .ok_or(ErrorCode::NoSpace)?;
+        self.generation.set(next);
+        Ok(())
+    }
+    /// Check an in-flight write without consuming another outgoing packet.
+    pub fn check_timeout(&self) -> Result<(), Error> {
+        let expired = self
+            .pending
+            .borrow()
+            .as_ref()
+            .is_some_and(|p| p.started.elapsed() >= Duration::from_secs(10));
+        if expired {
+            self.clear();
+            return Err(ErrorCode::RxTimeout.into());
+        }
+        Ok(())
+    }
     pub fn network(&self, generation: u64) -> Result<&Btp, Error> {
         self.active(generation)?;
         Ok(&self.btp)

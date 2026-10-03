@@ -15,6 +15,11 @@ impl<'de> Deserialize<'de> for Schema {
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Id(pub u64);
+impl serde::Serialize for Id {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&format!("{:016x}", self.0))
+    }
+}
 impl<'de> Deserialize<'de> for Id {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         let value = String::deserialize(d)?;
