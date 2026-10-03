@@ -4103,6 +4103,7 @@ void Gateway::buildConfigurationOperations(unsigned short destination) {
     if (state.configurationPending) state.refreshOnly = false;
     state.configurationPending = false;
     Device& device = devices_[state.ieeeAddress];
+    const bool herdsmanTh01 = device.manufacturerName == "eWeLink" && device.modelId == "TH01";
     state.operations.clear();
     state.operationIndex = 0;
     for (unsigned long i = 0; i < device.endpoints.size(); ++i) {
@@ -4129,17 +4130,25 @@ void Gateway::buildConfigurationOperations(unsigned short destination) {
     for (unsigned long i = 0; i < device.endpoints.size(); ++i) {
         const EndpointDescriptor& endpoint = device.endpoints[i];
         if (endpointSupports(endpoint, 0x0402)) {
-            queueInterviewOperation(destination, InterviewConfigureReporting, endpoint.endpoint, 0x0402, 0x0000, 0x29, 20, 30, 300);
-            queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0402, 0x0000);
+            queueInterviewOperation(destination, InterviewConfigureReporting, endpoint.endpoint, 0x0402, 0x0000, 0x29, 20,
+                                    30, herdsmanTh01 ? 3600 : 300);
+            if (!herdsmanTh01) queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0402, 0x0000);
         }
         if (endpointSupports(endpoint, 0x0405)) {
-            queueInterviewOperation(destination, InterviewConfigureReporting, endpoint.endpoint, 0x0405, 0x0000, 0x21, 100, 30, 300);
-            queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0405, 0x0000);
+            queueInterviewOperation(destination, InterviewConfigureReporting, endpoint.endpoint, 0x0405, 0x0000, 0x21, 100,
+                                    30, herdsmanTh01 ? 3600 : 300);
+            if (!herdsmanTh01) queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0405, 0x0000);
         }
         if (endpointSupports(endpoint, 0x0001)) {
-            queueInterviewOperation(destination, InterviewConfigureReporting, endpoint.endpoint, 0x0001, 0x0021, 0x20, 1, 3600, 65000);
+            if (herdsmanTh01) {
+                queueInterviewOperation(destination, InterviewConfigureReporting, endpoint.endpoint, 0x0001, 0x0020, 0x20,
+                                        0, 3600, 65000);
+                queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0001, 0x0020);
+            }
+            queueInterviewOperation(destination, InterviewConfigureReporting, endpoint.endpoint, 0x0001, 0x0021, 0x20,
+                                    herdsmanTh01 ? 0 : 1, 3600, 65000);
             queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0001, 0x0021);
-            queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0001, 0x0020);
+            if (!herdsmanTh01) queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0001, 0x0020);
         }
         if (endpointSupports(endpoint, 0x0406)) {
             queueInterviewOperation(destination, InterviewConfigureReporting, endpoint.endpoint, 0x0406, 0x0000, 0x18, 0, 0, 3600);
@@ -4254,7 +4263,7 @@ void Gateway::wakeInterview(unsigned short destination) {
            Do not turn every report into another read request after a failed
            refresh; the scheduled sensor refresh or an announcement will
            resume this state when another query is due. */
-        if (found->second.refreshOnly) return;
+        if (found->second.refreshOnly && !found->second.configurationPending) return;
         found->second.paused = false;
         if (found->second.operationIndex < found->second.operations.size())
             found->second.operations[found->second.operationIndex].attempts = 0;

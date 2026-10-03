@@ -218,6 +218,9 @@ public:
         assert(!gateway.interviews_[node].paused && gateway.interviews_[node].configurationPending);
         assert(gateway.interviewRequestInFlight_ && gateway.interviewDeadline_ != 0);
         assert(operation.type == Gateway::InterviewAttributeRead && operation.transactionSequence == 42);
+        gateway.interviews_[node].paused = true;
+        gateway.wakeInterview(node);
+        assert(!gateway.interviews_[node].paused);
         gateway.completeInterviewOperation(node);
         assert(!gateway.interviewRequestInFlight_);
         assert(!gateway.interviews_[node].refreshOnly && !gateway.interviews_[node].configurationPending);
@@ -720,6 +723,41 @@ public:
     }
     static unsigned short operationCluster(const Gateway& gateway, unsigned short node, unsigned long index) {
         return gateway.interviews_.find(node)->second.operations[index].cluster;
+    }
+    static void th01HerdsmanReportingPlan() {
+        const std::string ieee = "0x00124b002a52140a";
+        const unsigned short node = 0x1234;
+        EndpointDescriptor endpoint;
+        endpoint.endpoint = 1;
+        endpoint.inputClusters.push_back(0x0402);
+        endpoint.inputClusters.push_back(0x0405);
+        endpoint.inputClusters.push_back(0x0001);
+        Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+        gateway.devices_[ieee].manufacturerName = "eWeLink";
+        gateway.devices_[ieee].modelId = "TH01";
+        buildConfiguration(&gateway, node, ieee, endpoint);
+        const std::vector<Gateway::InterviewOperation>& operations = gateway.interviews_[node].operations;
+        assert(operations.size() == 9);
+        for (unsigned int i = 0; i < 3; ++i) assert(operations[i].type == Gateway::InterviewBind);
+        assert(operations[0].cluster == 0x0402 && operations[1].cluster == 0x0405 && operations[2].cluster == 1);
+        assert(operations[3].type == Gateway::InterviewConfigureReporting && operations[3].cluster == 0x0402);
+        assert(operations[3].dataType == 0x29 && operations[3].minimumInterval == 30 &&
+               operations[3].maximumInterval == 3600 && operations[3].reportableChange == 20);
+        assert(operations[4].type == Gateway::InterviewConfigureReporting && operations[4].cluster == 0x0405);
+        assert(operations[4].dataType == 0x21 && operations[4].minimumInterval == 30 &&
+               operations[4].maximumInterval == 3600 && operations[4].reportableChange == 100);
+        assert(operations[5].type == Gateway::InterviewConfigureReporting && operations[5].attribute == 0x0020);
+        assert(operations[5].dataType == 0x20 && operations[5].minimumInterval == 3600 &&
+               operations[5].maximumInterval == 65000 && operations[5].reportableChange == 0);
+        assert(operations[6].type == Gateway::InterviewAttributeRead && operations[6].attribute == 0x0020);
+        assert(operations[7].type == Gateway::InterviewConfigureReporting && operations[7].attribute == 0x0021);
+        assert(operations[7].dataType == 0x20 && operations[7].minimumInterval == 3600 &&
+               operations[7].maximumInterval == 65000 && operations[7].reportableChange == 0);
+        assert(operations[8].type == Gateway::InterviewAttributeRead && operations[8].attribute == 0x0021);
+        /* The TH01 quirk is scoped to eWeLink; other devices retain their plan. */
+        gateway.devices_[ieee].manufacturerName = "Other";
+        gateway.buildConfigurationOperations(node);
+        assert(operations.size() == 10 && operations[3].maximumInterval == 300);
     }
     static bool pauseAndWake(Gateway* gateway, unsigned short node) {
         Gateway::InterviewState state;
@@ -1967,6 +2005,7 @@ static void testConfigureReportingEncoding() {
 
 static void testInterviewDescriptorAndPlanning() {
     GatewayTestPeer::cachedRejoinConfiguresReporting();
+    GatewayTestPeer::th01HerdsmanReportingPlan();
     Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
     std::vector<unsigned char> response;
     EndpointDescriptor descriptor;
