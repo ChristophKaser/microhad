@@ -12,9 +12,10 @@ the usable configurations.
 
 This follows the agreed implementation sequence: verify the MIPS controller
 platform before implementing commissioning UI or enabling real-radio operation.
-It is a compiler/library blocker, not evidence that Matter cannot ever fit on
-this hardware. Matter memory, CPU, cryptographic runtime, discovery, and real
-device operation have not yet been measured.
+It is a compiler/library blocker for the pinned C++ SDK, not evidence that
+Matter cannot fit on this hardware. The separate Rust feasibility probe below
+now validates crypto/runtime on MIPS. Complete controller memory/CPU, discovery
+and real-device operation remain unmeasured.
 
 ## Build contract
 
@@ -94,9 +95,30 @@ build/package prerequisites, not simply delete it.
 Compiler evidence and full probe commands are recorded in the companion
 [Matter platform report](https://github.com/ChristophKaser/ziggurat-compilation/blob/main/docs/matter-platform-validation.json).
 
+## Rust alternative: probe runs on the gateway
+
+The companion repository now pins rs-matter 0.4.1 at
+`1570356ecb938a9d19be032b93ca3bb487069e75`, builds with RustCrypto against
+factory uClibc, and runs an isolated crypto/TLV/runtime probe on the gateway.
+All checks pass, including SPAKE2+ agreement and tamper rejection, in 1.68 s.
+The stripped static executable is 587,596 bytes; sampled RSS peaks at 300 KiB
+and sampled MemFree stays above 2.2 MiB. Production Zigbee remains online and
+formed; the staged binary is removed. One-second samples can miss peaks, and
+this does not measure a complete controller or sustained CPU utilization.
+
+Build commands, dependency lock, test-only visibility patch, source pin and
+shareable measurements are recorded in the companion
+[Rust feasibility report](https://github.com/ChristophKaser/ziggurat-compilation/blob/main/docs/rs-matter-feasibility.md).
+The probe does not commission devices or implement OpenThread UDP, discovery,
+Garage BLE relay, persistence, CASE or native IPC. The native Makefile still
+uses the C++ prerequisite checker and intentionally rejects `MATTER=1` until
+the chosen controller and its actual integration are verified. A Rust runtime
+must replace that prerequisite contract with its own verified build/package
+checks; a successful probe alone does not justify deleting the stop.
+
 ## Remaining implementation contract
 
-After the compiler/library gate passes:
+After a controller implementation passes its complete platform gate:
 
 1. Build a local `thread-matter` daemon containing OpenThread and the Matter
    controller. Keep the native bridge on its RSDK C++03 build and use private
