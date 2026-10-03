@@ -1,5 +1,6 @@
 #include "ziggurat_client.h"
 #include "json_util.h"
+#include "mbedtls/sha256.h"
 #include <algorithm>
 #include <cerrno>
 #include <cstdio>
@@ -23,6 +24,19 @@ std::string hex(const Bytes& b) {
     for (unsigned long i=0;i<b.size();++i) { result += digits[b[i] >> 4]; result += digits[b[i] & 15]; }
     return result;
 }
+bool nontrivial(const Bytes& bytes, unsigned long at, unsigned long length) {
+    bool zero=true, ones=true;
+    for (unsigned long i=at;i<at+length;++i) { zero=zero && bytes[i]==0; ones=ones && bytes[i]==255; }
+    return !zero && !ones;
+}
+std::string checksum(const ZigguratState& state) {
+    Bytes bytes=state.network; bytes.insert(bytes.end(),state.keys.begin(),state.keys.end());
+    bytes.insert(bytes.end(),state.children.begin(),state.children.end());
+    bytes.insert(bytes.end(),state.addresses.begin(),state.addresses.end());
+    Bytes hash(32,0);
+    if (bytes.empty() || mbedtls_sha256_ret(&bytes[0],bytes.size(),&hash[0],0)!=0) return "";
+    return hex(hash);
+}
 bool unhex(const std::string& text, Bytes* result) {
     result->clear(); if (text.size() % 2 || text.size() > 32768) return false;
     for (unsigned long i=0;i<text.size();i+=2) {
@@ -42,7 +56,11 @@ bool tableValid(const Bytes& b, unsigned long row, unsigned long maximum) {
     for (unsigned long at=2;at<b.size();at+=row) {
         unsigned long idAt=at+(row==33 ? 25 : 0);
         std::string id(reinterpret_cast<const char*>(&b[idAt]),8);
-        if (identities[id]) return false;
+        if (identities[id] || !nontrivial(b,idAt,8)) return false;
+        if (row==33 && !nontrivial(b,at,16)) return false;
+        if (row==11 && (!get16(b,at+8) || get16(b,at+8)>0xfff7 || (b[at+10]&0xf8)!=0 ||
+            ((b[at+10]>>1)&3)<1 || ((b[at+10]>>1)&3)>2)) return false;
+        if (row==10 && get16(b,at+8)>0xfff7) return false;
         identities[id]=true;
     }
     return true;
@@ -99,6 +117,8 @@ void set32(Bytes* b, unsigned long at, unsigned long value) { for (unsigned int 
 bool ZigguratState::valid() const {
     if (network.size()!=82 || network[0]<11 || network[0]>26 || !get16(network,2) || get16(network,2)==65535 ||
         get16(network,12)!=0 || network[59]>1 || network[76]>1) return false;
+    if (!nontrivial(network,4,8) || !nontrivial(network,14,8) || !nontrivial(network,22,16) ||
+        !nontrivial(network,43,16) || (network[59] && !nontrivial(network,60,16))) return false;
     return tableValid(keys,33,256) && tableValid(children,11,256) && tableValid(addresses,10,256);
 }
 bool ZigguratState::advance(std::string* error) {
@@ -119,13 +139,14 @@ bool ZigguratState::load(const std::string& path, std::string* error) {
     std::string text; char buffer[1024]; ssize_t n;
     while ((n=read(fd,buffer,sizeof(buffer)))>0) { text.append(buffer,n); if (text.size()>65536) break; }
     close(fd);
-    long version=0; std::string format, wire; ZigguratState candidate;
+    long version=0; std::string format, wire, digest; ZigguratState candidate;
     if (n<0 || text.size()>65536 || !jsonStringField(text,"format",&format) || format!="microhad-ziggurat-native" ||
         !jsonLongField(text,"version",&version) || version!=1 ||
         !jsonStringField(text,"network",&wire) || !unhex(wire,&candidate.network) ||
         !jsonStringField(text,"keys",&wire) || !unhex(wire,&candidate.keys) ||
         !jsonStringField(text,"children",&wire) || !unhex(wire,&candidate.children) ||
-        !jsonStringField(text,"addresses",&wire) || !unhex(wire,&candidate.addresses) || !candidate.valid()) {
+        !jsonStringField(text,"addresses",&wire) || !unhex(wire,&candidate.addresses) || !candidate.valid() ||
+        !jsonStringField(text,"checksum",&digest) || digest.empty() || checksum(candidate)!=digest) {
         *error="invalid native Ziggurat state"; return false;
     }
     *this=candidate; return true;
@@ -144,7 +165,7 @@ bool ZigguratState::save(const std::string& path, std::string* error) const {
     int fd=mkstemp(&name[0]);
     if (fd<0) { close(directory); *error="cannot stage private Ziggurat state"; return false; }
     std::string data="{\"format\":\"microhad-ziggurat-native\",\"version\":1,\"network\":\""+hex(network)+
-        "\",\"keys\":\""+hex(keys)+"\",\"children\":\""+hex(children)+"\",\"addresses\":\""+hex(addresses)+"\"}\n";
+        "\",\"keys\":\""+hex(keys)+"\",\"children\":\""+hex(children)+"\",\"addresses\":\""+hex(addresses)+"\",\"checksum\":\""+checksum(*this)+"\"}\n";
     bool ok=fchmod(fd,0600)==0 && fullWrite(fd,data.c_str(),data.size()) && fsync(fd)==0;
     if (close(fd)!=0) ok=false;
     if (ok) ok=rename(&name[0],path.c_str())==0;

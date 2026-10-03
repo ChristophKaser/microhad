@@ -110,10 +110,13 @@ def import_commands(state):
 def native_state(state):
     """Encode already-prepared migration state; native startup adds its own margin."""
     commands = dict(import_commands(state))
-    return {"format": "microhad-ziggurat-native", "version": 1,
-            "network": encode_network(state["network"]).hex(),
-            "keys": commands[0x11].hex(), "children": commands[0x12].hex(),
-            "addresses": commands[0x13].hex()}
+    result = {"format": "microhad-ziggurat-native", "version": 1,
+              "network": encode_network(state["network"]).hex(),
+              "keys": commands[0x11].hex(), "children": commands[0x12].hex(),
+              "addresses": commands[0x13].hex()}
+    result["checksum"] = hashlib.sha256(b"".join(bytes.fromhex(result[field])
+        for field in ("network", "keys", "children", "addresses"))).hexdigest()
+    return result
 
 
 def verify_import(client, state):
