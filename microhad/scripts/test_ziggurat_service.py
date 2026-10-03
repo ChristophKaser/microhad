@@ -75,6 +75,46 @@ def main():
             assert restored_key[:16]==expected_key[:16] and restored_key[20:]==expected_key[20:]
             assert saved["children"]==state["children"] and saved["addresses"]==state["addresses"]
             passed("Native COBS startup restores synthetic identity, keys and both counters")
+            # Routers relay our encrypted parent broadcast with NWK source 0 and
+            # their own MAC source. It must not evict our restored sleepy child.
+            from cryptography.hazmat.primitives.ciphers.aead import AESCCM
+            observer=Client.connect(path)
+            def children():
+                before=len(observer.events); reply=observer.request(0x22)
+                rows=[f[3:] for f in observer.events[before:] if f[0]==0x22 and f[1]&3==2]
+                assert len(rows)==int.from_bytes(reply,"little")
+                return rows
+            original_children=children(); assert len(original_children)==1
+            child=bytes.fromhex(fixture()["children"][0]["ieee"])
+            def parent_frame(cluster, nwk_source, sequence):
+                nwk=struct.pack("<HHHBB",0x0208,0xfffc,nwk_source,30,sequence)
+                sender=bytes.fromhex(fixture()["network"]["ieee_address"])
+                aux=bytes([0x28])+struct.pack("<I",70000+sequence)+sender+bytes([7])
+                authenticated_aux=bytes([0x2d])+aux[1:]
+                asdu=bytes([sequence])+(bytes([0]) if cluster==0x801f else b"")+b"\x01"+child
+                aps=bytes([8,0])+struct.pack("<HH",cluster,0)+bytes([0,sequence])+asdu
+                nonce=sender+aux[1:5]+bytes([0x2d])
+                ciphertext=AESCCM(bytes(range(16)),tag_length=4).encrypt(nonce,aps,nwk+authenticated_aux)
+                mac=struct.pack("<HBHHH",0x8841,sequence,0x1a62,0xffff,0x2222)
+                return mac+nwk+aux+ciphertext
+            def observe_frame(cluster, source, sequence):
+                radio.inject(parent_frame(cluster,source,sequence))
+                while True:
+                    frame=observer.receive()
+                    if frame[0]==0x10 and frame[1]&3==3:
+                        payload=frame[3:]
+                        if int.from_bytes(payload[9:11],"little")==cluster:break
+                return children()
+            assert observe_frame(0x001f,0,47)==original_children
+            assert observe_frame(0x801f,0,48)==original_children
+            passed("Relayed own parent announcement and response preserve restored sleepy child")
+            # Another router's legitimate claim must still remove an unconfirmed child.
+            assert observe_frame(0x001f,0x2222,49)==[]
+            observer.request(4); observer.close(); observer=None
+            # Reconfigure from the synthetic snapshot for the remaining lifecycle cases.
+            service.terminate();service.wait(timeout=10);service=None
+            state_path.write_text(json.dumps(state));state_path.chmod(0o600)
+            service=launch();wait_for(lambda:status()["online"])
             duplicate=subprocess.run([str(server),"--device",f"tcp://127.0.0.1:{radio.port}","--spinel-iid","1",
                 "--api","cobs-unix","--listen",f"unix:{path}","--log-level","error"],stdout=log,stderr=log,timeout=5)
             assert duplicate.returncode!=0 and status()["online"]
