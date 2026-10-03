@@ -45,6 +45,10 @@ if [[ ${ZIGGURAT_MULTIPAN:-0} == 1 ]]; then
         git -C "$build_worktree" apply --check "$experiment_root/patches/ziggurat-parent-announcement.patch"
         git -C "$build_worktree" apply "$experiment_root/patches/ziggurat-parent-announcement.patch"
     fi
+    if ! git -C "$build_worktree" apply --reverse --check "$experiment_root/patches/ziggurat-fresh-join-replay.patch" 2>/dev/null; then
+        git -C "$build_worktree" apply --check "$experiment_root/patches/ziggurat-fresh-join-replay.patch"
+        git -C "$build_worktree" apply "$experiment_root/patches/ziggurat-fresh-join-replay.patch"
+    fi
 fi
 bash scripts/make-llvm-target.sh
 export CARGO_TARGET_DIR="$experiment_root/${build_output}"

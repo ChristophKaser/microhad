@@ -1,0 +1,33 @@
+--- a/crates/ziggurat-zigbee/src/nwk/security.rs
++++ b/crates/ziggurat-zigbee/src/nwk/security.rs
+@@ -151,4 +151,12 @@
+             .incoming_frame_counter_set
+             .insert(sender, frame_counter)
+     }
++
++    /// Forget only this device's old incoming baseline after an authorized fresh
++    /// join. A factory-new device can restart its counter under the same key.
++    /// Never call this for an ordinary secured rejoin or a received data frame.
++    /// Other relayers, the network key and our outgoing nonce counter are retained.
++    pub fn reset_incoming_counter_for_fresh_join(&mut self, sender: Eui64) {
++        self.primary.incoming_frame_counter_set.remove(&sender);
++    }
+ }
+--- a/crates/ziggurat-driver/src/zigbee_stack/joining.rs
++++ b/crates/ziggurat-driver/src/zigbee_stack/joining.rs
+@@ -483,7 +483,14 @@
+     /// Reset a joining device's link key state. The provisional key kept in effect,
+     /// if any, is sent to the client so the device survives a stack restart.
+     fn begin_join(&self, ieee: Eui64) {
+-        let provisional_key = self.core().aib.aps_security.begin_join(ieee);
++        // Both callers have accepted a fresh association/unsecured new join
++        // inside the permit window. Secured and trust-center rejoins do not
++        // pass here: they must retain the existing replay baseline.
++        let provisional_key = {
++            let mut core = self.core();
++            core.nib.nwk_security.reset_incoming_counter_for_fresh_join(ieee);
++            core.aib.aps_security.begin_join(ieee)
++        };
+ 
+         if let Some(key) = provisional_key {
+             tracing::info!("Device {ieee:?} is joining with its provisional link key");
