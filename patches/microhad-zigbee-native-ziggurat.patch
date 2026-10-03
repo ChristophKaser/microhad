@@ -149,10 +149,10 @@ index 6d87db8..74cc403 100644
  Sources: the retained [EZSP upgrade record](scripts/EZSP_UPGRADE.md), the
  [Silicon Labs NCP-to-host migration note](https://docs.silabs.com/zigbee/9.0.0/multiprotocol-solution-linux/host-ncp-rcp-migration),
 diff --git a/README.md b/README.md
-index c4042f0..b41d924 100644
+index c4042f0..c67e691 100644
 --- a/README.md
 +++ b/README.md
-@@ -5,14 +5,22 @@ the Lidl/gateway gateway. It is built specifically with the bundled RSDK for the
+@@ -5,14 +5,23 @@ the Lidl/gateway gateway. It is built specifically with the bundled RSDK for the
  gateway's 32-bit big-endian MIPS/uClibc environment; it does not use low.js,
  Node.js, or the TCP serial bridge.
  
@@ -177,12 +177,13 @@ index c4042f0..b41d924 100644
 +has explicit crash-safety limits. See [integration, commands and results](ZIGGURAT_INTEGRATION.md)
 +and [network migration evidence](NETWORK_MIGRATION.md).
 +
-+Deployment step 1 (offline recovery preparation) is complete. See
++Deployment steps 1 (offline recovery preparation) and 2 (private online backups
++and baseline capture) are complete. Step 3 has not been performed. See
 +[prepared tools and commands](RECOVERY_TOOLING.md). Production has not been changed.
  
  ## Build
  
-@@ -20,6 +28,10 @@ Ziggurat adapter and crash-safe persistence remain pending. See
+@@ -20,6 +29,10 @@ Ziggurat adapter and crash-safe persistence remain pending. See
  make host
  make test
  make mips
@@ -195,10 +196,10 @@ index c4042f0..b41d924 100644
  `make mips` uses only
 diff --git a/RECOVERY_TOOLING.md b/RECOVERY_TOOLING.md
 new file mode 100644
-index 0000000..fd02c8d
+index 0000000..ac603e5
 --- /dev/null
 +++ b/RECOVERY_TOOLING.md
-@@ -0,0 +1,159 @@
+@@ -0,0 +1,160 @@
 +# Prepared deployment/recovery tools — 2026-10-03
 +
 +Step 1 is complete on the host. Nothing here was installed on the gateway, and
@@ -321,7 +322,8 @@ index 0000000..fd02c8d
 +restarts native against the existing stack; Ziggurat failure stops native before
 +restarting the pair. Startup deadline is 15 seconds plus at most the five-second
 +probe in progress. Shutdown bounds each child to eight seconds and reports forced
-+termination; this does not certify freeze. Child console output is discarded;
++termination; this does not certify freeze. Marker files use POSIX shell redirection because the device has no `touch`.
++Child console output is discarded;
 +native's existing bounded RAM log remains available. No unbounded file is appended.
 +
 +On the gateway, during an orderly maintenance stop:
@@ -360,10 +362,10 @@ index 0000000..fd02c8d
 +application and bootloader cannot be reached.
 diff --git a/ZIGGURAT_DEPLOYMENT_PLAN.md b/ZIGGURAT_DEPLOYMENT_PLAN.md
 new file mode 100644
-index 0000000..5a93fb6
+index 0000000..dfeaf0c
 --- /dev/null
 +++ b/ZIGGURAT_DEPLOYMENT_PLAN.md
-@@ -0,0 +1,456 @@
+@@ -0,0 +1,501 @@
 +# Deploy Ziggurat on the existing gateway gateway
 +
 +## Current state and next action — 2026-10-03
@@ -383,9 +385,13 @@ index 0000000..5a93fb6
 +commands and limits are in [RECOVERY_TOOLING.md](RECOVERY_TOOLING.md). Nothing was
 +installed on the gateway during step 1.
 +
-+**Next action:** step 2, private online backups and baseline capture. The first
-+flash remains step 7. Steps 1–4 leave production running; steps 5–10 cause Zigbee
-+downtime. No staging or maintenance cutover is authorized by completing step 1.
++**Step 2 is complete:** private live service/application archive and fresh logical
++network export are saved and validated. Production stayed online; its binary and
++processes were not replaced/restarted. Joining was already closed.
++
++**Next action:** step 3 (isolated staging and a synthetic test), after checking the
++combined storage budget. Step 3 has not been performed. The first flash remains
++step 7. Steps 5–10 require a later maintenance cutover.
 +
 +The objective of this deployment is existing-network Zigbee operation through
 +native → COBS Unix socket → Ziggurat → HDLC RCP. Thread and Matter follow later;
@@ -489,6 +495,47 @@ index 0000000..5a93fb6
 +than entering the maintenance window.
 +
 +## 2. Save current service and application state — production stays online
++
++
++**Completed 2026-10-03.** Private host backup directory:
++`diagnostics/ziggurat-deployment/step2-1791013232746596827/` (ignored by Git,
++mode 0700; every file mode 0600). It contains:
++
++- `service-and-application.tar`: 2,171,392 bytes, 31 entries, with the deployed
++  daemon, launcher, configuration/application files, TLS/notification assets,
++  serial bridge and time script. The configured external Firebase account file
++  was included. Archive members/read lengths were checked and all regular-file
++  MD5 hashes matched the corresponding live files after transfer.
++- `deployed-v13-daemon` and `deployed-launcher.sh`: independent simple rollback
++  copies. Daemon MD5 remains `7a508ac880516642572a70e87bdc5014`.
++- `running-network-export.json`, `normalized-network-state.json` and
++  `coordinator-backup.json`: fresh online export (65 records), normalized state
++  and logical recovery backup. Offline restore validation and stopped-only actual
++  host Ziggurat import passed. The import transmitted zero frames.
++- Private process/fd records, HTTP/HTTPS status snapshots, bounded log snapshot,
++  inventories, resource readings and `verified-baseline.json`.
++
++The observed main daemon PID was 655 and parent launcher PID 126. LinuxThreads
++PIDs share its descriptors; they are not separate coordinator services. These
++PIDs are observations only: resolve them again before future maintenance.
++HTTP/HTTPS were online, network formed, and device count remained 23. The fresh
++radio export has zero populated link-key records and two direct children; raw
++NCP token export remains unavailable. These counts are not the device inventory.
++Passive observation recorded nine light-capable, four measurement-capable and
++four contact-capable entries, with seven entries receiving a newer `last_seen`
++during preparation. No device control commands were sent.
++
++At the resource snapshot, MemFree was 10,092 KiB and `/tuya` had 5,380 KiB free.
++Step 3 must budget both staged binaries and temporary space; these readings are
++not permanent capacity guarantees. The gateway lacks `touch`, `find`, `tr` and
++`readlink`. Backup used raw `/proc` reads, tar-member inventories and md5sum;
++prepared supervisor/control scripts now create marker files with POSIX shell
++redirection and their six host cases pass again.
++
++This is an **online snapshot**, not a final exclusive handover. No archived file
++changed during its immediate checksum comparison, but take another consistent
++application copy and a fresh counter/key capture in step 5. Do not use this
++backup's counter values unchanged after continued production operation.
 +
 +Over SSH, inspect `ps w`, each candidate `/proc/PID/status`, `/proc/PID/cmdline`,
 +`/proc/PID/exe` and `/proc/PID/fd` to identify the exact daemon and supervisor.
@@ -1283,7 +1330,7 @@ index 0000000..e7d2b8b
 +#endif
 diff --git a/paired_start.sh b/paired_start.sh
 new file mode 100755
-index 0000000..473a952
+index 0000000..4141731
 --- /dev/null
 +++ b/paired_start.sh
 @@ -0,0 +1,100 @@
@@ -1360,7 +1407,7 @@ index 0000000..473a952
 +    if [ -e "$control/quiesce" ]; then
 +        if [ "$quiesced" = false ]; then
 +            stop_child "$native_pid";native_pid=
-+            rm -f "$control/native.pid";touch "$control/quiesced";quiesced=true
++            rm -f "$control/native.pid";: > "$control/quiesced";quiesced=true
 +        fi
 +        # Leave Ziggurat alive for the host freeze/export tool. No respawn.
 +        sleep 1;continue
@@ -1552,7 +1599,7 @@ index 0000000..a2ae13a
 +        raise SystemExit('Final capture failed; no handover certified')
 diff --git a/scripts/paired_control.sh b/scripts/paired_control.sh
 new file mode 100755
-index 0000000..578ce35
+index 0000000..87a7c4a
 --- /dev/null
 +++ b/scripts/paired_control.sh
 @@ -0,0 +1,18 @@
@@ -1564,14 +1611,14 @@ index 0000000..578ce35
 +case "${1:-}" in
 + quiesce)
 +    [ -f "$control/supervisor.pid" ] || exit 1
-+    touch "$control/quiesce"
++    : > "$control/quiesce"
 +    deadline=0
 +    while [ ! -f "$control/quiesced" ] && [ "$deadline" -lt 15 ]; do sleep 1;deadline=$((deadline+1));done
 +    [ -f "$control/quiesced" ] || exit 1
 +    echo 'Native quiesced; Ziggurat retained. Freeze/export before stop.' ;;
 + stop)
 +    [ "${2:-}" = --frozen-snapshot-saved ] && [ -f "$control/quiesced" ] || { echo 'Quiesce and save frozen snapshot first' >&2;exit 2; }
-+    touch "$control/stop" ;;
++    : > "$control/stop" ;;
 + *) echo 'usage: paired_control.sh quiesce | stop --frozen-snapshot-saved' >&2;exit 2;;
 +esac
 diff --git a/scripts/test_deployment_tools.py b/scripts/test_deployment_tools.py

@@ -45,7 +45,10 @@ Follow the [same-device deployment and rollback plan](docs/ziggurat-deployment-p
 No spare gateway is required. Step 1 is complete: application-only GBL packaging,
 guarded recovery commands and paired supervision pass host tests. See
 [prepared tools](docs/recovery-tooling.md) and [artifact pins](docs/deployment-preparation.json).
-No hardware maintenance or flashing has occurred.
+Step 2 is also complete: private online service/application and network backups
+are verified; production stayed online with 23 devices and an unchanged binary.
+See [sanitized baseline](docs/deployment-baseline.json). No staging, service restart
+or firmware flashing occurred. Step 3 is next.
 
 1. Resolve cold-boot RNG readiness and report startup failures without blocking
    the async worker; retain the randomness safety check.
