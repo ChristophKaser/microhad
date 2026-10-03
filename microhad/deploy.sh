@@ -19,9 +19,10 @@ restart=false
 certificate=""
 private_key=""
 ca_bundle=""
+matter_service=""
 
 usage() {
-    echo "usage: $0 --password-file PATH [--binary-only | --webui-only | --both] [--config PATH] [--host HOST] [--user USER] [--target DIR] [--binary PATH] [--tls-certificate PATH --tls-private-key PATH] [--ca-bundle PATH] [--activate] [--restart]" >&2
+    echo "usage: $0 --password-file PATH [--binary-only | --webui-only | --both] [--config PATH] [--host HOST] [--user USER] [--target DIR] [--binary PATH] [--matter-service PATH] [--tls-certificate PATH --tls-private-key PATH] [--ca-bundle PATH] [--activate] [--restart]" >&2
     exit 2
 }
 
@@ -36,6 +37,7 @@ while [ "$#" -gt 0 ]; do
         --user) user=${2-}; shift 2 ;;
         --target) target=${2-}; shift 2 ;;
         --binary) binary=${2-}; shift 2 ;;
+        --matter-service) matter_service=${2-}; shift 2 ;;
         --tls-certificate) certificate=${2-}; shift 2 ;;
         --tls-private-key) private_key=${2-}; shift 2 ;;
         --ca-bundle) ca_bundle=${2-}; shift 2 ;;
@@ -49,6 +51,7 @@ done
 [ "$deploy_binary" = false ] || [ -x "$binary" ] || { echo "MIPS binary not found or not executable: $binary" >&2; exit 1; }
 [ "$deploy_webui" = false ] || { [ -f "$project_dir/webui/dist/index.html" ] && [ -f "$project_dir/webui/dist/sw.js" ]; } || { echo "Built Web UI not found; run make webui first" >&2; exit 1; }
 [ -z "$config" ] || { [ "$deploy_binary" = true ] && [ -f "$config" ]; } || usage
+[ -z "$matter_service" ] || { [ "$deploy_binary" = true ] && [ -x "$matter_service" ]; } || usage
 [ -z "$certificate" ] || [ -f "$certificate" ] || usage
 [ -z "$private_key" ] || [ -f "$private_key" ] || usage
 [ -z "$ca_bundle" ] || [ -f "$ca_bundle" ] || usage
@@ -90,6 +93,14 @@ if [ "$deploy_binary" = true ]; then
         ssh_command "dd of=\"$target/.config.json.new\"" < "$config"
         ssh_command "chmod 700 \"$target/.microhad-zigbee-native.new\"; chmod 600 \"$target/.config.json.new\"; mv \"$target/.microhad-zigbee-native.new\" \"$target/tuya-zigbee-native\"; mv \"$target/.config.json.new\" \"$target/config.json\"; ls -l \"$target/tuya-zigbee-native\" \"$target/config.json\""
     fi
+fi
+if [ -n "$matter_service" ]; then
+    # Stage the optional service and supervisor only. No launcher activation,
+    # credential state transfer, UART ownership change or process restart here.
+    ssh_command "dd of=\"$target/.thread-matter.new\"" < "$matter_service"
+    ssh_command "chmod 700 \"$target/.thread-matter.new\"; mv \"$target/.thread-matter.new\" \"$target/thread-matter\""
+    ssh_command "dd of=\"$target/.paired_start.sh.new\"" < "$project_dir/paired_start.sh"
+    ssh_command "chmod 700 \"$target/.paired_start.sh.new\"; mv \"$target/.paired_start.sh.new\" \"$target/paired_start.sh\""
 fi
 if [ "$deploy_webui" = true ]; then
     printf 'Uploading web UI to %s:%s/webui\n' "$host" "$target"

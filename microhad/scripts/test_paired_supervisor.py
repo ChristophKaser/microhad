@@ -24,12 +24,17 @@ if role=='zig':
  path=sys.argv[sys.argv.index('--listen')+1][5:]
  Path(path).unlink(missing_ok=True)
  s=socket.socket(socket.AF_UNIX);s.bind(path);os.chmod(path,0o600);s.listen();s.settimeout(.1)
+ if '--thread-socket' in sys.argv and os.environ.get('TEST_NO_THREAD')!='1':
+  path=sys.argv[sys.argv.index('--thread-socket')+1]
+  Path(path).unlink(missing_ok=True)
+  thread=socket.socket(socket.AF_UNIX);thread.bind(path);os.chmod(path,0o600);thread.listen()
  while True:
   try:
    c,_=s.accept();c.sendall(bytes.fromhex('01020302020100'));c.close()
   except socket.timeout:pass
 else:
- if os.environ.get('TEST_EXIT')=='1':raise SystemExit(0)
+ if role=='native' and os.environ.get('TEST_EXIT')=='1':raise SystemExit(0)
+ if role=='matter' and os.environ.get('TEST_MATTER_EXIT')=='1':raise SystemExit(1)
  while True:time.sleep(.1)
 '''
 
@@ -45,7 +50,7 @@ def wait(check,timeout=12):
 class Paired(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.root=Path(self.tmp.name)
-        for name in ('zig','native'):
+        for name in ('zig','native','matter'):
             p=self.root/name;p.write_text(FAKE);p.chmod(0o700)
         self.control=self.root/'control';self.events=self.root/'events';self.events.touch()
         self.env=dict(os.environ,ZIGGURAT_BIN=str(self.root/'zig'),NATIVE_BIN=str(self.root/'native'),
@@ -59,6 +64,10 @@ class Paired(unittest.TestCase):
         self.process=subprocess.Popen(['sh',str(ROOT/'paired_start.sh')],env=self.env,stdout=self.log,stderr=self.log)
     def ready(self):
         wait(lambda:'native start' in self.events.read_text())
+    def enable_matter(self):
+        self.env.update(MATTER_BIN=str(self.root/'matter'),MATTER_STATE_DIR=str(self.root/'matter-state'),
+                        MATTER_SOCKET=str(self.root/'matter.sock'),THREAD_SOCKET=str(self.root/'thread.sock'),
+                        MATTER_RESTART_LIMIT='2')
     def quiesce(self):
         subprocess.run(['sh',str(ROOT/'scripts/paired_control.sh'),'quiesce'],env=self.env,check=True,stdout=subprocess.DEVNULL,timeout=15)
     def stop(self):
@@ -111,6 +120,40 @@ class Paired(unittest.TestCase):
         self.env['RESTART_LIMIT']='1';self.start();self.process.wait(timeout=10)
         self.assertNotIn('native start',self.events.read_text())
         self.assertNotEqual(self.process.returncode,0)
+
+    def test_matter_failures_exhaust_only_independent_budget(self):
+        self.enable_matter();self.env['TEST_MATTER_EXIT']='1';self.start();self.ready()
+        wait(lambda:(self.control/'matter.failed').exists())
+        events=self.events.read_text()
+        self.assertEqual(events.count('matter start'),2)
+        self.assertEqual(events.count('native start'),1)
+        self.assertEqual(events.count('zig start'),1)
+        self.assertNotIn('native stop',events)
+        self.assertIsNone(self.process.poll())
+        self.quiesce();self.stop()
+
+    def test_matter_stops_before_native_and_radio_on_quiesce(self):
+        self.enable_matter();self.start();self.ready()
+        wait(lambda:'matter start' in self.events.read_text())
+        self.quiesce();self.stop();events=self.events.read_text()
+        self.assertLess(events.index('matter stop'),events.index('native stop'))
+        self.assertLess(events.index('native stop'),events.index('zig stop'))
+
+    def test_radio_failure_stops_and_restarts_matter_with_pair(self):
+        self.enable_matter();self.start();self.ready()
+        wait(lambda:'matter start' in self.events.read_text())
+        os.kill(int((self.control/'ziggurat.pid').read_text()),signal.SIGKILL)
+        wait(lambda:self.events.read_text().count('matter start')==2)
+        events=self.events.read_text()
+        self.assertLess(events.index('matter stop'),events.rindex('zig start'))
+        self.assertLess(events.index('matter stop'),events.index('native stop'))
+        self.quiesce();self.stop()
+
+    def test_missing_thread_endpoint_keeps_native_available(self):
+        self.enable_matter();self.env['TEST_NO_THREAD']='1';self.start();self.ready();time.sleep(1.2)
+        self.assertNotIn('matter start',self.events.read_text())
+        self.assertIsNone(self.process.poll())
+        self.quiesce();self.stop()
 
 
 if __name__=='__main__':unittest.main()

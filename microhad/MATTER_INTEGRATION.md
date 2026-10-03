@@ -237,8 +237,8 @@ limits are documented in
 The native gateway now has a bounded Unix-stream client and read-only Matter
 and Thread status routes. They use `/tmp/microhad-matter.sock`, require a same-owner
 socket with private permissions, cap frames at the shared 2048-byte protocol
-bound, and wait at most one second for a response. The Rust daemon does not yet
-create this socket, so enabled routes currently report 503. Garage BLE and
+bound, and wait at most one second for a response. The Rust daemon now creates
+this socket when started; absent services still return 503. Garage BLE and
 control operations remain pending.
 
 
@@ -261,7 +261,7 @@ checks. Production remained online/formed and test artifacts were removed.
 
 The gateway BTP relay rejects stale connection/write callbacks and resets
 failed or stalled writes. A private atomic controller store passes host tests;
-committed-flash fabric reopen and fresh CASE now pass on host and MIPS. The Rust IPC listener, CA/node persistence integration, Android GATT/WebSocket
+committed-flash fabric reopen and fresh CASE now pass on host and MIPS. CA/node persistence integration, Android GATT/WebSocket
 wiring, discovery/subscriptions and real-device acceptance remain pending.
 
 Detailed commands, measurements, failed guards and test scope are in
@@ -279,7 +279,7 @@ It is not yet daemon/radio restart or real-device recovery acceptance.
 
 Native C++03 `MatterWire` and Rust `ipc` implement the same bounded stream
 framing. The native client now serves read-only status routes; the Rust daemon
-listener is still pending. Fields are explicit bytes, independent of host/MIPS
+listener is implemented as described below. Fields are explicit bytes, independent of host/MIPS
 ABI:
 
 | Offset | Width | Field |
@@ -296,8 +296,8 @@ Requests/responses require a nonzero correlation ID; events require zero.
 Input chunks are capped at 4096 bytes and at most 32 frames can await dispatch.
 Malformed or overflowing streams fail closed and discard pending data. Payload
 contents have no logging/formatting path in the codec. Native socket client
-lifecycle and status calls are implemented. The Rust service listener, event
-dispatch, commissioning/control body schemas, and asynchronous BLE transport
+lifecycle and status calls are implemented. Event
+dispatch, commissioning/control body schemas, and asynchronous phone BLE transport
 remain pending.
 
 Matching golden-vector and malformed-stream tests pass in Rust and native C++.
@@ -316,3 +316,61 @@ It uploads only a unique small test executable, applies virtual-memory/time
 limits, exercises framing vectors, and removes the artifact. It never accesses
 radio, device configuration or persistent network state. The framing source is
 compiled for both native backends; Matter-disabled runtime behavior is unchanged.
+
+## Service runtime and optional supervision — 2026-10-04
+
+The companion `thread-matter` service now runs Matter/OpenThread/storage and
+the Unix listener on one event-loop thread. Both status opcodes pass a real
+host process test against the synthetic RCP. It reports `awaiting_fabric` and
+`detached` until the pending fabric and network lifecycle work is implemented.
+The stripped static factory MIPS-I/o32 binary is 1,228,412 bytes. This checkpoint
+has not been executed on the physical gateway or activated in production.
+
+`paired_start.sh` optionally supervises it when `MATTER_BIN` is set to an
+absolute executable path. Configuration:
+
+| Variable | Default / purpose |
+| --- | --- |
+| `MATTER_BIN` | Unset: Matter disabled; no Thread endpoint requested |
+| `MATTER_STATE_DIR` | `/tuya/native/matter`, private persistent state |
+| `MATTER_SOCKET` | `/tmp/microhad-matter.sock`, must match the native status client |
+| `THREAD_SOCKET` | `/tmp/ziggurat/thread.sock`, private coordinator HDLC endpoint |
+| `MATTER_RESTART_LIMIT` | 5 start attempts during this supervisor invocation |
+| `RESTART_BACKOFF` | 3 seconds between failed Matter attempts |
+
+Existing paired-supervisor variables for coordinator/native executable,
+configuration, maintenance tool and control paths remain required. With Matter
+enabled, Ziggurat receives `--thread-socket` in addition to IID 1 and its COBS
+endpoint. Only Ziggurat owns the UART/reset. The native bridge starts after COBS
+readiness; a missing Thread socket leaves Matter absent while Zigbee runs.
+Matter starts when its socket exists. It receives only the Unix endpoint with
+`?no-reset`, the private state path and IPC path.
+
+Matter failure never consumes the coordinator/native retry budget. On Matter
+budget exhaustion, the supervisor writes the empty RAM marker
+`$RUNTIME_CONTROL/matter.failed` and continues Zigbee/native service. The
+attempt budget includes starts following coordinator restarts; it resets only
+on a fresh supervisor invocation. The exact current PID, when alive, is in
+`matter.pid`. State corruption causes service startup to fail; inspect and
+recover private state from a known backup rather than deleting it to retry.
+
+Quiesce, supervisor shutdown and coordinator death stop Matter before native
+and radio processes. Coordinator restart recreates clients within their
+budgets. Native-only restart leaves Matter running. Child output is discarded,
+so retries create no growing log or flash log. The standalone runtime emits
+only static start/stop/failure messages. Shutdown has the existing bounded
+TERM/KILL deadline; restart socket ownership is checked by the Rust listener.
+
+`deploy.sh --matter-service PATH` stages `thread-matter` and `paired_start.sh`
+with mode 0700 alongside a binary deployment. It does not upload credential
+state, select the paired launcher, or enable the child. Normal `--activate`
+continues to select `native_start.sh`. Stage below `/tuya/native-test` for later
+review; production cutover and real-accessory acceptance remain excluded under
+plan 08. The candidate permanent launcher is not changed or installed here.
+
+Validation: 19 Rust checks, the synthetic real-service runtime test, ten paired
+supervisor checks (including Matter isolation, ordering and missing endpoint),
+shell syntax checks and mocked optional deployment staging pass. No physical
+radio or device configuration was touched. See
+[`docs/matter-plans/01-rust-service-runtime.md`](docs/matter-plans/01-rust-service-runtime.md)
+for remaining acceptance gaps.

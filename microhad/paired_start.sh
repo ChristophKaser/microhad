@@ -12,14 +12,27 @@ limit=${RESTART_LIMIT:-5}
 startup_limit=${STARTUP_LIMIT:-15}
 stop_limit=${STOP_LIMIT:-8}
 backoff=${RESTART_BACKOFF:-3}
-case "$limit:$startup_limit:$stop_limit:$backoff" in *[!0-9:]*|:*|*::*) exit 2;; esac
+matter_bin=${MATTER_BIN:-}
+matter_state=${MATTER_STATE_DIR:-/tuya/native/matter}
+matter_socket=${MATTER_SOCKET:-/tmp/microhad-matter.sock}
+thread_socket=${THREAD_SOCKET:-/tmp/ziggurat/thread.sock}
+matter_limit=${MATTER_RESTART_LIMIT:-5}
+case "$limit:$startup_limit:$stop_limit:$backoff:$matter_limit" in *[!0-9:]*|:*|*::*) exit 2;; esac
 for path in "$ZIGGURAT_BIN" "$NATIVE_BIN" "$NATIVE_CONFIG" "$MAINTENANCE_BIN" "$control" "$socket_path" "$device"; do
     case "$path" in /*) ;; *) echo 'Absolute paths required' >&2;exit 2;; esac
 done
+if [ -n "$matter_bin" ]; then
+    for path in "$matter_bin" "$matter_state" "$matter_socket" "$thread_socket"; do
+        case "$path" in /*) ;; *) echo 'Absolute Matter paths required' >&2;exit 2;; esac
+    done
+    [ -x "$matter_bin" ] || { echo 'Matter service executable missing' >&2;exit 2; }
+    [ "$thread_socket" != "$socket_path" ] && [ "$matter_socket" != "$socket_path" ] &&
+        [ "$matter_socket" != "$thread_socket" ] || { echo 'Distinct IPC paths required' >&2;exit 2; }
+fi
 # Atomic directory claim refuses stale/duplicate supervisors; operator inspects it.
 mkdir "$control" || exit 2
 printf '%s\n' "$$" > "$control/supervisor.pid"
-zig_pid=;native_pid=;retries=0;quiesced=false
+zig_pid=;native_pid=;matter_pid=;retries=0;matter_retries=0;matter_next=0;quiesced=false
 stop_child() {
     child=$1
     [ -n "$child" ] || return 0
@@ -37,9 +50,10 @@ stop_child() {
 cleanup() {
     trap '' TERM INT HUP
     trap - EXIT
+    stop_child "$matter_pid";matter_pid=
     stop_child "$native_pid";native_pid=
     stop_child "$zig_pid";zig_pid=
-    rm -f "$control/native.pid" "$control/ziggurat.pid" "$control/supervisor.pid" "$control/quiesce" "$control/quiesced" "$control/stop"
+    rm -f "$control/matter.pid" "$control/matter.failed" "$control/native.pid" "$control/ziggurat.pid" "$control/supervisor.pid" "$control/quiesce" "$control/quiesced" "$control/stop"
     # Device lacks rmdir. Only remove this invocation's known control directory.
     rm -rf "$control"
 }
@@ -50,8 +64,14 @@ start_zig() {
     # Socket parent must be private; Ziggurat validates stale/live socket itself.
     parent=${socket_path%/*}
     if [ ! -d "$parent" ]; then mkdir "$parent" || return 1;chmod 700 "$parent";fi
+    set --
+    if [ -n "$matter_bin" ]; then
+        parent=${thread_socket%/*}
+        if [ ! -d "$parent" ]; then mkdir "$parent" || return 1;chmod 700 "$parent";fi
+        set -- --thread-socket "$thread_socket"
+    fi
     "$ZIGGURAT_BIN" --device "$device" --baudrate 460800 --flow-control hardware \
-        --spinel-iid 1 --api cobs-unix --listen "unix:$socket_path" --log-level error >/dev/null 2>&1 &
+        --spinel-iid 1 --api cobs-unix --listen "unix:$socket_path" --log-level error "$@" >/dev/null 2>&1 &
     zig_pid=$!;printf '%s\n' "$zig_pid" > "$control/ziggurat.pid"
     deadline=$(($(date +%s)+startup_limit))
     while [ "$(date +%s)" -lt "$deadline" ]; do
@@ -66,12 +86,36 @@ start_native() {
     "$NATIVE_BIN" --config "$NATIVE_CONFIG" >/dev/null 2>&1 &
     native_pid=$!;printf '%s\n' "$native_pid" > "$control/native.pid"
 }
+poll_matter() {
+    [ -n "$matter_bin" ] || return 0
+    if [ -n "$matter_pid" ] && kill -0 "$matter_pid" 2>/dev/null; then return 0;fi
+    if [ -n "$matter_pid" ]; then
+        wait "$matter_pid" 2>/dev/null || true;matter_pid=
+        rm -f "$control/matter.pid"
+        matter_next=$(($(date +%s)+backoff))
+    fi
+    if [ "$matter_retries" -ge "$matter_limit" ]; then
+        if [ ! -e "$control/matter.failed" ]; then
+            echo 'Matter restart budget exhausted; Zigbee remains running' >&2
+            : > "$control/matter.failed"
+        fi
+        return 0
+    fi
+    [ "$(date +%s)" -ge "$matter_next" ] || return 0
+    # A missing Thread endpoint must not prevent the native bridge from running.
+    [ -S "$thread_socket" ] || return 0
+    "$matter_bin" --socket "$matter_socket" --state-dir "$matter_state" \
+        --radio-url "spinel+hdlc+unix://$thread_socket?no-reset" >/dev/null 2>&1 &
+    matter_pid=$!;matter_retries=$((matter_retries+1))
+    printf '%s\n' "$matter_pid" > "$control/matter.pid"
+}
 while :; do
     [ ! -e "$control/stop" ] || exit 0
     if [ -e "$control/quiesce" ]; then
         if [ "$quiesced" = false ]; then
+            stop_child "$matter_pid";matter_pid=
             stop_child "$native_pid";native_pid=
-            rm -f "$control/native.pid";: > "$control/quiesced";quiesced=true
+            rm -f "$control/matter.pid" "$control/native.pid";: > "$control/quiesced";quiesced=true
         fi
         # Leave Ziggurat alive for the host freeze/export tool. No respawn.
         sleep 1;continue
@@ -81,6 +125,8 @@ while :; do
         exit 1
     fi
     if [ -z "$zig_pid" ] || ! kill -0 "$zig_pid" 2>/dev/null; then
+        stop_child "$matter_pid";matter_pid=
+        rm -f "$control/matter.pid"
         stop_child "$native_pid";native_pid=
         stop_child "$zig_pid";zig_pid=
         if [ "$retries" -ge "$limit" ]; then echo 'Restart budget exhausted' >&2;exit 1;fi
@@ -96,5 +142,6 @@ while :; do
         [ ! -e "$control/quiesce" ] && [ ! -e "$control/stop" ] || continue
         start_native
     fi
+    poll_matter
     sleep 1
 done
