@@ -1,30 +1,23 @@
-> **Real deployment underway (2026-10-03):** the existing network is online
-> through the real HDLC RCP and Ziggurat backend. Steps 1–9 complete; observation,
-> permanent startup and reboot remain. [Deployment checkpoint](ZIGGURAT_DEPLOYMENT_PLAN.md)
-> and [hardware findings](REAL_RADIO_MIGRATION.md) supersede earlier simulation-only status.
-
 # Native service ↔ Ziggurat integration
 
 ## Current state and plan — 2026-10-03
 
-**Implemented and verified in simulation.** The optional native COBS/Unix socket
-backend, native-owned state store and recovery lifecycle are complete. Both EZSP
-and Ziggurat host suites and MIPS builds pass. Thirteen scripted-peer cases and
-six actual native-service/Ziggurat/host-RCP scenarios pass. The Tuya ran only
-Ziggurat and a socket probe against synthetic host radio state; all eight checks
-passed and temporary uploads were removed. Production remains on EZSP with its
-network formed, 23 known devices and an unchanged executable checksum.
+**Implemented and deployed on the real gateway.** The native COBS/Unix socket
+backend, native-owned state store and paired supervision are running against
+the flashed HDLC RCP. Both backend host suites and MIPS builds pass; actual
+host simulation and real existing-network traffic passed. Controlled reboot
+returned online automatically with 23 inventory entries. See
+[deployment and rollback](ZIGGURAT_DEPLOYMENT_PLAN.md) and
+[hardware findings, timings and limitations](REAL_RADIO_MIGRATION.md).
 
-**Next:** follow the [same-device deployment/rollback plan](ZIGGURAT_DEPLOYMENT_PLAN.md),
-validate real Zigbee traffic, then integrate the Thread consumer and Matter.
-No spare gateway is required. No firmware was flashed;
-the native service was neither deployed nor restarted. The 1000-frame restart
-margin follows ZHA's policy and does not guarantee safety after arbitrary outages.
+Cold-boot readiness took 121 seconds; RNG readiness is suspected, not proven.
+Sleepy-child stimulation was waived and remains physically unverified.
+Broadcast terminal verdicts remain intermittent. The 1000-frame restart margin
+follows ZHA's policy and does not guarantee safety after arbitrary outages.
 
-The goal is a standalone Tuya gateway: native device/application handling talks
-to Ziggurat over a Unix stream socket; Ziggurat speaks HDLC/Spinel to the radio.
-The later Thread consumer uses a separate HDLC endpoint, not this Zigbee API.
-This work does not implement Thread, OTBR or Matter.
+Next: local Thread/OTBR on the separate HDLC endpoint and standalone Matter,
+with coordinated channel/reset/scans and combined gateway resource measurements.
+IID 2 is unused. Thread, OTBR and Matter are not implemented by this deployment.
 
 ## Ownership and processes
 
@@ -46,8 +39,7 @@ make ZIGGURAT=1 mips
 
 Disabled outputs remain `build/host` and `build/mips`. Enabled outputs live in
 `build/host-ziggurat` and `build/mips-ziggurat`. No executable is deployed by make.
-The native project requires its stock RSDK and C++03. Do not deploy these native
-binaries during this task.
+The native project requires its stock RSDK and C++03. The production gateway runs `build/mips-ziggurat/microhad-zigbee-native`.
 
 ## Local API and configuration
 

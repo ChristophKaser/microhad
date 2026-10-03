@@ -2,12 +2,13 @@
 
 ## Current checkpoint
 
-Steps 1–9 are complete. The original network runs through the staged native
-Ziggurat backend, a private COBS Unix stream socket, and real IID 1 HDLC RCP.
-The original EZSP launcher remains suspended. Step 10's user-approved 15-minute observation
-and graceful-recovery check are in progress; permanent startup and reboot are
-not yet complete. Follow [the deployment plan](ZIGGURAT_DEPLOYMENT_PLAN.md) for
-current status and rollback instructions.
+Permanent paired production startup is installed under `/tuya/native` and
+controlled reboot returned online automatically. All 12 Zigbee deployment steps are complete;
+final frozen recovery state and offline-validated NCP rollback backup are archived. The original
+EZSP launcher/binary/config and NCP recovery image remain available. Follow
+[the deployment plan](ZIGGURAT_DEPLOYMENT_PLAN.md) for current checkpoint and
+orderly rollback; restoring the old launcher alone cannot undo an RCP migration.
+Thread IID 2 remains unused; standalone Thread/Matter is a separate next phase.
 
 The preserved inventory has **23 entries: 17 Zigbee, four Shelly and two FRITZ!Box**.
 Inventory preservation alone does not prove radio communication. The real light
@@ -135,3 +136,39 @@ table difference is not certified. Some devices may have moved to router parents
 but that is an inference, not a verified explanation. Network credentials remain
 unchanged. The user waived physical sleepy-device validation; retain this explicit
 limit and inspect polling/rejoin behavior when those devices are next available.
+
+## Permanent startup and controlled reboot
+
+The paired supervisor owns startup order, bounded restarts and maintenance
+quiesce. Production uses `/tuya/native/paired_start.sh`, `paired_control.sh`,
+`ziggurat`, `gateway-maintenance` and the enabled native binary. The boot wrapper
+is `/tuya/tuya_start.sh`; original EZSP files are retained. Private configuration
+and checksummed wire state remain mode 0600. Child console output is discarded;
+native logs use the bounded RAM ring and must be read through `/api/logs`.
+
+Quiesce → complete freeze/export → clean stop → restart passed before reboot.
+`/bin/reboot` then automatically started supervisor 126, Ziggurat 134 and native
+149. Native logged readiness 121 seconds after startup, following lifecycle/hello
+timeouts; it recovered without manual restart. HTTP/HTTPS, pinned binary MD5s,
+23-entry inventory, actual light read/bind/reporting replies and a humidity report
+passed after reboot. The initial host observation deadline expired before the
+confirmation. Cold-boot Configure blocking requires further investigation;
+kernel RNG readiness is suspected, not established, and randomness checks remain.
+
+After reboot memory was 12844 KiB free and 8136 KiB cached out of 27892 KiB.
+The earlier low free-memory reading included filesystem caches and testing
+artifacts; it did not establish a production heap leak. Do not sum LinuxThreads
+RSS entries sharing the same address space.
+
+## Final recovery checkpoint
+
+The final controlled quiesce/export saved complete frozen network, key, child
+and address state plus native persisted state privately. Rollback preparation
+verified identity/security and nonregressing NWK/APS counters and applied safety
+margins. The standard NCP backup passed offline validation. The pair then stopped
+and restarted through the permanent launcher; HTTP/HTTPS returned online with
+23 inventory entries. Artifact hashes and validation evidence are archived in
+Git-ignored diagnostics. This certifies backup preparation, not a performed live
+reverse restore. Any later rollback needs a newly frozen snapshot after subsequent
+traffic. Original two child records remain archived; the post-start child table
+was empty, so direct-child continuity/wake/rejoin remains unproven.

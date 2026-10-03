@@ -1,9 +1,17 @@
 # Prepared deployment/recovery tools — 2026-10-03
 
-Step 1 is complete on the host. Nothing here was installed on the gateway, and
-no radio was accessed. The hardware round trips remain steps 6–8 of the deployment
-plan. These tools provide guarded procedures, not guaranteed recovery from an
-unresponsive RCP or arbitrary stale counters.
+Recovery tools are deployed under `/tuya/native`. Both NCP and RCP bootloader
+entry/run round trips passed on this gateway; the pinned RCP application was
+flashed without changing bootloader or NVM3. Fresh complete frozen rollback
+state is saved privately on the host. No live reverse NCP restoration was
+performed. Recovery from an unresponsive RCP or arbitrary stale counters remains
+unproven. See [current checkpoint](ZIGGURAT_DEPLOYMENT_PLAN.md).
+
+Remote freeze examples below that use the former staging path must now specify
+`--bridge /tuya/native/gateway-maintenance`. Quiesce with
+`/tuya/native/paired_control.sh quiesce`, export complete frozen state, then
+stop with `paired_control.sh stop --frozen-snapshot-saved`. Start a fresh pair
+with `/tuya/tuya_start.sh`; do not merely remove the quiesce marker.
 
 ## Artifacts and offline packaging
 

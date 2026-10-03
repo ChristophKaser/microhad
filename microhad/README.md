@@ -7,22 +7,28 @@ Node.js, or the TCP serial bridge.
 
 ## Current state and plan — 2026-10-03
 
-The optional Ziggurat backend is implemented: COBS over a Unix stream socket,
-with the native service owning persistent state following ZHA's model. EZSP is
-still the default. Both host suites and MIPS builds pass; actual host stack and
-Tuya Ziggurat-only simulations pass. Production remains on EZSP: no native
-service replacement/restart, radio access or firmware flashing occurred in this work.
+Production uses the enabled `ZIGGURAT=1` native backend: COBS over a private
+Unix stream socket, Ziggurat, and the application-only two-instance HDLC RCP.
+The native service owns durable state following ZHA's model. The permanent
+paired launcher starts both processes from `/tuya/native`; controlled reboot
+returned online automatically with all 23 inventory entries (17 Zigbee).
+Existing light commands/readbacks and temperature/humidity reports work.
 
-Next, follow the [same-device deployment and rollback plan](ZIGGURAT_DEPLOYMENT_PLAN.md)
-to validate migration/recovery and real Zigbee traffic, then integrate standalone
-Thread and Matter. No spare gateway is required. The restart counter margin
-has explicit crash-safety limits. See [integration, commands and results](ZIGGURAT_INTEGRATION.md)
-and [network migration evidence](NETWORK_MIGRATION.md).
+See the [deployment checkpoint and rollback procedure](ZIGGURAT_DEPLOYMENT_PLAN.md)
+and [real-radio measurements and limitations](REAL_RADIO_MIGRATION.md).
+The user-approved 15-minute observation completed with zero offline samples.
+Sleepy-child wake/rejoin remains physically unverified; broadcasts can reach
+routers despite intermittent relay-quorum/CCA failure verdicts. Cold boot needed
+121 seconds from native start to readiness; RNG blocking is suspected, unproven.
+The 1000-frame restart margin is not a guarantee after arbitrary crashes.
+Private original and fresh frozen recovery backups are retained outside Git.
 
-Deployment steps 1–4 are complete: recovery preparation, private backups,
-verified isolated staging and preliminary import. Step 5 is waiting for the
-direct approval required by automatic action review. Production remains on EZSP. See
-[prepared tools and commands](RECOVERY_TOOLING.md). Production has not been changed.
+Next: investigate the startup delay, validate sleepy devices when available,
+then integrate local Thread on IID 2 and standalone Matter with coordinated
+channel/reset/scan ownership and combined RAM/CPU measurements. IID 2 is unused;
+Thread/Matter is not yet implemented. No cpcd or spare gateway is required.
+Both backend host suites and MIPS builds remain supported; EZSP is the build
+default, while this gateway runs the explicitly enabled Ziggurat binary.
 
 ## Build
 

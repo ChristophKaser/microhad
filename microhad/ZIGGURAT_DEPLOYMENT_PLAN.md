@@ -2,7 +2,7 @@
 
 ## Current state and next action — 2026-10-03
 
-**Deployment is in progress.** Use the existing gateway at
+**All 12 Zigbee deployment steps are complete, with the limits below.** Use the existing gateway at
 `192.168.178.62`; no spare gateway or radio is required. This plan supersedes
 older recommendations to rehearse on spare hardware.
 
@@ -11,8 +11,10 @@ Ziggurat → real HDLC RCP (IID 1), with all 23 inventory devices retained.
 Permanent paired supervision is installed and running from `/tuya/native`;
 the original EZSP supervisor was retired with its files retained for rollback.
 Network identity/security match the final private backup; NWK/APS counters advanced.
-Steps 1–11 completed; controlled reboot returned online automatically, with
-a 121-second native readiness delay. Final recovery snapshot is next. Thread IID 2 remains unused.
+Steps 1–12 completed. Controlled reboot recovered automatically with a
+121-second native readiness delay; final frozen recovery state is archived.
+Sleepy-child stimulation was waived and remains physically unverified; broadcast
+relay-quorum/CCA verdicts are intermittent. See [measured findings](REAL_RADIO_MIGRATION.md). Thread IID 2 remains unused.
 
 **Step 1 is complete:** images are packaged/validated, binaries rebuilt, recovery
 commands and candidate paired launcher implemented, and host tests pass. Exact
@@ -23,9 +25,11 @@ installed on the gateway during step 1.
 network export are saved and validated. Production stayed online; its binary and
 processes were not replaced/restarted. Joining was already closed.
 
-**Execution checkpoint:** steps 1–11 completed.
+**Execution checkpoint:** steps 1–12 completed.
 
-**Next action:** step 12; reread its procedure before execution.
+**Next action:** investigate cold-boot Configure latency and verify sleepy devices
+when available, then plan local Thread/Matter integration and combined resource
+measurements. IID 2 remains unused; no Thread/Matter deployment is claimed.
 
 The objective of this deployment is existing-network Zigbee operation through
 native → COBS Unix socket → Ziggurat → HDLC RCP. Thread and Matter follow later;
@@ -522,6 +526,9 @@ orderly NCP return; atomically restore the saved EZSP launcher/binary/config and
 resume it. Restoring a launcher alone does not undo a radio migration.
 
 ## 12. Close the Zigbee deployment, then add Thread/Matter separately
+
+**Completed 2026-10-03:** permanent supervisor quiesced; latest complete frozen stack and native persisted state archived privately. Network/security identity and nonregressing NWK/APS counters passed rollback preparation; the advanced standard NCP recovery backup passed offline validation. Pair stopped cleanly and a fresh permanent launcher returned online/formed with 23 inventory entries; HTTP and HTTPS passed. Final private artifact hashes/validation record saved, original network/application/service files and pinned NCP GBL retained. No reverse NCP restore was executed. Zigbee deployment is closed with the documented sleepy-child, intermittent broadcast, cold-boot latency and crash-recovery limits. Thread/Matter remains a separate future phase on this same gateway.
+
 
 Save a fresh private frozen recovery snapshot during a controlled stop, resume
 Zigbee and archive the deployment hashes/validation record. Retain the NCP GBL,
