@@ -202,3 +202,21 @@ directories. Verification passed:
 The initial parallel backend test run failed at the EZSP diagnostics-redaction
 assertion while the Ziggurat suite was running. Sequential reruns passed; no
 runtime source was changed to suppress the assertion.
+
+## Owner-selected policy and Thread provisioning implementation
+
+The owner explicitly selected skipping manufacturer attestation. The shared
+Rust controller policy now defaults `verify_manufacturer_attestation=false`
+and maps it to upstream's bypass; PASE/CASE authentication and encryption stay
+enabled. Selecting verification fails closed until its optional verifier is
+implemented. The verifier is no longer a prerequisite for this setup. This
+choice is separate from the trusted-LAN HTTP/WebSocket transport policy.
+
+A shared Rust helper now sends an active Thread dataset through
+`AddOrUpdateThreadNetwork` and then `ConnectNetwork` over PASE. It validates
+dataset structure and the shared Zigbee channel before sending credentials,
+rejects failure responses, and has no credential logging/persistence. Host
+UDP/TCP fixtures exercise success and failure paths; the module also builds
+for factory MIPS. The native daemon has no callable Matter endpoint yet: the
+OpenThread adapter, native IPC, Garage BLE and real-device acceptance remain
+in progress. The native build gate is retained until those paths are usable.
