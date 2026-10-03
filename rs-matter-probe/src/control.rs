@@ -103,6 +103,11 @@ pub struct BleWriteComplete {
 #[derive(Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ThreadRequest {
+    Observe {
+        schema: Schema,
+        zigbee_channel: u8,
+        zigbee_online: bool,
+    },
     Status {
         schema: Schema,
     },
@@ -229,6 +234,17 @@ impl Request {
                 let body: ThreadRequest = parse(bytes)?;
                 let channel = match &body {
                     ThreadRequest::Status { .. } => None,
+                    ThreadRequest::Observe {
+                        zigbee_channel,
+                        zigbee_online,
+                        ..
+                    } => {
+                        if !zigbee_online && *zigbee_channel == 0 {
+                            None
+                        } else {
+                            Some(zigbee_channel)
+                        }
+                    }
                     ThreadRequest::Create { zigbee_channel, .. }
                     | ThreadRequest::Import { zigbee_channel, .. } => Some(zigbee_channel),
                 };

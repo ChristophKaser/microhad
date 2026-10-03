@@ -2,6 +2,8 @@
 #include <openthread/openthread-system.h>
 #include <openthread/dataset.h>
 #include <openthread/ip6.h>
+#include <openthread/link.h>
+#include <openthread/platform/settings.h>
 #include <openthread/message.h>
 #include <openthread/tasklet.h>
 #include <openthread/thread.h>
@@ -16,6 +18,9 @@ typedef void (*GatewayOtReceive)(void *, const GatewayOtAddress *, const uint8_t
 }
 namespace {
 otInstance *instance = nullptr;
+bool guardedSettings = false;
+bool activeRestoreAllowed = true;
+bool settingsReadError = false;
 struct Slot { otUdpSocket socket; GatewayOtReceive callback; void *context; bool open; };
 Slot slots[2] = {};
 void receive(void *context, otMessage *message, const otMessageInfo *info)
@@ -33,6 +38,20 @@ void receive(void *context, otMessage *message, const otMessageInfo *info)
 }
 }
 extern "C" void otPlatReset(otInstance *) { std::abort(); }
+extern "C" otError __real_otPlatSettingsGet(otInstance *, uint16_t, int, uint8_t *, uint16_t *);
+extern "C" otError __wrap_otPlatSettingsGet(otInstance *aInstance, uint16_t key, int index,
+                                            uint8_t *value, uint16_t *length)
+{
+    // Preserve network/frame-counter settings, but never let an unchecked saved
+    // dataset select the shared radio channel during Instance::AfterInit().
+    if (guardedSettings && (key == OT_SETTINGS_KEY_PENDING_DATASET ||
+        (key == OT_SETTINGS_KEY_ACTIVE_DATASET && !activeRestoreAllowed))) return OT_ERROR_NOT_FOUND;
+    uint16_t expected = length ? *length : 0;
+    otError result = __real_otPlatSettingsGet(aInstance, key, index, value, length);
+    if (guardedSettings && key == OT_SETTINGS_KEY_NETWORK_INFO && result == OT_ERROR_NONE &&
+        value && length && *length != expected) settingsReadError = true;
+    return result;
+}
 extern "C" int gatewayOtInit(const char *url)
 {
     const char prefix[] = "spinel+hdlc+unix:///";
@@ -45,6 +64,22 @@ extern "C" int gatewayOtInit(const char *url)
     config.mSpeedUpFactor = 1;
     instance = otSysInit(&config);
     return instance ? 0 : -1;
+}
+extern "C" int gatewayOtInitOnChannel(const char *url, uint8_t channel)
+{
+    if (instance || channel < 11 || channel > 26) return -7;
+    guardedSettings = true;
+    activeRestoreAllowed = false;
+    settingsReadError = false;
+    int result = gatewayOtInit(url);
+    if (result != 0) { guardedSettings = false; activeRestoreAllowed = true; return result; }
+    otError error = otLinkSetSupportedChannelMask(instance, uint32_t(1) << channel);
+    if (error == OT_ERROR_NONE) error = otLinkSetChannel(instance, channel);
+    if (settingsReadError && error == OT_ERROR_NONE) error = OT_ERROR_PARSE;
+    if (error != OT_ERROR_NONE) {
+        otSysDeinit(); instance = nullptr; guardedSettings = false; activeRestoreAllowed = true;
+    }
+    return -static_cast<int>(error);
 }
 extern "C" int gatewayOtPoll(uint32_t timeoutUs)
 {
@@ -65,11 +100,26 @@ extern "C" int gatewayOtSetDataset(const uint8_t *bytes, uint16_t length)
     otOperationalDatasetTlvs dataset = {};
     std::memcpy(dataset.mTlvs, bytes, length);
     dataset.mLength = static_cast<uint8_t>(length);
+    // SetActiveTlvs saves then reads back its own record. The caller has
+    // validated these TLVs; allow that read rather than suppressing it like
+    // the unchecked boot cache (which would discard all but the timestamp).
+    bool previousRestoreAllowed = activeRestoreAllowed;
+    activeRestoreAllowed = true;
     otError error = otDatasetSetActiveTlvs(instance, &dataset);
-    if (error != OT_ERROR_NONE) return -static_cast<int>(error);
+    if (error != OT_ERROR_NONE) {
+        activeRestoreAllowed = previousRestoreAllowed;
+        return -static_cast<int>(error);
+    }
     error = otIp6SetEnabled(instance, true);
     if (error != OT_ERROR_NONE) return -static_cast<int>(error);
     return -static_cast<int>(otThreadSetEnabled(instance, true));
+}
+extern "C" int gatewayOtDisable()
+{
+    if (!instance) return -7;
+    otError first = otThreadSetEnabled(instance, false);
+    otError second = otIp6SetEnabled(instance, false);
+    return -static_cast<int>(first != OT_ERROR_NONE ? first : second);
 }
 extern "C" int gatewayOtOpen(uint16_t port, GatewayOtReceive callback, void *context)
 {
@@ -136,6 +186,9 @@ extern "C" void gatewayOtDeinit()
     for (int i = 0; i < 2; ++i) if (slots[i].open) gatewayOtClose(i);
     otSysDeinit();
     instance = nullptr;
+    guardedSettings = false;
+    activeRestoreAllowed = true;
+    settingsReadError = false;
 }
 
 extern "C" bool gatewayOtReady() { return instance && otThreadGetDeviceRole(instance) >= OT_DEVICE_ROLE_CHILD; }

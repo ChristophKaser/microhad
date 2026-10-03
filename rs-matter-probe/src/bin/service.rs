@@ -1,13 +1,14 @@
 //! Gateway controller process. Owns OpenThread, Matter and IPC on a single thread.
 use core::pin::pin;
 use lexra_rs_matter_probe::{
-    control::Request,
+    control::{Request, ThreadRequest},
     entropy::OsEntropy,
     identity::Identity,
     ipc::{Frame, OP_MATTER_STATUS, OP_THREAD_STATUS},
     openthread::OpenThread,
     service::IpcServer,
     store::PrivateStore,
+    thread_lifecycle::{Failure, Lifecycle, Radio},
 };
 use rs_matter::crypto::{
     default_crypto, CanonPkcPublicKeyRef, CanonPkcSecretKeyRef, CryptoSensitiveRef, TryRng,
@@ -21,6 +22,7 @@ use static_cell::StaticCell;
 use std::future::Future;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 
 static STOP: AtomicBool = AtomicBool::new(false);
 static MATTER: StaticCell<Matter> = StaticCell::new();
@@ -59,9 +61,64 @@ impl std::task::Wake for Wake {
     fn wake(self: std::sync::Arc<Self>) {}
 }
 
+fn dispatch(
+    request: Frame,
+    lifecycle: &mut Lifecycle,
+    thread: Option<&OpenThread>,
+    entropy: &mut OsEntropy,
+    fabric_ready: bool,
+) -> Option<Frame> {
+    if request.opcode == 12 {
+        return None;
+    }
+    let decoded = Request::decode(request.opcode, &request.payload);
+    let payload = match decoded {
+        Ok(Request::MatterStatus) => format!("{{\"enabled\":true,\"available\":true,\"controller_initialized\":true,\"fabric_ready\":{},\"state\":\"{}\"}}",
+            fabric_ready, if thread.is_some() { "running" } else { "awaiting_coordinator" }),
+        Ok(Request::ThreadStatus) => serde_json::to_string(&lifecycle.snapshot()).ok()?,
+        Ok(Request::Thread(body)) => {
+            let now = Instant::now();
+            let radio = thread.map(|r| r as &dyn Radio);
+            let result = match body {
+                ThreadRequest::Status { .. } => Ok(lifecycle.snapshot()),
+                ThreadRequest::Observe { zigbee_channel, zigbee_online, .. } =>
+                    lifecycle.observe(zigbee_channel, zigbee_online, radio, now),
+                ThreadRequest::Create { zigbee_channel, .. } => match radio {
+                    Some(radio) => lifecycle.create(zigbee_channel, entropy, radio, now),
+                    None => Err(Failure::NotReady),
+                },
+                ThreadRequest::Import { zigbee_channel, dataset, .. } => match radio {
+                    Some(radio) => lifecycle.import(dataset.bytes(), zigbee_channel, radio, now),
+                    None => Err(Failure::NotReady),
+                },
+            };
+            match result {
+                Ok(snapshot) => format!("{{\"schema\":1,\"ok\":true,\"result\":{}}}", serde_json::to_string(&snapshot).ok()?),
+                Err(error) => format!("{{\"schema\":1,\"ok\":false,\"error\":{}}}", serde_json::to_string(&error).ok()?),
+            }
+        },
+        Ok(_) => "{\"schema\":1,\"ok\":false,\"error\":\"unsupported\"}".into(),
+        Err(_) if request.opcode == OP_MATTER_STATUS || request.opcode == OP_THREAD_STATUS => return None,
+        Err(_) => "{\"schema\":1,\"ok\":false,\"error\":\"malformed\"}".into(),
+    };
+    Some(Frame {
+        kind: 1,
+        opcode: request.opcode,
+        id: request.id,
+        payload: payload.into_bytes(),
+    })
+}
+
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     unsafe {
         libc::umask(0o077);
+        let no_core = libc::rlimit {
+            rlim_cur: 0,
+            rlim_max: 0,
+        };
+        if libc::setrlimit(libc::RLIMIT_CORE, &no_core) != 0 {
+            return Err("core limit unavailable".into());
+        }
         libc::signal(libc::SIGTERM, stop as *const () as libc::sighandler_t);
         libc::signal(libc::SIGINT, stop as *const () as libc::sighandler_t);
         libc::signal(libc::SIGPIPE, libc::SIG_IGN);
@@ -85,6 +142,12 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         return Err("absolute state directory required".into());
     }
     let radio = radio.ok_or("private no-reset radio URL required")?;
+    if !radio.starts_with("spinel+hdlc+unix:///")
+        || radio.contains('\0')
+        || radio.split_once('?').map(|(_, query)| query) != Some("no-reset")
+    {
+        return Err("private no-reset radio URL required".into());
+    }
     let mut ipc = IpcServer::bind(&socket)?;
     let store = PrivateStore::open(&state)?;
     // OpenThread's pinned POSIX settings path is relative "tmp". Keep it
@@ -101,9 +164,27 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         return Err("unsafe Thread settings directory".into());
     }
     for entry in std::fs::read_dir("tmp")? {
-        let meta = std::fs::symlink_metadata(entry?.path())?;
+        let path = entry?.path();
+        let meta = std::fs::symlink_metadata(&path)?;
         if !meta.is_file() || meta.uid() != unsafe { libc::geteuid() } || meta.mode() & 0o077 != 0 {
             return Err("unsafe Thread settings file".into());
+        }
+        // The pinned POSIX backend truncates a malformed record file. Reject it
+        // before OT can discard persisted security/frame-counter information.
+        if meta.len() > 65536 {
+            return Err("invalid Thread settings file".into());
+        }
+        let bytes = std::fs::read(&path)?;
+        let mut offset = 0usize;
+        while offset < bytes.len() {
+            if bytes.len() - offset < 4 {
+                return Err("invalid Thread settings file".into());
+            }
+            let length = usize::from(u16::from_ne_bytes([bytes[offset + 2], bytes[offset + 3]]));
+            offset += length + 4;
+            if offset > bytes.len() {
+                return Err("invalid Thread settings file".into());
+            }
         }
     }
     let mut entropy = OsEntropy::open()?;
@@ -125,35 +206,63 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let kv = matter.kv(store.clone());
     matter.startup(&kv)?;
     let _controller_fabric = identity.install(matter, &crypto, &store)?;
-    let thread = OpenThread::init(&radio)?;
+    let mut lifecycle = Lifecycle::load(store.clone()).map_err(|_| "Thread state unavailable")?;
+    let mut configuration_entropy = OsEntropy::open()?;
+    // Do not initialize OT (and restore POSIX settings) until a fresh protected
+    // native coordinator observation agrees with the persisted dataset.
+    eprintln!("Matter controller service started");
+    let channel = loop {
+        if STOP.load(Ordering::Relaxed) {
+            eprintln!("Matter controller service stopped");
+            return Ok(());
+        }
+        lifecycle
+            .tick(None, Instant::now())
+            .map_err(|_| "Thread state unavailable")?;
+        ipc.poll(|request| {
+            dispatch(
+                request,
+                &mut lifecycle,
+                None,
+                &mut configuration_entropy,
+                matter.has_fabrics(),
+            )
+        })?;
+        if let Some(channel) = lifecycle.boot_channel(Instant::now()) {
+            break channel;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    };
+    let thread = OpenThread::init_on_channel(&radio, channel)?;
+    lifecycle
+        .restore(&thread, Instant::now())
+        .map_err(|_| "Thread restore failed")?;
     let network = thread.bind(MATTER_PORT)?;
     let transport = matter.run(&crypto, &network, &network, NoNetwork);
     let mut transport = pin!(transport);
     let waker = std::task::Waker::from(std::sync::Arc::new(Wake));
     let mut context = std::task::Context::from_waker(&waker);
-    eprintln!("Matter controller service started");
     while !STOP.load(Ordering::Relaxed) {
         if let std::task::Poll::Ready(result) = transport.as_mut().poll(&mut context) {
             result?;
             return Err("Matter transport ended".into());
         }
         thread.poll(5_000)?;
+        lifecycle
+            .tick(Some(&thread), Instant::now())
+            .map_err(|_| "Thread radio stop failed")?;
         ipc.poll(|request| {
-            if request.opcode == 12 { return None; }
-            let decoded = Request::decode(request.opcode, &request.payload);
-            let payload = match decoded {
-                Ok(Request::MatterStatus) => format!("{{\"enabled\":true,\"available\":true,\"controller_initialized\":true,\"fabric_ready\":{},\"state\":\"{}\"}}",
-                    matter.has_fabrics(), if matter.has_fabrics() { "running" } else { "awaiting_fabric" }),
-                Ok(Request::ThreadStatus) => format!("{{\"enabled\":true,\"available\":true,\"attached\":{},\"state\":\"{}\",\"linux_ipv6_or_tun\":false}}",
-                    thread.ready(), if thread.ready() { "attached" } else { "detached" }),
-                // Valid reserved operations have no behavior until their owning
-                // lifecycle is implemented. Never imply job acceptance here.
-                Ok(_) => "{\"schema\":1,\"ok\":false,\"error\":\"unsupported\"}".into(),
-                Err(_) if request.opcode == OP_MATTER_STATUS || request.opcode == OP_THREAD_STATUS => return None,
-                Err(_) => "{\"schema\":1,\"ok\":false,\"error\":\"malformed\"}".into(),
-            };
-            Some(Frame { kind: 1, opcode: request.opcode, id: request.id, payload: payload.into_bytes() })
+            dispatch(
+                request,
+                &mut lifecycle,
+                Some(&thread),
+                &mut configuration_entropy,
+                matter.has_fabrics(),
+            )
         })?;
+        if lifecycle.fatal() {
+            return Err("Thread radio stop failed".into());
+        }
     }
     eprintln!("Matter controller service stopped");
     Ok(())

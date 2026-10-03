@@ -14,6 +14,18 @@ spec = importlib.util.spec_from_file_location("ot_sim", ROOT / "scripts/test-ope
 sim = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(sim)
 
+class ChannelRcp(sim.ThreadRcp):
+    def reset_properties(self):
+        super().reset_properties()
+        self.channel_writes = []
+    def receive_frame(self, data):
+        command, offset = sim.sim.unpacked(data, 1)
+        prop, offset = sim.sim.unpacked(data, offset)
+        if command == 3 and prop == 33:
+            assert len(data[offset:]) == 1
+            self.channel_writes.append(data[offset])
+        super().receive_frame(data)
+
 
 def receive(peer, length):
     result = bytearray()
@@ -40,7 +52,7 @@ def status(path, opcode, ident, body=b""):
 
 
 def main():
-    radio = sim.ThreadRcp("127.0.0.1", tcp_nodelay=True)
+    radio = ChannelRcp("127.0.0.1", tcp_nodelay=True)
     relay = service = None
     try:
         with tempfile.TemporaryDirectory(prefix="ot-sim-service-") as directory:
@@ -69,26 +81,50 @@ def main():
                 except (OSError, RuntimeError):
                     time.sleep(0.02)
             thread = status(ipc_path, 2, 302)
-            assert matter["available"] and matter["state"] == "running"
+            assert matter["available"] and matter["state"] == "awaiting_coordinator"
             assert matter["fabric_ready"]
             assert thread["available"] and not thread["attached"]
             assert not thread["linux_ipv6_or_tun"]
+            assert thread["state"] == "awaiting_coordinator"
+            assert not radio.requests
+            observed = status(ipc_path, 9, 310, b'{"schema":1,"action":"observe","zigbee_channel":15,"zigbee_online":true}')
+            assert observed["ok"]
+            deadline = time.monotonic() + 3
+            while status(ipc_path, 1, 311)["state"] != "running":
+                assert time.monotonic() < deadline
+                time.sleep(0.01)
             assert ipc_path.stat().st_mode & 0o777 == 0o600
             duplicate = subprocess.run(args, capture_output=True, timeout=2)
             assert duplicate.returncode == 1
             assert status(ipc_path, 1, 303)["available"]
             reserved = status(ipc_path, 9, 304, b'{"schema":1,"action":"status"}')
-            assert reserved == {"schema": 1, "ok": False, "error": "unsupported"}
+            assert reserved["ok"] and not reserved["result"]["configured"]
             malformed = status(ipc_path, 9, 305, b'{"schema":1,"action":"status","secret":"must-not-log"}')
             assert malformed == {"schema": 1, "ok": False, "error": "malformed"}
+            credentials = private / "state/credentials.bin"
+            before = credentials.read_bytes()
+            calls = len(radio.requests)
+            invalid = status(ipc_path, 9, 312, b'{"schema":1,"action":"import","zigbee_channel":15,"dataset":"01"}')
+            assert invalid["error"] == "malformed"
+            mismatch = status(ipc_path, 9, 313, b'{"schema":1,"action":"create","zigbee_channel":11}')
+            assert mismatch["error"] == "not_ready"
+            assert credentials.read_bytes() == before
+            assert len(radio.requests) == calls
+            created = status(ipc_path, 9, 314, b'{"schema":1,"action":"create","zigbee_channel":15}')
+            assert created["ok"] and created["result"]["configured"]
+            assert created["result"]["state"] in ("attaching", "attached")
+            assert "dataset" not in created["result"]
             # Status traffic stays responsive across multiple independent clients.
             start = time.monotonic()
             for ident in range(400, 420):
                 assert status(ipc_path, ident % 2 + 1, ident)["available"]
             assert time.monotonic() - start < 2
-            credentials = private / "state/credentials.bin"
             committed = credentials.read_bytes()
             metadata = credentials.stat()
+            time.sleep(5.1)
+            expired = status(ipc_path, 2, 499)
+            assert expired["state"] == "awaiting_coordinator" and not expired["attached"]
+            assert credentials.read_bytes() == committed
             service.terminate()
             stdout, stderr = service.communicate(timeout=2)
             assert service.returncode == 0
@@ -97,9 +133,29 @@ def main():
             assert stderr == b"Matter controller service started\nMatter controller service stopped\n"
             assert not radio.error
             assert radio.counts.get("command_1", 0) == 0
+            assert radio.channel_writes and all(channel == 15 for channel in radio.channel_writes)
             relay.wait(timeout=2)
             radio.close()
-            radio = sim.ThreadRcp("127.0.0.1", tcp_nodelay=True)
+            # Corrupt only the cached active channel (valid POSIX record envelope).
+            # Guarded OT startup must ignore it and apply the authoritative dataset.
+            changed = False
+            for path in (private / "state/tmp").glob("*.data"):
+                blob = bytearray(path.read_bytes())
+                offset = 0
+                while offset < len(blob):
+                    key, length = struct.unpack_from("=HH", blob, offset)
+                    if key == 1:
+                        value = bytes(blob[offset+4:offset+4+length])
+                        old = b'\x00\x03\x00\x00\x0f'
+                        if old not in value:
+                            offset += 4 + length
+                            continue
+                        blob[offset+4:offset+4+length] = value.replace(old, b'\x00\x03\x00\x00\x14', 1)
+                        changed = True
+                    offset += 4 + length
+                path.write_bytes(blob)
+            assert changed
+            radio = ChannelRcp("127.0.0.1", tcp_nodelay=True)
             relay = subprocess.Popen([str(ROOT / "build/openthread-unix/sim-relay-host"),
                 str(radio_path), radio.address, str(radio.port), "30"],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -119,6 +175,18 @@ def main():
                 except (OSError, RuntimeError):
                     time.sleep(0.02)
             assert restored["fabric_ready"]
+            assert not radio.requests
+            mismatch = status(ipc_path, 9, 702, b'{"schema":1,"action":"observe","zigbee_channel":11,"zigbee_online":true}')
+            assert mismatch["error"] == "not_ready"
+            assert status(ipc_path, 2, 703)["state"] == "channel_mismatch"
+            assert not radio.requests
+            observed = status(ipc_path, 9, 704, b'{"schema":1,"action":"observe","zigbee_channel":15,"zigbee_online":true}')
+            assert observed["ok"]
+            deadline = time.monotonic() + 3
+            while status(ipc_path, 1, 705)["state"] != "running":
+                assert time.monotonic() < deadline
+                time.sleep(0.01)
+            assert status(ipc_path, 2, 706)["configured"]
             assert credentials.read_bytes() == committed
             assert (credentials.stat().st_ino, credentials.stat().st_mtime_ns) == (metadata.st_ino, metadata.st_mtime_ns)
             service.terminate()
@@ -140,7 +208,8 @@ def main():
             assert not ipc_path.exists()
             assert not radio.error
             assert radio.counts.get("command_1", 0) == 0
-            print("PASS status, strict bodies, private socket, calls, shutdown, persistent fabric restart, no read writes, corruption refusal, no RCP reset")
+            assert radio.channel_writes and all(channel == 15 for channel in radio.channel_writes)
+            print("PASS private IPC, fabric restore, gated Thread create/restore, mismatch/expiry/cache guards, no read writes, no RCP reset")
     finally:
         for process in (service, relay):
             if process is not None and process.poll() is None:

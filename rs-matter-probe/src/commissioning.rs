@@ -65,7 +65,7 @@ impl<'a> ThreadDataset<'a> {
                     if size == 8 {
                         network_id.copy_from_slice(value);
                     }
-                    size == 8
+                    size == 8 && value != [0; 8] && value != [0xff; 8]
                 }
                 3 => size <= 16 && core::str::from_utf8(value).is_ok() && !value.contains(&0),
                 4 | 5 => size == 16,
@@ -76,12 +76,10 @@ impl<'a> ThreadDataset<'a> {
                 51 | 52 => false,
                 53 => {
                     // Supported radio uses channel page 0, with a four-byte mask.
-                    size == 6
-                        && value[0] == 0
-                        && value[1] == 4
-                        && (u32::from_be_bytes([value[2], value[3], value[4], value[5]])
-                            & (1u32 << zigbee_channel))
-                            != 0
+                    size == 6 && value[0] == 0 && value[1] == 4 && {
+                        let mask = u32::from_be_bytes([value[2], value[3], value[4], value[5]]);
+                        mask & (1u32 << zigbee_channel) != 0 && mask & !0x07fff800 == 0
+                    }
                 }
                 _ => true,
             };

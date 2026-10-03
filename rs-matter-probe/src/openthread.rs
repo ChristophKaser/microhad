@@ -20,6 +20,8 @@ struct OtAddress {
 }
 unsafe extern "C" {
     fn gatewayOtInit(url: *const core::ffi::c_char) -> i32;
+    fn gatewayOtInitOnChannel(url: *const core::ffi::c_char, channel: u8) -> i32;
+    fn gatewayOtDisable() -> i32;
     fn gatewayOtDeinit();
     fn gatewayOtReady() -> bool;
     fn gatewayOtPoll(timeout_us: u32) -> i32;
@@ -59,6 +61,19 @@ impl OpenThread {
     }
     pub fn ready(&self) -> bool {
         unsafe { gatewayOtReady() }
+    }
+    /// Production startup: caller has observed the current coordinator channel.
+    /// Saved datasets cannot restore before the validated authority record is applied.
+    pub fn init_on_channel(url: &str, channel: u8) -> Result<Self, Error> {
+        let url = CString::new(url).map_err(|_| ErrorCode::InvalidData)?;
+        checked(unsafe { gatewayOtInitOnChannel(url.as_ptr(), channel) })?;
+        Ok(Self {
+            _url: url,
+            _single_thread: PhantomData,
+        })
+    }
+    pub fn disable(&self) -> Result<(), Error> {
+        checked(unsafe { gatewayOtDisable() })
     }
     pub fn poll(&self, timeout_us: u32) -> Result<(), Error> {
         checked(unsafe { gatewayOtPoll(timeout_us) })

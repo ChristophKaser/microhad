@@ -13,6 +13,8 @@ pub mod store;
 
 #[cfg(feature = "controller-service")]
 pub mod service;
+#[cfg(feature = "controller-service")]
+pub mod thread_lifecycle;
 
 #[cfg(feature = "openthread")]
 pub mod openthread;

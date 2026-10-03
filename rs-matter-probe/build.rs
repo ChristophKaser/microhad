@@ -58,4 +58,5 @@ fn main() {
     println!("cargo:rustc-link-lib=stdc++");
     println!("cargo:rustc-link-lib=util");
     println!("cargo:rustc-link-lib=rt");
+    println!("cargo:rustc-link-arg=-Wl,--wrap=otPlatSettingsGet");
 }
