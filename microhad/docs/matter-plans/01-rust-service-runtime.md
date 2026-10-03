@@ -48,13 +48,13 @@ native status routes report its actual state over `/tmp/microhad-matter.sock`.
 | 2 | Complete | Optional `MATTER_BIN` child in `paired_start.sh`, independent bounded retries, stop-before-native/radio ordering and opt-in staging; ten synthetic supervisor tests pass. Production launcher activation remains outside this checkpoint. |
 | 3 | Complete | Mode 0600, flock duplicate exclusion, nonblocking stale socket probe, unsafe path refusal and inode-specific orderly cleanup; host checks passed. |
 | 4 | Complete | Four clients, four accepts per turn, 4096-byte read/write budgets, eight queued replies, two-second idle expiry; malformed/overload/idle checks passed. |
-| 5 | Complete | Empty requests for opcodes 1/2 return bounded JSON; synthetic host reports `awaiting_fabric` and `detached`, without credentials. |
+| 5 | Complete | Empty requests for opcodes 1/2 return bounded JSON; synthetic host reports `running` with its persistent fabric and Thread `detached`, without credentials. |
 | 6 | Partial | Matter/Thread/IPC pumps and SIGTERM/SIGINT shutdown implemented. Supervisor retries failures with backoff and stops/restarts Matter on coordinator loss; complete dataset/radio reconnection remains in plan 06. |
-| 7 | Partial | All 22 Rust library tests pass, including six listener tests; synthetic runtime test passes. Factory build with strict body decoding is static big-endian MIPS-I/o32, stripped 1,343,120 bytes with no interpreter. Target execution and full native API round trip remain unverified. |
+| 7 | Partial | All 31 Rust library tests pass, including six listener tests; synthetic runtime and process restart pass. Factory build with authority creation is static big-endian MIPS-I/o32, stripped 1,527,452 bytes with no interpreter. Target execution and full native API round trip remain unverified. |
 | 8 | Complete | Runtime invocation, ownership, bounds and state paths documented in `ziggurat-compilation/docs/matter-service-runtime.md`; optional supervisor configuration, failure markers, retry budget and staging documented in `MATTER_INTEGRATION.md`. |
 
-This checkpoint supplies a running transport/status service. It does not yet
-create a controller fabric, attach a Thread network, commission an accessory,
+This checkpoint supplies a running transport/status service and persistent
+controller fabric. It does not yet attach a Thread network, commission an accessory,
 or expose operational device commands. No deployment or physical radio test
 was performed; plan 08 remains excluded.
 

@@ -381,3 +381,15 @@ input. It does not yet accept commissioning or control jobs. All 22 Rust library
 checks and the extended synthetic service test pass. The current factory stripped
 binary is 1,343,120 bytes (114,708 more than the status-only runtime above).
 The full assigned contract is in [`docs/matter-ipc-v1.md`](docs/matter-ipc-v1.md).
+
+The current service also creates/restores its gateway-owned authority and fabric.
+It now reports `running`/`fabric_ready:true` with Thread still `detached`. Complete
+authority creation is atomic; restoration verifies the chain, key correspondence,
+metadata and loaded fabric. Node allocation persists its successor before use
+and rejects exhaustion. Administrator vendor metadata defaults to development
+ID `0xfff1` (CLI override before initialization); it is not a manufacturer
+certificate or HTTPS trust assumption. All 31 combined Rust checks and actual
+host service process restart pass, including no credential rewrite on reads and
+corrupt/mismatched state refusal. Factory stripped binary is 1,527,452 bytes.
+Production-authority CASE recovery and current target filesystem validation
+remain pending in [plan 03](docs/matter-plans/03-persistent-fabric-identity.md).

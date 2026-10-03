@@ -45,8 +45,23 @@ vendor keys outside upstream rs-matter's fabric/singleton space and fixes one
 bounded atomic authority record containing the RCAC/ICAC/controller keys and
 certificates, IPK, fabric/vendor metadata and monotonic allocator. Interrupted
 first-write recovery, exhaustion and explicit-version migration behavior are
-defined. Steps 2–7 still require implementation/verification; this document does
-not claim persistent production identity or restart CASE acceptance yet.
+defined. The authority is now implemented and connected to service startup.
+
+| Step | Status | Evidence / remaining work |
+| --- | --- | --- |
+| 2 | Partial | PrivateStore reused with private ownership, atomic replacement, symlink/corruption and owner-exclusion host tests; current authority has not been exercised on the target filesystem. |
+| 3 | Complete | Secure OS entropy generates all authority materials; full record committed before fabric installation; abandoned-stage and interrupted-install host checks pass. |
+| 4 | Complete | Restore verifies the certificate chain, all three key pairs, fabric/node/vendor metadata, counter and exact upstream fabric materials. Missing authority with a fabric or an unloaded corrupt fabric is rejected. Real host service process restart passes without rewriting state. |
+| 5 | Complete | Counter committed before an ID is returned; reload continues above prior IDs, failed writes return no ID, exhaustion is persisted and never wraps. |
+| 6 | Partial | Four focused identity/recovery test groups and 31 combined Rust tests pass; synthetic service restart/corrupt-state refusal passes. CASE after recovery using the new production authority and target filesystem validation remain. |
+| 7 | Partial | Schema describes credential protection and encrypted-export policy; detailed operational backup/recovery instructions still need completion. |
+
+The service now reports `fabric_ready:true`/`running` after initialization,
+with Thread still `detached` until plan 06. Administrator vendor metadata
+defaults to development ID `0xfff1`, with an explicit first-start CLI override;
+changing that metadata on restart fails closed. This is not a manufacturer
+certificate or gateway HTTPS trust requirement. Static stripped factory
+MIPS-I/o32 service is 1,527,452 bytes. No physical gateway test was run.
 
 ## Depends on
 

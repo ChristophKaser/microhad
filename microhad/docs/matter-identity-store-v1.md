@@ -38,6 +38,11 @@ reinterpretation or resetting the fabric. Manufacturer credentials and accessory
 attestation data do not belong in this record. Administrator vendor ID is a
 controller metadata choice, not a trusted manufacturer certificate.
 
+Administrator vendor metadata is a nonzero u16 below 65535; the current service
+defaults to development ID `0xfff1` and offers a decimal
+`--administrator-vendor-id` override before first initialization. It is fixed
+thereafter and is not a manufacturer certificate.
+
 On first start, create all materials from OS entropy and commit the complete
 authority through `PrivateStore` before exposing commissioning. Restore verifies
 certificate signatures/chain, public/private key correspondence, fabric and node
@@ -64,5 +69,5 @@ must never export this record. Any later export feature must encrypt the backup
 explicitly; there is no plaintext export endpoint in this schema. Restore must
 not lower the allocator counter below any value already used in the fabric.
 
-This document defines the schema. Implementation/restart/CASE evidence is tracked
+The service implements this schema. Implementation/restart/CASE evidence is tracked
 separately in [plan 03](matter-plans/03-persistent-fabric-identity.md).
