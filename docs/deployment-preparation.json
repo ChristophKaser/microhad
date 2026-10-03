@@ -1,0 +1,68 @@
+{
+  "date": "2026-10-03",
+  "step": 1,
+  "status": "completed-offline",
+  "native_source_commit": "04df63add29419e67b33ecc478f07a70ff123a7e",
+  "experiment_base_commit": "f223450e95e3e6b7a917249c3015d7ef71f50229",
+  "build_flags": {
+    "native": [
+      "ZIGGURAT=0",
+      "ZIGGURAT=1"
+    ],
+    "ziggurat": "ZIGGURAT_MULTIPAN=1"
+  },
+  "commander_version": "1v16p4b1564",
+  "commander_archive_sha256": "0d1a2136a824c2f3e9953573502cb80ff459647f41df04d17a30e42140432f8a",
+  "artifacts": {
+    "microhad-zigbee-native/build/mips/microhad-zigbee-native": {
+      "size_bytes": 1446544,
+      "sha256": "730df6cd7dcff556fd1d164fbc70327f84d3949141f1788a75f16df7f53b450c"
+    },
+    "microhad-zigbee-native/build/mips-ziggurat/microhad-zigbee-native": {
+      "size_bytes": 1503604,
+      "sha256": "be9937847d07fb3b6589b0242ae652bf39f80f36256316231f032483df2bb099"
+    },
+    "ziggurat-compilation/build/ziggurat-hdlc/lexra-stock-uclibc/release/ziggurat.stripped": {
+      "size_bytes": 3565456,
+      "sha256": "10172921f82716ac7cec4160935a0a8f569e3739bcb8071fe45107a5f30c8637"
+    },
+    "ziggurat-compilation/build/firmware-hdlc/build/debug/ot-rcp-multipan.gbl": {
+      "size_bytes": 103800,
+      "sha256": "5e835cf429dbc25ded9e6217f620d0d2243c11c98935de0e29e387657063bb48"
+    },
+    "ziggurat-compilation/build/gateway-maintenance": {
+      "size_bytes": 47804,
+      "sha256": "561d0daaac3418b3d5ff45dd88d53a6749bdd5600925601fdef6488dd3aaf410"
+    },
+    "microhad-zigbee-native/diagnostics/ezsp-upgrade-recovery/ncp-uart-hw-7.5.1-115200-hw.gbl": {
+      "size_bytes": 208036,
+      "sha256": "05c66bcc7895bc7db0b9648c12c40e387a1145eabe792413a2762d3d0ada262d"
+    }
+  },
+  "checks": {
+    "both_native_host_suites": "passed",
+    "both_native_mips_builds": "passed",
+    "firmware_build": "passed",
+    "ziggurat_mips_build": "passed",
+    "maintenance_host_mips_builds": "passed",
+    "both_GBL_CRC_and_application_ranges": "passed",
+    "retained_logical_restore_backup_offline": "passed",
+    "pty_maintenance_cases": 4,
+    "deployment_helper_cases": 6,
+    "paired_supervisor_cases": 6,
+    "actual_native_stack_cases": 8,
+    "migration_cases": 15,
+    "scripted_native_peer_cases": 13,
+    "host_cobs_cases": 7
+  },
+  "device_accessed": false,
+  "radio_accessed": false,
+  "firmware_flashed": false,
+  "hardware_roundtrip_verified": false,
+  "limitations": [
+    "Host TEST helper allows PTYs/inaccessible root processes; production root helper fails closed",
+    "NCP capture and entry are not an atomic freeze",
+    "RCP hardware menu/baud/flow behavior remains unverified until maintenance",
+    "Paired supervisor prepared, not installed; quiesce requires host frozen export before stop"
+  ]
+}

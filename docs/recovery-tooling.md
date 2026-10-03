@@ -1,0 +1,159 @@
+# Prepared deployment/recovery tools — 2026-10-03
+
+Step 1 is complete on the host. Nothing here was installed on the gateway, and
+no radio was accessed. The hardware round trips remain steps 6–8 of the deployment
+plan. These tools provide guarded procedures, not guaranteed recovery from an
+unresponsive RCP or arbitrary stale counters.
+
+## Artifacts and offline packaging
+
+From `../ziggurat-compilation`:
+
+```sh
+bash scripts/install-commander.sh
+bash scripts/package-hdlc-gbl.sh
+bash scripts/build-maintenance.sh
+```
+
+Commander is pinned to official Silicon Labs Arduino release `2.0.0`, package
+`Commander_linux_x86_64_1v16p4b1564.tar.zst`, version `1v16p4b1564`:
+archive SHA256 `0d1a2136a824c2f3e9953573502cb80ff459647f41df04d17a30e42140432f8a`.
+The installer needs curl, tar and zstd; the executable uses its bundled libraries.
+The official website download returned HTTP 403; the official GitHub asset worked.
+Packaging runs `commander gbl create OUTPUT --app ot-rcp-multipan.out`, with no
+compression, encryption, signing, bootloader or secure-element update.
+
+RCP GBL: `build/firmware-hdlc/build/debug/ot-rcp-multipan.gbl`, 103800 bytes,
+SHA256 `5e835cf429dbc25ded9e6217f620d0d2243c11c98935de0e29e387657063bb48`;
+program range `[0x4000,0x1d52c)`. Both its CRC/ranges and the retained NCP GBL's
+CRC/ranges pass offline validation. The existing private logical recovery backup
+also passes `ezsp_restore.py` offline validation. Keep the new GBL build output
+and pinned NCP image available on the host; neither is flashed by packaging.
+
+Sources: [Silicon Labs packaging commands](https://docs.silabs.com/simplicity-commander/latest/simplicity-commander-commands/gbl-commands)
+and [official release asset](https://github.com/SiliconLabs/arduino/releases/download/2.0.0/Commander_linux_x86_64_1v16p4b1564.tar.zst).
+
+## Device helper — commands for later maintenance only
+
+Stage `../ziggurat-compilation/build/gateway-maintenance` in
+`/tuya/ziggurat-stage` during step 3. Commands below run on the gateway:
+
+```sh
+/tuya/ziggurat-stage/gateway-maintenance check-free /dev/ttyS1
+/tuya/ziggurat-stage/gateway-maintenance check-owner /dev/ttyS1 VERIFIED_BRIDGE_PID
+/tuya/ziggurat-stage/gateway-maintenance bootloader-enter /dev/ttyS1 --exclusive-radio
+/tuya/ziggurat-stage/gateway-maintenance bootloader-run /dev/ttyS1 --exclusive-radio
+```
+
+`bootloader-enter` sends one CRC-protected HDLC Spinel RESET reason 3, IID 0, at
+460800/RTS-CTS, drains/closes UART, waits three seconds, reopens at 115200/no-flow,
+and recognizes the Gecko menu. It sends neither upload nor run. `bootloader-run`
+recognizes the menu at 115200/no-flow and sends only `2` (run). All serial actions
+have a 25-second watchdog; menu reads are bounded to 4096 bytes and ten seconds.
+After menu entry the original serialgateway can provide the 115200 upload bridge.
+
+Production accepts only `/dev/ttyS1`, requires root, scans `/proc` for owners,
+fails on incomplete inspection and uses TIOCEXCL while opened. `check-owner`
+requires exactly the supplied PID and checks its executable argv is
+`/tuya/serialgateway`. Stop verified supervisors first; the check cannot stop an
+uncooperative root process opening the UART later. Host test builds additionally
+allow PTYs and tolerate inaccessible root processes because tests run unprivileged;
+that exception is absent from the MIPS binary.
+
+`cobs-hello /tmp/ziggurat/native.sock` checks the initial protocol-v2 Hello with a
+five-second deadline; `cobs-bridge` forwards stdin/stdout with a 120-second watchdog.
+Both require a same-user, mode-0600 Unix socket. Neither opens UART.
+
+## Final exclusive NCP capture
+
+Host command, only after step 5 suspends the original supervisor and stops native:
+
+```sh
+migration_python=../ziggurat-compilation/tools/network-migration-venv/bin/python
+"$migration_python" scripts/ezsp_final_capture.py \
+  --compare PRIVATE_RUNNING_EXPORT.json --output PRIVATE_FINAL_EXPORT.json \
+  --host 192.168.178.62 --password-file ../ssh_password.txt \
+  --bridge-pid VERIFIED_BRIDGE_PID --supervisor-pid VERIFIED_SUSPENDED_SUPERVISOR_PID \
+  --exclusive-radio --capture --enter-bootloader
+```
+
+Without `--capture` it only validates the comparison export. Live mode checks the
+supervisor is SIGSTOPped and the exact bridge owns UART; Bellows connection performs
+ASH initialization, so this is a maintenance action, not an online second client.
+It reuses bounded read commands, handles status-only errors, validates identity,
+keys/seed and counter monotonicity against the prior export, and saves a new 0600
+raw export. `--enter-bootloader` then requests entry immediately on that connection.
+It never flashes, joins or forms a network. This narrows the capture-to-stop gap;
+it is not an atomic NCP freeze. The preparation margin remains a bounded freshness
+policy, and interruption requires fresh capture. Errors may leave the saved export
+or radio in bootloader; verify actual state before retrying. Overall deadline is
+160 seconds, each response ten seconds, capture 120 seconds.
+
+## Frozen rollback export
+
+After the native client is quiesced, while Ziggurat is still running:
+
+```sh
+"$migration_python" scripts/ziggurat_freeze.py --template PRIVATE_FINAL_STATE.json \
+  --host 192.168.178.62 --password-file ../ssh_password.txt \
+  --quiesced --execute --output PRIVATE_FINAL_FROZEN_STATE.json
+```
+
+The default bridge is `/tuya/ziggurat-stage/gateway-maintenance`; after permanent
+installation supply `--bridge /tuya/native/gateway-maintenance`. Local host tests
+use `--socket PRIVATE_LOCAL_SOCKET`. Without `--execute`, only the template is
+validated. The command checks stopped state, every scan count/key count, stable
+final network info, keys, children and address cache, then saves normalized private
+state including post-freeze evidence. Overall deadline is 120 seconds. Use this
+output with `prepare-rollback`; native wire-state JSON is not a substitute.
+
+## Paired startup and maintenance control
+
+`paired_start.sh` is a foreground POSIX-sh supervisor; `ziggurat_start.sh` is the
+candidate boot launcher. Both are prepared but **not installed**. The launcher
+expects binaries, configuration, helper and paired supervisor in `/tuya/native`.
+Do not use unchanged `deploy.sh --activate` to install this two-process launcher.
+
+The supervisor atomically claims a private control directory, checks UART is free,
+starts Ziggurat, verifies its Hello, then starts native. Restarts have backoff and
+a finite budget (default five attempts across both children). Native failure
+restarts native against the existing stack; Ziggurat failure stops native before
+restarting the pair. Startup deadline is 15 seconds plus at most the five-second
+probe in progress. Shutdown bounds each child to eight seconds and reports forced
+termination; this does not certify freeze. Child console output is discarded;
+native's existing bounded RAM log remains available. No unbounded file is appended.
+
+On the gateway, during an orderly maintenance stop:
+
+```sh
+/tuya/native/paired_control.sh quiesce
+# Run host freeze/export and verify that the new private snapshot was saved.
+/tuya/native/paired_control.sh stop --frozen-snapshot-saved
+```
+
+Quiescence stops native, disables respawn and retains Ziggurat for export. The stop
+flag is an explicit operator assertion that export succeeded; it does not inspect
+the host file. A fresh supervisor start is required to resume after quiescence.
+Stale control directories are refused and require PID inspection before cleanup.
+SIGTERM to the supervisor is bounded emergency shutdown, not an orderly rollback.
+
+## Verified host checks
+
+Both native host suites (including 13 scripted peer cases) and both MIPS builds
+pass. HDLC firmware and MIPS Ziggurat rebuild successfully. Additional checks:
+
+| Test | Result |
+| --- | --- |
+| `python3 ../ziggurat-compilation/scripts/test-maintenance.py` | 4 PTY cases: guards, ownership, reset CRC, baud/flow switch, menu-only run |
+| venv Python `scripts/test_deployment_tools.py` | 6 capture/freeze/permission/Hello cases |
+| `python3 scripts/test_paired_supervisor.py` | 6 fake-process cases: order, quiesce, duplicates, busy UART, restart budget, readiness/stale endpoint |
+| `python3 scripts/test_ziggurat_service.py` | 8 actual-stack host cases, including recovery CLI after native freeze and live/stale socket handling |
+| venv Python `scripts/test_network_migration.py` | 15 migration/restore cases |
+| venv Python `scripts/test_ziggurat_import.py --freeze-running` | Synthetic freeze/rollback regression passes |
+| experiment `python3 scripts/test-cobs-unix.py` | 7 actual-server host COBS checks |
+
+The supervisor fake-process stale endpoint test checks lifecycle ordering;
+actual socket reclamation is also tested against the patched real server. All
+UART tests use host PTYs. Real device timing/menu/ownership compatibility still
+needs the later maintenance checks. No code here guarantees recovery if both
+application and bootloader cannot be reached.

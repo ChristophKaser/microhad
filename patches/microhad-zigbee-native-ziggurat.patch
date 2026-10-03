@@ -149,10 +149,10 @@ index 6d87db8..74cc403 100644
  Sources: the retained [EZSP upgrade record](scripts/EZSP_UPGRADE.md), the
  [Silicon Labs NCP-to-host migration note](https://docs.silabs.com/zigbee/9.0.0/multiprotocol-solution-linux/host-ncp-rcp-migration),
 diff --git a/README.md b/README.md
-index c4042f0..cbe08e4 100644
+index c4042f0..b41d924 100644
 --- a/README.md
 +++ b/README.md
-@@ -5,14 +5,19 @@ the Lidl/gateway gateway. It is built specifically with the bundled RSDK for the
+@@ -5,14 +5,22 @@ the Lidl/gateway gateway. It is built specifically with the bundled RSDK for the
  gateway's 32-bit big-endian MIPS/uClibc environment; it does not use low.js,
  Node.js, or the TCP serial bridge.
  
@@ -176,10 +176,13 @@ index c4042f0..cbe08e4 100644
 +Thread and Matter. No spare gateway is required. The restart counter margin
 +has explicit crash-safety limits. See [integration, commands and results](ZIGGURAT_INTEGRATION.md)
 +and [network migration evidence](NETWORK_MIGRATION.md).
++
++Deployment step 1 (offline recovery preparation) is complete. See
++[prepared tools and commands](RECOVERY_TOOLING.md). Production has not been changed.
  
  ## Build
  
-@@ -20,6 +25,10 @@ Ziggurat adapter and crash-safe persistence remain pending. See
+@@ -20,6 +28,10 @@ Ziggurat adapter and crash-safe persistence remain pending. See
  make host
  make test
  make mips
@@ -190,12 +193,177 @@ index c4042f0..cbe08e4 100644
  ```
  
  `make mips` uses only
+diff --git a/RECOVERY_TOOLING.md b/RECOVERY_TOOLING.md
+new file mode 100644
+index 0000000..fd02c8d
+--- /dev/null
++++ b/RECOVERY_TOOLING.md
+@@ -0,0 +1,159 @@
++# Prepared deployment/recovery tools — 2026-10-03
++
++Step 1 is complete on the host. Nothing here was installed on the gateway, and
++no radio was accessed. The hardware round trips remain steps 6–8 of the deployment
++plan. These tools provide guarded procedures, not guaranteed recovery from an
++unresponsive RCP or arbitrary stale counters.
++
++## Artifacts and offline packaging
++
++From `../ziggurat-compilation`:
++
++```sh
++bash scripts/install-commander.sh
++bash scripts/package-hdlc-gbl.sh
++bash scripts/build-maintenance.sh
++```
++
++Commander is pinned to official Silicon Labs Arduino release `2.0.0`, package
++`Commander_linux_x86_64_1v16p4b1564.tar.zst`, version `1v16p4b1564`:
++archive SHA256 `0d1a2136a824c2f3e9953573502cb80ff459647f41df04d17a30e42140432f8a`.
++The installer needs curl, tar and zstd; the executable uses its bundled libraries.
++The official website download returned HTTP 403; the official GitHub asset worked.
++Packaging runs `commander gbl create OUTPUT --app ot-rcp-multipan.out`, with no
++compression, encryption, signing, bootloader or secure-element update.
++
++RCP GBL: `build/firmware-hdlc/build/debug/ot-rcp-multipan.gbl`, 103800 bytes,
++SHA256 `5e835cf429dbc25ded9e6217f620d0d2243c11c98935de0e29e387657063bb48`;
++program range `[0x4000,0x1d52c)`. Both its CRC/ranges and the retained NCP GBL's
++CRC/ranges pass offline validation. The existing private logical recovery backup
++also passes `ezsp_restore.py` offline validation. Keep the new GBL build output
++and pinned NCP image available on the host; neither is flashed by packaging.
++
++Sources: [Silicon Labs packaging commands](https://docs.silabs.com/simplicity-commander/latest/simplicity-commander-commands/gbl-commands)
++and [official release asset](https://github.com/SiliconLabs/arduino/releases/download/2.0.0/Commander_linux_x86_64_1v16p4b1564.tar.zst).
++
++## Device helper — commands for later maintenance only
++
++Stage `../ziggurat-compilation/build/gateway-maintenance` in
++`/tuya/ziggurat-stage` during step 3. Commands below run on the gateway:
++
++```sh
++/tuya/ziggurat-stage/gateway-maintenance check-free /dev/ttyS1
++/tuya/ziggurat-stage/gateway-maintenance check-owner /dev/ttyS1 VERIFIED_BRIDGE_PID
++/tuya/ziggurat-stage/gateway-maintenance bootloader-enter /dev/ttyS1 --exclusive-radio
++/tuya/ziggurat-stage/gateway-maintenance bootloader-run /dev/ttyS1 --exclusive-radio
++```
++
++`bootloader-enter` sends one CRC-protected HDLC Spinel RESET reason 3, IID 0, at
++460800/RTS-CTS, drains/closes UART, waits three seconds, reopens at 115200/no-flow,
++and recognizes the Gecko menu. It sends neither upload nor run. `bootloader-run`
++recognizes the menu at 115200/no-flow and sends only `2` (run). All serial actions
++have a 25-second watchdog; menu reads are bounded to 4096 bytes and ten seconds.
++After menu entry the original serialgateway can provide the 115200 upload bridge.
++
++Production accepts only `/dev/ttyS1`, requires root, scans `/proc` for owners,
++fails on incomplete inspection and uses TIOCEXCL while opened. `check-owner`
++requires exactly the supplied PID and checks its executable argv is
++`/tuya/serialgateway`. Stop verified supervisors first; the check cannot stop an
++uncooperative root process opening the UART later. Host test builds additionally
++allow PTYs and tolerate inaccessible root processes because tests run unprivileged;
++that exception is absent from the MIPS binary.
++
++`cobs-hello /tmp/ziggurat/native.sock` checks the initial protocol-v2 Hello with a
++five-second deadline; `cobs-bridge` forwards stdin/stdout with a 120-second watchdog.
++Both require a same-user, mode-0600 Unix socket. Neither opens UART.
++
++## Final exclusive NCP capture
++
++Host command, only after step 5 suspends the original supervisor and stops native:
++
++```sh
++migration_python=../ziggurat-compilation/tools/network-migration-venv/bin/python
++"$migration_python" scripts/ezsp_final_capture.py \
++  --compare PRIVATE_RUNNING_EXPORT.json --output PRIVATE_FINAL_EXPORT.json \
++  --host 192.168.178.62 --password-file ../ssh_password.txt \
++  --bridge-pid VERIFIED_BRIDGE_PID --supervisor-pid VERIFIED_SUSPENDED_SUPERVISOR_PID \
++  --exclusive-radio --capture --enter-bootloader
++```
++
++Without `--capture` it only validates the comparison export. Live mode checks the
++supervisor is SIGSTOPped and the exact bridge owns UART; Bellows connection performs
++ASH initialization, so this is a maintenance action, not an online second client.
++It reuses bounded read commands, handles status-only errors, validates identity,
++keys/seed and counter monotonicity against the prior export, and saves a new 0600
++raw export. `--enter-bootloader` then requests entry immediately on that connection.
++It never flashes, joins or forms a network. This narrows the capture-to-stop gap;
++it is not an atomic NCP freeze. The preparation margin remains a bounded freshness
++policy, and interruption requires fresh capture. Errors may leave the saved export
++or radio in bootloader; verify actual state before retrying. Overall deadline is
++160 seconds, each response ten seconds, capture 120 seconds.
++
++## Frozen rollback export
++
++After the native client is quiesced, while Ziggurat is still running:
++
++```sh
++"$migration_python" scripts/ziggurat_freeze.py --template PRIVATE_FINAL_STATE.json \
++  --host 192.168.178.62 --password-file ../ssh_password.txt \
++  --quiesced --execute --output PRIVATE_FINAL_FROZEN_STATE.json
++```
++
++The default bridge is `/tuya/ziggurat-stage/gateway-maintenance`; after permanent
++installation supply `--bridge /tuya/native/gateway-maintenance`. Local host tests
++use `--socket PRIVATE_LOCAL_SOCKET`. Without `--execute`, only the template is
++validated. The command checks stopped state, every scan count/key count, stable
++final network info, keys, children and address cache, then saves normalized private
++state including post-freeze evidence. Overall deadline is 120 seconds. Use this
++output with `prepare-rollback`; native wire-state JSON is not a substitute.
++
++## Paired startup and maintenance control
++
++`paired_start.sh` is a foreground POSIX-sh supervisor; `ziggurat_start.sh` is the
++candidate boot launcher. Both are prepared but **not installed**. The launcher
++expects binaries, configuration, helper and paired supervisor in `/tuya/native`.
++Do not use unchanged `deploy.sh --activate` to install this two-process launcher.
++
++The supervisor atomically claims a private control directory, checks UART is free,
++starts Ziggurat, verifies its Hello, then starts native. Restarts have backoff and
++a finite budget (default five attempts across both children). Native failure
++restarts native against the existing stack; Ziggurat failure stops native before
++restarting the pair. Startup deadline is 15 seconds plus at most the five-second
++probe in progress. Shutdown bounds each child to eight seconds and reports forced
++termination; this does not certify freeze. Child console output is discarded;
++native's existing bounded RAM log remains available. No unbounded file is appended.
++
++On the gateway, during an orderly maintenance stop:
++
++```sh
++/tuya/native/paired_control.sh quiesce
++# Run host freeze/export and verify that the new private snapshot was saved.
++/tuya/native/paired_control.sh stop --frozen-snapshot-saved
++```
++
++Quiescence stops native, disables respawn and retains Ziggurat for export. The stop
++flag is an explicit operator assertion that export succeeded; it does not inspect
++the host file. A fresh supervisor start is required to resume after quiescence.
++Stale control directories are refused and require PID inspection before cleanup.
++SIGTERM to the supervisor is bounded emergency shutdown, not an orderly rollback.
++
++## Verified host checks
++
++Both native host suites (including 13 scripted peer cases) and both MIPS builds
++pass. HDLC firmware and MIPS Ziggurat rebuild successfully. Additional checks:
++
++| Test | Result |
++| --- | --- |
++| `python3 ../ziggurat-compilation/scripts/test-maintenance.py` | 4 PTY cases: guards, ownership, reset CRC, baud/flow switch, menu-only run |
++| venv Python `scripts/test_deployment_tools.py` | 6 capture/freeze/permission/Hello cases |
++| `python3 scripts/test_paired_supervisor.py` | 6 fake-process cases: order, quiesce, duplicates, busy UART, restart budget, readiness/stale endpoint |
++| `python3 scripts/test_ziggurat_service.py` | 8 actual-stack host cases, including recovery CLI after native freeze and live/stale socket handling |
++| venv Python `scripts/test_network_migration.py` | 15 migration/restore cases |
++| venv Python `scripts/test_ziggurat_import.py --freeze-running` | Synthetic freeze/rollback regression passes |
++| experiment `python3 scripts/test-cobs-unix.py` | 7 actual-server host COBS checks |
++
++The supervisor fake-process stale endpoint test checks lifecycle ordering;
++actual socket reclamation is also tested against the patched real server. All
++UART tests use host PTYs. Real device timing/menu/ownership compatibility still
++needs the later maintenance checks. No code here guarantees recovery if both
++application and bootloader cannot be reached.
 diff --git a/ZIGGURAT_DEPLOYMENT_PLAN.md b/ZIGGURAT_DEPLOYMENT_PLAN.md
 new file mode 100644
-index 0000000..a8ab48c
+index 0000000..5a93fb6
 --- /dev/null
 +++ b/ZIGGURAT_DEPLOYMENT_PLAN.md
-@@ -0,0 +1,459 @@
+@@ -0,0 +1,456 @@
 +# Deploy Ziggurat on the existing gateway gateway
 +
 +## Current state and next action — 2026-10-03
@@ -210,11 +378,14 @@ index 0000000..a8ab48c
 +build for MIPS. Ziggurat-only device simulations pass. Multi-PAN HDLC firmware
 +is built but **has not been flashed**.
 +
-+**Next action:** complete the offline recovery tools in step 1, then stage files
-+and repeat a synthetic test before scheduling the radio maintenance window.
-+The first flash is step 7. Steps 1–4 leave production running. Steps 5–10 cause
-+Zigbee downtime on this same gateway. Do not make startup permanent until the
-+manual cutover and rollback entry checks succeed.
++**Step 1 is complete:** images are packaged/validated, binaries rebuilt, recovery
++commands and candidate paired launcher implemented, and host tests pass. Exact
++commands and limits are in [RECOVERY_TOOLING.md](RECOVERY_TOOLING.md). Nothing was
++installed on the gateway during step 1.
++
++**Next action:** step 2, private online backups and baseline capture. The first
++flash remains step 7. Steps 1–4 leave production running; steps 5–10 cause Zigbee
++downtime. No staging or maintenance cutover is authorized by completing step 1.
 +
 +The objective of this deployment is existing-network Zigbee operation through
 +native → COBS Unix socket → Ziggurat → HDLC RCP. Thread and Matter follow later;
@@ -279,47 +450,41 @@ index 0000000..a8ab48c
 +prerequisites. The migration venv pins Bellows, zigpy and the flasher as described
 +in [NETWORK_MIGRATION.md](NETWORK_MIGRATION.md).
 +
-+Complete these missing pieces **before any radio upload**:
++Completed recovery components:
 +
-+1. Package `ot-rcp-multipan.out` as an application-only, uncompressed GBL using
-+   a pinned Silicon Labs packaging tool. The existing build only emits ELF/raw
-+   binary. Record the packaging command/tool version; run `ezsp_preflight.py image`
-+   and offline `ezsp_flash.py` validation. Verify program ranges stay in
-+   `[0x4000,0x37000)` and no bootloader/secure-element update exists. Do not send
-+   the raw `.bin` to the UART bootloader. An exact packaging command is intentionally
-+   pending tool selection; it is not an existing repository command.
-+2. Implement/test a bounded **RCP-to-bootloader helper**: exclusively open UART at
-+   460800 with RTS/CTS, issue Spinel reset reason 3, close it, reopen at 115200
-+   without flow control, and recognize the Gecko menu. It must support this old
-+   gateway and refuse ambiguous ownership. `ezsp_flash.py` normally enters through
-+   EZSP and cannot perform that RCP entry. Its `--already-in-bootloader` path is
-+   reusable only once the menu and correct bridge settings are established.
-+3. Provide a tested **freeze/export command** over the COBS socket, using
-+   `ziggurat_migration.freeze_and_export(client, original_template)`, and private
-+   output. Use the existing socket probe as the SSH byte-stream bridge. This is a
-+   library function today, not an existing CLI. Validate complete scan counts;
-+   do not trust a partial table export. Test native shutdown/freeze followed by
-+   this export so restart cannot race it.
-+4. Provide a final exclusive NCP capture/check command after stopping production.
-+   Reuse the native export's fixed read commands or equivalent Bellows v13 calls;
-+   read NWK and live APS counters, keys/seed and child state. Compare identity to
-+   the production export and preserve complete state. Existing `network_backup.py
-+   collect` requires the running service, so it cannot itself do this final
-+   exclusive capture. This closes the counter gap before bootloader entry.
-+5. Prepare the paired startup supervisor described in step 11 and an explicit
-+   maintenance stop operation. Test them on the host: ordering, child exits,
-+   stale sockets, bounded shutdown, no restart during rollback and no two UART
-+   owners. Avoid unbounded console logs and restart loops that repeatedly write
-+   state or advance counters.
++1. Pinned Commander 1.16.4 and application-only RCP GBL packaging script.
++   RCP GBL SHA256: `5e835cf429dbc25ded9e6217f620d0d2243c11c98935de0e29e387657063bb48`.
++   Both RCP and retained NCP images pass CRC/program-range checks.
++2. `gateway-maintenance`: bounded UART ownership checks, Spinel reset-to-bootloader,
++   baud/flow switch and verified-menu run. Host and MIPS binaries built; PTY tests pass.
++3. `scripts/ziggurat_freeze.py`: guarded COBS freeze/export with complete scan-count
++   validation and private output. Tested after actual host native shutdown/freeze.
++4. `scripts/ezsp_final_capture.py`: exclusive v13 read-only capture, comparison,
++   stopped-supervisor/bridge checks and optional immediate bootloader entry.
++5. `paired_start.sh`, `ziggurat_start.sh` and `scripts/paired_control.sh`: candidate
++   paired supervisor/launcher and quiesce/export/stop workflow. Six host lifecycle
++   cases pass. They are not installed or activated.
++
++Reproduce packaging and helper builds from the experiment checkout:
++
++```sh
++bash scripts/install-commander.sh
++bash scripts/package-hdlc-gbl.sh
++bash scripts/build-maintenance.sh
++```
++
++See [tool commands, prerequisites and verified results](RECOVERY_TOOLING.md).
++Hardware entry/return still needs later same-device checks. Final NCP capture plus
++immediate entry narrows the counter gap; it does not supply an atomic NCP freeze.
 +
 +Retain the previously installed recovery GBL:
 +`diagnostics/ezsp-upgrade-recovery/ncp-uart-hw-7.5.1-115200-hw.gbl`, SHA256
 +`05c66bcc7895bc7db0b9648c12c40e387a1145eabe792413a2762d3d0ada262d`.
 +Validate both forward and reverse images, and the logical restore backup offline.
 +
-+**Pass:** both images validated, all tools tested with synthetic fixtures, exact
-+upload/entry/export commands recorded, no unresolved command placeholders in the
-+execution checklist. **Rollback:** delete build/staging outputs if desired;
++**Pass:** completed: both images validated, all tools tested with synthetic fixtures,
++and exact packaging/entry/export commands recorded. Execution-time private paths
++and inspected PIDs are deliberately supplied at maintenance time. **Rollback:** delete build/staging outputs if desired;
 +production is untouched. If a tool is unfinished, continue implementing it rather
 +than entering the maintenance window.
 +
@@ -465,8 +630,8 @@ index 0000000..a8ab48c
 +menu, correct 115200/no-flow-control bridge and exclusive ownership:
 +
 +```sh
-+"$migration_python" scripts/ezsp_flash.py --image PRIVATE_RCP_GBL_PATH \
-+  --sha256 RECORDED_RCP_SHA256 --host 192.168.178.62 \
++"$migration_python" scripts/ezsp_flash.py --image ../ziggurat-compilation/build/firmware-hdlc/build/debug/ot-rcp-multipan.gbl \
++  --sha256 5e835cf429dbc25ded9e6217f620d0d2243c11c98935de0e29e387657063bb48 --host 192.168.178.62 \
 +  --exclusive-radio --already-in-bootloader --flash
 +```
 +
@@ -559,7 +724,7 @@ index 0000000..a8ab48c
 +## 11. Install permanent paired supervision only after manual validation
 +
 +Prepare an atomic launcher update retaining the original `/tuya/tuya_start.sh`
-+and v13-compatible binary/config privately. The current `native_start.sh` only
++and v13-compatible binary/config privately. The prepared `ziggurat_start.sh` uses the paired supervisor. The old `native_start.sh` only
 +supervises the native daemon: it is **not sufficient** for the two-process backend.
 +Do not use `deploy.sh --activate` unchanged for this cutover.
 +
@@ -1116,6 +1281,401 @@ index 0000000..e7d2b8b
 +    void finishSnapshot();
 +};
 +#endif
+diff --git a/paired_start.sh b/paired_start.sh
+new file mode 100755
+index 0000000..473a952
+--- /dev/null
++++ b/paired_start.sh
+@@ -0,0 +1,100 @@
++#!/bin/sh
++# Foreground paired supervisor. Not installed/activated by this task.
++# Required explicit absolute paths: ZIGGURAT_BIN, NATIVE_BIN, NATIVE_CONFIG,
++# MAINTENANCE_BIN. RUNTIME_CONTROL defaults to a private RAM directory.
++set -u
++umask 077
++: "${ZIGGURAT_BIN:?}" "${NATIVE_BIN:?}" "${NATIVE_CONFIG:?}" "${MAINTENANCE_BIN:?}"
++control=${RUNTIME_CONTROL:-/tmp/ziggurat-supervisor}
++socket_path=${ZIGGURAT_SOCKET:-/tmp/ziggurat/native.sock}
++device=${ZIGGURAT_DEVICE:-/dev/ttyS1}
++limit=${RESTART_LIMIT:-5}
++startup_limit=${STARTUP_LIMIT:-15}
++stop_limit=${STOP_LIMIT:-8}
++backoff=${RESTART_BACKOFF:-3}
++case "$limit:$startup_limit:$stop_limit:$backoff" in *[!0-9:]*|:*|*::*) exit 2;; esac
++for path in "$ZIGGURAT_BIN" "$NATIVE_BIN" "$NATIVE_CONFIG" "$MAINTENANCE_BIN" "$control" "$socket_path" "$device"; do
++    case "$path" in /*) ;; *) echo 'Absolute paths required' >&2;exit 2;; esac
++done
++# Atomic directory claim refuses stale/duplicate supervisors; operator inspects it.
++mkdir "$control" || exit 2
++printf '%s\n' "$$" > "$control/supervisor.pid"
++zig_pid=;native_pid=;retries=0;quiesced=false
++stop_child() {
++    child=$1
++    [ -n "$child" ] || return 0
++    kill -TERM "$child" 2>/dev/null || true
++    elapsed=0
++    while kill -0 "$child" 2>/dev/null && [ "$elapsed" -lt "$stop_limit" ]; do
++        sleep 1;elapsed=$((elapsed+1))
++    done
++    if kill -0 "$child" 2>/dev/null; then
++        echo 'Child stop timed out; final freeze evidence not certified' >&2
++        kill -KILL "$child" 2>/dev/null || true
++    fi
++    wait "$child" 2>/dev/null || true
++}
++cleanup() {
++    trap '' TERM INT HUP
++    trap - EXIT
++    stop_child "$native_pid";native_pid=
++    stop_child "$zig_pid";zig_pid=
++    rm -f "$control/native.pid" "$control/ziggurat.pid" "$control/supervisor.pid" "$control/quiesce" "$control/quiesced" "$control/stop"
++    # Device lacks rmdir. Only remove this invocation's known control directory.
++    rm -rf "$control"
++}
++trap 'cleanup;exit 0' TERM INT HUP
++trap cleanup EXIT
++start_zig() {
++    "$MAINTENANCE_BIN" check-free "$device" || { echo 'UART already owned or cannot be inspected' >&2;return 1; }
++    # Socket parent must be private; Ziggurat validates stale/live socket itself.
++    parent=${socket_path%/*}
++    if [ ! -d "$parent" ]; then mkdir "$parent" || return 1;chmod 700 "$parent";fi
++    "$ZIGGURAT_BIN" --device "$device" --baudrate 460800 --flow-control hardware \
++        --spinel-iid 1 --api cobs-unix --listen "unix:$socket_path" --log-level error >/dev/null 2>&1 &
++    zig_pid=$!;printf '%s\n' "$zig_pid" > "$control/ziggurat.pid"
++    deadline=$(($(date +%s)+startup_limit))
++    while [ "$(date +%s)" -lt "$deadline" ]; do
++        [ ! -e "$control/stop" ] || return 1
++        kill -0 "$zig_pid" 2>/dev/null || return 1
++        if "$MAINTENANCE_BIN" cobs-hello "$socket_path" >/dev/null 2>&1; then return 0;fi
++        sleep 1
++    done
++    echo 'API readiness deadline exceeded' >&2;return 1
++}
++start_native() {
++    "$NATIVE_BIN" --config "$NATIVE_CONFIG" >/dev/null 2>&1 &
++    native_pid=$!;printf '%s\n' "$native_pid" > "$control/native.pid"
++}
++while :; do
++    [ ! -e "$control/stop" ] || exit 0
++    if [ -e "$control/quiesce" ]; then
++        if [ "$quiesced" = false ]; then
++            stop_child "$native_pid";native_pid=
++            rm -f "$control/native.pid";touch "$control/quiesced";quiesced=true
++        fi
++        # Leave Ziggurat alive for the host freeze/export tool. No respawn.
++        sleep 1;continue
++    fi
++    if [ "$quiesced" = true ]; then
++        echo 'Quiesced state requires explicit stop and fresh supervisor start' >&2
++        exit 1
++    fi
++    if [ -z "$zig_pid" ] || ! kill -0 "$zig_pid" 2>/dev/null; then
++        stop_child "$native_pid";native_pid=
++        stop_child "$zig_pid";zig_pid=
++        if [ "$retries" -ge "$limit" ]; then echo 'Restart budget exhausted' >&2;exit 1;fi
++        retries=$((retries+1))
++        if ! start_zig; then stop_child "$zig_pid";zig_pid=;sleep "$backoff";continue;fi
++        # A concurrent maintenance request must prevent client startup.
++        [ ! -e "$control/quiesce" ] && [ ! -e "$control/stop" ] || continue
++        start_native
++    elif [ -z "$native_pid" ] || ! kill -0 "$native_pid" 2>/dev/null; then
++        stop_child "$native_pid";native_pid=
++        if [ "$retries" -ge "$limit" ]; then echo 'Restart budget exhausted' >&2;exit 1;fi
++        retries=$((retries+1));sleep "$backoff"
++        [ ! -e "$control/quiesce" ] && [ ! -e "$control/stop" ] || continue
++        start_native
++    fi
++    sleep 1
++done
+diff --git a/scripts/ezsp_final_capture.py b/scripts/ezsp_final_capture.py
+new file mode 100644
+index 0000000..a2ae13a
+--- /dev/null
++++ b/scripts/ezsp_final_capture.py
+@@ -0,0 +1,157 @@
++#!/usr/bin/env python3
++"""Exclusive EZSP v13 final read-only capture, optionally enter bootloader immediately.
++
++Default validates the comparison export offline. Live mode requires the native
++supervisor/daemon stopped and exactly one inspected serial bridge owning UART.
++No flash, network formation, joining, key or counter write commands are issued.
++"""
++import argparse
++import asyncio
++from collections import deque
++from datetime import datetime, timezone
++import json
++import logging
++from pathlib import Path
++
++from network_backup import normalize, private_write, ssh_args
++
++
++def compare(original, final):
++    for field in ('ieee_address', 'pan_id', 'extended_pan_id', 'channel', 'network_key',
++                  'network_key_seq', 'tc_link_key', 'tclk_seed', 'tclk_flavor'):
++        if original['network'][field] != final['network'][field]:
++            raise ValueError('identity or security changed before exclusive handover')
++    for field in ('network_key_tx_counter', 'aps_frame_counter'):
++        if final['network'][field] < original['network'][field]:
++            raise ValueError('final counter regressed')
++    if not final['counter_evidence']['aps_live_upper_bound_verified']:
++        raise ValueError('live APS counter evidence missing')
++
++
++def raw_read_protocol(ezsp):
++    # Error replies from this NCP can contain only status, while Bellows' typed
++    # schemas expect a full row. Preserve bounded raw replies for our existing
++    # strict exporter decoder instead of timing out on empty slots.
++    class RawResponse:
++        @classmethod
++        def deserialize(cls, data):
++            if len(data)>4096:
++                raise ValueError("response bound")
++            return bytes(data), b""
++    protocol=ezsp._protocol
++    protocol.COMMANDS=dict(protocol.COMMANDS)
++    for name,(cid,tx,rx) in list(protocol.COMMANDS.items()):
++        if cid in (0x26,0x27,0x28,0x69,0x116,0x91,0x114,0x52,0x10c,0x100,0x101,0x102,0x10f,0x4a):
++            protocol.COMMANDS[name]=(cid,tx,RawResponse)
++            protocol.COMMANDS_BY_ID[cid]=(name,tx,RawResponse)
++
++
++async def capture(ezsp):
++    from bellows.ezsp.v13.commands import COMMANDS
++    import bellows.types as t
++    names = {cid: name for name, (cid, _, _) in COMMANDS.items()}
++    empty = b''
++    queries = deque([(0x26, empty), (0x27, empty), (0x28, empty), (0x69, empty),
++                     (0x116, empty), (0x91, empty), (0x114, b'\x01'+bytes(17)),
++                     (0x114, b'\x02'+bytes(17)), (0x52, b'\x1e'), (0x52, b'\x11'),
++                     (0x52, b'\x0d'), (0x10c, b'\x02'+bytes(17)), (0x100, empty)])
++    raw = {'format':'microhad-ezsp-export', 'version':1, 'ezsp_version':13, 'records':[]}
++    async def query(cid, payload):
++        name = names[cid]; _, tx, rx = COMMANDS[name]
++        values = []; tail = payload
++        for typ in tx.values():
++            value, tail = typ.deserialize(tail); values.append(value)
++        if tail:
++            raise ValueError('trailing request data')
++        result = await asyncio.wait_for(getattr(ezsp, name)(*values), 10)
++        if isinstance(result,bytes):
++            response=result
++        elif isinstance(rx, dict):
++            response = b''.join(typ(value).serialize() for typ, value in zip(rx.values(), result))
++        else:
++            response = result.serialize()
++        raw['records'].append({'command':cid,'request':payload.hex(),'response':response.hex()})
++        return response
++    while queries:
++        if len(raw['records']) > 2048:
++            raise ValueError('query limit')
++        cid, payload = queries.popleft(); response = await query(cid, payload)
++        if cid == 0x52 and payload != b'\x0d':
++            if len(response)!=3 or response[0] or response[2]:
++                raise ValueError('invalid table size')
++            queries.extend((0x10f if payload==b'\x1e' else 0x4a, bytes([i]))
++                           for i in range(response[1]))
++        elif cid == 0x100:
++            if len(response)!=1:
++                raise ValueError('invalid token count')
++            queries.extend((0x101, bytes([i])) for i in range(response[0]))
++        elif cid == 0x101:
++            if response==b'\xb5':
++                queries = deque((c,p) for c,p in queries if c!=0x101)
++            elif len(response)==9 and response[0]==0:
++                queries.extend((0x102, response[1:5]+i.to_bytes(4,'little'))
++                               for i in range(response[8]))
++            else:
++                raise ValueError('invalid token metadata')
++    for cid, payload in [(0x28,empty),(0x69,empty),(0x116,empty),(0x26,empty),
++                         (0x114,b'\x01'+bytes(17)),(0x114,b'\x02'+bytes(17)),
++                         (0x10c,b'\x02'+bytes(17))]:
++        await query(cid,payload)
++    raw['complete']=True;raw['collected_at']=datetime.now(timezone.utc).isoformat()
++    normalize(raw)  # validate before publishing
++    return raw
++
++
++async def live(args, original):
++    import bellows.ezsp
++    import subprocess
++    import shlex
++    # A device-side ownership check before connecting; fails if service/supervisor
++    # maintenance has not established the exact bridge as sole UART owner.
++    stopped = f"awk '$1 == \"State:\" {{if ($2 != \"T\") exit 1; found=1}} END {{if (!found) exit 1}}' /proc/{args.supervisor_pid}/status"
++    subprocess.run(ssh_args(args)+[stopped],check=True,stdout=subprocess.DEVNULL,timeout=10)
++    command = shlex.join([args.maintenance, 'check-owner', '/dev/ttyS1', str(args.bridge_pid)])
++    subprocess.run(ssh_args(args)+[command],check=True,stdout=subprocess.DEVNULL,timeout=10)
++    ezsp = bellows.ezsp.EZSP({'path':f'socket://{args.host}:{args.port}',
++                            'baudrate':115200,'flow_control':'hardware'})
++    try:
++        await ezsp.connect(use_thread=False)
++        if ezsp.ezsp_version != 13:
++            raise ValueError('EZSP v13 required')
++        raw_read_protocol(ezsp)
++        raw = await asyncio.wait_for(capture(ezsp),120)
++        compare(original,normalize(raw))
++        private_write(args.output,(json.dumps(raw,indent=2)+'\n').encode())
++        if args.enter_bootloader:
++            status, = await asyncio.wait_for(ezsp.launchStandaloneBootloader(mode=1),10)
++            if int(status):
++                raise ValueError('bootloader entry refused; refresh evidence before retry')
++        print('Private final capture saved'+('; bootloader entry accepted' if args.enter_bootloader else '; refresh before later cutover'))
++    finally:
++        await asyncio.wait_for(ezsp.disconnect(),10)
++
++
++def main():
++    p=argparse.ArgumentParser(description=__doc__)
++    p.add_argument('--compare',required=True);p.add_argument('--output')
++    p.add_argument('--host');p.add_argument('--port',type=int,default=8888)
++    p.add_argument('--password-file');p.add_argument('--bridge-pid',type=int)
++    p.add_argument('--supervisor-pid',type=int)
++    p.add_argument('--maintenance',default='/tuya/ziggurat-stage/gateway-maintenance')
++    p.add_argument('--exclusive-radio',action='store_true');p.add_argument('--capture',action='store_true')
++    p.add_argument('--enter-bootloader',action='store_true')
++    args=p.parse_args();original=normalize(json.loads(Path(args.compare).read_text()))
++    if not args.capture:
++        print('Comparison export validated offline; no radio connection');return
++    if not all((args.host,args.password_file,args.bridge_pid,args.supervisor_pid,args.exclusive_radio,args.output)):
++        p.error('capture requires host/password-file/bridge-pid/exclusive-radio/output')
++    if args.bridge_pid<=1 or args.supervisor_pid<=1 or Path(args.output).exists() or Path(args.output).parent.stat().st_mode&0o077:
++        p.error('invalid bridge PID or private output')
++    logging.getLogger('bellows').setLevel(logging.CRITICAL)
++    asyncio.run(asyncio.wait_for(live(args,original),160))
++
++
++if __name__=='__main__':
++    try:main()
++    except Exception:
++        raise SystemExit('Final capture failed; no handover certified')
+diff --git a/scripts/paired_control.sh b/scripts/paired_control.sh
+new file mode 100755
+index 0000000..578ce35
+--- /dev/null
++++ b/scripts/paired_control.sh
+@@ -0,0 +1,18 @@
++#!/bin/sh
++# Local gateway control. quiesce keeps Ziggurat alive for host freeze/export.
++# stop requires operator confirmation of a saved frozen snapshot. No broad kills.
++set -u
++control=${RUNTIME_CONTROL:-/tmp/ziggurat-supervisor}
++case "${1:-}" in
++ quiesce)
++    [ -f "$control/supervisor.pid" ] || exit 1
++    touch "$control/quiesce"
++    deadline=0
++    while [ ! -f "$control/quiesced" ] && [ "$deadline" -lt 15 ]; do sleep 1;deadline=$((deadline+1));done
++    [ -f "$control/quiesced" ] || exit 1
++    echo 'Native quiesced; Ziggurat retained. Freeze/export before stop.' ;;
++ stop)
++    [ "${2:-}" = --frozen-snapshot-saved ] && [ -f "$control/quiesced" ] || { echo 'Quiesce and save frozen snapshot first' >&2;exit 2; }
++    touch "$control/stop" ;;
++ *) echo 'usage: paired_control.sh quiesce | stop --frozen-snapshot-saved' >&2;exit 2;;
++esac
+diff --git a/scripts/test_deployment_tools.py b/scripts/test_deployment_tools.py
+new file mode 100644
+index 0000000..a2c8dea
+--- /dev/null
++++ b/scripts/test_deployment_tools.py
+@@ -0,0 +1,96 @@
++#!/usr/bin/env python3
++"""Synthetic deployment-tool checks; no gateway access or production secrets."""
++import asyncio
++import copy
++import json
++import os
++from pathlib import Path
++import socket
++import subprocess
++import tempfile
++import threading
++import time
++import unittest
++
++from test_network_migration import fixture, raw_fixture
++from network_backup import normalize
++from ezsp_final_capture import capture, compare, raw_read_protocol
++from ziggurat_migration import freeze_and_export, encode_network
++from ziggurat_cobs import encode
++
++ROOT=Path(__file__).resolve().parents[1]
++
++
++class Tools(unittest.TestCase):
++    def test_final_capture_raw_error_rows_and_read_only_commands(self):
++        from bellows.ezsp.v13.commands import COMMANDS
++        source=raw_fixture()
++        class Peer:
++            def __getattr__(self,name):
++                async def reply(*args):
++                    cid=COMMANDS[name][0]
++                    payload=b''.join(v.serialize() for v in args)
++                    candidates=[r for r in source['records'] if r['command']==cid and r['request']==payload.hex()]
++                    if candidates:return bytes.fromhex(candidates[0]['response'])
++                    if name=='getConfigurationValue':return b'\x00\x01\x00'
++                    if name=='getTokenCount':return b'\x02'
++                    raise AssertionError('Unexpected command '+name)
++                return reply
++        raw=asyncio.run(capture(Peer()));compare(normalize(source),normalize(raw))
++        self.assertTrue(raw['complete'])
++        self.assertFalse(any(r['command'] in (0x1,0x14,0x41,0x44,0x9f) for r in raw['records']))
++        self.assertEqual(sum(r['command']==0x101 for r in raw['records']),1)
++
++    def test_raw_adapter_is_instance_local_and_handles_short_reply(self):
++        from bellows.ezsp.v13.commands import COMMANDS
++        class Protocol:
++            pass
++        class Peer:
++            pass
++        p=Peer();p._protocol=Protocol();p._protocol.COMMANDS=COMMANDS
++        p._protocol.COMMANDS_BY_ID={cid:(n,tx,rx) for n,(cid,tx,rx) in COMMANDS.items()}
++        raw_read_protocol(p)
++        rx=p._protocol.COMMANDS['getChildData'][2]
++        self.assertEqual(rx.deserialize(b'\x93'),(b'\x93',b''))
++        self.assertIsInstance(COMMANDS['getChildData'][2],dict)
++
++    def test_final_comparison_rejects_identity_and_counter_regression(self):
++        a=fixture();b=copy.deepcopy(a);b['network']['aps_frame_counter']-=1
++        with self.assertRaises(ValueError):compare(a,b)
++        b=copy.deepcopy(a);b['network']['network_key']='ff'*16
++        with self.assertRaises(ValueError):compare(a,b)
++
++    def test_freeze_rejects_partial_scan(self):
++        class Peer:
++            events=[]
++            def request(self,command):
++                if command==4:return b''
++                if command==0x20:return encode_network(fixture()['network'])+b'\x01\x00\x00'
++                if command==0x21:return b'\x01\x00'
++                raise AssertionError(command)
++        with self.assertRaises(ValueError):freeze_and_export(Peer(),fixture())
++
++    def test_freeze_cli_offline_and_execution_guards(self):
++        with tempfile.TemporaryDirectory() as tmp:
++            p=Path(tmp)/'template.json';p.write_text(json.dumps(fixture()))
++            cmd=[os.sys.executable,str(ROOT/'scripts/ziggurat_freeze.py'),'--template',str(p)]
++            self.assertEqual(subprocess.run(cmd,stdout=subprocess.DEVNULL).returncode,0)
++            self.assertNotEqual(subprocess.run(cmd+['--execute'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode,0)
++
++    def test_maintenance_cobs_hello_fragmentation_and_insecure_socket(self):
++        binary=ROOT.parent/'ziggurat-compilation/build/gateway-maintenance-host'
++        with tempfile.TemporaryDirectory() as tmp:
++            path=str(Path(tmp)/'api.sock')
++            with socket.socket(socket.AF_UNIX) as server:
++                server.bind(path);server.listen();os.chmod(path,0o600)
++                def send():
++                    with server.accept()[0] as client:
++                        for b in encode(b'\x00\x03\x00\x02\x00'):
++                            client.sendall(bytes([b]));time.sleep(.005)
++                worker=threading.Thread(target=send);worker.start()
++                self.assertEqual(subprocess.run([str(binary),'cobs-hello',path]).returncode,0);worker.join()
++                os.chmod(path,0o666)
++                self.assertNotEqual(subprocess.run([str(binary),'cobs-hello',path]).returncode,0)
++
++
++if __name__=='__main__':unittest.main()
 diff --git a/scripts/test_network_migration.py b/scripts/test_network_migration.py
 index 7f80b26..512fe81 100644
 --- a/scripts/test_network_migration.py
@@ -1147,6 +1707,128 @@ index 7f80b26..512fe81 100644
      def test_no_missing_counter_guess(self):
          state=fixture();state["counter_evidence"]["aps_live_upper_bound_verified"]=False
          with self.assertRaises(ValueError):migration.prepared_state(state)
+diff --git a/scripts/test_paired_supervisor.py b/scripts/test_paired_supervisor.py
+new file mode 100644
+index 0000000..b6a2666
+--- /dev/null
++++ b/scripts/test_paired_supervisor.py
+@@ -0,0 +1,116 @@
++#!/usr/bin/env python3
++"""Host-only paired supervision tests with fake children and real Unix Hello probe."""
++import json
++import os
++import pty
++from pathlib import Path
++import signal
++import subprocess
++import tempfile
++import time
++import unittest
++
++ROOT=Path(__file__).resolve().parents[1]
++FAKE='''#!/usr/bin/env python3
++import os,signal,socket,sys,time
++from pathlib import Path
++role=Path(sys.argv[0]).name
++with open(os.environ['TEST_EVENTS'],'a') as f:f.write(role+' start '+str(os.getpid())+'\\n')
++def stop(*args):
++ with open(os.environ['TEST_EVENTS'],'a') as f:f.write(role+' stop\\n')
++ raise SystemExit(0)
++signal.signal(signal.SIGTERM,stop)
++if role=='zig':
++ path=sys.argv[sys.argv.index('--listen')+1][5:]
++ Path(path).unlink(missing_ok=True)
++ s=socket.socket(socket.AF_UNIX);s.bind(path);os.chmod(path,0o600);s.listen();s.settimeout(.1)
++ while True:
++  try:
++   c,_=s.accept();c.sendall(bytes.fromhex('01020302020100'));c.close()
++  except socket.timeout:pass
++else:
++ if os.environ.get('TEST_EXIT')=='1':raise SystemExit(0)
++ while True:time.sleep(.1)
++'''
++
++
++def wait(check,timeout=12):
++    end=time.monotonic()+timeout
++    while time.monotonic()<end:
++        if check():return
++        time.sleep(.03)
++    raise AssertionError('Supervisor condition deadline')
++
++
++class Paired(unittest.TestCase):
++    def setUp(self):
++        self.tmp=tempfile.TemporaryDirectory();self.root=Path(self.tmp.name)
++        for name in ('zig','native'):
++            p=self.root/name;p.write_text(FAKE);p.chmod(0o700)
++        self.control=self.root/'control';self.events=self.root/'events';self.events.touch()
++        self.env=dict(os.environ,ZIGGURAT_BIN=str(self.root/'zig'),NATIVE_BIN=str(self.root/'native'),
++                      NATIVE_CONFIG=str(self.root/'config.json'),MAINTENANCE_BIN=str(ROOT.parent/'ziggurat-compilation/build/gateway-maintenance-host'),
++                      RUNTIME_CONTROL=str(self.control),ZIGGURAT_SOCKET=str(self.root/'api.sock'),
++                      ZIGGURAT_DEVICE='/dev/forbidden-physical-radio',RESTART_LIMIT='3',RESTART_BACKOFF='1',
++                      STARTUP_LIMIT='2',STOP_LIMIT='2',TEST_EVENTS=str(self.events))
++        self.master,slave=pty.openpty();self.env['ZIGGURAT_DEVICE']=os.ttyname(slave);os.close(slave)
++        self.process=None;self.log=tempfile.TemporaryFile()
++    def start(self):
++        self.process=subprocess.Popen(['sh',str(ROOT/'paired_start.sh')],env=self.env,stdout=self.log,stderr=self.log)
++    def ready(self):
++        wait(lambda:'native start' in self.events.read_text())
++    def quiesce(self):
++        subprocess.run(['sh',str(ROOT/'scripts/paired_control.sh'),'quiesce'],env=self.env,check=True,stdout=subprocess.DEVNULL,timeout=15)
++    def stop(self):
++        subprocess.run(['sh',str(ROOT/'scripts/paired_control.sh'),'stop','--frozen-snapshot-saved'],env=self.env,check=True)
++        self.process.wait(timeout=10)
++    def tearDown(self):
++        if self.process and self.process.poll() is None:
++            self.process.terminate()
++            try:self.process.wait(timeout=12)
++            except subprocess.TimeoutExpired:self.process.kill();self.process.wait()
++        self.log.close();os.close(self.master);self.tmp.cleanup()
++    def test_order_quiesce_retains_radio_owner_and_stop_order(self):
++        self.start();self.ready();self.assertTrue(self.events.read_text().startswith('zig start'))
++        self.quiesce();zig=int((self.control/'ziggurat.pid').read_text());os.kill(zig,0)
++        count=self.events.read_text().count('native start');time.sleep(1.2)
++        self.assertEqual(self.events.read_text().count('native start'),count)
++        self.stop();events=self.events.read_text()
++        self.assertLess(events.index('native stop'),events.index('zig stop'))
++        self.assertFalse(self.control.exists())
++    def test_existing_uart_owner_prevents_any_child_start(self):
++        owner=os.open(self.env['ZIGGURAT_DEVICE'],os.O_RDWR|os.O_NOCTTY)
++        try:
++            self.env['RESTART_LIMIT']='1';self.start();self.process.wait(timeout=10)
++            self.assertEqual(self.events.read_text(),'')
++            self.assertNotEqual(self.process.returncode,0)
++        finally:os.close(owner)
++
++    def test_duplicate_supervisor_and_unguarded_stop_refused(self):
++        self.start();self.ready()
++        result=subprocess.run(['sh',str(ROOT/'paired_start.sh')],env=self.env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
++        self.assertNotEqual(result.returncode,0)
++        result=subprocess.run(['sh',str(ROOT/'scripts/paired_control.sh'),'stop'],env=self.env,stderr=subprocess.DEVNULL)
++        self.assertNotEqual(result.returncode,0)
++        self.quiesce();self.stop()
++    def test_ziggurat_failure_stops_native_then_restarts_pair(self):
++        self.start();self.ready();zig=int((self.control/'ziggurat.pid').read_text());os.kill(zig,signal.SIGKILL)
++        wait(lambda:self.events.read_text().count('native start')==2)
++        events=self.events.read_text();self.assertLess(events.index('native stop'),events.rindex('zig start'))
++        self.quiesce();self.stop()
++    def test_native_crash_restarts_without_second_radio_owner_and_budget_bounds(self):
++        self.env['TEST_EXIT']='1';self.start();self.process.wait(timeout=12)
++        self.assertEqual(self.events.read_text().count('zig start'),1)
++        self.assertEqual(self.events.read_text().count('native start'),3)
++        self.assertNotEqual(self.process.returncode,0)
++    def test_stale_socket_reclaimed_by_server_and_failed_readiness_never_starts_native(self):
++        import socket
++        with socket.socket(socket.AF_UNIX) as stream:stream.bind(str(self.root/'api.sock'))
++        self.start();self.ready();self.quiesce();self.stop()
++        self.events.write_text('');(self.root/'zig').write_text('#!/bin/sh\nexec sleep 20\n')
++        self.env['RESTART_LIMIT']='1';self.start();self.process.wait(timeout=10)
++        self.assertNotIn('native start',self.events.read_text())
++        self.assertNotEqual(self.process.returncode,0)
++
++
++if __name__=='__main__':unittest.main()
 diff --git a/scripts/test_ziggurat_native_peer.py b/scripts/test_ziggurat_native_peer.py
 new file mode 100644
 index 0000000..4c1685d
@@ -1417,10 +2099,10 @@ index 0000000..4c1685d
 +if __name__=="__main__":unittest.main()
 diff --git a/scripts/test_ziggurat_service.py b/scripts/test_ziggurat_service.py
 new file mode 100644
-index 0000000..0741c98
+index 0000000..ee8a142
 --- /dev/null
 +++ b/scripts/test_ziggurat_service.py
-@@ -0,0 +1,123 @@
+@@ -0,0 +1,135 @@
 +#!/usr/bin/env python3
 +"""Native service + actual Ziggurat + loopback RCP; synthetic state only."""
 +import argparse
@@ -1498,6 +2180,10 @@ index 0000000..0741c98
 +            assert restored_key[:16]==expected_key[:16] and restored_key[20:]==expected_key[20:]
 +            assert saved["children"]==state["children"] and saved["addresses"]==state["addresses"]
 +            passed("Native COBS startup restores synthetic identity, keys and both counters")
++            duplicate=subprocess.run([str(server),"--device",f"tcp://127.0.0.1:{radio.port}","--spinel-iid","1",
++                "--api","cobs-unix","--listen",f"unix:{path}","--log-level","error"],stdout=log,stderr=log,timeout=5)
++            assert duplicate.returncode!=0 and status()["online"]
++            passed("Actual server refuses a live socket without replacing the running listener")
 +            with urllib.request.urlopen(urllib.request.Request(f"http://127.0.0.1:{port}/api/join",data=b"",method="POST"),timeout=2) as response:
 +                assert json.load(response)["ok"]
 +            passed("Native HTTP permit-join maps to Ziggurat")
@@ -1507,6 +2193,15 @@ index 0000000..0741c98
 +            info=observer.request(0x20);assert info[84]==0
 +            saved=json.loads(state_path.read_text());assert bytes.fromhex(saved["network"])==info[:82]
 +            passed("Orderly native stop freezes and persists actual Ziggurat state")
++            template=directory/"template.json";template.write_text(json.dumps(fixture()));template.chmod(0o600)
++            final=directory/"final-frozen.json"
++            subprocess.run([os.sys.executable,str(ROOT/"scripts/ziggurat_freeze.py"),"--template",str(template),
++                "--socket",str(path),"--quiesced","--execute","--output",str(final)],check=True,stdout=subprocess.DEVNULL)
++            frozen=json.loads(final.read_text())
++            assert frozen["handover"]["counters_observed_after_stop"] and final.stat().st_mode&0o777==0o600
++            assert frozen["network"]["network_key_tx_counter"]==int.from_bytes(info[39:43],"little")
++            assert len(frozen["keys"])==int.from_bytes(info[82:84],"little")
++            passed("Recovery CLI exports complete private state after native shutdown/freeze")
 +            old=bytes.fromhex(saved["network"])
 +            service=launch();wait_for(lambda:status()["online"])
 +            info=observer.request(0x20);assert info[84]==1
@@ -1522,12 +2217,11 @@ index 0000000..0741c98
 +            observer.close();observer=None
 +            service.kill();service.wait(timeout=3);service=None
 +            process.terminate();process.wait(timeout=5);process=None
-+            path.unlink(missing_ok=True)
 +            radio.close();radio=sim.Rcp("127.0.0.1",iid=1)
 +            process=subprocess.Popen([str(server),"--device",f"tcp://127.0.0.1:{radio.port}","--spinel-iid","1",
 +                "--api","cobs-unix","--listen",f"unix:{path}","--log-level","error"],stdout=log,stderr=log)
 +            wait_for(lambda:path.exists());service=launch();wait_for(lambda:status()["online"])
-+            passed("Ziggurat process restart recovers network from native durable state")
++            passed("Ziggurat restart reclaims stale socket and recovers native durable state")
 +            report["simulated_radio_transmissions"]=radio.counts["tx_frames"]
 +    finally:
 +        if observer:observer.close()
@@ -1546,12 +2240,12 @@ index 0000000..0741c98
 +if __name__=="__main__":main()
 diff --git a/scripts/ziggurat_cobs.py b/scripts/ziggurat_cobs.py
 new file mode 100644
-index 0000000..5db601e
+index 0000000..c327e6c
 --- /dev/null
 +++ b/scripts/ziggurat_cobs.py
-@@ -0,0 +1,82 @@
+@@ -0,0 +1,87 @@
 +#!/usr/bin/env python3
-+"""Test-only protocol-v2 COBS client; never opens the physical coordinator."""
++"""Bounded protocol-v2 COBS client for tests and explicit recovery; no UART access."""
 +from collections import deque
 +import select
 +import socket
@@ -1613,9 +2307,13 @@ index 0000000..5db601e
 +            data = self.stream.recv(2048) if hasattr(self.stream, "recv") else self.stream.read1(2048)
 +            if not data: raise ConnectionError("COBS connection closed")
 +            self.buffer.extend(data)
++            if len(self.buffer)>18432:
++                raise ValueError("COBS receive bound")
 +            while 0 in self.buffer:
 +                at = self.buffer.index(0); frame = bytes(self.buffer[:at]); del self.buffer[:at+1]
-+                if frame: self.frames.append(decode(frame))
++                if frame:
++                    if len(self.frames)>=64: raise ValueError("COBS frame queue bound")
++                    self.frames.append(decode(frame))
 +        return self.frames.popleft()
 +
 +    def request(self, command, payload=b"", status=0):
@@ -1628,12 +2326,94 @@ index 0000000..5db601e
 +                assert len(frame) >= 4 and frame[3] == status, (command, frame[3] if len(frame)>3 else None)
 +                self.timings.append((time.perf_counter_ns()-start)/1e6)
 +                return frame[4:]
++            if len(self.events)>=2048: raise ValueError("COBS event bound")
 +            self.events.append(frame)
 +
 +    def close(self):
 +        if hasattr(self.stream, "close"): self.stream.close()
+diff --git a/scripts/ziggurat_freeze.py b/scripts/ziggurat_freeze.py
+new file mode 100644
+index 0000000..36b3d98
+--- /dev/null
++++ b/scripts/ziggurat_freeze.py
+@@ -0,0 +1,75 @@
++#!/usr/bin/env python3
++"""Freeze a quiesced Ziggurat stack and save complete private rollback evidence.
++
++Default is offline template validation. --execute requires --quiesced and a
++local socket or explicitly supplied SSH bridge; never opens a UART or flashes.
++"""
++import argparse
++import json
++from pathlib import Path
++import signal
++import subprocess
++
++from network_backup import private_write, ssh_args
++from ziggurat_cobs import Client
++from ziggurat_migration import freeze_and_export, validate
++
++
++def main():
++    p = argparse.ArgumentParser(description=__doc__)
++    p.add_argument('--template', required=True)
++    p.add_argument('--output')
++    p.add_argument('--socket', default='/tmp/ziggurat/native.sock')
++    p.add_argument('--host')
++    p.add_argument('--password-file')
++    p.add_argument('--bridge', default='/tuya/ziggurat-stage/gateway-maintenance')
++    p.add_argument('--quiesced', action='store_true')
++    p.add_argument('--execute', action='store_true')
++    args = p.parse_args()
++    template = validate(json.loads(Path(args.template).read_text()))
++    if not args.execute:
++        print('Template validated offline; stack not contacted')
++        return
++    if not args.quiesced or not args.output:
++        p.error('--execute requires --quiesced and a new --output; disable supervisor respawn first')
++    destination = Path(args.output)
++    if destination.exists() or destination.parent.stat().st_mode & 0o077:
++        p.error('output must be new inside a private directory')
++    if args.host and not args.password_file:
++        p.error('remote access requires --password-file')
++    if args.socket != '/tmp/ziggurat/native.sock' and args.host:
++        p.error('remote recovery socket must be /tmp/ziggurat/native.sock')
++    import shlex
++    def expired(*_):
++        raise TimeoutError('freeze/export overall deadline')
++    signal.signal(signal.SIGALRM, expired)
++    signal.alarm(120)
++    bridge = client = None
++    try:
++        if args.host:
++            command = shlex.join([args.bridge, 'cobs-bridge', args.socket])
++            bridge = subprocess.Popen(ssh_args(args) + [command], stdin=subprocess.PIPE,
++                                      stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
++            client = Client(bridge.stdout, bridge.stdin)
++        else:
++            client = Client.connect(args.socket)
++        state = freeze_and_export(client, template)
++        private_write(destination, (json.dumps(state, indent=2) + '\n').encode())
++        print('Frozen complete snapshot saved privately; no network restart requested')
++    finally:
++        signal.alarm(0)
++        if client:
++            client.close()
++        if bridge:
++            bridge.terminate()
++            try:
++                bridge.wait(timeout=5)
++            except subprocess.TimeoutExpired:
++                bridge.kill(); bridge.wait()
++
++
++if __name__ == '__main__':
++    try:
++        main()
++    except (OSError, ValueError, TimeoutError, AssertionError, ConnectionError):
++        raise SystemExit('Freeze/export failed; state not certified for rollback')
 diff --git a/scripts/ziggurat_migration.py b/scripts/ziggurat_migration.py
-index 3c0a099..44082ee 100644
+index 3c0a099..996eb65 100644
 --- a/scripts/ziggurat_migration.py
 +++ b/scripts/ziggurat_migration.py
 @@ -107,6 +107,18 @@ def import_commands(state):
@@ -1655,7 +2435,41 @@ index 3c0a099..44082ee 100644
  def verify_import(client, state):
      """Load stopped stack, verify exported state and every key/child, never StartNetwork."""
      for command,payload in import_commands(state): client.request(command,payload)
-@@ -184,6 +196,8 @@ def main():
+@@ -140,21 +152,30 @@ def freeze_and_export(client, template):
+          "tclk_seed":info[60:76].hex() if info[59] else None,"tclk_flavor":"ezsp" if info[76]==1 else "zstack",
+          "tx_power":struct.unpack("b",info[77:78])[0],"aps_frame_counter":int.from_bytes(info[78:82],"little")}
+     def scan(command):
+-        before=len(client.events);client.request(command)
+-        return [frame[3:] for frame in list(client.events)[before:] if frame[0]==command and frame[1]&3==2]
++        before=len(client.events);reply=client.request(command)
++        rows=[frame[3:] for frame in list(client.events)[before:] if frame[0]==command and frame[1]&3==2]
++        if len(reply)!=2 or int.from_bytes(reply,"little")!=len(rows) or len(rows)>256:
++            raise ValueError("incomplete frozen table scan")
++        return rows
+     keys=[]
+     for row in scan(0x21):
+         if len(row)!=33:raise ValueError("invalid frozen key row")
+         keys.append({"key":row[:16].hex(),"tx_counter":int.from_bytes(row[16:20],"little"),
+                      "rx_counter":int.from_bytes(row[20:24],"little"),"ieee":row[25:33].hex(),"bitmask":0x1e})
++    if len(keys)!=int.from_bytes(info[82:84],"little"):
++        raise ValueError("frozen key count mismatch")
+     children=[]
+     for row in scan(0x22):
+         if len(row)!=11:raise ValueError("invalid frozen child row")
+         rx=bool(row[10]&1);typ=row[10]>>1&3
+         children.append({"ieee":row[:8].hex(),"nwk":int.from_bytes(row[8:10],"little"),
+                          "rx_on_when_idle":rx,"type":2 if typ==1 else 3 if rx else 4})
++    addresses=[]
++    for row in scan(0x23):
++        if len(row)!=10:raise ValueError("invalid frozen address row")
++        addresses.append({"ieee":row[:8].hex(),"nwk":int.from_bytes(row[8:10],"little")})
+     if client.request(0x20)!=info:raise ValueError("snapshot changed after freeze")
+-    state=copy.deepcopy(template);state["network"]=n;state["keys"]=keys;state["children"]=children
++    state=copy.deepcopy(template);state["network"]=n;state["keys"]=keys;state["children"]=children;state["addresses"]=addresses
+     state["incoming_counter_semantics"]="next-acceptable"
+     state["captured_at"]=datetime.now(timezone.utc).isoformat()
+     state["counter_evidence"]={"aps_live_upper_bound_verified":True,"source":"frozen-ziggurat-state"}
+@@ -184,6 +205,8 @@ def main():
      p=sub.add_parser("prepare-import")
      p.add_argument("--state",required=True);p.add_argument("--output",required=True)
      p.add_argument("--aps-upper-bound",type=int)
@@ -1664,7 +2478,7 @@ index 3c0a099..44082ee 100644
      p=sub.add_parser("prepare-rollback")
      p.add_argument("--original",required=True);p.add_argument("--last-stopped-state",required=True)
      p.add_argument("--output",required=True);p.add_argument("--aps-upper-bound",type=int)
-@@ -194,6 +208,13 @@ def main():
+@@ -194,6 +217,13 @@ def main():
              bundle={"format":"ziggurat-import-bundle","protocol_version":2,"state":state,
                      "commands":[{"command":cmd,"payload":payload.hex()} for cmd,payload in import_commands(state)],
                      "start_network_included":False,"hardware_verified":False}
@@ -2820,3 +3634,20 @@ index 0000000..8fd1991
 +    assert(!loaded.load(path,&error)); assert(!state.save(path,&error));
 +    assert(unlink(path.c_str())==0); assert(rmdir(directory)==0);
 +}
+diff --git a/ziggurat_start.sh b/ziggurat_start.sh
+new file mode 100755
+index 0000000..0872cf5
+--- /dev/null
++++ b/ziggurat_start.sh
+@@ -0,0 +1,11 @@
++#!/bin/sh
++# Candidate permanent launcher; not installed or activated by this task.
++export ZIGGURAT_BIN=/tuya/native/ziggurat
++export NATIVE_BIN=/tuya/native/tuya-zigbee-native
++export NATIVE_CONFIG=/tuya/native/config.json
++export MAINTENANCE_BIN=/tuya/native/gateway-maintenance
++export RUNTIME_CONTROL=/tmp/ziggurat-supervisor
++export ZIGGURAT_SOCKET=/tmp/ziggurat/native.sock
++export ZIGGURAT_DEVICE=/dev/ttyS1
++/tuya/native/paired_start.sh >/dev/null 2>&1 &
++/tuya/set_time.sh &

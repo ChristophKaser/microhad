@@ -27,6 +27,10 @@
     "build/ziggurat-hdlc/lexra-stock-uclibc/release/ziggurat.stripped": {
       "size_bytes": 3565456,
       "sha256": "10172921f82716ac7cec4160935a0a8f569e3739bcb8071fe45107a5f30c8637"
+    },
+    "build/firmware-hdlc/build/debug/ot-rcp-multipan.gbl": {
+      "size_bytes": 103800,
+      "sha256": "5e835cf429dbc25ded9e6217f620d0d2243c11c98935de0e29e387657063bb48"
     }
   },
   "flashed": false,
@@ -34,5 +38,6 @@
   "rcp_nvm_end": "0x40000",
   "rcp_nvm_size_bytes": 36864,
   "network_migration_patch": "patches/ziggurat-network-migration.patch",
-  "cobs_unix_patch": "patches/ziggurat-cobs-unix.patch"
+  "cobs_unix_patch": "patches/ziggurat-cobs-unix.patch",
+  "commander_version": "1v16p4b1564"
 }

@@ -42,7 +42,10 @@ EFR32MG1 radio through HDLC, without cpcd.
 ## Next steps
 
 Follow the [same-device deployment and rollback plan](docs/ziggurat-deployment-plan.md).
-No spare gateway is required; prepare the recovery tools before the first flash.
+No spare gateway is required. Step 1 is complete: application-only GBL packaging,
+guarded recovery commands and paired supervision pass host tests. See
+[prepared tools](docs/recovery-tooling.md) and [artifact pins](docs/deployment-preparation.json).
+No hardware maintenance or flashing has occurred.
 
 1. Resolve cold-boot RNG readiness and report startup failures without blocking
    the async worker; retain the randomness safety check.

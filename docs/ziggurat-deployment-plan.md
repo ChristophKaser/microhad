@@ -1,9 +1,5 @@
 # Deploy Ziggurat on the existing Tuya gateway
 
-Mirrored from `microhad-zigbee-native` commit `03c828bce9a7ab0b07a9da31c4c89b827905f071`.
-Host commands run from that sibling checkout unless a block changes directory.
-
-
 ## Current state and next action — 2026-10-03
 
 **This is a plan, not an executed deployment.** Use the existing gateway at
@@ -16,11 +12,14 @@ native-owned persistence pass host tests; both native variants and Ziggurat
 build for MIPS. Ziggurat-only device simulations pass. Multi-PAN HDLC firmware
 is built but **has not been flashed**.
 
-**Next action:** complete the offline recovery tools in step 1, then stage files
-and repeat a synthetic test before scheduling the radio maintenance window.
-The first flash is step 7. Steps 1–4 leave production running. Steps 5–10 cause
-Zigbee downtime on this same gateway. Do not make startup permanent until the
-manual cutover and rollback entry checks succeed.
+**Step 1 is complete:** images are packaged/validated, binaries rebuilt, recovery
+commands and candidate paired launcher implemented, and host tests pass. Exact
+commands and limits are in [RECOVERY_TOOLING.md](recovery-tooling.md). Nothing was
+installed on the gateway during step 1.
+
+**Next action:** step 2, private online backups and baseline capture. The first
+flash remains step 7. Steps 1–4 leave production running; steps 5–10 cause Zigbee
+downtime. No staging or maintenance cutover is authorized by completing step 1.
 
 The objective of this deployment is existing-network Zigbee operation through
 native → COBS Unix socket → Ziggurat → HDLC RCP. Thread and Matter follow later;
@@ -85,47 +84,41 @@ The experiment README lists the pinned Rust, RSDK, GSDK, ARM compiler and SLC
 prerequisites. The migration venv pins Bellows, zigpy and the flasher as described
 in [NETWORK_MIGRATION.md](network-migration.md).
 
-Complete these missing pieces **before any radio upload**:
+Completed recovery components:
 
-1. Package `ot-rcp-multipan.out` as an application-only, uncompressed GBL using
-   a pinned Silicon Labs packaging tool. The existing build only emits ELF/raw
-   binary. Record the packaging command/tool version; run `ezsp_preflight.py image`
-   and offline `ezsp_flash.py` validation. Verify program ranges stay in
-   `[0x4000,0x37000)` and no bootloader/secure-element update exists. Do not send
-   the raw `.bin` to the UART bootloader. An exact packaging command is intentionally
-   pending tool selection; it is not an existing repository command.
-2. Implement/test a bounded **RCP-to-bootloader helper**: exclusively open UART at
-   460800 with RTS/CTS, issue Spinel reset reason 3, close it, reopen at 115200
-   without flow control, and recognize the Gecko menu. It must support this old
-   gateway and refuse ambiguous ownership. `ezsp_flash.py` normally enters through
-   EZSP and cannot perform that RCP entry. Its `--already-in-bootloader` path is
-   reusable only once the menu and correct bridge settings are established.
-3. Provide a tested **freeze/export command** over the COBS socket, using
-   `ziggurat_migration.freeze_and_export(client, original_template)`, and private
-   output. Use the existing socket probe as the SSH byte-stream bridge. This is a
-   library function today, not an existing CLI. Validate complete scan counts;
-   do not trust a partial table export. Test native shutdown/freeze followed by
-   this export so restart cannot race it.
-4. Provide a final exclusive NCP capture/check command after stopping production.
-   Reuse the native export's fixed read commands or equivalent Bellows v13 calls;
-   read NWK and live APS counters, keys/seed and child state. Compare identity to
-   the production export and preserve complete state. Existing `network_backup.py
-   collect` requires the running service, so it cannot itself do this final
-   exclusive capture. This closes the counter gap before bootloader entry.
-5. Prepare the paired startup supervisor described in step 11 and an explicit
-   maintenance stop operation. Test them on the host: ordering, child exits,
-   stale sockets, bounded shutdown, no restart during rollback and no two UART
-   owners. Avoid unbounded console logs and restart loops that repeatedly write
-   state or advance counters.
+1. Pinned Commander 1.16.4 and application-only RCP GBL packaging script.
+   RCP GBL SHA256: `5e835cf429dbc25ded9e6217f620d0d2243c11c98935de0e29e387657063bb48`.
+   Both RCP and retained NCP images pass CRC/program-range checks.
+2. `gateway-maintenance`: bounded UART ownership checks, Spinel reset-to-bootloader,
+   baud/flow switch and verified-menu run. Host and MIPS binaries built; PTY tests pass.
+3. `scripts/ziggurat_freeze.py`: guarded COBS freeze/export with complete scan-count
+   validation and private output. Tested after actual host native shutdown/freeze.
+4. `scripts/ezsp_final_capture.py`: exclusive v13 read-only capture, comparison,
+   stopped-supervisor/bridge checks and optional immediate bootloader entry.
+5. `paired_start.sh`, `ziggurat_start.sh` and `scripts/paired_control.sh`: candidate
+   paired supervisor/launcher and quiesce/export/stop workflow. Six host lifecycle
+   cases pass. They are not installed or activated.
+
+Reproduce packaging and helper builds from the experiment checkout:
+
+```sh
+bash scripts/install-commander.sh
+bash scripts/package-hdlc-gbl.sh
+bash scripts/build-maintenance.sh
+```
+
+See [tool commands, prerequisites and verified results](recovery-tooling.md).
+Hardware entry/return still needs later same-device checks. Final NCP capture plus
+immediate entry narrows the counter gap; it does not supply an atomic NCP freeze.
 
 Retain the previously installed recovery GBL:
 `diagnostics/ezsp-upgrade-recovery/ncp-uart-hw-7.5.1-115200-hw.gbl`, SHA256
 `05c66bcc7895bc7db0b9648c12c40e387a1145eabe792413a2762d3d0ada262d`.
 Validate both forward and reverse images, and the logical restore backup offline.
 
-**Pass:** both images validated, all tools tested with synthetic fixtures, exact
-upload/entry/export commands recorded, no unresolved command placeholders in the
-execution checklist. **Rollback:** delete build/staging outputs if desired;
+**Pass:** completed: both images validated, all tools tested with synthetic fixtures,
+and exact packaging/entry/export commands recorded. Execution-time private paths
+and inspected PIDs are deliberately supplied at maintenance time. **Rollback:** delete build/staging outputs if desired;
 production is untouched. If a tool is unfinished, continue implementing it rather
 than entering the maintenance window.
 
@@ -135,7 +128,7 @@ Over SSH, inspect `ps w`, each candidate `/proc/PID/status`, `/proc/PID/cmdline`
 `/proc/PID/exe` and `/proc/PID/fd` to identify the exact daemon and supervisor.
 Do not assume the filename identifies the supervisor, or reuse recorded PIDs.
 Use the password file by pathname and the old Dropbear RSA options documented in
-[the integration guide](native-ziggurat-integration.md); never expose the password.
+[the integration guide](ZIGGURAT_INTEGRATION.md); never expose the password.
 
 Save the current executable, `/tuya/tuya_start.sh`, configuration, application
 state, device settings, groups/scenes, subscriptions and required TLS/notification
@@ -271,8 +264,8 @@ Use the validated RCP GBL and its recorded SHA256. With the confirmed bootloader
 menu, correct 115200/no-flow-control bridge and exclusive ownership:
 
 ```sh
-"$migration_python" scripts/ezsp_flash.py --image PRIVATE_RCP_GBL_PATH \
-  --sha256 RECORDED_RCP_SHA256 --host 192.168.178.62 \
+"$migration_python" scripts/ezsp_flash.py --image ../ziggurat-compilation/build/firmware-hdlc/build/debug/ot-rcp-multipan.gbl \
+  --sha256 5e835cf429dbc25ded9e6217f620d0d2243c11c98935de0e29e387657063bb48 --host 192.168.178.62 \
   --exclusive-radio --already-in-bootloader --flash
 ```
 
@@ -365,7 +358,7 @@ retry without changing radio firmware or rolling back security state.
 ## 11. Install permanent paired supervision only after manual validation
 
 Prepare an atomic launcher update retaining the original `/tuya/tuya_start.sh`
-and v13-compatible binary/config privately. The current `native_start.sh` only
+and v13-compatible binary/config privately. The prepared `ziggurat_start.sh` uses the paired supervisor. The old `native_start.sh` only
 supervises the native daemon: it is **not sufficient** for the two-process backend.
 Do not use `deploy.sh --activate` unchanged for this cutover.
 
