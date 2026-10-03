@@ -1,11 +1,7 @@
 # Native service ↔ Ziggurat integration
 
-Native source: `microhad-zigbee-native` commit `d4c5e89ddf2d2a669e050c36cc2254dfe5641643`. Commands in this
-document run from the sibling native checkout unless another directory is shown.
-The [new native adapter patch](../patches/microhad-zigbee-native-ziggurat.patch)
-applies to native baseline `a84e864`; the earlier
-[network exporter patch](../patches/microhad-zigbee-native-network-export.patch)
-applies to baseline `24dc1b0`. Use that order when reconstructing the native tree.
+Mirrored from `microhad-zigbee-native` commit `03c828bce9a7ab0b07a9da31c4c89b827905f071`.
+Host commands run from that sibling checkout unless a block changes directory.
 
 
 ## Current state and plan — 2026-10-03
@@ -18,8 +14,9 @@ Ziggurat and a socket probe against synthetic host radio state; all eight checks
 passed and temporary uploads were removed. Production remains on EZSP with its
 network formed, 23 known devices and an unchanged executable checksum.
 
-**Next:** rehearse migration and recovery on spare hardware, validate real Zigbee
-traffic, then integrate the Thread consumer and Matter. No firmware was flashed;
+**Next:** follow the [same-device deployment/rollback plan](ziggurat-deployment-plan.md),
+validate real Zigbee traffic, then integrate the Thread consumer and Matter.
+No spare gateway is required. No firmware was flashed;
 the native service was neither deployed nor restarted. The 1000-frame restart
 margin follows ZHA's policy and does not guarantee safety after arbitrary outages.
 

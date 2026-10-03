@@ -41,12 +41,15 @@ EFR32MG1 radio through HDLC, without cpcd.
 
 ## Next steps
 
+Follow the [same-device deployment and rollback plan](docs/ziggurat-deployment-plan.md).
+No spare gateway is required; prepare the recovery tools before the first flash.
+
 1. Resolve cold-boot RNG readiness and report startup failures without blocking
    the async worker; retain the randomness safety check.
 2. Connect a local Thread stack/OTBR to the shared endpoint with coordinated
    reset, scan and common-channel ownership; measure combined gateway resources.
-3. Rehearse the prepared network migration and firmware recovery on a spare
-   radio/network, then validate real dual-PAN operation,
+3. Follow the staged maintenance and rollback checkpoints on this gateway,
+   then validate real dual-PAN operation,
    especially MG1 auto-ACK, sleepy children and overlapping short addresses.
 4. Validate the implemented native adapter with real Zigbee traffic and add
    local Matter functionality; measure the complete standalone gateway.
@@ -713,7 +716,7 @@ expose directly.
 
 - The native protocol-v2 adapter now handles notifications, asynchronous send
   confirmations, persistent state and reconnect behavior. Host simulation passes;
-  validate it against spare physical RCP hardware before production migration.
+  validate it on this gateway using the staged deployment plan.
 - Extend simulated traffic and duration, then benchmark real peer/routing load.
   A short synthetic active-stack test is not a production-readiness claim.
 - Validate serial I/O on the target without disrupting its coordinator; the

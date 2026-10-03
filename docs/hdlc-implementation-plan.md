@@ -39,17 +39,21 @@ and [validation summary](hdlc-validation.json) record the evidence.
 
 ## Remaining plan
 
+The [same-device deployment plan](ziggurat-deployment-plan.md) supersedes earlier
+suggestions to use spare hardware. It defines maintenance and rollback checkpoints
+for this gateway; no spare device is required.
+
 1. Investigate cold-boot RNG readiness; add bounded, explicit startup error
    handling without bypassing the RNG safety check.
 2. Implement and test a local OTBR Unix-socket transport adapter or embedded
    Thread platform interface. Coordinate reset/recovery, scans and channel
    changes with Ziggurat; benchmark combined RAM and CPU on the Tuya.
-3. Rehearse the prepared firmware/network backup and recovery on spare hardware
-   before a separately authorized production-radio test.
+3. Complete the recovery tools, then follow the staged firmware/network migration
+   and recovery checks on this gateway in a separately authorized maintenance window.
    Complete the network-preservation gate below before using the production radio.
    Validate both PANs' ACKs, sleepy-child polls, address collisions, broadcast
    routing, scanning interference and sustained traffic on MG1.
-4. Validate the implemented native protocol-v2 client on spare radio hardware,
+4. Validate the implemented native protocol-v2 client on this gateway,
    add local Matter functionality, and measure the full standalone resource budget.
 
 ## Network preservation before flashing
@@ -86,8 +90,8 @@ Completed without flashing:
 
 Remaining before production migration:
 
-- Rehearse firmware bootloader entry, flashing and logical restoration on spare
-  hardware, including recovery from an unresponsive application. The compiled
+- Follow the same-device bootloader entry, flashing and logical restoration
+  checkpoints, including the limits of recovery from an unresponsive application. The compiled
   Spinel recovery path needs a responding RCP; no verified SWD fallback exists.
 - Validate the implemented native adapter and ZHA-style checkpoint persistence
   on hardware. It does not reserve durable upper bounds for every future counter;
