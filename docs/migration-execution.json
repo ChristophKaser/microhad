@@ -1,0 +1,22 @@
+{
+  "date": "2026-10-03",
+  "completed_steps": [
+    1,
+    2,
+    3,
+    4
+  ],
+  "next_step": 5,
+  "native_documentation_commit": "baea5574560457b61c6c949d1ca7eba9de081a29",
+  "staged_path": "/tuya/ziggurat-stage",
+  "production_backend": "ezsp",
+  "production_online": true,
+  "firmware_flashed": false,
+  "service_stopped_or_restarted": false,
+  "staging_flash_remaining_kib": 3568,
+  "inactive_native_test_archived_before_removal": true,
+  "synthetic_device_checks_passed": 8,
+  "preliminary_import_started_network": false,
+  "approval_review_rejections": 2,
+  "pending": "Direct user approval for steps 5\u201312 required by action reviewer"
+}
