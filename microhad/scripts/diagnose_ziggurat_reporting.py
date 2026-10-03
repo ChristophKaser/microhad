@@ -47,7 +47,16 @@ class Bridge:
         self.process = subprocess.Popen(ssh_args(args) + [args.bridge +
             ' cobs-bridge /tmp/ziggurat/native.sock'], stdin=subprocess.PIPE,
             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-        self.client = Client(self.process.stdout, self.process.stdin)
+        try:
+            self.client = Client(self.process.stdout, self.process.stdin)
+        except Exception:
+            self.process.terminate()
+            try:
+                self.process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+                self.process.wait()
+            raise
 
     def close(self):
         self.client.close()
