@@ -1,3 +1,8 @@
+> **Real deployment underway (2026-10-03):** the existing network is online
+> through the real HDLC RCP and Ziggurat backend. Steps 1–9 complete; observation,
+> permanent startup and reboot remain. [Deployment checkpoint](ZIGGURAT_DEPLOYMENT_PLAN.md)
+> and [hardware findings](REAL_RADIO_MIGRATION.md) supersede earlier simulation-only status.
+
 # Native service ↔ Ziggurat integration
 
 ## Current state and plan — 2026-10-03

@@ -436,6 +436,16 @@ If no frames were sent, prove that before considering the pre-cutover backup.
 
 ## 10. Validate the existing network during a reversible observation window
 
+**In progress 2026-10-03:** real native light toggle/readback/restore passed
+with 35–38 ms APS acknowledgements. A later group read returned delivery success;
+broadcast descriptor reads reached the router but relay quorum/CCA verdicts were
+intermittent. Thirty-minute observation continues. The user said no sleepy device
+can be stimulated now and authorized assuming that check; retain it as physically
+unverified. See [hardware findings and measurements](REAL_RADIO_MIGRATION.md).
+The inventory contains 17 Zigbee plus six non-Zigbee entries; count radio reports
+separately. Memory/RSS is stable, and high top `%MEM` reflects virtual allocation.
+
+
 Keep joining and security rotation closed. Test one already-paired light with
 an explicit reversible command, then restore its previous state. Verify real
 APS success rather than HTTP admission alone. Check group/broadcast behavior,
