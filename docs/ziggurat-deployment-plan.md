@@ -1,5 +1,11 @@
 # Deploy Ziggurat on the existing Tuya gateway
 
+> **Post-deployment correction (2026-10-03):** investigation of Küche TH01
+> reproduced and fixed child loss on relayed own parent announcements, and fixed
+> rejection of TH01 signed humidity reads. Both fixes are deployed; the child
+> survives startup. [Evidence and current verification](thermometer-recovery.md).
+
+
 ## Current state and next action — 2026-10-03
 
 **All 12 Zigbee deployment steps are complete, with the limits below.** Use the existing gateway at
@@ -92,7 +98,7 @@ ZIGGURAT_MULTIPAN=1 bash scripts/build-ziggurat.sh
 
 The experiment README lists the pinned Rust, RSDK, GSDK, ARM compiler and SLC
 prerequisites. The migration venv pins Bellows, zigpy and the flasher as described
-in [NETWORK_MIGRATION.md](network-migration.md).
+in [NETWORK_MIGRATION.md](NETWORK_MIGRATION.md).
 
 Completed recovery components:
 
@@ -179,7 +185,7 @@ Over SSH, inspect `ps w`, each candidate `/proc/PID/status`, `/proc/PID/cmdline`
 `/proc/PID/exe` and `/proc/PID/fd` to identify the exact daemon and supervisor.
 Do not assume the filename identifies the supervisor, or reuse recorded PIDs.
 Use the password file by pathname and the old Dropbear RSA options documented in
-[the integration guide](native-ziggurat-integration.md); never expose the password.
+[the integration guide](ZIGGURAT_INTEGRATION.md); never expose the password.
 
 Save the current executable, `/tuya/tuya_start.sh`, configuration, application
 state, device settings, groups/scenes, subscriptions and required TLS/notification
@@ -249,7 +255,7 @@ native/Ziggurat under the same user. `ziggurat-state.json` must be mode 0600 in 
 persistent runtime folder; RAM-only storage is not power-loss recovery.
 
 Collect/convert a preliminary fresh export using the commands in
-[NETWORK_MIGRATION.md](network-migration.md), then:
+[NETWORK_MIGRATION.md](NETWORK_MIGRATION.md), then:
 
 ```sh
 cd ../microhad-zigbee-native

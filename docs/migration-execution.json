@@ -65,12 +65,12 @@
   ],
   "artifact_hashes": {
     "native": {
-      "bytes": 1503604,
-      "sha256": "be9937847d07fb3b6589b0242ae652bf39f80f36256316231f032483df2bb099"
+      "bytes": 1503796,
+      "sha256": "f562aa0e023c1785f06a8ddbb009240fd8e3e9cf13709ffbabdb9b84d106162e"
     },
     "ziggurat": {
-      "bytes": 3565456,
-      "sha256": "d7f163a92aa2d0f00a1220ea8ce69e2978a9c43e8fe3ee4f2691849428176c8b"
+      "bytes": 3565488,
+      "sha256": "ac7402e0db872904d8999760bbea4e6bc1f1f640648d6a723b94c49d4bafe81d"
     },
     "maintenance": {
       "bytes": 47804,
@@ -115,7 +115,7 @@
       1
     ]
   },
-  "native_commit": "5fb1fe0fc134ae55d95395886af5188e6be794d7",
+  "native_commit": "8df6b971f41a2bee7149bbfcfab4eb89a6fe3845",
   "group_broadcast_followup": {
     "group_read_terminal_status": 0,
     "group_read_ms": 68.4,
@@ -127,5 +127,38 @@
       8
     ],
     "limit": "intermittent relay quorum/CCA verdicts despite actual responses"
+  },
+  "initial_artifact_hashes": {
+    "native": {
+      "bytes": 1503604,
+      "sha256": "be9937847d07fb3b6589b0242ae652bf39f80f36256316231f032483df2bb099"
+    },
+    "ziggurat": {
+      "bytes": 3565456,
+      "sha256": "d7f163a92aa2d0f00a1220ea8ce69e2978a9c43e8fe3ee4f2691849428176c8b"
+    },
+    "maintenance": {
+      "bytes": 47804,
+      "sha256": "87fe590105715b73380981934a999357593924062747dc25256bec549df449f1"
+    },
+    "rcp": {
+      "bytes": 103800,
+      "sha256": "5e835cf429dbc25ded9e6217f620d0d2243c11c98935de0e29e387657063bb48"
+    }
+  },
+  "post_deployment_thermometer_fixes": {
+    "deployed": true,
+    "encrypted_regression_fails_before_passes_after": true,
+    "self_parent_announcement_and_response_ignored": true,
+    "legitimate_other_parent_claim_verified": true,
+    "restored_child_survives_startup": true,
+    "native_th01_signed_humidity_range_checked": true,
+    "real_trace_temperature_c": 21.82,
+    "real_trace_humidity_percent": 83.53,
+    "real_trace_battery_percent": 100,
+    "fresh_post_fix_humidity_read": "pending device wake",
+    "sustained_reporting": "not yet verified",
+    "radio_flashed_again": false,
+    "actual_host_lifecycle_scenarios": 9
   }
 }

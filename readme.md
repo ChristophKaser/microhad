@@ -1,5 +1,11 @@
 # Ziggurat on the Tuya RTL8196E gateway
 
+> **Post-deployment fixes (2026-10-03):** encrypted host traffic reproduced
+> loss of a restored sleepy child on a relayed own parent announcement. Fixed
+> Ziggurat and TH01 signed-humidity parsing are deployed; the child survives
+> startup. [Trace, evidence and remaining verification](docs/thermometer-recovery.md).
+
+
 ## Current state and plan — 2026-10-03
 
 The goal is a **standalone Tuya gateway running Zigbee and Matter-over-Thread**,

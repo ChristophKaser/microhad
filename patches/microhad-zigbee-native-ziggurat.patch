@@ -149,10 +149,20 @@ index 6d87db8..74cc403 100644
  Sources: the retained [EZSP upgrade record](scripts/EZSP_UPGRADE.md), the
  [Silicon Labs NCP-to-host migration note](https://docs.silabs.com/zigbee/9.0.0/multiprotocol-solution-linux/host-ncp-rcp-migration),
 diff --git a/README.md b/README.md
-index c4042f0..085fb50 100644
+index c4042f0..6160e24 100644
 --- a/README.md
 +++ b/README.md
-@@ -5,14 +5,30 @@ the Lidl/gateway gateway. It is built specifically with the bundled RSDK for the
+@@ -1,18 +1,40 @@
+ # MicroHAD Native
+ 
++> **Post-deployment correction (2026-10-03):** investigation of Küche TH01
++> reproduced and fixed child loss on relayed own parent announcements, and fixed
++> rejection of TH01 signed humidity reads. Both fixes are deployed; the child
++> survives startup. [Evidence and current verification](THERMOMETER_RECOVERY.md).
++
++
+ `microhad-zigbee-native` is a native, statically linked C++03 gateway daemon for
+ the Lidl/gateway gateway. It is built specifically with the bundled RSDK for the
  gateway's 32-bit big-endian MIPS/uClibc environment; it does not use low.js,
  Node.js, or the TCP serial bridge.
  
@@ -191,7 +201,7 @@ index c4042f0..085fb50 100644
  
  ## Build
  
-@@ -20,6 +36,10 @@ Ziggurat adapter and crash-safe persistence remain pending. See
+@@ -20,6 +42,10 @@ Ziggurat adapter and crash-safe persistence remain pending. See
  make host
  make test
  make mips
@@ -204,11 +214,17 @@ index c4042f0..085fb50 100644
  `make mips` uses only
 diff --git a/REAL_RADIO_MIGRATION.md b/REAL_RADIO_MIGRATION.md
 new file mode 100644
-index 0000000..c4b2e59
+index 0000000..89afacf
 --- /dev/null
 +++ b/REAL_RADIO_MIGRATION.md
-@@ -0,0 +1,174 @@
+@@ -0,0 +1,180 @@
 +# Real-radio Ziggurat migration — 2026-10-03
++
++> **Post-deployment correction (2026-10-03):** investigation of Küche TH01
++> reproduced and fixed child loss on relayed own parent announcements, and fixed
++> rejection of TH01 signed humidity reads. Both fixes are deployed; the child
++> survives startup. [Evidence and current verification](THERMOMETER_RECOVERY.md).
++
 +
 +## Current checkpoint
 +
@@ -577,13 +593,108 @@ index 0000000..34ae5d3
 +The previous `80 01 03` frame was rejected; firmware flashing itself succeeded.
 +Four host PTY tests pass for the corrected helper, including framing and baud/flow
 +switches. See the step 8 execution record for the physical verification result.
+diff --git a/THERMOMETER_RECOVERY.md b/THERMOMETER_RECOVERY.md
+new file mode 100644
+index 0000000..8c5c324
+--- /dev/null
++++ b/THERMOMETER_RECOVERY.md
+@@ -0,0 +1,83 @@
++# Küche TH01 recovery — 2026-10-03
++
++## Current state and plan
++
++Two confirmed bugs are fixed and host-tested: relayed own parent announcements
++could delete restored sleepy children in Ziggurat, and the native parser rejected
++signed humidity readings from eWeLink TH01. Both fixes are deployed. The restored child survives fixed production startup;
++a fresh post-fix humidity read and sustained reporting are still being checked. Preserve current private state; no device removal, radio flash,
++network recreation or security reset is needed.
++
++The real trace already received temperature 21.82°C, humidity 83.53% and battery
++100% from Küche. The original dashboard still showed humidity zero because it
++rejected that read-response type. Continued automatic reporting remains to be
++checked after deployment. The other TH01 continues reporting normally.
++
++## Evidence and causes
++
++Earlier attempts created a direct sleepy child, but native interview sends failed
++about ten seconds later. The targeted driver trace logs only poll addresses,
++known-child status and pending/delivery decisions; it never prints frames or keys.
++During a fresh association the device polled with its IEEE and short addresses,
++source-match updates succeeded and queued replies were extracted. Temperature,
++humidity and battery read responses arrived. No transport behavior was changed
++by the diagnostic patch, so this rules out a blanket inability to serve TH01 polls;
++it does not establish the cause of every earlier unsuccessful attempt.
++
++The child disappeared immediately after orderly restart. Native persisted one
++child, but the running stack exported none. Logs showed a received Parent_annce
++(cluster 0x001f) with NWK source 0x0000 containing that child after both restarts.
++A router relayed our own broadcast using its MAC source. The NWK filter stopped
++some routing work but its verdict did not stop subsequent APS/ZDP dispatch;
++ZDP treated the source-zero announcement as another parent's claim. Restored
++children have not yet confirmed a keepalive, so the neighbor routine removed it.
++
++ZDP now ignores Parent_annce and Parent_annce_rsp whose NWK source is our own
++address. Other routers' legitimate claims still work. The host regression uses
++actual native service, Ziggurat and simulator with encrypted synthetic NWK traffic.
++It fails on the earlier binary at the lost-child assertion, then passes with the
++fix for self announcements/responses and another-router removal. Broader NWK/APS
++deduplication behavior is outside this narrow fix.
++
++The captured humidity read response used ZCL int16 (0x29), despite the standard
++unsigned humidity type 0x21. Its value 0x20a1 is 8353 hundredths. The parser now
++accepts this encoding only for manufacturer eWeLink / model TH01. Both encodings
++remain limited to 0..10000; negative, invalid, overrange and truncated values are
++rejected. Standard unsigned readings and unrelated devices retain validation.
++
++## Verification and recovery
++
++Native `make host test`, `make mips`, `make ZIGGURAT=1 host test` and
++`make ZIGGURAT=1 mips` passed after the parser change. Regression tests cover the
++captured value, strict unknown-device rejection, range/truncation and standard
++encoding. Nine actual native/stack/simulator lifecycle scenarios pass including
++the new encrypted parent test. Poll diagnostics also passed eight HDLC host
++scenarios and seven COBS host scenarios; driver compile check had zero unit tests
++and is not counted as behavior verification.
++
++Before trace/deployment, quiesce and save complete private frozen snapshots.
++When repairing the child entry deleted by this bug, use its successful post-trace
++record only after checking the current IEEE/address mapping and network/security
++identity. Keep latest counters and keys, full latest address table, and the native
++startup counter margin. Save the repair as a separate private artifact; do not
++restore old counters or revive every historical child indiscriminately.
++
++The extra executable copy initially exhausted flash during an atomic upload.
++Installed binary remained intact. The redundant copy was archived and verified
++on the host, and only our incomplete staging/duplicate files were removed. Trace
++output streamed through SSH into a bounded private host file, never flash. Normal
++paired supervision resumes with diagnostic logging disabled.
++
++## Fixed production startup
++
++Before deployment, a fresh complete frozen snapshot was saved. The single child
++verified in the successful trace was restored after identity/security and current
++address-map checks. Latest counters/keys and all current address entries were
++preserved. Both binaries were atomically replaced and normal paired supervision
++resumed without radio flashing. The running stack then exported the expected
++sleepy child, whereas the earlier binary exported none after startup.
++
++Installed MD5s: native `6f462ee32142e5510e3def94446fc415`,
++Ziggurat `53046d62702c6b06f06bc1ef7bf01f0b`. Host-held original executables,
++frozen snapshots and repaired state are private and Git-ignored. Diagnostic
++logging is disabled in normal production; the added debug line is dormant.
 diff --git a/ZIGGURAT_DEPLOYMENT_PLAN.md b/ZIGGURAT_DEPLOYMENT_PLAN.md
 new file mode 100644
-index 0000000..45c18e8
+index 0000000..2343978
 --- /dev/null
 +++ b/ZIGGURAT_DEPLOYMENT_PLAN.md
-@@ -0,0 +1,604 @@
+@@ -0,0 +1,610 @@
 +# Deploy Ziggurat on the existing gateway gateway
++
++> **Post-deployment correction (2026-10-03):** investigation of Küche TH01
++> reproduced and fixed child loss on relayed own parent announcements, and fixed
++> rejection of TH01 signed humidity reads. Both fixes are deployed; the child
++> survives startup. [Evidence and current verification](THERMOMETER_RECOVERY.md).
++
 +
 +## Current state and next action — 2026-10-03
 +
@@ -2509,10 +2620,10 @@ index 0000000..4c1685d
 +if __name__=="__main__":unittest.main()
 diff --git a/scripts/test_ziggurat_service.py b/scripts/test_ziggurat_service.py
 new file mode 100644
-index 0000000..ee8a142
+index 0000000..57c5962
 --- /dev/null
 +++ b/scripts/test_ziggurat_service.py
-@@ -0,0 +1,135 @@
+@@ -0,0 +1,175 @@
 +#!/usr/bin/env python3
 +"""Native service + actual Ziggurat + loopback RCP; synthetic state only."""
 +import argparse
@@ -2590,6 +2701,46 @@ index 0000000..ee8a142
 +            assert restored_key[:16]==expected_key[:16] and restored_key[20:]==expected_key[20:]
 +            assert saved["children"]==state["children"] and saved["addresses"]==state["addresses"]
 +            passed("Native COBS startup restores synthetic identity, keys and both counters")
++            # Routers relay our encrypted parent broadcast with NWK source 0 and
++            # their own MAC source. It must not evict our restored sleepy child.
++            from cryptography.hazmat.primitives.ciphers.aead import AESCCM
++            observer=Client.connect(path)
++            def children():
++                before=len(observer.events); reply=observer.request(0x22)
++                rows=[f[3:] for f in observer.events[before:] if f[0]==0x22 and f[1]&3==2]
++                assert len(rows)==int.from_bytes(reply,"little")
++                return rows
++            original_children=children(); assert len(original_children)==1
++            child=bytes.fromhex(fixture()["children"][0]["ieee"])
++            def parent_frame(cluster, nwk_source, sequence):
++                nwk=struct.pack("<HHHBB",0x0208,0xfffc,nwk_source,30,sequence)
++                sender=bytes.fromhex(fixture()["network"]["ieee_address"])
++                aux=bytes([0x28])+struct.pack("<I",70000+sequence)+sender+bytes([7])
++                authenticated_aux=bytes([0x2d])+aux[1:]
++                asdu=bytes([sequence])+(bytes([0]) if cluster==0x801f else b"")+b"\x01"+child
++                aps=bytes([8,0])+struct.pack("<HH",cluster,0)+bytes([0,sequence])+asdu
++                nonce=sender+aux[1:5]+bytes([0x2d])
++                ciphertext=AESCCM(bytes(range(16)),tag_length=4).encrypt(nonce,aps,nwk+authenticated_aux)
++                mac=struct.pack("<HBHHH",0x8841,sequence,0x1a62,0xffff,0x2222)
++                return mac+nwk+aux+ciphertext
++            def observe_frame(cluster, source, sequence):
++                radio.inject(parent_frame(cluster,source,sequence))
++                while True:
++                    frame=observer.receive()
++                    if frame[0]==0x10 and frame[1]&3==3:
++                        payload=frame[3:]
++                        if int.from_bytes(payload[9:11],"little")==cluster:break
++                return children()
++            assert observe_frame(0x001f,0,47)==original_children
++            assert observe_frame(0x801f,0,48)==original_children
++            passed("Relayed own parent announcement and response preserve restored sleepy child")
++            # Another router's legitimate claim must still remove an unconfirmed child.
++            assert observe_frame(0x001f,0x2222,49)==[]
++            observer.request(4); observer.close(); observer=None
++            # Reconfigure from the synthetic snapshot for the remaining lifecycle cases.
++            service.terminate();service.wait(timeout=10);service=None
++            state_path.write_text(json.dumps(state));state_path.chmod(0o600)
++            service=launch();wait_for(lambda:status()["online"])
 +            duplicate=subprocess.run([str(server),"--device",f"tcp://127.0.0.1:{radio.port}","--spinel-iid","1",
 +                "--api","cobs-unix","--listen",f"unix:{path}","--log-level","error"],stdout=log,stderr=log,timeout=5)
 +            assert duplicate.returncode!=0 and status()["online"]
@@ -3471,6 +3622,35 @@ index baf70ed..4d1813a 100644
      gatewayRunner = new GatewayRunner(gateway);
      shellyIntegration = new ExternalHttpDeviceWorker(runtimeDirectory, gatewayRunner);
      gateway->setShellyTransport(shellyIntegration);
+diff --git a/src/zcl.cpp b/src/zcl.cpp
+index be9ef1d..9027732 100644
+--- a/src/zcl.cpp
++++ b/src/zcl.cpp
+@@ -46,9 +46,13 @@ bool applyXiaomiMeasurementData(Device* device, const std::vector<unsigned char>
+     return changed;
+ }
+ 
+-bool expectedAttributeType(unsigned short cluster, unsigned short attribute, unsigned char type) {
++bool expectedAttributeType(const Device* device, unsigned short cluster, unsigned short attribute, unsigned char type) {
+     if (cluster == 0x0402 && attribute == 0x0000) return type == 0x29;
+-    if (cluster == 0x0405 && attribute == 0x0000) return type == 0x21;
++    if (cluster == 0x0405 && attribute == 0x0000) {
++        /* Some eWeLink TH01 revisions return int16 humidity rather than uint16.
++           applyZclAttribute still restricts either encoding to 0..10000. */
++        return type == 0x21 || (type == 0x29 && device->manufacturerName == "eWeLink" && device->modelId == "TH01");
++    }
+     if (cluster == 0x0406 && attribute == 0x0000) return type == 0x18;
+     if (cluster == 0x0001 && attribute == 0x0021) return type == 0x20;
+     if (cluster == 0x0500 && attribute == 0x0002) return type == 0x19;
+@@ -138,7 +142,7 @@ bool applyZclReadAttributeResponse(Device* device, unsigned short cluster,
+         if (status != 0) { offset += 3; continue; }
+         if (offset + 4 > payload.size()) break;
+         type = payload[offset + 3];
+-        if (!expectedAttributeType(cluster, attribute, type)) return changed;
++        if (!expectedAttributeType(device, cluster, attribute, type)) return changed;
+         length = valueLength(type, payload, offset + 4);
+         if (length == 0) break;
+         if (offset + 4 + length > payload.size()) break;
 diff --git a/src/ziggurat_client.cpp b/src/ziggurat_client.cpp
 new file mode 100644
 index 0000000..975d33d
@@ -3976,6 +4156,46 @@ index 035e88a..a3063d3 100644
      runNetworkBackupUnitTests();
      runUnitTests();
      runFcmUnitTests();
+diff --git a/test/unit_gateway.cpp b/test/unit_gateway.cpp
+index ad652c5..28c9225 100644
+--- a/test/unit_gateway.cpp
++++ b/test/unit_gateway.cpp
+@@ -1890,6 +1890,27 @@ static void testZclRejectsMalformedAttributes() {
+            !device.hasContact && !device.hasLight && device.lastSeen == 0);
+ }
+ 
++static void testTh01SignedHumidity() {
++    Device device;
++    const unsigned char wire[] = {0x00, 0x00, 0x00, 0x29, 0xa1, 0x20}; /* captured 83.53% response */
++    std::vector<unsigned char> response(wire, wire + sizeof(wire));
++    assert(!applyZclReadAttributeResponse(&device, 0x0405, response, 100));
++    device.manufacturerName = "eWeLink"; device.modelId = "TH01";
++    unsigned observed = 0;
++    assert(applyZclReadAttributeResponse(&device, 0x0405, response, 101, &observed));
++    assert(device.hasHumidity && device.humidityPercent == 83.53 && device.lastSeen == 101);
++    assert(observed == ZclObservedHumidity);
++    response[4] = 0xff; response[5] = 0xff; /* negative/invalid */
++    assert(!applyZclReadAttributeResponse(&device, 0x0405, response, 102));
++    response[4] = 0x11; response[5] = 0x27; /* 100.01% */
++    assert(!applyZclReadAttributeResponse(&device, 0x0405, response, 102));
++    response.resize(5); /* truncated signed value */
++    assert(!applyZclReadAttributeResponse(&device, 0x0405, response, 102));
++    assert(device.humidityPercent == 83.53 && device.lastSeen == 101);
++    response.assign(wire, wire + sizeof(wire)); response[3] = 0x21;
++    assert(applyZclReadAttributeResponse(&device, 0x0405, response, 103));
++}
++
+ static void testConfigureReportingEncoding() {
+     std::vector<unsigned char> battery = buildZclConfigureReporting(7, 0x0021, 0x20, 3600, 65000, 1);
+     std::vector<unsigned char> temperature = buildZclConfigureReporting(8, 0x0000, 0x29, 30, 3600, 20);
+@@ -2445,6 +2466,7 @@ void runUnitTests() {
+     testStorageSaveFailuresPreserveDestinations();
+     testGenericCapabilities();
+     testZclRejectsMalformedAttributes();
++    testTh01SignedHumidity();
+     testConfigureReportingEncoding();
+     testInterviewDescriptorAndPlanning();
+     testJoinStatusJson();
 diff --git a/test/unit_gateway_config.cpp b/test/unit_gateway_config.cpp
 index 2be8456..327fd36 100644
 --- a/test/unit_gateway_config.cpp
