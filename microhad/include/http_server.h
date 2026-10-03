@@ -12,6 +12,7 @@ class GatewayRunner;
 class WebPushStore;
 class ExternalHttpDeviceWorker;
 class NotificationWorker;
+class MatterClient;
 
 class HttpServer {
 public:
@@ -31,6 +32,7 @@ private:
     std::string threadNamePrefix_;
     ExternalHttpDeviceWorker* shelly_;
     NotificationWorker* notifications_;
+    MatterClient* matter_;
     WebPushStore* webPush_;
     std::string webuiDirectory_;
     std::string certificatePath_;

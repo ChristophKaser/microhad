@@ -354,6 +354,19 @@ void testServers() {
     response = plainRequest(http.boundPort(), "GET /api/status HTTP/1.1\r\nHost: localhost\r\n\r\n");
     expectStatus("http status", response, 200);
     assert(response.find("Content-Type: application/json\r\n") != std::string::npos && response.find("\"online\":") != std::string::npos && response.find("\"devices\":") != std::string::npos);
+    response = plainRequest(http.boundPort(), "GET /api/matter/status HTTP/1.1\r\nHost: localhost\r\n\r\n");
+#if MICROHAD_MATTER_ENABLED
+    expectStatus("http Matter service unavailable", response, 503);
+#else
+    expectStatus("http Matter disabled status", response, 200);
+    assert(response.find("{\"enabled\":false,\"available\":false}") != std::string::npos);
+#endif
+    response = plainRequest(http.boundPort(), "GET /api/thread/status HTTP/1.1\r\nHost: localhost\r\n\r\n");
+#if MICROHAD_MATTER_ENABLED
+    expectStatus("http Thread service unavailable", response, 503);
+#else
+    expectStatus("http Thread disabled status", response, 200);
+#endif
     response = plainRequest(http.boundPort(), "GET /api/controller-stats HTTP/1.1\r\nHost: localhost\r\n\r\n");
     expectStatus("http controller stats", response, 200);
     assert(response.find("\"cpu_usage_percent\":") != std::string::npos &&

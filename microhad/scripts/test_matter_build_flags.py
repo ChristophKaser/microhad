@@ -47,9 +47,8 @@ def main():
                              'build/mips-ziggurat-matter/microhad-zigbee-native'], cwd=ROOT,
                             text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     assert result.returncode == 0, result.stderr
-    assert 'check-matter-platform.py" mips' in result.stdout
-    assert 'controller/platform integration is not implemented' in result.stdout
-    print('PASS disabled defaults, isolated enabled outputs, macros, invalid flags, and enabled build gate')
+    assert 'Matter IPC/status bridge enabled' in result.stdout
+    print('PASS disabled defaults, isolated enabled outputs, macros, invalid flags, and enabled IPC build gate')
 
 
 if __name__ == '__main__':

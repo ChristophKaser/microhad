@@ -2,6 +2,7 @@
 
 void runUnitTests();
 void runMatterProtocolUnitTests();
+void runMatterClientUnitTests();
 void runNetworkBackupUnitTests();
 void runFcmUnitTests();
 void runWebPushUnitTests();
@@ -19,6 +20,7 @@ int main() {
     runZigguratUnitTests();
 #endif
     runMatterProtocolUnitTests();
+    runMatterClientUnitTests();
     runNetworkBackupUnitTests();
     runUnitTests();
     runFcmUnitTests();

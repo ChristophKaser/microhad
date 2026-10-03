@@ -1,13 +1,15 @@
 # Optional Matter-over-Thread integration
 
-## Current result: Rust controller primitives verified; native service wiring pending
+## Current result: controller proven in simulation; native status IPC wired
 
-The opt-in build flag and private IPC framing are implemented. The chosen Rust
-controller now passes synthetic PASE/Thread provisioning, CASE, light and
-sensor operations, and committed-flash fabric reload tests on the factory MIPS
-gateway. The native controller service, HTTP API, dashboard controls and Garage
-GATT/WebSocket relay are still pending. `MATTER=1` deliberately fails rather
-than advertising an incomplete integration. Existing Zigbee builds remain usable.
+The opt-in build flag, private IPC framing and native status client are
+implemented. The chosen Rust controller passes synthetic PASE/Thread
+provisioning, CASE, light and sensor operations, and committed-flash fabric
+reload tests on the factory MIPS gateway. `MATTER=1` builds the native IPC
+bridge and enables read-only `/api/matter/status` and `/api/thread/status`
+routes. Those routes return 503 until the controller daemon creates its private
+socket. Commissioning, device control, dashboard controls and the Garage
+GATT/WebSocket relay remain pending.
 
 The pinned C++ Matter SDK's factory standard-library blocker is historical
 motivation for the Rust path. The Rust fixture now establishes a functioning
@@ -25,7 +27,7 @@ provided by Ziggurat. Empty, unknown, and multi-value flags are rejected.
 | --- | --- | --- | --- |
 | `ZIGGURAT=0 MATTER=0` | `build/host` | `build/mips` | Existing EZSP backend |
 | `ZIGGURAT=1 MATTER=0` | `build/host-ziggurat` | `build/mips-ziggurat` | Existing Ziggurat backend |
-| `ZIGGURAT=1 MATTER=1` | `build/host-ziggurat-matter` | `build/mips-ziggurat-matter` | Reserved; build gate rejects unavailable backend |
+| `ZIGGURAT=1 MATTER=1` | `build/host-ziggurat-matter` | `build/mips-ziggurat-matter` | Native IPC/status bridge; Rust service is separate |
 
 Matter-disabled builds do not fetch, compile, or link the Matter SDK. Switching
 the flag cannot reuse enabled and disabled native artifacts. Native binaries
@@ -82,12 +84,10 @@ library/ABI runtime for factory uClibc, followed by full SDK linking and target
 execution. The selected Rust controller avoids that library requirement. It must retain the gateway's instruction and soft-float
 constraints rather than selecting a modern MIPS ISA by accident.
 
-The native Makefile exposes `MATTER_PLATFORM_CHECK`, `MATTER_SDK_ROOT`, and
-`RSDK_ROOT` overrides for checkout/toolchain paths. These overrides do not
-enable a backend. Even after host compiler prerequisites pass, enabled native
-builds explicitly stop because the actual controller integration is pending.
-The eventual implementation must replace that stop with verified daemon
-build/package prerequisites, not simply delete it.
+The native Makefile keeps `MATTER_PLATFORM_CHECK`, `MATTER_SDK_ROOT`, and
+`RSDK_ROOT` for reproducing the historical C++ SDK probes. `MATTER=1` builds
+the small C++03 IPC/status bridge directly; the separate Rust controller has
+its own build and platform checks.
 
 Compiler evidence and full probe commands are recorded in the companion
 [Matter platform report](https://github.com/ChristophKaser/ziggurat-compilation/blob/main/docs/matter-platform-validation.json).
@@ -107,11 +107,10 @@ Build commands, dependency lock, test-only visibility patch, source pin and
 shareable measurements are recorded in the companion
 [Rust feasibility report](https://github.com/ChristophKaser/ziggurat-compilation/blob/main/docs/rs-matter-feasibility.md).
 The probe does not commission devices or implement OpenThread UDP, discovery,
-Garage BLE relay, persistence, CASE or native IPC. The native Makefile still
-uses the C++ prerequisite checker and intentionally rejects `MATTER=1` until
-the chosen controller and its actual integration are verified. A Rust runtime
-must replace that prerequisite contract with its own verified build/package
-checks; a successful probe alone does not justify deleting the stop.
+Garage BLE relay, persistence, CASE or native IPC. The optional native IPC
+build uses only the existing C++03 gateway toolchain; the separate Rust runtime
+has its own verified build/package flow. A successful probe alone does not
+provide the controller daemon.
 
 ## Controller simulation follow-up
 
@@ -181,12 +180,11 @@ belongs in those commits.
 ## Verification record
 
 The build-flag test covers disabled defaults, valid selections, separated
-artifact paths, compiler definitions, rejected inputs, and the enabled MIPS
-binary's mandatory platform-gate dependency. Host compiler prerequisite probes
-passed; both factory target compiler variants failed as described above.
-Enabled host and target native builds were checked to reject unavailable
-support; neither produced a native executable in the reserved Matter output
-directories. Verification passed:
+artifact paths, compiler definitions, rejected inputs, and the enabled native
+bridge build prerequisite. The earlier C++ controller prerequisite probes
+remain historical; the Rust controller follows the separate build and
+validation flow recorded in the companion repository.
+Verification passed:
 
 - `make matter-build-flags-test`, including rejection of wildcard flag inputs.
 - `make ZIGGURAT=0 MATTER=0 host test` in isolation.
@@ -215,9 +213,9 @@ A shared Rust helper now sends an active Thread dataset through
 dataset structure and the shared Zigbee channel before sending credentials,
 rejects failure responses, and has no credential logging/persistence. Host
 UDP/TCP fixtures exercise success and failure paths; the module also builds
-for factory MIPS. The native daemon has no callable Matter endpoint yet: the
-OpenThread adapter, native IPC, Garage BLE and real-device acceptance remain
-in progress. The native build gate is retained until those paths are usable.
+for factory MIPS. The native service still has no commissioning or control
+endpoint; the Rust/OpenThread daemon, Garage BLE and real-device acceptance
+remain in progress.
 
 ## OpenThread userspace transport checkpoint
 
@@ -233,8 +231,12 @@ Production remained online/formed and the physical radio was untouched.
 The implementation, reproducible build/test commands, libc timer shims and
 limits are documented in
 [`../ziggurat-compilation/docs/rs-matter-openthread-transport.md`](../ziggurat-compilation/docs/rs-matter-openthread-transport.md).
-Native IPC/service wiring and Garage BLE remain pending, so `MATTER=1`
-continues to reject an incomplete controller build.
+The native gateway now has a bounded Unix-stream client and read-only Matter
+and Thread status routes. They use `/tmp/microhad-matter.sock`, require a same-owner
+socket with private permissions, cap frames at the shared 2048-byte protocol
+bound, and wait at most one second for a response. The Rust daemon does not yet
+create this socket, so enabled routes currently report 503. Garage BLE and
+control operations remain pending.
 
 
 ## Encrypted commissioning and BLE relay checkpoint
@@ -256,9 +258,8 @@ checks. Production remained online/formed and test artifacts were removed.
 
 The gateway BTP relay rejects stale connection/write callbacks and resets
 failed or stalled writes. A private atomic controller store passes host tests;
-committed-flash fabric reopen and fresh CASE now pass on host and MIPS. Full native IPC,
-CA/node persistence, Android GATT/WebSocket wiring, discovery/subscriptions and
-real-device acceptance remain pending. `MATTER=1` is still deliberately gated.
+committed-flash fabric reopen and fresh CASE now pass on host and MIPS. The Rust IPC listener, CA/node persistence integration, Android GATT/WebSocket
+wiring, discovery/subscriptions and real-device acceptance remain pending.
 
 Detailed commands, measurements, failed guards and test scope are in
 [`../ziggurat-compilation/docs/rs-matter-openthread-commissioning.md`](../ziggurat-compilation/docs/rs-matter-openthread-commissioning.md).
@@ -274,30 +275,33 @@ replaces the earlier fixture's in-memory clone reload with an actual file reopen
 It is not yet daemon/radio restart or real-device recovery acceptance.
 
 Native C++03 `MatterWire` and Rust `ipc` implement the same bounded stream
-framing. This does not start a controller or add callable HTTP routes. Fields
-are explicit bytes, independent of host/MIPS ABI:
+framing. The native client now serves read-only status routes; the Rust daemon
+listener is still pending. Fields are explicit bytes, independent of host/MIPS
+ABI:
 
 | Offset | Width | Field |
 | --- | --- | --- |
 | 0 | 2 | Payload length, little-endian, at most 2048 |
 | 2 | 1 | Version, exactly 1 |
 | 3 | 1 | Kind: request 0, response 1, event 2 |
-| 4 | 1 | Operation, reserved IDs 1 through 12 |
+| 4 | 1 | Operation: 1 Matter status, 2 Thread status, 3 through 12 reserved |
 | 5 | 1 | Reserved, exactly 0 |
 | 6 | 4 | Correlation ID, little-endian |
-| 10 | variable | Opaque payload; typed operation bodies/dispatch still pending |
+| 10 | variable | Status response is a UTF-8 JSON object; requests have an empty body |
 
 Requests/responses require a nonzero correlation ID; events require zero.
 Input chunks are capped at 4096 bytes and at most 32 frames can await dispatch.
 Malformed or overflowing streams fail closed and discard pending data. Payload
-contents have no logging/formatting path in the codec. Transport lifecycle,
-private socket ownership, body validation and command dispatch are the next
-layer, rather than capabilities claimed by this framing implementation.
+contents have no logging/formatting path in the codec. Native socket client
+lifecycle and status calls are implemented. The Rust service listener, event
+dispatch, commissioning/control body schemas, and asynchronous BLE transport
+remain pending.
 
 Matching golden-vector and malformed-stream tests pass in Rust and native C++.
-Native verification passed sequentially for both existing backends:
-`make host test`, `make mips`, `make ZIGGURAT=1 MATTER=0 host test`,
-`make ZIGGURAT=1 MATTER=0 mips`, and `make matter-build-flags-test`.
+Native verification passed for the disabled defaults and the enabled Matter
+bridge: `make host test`, `make mips`, `make ZIGGURAT=1 MATTER=1 host test`,
+`make ZIGGURAT=1 MATTER=1 mips`, and `make matter-build-flags-test`. The enabled
+host run includes 13 native peer tests; the MIPS build uses the factory RSDK.
 The focused native codec probe also ran on actual factory MIPS:
 
 ```sh

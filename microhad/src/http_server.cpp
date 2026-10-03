@@ -6,6 +6,7 @@
 #include "sensor_history.h"
 #include "external_http_device.h"
 #include "notification_worker.h"
+#include "matter_client.h"
 #include "log_ring.h"
 #include "thread_name.h"
 
@@ -514,7 +515,8 @@ HttpServer::HttpServer(int port, GatewayRunner* gateway, const std::string& webu
                        const std::string& certificatePath, const std::string& privateKeyPath,
                        ExternalHttpDeviceWorker* shelly, NotificationWorker* notifications) :
     port_(port), listenFd_(-1), gateway_(gateway), processId_(static_cast<unsigned long>(getpid())),
-    threadNamePrefix_(certificatePath.empty() ? "http" : "https"), shelly_(shelly), notifications_(notifications), webPush_(new WebPushStore(gateway->runtimeDirectory())), webuiDirectory_(webuiDirectory),
+    threadNamePrefix_(certificatePath.empty() ? "http" : "https"), shelly_(shelly), notifications_(notifications),
+    matter_(new MatterClient("/tmp/microhad-matter.sock")), webPush_(new WebPushStore(gateway->runtimeDirectory())), webuiDirectory_(webuiDirectory),
     certificatePath_(certificatePath), privateKeyPath_(privateKeyPath), tlsServer_(0), running_(false),
     previousCpuTotal_(0), previousCpuIdle_(0), hasPreviousCpu_(false), previousThreadSampleUptime_(0) {
     pthread_mutex_init(&queueMutex_, 0);
@@ -541,6 +543,7 @@ HttpServer::~HttpServer() {
     if (tlsServer_ != 0) microhad_tls_server_destroy(tlsServer_);
 #endif
     delete webPush_;
+    delete matter_;
 }
 
 bool HttpServer::start(std::string* error) {
@@ -680,7 +683,16 @@ void HttpServer::handleClient(int clientFd) {
 }
 
 void HttpServer::handleRequest(int clientFd, const std::string& request) {
-    if (request.find("GET /api/controller-stats ") == 0) {
+    if (request.find("GET /api/matter/status ") == 0 || request.find("GET /api/thread/status ") == 0) {
+#if MICROHAD_MATTER_ENABLED
+        std::string status, error;
+        bool thread = request.find("GET /api/thread/status ") == 0;
+        if (matter_->status(thread, &status, &error)) writeResponse(clientFd, 200, "application/json", status);
+        else writeResponse(clientFd, 503, "application/json", "{\"available\":false,\"error\":\"" + jsonEscape(error) + "\"}");
+#else
+        writeResponse(clientFd, 200, "application/json", "{\"enabled\":false,\"available\":false}");
+#endif
+    } else if (request.find("GET /api/controller-stats ") == 0) {
         writeResponse(clientFd, 200, "application/json", controllerStatsJson());
     } else if (shelly_ != 0 && request.find("GET /api/external/fritz/config ") == 0) {
         writeResponse(clientFd, 200, "application/json", shelly_->fritzJson());

@@ -10,6 +10,7 @@ typedef std::vector<unsigned char> Bytes;
 const unsigned int MaxPayload = 2048;
 const unsigned int MaxChunk = 4096;
 const unsigned int MaxQueued = 32;
+enum Opcode { MatterStatus = 1, ThreadStatus = 2 };
 struct Frame {
     enum Kind { Request = 0, Response = 1, Event = 2 };
     unsigned char kind;
