@@ -53,6 +53,7 @@ precompiled Silicon Labs RAIL libraries.
 - [Latest TH01 fix and remaining acceptance checks](docs/th01-herdsman-fix.md)
 - [OpenThread build, adapter tests and feasibility](docs/openthread-feasibility.md)
 - [OpenThread CPU and memory measurements on the factory gateway](docs/openthread-resource-profile.md)
+- [Matter controller compiler/platform feasibility gate](docs/matter-platform-feasibility.md)
 - [HDLC/Thread implementation plan](docs/hdlc-implementation-plan.md)
 - [Archived build reference and experiment history](docs/development-history.md)
 

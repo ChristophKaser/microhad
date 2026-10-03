@@ -1,0 +1,223 @@
+{
+  "sdk": {
+    "tag": "v1.6.1.0",
+    "revision": "3bcdd56ba54fb88b2afb4bfef575014671df7aa7"
+  },
+  "result": "blocked at factory C++ compiler/library prerequisites",
+  "host": {
+    "mode": "host",
+    "sdk_tag": "v1.6.1.0",
+    "sdk_revision": "3bcdd56ba54fb88b2afb4bfef575014671df7aa7",
+    "scope": "compiler and C++ library prerequisites only",
+    "probes": [
+      {
+        "command": [
+          "/usr/bin/g++",
+          "-std=c++17",
+          "-fno-exceptions",
+          "-fno-rtti",
+          "-I",
+          "./build/matter-sdk/source/src",
+          "-c",
+          "./probes/matter-type-traits.cpp",
+          "-o",
+          "./build/matter-sdk/host/host-cxx-matter-type-traits.o"
+        ],
+        "exit_code": 0,
+        "output": "",
+        "compiler": "host-cxx",
+        "probe": "matter-type-traits"
+      },
+      {
+        "command": [
+          "/usr/bin/g++",
+          "./build/matter-sdk/host/host-cxx-matter-type-traits.o",
+          "-o",
+          "./build/matter-sdk/host/host-cxx-matter-type-traits"
+        ],
+        "exit_code": 0,
+        "output": "",
+        "compiler": "host-cxx",
+        "probe": "matter-type-traits-link"
+      },
+      {
+        "command": [
+          "./build/matter-sdk/host/host-cxx-matter-type-traits"
+        ],
+        "exit_code": 0,
+        "output": "",
+        "compiler": "host-cxx",
+        "probe": "matter-type-traits-run"
+      },
+      {
+        "command": [
+          "/usr/bin/g++",
+          "-std=c++17",
+          "-fno-exceptions",
+          "-fno-rtti",
+          "-I",
+          "./build/matter-sdk/source/src",
+          "-c",
+          "./probes/matter-standard-library.cpp",
+          "-o",
+          "./build/matter-sdk/host/host-cxx-matter-standard-library.o"
+        ],
+        "exit_code": 0,
+        "output": "",
+        "compiler": "host-cxx",
+        "probe": "matter-standard-library"
+      },
+      {
+        "command": [
+          "/usr/bin/g++",
+          "./build/matter-sdk/host/host-cxx-matter-standard-library.o",
+          "-o",
+          "./build/matter-sdk/host/host-cxx-matter-standard-library"
+        ],
+        "exit_code": 0,
+        "output": "",
+        "compiler": "host-cxx",
+        "probe": "matter-standard-library-link"
+      },
+      {
+        "command": [
+          "./build/matter-sdk/host/host-cxx-matter-standard-library"
+        ],
+        "exit_code": 0,
+        "output": "",
+        "compiler": "host-cxx",
+        "probe": "matter-standard-library-run"
+      }
+    ],
+    "controller_validated": false,
+    "device_access": false,
+    "compiler_results": {
+      "host-cxx": true
+    },
+    "prerequisites_passed": true
+  },
+  "mips": {
+    "mode": "mips",
+    "sdk_tag": "v1.6.1.0",
+    "sdk_revision": "3bcdd56ba54fb88b2afb4bfef575014671df7aa7",
+    "scope": "compiler and C++ library prerequisites only",
+    "probes": [
+      {
+        "command": [
+          "../rsdk-4.4.7-4181-EB-2.6.30-0.9.30-m32u-140129/bin/mips-linux-g++",
+          "-std=c++17",
+          "-msoft-float",
+          "-fno-exceptions",
+          "-fno-rtti",
+          "-I",
+          "./build/matter-sdk/source/src",
+          "-c",
+          "./probes/matter-type-traits.cpp",
+          "-o",
+          "./build/matter-sdk/mips/stock-rsdk-matter-type-traits.o"
+        ],
+        "exit_code": 1,
+        "output": "cc1plus: error: unrecognized command line option \"-std=c++17\"\n",
+        "compiler": "stock-rsdk",
+        "probe": "matter-type-traits"
+      },
+      {
+        "command": [
+          "../rsdk-4.4.7-4181-EB-2.6.30-0.9.30-m32u-140129/bin/mips-linux-g++",
+          "-std=c++17",
+          "-msoft-float",
+          "-fno-exceptions",
+          "-fno-rtti",
+          "-I",
+          "./build/matter-sdk/source/src",
+          "-c",
+          "./probes/matter-standard-library.cpp",
+          "-o",
+          "./build/matter-sdk/mips/stock-rsdk-matter-standard-library.o"
+        ],
+        "exit_code": 1,
+        "output": "cc1plus: error: unrecognized command line option \"-std=c++17\"\n",
+        "compiler": "stock-rsdk",
+        "probe": "matter-standard-library"
+      },
+      {
+        "command": [
+          "/usr/bin/clang++-18",
+          "--target=mips-linux-gnu",
+          "-std=c++17",
+          "-march=mips1",
+          "-mabi=32",
+          "-msoft-float",
+          "-fno-pic",
+          "-mno-abicalls",
+          "-G0",
+          "-mllvm",
+          "-mno-check-zero-division",
+          "--sysroot=../rsdk-4.4.7-4181-EB-2.6.30-0.9.30-m32u-140129",
+          "-nostdinc++",
+          "-isystem",
+          "../rsdk-4.4.7-4181-EB-2.6.30-0.9.30-m32u-140129/include/c++/4.4.7",
+          "-isystem",
+          "../rsdk-4.4.7-4181-EB-2.6.30-0.9.30-m32u-140129/include/c++/4.4.7/mips-linux-uclibc/4181",
+          "-fno-exceptions",
+          "-fno-rtti",
+          "-I",
+          "./build/matter-sdk/source/src",
+          "-c",
+          "./probes/matter-type-traits.cpp",
+          "-o",
+          "./build/matter-sdk/mips/clang-stock-rsdk-matter-type-traits.o"
+        ],
+        "exit_code": 1,
+        "output": "In file included from ./probes/matter-type-traits.cpp:2:\n./build/matter-sdk/source/src/lib/support/TypeTraits.h:44:16: error: no template named 'underlying_type_t' in namespace 'std'\n   44 | constexpr std::underlying_type_t<T> to_underlying(T e)\n      |           ~~~~~^\n./build/matter-sdk/source/src/lib/support/TypeTraits.h:47:29: error: no template named 'underlying_type_t' in namespace 'std'\n   47 |     return static_cast<std::underlying_type_t<T>>(e);\n      |                        ~~~~~^\n./probes/matter-type-traits.cpp:5:15: error: no matching function for call to 'to_underlying'\n    5 | static_assert(chip::to_underlying(MatterProbeState::Ready) == 7, \"Matter type traits must work\");\n      |               ^~~~~~~~~~~~~~~~~~~\n./probes/matter-type-traits.cpp:9:12: error: no matching function for call to 'to_underlying'\n    9 |     return chip::to_underlying(MatterProbeState::Ready) == 7 ? 0 : 1;\n      |            ^~~~~~~~~~~~~~~~~~~\n4 errors generated.\n",
+        "compiler": "clang-stock-rsdk",
+        "probe": "matter-type-traits"
+      },
+      {
+        "command": [
+          "/usr/bin/clang++-18",
+          "--target=mips-linux-gnu",
+          "-std=c++17",
+          "-march=mips1",
+          "-mabi=32",
+          "-msoft-float",
+          "-fno-pic",
+          "-mno-abicalls",
+          "-G0",
+          "-mllvm",
+          "-mno-check-zero-division",
+          "--sysroot=../rsdk-4.4.7-4181-EB-2.6.30-0.9.30-m32u-140129",
+          "-nostdinc++",
+          "-isystem",
+          "../rsdk-4.4.7-4181-EB-2.6.30-0.9.30-m32u-140129/include/c++/4.4.7",
+          "-isystem",
+          "../rsdk-4.4.7-4181-EB-2.6.30-0.9.30-m32u-140129/include/c++/4.4.7/mips-linux-uclibc/4181",
+          "-fno-exceptions",
+          "-fno-rtti",
+          "-I",
+          "./build/matter-sdk/source/src",
+          "-c",
+          "./probes/matter-standard-library.cpp",
+          "-o",
+          "./build/matter-sdk/mips/clang-stock-rsdk-matter-standard-library.o"
+        ],
+        "exit_code": 1,
+        "output": "./probes/matter-standard-library.cpp:2:10: fatal error: 'optional' file not found\n    2 | #include <optional>\n      |          ^~~~~~~~~~\n1 error generated.\n",
+        "compiler": "clang-stock-rsdk",
+        "probe": "matter-standard-library"
+      }
+    ],
+    "controller_validated": false,
+    "device_access": false,
+    "compiler_results": {
+      "stock-rsdk": false,
+      "clang-stock-rsdk": false
+    },
+    "prerequisites_passed": false
+  },
+  "controller_built": false,
+  "controller_run_on_device": false,
+  "radio_used": false,
+  "garage_app_changed": false,
+  "next_required_work": "Port a modern MIPS-I/o32/big-endian/soft-float C++ library and compatible ABI runtime for factory uClibc before the Matter platform/controller build."
+}
