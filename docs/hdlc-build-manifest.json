@@ -1,5 +1,5 @@
 {
-  "date": "2026-10-02",
+  "date": "2026-10-03",
   "gecko_sdk": "90fc93e1f95a10c981f0e49ca6787192e82fd8f2",
   "slc": "a2cef4434600379695bef23bfbdcc8e604f7f305",
   "slc_version": "5.6.3",
@@ -25,13 +25,14 @@
       "sha256": "82a6013f1b97cf4a0efcda2fb7f5d82a5b3fe13c4c6f604954df10323182de08"
     },
     "build/ziggurat-hdlc/lexra-stock-uclibc/release/ziggurat.stripped": {
-      "size_bytes": 3520368,
-      "sha256": "15a839dfbe5b9cf593fdec2f47fb641b4343dfe35f03ffcd664a1a5866df99c1"
+      "size_bytes": 3565456,
+      "sha256": "10172921f82716ac7cec4160935a0a8f569e3739bcb8071fe45107a5f30c8637"
     }
   },
   "flashed": false,
   "rcp_nvm_begin": "0x37000",
   "rcp_nvm_end": "0x40000",
   "rcp_nvm_size_bytes": 36864,
-  "network_migration_patch": "patches/ziggurat-network-migration.patch"
+  "network_migration_patch": "patches/ziggurat-network-migration.patch",
+  "cobs_unix_patch": "patches/ziggurat-cobs-unix.patch"
 }

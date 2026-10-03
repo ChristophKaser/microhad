@@ -1,17 +1,22 @@
 # Preserve the Zigbee network when moving to Ziggurat
 
-Native implementation: `microhad-zigbee-native` commit `a84e864bccf956d9c512a545fc55ef898c069a50`.
-The [native source/tools patch](../patches/microhad-zigbee-native-network-export.patch)
-is published here for review and applies to native baseline `24dc1b0`.
-The authoritative native document is `microhad-zigbee-native/NETWORK_MIGRATION.md`;
-the commands below run from that sibling checkout.
+Native source: `microhad-zigbee-native` commit `d4c5e89ddf2d2a669e050c36cc2254dfe5641643`. Commands in this
+document run from the sibling native checkout unless another directory is shown.
+The [new native adapter patch](../patches/microhad-zigbee-native-ziggurat.patch)
+applies to native baseline `a84e864`; the earlier
+[network exporter patch](../patches/microhad-zigbee-native-network-export.patch)
+applies to baseline `24dc1b0`. Use that order when reconstructing the native tree.
 
-## Current state — 2026-10-02
+
+## Current state — 2026-10-03
 
 **The native read-only exporter is implemented, tested and deployed. Radio
 firmware remains EmberZNet 7.5.1.0 / EZSP v13; no firmware was flashed.**
-The production network remains formed. The daemon was restarted to load the
-exporter; its usual ASH initialization ran, without forming a new network.
+The production network remains formed. The exporter deployment/restart described
+here occurred on 2026-10-02. On 2026-10-03 the optional native Ziggurat backend
+and ZHA-style persisted state were implemented and host-tested; only Ziggurat
+was temporarily deployed for a synthetic-radio test. The production daemon was
+not replaced/restarted and no radio was accessed. See [integration results](native-ziggurat-integration.md).
 
 A fresh private export contains operational coordinator EUI64, PAN/channel,
 network key/sequence, hashed trust-center seed, NWK and APS security counters,
@@ -36,9 +41,10 @@ No live NCP restoration or bootloader entry was performed in this work.
 1. Rehearse firmware migration/recovery and real device communication on a
    spare radio/network before flashing the production coordinator. Simulator
    results do not establish that existing devices will communicate after migration.
-2. Implement the native protocol-v2 adapter and durable security-counter/key
-   persistence. The current daemon still speaks EZSP. Orderly freeze/export is
-   tested; crash recovery without a final snapshot needs durable upper bounds.
+2. Validate the implemented native protocol-v2 adapter and native-owned state
+   against real hardware. Production still speaks EZSP. The ZHA-style 1000-frame
+   restart margin and checkpoints pass simulation but do not provide unconditional
+   crash safety; notification loss, stale keys or long outages remain limits.
 3. Establish recovery if an RCP stops responding. A working RCP has a compiled
    Spinel bootloader-entry path; the current setup has no verified SWD recovery
    procedure or full radio flash dump. A valid image does not guarantee recovery.
@@ -213,10 +219,12 @@ For a **future separately authorized** orderly return from Ziggurat:
 
 If the RCP is unresponsive, the Spinel entry path is unavailable. Without a
 verified hardware entry/SWD method, rollback cannot be guaranteed. Likewise,
-a crash before final export needs persisted security upper bounds and current
-keys; the prototype does not yet implement that native persistence layer.
+a crash before final export needs current keys and sufficiently advanced counters.
+The native persistence layer now implements ZHA-style checkpoints and a 1000-frame
+restart margin; this is not a durable reservation of every future counter.
+See the integration guide for notification-loss and incoming replay-counter limits.
 
-Sources: the retained native `scripts/EZSP_UPGRADE.md` upgrade record, the
+Sources: the retained [EZSP upgrade record](scripts/EZSP_UPGRADE.md), the
 [Silicon Labs NCP-to-host migration note](https://docs.silabs.com/zigbee/9.0.0/multiprotocol-solution-linux/host-ncp-rcp-migration),
 and the pinned local GSDK `misc.c`, `ncp_base.cpp`, `btl_interface.c` and linker
 map. Silicon Labs' token-based migration requires a token interface that this

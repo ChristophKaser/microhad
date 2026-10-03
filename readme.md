@@ -1,6 +1,6 @@
 # Ziggurat on the Tuya RTL8196E gateway
 
-## Current state — 2026-10-02
+## Current state — 2026-10-03
 
 The goal is a **standalone Tuya gateway running Zigbee and Matter-over-Thread**,
 with `microhad-zigbee-native` as Ziggurat's client and both networks sharing the
@@ -9,20 +9,30 @@ EFR32MG1 radio through HDLC, without cpcd.
 - **Built:** two-instance HDLC RCP firmware and a patched static MIPS Ziggurat.
   The transport shares one reader/writer, routes Zigbee IID 1 and Thread IID 2,
   and provides a local Unix HDLC endpoint for a future Thread consumer.
-- **Validated:** 10 upstream Spinel tests, 5 new multi-PAN tests, 7 simulator
-  tests, and all 8 host/Tuya simulated-radio scenario checks pass. The Tuya
-  test reported 2,068 KiB Ziggurat RSS and 7.21/7.82 ms median/p95 Thread
-  endpoint query timing, including the SSH test bridge.
-- **Still pending:** firmware flashing and real radio ACK/source-match tests,
-  an actual OTBR/Thread stack, Matter functionality and the
-  `microhad-zigbee-native` adapter. These are not provided by the simulator.
-- **Network migration preparation:** the native read-only exporter is deployed
-  on the existing EZSP v13 firmware. A fresh logical backup round-trips through
-  stopped host Ziggurat with a simulated RCP. Live NWK/APS counters and the
-  hashed trust-center seed are exported; raw-token enumeration is unsupported.
-  `FreezeNetwork` and orderly counter-safe rollback preparation pass simulation.
-  Hardware migration/recovery and crash-safe native persistence remain unverified.
-  See [commands and evidence](docs/network-migration.md).
+- **Native client implemented:** optional `ZIGGURAT=1` backend uses COBS over a
+  private Unix stream socket. The native service owns persisted state following
+  ZHA's model; Ziggurat remains stateless. EZSP remains the default. Both host
+  suites and MIPS builds pass, including 13 scripted-peer cases and six actual
+  native/Ziggurat/host-RCP lifecycle scenarios.
+- **Validated:** 15 Rust transport tests, 7 simulator tests, 8 HDLC host scenarios,
+  7 COBS host scenarios and 8 Tuya COBS checks pass. Tuya Ziggurat RSS was
+  **1,620 KiB**, `top` samples **0–7% CPU**, and median/p95 socket query response
+  **5.27/8.23 ms** including the SSH bridge. This is synthetic load, not evidence
+  of real-radio or Matter capacity. Temporary executable uploads were removed.
+- **Production untouched in this work:** the native service remains online on
+  EZSP with 23 known devices and an unchanged binary checksum. Only Ziggurat and
+  a socket probe were deployed temporarily; no UART access or radio flashing.
+- **Still pending:** real-radio migration/recovery and ACK/source-match tests,
+  an actual Thread/OTBR stack and standalone Matter. The native ZHA-style
+  1000-frame restart margin is not an unconditional crash-safety guarantee.
+- **Network migration preparation:** the read-only EZSP v13 exporter was deployed
+  on 2026-10-02. A private logical backup round-trips through stopped host
+  Ziggurat with a simulated RCP. Freeze/export and orderly rollback preparation
+  pass simulation; raw-token enumeration is unsupported. Take a new exclusive
+  handover backup before any real migration.
+  See [native integration and commands](docs/native-ziggurat-integration.md),
+  [validation record](docs/native-ziggurat-validation.json) and
+  [migration evidence](docs/network-migration.md).
 - **Known issue:** one cold-boot configuration attempt stalled; kernel RNG
   readiness is a suspected cause. Device tests now check free RAM and clean
   their uploads after an earlier suspected ramfs memory-pressure incident.
@@ -38,8 +48,8 @@ EFR32MG1 radio through HDLC, without cpcd.
 3. Rehearse the prepared network migration and firmware recovery on a spare
    radio/network, then validate real dual-PAN operation,
    especially MG1 auto-ACK, sleepy children and overlapping short addresses.
-4. Add the `microhad-zigbee-native` adapter and local Matter functionality, then
-   test the complete standalone gateway.
+4. Validate the implemented native adapter with real Zigbee traffic and add
+   local Matter functionality; measure the complete standalone gateway.
 
 [Implementation plan](docs/hdlc-implementation-plan.md) ·
 [Usage and results](docs/hdlc-multipan-usage.md) ·
@@ -137,8 +147,8 @@ firmware on its EFR32MG1 radio, without Silicon Labs' precompiled host Zigbee
 stack libraries.
 
 The intended production client is **`microhad-zigbee-native`**, running on the
-gateway and talking to Ziggurat's protocol-v2 API. Its Ziggurat adapter is
-future work; the Python client in this experiment only exercises that API.
+gateway and talking to Ziggurat's protocol-v2 API. Its optional COBS/Unix socket adapter is now host-tested. The Python client in
+this experiment exercises the API without deploying the native service.
 Direct Zigbee2MQTT integration is not the immediate client plan.
 
 The ultimate goal is **dual-mode Zigbee and Matter-over-Thread**, aiming to
@@ -219,8 +229,8 @@ recorded in this repository rather than silently changing a source checkout.
   performance under a real Zigbee workload remains unmeasured.
 - The inspected Ziggurat workspace requires Rust 1.98 and its host server
   uses Tokio. Its protocol core supports `no_std`. Its client protocol is
-  different from EZSP; implementing the planned `microhad-zigbee-native` client
-  adapter is separate work from compiling the stack.
+  different from EZSP; the optional native client adapter is implemented separately
+  and documented in the integration guide.
 
 ## First experiment: Rust prototype
 
@@ -701,10 +711,9 @@ The increasing-load experiment below distinguishes host-side pending requests
 and replies from an internal Zigbee queue, which the existing API does not
 expose directly.
 
-- Implement the Ziggurat protocol-v2 adapter in `microhad-zigbee-native`, including
-  notifications, asynchronous send confirmations, persistent state and
-  reconnect behavior. Exercise it against this simulator before physical RCP
-  integration.
+- The native protocol-v2 adapter now handles notifications, asynchronous send
+  confirmations, persistent state and reconnect behavior. Host simulation passes;
+  validate it against spare physical RCP hardware before production migration.
 - Extend simulated traffic and duration, then benchmark real peer/routing load.
   A short synthetic active-stack test is not a production-readiness claim.
 - Validate serial I/O on the target without disrupting its coordinator; the

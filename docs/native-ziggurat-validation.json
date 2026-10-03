@@ -1,0 +1,248 @@
+{
+  "date": "2026-10-03",
+  "native_commit": "d4c5e89ddf2d2a669e050c36cc2254dfe5641643",
+  "native_patch_baseline": "a84e864",
+  "default_backend": "ezsp",
+  "optional_backend": "ziggurat",
+  "checks": {
+    "ezsp_host_suite": "passed",
+    "ziggurat_host_suite": "passed",
+    "ezsp_mips_build": "passed",
+    "ziggurat_mips_build": "passed",
+    "scripted_native_peer_cases": 13,
+    "actual_native_stack_scenarios": 6,
+    "migration_python_cases": 15,
+    "rust_transport_cases": 15,
+    "simulator_python_cases": 7,
+    "host_hdlc_scenarios": 8,
+    "host_cobs_scenarios": 7,
+    "microhad_cobs_scenarios": 8
+  },
+  "microhad_cobs": {
+    "target": "192.168.178.62",
+    "synthetic_state_only": true,
+    "physical_radio_accessed": false,
+    "service_deployed": false,
+    "firmware_flashed": false,
+    "results": [
+      "Protocol-v2 Hello, firmware info and hardware address over Unix COBS",
+      "Fragmented COBS requests preserve message boundaries",
+      "Malformed/oversized frames resynchronize and unknown commands fail explicitly",
+      "Simulated RCP receive reaches COBS API with escaped bytes intact",
+      "Synthetic network config/start traverses IID 1 to the host RCP",
+      "APS broadcasts are admitted on the simulated network",
+      "Freeze stops the stack and refuses an implicit restart",
+      "Production network/service unchanged and temporary uploads removed"
+    ],
+    "production_before": {
+      "online": true,
+      "network_formed": true,
+      "device_count": 23
+    },
+    "production_binary_before": "7a508ac880516642572a70e87bdc5014",
+    "memory_preflight_kib": {
+      "available": 10372,
+      "required": 8192
+    },
+    "flash_preflight_kib": {
+      "available": 5376,
+      "required": 4540
+    },
+    "query_timing_ms": {
+      "count": 200,
+      "min_ms": 4.2512,
+      "mean_ms": 5.780997995,
+      "median_ms": 5.273422999999999,
+      "p95_ms": 8.233245,
+      "p99_ms": 15.245143,
+      "max_ms": 16.219045
+    },
+    "simulator_response_ms": {
+      "count": 30,
+      "min_ms": 0.038302,
+      "mean_ms": 0.0604642,
+      "median_ms": 0.0503745,
+      "p95_ms": 0.121368,
+      "p99_ms": 0.173946,
+      "max_ms": 0.173946
+    },
+    "top_samples": [
+      {
+        "frame": 2,
+        "cpu_percent": 0.0,
+        "threads": [
+          {
+            "pid": 764,
+            "parent": 762,
+            "cpu_percent": 0.0,
+            "vsz_kib": 5824
+          },
+          {
+            "pid": 769,
+            "parent": 764,
+            "cpu_percent": 0.0,
+            "vsz_kib": 5824
+          },
+          {
+            "pid": 770,
+            "parent": 769,
+            "cpu_percent": 0.0,
+            "vsz_kib": 5824
+          }
+        ]
+      },
+      {
+        "frame": 3,
+        "cpu_percent": 4.0,
+        "threads": [
+          {
+            "pid": 770,
+            "parent": 769,
+            "cpu_percent": 4.0,
+            "vsz_kib": 5868
+          },
+          {
+            "pid": 764,
+            "parent": 762,
+            "cpu_percent": 0.0,
+            "vsz_kib": 5868
+          },
+          {
+            "pid": 769,
+            "parent": 764,
+            "cpu_percent": 0.0,
+            "vsz_kib": 5868
+          }
+        ]
+      },
+      {
+        "frame": 4,
+        "cpu_percent": 5.0,
+        "threads": [
+          {
+            "pid": 770,
+            "parent": 769,
+            "cpu_percent": 5.0,
+            "vsz_kib": 5868
+          },
+          {
+            "pid": 764,
+            "parent": 762,
+            "cpu_percent": 0.0,
+            "vsz_kib": 5868
+          },
+          {
+            "pid": 769,
+            "parent": 764,
+            "cpu_percent": 0.0,
+            "vsz_kib": 5868
+          }
+        ]
+      },
+      {
+        "frame": 5,
+        "cpu_percent": 5.0,
+        "threads": [
+          {
+            "pid": 770,
+            "parent": 769,
+            "cpu_percent": 5.0,
+            "vsz_kib": 5868
+          },
+          {
+            "pid": 764,
+            "parent": 762,
+            "cpu_percent": 0.0,
+            "vsz_kib": 5868
+          },
+          {
+            "pid": 769,
+            "parent": 764,
+            "cpu_percent": 0.0,
+            "vsz_kib": 5868
+          }
+        ]
+      },
+      {
+        "frame": 6,
+        "cpu_percent": 7.0,
+        "threads": [
+          {
+            "pid": 770,
+            "parent": 769,
+            "cpu_percent": 7.0,
+            "vsz_kib": 5868
+          },
+          {
+            "pid": 764,
+            "parent": 762,
+            "cpu_percent": 0.0,
+            "vsz_kib": 5868
+          },
+          {
+            "pid": 769,
+            "parent": 764,
+            "cpu_percent": 0.0,
+            "vsz_kib": 5868
+          }
+        ]
+      },
+      {
+        "frame": 7,
+        "cpu_percent": 3.0,
+        "threads": [
+          {
+            "pid": 770,
+            "parent": 769,
+            "cpu_percent": 3.0,
+            "vsz_kib": 5868
+          },
+          {
+            "pid": 764,
+            "parent": 762,
+            "cpu_percent": 0.0,
+            "vsz_kib": 5868
+          },
+          {
+            "pid": 769,
+            "parent": 764,
+            "cpu_percent": 0.0,
+            "vsz_kib": 5868
+          }
+        ]
+      }
+    ],
+    "memory_samples": [
+      "VmSize:\t    5868 kB",
+      "VmRSS:\t    1620 kB",
+      "MemFree:            5920 kB"
+    ],
+    "production_after": {
+      "online": true,
+      "network_formed": true,
+      "device_count": 23
+    },
+    "production_binary_after": "7a508ac880516642572a70e87bdc5014",
+    "temporary_uploads_removed": true,
+    "simulated_radio_transmissions": 4
+  },
+  "microhad_rss_kib": 1620,
+  "microhad_cpu_percent_samples": [
+    0.0,
+    4.0,
+    5.0,
+    5.0,
+    7.0,
+    3.0
+  ],
+  "temporary_executable_staging": "isolated flash directory, removed; logs/socket in ramfs",
+  "native_service_deployed_or_restarted": false,
+  "physical_radio_accessed": false,
+  "firmware_flashed": false,
+  "limitations": [
+    "Synthetic workloads only; no real-radio pairing/ACK/Thread/Matter validation",
+    "1000-frame ZHA-style restart margin is not an unconditional crash-safety guarantee",
+    "No production native service deployment; all native lifecycle tests ran on host",
+    "Incoming replay counters can lag persisted checkpoints"
+  ]
+}

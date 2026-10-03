@@ -1,19 +1,22 @@
 # HDLC multi-PAN implementation plan
 
-## Current state — 2026-10-02
+## Current state — 2026-10-03
 
 **The initial implementation is complete and published privately.** The
 MG1 two-instance HDLC firmware compiles; Ziggurat's shared transport and local
 Thread endpoint work against a simulated RCP on both the host and stock Tuya.
 All 8 device scenario checks pass, alongside 15 Rust and 7 Python tests.
-The latest freeze/export extension passes host migration tests and all 8 host
-multi-PAN regressions, and compiles for MIPS; it was not run on the Tuya.
-The earlier Tuya transport measurements precede this extension.
+The freeze/export and COBS Unix extensions now pass all eight Tuya COBS checks
+and host migration/lifecycle tests. The native COBS client and ZHA-style native
+state persistence pass both backend suites, 13 scripted-peer cases and six actual
+stack lifecycle scenarios. Both native variants compile for MIPS. Production
+remains on EZSP; the native service was not deployed/restarted. See
+[native integration commands and results](native-ziggurat-integration.md).
 The linked firmware fits the configured Flash/RAM regions and contains both
 multi-instance initialization functions. **It has not been flashed.**
 
 This is a transport prototype, not a working Thread border router or Matter
-controller. Actual OTBR/Thread integration, `microhad-zigbee-native` integration,
+controller. Actual OTBR/Thread integration, production native-client validation,
 Matter functionality and real-radio dual-network operation remain pending.
 The goal is fully standalone on the Tuya, with Zigbee IID 1 and Thread IID 2
 sharing one radio without cpcd. Common-channel operation, one reset owner and
@@ -26,8 +29,8 @@ host simulator. Ziggurat's new freeze/export operation and orderly rollback
 preparation pass synthetic running tests; the retained NCP image and RCP
 bootloader/storage layout pass offline checks. **No firmware was flashed.**
 Raw-token export is unavailable; live APS metadata is available through
-`getApsKeyInfo(TC_LINK)`. Hardware rollback and crash-safe counter persistence
-remain unverified. See [network migration details](network-migration.md).
+`getApsKeyInfo(TC_LINK)`. Hardware rollback remains unverified. Native checkpoint persistence is tested,
+but the ZHA-style restart margin does not guarantee safety after arbitrary crashes. See [network migration details](network-migration.md).
 
 Source, patches and documentation are in the
 [private repository](https://github.com/ChristophKaser/ziggurat-compilation).
@@ -46,8 +49,8 @@ and [validation summary](hdlc-validation.json) record the evidence.
    Complete the network-preservation gate below before using the production radio.
    Validate both PANs' ACKs, sleepy-child polls, address collisions, broadcast
    routing, scanning interference and sustained traffic on MG1.
-4. Implement the `microhad-zigbee-native` protocol-v2 client and local Matter
-   functionality; validate the full standalone system and resource budget.
+4. Validate the implemented native protocol-v2 client on spare radio hardware,
+   add local Matter functionality, and measure the full standalone resource budget.
 
 ## Network preservation before flashing
 
@@ -55,7 +58,7 @@ Retaining existing device pairings may be possible, but is **not yet verified
 for this gateway and Ziggurat**. Switching from EZSP NCP to raw HDLC RCP moves
 the Zigbee stack from the radio into Ziggurat. The RCP does not run the old
 Zigbee stack or automatically consume its saved network tokens; the existing
-native EZSP client also needs its planned Ziggurat adapter.
+native service must be explicitly built with its optional Ziggurat backend.
 
 The native `network.json` remains insufficient by itself. The new fixed-command
 export runs through the existing UART owner and captures identity, network and
@@ -86,9 +89,10 @@ Remaining before production migration:
 - Rehearse firmware bootloader entry, flashing and logical restoration on spare
   hardware, including recovery from an unresponsive application. The compiled
   Spinel recovery path needs a responding RCP; no verified SWD fallback exists.
-- Implement the native Ziggurat adapter and durable security upper bounds/current
-  key persistence. Orderly rollback preparation is tested; crash rollback without
-  final state is not established. Take a new backup immediately before handover.
+- Validate the implemented native adapter and ZHA-style checkpoint persistence
+  on hardware. It does not reserve durable upper bounds for every future counter;
+  crash rollback without sufficiently current state is not established. Take a
+  new backup immediately before handover.
 - Validate real device pairing preservation and dual-PAN traffic. Identical NVM
   allocation alone does not establish storage compatibility or functional recovery.
 

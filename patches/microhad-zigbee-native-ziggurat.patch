@@ -1,0 +1,2340 @@
+diff --git a/Makefile b/Makefile
+index 18e9a8b..c0cab8d 100644
+--- a/Makefile
++++ b/Makefile
+@@ -12,18 +12,31 @@ HOST_READELF ?= readelf
+ CMAKE ?= cmake
+ BUILD_REVISION := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
+ 
++ZIGGURAT ?= 0
++ifneq ($(filter $(ZIGGURAT),0 1),$(ZIGGURAT))
++$(error ZIGGURAT must be 0 or 1)
++endif
++ZIGGURAT_SOURCES :=
++ZIGGURAT_TEST_SOURCES :=
++ifeq ($(ZIGGURAT),1)
++ZIGGURAT_SOURCES := src/ziggurat_client.cpp
++ZIGGURAT_TEST_SOURCES := test/unit_ziggurat.cpp
++BACKEND_SUFFIX := -ziggurat
++endif
++
+ WARNINGS := -Wall -Wextra -Werror -pedantic
+ # GCC 3.4 in the supplied RSDK has no -std=gnu++03 switch; its default is
+ # C++98/C++03-compatible. Keep target flags explicit and separate from host.
+-HOST_CXXFLAGS := -std=gnu++03 $(WARNINGS) -Iinclude -Ithird_party/mbedtls/include -O2 -DMICROHAD_MBEDTLS_ENABLED=1 -DMICROHAD_BUILD_REVISION=\"$(BUILD_REVISION)\"
+-TARGET_CXXFLAGS := $(WARNINGS) -Iinclude -Ithird_party/mbedtls/include -O2 -ffunction-sections -fdata-sections -DMICROHAD_MIPS_TARGET=1 -DMICROHAD_MBEDTLS_ENABLED=1 -DMICROHAD_BUILD_REVISION=\"$(BUILD_REVISION)\"
++HOST_CXXFLAGS := -std=gnu++03 $(WARNINGS) -Iinclude -Ithird_party/mbedtls/include -O2 -DMICROHAD_ZIGGURAT_ENABLED=$(ZIGGURAT) -DMICROHAD_MBEDTLS_ENABLED=1 -DMICROHAD_BUILD_REVISION=\"$(BUILD_REVISION)\"
++TARGET_CXXFLAGS := $(WARNINGS) -Iinclude -Ithird_party/mbedtls/include -O2 -ffunction-sections -fdata-sections -DMICROHAD_MIPS_TARGET=1 -DMICROHAD_ZIGGURAT_ENABLED=$(ZIGGURAT) -DMICROHAD_MBEDTLS_ENABLED=1 -DMICROHAD_BUILD_REVISION=\"$(BUILD_REVISION)\"
+ TARGET_CFLAGS := $(WARNINGS) -O2 -ffunction-sections -fdata-sections
+ LDFLAGS := -lpthread
+-SOURCES := src/main.cpp src/gateway_config.cpp src/ash.cpp src/json_util.cpp src/storage.cpp src/network_backup.cpp src/http_server.cpp src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/sensor_history.cpp src/log_ring.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp src/external_http_device.cpp src/device_shelly.cpp src/device_fritz_box.cpp
+-HOST_BUILD := build/host
+-MIPS_BUILD := build/mips
++SOURCES := src/main.cpp src/gateway_config.cpp src/ash.cpp src/json_util.cpp src/storage.cpp src/network_backup.cpp $(ZIGGURAT_SOURCES) src/http_server.cpp src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/sensor_history.cpp src/log_ring.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp src/external_http_device.cpp src/device_shelly.cpp src/device_fritz_box.cpp
++HOST_BUILD := build/host$(BACKEND_SUFFIX)
++MIPS_BUILD := build/mips$(BACKEND_SUFFIX)
+ HOST_BIN := $(HOST_BUILD)/microhad-zigbee-native
+ MIPS_BIN := $(MIPS_BUILD)/microhad-zigbee-native
++HOST_CXXFLAGS += -DMICROHAD_TEST_BINARY=\"$(HOST_BIN)\"
+ TLS_C_SOURCES := src/fcm_signer.c src/https_client.c src/vapid_key.c src/web_push_crypto.c src/tls_server.c
+ HOST_C_OBJECTS := $(patsubst src/%.c,$(HOST_BUILD)/%.o,$(TLS_C_SOURCES))
+ MIPS_C_OBJECTS := $(patsubst src/%.c,$(MIPS_BUILD)/%.o,$(TLS_C_SOURCES))
+@@ -34,7 +47,7 @@ HOST_MBEDTLS_LIBS := $(HOST_MBEDTLS_BUILD)/library/libmbedtls.a $(HOST_MBEDTLS_B
+ MIPS_MBEDTLS_LIBS := $(MIPS_MBEDTLS_BUILD)/library/libmbedtls.a $(MIPS_MBEDTLS_BUILD)/library/libmbedx509.a $(MIPS_MBEDTLS_BUILD)/library/libmbedcrypto.a
+ UNIT_TEST_BIN := $(HOST_BUILD)/unit_tests
+ INTEGRATION_TEST_BIN := $(HOST_BUILD)/integration_tests
+-UNIT_TEST_SOURCES := test/unit_network_backup.cpp test/unit_gateway.cpp test/unit_gateway_config.cpp test/unit_fcm.cpp test/unit_web_push.cpp test/unit_sensor_history.cpp test/unit_log_ring.cpp test/unit_external_http_device.cpp test/test_main.cpp
++UNIT_TEST_SOURCES := $(ZIGGURAT_TEST_SOURCES) test/unit_network_backup.cpp test/unit_gateway.cpp test/unit_gateway_config.cpp test/unit_fcm.cpp test/unit_web_push.cpp test/unit_sensor_history.cpp test/unit_log_ring.cpp test/unit_external_http_device.cpp test/test_main.cpp
+ INTEGRATION_TEST_SOURCES := test/integration_gateway.cpp test/integration_http_server.cpp test/integration_lifecycle.cpp test/integration_outbound.cpp test/integration_main.cpp
+ 
+ .PHONY: all host mips webui mbedtls-host mbedtls-mips unit-test integration-test target-verifier-test test verify-target clean
+@@ -87,19 +100,22 @@ endef
+ verify-target: $(MIPS_BIN)
+ 	@$(call verify_elf,$(TARGET_READELF),$(MIPS_BIN))
+ 
+-$(UNIT_TEST_BIN): $(UNIT_TEST_SOURCES) src/gateway_config.cpp src/ash.cpp src/json_util.cpp src/storage.cpp src/network_backup.cpp src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/sensor_history.cpp src/log_ring.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp src/external_http_device.cpp src/device_shelly.cpp src/device_fritz_box.cpp $(HOST_C_OBJECTS) $(HOST_MBEDTLS_LIBS) $(wildcard include/*.h)
++$(UNIT_TEST_BIN): $(UNIT_TEST_SOURCES) src/gateway_config.cpp src/ash.cpp src/json_util.cpp src/storage.cpp src/network_backup.cpp $(ZIGGURAT_SOURCES) src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/sensor_history.cpp src/log_ring.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp src/external_http_device.cpp src/device_shelly.cpp src/device_fritz_box.cpp $(HOST_C_OBJECTS) $(HOST_MBEDTLS_LIBS) $(wildcard include/*.h)
+ 	@mkdir -p $(HOST_BUILD)
+-	$(HOST_CXX) $(HOST_CXXFLAGS) $(UNIT_TEST_SOURCES) src/gateway_config.cpp src/ash.cpp src/json_util.cpp src/storage.cpp src/network_backup.cpp src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/sensor_history.cpp src/log_ring.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp src/external_http_device.cpp src/device_shelly.cpp src/device_fritz_box.cpp $(HOST_C_OBJECTS) -o $@ $(HOST_MBEDTLS_LIBS) $(LDFLAGS)
++	$(HOST_CXX) $(HOST_CXXFLAGS) $(UNIT_TEST_SOURCES) src/gateway_config.cpp src/ash.cpp src/json_util.cpp src/storage.cpp src/network_backup.cpp $(ZIGGURAT_SOURCES) src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/sensor_history.cpp src/log_ring.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp src/external_http_device.cpp src/device_shelly.cpp src/device_fritz_box.cpp $(HOST_C_OBJECTS) -o $@ $(HOST_MBEDTLS_LIBS) $(LDFLAGS)
+ 
+-$(INTEGRATION_TEST_BIN): $(INTEGRATION_TEST_SOURCES) src/ash.cpp src/json_util.cpp src/storage.cpp src/network_backup.cpp src/http_server.cpp src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/sensor_history.cpp src/log_ring.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp src/external_http_device.cpp src/device_shelly.cpp src/device_fritz_box.cpp $(HOST_C_OBJECTS) $(HOST_MBEDTLS_LIBS) $(wildcard include/*.h)
++$(INTEGRATION_TEST_BIN): $(INTEGRATION_TEST_SOURCES) src/ash.cpp src/json_util.cpp src/storage.cpp src/network_backup.cpp $(ZIGGURAT_SOURCES) src/http_server.cpp src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/sensor_history.cpp src/log_ring.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp src/external_http_device.cpp src/device_shelly.cpp src/device_fritz_box.cpp $(HOST_C_OBJECTS) $(HOST_MBEDTLS_LIBS) $(wildcard include/*.h)
+ 	@mkdir -p $(HOST_BUILD)
+-	$(HOST_CXX) $(HOST_CXXFLAGS) $(INTEGRATION_TEST_SOURCES) src/ash.cpp src/json_util.cpp src/storage.cpp src/network_backup.cpp src/http_server.cpp src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/sensor_history.cpp src/log_ring.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp src/external_http_device.cpp src/device_shelly.cpp src/device_fritz_box.cpp $(HOST_C_OBJECTS) -o $@ $(HOST_MBEDTLS_LIBS) $(LDFLAGS)
++	$(HOST_CXX) $(HOST_CXXFLAGS) $(INTEGRATION_TEST_SOURCES) src/ash.cpp src/json_util.cpp src/storage.cpp src/network_backup.cpp $(ZIGGURAT_SOURCES) src/http_server.cpp src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/sensor_history.cpp src/log_ring.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp src/external_http_device.cpp src/device_shelly.cpp src/device_fritz_box.cpp $(HOST_C_OBJECTS) -o $@ $(HOST_MBEDTLS_LIBS) $(LDFLAGS)
+ 
+ unit-test: mbedtls-host $(HOST_BIN) $(UNIT_TEST_BIN)
+ 	$(UNIT_TEST_BIN)
+ 
+ integration-test: mbedtls-host $(HOST_BIN) $(INTEGRATION_TEST_BIN)
+ 	$(INTEGRATION_TEST_BIN)
++ifeq ($(ZIGGURAT),1)
++	python3 scripts/test_ziggurat_native_peer.py
++endif
+ 
+ target-verifier-test: $(UNIT_TEST_BIN)
+ 	@if $(call verify_elf,$(HOST_READELF),$(UNIT_TEST_BIN)) >/dev/null 2>&1; then \
+@@ -112,3 +128,8 @@ test: unit-test integration-test target-verifier-test
+ 
+ clean:
+ 	rm -rf build
++
++.PHONY: test-backends
++test-backends:
++	$(MAKE) ZIGGURAT=0 host test
++	$(MAKE) ZIGGURAT=1 host test
+diff --git a/NETWORK_MIGRATION.md b/NETWORK_MIGRATION.md
+index 6d87db8..ef4a323 100644
+--- a/NETWORK_MIGRATION.md
++++ b/NETWORK_MIGRATION.md
+@@ -1,11 +1,14 @@
+ # Preserve the Zigbee network when moving to Ziggurat
+ 
+-## Current state — 2026-10-02
++## Current state — 2026-10-03
+ 
+ **The native read-only exporter is implemented, tested and deployed. Radio
+ firmware remains EmberZNet 7.5.1.0 / EZSP v13; no firmware was flashed.**
+-The production network remains formed. The daemon was restarted to load the
+-exporter; its usual ASH initialization ran, without forming a new network.
++The production network remains formed. The exporter deployment/restart described
++here occurred on 2026-10-02. On 2026-10-03 the optional native Ziggurat backend
++and ZHA-style persisted state were implemented and host-tested; only Ziggurat
++was temporarily deployed for a synthetic-radio test. The production daemon was
++not replaced/restarted and no radio was accessed. See [integration results](ZIGGURAT_INTEGRATION.md).
+ 
+ A fresh private export contains operational coordinator EUI64, PAN/channel,
+ network key/sequence, hashed trust-center seed, NWK and APS security counters,
+@@ -30,9 +33,10 @@ No live NCP restoration or bootloader entry was performed in this work.
+ 1. Rehearse firmware migration/recovery and real device communication on a
+    spare radio/network before flashing the production coordinator. Simulator
+    results do not establish that existing devices will communicate after migration.
+-2. Implement the native protocol-v2 adapter and durable security-counter/key
+-   persistence. The current daemon still speaks EZSP. Orderly freeze/export is
+-   tested; crash recovery without a final snapshot needs durable upper bounds.
++2. Validate the implemented native protocol-v2 adapter and native-owned state
++   against real hardware. Production still speaks EZSP. The ZHA-style 1000-frame
++   restart margin and checkpoints pass simulation but do not provide unconditional
++   crash safety; notification loss, stale keys or long outages remain limits.
+ 3. Establish recovery if an RCP stops responding. A working RCP has a compiled
+    Spinel bootloader-entry path; the current setup has no verified SWD recovery
+    procedure or full radio flash dump. A valid image does not guarantee recovery.
+@@ -207,8 +211,10 @@ For a **future separately authorized** orderly return from Ziggurat:
+ 
+ If the RCP is unresponsive, the Spinel entry path is unavailable. Without a
+ verified hardware entry/SWD method, rollback cannot be guaranteed. Likewise,
+-a crash before final export needs persisted security upper bounds and current
+-keys; the prototype does not yet implement that native persistence layer.
++a crash before final export needs current keys and sufficiently advanced counters.
++The native persistence layer now implements ZHA-style checkpoints and a 1000-frame
++restart margin; this is not a durable reservation of every future counter.
++See the integration guide for notification-loss and incoming replay-counter limits.
+ 
+ Sources: the retained [EZSP upgrade record](scripts/EZSP_UPGRADE.md), the
+ [Silicon Labs NCP-to-host migration note](https://docs.silabs.com/zigbee/9.0.0/multiprotocol-solution-linux/host-ncp-rcp-migration),
+diff --git a/README.md b/README.md
+index c4042f0..e497e27 100644
+--- a/README.md
++++ b/README.md
+@@ -5,14 +5,18 @@ the Lidl/gateway gateway. It is built specifically with the bundled RSDK for the
+ gateway's 32-bit big-endian MIPS/uClibc environment; it does not use low.js,
+ Node.js, or the TCP serial bridge.
+ 
+-## Network migration preparation — 2026-10-02
++## Current state and plan — 2026-10-03
+ 
+-The read-only EZSP v13 backup exporter is deployed. Actual private network
+-state imports correctly into stopped host Ziggurat with a simulated radio;
+-orderly counter-safe rollback preparation is tested. Radio firmware and the
+-production network remain in use. Hardware migration/recovery, the native
+-Ziggurat adapter and crash-safe persistence remain pending. See
+-[commands, evidence and recovery limits](NETWORK_MIGRATION.md).
++The optional Ziggurat backend is implemented: COBS over a Unix stream socket,
++with the native service owning persistent state following ZHA's model. EZSP is
++still the default. Both host suites and MIPS builds pass; actual host stack and
++gateway Ziggurat-only simulations pass. Production remains on EZSP: no native
++service replacement/restart, radio access or firmware flashing occurred in this work.
++
++Next, validate network migration/recovery and real Zigbee traffic on spare
++hardware, then integrate standalone Thread and Matter. The restart counter margin
++has explicit crash-safety limits. See [integration, commands and results](ZIGGURAT_INTEGRATION.md)
++and [network migration evidence](NETWORK_MIGRATION.md).
+ 
+ ## Build
+ 
+@@ -20,6 +24,10 @@ Ziggurat adapter and crash-safe persistence remain pending. See
+ make host
+ make test
+ make mips
++# Optional backend, separate output directories:
++make ZIGGURAT=1 host test
++make ZIGGURAT=1 mips
++make test-backends
+ ```
+ 
+ `make mips` uses only
+diff --git a/ZIGGURAT_INTEGRATION.md b/ZIGGURAT_INTEGRATION.md
+new file mode 100644
+index 0000000..8973689
+--- /dev/null
++++ b/ZIGGURAT_INTEGRATION.md
+@@ -0,0 +1,272 @@
++# Native service ↔ Ziggurat integration
++
++## Current state and plan — 2026-10-03
++
++**Implemented and verified in simulation.** The optional native COBS/Unix socket
++backend, native-owned state store and recovery lifecycle are complete. Both EZSP
++and Ziggurat host suites and MIPS builds pass. Thirteen scripted-peer cases and
++six actual native-service/Ziggurat/host-RCP scenarios pass. The gateway ran only
++Ziggurat and a socket probe against synthetic host radio state; all eight checks
++passed and temporary uploads were removed. Production remains on EZSP with its
++network formed, 23 known devices and an unchanged executable checksum.
++
++**Next:** rehearse migration and recovery on spare hardware, validate real Zigbee
++traffic, then integrate the Thread consumer and Matter. No firmware was flashed;
++the native service was neither deployed nor restarted. The 1000-frame restart
++margin follows ZHA's policy and does not guarantee safety after arbitrary outages.
++
++The goal is a standalone gateway gateway: native device/application handling talks
++to Ziggurat over a Unix stream socket; Ziggurat speaks HDLC/Spinel to the radio.
++The later Thread consumer uses a separate HDLC endpoint, not this Zigbee API.
++This work does not implement Thread, OTBR or Matter.
++
++## Ownership and processes
++
++The native service owns the durable Zigbee state, following ZHA/zigpy's model.
++Ziggurat owns the running Zigbee stack and RCP link but does not persist state.
++The native coordinator thread owns its socket and all gateway mutations. There
++is no additional broker or client worker thread. Ziggurat is started separately;
++the native service retries its socket and never starts a second radio owner.
++
++The compile flag selects the production backend:
++
++```sh
++make ZIGGURAT=0 host test   # existing EZSP/ASH (default)
++make ZIGGURAT=1 host test   # Ziggurat enabled; legacy unit/integration tests retained
++make test-backends         # always runs both variants
++make ZIGGURAT=0 mips
++make ZIGGURAT=1 mips
++```
++
++Disabled outputs remain `build/host` and `build/mips`. Enabled outputs live in
++`build/host-ziggurat` and `build/mips-ziggurat`. No executable is deployed by make.
++The native project requires its stock RSDK and C++03. Do not deploy these native
++binaries during this task.
++
++## Local API and configuration
++
++The experimental server invocation is:
++
++```sh
++ziggurat --api cobs-unix --listen unix:/tmp/ziggurat/native.sock \
++  --device tcp://HOST_SIMULATOR:PORT --spinel-iid 1 --log-level error
++```
++
++Create the socket's parent with mode 0700. The server creates a 0600 socket,
++refuses existing regular files/symlinks and live listeners, and can reclaim a
++verified stale socket. Keep the Zigbee COBS socket distinct from `--thread-socket`,
++which carries HDLC Spinel. WebSocket and stdio modes remain available.
++
++Native configuration adds `ziggurat_socket` (default
++`/tmp/ziggurat/native.sock`). The state file is kept in the configured runtime
++folder. Production startup selects Ziggurat only in enabled builds; no socket
++failure falls back to EZSP or opens the UART.
++
++## COBS and protocol v2
++
++Each binary protocol frame is COBS-encoded and followed by `00`. A byte stream
++can split frames or combine several frames in one read. COBS supplies boundaries,
++not encryption or a checksum. Local socket permissions protect key-bearing API
++messages. Logs must never contain raw frames or key material.
++
++The decoded header is three bytes: command byte, then a little-endian 16-bit
++word `(request_id << 2) | frame_type`. Type 0 is request, 1 response, 2 scan event,
++3 notification. IDs are 1..16383 for requests; unsolicited notifications use 0,
++while send confirmations carry the original send ID. Responses begin with status.
++Wire integers are explicitly little endian even on the big-endian gateway CPU.
++
++The client limits pending requests to 64, encoded frames to 16384 bytes and queued
++output to 65536 bytes and received events to 256. Linux SO_PEERCRED requires
++the server to run as the same user as the native service. Malformed or oversized input is discarded to the next zero.
++Control/admission requests time out in ten seconds; admitted send confirmations
++have a separate thirty-second deadline. The socket reconnect interval is one
++second. Snapshot refresh is every sixty seconds and after table changes.
++
++## Startup and state recovery
++
++The private state format `microhad-ziggurat-native`, version 1, stores the protocol's
++82-byte network state and counted key, child and address tables as lowercase hex.
++A SHA256 checksum covers their concatenated decoded bytes; it detects corruption,
++not malicious edits by the service user.
++It preserves the coordinator IEEE, PAN/channel, extended PAN, network key and
++sequence, trust-center link key and hashed derivation seed/flavor, transmit power,
++NWK/APS outgoing counters, and per-device APS receive counters. Receive counters
++use Ziggurat's next-acceptable convention. It is separate from application device
++configuration and is never committed.
++
++State reads require a bounded regular file owned by the service user with no group
++or other permissions. Writes use a private temporary file, fsync, rename and
++parent-directory fsync. A lock file prevents multiple service processes from
++writing the same network state; loading happens after taking that lock. Symlinks,
++invalid counts, duplicate entries, invalid keys and checksum mismatches are refused.
++Identical snapshots do not cause another write. A missing/corrupt file blocks startup; nothing
++silently forms a replacement network.
++
++On connection, validate Hello version 2 and query GetNetworkInfo. If unconfigured,
++advance both outgoing counters by 1000 (APS at least above all saved key transmit
++counters), check overflow, and save that state **before** Configure/LoadKeyTable/
++LoadChildren/LoadAddressCache/StartNetwork. A reconnect to a running stack checks
++identity and counter consistency and reads the live tables without reconfiguration.
++A stopped/frozen stack is loaded afresh with the same identity and advanced counters.
++
++Counter notifications monotonically update durable state; link-key notifications
++replace the corresponding device key and trigger table refresh. Successful scan
++responses must agree with the received and advertised table counts; partial scans
++are not published. A key update racing
++a snapshot causes a new scan so an older row cannot overwrite a newly saved key.
++Orderly service stop uses the existing FreezeNetwork extension, scans stopped
++state and saves it before disconnecting, with a five-second overall stop bound. Failure to freeze is not proof of a safe
++rollback; use the existing migration tool's freeze/export checks.
++
++## ZHA-style durability assumptions
++
++The current ZHA adapter (`zigpy-ziggurat`) stores counter/key notifications in
++zigpy's database and adds 1000 to NWK and APS counters on stateless restart. This
++implementation follows that policy, without adding persistence to Ziggurat.
++
++Upstream emits counter notifications every 100 frames and bounds its notification
++queue to 64 events; older events may be dropped. The 1000 margin is a policy,
++**not an unlimited crash-safety guarantee**. Long disconnects, notification loss,
++storage/commit lag and a crash during a key update can defeat saved-state freshness.
++A best-effort freeze on state-write failure cannot be guaranteed if the connection
++is already broken. Do not describe simulated recovery as guaranteed no-repair
++hardware migration or unconditional counter safety.
++
++Incoming replay counters are captured in table checkpoints and on orderly freeze.
++After an unclean stop they can lag live values. Strict replay protection across
++power loss is not supplied. There are no per-frame flash writes; security
++notifications and table checkpoints cause persistence writes. Device simulations
++use synthetic state in `/tmp`, which is RAM-backed and not power-loss durable.
++
++Reference implementations:
++- https://github.com/zigpy/zigpy-ziggurat/blob/dev/zigpy_ziggurat/zigbee/application.py
++- https://github.com/zigpy/zigpy/blob/dev/zigpy/appdb.py
++- https://github.com/zigpy/ziggurat
++
++## Network import
++
++Use the existing migration preparation with fresh, exclusively handed-over state.
++Never start actual-network state against a simulator. Actual backup verification
++remains stopped-only. The preparation margin of 10000 is separate from the 1000
++native restart margin; converting an already prepared state does not advance again.
++
++```sh
++migration_python=../ziggurat-compilation/tools/network-migration-venv/bin/python
++"$migration_python" scripts/ziggurat_migration.py prepare-import \
++  --state PRIVATE_CAPTURED_STATE.json --output PRIVATE_IMPORT_BUNDLE.json
++"$migration_python" scripts/ziggurat_migration.py prepare-native \
++  --state PRIVATE_IMPORT_BUNDLE.json --output PRIVATE_NATIVE_STATE.json
++```
++
++Neither command connects, starts a stack or flashes firmware. Current network
++migration/recovery prerequisites remain in [NETWORK_MIGRATION.md](NETWORK_MIGRATION.md).
++
++## Validation and device boundaries
++
++The following checks passed on 2026-10-03. Run native host variants sequentially;
++some existing legacy tests share temporary paths. Python test helpers require
++Python 3.8 or later. Real service simulations use private synthetic fixtures and
++loopback sockets, never production state or the UART.
++
++| Check | Result |
++| --- | --- |
++| `make ZIGGURAT=0 host test` | Legacy EZSP unit/integration suite passes |
++| `make ZIGGURAT=1 host test` | Legacy suite, COBS/state units and 13 scripted-peer cases pass |
++| `make ZIGGURAT=0 mips`; `make ZIGGURAT=1 mips` | Both stock-RSDK builds pass |
++| `python3 scripts/test_ziggurat_service.py` | Six actual native/Ziggurat/RCP lifecycle scenarios pass |
++| Migration Python tests | 15 cases pass, including native conversion and private-file rules |
++| Rust transport/protocol/server tests | 15 transport cases pass; protocol/server have no unit cases |
++| Host HDLC / COBS simulations | Eight / seven scenario checks pass |
++| gateway COBS simulation | Eight checks pass, including unchanged production and cleanup |
++
++Scripted peers exercise fragmented/malformed/oversized input, join/interview,
++device reports and light sends, coordinator descriptors, admission failures,
++control timeout, reconnect, counter/key commits, state corruption, storage failure,
++inconsistent snapshots and a crash after saving counters but before Configure.
++The peer asserts that Configure never precedes the durable state commit.
++Actual-stack scenarios cover cold load, joining, freeze/save, frozen restart,
++native SIGKILL with a running stack, and cold recovery after Ziggurat restarts.
++
++Build the patched server in the sibling experiment checkout using its documented
++Rust and stock-RSDK prerequisites:
++
++```sh
++cd ../ziggurat-compilation
++ZIGGURAT_MULTIPAN=1 bash scripts/build-ziggurat.sh
++source scripts/rust-env.sh
++CARGO_TARGET_DIR="$PWD/build/host" cargo +nightly-2026-10-02 build \
++  --manifest-path worktrees/ziggurat-hdlc/Cargo.toml -p ziggurat-server
++python3 scripts/test-cobs-unix.py
++cd ../microhad-zigbee-native
++python3 scripts/test_ziggurat_service.py
++../ziggurat-compilation/tools/network-migration-venv/bin/python \
++  scripts/test_network_migration.py
++```
++
++gateway testing uploads **only Ziggurat and a test socket probe**, using a host RCP
++and synthetic keys. The full native adapter runs only on the host. Device testing
++uses unique paths, a bounded watchdog, a free-memory check and cleanup. `/tmp` is
++ramfs: upload plus an 8 MiB reserve did not fit, so the verified run temporarily
++staged executables in an isolated `/tuya/ziggurat-simulation-*` flash directory,
++with logs/socket in RAM, then removed both. No native state or launcher was changed.
++
++```sh
++cd ../ziggurat-compilation
++bash scripts/build-hdlc-probe.sh
++python3 scripts/test-cobs-unix.py --host 192.168.178.62 \
++  --password-file ../ssh_password.txt --upload-storage flash
++```
++
++Measured Ziggurat RSS was **1,620 KiB**. `top` samples summed its LinuxThreads
++processes and ranged **0–7% CPU** during 200 socket queries. Median/p95 response
++times were **5.27/8.23 ms**, including the SSH probe. Host RCP processing median/p95
++was **0.050/0.121 ms** across 30 simulator replies. These are synthetic query
++measurements; they do not establish real-radio, Thread or Matter capacity.
++Production remained online/formed with 23 devices and MD5
++`7a508ac880516642572a70e87bdc5014` before and after.
++
++The old device shell has no `rmdir`: an initial run left two empty test directories.
++They were removed, cleanup was changed to remove only the owned unique directories,
++and the complete rerun passed. No test uploads remain.
++
++## Application mapping and remaining limits
++
++| Native operation | Ziggurat operation / handling |
++| --- | --- |
++| Coordinator startup | Hello, GetNetworkInfo, Configure/table load when needed, StartNetwork |
++| Snapshot | Network info, key/child/address scans and GetInfo; validate complete tables |
++| Join window | PermitJoins duration in seconds; close on failure/expiry |
++| Unicast/group/broadcast | Protocol-v2 send operations with distinct admission and delivery results |
++| Device traffic | Shared native APS/ZDO/ZCL handlers; interview, reporting and controls |
++| Joined/left/key/counter events | Update native application state or private security state |
++| Orderly shutdown | Freeze, scan stopped state, persist; bounded timeout |
++
++Request IDs and application send cookies are separate. Outstanding sends fail on
++disconnect; they are not blindly replayed. The stack owns APS sequence numbers,
++routing and encryption. The native endpoint 1 answers Node, Active Endpoint and
++Simple Descriptor requests; the legacy Green Power endpoint 242 is not exposed by
++this adapter. Fresh-network creation and raw EZSP `/api/network/backup` return
++explicit unsupported errors on this backend; use private Ziggurat state and the
++migration tools for recovery preparation.
++
++The incoming NWK replay-counter map is absent from the current protocol/state;
++incoming APS counters can lag after a crash. Real radio ACKs, sleepy-child behavior,
++hardware restoration and recovery from an unresponsive RCP remain unverified.
++The Thread endpoint transports Spinel; it does not supply an OTBR or Matter stack.
++`deploy.sh` defaults to the EZSP binary. A future Ziggurat deployment would need
++explicit `--binary build/mips-ziggurat/microhad-zigbee-native`; no such deployment was
++performed or authorized for this test.
++
++## Troubleshooting
++
++- Missing state: explicitly initialize a private prepared state; do not create a
++  new live network automatically.
++- Missing socket: start the separate simulator/server, check the configured path
++  and directory permissions. Native remains offline and retries.
++- Protocol mismatch: use the pinned patched server; do not interpret another
++  protocol version as v2.
++- Identity/counter mismatch: stop the test and inspect private state offline.
++  Do not overwrite it with live state from a different coordinator.
++- State write failure: fix permissions/free space; the client fails closed and
++  requests a best-effort freeze. Hardware rollback still needs a verified export.
++- Cold-start RNG stall: preserve entropy checks; do not bypass randomness safety.
+diff --git a/config.example.json b/config.example.json
+index 472f008..dc097e2 100644
+--- a/config.example.json
++++ b/config.example.json
+@@ -8,5 +8,6 @@
+   "tls_private_key": "/tuya/native/tls/key.pem",
+   "firebase_service_account": "/tuya/native/firebase-service-account-file.json",
+   "firebase_topic": "zigbee_alerts",
+-  "ca_bundle": "/tuya/native/tls/ca-bundle.pem"
++  "ca_bundle": "/tuya/native/tls/ca-bundle.pem",
++  "ziggurat_socket": "/tmp/ziggurat/native.sock"
+ }
+diff --git a/include/gateway.h b/include/gateway.h
+index 24b5e5c..ea946b9 100644
+--- a/include/gateway.h
++++ b/include/gateway.h
+@@ -11,6 +11,7 @@
+ #include "network_backup.h"
+ #include "sensor_history.h"
+ 
++class ZigguratClient;
+ class NotificationWorker;
+ class ExternalHttpDeviceWorker;
+ 
+@@ -151,6 +152,7 @@ struct DeviceConfigurationStatus {
+    worker.  It deliberately contains only dashboard-visible state. */
+ class GatewayView {
+ public:
++    std::string coordinatorBackend;
+     bool online;
+     bool networkForming;
+     bool networkFormed;
+@@ -180,6 +182,9 @@ public:
+             NotificationWorker* notificationWorker = 0,
+             const std::string& historyPath = "/tmp/microhad-zigbee-native-history.bin");
+     ~Gateway();
++#if MICROHAD_ZIGGURAT_ENABLED
++    void useZiggurat(const std::string& socketPath);
++#endif
+     bool start(std::string* error);
+     void stop();
+     void poll();
+@@ -242,6 +247,19 @@ public:
+ private:
+     friend class GatewayTestPeer;
+     friend class GatewayIntegrationTestPeer;
++#if MICROHAD_ZIGGURAT_ENABLED
++    ZigguratClient* ziggurat_;
++    std::string zigguratSocket_;
++    struct ZigguratSend {
++        unsigned char sequence;
++        bool unicast;
++        ZigguratSend() : sequence(0), unicast(false) {}
++    };
++    std::map<unsigned int, ZigguratSend> zigguratSends_;
++    std::deque<ZigguratSend> zigguratFailedSends_;
++    void pollZiggurat();
++    void zigguratSendResult(unsigned char sequence, bool unicast, unsigned char status);
++#endif
+     std::string serialDevice_;
+     int serialBaud_;
+     std::string runtimeDirectory_;
+@@ -528,6 +546,11 @@ private:
+     void saveScenes();
+     void loadSceneRuntime();
+     void saveSceneRuntime() const;
++    void handleApsMessage(unsigned short sender, unsigned short profile, unsigned short cluster,
++                          unsigned char sourceEndpoint, unsigned char destinationEndpoint,
++                          unsigned short options, unsigned short group, unsigned char sequence,
++                          unsigned char messageType, unsigned char lqi, signed char rssi,
++                          const std::vector<unsigned char>& message);
+     void handleIncomingMessage(const std::vector<unsigned char>& payload);
+     bool generateNetworkMaterial(std::string* error);
+     void continueNetworkFormation(unsigned short completedCommand);
+diff --git a/include/gateway_config.h b/include/gateway_config.h
+index cfcb598..27d265c 100644
+--- a/include/gateway_config.h
++++ b/include/gateway_config.h
+@@ -4,6 +4,7 @@
+ #include <string>
+ 
+ struct GatewayConfig {
++    std::string zigguratSocket;
+     std::string serialDevice;
+     long serialBaud;
+     std::string runtimeDirectory;
+diff --git a/include/ziggurat_client.h b/include/ziggurat_client.h
+new file mode 100644
+index 0000000..e7d2b8b
+--- /dev/null
++++ b/include/ziggurat_client.h
+@@ -0,0 +1,90 @@
++#ifndef MICROHAD_ZIGGURAT_CLIENT_H
++#define MICROHAD_ZIGGURAT_CLIENT_H
++
++#include <deque>
++#include <map>
++#include <string>
++#include <vector>
++
++// Protocol v2: little-endian wire values, COBS messages delimited by zero.
++namespace ZigguratWire {
++typedef std::vector<unsigned char> Bytes;
++Bytes encode(const Bytes& plain);
++bool decode(const Bytes& encoded, Bytes* plain);
++unsigned long get32(const Bytes& bytes, unsigned long offset);
++void put16(Bytes* bytes, unsigned int value);
++void set32(Bytes* bytes, unsigned long offset, unsigned long value);
++}
++
++struct ZigguratState {
++    ZigguratWire::Bytes network; // 82-byte protocol NetworkState
++    ZigguratWire::Bytes keys; // counted KeyEntry table
++    ZigguratWire::Bytes children; // counted ChildEntry table
++    ZigguratWire::Bytes addresses; // counted AddressEntry table
++    bool load(const std::string& path, std::string* error);
++    bool save(const std::string& path, std::string* error) const;
++    bool valid() const;
++    bool advance(std::string* error);
++};
++
++class ZigguratClient {
++public:
++    typedef ZigguratWire::Bytes Bytes;
++    struct Event {
++        enum Type { Ready, Down, ReceivedAps, Joined, Left, Admission, Confirmation, JoinReply, Diagnostic } type;
++        unsigned int id;
++        unsigned char command;
++        unsigned char status;
++        Bytes payload;
++        std::string message;
++        Event(Type value) : type(value), id(0), command(0), status(0) {}
++    };
++    ZigguratClient();
++    ~ZigguratClient();
++    bool start(const std::string& socket, const std::string& state, std::string* error);
++    void stop();
++    void poll();
++    int fd() const { return fd_; }
++    bool needsWrite() const { return !output_.empty(); }
++    long deadline() const;
++    bool ready() const { return ready_; }
++    bool pop(Event* event);
++    unsigned int request(unsigned char command, const Bytes& payload);
++    const ZigguratState& state() const { return state_; }
++private:
++    struct Pending { unsigned char command; long expires; bool admitted; bool apsAck; Pending() : command(0), expires(0), admitted(false), apsAck(false) {} };
++    int fd_;
++    int lockFd_;
++    bool connecting_;
++    bool hello_;
++    bool ready_;
++    bool failed_;
++    bool discarding_;
++    bool stopping_;
++    bool dirtyTables_;
++    unsigned int nextId_;
++    unsigned int controlId_;
++    unsigned char phase_;
++    long reconnectAt_;
++    long helloDeadline_;
++    long checkpointAt_;
++    std::string socketPath_;
++    std::string statePath_;
++    Bytes input_;
++    Bytes output_;
++    std::map<unsigned int, Pending> pending_;
++    std::deque<Event> events_;
++    ZigguratState state_;
++    ZigguratState snapshot_;
++    unsigned long keyRevision_;
++    unsigned long snapshotRevision_;
++    bool connectSocket(std::string* error);
++    void disconnect(const std::string& reason, bool permanent = false);
++    void frame(const Bytes& data);
++    void control(unsigned char command, const Bytes& payload, unsigned char phase);
++    void controlReply(unsigned char command, unsigned char status, const Bytes& body);
++    bool persist();
++    void snapshot(bool initial);
++    void finishSnapshot();
++};
++#endif
+diff --git a/scripts/test_network_migration.py b/scripts/test_network_migration.py
+index 7f80b26..512fe81 100644
+--- a/scripts/test_network_migration.py
++++ b/scripts/test_network_migration.py
+@@ -76,6 +76,26 @@ class MigrationTests(unittest.TestCase):
+         self.assertEqual(len(cmds[0][1]),84);self.assertEqual(cmds[0][1][16:24],bytes.fromhex(fixture()["network"]["ieee_address"]))
+         self.assertEqual([c for c,_ in cmds],[0x10,0x11,0x12,0x13])
+         self.assertEqual(struct.unpack_from("<I",cmds[0][1],41)[0],22000)
++    def test_native_state_conversion_preserves_prepared_counters(self):
++        import hashlib
++        state=migration.prepared_state(fixture());native=migration.native_state(state)
++        wire=bytes.fromhex(native["network"])
++        self.assertEqual(int.from_bytes(wire[39:43],"little"),state["network"]["network_key_tx_counter"])
++        self.assertEqual(int.from_bytes(wire[78:82],"little"),state["network"]["aps_frame_counter"])
++        self.assertEqual(native["checksum"],hashlib.sha256(b"".join(bytes.fromhex(native[field]) for field in
++            ("network","keys","children","addresses"))).hexdigest())
++
++    def test_native_cli_accepts_prepared_bundle_and_private_output(self):
++        import os
++        with tempfile.TemporaryDirectory() as tmp:
++            source=Path(tmp)/"bundle.json";destination=Path(tmp)/"native.json"
++            source.write_text(json.dumps({"format":"ziggurat-import-bundle","state":migration.prepared_state(fixture())}))
++            command=[str(Path(__import__("sys").executable)),str(Path(migration.__file__)),"prepare-native","--state",str(source),"--output",str(destination)]
++            subprocess.run(command,check=True,stdout=subprocess.DEVNULL)
++            self.assertEqual(destination.stat().st_mode&0o777,0o600)
++            result=json.loads(destination.read_text());self.assertEqual(result["format"],"microhad-ziggurat-native")
++            self.assertNotEqual(subprocess.run(command,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode,0)
++
+     def test_no_missing_counter_guess(self):
+         state=fixture();state["counter_evidence"]["aps_live_upper_bound_verified"]=False
+         with self.assertRaises(ValueError):migration.prepared_state(state)
+diff --git a/scripts/test_ziggurat_native_peer.py b/scripts/test_ziggurat_native_peer.py
+new file mode 100644
+index 0000000..4c1685d
+--- /dev/null
++++ b/scripts/test_ziggurat_native_peer.py
+@@ -0,0 +1,262 @@
++#!/usr/bin/env python3
++"""Scripted Unix COBS integration tests for the native service; synthetic only."""
++from collections import deque
++import copy
++import json
++from pathlib import Path
++import socket
++import struct
++import subprocess
++import tempfile
++import threading
++import time
++import unittest
++import urllib.error
++import urllib.request
++
++from test_network_migration import fixture
++from ziggurat_migration import prepared_state, native_state
++from ziggurat_cobs import encode, decode
++from test_ziggurat_service import free_port, wait_for
++
++ROOT=Path(__file__).resolve().parents[1]
++
++
++class Peer:
++    def __init__(self,path,state):
++        self.path=path;self.saved=copy.deepcopy(state);self.network=bytes.fromhex(state["network"])
++        self.tables={0x21:bytes.fromhex(state["keys"]),0x22:bytes.fromhex(state["children"]),0x23:bytes.fromhex(state["addresses"])}
++        self.configured=False;self.started=False;self.conn=None;self.stop=threading.Event();self.error=None
++        self.lock=threading.Lock();self.commands=[];self.reject_send=False;self.fail_confirmation=False;self.drop_commands=set();self.omit_scan_rows=set()
++        self.listener=socket.socket(socket.AF_UNIX);self.listener.bind(str(path));path.chmod(0o600);self.listener.listen();self.listener.settimeout(.1)
++        self.thread=threading.Thread(target=self.run,daemon=True);self.thread.start()
++
++    def send(self,frame,fragment=False):
++        data=encode(frame)
++        with self.lock:
++            if not self.conn:return
++            try:
++                if fragment:
++                    for i in range(0,len(data),2):self.conn.sendall(data[i:i+2])
++                else:self.conn.sendall(data)
++            except (BrokenPipeError,ConnectionResetError):pass
++
++    def notify(self,command,payload):self.send(bytes([command,3,0])+payload)
++
++    def aps(self,cluster,data,profile=0x0104):
++        payload=struct.pack("<HHBHHHBBBbH",0x1234,0,0,0,profile,cluster,1,1,190,-42,len(data))+data
++        self.notify(0x10,payload)
++
++    def handle(self,raw):
++        command=raw[0];bits=int.from_bytes(raw[1:3],"little");assert bits&3==0
++        ident=bits>>2;body=raw[3:];self.commands.append((command,body))
++        if command in self.drop_commands:return
++        reply=bytes([command])+struct.pack("<H",ident<<2|1)
++        status=0;response=b""
++        if command==0x20:
++            if not self.configured:status=0x10
++            else:response=self.network+self.tables[0x21][:2]+bytes([self.started])
++        elif command==0x10:
++            assert len(body)==84
++            committed=json.loads((self.path.parent/"ziggurat-state.json").read_text())
++            assert committed["network"]==body[2:].hex() # Commit precedes Configure.
++            self.network=body[2:];self.configured=True;self.started=False
++        elif command in (0x11,0x12,0x13):self.tables[command+0x10]=body
++        elif command==0x16:self.started=True
++        elif command==4:self.started=False
++        elif command in (0x21,0x22,0x23):
++            table=self.tables[command];width={0x21:33,0x22:11,0x23:10}[command]
++            for at in ([] if command in self.omit_scan_rows else range(2,len(table),width)):self.send(bytes([command])+struct.pack("<H",ident<<2|2)+table[at:at+width])
++            response=table[:2]
++        elif command in (0x30,0x31,0x32):
++            if self.reject_send:status=0x20
++        elif command!=0x34:status=2
++        self.send(reply+bytes([status])+response,fragment=True)
++        if command in (0x30,0x31,0x32) and not status:
++            # Group sends have one completion; APS-acked unicast has two stages.
++            if command==0x30:self.send(b"\x11"+struct.pack("<H",ident<<2|3)+b"\x00")
++            final=0x12 if command==0x30 else 0x13
++            self.send(bytes([final])+struct.pack("<H",ident<<2|3)+bytes([7 if self.fail_confirmation else 0]))
++            if command==0x30 and not self.fail_confirmation:
++                profile=int.from_bytes(body[11:13],"little");cluster=int.from_bytes(body[13:15],"little");asdu=body[23:]
++                if profile==0 and asdu:
++                    if cluster==5:self.aps(0x8005,asdu[:1]+b"\x00\x34\x12\x01\x01",profile=0)
++                    elif cluster==4:
++                        descriptor=b"\x01\x04\x01\x00\x01\x00\x02\x06\x00\x02\x04\x00"
++                        self.aps(0x8004,asdu[:1]+b"\x00\x34\x12"+bytes([len(descriptor)])+descriptor,profile=0)
++                    elif cluster==0x21:self.aps(0x8021,asdu[:1]+b"\x00",profile=0)
++
++    def run(self):
++        try:
++            while not self.stop.is_set():
++                try:connection,_=self.listener.accept()
++                except socket.timeout:continue
++                self.conn=connection;connection.settimeout(.1);buffer=bytearray()
++                self.send(bytes([0,3,0,2,int(self.configured)]),fragment=True)
++                while not self.stop.is_set():
++                    try:chunk=connection.recv(4096)
++                    except socket.timeout:continue
++                    except ConnectionResetError:break
++                    if not chunk:break
++                    buffer.extend(chunk)
++                    while 0 in buffer:
++                        at=buffer.index(0);frame=bytes(buffer[:at]);del buffer[:at+1]
++                        if frame:self.handle(decode(frame))
++                connection.close();self.conn=None
++        except (OSError,AssertionError,ValueError) as error:
++            if not self.stop.is_set():self.error=repr(error)
++
++    def close(self):
++        self.stop.set()
++        if self.conn:
++            try:self.conn.shutdown(socket.SHUT_RDWR)
++            except OSError:pass
++        self.thread.join(timeout=2);self.listener.close()
++
++
++class NativeTests(unittest.TestCase):
++    def setUp(self):
++        self.tmp=tempfile.TemporaryDirectory(prefix="native-cobs-peer-");self.directory=Path(self.tmp.name)
++        self.state=native_state(prepared_state(fixture()));self.path=self.directory/"api.sock";self.state_path=self.directory/"ziggurat-state.json"
++        self.state_path.write_text(json.dumps(self.state));self.state_path.chmod(0o600)
++        self.port=free_port();self.config=self.directory/"config.json"
++        self.config.write_text(json.dumps({"serial_device":"/dev/forbidden-radio", "runtime_dir":str(self.directory),"http_port":self.port,
++            "https_port":free_port(),"ziggurat_socket":str(self.path)}));self.config.chmod(0o600)
++        self.log=tempfile.TemporaryFile();self.process=None;self.peer=Peer(self.path,self.state)
++        self.launch()
++
++    def launch(self):
++        self.process=subprocess.Popen([str(ROOT/"build/host-ziggurat/microhad-zigbee-native"),"--config",str(self.config)],stdout=self.log,stderr=self.log)
++        wait_for(lambda:self.status()["online"])
++
++    def request(self,path,data=None):
++        request=urllib.request.Request(f"http://127.0.0.1:{self.port}"+path,data=data)
++        with urllib.request.urlopen(request,timeout=2) as response:return json.load(response)
++
++    def status(self):return self.request("/api/status")
++    def saved(self):return json.loads(self.state_path.read_text())
++
++    def tearDown(self):
++        if self.process:
++            self.process.terminate()
++            try:self.process.wait(timeout=7)
++            except subprocess.TimeoutExpired:self.process.kill();self.process.wait()
++        self.peer.close();self.log.close();self.tmp.cleanup()
++        self.assertIsNone(self.peer.error)
++
++    def test_fragmented_startup_and_join(self):
++        self.assertEqual(self.status()["coordinator_backend"],"ziggurat")
++        self.assertTrue(self.request("/api/join",b"")["ok"])
++        wait_for(lambda:any(command==0x34 for command,_ in self.peer.commands))
++        payload=next(body for command,body in self.peer.commands if command==0x34)
++        self.assertEqual(payload,b"\x2c\x01\x01")
++
++    def test_counter_and_link_key_notifications_are_durable(self):
++        nwk=struct.pack("<I",50000);aps=struct.pack("<I",60000)
++        self.peer.network=self.peer.network[:39]+nwk+self.peer.network[43:78]+aps
++        self.peer.notify(0x30,nwk);self.peer.notify(0x31,aps)
++        ieee=bytes.fromhex(fixture()["keys"][0]["ieee"]);key=bytes(range(64,80))
++        row=key+aps+struct.pack("<I",43)+b"\x00"+ieee;self.peer.tables[0x21]=b"\x01\x00"+row
++        self.peer.notify(0x32,ieee+key)
++        wait_for(lambda:bytes.fromhex(self.saved()["keys"])[2:18]==key)
++        saved=self.saved();network=bytes.fromhex(saved["network"])
++        self.assertEqual(network[39:43],nwk);self.assertEqual(network[78:82],aps)
++        self.process.kill();self.process.wait();self.process=None
++        self.peer.configured=False;self.peer.started=False
++        self.launch();network=bytes.fromhex(self.saved()["network"])
++        self.assertGreaterEqual(int.from_bytes(network[39:43],"little"),51000)
++        self.assertGreaterEqual(int.from_bytes(network[78:82],"little"),61000)
++        self.assertTrue(bytes.fromhex(self.saved()["keys"])[2:18]==key)
++
++    def test_received_aps_interview_reports_and_light_send(self):
++        ieee=bytes.fromhex(fixture()["keys"][0]["ieee"])
++        self.peer.notify(0x20,b"\x34\x12"+ieee+b"\x00\x00\x04")
++        wait_for(lambda:self.status()["devices"])
++        wait_for(lambda:any(command==0x30 and body[13:15]==b"\x04\x00" for command,body in self.peer.commands))
++        self.peer.aps(0x0402,b"\x18\x42\x0a\x00\x00\x29"+struct.pack("<h",2150))
++        wait_for(lambda:any(d["temperature_celsius"]==21.5 for d in self.status()["devices"]))
++        self.peer.aps(0x0006,b"\x18\x43\x0a\x00\x00\x10\x01")
++        device=wait_for(lambda:next((d for d in self.status()["devices"] if d["has_light"]),None))
++        response=self.request("/api/devices/"+device["ieee_address"]+"/light",b"state=off")
++        self.assertTrue(response["ok"])
++        wait_for(lambda:any(command==0x30 and body[13:15]==b"\x06\x00" for command,body in self.peer.commands))
++        self.peer.aps(0x0002,b"\x55\x00\x00",profile=0)
++        wait_for(lambda:any(command==0x30 and body[13:15]==b"\x02\x80" for command,body in self.peer.commands))
++        self.peer.notify(0x21,b"\x34\x12\x01"+ieee+b"\x00\xff\xff"+bytes(8))
++        wait_for(lambda: any(d["network_address"]==65535 for d in json.loads((self.directory/"devices.json").read_text())["devices"]))
++
++    def test_malformed_and_oversized_frames_resynchronize(self):
++        with self.peer.lock:self.peer.conn.sendall(b"\x02\x00"+b"\x01"*16385+b"\x00")
++        self.peer.notify(0x30,struct.pack("<I",50000))
++        wait_for(lambda:int.from_bytes(bytes.fromhex(self.saved()["network"])[39:43],"little")==50000)
++        self.assertTrue(self.status()["online"])
++
++    def test_storage_failure_requests_freeze_and_stays_offline(self):
++        self.state_path.chmod(0o644)
++        self.peer.notify(0x30,struct.pack("<I",50000))
++        wait_for(lambda:not self.status()["online"])
++        wait_for(lambda:any(command==4 for command,_ in self.peer.commands))
++        time.sleep(.05);self.assertFalse(self.status()["online"])
++
++    def test_reconnect_preserves_running_stack(self):
++        configured=sum(command==0x10 for command,_ in self.peer.commands)
++        with self.peer.lock:self.peer.conn.shutdown(socket.SHUT_RDWR)
++        wait_for(lambda:not self.status()["online"])
++        wait_for(lambda:self.status()["online"],timeout=5)
++        self.assertEqual(sum(command==0x10 for command,_ in self.peer.commands),configured)
++
++    def test_admission_and_confirmation_failures_are_reported(self):
++        ieee=bytes.fromhex(fixture()["keys"][0]["ieee"])
++        self.peer.reject_send=True
++        self.peer.notify(0x20,b"\x34\x12"+ieee+b"\x00\x00\x04")
++        wait_for(lambda:any("Ziggurat send failed" in line for line in self.request("/api/logs")["lines"]))
++        self.assertTrue(self.status()["online"])
++
++    def test_control_timeout_closes_join_window(self):
++        self.peer.drop_commands.add(0x34)
++        self.assertTrue(self.request("/api/join",b"")["ok"])
++        wait_for(lambda:self.status()["joining_until"]>0)
++        wait_for(lambda:self.status()["joining_until"]==0,timeout=12)
++
++    def test_live_identity_mismatch_is_not_overwritten(self):
++        saved=self.saved()
++        n=bytearray(self.peer.network);n[14]^=1;self.peer.network=bytes(n)
++        with self.peer.lock:self.peer.conn.shutdown(socket.SHUT_RDWR)
++        wait_for(lambda:not self.status()["online"])
++        time.sleep(1.3)
++        self.assertFalse(self.status()["online"])
++        self.assertTrue(self.saved()==saved)
++
++    def test_malformed_counter_notification_fails_closed(self):
++        self.peer.notify(0x30,b"\x01\x02")
++        wait_for(lambda:not self.status()["online"])
++        self.assertFalse(self.status()["network_formed"])
++
++    def test_partial_scan_never_overwrites_saved_keys(self):
++        saved=self.saved();self.peer.omit_scan_rows.add(0x21)
++        ieee=bytes.fromhex(fixture()["keys"][0]["ieee"])
++        self.peer.notify(0x20,b"\x34\x12"+ieee+b"\x00\x00\x04")
++        wait_for(lambda:not self.status()["online"])
++        self.assertTrue(self.saved()["keys"]==saved["keys"])
++
++    def test_crash_after_counter_commit_before_configure(self):
++        self.process.kill();self.process.wait();self.process=None
++        self.peer.configured=False;self.peer.started=False;self.peer.drop_commands.add(0x10)
++        first=int.from_bytes(bytes.fromhex(self.saved()["network"])[39:43],"little")
++        self.process=subprocess.Popen([str(ROOT/"build/host-ziggurat/microhad-zigbee-native"),"--config",str(self.config)],stdout=self.log,stderr=self.log)
++        wait_for(lambda:int.from_bytes(bytes.fromhex(self.saved()["network"])[39:43],"little")>first)
++        committed=self.saved()
++        self.process.kill();self.process.wait();self.process=None;self.peer.drop_commands.clear()
++        self.launch()
++        restored=bytes.fromhex(self.saved()["network"]);before=bytes.fromhex(committed["network"])
++        self.assertGreater(int.from_bytes(restored[39:43],"little"),int.from_bytes(before[39:43],"little"))
++        self.assertGreater(int.from_bytes(restored[78:82],"little"),int.from_bytes(before[78:82],"little"))
++
++    def test_corrupt_state_blocks_startup(self):
++        self.process.kill();self.process.wait();self.process=None
++        self.state_path.write_text("{}");self.state_path.chmod(0o600)
++        process=subprocess.Popen([str(ROOT/"build/host-ziggurat/microhad-zigbee-native"),"--config",str(self.config)],stdout=self.log,stderr=self.log)
++        self.assertEqual(process.wait(timeout=5),1)
++
++
++if __name__=="__main__":unittest.main()
+diff --git a/scripts/test_ziggurat_service.py b/scripts/test_ziggurat_service.py
+new file mode 100644
+index 0000000..0741c98
+--- /dev/null
++++ b/scripts/test_ziggurat_service.py
+@@ -0,0 +1,123 @@
++#!/usr/bin/env python3
++"""Native service + actual Ziggurat + loopback RCP; synthetic state only."""
++import argparse
++import importlib.util
++import json
++import os
++from pathlib import Path
++import socket
++import struct
++import subprocess
++import tempfile
++import time
++import urllib.request
++
++from test_network_migration import fixture
++from ziggurat_migration import prepared_state, native_state
++from ziggurat_cobs import Client, encode
++
++ROOT = Path(__file__).resolve().parents[1]
++
++
++def wait_for(check, timeout=12):
++    end=time.monotonic()+timeout
++    while time.monotonic()<end:
++        try:
++            value=check()
++            if value: return value
++        except (OSError, ValueError): pass
++        time.sleep(0.025)
++    raise TimeoutError("host integration condition")
++
++
++def free_port():
++    with socket.socket() as stream:
++        stream.bind(("127.0.0.1",0)); return stream.getsockname()[1]
++
++
++def main():
++    parser=argparse.ArgumentParser(description=__doc__)
++    parser.add_argument("--experiment",type=Path,default=ROOT.parent/"ziggurat-compilation")
++    args=parser.parse_args()
++    spec=importlib.util.spec_from_file_location("sim",args.experiment/"scripts/simulate-rcp.py")
++    sim=importlib.util.module_from_spec(spec);spec.loader.exec_module(sim)
++    radio=sim.Rcp("127.0.0.1",iid=1)
++    native=ROOT/"build/host-ziggurat/microhad-zigbee-native"
++    server=args.experiment/"build/host/debug/ziggurat"
++    process=service=observer=None
++    report={"synthetic_state_only":True,"physical_radio_accessed":False,"service_deployed":False,"results":[]}
++    def passed(text):report["results"].append(text);print("PASS",text,flush=True)
++    try:
++        with tempfile.TemporaryDirectory(prefix="native-ziggurat-") as tmp, tempfile.TemporaryFile() as log:
++            directory=Path(tmp);path=directory/"api.sock";state_path=directory/"ziggurat-state.json"
++            state=native_state(prepared_state(fixture()))
++            state_path.write_text(json.dumps(state));state_path.chmod(0o600)
++            config_path=directory/"config.json";port=free_port()
++            config_path.write_text(json.dumps({"serial_device":"/dev/forbidden-physical-radio", "runtime_dir":tmp,
++                "ziggurat_socket":str(path),"http_port":port,"https_port":free_port()}));config_path.chmod(0o600)
++            process=subprocess.Popen([str(server),"--device",f"tcp://127.0.0.1:{radio.port}","--spinel-iid","1",
++                "--api","cobs-unix","--listen",f"unix:{path}","--log-level","error"],stdout=log,stderr=log)
++            wait_for(lambda:path.exists());assert path.stat().st_mode&0o777==0o600
++            def launch():return subprocess.Popen([str(native),"--config",str(config_path)],stdout=log,stderr=log)
++            def status():
++                with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/status",timeout=1) as response:return json.load(response)
++            service=launch()
++            try:
++                current=wait_for(lambda: (s if (s:=status())["online"] else None))
++            except Exception:
++                log.seek(0);print(log.read().decode(errors="replace")[-5000:]);raise
++            assert current["network_formed"] and current["coordinator_backend"]=="ziggurat"
++            saved=json.loads(state_path.read_text());network=bytes.fromhex(saved["network"])
++            assert int.from_bytes(network[39:43],"little")>=int.from_bytes(bytes.fromhex(state["network"])[39:43],"little")+1000
++            assert int.from_bytes(network[78:82],"little")>=int.from_bytes(bytes.fromhex(state["network"])[78:82],"little")+1000
++            expected_key=bytes.fromhex(state["keys"])[2:]
++            restored_key=bytes.fromhex(saved["keys"])[2:]
++            assert restored_key[:16]==expected_key[:16] and restored_key[20:]==expected_key[20:]
++            assert saved["children"]==state["children"] and saved["addresses"]==state["addresses"]
++            passed("Native COBS startup restores synthetic identity, keys and both counters")
++            with urllib.request.urlopen(urllib.request.Request(f"http://127.0.0.1:{port}/api/join",data=b"",method="POST"),timeout=2) as response:
++                assert json.load(response)["ok"]
++            passed("Native HTTP permit-join maps to Ziggurat")
++            observer=Client.connect(path);info=observer.request(0x20);assert info[84]==1
++            before=json.loads(state_path.read_text())
++            service.terminate();service.wait(timeout=10);service=None
++            info=observer.request(0x20);assert info[84]==0
++            saved=json.loads(state_path.read_text());assert bytes.fromhex(saved["network"])==info[:82]
++            passed("Orderly native stop freezes and persists actual Ziggurat state")
++            old=bytes.fromhex(saved["network"])
++            service=launch();wait_for(lambda:status()["online"])
++            info=observer.request(0x20);assert info[84]==1
++            assert int.from_bytes(info[39:43],"little")>=int.from_bytes(old[39:43],"little")+1000
++            assert int.from_bytes(info[78:82],"little")>=int.from_bytes(old[78:82],"little")+1000
++            passed("Service restart reloads frozen stack with advanced NWK/APS counters")
++            # A crash leaves the stack running: reconnect must not configure/start it again.
++            service.kill();service.wait(timeout=3);service=None
++            info=observer.request(0x20);old=info[:82];resets=radio.counts["resets"]
++            service=launch();wait_for(lambda:status()["online"])
++            info=observer.request(0x20);assert info[:82]==old and radio.counts["resets"]==resets
++            passed("Native crash/reconnect attaches to the running stack without reset")
++            observer.close();observer=None
++            service.kill();service.wait(timeout=3);service=None
++            process.terminate();process.wait(timeout=5);process=None
++            path.unlink(missing_ok=True)
++            radio.close();radio=sim.Rcp("127.0.0.1",iid=1)
++            process=subprocess.Popen([str(server),"--device",f"tcp://127.0.0.1:{radio.port}","--spinel-iid","1",
++                "--api","cobs-unix","--listen",f"unix:{path}","--log-level","error"],stdout=log,stderr=log)
++            wait_for(lambda:path.exists());service=launch();wait_for(lambda:status()["online"])
++            passed("Ziggurat process restart recovers network from native durable state")
++            report["simulated_radio_transmissions"]=radio.counts["tx_frames"]
++    finally:
++        if observer:observer.close()
++        if service:
++            service.terminate()
++            try:service.wait(timeout=10)
++            except subprocess.TimeoutExpired:service.kill();service.wait()
++        if process:
++            process.terminate()
++            try:process.wait(timeout=5)
++            except subprocess.TimeoutExpired:process.kill();process.wait()
++        radio.close()
++    if radio.error:raise RuntimeError("host radio simulator failed")
++    print(json.dumps(report,indent=2))
++
++if __name__=="__main__":main()
+diff --git a/scripts/ziggurat_cobs.py b/scripts/ziggurat_cobs.py
+new file mode 100644
+index 0000000..5db601e
+--- /dev/null
++++ b/scripts/ziggurat_cobs.py
+@@ -0,0 +1,82 @@
++#!/usr/bin/env python3
++"""Test-only protocol-v2 COBS client; never opens the physical coordinator."""
++from collections import deque
++import select
++import socket
++import struct
++import time
++
++
++def encode(data):
++    result = bytearray([0]); index = 0; code = 1
++    for byte in data:
++        if byte == 0:
++            result[index] = code; index = len(result); result.append(0); code = 1
++        else:
++            result.append(byte); code += 1
++            if code == 255:
++                result[index] = code; index = len(result); result.append(0); code = 1
++    result[index] = code
++    return bytes(result) + b"\x00"
++
++
++def decode(data):
++    result = bytearray(); offset = 0
++    if not data or len(data) > 16384:
++        raise ValueError("invalid COBS length")
++    while offset < len(data):
++        code = data[offset]; offset += 1
++        if not code or offset + code - 1 > len(data):
++            raise ValueError("invalid COBS block")
++        block = data[offset:offset + code - 1]
++        if 0 in block: raise ValueError("zero in COBS block")
++        result.extend(block); offset += code - 1
++        if code != 255 and offset < len(data): result.append(0)
++    return bytes(result)
++
++
++class Client:
++    def __init__(self, stream, writer=None):
++        self.stream = stream; self.writer = writer or stream
++        self.buffer = bytearray(); self.frames = deque(); self.events = []
++        self.sequence = 0; self.timings = []
++        self.hello = self.receive()
++        assert self.hello == b"\x00\x03\x00\x02\x00" or self.hello == b"\x00\x03\x00\x02\x01"
++
++    @classmethod
++    def connect(cls, path):
++        stream = socket.socket(socket.AF_UNIX); stream.connect(str(path))
++        return cls(stream)
++
++    def write(self, data):
++        if hasattr(self.writer, "sendall"): self.writer.sendall(data)
++        else: self.writer.write(data); self.writer.flush()
++
++    def receive(self, timeout=10):
++        end = time.monotonic() + timeout
++        while not self.frames:
++            remaining = end - time.monotonic()
++            if remaining <= 0 or not select.select([self.stream], [], [], remaining)[0]:
++                raise TimeoutError("COBS response")
++            data = self.stream.recv(2048) if hasattr(self.stream, "recv") else self.stream.read1(2048)
++            if not data: raise ConnectionError("COBS connection closed")
++            self.buffer.extend(data)
++            while 0 in self.buffer:
++                at = self.buffer.index(0); frame = bytes(self.buffer[:at]); del self.buffer[:at+1]
++                if frame: self.frames.append(decode(frame))
++        return self.frames.popleft()
++
++    def request(self, command, payload=b"", status=0):
++        self.sequence = self.sequence % 16383 + 1
++        header = bytes([command]) + struct.pack("<H", self.sequence << 2)
++        start = time.perf_counter_ns(); self.write(encode(header + payload))
++        while True:
++            frame = self.receive()
++            if frame[:3] == bytes([command]) + struct.pack("<H", self.sequence << 2 | 1):
++                assert len(frame) >= 4 and frame[3] == status, (command, frame[3] if len(frame)>3 else None)
++                self.timings.append((time.perf_counter_ns()-start)/1e6)
++                return frame[4:]
++            self.events.append(frame)
++
++    def close(self):
++        if hasattr(self.stream, "close"): self.stream.close()
+diff --git a/scripts/ziggurat_migration.py b/scripts/ziggurat_migration.py
+index 3c0a099..44082ee 100644
+--- a/scripts/ziggurat_migration.py
++++ b/scripts/ziggurat_migration.py
+@@ -107,6 +107,18 @@ def import_commands(state):
+     return [(0x10,b"\x00\x01"+encode_network(state["network"])),(0x11,keys),(0x12,children),(0x13,addresses)]
+ 
+ 
++def native_state(state):
++    """Encode already-prepared migration state; native startup adds its own margin."""
++    commands = dict(import_commands(state))
++    result = {"format": "microhad-ziggurat-native", "version": 1,
++              "network": encode_network(state["network"]).hex(),
++              "keys": commands[0x11].hex(), "children": commands[0x12].hex(),
++              "addresses": commands[0x13].hex()}
++    result["checksum"] = hashlib.sha256(b"".join(bytes.fromhex(result[field])
++        for field in ("network", "keys", "children", "addresses"))).hexdigest()
++    return result
++
++
+ def verify_import(client, state):
+     """Load stopped stack, verify exported state and every key/child, never StartNetwork."""
+     for command,payload in import_commands(state): client.request(command,payload)
+@@ -184,6 +196,8 @@ def main():
+     p=sub.add_parser("prepare-import")
+     p.add_argument("--state",required=True);p.add_argument("--output",required=True)
+     p.add_argument("--aps-upper-bound",type=int)
++    p=sub.add_parser("prepare-native")
++    p.add_argument("--state",required=True);p.add_argument("--output",required=True)
+     p=sub.add_parser("prepare-rollback")
+     p.add_argument("--original",required=True);p.add_argument("--last-stopped-state",required=True)
+     p.add_argument("--output",required=True);p.add_argument("--aps-upper-bound",type=int)
+@@ -194,6 +208,13 @@ def main():
+             bundle={"format":"ziggurat-import-bundle","protocol_version":2,"state":state,
+                     "commands":[{"command":cmd,"payload":payload.hex()} for cmd,payload in import_commands(state)],
+                     "start_network_included":False,"hardware_verified":False}
++        elif args.command=="prepare-native":
++            state=json.loads(Path(args.state).read_text())
++            if state.get("format")=="ziggurat-import-bundle":
++                state=state["state"]
++            if state.get("incoming_counter_semantics")!="next-acceptable" or not state.get("counter_preparation"):
++                raise ValueError("prepare-native requires the state from a prepared import bundle")
++            bundle=native_state(state)
+         else:
+             state=rollback_state(json.loads(Path(args.original).read_text()),json.loads(Path(args.last_stopped_state).read_text()),args.aps_upper_bound)
+             bundle=open_coordinator(state)
+diff --git a/src/gateway.cpp b/src/gateway.cpp
+index 614e4c8..c6d2909 100644
+--- a/src/gateway.cpp
++++ b/src/gateway.cpp
+@@ -1,4 +1,7 @@
+ #include "gateway.h"
++#if MICROHAD_ZIGGURAT_ENABLED
++#include "ziggurat_client.h"
++#endif
+ #include "external_http_device.h"
+ #include "json_util.h"
+ #include "notification_worker.h"
+@@ -332,6 +335,9 @@ Gateway::Gateway(const std::string& serialDevice, int serialBaud, const std::str
+     ashAckDeadline_(0), ashRetries_(0), ashPendingSensitive_(false), networkBackupQuery_(0, std::vector<unsigned char>()), networkBackupSequence_(0), networkBackupDeadline_(0), networkBackupStarted_(0), ezspVersion_(4), zdoSequence_(0), zclTransactionSequence_(0), ezspVersionNegotiated_(false), stackTokenWritingRequested_(false), networkInitRequested_(false), tradfriBindGroupConfigured_(false), coordinatorInitializationStep_(0), coordinatorInitializationDeadline_(0), resetDeadline_(0), serialReconnectFailures_(0), zigbeeDownAlertQueued_(false), nextHeartbeatAt_(0), serialRxBytes_(0), ashRxFrames_(0), networkForming_(false), networkFormationStep_(0), networkFormationDeadline_(0), networkFormed_(false), networkPanId_(0),
+     networkChannel_(0), interviewRequestInFlight_(false), interviewSendAccepted_(false), interviewEzspSequence_(0), interviewNode_(0xffff),
+     interviewDeadline_(0), nextMessageTag_(1), coordinatorIeeeAddressRequested_(false), logRing_(LogRing::defaultPath()), logBytes_(0), viewDirty_(true) {
++#if MICROHAD_ZIGGURAT_ENABLED
++    ziggurat_ = 0;
++#endif
+     lastSecurityDiagnosticsAt_ = 0;
+     unsupportedSecurityValues_ = 0;
+     lastNetworkKeySequence_ = -1;
+@@ -339,7 +345,16 @@ Gateway::Gateway(const std::string& serialDevice, int serialBaud, const std::str
+ 
+ Gateway::~Gateway() {
+     stop();
++#if MICROHAD_ZIGGURAT_ENABLED
++    delete ziggurat_;
++#endif
++}
++#if MICROHAD_ZIGGURAT_ENABLED
++void Gateway::useZiggurat(const std::string& socketPath) {
++    if (serialFd_ >= 0 || ziggurat_ != 0) return;
++    ziggurat_ = new ZigguratClient(); zigguratSocket_ = socketPath;
+ }
++#endif
+ 
+ void Gateway::setShellyTransport(ExternalHttpDeviceWorker* transport) { shellyTransport_ = transport; }
+ 
+@@ -595,6 +610,13 @@ bool Gateway::start(std::string* error) {
+         build << "Build: " << __DATE__ << " " << __TIME__ << " revision=" << MICROHAD_BUILD_REVISION;
+         addLog(build.str());
+     }
++#if MICROHAD_ZIGGURAT_ENABLED
++    if (ziggurat_ != 0) {
++        bool started = ziggurat_->start(zigguratSocket_, runtimeDirectory_ + "/ziggurat-state.json", error);
++        addLog(started ? "Gateway starting with Ziggurat COBS Unix socket" : "Ziggurat startup failed: " + *error);
++        return started;
++    }
++#endif
+     /* Tests may inject a pipe descriptor before the coordinator thread starts.
+        Production always reaches this branch with serialFd_ == -1. */
+     if (serialFd_ < 0 && !configureSerial(error)) {
+@@ -607,6 +629,9 @@ bool Gateway::start(std::string* error) {
+ }
+ 
+ void Gateway::stop() {
++#if MICROHAD_ZIGGURAT_ENABLED
++    if (ziggurat_ != 0) ziggurat_->stop();
++#endif
+     networkBackup_.abort(); networkBackupDeadline_ = 0;
+     if (serialFd_ >= 0) {
+         close(serialFd_);
+@@ -616,7 +641,123 @@ void Gateway::stop() {
+     online_ = false;
+ }
+ 
++#if MICROHAD_ZIGGURAT_ENABLED
++void Gateway::zigguratSendResult(unsigned char sequence, bool unicast, unsigned char status) {
++    for (std::map<unsigned short, SceneRetry>::iterator it=sceneRetries_.begin(); it!=sceneRetries_.end(); ++it) {
++        SceneRetry& retry=it->second;
++        if (!retry.inFlight || retry.ezspSequence!=sequence || retry.unicast!=unicast) continue;
++        bool stale=retry.sentOff!=retry.off || (!retry.off && retry.sentSceneId!=retry.sceneId);
++        retry.inFlight=false;
++        if (stale) { retry.unicast=false; retry.memberIndex=0; retry.retryRequested=false; retry.retryAt=time(0); }
++        else if (!status && unicast) { ++retry.memberIndex; retry.attempts=0; retry.retryRequested=false; retry.retryAt=time(0); }
++        else if (!status) { completeSceneRetry(it->first,&retry); retry.retryRequested=false; retry.retryAt=LONG_MAX; }
++        else { retry.retryRequested=false; scheduleSceneRetry(&retry,time(0)); addLog("Ziggurat scene delivery failed; bounded retry scheduled"); }
++        return;
++    }
++    if (unicast && status && interviewRequestInFlight_ && sequence==interviewEzspSequence_)
++        failInterviewOperation(interviewNode_,"Ziggurat send failed");
++}
++
++void Gateway::pollZiggurat() {
++    while (!zigguratFailedSends_.empty()) {
++        ZigguratSend failed=zigguratFailedSends_.front(); zigguratFailedSends_.pop_front();
++        zigguratSendResult(failed.sequence,failed.unicast,0xff);
++    }
++    ziggurat_->poll();
++    ZigguratClient::Event event(ZigguratClient::Event::Diagnostic);
++    while (ziggurat_->pop(&event)) {
++        if (event.type==ZigguratClient::Event::Down) {
++            online_=false; networkFormed_=false; zigguratSends_.clear();
++            interviewRequestInFlight_=false; interviewDeadline_=0;
++            for (std::map<unsigned short, SceneRetry>::iterator i=sceneRetries_.begin();i!=sceneRetries_.end();++i)
++                if (i->second.inFlight) { i->second.inFlight=false; i->second.retryAt=LONG_MAX; }
++            addLog(event.message); markViewDirty(); continue;
++        }
++        if (event.type==ZigguratClient::Event::Ready) {
++            const ZigguratWire::Bytes& n=ziggurat_->state().network;
++            online_=true; networkFormed_=true; networkInitRequested_=true; nextHeartbeatAt_=0;
++            coordinatorIeeeAddress_.assign(n.begin()+14,n.begin()+22); coordinatorIeeeAddressRequested_=true;
++            networkChannel_=n[0]; networkPanId_=static_cast<unsigned short>(n[2] | (static_cast<unsigned short>(n[3])<<8));
++            networkExtendedPan_.assign(n.begin()+4,n.begin()+12); networkKey_.assign(n.begin()+22,n.begin()+38);
++            preconfiguredKey_.assign(n.begin()+43,n.begin()+59);
++            addLog("Ziggurat network ready; native state reconciled"); markViewDirty(); continue;
++        }
++        if (event.type==ZigguratClient::Event::Admission || event.type==ZigguratClient::Event::Confirmation) {
++            std::map<unsigned int,ZigguratSend>::iterator send=zigguratSends_.find(event.id);
++            if (send==zigguratSends_.end()) continue;
++            if (event.type==ZigguratClient::Event::Admission) {
++                if (event.status) { zigguratSendResult(send->second.sequence,send->second.unicast,event.status); zigguratSends_.erase(send); }
++                else if (send->second.unicast && interviewRequestInFlight_ && send->second.sequence==interviewEzspSequence_)
++                    interviewSendAccepted_=true;
++            } else if (event.command!=0x11 || event.status) {
++                zigguratSendResult(send->second.sequence,send->second.unicast,event.status); zigguratSends_.erase(send);
++            }
++            continue;
++        }
++        if (event.type==ZigguratClient::Event::JoinReply) {
++            if (event.status) { joinUntil_=0; addLog("Ziggurat permit-joining request failed"); }
++            joinPermitClosePending_=false; joinPermitCloseDeadline_=0; markViewDirty(); continue;
++        }
++        const ZigguratWire::Bytes& b=event.payload;
++        if (event.type==ZigguratClient::Event::Joined && b.size()==13) {
++            unsigned short node=static_cast<unsigned short>(b[0] | (static_cast<unsigned short>(b[1])<<8));
++            registerNode(node,&b[2]);
++        } else if (event.type==ZigguratClient::Event::Left && b.size()==22) {
++            unsigned short node=static_cast<unsigned short>(b[0] | (static_cast<unsigned short>(b[1])<<8));
++            std::map<unsigned short,std::string>::iterator known=nodeAddresses_.find(node);
++            if (known!=nodeAddresses_.end()) { devices_[known->second].networkAddress=0xffff; nodeAddresses_.erase(known); }
++            interviews_.erase(node); nextSensorRefreshAt_.erase(node); savePersistentState(); markViewDirty();
++        } else if (event.type==ZigguratClient::Event::ReceivedAps && b.size()>=17) {
++            unsigned int length=b[15] | (static_cast<unsigned int>(b[16])<<8);
++            if (length!=b.size()-17) { addLog("Malformed Ziggurat APS length"); continue; }
++            unsigned short sender=static_cast<unsigned short>(b[0] | (static_cast<unsigned short>(b[1])<<8));
++            unsigned short destination=static_cast<unsigned short>(b[2] | (static_cast<unsigned short>(b[3])<<8));
++            unsigned short profile=static_cast<unsigned short>(b[7] | (static_cast<unsigned short>(b[8])<<8));
++            unsigned short cluster=static_cast<unsigned short>(b[9] | (static_cast<unsigned short>(b[10])<<8));
++            ZigguratWire::Bytes message(b.begin()+17,b.end());
++            // Ziggurat does not loop back coordinator ZDO. Answer its discovery queries here.
++            if (profile==0 && message.size()>=3 && cluster==0x0002 && message[1]==0 && message[2]==0) {
++                ZigguratWire::Bytes response; response.push_back(message[0]); response.push_back(0);
++                response.push_back(0); response.push_back(0);
++                const unsigned char descriptor[]={0,0,0x40,0x8e,0x4b,0x13,82,128,0,1,0x2c,128,0};
++                response.insert(response.end(),descriptor,descriptor+sizeof(descriptor));
++                sendApsUnicast(sender,0,0x8002,0,0,response); continue;
++            }
++            if (profile==0 && message.size()>=3 && cluster==0x0005 && message[1]==0 && message[2]==0) {
++                ZigguratWire::Bytes response; response.push_back(message[0]); response.push_back(0);
++                response.push_back(0); response.push_back(0); response.push_back(1); response.push_back(kCoordinatorEndpoint);
++                sendApsUnicast(sender,0,0x8005,0,0,response); continue;
++            }
++            if (profile==0 && message.size()>=4 && cluster==0x0004 && message[1]==0 && message[2]==0) {
++                ZigguratWire::Bytes response; response.push_back(message[0]);
++                bool supported=message[3]==kCoordinatorEndpoint;
++                response.push_back(supported ? 0 : 0x82); response.push_back(0); response.push_back(0);
++                if (supported) {
++                    ZigguratWire::Bytes descriptor(1,kCoordinatorEndpoint);
++                    ZigguratWire::put16(&descriptor,kHomeAutomationProfile); ZigguratWire::put16(&descriptor,0xbeef);
++                    descriptor.push_back(0);
++                    const unsigned short inputs[]={0,3,6,10,25,26,768};
++                    const unsigned short outputs[]={0,3,4,5,6,8,32,768,1024,1026,1029,1030,1280,2817,2819,2820,1794,4096,64513,64514};
++                    descriptor.push_back(sizeof(inputs)/sizeof(inputs[0]));
++                    for (unsigned int i=0;i<sizeof(inputs)/sizeof(inputs[0]);++i) ZigguratWire::put16(&descriptor,inputs[i]);
++                    descriptor.push_back(sizeof(outputs)/sizeof(outputs[0]));
++                    for (unsigned int i=0;i<sizeof(outputs)/sizeof(outputs[0]);++i) ZigguratWire::put16(&descriptor,outputs[i]);
++                    response.push_back(descriptor.size()); response.insert(response.end(),descriptor.begin(),descriptor.end());
++                }
++                sendApsUnicast(sender,0,0x8004,0,0,response); continue;
++            }
++            unsigned short group=static_cast<unsigned short>(b[5] | (static_cast<unsigned short>(b[6])<<8));
++            handleApsMessage(sender,profile,cluster,b[11],b[12],0,group,0,
++                b[4]&1 ? 2 : destination>=0xfff8 ? 1 : 0,b[13],static_cast<signed char>(b[14]),message);
++        }
++    }
++}
++#endif
++
+ void Gateway::poll() {
++#if MICROHAD_ZIGGURAT_ENABLED
++    if (ziggurat_ != 0) pollZiggurat();
++#endif
+     if (networkBackup_.active() && (time(0) >= networkBackupDeadline_ || time(0) - networkBackupStarted_ >= 120)) {
+         networkBackup_.abort(); networkBackupDeadline_ = 0; addLog("Network backup timed out; radio state unchanged");
+     }
+@@ -780,8 +921,18 @@ std::string Gateway::runtimeDirectory() const {
+ std::string Gateway::historyPath() const { return history_.path(); }
+ SensorHistory* Gateway::historyStore() { return &history_; }
+ 
+-int Gateway::serialFd() const { return serialFd_; }
+-bool Gateway::serialNeedsWrite() const { return !serialPendingBytes_.empty(); }
++int Gateway::serialFd() const {
++#if MICROHAD_ZIGGURAT_ENABLED
++    if (ziggurat_ != 0) return ziggurat_->fd();
++#endif
++    return serialFd_;
++}
++bool Gateway::serialNeedsWrite() const {
++#if MICROHAD_ZIGGURAT_ENABLED
++    if (ziggurat_ != 0) return ziggurat_->needsWrite();
++#endif
++    return !serialPendingBytes_.empty();
++}
+ bool Gateway::hasImmediateWork() const {
+     if (serialPendingBytes_.empty() && ashPendingData_.empty() && !ashTransmitQueue_.empty()) return true;
+     if (!online_ || !networkFormed_ || coordinatorInitializationStep_ != 0 || interviewRequestInFlight_) return false;
+@@ -887,6 +1038,9 @@ long Gateway::nextPollDeadline(std::string* source) {
+     std::map<unsigned short, SceneRetry>::const_iterator scene;
+     std::map<unsigned short, InterviewState>::const_iterator interview;
+     #define CONSIDER_DEADLINE(value, label) do { long candidate = (value); if (candidate != 0 && (deadline == 0 || candidate < deadline)) { deadline = candidate; deadlineSource = (label); } } while (0)
++#if MICROHAD_ZIGGURAT_ENABLED
++    if (ziggurat_ != 0) CONSIDER_DEADLINE(ziggurat_->deadline(), "ziggurat");
++#endif
+     if (!ashPendingData_.empty()) CONSIDER_DEADLINE(ashAckDeadline_, "ash_ack");
+     if (online_) CONSIDER_DEADLINE(nextHeartbeatAt_, "heartbeat");
+     if (!online_) CONSIDER_DEADLINE(resetDeadline_, "serial_reset");
+@@ -945,6 +1099,17 @@ long Gateway::nextPollDeadline(std::string* source) {
+ }
+ 
+ bool Gateway::setJoining(unsigned int seconds, std::string* error) {
++#if MICROHAD_ZIGGURAT_ENABLED
++    if (ziggurat_ != 0) {
++        if (!online_ || !networkFormed_) { *error = "Ziggurat network is not ready"; return false; }
++        if (seconds > 3600) { *error = "joining window must not exceed one hour"; return false; }
++        ZigguratWire::Bytes payload; ZigguratWire::put16(&payload, seconds); payload.push_back(1);
++        if (!ziggurat_->request(0x34, payload)) { *error = "Ziggurat request queue is full"; return false; }
++        joinUntil_ = seconds ? time(0) + seconds : 0;
++        joinPermitRenewAt_ = 0; pendingJoinSeconds_ = 0; joinPreparationStep_ = 0;
++        markViewDirty(); return true;
++    }
++#endif
+     if (networkBackup_.active()) { *error = "network backup is active"; return false; }
+     if (!online_) {
+         *error = "Zigbee coordinator is offline";
+@@ -990,6 +1155,9 @@ bool Gateway::setJoining(unsigned int seconds, std::string* error) {
+ }
+ 
+ bool Gateway::exportNetworkBackup(const std::string& id, std::string* error) {
++#if MICROHAD_ZIGGURAT_ENABLED
++    if (ziggurat_ != 0) { *error = "EZSP raw export is unavailable with Ziggurat; use its native private state snapshot"; return false; }
++#endif
+     if (!online_ || !networkFormed_ || coordinatorInitializationStep_ != 0 || networkForming_ ||
+         ezspVersion_ != 13 || joinUntil_ != 0 || joinPreparationStep_ != 0 || joinPermitClosePending_) {
+         *error = "backup requires a running EZSP v13 coordinator with joining closed"; return false;
+@@ -1012,6 +1180,9 @@ void Gateway::advanceNetworkBackup() {
+ }
+ 
+ bool Gateway::createFreshNetwork(std::string* error) {
++#if MICROHAD_ZIGGURAT_ENABLED
++    if (ziggurat_ != 0) { *error = "Ziggurat requires explicit offline network initialization; existing network preserved"; return false; }
++#endif
+     if (networkBackup_.active()) { *error = "network backup is active"; return false; }
+     bool leaveExisting;
+     if (!online_) { *error = "Zigbee coordinator is offline"; return false; }
+@@ -2271,7 +2442,7 @@ GatewayView::GatewayView() : online(false), networkForming(false), networkFormed
+ 
+ std::string GatewayView::statusJson() const {
+     std::ostringstream json;
+-    json << "{\"online\":" << (online ? "true" : "false") << ",\"network_forming\":"
++    json << "{\"coordinator_backend\":\"" << (coordinatorBackend.empty() ? "ezsp" : coordinatorBackend) << "\",\"online\":" << (online ? "true" : "false") << ",\"network_forming\":"
+          << (networkForming ? "true" : "false") << ",\"network_formed\":" << (networkFormed ? "true" : "false")
+          << ",\"serial_rx_bytes\":" << serialRxBytes << ",\"ash_rx_frames\":" << ashRxFrames
+          << ",\"joining_until\":" << joiningUntil << ",\"joining_preparing\":"
+@@ -2457,6 +2628,10 @@ std::string GatewayView::logsJson() const {
+ 
+ GatewayView Gateway::captureView(bool includeLogs) const {
+     GatewayView view;
++    view.coordinatorBackend = "ezsp";
++#if MICROHAD_ZIGGURAT_ENABLED
++    if (ziggurat_ != 0) view.coordinatorBackend = "ziggurat";
++#endif
+     view.online = online_; view.networkForming = networkForming_; view.networkFormed = networkFormed_;
+     view.serialRxBytes = serialRxBytes_; view.ashRxFrames = ashRxFrames_; view.joiningUntil = joinUntil_;
+     view.serialOpenedAt = serialOpenedAt_;
+@@ -2784,6 +2959,9 @@ void Gateway::sendAshReset() {
+ }
+ 
+ unsigned char Gateway::sendEzspCommand(unsigned short command, const std::vector<unsigned char>& payload) {
++#if MICROHAD_ZIGGURAT_ENABLED
++    if (ziggurat_ != 0) { addLog("Unsupported EZSP-only coordinator operation on Ziggurat backend"); return ezspSequence_++; }
++#endif
+     std::vector<unsigned char> ezsp;
+     unsigned char sequence = ezspSequence_++;
+     /* A wrapped sequence must never identify an expired diagnostic query. */
+@@ -2976,6 +3154,9 @@ void Gateway::requestSecurityDiagnostics(const std::string& reason) {
+ }
+ 
+ void Gateway::configureTradfriBindGroup() {
++#if MICROHAD_ZIGGURAT_ENABLED
++    if (ziggurat_ != 0) { tradfriBindGroupConfigured_ = true; return; }
++#endif
+     std::vector<unsigned char> payload;
+     if (tradfriBindGroupConfigured_) return;
+     /* Pre-2.3.075 IKEA remotes, including E1743, use the legacy group
+@@ -2992,6 +3173,57 @@ void Gateway::configureTradfriBindGroup() {
+ unsigned char Gateway::sendApsUnicast(unsigned short destination, unsigned short profile, unsigned short cluster,
+                              unsigned char sourceEndpoint, unsigned char destinationEndpoint,
+                              const std::vector<unsigned char>& message, unsigned char messageTag) {
++#if MICROHAD_ZIGGURAT_ENABLED
++    if (ziggurat_ != 0) {
++        const bool broadcast = destination >= 0xfff8;
++        unsigned char command = broadcast ? 0x31 : 0x30;
++        ZigguratWire::Bytes request;
++        unsigned char flags = broadcast ? 0 : 2; // APS ack, no APS encryption
++        std::map<unsigned short, std::string>::const_iterator known = nodeAddresses_.find(destination);
++        if (!broadcast && known != nodeAddresses_.end()) flags |= 1;
++        request.push_back(flags); ZigguratWire::put16(&request, destination);
++        if (!broadcast) {
++            ZigguratWire::Bytes ieee(8, 0);
++            if (known != nodeAddresses_.end()) {
++                const std::string& text = known->second;
++                if (text.size() == 18) {
++                    for (unsigned int i=0;i<8;++i) {
++                        std::istringstream digit(text.substr(2+i*2,2)); unsigned int value=0; digit >> std::hex >> value;
++                        ieee[7-i]=static_cast<unsigned char>(value);
++                    }
++                    const Device& device = devices_[text];
++                    if (device.hasContact || device.hasTemperature || device.hasHumidity || device.hasRemote) request[0] |= 8;
++                }
++            }
++            request.insert(request.end(), ieee.begin(), ieee.end());
++        }
++        ZigguratWire::put16(&request, profile); ZigguratWire::put16(&request, cluster);
++        request.push_back(sourceEndpoint); request.push_back(destinationEndpoint);
++        request.push_back(0); request.push_back(30); request.push_back(0);
++        if (!broadcast) request.push_back(0); // StackDecides
++        ZigguratWire::put16(&request, message.size()); request.insert(request.end(), message.begin(), message.end());
++
++
++        unsigned char cookie = ezspSequence_++;
++        for (unsigned int attempt=0;attempt<256;++attempt) {
++            bool used=false;
++            for (std::map<unsigned int,ZigguratSend>::const_iterator pending=zigguratSends_.begin();pending!=zigguratSends_.end();++pending)
++                if (pending->second.sequence==cookie) used=true;
++            if (!used) break;
++            cookie=ezspSequence_++;
++        }
++        if (messageTag && interviewRequestInFlight_ && destination==interviewNode_)
++            interviewEzspSequence_=cookie;
++        unsigned int id = ziggurat_->request(command, request);
++        if (id) { ZigguratSend context; context.sequence=cookie; context.unicast=true; zigguratSends_[id]=context; }
++        else {
++            ZigguratSend failed; failed.sequence=cookie; failed.unicast=true;
++            if (zigguratFailedSends_.size()<64) zigguratFailedSends_.push_back(failed);
++            addLog("Ziggurat send could not be queued");
++        }
++        return cookie;
++    }
++#endif
+     std::vector<unsigned char> payload;
+     static unsigned char apsSequence = 0;
+     payload.push_back(0); /* EMBER_OUTGOING_DIRECT */
+@@ -3016,6 +3248,32 @@ unsigned char Gateway::sendApsUnicast(unsigned short destination, unsigned short
+ 
+ unsigned char Gateway::sendApsMulticast(unsigned short groupId, unsigned short profile, unsigned short cluster,
+                                         unsigned char sourceEndpoint, const std::vector<unsigned char>& message) {
++#if MICROHAD_ZIGGURAT_ENABLED
++    if (ziggurat_ != 0) {
++        unsigned char command = 0x32;
++        ZigguratWire::Bytes request(1, 0); ZigguratWire::put16(&request, groupId);
++        ZigguratWire::put16(&request, profile); ZigguratWire::put16(&request, cluster);
++        request.push_back(sourceEndpoint); request.push_back(0); request.push_back(30); request.push_back(0);
++        ZigguratWire::put16(&request, message.size()); request.insert(request.end(), message.begin(), message.end());
++
++        unsigned char cookie = ezspSequence_++;
++        for (unsigned int attempt=0;attempt<256;++attempt) {
++            bool used=false;
++            for (std::map<unsigned int,ZigguratSend>::const_iterator pending=zigguratSends_.begin();pending!=zigguratSends_.end();++pending)
++                if (pending->second.sequence==cookie) used=true;
++            if (!used) break;
++            cookie=ezspSequence_++;
++        }
++        unsigned int id = ziggurat_->request(command, request);
++        if (id) { ZigguratSend context; context.sequence=cookie; context.unicast=false; zigguratSends_[id]=context; }
++        else {
++            ZigguratSend failed; failed.sequence=cookie; failed.unicast=false;
++            if (zigguratFailedSends_.size()<64) zigguratFailedSends_.push_back(failed);
++            addLog("Ziggurat send could not be queued");
++        }
++        return cookie;
++    }
++#endif
+     std::vector<unsigned char> payload;
+     static unsigned char apsSequence = 0;
+     payload.push_back(static_cast<unsigned char>(profile)); payload.push_back(static_cast<unsigned char>(profile >> 8));
+@@ -3035,6 +3293,12 @@ unsigned char Gateway::sendApsMulticast(unsigned short groupId, unsigned short p
+ }
+ 
+ void Gateway::sendJoinPermit(unsigned int duration) {
++#if MICROHAD_ZIGGURAT_ENABLED
++    if (ziggurat_ != 0) {
++        ZigguratWire::Bytes request; ZigguratWire::put16(&request, duration); request.push_back(1);
++        ziggurat_->request(0x34, request); return;
++    }
++#endif
+     std::vector<unsigned char> payload;
+     payload.push_back(static_cast<unsigned char>(duration > 254 ? 254 : duration));
+     sendEzspCommand(0x0022, payload);
+@@ -4100,6 +4364,9 @@ void Gateway::completeInterviewOperation(unsigned short destination) {
+ }
+ 
+ void Gateway::requestCoordinatorIeeeAddress() {
++#if MICROHAD_ZIGGURAT_ENABLED
++    if (ziggurat_ != 0) return;
++#endif
+     if (coordinatorIeeeAddressRequested_) return;
+     coordinatorIeeeAddressRequested_ = true;
+     addLog("Requesting coordinator IEEE address for device reporting bindings");
+@@ -4204,7 +4471,6 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
+     unsigned short profile;
+     unsigned long messageOffset;
+     unsigned long length;
+-    std::map<unsigned short, std::string>::const_iterator address;
+     std::vector<unsigned char> message;
+     if (payload.size() < 20) return;
+     /* type(1), APS frame(11), LQI/RSSI(2), sender(2), binding/address(2), LVBytes */
+@@ -4217,6 +4483,19 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
+        In particular Bind_rsp (0x8021) is valid at two bytes. */
+     if (messageOffset + length > payload.size() || length < 2) return;
+     message.assign(payload.begin() + messageOffset, payload.begin() + messageOffset + length);
++    handleApsMessage(sender, profile, cluster, payload[5], payload[6],
++                     static_cast<unsigned short>(payload[7]) | (static_cast<unsigned short>(payload[8]) << 8),
++                     static_cast<unsigned short>(payload[9]) | (static_cast<unsigned short>(payload[10]) << 8),
++                     payload[11], payload[0], payload[12], static_cast<signed char>(payload[13]), message);
++}
++
++void Gateway::handleApsMessage(unsigned short sender, unsigned short profile, unsigned short cluster,
++                              unsigned char sourceEndpoint, unsigned char destinationEndpoint,
++                              unsigned short options, unsigned short group, unsigned char sequence,
++                              unsigned char messageType, unsigned char lqi, signed char rssi,
++                              const std::vector<unsigned char>& message) {
++    if (message.size() < 2) return;
++    std::map<unsigned short, std::string>::const_iterator address;
+     std::map<unsigned short, std::string>::const_iterator nativeSender = nodeAddresses_.find(sender);
+     if (nativeSender != nodeAddresses_.end()) wakeSceneProvisioning(nativeSender->second);
+     std::map<std::string, std::string>::iterator nativeState = nativeSender == nodeAddresses_.end() ?
+@@ -4230,14 +4509,14 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
+     }
+     addFrameLog("RX", sender,
+                 profile, cluster,
+-                payload[5], payload[6], static_cast<unsigned short>(payload[7]) | (static_cast<unsigned short>(payload[8]) << 8),
+-                0, payload[11], 0,
+-                static_cast<int>(payload[12]), static_cast<int>(static_cast<signed char>(payload[13])), message);
++                sourceEndpoint, destinationEndpoint, options,
++                group, sequence, 0,
++                static_cast<int>(lqi), static_cast<int>(static_cast<signed char>(rssi)), message);
+     {
+         std::ostringstream diagnostic;
+         diagnostic << "APS <- node=0x" << std::hex << sender << " profile=0x"
+-                   << (static_cast<unsigned short>(payload[1]) | (static_cast<unsigned short>(payload[2]) << 8))
+-                   << " cluster=0x" << cluster << " length=" << std::dec << length;
++                   << profile
++                   << " cluster=0x" << cluster << " length=" << std::dec << message.size();
+         addLog(diagnostic.str());
+     }
+     if (profile != 0x0000 && profile != 0x0104) {
+@@ -4468,7 +4747,7 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
+     if (profile == 0x0104 && !devices_[address->second].endpoints.empty()) {
+         bool endpointKnown = false;
+         for (unsigned long i = 0; i < devices_[address->second].endpoints.size(); ++i) {
+-            if (devices_[address->second].endpoints[i].endpoint == payload[5]) endpointKnown = true;
++            if (devices_[address->second].endpoints[i].endpoint == sourceEndpoint) endpointKnown = true;
+         }
+         if (!endpointKnown) {
+             addLog("Ignoring APS message from an undiscovered endpoint");
+@@ -4523,7 +4802,7 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
+         if (known != nodeAddresses_.end()) {
+             Device& device = devices_[known->second];
+             Device before = device;
+-            device.linkQuality = payload[12];
++            device.linkQuality = lqi;
+             device.lastSeen = time(0);
+             updateValueAlerts(device, before);
+             markViewDirty();
+@@ -4536,7 +4815,7 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
+         std::vector<unsigned char> response;
+         response.push_back(0x19); response.push_back(transactionSequence);
+         response.push_back(0x02); response.push_back(0x98); /* NO_IMAGE_AVAILABLE */
+-        sendApsUnicast(sender, 0x0104, cluster, payload[6], payload[5], response);
++        sendApsUnicast(sender, 0x0104, cluster, destinationEndpoint, sourceEndpoint, response);
+         addLog("OTA query answered: no image available for " + address->second);
+         return;
+     }
+@@ -4545,14 +4824,14 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
+         /* Only unicast commands receive default responses. Group/broadcast
+            commands may use destination endpoint 255, which is not a valid
+            source endpoint for a reply. Still dispatch their key events. */
+-        if (logRemoteKeyEvent(sender, cluster, payload[5], manufacturer, command, arguments) &&
+-            (frameControl & 0x10) == 0 && payload[0] <= 1 && payload[6] != 255)
+-            sendZclDefaultResponse(sender, payload[6], payload[5], cluster, transactionSequence, command);
++        if (logRemoteKeyEvent(sender, cluster, sourceEndpoint, manufacturer, command, arguments) &&
++            (frameControl & 0x10) == 0 && messageType <= 1 && destinationEndpoint != 255)
++            sendZclDefaultResponse(sender, destinationEndpoint, sourceEndpoint, cluster, transactionSequence, command);
+     }
+     if (cluster == 0x0500 && command == 0x01 && message.size() >= zclOffset + 4) {
+         int zoneId = allocateIasZoneId(address->second);
+         if (zoneId >= 0) {
+-            sendIasEnrollResponse(sender, payload[6], payload[5], message[zclOffset - 2],
++            sendIasEnrollResponse(sender, destinationEndpoint, sourceEndpoint, message[zclOffset - 2],
+                                   static_cast<unsigned char>(zoneId));
+         } else addLog("IAS zone ID pool exhausted; enrollment response not sent");
+     } else if (cluster == 0x0500 && command == 0x00 && message.size() >= zclOffset + 2) {
+@@ -4572,7 +4851,7 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
+             InterviewOperation& operation = interview->second.operations[interview->second.operationIndex];
+             matched = (operation.type == InterviewAttributeRead || operation.type == InterviewBasicRead) &&
+                       operation.transactionSequence == transactionSequence && operation.cluster == cluster &&
+-                      operation.endpoint == payload[5];
++                      operation.endpoint == sourceEndpoint;
+             if (matched && operation.type == InterviewBasicRead && updateBasicIdentity(&devices_[address->second], records))
+                 interview->second.persistentDirty = true;
+         }
+@@ -4617,7 +4896,7 @@ void Gateway::handleIncomingMessage(const std::vector<unsigned char>& payload) {
+             interview->second.operations[interview->second.operationIndex].transactionSequenceAssigned) {
+             InterviewOperation& operation = interview->second.operations[interview->second.operationIndex];
+             if (operation.type == InterviewConfigureReporting && operation.transactionSequence == transactionSequence &&
+-                operation.cluster == cluster && operation.endpoint == payload[5]) completeInterviewOperation(sender);
++                operation.cluster == cluster && operation.endpoint == sourceEndpoint) completeInterviewOperation(sender);
+         }
+     }
+ }
+diff --git a/src/gateway_config.cpp b/src/gateway_config.cpp
+index 993f9d5..dfa9586 100644
+--- a/src/gateway_config.cpp
++++ b/src/gateway_config.cpp
+@@ -119,7 +119,7 @@ bool numberSetting(const std::map<std::string, std::string>& strings,
+ }
+ }
+ 
+-GatewayConfig::GatewayConfig() : serialDevice("/dev/ttyS1"), serialBaud(115200), runtimeDirectory("/tuya/native"),
++GatewayConfig::GatewayConfig() : zigguratSocket("/tmp/ziggurat/native.sock"), serialDevice("/dev/ttyS1"), serialBaud(115200), runtimeDirectory("/tuya/native"),
+     httpPort(80), httpsPort(443), firebaseTopic("zigbee_alerts") {}
+ 
+ bool selectGatewayConfigPath(int argc, const char* const argv[], std::string* path, std::string* error) {
+@@ -137,7 +137,8 @@ bool loadGatewayConfig(const std::string& path, GatewayConfig* config, std::stri
+     std::map<std::string, long> numbers;
+     if (!readTextFile(path, &input)) { *error = "cannot read configuration " + path; return false; }
+     if (!parseObject(input, &strings, &numbers, error)) return false;
+-    if (!stringSetting(strings, numbers, "serial_device", &config->serialDevice, error) ||
++    if (!stringSetting(strings, numbers, "ziggurat_socket", &config->zigguratSocket, error) ||
++        !stringSetting(strings, numbers, "serial_device", &config->serialDevice, error) ||
+         !numberSetting(strings, numbers, "serial_baud", &config->serialBaud, error) ||
+         !stringSetting(strings, numbers, "runtime_dir", &config->runtimeDirectory, error) ||
+         !numberSetting(strings, numbers, "http_port", &config->httpPort, error) ||
+@@ -147,6 +148,9 @@ bool loadGatewayConfig(const std::string& path, GatewayConfig* config, std::stri
+         !stringSetting(strings, numbers, "ca_bundle", &config->caBundle, error) ||
+         !stringSetting(strings, numbers, "tls_certificate", &config->tlsCertificate, error) ||
+         !stringSetting(strings, numbers, "tls_private_key", &config->tlsPrivateKey, error)) return false;
++    if (config->zigguratSocket.empty() || config->zigguratSocket[0] != '/' || config->zigguratSocket.size() >= 108) {
++        *error = "ziggurat_socket must be an absolute Unix socket path shorter than 108 bytes"; return false;
++    }
+     if (config->serialBaud < 0 || config->serialBaud > INT_MAX) {
+         *error = "serial_baud is outside the supported integer range"; return false;
+     }
+diff --git a/src/main.cpp b/src/main.cpp
+index baf70ed..4d1813a 100644
+--- a/src/main.cpp
++++ b/src/main.cpp
+@@ -69,6 +69,9 @@ int main(int argc, char** argv) {
+     }
+     gateway = new Gateway(serialDevice, serialBaud, runtimeDirectory, firebaseServiceAccount, firebaseTopic, caBundle,
+                           notificationWorker);
++#if MICROHAD_ZIGGURAT_ENABLED
++    gateway->useZiggurat(config.zigguratSocket);
++#endif
+     gatewayRunner = new GatewayRunner(gateway);
+     shellyIntegration = new ExternalHttpDeviceWorker(runtimeDirectory, gatewayRunner);
+     gateway->setShellyTransport(shellyIntegration);
+diff --git a/src/ziggurat_client.cpp b/src/ziggurat_client.cpp
+new file mode 100644
+index 0000000..975d33d
+--- /dev/null
++++ b/src/ziggurat_client.cpp
+@@ -0,0 +1,440 @@
++#include "ziggurat_client.h"
++#include "json_util.h"
++#include "mbedtls/sha256.h"
++#include <algorithm>
++#include <cerrno>
++#include <cstdio>
++#include <cstring>
++#include <cstdlib>
++#include <ctime>
++#include <fcntl.h>
++#include <sstream>
++#include <sys/socket.h>
++#include <sys/stat.h>
++#include <sys/un.h>
++#include <unistd.h>
++
++namespace {
++typedef ZigguratWire::Bytes Bytes;
++const unsigned long kMaxFrame = 16384;
++const unsigned long kMaxOutput = 65536;
++unsigned int get16(const Bytes& b, unsigned long at) { return b[at] | (static_cast<unsigned int>(b[at+1]) << 8); }
++std::string hex(const Bytes& b) {
++    const char* digits="0123456789abcdef"; std::string result;
++    for (unsigned long i=0;i<b.size();++i) { result += digits[b[i] >> 4]; result += digits[b[i] & 15]; }
++    return result;
++}
++bool nontrivial(const Bytes& bytes, unsigned long at, unsigned long length) {
++    bool zero=true, ones=true;
++    for (unsigned long i=at;i<at+length;++i) { zero=zero && bytes[i]==0; ones=ones && bytes[i]==255; }
++    return !zero && !ones;
++}
++std::string checksum(const ZigguratState& state) {
++    Bytes bytes=state.network; bytes.insert(bytes.end(),state.keys.begin(),state.keys.end());
++    bytes.insert(bytes.end(),state.children.begin(),state.children.end());
++    bytes.insert(bytes.end(),state.addresses.begin(),state.addresses.end());
++    Bytes hash(32,0);
++    if (bytes.empty() || mbedtls_sha256_ret(&bytes[0],bytes.size(),&hash[0],0)!=0) return "";
++    return hex(hash);
++}
++bool unhex(const std::string& text, Bytes* result) {
++    result->clear(); if (text.size() % 2 || text.size() > 32768) return false;
++    for (unsigned long i=0;i<text.size();i+=2) {
++        unsigned int value=0;
++        for (unsigned int j=0;j<2;++j) {
++            char c=text[i+j]; unsigned int v;
++            if (c>='0' && c<='9') v=c-'0'; else if (c>='a' && c<='f') v=c-'a'+10; else return false;
++            value=value*16+v;
++        }
++        result->push_back(static_cast<unsigned char>(value));
++    }
++    return true;
++}
++bool tableValid(const Bytes& b, unsigned long row, unsigned long maximum) {
++    if (b.size()<2 || get16(b,0)>maximum || b.size()!=2+get16(b,0)*row) return false;
++    std::map<std::string,bool> identities;
++    for (unsigned long at=2;at<b.size();at+=row) {
++        unsigned long idAt=at+(row==33 ? 25 : 0);
++        std::string id(reinterpret_cast<const char*>(&b[idAt]),8);
++        if (identities[id] || !nontrivial(b,idAt,8)) return false;
++        if (row==33 && !nontrivial(b,at,16)) return false;
++        if (row==11 && (!get16(b,at+8) || get16(b,at+8)>0xfff7 || (b[at+10]&0xf8)!=0 ||
++            ((b[at+10]>>1)&3)<1 || ((b[at+10]>>1)&3)>2)) return false;
++        if (row==10 && get16(b,at+8)>0xfff7) return false;
++        identities[id]=true;
++    }
++    return true;
++}
++bool sameIdentity(const Bytes& a, const Bytes& b) {
++    if (a.size()!=82 || b.size()!=82) return false;
++    for (unsigned long i=0;i<82;++i) {
++        if ((i>=39 && i<43) || (i>=78 && i<82)) continue;
++        if (a[i]!=b[i]) return false;
++    }
++    return true;
++}
++void mergeCounter(Bytes* target, const Bytes& source, unsigned long at) {
++    ZigguratWire::set32(target,at,std::max(ZigguratWire::get32(*target,at),ZigguratWire::get32(source,at)));
++}
++bool fullWrite(int fd, const char* data, unsigned long size) {
++    while (size) {
++        ssize_t n=write(fd,data,size);
++        if (n<0 && errno==EINTR) continue;
++        if (n<=0) return false;
++        data+=n; size-=static_cast<unsigned long>(n);
++    }
++    return true;
++}
++}
++
++namespace ZigguratWire {
++Bytes encode(const Bytes& plain) {
++    Bytes out(1,0); unsigned long codeAt=0; unsigned char code=1;
++    for (unsigned long i=0;i<plain.size();++i) {
++        if (plain[i]==0) { out[codeAt]=code; codeAt=out.size(); out.push_back(0); code=1; }
++        else { out.push_back(plain[i]); ++code; if (code==255) { out[codeAt]=code; codeAt=out.size(); out.push_back(0); code=1; } }
++    }
++    out[codeAt]=code; out.push_back(0); return out;
++}
++bool decode(const Bytes& in, Bytes* out) {
++    out->clear(); if (in.empty() || in.size()>kMaxFrame) return false;
++    unsigned long at=0;
++    while (at<in.size()) {
++        unsigned char code=in[at++]; if (!code || at+code-1>in.size()) return false;
++        for (unsigned int i=1;i<code;++i) { if (!in[at]) return false; out->push_back(in[at++]); }
++        if (code!=255 && at<in.size()) out->push_back(0);
++    }
++    return true;
++}
++unsigned long get32(const Bytes& b, unsigned long at) {
++    return static_cast<unsigned long>(b[at]) | (static_cast<unsigned long>(b[at+1])<<8) |
++        (static_cast<unsigned long>(b[at+2])<<16) | (static_cast<unsigned long>(b[at+3])<<24);
++}
++void put16(Bytes* b, unsigned int value) { b->push_back(static_cast<unsigned char>(value)); b->push_back(static_cast<unsigned char>(value>>8)); }
++void set32(Bytes* b, unsigned long at, unsigned long value) { for (unsigned int i=0;i<4;++i) (*b)[at+i]=static_cast<unsigned char>(value>>(i*8)); }
++}
++
++bool ZigguratState::valid() const {
++    if (network.size()!=82 || network[0]<11 || network[0]>26 || !get16(network,2) || get16(network,2)==65535 ||
++        get16(network,12)!=0 || network[59]>1 || network[76]>1) return false;
++    if (!nontrivial(network,4,8) || !nontrivial(network,14,8) || !nontrivial(network,22,16) ||
++        !nontrivial(network,43,16) || (network[59] && !nontrivial(network,60,16))) return false;
++    return tableValid(keys,33,256) && tableValid(children,11,256) && tableValid(addresses,10,256);
++}
++bool ZigguratState::advance(std::string* error) {
++    if (!valid()) { *error="invalid native Ziggurat state"; return false; }
++    unsigned long nwk=ZigguratWire::get32(network,39), aps=ZigguratWire::get32(network,78);
++    for (unsigned long i=2;i<keys.size();i+=33) aps=std::max(aps,ZigguratWire::get32(keys,i+16));
++    if (nwk>0xffffffffUL-1000 || aps>0xffffffffUL-1000) { *error="Ziggurat security counter exhausted"; return false; }
++    ZigguratWire::set32(&network,39,nwk+1000); ZigguratWire::set32(&network,78,aps+1000);
++    for (unsigned long i=2;i<keys.size();i+=33) ZigguratWire::set32(&keys,i+16,aps+1000);
++    return true;
++}
++bool ZigguratState::load(const std::string& path, std::string* error) {
++    int fd=open(path.c_str(),O_RDONLY|O_NOFOLLOW); struct stat st;
++    if (fd<0) { *error="cannot open private Ziggurat state"; return false; }
++    if (fstat(fd,&st)!=0 || !S_ISREG(st.st_mode) || st.st_uid!=geteuid() || (st.st_mode&077)!=0 || st.st_size<1 || st.st_size>65536) {
++        close(fd); *error="Ziggurat state must be a private regular file of bounded size"; return false;
++    }
++    std::string text; char buffer[1024]; ssize_t n;
++    while ((n=read(fd,buffer,sizeof(buffer)))>0) { text.append(buffer,n); if (text.size()>65536) break; }
++    close(fd);
++    long version=0; std::string format, wire, digest; ZigguratState candidate;
++    if (n<0 || text.size()>65536 || !jsonStringField(text,"format",&format) || format!="microhad-ziggurat-native" ||
++        !jsonLongField(text,"version",&version) || version!=1 ||
++        !jsonStringField(text,"network",&wire) || !unhex(wire,&candidate.network) ||
++        !jsonStringField(text,"keys",&wire) || !unhex(wire,&candidate.keys) ||
++        !jsonStringField(text,"children",&wire) || !unhex(wire,&candidate.children) ||
++        !jsonStringField(text,"addresses",&wire) || !unhex(wire,&candidate.addresses) || !candidate.valid() ||
++        !jsonStringField(text,"checksum",&digest) || digest.empty() || checksum(candidate)!=digest) {
++        *error="invalid native Ziggurat state"; return false;
++    }
++    *this=candidate; return true;
++}
++bool ZigguratState::save(const std::string& path, std::string* error) const {
++    if (!valid()) { *error="refusing invalid Ziggurat state"; return false; }
++    struct stat existing;
++    if (lstat(path.c_str(),&existing)==0 && (!S_ISREG(existing.st_mode) || existing.st_uid!=geteuid() || (existing.st_mode&077)!=0)) {
++        *error="unsafe Ziggurat state destination"; return false;
++    }
++    std::string::size_type slash=path.find_last_of('/');
++    std::string parent=slash==std::string::npos ? "." : (slash==0 ? "/" : path.substr(0,slash));
++    int directory=open(parent.c_str(),O_RDONLY|O_DIRECTORY|O_NOFOLLOW);
++    if (directory<0) { *error="cannot open Ziggurat state directory"; return false; }
++    std::string temporary=path+".tmp-XXXXXX"; std::vector<char> name(temporary.begin(),temporary.end()); name.push_back(0);
++    int fd=mkstemp(&name[0]);
++    if (fd<0) { close(directory); *error="cannot stage private Ziggurat state"; return false; }
++    std::string data="{\"format\":\"microhad-ziggurat-native\",\"version\":1,\"network\":\""+hex(network)+
++        "\",\"keys\":\""+hex(keys)+"\",\"children\":\""+hex(children)+"\",\"addresses\":\""+hex(addresses)+"\",\"checksum\":\""+checksum(*this)+"\"}\n";
++    bool ok=fchmod(fd,0600)==0 && fullWrite(fd,data.c_str(),data.size()) && fsync(fd)==0;
++    if (close(fd)!=0) ok=false;
++    if (ok) ok=rename(&name[0],path.c_str())==0;
++    if (ok) ok=fsync(directory)==0;
++    close(directory); if (!ok) { unlink(&name[0]); *error="cannot durably commit Ziggurat state"; }
++    return ok;
++}
++
++ZigguratClient::ZigguratClient() : fd_(-1), lockFd_(-1), connecting_(false), hello_(false), ready_(false), failed_(false),
++    discarding_(false), stopping_(false), dirtyTables_(false), nextId_(1), controlId_(0), phase_(0), reconnectAt_(0),
++    helloDeadline_(0), checkpointAt_(0), keyRevision_(0), snapshotRevision_(0) {}
++ZigguratClient::~ZigguratClient() { stop(); }
++bool ZigguratClient::start(const std::string& socket, const std::string& state, std::string* error) {
++    if (lockFd_>=0) { *error="Ziggurat client already started"; return false; }
++    if (socket.empty() || socket[0]!='/' || socket.size()>=sizeof(sockaddr_un().sun_path)) {
++        *error="invalid Ziggurat Unix socket path"; return false;
++    }
++    statePath_=state; socketPath_=socket;
++    lockFd_=open((state+".lock").c_str(),O_RDWR|O_CREAT|O_NOFOLLOW,0600);
++    struct stat st; struct flock lock; memset(&lock,0,sizeof(lock)); lock.l_type=F_WRLCK; lock.l_whence=SEEK_SET;
++    if (lockFd_<0 || fstat(lockFd_,&st)!=0 || !S_ISREG(st.st_mode) || st.st_uid!=geteuid() || (st.st_mode&077)!=0 || fcntl(lockFd_,F_SETLK,&lock)!=0) {
++        if (lockFd_>=0) close(lockFd_);
++        lockFd_=-1; *error="Ziggurat state is locked or unsafe"; return false;
++    }
++    if (!state_.load(state,error)) { close(lockFd_); lockFd_=-1; return false; }
++    failed_=false; stopping_=false; reconnectAt_=time(0);
++    return true;
++}
++bool ZigguratClient::connectSocket(std::string* error) {
++    fd_=socket(AF_UNIX,SOCK_STREAM,0); if (fd_<0) { *error="cannot create Ziggurat socket"; return false; }
++    fcntl(fd_,F_SETFD,FD_CLOEXEC); fcntl(fd_,F_SETFL,O_NONBLOCK);
++    sockaddr_un address; memset(&address,0,sizeof(address)); address.sun_family=AF_UNIX; strcpy(address.sun_path,socketPath_.c_str());
++    int result=connect(fd_,reinterpret_cast<sockaddr*>(&address),sizeof(address));
++    if (result<0 && errno!=EINPROGRESS) { close(fd_); fd_=-1; *error="Ziggurat socket unavailable"; return false; }
++    connecting_=true; hello_=false; helloDeadline_=time(0)+10; reconnectAt_=0; return true;
++}
++void ZigguratClient::disconnect(const std::string& reason, bool permanent) {
++    if (fd_>=0) close(fd_);
++    fd_=-1; ready_=false; connecting_=false; hello_=false; failed_=permanent;
++    output_.clear(); input_.clear(); discarding_=false; pending_.clear(); controlId_=0; phase_=0;
++    reconnectAt_=permanent || stopping_ ? 0 : time(0)+1; helloDeadline_=0; checkpointAt_=0;
++    Event event(Event::Down); event.message=reason; events_.push_back(event);
++}
++long ZigguratClient::deadline() const {
++    long result=fd_<0 ? reconnectAt_ : (hello_ ? checkpointAt_ : helloDeadline_);
++    for (std::map<unsigned int,Pending>::const_iterator i=pending_.begin();i!=pending_.end();++i)
++        if (!result || i->second.expires<result) result=i->second.expires;
++    return result;
++}
++bool ZigguratClient::pop(Event* event) { if (events_.empty()) return false; *event=events_.front(); events_.pop_front(); return true; }
++unsigned int ZigguratClient::request(unsigned char command, const Bytes& payload) {
++    if (fd_<0 || !hello_ || pending_.size()>=64 || payload.size()+3>kMaxFrame-66) return 0;
++    unsigned int id=0;
++    for (unsigned int i=0;i<16383;++i) { unsigned int candidate=nextId_++; if (nextId_==16384) nextId_=1; if (!pending_.count(candidate)) { id=candidate; break; } }
++    if (!id) return 0;
++    Bytes raw(1,command); ZigguratWire::put16(&raw,id<<2); raw.insert(raw.end(),payload.begin(),payload.end());
++    Bytes wire=ZigguratWire::encode(raw); if (output_.size()+wire.size()>kMaxOutput) return 0;
++    output_.insert(output_.end(),wire.begin(),wire.end());
++    Pending pending; pending.command=command; pending.apsAck=command==0x30 && !payload.empty() && (payload[0]&2)!=0; pending.expires=time(0)+10; pending_[id]=pending; return id;
++}
++void ZigguratClient::control(unsigned char command, const Bytes& payload, unsigned char phase) {
++    phase_=phase; controlId_=request(command,payload);
++    if (!controlId_) disconnect("Ziggurat control queue full",true);
++}
++bool ZigguratClient::persist() {
++    std::string error; if (state_.save(statePath_,&error)) return true;
++    // Best effort freeze: no guarantee if the server or connection is already lost.
++    if (fd_>=0 && hello_) {
++        Bytes raw(1,4); ZigguratWire::put16(&raw,16383<<2); Bytes wire=ZigguratWire::encode(raw);
++        (void)send(fd_,&wire[0],wire.size(),MSG_NOSIGNAL);
++    }
++    disconnect(error,true); return false;
++}
++void ZigguratClient::snapshot(bool initial) {
++    snapshot_=state_; snapshot_.keys=Bytes(2,0); snapshot_.children=Bytes(2,0); snapshot_.addresses=Bytes(2,0);
++    snapshotRevision_=keyRevision_; dirtyTables_=false;
++    control(0x20,Bytes(),initial ? 10 : 20);
++}
++void ZigguratClient::finishSnapshot() {
++    if (!snapshot_.valid()) { disconnect("invalid Ziggurat table snapshot",true); return; }
++    if (snapshotRevision_!=keyRevision_) { snapshot(!ready_); return; }
++    mergeCounter(&snapshot_.network,state_.network,39); mergeCounter(&snapshot_.network,state_.network,78);
++    bool changed=state_.network!=snapshot_.network || state_.keys!=snapshot_.keys ||
++        state_.children!=snapshot_.children || state_.addresses!=snapshot_.addresses;
++    state_=snapshot_; if (changed && !persist()) return;
++    checkpointAt_=time(0)+60; phase_=0; controlId_=0;
++    if (!ready_ && !stopping_) { ready_=true; Event event(Event::Ready); events_.push_back(event); }
++}
++void ZigguratClient::controlReply(unsigned char command, unsigned char status, const Bytes& body) {
++    (void)command;
++    if (phase_==1 && status==0x10) {
++        std::string error; if (!state_.advance(&error)) { disconnect(error,true); return; }
++        if (!persist()) return;
++        Bytes config(1,0); config.push_back(1); config.insert(config.end(),state_.network.begin(),state_.network.end()); control(0x10,config,2); return;
++    }
++    if (status) { disconnect("Ziggurat lifecycle request failed",true); return; }
++    if (phase_==11 || phase_==21 || phase_==12 || phase_==22 || phase_==13 || phase_==23) {
++        const Bytes& table=(phase_==11 || phase_==21) ? snapshot_.keys :
++            (phase_==12 || phase_==22) ? snapshot_.children : snapshot_.addresses;
++        if (body.size()!=2 || get16(body,0)!=get16(table,0)) {
++            disconnect("incomplete Ziggurat table scan; saved state preserved",true); return;
++        }
++    }
++    if (phase_==1) {
++        if (body.size()!=85) { disconnect("malformed Ziggurat network info",true); return; }
++        Bytes network(body.begin(),body.begin()+82);
++        if (!sameIdentity(network,state_.network)) { disconnect("Ziggurat network identity mismatch",true); return; }
++        if (ZigguratWire::get32(network,39)<ZigguratWire::get32(state_.network,39) ||
++            ZigguratWire::get32(network,78)<ZigguratWire::get32(state_.network,78)) { disconnect("Ziggurat live counters below saved state",true); return; }
++        state_.network=network;
++        if (body[84]==0) {
++            std::string error; if (!state_.advance(&error)) { disconnect(error,true); return; }
++            if (!persist()) return;
++            Bytes config(1,0); config.push_back(1); config.insert(config.end(),state_.network.begin(),state_.network.end()); control(0x10,config,2);
++        } else snapshot(true);
++    } else if (phase_==2) control(0x11,state_.keys,3);
++    else if (phase_==3) control(0x12,state_.children,4);
++    else if (phase_==4) control(0x13,state_.addresses,5);
++    else if (phase_==5) control(0x16,Bytes(),6);
++    else if (phase_==6) snapshot(true);
++    else if (phase_==30) snapshot(false);
++    else if (phase_==10 || phase_==20) {
++        if (body.size()!=85) { disconnect("malformed Ziggurat network info",true); return; }
++        Bytes network(body.begin(),body.begin()+82);
++        if (!sameIdentity(network,state_.network)) { disconnect("Ziggurat snapshot identity changed",true); return; }
++        snapshot_.network=network;
++        control(0x21,Bytes(),phase_==10 ? 11 : 21);
++    } else if (phase_==11 || phase_==21) control(0x22,Bytes(),phase_==11 ? 12 : 22);
++    else if (phase_==12 || phase_==22) control(0x23,Bytes(),phase_==12 ? 13 : 23);
++    else if (phase_==13 || phase_==23) control(0x20,Bytes(),phase_==13 ? 14 : 24);
++    else if (phase_==14 || phase_==24) {
++        if (body.size()!=85) { disconnect("malformed Ziggurat final snapshot",true); return; }
++        Bytes network(body.begin(),body.begin()+82);
++        if (!sameIdentity(network,state_.network)) { disconnect("Ziggurat final identity changed",true); return; }
++        if (snapshotRevision_==keyRevision_ && get16(body,82)!=get16(snapshot_.keys,0)) {
++            disconnect("Ziggurat key count changed without a complete snapshot",true); return;
++        }
++        if (stopping_ && body[84]!=0) { disconnect("Ziggurat freeze was not confirmed",true); return; }
++        mergeCounter(&snapshot_.network,network,39); mergeCounter(&snapshot_.network,network,78); finishSnapshot();
++    }
++}
++void ZigguratClient::frame(const Bytes& raw) {
++    if (events_.size()>=256) { disconnect("Ziggurat notification queue exceeded",true); return; }
++    if (raw.size()<3) return;
++    unsigned char command=raw[0]; unsigned int bits=get16(raw,1), type=bits&3, id=bits>>2;
++    Bytes body(raw.begin()+3,raw.end());
++    if (type==3 && command==0 && id==0) {
++        if (body.size()!=2 || body[0]!=2 || hello_) { disconnect("unsupported Ziggurat hello",true); return; }
++        hello_=true; helloDeadline_=0; control(0x20,Bytes(),1); return;
++    }
++    if (!hello_) { disconnect("Ziggurat frame before hello",true); return; }
++    if (id==controlId_ && controlId_ && type==2) {
++        Bytes* table=command==0x21 ? &snapshot_.keys : command==0x22 ? &snapshot_.children : command==0x23 ? &snapshot_.addresses : 0;
++        unsigned long width=command==0x21 ? 33 : command==0x22 ? 11 : 10;
++        if (!table || body.size()!=width || get16(*table,0)>=256) { disconnect("invalid Ziggurat scan event",true); return; }
++        unsigned int count=get16(*table,0)+1; (*table)[0]=static_cast<unsigned char>(count); (*table)[1]=static_cast<unsigned char>(count>>8);
++        table->insert(table->end(),body.begin(),body.end()); return;
++    }
++    if (type==1) {
++        std::map<unsigned int,Pending>::iterator found=pending_.find(id);
++        if (found==pending_.end()) return;
++        if (found->second.command!=command || body.empty()) { disconnect("mismatched Ziggurat response",true); return; }
++        unsigned char status=body[0]; body.erase(body.begin());
++        if (id==controlId_) {
++            pending_.erase(found); controlId_=0;
++            controlReply(command,status,body); return;
++        }
++        bool sendCommand=command>=0x30 && command<=0x32;
++        Event event(sendCommand ? Event::Admission : Event::JoinReply); event.id=id; event.command=command; event.status=status;
++        events_.push_back(event);
++        if (sendCommand && !status) { found->second.admitted=true; found->second.expires=time(0)+30; }
++        else pending_.erase(found);
++        return;
++    }
++    if (type!=3) return;
++    if (command>=0x11 && command<=0x13 && id) {
++        std::map<unsigned int,Pending>::iterator found=pending_.find(id);
++        if (found==pending_.end() || body.size()!=1) return;
++        unsigned char sendCommand=found->second.command;
++        if ((command==0x13 && sendCommand!=0x30) || (command==0x11 && sendCommand==0x30) || (command==0x12 && sendCommand==0x30)) {
++            Event event(Event::Confirmation); event.id=id; event.command=command; event.status=body[0]; events_.push_back(event);
++            if (body[0] || command!=0x11 || !found->second.apsAck) pending_.erase(found);
++        }
++        return;
++    }
++    if (id) return;
++    if (command==0x30 || command==0x31) {
++        if (body.size()!=4) { disconnect("invalid counter notification",true); return; }
++        unsigned long at=command==0x30 ? 39 : 78;
++        unsigned long value=ZigguratWire::get32(body,0);
++        if (value>ZigguratWire::get32(state_.network,at)) { ZigguratWire::set32(&state_.network,at,value); persist(); }
++        return;
++    }
++    if (command==0x32) {
++        if (body.size()!=24) { disconnect("invalid key notification",true); return; }
++        Bytes keys(2,0); unsigned int count=0;
++        for (unsigned long at=2;at<state_.keys.size();at+=33) {
++            if (std::equal(body.begin(),body.begin()+8,state_.keys.begin()+at+25)) continue;
++            keys.insert(keys.end(),state_.keys.begin()+at,state_.keys.begin()+at+33); ++count;
++        }
++        Bytes row(body.begin()+8,body.end()); row.resize(25,0); ZigguratWire::set32(&row,16,ZigguratWire::get32(state_.network,78));
++        row.insert(row.end(),body.begin(),body.begin()+8); keys.insert(keys.end(),row.begin(),row.end()); ++count;
++        keys[0]=static_cast<unsigned char>(count); keys[1]=static_cast<unsigned char>(count>>8); state_.keys=keys; ++keyRevision_;
++        dirtyTables_=true; persist(); return;
++    }
++    Event event(command==0x10 ? Event::ReceivedAps : command==0x20 ? Event::Joined : command==0x21 ? Event::Left : Event::Diagnostic);
++    event.command=command; event.payload=body; events_.push_back(event);
++    if (command==0x20 || command==0x21) dirtyTables_=true;
++}
++void ZigguratClient::poll() {
++    if (failed_ || lockFd_<0) return;
++    if (fd_<0) {
++        if (reconnectAt_ && time(0)>=reconnectAt_) { std::string error; if (!connectSocket(&error)) reconnectAt_=time(0)+1; }
++        if (fd_<0) return;
++    }
++    if (connecting_) {
++        int error=0; socklen_t size=sizeof(error);
++        if (getsockopt(fd_,SOL_SOCKET,SO_ERROR,&error,&size)!=0 || error) { disconnect("Ziggurat connect failed"); return; }
++        struct PeerCredentials { pid_t pid; uid_t uid; gid_t gid; } credentials;
++        socklen_t credentialsSize=sizeof(credentials);
++        if (getsockopt(fd_,SOL_SOCKET,SO_PEERCRED,&credentials,&credentialsSize)!=0 || credentials.uid!=geteuid()) {
++            disconnect("Ziggurat socket peer has a different owner",true); return;
++        }
++        connecting_=false;
++    }
++    if (!output_.empty()) {
++        ssize_t n=send(fd_,&output_[0],output_.size(),MSG_NOSIGNAL);
++        if (n>0) output_.erase(output_.begin(),output_.begin()+n);
++        else if (n<0 && errno!=EINTR && errno!=EAGAIN && errno!=EWOULDBLOCK) { disconnect("Ziggurat write failed"); return; }
++    }
++    unsigned char buffer[1024];
++    for (unsigned int reads=0;reads<16;++reads) {
++        ssize_t n=read(fd_,buffer,sizeof(buffer));
++        if (n==0) { disconnect("Ziggurat disconnected; pending sends have uncertain delivery"); return; }
++        if (n<0) { if (errno!=EINTR && errno!=EAGAIN && errno!=EWOULDBLOCK) disconnect("Ziggurat read failed"); break; }
++        for (ssize_t i=0;i<n;++i) {
++            unsigned char byte=buffer[i];
++            if (!byte) {
++                if (discarding_) discarding_=false;
++                else if (!input_.empty()) { Bytes decoded; if (ZigguratWire::decode(input_,&decoded)) frame(decoded); }
++                input_.clear(); if (fd_<0) return;
++            } else if (!discarding_) {
++                if (input_.size()>=kMaxFrame) { input_.clear(); discarding_=true; }
++                else input_.push_back(byte);
++            }
++        }
++    }
++    if (!hello_ && helloDeadline_ && time(0)>=helloDeadline_) { disconnect("Ziggurat hello timed out"); return; }
++    for (std::map<unsigned int,Pending>::iterator i=pending_.begin();i!=pending_.end();) {
++        if (time(0)<i->second.expires) { ++i; continue; }
++        if (i->first==controlId_) { disconnect("Ziggurat lifecycle timed out"); return; }
++        Event event(i->second.command>=0x30 && i->second.command<=0x32 ? Event::Confirmation : Event::JoinReply);
++        event.id=i->first; event.command=i->second.command; event.status=0xff; events_.push_back(event);
++        pending_.erase(i++);
++    }
++    if (ready_ && !controlId_ && !stopping_ && (dirtyTables_ || (checkpointAt_ && time(0)>=checkpointAt_))) snapshot(false);
++}
++void ZigguratClient::stop() {
++    if (lockFd_<0) return;
++    stopping_=true;
++    if (fd_>=0 && ready_ && !failed_) {
++        // Finish an admitted checkpoint before freezing; never abandon its ID.
++        long end=time(0)+5;
++        while (fd_>=0 && controlId_ && time(0)<end) { poll(); usleep(1000); }
++        if (fd_>=0 && !controlId_) {
++            control(4,Bytes(),30);
++            while (fd_>=0 && controlId_ && time(0)<end) { poll(); usleep(1000); }
++        }
++    }
++    if (fd_>=0) disconnect("Ziggurat client stopped");
++    close(lockFd_); lockFd_=-1;
++}
+diff --git a/test/TEST_PLAN.md b/test/TEST_PLAN.md
+index 044f428..561f28d 100644
+--- a/test/TEST_PLAN.md
++++ b/test/TEST_PLAN.md
+@@ -179,3 +179,20 @@ physical coordinator and radio interoperability testing.
+ 4. A row may move to `DONE` only when its test is deterministic, asserts the stated
+    result, runs through `make host test`, and has no production credential,
+    device, radio, external FCM, or external Push dependency.
++
++## Optional Ziggurat backend — verified 2026-10-03
++
++Run `make test-backends` to retain EZSP coverage and exercise the optional backend.
++Default `make host test` tests the EZSP build; `make ZIGGURAT=1 host test` also
++runs the scripted COBS peer cases automatically. Run variants sequentially.
++
++| ID | Level | Feature / stimulus | Expected result | Status |
++| --- | --- | --- | --- | --- |
++| ZIG-01 | U | COBS vectors, malformed/large frames, state schema, SHA256, atomic private files and exclusive lock | Bounded framing and corrupt/insecure state refusal | DONE |
++| ZIG-02 | I | Thirteen scripted-peer cases: fragmentation, join/interview/reports/controls, send failure, timeout, reconnect, snapshots, persistence faults and crash before Configure | Native state committed before configuration; failures remain offline or recover consistently | DONE |
++
++Separate actual-stack validation `python3 scripts/test_ziggurat_service.py` passes
++six lifecycle scenarios with patched host Ziggurat and a synthetic loopback RCP.
++The gateway test runs only Ziggurat plus a socket probe; native service deployment
++and real-radio tests remain outside this test matrix. See
++[commands and limitations](../ZIGGURAT_INTEGRATION.md).
+diff --git a/test/integration_gateway.cpp b/test/integration_gateway.cpp
+index 485011b..fa5b4a5 100644
+--- a/test/integration_gateway.cpp
++++ b/test/integration_gateway.cpp
+@@ -122,8 +122,8 @@ void expectUsageFailure(bool missingConfigPath) {
+         close(capture[0]);
+         assert(dup2(capture[1], STDERR_FILENO) >= 0);
+         close(capture[1]);
+-        if (missingConfigPath) execl("build/host/microhad-zigbee-native", "microhad-zigbee-native", "--config", static_cast<char*>(0));
+-        else execl("build/host/microhad-zigbee-native", "microhad-zigbee-native", "--invalid", static_cast<char*>(0));
++        if (missingConfigPath) execl(MICROHAD_TEST_BINARY, "microhad-zigbee-native", "--config", static_cast<char*>(0));
++        else execl(MICROHAD_TEST_BINARY, "microhad-zigbee-native", "--invalid", static_cast<char*>(0));
+         _exit(127);
+     }
+     close(capture[1]);
+diff --git a/test/test_main.cpp b/test/test_main.cpp
+index 035e88a..a3063d3 100644
+--- a/test/test_main.cpp
++++ b/test/test_main.cpp
+@@ -9,7 +9,14 @@ void runSensorHistoryUnitTests();
+ void runLogRingUnitTests();
+ void runExternalHttpDeviceWorkerUnitTests();
+ 
++#if MICROHAD_ZIGGURAT_ENABLED
++void runZigguratUnitTests();
++#endif
++
+ int main() {
++#if MICROHAD_ZIGGURAT_ENABLED
++    runZigguratUnitTests();
++#endif
+     runNetworkBackupUnitTests();
+     runUnitTests();
+     runFcmUnitTests();
+diff --git a/test/unit_gateway_config.cpp b/test/unit_gateway_config.cpp
+index 2be8456..327fd36 100644
+--- a/test/unit_gateway_config.cpp
++++ b/test/unit_gateway_config.cpp
+@@ -35,7 +35,7 @@ std::string runInvalidConfigProcess(const std::string& filename, int* exitCode)
+         close(output[0]);
+         assert(dup2(output[1], STDERR_FILENO) == STDERR_FILENO);
+         close(output[1]);
+-        execl("build/host/microhad-zigbee-native", "microhad-zigbee-native", "--config", filename.c_str(), static_cast<char*>(0));
++        execl(MICROHAD_TEST_BINARY, "microhad-zigbee-native", "--config", filename.c_str(), static_cast<char*>(0));
+         _exit(127);
+     }
+     close(output[1]);
+diff --git a/test/unit_ziggurat.cpp b/test/unit_ziggurat.cpp
+new file mode 100644
+index 0000000..8fd1991
+--- /dev/null
++++ b/test/unit_ziggurat.cpp
+@@ -0,0 +1,49 @@
++#include "ziggurat_client.h"
++#include <cassert>
++#include <cstdlib>
++#include <fcntl.h>
++#include <sys/wait.h>
++#include <sys/stat.h>
++#include <unistd.h>
++
++void runZigguratUnitTests() {
++    typedef ZigguratWire::Bytes Bytes;
++    const unsigned char knownRaw[]={0x11,0,0x22}, knownWire[]={2,0x11,2,0x22,0};
++    assert(ZigguratWire::encode(Bytes(knownRaw,knownRaw+3))==Bytes(knownWire,knownWire+5));
++    Bytes raw;
++    for (unsigned int i=0;i<1024;++i) raw.push_back(static_cast<unsigned char>(i));
++    Bytes wire=ZigguratWire::encode(raw), decoded;
++    assert(wire.back()==0); wire.pop_back();
++    assert(ZigguratWire::decode(wire,&decoded) && raw==decoded);
++    assert(!ZigguratWire::decode(Bytes(1,0),&decoded));
++    assert(!ZigguratWire::decode(Bytes(1,2),&decoded));
++    assert(!ZigguratWire::decode(Bytes(16385,1),&decoded));
++    ZigguratState state; state.network=Bytes(82,0); state.network[0]=15; state.network[2]=1;
++    state.keys=state.children=state.addresses=Bytes(2,0);
++    assert(!state.valid());
++    state.network[4]=2; state.network[14]=2; state.network[22]=2; state.network[43]=2;
++    assert(state.valid()); std::string error;
++    assert(state.advance(&error)); assert(ZigguratWire::get32(state.network,39)==1000);
++    assert(ZigguratWire::get32(state.network,78)==1000);
++    ZigguratWire::set32(&state.network,39,0xffffffffUL); assert(!state.advance(&error));
++    ZigguratWire::set32(&state.network,39,1000);
++    char directory[]="/tmp/microhad-ziggurat-state-test-XXXXXX"; assert(mkdtemp(directory));
++    std::string path=std::string(directory)+"/state.json";
++    assert(state.save(path,&error)); struct stat st; assert(stat(path.c_str(),&st)==0 && (st.st_mode&0777)==0600);
++    ZigguratState loaded; assert(loaded.load(path,&error) && loaded.network==state.network);
++    int fd=open(path.c_str(),O_RDWR); assert(fd>=0);
++    // A valid-width counter change must fail checksum verification.
++    off_t offset=0; char data[2048]; ssize_t size=read(fd,data,sizeof(data)); assert(size>0);
++    std::string text(data,size); offset=static_cast<off_t>(text.find("network")+11+39*2);
++    assert(lseek(fd,offset,SEEK_SET)==offset); assert(write(fd,"f",1)==1); close(fd);
++    assert(!loaded.load(path,&error)); assert(state.save(path,&error));
++    ZigguratClient owner; assert(owner.start(std::string(directory)+"/api.sock",path,&error));
++    pid_t child=fork(); assert(child>=0);
++    if (child==0) { ZigguratClient competitor; _exit(competitor.start(std::string(directory)+"/api.sock",path,&error) ? 1 : 0); }
++    int status=0; assert(waitpid(child,&status,0)==child && WIFEXITED(status) && WEXITSTATUS(status)==0);
++    owner.stop(); assert(unlink((path+".lock").c_str())==0);
++    assert(chmod(path.c_str(),0644)==0); assert(!loaded.load(path,&error)); assert(!state.save(path,&error));
++    assert(unlink(path.c_str())==0); assert(symlink("/dev/null",path.c_str())==0);
++    assert(!loaded.load(path,&error)); assert(!state.save(path,&error));
++    assert(unlink(path.c_str())==0); assert(rmdir(directory)==0);
++}

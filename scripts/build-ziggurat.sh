@@ -32,6 +32,12 @@ if ! git -C ${build_worktree} apply --reverse --check \
     git -C ${build_worktree} apply --check "$experiment_root/patches/ziggurat-stock-compat.patch"
     git -C ${build_worktree} apply "$experiment_root/patches/ziggurat-stock-compat.patch"
 fi
+if [[ ${ZIGGURAT_MULTIPAN:-0} == 1 ]]; then
+    if ! git -C "$build_worktree" apply --reverse --check "$experiment_root/patches/ziggurat-cobs-unix.patch" 2>/dev/null; then
+        git -C "$build_worktree" apply --check "$experiment_root/patches/ziggurat-cobs-unix.patch"
+        git -C "$build_worktree" apply "$experiment_root/patches/ziggurat-cobs-unix.patch"
+    fi
+fi
 bash scripts/make-llvm-target.sh
 export CARGO_TARGET_DIR="$experiment_root/${build_output}"
 export CARGO_NET_GIT_FETCH_WITH_CLI=true
