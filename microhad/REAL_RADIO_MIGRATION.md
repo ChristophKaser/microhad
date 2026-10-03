@@ -1,5 +1,11 @@
 # Real-radio Ziggurat migration — 2026-10-03
 
+> **Post-deployment correction (2026-10-03):** investigation of Küche TH01
+> reproduced and fixed child loss on relayed own parent announcements, and fixed
+> rejection of TH01 signed humidity reads. Both fixes are deployed; the child
+> survives startup. [Evidence and current verification](THERMOMETER_RECOVERY.md).
+
+
 ## Current checkpoint
 
 Permanent paired production startup is installed under `/tuya/native` and

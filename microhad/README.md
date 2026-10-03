@@ -1,5 +1,11 @@
 # MicroHAD Native
 
+> **Post-deployment correction (2026-10-03):** investigation of Küche TH01
+> reproduced and fixed child loss on relayed own parent announcements, and fixed
+> rejection of TH01 signed humidity reads. Both fixes are deployed; the child
+> survives startup. [Evidence and current verification](THERMOMETER_RECOVERY.md).
+
+
 `microhad-zigbee-native` is a native, statically linked C++03 gateway daemon for
 the Lidl/Tuya gateway. It is built specifically with the bundled RSDK for the
 gateway's 32-bit big-endian MIPS/uClibc environment; it does not use low.js,

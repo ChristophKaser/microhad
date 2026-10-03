@@ -1,5 +1,11 @@
 # Deploy Ziggurat on the existing Tuya gateway
 
+> **Post-deployment correction (2026-10-03):** investigation of Küche TH01
+> reproduced and fixed child loss on relayed own parent announcements, and fixed
+> rejection of TH01 signed humidity reads. Both fixes are deployed; the child
+> survives startup. [Evidence and current verification](THERMOMETER_RECOVERY.md).
+
+
 ## Current state and next action — 2026-10-03
 
 **All 12 Zigbee deployment steps are complete, with the limits below.** Use the existing gateway at
