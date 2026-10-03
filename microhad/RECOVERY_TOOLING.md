@@ -120,7 +120,8 @@ a finite budget (default five attempts across both children). Native failure
 restarts native against the existing stack; Ziggurat failure stops native before
 restarting the pair. Startup deadline is 15 seconds plus at most the five-second
 probe in progress. Shutdown bounds each child to eight seconds and reports forced
-termination; this does not certify freeze. Child console output is discarded;
+termination; this does not certify freeze. Marker files use POSIX shell redirection because the device has no `touch`.
+Child console output is discarded;
 native's existing bounded RAM log remains available. No unbounded file is appended.
 
 On the gateway, during an orderly maintenance stop:

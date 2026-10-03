@@ -71,7 +71,7 @@ while :; do
     if [ -e "$control/quiesce" ]; then
         if [ "$quiesced" = false ]; then
             stop_child "$native_pid";native_pid=
-            rm -f "$control/native.pid";touch "$control/quiesced";quiesced=true
+            rm -f "$control/native.pid";: > "$control/quiesced";quiesced=true
         fi
         # Leave Ziggurat alive for the host freeze/export tool. No respawn.
         sleep 1;continue

@@ -17,9 +17,13 @@ commands and candidate paired launcher implemented, and host tests pass. Exact
 commands and limits are in [RECOVERY_TOOLING.md](RECOVERY_TOOLING.md). Nothing was
 installed on the gateway during step 1.
 
-**Next action:** step 2, private online backups and baseline capture. The first
-flash remains step 7. Steps 1–4 leave production running; steps 5–10 cause Zigbee
-downtime. No staging or maintenance cutover is authorized by completing step 1.
+**Step 2 is complete:** private live service/application archive and fresh logical
+network export are saved and validated. Production stayed online; its binary and
+processes were not replaced/restarted. Joining was already closed.
+
+**Next action:** step 3 (isolated staging and a synthetic test), after checking the
+combined storage budget. Step 3 has not been performed. The first flash remains
+step 7. Steps 5–10 require a later maintenance cutover.
 
 The objective of this deployment is existing-network Zigbee operation through
 native → COBS Unix socket → Ziggurat → HDLC RCP. Thread and Matter follow later;
@@ -123,6 +127,47 @@ production is untouched. If a tool is unfinished, continue implementing it rathe
 than entering the maintenance window.
 
 ## 2. Save current service and application state — production stays online
+
+
+**Completed 2026-10-03.** Private host backup directory:
+`diagnostics/ziggurat-deployment/step2-1791013232746596827/` (ignored by Git,
+mode 0700; every file mode 0600). It contains:
+
+- `service-and-application.tar`: 2,171,392 bytes, 31 entries, with the deployed
+  daemon, launcher, configuration/application files, TLS/notification assets,
+  serial bridge and time script. The configured external Firebase account file
+  was included. Archive members/read lengths were checked and all regular-file
+  MD5 hashes matched the corresponding live files after transfer.
+- `deployed-v13-daemon` and `deployed-launcher.sh`: independent simple rollback
+  copies. Daemon MD5 remains `7a508ac880516642572a70e87bdc5014`.
+- `running-network-export.json`, `normalized-network-state.json` and
+  `coordinator-backup.json`: fresh online export (65 records), normalized state
+  and logical recovery backup. Offline restore validation and stopped-only actual
+  host Ziggurat import passed. The import transmitted zero frames.
+- Private process/fd records, HTTP/HTTPS status snapshots, bounded log snapshot,
+  inventories, resource readings and `verified-baseline.json`.
+
+The observed main daemon PID was 655 and parent launcher PID 126. LinuxThreads
+PIDs share its descriptors; they are not separate coordinator services. These
+PIDs are observations only: resolve them again before future maintenance.
+HTTP/HTTPS were online, network formed, and device count remained 23. The fresh
+radio export has zero populated link-key records and two direct children; raw
+NCP token export remains unavailable. These counts are not the device inventory.
+Passive observation recorded nine light-capable, four measurement-capable and
+four contact-capable entries, with seven entries receiving a newer `last_seen`
+during preparation. No device control commands were sent.
+
+At the resource snapshot, MemFree was 10,092 KiB and `/tuya` had 5,380 KiB free.
+Step 3 must budget both staged binaries and temporary space; these readings are
+not permanent capacity guarantees. The gateway lacks `touch`, `find`, `tr` and
+`readlink`. Backup used raw `/proc` reads, tar-member inventories and md5sum;
+prepared supervisor/control scripts now create marker files with POSIX shell
+redirection and their six host cases pass again.
+
+This is an **online snapshot**, not a final exclusive handover. No archived file
+changed during its immediate checksum comparison, but take another consistent
+application copy and a fresh counter/key capture in step 5. Do not use this
+backup's counter values unchanged after continued production operation.
 
 Over SSH, inspect `ps w`, each candidate `/proc/PID/status`, `/proc/PID/cmdline`,
 `/proc/PID/exe` and `/proc/PID/fd` to identify the exact daemon and supervisor.
