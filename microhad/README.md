@@ -1,5 +1,10 @@
 # MicroHAD Native
 
+> **Herdsman comparison (2026-10-03):** hardware failure is not established.
+> Current TH01 setup differs from ours; a retained NWK replay baseline across
+> fresh joins is a concrete unverified Ziggurat hypothesis.
+> [Profile, lifecycle, evidence and next steps](HERDSMAN_TH01_COMPARISON.md).
+
 > **Reporting correction (2026-10-03):** cached-endpoint rejoins previously
 > skipped binding/reporting setup. The native fix is tested for both backends
 > and deployed. Küche accepted setup and sent four reports, but sustained
