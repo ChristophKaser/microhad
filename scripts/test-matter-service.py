@@ -69,8 +69,8 @@ def main():
                 except (OSError, RuntimeError):
                     time.sleep(0.02)
             thread = status(ipc_path, 2, 302)
-            assert matter["available"] and matter["state"] == "awaiting_fabric"
-            assert not matter["fabric_ready"]
+            assert matter["available"] and matter["state"] == "running"
+            assert matter["fabric_ready"]
             assert thread["available"] and not thread["attached"]
             assert not thread["linux_ipv6_or_tun"]
             assert ipc_path.stat().st_mode & 0o777 == 0o600
@@ -86,6 +86,9 @@ def main():
             for ident in range(400, 420):
                 assert status(ipc_path, ident % 2 + 1, ident)["available"]
             assert time.monotonic() - start < 2
+            credentials = private / "state/credentials.bin"
+            committed = credentials.read_bytes()
+            metadata = credentials.stat()
             service.terminate()
             stdout, stderr = service.communicate(timeout=2)
             assert service.returncode == 0
@@ -94,7 +97,50 @@ def main():
             assert stderr == b"Matter controller service started\nMatter controller service stopped\n"
             assert not radio.error
             assert radio.counts.get("command_1", 0) == 0
-            print("PASS status, typed body rejection, duplicate start, private socket, bounded calls, SIGTERM, no RCP reset")
+            relay.wait(timeout=2)
+            radio.close()
+            radio = sim.ThreadRcp("127.0.0.1", tcp_nodelay=True)
+            relay = subprocess.Popen([str(ROOT / "build/openthread-unix/sim-relay-host"),
+                str(radio_path), radio.address, str(radio.port), "30"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            deadline = time.monotonic() + 3
+            while not radio_path.exists():
+                if relay.poll() is not None or time.monotonic() >= deadline:
+                    raise RuntimeError("Restart relay did not start")
+                time.sleep(0.02)
+            service = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            deadline = time.monotonic() + 5
+            while True:
+                if service.poll() is not None or time.monotonic() >= deadline:
+                    raise RuntimeError("Service did not restore fabric")
+                try:
+                    restored = status(ipc_path, 1, 701)
+                    break
+                except (OSError, RuntimeError):
+                    time.sleep(0.02)
+            assert restored["fabric_ready"]
+            assert credentials.read_bytes() == committed
+            assert (credentials.stat().st_ino, credentials.stat().st_mtime_ns) == (metadata.st_ino, metadata.st_mtime_ns)
+            service.terminate()
+            stdout, stderr = service.communicate(timeout=2)
+            assert service.returncode == 0
+            assert not stdout
+            assert stderr == b"Matter controller service started\nMatter controller service stopped\n"
+            wrong_vendor = subprocess.run(args + ["--administrator-vendor-id", "65522"], capture_output=True, timeout=2)
+            assert wrong_vendor.returncode == 1
+            assert wrong_vendor.stderr == b"Matter controller service failed\n"
+            assert credentials.read_bytes() == committed
+            assert not ipc_path.exists()
+            # Simulate a corrupt committed envelope only in isolated temporary state.
+            credentials.write_bytes(committed[:8])
+            corrupt = subprocess.run(args, capture_output=True, timeout=2)
+            assert corrupt.returncode == 1
+            assert corrupt.stderr == b"Matter controller service failed\n"
+            assert credentials.read_bytes() == committed[:8]
+            assert not ipc_path.exists()
+            assert not radio.error
+            assert radio.counts.get("command_1", 0) == 0
+            print("PASS status, strict bodies, private socket, calls, shutdown, persistent fabric restart, no read writes, corruption refusal, no RCP reset")
     finally:
         for process in (service, relay):
             if process is not None and process.poll() is None:

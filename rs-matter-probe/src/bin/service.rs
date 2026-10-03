@@ -3,6 +3,7 @@ use core::pin::pin;
 use lexra_rs_matter_probe::{
     control::Request,
     entropy::OsEntropy,
+    identity::Identity,
     ipc::{Frame, OP_MATTER_STATUS, OP_THREAD_STATUS},
     openthread::OpenThread,
     service::IpcServer,
@@ -68,6 +69,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut socket = PathBuf::from("/tmp/microhad-matter.sock");
     let mut state = PathBuf::from("/tuya/native/matter");
     let mut radio = None;
+    let mut administrator_vendor = 0xfff1u16;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         let value = args.next().ok_or("missing option value")?;
@@ -75,6 +77,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             "--socket" => socket = value.into(),
             "--state-dir" => state = value.into(),
             "--radio-url" => radio = Some(value),
+            "--administrator-vendor-id" => administrator_vendor = value.parse()?,
             _ => return Err("unknown option".into()),
         }
     }
@@ -118,8 +121,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         &ATTESTATION,
         MATTER_PORT,
     ));
+    let identity = Identity::open(&store, &crypto, administrator_vendor)?;
     let kv = matter.kv(store.clone());
     matter.startup(&kv)?;
+    let _controller_fabric = identity.install(matter, &crypto, &store)?;
     let thread = OpenThread::init(&radio)?;
     let network = thread.bind(MATTER_PORT)?;
     let transport = matter.run(&crypto, &network, &network, NoNetwork);

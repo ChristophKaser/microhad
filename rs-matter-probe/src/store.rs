@@ -171,6 +171,12 @@ impl PrivateStore {
         bytes[..value.len()].copy_from_slice(value);
         Ok(Some(value.len()))
     }
+    pub fn contains_in(&self, range: std::ops::Range<u16>) -> io::Result<bool> {
+        if self.0.poisoned.get() {
+            return Err(invalid());
+        }
+        Ok(self.0.values.borrow().range(range).next().is_some())
+    }
     /// Commit one whole envelope. A crash before rename retains the previous envelope.
     /// A post-rename durability error poisons this owner; restart must reload the file.
     pub fn set(&self, key: u16, data: Option<&[u8]>) -> io::Result<()> {

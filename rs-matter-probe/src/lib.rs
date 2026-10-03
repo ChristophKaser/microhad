@@ -4,6 +4,8 @@ pub mod commissioning;
 #[cfg(feature = "control-ipc")]
 pub mod control;
 pub mod entropy;
+#[cfg(feature = "controller-identity")]
+pub mod identity;
 pub mod ipc;
 #[cfg(feature = "control-ipc")]
 pub mod sessions;
