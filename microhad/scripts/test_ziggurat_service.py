@@ -70,6 +70,10 @@ def main():
             saved=json.loads(state_path.read_text());network=bytes.fromhex(saved["network"])
             assert int.from_bytes(network[39:43],"little")>=int.from_bytes(bytes.fromhex(state["network"])[39:43],"little")+1000
             assert int.from_bytes(network[78:82],"little")>=int.from_bytes(bytes.fromhex(state["network"])[78:82],"little")+1000
+            expected_key=bytes.fromhex(state["keys"])[2:]
+            restored_key=bytes.fromhex(saved["keys"])[2:]
+            assert restored_key[:16]==expected_key[:16] and restored_key[20:]==expected_key[20:]
+            assert saved["children"]==state["children"] and saved["addresses"]==state["addresses"]
             passed("Native COBS startup restores synthetic identity, keys and both counters")
             with urllib.request.urlopen(urllib.request.Request(f"http://127.0.0.1:{port}/api/join",data=b"",method="POST"),timeout=2) as response:
                 assert json.load(response)["ok"]

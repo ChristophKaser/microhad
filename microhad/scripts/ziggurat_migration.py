@@ -210,6 +210,8 @@ def main():
                     "start_network_included":False,"hardware_verified":False}
         elif args.command=="prepare-native":
             state=json.loads(Path(args.state).read_text())
+            if state.get("format")=="ziggurat-import-bundle":
+                state=state["state"]
             if state.get("incoming_counter_semantics")!="next-acceptable" or not state.get("counter_preparation"):
                 raise ValueError("prepare-native requires the state from a prepared import bundle")
             bundle=native_state(state)

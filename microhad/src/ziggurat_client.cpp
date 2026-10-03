@@ -262,6 +262,13 @@ void ZigguratClient::controlReply(unsigned char command, unsigned char status, c
         Bytes config(1,0); config.push_back(1); config.insert(config.end(),state_.network.begin(),state_.network.end()); control(0x10,config,2); return;
     }
     if (status) { disconnect("Ziggurat lifecycle request failed",true); return; }
+    if (phase_==11 || phase_==21 || phase_==12 || phase_==22 || phase_==13 || phase_==23) {
+        const Bytes& table=(phase_==11 || phase_==21) ? snapshot_.keys :
+            (phase_==12 || phase_==22) ? snapshot_.children : snapshot_.addresses;
+        if (body.size()!=2 || get16(body,0)!=get16(table,0)) {
+            disconnect("incomplete Ziggurat table scan; saved state preserved",true); return;
+        }
+    }
     if (phase_==1) {
         if (body.size()!=85) { disconnect("malformed Ziggurat network info",true); return; }
         Bytes network(body.begin(),body.begin()+82);
@@ -293,6 +300,10 @@ void ZigguratClient::controlReply(unsigned char command, unsigned char status, c
         if (body.size()!=85) { disconnect("malformed Ziggurat final snapshot",true); return; }
         Bytes network(body.begin(),body.begin()+82);
         if (!sameIdentity(network,state_.network)) { disconnect("Ziggurat final identity changed",true); return; }
+        if (snapshotRevision_==keyRevision_ && get16(body,82)!=get16(snapshot_.keys,0)) {
+            disconnect("Ziggurat key count changed without a complete snapshot",true); return;
+        }
+        if (stopping_ && body[84]!=0) { disconnect("Ziggurat freeze was not confirmed",true); return; }
         mergeCounter(&snapshot_.network,network,39); mergeCounter(&snapshot_.network,network,78); finishSnapshot();
     }
 }

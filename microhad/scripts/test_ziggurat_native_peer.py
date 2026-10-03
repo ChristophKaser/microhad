@@ -27,7 +27,7 @@ class Peer:
         self.path=path;self.saved=copy.deepcopy(state);self.network=bytes.fromhex(state["network"])
         self.tables={0x21:bytes.fromhex(state["keys"]),0x22:bytes.fromhex(state["children"]),0x23:bytes.fromhex(state["addresses"])}
         self.configured=False;self.started=False;self.conn=None;self.stop=threading.Event();self.error=None
-        self.lock=threading.Lock();self.commands=[];self.reject_send=False;self.fail_confirmation=False;self.drop_commands=set()
+        self.lock=threading.Lock();self.commands=[];self.reject_send=False;self.fail_confirmation=False;self.drop_commands=set();self.omit_scan_rows=set()
         self.listener=socket.socket(socket.AF_UNIX);self.listener.bind(str(path));path.chmod(0o600);self.listener.listen();self.listener.settimeout(.1)
         self.thread=threading.Thread(target=self.run,daemon=True);self.thread.start()
 
@@ -57,13 +57,16 @@ class Peer:
             if not self.configured:status=0x10
             else:response=self.network+self.tables[0x21][:2]+bytes([self.started])
         elif command==0x10:
-            assert len(body)==84;self.network=body[2:];self.configured=True;self.started=False
+            assert len(body)==84
+            committed=json.loads((self.path.parent/"ziggurat-state.json").read_text())
+            assert committed["network"]==body[2:].hex() # Commit precedes Configure.
+            self.network=body[2:];self.configured=True;self.started=False
         elif command in (0x11,0x12,0x13):self.tables[command+0x10]=body
         elif command==0x16:self.started=True
         elif command==4:self.started=False
         elif command in (0x21,0x22,0x23):
             table=self.tables[command];width={0x21:33,0x22:11,0x23:10}[command]
-            for at in range(2,len(table),width):self.send(bytes([command])+struct.pack("<H",ident<<2|2)+table[at:at+width])
+            for at in ([] if command in self.omit_scan_rows else range(2,len(table),width)):self.send(bytes([command])+struct.pack("<H",ident<<2|2)+table[at:at+width])
             response=table[:2]
         elif command in (0x30,0x31,0x32):
             if self.reject_send:status=0x20
@@ -228,6 +231,26 @@ class NativeTests(unittest.TestCase):
         self.peer.notify(0x30,b"\x01\x02")
         wait_for(lambda:not self.status()["online"])
         self.assertFalse(self.status()["network_formed"])
+
+    def test_partial_scan_never_overwrites_saved_keys(self):
+        saved=self.saved();self.peer.omit_scan_rows.add(0x21)
+        ieee=bytes.fromhex(fixture()["keys"][0]["ieee"])
+        self.peer.notify(0x20,b"\x34\x12"+ieee+b"\x00\x00\x04")
+        wait_for(lambda:not self.status()["online"])
+        self.assertTrue(self.saved()["keys"]==saved["keys"])
+
+    def test_crash_after_counter_commit_before_configure(self):
+        self.process.kill();self.process.wait();self.process=None
+        self.peer.configured=False;self.peer.started=False;self.peer.drop_commands.add(0x10)
+        first=int.from_bytes(bytes.fromhex(self.saved()["network"])[39:43],"little")
+        self.process=subprocess.Popen([str(ROOT/"build/host-ziggurat/microhad-zigbee-native"),"--config",str(self.config)],stdout=self.log,stderr=self.log)
+        wait_for(lambda:int.from_bytes(bytes.fromhex(self.saved()["network"])[39:43],"little")>first)
+        committed=self.saved()
+        self.process.kill();self.process.wait();self.process=None;self.peer.drop_commands.clear()
+        self.launch()
+        restored=bytes.fromhex(self.saved()["network"]);before=bytes.fromhex(committed["network"])
+        self.assertGreater(int.from_bytes(restored[39:43],"little"),int.from_bytes(before[39:43],"little"))
+        self.assertGreater(int.from_bytes(restored[78:82],"little"),int.from_bytes(before[78:82],"little"))
 
     def test_corrupt_state_blocks_startup(self):
         self.process.kill();self.process.wait();self.process=None
