@@ -23,7 +23,11 @@ processes were not replaced/restarted. Joining was already closed.
 
 **Execution checkpoint:** steps 1–4 completed.
 
-**Next action:** step 5; reread its procedure before execution.
+**Next action:** step 5, awaiting direct approval required by automatic action
+review. The maintenance command was rejected twice and executed nothing.
+The active goal requests migration, but the reviewer does not accept goal/tool
+context as trusted permission to supersede the earlier simulation-only restriction.
+A direct approval request for steps 5–12 is pending. Production remains on EZSP.
 
 The objective of this deployment is existing-network Zigbee operation through
 native → COBS Unix socket → Ziggurat → HDLC RCP. Thread and Matter follow later;
@@ -267,6 +271,11 @@ before permanent deployment rather than moving security state to ramfs.
 **Rollback:** remove staged private files; production stays on its own runtime.
 
 ## 5. Begin maintenance: stop production and finalize the handover backup
+
+**Not started:** automatic review rejected the maintenance action before execution.
+No SIGSTOP/SIGTERM or serial bridge launch occurred. Steps 3 and 4 remain complete;
+private backups and staged binaries are ready. Wait for the pending direct user
+approval before another maintenance attempt.
 
 1. Disable automated controls/joins and take a new native export through the
    running owner. Use a new private filename for every capture.

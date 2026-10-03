@@ -19,8 +19,9 @@ Thread and Matter. No spare gateway is required. The restart counter margin
 has explicit crash-safety limits. See [integration, commands and results](ZIGGURAT_INTEGRATION.md)
 and [network migration evidence](NETWORK_MIGRATION.md).
 
-Deployment steps 1 (offline recovery preparation) and 2 (private online backups
-and baseline capture) are complete. Step 3 has not been performed. See
+Deployment steps 1–4 are complete: recovery preparation, private backups,
+verified isolated staging and preliminary import. Step 5 is waiting for the
+direct approval required by automatic action review. Production remains on EZSP. See
 [prepared tools and commands](RECOVERY_TOOLING.md). Production has not been changed.
 
 ## Build
