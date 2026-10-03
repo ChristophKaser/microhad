@@ -54,6 +54,25 @@ response includes dataset credentials. Only the native coordinator owner may
 supply the current channel; HTTP input must not override it. Existing attached
 network replacement requires explicit lifecycle policy, implemented in plan 06.
 
+`observe` takes `zigbee_channel` and boolean `zigbee_online`. An online channel
+must be 11–26; an offline observation also permits zero. This private action is
+for protected native coordinator observations, never a public HTTP override.
+Observations expire after five monotonic seconds and are not persisted. The
+service defers OpenThread initialization until a fresh online observation agrees
+with its stored dataset. Missing/expired observations stop Thread; mismatches
+return `not_ready` and expose `channel_mismatch`. The native observation worker
+is still pending, so startup currently waits for this message.
+
+Implemented Thread results contain `enabled`, `available`, `configured`,
+`attached`, `state`, optional `zigbee_channel`/`dataset_channel`, and
+`linux_ipv6_or_tun:false`. States are `awaiting_coordinator`, `detached`,
+`attaching`, `attached`, `channel_mismatch`, and `error`. Create/import persist
+the validated dataset before applying it. Different existing datasets return
+`busy`; identical import is idempotent and can explicitly retry a failed apply.
+Apply failure disables Thread, retains committed credentials and reports
+`transport`; heartbeats do not retry that failure. A failure to disable exits
+the service. No response contains dataset bytes.
+
 Device actions: `snapshot` takes `cursor` (u16, default 0), returning `devices`
 and optional `next_cursor`. Summaries contain stable node IDs, availability and
 bounded names (at most 32 UTF-8 bytes); no credentials. `read` requires `node`,

@@ -34,7 +34,7 @@ specific evidence recorded in a file, not to end-to-end Matter support.
 | [03 Identity](03-persistent-fabric-identity.md) | Persistent authority and host CASE recovery implemented | Finish backup/recovery procedure and target filesystem checks |
 | [04 Native API/dashboard](04-native-api-dashboard.md) | Status routes implemented; write APIs and UI pending | Add bounded native service worker and coordinator channel observation |
 | [05 Garage BLE relay](05-garage-ble-relay.md) | App integration pending | Agree relay contract, then implement fake-peer-tested GATT/WebSocket flow |
-| [06 Thread lifecycle](06-thread-network-lifecycle.md) | Private transport implemented; lifecycle changes in progress | Finish synthetic lifecycle checks and native channel heartbeat wiring |
+| [06 Thread lifecycle](06-thread-network-lifecycle.md) | Guarded dataset lifecycle verified on host; native observations pending | Add native channel heartbeat wiring and integrated radio-loss coverage |
 | [07 Devices/reports](07-device-model-and-reports.md) | Encrypted fixture proves transport; production device pipeline pending | Persist commissioned nodes and resolve them through real DNS-SD |
 | [08 Real-device acceptance](08-real-device-acceptance.md) | Pending final acceptance gate | Review plans 01–07, then arrange backed-up device testing |
 

@@ -40,19 +40,43 @@ Ziggurat as the only Zigbee UART and reset owner.
 
 ## Status quo — 2026-10-04
 
-The private no-reset OpenThread transport, IID mapping and userspace UDP path
-are implemented. Dataset lifecycle and channel-gated startup changes are
-currently uncommitted in `ziggurat-compilation`. Their full synthetic runtime
-test is not passing yet: the conflicting cached-settings test needs correction
-and verification. Native coordinator observations are not wired to the service.
-Do not treat these changes as an accepted production attach path.
+The private no-reset transport and userspace UDP path are implemented. The
+service now implements persisted dataset create/import/restore, fresh-observation
+startup gating and expiry-driven detach. Native observation delivery remains
+pending, so the deployed native status-only bridge cannot yet authorize startup.
+
+| Step | Status | Evidence / remaining work |
+| --- | --- | --- |
+| 1–2 | Complete | Private no-reset Unix transport and optional supervision; no direct UART owner or Linux IPv6/TUN requirement. |
+| 3 | Partial | Typed private online/channel observations expire after five monotonic seconds; native snapshot/worker delivery remains pending. |
+| 4 | Complete | Required/duplicate/truncated TLVs, channel/mask, prefix and PAN checks before mutation; malformed/mismatch synthetic and unit checks pass. |
+| 5 | Complete | OS-random create, bounded persisted import/restore, no implicit replacement; persist-before-apply failure disables Thread and requires explicit retry. |
+| 6 | Partial | Redacted lifecycle states, deferred boot, expiry detach and cached-channel guard implemented; radio-loss/restart reconciliation still needs integrated coverage. |
+| 7 | Partial | 36 Rust library tests and real host process/synthetic-RCP lifecycle test pass; physical coexistence/reception remains unverified. |
+
+The process test changes a persisted cached active channel to 20 while the
+canonical dataset/channel is 15. Restart waits without radio traffic, rejects
+observation 11, then restores on observation 15; every recorded channel write
+is 15. Status/reload leave the private credential file unchanged. The test
+selects the actual dataset record rather than unrelated POSIX settings records.
+The adapter permits readback of validated datasets while suppressing unchecked
+boot restore. Malformed settings envelopes fail before backend truncation;
+core dumps are disabled before loading credentials.
+
+Implementation checkpoint: `ziggurat-compilation` commit `089a830`.
+
+Validation: `cargo +nightly-2026-10-02 test --locked --manifest-path
+rs-matter-probe/Cargo.toml --features controller-service --lib` (36 passed),
+`python3 scripts/test-matter-service.py`, host encrypted commissioning fixtures
+with/without `--ble` (209/253 ms), and factory service build. The stripped static
+big-endian MIPS-I artifact is 1,552,028 bytes; it has not been run on the gateway.
+No physical radio test, deployment or plan 08 action occurred.
 
 ## Remaining checkpoints
 
-1. Finish and verify dataset record validation, secure generation, persistence
-   before apply and explicit fail-closed recovery. Test mismatched/malformed
-   imports without radio or store mutation.
-2. Verify boot against conflicting cached OpenThread settings. Preserve security
+1. Completed: dataset validation, generation and fail-closed apply are verified
+   on host; retain these checks when adding commissioning dispatch.
+2. Host check complete; extend recovery coverage against cached settings. Preserve security
    counters, reject corrupt settings and ensure no wrong-channel command is
    emitted before a fresh coordinator observation authorizes initialization.
 3. Implement native channel/online observations and bounded periodic delivery

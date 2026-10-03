@@ -72,8 +72,8 @@ starts a process. No gateway connection was made during these tests.
 
 1. Finish the channel-gated lifecycle in plan 06, then verify status while
    awaiting a coordinator, attaching, attached, disconnected and restarting.
-   Treat current uncommitted lifecycle changes as experimental until their
-   complete synthetic service test passes.
+   The guarded lifecycle synthetic service test now passes; native observation
+   delivery and integrated radio-loss behavior remain pending.
 2. Exercise service failure, radio loss and supervisor retry exhaustion together;
    confirm bounded IPC latency and that Zigbee/native supervision continues.
 3. Verify a native HTTP-to-service status round trip with valid, malformed,
@@ -87,3 +87,8 @@ starts a process. No gateway connection was made during these tests.
 The existing bounded Rust/C++ frame format and status opcode assignments. The
 Thread radio endpoint must be supplied by the Thread network lifecycle work
 before claiming radio readiness.
+
+Latest Thread lifecycle checkpoint: 36 Rust checks, synthetic service restart
+and encrypted fixture regressions pass. Factory service size is 1,552,028 bytes.
+Startup now reports `awaiting_coordinator` before a fresh private channel
+observation, then `running`; prior measurements/states above are historical.
