@@ -37,6 +37,14 @@ if [[ ${ZIGGURAT_MULTIPAN:-0} == 1 ]]; then
         git -C "$build_worktree" apply --check "$experiment_root/patches/ziggurat-cobs-unix.patch"
         git -C "$build_worktree" apply "$experiment_root/patches/ziggurat-cobs-unix.patch"
     fi
+    if ! git -C "$build_worktree" apply --reverse --check "$experiment_root/patches/ziggurat-poll-diagnostics.patch" 2>/dev/null; then
+        git -C "$build_worktree" apply --check "$experiment_root/patches/ziggurat-poll-diagnostics.patch"
+        git -C "$build_worktree" apply "$experiment_root/patches/ziggurat-poll-diagnostics.patch"
+    fi
+    if ! git -C "$build_worktree" apply --reverse --check "$experiment_root/patches/ziggurat-parent-announcement.patch" 2>/dev/null; then
+        git -C "$build_worktree" apply --check "$experiment_root/patches/ziggurat-parent-announcement.patch"
+        git -C "$build_worktree" apply "$experiment_root/patches/ziggurat-parent-announcement.patch"
+    fi
 fi
 bash scripts/make-llvm-target.sh
 export CARGO_TARGET_DIR="$experiment_root/${build_output}"

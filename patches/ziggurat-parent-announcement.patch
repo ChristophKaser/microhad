@@ -1,0 +1,32 @@
+diff --git a/crates/ziggurat-driver/src/zigbee_stack/zdp.rs b/crates/ziggurat-driver/src/zigbee_stack/zdp.rs
+index c3e4955..1770595 100644
+--- a/crates/ziggurat-driver/src/zigbee_stack/zdp.rs
++++ b/crates/ziggurat-driver/src/zigbee_stack/zdp.rs
+@@ -225,6 +225,13 @@ impl<P: RadioPhy, R: Runtime> ZigbeeStack<P, R> {
+     fn handle_parent_annce(&self, nwk_frame: &NwkFrame, aps_frame: &ApsDataFrame) {
+         let source = nwk_frame.nwk_header.source;
+ 
++        // A router can relay our broadcast with its MAC address while retaining
++        // our NWK source. It is not a competing parent and must not evict children
++        // restored at boot, before they have had a chance to poll.
++        if source == self.state.network_address {
++            return;
++        }
++
+         let (tsn, annce) = match ParentAnnce::deserialize(&aps_frame.asdu) {
+             Ok(parsed) => parsed,
+             Err(err) => {
+@@ -340,6 +347,13 @@ impl<P: RadioPhy, R: Runtime> ZigbeeStack<P, R> {
+     fn handle_parent_annce_rsp(&self, nwk_frame: &NwkFrame, aps_frame: &ApsDataFrame) {
+         let source = nwk_frame.nwk_header.source;
+ 
++        // A router can relay our broadcast with its MAC address while retaining
++        // our NWK source. It is not a competing parent and must not evict children
++        // restored at boot, before they have had a chance to poll.
++        if source == self.state.network_address {
++            return;
++        }
++
+         let (_tsn, response) = match ParentAnnceRsp::deserialize(&aps_frame.asdu) {
+             Ok(parsed) => parsed,
+             Err(err) => {

@@ -1,0 +1,16 @@
+diff --git a/crates/ziggurat-driver/src/zigbee_stack/indirect.rs b/crates/ziggurat-driver/src/zigbee_stack/indirect.rs
+index d053dbe..965ca55 100644
+--- a/crates/ziggurat-driver/src/zigbee_stack/indirect.rs
++++ b/crates/ziggurat-driver/src/zigbee_stack/indirect.rs
+@@ -72,6 +72,11 @@ impl<P: RadioPhy, R: Runtime> ZigbeeStack<P, R> {
+         let delivered =
+             fp_advertised && self.deliver_indirect_transaction(source_eui64, source_nwk);
+ 
++        // Targeted diagnostics: identifiers and delivery state only, never frames or keys.
++        tracing::debug!(
++            "Child poll source={poll_source:?} known={known_device} pending_advertised={fp_advertised} delivered={delivered}"
++        );
++
+         // Spec 3.6.10.4: polls from devices without a neighbor table entry are
+         // answered with an indirectly delivered leave, steering the stale child
+         // toward a rejoin
