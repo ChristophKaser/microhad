@@ -9,7 +9,14 @@ void runSensorHistoryUnitTests();
 void runLogRingUnitTests();
 void runExternalHttpDeviceWorkerUnitTests();
 
+#if MICROHAD_ZIGGURAT_ENABLED
+void runZigguratUnitTests();
+#endif
+
 int main() {
+#if MICROHAD_ZIGGURAT_ENABLED
+    runZigguratUnitTests();
+#endif
     runNetworkBackupUnitTests();
     runUnitTests();
     runFcmUnitTests();

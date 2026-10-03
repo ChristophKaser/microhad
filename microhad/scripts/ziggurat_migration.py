@@ -107,6 +107,15 @@ def import_commands(state):
     return [(0x10,b"\x00\x01"+encode_network(state["network"])),(0x11,keys),(0x12,children),(0x13,addresses)]
 
 
+def native_state(state):
+    """Encode already-prepared migration state; native startup adds its own margin."""
+    commands = dict(import_commands(state))
+    return {"format": "microhad-ziggurat-native", "version": 1,
+            "network": encode_network(state["network"]).hex(),
+            "keys": commands[0x11].hex(), "children": commands[0x12].hex(),
+            "addresses": commands[0x13].hex()}
+
+
 def verify_import(client, state):
     """Load stopped stack, verify exported state and every key/child, never StartNetwork."""
     for command,payload in import_commands(state): client.request(command,payload)
@@ -184,6 +193,8 @@ def main():
     p=sub.add_parser("prepare-import")
     p.add_argument("--state",required=True);p.add_argument("--output",required=True)
     p.add_argument("--aps-upper-bound",type=int)
+    p=sub.add_parser("prepare-native")
+    p.add_argument("--state",required=True);p.add_argument("--output",required=True)
     p=sub.add_parser("prepare-rollback")
     p.add_argument("--original",required=True);p.add_argument("--last-stopped-state",required=True)
     p.add_argument("--output",required=True);p.add_argument("--aps-upper-bound",type=int)
@@ -194,6 +205,11 @@ def main():
             bundle={"format":"ziggurat-import-bundle","protocol_version":2,"state":state,
                     "commands":[{"command":cmd,"payload":payload.hex()} for cmd,payload in import_commands(state)],
                     "start_network_included":False,"hardware_verified":False}
+        elif args.command=="prepare-native":
+            state=json.loads(Path(args.state).read_text())
+            if state.get("incoming_counter_semantics")!="next-acceptable" or not state.get("counter_preparation"):
+                raise ValueError("prepare-native requires the state from a prepared import bundle")
+            bundle=native_state(state)
         else:
             state=rollback_state(json.loads(Path(args.original).read_text()),json.loads(Path(args.last_stopped_state).read_text()),args.aps_upper_bound)
             bundle=open_coordinator(state)
