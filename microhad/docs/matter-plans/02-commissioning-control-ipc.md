@@ -54,10 +54,22 @@ response/event bodies and matching native validation remain pending.
 
 Step 4 is partial: the running service dispatches status and fixed `malformed`
 or `unsupported` errors for new bodies without echoing input; it does not accept
-commissioning/control jobs yet. Steps 3, 5 and 6 remain pending; step 7 continues
-with every body implementation. All 22 Rust library checks and the synthetic
-real-service test pass; static stripped factory MIPS build is now 1,343,120 bytes.
+commissioning/control jobs yet. Steps 5 and 6 remain pending; step 7 continues
+with every body implementation. The strict decoder checkpoint passed all 22
+Rust library checks and the synthetic real-service test; its static stripped
+factory MIPS build was 1,343,120 bytes.
 No commissioning/control API is claimed at this checkpoint.
+
+Step 3 is now complete as a service building block: the single-owner session
+manager owns its pinned commissioning future, uses unpredictable IDs and
+monotonic deadlines, drops work before cancellation/reconnect cleanup, clears
+zeroizing PIN storage on terminal states and rejects stale BLE generation,
+sequence and write callbacks. Typed redacted session snapshots are implemented.
+Five focused lifecycle tests pass; the full Rust service-feature library suite
+has 27 passing tests. Actual commissioner/fabric/network dispatch wiring remains
+in step 4; the running IPC service still does not accept these jobs.
+Implementation details are in
+`ziggurat-compilation/docs/matter-session-lifecycle.md`.
 
 ## Depends on
 
