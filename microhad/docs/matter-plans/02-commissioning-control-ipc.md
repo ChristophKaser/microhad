@@ -47,8 +47,17 @@ Step 1 is complete: [Matter IPC v1](../matter-ipc-v1.md) assigns all 12 current
 opcodes, JSON schema/version rules, request/reply/event directions, fixed error
 codes, length/numeric limits, correlations, relay ordering and session lifecycle.
 The document explicitly distinguishes reserved contracts from implemented
-status behavior. Steps 2–6 remain pending; step 7 continues with every body
-implementation. No commissioning/control API is claimed at this checkpoint.
+status behavior. Step 2 is partial: Rust now has strict typed requests for all
+assigned actions, schema checks, canonical IDs/hex, PIN/range limits and rejection
+of duplicate/unknown fields, invalid UTF-8 and oversized bodies. Typed successful
+response/event bodies and matching native validation remain pending.
+
+Step 4 is partial: the running service dispatches status and fixed `malformed`
+or `unsupported` errors for new bodies without echoing input; it does not accept
+commissioning/control jobs yet. Steps 3, 5 and 6 remain pending; step 7 continues
+with every body implementation. All 22 Rust library checks and the synthetic
+real-service test pass; static stripped factory MIPS build is now 1,343,120 bytes.
+No commissioning/control API is claimed at this checkpoint.
 
 ## Depends on
 

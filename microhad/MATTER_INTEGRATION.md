@@ -374,3 +374,10 @@ shell syntax checks and mocked optional deployment staging pass. No physical
 radio or device configuration was touched. See
 [`docs/matter-plans/01-rust-service-runtime.md`](docs/matter-plans/01-rust-service-runtime.md)
 for remaining acceptance gaps.
+
+The subsequent strict request-body checkpoint validates every reserved schema-1
+action in Rust and returns fixed `malformed`/`unsupported` replies without echoing
+input. It does not yet accept commissioning or control jobs. All 22 Rust library
+checks and the extended synthetic service test pass. The current factory stripped
+binary is 1,343,120 bytes (114,708 more than the status-only runtime above).
+The full assigned contract is in [`docs/matter-ipc-v1.md`](docs/matter-ipc-v1.md).

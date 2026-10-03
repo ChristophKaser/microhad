@@ -1,8 +1,9 @@
 # Matter IPC version 1
 
-This fixes the contract for the remaining implementation. Only status opcodes
-1/2 currently dispatch in the service. The other rows are reserved definitions,
-not claims of implemented commissioning, relay, or device control.
+This fixes the contract for the remaining implementation. Status opcodes 1/2
+dispatch in the service. Requests for 3–11 now have strict Rust body decoding,
+but return `unsupported` until their lifecycle is implemented. The other rows
+define future success behavior, not implemented commissioning, relay, or control.
 
 ## Framing and compatibility
 
