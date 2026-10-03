@@ -30,9 +30,9 @@ No live NCP restoration or bootloader entry was performed in this work.
 
 **Limitations and next steps:**
 
-1. Rehearse firmware migration/recovery and real device communication on a
-   spare radio/network before flashing the production coordinator. Simulator
-   results do not establish that existing devices will communicate after migration.
+1. Follow the [same-device deployment plan](ZIGGURAT_DEPLOYMENT_PLAN.md), with
+   staged maintenance and explicit rollback checkpoints. No spare radio is required.
+   Simulator results do not establish real-device communication after migration.
 2. Validate the implemented native protocol-v2 adapter and native-owned state
    against real hardware. Production still speaks EZSP. The ZHA-style 1000-frame
    restart margin and checkpoints pass simulation but do not provide unconditional
@@ -198,7 +198,7 @@ For a **future separately authorized** orderly return from Ziggurat:
    RCP needs Spinel reset-to-bootloader at 460800 with RTS/CTS; the Gecko UART
    bootloader uses the previously verified 115200/no-flow-control path. The
    old EZSP bootloader-entry command cannot be sent to RCP firmware. Adapt the
-   bridge/baud switch and verify the menu on spare hardware; do not assume the
+   bridge/baud switch and verify the menu on this gateway; do not assume the
    old bridge automatically handles both rates.
 4. Only then upload the pinned application-only GBL using the existing guarded
    flash tooling, confirm EZSP v13, and restore the prepared logical network.

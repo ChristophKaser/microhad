@@ -13,8 +13,9 @@ still the default. Both host suites and MIPS builds pass; actual host stack and
 Tuya Ziggurat-only simulations pass. Production remains on EZSP: no native
 service replacement/restart, radio access or firmware flashing occurred in this work.
 
-Next, validate network migration/recovery and real Zigbee traffic on spare
-hardware, then integrate standalone Thread and Matter. The restart counter margin
+Next, follow the [same-device deployment and rollback plan](ZIGGURAT_DEPLOYMENT_PLAN.md)
+to validate migration/recovery and real Zigbee traffic, then integrate standalone
+Thread and Matter. No spare gateway is required. The restart counter margin
 has explicit crash-safety limits. See [integration, commands and results](ZIGGURAT_INTEGRATION.md)
 and [network migration evidence](NETWORK_MIGRATION.md).
 

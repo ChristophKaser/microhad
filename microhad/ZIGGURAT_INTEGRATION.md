@@ -10,8 +10,9 @@ Ziggurat and a socket probe against synthetic host radio state; all eight checks
 passed and temporary uploads were removed. Production remains on EZSP with its
 network formed, 23 known devices and an unchanged executable checksum.
 
-**Next:** rehearse migration and recovery on spare hardware, validate real Zigbee
-traffic, then integrate the Thread consumer and Matter. No firmware was flashed;
+**Next:** follow the [same-device deployment/rollback plan](ZIGGURAT_DEPLOYMENT_PLAN.md),
+validate real Zigbee traffic, then integrate the Thread consumer and Matter.
+No spare gateway is required. No firmware was flashed;
 the native service was neither deployed nor restarted. The 1000-frame restart
 margin follows ZHA's policy and does not guarantee safety after arbitrary outages.
 
