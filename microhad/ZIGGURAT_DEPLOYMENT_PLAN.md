@@ -11,8 +11,8 @@ Ziggurat → real HDLC RCP (IID 1), with all 23 inventory devices retained.
 Permanent paired supervision is installed and running from `/tuya/native`;
 the original EZSP supervisor was retired with its files retained for rollback.
 Network identity/security match the final private backup; NWK/APS counters advanced.
-Steps 1–10 completed; step 11 supervised startup passed and controlled reboot
-is next. Thread IID 2 remains unused.
+Steps 1–11 completed; controlled reboot returned online automatically, with
+a 121-second native readiness delay. Final recovery snapshot is next. Thread IID 2 remains unused.
 
 **Step 1 is complete:** images are packaged/validated, binaries rebuilt, recovery
 commands and candidate paired launcher implemented, and host tests pass. Exact
@@ -23,9 +23,9 @@ installed on the gateway during step 1.
 network export are saved and validated. Production stayed online; its binary and
 processes were not replaced/restarted. Joining was already closed.
 
-**Execution checkpoint:** steps 1–10 completed.
+**Execution checkpoint:** steps 1–11 completed.
 
-**Next action:** step 11; reread its procedure before execution.
+**Next action:** step 12; reread its procedure before execution.
 
 The objective of this deployment is existing-network Zigbee operation through
 native → COBS Unix socket → Ziggurat → HDLC RCP. Thread and Matter follow later;
@@ -487,6 +487,9 @@ retry without changing radio firmware or rolling back security state.
 
 ## 11. Install permanent paired supervision only after manual validation
 
+**Completed 2026-10-03 with a startup latency limit:** permanent paired launcher, private configuration/state and pinned binaries installed under `/tuya/native`. Supervised startup, quiesce, complete freeze/export and clean UART release passed. Controlled `/bin/reboot` automatically started the pair (supervisor 126, Ziggurat 134, native 149); HTTP/HTTPS returned online/formed with 23 inventory entries and real existing-light descriptor, bind, reporting and read-attribute replies, plus a humidity report. Native logged readiness 121 seconds after its start, following lifecycle/hello timeouts; the initial host deadline expired before verification. No manual restart was needed. Cold-boot Configure blocking remains a follow-up investigation, with RNG readiness suspected but unproven. Device binary MD5s match the installed artifacts. Free RAM after reboot was 12844 KiB, cached 8136 KiB. Step 12 must save the newest frozen state before closure.
+
+
 **In progress 2026-10-03:** fresh pre-install frozen export saved, staged
 processes stopped, UART release verified. Original launcher/binary/config retained
 as `.ezsp-backup` files plus immutable host archives. Verified binaries/config
@@ -509,7 +512,8 @@ logs bounded in RAM, and no automatic EZSP fallback on RCP firmware.
 
 Install intended binaries/config atomically with enough room for rollback and
 state temporary files; recheck all hashes. Test supervised process startup first,
-then a controlled gateway reboot. Preserve the host's latest private snapshot
+then a controlled gateway reboot (`gateway_ssh /bin/reboot`; this device has
+no `/sbin/reboot`). Preserve the host's latest private snapshot
 before reboot; `/tmp` sockets/logs are ephemeral, network state is not.
 
 **Pass:** startup order, reboot, service health, persistence and maintenance stop
