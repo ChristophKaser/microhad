@@ -125,3 +125,13 @@ identity checks, light readbacks, observation samples and final frozen snapshots
 Do not publish those files, keys, configuration, TLS credentials or device data.
 Only sanitized execution status, artifact hashes and measurements are mirrored
 into the private experiment repository.
+
+### Child-table checkpoint
+
+The post-start frozen snapshot contains zero direct children, versus two in the
+original NCP export. Original child records remain in immutable private backups.
+No child-timeout warnings appeared in the recorded warning log; the cause of the
+table difference is not certified. Some devices may have moved to router parents,
+but that is an inference, not a verified explanation. Network credentials remain
+unchanged. The user waived physical sleepy-device validation; retain this explicit
+limit and inspect polling/rejoin behavior when those devices are next available.

@@ -8,10 +8,11 @@ older recommendations to rehearse on spare hardware.
 
 The existing Zigbee network is online through native → COBS Unix socket →
 Ziggurat → real HDLC RCP (IID 1), with all 23 inventory devices retained.
-Original EZSP supervisor remains suspended; manual staged processes are running.
+Permanent paired supervision is installed and running from `/tuya/native`;
+the original EZSP supervisor was retired with its files retained for rollback.
 Network identity/security match the final private backup; NWK/APS counters advanced.
-Steps 1–9 completed; step 10 real-traffic/recovery observation is next.
-Permanent startup is not installed. Thread IID 2 remains unused.
+Steps 1–10 completed; step 11 supervised startup passed and controlled reboot
+is next. Thread IID 2 remains unused.
 
 **Step 1 is complete:** images are packaged/validated, binaries rebuilt, recovery
 commands and candidate paired launcher implemented, and host tests pass. Exact
@@ -485,6 +486,13 @@ If the problem is limited to application settings, restore those settings and
 retry without changing radio firmware or rolling back security state.
 
 ## 11. Install permanent paired supervision only after manual validation
+
+**In progress 2026-10-03:** fresh pre-install frozen export saved, staged
+processes stopped, UART release verified. Original launcher/binary/config retained
+as `.ezsp-backup` files plus immutable host archives. Verified binaries/config
+moved atomically into `/tuya/native`; paired launcher installed. Supervised startup
+returned online with 23 inventory entries. Next test quiesce/freeze/stop and reboot.
+
 
 Prepare an atomic launcher update retaining the original `/tuya/tuya_start.sh`
 and v13-compatible binary/config privately. The prepared `ziggurat_start.sh` uses the paired supervisor. The old `native_start.sh` only
