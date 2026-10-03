@@ -5,14 +5,18 @@ the Lidl/Tuya gateway. It is built specifically with the bundled RSDK for the
 gateway's 32-bit big-endian MIPS/uClibc environment; it does not use low.js,
 Node.js, or the TCP serial bridge.
 
-## Network migration preparation — 2026-10-02
+## Current state and plan — 2026-10-03
 
-The read-only EZSP v13 backup exporter is deployed. Actual private network
-state imports correctly into stopped host Ziggurat with a simulated radio;
-orderly counter-safe rollback preparation is tested. Radio firmware and the
-production network remain in use. Hardware migration/recovery, the native
-Ziggurat adapter and crash-safe persistence remain pending. See
-[commands, evidence and recovery limits](NETWORK_MIGRATION.md).
+The optional Ziggurat backend is implemented: COBS over a Unix stream socket,
+with the native service owning persistent state following ZHA's model. EZSP is
+still the default. Both host suites and MIPS builds pass; actual host stack and
+Tuya Ziggurat-only simulations pass. Production remains on EZSP: no native
+service replacement/restart, radio access or firmware flashing occurred in this work.
+
+Next, validate network migration/recovery and real Zigbee traffic on spare
+hardware, then integrate standalone Thread and Matter. The restart counter margin
+has explicit crash-safety limits. See [integration, commands and results](ZIGGURAT_INTEGRATION.md)
+and [network migration evidence](NETWORK_MIGRATION.md).
 
 ## Build
 
@@ -20,6 +24,10 @@ Ziggurat adapter and crash-safe persistence remain pending. See
 make host
 make test
 make mips
+# Optional backend, separate output directories:
+make ZIGGURAT=1 host test
+make ZIGGURAT=1 mips
+make test-backends
 ```
 
 `make mips` uses only

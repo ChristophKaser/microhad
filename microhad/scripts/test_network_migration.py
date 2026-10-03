@@ -76,6 +76,26 @@ class MigrationTests(unittest.TestCase):
         self.assertEqual(len(cmds[0][1]),84);self.assertEqual(cmds[0][1][16:24],bytes.fromhex(fixture()["network"]["ieee_address"]))
         self.assertEqual([c for c,_ in cmds],[0x10,0x11,0x12,0x13])
         self.assertEqual(struct.unpack_from("<I",cmds[0][1],41)[0],22000)
+    def test_native_state_conversion_preserves_prepared_counters(self):
+        import hashlib
+        state=migration.prepared_state(fixture());native=migration.native_state(state)
+        wire=bytes.fromhex(native["network"])
+        self.assertEqual(int.from_bytes(wire[39:43],"little"),state["network"]["network_key_tx_counter"])
+        self.assertEqual(int.from_bytes(wire[78:82],"little"),state["network"]["aps_frame_counter"])
+        self.assertEqual(native["checksum"],hashlib.sha256(b"".join(bytes.fromhex(native[field]) for field in
+            ("network","keys","children","addresses"))).hexdigest())
+
+    def test_native_cli_accepts_prepared_bundle_and_private_output(self):
+        import os
+        with tempfile.TemporaryDirectory() as tmp:
+            source=Path(tmp)/"bundle.json";destination=Path(tmp)/"native.json"
+            source.write_text(json.dumps({"format":"ziggurat-import-bundle","state":migration.prepared_state(fixture())}))
+            command=[str(Path(__import__("sys").executable)),str(Path(migration.__file__)),"prepare-native","--state",str(source),"--output",str(destination)]
+            subprocess.run(command,check=True,stdout=subprocess.DEVNULL)
+            self.assertEqual(destination.stat().st_mode&0o777,0o600)
+            result=json.loads(destination.read_text());self.assertEqual(result["format"],"microhad-ziggurat-native")
+            self.assertNotEqual(subprocess.run(command,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode,0)
+
     def test_no_missing_counter_guess(self):
         state=fixture();state["counter_evidence"]["aps_live_upper_bound_verified"]=False
         with self.assertRaises(ValueError):migration.prepared_state(state)

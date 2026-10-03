@@ -179,3 +179,20 @@ physical coordinator and radio interoperability testing.
 4. A row may move to `DONE` only when its test is deterministic, asserts the stated
    result, runs through `make host test`, and has no production credential,
    device, radio, external FCM, or external Push dependency.
+
+## Optional Ziggurat backend — verified 2026-10-03
+
+Run `make test-backends` to retain EZSP coverage and exercise the optional backend.
+Default `make host test` tests the EZSP build; `make ZIGGURAT=1 host test` also
+runs the scripted COBS peer cases automatically. Run variants sequentially.
+
+| ID | Level | Feature / stimulus | Expected result | Status |
+| --- | --- | --- | --- | --- |
+| ZIG-01 | U | COBS vectors, malformed/large frames, state schema, SHA256, atomic private files and exclusive lock | Bounded framing and corrupt/insecure state refusal | DONE |
+| ZIG-02 | I | Thirteen scripted-peer cases: fragmentation, join/interview/reports/controls, send failure, timeout, reconnect, snapshots, persistence faults and crash before Configure | Native state committed before configuration; failures remain offline or recover consistently | DONE |
+
+Separate actual-stack validation `python3 scripts/test_ziggurat_service.py` passes
+six lifecycle scenarios with patched host Ziggurat and a synthetic loopback RCP.
+The Tuya test runs only Ziggurat plus a socket probe; native service deployment
+and real-radio tests remain outside this test matrix. See
+[commands and limitations](../ZIGGURAT_INTEGRATION.md).
