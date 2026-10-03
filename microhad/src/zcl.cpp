@@ -46,9 +46,13 @@ bool applyXiaomiMeasurementData(Device* device, const std::vector<unsigned char>
     return changed;
 }
 
-bool expectedAttributeType(unsigned short cluster, unsigned short attribute, unsigned char type) {
+bool expectedAttributeType(const Device* device, unsigned short cluster, unsigned short attribute, unsigned char type) {
     if (cluster == 0x0402 && attribute == 0x0000) return type == 0x29;
-    if (cluster == 0x0405 && attribute == 0x0000) return type == 0x21;
+    if (cluster == 0x0405 && attribute == 0x0000) {
+        /* Some eWeLink TH01 revisions return int16 humidity rather than uint16.
+           applyZclAttribute still restricts either encoding to 0..10000. */
+        return type == 0x21 || (type == 0x29 && device->manufacturerName == "eWeLink" && device->modelId == "TH01");
+    }
     if (cluster == 0x0406 && attribute == 0x0000) return type == 0x18;
     if (cluster == 0x0001 && attribute == 0x0021) return type == 0x20;
     if (cluster == 0x0500 && attribute == 0x0002) return type == 0x19;
@@ -138,7 +142,7 @@ bool applyZclReadAttributeResponse(Device* device, unsigned short cluster,
         if (status != 0) { offset += 3; continue; }
         if (offset + 4 > payload.size()) break;
         type = payload[offset + 3];
-        if (!expectedAttributeType(cluster, attribute, type)) return changed;
+        if (!expectedAttributeType(device, cluster, attribute, type)) return changed;
         length = valueLength(type, payload, offset + 4);
         if (length == 0) break;
         if (offset + 4 + length > payload.size()) break;

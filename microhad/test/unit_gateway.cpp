@@ -1890,6 +1890,27 @@ static void testZclRejectsMalformedAttributes() {
            !device.hasContact && !device.hasLight && device.lastSeen == 0);
 }
 
+static void testTh01SignedHumidity() {
+    Device device;
+    const unsigned char wire[] = {0x00, 0x00, 0x00, 0x29, 0xa1, 0x20}; /* captured 83.53% response */
+    std::vector<unsigned char> response(wire, wire + sizeof(wire));
+    assert(!applyZclReadAttributeResponse(&device, 0x0405, response, 100));
+    device.manufacturerName = "eWeLink"; device.modelId = "TH01";
+    unsigned observed = 0;
+    assert(applyZclReadAttributeResponse(&device, 0x0405, response, 101, &observed));
+    assert(device.hasHumidity && device.humidityPercent == 83.53 && device.lastSeen == 101);
+    assert(observed == ZclObservedHumidity);
+    response[4] = 0xff; response[5] = 0xff; /* negative/invalid */
+    assert(!applyZclReadAttributeResponse(&device, 0x0405, response, 102));
+    response[4] = 0x11; response[5] = 0x27; /* 100.01% */
+    assert(!applyZclReadAttributeResponse(&device, 0x0405, response, 102));
+    response.resize(5); /* truncated signed value */
+    assert(!applyZclReadAttributeResponse(&device, 0x0405, response, 102));
+    assert(device.humidityPercent == 83.53 && device.lastSeen == 101);
+    response.assign(wire, wire + sizeof(wire)); response[3] = 0x21;
+    assert(applyZclReadAttributeResponse(&device, 0x0405, response, 103));
+}
+
 static void testConfigureReportingEncoding() {
     std::vector<unsigned char> battery = buildZclConfigureReporting(7, 0x0021, 0x20, 3600, 65000, 1);
     std::vector<unsigned char> temperature = buildZclConfigureReporting(8, 0x0000, 0x29, 30, 3600, 20);
@@ -2445,6 +2466,7 @@ void runUnitTests() {
     testStorageSaveFailuresPreserveDestinations();
     testGenericCapabilities();
     testZclRejectsMalformedAttributes();
+    testTh01SignedHumidity();
     testConfigureReportingEncoding();
     testInterviewDescriptorAndPlanning();
     testJoinStatusJson();
