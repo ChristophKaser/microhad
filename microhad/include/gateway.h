@@ -367,6 +367,7 @@ private:
         unsigned long operationIndex;
         std::vector<EndpointDescriptor> discoveredEndpoints;
         bool refreshOnly;
+        bool configurationPending;
         bool paused;
         bool persistentDirty;
         InterviewState();

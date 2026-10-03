@@ -184,6 +184,51 @@ public:
         gateway.startInterview(node, true);
         assert(!gateway.interviews_[node].paused);
     }
+    static void cachedRejoinConfiguresReporting() {
+        Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+        const unsigned short node = 0x1234;
+        const std::string ieee = "0x00124b002a52140a";
+        EndpointDescriptor endpoint;
+        endpoint.endpoint = 1;
+        endpoint.inputClusters.push_back(0x0402);
+        gateway.devices_[ieee].ieeeAddress = ieee;
+        gateway.devices_[ieee].endpoints.push_back(endpoint);
+        gateway.nodeAddresses_[node] = ieee;
+
+        gateway.startInterview(node, false);
+        assert(!gateway.interviews_[node].refreshOnly);
+        assert(gateway.interviews_[node].operations.size() == 3);
+        assert(gateway.interviews_[node].operations[0].type == Gateway::InterviewBind);
+        assert(gateway.interviews_[node].operations[1].type == Gateway::InterviewConfigureReporting);
+        gateway.interviews_.clear();
+
+        /* Ordinary refreshes remain reads; a rejoin upgrades only after the
+           existing request completes, preserving its sequence and deadline. */
+        gateway.startInterview(node, true);
+        assert(gateway.interviews_[node].operations.size() == 1);
+        Gateway::InterviewOperation& operation = gateway.interviews_[node].operations[0];
+        assert(operation.type == Gateway::InterviewAttributeRead);
+        operation.transactionSequence = 42;
+        operation.transactionSequenceAssigned = true;
+        gateway.interviewRequestInFlight_ = true;
+        gateway.interviewNode_ = node;
+        gateway.interviewDeadline_ = time(0) + 20;
+        gateway.interviews_[node].paused = true;
+        gateway.startInterview(node, false);
+        assert(!gateway.interviews_[node].paused && gateway.interviews_[node].configurationPending);
+        assert(gateway.interviewRequestInFlight_ && gateway.interviewDeadline_ != 0);
+        assert(operation.type == Gateway::InterviewAttributeRead && operation.transactionSequence == 42);
+        gateway.completeInterviewOperation(node);
+        assert(!gateway.interviewRequestInFlight_);
+        assert(!gateway.interviews_[node].refreshOnly && !gateway.interviews_[node].configurationPending);
+        assert(gateway.interviews_[node].operations[0].type == Gateway::InterviewBind);
+        assert(gateway.interviews_[node].operations[1].type == Gateway::InterviewConfigureReporting);
+        gateway.interviews_.clear();
+
+        gateway.startInterview(node, true);
+        gateway.completeInterviewOperation(node);
+        assert(gateway.interviews_.empty());
+    }
     static void deadlineSelectionMatchesHandlerOrdering() {
         Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
         const long now = time(0);
@@ -1921,6 +1966,7 @@ static void testConfigureReportingEncoding() {
 }
 
 static void testInterviewDescriptorAndPlanning() {
+    GatewayTestPeer::cachedRejoinConfiguresReporting();
     Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
     std::vector<unsigned char> response;
     EndpointDescriptor descriptor;

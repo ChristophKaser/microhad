@@ -81,7 +81,8 @@ Gateway::InterviewOperation::InterviewOperation() : type(InterviewActiveEndpoint
     transactionSequenceAssigned(false), messageTag(0), attempts(0), retryAt(0) {
 }
 
-Gateway::InterviewState::InterviewState() : operationIndex(0), refreshOnly(false), paused(false), persistentDirty(false) {
+Gateway::InterviewState::InterviewState() : operationIndex(0), refreshOnly(false), configurationPending(false),
+                                          paused(false), persistentDirty(false) {
 }
 
 namespace {
@@ -4005,6 +4006,9 @@ void Gateway::startInterview(unsigned short destination, bool refreshOnly, bool 
     if (address == nodeAddresses_.end()) return;
     std::map<unsigned short, InterviewState>::iterator existing = interviews_.find(destination);
     if (existing != interviews_.end()) {
+        /* A rejoin must configure reporting even if a scheduled refresh is
+           already running. Preserve its outstanding transaction until reply. */
+        if (!refreshOnly && existing->second.refreshOnly) existing->second.configurationPending = true;
         existing->second.paused = false;
         return;
     }
@@ -4018,7 +4022,7 @@ void Gateway::startInterview(unsigned short destination, bool refreshOnly, bool 
         return;
     }
     if (!refreshOnly && !forceEndpointDiscovery && !device.endpoints.empty()) {
-        buildRefreshOperations(destination);
+        buildConfigurationOperations(destination);
         return;
     }
     queueInterviewOperation(destination, InterviewActiveEndpoints, 0);
@@ -4096,6 +4100,8 @@ void Gateway::buildRefreshOperations(unsigned short destination) {
 
 void Gateway::buildConfigurationOperations(unsigned short destination) {
     InterviewState& state = interviews_[destination];
+    if (state.configurationPending) state.refreshOnly = false;
+    state.configurationPending = false;
     Device& device = devices_[state.ieeeAddress];
     state.operations.clear();
     state.operationIndex = 0;
@@ -4356,6 +4362,8 @@ void Gateway::completeInterviewOperation(unsigned short destination) {
             savePersistentState();
             state.persistentDirty = false;
         }
+        buildConfigurationOperations(destination);
+    } else if (state.configurationPending) {
         buildConfigurationOperations(destination);
     } else {
         addLog(state.refreshOnly ? "Sensor attribute refresh completed" : "Sensor interview completed");
