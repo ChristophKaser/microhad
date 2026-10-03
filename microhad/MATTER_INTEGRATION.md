@@ -1,21 +1,18 @@
 # Optional Matter-over-Thread integration
 
-## Current result: build selection implemented, target platform gate blocked
+## Current result: Rust controller primitives verified; native service wiring pending
 
-The opt-in build flag and reproducible compiler prerequisite checks are
-implemented. The factory C++ runtime does not meet the pinned Matter SDK's
-requirements. **No Matter controller, commissioning API, Thread service,
-dashboard controls, or Garage BLE relay has been implemented or deployed.**
-`MATTER=1` intentionally fails the build rather than producing an executable
-that claims unsupported Matter functionality. Existing Zigbee builds remain
-the usable configurations.
+The opt-in build flag and private IPC framing are implemented. The chosen Rust
+controller now passes synthetic PASE/Thread provisioning, CASE, light and
+sensor operations, and committed-flash fabric reload tests on the factory MIPS
+gateway. The native controller service, HTTP API, dashboard controls and Garage
+GATT/WebSocket relay are still pending. `MATTER=1` deliberately fails rather
+than advertising an incomplete integration. Existing Zigbee builds remain usable.
 
-This follows the agreed implementation sequence: verify the MIPS controller
-platform before implementing commissioning UI or enabling real-radio operation.
-It is a compiler/library blocker for the pinned C++ SDK, not evidence that
-Matter cannot fit on this hardware. The separate Rust feasibility probe below
-now validates crypto/runtime on MIPS. Complete controller memory/CPU, discovery
-and real-device operation remain unmeasured.
+The pinned C++ Matter SDK's factory standard-library blocker is historical
+motivation for the Rust path. The Rust fixture now establishes a functioning
+controller/crypto/transport platform, including bounded measurements; it does
+not establish real-device compatibility or a deployed production controller.
 
 ## Build contract
 
@@ -48,7 +45,7 @@ Run the two backend test suites sequentially: some integration tests share
 temporary diagnostics paths. Concurrent suites caused a redaction assertion
 failure during validation; isolated verification is recorded below.
 
-## Reproducing the platform gate
+## Historical C++ platform gate
 
 The companion `ziggurat-compilation` repository holds the probes and SDK pin:
 Matter SDK `v1.6.1.0`, commit
@@ -80,9 +77,9 @@ Observed target failures:
 
 Clang was enough for the earlier C++11 OpenThread build, but it does not supply
 a replacement C++ standard library. Host C++ headers/libraries cannot be used
-as deployable MIPS libraries. The next prerequisite is a compatible modern C++
-library/ABI runtime for the factory uClibc system, followed by full SDK linking
-and target execution. It must retain the gateway's instruction and soft-float
+as deployable MIPS libraries. For the C++ approach, the next prerequisite would be a compatible modern C++
+library/ABI runtime for factory uClibc, followed by full SDK linking and target
+execution. The selected Rust controller avoids that library requirement. It must retain the gateway's instruction and soft-float
 constraints rather than selecting a modern MIPS ISA by accident.
 
 The native Makefile exposes `MATTER_PLATFORM_CHECK`, `MATTER_SDK_ROOT`, and
@@ -124,9 +121,10 @@ sessions. It uses a development fixture and stub discovery, not a Thread mesh.
 Source inspection confirms the pinned commissioner skips device attestation
 when its test bypass is enabled and does not provision a Thread dataset.
 Secure defaults reject commissioning; no native production path enables the
-bypass. Existing declaration/trust-store components must be connected to a
-complete verifier before real-device pairing, along with NetworkCommissioning
-and the OpenThread/BLE transports. The trusted-LAN HTTP/WebSocket requirement
+bypass. The owner later selected skipping manufacturer attestation, as recorded
+below; its verifier is optional for this setup. NetworkCommissioning and the
+OpenThread/BLE transports have since passed the synthetic fixtures described
+below. The trusted-LAN HTTP/WebSocket requirement
 remains independent of Matter device attestation trust.
 
 Reproduction, dependency lock and measured test counts are in the companion
@@ -151,12 +149,12 @@ After a controller implementation passes its complete platform gate:
 3. Extend the separate Garage Android app with setup code/QR input and BLE
    discovery/GATT. Relay operations, MTU, confirmations, subscriptions,
    indications, and disconnects through one HTTP/WebSocket session. The gateway
-   owns PASE, device attestation, Thread provisioning, and its Matter fabric.
+   owns PASE, the selected attestation policy, Thread provisioning, and its Matter fabric.
    One commissioning session runs at a time with cancellation and timeout.
 4. Treat the LAN as trusted, as explicitly requested: use `http://`/`ws://`
    without assuming a publicly trusted or installed gateway certificate. Do
    not require certificate import/pinning and do not bypass TLS validation
-   globally. Preserve Matter attestation and secure sessions independently.
+   globally. Apply the owner-selected attestation bypass while retaining PASE/CASE secure sessions.
    Session identifiers correlate relay traffic; they are not an administrator
    authentication scheme.
 5. Add asynchronous `/api/matter` commissioning start/status/cancel, the BLE
@@ -237,3 +235,77 @@ limits are documented in
 [`../ziggurat-compilation/docs/rs-matter-openthread-transport.md`](../ziggurat-compilation/docs/rs-matter-openthread-transport.md).
 Native IPC/service wiring and Garage BLE remain pending, so `MATTER=1`
 continues to reject an incomplete controller build.
+
+
+## Encrypted commissioning and BLE relay checkpoint
+
+The companion implementation now passes the actual rs-matter commissioning
+flow on the gateway in two synthetic modes: PASE/Thread provisioning over
+internal UDP, or over BTP with simulated phone C1 writes/C2 indications, then
+CASE over OpenThread. OnOff toggle/readback and signed/null temperature reads
+pass. The latter artifact took 4.39 seconds over UDP and 4.30 seconds over
+synthetic GATT/BTP; sampled RSS reached 1628 KiB for both peers in one process.
+This is not a real ALPSTUGA, phone GATT or external Thread mesh result.
+
+The original 1 MiB MemFree test guard stopped the larger fixture because it
+counted inactive file cache as unavailable RAM. Its isolated runner now keeps
+a conservative 4 MiB free/clean-inactive-file budget plus a 512 KiB hard
+MemFree floor, with a 3 MiB RSS ceiling and 100-second timeout. This revised
+simulation guard does not replace the combined-service deployment acceptance
+checks. Production remained online/formed and test artifacts were removed.
+
+The gateway BTP relay rejects stale connection/write callbacks and resets
+failed or stalled writes. A private atomic controller store passes host tests;
+committed-flash fabric reopen and fresh CASE now pass on host and MIPS. Full native IPC,
+CA/node persistence, Android GATT/WebSocket wiring, discovery/subscriptions and
+real-device acceptance remain pending. `MATTER=1` is still deliberately gated.
+
+Detailed commands, measurements, failed guards and test scope are in
+[`../ziggurat-compilation/docs/rs-matter-openthread-commissioning.md`](../ziggurat-compilation/docs/rs-matter-openthread-commissioning.md).
+
+
+## Committed-flash recovery and native IPC framing
+
+The strengthened fixture closes the original controller store, reopens its
+committed file on the gateway flash filesystem, creates a fresh Matter instance
+and establishes a new CASE session with the simulated phone detached. The final
+BTP/UDP runs took 5.03/5.16 seconds and reached 1692/1700 KiB sampled RSS. This
+replaces the earlier fixture's in-memory clone reload with an actual file reopen.
+It is not yet daemon/radio restart or real-device recovery acceptance.
+
+Native C++03 `MatterWire` and Rust `ipc` implement the same bounded stream
+framing. This does not start a controller or add callable HTTP routes. Fields
+are explicit bytes, independent of host/MIPS ABI:
+
+| Offset | Width | Field |
+| --- | --- | --- |
+| 0 | 2 | Payload length, little-endian, at most 2048 |
+| 2 | 1 | Version, exactly 1 |
+| 3 | 1 | Kind: request 0, response 1, event 2 |
+| 4 | 1 | Operation, reserved IDs 1 through 12 |
+| 5 | 1 | Reserved, exactly 0 |
+| 6 | 4 | Correlation ID, little-endian |
+| 10 | variable | Opaque payload; typed operation bodies/dispatch still pending |
+
+Requests/responses require a nonzero correlation ID; events require zero.
+Input chunks are capped at 4096 bytes and at most 32 frames can await dispatch.
+Malformed or overflowing streams fail closed and discard pending data. Payload
+contents have no logging/formatting path in the codec. Transport lifecycle,
+private socket ownership, body validation and command dispatch are the next
+layer, rather than capabilities claimed by this framing implementation.
+
+Matching golden-vector and malformed-stream tests pass in Rust and native C++.
+Native verification passed sequentially for both existing backends:
+`make host test`, `make mips`, `make ZIGGURAT=1 MATTER=0 host test`,
+`make ZIGGURAT=1 MATTER=0 mips`, and `make matter-build-flags-test`.
+The focused native codec probe also ran on actual factory MIPS:
+
+```sh
+python3 scripts/test-matter-ipc-codec.py \
+  --host 192.168.178.62 --password-file ../ssh_password.txt
+```
+
+It uploads only a unique small test executable, applies virtual-memory/time
+limits, exercises framing vectors, and removes the artifact. It never accesses
+radio, device configuration or persistent network state. The framing source is
+compiled for both native backends; Matter-disabled runtime behavior is unchanged.
