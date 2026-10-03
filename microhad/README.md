@@ -43,6 +43,11 @@ make RSDK_ROOT="$RSDK" ZIGGURAT=1 mips
 make webui
 ```
 
+Matter is an optional build selection, `MATTER=0|1`, defaulting to `0`.
+`MATTER=1` requires `ZIGGURAT=1`; enabled builds currently fail the documented
+factory C++ runtime gate. Commissioning and control are not available yet.
+See [Matter build flags, compiler findings, and remaining integration](MATTER_INTEGRATION.md).
+
 Outputs are `build/mips/microhad-zigbee-native` (EZSP) and
 `build/mips-ziggurat/microhad-zigbee-native` (Ziggurat). Pass the chosen executable
 explicitly: the deployment script defaults to the EZSP output.

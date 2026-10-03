@@ -13,9 +13,26 @@ CMAKE ?= cmake
 BUILD_REVISION := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 
 ZIGGURAT ?= 0
-ifneq ($(filter $(ZIGGURAT),0 1),$(ZIGGURAT))
+ifneq ($(words $(ZIGGURAT)),1)
 $(error ZIGGURAT must be 0 or 1)
 endif
+ifneq ($(filter 0 1,$(ZIGGURAT)),$(ZIGGURAT))
+$(error ZIGGURAT must be 0 or 1)
+endif
+MATTER ?= 0
+ifneq ($(words $(MATTER)),1)
+$(error MATTER must be 0 or 1)
+endif
+ifneq ($(filter 0 1,$(MATTER)),$(MATTER))
+$(error MATTER must be 0 or 1)
+endif
+ifeq ($(MATTER),1)
+ifneq ($(ZIGGURAT),1)
+$(error MATTER=1 requires ZIGGURAT=1 for the shared Thread radio)
+endif
+endif
+MATTER_PLATFORM_CHECK ?= ../ziggurat-compilation/scripts/check-matter-platform.py
+MATTER_SDK_ROOT ?= ../ziggurat-compilation/build/matter-sdk/source
 ZIGGURAT_SOURCES :=
 ZIGGURAT_TEST_SOURCES :=
 ifeq ($(ZIGGURAT),1)
@@ -23,12 +40,17 @@ ZIGGURAT_SOURCES := src/ziggurat_client.cpp
 ZIGGURAT_TEST_SOURCES := test/unit_ziggurat.cpp
 BACKEND_SUFFIX := -ziggurat
 endif
+ifeq ($(MATTER),1)
+BACKEND_SUFFIX := $(BACKEND_SUFFIX)-matter
+endif
 
 WARNINGS := -Wall -Wextra -Werror -pedantic
 # GCC 3.4 in the supplied RSDK has no -std=gnu++03 switch; its default is
 # C++98/C++03-compatible. Keep target flags explicit and separate from host.
 HOST_CXXFLAGS := -std=gnu++03 $(WARNINGS) -Iinclude -Ithird_party/mbedtls/include -O2 -DMICROHAD_ZIGGURAT_ENABLED=$(ZIGGURAT) -DMICROHAD_MBEDTLS_ENABLED=1 -DMICROHAD_BUILD_REVISION=\"$(BUILD_REVISION)\"
 TARGET_CXXFLAGS := $(WARNINGS) -Iinclude -Ithird_party/mbedtls/include -O2 -ffunction-sections -fdata-sections -DMICROHAD_MIPS_TARGET=1 -DMICROHAD_ZIGGURAT_ENABLED=$(ZIGGURAT) -DMICROHAD_MBEDTLS_ENABLED=1 -DMICROHAD_BUILD_REVISION=\"$(BUILD_REVISION)\"
+HOST_CXXFLAGS += -DMICROHAD_MATTER_ENABLED=$(MATTER)
+TARGET_CXXFLAGS += -DMICROHAD_MATTER_ENABLED=$(MATTER)
 TARGET_CFLAGS := $(WARNINGS) -O2 -ffunction-sections -fdata-sections
 LDFLAGS := -lpthread
 SOURCES := src/main.cpp src/gateway_config.cpp src/ash.cpp src/json_util.cpp src/storage.cpp src/network_backup.cpp $(ZIGGURAT_SOURCES) src/http_server.cpp src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/sensor_history.cpp src/log_ring.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp src/external_http_device.cpp src/device_shelly.cpp src/device_fritz_box.cpp
@@ -92,6 +114,9 @@ $(MIPS_BIN): $(SOURCES) $(wildcard include/*.h) $(MIPS_MBEDTLS_LIBS) $(MIPS_C_OB
 	$(TARGET_CXX) $(TARGET_CXXFLAGS) -static -Wl,--gc-sections $(SOURCES) $(MIPS_C_OBJECTS) -o $@ $(MIPS_MBEDTLS_LIBS) $(LDFLAGS)
 	$(TARGET_STRIP) $@
 
+# Recompile after changing feature definitions or build recipes.
+$(HOST_BIN) $(MIPS_BIN) $(UNIT_TEST_BIN) $(INTEGRATION_TEST_BIN): Makefile
+
 define verify_elf
 $(1) -h $(2) | grep -q 'Data:.*big endian' && \
 $(1) -h $(2) | grep -q 'Machine:.*MIPS'
@@ -131,5 +156,26 @@ clean:
 
 .PHONY: test-backends
 test-backends:
-	$(MAKE) ZIGGURAT=0 host test
-	$(MAKE) ZIGGURAT=1 host test
+	$(MAKE) ZIGGURAT=0 MATTER=0 host test
+	$(MAKE) ZIGGURAT=1 MATTER=0 host test
+
+# Fail closed until the actual Matter controller/platform port is implemented.
+# These probes establish compiler prerequisites, not an available Matter backend.
+.PHONY: matter-platform-check matter-host-check matter-mips-check matter-build-flags-test
+matter-platform-check:
+	python3 "$(MATTER_PLATFORM_CHECK)" mips --sdk "$(MATTER_SDK_ROOT)" --rsdk "$(RSDK_ROOT)"
+
+ifeq ($(MATTER),1)
+$(HOST_BIN) $(UNIT_TEST_BIN) $(INTEGRATION_TEST_BIN): | matter-host-check
+$(MIPS_BIN): | matter-mips-check
+matter-host-check:
+	python3 "$(MATTER_PLATFORM_CHECK)" host --sdk "$(MATTER_SDK_ROOT)"
+	@echo 'Matter compiler prerequisites passed; controller/platform integration is not implemented. See MATTER_INTEGRATION.md.' >&2
+	@exit 1
+matter-mips-check: matter-platform-check
+	@echo 'Matter compiler prerequisites passed; controller/platform integration is not implemented. See MATTER_INTEGRATION.md.' >&2
+	@exit 1
+endif
+
+matter-build-flags-test:
+	python3 scripts/test_matter_build_flags.py
