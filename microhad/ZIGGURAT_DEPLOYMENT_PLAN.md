@@ -21,9 +21,9 @@ installed on the gateway during step 1.
 network export are saved and validated. Production stayed online; its binary and
 processes were not replaced/restarted. Joining was already closed.
 
-**Execution checkpoint:** steps 1–5 completed.
+**Execution checkpoint:** steps 1–6 completed.
 
-**Next action:** step 6; reread its procedure before execution.
+**Next action:** step 7; reread its procedure before execution.
 
 The objective of this deployment is existing-network Zigbee operation through
 native → COBS Unix socket → Ziggurat → HDLC RCP. Thread and Matter follow later;
@@ -304,6 +304,15 @@ bridge, verify the original NCP responds to EZSP, SIGCONT the verified superviso
 and confirm production/network traffic. Nothing has been flashed.
 
 ## 6. Verify bootloader entry and return on this gateway
+
+**Completed 2026-10-03:** bootloader entry acknowledged, direct UART helper
+verified its menu and selected run without uploading. EZSP v13 returned and the
+fresh final capture retained identity/security. The same capture connection then
+entered bootloader. Final normalized/import/native/recovery files are saved
+privately. TCP OOB flow switching failed to expose the menu; restarting the exact
+bridge with explicit `-f` at 115200 made the menu verifiable. Use that no-flow
+bridge for upload, not an assumed OOB setting.
+
 
 With exclusive bridge ownership, run the existing non-upload round trip:
 
