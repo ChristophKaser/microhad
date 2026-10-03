@@ -1,0 +1,115 @@
+# Simulated Matter controller protocol checks
+
+The pinned rs-matter controller now passes a reproducible host-only protocol
+harness: PASE, fabric installation, CASE, reads, invokes and stale-session
+recovery work against an in-process accessory. Added sensor reads preserve
+positive, negative and unknown temperatures. **This does not clear real-device
+commissioning:** upstream device attestation is a placeholder, and Thread
+network provisioning is absent from this commissioner flow.
+
+## Reproduce
+
+From `ziggurat-compilation` on the development host:
+
+```sh
+python3 scripts/test-rs-matter-controller.py
+```
+
+The runner pins rs-matter commit
+`1570356ecb938a9d19be032b93ca3bb487069e75`, Rust `nightly-2026-10-02`, and the
+tracked workspace dependency lock `rs-matter-probe/controller-tests.lock`.
+It creates a separate ignored `build/rs-matter/controller-source` worktree,
+applies only `patches/rs-matter-commissioning-probe.patch`, verifies the exact
+tracked diff, rejects unexpected files, and uses `cargo test --locked` with
+`--no-default-features --features 'os rustcrypto'`. It runs suites sequentially,
+requires a nonzero number of passing tests, and writes a filtered JSON report.
+Compiler/test logs stay in ignored `build/rs-matter/`; the tracked shareable
+record is [rs-matter-controller-validation.json](rs-matter-controller-validation.json).
+
+The commissioning fixture binds device and controller sockets to IPv6
+loopback, uses public upstream development credentials, and supplies a stub
+operational resolver. It performs no mDNS multicast discovery, BLE, Thread
+radio operations or gateway deployment. The existing MIPS crypto probe and
+its separate lock remain unchanged. Host OS networking features used here
+are not a proposed networking dependency for factory Linux; the gateway path
+still needs OpenThread's internal IPv6/UDP adapter.
+
+## Coverage
+
+The extended UDP and TCP commissioning tests exercise:
+
+1. Establish PASE and arm the fail-safe.
+2. Reject commissioning with the secure default attestation policy.
+3. Explicitly opt into the upstream test-only attestation bypass for the
+   public fixture, create root/intermediate/controller operational credentials,
+   request a device CSR and install its operational certificate/fabric.
+4. Use the stub resolver to establish CASE and send `CommissioningComplete`.
+5. Read OnOff false, invoke Toggle, read OnOff true, and read VendorName.
+6. Read TemperatureMeasurement over CASE: `2315` (23.15 °C), `-525`
+   (−5.25 °C), and Matter null. The fixture changes its local sample and data
+   version between reads; this is not a subscription or a physical sensor test.
+7. Clear accessory sessions to simulate a reboot and commission again with
+   the same controller. The TCP case also tests reuse of a node ID with a stale
+   CASE session; the upstream UDP variant avoids that branch because trailing
+   MRP acknowledgments can independently clear the stale session.
+
+Separate upstream suites check a PASE handshake, CASE including Sigma2
+retransmission, and certification-declaration/trust-store components. Passing
+those components does not demonstrate integrated attestation verification.
+
+## Recorded result
+
+All 37 checks passed on the development host:
+
+| Suite | Passed | Test duration |
+| --- | ---: | ---: |
+| Extended UDP/TCP commissioning | 2 | 1.13 s |
+| PASE | 1 | 0.51 s |
+| CASE and Sigma2 retransmission | 2 | 0.98 s |
+| Attestation components | 32 | Below displayed 0.01 s resolution |
+
+Compilation time is excluded. The commissioning duration covers both fixture
+flows, repeated commissioning and added reads, not one pairing operation.
+No gateway test, deployment, production configuration or radio state was
+changed during this milestone.
+
+## Attestation gap confirmed in source
+
+In this revision, `Commissioner::verify_device_attestation` in
+`rs-matter/src/onboard.rs` does not request or verify device evidence. It
+returns success only when `allow_test_attestation=true`; otherwise it returns
+`ErrorCode::Failure`. The test patch confirms default rejection before the
+explicit development-fixture bypass. No production controller enables it.
+
+Available building blocks include Certification Declaration CMS signature and
+identity checks, a PAA lookup store, and DER certificate parsers. They are not
+wired into commissioning. The next implementation must obtain DAC/PAI and
+attestation elements, validate the certificate chain against provisioned PAA
+roots, verify the signed nonce/session challenge, and validate the declaration
+and advertised identity. The CSR response path also needs its DAC-signed
+attestation proof checked; the existing nonce-echo check alone is insufficient.
+
+Matter attestation trust roots are distinct from a gateway web certificate.
+The agreed Garage transport remains trusted-LAN HTTP/WebSocket with no trusted
+gateway certificate requirement. That preference does not permit unconditional
+Matter device attestation acceptance.
+
+## Thread provisioning gap confirmed in source
+
+The pinned `Commissioner::commission` runs fail-safe, CSR and operational
+credential steps. It does not invoke NetworkCommissioning to install or
+connect a Thread network. The fixture is already reachable over host IP and
+uses an Ethernet root endpoint, so its successful CASE transition cannot prove
+BLE-to-Thread commissioning.
+
+Factory-new ALPSTUGA support additionally needs a supported device flow for
+regulatory/network commissioning and Thread dataset provisioning over the
+Garage BLE delegate, followed by discovery and CASE over OpenThread. The
+Thread dataset must use Zigbee's current channel, and Ziggurat retains sole
+UART/reset ownership. Credential persistence, subscriptions and real-device
+restart recovery are separate acceptance gates.
+
+Native `MATTER=1` remains rejected until these gaps and the actual controller
+transport/IPC integration are implemented and verified. These host test
+durations do not predict gateway commissioning latency, full controller RSS,
+or combined Zigbee/Thread throughput.

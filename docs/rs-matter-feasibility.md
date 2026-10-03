@@ -130,6 +130,15 @@ The original production status was preserved (`online=true`,
 was removed. No real Thread device, radio, PASE transport, certificate chain
 or commissioned fabric was exercised.
 
+## Controller protocol follow-up
+
+The separate [controller test report](rs-matter-controller-tests.md) now
+records PASE/fabric/CASE and read/invoke checks against a simulated host
+accessory, including signed/null sensor reads. Those tests exposed two concrete
+upstream gaps: device attestation is an unconditional test-only acceptance
+hook, and the commissioner does not provision Thread datasets. Secure defaults
+reject commissioning. Neither gap is waived by the successful crypto probe.
+
 ## Remaining gates
 
 Implement and test the OpenThread internal IPv6/UDP transport adapter, timers,

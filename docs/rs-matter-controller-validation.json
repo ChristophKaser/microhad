@@ -1,0 +1,47 @@
+{
+  "source_revision": "1570356ecb938a9d19be032b93ca3bb487069e75",
+  "rust_toolchain": "nightly-2026-10-02",
+  "platform": "development host",
+  "device_attestation_verified": false,
+  "discovery": "stub resolver; no mDNS network discovery",
+  "real_thread_or_ble": false,
+  "thread_dataset_provisioning_tested": false,
+  "secure_default_rejection_tested": true,
+  "sensor_values_hundredths_celsius": [
+    2315,
+    -525,
+    null
+  ],
+  "suites": [
+    {
+      "name": "commissioning",
+      "exit_code": 0,
+      "passed": 2,
+      "failed": 0,
+      "elapsed_seconds": 1.13
+    },
+    {
+      "name": "pase",
+      "exit_code": 0,
+      "passed": 1,
+      "failed": 0,
+      "elapsed_seconds": 0.51
+    },
+    {
+      "name": "case",
+      "exit_code": 0,
+      "passed": 2,
+      "failed": 0,
+      "elapsed_seconds": 0.98
+    },
+    {
+      "name": "attestation_components",
+      "exit_code": 0,
+      "passed": 32,
+      "failed": 0,
+      "elapsed_seconds": 0.0
+    }
+  ],
+  "date": "2026-10-03",
+  "total_passed": 37
+}
