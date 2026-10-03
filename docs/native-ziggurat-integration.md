@@ -15,9 +15,12 @@ Sleepy-child stimulation was waived and remains physically unverified.
 Broadcast terminal verdicts remain intermittent. The 1000-frame restart margin
 follows ZHA's policy and does not guarantee safety after arbitrary outages.
 
-Next: local Thread/OTBR on the separate HDLC endpoint and standalone Matter,
-with coordinated channel/reset/scans and combined gateway resource measurements.
-IID 2 is unused. Thread, OTBR and Matter are not implemented by this deployment.
+The [OpenThread MIPS proof build and Unix adapter](openthread-feasibility.md)
+pass host transport tests, target ELF checks and a bounded device simulation
+with internal UDP self delivery. The running factory kernel
+lacks IPv6/TUN, so local Thread/OTBR still needs a networking solution plus
+coordinated channel/reset/scans and gateway resource measurements. IID 2 is
+unused. Thread, OTBR and Matter are not implemented by this deployment.
 
 ## Ownership and processes
 

@@ -1,0 +1,299 @@
+{
+  "target": "192.168.178.62",
+  "radio": "host simulation only",
+  "checks": [
+    "MIPS executable runs --help on factory Linux",
+    "OpenThread initializes against synthetic RCP through Unix adapter",
+    "CLI identity, state and channel read/write work",
+    "Internal IPv6/UDP sends to own Thread address without Linux IPv6/TUN",
+    "Clean exit with no radio reset commands",
+    "Temporary binaries/settings/socket removed; production dashboard responds"
+  ],
+  "commands": [
+    {
+      "command": "version",
+      "response": [
+        "/tuya/native-test/ot-sim-1791042973080072191/ot-cli[1238]: Running OPENTHREAD/b74cf17-dirty; POSIX; Oct  3 2026 17:55:32",
+        "/tuya/native-test/ot-sim-1791042973080072191/ot-cli[1238]: Thread version: 5",
+        "SAMPLE rss_kib=280 free_kib=2280",
+        "> OPENTHREAD/b74cf17-dirty; POSIX; Oct  3 2026 17:55:32",
+        "Done"
+      ]
+    },
+    {
+      "command": "eui64",
+      "response": [
+        "/tuya/native-test/ot-sim-1791042973080072191/ot-cli[1238]: Thread interface:",
+        "/tuya/native-test/ot-sim-1791042973080072191/ot-cli[1238]: RCP version: synthetic-openthread-rcp",
+        "> 0200000000000042",
+        "Done"
+      ]
+    },
+    {
+      "command": "state",
+      "response": [
+        "> disabled",
+        "Done"
+      ]
+    },
+    {
+      "command": "channel",
+      "response": [
+        "> 11",
+        "Done"
+      ]
+    },
+    {
+      "command": "channel 15",
+      "response": [
+        "> Done"
+      ]
+    },
+    {
+      "command": "channel",
+      "response": [
+        "> 15",
+        "Done"
+      ]
+    },
+    {
+      "command": "dataset init new",
+      "response": [
+        "> Done"
+      ]
+    },
+    {
+      "command": "dataset networkname OpenThreadSim",
+      "response": [
+        "> Done"
+      ]
+    },
+    {
+      "command": "dataset commit active",
+      "response": [
+        "> Done"
+      ]
+    },
+    {
+      "command": "ifconfig up",
+      "response": [
+        "> Done"
+      ]
+    },
+    {
+      "command": "thread start",
+      "response": [
+        "> Done"
+      ]
+    },
+    {
+      "command": "ipaddr mleid",
+      "response": [
+        "> fdc1:c23:3c6e:cca7:631d:c5ee:f73f:3fb7",
+        "Done"
+      ]
+    },
+    {
+      "command": "udp open",
+      "response": [
+        "> Done"
+      ]
+    },
+    {
+      "command": "udp bind :: 12345",
+      "response": [
+        "> Done"
+      ]
+    },
+    {
+      "command": "udp send fdc1:c23:3c6e:cca7:631d:c5ee:f73f:3fb7 12345 simulator-loopback",
+      "response": [
+        "> Done"
+      ]
+    },
+    {
+      "command": "udp close",
+      "response": [
+        "Done"
+      ]
+    },
+    {
+      "command": "thread stop",
+      "response": [
+        "> Done"
+      ]
+    },
+    {
+      "command": "ifconfig down",
+      "response": [
+        "> Done"
+      ]
+    }
+  ],
+  "production_before": {
+    "online": true,
+    "network_formed": true,
+    "coordinator_backend": "ziggurat"
+  },
+  "memory_preflight_kib": 3624,
+  "exit_code": 0,
+  "cleanup_verified": true,
+  "production_after": {
+    "online": true,
+    "network_formed": true,
+    "coordinator_backend": "ziggurat"
+  },
+  "requests": [
+    {
+      "command": 2,
+      "iid": 0,
+      "property": 1
+    },
+    {
+      "command": 2,
+      "iid": 0,
+      "property": 2
+    },
+    {
+      "command": 2,
+      "iid": 0,
+      "property": 5
+    },
+    {
+      "command": 2,
+      "iid": 0,
+      "property": 8
+    },
+    {
+      "command": 2,
+      "iid": 0,
+      "property": 4619
+    },
+    {
+      "command": 2,
+      "iid": 0,
+      "property": 34
+    },
+    {
+      "command": 3,
+      "iid": 0,
+      "property": 32
+    },
+    {
+      "command": 3,
+      "iid": 0,
+      "property": 54
+    },
+    {
+      "command": 3,
+      "iid": 0,
+      "property": 53
+    },
+    {
+      "command": 2,
+      "iid": 0,
+      "property": 39
+    },
+    {
+      "command": 3,
+      "iid": 0,
+      "property": 2048
+    },
+    {
+      "command": 3,
+      "iid": 0,
+      "property": 52
+    },
+    {
+      "command": 3,
+      "iid": 0,
+      "property": 53
+    },
+    {
+      "command": 3,
+      "iid": 0,
+      "property": 4868
+    },
+    {
+      "command": 3,
+      "iid": 0,
+      "property": 4869
+    },
+    {
+      "command": 2,
+      "iid": 0,
+      "property": 41
+    },
+    {
+      "command": 3,
+      "iid": 0,
+      "property": 2048
+    },
+    {
+      "command": 3,
+      "iid": 0,
+      "property": 54
+    },
+    {
+      "command": 3,
+      "iid": 0,
+      "property": 33
+    },
+    {
+      "command": 3,
+      "iid": 0,
+      "property": 55
+    },
+    {
+      "command": 2,
+      "iid": 0,
+      "property": 2050
+    },
+    {
+      "command": 3,
+      "iid": 0,
+      "property": 55
+    }
+  ],
+  "simulator_counts": {
+    "command_2": 9,
+    "iid_0_property_1": 1,
+    "iid_0_property_2": 1,
+    "iid_0_property_5": 1,
+    "iid_0_property_8": 1,
+    "iid_0_property_4619": 1,
+    "iid_0_property_34": 1,
+    "command_3": 13,
+    "iid_0_property_32": 1,
+    "iid_0_property_54": 2,
+    "iid_0_property_53": 2,
+    "iid_0_property_39": 1,
+    "iid_0_property_2048": 2,
+    "iid_0_property_52": 1,
+    "iid_0_property_4868": 1,
+    "iid_0_property_4869": 1,
+    "iid_0_property_41": 1,
+    "iid_0_property_33": 1,
+    "iid_0_property_55": 2,
+    "iid_0_property_2050": 1
+  },
+  "simulator_error": null,
+  "samples": [
+    "SAMPLE rss_kib=280 free_kib=2280"
+  ],
+  "date": "2026-10-03",
+  "binary_sha256": "27a55270564874449e0bff93a4c941da01deded960c94e32139fde68e22ae08f",
+  "binary_size_bytes": 919456,
+  "coverage_limit": "Host-simulated RCP through test Unix/TCP relay, not production Ziggurat or physical radio. UDP uses own internal Thread IPv6 address.",
+  "instruction_check": {
+    "teq": 0,
+    "rdhwr": 0,
+    "ll": 1,
+    "sc": 1,
+    "lwl": 556,
+    "lwr": 556,
+    "swl": 512,
+    "swr": 512
+  },
+  "resource_limit": "4 MiB virtual address cap; 2 MiB RSS cap; 1 MiB free-memory floor; 35-second CLI watchdog; 45-second relay alarm. RSS sample is not peak RSS."
+}

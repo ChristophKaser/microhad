@@ -1,0 +1,141 @@
+--- a/src/posix/platform/hdlc_interface.cpp
++++ b/src/posix/platform/hdlc_interface.cpp
+@@ -52,6 +52,8 @@
+ #include <sys/ioctl.h>
+ #include <sys/resource.h>
+ #include <sys/stat.h>
++#include <sys/socket.h>
++#include <sys/un.h>
+ #include <sys/time.h>
+ #include <sys/wait.h>
+ #include <syslog.h>
+@@ -152,7 +154,30 @@
+ 
+     VerifyOrDie(stat(mRadioUrl.GetPath(), &st) == 0, OT_EXIT_ERROR_ERRNO);
+ 
+-    if (S_ISCHR(st.st_mode))
++    if (strcmp(mRadioUrl.GetProtocol(), "spinel+hdlc+unix") == 0)
++    {
++        struct sockaddr_un address;
++        int flags;
++
++        // Ziggurat owns resets and maps ordinary IID 0 traffic to Thread IID 2.
++        VerifyOrExit(mRadioUrl.HasParam("no-reset") && S_ISSOCK(st.st_mode), error = OT_ERROR_INVALID_ARGS);
++        memset(&address, 0, sizeof(address));
++        address.sun_family = AF_UNIX;
++        VerifyOrExit(strlen(mRadioUrl.GetPath()) < sizeof(address.sun_path), error = OT_ERROR_INVALID_ARGS);
++        strcpy(address.sun_path, mRadioUrl.GetPath());
++        mSockFd = socket(AF_UNIX, SOCK_STREAM, 0);
++        VerifyOrExit(mSockFd >= 0, error = OT_ERROR_FAILED);
++        if (connect(mSockFd, reinterpret_cast<struct sockaddr *>(&address), sizeof(address)) != 0 ||
++            (flags = fcntl(mSockFd, F_GETFL, 0)) < 0 ||
++            fcntl(mSockFd, F_SETFL, flags | O_NONBLOCK) < 0 ||
++            fcntl(mSockFd, F_SETFD, FD_CLOEXEC) < 0)
++        {
++            close(mSockFd);
++            mSockFd = -1;
++            ExitNow(error = OT_ERROR_FAILED);
++        }
++    }
++    else if (S_ISCHR(st.st_mode))
+     {
+         mSockFd = OpenFile(mRadioUrl);
+         VerifyOrExit(mSockFd != -1, error = OT_ERROR_FAILED);
+@@ -215,6 +240,9 @@
+     Spinel::FrameBuffer<kMaxFrameSize> encoderBuffer;
+     Hdlc::Encoder                      hdlcEncoder(encoderBuffer);
+ 
++    VerifyOrExit(strcmp(mRadioUrl.GetProtocol(), "spinel+hdlc+unix") != 0 ||
++                     !(aLength >= 2 && aFrame[1] == SPINEL_CMD_RESET),
++                 error = OT_ERROR_INVALID_STATE);
+     SuccessOrExit(error = hdlcEncoder.BeginFrame());
+     SuccessOrExit(error = hdlcEncoder.Encode(aFrame, aLength));
+     SuccessOrExit(error = hdlcEncoder.EndFrame());
+@@ -239,7 +267,9 @@
+ #else
+     while (aLength)
+     {
+-        ssize_t rval = write(mSockFd, aFrame, aLength);
++        ssize_t rval = strcmp(mRadioUrl.GetProtocol(), "spinel+hdlc+unix") == 0
++                           ? send(mSockFd, aFrame, aLength, MSG_NOSIGNAL)
++                           : write(mSockFd, aFrame, aLength);
+ 
+         if (rval == aLength)
+         {
+@@ -649,7 +679,10 @@
+     VerifyOrExit(mSockFd != -1);
+ 
+     VerifyOrExit(0 == close(mSockFd), perror("close RCP"));
+-    VerifyOrExit(-1 != wait(nullptr) || errno == ECHILD, perror("wait RCP"));
++    if (strcmp(mRadioUrl.GetProtocol(), "spinel+hdlc+unix") != 0)
++    {
++        VerifyOrExit(-1 != wait(nullptr) || errno == ECHILD, perror("wait RCP"));
++    }
+ 
+     mSockFd = -1;
+ 
+--- a/src/posix/platform/radio_url.cpp
++++ b/src/posix/platform/radio_url.cpp
+@@ -84,6 +84,7 @@
+     "    uart-baudrate[=baudrate]       Uart baud rate, default is 460800.\n"                        \
+     "    uart-flow-control              Enable flow control, disabled by default.\n"                 \
+     "    uart-init-deassert             Deassert lines on init when flow control is disabled.\n"     \
++    "    spinel+hdlc+unix:///path/to/socket?no-reset (Ziggurat Thread endpoint)\n" \
+     "    uart-reset                     Reset connection after hard resetting RCP(USB CDC ACM).\n"   \
+     "\n"
+ #else
+--- a/src/posix/platform/spinel_manager.cpp
++++ b/src/posix/platform/spinel_manager.cpp
+@@ -78,7 +78,8 @@
+ 
+     swReset = !mUrl.HasParam("no-reset");
+ 
+-    mode = mSpinelDriver.Init(*mSpinelInterface, swReset, iidList, OT_ARRAY_LENGTH(iidList));
++    mode = mSpinelDriver.Init(*mSpinelInterface, swReset, iidList, OT_ARRAY_LENGTH(iidList),
++                              strcmp(mUrl.GetProtocol(), "spinel+hdlc+unix") == 0);
+ 
+     otLogDebgPlat("instance init:%p - iid = %d", (void *)&mSpinelDriver, iidList[0]);
+ 
+--- a/src/lib/spinel/spinel_driver.cpp
++++ b/src/lib/spinel/spinel_driver.cpp
+@@ -66,7 +66,8 @@
+ CoprocessorType SpinelDriver::Init(SpinelInterface    &aSpinelInterface,
+                                    bool                aSoftwareReset,
+                                    const spinel_iid_t *aIidList,
+-                                   uint8_t             aIidListLength)
++                                   uint8_t             aIidListLength,
++                                   bool                aAttachToRunningRcp)
+ {
+     CoprocessorType coprocessorType;
+ 
+@@ -83,7 +84,17 @@
+     }
+     mIid = aIidList[0];
+ 
+-    ResetCoprocessor(aSoftwareReset);
++    if (aAttachToRunningRcp)
++    {
++        // An already-running shared RCP will not replay its boot notification.
++        // Verify readiness through the following protocol/version/capability queries.
++        VerifyOrDie(!aSoftwareReset, OT_EXIT_INVALID_ARGUMENTS);
++        mIsCoprocessorReady = true;
++    }
++    else
++    {
++        ResetCoprocessor(aSoftwareReset);
++    }
+     SuccessOrDie(CheckSpinelVersion());
+     SuccessOrDie(GetCoprocessorVersion());
+     SuccessOrDie(GetCoprocessorCaps());
+--- a/src/lib/spinel/spinel_driver.hpp
++++ b/src/lib/spinel/spinel_driver.hpp
+@@ -83,7 +83,8 @@
+     CoprocessorType Init(SpinelInterface    &aSpinelInterface,
+                          bool                aSoftwareReset,
+                          const spinel_iid_t *aIidList,
+-                         uint8_t             aIidListLength);
++                         uint8_t             aIidListLength,
++                         bool                aAttachToRunningRcp = false);
+ 
+     /**
+      * Deinitialize this SpinelDriver Instance.

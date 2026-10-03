@@ -53,8 +53,11 @@ guarantee. Production memory after reboot had 12844 KiB free out of 27892 KiB.
 ## Remaining plan
 
 1. Investigate Configure/cold-boot readiness and verify sleepy devices.
-2. Add a local OTBR Unix transport or embedded Thread interface on IID 2;
-   coordinate reset, common channel and scans, then measure combined resources.
+2. The [OpenThread Unix adapter and MIPS CLI proof build](openthread-feasibility.md)
+   now pass host transport tests, ELF checks and a bounded MIPS simulation with
+   internal UDP self delivery. Choose direct internal UDP or
+   resolve missing kernel IPv6/TUN for Linux routing, then validate startup, ABI, reset,
+   common channel, scans and combined resources. IID 2 remains unused in production.
 3. Validate simultaneous PAN ACKs/polls, overlapping addresses and scan interference.
 4. Add standalone Matter and benchmark the complete gateway.
 

@@ -111,11 +111,22 @@ notifications. Requests wait for the shared radio lock so they cannot bypass
 Ziggurat's exclusive radio operations. The endpoint runs inside Ziggurat;
 the tiny C bridge used over SSH is only a development test helper.
 
-This endpoint is **not yet an OTBR integration**. Standard `otbr-agent` needs
-a compatible Unix-socket transport adapter (or another embedded platform
-interface) and its no-reset startup mode. No local Thread stack, Thread mesh,
-IPv6 border routing, commissioning or Matter application has been validated
-by the simulated consumer. Devpts is not required by the Unix-socket approach.
+An [OpenThread Unix adapter and MIPS CLI proof build](openthread-feasibility.md)
+are now available. Its URL is `spinel+hdlc+unix:///path/to/thread.sock?no-reset`;
+the adapter uses logical IID 0, with Ziggurat mapping it to radio IID 2.
+Host framing/reset tests and the bounded MIPS simulated-RCP/UDP test pass.
+The Unix path attaches without waiting for a boot reset notification. Devpts
+is not required by this approach.
+
+This endpoint is **not yet an OTBR integration**. The adapter has not been
+validated through a complete startup handshake via actual Ziggurat; a synthetic
+RCP handshake on the MIPS device passed. `otbr-agent`
+has not been built with it. The running factory kernel lacks IPv6/TUN. No real
+Thread mesh, IPv6 border routing, commissioning or Matter application has been
+validated. Direct internal OpenThread UDP can avoid Linux IPv6/TUN; standard
+Linux sockets and border routing require them. The built CLI uses the internal
+stack, with target execution verified against the synthetic RCP. Physical
+radio startup and simultaneous PAN operation remain untested.
 
 ## Shared-radio policy in this version
 

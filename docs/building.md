@@ -119,6 +119,31 @@ Zigbee fixes in an ignored worktree. It produces:
 Use the multi-PAN build for IID 1, even if Thread is disabled. The helper provides
 UART ownership checks and bootloader/COBS maintenance, not a daily extra daemon.
 
+## OpenThread MIPS proof build
+
+OpenThread uses a separate Clang 18 C/C++ build with the stock RSDK linker and
+uClibc libraries. It reuses the installed GSDK source and applies the Unix HDLC
+adapter in an ignored copy; it does not alter the SDK or deploy to the gateway.
+
+```sh
+cd "$WORKSPACE/ziggurat-compilation"
+bash scripts/build-openthread.sh host
+bash scripts/build-openthread.sh mips
+```
+
+The host command builds the CLI and runs the real HDLC adapter against a local
+Unix socket. The MIPS command creates `build/openthread-unix/ot-cli-mips` and
+checks ELF architecture, soft-float attributes and static linking. Both commands
+were verified on 2026-10-03. In restricted execution environments, host Unix
+socket tests and the legacy RSDK linker may require execution outside the sandbox.
+
+The CLI uses OpenThread's internal stack and does not require Linux TUN.
+The running factory kernel lacks IPv6/TUN for the Linux interface/border-router
+path. The binary passed a bounded device simulation using a host-simulated
+RCP and internal UDP self delivery; it is not installed as a service.
+See [compiler fixes, relay build/test commands, artifact hash and limits](openthread-feasibility.md)
+for the complete evidence and procedure. OTBR and Matter are still separate work.
+
 ## Two-instance HDLC RCP firmware
 
 Host commands:

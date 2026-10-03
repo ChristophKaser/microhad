@@ -34,7 +34,7 @@ alternative coordinator clients, not services to enable together.
 | Recovery | Original assets and fresh frozen state retained; offline NCP rollback preparation verified. Live reverse restoration and recovery from an unresponsive RCP remain unverified. |
 | Startup | One controlled cold boot took 121 seconds from native start to readiness; cause unresolved. |
 | Zigbee delivery | Broadcast responses observed with intermittent relay-quorum/CCA failure verdicts. Sleepy-device behavior needs further acceptance testing. |
-| Thread/Matter | Future work. IID 2 remains unused; no working standalone Matter or simultaneous Zigbee/Thread deployment is claimed. |
+| Thread/Matter | [OpenThread MIPS CLI and Unix adapter pass a bounded device simulation with internal IPv6/UDP](docs/openthread-feasibility.md). Linux border routing lacks IPv6/TUN; production IID 2 remains unused. No real Thread mesh or Matter deployment is claimed. |
 
 The ultimate goal is standalone Zigbee and Matter-over-Thread on this device,
 sharing the radio through HDLC without cpcd. The native build remains C++03;
@@ -51,6 +51,7 @@ precompiled Silicon Labs RAIL libraries.
 - [Existing-network migration and rollback](docs/ziggurat-deployment-plan.md)
 - [Real-radio findings](docs/real-radio-migration.md)
 - [Latest TH01 fix and remaining acceptance checks](docs/th01-herdsman-fix.md)
+- [OpenThread build, adapter tests and feasibility](docs/openthread-feasibility.md)
 - [HDLC/Thread implementation plan](docs/hdlc-implementation-plan.md)
 - [Archived build reference and experiment history](docs/development-history.md)
 
