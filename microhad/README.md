@@ -2,7 +2,8 @@
 
 > **Reporting correction (2026-10-03):** cached-endpoint rejoins previously
 > skipped binding/reporting setup. The native fix is tested for both backends
-> and deployed; device acceptance and unsolicited reports are being checked.
+> and deployed. Küche accepted setup and sent four reports, but sustained
+> reporting after a later rejoin remains unresolved.
 > [Current thermometer status](THERMOMETER_RECOVERY.md).
 
 > **Post-deployment correction (2026-10-03):** investigation of Küche TH01
