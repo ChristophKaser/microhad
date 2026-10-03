@@ -116,7 +116,7 @@
       1
     ]
   },
-  "native_commit": "04a7a363d216f6512613d88e9ac9e5f8c5d87bfb",
+  "native_commit": "d8e2ae4c5a38e6626111bcae8c13e1a5c5905351",
   "group_broadcast_followup": {
     "group_read_terminal_status": 0,
     "group_read_ms": 68.4,
@@ -176,6 +176,13 @@
     "restored_child_long_lived": "unresolved: absent before wake, present after association",
     "diagnostic_tools_tracked": true,
     "diagnostic_tool_tests": 5,
-    "diagnostic_processes_remaining": false
+    "diagnostic_processes_remaining": false,
+    "herdsman_comparison": {
+      "document": "herdsman-th01-comparison.md",
+      "profile_mismatch_confirmed": true,
+      "nwk_replay_counter_reset_hypothesis": "source-supported, not yet reproduced or confirmed live",
+      "production_changed_during_review": false,
+      "hardware_fault_proven": false
+    }
   }
 }

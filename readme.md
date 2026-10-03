@@ -1,5 +1,10 @@
 # Ziggurat on the Tuya RTL8196E gateway
 
+> **Herdsman review (2026-10-03):** hardware failure is not established.
+> TH01 reporting/lifecycle differs from native; retained network replay counters
+> across fresh joins are a concrete unverified Ziggurat hypothesis.
+> [Comparison and next software tests](docs/herdsman-th01-comparison.md).
+
 > **Reporting correction (2026-10-03):** cached-endpoint rejoins previously
 > skipped binding/reporting setup. The native fix is tested for both backends
 > and deployed. Küche accepted setup and sent four reports, but sustained

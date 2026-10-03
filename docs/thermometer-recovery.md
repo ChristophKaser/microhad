@@ -1,5 +1,10 @@
 # Küche TH01 recovery — 2026-10-03
 
+> **Herdsman comparison (2026-10-03):** hardware failure is not established.
+> Current TH01 setup differs from ours; a retained NWK replay baseline across
+> fresh joins is a concrete unverified Ziggurat hypothesis.
+> [Profile, lifecycle, evidence and next steps](herdsman-th01-comparison.md).
+
 ## Current state and plan
 
 The latest reporting investigation found a third bug: a known device rejoining
