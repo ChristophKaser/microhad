@@ -9,7 +9,7 @@ publish = false
 [features]
 default = []
 openthread = ["dep:embassy-time-queue-utils"]
-controller-probe = ["openthread", "dep:embassy-futures", "dep:static_cell", "dep:heapless"]
+controller-probe = ["openthread", "controller-identity", "dep:embassy-futures", "dep:static_cell", "dep:heapless"]
 controller-service = ["openthread", "control-ipc", "controller-identity", "dep:static_cell", "dep:libc", "dep:heapless", "dep:embassy-futures"]
 controller-identity = ["dep:zeroize"]
 control-ipc = ["dep:serde", "dep:serde_json", "dep:zeroize"]

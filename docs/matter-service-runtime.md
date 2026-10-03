@@ -80,3 +80,11 @@ With authority creation/validation the package is 1,527,452 stripped bytes,
 static big-endian MIPS-I/o32. Strict request decoding was 1,343,120 bytes and
 the initial status-only checkpoint 1,228,412 bytes. These are package sizes, not RSS or
 physical-device runtime measurements. ELF validation is recorded in the native plan.
+
+The encrypted commissioning fixture now uses the same `Identity` authority,
+signer and allocator as this service. Both host BTP and UDP runs pass PASE,
+Thread provisioning, CASE and fresh CASE after committed credentials/authority
+reopen, with the simulated phone detached. The allocator then returns a value
+above the commissioned node. Timings were 217/264 ms on the development host;
+the updated factory fixture builds but has not been executed on the gateway.
+This does not yet wire the commissioner into the service's IPC job dispatch.

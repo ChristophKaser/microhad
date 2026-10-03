@@ -21,16 +21,14 @@ use core::cell::{Cell, RefCell};
 use core::pin::pin;
 use embassy_futures::select::{select, select3, Either};
 use embassy_time::{Duration, Timer};
+use lexra_rs_matter_probe::identity::Identity;
 use lexra_rs_matter_probe::store::PrivateStore;
 use lexra_rs_matter_probe::{
     ble::BleRelay, commissioning as gateway_commissioning, openthread::OpenThread,
 };
 use rs_matter::cert::gen::VALID_FOREVER;
 use rs_matter::cert::{MAX_CERT_TLV_AND_ASN1_LEN, MAX_CERT_TLV_LEN};
-use rs_matter::crypto::{
-    default_crypto, CanonAeadKey, CanonPkcSecretKey, Crypto, CryptoSensitiveRef, Rng, SecretKey,
-    SigningSecretKey,
-};
+use rs_matter::crypto::{default_crypto, Crypto, CryptoSensitiveRef, Rng};
 use rs_matter::dm::clusters::app::level_control::LevelControlHooks;
 use rs_matter::dm::clusters::app::on_off::{
     self, test::TestOnOffDeviceLogic, OnOffClient, OnOffHooks,
@@ -42,11 +40,8 @@ use rs_matter::dm::devices::test::{TEST_DEV_ATT, TEST_DEV_COMM, TEST_DEV_DET};
 use rs_matter::dm::devices::DEV_TYPE_ON_OFF_LIGHT;
 use rs_matter::dm::{endpoints, Async, DataModel, Dataver, Endpoint, Handler, Node, Reply};
 use rs_matter::error::Error;
-use rs_matter::fabric::FabricPersist;
 use rs_matter::im::subscriptions::DEFAULT_MAX_SUBSCRIPTIONS;
 use rs_matter::im::{InteractionModel, InteractionModelState};
-use rs_matter::onboard::cac::{IcacGenerator, RcacGenerator};
-use rs_matter::onboard::noc::NocGenerator;
 use rs_matter::onboard::{CommissionResult, Commissioner};
 use rs_matter::persist::DummyKvBlobStore;
 use rs_matter::respond::DefaultResponder;
@@ -442,9 +437,13 @@ async fn run(thread: &OpenThread, use_ble: bool) -> Result<(), Error> {
         drop(store.borrow_mut().take());
         let reopened =
             PrivateStore::open(&state_directory).expect("reopen committed fixture state from disk");
-        let kv = restarted.kv(reopened);
+        let mut identity = Identity::open(&reopened, ctrl_crypto, ADMIN_VENDOR_ID)?;
+        let kv = restarted.kv(reopened.clone());
         restarted.startup(&kv)?;
+        assert_eq!(identity.install(restarted, ctrl_crypto, &reopened)?, fab);
+        assert!(identity.allocate_node(&reopened)? > node);
         assert!(restarted.has_fabrics());
+        println!("PASS persisted production authority reload and monotonic node allocation");
         let recovered = async {
             let exchange = Exchange::initiate(restarted, ctrl_crypto, fab, node).await?;
             assert!(exchange.on_off().on_off_read(1).await?);
@@ -493,13 +492,14 @@ async fn run_commissioner<C: Crypto>(
     operational: SocketAddrV6,
     crypto: &C,
     network: &TestThreadNetwork,
+    node_id: u64,
 ) -> Result<CommissionResult, Error> {
     let result = commissioner
         .commission(
             peer,
             TEST_PASSCODE,
             &gateway_commissioning::CommissioningPolicy::default().options(),
-            DEVICE_NODE_ID,
+            node_id,
             VALID_FOREVER,
         )
         .await?;
@@ -542,27 +542,10 @@ async fn resolve_fixture(matter: &Matter<'_>, node: u64, sock: SocketAddrV6) -> 
         );
     }
 }
-const FABRIC_ID: u64 = 1;
-// chip-tool's conventional admin NodeID; matches the
-// CaseAdminSubject the device-side ACL is seeded with.
-const CONTROLLER_NODE_ID: u64 = 112233;
-// The single device this test commissions. Real callers pick
-// these from whatever NodeID allocation scheme they prefer.
-const DEVICE_NODE_ID: u64 = 112234;
 const ADMIN_VENDOR_ID: u16 = 0xFFF1;
 
-/// Drive both phases of the commissioner flow against the peer that
-/// PASE was just negotiated with. Returns the
-/// `(controller_local_fab_idx, device_node_id)` needed to open
-/// post-commissioning CASE exchanges.
-///
-/// All of the "build a fabric for the controller" plumbing lives in
-/// this test, not the `commissioner` crate: generate RCAC + ICAC,
-/// drop the RCAC priv key (in production it'd be HSM-resident), mint
-/// the controller's own operational keypair + NOC, generate an IPK,
-/// install the fabric in `matter.state.fabrics`. Then build a
-/// [`NocGenerator`] and hand it (plus the fab_idx) to the
-/// [`Commissioner`].
+// Use exactly the authority and allocator installed by the production service.
+// The accessory, network and rendezvous remain explicitly synthetic.
 async fn test_commission<C: Crypto>(
     matter: &Matter<'_>,
     crypto: &C,
@@ -571,35 +554,11 @@ async fn test_commission<C: Crypto>(
     thread_network: &TestThreadNetwork,
     store: &PrivateStore,
 ) -> Result<(core::num::NonZeroU8, u64), Error> {
-    // ---- Offline CA chain: RCAC then ICAC; RCAC priv discarded ----
-
-    let mut rcac_buf = [0u8; MAX_CERT_TLV_AND_ASN1_LEN];
-    let mut rcac_gen = RcacGenerator::new(&mut rcac_buf);
-    let (rcac_priv, rcac) = rcac_gen.generate(crypto, FABRIC_ID, VALID_FOREVER)?;
-
-    let mut icac_buf = [0u8; MAX_CERT_TLV_AND_ASN1_LEN];
-    let mut icac_gen = IcacGenerator::new(&mut icac_buf);
-    let (icac_priv, icac) =
-        icac_gen.generate(crypto, rcac_priv.reference(), rcac, VALID_FOREVER)?;
-    drop(rcac_priv);
-
-    // ---- NocGenerator: signs the controller NOC now, then the
-    //      device NOC during commissioning. The NOC serial is derived
-    //      from the NodeID internally. ----
-
+    let mut identity = Identity::open(store, crypto, ADMIN_VENDOR_ID)?;
+    let controller_fab_idx = identity.install(matter, crypto, store)?;
+    let device_node_id = identity.allocate_node(store)?;
     let mut noc_buf = [0u8; MAX_CERT_TLV_AND_ASN1_LEN];
-    let mut noc_generator = NocGenerator::create(icac_priv.reference(), rcac, icac, &mut noc_buf)?;
-
-    let controller_fab_idx =
-        install_controller_fabric(matter, crypto, &mut noc_generator, rcac, icac)?;
-    let kv = matter.kv(store.clone());
-    let mut persist = FabricPersist::new(&kv);
-    matter.with_state(|state| persist.store(state.fabrics.get(controller_fab_idx).unwrap()))?;
-    persist.run()?;
-
-    // Scratch buffer for Commissioner — used to stage the fabric's
-    // RCAC / ICAC bytes across the async on-wire calls. One
-    // `MAX_CERT_TLV_LEN` slot is enough; see `Commissioner::new`.
+    let mut noc_generator = identity.signer(&mut noc_buf)?;
     let mut commissioner_buf = [0u8; MAX_CERT_TLV_LEN];
     let mut commissioner = Commissioner::new(
         matter,
@@ -608,7 +567,6 @@ async fn test_commission<C: Crypto>(
         &mut noc_generator,
         &mut commissioner_buf,
     );
-
     let result = run_commissioner(
         matter,
         &mut commissioner,
@@ -616,55 +574,10 @@ async fn test_commission<C: Crypto>(
         operational,
         &crypto,
         thread_network,
+        device_node_id,
     )
     .await?;
-
     Ok((controller_fab_idx, result.device_node_id))
-}
-
-fn install_controller_fabric<C: Crypto>(
-    matter: &Matter<'_>,
-    crypto: &C,
-    noc_generator: &mut NocGenerator<'_>,
-    rcac: &[u8],
-    icac: &[u8],
-) -> Result<core::num::NonZeroU8, Error> {
-    // ---- Controller operational keypair + CSR ----
-
-    let controller_secret_key = crypto.generate_secret_key()?;
-    let mut controller_csr_buf = [0u8; 256];
-    let controller_csr = controller_secret_key.csr(&mut controller_csr_buf)?;
-    let mut controller_secret_key_canon = CanonPkcSecretKey::new();
-    controller_secret_key.write_canon(&mut controller_secret_key_canon)?;
-
-    let controller_noc = noc_generator.generate(
-        crypto,
-        controller_csr,
-        CONTROLLER_NODE_ID,
-        &[],
-        VALID_FOREVER,
-    )?;
-
-    // ---- Fabric IPK: 16 random bytes, shared across the fabric ----
-    let mut ipk = CanonAeadKey::new();
-    crypto.rand()?.fill_bytes(ipk.access_mut());
-
-    // ---- Install the controller's fabric in matter.state.fabrics ----
-    matter.with_state(|state| {
-        state
-            .fabrics
-            .add(
-                crypto,
-                controller_secret_key_canon.reference(),
-                rcac,
-                controller_noc,
-                icac,
-                Some(ipk.reference()),
-                ADMIN_VENDOR_ID,
-                CONTROLLER_NODE_ID,
-            )
-            .map(|f| f.fab_idx())
-    })
 }
 
 fn main() {
