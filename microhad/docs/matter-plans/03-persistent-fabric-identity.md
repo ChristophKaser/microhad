@@ -38,6 +38,16 @@ state safely across service and gateway restarts.
   last committed identity.
 - Flash writes are limited to actual state changes and commissioning events.
 
+## Status quo — 2026-10-04
+
+Step 1 is complete: [authority schema 1](../matter-identity-store-v1.md) reserves
+vendor keys outside upstream rs-matter's fabric/singleton space and fixes one
+bounded atomic authority record containing the RCAC/ICAC/controller keys and
+certificates, IPK, fabric/vendor metadata and monotonic allocator. Interrupted
+first-write recovery, exhaustion and explicit-version migration behavior are
+defined. Steps 2–7 still require implementation/verification; this document does
+not claim persistent production identity or restart CASE acceptance yet.
+
 ## Depends on
 
 [Rust service runtime](01-rust-service-runtime.md) and its single-owner store.
