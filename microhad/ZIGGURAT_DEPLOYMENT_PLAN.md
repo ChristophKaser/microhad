@@ -6,11 +6,11 @@
 `192.168.178.62`; no spare gateway or radio is required. This plan supersedes
 older recommendations to rehearse on spare hardware.
 
-Production currently uses the native EZSP service and EmberZNet 7.5.1.0 / EZSP
-v13 on `/dev/ttyS1`. The optional native Ziggurat backend, COBS Unix API and
-native-owned persistence pass host tests; both native variants and Ziggurat
-build for MIPS. Ziggurat-only device simulations pass. Multi-PAN HDLC firmware
-is built but **has not been flashed**.
+Production is in maintenance with the original native supervisor suspended.
+The validated two-instance HDLC RCP application has been flashed successfully;
+no migrated Zigbee network has started. Host backups retain the original native
+service/application and final network security state. The native Ziggurat backend
+and static MIPS Ziggurat are staged. Next verify real RCP and reverse entry.
 
 **Step 1 is complete:** images are packaged/validated, binaries rebuilt, recovery
 commands and candidate paired launcher implemented, and host tests pass. Exact
@@ -21,9 +21,9 @@ installed on the gateway during step 1.
 network export are saved and validated. Production stayed online; its binary and
 processes were not replaced/restarted. Joining was already closed.
 
-**Execution checkpoint:** steps 1–6 completed.
+**Execution checkpoint:** steps 1–7 completed.
 
-**Next action:** step 7; reread its procedure before execution.
+**Next action:** step 8; reread its procedure before execution.
 
 The objective of this deployment is existing-network Zigbee operation through
 native → COBS Unix socket → Ziggurat → HDLC RCP. Thread and Matter follow later;
@@ -331,6 +331,13 @@ stop the bridge and resume EZSP as in step 5. If neither answers, stop and diagn
 entry/bridge settings; do not upload to compensate for an unverified connection.
 
 ## 7. Upload only the RCP application
+
+**Completed 2026-10-03:** bootloader accepted the pinned 103800-byte RCP
+GBL at 100% and run was requested. Only application range `[0x4000,0x1d52c)`
+was programmed; bootloader/NVM3 were excluded. Exact serial bridge stopped and
+UART-free check passed. Original supervisor remains suspended. No migrated
+Zigbee network has started yet (checkpoint D).
+
 
 Use the validated RCP GBL and its recorded SHA256. With the confirmed bootloader
 menu, correct 115200/no-flow-control bridge and exclusive ownership:
