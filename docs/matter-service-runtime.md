@@ -31,7 +31,10 @@ accessory commissioning window are installed in this controller.
 
 IPC uses the shared version-1 bounded frame format. Opcodes 1 and 2 accept empty
 payloads and return redacted JSON. Matter reports initialization/fabric readiness;
-Thread reports attachment. Other operations currently close the peer. Limits:
+Thread reports attachment. Opcodes 3–11 now decode strict schema-1 request bodies;
+valid operations without implemented lifecycles return `unsupported`, and invalid
+bodies return `malformed`, without echoing input. Opcode-12 requests close the peer.
+Limits:
 four clients, four accepts per loop, 4096 read/write bytes per client per loop,
 eight queued responses per client, 2048 bytes per payload, and a two-second idle
 deadline that partial requests cannot extend. OpenThread polls at most five
@@ -46,14 +49,15 @@ SIGINT/SIGTERM unwind the transport and release storage and IPC ownership.
 
 Stderr contains only static start/stop/failure messages. Request payloads,
 CLI inputs, datasets and store contents have no logging path. A missing radio,
-transport failure, or corrupt state exits the service; restart/backoff belongs
-to the launcher and is not implemented in this checkpoint. Until that wiring
-exists, launch only in an isolated development environment.
+transport failure, or corrupt state exits the service. The native project's
+optional paired supervisor implements independent bounded retries and backoff;
+see `microhad-zigbee-native/MATTER_INTEGRATION.md`. It is not activated in production.
 
-Validation: 19 Rust library tests pass, including six listener lifecycle,
-fragmentation, overload and timeout checks. `python3 scripts/test-matter-service.py`
+Validation: 22 Rust library tests pass, including six listener lifecycle,
+fragmentation, overload and timeout checks and three strict-body decoder groups.
+`python3 scripts/test-matter-service.py`
 starts the real host service against the synthetic RCP and verifies both JSON
-statuses, duplicate exclusion, 20 timely independent calls, socket permissions,
+statuses, typed-body rejection, duplicate exclusion, 20 timely calls, socket permissions,
 clean SIGTERM, and no RCP reset. Socket tests need local socket permissions;
 the workspace sandbox otherwise returns EPERM. These checks prove host behavior,
 not physical mesh attachment or commissioning a real accessory.
@@ -61,4 +65,7 @@ not physical mesh attachment or commissioning a real accessory.
 The factory uClibc lacks `accept4`. The MIPS adapter supplies an `accept`/`fcntl`
 compatibility wrapper; its descriptor flag update is valid for this single-threaded
 process, which does not concurrently fork. Existing factory sleep/name shims remain.
-Target package size and ELF validation are recorded in the native implementation plan.
+With strict request decoding the package is 1,343,120 stripped bytes, static
+big-endian MIPS-I/o32. The initial status-only checkpoint was 1,228,412 bytes;
+JSON/body support adds 114,708 bytes. These are package sizes, not RSS or
+physical-device runtime measurements. ELF validation is recorded in the native plan.

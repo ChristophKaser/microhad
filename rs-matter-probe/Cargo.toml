@@ -10,7 +10,8 @@ publish = false
 default = []
 openthread = ["dep:embassy-time-queue-utils"]
 controller-probe = ["openthread", "dep:embassy-futures", "dep:static_cell", "dep:heapless"]
-controller-service = ["openthread", "dep:static_cell", "dep:libc", "dep:heapless", "dep:embassy-futures"]
+controller-service = ["openthread", "control-ipc", "dep:static_cell", "dep:libc", "dep:heapless", "dep:embassy-futures"]
+control-ipc = ["dep:serde", "dep:serde_json"]
 
 [dependencies]
 rs-matter = { path = "../build/rs-matter/probe-source/rs-matter", default-features = false, features = ["rustcrypto"] }
@@ -22,6 +23,8 @@ embassy-futures = { version = "0.1", optional = true }
 static_cell = { version = "2", optional = true }
 heapless = { version = "0.9", optional = true }
 libc = { version = "0.2", optional = true }
+serde = { version = "1", features = ["derive"], optional = true }
+serde_json = { version = "1", optional = true }
 
 [profile.release]
 panic = "abort"

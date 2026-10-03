@@ -25,11 +25,11 @@ def receive(peer, length):
     return result
 
 
-def status(path, opcode, ident):
+def status(path, opcode, ident, body=b""):
     with socket.socket(socket.AF_UNIX) as peer:
         peer.settimeout(1)
         peer.connect(str(path))
-        request = struct.pack("<HBBBBI", 0, 1, 0, opcode, 0, ident)
+        request = struct.pack("<HBBBBI", len(body), 1, 0, opcode, 0, ident) + body
         peer.sendall(request[:3])
         peer.sendall(request[3:])
         header = receive(peer, 10)
@@ -77,6 +77,10 @@ def main():
             duplicate = subprocess.run(args, capture_output=True, timeout=2)
             assert duplicate.returncode == 1
             assert status(ipc_path, 1, 303)["available"]
+            reserved = status(ipc_path, 9, 304, b'{"schema":1,"action":"status"}')
+            assert reserved == {"schema": 1, "ok": False, "error": "unsupported"}
+            malformed = status(ipc_path, 9, 305, b'{"schema":1,"action":"status","secret":"must-not-log"}')
+            assert malformed == {"schema": 1, "ok": False, "error": "malformed"}
             # Status traffic stays responsive across multiple independent clients.
             start = time.monotonic()
             for ident in range(400, 420):
@@ -90,7 +94,7 @@ def main():
             assert stderr == b"Matter controller service started\nMatter controller service stopped\n"
             assert not radio.error
             assert radio.counts.get("command_1", 0) == 0
-            print("PASS status, duplicate start, private socket, bounded calls, SIGTERM, no RCP reset")
+            print("PASS status, typed body rejection, duplicate start, private socket, bounded calls, SIGTERM, no RCP reset")
     finally:
         for process in (service, relay):
             if process is not None and process.poll() is None:

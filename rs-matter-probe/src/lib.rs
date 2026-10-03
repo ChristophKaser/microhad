@@ -1,6 +1,8 @@
 //! Controller building blocks for the factory gateway; with an optional userspace OpenThread transport.
 pub mod ble;
 pub mod commissioning;
+#[cfg(feature = "control-ipc")]
+pub mod control;
 pub mod entropy;
 pub mod ipc;
 pub mod store;

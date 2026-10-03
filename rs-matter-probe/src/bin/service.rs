@@ -1,6 +1,7 @@
 //! Gateway controller process. Owns OpenThread, Matter and IPC on a single thread.
 use core::pin::pin;
 use lexra_rs_matter_probe::{
+    control::Request,
     entropy::OsEntropy,
     ipc::{Frame, OP_MATTER_STATUS, OP_THREAD_STATUS},
     openthread::OpenThread,
@@ -133,13 +134,18 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
         thread.poll(5_000)?;
         ipc.poll(|request| {
-            if !request.payload.is_empty() { return None; }
-            let payload = match request.opcode {
-                OP_MATTER_STATUS => format!("{{\"enabled\":true,\"available\":true,\"controller_initialized\":true,\"fabric_ready\":{},\"state\":\"{}\"}}",
+            if request.opcode == 12 { return None; }
+            let decoded = Request::decode(request.opcode, &request.payload);
+            let payload = match decoded {
+                Ok(Request::MatterStatus) => format!("{{\"enabled\":true,\"available\":true,\"controller_initialized\":true,\"fabric_ready\":{},\"state\":\"{}\"}}",
                     matter.has_fabrics(), if matter.has_fabrics() { "running" } else { "awaiting_fabric" }),
-                OP_THREAD_STATUS => format!("{{\"enabled\":true,\"available\":true,\"attached\":{},\"state\":\"{}\",\"linux_ipv6_or_tun\":false}}",
+                Ok(Request::ThreadStatus) => format!("{{\"enabled\":true,\"available\":true,\"attached\":{},\"state\":\"{}\",\"linux_ipv6_or_tun\":false}}",
                     thread.ready(), if thread.ready() { "attached" } else { "detached" }),
-                _ => return None,
+                // Valid reserved operations have no behavior until their owning
+                // lifecycle is implemented. Never imply job acceptance here.
+                Ok(_) => "{\"schema\":1,\"ok\":false,\"error\":\"unsupported\"}".into(),
+                Err(_) if request.opcode == OP_MATTER_STATUS || request.opcode == OP_THREAD_STATUS => return None,
+                Err(_) => "{\"schema\":1,\"ok\":false,\"error\":\"malformed\"}".into(),
             };
             Some(Frame { kind: 1, opcode: request.opcode, id: request.id, payload: payload.into_bytes() })
         })?;
