@@ -391,5 +391,9 @@ ID `0xfff1` (CLI override before initialization); it is not a manufacturer
 certificate or HTTPS trust assumption. All 31 combined Rust checks and actual
 host service process restart pass, including no credential rewrite on reads and
 corrupt/mismatched state refusal. Factory stripped binary is 1,527,452 bytes.
-Production-authority CASE recovery and current target filesystem validation
-remain pending in [plan 03](docs/matter-plans/03-persistent-fabric-identity.md).
+Production-authority CASE recovery now passes in the encrypted host fixture,
+which uses the same authority/allocator as the service, reopens credentials,
+reloads authority and creates a fresh CASE session with the simulated phone
+detached. Both BTP and internal UDP pass (217/264 ms on the development host).
+Current target filesystem/runtime validation remains pending in
+[plan 03](docs/matter-plans/03-persistent-fabric-identity.md).

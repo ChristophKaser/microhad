@@ -53,7 +53,7 @@ defined. The authority is now implemented and connected to service startup.
 | 3 | Complete | Secure OS entropy generates all authority materials; full record committed before fabric installation; abandoned-stage and interrupted-install host checks pass. |
 | 4 | Complete | Restore verifies the certificate chain, all three key pairs, fabric/node/vendor metadata, counter and exact upstream fabric materials. Missing authority with a fabric or an unloaded corrupt fabric is rejected. Real host service process restart passes without rewriting state. |
 | 5 | Complete | Counter committed before an ID is returned; reload continues above prior IDs, failed writes return no ID, exhaustion is persisted and never wraps. |
-| 6 | Partial | Four focused identity/recovery test groups and 31 combined Rust tests pass; synthetic service restart/corrupt-state refusal passes. CASE after recovery using the new production authority and target filesystem validation remain. |
+| 6 | Partial | Four identity/recovery test groups and 31 combined Rust tests pass; synthetic service process restart/corrupt-state refusal passes. The encrypted host fixture now uses this same authority and allocator, reopens committed credentials, reloads the authority and establishes fresh CASE with the phone detached, over both synthetic BTP and UDP. Current target filesystem/runtime validation remains. |
 | 7 | Partial | Schema describes credential protection and encrypted-export policy; detailed operational backup/recovery instructions still need completion. |
 
 The service now reports `fabric_ready:true`/`running` after initialization,
@@ -62,6 +62,11 @@ defaults to development ID `0xfff1`, with an explicit first-start CLI override;
 changing that metadata on restart fails closed. This is not a manufacturer
 certificate or gateway HTTPS trust requirement. Static stripped factory
 MIPS-I/o32 service is 1,527,452 bytes. No physical gateway test was run.
+
+The production-authority encrypted host fixtures complete in 217 ms over
+synthetic BTP and 264 ms over internal UDP. These are development-host timings,
+not gateway performance. The corresponding factory MIPS fixture build passes;
+it has not yet been executed on the gateway in this checkpoint.
 
 ## Depends on
 
