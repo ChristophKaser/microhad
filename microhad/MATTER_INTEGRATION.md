@@ -220,3 +220,20 @@ UDP/TCP fixtures exercise success and failure paths; the module also builds
 for factory MIPS. The native daemon has no callable Matter endpoint yet: the
 OpenThread adapter, native IPC, Garage BLE and real-device acceptance remain
 in progress. The native build gate is retained until those paths are usable.
+
+## OpenThread userspace transport checkpoint
+
+The Rust/OpenThread UDP adapter now passes host and factory-gateway tests
+using a synthetic RCP. It implements the rs-matter network traits over two
+internal sockets, with no Linux IPv6/TUN requirement and only guarded Unix
+radio URLs. Payloads up to 1232 bytes pass; larger payloads are rejected before
+enqueueing. The gateway's timed transport section took 60 ms; its stripped
+probe is 1,146,488 bytes. One startup sample showed 520 KiB probe RSS and
+1512 KiB free system RAM, which cannot establish peak controller memory.
+Production remained online/formed and the physical radio was untouched.
+
+The implementation, reproducible build/test commands, libc timer shims and
+limits are documented in
+[`../ziggurat-compilation/docs/rs-matter-openthread-transport.md`](../ziggurat-compilation/docs/rs-matter-openthread-transport.md).
+Native IPC/service wiring and Garage BLE remain pending, so `MATTER=1`
+continues to reject an incomplete controller build.
