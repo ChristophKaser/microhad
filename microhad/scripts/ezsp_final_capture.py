@@ -4,6 +4,8 @@
 Default validates the comparison export offline. Live mode requires the native
 supervisor/daemon stopped and exactly one inspected serial bridge owning UART.
 No flash, network formation, joining, key or counter write commands are issued.
+After the connection reset, networkInit may resume the existing token-backed
+network. This can transmit; capture must follow initialization on this connection.
 """
 import argparse
 import asyncio
@@ -44,6 +46,29 @@ def raw_read_protocol(ezsp):
         if cid in (0x26,0x27,0x28,0x69,0x116,0x91,0x114,0x52,0x10c,0x100,0x101,0x102,0x10f,0x4a):
             protocol.COMMANDS[name]=(cid,tx,RawResponse)
             protocol.COMMANDS_BY_ID[cid]=(name,tx,RawResponse)
+
+
+async def resume_existing_network(ezsp):
+    import bellows.types as t
+    state, = await asyncio.wait_for(ezsp.networkState(),10)
+    if state == t.EmberNetworkStatus.NO_NETWORK:
+        # The retained NCP boots with stack profile 0; production sets Zigbee
+        # PRO profile 2 before networkInit. These are runtime settings only.
+        for config, value in ((t.EzspConfigId.CONFIG_SECURITY_LEVEL,5),
+                              (t.EzspConfigId.CONFIG_STACK_PROFILE,2)):
+            status, = await asyncio.wait_for(ezsp.setConfigurationValue(config,value),10)
+            if int(status):
+                raise ValueError('saved-network runtime configuration failed')
+        status, = await asyncio.wait_for(ezsp.networkInit(networkInitBitmask=t.EmberNetworkInitBitmask(0)),10)
+        if status != t.EmberStatus.SUCCESS:
+            raise ValueError('persisted network initialization failed; formation forbidden')
+        for _ in range(20):
+            state, = await asyncio.wait_for(ezsp.networkState(),10)
+            if state == t.EmberNetworkStatus.JOINED_NETWORK:
+                break
+            await asyncio.sleep(0.1)
+    if state != t.EmberNetworkStatus.JOINED_NETWORK:
+        raise ValueError('existing network is not joined; formation forbidden')
 
 
 async def capture(ezsp):
@@ -118,6 +143,7 @@ async def live(args, original):
         await ezsp.connect(use_thread=False)
         if ezsp.ezsp_version != 13:
             raise ValueError('EZSP v13 required')
+        await resume_existing_network(ezsp)
         raw_read_protocol(ezsp)
         raw = await asyncio.wait_for(capture(ezsp),120)
         compare(original,normalize(raw))

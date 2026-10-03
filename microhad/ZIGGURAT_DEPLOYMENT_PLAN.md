@@ -21,13 +21,9 @@ installed on the gateway during step 1.
 network export are saved and validated. Production stayed online; its binary and
 processes were not replaced/restarted. Joining was already closed.
 
-**Execution checkpoint:** steps 1–4 completed.
+**Execution checkpoint:** steps 1–5 completed.
 
-**Next action:** step 5, awaiting direct approval required by automatic action
-review. The maintenance command was rejected twice and executed nothing.
-The active goal requests migration, but the reviewer does not accept goal/tool
-context as trusted permission to supersede the earlier simulation-only restriction.
-A direct approval request for steps 5–12 is pending. Production remains on EZSP.
+**Next action:** step 6; reread its procedure before execution.
 
 The objective of this deployment is existing-network Zigbee operation through
 native → COBS Unix socket → Ziggurat → HDLC RCP. Thread and Matter follow later;
@@ -272,10 +268,17 @@ before permanent deployment rather than moving security state to ramfs.
 
 ## 5. Begin maintenance: stop production and finalize the handover backup
 
-**Not started:** automatic review rejected the maintenance action before execution.
-No SIGSTOP/SIGTERM or serial bridge launch occurred. Steps 3 and 4 remain complete;
-private backups and staged binaries are ready. Wait for the pending direct user
-approval before another maintenance attempt.
+**Completed 2026-10-03:** fresh 65-record native export, consistent private
+application archive and exclusive normalized/security backups saved. Supervisor
+126 is suspended; exited daemon 655 is a zombie with no descriptors; bridge 1344
+is the verified sole UART owner. Existing saved network initializes after setting
+runtime Zigbee PRO profile 2 (boot default is 0). The guarded capture helper and
+seven focused tests cover this requirement; no formation/flash was performed.
+Repeat capture immediately before upload after the step 6 round trip.
+
+
+Direct user approval permits maintenance and flashing. The earlier rejected
+attempts executed no maintenance commands.
 
 1. Disable automated controls/joins and take a new native export through the
    running owner. Use a new private filename for every capture.

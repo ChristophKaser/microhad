@@ -14,7 +14,7 @@ import unittest
 
 from test_network_migration import fixture, raw_fixture
 from network_backup import normalize
-from ezsp_final_capture import capture, compare, raw_read_protocol
+from ezsp_final_capture import capture, compare, raw_read_protocol, resume_existing_network
 from ziggurat_migration import freeze_and_export, encode_network
 from ziggurat_cobs import encode
 
@@ -22,6 +22,26 @@ ROOT=Path(__file__).resolve().parents[1]
 
 
 class Tools(unittest.TestCase):
+    def test_existing_network_init_without_formation_and_refusal(self):
+        import bellows.types as t
+        class Peer:
+            def __init__(self, state, status=t.EmberStatus.SUCCESS):
+                self.state=state; self.status=status; self.initializations=0
+            async def networkState(self): return (self.state,)
+            async def setConfigurationValue(self, config, value): return (t.EzspStatus.SUCCESS,)
+            async def networkInit(self, networkInitBitmask):
+                self.initializations+=1
+                if self.status==t.EmberStatus.SUCCESS:self.state=t.EmberNetworkStatus.JOINED_NETWORK
+                return (self.status,)
+        p=Peer(t.EmberNetworkStatus.NO_NETWORK)
+        asyncio.run(resume_existing_network(p));self.assertEqual(p.initializations,1)
+        asyncio.run(resume_existing_network(p));self.assertEqual(p.initializations,1)
+        p=Peer(t.EmberNetworkStatus.NO_NETWORK,t.EmberStatus.NOT_JOINED)
+        with self.assertRaises(ValueError):asyncio.run(resume_existing_network(p))
+        p=Peer(t.EmberNetworkStatus.LEAVING_NETWORK)
+        with self.assertRaises(ValueError):asyncio.run(resume_existing_network(p))
+        self.assertEqual(p.initializations,0)
+
     def test_final_capture_raw_error_rows_and_read_only_commands(self):
         from bellows.ezsp.v13.commands import COMMANDS
         source=raw_fixture()

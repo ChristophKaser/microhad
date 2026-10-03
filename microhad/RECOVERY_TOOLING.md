@@ -158,3 +158,17 @@ actual socket reclamation is also tested against the patched real server. All
 UART tests use host PTYs. Real device timing/menu/ownership compatibility still
 needs the later maintenance checks. No code here guarantees recovery if both
 application and bootloader cannot be reached.
+
+### Real-device capture behavior (2026-10-03)
+
+An exclusive Bellows connection resets this NCP and leaves `networkState` at
+`NO_NETWORK`. The capture helper sets runtime security level 5 and Zigbee PRO stack profile 2,
+then calls `networkInit(0)` to resume the saved
+network and requires `JOINED_NETWORK` before reading. It never calls formation
+or joining commands. Initialization can transmit and advance counters, so final
+capture and bootloader entry must use the same connection. If initialization
+fails, stop; do not substitute network formation. Seven focused tool tests pass.
+
+A daemon whose supervisor is SIGSTOPped can remain as a zombie after graceful
+exit. Confirm state `Z`, zero file descriptors and the device-side UART-free
+check; disappearance from `/proc` cannot be required until its parent reaps it.
