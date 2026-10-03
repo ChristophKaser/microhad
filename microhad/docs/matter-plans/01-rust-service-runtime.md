@@ -68,7 +68,21 @@ The launcher checkpoint also passes a mocked deployment check proving that
 alongside the selected native binary. It neither transfers credentials nor
 starts a process. No gateway connection was made during these tests.
 
-## Depends on
+## Remaining checkpoints
+
+1. Finish the channel-gated lifecycle in plan 06, then verify status while
+   awaiting a coordinator, attaching, attached, disconnected and restarting.
+   Treat current uncommitted lifecycle changes as experimental until their
+   complete synthetic service test passes.
+2. Exercise service failure, radio loss and supervisor retry exhaustion together;
+   confirm bounded IPC latency and that Zigbee/native supervision continues.
+3. Verify a native HTTP-to-service status round trip with valid, malformed,
+   absent and stalled service peers. Record the current factory binary hash,
+   size and ELF checks rather than reusing earlier build measurements.
+4. Defer physical startup/resource measurements to an explicitly arranged,
+   backed-up gateway test; distinguish synthetic evidence from target evidence.
+
+## Dependencies
 
 The existing bounded Rust/C++ frame format and status opcode assignments. The
 Thread radio endpoint must be supplied by the Thread network lifecycle work

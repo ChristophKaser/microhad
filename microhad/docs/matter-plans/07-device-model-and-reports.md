@@ -37,7 +37,33 @@ values through the existing gateway model, history, alerts, and dashboard.
 - Reports flow without blocking Zigbee coordination or causing frequent flash
    writes.
 
-## Depends on
+## Status quo — 2026-10-04
+
+Encrypted synthetic fixtures prove commissioning and fresh CASE with persisted
+authority. Production node catalog, operational DNS-SD, endpoint discovery,
+commands, subscriptions and native report integration remain pending. Fixture
+address injection does not establish operational discovery support.
+
+## Remaining checkpoints
+
+1. Persist a bounded node catalog after successful commissioning, including
+   stable identity and recovery state; define failed/interrupted completion
+   behavior without reusing allocated node IDs.
+2. Resolve operational nodes using bounded DNS-SD over userspace OpenThread;
+   handle address changes and resolve/CASE timeout with bounded backoff.
+3. Discover descriptors/clusters and implement validated OnOff/Level reads and
+   commands. Reconcile confirmed values instead of keeping optimistic state
+   after an operation fails.
+4. Implement advertised sensor decoding with signed values, correct units and
+   null/unknown handling; test ALPSTUGA-related clusters synthetically without
+   assuming every target advertises all measurements.
+5. Add bounded subscriptions, duplicate filtering and reconnect/refresh policy;
+   retain only state changes that warrant persistence.
+6. Integrate snapshots, history, alerts and UI through the native worker using
+   distinct Matter IDs. Test restart, unsupported clusters, missing reports
+   and concurrent Zigbee activity with synthetic peers.
+
+## Dependencies
 
 [persistent identity](03-persistent-fabric-identity.md),
 [Thread lifecycle](06-thread-network-lifecycle.md), and

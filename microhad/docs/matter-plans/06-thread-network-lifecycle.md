@@ -38,7 +38,36 @@ Ziggurat as the only Zigbee UART and reset owner.
   errors.
 - No Linux IPv6/TUN setup is required by the selected userspace UDP transport.
 
-## Depends on
+## Status quo — 2026-10-04
+
+The private no-reset OpenThread transport, IID mapping and userspace UDP path
+are implemented. Dataset lifecycle and channel-gated startup changes are
+currently uncommitted in `ziggurat-compilation`. Their full synthetic runtime
+test is not passing yet: the conflicting cached-settings test needs correction
+and verification. Native coordinator observations are not wired to the service.
+Do not treat these changes as an accepted production attach path.
+
+## Remaining checkpoints
+
+1. Finish and verify dataset record validation, secure generation, persistence
+   before apply and explicit fail-closed recovery. Test mismatched/malformed
+   imports without radio or store mutation.
+2. Verify boot against conflicting cached OpenThread settings. Preserve security
+   counters, reject corrupt settings and ensure no wrong-channel command is
+   emitted before a fresh coordinator observation authorizes initialization.
+3. Implement native channel/online observations and bounded periodic delivery
+   through plan 04's worker. Test no observation, stale observation, offline
+   coordinator, changed channel and native restart.
+4. Test create/import/restore, idempotent requests, attach/detach, apply failure,
+   radio socket loss and restart. Confirm heartbeats/status do not rewrite
+   persistent credentials and failed apply does not trigger uncontrolled retries.
+5. Document current states, observation expiry, channel constraints and operator
+   recovery; build the host and factory service and record verified artifacts.
+6. Leave physical coexistence/reception measurements to arranged gateway
+   testing, with baseline and rollback; synthetic tests cannot establish RF
+   reliability or resource usage on the target.
+
+## Dependencies
 
 [Rust service runtime](01-rust-service-runtime.md),
 [commissioning/control IPC](02-commissioning-control-ipc.md), and native

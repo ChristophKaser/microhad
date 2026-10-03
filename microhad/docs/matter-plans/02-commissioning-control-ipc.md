@@ -71,7 +71,27 @@ in step 4; the running IPC service still does not accept these jobs.
 Implementation details are in
 `ziggurat-compilation/docs/matter-session-lifecycle.md`.
 
-## Depends on
+## Remaining checkpoints
+
+1. Define typed successful replies and events, including Thread coordinator
+   observations, session progress and relay writes. Fix schema and size limits
+   in the shared contract before app/native consumers depend on them.
+2. Connect the session manager to the production commissioner, persisted
+   authority, node allocator and Thread dataset. Verify start/cancel/timeout
+   without accepting a second concurrent attempt.
+3. Dispatch BLE attach, indication, write completion and disconnect through the
+   session owner; reject obsolete generation/sequence callbacks and clear
+   secret-bearing state on every terminal path.
+4. Dispatch device snapshots, reads and supported commands after plan 07 adds
+   operational discovery. Return explicit unsupported/not-ready errors until
+   each operation is implemented.
+5. Extend the native client with bounded nonblocking connection deadlines and
+   strict response/event validation; never forward unchecked service JSON.
+6. Publish matching Rust/C++ body vectors and exercise partial frames,
+   correlations, stale events, queue pressure and disconnect races. Record
+   host and factory build results before marking dispatch complete.
+
+## Dependencies
 
 [Rust service runtime](01-rust-service-runtime.md). Final body shapes should be
 settled before the API and Garage relay depend on them.

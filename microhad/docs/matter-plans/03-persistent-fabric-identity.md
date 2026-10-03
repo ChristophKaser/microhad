@@ -68,7 +68,24 @@ synthetic BTP and 264 ms over internal UDP. These are development-host timings,
 not gateway performance. The corresponding factory MIPS fixture build passes;
 it has not yet been executed on the gateway in this checkpoint.
 
-## Depends on
+## Remaining checkpoints
+
+1. Write an operational backup procedure: stop the store owner, copy the entire
+   consistent private state, encrypt the backup, restrict permissions and
+   verify it without displaying credential contents.
+2. Document restore into a separate private directory, validation before use,
+   rollback and retention. Do not merge stores or reset an allocator to repair
+   corruption; preserve the rejected state for diagnosis.
+3. Add recovery exercises for wrong permissions, incomplete backup, corrupt
+   state and interrupted replacement; prove failed restore does not replace
+   the last valid state or silently create a new fabric.
+4. When target testing is arranged, verify owner-only filesystem behavior and
+   crash/restart persistence on factory uClibc. Measure writes during repeated
+   status reads and compare restored identity/allocator without exposing keys.
+5. Record fresh CASE recovery with the same authority and a persisted node;
+   keep synthetic fixture, target fixture and real-accessory evidence distinct.
+
+## Dependencies
 
 [Rust service runtime](01-rust-service-runtime.md) and its single-owner store.
 Complete this before real accessory commissioning.

@@ -48,7 +48,25 @@ factory-new IKEA ALPSTUGA while preserving the existing Zigbee network.
 - Resource, report reliability, recovery, and flash-write gates pass, and the
   rollback procedure is demonstrated.
 
-## Depends on
+## Status quo — 2026-10-04
+
+Pending. Existing transport/commissioning fixtures and build measurements do
+not prove real-accessory commissioning or production coexistence. This file
+documents the final gate; creating the plan does not initiate deployment or
+pairing.
+
+## Remaining checkpoints
+
+1. Review plans 01–07 against their acceptance criteria and collect a manifest
+   of exact source commits, artifact hashes and unresolved limitations.
+2. Arrange the physical test scope and backups, then stage artifacts using the
+   repository's deployment procedure without an extra UART owner.
+3. Execute the commissioning, phone-detached operation, restart and failure
+   scenarios above, recording redacted results against the baseline.
+4. Measure sustained resource/RF behavior, verify rollback and cleanup, and
+   publish a pass/fail report before considering permanent activation.
+
+## Dependencies
 
 All preceding plans, especially persistent identity, Thread lifecycle, the
 Garage BLE relay, and device report integration. This is the final release gate.

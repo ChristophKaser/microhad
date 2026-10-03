@@ -40,7 +40,33 @@ supported controls through the native HTTP service and dashboard.
   service unavailability.
 - The dashboard works over the selected trusted-LAN HTTP/WebSocket transport.
 
-## Depends on
+## Status quo — 2026-10-04
+
+Read-only Matter/Thread status routes and the `MATTER` compiler flag exist.
+Commissioning, relay, Thread mutation, device-control routes and dashboard
+onboarding are pending. The current status client is insufficient for the
+asynchronous integration: connection deadlines and reply validation need work.
+
+## Remaining checkpoints
+
+1. Expose the actual active coordinator channel and online state in protected
+   `GatewayRunner` snapshots. Never substitute the configured channel for a
+   confirmed radio observation.
+2. Add a single bounded Matter IPC worker with queues and cached snapshots.
+   Send fresh coordinator observations, stop authorizing Thread when stale,
+   and keep IPC waits outside the coordinator and HTTP workers.
+3. Implement commissioning start/status/cancel and Thread create/import using
+   validated bodies, fixed public errors and asynchronous job/session IDs.
+4. Add bounded WebSocket relay routing with generation and sequence checks,
+   disconnect cleanup and write-confirmation forwarding. Agree the contract
+   with plan 05 before building the app against it.
+5. Expose device snapshots/read/control once plan 07 provides them, then build
+   feature-aware onboarding and device views with redacted progress/errors.
+6. Verify disabled/enabled builds, absent/stalled service, malformed replies,
+   queue pressure, cancellation and HTTP/WebSocket behavior. Run required
+   native host/MIPS and web UI builds for their respective changes.
+
+## Dependencies
 
 [Commissioning and control IPC](02-commissioning-control-ipc.md) and
 [persistent identity](03-persistent-fabric-identity.md). Define the relay
