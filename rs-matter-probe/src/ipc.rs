@@ -5,6 +5,8 @@ use std::collections::VecDeque;
 pub const MAX_PAYLOAD: usize = 2048;
 pub const MAX_CHUNK: usize = 4096;
 pub const MAX_QUEUED: usize = 32;
+pub const OP_MATTER_STATUS: u8 = 1;
+pub const OP_THREAD_STATUS: u8 = 2;
 const HEADER: usize = 10;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProtocolError {

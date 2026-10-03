@@ -150,6 +150,8 @@ The companion native `include/matter_protocol.h`/`src/matter_protocol.cpp` and
 Rust `src/ipc.rs` implement the same version-1 bounded stream codec. Golden
 vectors cover little-endian fields on host and factory big-endian MIPS,
 fragmented/coalesced packets, invalid headers, maximum payload and queue
-exhaustion. Details are in the native Matter document. This establishes the
-framing boundary; daemon dispatch, native lifecycle and HTTP routes remain
-pending. No native daemon or feature-enabled service was deployed.
+exhaustion. The shared opcode assignments reserve 1 for Matter status and 2 for
+Thread status; each request has an empty body and receives a JSON status object.
+The native side now has a private-socket client and read-only status routes.
+The Rust listener and operation dispatch remain pending, so no live controller
+status or device control is available yet.
