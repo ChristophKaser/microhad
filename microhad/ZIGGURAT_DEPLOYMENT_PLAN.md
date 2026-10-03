@@ -398,6 +398,14 @@ is merely a process/config issue, stop Ziggurat and correct it without reflashin
 
 ## 9. Start the staged native client with final state
 
+**In progress 2026-10-03:** final private state installed, original 23-device
+inventory retained. First network start failed before reset completion because
+Ziggurat's owner reset also targeted reserved IID 0. Fixed to active IID 1;
+16 Rust transport tests, seven simulator checks and eight host multi-PAN
+scenarios pass. Rebuilding the MIPS binary before retry. Native remains offline;
+permanent startup has not been installed.
+
+
 Install only the **final** prepared private native state and consistent application
 files in the chosen runtime directory, verifying ownership/checksum. Keep host
 copies immutable. Start the staged enabled native daemon manually, using the
