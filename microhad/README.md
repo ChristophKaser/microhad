@@ -1,329 +1,90 @@
 # MicroHAD Native
 
-> **Fix checkpoint (2026-10-03):** native now matches the current herdsman TH01
-> profile. The fresh-join replay defect was reproduced and fixed on the host;
-> both verified MIPS executables are deployed. Device acceptance and sustained
-> reporting await user availability; temporary captures are stopped.
-> [Implementation, validation and current plan](TH01_HERDSMAN_FIX.md).
+A standalone local Zigbee dashboard and automation service for the
+Lidl/Silvercrest RTL8196E + EFR32MG1 gateway. The statically linked C++03 daemon
+runs on factory MIPS/uClibc Linux, without Node.js or low.js.
 
-> **Herdsman comparison (2026-10-03):** hardware failure is not established.
-> The herdsman profile is now deployed. The fresh-join replay defect is
-> reproduced and fixed on the host; its role in the live failure remains unverified.
-> [Profile, lifecycle, evidence and next steps](HERDSMAN_TH01_COMPARISON.md).
+**Start with the [fresh-device installation guide](https://github.com/ChristophKaser/ziggurat-compilation/blob/main/docs/installation.md).**
+It explains root access, backups, SSH, firmware, deployment and first pairing.
+It also covers Home Assistant setups, which use ZHA instead of this service.
+The linked experiment repository requires access to the private project.
 
-> **Reporting correction (2026-10-03):** cached-endpoint rejoins previously
-> skipped binding/reporting setup. The native fix is tested for both backends
-> and deployed. Küche accepted setup and sent four reports, but sustained
-> reporting after a later rejoin remains unresolved.
-> [Current thermometer status](THERMOMETER_RECOVERY.md).
+## Choose the native backend
 
-> **Post-deployment correction (2026-10-03):** investigation of Küche TH01
-> reproduced and fixed child loss on relayed own parent announcements, and fixed
-> rejection of TH01 signed humidity reads. Both fixes are deployed; the child
-> survives startup. [Evidence and current verification](THERMOMETER_RECOVERY.md).
+| Backend | Build | Radio firmware | Connection | Installation |
+| --- | --- | --- | --- | --- |
+| EZSP (default) | `make ZIGGURAT=0 mips` | Zigbee NCP, 115200 baud / RTS-CTS | Native directly owns `/dev/ttyS1` | [Mode A](https://github.com/ChristophKaser/ziggurat-compilation/blob/main/docs/installation.md#mode-a-native-service-without-ziggurat) |
+| Ziggurat | `make ZIGGURAT=1 mips` | Two-instance HDLC RCP, 460800 baud / RTS-CTS | Native → private COBS Unix socket → Ziggurat → UART | [Mode B](https://github.com/ChristophKaser/ziggurat-compilation/blob/main/docs/installation.md#mode-b-native-service-with-ziggurat) |
 
+Ziggurat's durable network state is owned by native. A fresh native Ziggurat
+installation currently bootstraps an empty network using EZSP, exports its state,
+then migrates before pairing devices. An absent state file does not create a
+network, and the Ziggurat dashboard cannot create one.
 
-`microhad-zigbee-native` is a native, statically linked C++03 gateway daemon for
-the Lidl/Tuya gateway. It is built specifically with the bundled RSDK for the
-gateway's 32-bit big-endian MIPS/uClibc environment; it does not use low.js,
-Node.js, or the TCP serial bridge.
+Do not run the native coordinator alongside ZHA, serialgateway or another
+UART owner. Home Assistant + EZSP uses a TCP bridge; Home Assistant + Ziggurat
+uses its WebSocket API. Both are covered in the shared guide.
 
-## Current state and plan — 2026-10-03
+## Build and deploy
 
-Production uses the enabled `ZIGGURAT=1` native backend: COBS over a private
-Unix stream socket, Ziggurat, and the application-only two-instance HDLC RCP.
-The native service owns durable state following ZHA's model. The permanent
-paired launcher starts both processes from `/tuya/native`; controlled reboot
-returned online automatically with all 23 inventory entries (17 Zigbee).
-Existing light commands/readbacks and temperature/humidity reports work.
+An x86_64 Linux host needs the stock
+`rsdk-4.4.7-4181-EB-2.6.30-0.9.30-m32u-140129` toolchain, CMake and a C/C++
+compiler; building the dashboard also needs Node.js/npm. See
+[build setup](https://github.com/ChristophKaser/ziggurat-compilation/blob/main/docs/building.md)
+for checkout layout, toolchain acquisition limits and firmware builds.
 
-See the [deployment checkpoint and rollback procedure](ZIGGURAT_DEPLOYMENT_PLAN.md)
-and [real-radio measurements and limitations](REAL_RADIO_MIGRATION.md).
-The user-approved 15-minute observation completed with zero offline samples.
-Sleepy-child wake/rejoin remains physically unverified; broadcasts can reach
-routers despite intermittent relay-quorum/CCA failure verdicts. Cold boot needed
-121 seconds from native start to readiness; RNG blocking is suspected, unproven.
-The 1000-frame restart margin is not a guarantee after arbitrary crashes.
-Private original and fresh frozen recovery backups are retained outside Git.
-
-Next: investigate the startup delay, validate sleepy devices when available,
-then integrate local Thread on IID 2 and standalone Matter with coordinated
-channel/reset/scan ownership and combined RAM/CPU measurements. IID 2 is unused;
-Thread/Matter is not yet implemented. No cpcd or spare gateway is required.
-Both backend host suites and MIPS builds remain supported; EZSP is the build
-default, while this gateway runs the explicitly enabled Ziggurat binary.
-
-## Build
+From this checkout, with `RSDK` set to the absolute toolchain directory:
 
 ```sh
-make host
-make test
-make mips
-# Optional backend, separate output directories:
-make ZIGGURAT=1 host test
-make ZIGGURAT=1 mips
-make test-backends
-```
-
-`make mips` uses only
-`../rsdk-4.4.7-4181-EB-2.6.30-0.9.30-m32u-140129/bin/mips-linux-g++`.
-It does not silently fall back to the host compiler.
-
-The MIPS build also compiles the vendored mbedTLS source with the same RSDK.
-This supplies the native TLS and cryptographic primitives required by the FCM
-and Browser Push transports; it never links the host-built copies from low.js.
-
-## Runtime configuration
-
-Copy `config.example.json` to a protected runtime directory such as
-`/tuya/native/config.json`. The runtime directory must not be committed. TLS
-certificate/key and Firebase service-account JSON paths are deliberately
-outside this repository.
-
-```sh
-/tuya/tuya-zigbee-native --config /tuya/native/config.json
-```
-
-## Deployment
-
-Build the target first, then upload it with the Dropbear-compatible deployment
-script. By default this replaces the target binary and dashboard together, and
-retains its configuration and TLS files:
-
-```sh
-make mips
-./deploy.sh --host 192.168.178.62 --password-file ../ssh_password.txt \
-  --target /tuya/native-test
-```
-
-Use `--binary-only`, `--webui-only`, or `--both` to explicitly choose the
-assets to upload. Configuration, TLS installation, activation, and service
-restart require a binary deployment; a web-UI-only update takes effect without
-a daemon restart.
-
-Pass `--config` to atomically replace configuration as well:
-
-```sh
-./deploy.sh --host 192.168.178.62 --password-file ../ssh_password.txt \
-  --config /secure/path/config.json --target /tuya/native
-```
-
-The script stages selected files below the target and renames them only after
-successful transfer. It does not stop low.js, serialgateway, or any native
-daemon; taking ownership of `/dev/ttyS1` is an explicit later step.
-
-To make the native gateway the boot-time service, deploy to `/tuya/native`
-with `--activate`. This saves the previous `/tuya/tuya_start.sh` as
-`/tuya/tuya_start.sh.lowjs-backup` before installing the supervised native
-startup script. Include TLS and CA files when notifications or HTTPS are used:
-
-```sh
-./deploy.sh --host 192.168.178.62 --password-file ../ssh_password.txt \
-  --config /secure/path/config.json --target /tuya/native --activate \
-  --tls-certificate /secure/path/cert.pem --tls-private-key /secure/path/key.pem \
-  --ca-bundle /etc/ssl/certs/ca-certificates.crt
-```
-
-The web API is deliberately LAN-only in v1. With `tls_certificate` and
-`tls_private_key` set, `https_port` is served directly over TLS and the
-dashboard can register its service worker for Browser Push. Without both
-paths the `http_port` listener remains plain HTTP, but Browser
-Push subscription is unavailable in browsers because service workers require
-a secure context. The defaults are HTTP port 80 and HTTPS port 443. The daemon opens `/dev/ttyS1` directly; do not run
-`serialgateway` at the same time.
-
-## Pairing and alerts
-
-Open the HTTPS dashboard and select **Allow joining (5 min)**, then reset or
-put the sensor in pairing mode while the displayed join countdown is active.
-The gateway accepts standard Zigbee 3.0 joining and sends the standard IAS Zone
-Enroll Response required by generic contact/window sensors. Joined devices are
-identified by their IEEE address and retain their assigned IAS zone ID across
-restarts.
-
-The normalized device model is model-independent: IAS contact state, standard
-Temperature Measurement (`0x0402`), Relative Humidity Measurement (`0x0405`),
-Occupancy Sensing (`0x0406`), Power Configuration battery percentage, link
-quality, and last-seen state are retained and surfaced in the dashboard. An
-opened contact starts a ten-minute notification window, followed by five-minute
-reminders while it remains open; closing it cancels the pending alert.
-Contact sensor settings can switch to Trigger mode, which sends an immediate
-push for each known open/closed transition and suppresses further transitions
-for the configured cooldown (60 seconds by default). Trigger alerts use the
-separate **Triggers** notification channel in the Pommern Garage Android app;
-its notification settings can be managed independently in Android settings.
-Temperature thresholds can be set per device in the dashboard.
-
-Temperature and humidity devices also have a per-device fallback refresh
-interval in their settings. It defaults to five minutes for devices that
-ignore standard reporting; set it to `0` to disable automatic fallback refresh
-while retaining the manual Refresh action.
-
-## External HTTP devices
-
-Use **More ⋯ → Add external device** to add a Shelly or Fritz!Box. Shelly setup
-supports a Uni Gen1, Plug Gen1, or Plug S Gen1 by its local host or address. The Uni can expose one selected
-digital input as a contact, an optional temperature probe, and one relay as an
-actor. Plugs expose their relay as an actor. Optional HTTP Basic credentials
-are stored in `shelly-devices.jsonl` in the runtime directory with mode `0600`.
-Shelly readings, actors, and contact alerts appear alongside Zigbee devices in
-the dashboard's device type groups. A Uni appears as separate contact,
-temperature, and relay cards; a Plug combines its switch and power reading.
-The status API lists all device sources in `devices` with stable `id` and `source`
-fields; Shelly history and actor commands use the regular `/api/devices/{id}`
-routes. `/api/shelly/config` manages only the Shelly connection settings.
-
-Fritz!Box setup uses local TR-064 credentials to discover known Wi-Fi hosts.
-Selected clients appear as connected/not-connected presence sensors. The
-Fritz!Box reports Wi-Fi signal strength as a percentage, available only while
-a client is connected. Shelly and Fritz!Box polling share one outbound device
-worker. Fritz!Box settings are stored in `fritz-boxes.tsv` with mode `0600`.
-
-Shelly devices poll every 30 seconds by default; the interval can be changed
-from 5 to 3600 seconds. Callback mode can replace polling for contact and relay
-state. Enable it in the device settings and set the gateway HTTP address that
-the Shelly can reach, then copy the generated URLs into the
-matching **btn_on_url / btn_off_url** (Uni input) and **out_on_url / out_off_url**
-(relay) actions in the Shelly interface. Callback URLs contain a secret token;
-keep them private. The Uni thermometer continues polling because Gen1
-temperature actions only report threshold crossings, not each reading. Select
-**None** for a Uni without a temperature probe.
-Plug power is polled even in callback mode. The shared RAM history records
-changed power readings in 0.1 W units and does not repeat unchanged readings.
-
-For Browser Push, visit the HTTPS dashboard, accept the certificate, select
-**Enable browser alerts**, grant the browser permission, then select **Test
-alerts**. The Pommern Garage app registers its FCM token from the home LAN at
-`http://192.168.178.62`. The dashboard's **Phones** section lets you label
-each installation and enable or disable its alerts. FCM sends directly to
-enabled phones using the configured service account. The legacy `firebase_topic`
-config field is accepted but no longer used for delivery. The test action uses
-the configured delivery transports for an end-to-end check.
-
-## Remote control of lights
-
-In **Scenes & groups**, assign lights to a group. Open **Configure remotes** to
-choose a control mode for each discovered remote. **Gateway scenes** keeps the
-existing button-to-scene rules. **Native light control** binds the remote's On/Off and Level Control
-commands to the selected group, so compatible remotes can operate the lights
-without the gateway daemon. Gateway scene rules remain saved but are inactive
-for that remote until Gateway scenes is selected again. The dashboard shows
-whether native binding is pending, active, or failed; press a sleepy remote's
-button again if provisioning is waiting for it to wake. Remotes that reject
-group binding are tried with individual bindings to the group's lights.
-
-Native control while the gateway is powered off also requires the remote to
-have another reachable Zigbee parent, such as a powered bulb or router.
-
-## Live diagnostics
-
-The dashboard includes a live coordinator log, refreshed every two seconds from
-`/api/logs`. The on-device log is a circular binary file at
-`/tmp/microhad-zigbee-native.log`; on this gateway `/tmp` resolves below the
-RAM-backed `/var` mount, not the `/tuya` flash volume. Its total size is at
-most 1,000,000 bytes. The coordinator writes one record at a time, and HTTP
-workers read the ring directly without locking or waiting for the coordinator.
-Use `/api/logs` to read the log as text. Diagnostics do not create flash write
-cycles or consume unbounded memory.
-
-### Event-loop diagnostics
-
-Event-loop diagnostics are off by default and can be toggled while the service
-is running. Send a form-encoded POST to `/api/debug/event-loop` with
-`enabled=true` to start, or `enabled=false` to stop:
-
-```sh
-curl --connect-timeout 5 --max-time 8 -sS -X POST \
-  -d 'enabled=true' http://192.168.178.62/api/debug/event-loop
-curl --connect-timeout 5 --max-time 8 -sS http://192.168.178.62/api/logs
-curl --connect-timeout 5 --max-time 8 -sS -X POST \
-  -d 'enabled=false' http://192.168.178.62/api/debug/event-loop
-```
-
-While enabled, the coordinator adds one `EVENT_LOOP_DEBUG` line about every
-five seconds to `/api/logs`. It reports loop counts, whether the loop skipped
-waiting for commands or immediate work, `select()` results and readiness, and
-the most recent poll deadline. For periodic reporting, the wait is capped at
-five seconds while diagnostics are enabled. Output remains in the existing
-1 MB RAM-backed log ring; it is never written beneath `/tuya`.
-Disable diagnostics after collecting a few intervals to avoid extra wakeups
-and profiling overhead during normal operation.
-
-### Sampling a hot MIPS thread
-
-`tools/gateway_cpu_sampler.c` samples the program counter of one running task
-without restarting the gateway. Build it with the same MIPS toolchain used for
-the gateway:
-
-```sh
-export RSDK_ROOT=../rsdk-4.4.7-4181-EB-2.6.30-0.9.30-m32u-140129
-"$RSDK_ROOT/bin/mips-linux-gcc" -O2 -static \
-  -o /tmp/gateway_cpu_sampler tools/gateway_cpu_sampler.c
-```
-
-Copy the executable to the gateway's RAM-backed `/tmp`, identify the hot task
-with `top`, and run the sampler as root with that task's PID:
-
-```sh
-top
-/tmp/gateway_cpu_sampler TID [samples]
-```
-
-The sample count defaults to 100 and can be set from 1 to 1000. Each sample
-attaches to the selected task, waits for its ptrace stop, reads MIPS EPC from
-register slot 34, detaches, and sleeps for 10 ms. The output lists each
-sampled instruction address and how many samples landed there. A larger count
-at an address suggests the task spent more sampled time there; these counts
-are estimates, not precise CPU percentages. Attaching briefly pauses that
-task and can interrupt a blocking system call, so use a bounded sample count.
-The tool reads registers only and writes no runtime data beneath `/tuya`.
-
-The gateway binary is stripped. To translate addresses into function names,
-use a matching unstripped MIPS build with debug information on the development
-machine, for example:
-
-```sh
-addr2line -f -C -e /path/to/matching-unstripped-binary 0xADDRESS
-```
-
-The executable and source revision must match the running gateway binary for
-the result to be reliable. Do not deploy the unstripped binary as the service.
-
-Sensor cards offer a History dialog for temperature, humidity, and contact
-state. The coordinator writes fixed-size binary records to
-`/tmp/microhad-zigbee-native-history.bin`. V2 stores 128 samples per
-device/metric page in an initially 2 MiB page pool; it can grow in the
-exceptional case where every page is a protected device/metric's only page.
-History is returned in pages of up to 2,000 samples. Temperature and humidity
-are sampled at most once per metric per minute, while each contact transition
-is retained. The RAM-backed history survives a service restart but is cleared
-by a device reboot. See [Sensor history format](SENSOR_HISTORY_FORMAT.md) for
-the V2 binary layout and retention rules.
-
-## Web UI development
-
-The dashboard source is in `webui/src`. Build the React and TypeScript UI with
-Vite before deploying:
-
-```sh
+make RSDK_ROOT="$RSDK" ZIGGURAT=0 host test
+make RSDK_ROOT="$RSDK" ZIGGURAT=0 mips
+make RSDK_ROOT="$RSDK" ZIGGURAT=1 host test
+make RSDK_ROOT="$RSDK" ZIGGURAT=1 mips
 make webui
 ```
 
-`deploy.sh` uploads the contents of `webui/dist` to `<runtime_dir>/webui` when
-web UI deployment is selected. Deploy the updated binary together with the new
-UI the first time, because the server must support bundled assets. The service
-worker is built from `webui/public/sw.js` and served as `/sw.js`.
+Outputs are `build/mips/microhad-zigbee-native` (EZSP) and
+`build/mips-ziggurat/microhad-zigbee-native` (Ziggurat). Pass the chosen executable
+explicitly: the deployment script defaults to the EZSP output.
 
-For local development, run `cd webui && npm ci && npm run dev`. Open
-`http://localhost:5173` or `http://<this-computer-ip>:5173` on the LAN. Vite
-proxies `/api/` requests to the development gateway at `192.168.178.62`, so
-no CORS support is required. Browser-push enrollment is disabled in this mode;
-test it from the deployed HTTPS dashboard instead.
+```sh
+./deploy.sh --host "$GATEWAY_IP" --password-file "$PASSWORD_FILE" \
+  --binary build/mips/microhad-zigbee-native \
+  --config "$CONFIG_FILE" --target /tuya/native
+```
 
-## Current protocol boundary
+Transfers use SSH stdin on port 22, without SCP. Build the web UI first; default
+deployment includes it. Configurations and network state must stay outside Git.
+`--activate` installs the **EZSP native launcher only**, preserving the previous
+launcher. It neither stops existing processes nor installs the Ziggurat pair.
+Follow the backend's installation procedure before activation or restart.
 
-The repository contains the native ASH transport (escaping, CRC, framing and
-reset/retry primitives) and a coordinator service boundary. EZSP command
-coverage is intentionally isolated in `Gateway` so further Silicon Labs NCP
-commands and generic ZDO/ZCL capability handlers can be added without touching
-the HTTP, state, or notification contracts.
+## Use the gateway
+
+The dashboard handles joining, sensors, lights, scenes, remotes and local
+Shelly/Fritz!Box devices. HTTPS enables Browser Push; Android/FCM notifications
+need separate credentials. These are optional for basic local Zigbee operation.
+See [dashboard and application usage](docs/usage.md).
+
+Use `/api/status` for backend/network readiness and `/api/logs` for the bounded
+RAM log. Wait for `online` and `network_formed` before pairing. Existing-network
+migration requires radio security state in addition to the application inventory.
+
+## Current state — 2026-10-03
+
+The development gateway runs native + Ziggurat. Startup/reboot recovery and
+existing-light controls are verified. Thermometer profile, cached-rejoin,
+parent-announcement and fresh-join replay fixes are deployed, but sustained TH01
+reporting and live acceptance remain unresolved. One cold boot needed 121 seconds;
+broadcast verdicts can be intermittent. Thread/Matter is future work.
+
+- [Latest fix, tests and remaining acceptance](TH01_HERDSMAN_FIX.md)
+- [Thermometer investigation](THERMOMETER_RECOVERY.md)
+- [Protocol and state ownership](ZIGGURAT_INTEGRATION.md)
+- [Existing-network deployment and rollback](ZIGGURAT_DEPLOYMENT_PLAN.md)
+- [Recovery commands](RECOVERY_TOOLING.md)
+- [Real-radio measurements and limitations](REAL_RADIO_MIGRATION.md)
+
+Original backups remain private. The restart counter margin is not an
+unconditional guarantee after arbitrary crashes; reverse NCP restoration has
+not been exercised live.
