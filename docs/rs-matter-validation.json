@@ -1,0 +1,44 @@
+{
+  "target": "192.168.178.62",
+  "binary_bytes": 587596,
+  "binary_sha256": "37973773568a9e8d448342e8d02ec711a4aea35e0d18e9a7cf3a284b71e7c18e",
+  "memory_preflight_kib": 3076,
+  "production_before": {
+    "online": true,
+    "network_formed": true,
+    "coordinator_backend": "ziggurat"
+  },
+  "production_after": {
+    "online": true,
+    "network_formed": true,
+    "coordinator_backend": "ziggurat"
+  },
+  "output": [
+    "PASS SHA256 known answer",
+    "PASS HKDF and PBKDF2 known answers",
+    "PASS AES CCM roundtrip and tamper rejection",
+    "SAMPLE rss_kib=292",
+    "SAMPLE memfree_kib=2236",
+    "PASS P256 ECDSA tamper rejection and ECDH agreement",
+    "SAMPLE rss_kib=300",
+    "SAMPLE memfree_kib=2228",
+    "PASS SPAKE2 plus key agreement and invalid confirmation rejection",
+    "PASS Matter TLV endian roundtrip",
+    "PASS Matter runtime initialization with public test credentials",
+    "SIZE matter_bytes=25328 commissioner_bytes=24",
+    "PASS complete elapsed_ms=1680",
+    "EXIT 0"
+  ],
+  "radio_access": false,
+  "network_access": false,
+  "cleanup_completed": true,
+  "source_revision": "1570356ecb938a9d19be032b93ca3bb487069e75",
+  "rust_toolchain": "nightly-2026-10-02",
+  "date": "2026-10-03",
+  "host_elapsed_ms": 7,
+  "device_elapsed_ms": 1680,
+  "sampled_rss_max_kib": 300,
+  "sampled_memfree_min_kib": 2228,
+  "controller_commissioning_tested": false,
+  "cpu_utilization_measured": false
+}

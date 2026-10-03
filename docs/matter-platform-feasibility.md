@@ -79,10 +79,11 @@ and support for controllers and commissioners. The existing Ziggurat Rust
 MIPS build path makes a target experiment plausible; this is an engineering
 inference, not demonstrated Matter target compatibility.
 
-The next useful experiment is a pinned Rust controller compile/link with the
-custom MIPS target, followed by crypto/secure-channel checks on the gateway,
-OpenThread UDP adaptation, and the commissioning BLE delegate. Verify atomics,
-runtime helpers, target instruction compatibility, executable size, RAM, and
-actual controller APIs. No rs-matter source has been fetched or compiled and no
-device acceptance has been performed for this alternative. Upstream memory
-figures are not gateway controller measurements.
+The pinned Rust experiment now builds the actual library for factory MIPS and
+passes cryptography, SPAKE2+, TLV and runtime initialization on the gateway.
+See [the Rust feasibility report](rs-matter-feasibility.md) for source pins,
+commands, executable size, measured RSS, and remaining gates. This clears the
+small probe build/runtime gate; it does not establish full commissioner,
+OpenThread transport, BLE relay or real-device acceptance. Native `MATTER=1`
+remains unavailable. Upstream memory figures are not gateway controller
+measurements.

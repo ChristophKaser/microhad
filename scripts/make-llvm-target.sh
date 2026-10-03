@@ -30,6 +30,8 @@ stock["metadata"] = spec["metadata"]
 # The stock kernel rejects LLVM's rdhwr-based native TLS access. Use std's
 # pthread-key implementation rather than compiler-generated ELF TLS.
 stock["has-thread-local"] = False
+# LLVM otherwise emits TEQ for division checks, which the Lexra kernel rejects.
+stock["llvm-args"] = ["-mno-check-zero-division"]
 stock["linker"] = str(targets.parent.parent / (
     "rsdk-4.4.7-4181-EB-2.6.30-0.9.30-m32u-140129/bin/mips-linux-gcc"
 ))

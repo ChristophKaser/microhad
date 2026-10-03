@@ -1,0 +1,21 @@
+[package]
+name = "lexra-rs-matter-probe"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+rs-matter = { path = "../build/rs-matter/probe-source/rs-matter", default-features = false, features = ["rustcrypto"] }
+critical-section = { version = "1.2", features = ["std"] }
+embassy-time = { version = "0.5", features = ["std"] }
+
+[profile.release]
+panic = "abort"
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+
+[profile.release.build-override]
+opt-level = 2

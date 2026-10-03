@@ -201,3 +201,10 @@ image differs from its recorded pin, inspect and explain that difference before
 updating the deployment record; do not blindly substitute its hash to bypass a
 mismatch. Never use the upstream replacement-Linux `flash_efr32.sh` unchanged on
 factory Linux: it expects different bridge and `/userdata` interfaces.
+
+## Optional Rust Matter feasibility probe
+
+The pinned Rust/RustCrypto probe builds and runs on the factory gateway; it
+does not enable native Matter support. See
+[rs-matter-feasibility.md](rs-matter-feasibility.md) for build/test commands,
+source/dependency pins, measured resources and remaining integration gates.
