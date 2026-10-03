@@ -172,3 +172,10 @@ fails, stop; do not substitute network formation. Seven focused tool tests pass.
 A daemon whose supervisor is SIGSTOPped can remain as a zombie after graceful
 exit. Confirm state `Z`, zero file descriptors and the device-side UART-free
 check; disappearance from `/proc` cannot be required until its parent reaps it.
+
+The first real RCP reverse-entry check exposed a helper addressing error: IID 0
+is reserved in this SDK's two-instance build, and `IidToInstance(0)` returns null.
+The corrected helper sends `90 01 03` (IID 1, RESET, BOOTLOADER), with HDLC FCS.
+The previous `80 01 03` frame was rejected; firmware flashing itself succeeded.
+Four host PTY tests pass for the corrected helper, including framing and baud/flow
+switches. See the step 8 execution record for the physical verification result.

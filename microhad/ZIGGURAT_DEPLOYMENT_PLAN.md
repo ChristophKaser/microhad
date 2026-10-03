@@ -21,9 +21,9 @@ installed on the gateway during step 1.
 network export are saved and validated. Production stayed online; its binary and
 processes were not replaced/restarted. Joining was already closed.
 
-**Execution checkpoint:** steps 1–7 completed.
+**Execution checkpoint:** steps 1–8 completed.
 
-**Next action:** step 8; reread its procedure before execution.
+**Next action:** step 9; reread its procedure before execution.
 
 The objective of this deployment is existing-network Zigbee operation through
 native → COBS Unix socket → Ziggurat → HDLC RCP. Thread and Matter follow later;
@@ -361,6 +361,14 @@ old NVM3 appears intact. If neither is reachable, retain evidence and diagnose
 physical recovery; there is no honest guaranteed software rollback for that case.
 
 ## 8. Start Ziggurat alone and test reverse entry before starting Zigbee
+
+**Completed 2026-10-03:** real IID 1 RCP identity matches the final NCP
+backup; COBS v2 readiness/firmware queries passed (5.34/9.65 ms through SSH;
+RSS 1252 KiB before network load). First reverse-entry attempt exposed reserved
+IID 0 addressing in the helper. Corrected to IID 1; host/MIPS rebuild and four
+PTY tests passed, then physical Gecko menu and run were verified without upload.
+Ziggurat restarted and real hardware identity matched again. No network Start.
+
 
 Keep the original launcher suspended. Create the private socket directory and
 manually start only Ziggurat, with console output bounded in RAM. The following
