@@ -5,7 +5,8 @@
   "device_attestation_verified": false,
   "discovery": "stub resolver; no mDNS network discovery",
   "real_thread_or_ble": false,
-  "thread_dataset_provisioning_tested": false,
+  "thread_dataset_provisioning_tested": true,
+  "manufacturer_attestation_policy": "skip verification, selected by gateway owner",
   "secure_default_rejection_tested": true,
   "sensor_values_hundredths_celsius": [
     2315,
@@ -16,9 +17,9 @@
     {
       "name": "commissioning",
       "exit_code": 0,
-      "passed": 2,
+      "passed": 5,
       "failed": 0,
-      "elapsed_seconds": 1.13
+      "elapsed_seconds": 1.16
     },
     {
       "name": "pase",
@@ -42,6 +43,8 @@
       "elapsed_seconds": 0.0
     }
   ],
+  "network_failure_responses_tested": true,
   "date": "2026-10-03",
-  "total_passed": 37
+  "total_passed": 40,
+  "gateway_library_mips_build_passed": true
 }

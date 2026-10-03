@@ -3,9 +3,11 @@
 The pinned rs-matter controller now passes a reproducible host-only protocol
 harness: PASE, fabric installation, CASE, reads, invokes and stale-session
 recovery work against an in-process accessory. Added sensor reads preserve
-positive, negative and unknown temperatures. **This does not clear real-device
-commissioning:** upstream device attestation is a placeholder, and Thread
-network provisioning is absent from this commissioner flow.
+positive, negative and unknown temperatures. The gateway owner has now explicitly selected skipping manufacturer attestation.
+The shared gateway policy maps that choice to rs-matter's existing bypass while
+retaining PASE/CASE. A gateway helper now sends Thread credentials and connects
+them over PASE; this is exercised against a synthetic network handler. Real
+BLE/OpenThread integration and device acceptance remain pending.
 
 ## Reproduce
 
@@ -59,11 +61,11 @@ those components does not demonstrate integrated attestation verification.
 
 ## Recorded result
 
-All 37 checks passed on the development host:
+All 40 checks passed on the development host:
 
 | Suite | Passed | Test duration |
 | --- | ---: | ---: |
-| Extended UDP/TCP commissioning | 2 | 1.13 s |
+| Extended UDP/TCP commissioning and gateway policy/dataset checks | 5 | 1.16 s |
 | PASE | 1 | 0.51 s |
 | CASE and Sigma2 retransmission | 2 | 0.98 s |
 | Attestation components | 32 | Below displayed 0.01 s resolution |
@@ -73,17 +75,22 @@ flows, repeated commissioning and added reads, not one pairing operation.
 No gateway test, deployment, production configuration or radio state was
 changed during this milestone.
 
-## Attestation gap confirmed in source
+## Owner-selected attestation policy
 
 In this revision, `Commissioner::verify_device_attestation` in
 `rs-matter/src/onboard.rs` does not request or verify device evidence. It
 returns success only when `allow_test_attestation=true`; otherwise it returns
 `ErrorCode::Failure`. The test patch confirms default rejection before the
-explicit development-fixture bypass. No production controller enables it.
+explicit development-fixture bypass. `rs-matter-probe/src/commissioning.rs` now supplies an explicit application
+policy: `verify_manufacturer_attestation=false` by default for this gateway,
+as requested by its owner. Setting it true selects upstream's fail-closed
+behavior; a verifier remains unimplemented. The fixture uses this same policy
+rather than its own hard-coded bypass. No running native controller has been
+deployed yet.
 
 Available building blocks include Certification Declaration CMS signature and
 identity checks, a PAA lookup store, and DER certificate parsers. They are not
-wired into commissioning. The next implementation must obtain DAC/PAI and
+wired into commissioning. A future optional verifier would obtain DAC/PAI and
 attestation elements, validate the certificate chain against provisioned PAA
 roots, verify the signed nonce/session challenge, and validate the declaration
 and advertised identity. The CSR response path also needs its DAC-signed
@@ -91,16 +98,26 @@ attestation proof checked; the existing nonce-echo check alone is insufficient.
 
 Matter attestation trust roots are distinct from a gateway web certificate.
 The agreed Garage transport remains trusted-LAN HTTP/WebSocket with no trusted
-gateway certificate requirement. That preference does not permit unconditional
-Matter device attestation acceptance.
+gateway certificate requirement. The owner separately authorized bypassing manufacturer attestation, so its
+verifier is no longer a prerequisite for this setup. PASE/CASE authentication,
+session encryption, nonces and replay protection are retained.
 
-## Thread provisioning gap confirmed in source
+## Thread provisioning adapter
 
-The pinned `Commissioner::commission` runs fail-safe, CSR and operational
-credential steps. It does not invoke NetworkCommissioning to install or
-connect a Thread network. The fixture is already reachable over host IP and
-uses an Ethernet root endpoint, so its successful CASE transition cannot prove
-BLE-to-Thread commissioning.
+The pinned upstream commissioner still lacks network provisioning, so the
+shared `provision_thread` helper fills that step between credential installation
+and commissioning completion. It sends `AddOrUpdateThreadNetwork` with active
+dataset bytes, checks the network configuration response, and sends
+`ConnectNetwork` with the extended PAN ID only on success. A failed response
+stops the flow. The simulator now advertises a Thread root endpoint and checks
+successful delivery and both failure statuses over real encrypted PASE.
+
+The borrowed dataset validator checks required fields, bounds, duplicate and
+truncated TLVs, lengths, UTF-8 network names, active-vs-pending fields, channel
+page/mask and equality with the existing Zigbee channel. Dataset bytes contain
+credentials and have no Debug/Display implementation; the helper logs nothing
+and does not persist them. This is an initial gateway validation subset, not a
+replacement for OpenThread's authoritative dataset validation.
 
 Factory-new ALPSTUGA support additionally needs a supported device flow for
 regulatory/network commissioning and Thread dataset provisioning over the
@@ -109,7 +126,7 @@ Thread dataset must use Zigbee's current channel, and Ziggurat retains sole
 UART/reset ownership. Credential persistence, subscriptions and real-device
 restart recovery are separate acceptance gates.
 
-Native `MATTER=1` remains rejected until these gaps and the actual controller
+Native `MATTER=1` remains rejected until the actual controller
 transport/IPC integration are implemented and verified. These host test
 durations do not predict gateway commissioning latency, full controller RSS,
 or combined Zigbee/Thread throughput.

@@ -136,8 +136,11 @@ The separate [controller test report](rs-matter-controller-tests.md) now
 records PASE/fabric/CASE and read/invoke checks against a simulated host
 accessory, including signed/null sensor reads. Those tests exposed two concrete
 upstream gaps: device attestation is an unconditional test-only acceptance
-hook, and the commissioner does not provision Thread datasets. Secure defaults
-reject commissioning. Neither gap is waived by the successful crypto probe.
+hook, and the commissioner does not provision Thread datasets. Upstream secure defaults reject commissioning. The owner subsequently selected
+skipping manufacturer attestation, and the gateway policy now implements that
+choice. A shared helper additionally tests Thread credential delivery/connect
+commands over PASE. See the updated controller report; the native/OpenThread/BLE
+integration remains separate from these protocol checks.
 
 ## Remaining gates
 
