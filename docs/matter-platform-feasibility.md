@@ -55,3 +55,34 @@ No production service, UART, radio firmware, dataset, certificate, or Garage
 app was changed during this gate. All checks were performed on the development
 host. Existing OpenThread CPU/RSS observations apply to that earlier synthetic
 OpenThread workload, not to the unbuilt Matter controller.
+
+## Alternative: a smaller independent Matter controller
+
+The failed gate applies to the pinned C++ SDK with the factory C++ library.
+It does not require every implementation of the Matter protocol to use that
+library. A C/C++03 controller could avoid the dependency, while retaining the
+OpenThread internal UDP transport and Garage BLE relay architecture.
+
+The custom controller would still need Matter TLV/message encoding, reliable
+exchanges and replay protection, BLE transport framing, PASE/SPAKE2+, device
+attestation, Thread/fabric commissioning, certificates and CASE sessions,
+discovery, and Interaction Model reads/subscriptions/invokes. ALPSTUGA can limit
+the initial application-cluster scope but does not remove commissioning or
+secure-session requirements. Existing Mbed TLS supplies useful primitives;
+its gateway profile currently disables AES-CCM and PKCS5, so those requirements
+need their own feature-gated configuration and verification.
+
+Before implementing those protocols from scratch, test
+[upstream rs-matter](https://github.com/project-chip/rs-matter). Its current
+README documents `no_std`/no-alloc operation, pluggable IP/BLE transports,
+and support for controllers and commissioners. The existing Ziggurat Rust
+MIPS build path makes a target experiment plausible; this is an engineering
+inference, not demonstrated Matter target compatibility.
+
+The next useful experiment is a pinned Rust controller compile/link with the
+custom MIPS target, followed by crypto/secure-channel checks on the gateway,
+OpenThread UDP adaptation, and the commissioning BLE delegate. Verify atomics,
+runtime helpers, target instruction compatibility, executable size, RAM, and
+actual controller APIs. No rs-matter source has been fetched or compiled and no
+device acceptance has been performed for this alternative. Upstream memory
+figures are not gateway controller measurements.
