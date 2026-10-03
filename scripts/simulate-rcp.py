@@ -117,15 +117,15 @@ class Rcp:
     def receive_frame(self, data):
         command, offset = unpacked(data, 1)
         self.counts[f"command_{command}"] += 1
-        if command == 1:
-            self.counts["resets"] += 1
-            self.reset_properties()
-            self.send(0x80, 0, packed(114))
-            return
         iid = (data[0] >> 4) & 3
         interfaces = getattr(self, "interfaces", {0: self.properties})
         if iid not in interfaces:
             self.send(data[0], 0, packed(6))
+            return
+        if command == 1:
+            self.counts["resets"] += 1
+            self.reset_properties()
+            self.send(0x80, 0, packed(114))
             return
         properties = interfaces[iid]
         prop, offset = unpacked(data, offset)

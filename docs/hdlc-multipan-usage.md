@@ -186,3 +186,14 @@ passed later after recovery; low entropy is a suspected cause, not a traced
 proof. Do not bypass the readiness check. Reliable cold-boot RNG readiness,
 an explicit startup timeout/error and avoiding a blocked async worker need
 attention before production.
+
+### Physical-radio reset correction (2026-10-03)
+
+In this SDK build, IID 0 is reserved and does not dispatch commands. Both the
+maintenance helper and Ziggurat transport must send RESET to active Zigbee IID 1.
+The physical transport owner remains the only reset issuer; the Thread client
+still cannot reset. Reset notifications on broadcast IID 0 are still distributed
+to consumers. The simulator now rejects commands on reserved IID 0 before
+processing RESET, preventing the false positive that hid this startup failure.
+Six Multi-PAN Rust tests (16 total transport tests), seven simulator checks and
+eight host scenarios pass after this correction. Firmware need not be reflashed.

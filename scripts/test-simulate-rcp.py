@@ -104,6 +104,11 @@ class WireTests(unittest.TestCase):
         rcp.receive_frame(bytes([0xb1, 2]) + simulator.packed(54))
         self.assertEqual(replies.pop(), (0xb1, 0, b"\x06"))
         rcp.receive_frame(b"\x80\x01\x02")
+        self.assertEqual(replies.pop(), (0x80, 0, b"\x06"))
+        self.assertIn(54, rcp.interfaces[1])
+        self.assertIn(54, rcp.interfaces[2])
+        self.assertEqual(rcp.counts['resets'], 0)
+        rcp.receive_frame(b"\x90\x01\x02")
         self.assertNotIn(54, rcp.interfaces[1])
         self.assertNotIn(54, rcp.interfaces[2])
 

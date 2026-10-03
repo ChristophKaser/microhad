@@ -100,7 +100,7 @@ index 6696f05..dfc86dc 100644
  
  [dev-dependencies]
 diff --git a/crates/ziggurat-spinel/src/client.rs b/crates/ziggurat-spinel/src/client.rs
-index 4790d92..9ed21ee 100644
+index 4790d92..52ebf7f 100644
 --- a/crates/ziggurat-spinel/src/client.rs
 +++ b/crates/ziggurat-spinel/src/client.rs
 @@ -8,6 +8,7 @@ use thiserror::Error;
@@ -302,7 +302,7 @@ index 4790d92..9ed21ee 100644
          let SpinelWriter {
              port,
              frame_scratch,
-@@ -358,6 +442,9 @@ impl SpinelClient {
+@@ -358,10 +442,15 @@ impl SpinelClient {
      /// `CMD_RESET` is acknowledged with an unsolicited `LastStatus = RESET_*`
      /// notification rather than a tid-matched response, so this only sends.
      pub async fn send_reset(&self, reason: SpinelResetReason) -> Result<(), SpinelError> {
@@ -312,7 +312,14 @@ index 4790d92..9ed21ee 100644
          let frame = SpinelFrame {
              header: SpinelHeader {
                  flag: 0b10,
-@@ -376,6 +463,10 @@ impl SpinelClient {
+-                network_link_id: 0,
++                // IID0 is reserved in the Silicon Labs multi-PAN build and
++                // cannot dispatch RESET. Address the owner's active instance.
++                network_link_id: self.network_link_id,
+                 transaction_id: 0,
+             },
+             command_id: SpinelCommandId::Reset,
+@@ -376,6 +465,10 @@ impl SpinelClient {
          command_id: SpinelCommandId,
          payload: Vec<u8>,
      ) -> Result<SpinelFrame, SpinelError> {
@@ -323,7 +330,7 @@ index 4790d92..9ed21ee 100644
          let (frame, rx) = {
              self.protocol
                  .lock()
-@@ -385,7 +476,13 @@ impl SpinelClient {
+@@ -385,7 +478,13 @@ impl SpinelClient {
  
          tracing::trace!("Sending frame {frame:?}");
  
@@ -338,7 +345,7 @@ index 4790d92..9ed21ee 100644
  
          match timeout(TIMEOUT, rx).await {
              Ok(Ok(response_frame)) => {
-@@ -412,10 +509,18 @@ impl SpinelClient {
+@@ -412,10 +511,18 @@ impl SpinelClient {
                      tracing::error!(
                          "RCP unresponsive after {timeouts} consecutive command timeouts, triggering reset recovery"
                      );
@@ -360,7 +367,7 @@ index 4790d92..9ed21ee 100644
                  }
  
                  Err(SpinelError::Timeout)
-@@ -423,6 +528,117 @@ impl SpinelClient {
+@@ -423,6 +530,117 @@ impl SpinelClient {
          }
      }
  
@@ -478,7 +485,7 @@ index 4790d92..9ed21ee 100644
      pub async fn prop_value_get(
          &self,
          property_id: SpinelPropertyId,
-@@ -502,7 +718,7 @@ impl SpinelClient {
+@@ -502,7 +720,7 @@ impl SpinelClient {
      pub async fn lock_radio(&self) -> ExclusiveRadio<'_> {
          ExclusiveRadio {
              client: self,
@@ -487,7 +494,7 @@ index 4790d92..9ed21ee 100644
          }
      }
  
-@@ -533,7 +749,7 @@ impl SpinelClient {
+@@ -533,7 +751,7 @@ impl SpinelClient {
          &self,
          tx_frame: &SpinelTxFrame,
      ) -> Result<SpinelStatus, SpinelError> {
@@ -496,7 +503,7 @@ index 4790d92..9ed21ee 100644
          self.transmit_frame_inner(tx_frame).await
      }
  
-@@ -578,3 +794,27 @@ impl ExclusiveRadio<'_> {
+@@ -578,3 +796,27 @@ impl ExclusiveRadio<'_> {
          self.client.transmit_frame_inner(tx_frame).await
      }
  }
@@ -605,10 +612,10 @@ index 8b9c049..6c82120 100644
  
 diff --git a/crates/ziggurat-spinel/tests/multipan.rs b/crates/ziggurat-spinel/tests/multipan.rs
 new file mode 100644
-index 0000000..447f6e9
+index 0000000..c36a86d
 --- /dev/null
 +++ b/crates/ziggurat-spinel/tests/multipan.rs
-@@ -0,0 +1,234 @@
+@@ -0,0 +1,244 @@
 +use std::collections::VecDeque;
 +use std::sync::Arc;
 +use tokio::io::{AsyncReadExt, DuplexStream};
@@ -734,6 +741,16 @@ index 0000000..447f6e9
 +        b"zigbee frame"
 +    );
 +    assert!(trx.try_recv().is_err());
++}
++
++#[tokio::test(flavor = "current_thread")]
++async fn owner_reset_targets_active_interface_not_reserved_broadcast() {
++    let (zigbee, _, mut peer) = setup();
++    zigbee.send_reset(ziggurat_spinel::SpinelResetReason::Stack).await.unwrap();
++    let frame = peer.read().await;
++    assert_eq!(frame.header.network_link_id, 1);
++    assert_eq!(frame.command_id, Cmd::Reset);
++    assert_eq!(frame.payload, vec![ziggurat_spinel::SpinelResetReason::Stack as u8]);
 +}
 +
 +#[tokio::test(flavor = "current_thread")]
