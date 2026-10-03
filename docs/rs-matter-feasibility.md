@@ -156,3 +156,8 @@ Keep Ziggurat as sole UART/reset owner, and Thread on the existing Zigbee
 channel. Validate a factory-new ALPSTUGA, actual reports, operation after phone
 disconnect, restart recovery and combined Zigbee/OpenThread/Matter CPU/RAM.
 No such acceptance or native/Garage integration is established by this probe.
+
+The subsequent [OpenThread transport checkpoint](rs-matter-openthread-transport.md)
+adds a bounded userspace UDP adapter and factory timer compatibility shims.
+Its host and gateway synthetic-radio tests pass without Linux IPv6/TUN;
+this does not yet enable the native Matter controller.

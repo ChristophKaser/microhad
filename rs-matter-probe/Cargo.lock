@@ -791,6 +791,7 @@ version = "0.1.0"
 dependencies = [
  "critical-section",
  "embassy-time",
+ "embassy-time-queue-utils",
  "rs-matter",
 ]
 

@@ -1,0 +1,36 @@
+{
+  "target": "192.168.178.62",
+  "radio": "synthetic RCP",
+  "real_radio_access": false,
+  "linux_ipv6_or_tun": false,
+  "binary_bytes": 1146488,
+  "binary_sha256": "53669c145a8f70ca879bb171a6bb9fc866f0b55f75c0b91e2832910df0693c32",
+  "memory_preflight_kib": 3072,
+  "production_before": {
+    "online": true,
+    "network_formed": true,
+    "coordinator_backend": "ziggurat"
+  },
+  "production_after": {
+    "online": true,
+    "network_formed": true,
+    "coordinator_backend": "ziggurat"
+  },
+  "cleanup_completed": true,
+  "output": [
+    "RELAY_META clk_tck=100",
+    "SAMPLE rss_kib=520 memfree_kib=1512",
+    "PASS OpenThread init, dataset, two bounded sockets and UART/reset guards",
+    "SEND payload_bytes=4",
+    "RECEIVED payload_bytes=4",
+    "SEND payload_bytes=256",
+    "RECEIVED payload_bytes=256",
+    "SEND payload_bytes=1232",
+    "RECEIVED payload_bytes=1232",
+    "SEND payload_bytes=0",
+    "RECEIVED payload_bytes=0",
+    "PASS rs-matter send/receive traits, datagram boundaries and multicast API",
+    "PASS transport complete elapsed_ms=60",
+    "EXIT 0"
+  ]
+}

@@ -6,10 +6,15 @@ publish = false
 
 [workspace]
 
+[features]
+default = []
+openthread = ["dep:embassy-time-queue-utils"]
+
 [dependencies]
 rs-matter = { path = "../build/rs-matter/probe-source/rs-matter", default-features = false, features = ["rustcrypto"] }
 critical-section = { version = "1.2", features = ["std"] }
 embassy-time = { version = "0.5", features = ["std"] }
+embassy-time-queue-utils = { version = "0.3", features = ["generic-queue-64"], optional = true }
 
 [profile.release]
 panic = "abort"
@@ -19,3 +24,8 @@ codegen-units = 1
 
 [profile.release.build-override]
 opt-level = 2
+
+[[bin]]
+name = "ot-matter-transport-probe"
+path = "src/bin/ot_transport.rs"
+required-features = ["openthread"]
