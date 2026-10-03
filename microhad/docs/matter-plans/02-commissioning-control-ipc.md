@@ -41,6 +41,15 @@ version changes before implementing either side.
   the phone or radio.
 - IPC errors and logs contain no setup code, dataset, or key material.
 
+## Status quo — 2026-10-04
+
+Step 1 is complete: [Matter IPC v1](../matter-ipc-v1.md) assigns all 12 current
+opcodes, JSON schema/version rules, request/reply/event directions, fixed error
+codes, length/numeric limits, correlations, relay ordering and session lifecycle.
+The document explicitly distinguishes reserved contracts from implemented
+status behavior. Steps 2–6 remain pending; step 7 continues with every body
+implementation. No commissioning/control API is claimed at this checkpoint.
+
 ## Depends on
 
 [Rust service runtime](01-rust-service-runtime.md). Final body shapes should be
