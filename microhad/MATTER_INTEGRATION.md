@@ -11,6 +11,9 @@ routes. Those routes return 503 until the controller daemon creates its private
 socket. Commissioning, device control, dashboard controls and the Garage
 GATT/WebSocket relay remain pending.
 
+The remaining work is broken into eight sequenced implementation plans in
+[`docs/matter-plans/README.md`](docs/matter-plans/README.md).
+
 The pinned C++ Matter SDK's factory standard-library blocker is historical
 motivation for the Rust path. The Rust fixture now establishes a functioning
 controller/crypto/transport platform, including bounded measurements; it does
