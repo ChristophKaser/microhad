@@ -116,6 +116,22 @@ the chosen controller and its actual integration are verified. A Rust runtime
 must replace that prerequisite contract with its own verified build/package
 checks; a successful probe alone does not justify deleting the stop.
 
+## Controller simulation follow-up
+
+The companion host harness now checks UDP/TCP PASE commissioning, fabric
+installation, CASE, light read/invoke, signed/null temperature reads and stale
+sessions. It uses a development fixture and stub discovery, not a Thread mesh.
+Source inspection confirms the pinned commissioner skips device attestation
+when its test bypass is enabled and does not provision a Thread dataset.
+Secure defaults reject commissioning; no native production path enables the
+bypass. Existing declaration/trust-store components must be connected to a
+complete verifier before real-device pairing, along with NetworkCommissioning
+and the OpenThread/BLE transports. The trusted-LAN HTTP/WebSocket requirement
+remains independent of Matter device attestation trust.
+
+Reproduction, dependency lock and measured test counts are in the companion
+[controller test report](https://github.com/ChristophKaser/ziggurat-compilation/blob/main/docs/rs-matter-controller-tests.md).
+
 ## Remaining implementation contract
 
 After a controller implementation passes its complete platform gate:
