@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Test-only protocol-v2 COBS client; never opens the physical coordinator."""
+"""Bounded protocol-v2 COBS client for tests and explicit recovery; no UART access."""
 from collections import deque
 import select
 import socket
@@ -61,9 +61,13 @@ class Client:
             data = self.stream.recv(2048) if hasattr(self.stream, "recv") else self.stream.read1(2048)
             if not data: raise ConnectionError("COBS connection closed")
             self.buffer.extend(data)
+            if len(self.buffer)>18432:
+                raise ValueError("COBS receive bound")
             while 0 in self.buffer:
                 at = self.buffer.index(0); frame = bytes(self.buffer[:at]); del self.buffer[:at+1]
-                if frame: self.frames.append(decode(frame))
+                if frame:
+                    if len(self.frames)>=64: raise ValueError("COBS frame queue bound")
+                    self.frames.append(decode(frame))
         return self.frames.popleft()
 
     def request(self, command, payload=b"", status=0):
@@ -76,6 +80,7 @@ class Client:
                 assert len(frame) >= 4 and frame[3] == status, (command, frame[3] if len(frame)>3 else None)
                 self.timings.append((time.perf_counter_ns()-start)/1e6)
                 return frame[4:]
+            if len(self.events)>=2048: raise ValueError("COBS event bound")
             self.events.append(frame)
 
     def close(self):

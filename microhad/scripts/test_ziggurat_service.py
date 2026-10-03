@@ -75,6 +75,10 @@ def main():
             assert restored_key[:16]==expected_key[:16] and restored_key[20:]==expected_key[20:]
             assert saved["children"]==state["children"] and saved["addresses"]==state["addresses"]
             passed("Native COBS startup restores synthetic identity, keys and both counters")
+            duplicate=subprocess.run([str(server),"--device",f"tcp://127.0.0.1:{radio.port}","--spinel-iid","1",
+                "--api","cobs-unix","--listen",f"unix:{path}","--log-level","error"],stdout=log,stderr=log,timeout=5)
+            assert duplicate.returncode!=0 and status()["online"]
+            passed("Actual server refuses a live socket without replacing the running listener")
             with urllib.request.urlopen(urllib.request.Request(f"http://127.0.0.1:{port}/api/join",data=b"",method="POST"),timeout=2) as response:
                 assert json.load(response)["ok"]
             passed("Native HTTP permit-join maps to Ziggurat")
@@ -84,6 +88,15 @@ def main():
             info=observer.request(0x20);assert info[84]==0
             saved=json.loads(state_path.read_text());assert bytes.fromhex(saved["network"])==info[:82]
             passed("Orderly native stop freezes and persists actual Ziggurat state")
+            template=directory/"template.json";template.write_text(json.dumps(fixture()));template.chmod(0o600)
+            final=directory/"final-frozen.json"
+            subprocess.run([os.sys.executable,str(ROOT/"scripts/ziggurat_freeze.py"),"--template",str(template),
+                "--socket",str(path),"--quiesced","--execute","--output",str(final)],check=True,stdout=subprocess.DEVNULL)
+            frozen=json.loads(final.read_text())
+            assert frozen["handover"]["counters_observed_after_stop"] and final.stat().st_mode&0o777==0o600
+            assert frozen["network"]["network_key_tx_counter"]==int.from_bytes(info[39:43],"little")
+            assert len(frozen["keys"])==int.from_bytes(info[82:84],"little")
+            passed("Recovery CLI exports complete private state after native shutdown/freeze")
             old=bytes.fromhex(saved["network"])
             service=launch();wait_for(lambda:status()["online"])
             info=observer.request(0x20);assert info[84]==1
@@ -99,12 +112,11 @@ def main():
             observer.close();observer=None
             service.kill();service.wait(timeout=3);service=None
             process.terminate();process.wait(timeout=5);process=None
-            path.unlink(missing_ok=True)
             radio.close();radio=sim.Rcp("127.0.0.1",iid=1)
             process=subprocess.Popen([str(server),"--device",f"tcp://127.0.0.1:{radio.port}","--spinel-iid","1",
                 "--api","cobs-unix","--listen",f"unix:{path}","--log-level","error"],stdout=log,stderr=log)
             wait_for(lambda:path.exists());service=launch();wait_for(lambda:status()["online"])
-            passed("Ziggurat process restart recovers network from native durable state")
+            passed("Ziggurat restart reclaims stale socket and recovers native durable state")
             report["simulated_radio_transmissions"]=radio.counts["tx_frames"]
     finally:
         if observer:observer.close()

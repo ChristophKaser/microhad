@@ -152,21 +152,30 @@ def freeze_and_export(client, template):
          "tclk_seed":info[60:76].hex() if info[59] else None,"tclk_flavor":"ezsp" if info[76]==1 else "zstack",
          "tx_power":struct.unpack("b",info[77:78])[0],"aps_frame_counter":int.from_bytes(info[78:82],"little")}
     def scan(command):
-        before=len(client.events);client.request(command)
-        return [frame[3:] for frame in list(client.events)[before:] if frame[0]==command and frame[1]&3==2]
+        before=len(client.events);reply=client.request(command)
+        rows=[frame[3:] for frame in list(client.events)[before:] if frame[0]==command and frame[1]&3==2]
+        if len(reply)!=2 or int.from_bytes(reply,"little")!=len(rows) or len(rows)>256:
+            raise ValueError("incomplete frozen table scan")
+        return rows
     keys=[]
     for row in scan(0x21):
         if len(row)!=33:raise ValueError("invalid frozen key row")
         keys.append({"key":row[:16].hex(),"tx_counter":int.from_bytes(row[16:20],"little"),
                      "rx_counter":int.from_bytes(row[20:24],"little"),"ieee":row[25:33].hex(),"bitmask":0x1e})
+    if len(keys)!=int.from_bytes(info[82:84],"little"):
+        raise ValueError("frozen key count mismatch")
     children=[]
     for row in scan(0x22):
         if len(row)!=11:raise ValueError("invalid frozen child row")
         rx=bool(row[10]&1);typ=row[10]>>1&3
         children.append({"ieee":row[:8].hex(),"nwk":int.from_bytes(row[8:10],"little"),
                          "rx_on_when_idle":rx,"type":2 if typ==1 else 3 if rx else 4})
+    addresses=[]
+    for row in scan(0x23):
+        if len(row)!=10:raise ValueError("invalid frozen address row")
+        addresses.append({"ieee":row[:8].hex(),"nwk":int.from_bytes(row[8:10],"little")})
     if client.request(0x20)!=info:raise ValueError("snapshot changed after freeze")
-    state=copy.deepcopy(template);state["network"]=n;state["keys"]=keys;state["children"]=children
+    state=copy.deepcopy(template);state["network"]=n;state["keys"]=keys;state["children"]=children;state["addresses"]=addresses
     state["incoming_counter_semantics"]="next-acceptable"
     state["captured_at"]=datetime.now(timezone.utc).isoformat()
     state["counter_evidence"]={"aps_live_upper_bound_verified":True,"source":"frozen-ziggurat-state"}
