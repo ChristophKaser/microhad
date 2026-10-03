@@ -102,7 +102,9 @@ static int write_all(int fd,const unsigned char *data,size_t count) {
     return 0;
 }
 static size_t reset_frame(unsigned char *out) {
-    const unsigned char input[]={0x80,0x01,0x03}; /* IID0, RESET, BOOTLOADER */
+    /* Multi-PAN IID0 is reserved and has no instance. RESET must address
+     * the active Zigbee instance, IID1, even for a whole-chip bootloader reset. */
+    const unsigned char input[]={0x90,0x01,0x03}; /* IID1, RESET, BOOTLOADER */
     unsigned short fcs=0xffff; unsigned char body[5]; size_t i,at=0;
     memcpy(body,input,3);
     for(i=0;i<3;i++) {

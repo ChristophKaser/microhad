@@ -46,7 +46,7 @@ class Maintenance(unittest.TestCase):
                     raise
                 data+=chunk
                 if mode=='bootloader-enter' and data.startswith(b'\x7e') and data.endswith(b'\x7e'):
-                    self.assertEqual(sim.decode(data[1:-1]),b'\x80\x01\x03')
+                    self.assertEqual(sim.decode(data[1:-1]),b'\x90\x01\x03')
                     settings=termios.tcgetattr(master)
                     self.assertEqual(settings[4],termios.B460800);self.assertTrue(settings[2]&termios.CRTSCTS)
                     frame_seen=True;data=b''

@@ -19,9 +19,12 @@ EFR32MG1 radio through HDLC, without cpcd.
   **1,620 KiB**, `top` samples **0–7% CPU**, and median/p95 socket query response
   **5.27/8.23 ms** including the SSH bridge. This is synthetic load, not evidence
   of real-radio or Matter capacity. Temporary executable uploads were removed.
-- **Production untouched in this work:** the native service remains online on
-  EZSP with 23 known devices and an unchanged binary checksum. Only Ziggurat and
-  a socket probe were deployed temporarily; no UART access or radio flashing.
+- **Production migration underway:** direct user approval permits deployment and
+  flashing. Steps 1–7 completed; the application-only RCP image was accepted.
+  Original supervisor is suspended; final private network/application backups
+  are saved. Ziggurat reads the real radio identity correctly. Step 8 is checking
+  reverse bootloader entry before starting migrated Zigbee. The helper now targets
+  IID 1 because IID 0 is reserved in this SDK build.
 - **Still pending:** real-radio migration/recovery and ACK/source-match tests,
   an actual Thread/OTBR stack and standalone Matter. The native ZHA-style
   1000-frame restart margin is not an unconditional crash-safety guarantee.
@@ -37,7 +40,7 @@ EFR32MG1 radio through HDLC, without cpcd.
   readiness is a suspected cause. Device tests now check free RAM and clean
   their uploads after an earlier suspected ramfs memory-pressure incident.
 - **Published:** [private GitHub repository](https://github.com/ChristophKaser/ziggurat-compilation).
-  The existing gateway radio firmware and production services were not replaced.
+  Migration execution is recorded in the deployment plan.
 
 ## Next steps
 
@@ -49,8 +52,8 @@ Step 2 is also complete: private online service/application and network backups
 are verified; production stayed online with 23 devices and an unchanged binary.
 See [sanitized baseline](docs/deployment-baseline.json). Steps 3–4 are now complete: isolated binaries are staged and preliminary
 actual-state stopped import passes. No service restart or radio flashing occurred.
-Step 5 is waiting for direct approval required by automatic action review.
-See [execution checkpoint](docs/migration-execution.json).
+Steps 5–7 completed under explicit user approval. Follow the current checkpoint
+in the plan; real radio migration and validation are still in progress.
 
 1. Resolve cold-boot RNG readiness and report startup failures without blocking
    the async worker; retain the randomness safety check.
