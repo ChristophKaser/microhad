@@ -9,6 +9,7 @@ probe=${2:-transport}
 case "$probe" in
     transport) feature=openthread; binary=ot-matter-transport-probe; output=ot-transport-mips ;;
     commissioning) feature=controller-probe; binary=ot-matter-commissioning-probe; output=ot-commissioning-mips ;;
+    service) feature=controller-service; binary=thread-matter; output=thread-matter-mips ;;
     *) exit 2 ;;
 esac
 bash scripts/build-openthread-transport.sh "$mode"
