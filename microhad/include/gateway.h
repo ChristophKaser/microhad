@@ -53,6 +53,7 @@ struct DeviceValueAlert {
     double low;
     double high;
     double hysteresis;
+    std::string unit;
     bool lowActive;
     bool highActive;
     DeviceValueAlert() : hasLow(false), hasHigh(false), low(0), high(0), hysteresis(0), lowActive(false), highActive(false) {}

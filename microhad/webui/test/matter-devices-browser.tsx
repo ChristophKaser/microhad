@@ -1,12 +1,13 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import type { Status } from '../src/api'
-import { DeviceGroups } from '../src/devices'
+import type { Device, Status } from '../src/api'
+import { DeviceGroups, DeviceSettings } from '../src/devices'
 import { MatterPanel } from '../src/MatterPanel'
 import { useMatterDevices } from '../src/useMatterDevices'
 
 function Host() {
   const controller = useMatterDevices()
+  const [settingsDevice, setSettingsDevice] = useState<Device | null>(null)
   const status = { devices: controller.devices, scene_groups: [] } as unknown as Status
   async function action(url: string, body = '') {
     const id = decodeURIComponent(url.slice('/api/devices/'.length).split('/')[0])
@@ -15,9 +16,10 @@ function Host() {
   }
   return <>
     <DeviceGroups status={status} action={(url, body) => { void action(url, body) }}
-      onSettings={() => { throw new Error('Matter device exposed protocol-specific settings') }}
+      onSettings={setSettingsDevice}
       onDetails={() => {}} onHistory={() => {}} onConnection={() => {}} />
     <MatterPanel />
+    {settingsDevice && <DeviceSettings device={settingsDevice} onClose={() => setSettingsDevice(null)} onSaved={() => {}} />}
   </>
 }
 
@@ -40,6 +42,8 @@ async function run() {
   check(!document.body.textContent?.includes('Matter devices'), 'separate Matter device list remains in setup UI')
   check(![...document.querySelectorAll('button')].some(item => item.textContent?.trim() === 'Refresh devices'), 'Matter-specific device list controls remain')
   check(document.body.textContent?.includes('Unknown'), 'unknown initial Matter values were not kept explicit')
+  check(document.querySelector('[aria-label^="Settings for Matter light"]'), 'common device settings are missing from Matter card')
+  check(document.querySelector('[aria-label^="History for Matter light"]'), 'common telemetry history is missing from Matter card')
 
   button('Turn on').click()
   await wait(() => document.body.textContent?.includes('Turn off') === true, 'confirmed OnOff state through common light card')
@@ -53,6 +57,10 @@ async function run() {
     document.body.textContent?.includes('758.5 ppm') && document.body.textContent?.includes('12.75 ug/m3') &&
     document.body.textContent?.includes('Air quality: moderate'), 'typed sensor reads shown in shared device card')
   check(document.body.textContent?.includes('Temperature') && document.body.textContent?.includes('Humidity'), 'shared climate fields were not used')
+  document.querySelector<HTMLButtonElement>('[aria-label^="Settings for Matter light"]')!.click()
+  await wait(() => document.body.textContent?.includes('CO₂ alerts (ppm)') && document.body.textContent?.includes('PM2.5 alerts (ug/m3)'),
+    'shared settings show unit-aware Matter concentration thresholds')
+  check(document.body.textContent?.includes('Device settings'), 'common device settings did not open')
   document.body.dataset.result = 'passed'
   document.getElementById('result')!.textContent = 'PASS Matter endpoints render and operate through the shared device catalog, common controls and Matter join/settings area'
 }

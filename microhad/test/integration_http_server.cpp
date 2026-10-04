@@ -532,7 +532,7 @@ void testServers() {
     expectStatus("http save encoded device settings", response, 200);
     assert(response.find("{\"ok\":true}") != std::string::npos);
     response = plainRequest(http.boundPort(), "GET /api/status HTTP/1.1\r\nHost: localhost\r\n\r\n");
-    assert(response.find("\"temperature\":{\"has_low\":true,\"low\":3,\"has_high\":true,\"high\":25,\"hysteresis\":1.5}") != std::string::npos);
+    assert(response.find("\"temperature\":{\"has_low\":true,\"low\":3,\"has_high\":true,\"high\":25,\"hysteresis\":1.5,\"unit\":\"\"}") != std::string::npos);
     response = plainRequest(http.boundPort(), post("/api/devices/light%2Ftest/refresh", ""));
     expectStatus("http refresh encoded device", response, 200);
     assert(response.find("Device refresh queued.") != std::string::npos);

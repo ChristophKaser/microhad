@@ -82,7 +82,7 @@ export interface Device {
   contact_trigger_cooldown_seconds: number
   contact_trigger_active: boolean
   sensor_refresh_interval_minutes: number
-  value_alerts: Record<string, { has_low: boolean; low: number; has_high: boolean; high: number; hysteresis: number }>
+  value_alerts: Record<string, { has_low: boolean; low: number; has_high: boolean; high: number; hysteresis: number; unit?: string }>
   last_seen: number
   manufacturer_name: string
   model_id: string

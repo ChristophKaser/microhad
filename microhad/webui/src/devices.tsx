@@ -349,8 +349,10 @@ function DeviceCard({
           >
             ⓘ
           </button>
-          {device.source !== 'matter' && <button title="Settings" aria-label={`Settings for ${device.name}`} onClick={onSettings}>⚙</button>}
-          {device.source !== 'matter' && (device.has_temperature || device.has_humidity || device.has_contact || device.has_power) && (
+          <button title="Settings" aria-label={`Settings for ${device.name}`} onClick={onSettings}>⚙</button>
+          {(device.has_temperature || device.has_humidity || device.has_contact || device.has_power || device.has_occupancy ||
+            device.has_battery || device.has_co2 || device.has_pm25 || device.has_air_quality || device.has_light ||
+            device.has_actor || device.has_brightness) && (
             <button title="History" aria-label={`History for ${device.name}`} onClick={onHistory}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M3 3v18h18" />
@@ -467,6 +469,8 @@ export function DeviceSettings({
   onClose: () => void
   onSaved: () => void
 }) {
+  const co2Unit = device.sensor_values?.co2?.unit ?? ''
+  const pm25Unit = device.sensor_values?.pm25?.unit ?? ''
   const alertMetrics = [
     { id: 'temperature', label: 'Temperature', unit: '°C', available: device.has_temperature },
     { id: 'humidity', label: 'Humidity', unit: '%', available: device.has_humidity },
@@ -475,10 +479,13 @@ export function DeviceSettings({
     { id: 'wifi_signal', label: 'Wi-Fi signal', unit: '%', available: device.has_wifi_signal },
     { id: 'brightness', label: 'Brightness', unit: '%', available: device.has_brightness },
     { id: 'power', label: 'Power', unit: 'W', available: device.has_power },
+    { id: 'co2', label: 'CO₂', unit: co2Unit, available: device.has_co2 && Boolean(co2Unit) },
+    { id: 'pm25', label: 'PM2.5', unit: pm25Unit, available: device.has_pm25 && Boolean(pm25Unit) },
   ]
   const initialAlert = (metric: string, field: 'low' | 'high' | 'hysteresis') => {
     const alert = device.value_alerts?.[metric]
     if (alert) {
+      if ((metric === 'co2' && alert.unit !== co2Unit) || (metric === 'pm25' && alert.unit !== pm25Unit)) return ''
       if (field === 'low') return alert.has_low ? String(alert.low) : ''
       if (field === 'high') return alert.has_high ? String(alert.high) : ''
       return String(alert.hysteresis)
@@ -512,6 +519,7 @@ export function DeviceSettings({
       fields[`value_alert_${metric.id}_low`] = value.low
       fields[`value_alert_${metric.id}_high`] = value.high
       fields[`value_alert_${metric.id}_hysteresis`] = value.hysteresis
+      if (metric.id === 'co2' || metric.id === 'pm25') fields[`value_alert_${metric.id}_unit`] = metric.unit
     }
     if (device.has_contact) {
       fields.initial_minutes = initial

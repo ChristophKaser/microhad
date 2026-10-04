@@ -1806,6 +1806,8 @@ static void testMatterAlertSettingsSurviveRestart() {
     endpoint.endpoint = 1;
     endpoint.online = true;
     endpoint.servers.push_back(1026);
+    endpoint.servers.push_back(1037);
+    endpoint.servers.push_back(1066);
     std::vector<MatterEndpoint> endpoints(1, endpoint);
     std::string error;
     {
@@ -1817,7 +1819,38 @@ static void testMatterAlertSettingsSurviveRestart() {
         alert.hysteresis = 1.5;
         std::map<std::string, DeviceValueAlert> alerts;
         alerts["temperature"] = alert;
+        MatterReading co2;
+        co2.node = endpoint.node;
+        co2.endpoint = endpoint.endpoint;
+        co2.cluster = 1037;
+        co2.known = true;
+        co2.numberValue = 750;
+        co2.unit = "ppb";
+        assert(gateway.applyMatterReading(co2, &error));
+        MatterReading pm25 = co2;
+        pm25.cluster = 1066;
+        pm25.numberValue = 11;
+        pm25.unit = "ug/m3";
+        assert(gateway.applyMatterReading(pm25, &error));
+        DeviceValueAlert co2Alert;
+        co2Alert.hasHigh = true;
+        co2Alert.high = 800;
+        co2Alert.hysteresis = 10;
+        co2Alert.unit = "ppb";
+        alerts["co2"] = co2Alert;
+        DeviceValueAlert pm25Alert;
+        pm25Alert.hasLow = true;
+        pm25Alert.low = 10;
+        pm25Alert.hysteresis = 1;
+        pm25Alert.unit = "ug/m3";
+        alerts["pm25"] = pm25Alert;
         assert(gateway.setDeviceValueAlerts(endpointId, alerts, &error));
+        assert(gateway.statusJson().find("\"co2\":{\"has_low\":false,\"low\":0,\"has_high\":true,\"high\":800,\"hysteresis\":10,\"unit\":\"ppb\"") !=
+               std::string::npos);
+        co2Alert.unit = "ppm";
+        alerts["co2"] = co2Alert;
+        assert(!gateway.setDeviceValueAlerts(endpointId, alerts, &error));
+        assert(error == "alert unit must match the current co2 measurement");
     }
     {
         std::vector<Device> parsed;
@@ -1843,6 +1876,32 @@ static void testMatterAlertSettingsSurviveRestart() {
                                     restored->second.high == 28.5 && restored->second.hysteresis == 1.5;
         }
         assert(restoredAfterSnapshot);
+        std::map<std::string, DeviceValueAlert>::const_iterator restoredCo2 = loaded[0].valueAlerts.find("co2");
+        assert(restoredCo2 != loaded[0].valueAlerts.end() && restoredCo2->second.unit == "ppb" &&
+               restoredCo2->second.high == 800);
+        std::map<std::string, DeviceValueAlert>::const_iterator restoredPm25 = loaded[0].valueAlerts.find("pm25");
+        assert(restoredPm25 != loaded[0].valueAlerts.end() && restoredPm25->second.unit == "ug/m3" &&
+               restoredPm25->second.low == 10);
+        MatterReading co2;
+        co2.node = endpoint.node;
+        co2.endpoint = endpoint.endpoint;
+        co2.cluster = 1037;
+        co2.known = true;
+        co2.unit = "ppb";
+        co2.numberValue = 760;
+        assert(restarted.applyMatterReading(co2, &error));
+        co2.numberValue = 810;
+        assert(restarted.applyMatterReading(co2, &error));
+        MatterReading pm25 = co2;
+        pm25.cluster = 1066;
+        pm25.unit = "ug/m3";
+        pm25.numberValue = 11;
+        assert(restarted.applyMatterReading(pm25, &error));
+        pm25.numberValue = 8;
+        assert(restarted.applyMatterReading(pm25, &error));
+        loaded = restarted.devices();
+        assert(loaded[0].valueAlerts["co2"].highActive);
+        assert(loaded[0].valueAlerts["pm25"].lowActive);
     }
     unlink((std::string(directory) + "/devices.json").c_str());
     unlink((std::string(directory) + "/devices.json.tmp").c_str());

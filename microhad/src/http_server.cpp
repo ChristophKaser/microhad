@@ -1130,9 +1130,9 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
             bool hasTriggerMode = formValue(body, "contact_trigger_mode", &triggerModeValue);
             bool hasTriggerCooldown = formValue(body, "contact_trigger_cooldown_seconds", &triggerCooldownValue);
             std::map<std::string, DeviceValueAlert> valueAlerts;
-            static const char* alertNames[] = {"temperature", "humidity", "battery", "link_quality", "wifi_signal", "brightness", "power"};
+            static const char* alertNames[] = {"temperature", "humidity", "battery", "link_quality", "wifi_signal", "brightness", "power", "co2", "pm25"};
             bool validAlerts = true;
-            for (unsigned int alertIndex = 0; alertIndex < 7; ++alertIndex) {
+            for (unsigned int alertIndex = 0; alertIndex < 9; ++alertIndex) {
                 std::string prefix = std::string("value_alert_") + alertNames[alertIndex] + "_";
                 std::string lowLimit, highLimit, hysteresisValue;
                 bool lowProvided = formValue(body, (prefix + "low").c_str(), &lowLimit);
@@ -1140,6 +1140,7 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
                 bool marginProvided = formValue(body, (prefix + "hysteresis").c_str(), &hysteresisValue);
                 if (!lowProvided && !highProvided && !marginProvided) continue;
                 DeviceValueAlert alert;
+                if (alertIndex >= 7) formValue(body, (prefix + "unit").c_str(), &alert.unit);
                 alert.hasLow = !lowLimit.empty(); alert.hasHigh = !highLimit.empty();
                 if ((alert.hasLow && !parseDecimal(lowLimit, &alert.low)) ||
                     (alert.hasHigh && !parseDecimal(highLimit, &alert.high)) ||

@@ -1502,13 +1502,13 @@ bool Gateway::setDeviceSettings(const std::string& ieeeAddress, const std::strin
 bool Gateway::setDeviceValueAlerts(const std::string& ieeeAddress,
                                    const std::map<std::string, DeviceValueAlert>& alerts,
                                    std::string* error) {
-    static const char* names[] = {"temperature", "humidity", "battery", "link_quality", "wifi_signal", "brightness", "power"};
-    static const double minimum[] = {-100, 0, 0, 0, 0, 0, 0};
-    static const double maximum[] = {200, 100, 100, 255, 100, 100, 6553.5};
+    static const char* names[] = {"temperature", "humidity", "battery", "link_quality", "wifi_signal", "brightness", "power", "co2", "pm25"};
+    static const double minimum[] = {-100, 0, 0, 0, 0, 0, 0, 0, 0};
+    static const double maximum[] = {200, 100, 100, 255, 100, 100, 6553.5, 3.402823466e38, 3.402823466e38};
     std::map<std::string, Device>::iterator found = devices_.find(ieeeAddress);
     if (found == devices_.end()) { *error = "device not found"; return false; }
     Device& device = found->second;
-    for (unsigned int i = 0; i < 7; ++i) {
+    for (unsigned int i = 0; i < 9; ++i) {
         std::map<std::string, DeviceValueAlert>::const_iterator setting = alerts.find(names[i]);
         if (setting == alerts.end()) continue;
         const DeviceValueAlert& alert = setting->second;
@@ -1518,14 +1518,31 @@ bool Gateway::setDeviceValueAlerts(const std::string& ieeeAddress,
             (alert.hasLow && alert.hasHigh && alert.low >= alert.high)) {
             *error = std::string("invalid ") + names[i] + " alert limits"; return false;
         }
+        const bool concentrationAlert = i == 7 || i == 8;
+        const std::string& currentUnit = i == 7 ? device.co2Unit : device.pm25Unit;
+        static const char* const concentrationUnits[] = {"ppm", "ppb", "ppt", "mg/m3", "ug/m3",
+            "ng/m3", "particles/m3", "Bq/m3", "dB/m", "particles/ft3"};
+        bool supportedUnit = false;
+        if (concentrationAlert)
+            for (unsigned int unit = 0; unit < sizeof(concentrationUnits) / sizeof(concentrationUnits[0]); ++unit)
+                if (alert.unit == concentrationUnits[unit]) supportedUnit = true;
+        if (concentrationAlert && (alert.unit != currentUnit || (!supportedUnit && (alert.hasLow || alert.hasHigh)))) {
+            *error = std::string("alert unit must match the current ") + names[i] + " measurement";
+            return false;
+        }
         if ((i == 0 && !device.hasTemperature) || (i == 1 && !device.hasHumidity) ||
             (i == 2 && !device.hasBattery) || (i == 3 && device.source != "zigbee") ||
             (i == 4 && !device.hasWifiSignal) || (i == 5 && !device.hasBrightness) ||
-            (i == 6 && !device.hasPower)) {
+            (i == 6 && !device.hasPower) || (i == 7 && !device.hasCo2) || (i == 8 && !device.hasPm25)) {
             if (alert.hasLow || alert.hasHigh || alert.hysteresis != 0) {
                 *error = std::string("alert limits unavailable for ") + names[i]; return false;
             }
         }
+    }
+    for (std::map<std::string, DeviceValueAlert>::const_iterator setting = alerts.begin(); setting != alerts.end(); ++setting) {
+        bool known = false;
+        for (unsigned int i = 0; i < 9; ++i) if (setting->first == names[i]) known = true;
+        if (!known) { *error = "unknown value alert metric"; return false; }
     }
     for (std::map<std::string, DeviceValueAlert>::const_iterator setting = alerts.begin(); setting != alerts.end(); ++setting) {
         DeviceValueAlert value = setting->second;
@@ -2555,26 +2572,32 @@ void Gateway::updateTemperatureAlert(const Device& device, bool hadTemperature, 
 }
 
 void Gateway::updateValueAlerts(Device& device, const Device& before) {
-    struct Reading { const char* name; const char* label; bool supported; bool known; double current; double previous; };
+    struct Reading { const char* name; const char* label; bool supported; bool known; double current; double previous; const char* unit; };
     Reading readings[] = {
         {"temperature", "Temperature", device.hasTemperature,
          before.source == "zigbee" ? before.hasTemperature : before.temperatureKnown,
-         device.temperatureCelsius, before.temperatureCelsius},
+         device.temperatureCelsius, before.temperatureCelsius, ""},
         {"humidity", "Humidity", device.hasHumidity,
          before.source == "matter" ? before.humidityKnown : before.hasHumidity && before.lastSeen != 0,
-         device.humidityPercent, before.humidityPercent},
-        {"battery", "Battery", device.hasBattery, before.hasBattery, static_cast<double>(device.batteryPercent), static_cast<double>(before.batteryPercent)},
-        {"link_quality", "Link quality", device.source == "zigbee", before.source == "zigbee" && before.lastSeen != 0, static_cast<double>(device.linkQuality), static_cast<double>(before.linkQuality)},
-        {"wifi_signal", "Wi-Fi signal", device.hasWifiSignal, before.hasWifiSignal, static_cast<double>(device.wifiSignalPercent), static_cast<double>(before.wifiSignalPercent)},
+         device.humidityPercent, before.humidityPercent, ""},
+        {"battery", "Battery", device.hasBattery, before.hasBattery, static_cast<double>(device.batteryPercent), static_cast<double>(before.batteryPercent), ""},
+        {"link_quality", "Link quality", device.source == "zigbee", before.source == "zigbee" && before.lastSeen != 0, static_cast<double>(device.linkQuality), static_cast<double>(before.linkQuality), ""},
+        {"wifi_signal", "Wi-Fi signal", device.hasWifiSignal, before.hasWifiSignal, static_cast<double>(device.wifiSignalPercent), static_cast<double>(before.wifiSignalPercent), ""},
         {"brightness", "Brightness", device.hasBrightness,
          before.source == "matter" ? before.brightnessKnown : before.hasBrightness,
-         static_cast<double>(device.brightnessPercent), static_cast<double>(before.brightnessPercent)},
-        {"power", "Power", device.hasPower, before.powerKnown, device.powerWatts, before.powerWatts}
+         static_cast<double>(device.brightnessPercent), static_cast<double>(before.brightnessPercent), "percent"},
+        {"power", "Power", device.hasPower, before.powerKnown, device.powerWatts, before.powerWatts, "watts"},
+        {"co2", "CO₂", device.hasCo2, before.co2Known && before.co2Unit == device.co2Unit,
+         device.co2Ppm, before.co2Ppm, device.co2Unit.c_str()},
+        {"pm25", "PM2.5", device.hasPm25, before.pm25Known && before.pm25Unit == device.pm25Unit,
+         device.pm25MicrogramsM3, before.pm25MicrogramsM3, device.pm25Unit.c_str()}
     };
     for (unsigned int i = 0; i < sizeof(readings) / sizeof(readings[0]); ++i) {
         std::map<std::string, DeviceValueAlert>::iterator found = device.valueAlerts.find(readings[i].name);
         if (!readings[i].supported || found == device.valueAlerts.end()) continue;
         DeviceValueAlert& alert = found->second;
+        if ((std::string(readings[i].name) == "co2" || std::string(readings[i].name) == "pm25") &&
+            (alert.unit.empty() || alert.unit != readings[i].unit)) continue;
         if (!readings[i].known) {
             alert.highActive = alert.hasHigh && readings[i].current >= alert.high;
             alert.lowActive = alert.hasLow && readings[i].current <= alert.low;
@@ -2735,7 +2758,8 @@ std::string GatewayView::statusJson() const {
             if (alert != device.valueAlerts.begin()) json << ',';
             json << "\"" << jsonEscape(alert->first) << "\":{\"has_low\":" << (alert->second.hasLow ? "true" : "false")
                  << ",\"low\":" << alert->second.low << ",\"has_high\":" << (alert->second.hasHigh ? "true" : "false")
-                 << ",\"high\":" << alert->second.high << ",\"hysteresis\":" << alert->second.hysteresis << '}';
+                 << ",\"high\":" << alert->second.high << ",\"hysteresis\":" << alert->second.hysteresis
+                 << ",\"unit\":\"" << jsonEscape(alert->second.unit) << "\"}";
         }
         json << "},\"last_seen\":" << device.lastSeen
              << ",\"manufacturer_name\":\"" << jsonEscape(device.manufacturerName)
