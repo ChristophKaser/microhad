@@ -59,8 +59,9 @@ The routes reach the real Rust session owner through the persistent worker.
 Waiting-BLE, busy/status/cancel/stale-session behavior is verified with the
 actual service and synthetic radio peers. The owned plain WebSocket relay is
 implemented and verified through native/Rust BTP callbacks. Garage foreground onboarding and dashboard session monitoring are implemented
-with host evidence. Production DNS-SD and device operations remain open work. A successful start does not establish
-end-to-end accessory support; production CASE completion still needs discovery.
+with host evidence. Operational SRP/DNS discovery now has encrypted host evidence. Production device
+operations and reports remain open work. A successful start does not establish
+end-to-end accessory support; native device operations still need the production device pipeline.
 
 ## Thread dataset mutations
 

@@ -140,3 +140,19 @@ are historical; the latest status/evidence section above takes precedence.
 
 Validation: synthetic supervisor/service/native integration tests and factory
 cross-build; physical execution remains a separate acceptance checkpoint.
+
+## SRP/DNS runtime artifact checkpoint — 2026-10-04
+
+Rust commit `e59c3dc` adds the bounded userspace operational resolver to the
+existing event loop without blocking IPC. OpenThread now includes SRP/DNS/ECDSA
+and Network Data service support. Service-feature tests pass 54; actual-service
+IPC and native real-service HTTP/WebSocket regressions pass alongside encrypted
+SRP/DNS commissioning/fresh CASE. Both host/MIPS builds pass, with fixture
+registration symbols absent from the service.
+
+Latest stripped static big-endian MIPS-I/o32 soft-float artifacts: service
+1,924,788 bytes, probe 2,264,780 bytes. Hashes and verification scope are recorded
+in `ziggurat-compilation/docs/matter-operational-discovery-validation.json`.
+This is a current artifact manifest, not target resource/performance acceptance.
+Broader integrated failure/restart work remains open; no physical execution or
+plan 08 work occurred.

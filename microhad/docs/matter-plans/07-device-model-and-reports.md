@@ -2,14 +2,15 @@
 
 ## Current open work — 2026-10-04
 
-Production operational discovery, remote recovery of catalogued nodes, device
-operations and report integration remain open. A bounded persistent node catalog
-and local interrupted-commissioning recovery states are implemented in Rust
-commit `5002f88` and verified on host; they do not establish operational discovery.
+Bounded production operational SRP/DNS discovery and persistent local node catalog
+states are implemented and host-tested. Rust commit `e59c3dc` drives encrypted
+CASE/CommissioningComplete and fresh CASE through the resolver in the synthetic
+accessory fixture without injected rendezvous.
 
-Next deliverable: Integrate SRP/DNS-SD through userspace OpenThread, resolve
-operational nodes and reconcile recovery-required entries using the existing
-authority. Then implement descriptors, commands, subscriptions and native reports.
+Remote recovery of catalogued nodes, legacy migration, descriptors, device
+operations and report integration remain open. Next deliverable: reconcile
+recovery-required nodes over operational CASE, discover endpoint descriptors and
+advertised clusters, then add commands/subscriptions/native reports.
 
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.
@@ -57,17 +58,18 @@ values through the existing gateway model, history, alerts, and dashboard.
 
 Encrypted synthetic fixtures prove commissioning and fresh CASE with persisted
 authority. The production owner now persists node identity and completion/recovery
-states. Operational DNS-SD, remote catalog reconciliation, endpoint discovery,
-commands, subscriptions and native report integration remain pending. Fixture
-address injection does not establish operational discovery support.
+states. Operational SRP/DNS-SD is implemented; remote catalog reconciliation, endpoint discovery,
+commands, subscriptions and native report integration remain pending. The new SRP/DNS encrypted fixture proves the production resolver path; the older
+explicit-rendezvous fixture alone does not establish operational discovery.
 
 ## Remaining checkpoints
 
 1. Local catalog persistence, stable identity and failed/interrupted state are
    implemented. Reconcile recovery-required remote nodes and legacy stores without
    catalog metadata without reusing allocated node IDs.
-2. Resolve operational nodes using bounded DNS-SD over userspace OpenThread;
-   handle address changes and resolve/CASE timeout with bounded backoff.
+2. Bounded operational SRP/DNS-SD, TTL/cache limits and query backoff are
+   implemented. Add proactive address invalidation/re-resolution on CASE failure
+   with the production device/recovery pipeline.
 3. Discover descriptors/clusters and implement validated OnOff/Level reads and
    commands. Reconcile confirmed values instead of keeping optimistic state
    after an operation fails.
@@ -88,8 +90,9 @@ address injection does not establish operational discovery support.
 
 The production-owned commissioner now reaches encrypted PASE, Thread provision
 and CASE completion in the synthetic accessory fixture. The running service
-contains that task and a persistent bounded node catalog, but lacks the
-production DNS-SD resolver and remote node recovery. It uses no fixture address injection and can time out waiting for CASE.
+contains that task, persistent catalog and production SRP/DNS resolver. Remote
+node recovery remains open. Production lookup uses no fixture address injection and remains bounded when
+registration/attachment is absent.
 Descriptor/control/report integration and real operational discovery remain the
 next requirements here; the owned fixture is not device-model acceptance.
 
@@ -98,7 +101,7 @@ next requirements here; the owned fixture is not device-model acceptance.
 All unchecked items below remain open. Earlier checkpoint measurements
 are historical; the latest status/evidence section above takes precedence.
 
-1. [ ] Implement bounded operational DNS-SD over userspace OpenThread UDP,
+1. [x] Implement bounded operational DNS-SD over userspace OpenThread UDP,
    including answer validation, address changes, TTL/cache limits and timeout
    backoff. Remove the need for fixture-only rendezvous in integration tests.
 2. [ ] Persist a bounded node catalog with stable fabric/node identity and
@@ -153,3 +156,42 @@ commands, reports and native device integration remain open. Recovery records
 consume capacity; they are never silently discarded. Checklist items 1–3 remain
 open until those integration requirements are proven. No physical deployment
 or plan 08 action was performed.
+
+## Operational SRP/DNS checkpoint — 2026-10-04
+
+Rust commit `e59c3dc` enables SRP server/client, DNS-SD server, DNS client, ECDSA
+and Thread Network Data services in OpenThread. The service advertises an SRP
+server through normal unicast publication and resolves operational labels through
+userspace UDP SRV/TXT/AAAA queries to the selected advertised server. No Linux
+IPv6/TUN, arbitrary DNS domain override, new UART owner or trusted certificate
+requirement is introduced.
+
+The adapter permits one bounded query and copies at most four addresses/256 TXT
+bytes. It validates label/domain, port/TTL and complete answers. Static generation
+cookies keep callbacks independent of Rust future memory; cancelled queries
+discard their results. SRP host/service/TXT bounds cap retained registry state.
+The Rust layer validates addresses/known TXT, removes duplicates, caps its cache
+at 16 entries/120 seconds and never renews TTL on reads. It handles lookup-time
+Thread loss, attachment wait and bounded retry delays.
+
+A separate probe-only archive advertises the synthetic accessory through signed
+SRP registration. `--service-discovery` then uses the production resolver for
+encrypted commissioning, catalog completion, commands and fresh CASE after
+fabric reopen with the phone detached. No address is deposited by the fixture.
+Missing-service and dropped-query callbacks are verified before a subsequent
+valid SRV/TXT/AAAA lookup. Fixture symbols are absent from production artifacts.
+
+Verification: 54 service-feature tests, SRP/DNS encrypted fixture, running-service
+IPC/catalog regression and native worker `--real-service` HTTP/WebSocket checks
+passed. Both host and MIPS service/probe builds passed. Static big-endian
+MIPS-I/o32 soft-float artifact sizes are 1,924,788 and 2,264,780 bytes. Hashes/scope
+are in `ziggurat-compilation/docs/matter-operational-discovery-validation.json`;
+flow/bounds are in `ziggurat-compilation/docs/matter-operational-discovery.md`.
+
+Checklist item 1 is complete at host implementation scope. Items 2–7 remain
+open: remote catalog reconciliation/legacy migration, descriptor/endpoint/cluster
+discovery, production operations/subscriptions and native reports. Proactive
+cache invalidation after CASE failure belongs to that recovery pipeline. Older
+comparison fixtures retain explicit rendezvous; they are not the discovery
+evidence. Host timing includes Thread/SRP bootstrap and is not target CPU/RSS.
+No deployment or plan 08 acceptance occurred.
