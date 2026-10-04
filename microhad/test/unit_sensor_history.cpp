@@ -94,10 +94,10 @@ void runSensorHistoryUnitTests() {
         zone[0] = 1;
         assert(gateway.applyIasZoneStatus(other, zone));
     }
-    assert(SensorHistory::readJson(path, other, 0, &json, &error));
-    assert(json.find(",1,2348]") != std::string::npos);
-    assert(json.find(",2,5030]") != std::string::npos);
-    assert(json.find(",3,0]") != std::string::npos && json.find(",3,1]") != std::string::npos);
+    assert(SensorHistory::readJson(path, std::string("zigbee:") + other, 0, &json, &error));
+    assert(json.find(",1,23.48,\"celsius\"") != std::string::npos);
+    assert(json.find(",2,50.3,\"percent\"") != std::string::npos);
+    assert(json.find(",3,0,\"\"") != std::string::npos && json.find(",3,1,\"\"") != std::string::npos);
 
     SensorHistory concurrentHistory(path);
     assert(concurrentHistory.initialize(&error));
@@ -302,6 +302,7 @@ void runSensorHistoryUnitTests() {
     const std::string matterId = "matter:0000000000000001:0000000000000002:0001";
     const std::string secondMatterId = "matter:0000000000000001:0000000000000002:0002";
     const std::string shellyId = "shelly:0011223344556677:temperature:2";
+    const std::string zigbeeId = "zigbee:0x00124b0000000001";
     {
         SensorHistory history(path);
         assert(history.appendValue(matterId, SensorHistory::Temperature, "-5.25", "celsius", 1708000000L));
@@ -315,6 +316,7 @@ void runSensorHistoryUnitTests() {
         assert(history.appendValue(shellyId, SensorHistory::Temperature, "22.375", "celsius", 1708000000L));
         assert(history.appendValue(shellyId, SensorHistory::Contact, "1", "", 1708000001L));
         assert(history.appendValue(shellyId, SensorHistory::Power, "42.3", "watts", 1708000002L));
+        assert(history.appendValue(zigbeeId, SensorHistory::Battery, "87", "percent", 1708000004L));
         assert(!history.appendValue(shellyId, SensorHistory::Power, "42.3", "kW", 1708000060L));
         assert(!history.appendValue(matterId, SensorHistory::CarbonDioxide, "758.5", "miles", 1708000060L));
         assert(history.readForDevice(matterId, 0, &json, &error));
@@ -326,6 +328,14 @@ void runSensorHistoryUnitTests() {
         assert(json.find("22.375,\"celsius\"") != std::string::npos);
         assert(json.find(",3,1,\"\"") != std::string::npos);
         assert(json.find("42.3,\"watts\"") != std::string::npos);
+        assert(history.readForDevice(zigbeeId, 0, &json, &error));
+        assert(json.find(",6,87,\"percent\"") != std::string::npos);
+    }
+    {
+        SensorHistory legacy(path);
+        assert(legacy.append("0x00124b0000000042", SensorHistory::Temperature, 2245, 1708000000L));
+        assert(legacy.readForDevice("zigbee:0x00124b0000000042", 0, &json, &error));
+        assert(json.find(",1,2245]") != std::string::npos);
     }
     {
         SensorHistory restarted(path);

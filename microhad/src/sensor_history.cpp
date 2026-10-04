@@ -219,6 +219,12 @@ bool valueMetricValid(unsigned char metric, const std::string& value, const std:
     if (!plainText(value, 24, false) || !plainText(unit, 16, true)) return false;
     if (metric == SensorHistory::Contact || metric == SensorHistory::Occupancy)
         return unit.empty() && (value == "0" || value == "1");
+    if (metric == SensorHistory::Battery) {
+        char* batteryEnd = 0;
+        const double battery = std::strtod(value.c_str(), &batteryEnd);
+        return unit == "percent" && batteryEnd == value.c_str() + value.size() &&
+               std::isfinite(battery) && battery >= 0 && battery <= 100;
+    }
     if (metric == SensorHistory::AirQuality)
         return unit.empty() && (value == "good" || value == "fair" || value == "moderate" || value == "poor" ||
             value == "very_poor" || value == "extremely_poor");
@@ -911,8 +917,13 @@ bool SensorHistory::readValuesJson(const std::string& deviceId, unsigned long be
 
 bool SensorHistory::readForDevice(const std::string& address, unsigned long before,
         std::string* json, std::string* error, ReadStats* stats) const {
-    if (address.find("matter:") == 0 || address.find("shelly:") == 0)
-        return readValuesJson(address, before, json, error, stats);
+    if (address.find("matter:") == 0 || address.find("shelly:") == 0 || address.find("zigbee:") == 0 ||
+        address.find("fritz:") == 0) {
+        if (!readValuesJson(address, before, json, error, stats)) return false;
+        if (address.find("zigbee:") == 0 && json->find("\"samples\":[]") != std::string::npos)
+            return readV2Json(address.substr(7), before, json, error, stats);
+        return true;
+    }
     return readV2Json(address, before, json, error, stats);
 }
 

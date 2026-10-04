@@ -104,7 +104,9 @@ export function HistoryDialog({ device, onClose }: { device: Device; onClose: ()
   ]
   const historyId = device.source === 'shelly'
     ? `shelly:${device.external_id}:${device.component}`
-    : device.source === 'matter' ? device.external_id : device.id
+    : device.source === 'matter' ? device.external_id
+      : device.source === 'fritz_box' ? `fritz:${device.external_id}:${device.component}`
+        : `zigbee:${device.ieee_address}`
   const series = metrics.flatMap((metric) => {
     const units = [...new Set(samples.filter((sample) => sample[2] === metric).map((sample) => historyUnit(metric, sample)))]
     return (units.length ? units : [historyUnit(metric)]).map((unit) => ({ metric, unit }))

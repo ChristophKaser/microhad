@@ -740,6 +740,9 @@ bool Gateway::applyFritzEvent(const std::string& id, bool connected, bool hasSig
     it->second.occupied = connected;
     it->second.hasWifiSignal = hasSignal;
     if (hasSignal) it->second.wifiSignalPercent = signalPercent;
+    if (it->second.occupied != before.occupied)
+        history_.appendValue("fritz:" + id + ":" + it->second.component, SensorHistory::Occupancy,
+                             connected ? "1" : "0", "", time(0));
     if (hasSignal) updateValueAlerts(it->second, before);
     it->second.lastSeen = time(0);
     markViewDirty(); saveState();
@@ -2456,19 +2459,31 @@ bool Gateway::applyIasZoneStatus(const std::string& ieeeAddress, const std::vect
 }
 
 void Gateway::recordHistory(const Device& before, const Device& after, unsigned observed, long timestamp) {
-    if ((observed & ZclObservedTemperature) && after.hasTemperature)
-        history_.append(after.ieeeAddress, SensorHistory::Temperature,
-                        static_cast<int>(after.temperatureCelsius * 100 + (after.temperatureCelsius >= 0 ? 0.5 : -0.5)), timestamp);
-    if ((observed & ZclObservedHumidity) && after.hasHumidity)
-        history_.append(after.ieeeAddress, SensorHistory::Humidity,
-                        static_cast<int>(after.humidityPercent * 100 + 0.5), timestamp);
+    if ((observed & ZclObservedTemperature) && after.hasTemperature) {
+        std::ostringstream value;
+        value << std::setprecision(15) << after.temperatureCelsius;
+        history_.appendValue("zigbee:" + after.ieeeAddress, SensorHistory::Temperature,
+                             value.str(), "celsius", timestamp);
+    }
+    if ((observed & ZclObservedHumidity) && after.hasHumidity) {
+        std::ostringstream value;
+        value << std::setprecision(15) << after.humidityPercent;
+        history_.appendValue("zigbee:" + after.ieeeAddress, SensorHistory::Humidity,
+                             value.str(), "percent", timestamp);
+    }
     if ((observed & ZclObservedContact) && after.hasContact &&
         (!before.hasContact || before.contactOpen != after.contactOpen))
-        history_.append(after.ieeeAddress, SensorHistory::Contact, after.contactOpen ? 1 : 0, timestamp);
+        history_.appendValue("zigbee:" + after.ieeeAddress, SensorHistory::Contact,
+                             after.contactOpen ? "1" : "0", "", timestamp);
     if ((observed & ZclObservedOccupancy) && after.hasOccupancy)
-        history_.append(after.ieeeAddress, SensorHistory::Occupancy, after.occupied ? 1 : 0, timestamp);
-    if ((observed & ZclObservedBattery) && after.hasBattery)
-        history_.append(after.ieeeAddress, SensorHistory::Battery, after.batteryPercent, timestamp);
+        history_.appendValue("zigbee:" + after.ieeeAddress, SensorHistory::Occupancy,
+                             after.occupied ? "1" : "0", "", timestamp);
+    if ((observed & ZclObservedBattery) && after.hasBattery) {
+        std::ostringstream value;
+        value << after.batteryPercent;
+        history_.appendValue("zigbee:" + after.ieeeAddress, SensorHistory::Battery,
+                             value.str(), "percent", timestamp);
+    }
 }
 
 void Gateway::updateContactAlert(const std::string& ieeeAddress, bool wasOpen, bool hadKnownState) {

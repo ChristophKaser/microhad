@@ -96,8 +96,9 @@ void runExternalHttpDeviceWorkerUnitTests() {
         assert(foundPresence);
         assert(!fritzAddress.empty());
         assert(gateway.applyFritzEvent("fb123456789abcde", false, false, 0, &error));
-        assert(SensorHistory::readJson(history, fritzAddress, 0, &json, &error));
-        assert(json.find("\"samples\":[]") != std::string::npos);
+        assert(SensorHistory::readJson(history, "fritz:fb123456789abcde:presence", 0, &json, &error));
+        assert(json.find(",5,1,\"\"") != std::string::npos);
+        assert(json.find(",5,0,\"\"") != std::string::npos);
         std::vector<int> inputs; inputs.push_back(0); inputs.push_back(1);
         std::vector<int> temperatures; temperatures.push_back(0); temperatures.push_back(1); temperatures.push_back(2);
         std::vector<int> relays; relays.push_back(0); relays.push_back(1);
