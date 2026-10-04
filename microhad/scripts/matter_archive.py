@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Preflight an unencrypted Matter state tar archive without extracting it."""
 import argparse
+import os
 import pathlib
 import posixpath
 import sys
@@ -85,16 +86,100 @@ def preflight(path):
     return len(entries), total
 
 
+def _make_directories(root, relative):
+    current = root
+    for component in relative.split("/") if relative else ():
+        current = current / component
+        try:
+            current.mkdir(mode=0o700)
+        except FileExistsError:
+            if current.is_symlink() or not current.is_dir():
+                raise ArchiveError("directory conflicts with staged file")
+        current.chmod(0o700)
+    return current
+
+
+def extract_staged(path, destination):
+    """Extract only a preflighted archive into a new private staging directory."""
+    count, total = preflight(path)
+    target = pathlib.Path(destination)
+    if not target.is_absolute():
+        raise ArchiveError("staging path must be absolute")
+    parent = target.parent
+    try:
+        if not parent.is_dir() or parent.resolve(strict=True) != parent.absolute():
+            raise ArchiveError("staging parent must be a real directory")
+        os.mkdir(str(target), 0o700)
+    except FileExistsError as error:
+        raise ArchiveError("staging destination already exists") from error
+    except OSError as error:
+        raise ArchiveError("cannot create private staging directory") from error
+
+    try:
+        with tarfile.open(path, mode="r:") as archive:
+            for member in archive:
+                name = _canonical_name(member.name)
+                if not name:
+                    continue
+                output = target.joinpath(*name.split("/"))
+                parent_relative = posixpath.dirname(name)
+                _make_directories(target, parent_relative)
+                if member.isdir():
+                    _make_directories(target, name)
+                    continue
+                source = archive.extractfile(member)
+                if source is None:
+                    raise ArchiveError("cannot read regular archive member")
+                flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+                flags |= getattr(os, "O_NOFOLLOW", 0)
+                descriptor = os.open(str(output), flags, 0o600)
+                try:
+                    if not os.path.isfile(str(output)) or os.fstat(descriptor).st_nlink != 1:
+                        raise ArchiveError("unsafe staged file")
+                    remaining = member.size
+                    while remaining:
+                        chunk = source.read(min(65536, remaining))
+                        if not chunk:
+                            raise ArchiveError("truncated archive member")
+                        view = memoryview(chunk)
+                        while view:
+                            written = os.write(descriptor, view)
+                            if written <= 0:
+                                raise ArchiveError("staged write failed")
+                            view = view[written:]
+                        remaining -= len(chunk)
+                    if source.read(1):
+                        raise ArchiveError("archive member exceeds declared size")
+                    os.fchmod(descriptor, 0o600)
+                    os.fsync(descriptor)
+                finally:
+                    os.close(descriptor)
+                source.close()
+        for directory, _, _ in os.walk(str(target), topdown=False, followlinks=False):
+            descriptor = os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+            try:
+                os.fchmod(descriptor, 0o700)
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+    except (ArchiveError, OSError, tarfile.TarError, EOFError) as error:
+        raise ArchiveError("staged extraction failed; private candidate preserved") from error
+    return count, total
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("archive", help="private plaintext tar produced by successful decryption")
+    parser.add_argument("--extract-to", help="new absolute private staging directory")
     args = parser.parse_args()
     try:
-        count, total = preflight(args.archive)
+        count, total = (extract_staged(args.archive, args.extract_to) if args.extract_to
+                        else preflight(args.archive))
     except (ArchiveError, OSError):
         print("Matter archive preflight failed", file=sys.stderr)
         return 1
-    print(f"Matter archive preflight passed ({count} entries, {total} bytes)")
+    action = "staged" if args.extract_to else "preflight passed"
+    print(f"Matter archive {action} ({count} entries, {total} bytes)")
     return 0
 
 

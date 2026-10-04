@@ -2,13 +2,14 @@
 """Synthetic safety tests for Matter backup archive preflight."""
 import io
 import pathlib
+import stat
 import subprocess
 import sys
 import tarfile
 import tempfile
 import unittest
 
-from matter_archive import ArchiveError, preflight
+from matter_archive import ArchiveError, extract_staged, preflight
 
 
 def write_archive(path, entries):
@@ -48,12 +49,20 @@ class MatterArchiveTests(unittest.TestCase):
 
     def test_cli_preflights_without_printing_member_or_credential_contents(self):
         write_archive(self.path, self.complete())
-        result = subprocess.run([sys.executable, str(pathlib.Path(__file__).with_name("matter_archive.py")),
-                                 str(self.path)], capture_output=True, text=True, check=False)
+        tool = str(pathlib.Path(__file__).with_name("matter_archive.py"))
+        result = subprocess.run([sys.executable, tool, str(self.path)], capture_output=True, text=True, check=False)
         self.assertEqual(result.returncode, 0)
         self.assertIn("4 entries, 46 bytes", result.stdout)
         self.assertNotIn("credentials.bin", result.stdout)
         self.assertNotIn("synthetic credentials", result.stdout)
+        destination = pathlib.Path(self.temporary.name) / "cli-stage"
+        result = subprocess.run([sys.executable, tool, str(self.path), "--extract-to", str(destination)],
+                                capture_output=True, text=True, check=False)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("Matter archive staged", result.stdout)
+        self.assertNotIn("credentials.bin", result.stdout)
+        self.assertNotIn("synthetic credentials", result.stdout)
+        self.assertEqual(stat.S_IMODE((destination / "credentials.bin").stat().st_mode), 0o600)
 
     def test_rejects_incomplete_state_and_preserves_archive(self):
         entries = [entry for entry in self.complete() if entry[0] != "./tmp/"]
@@ -62,6 +71,35 @@ class MatterArchiveTests(unittest.TestCase):
         with self.assertRaises(ArchiveError):
             preflight(self.path)
         self.assertEqual(self.path.read_bytes(), original)
+
+    def test_extracts_new_private_staging_tree_with_restricted_modes(self):
+        write_archive(self.path, self.complete())
+        original = self.path.read_bytes()
+        destination = pathlib.Path(self.temporary.name) / "staged"
+        self.assertEqual(extract_staged(self.path, destination), (4, 46))
+        self.assertEqual(self.path.read_bytes(), original)
+        self.assertEqual(stat.S_IMODE(destination.stat().st_mode), 0o700)
+        self.assertEqual(stat.S_IMODE((destination / "tmp").stat().st_mode), 0o700)
+        self.assertEqual(stat.S_IMODE((destination / "credentials.bin").stat().st_mode), 0o600)
+        self.assertEqual(stat.S_IMODE((destination / "tmp/settings.data").stat().st_mode), 0o600)
+        self.assertEqual((destination / "credentials.bin").read_bytes(), b"synthetic credentials")
+
+    def test_failed_or_existing_destination_is_preserved(self):
+        destination = pathlib.Path(self.temporary.name) / "existing"
+        destination.mkdir(mode=0o700)
+        marker = destination / "keep"
+        marker.write_text("preserve")
+        write_archive(self.path, self.complete())
+        with self.assertRaises(ArchiveError):
+            extract_staged(self.path, destination)
+        self.assertEqual(marker.read_text(), "preserve")
+
+        entries = [entry for entry in self.complete() if entry[0] != "./credentials.bin"]
+        write_archive(self.path, entries)
+        missing = pathlib.Path(self.temporary.name) / "missing"
+        with self.assertRaises(ArchiveError):
+            extract_staged(self.path, missing)
+        self.assertFalse(missing.exists())
 
     def test_rejects_traversal_links_duplicate_and_noncanonical_paths(self):
         bad_entries = [
