@@ -6,8 +6,8 @@ Guarded datasets, fresh coordinator observations, and active commissioning
 cancellation on readiness loss are host-verified. Integrated
 stall/channel-change/restart recovery remains open.
 
-Next deliverable: Exercise repeated channel changes and bounded operator recovery.
-Keep physical coexistence and RF acceptance in plan 08.
+Next deliverable: Exercise native-worker continuity through mismatch/recovery and
+bounded operator recovery. Keep physical coexistence and RF acceptance in plan 08.
 
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.
@@ -119,9 +119,9 @@ are historical; the latest status/evidence section above takes precedence.
 1. [ ] Extend synthetic integration coverage for coordinator stalls/restarts,
    channel changes and Thread socket loss while the native worker remains live.
    The Rust service fixture now covers active-session RCP loss/restart and fresh
-   channel gating (`34b4839`); native-worker continuity and repeated channel
-   change cases remain. Confirm expiry detaches Thread and stale observations
-   cannot renew readiness.
+   channel gating (`34b4839`), plus repeated incompatible observations and
+   matching-channel recovery (`77d70f0`); native-worker continuity remains.
+   Confirm expiry detaches Thread and stale observations cannot renew readiness.
 2. [ ] Define and verify explicit recovery when the observed Zigbee channel
    differs from the persisted dataset. Reject incompatible apply before any
    store/radio mutation; never silently replace credentials or reset the UART.
@@ -226,3 +226,17 @@ existing 30-second commissioning timeout and subsequent fabric/state checks.
 This verifies active-session/RCP failure recovery on the host synthetic RCP.
 Repeated channel changes and target RF/recovery acceptance remain open; plan
 08 was not run.
+
+## Repeated coordinator channel mismatch recovery — 2026-10-05
+
+Rust commit `77d70f0` adds repeated live mismatch observations after the
+service restores an interrupted commissioning node. The service rejects
+channels 20 and 11 against the stored channel 15, reports `channel_mismatch`,
+keeps credentials unchanged, and records no off-channel radio writes. A fresh
+channel-15 observation returns the service to `running`.
+
+`python3 scripts/test-matter-service.py` passes with the 30-second commissioning
+timeout, active-session RCP-loss recovery, repeated mismatch checks and final
+state validation. This covers changing/offline coordinator reports while the
+service is alive; actual Zigbee channel migration and RF coexistence remain
+target acceptance work in plan 08.
