@@ -3,7 +3,8 @@
 These files break the remaining integration work into reviewable stages. The
 native observation/status worker, Rust owned commissioner and guarded Thread
 lifecycle and Garage onboarding have host evidence;
-the production discovery/device pipeline remains open.
+operational SRP/DNS and descriptor reads have host evidence; service device
+recovery, control and report integration remain open.
 
 Recommended order:
 
@@ -36,7 +37,7 @@ specific evidence recorded in a file, not to end-to-end Matter support.
 | [04 Native API/dashboard](04-native-api-dashboard.md) | Status, queued routes, relay and onboarding/progress UI implemented; device views pending | Add device API/views with plan 07 and finish broad failure gates |
 | [05 Garage BLE relay](05-garage-ble-relay.md) | Foreground onboarding and parser/GATT/HTTP/WebSocket implemented; 60 tests and APK builds pass per flavor | Implementation checklist complete; physical acceptance stays in plan 08 |
 | [06 Thread lifecycle](06-thread-network-lifecycle.md) | Guarded dataset lifecycle and native observation worker verified on host | Extend channel-change/restart recovery and target verification |
-| [07 Devices/reports](07-device-model-and-reports.md) | Owned commissioner, catalog and operational SRP/DNS discovery host-tested; device pipeline pending | Reconcile remote nodes, discover descriptors, then add controls/reports |
+| [07 Devices/reports](07-device-model-and-reports.md) | Owned commissioner, catalog, SRP/DNS and bounded descriptor helper host-tested; service device pipeline pending | Schedule catalog recovery/descriptor snapshots, then add controls/reports |
 | [08 Real-device acceptance](08-real-device-acceptance.md) | Pending final acceptance gate | Review plans 01–07, then arrange backed-up device testing |
 
 Update the relevant file after each verified checkpoint with the changed

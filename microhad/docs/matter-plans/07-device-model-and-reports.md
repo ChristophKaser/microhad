@@ -7,7 +7,9 @@ states are implemented and host-tested. Rust commit `e59c3dc` drives encrypted
 CASE/CommissioningComplete and fresh CASE through the resolver in the synthetic
 accessory fixture without injected rendezvous.
 
-Remote recovery of catalogued nodes, legacy migration, descriptors, device
+Bounded endpoint/cluster descriptor reads now have encrypted host evidence
+(`05053ec`); their production service scheduling remains open.
+Remote recovery of catalogued nodes, legacy migration, device
 operations and report integration remain open. Next deliverable: reconcile
 recovery-required nodes over operational CASE, discover endpoint descriptors and
 advertised clusters, then add commands/subscriptions/native reports.
@@ -93,8 +95,27 @@ and CASE completion in the synthetic accessory fixture. The running service
 contains that task, persistent catalog and production SRP/DNS resolver. Remote
 node recovery remains open. Production lookup uses no fixture address injection and remains bounded when
 registration/attachment is absent.
-Descriptor/control/report integration and real operational discovery remain the
+Descriptor/control/report integration and remote catalog reconciliation remain the
 next requirements here; the owned fixture is not device-model acceptance.
+
+## Descriptor helper checkpoint — 2026-10-04
+
+Rust commit `05053ec` adds a reusable operational CASE discovery helper: root
+PartsList followed by ServerList for root and advertised endpoints. It bounds
+snapshots to 32 endpoints and 64 server clusters per endpoint, rejects malformed,
+duplicate and wildcard endpoint IDs, and returns no partial snapshot on failure.
+The encrypted synthetic accessory fixture finds endpoints 0/1 and the OnOff
+cluster through this helper; the harness requires its success marker.
+
+All 55 service-feature library tests and both host/MIPS commissioning-probe
+builds pass. Production SRP/DNS, owned commissioning, temperature/OnOff and
+persisted-authority fresh CASE fixture checks continue to pass. Details and
+commands: `ziggurat-compilation/docs/matter-device-discovery.md`.
+
+Checklist item 3 remains open: service scheduling, catalog reconciliation,
+device type/feature metadata, bounded job deadlines and native device snapshots
+are not implemented by this helper. No device deployment or plan 08 acceptance
+was performed.
 
 ## Execution checklist for open work — 2026-10-04
 
@@ -112,6 +133,8 @@ are historical; the latest status/evidence section above takes precedence.
 3. [ ] Complete production CASE/CommissioningComplete through the resolver,
    then discover descriptors, endpoints and advertised clusters. Test restart
    against the same catalog and authority without the phone.
+   Bounded PartsList/ServerList helper is verified over encrypted CASE
+   (`05053ec`); service scheduling, recovery and device snapshots remain open.
 4. [ ] Implement validated OnOff/Level reads and commands plus typed IPC
    bodies in plan 02. Confirm resulting values through reads/reports and expose
    unsupported clusters and failed commands explicitly.
