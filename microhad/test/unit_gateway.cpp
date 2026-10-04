@@ -1649,9 +1649,25 @@ static void testDevicePersistence() {
     nondimmable.hasBrightness = false;
     nondimmable.brightnessPercent = -1;
     devices.push_back(nondimmable);
+    Device matter;
+    matter.ieeeAddress = "matter:0000000000000001:0000000000000002:0001";
+    matter.externalId = matter.ieeeAddress;
+    matter.component = "endpoint";
+    matter.source = "matter";
+    matter.kind = "switch";
+    matter.matterNode = "0000000000000002";
+    matter.matterEndpoint = 1;
+    matter.matterServers.push_back(6);
+    matter.matterServers.push_back(1037);
+    matter.hasActor = true;
+    matter.hasCo2 = true;
+    matter.co2Known = true;
+    matter.co2Ppm = 758.5;
+    matter.co2Unit = "ppb";
+    devices.push_back(matter);
     assert(saveDevices(filename, devices, &error));
     assert(loadDevices(filename, &loaded, &error));
-    assert(loaded.size() == 2);
+    assert(loaded.size() == 3);
     assert(loaded[0].ieeeAddress == input.ieeeAddress);
     assert(loaded[0].networkAddress == input.networkAddress);
     assert(loaded[0].name == input.name && loaded[0].kind == input.kind);
@@ -1672,6 +1688,12 @@ static void testDevicePersistence() {
     assert(loaded[0].endpoints[0].inputClusters.size() == 4);
     assert(loaded[0].endpoints[0].inputClusters[2] == 0x0402 && loaded[0].endpoints[0].outputClusters[0] == 0x0003);
     assert(loaded[1].ieeeAddress == nondimmable.ieeeAddress && !loaded[1].hasBrightness && loaded[1].brightnessPercent == -1);
+    assert(loaded[2].source == "matter" && loaded[2].externalId == matter.externalId);
+    assert(loaded[2].matterNode == matter.matterNode && loaded[2].matterEndpoint == 1);
+    assert(loaded[2].matterServers.size() == 2 && loaded[2].matterServers[0] == 6 &&
+           loaded[2].matterServers[1] == 1037);
+    assert(loaded[2].hasActor && loaded[2].hasCo2 && loaded[2].co2Known &&
+           loaded[2].co2Ppm == 758.5 && loaded[2].co2Unit == "ppb");
     unlink(filename.c_str());
     rmdir(directory.c_str());
 }
@@ -1810,6 +1832,9 @@ static void testMatterAlertSettingsSurviveRestart() {
     endpoint.servers.push_back(1066);
     std::vector<MatterEndpoint> endpoints(1, endpoint);
     std::string error;
+    const std::string volatilePath = "/tmp/microhad-zigbee-native-values.json";
+    const std::string volatileBackup = volatilePath + ".matter-restart-test-backup";
+    bool hadVolatileValues = rename(volatilePath.c_str(), volatileBackup.c_str()) == 0;
     {
         Gateway gateway("/dev/null", 115200, directory, "", "", "");
         assert(gateway.reconcileMatterDevices(endpoints, &error));
@@ -1866,6 +1891,15 @@ static void testMatterAlertSettingsSurviveRestart() {
             if (loaded[i].source == "matter" && loaded[i].externalId == endpointId &&
                 loaded[i].valueAlerts.find("temperature") != loaded[i].valueAlerts.end()) restoredBeforeSnapshot = true;
         assert(restoredBeforeSnapshot);
+        bool restoredReading = false;
+        for (unsigned long i = 0; i < loaded.size(); ++i) {
+            if (loaded[i].source == "matter" && loaded[i].externalId == endpointId) {
+                restoredReading = loaded[i].co2Known && loaded[i].co2Ppm == 750 && loaded[i].co2Unit == "ppb" &&
+                                  loaded[i].pm25Known && loaded[i].pm25MicrogramsM3 == 11 &&
+                                  loaded[i].pm25Unit == "ug/m3";
+            }
+        }
+        assert(restoredReading);
         assert(restarted.reconcileMatterDevices(endpoints, &error));
         loaded = restarted.devices();
         bool restoredAfterSnapshot = false;
@@ -1906,6 +1940,8 @@ static void testMatterAlertSettingsSurviveRestart() {
     unlink((std::string(directory) + "/devices.json").c_str());
     unlink((std::string(directory) + "/devices.json.tmp").c_str());
     assert(rmdir(directory) == 0);
+    unlink(volatilePath.c_str());
+    if (hadVolatileValues) assert(rename(volatileBackup.c_str(), volatilePath.c_str()) == 0);
 }
 
 static void testNetworkPersistence() {

@@ -2,6 +2,7 @@
 #include "gateway.h"
 #include "json_util.h"
 
+#include <algorithm>
 #include <cerrno>
 #include <cstdio>
 #include <cstdlib>
@@ -117,6 +118,33 @@ bool decodeEndpointDescriptors(const std::string& encoded, std::vector<EndpointD
     return offset == bytes.size();
 }
 
+std::string encodeMatterServers(const std::vector<unsigned int>& servers) {
+    std::vector<unsigned char> bytes;
+    if (servers.size() > 64) return "";
+    for (unsigned long i = 0; i < servers.size(); ++i) {
+        bytes.push_back(static_cast<unsigned char>(servers[i] >> 24));
+        bytes.push_back(static_cast<unsigned char>(servers[i] >> 16));
+        bytes.push_back(static_cast<unsigned char>(servers[i] >> 8));
+        bytes.push_back(static_cast<unsigned char>(servers[i]));
+    }
+    return hexEncode(bytes);
+}
+
+bool decodeMatterServers(const std::string& encoded, std::vector<unsigned int>* servers) {
+    std::vector<unsigned char> bytes;
+    if (!hexDecode(encoded, &bytes) || bytes.size() % 4 != 0 || bytes.size() > 256) return false;
+    servers->clear();
+    for (unsigned long i = 0; i < bytes.size(); i += 4) {
+        unsigned int value = (static_cast<unsigned int>(bytes[i]) << 24) |
+                             (static_cast<unsigned int>(bytes[i + 1]) << 16) |
+                             (static_cast<unsigned int>(bytes[i + 2]) << 8) |
+                             static_cast<unsigned int>(bytes[i + 3]);
+        if (std::find(servers->begin(), servers->end(), value) != servers->end()) return false;
+        servers->push_back(value);
+    }
+    return true;
+}
+
 bool validOptionalIntegerField(const std::string& line, const char* field, long minimum, long maximum) {
     std::string key = std::string("\"") + field + "\":";
     std::string::size_type at = line.find(key);
@@ -214,7 +242,20 @@ bool saveDevices(const std::string& filename, const std::vector<Device>& devices
                << device.contactReminderAlertMinutes << ",\"contact_trigger_mode\":"
                << (device.contactTriggerMode ? "true" : "false") << ",\"contact_trigger_cooldown_seconds\":"
                << device.contactTriggerCooldownSeconds << ",\"sensor_refresh_interval_minutes\":"
-               << device.sensorRefreshIntervalMinutes;
+               << device.sensorRefreshIntervalMinutes
+               << ",\"humidity_known\":" << (device.humidityKnown ? "true" : "false")
+               << ",\"has_air_quality\":" << (device.hasAirQuality ? "true" : "false")
+               << ",\"air_quality_known\":" << (device.airQualityKnown ? "true" : "false")
+               << ",\"air_quality\":\"" << jsonEscape(device.airQuality)
+               << "\",\"has_co2\":" << (device.hasCo2 ? "true" : "false")
+               << ",\"co2_known\":" << (device.co2Known ? "true" : "false")
+               << ",\"co2_ppm\":" << device.co2Ppm << ",\"co2_unit\":\"" << jsonEscape(device.co2Unit)
+               << "\",\"has_pm25\":" << (device.hasPm25 ? "true" : "false")
+               << ",\"pm25_known\":" << (device.pm25Known ? "true" : "false")
+               << ",\"pm25_micrograms_m3\":" << device.pm25MicrogramsM3
+               << ",\"pm25_unit\":\"" << jsonEscape(device.pm25Unit)
+               << "\",\"light_known\":" << (device.lightKnown ? "true" : "false")
+               << ",\"brightness_known\":" << (device.brightnessKnown ? "true" : "false");
         for (std::map<std::string, DeviceValueAlert>::const_iterator alert = device.valueAlerts.begin(); alert != device.valueAlerts.end(); ++alert) {
             output << ",\"alert_" << alert->first << "_has_low\":" << (alert->second.hasLow ? "true" : "false")
                    << ",\"alert_" << alert->first << "_low\":" << alert->second.low
@@ -227,7 +268,13 @@ bool saveDevices(const std::string& filename, const std::vector<Device>& devices
                << jsonEscape(device.manufacturerName) << "\",\"model_id\":\"" << jsonEscape(device.modelId)
                << "\",\"software_build_id\":\"" << jsonEscape(device.softwareBuildId)
                << "\",\"endpoint_descriptors\":\"" << encodeEndpointDescriptors(device.endpoints)
-               << "\",\"node_descriptor\":\"" << hexEncode(device.nodeDescriptor) << "\"}";
+               << "\",\"node_descriptor\":\"" << hexEncode(device.nodeDescriptor) << '"';
+        if (device.source == "matter") {
+            output << ",\"matter_node\":\"" << jsonEscape(device.matterNode)
+                   << "\",\"matter_endpoint\":" << device.matterEndpoint
+                   << ",\"matter_servers\":\"" << encodeMatterServers(device.matterServers) << '"';
+        }
+        output << '}';
         output << (i + 1 == devices.size() ? "\n" : ",\n");
     }
     output << "  ]\n}\n";
@@ -263,6 +310,8 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
             if (ieeeAddress.empty() ||
                 !validOptionalDecimalField(line, "temperature_celsius", -100, 200) ||
                 !validOptionalDecimalField(line, "humidity_percent", 0, 100) ||
+                !validOptionalDecimalField(line, "co2_ppm", 0, 3.402823466e38) ||
+                !validOptionalDecimalField(line, "pm25_micrograms_m3", 0, 3.402823466e38) ||
                 !validOptionalDecimalField(line, "power_watts", 0, 6553.5) ||
                 !validOptionalDecimalField(line, "low_temperature_alert", -100, 200) ||
                 !validOptionalDecimalField(line, "high_temperature_alert", -100, 200) ||
@@ -271,6 +320,7 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
                 !validOptionalIntegerField(line, "wifi_signal_percent", 0, 100) ||
                 !validOptionalIntegerField(line, "brightness_percent", -1, 100) ||
                 !validOptionalIntegerField(line, "last_seen", 0, LONG_MAX) ||
+                !validOptionalIntegerField(line, "matter_endpoint", 0, 65534) ||
                 !validOptionalIntegerField(line, "ias_zone_id", -1, 254) ||
                 !validOptionalIntegerField(line, "contact_initial_alert_minutes", 0, LONG_MAX) ||
                 !validOptionalIntegerField(line, "contact_reminder_alert_minutes", 0, LONG_MAX) ||
@@ -305,6 +355,15 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
             device.hasTemperature = line.find("\"has_temperature\":true") != std::string::npos;
             device.temperatureKnown = line.find("\"temperature_known\":true") != std::string::npos;
             device.hasHumidity = line.find("\"has_humidity\":true") != std::string::npos;
+            device.humidityKnown = line.find("\"humidity_known\":true") != std::string::npos;
+            device.hasAirQuality = line.find("\"has_air_quality\":true") != std::string::npos;
+            device.airQualityKnown = line.find("\"air_quality_known\":true") != std::string::npos;
+            device.hasCo2 = line.find("\"has_co2\":true") != std::string::npos;
+            device.co2Known = line.find("\"co2_known\":true") != std::string::npos;
+            device.hasPm25 = line.find("\"has_pm25\":true") != std::string::npos;
+            device.pm25Known = line.find("\"pm25_known\":true") != std::string::npos;
+            device.lightKnown = line.find("\"light_known\":true") != std::string::npos;
+            device.brightnessKnown = line.find("\"brightness_known\":true") != std::string::npos;
             device.hasOccupancy = line.find("\"has_occupancy\":true") != std::string::npos;
             device.occupied = line.find("\"occupied\":true") != std::string::npos;
             device.hasBattery = line.find("\"has_battery\":true") != std::string::npos;
@@ -329,6 +388,10 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
             if (value != 0) device.batteryPercent = atoi(value);
             value = numericField(line, "humidity_percent");
             if (value != 0) device.humidityPercent = atof(value);
+            value = numericField(line, "co2_ppm");
+            if (value != 0) device.co2Ppm = atof(value);
+            value = numericField(line, "pm25_micrograms_m3");
+            if (value != 0) device.pm25MicrogramsM3 = atof(value);
             value = numericField(line, "link_quality");
             if (value != 0) device.linkQuality = atoi(value);
             value = numericField(line, "wifi_signal_percent");
@@ -355,6 +418,21 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
             device.contactTriggerMode = line.find("\"contact_trigger_mode\":true") != std::string::npos;
             value = numericField(line, "sensor_refresh_interval_minutes");
             if (value != 0) device.sensorRefreshIntervalMinutes = strtoul(value, 0, 10);
+            value = numericField(line, "matter_endpoint");
+            if (value != 0) device.matterEndpoint = static_cast<int>(strtol(value, 0, 10));
+            jsonStringField(line, "matter_node", &device.matterNode);
+            jsonStringField(line, "air_quality", &device.airQuality);
+            jsonStringField(line, "co2_unit", &device.co2Unit);
+            jsonStringField(line, "pm25_unit", &device.pm25Unit);
+            if (device.source == "matter") {
+                std::string encodedServers;
+                if (device.matterNode.size() != 16 || device.matterEndpoint < 0 ||
+                    !jsonStringField(line, "matter_servers", &encodedServers) ||
+                    !decodeMatterServers(encodedServers, &device.matterServers)) {
+                    *error = "invalid Matter endpoint state";
+                    return false;
+                }
+            }
             {
                 static const char* alertNames[] = {"temperature", "humidity", "battery", "link_quality", "wifi_signal", "brightness", "power", "co2", "pm25"};
                 for (unsigned int alertIndex = 0; alertIndex < 9; ++alertIndex) {

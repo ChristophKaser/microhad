@@ -167,6 +167,15 @@ void clearVolatileDeviceValues(Device* device) {
     device->temperatureCelsius = 0;
     device->temperatureKnown = false;
     device->humidityPercent = 0;
+    device->humidityKnown = false;
+    device->airQuality.clear();
+    device->airQualityKnown = false;
+    device->co2Ppm = 0;
+    device->co2Known = false;
+    device->pm25MicrogramsM3 = 0;
+    device->pm25Known = false;
+    device->lightKnown = false;
+    device->brightnessKnown = false;
     device->occupied = false;
     device->hasBattery = false;
     device->batteryPercent = 0;
@@ -175,7 +184,7 @@ void clearVolatileDeviceValues(Device* device) {
     device->actorKnown = false;
     device->powerWatts = 0;
     device->powerKnown = false;
-    device->hasBrightness = false;
+    if (device->source != "matter") device->hasBrightness = false;
     device->brightnessPercent = 0;
     device->linkQuality = 0;
     device->hasWifiSignal = false;
@@ -512,10 +521,12 @@ bool Gateway::reconcileMatterDevices(const std::vector<MatterEndpoint>& endpoint
         }
     }
     bool changed = false;
+    bool persistentChanged = false;
     for (std::map<std::string, Device>::iterator it = devices_.begin(); it != devices_.end();) {
         if (it->second.source == "matter" && replacement.find(it->first) == replacement.end()) {
             devices_.erase(it++);
             changed = true;
+            persistentChanged = true;
         } else ++it;
     }
     for (std::map<std::string, Device>::iterator it = replacement.begin(); it != replacement.end(); ++it) {
@@ -523,9 +534,17 @@ bool Gateway::reconcileMatterDevices(const std::vector<MatterEndpoint>& endpoint
         if (existing == devices_.end()) {
             devices_[it->first] = it->second;
             changed = true;
+            persistentChanged = true;
         } else {
             Device& current = existing->second;
             Device& fresh = it->second;
+            if (current.matterNode != fresh.matterNode || current.matterEndpoint != fresh.matterEndpoint ||
+                current.matterServers != fresh.matterServers || current.kind != fresh.kind ||
+                current.name != fresh.name || current.hasLight != fresh.hasLight ||
+                current.hasBrightness != fresh.hasBrightness || current.hasActor != fresh.hasActor ||
+                current.hasTemperature != fresh.hasTemperature || current.hasHumidity != fresh.hasHumidity ||
+                current.hasAirQuality != fresh.hasAirQuality || current.hasCo2 != fresh.hasCo2 ||
+                current.hasPm25 != fresh.hasPm25) persistentChanged = true;
             fresh.lightOn = current.lightOn;
             fresh.lightKnown = current.lightKnown;
             fresh.actorOn = current.actorOn;
@@ -551,6 +570,7 @@ bool Gateway::reconcileMatterDevices(const std::vector<MatterEndpoint>& endpoint
         }
     }
     if (changed) markViewDirty();
+    if (persistentChanged) savePersistentState();
     return true;
 }
 
@@ -649,6 +669,16 @@ bool Gateway::applyMatterReading(const MatterReading& reading, std::string* erro
     }
     updateValueAlerts(device, before);
     markViewDirty();
+    bool volatileChanged = before.lightKnown != device.lightKnown || before.lightOn != device.lightOn ||
+        before.actorKnown != device.actorKnown || before.actorOn != device.actorOn ||
+        before.brightnessKnown != device.brightnessKnown || before.brightnessPercent != device.brightnessPercent ||
+        before.temperatureKnown != device.temperatureKnown || before.temperatureCelsius != device.temperatureCelsius ||
+        before.humidityKnown != device.humidityKnown || before.humidityPercent != device.humidityPercent ||
+        before.airQualityKnown != device.airQualityKnown || before.airQuality != device.airQuality ||
+        before.co2Known != device.co2Known || before.co2Ppm != device.co2Ppm || before.co2Unit != device.co2Unit ||
+        before.pm25Known != device.pm25Known || before.pm25MicrogramsM3 != device.pm25MicrogramsM3 ||
+        before.pm25Unit != device.pm25Unit;
+    if (volatileChanged) saveState();
     return true;
 }
 
