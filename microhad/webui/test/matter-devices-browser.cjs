@@ -28,13 +28,18 @@ async function main() {
       const endpoint = mode === 'duplicate' ? 0 : fields.cursor;
       const device = { node: '0000000000000002', state: 'complete', online: mode !== 'offline',
         id: `matter:0000000000000001:0000000000000002:${endpoint.toString(16).padStart(4, '0')}`,
-        endpoint, servers: endpoint === 0 ? [29] : [6, 8, 29] };
+        endpoint, servers: endpoint === 0 ? [29] : [6, 8, 29, 91, 1026, 1029, 1037, 1066] };
       const result = { revision: '0000000000000007', devices: mode === 'empty' ? [] : [mode === 'recovery' ?
         { ...device, state: 'recovery_required', online: false, id: null, endpoint: null, servers: [] } : device],
         next_cursor: mode === 'empty' || mode === 'recovery' || fields.cursor === 1 ? null : 1 };
       jobs.set(job, mode === 'pending' ? { job, state: 'running' } : { job, state: 'complete', response:
         mode === 'stale' ? { schema: 1, ok: false, error: 'stale_revision' } : { schema: 1, ok: true, result } });
       response.statusCode = 202; send({ schema: 1, ok: true, job, state: 'queued' });
+    } else if (request.url === '/api/matter/status') {
+      send({ enabled: true, available: true, controller_initialized: true, fabric_ready: true, state: 'running' });
+    } else if (request.url === '/api/thread/status') {
+      send({ enabled: true, available: true, configured: true, attached: true, linux_ipv6_or_tun: false,
+        state: 'attached', zigbee_channel: 15, dataset_channel: 15 });
     } else if (request.url === '/api/matter/devices/read' || request.url === '/api/matter/devices/command') {
       const fields = JSON.parse(body), job = nextJob++;
       if (request.url.endsWith('/command')) {
@@ -43,11 +48,18 @@ async function main() {
         if (fields.command === 'toggle') operationValue = !operationValue;
         if (fields.command === 'move_to_level') operationLevel = fields.level;
       }
-      const level = fields.cluster === 8 || fields.command === 'move_to_level';
+      const cluster = fields.cluster || (fields.command === 'move_to_level' ? 8 : 6);
+      let typed;
+      if (cluster === 8) typed = { type: 'u8', value: operationLevel };
+      else if (cluster === 6) typed = { type: 'bool', value: operationValue };
+      else if (cluster === 91) typed = { type: 'air_quality', value: { value: 'moderate', quality: 'measured' } };
+      else {
+        const sensor = { 1026: [23.15, 'celsius'], 1029: [52.34, 'percent'], 1037: [758.5, 'ppm'], 1066: [12.75, 'ug/m3'] }[cluster];
+        typed = { type: 'measurement', value: { value: sensor[0], unit: sensor[1], quality: 'measured' } };
+      }
       jobs.set(job, { job, state: 'complete', response: { schema: 1, ok: true, result: {
         state: 'complete', job: job.toString(16).padStart(16, '0'), result: { node: fields.node, endpoint: fields.endpoint,
-          cluster: level ? 8 : 6, attribute: 0, value: level ? { type: 'u8', value: operationLevel } :
-            { type: 'bool', value: operationValue } } } } });
+          cluster, attribute: 0, value: typed } } } });
       response.statusCode = 202; send({ schema: 1, ok: true, job, state: 'queued' });
     } else if (request.url.startsWith('/api/matter/jobs/')) send(jobs.get(Number(request.url.split('/').pop())));
     else { response.statusCode = 404; send({ ok: false }); }
@@ -67,7 +79,7 @@ async function main() {
     try { exitCode = await new Promise((resolve, reject) => { child.on('close', resolve); child.on('error', reject); }); }
     finally { clearTimeout(timer); }
     if (exitCode !== 0 || !output.includes('data-result="passed"')) throw new Error(output + errors);
-    console.log(output.match(/PASS rendered[^<]+/)[0]);
+    console.log(output.match(/PASS Matter endpoints[^<]+/)[0]);
   } finally {
     if (child && child.exitCode === null) child.kill('SIGKILL');
     server.closeAllConnections(); await new Promise(resolve => server.close(resolve));

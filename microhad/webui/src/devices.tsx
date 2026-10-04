@@ -24,6 +24,7 @@ const clusterNames: Record<number, string> = {
   5: 'Scenes',
   6: 'On/Off',
   8: 'Level Control',
+  91: 'Air Quality',
   25: 'Over-the-Air Upgrade',
   32: 'Poll Control',
   768: 'Color Control',
@@ -31,6 +32,8 @@ const clusterNames: Record<number, string> = {
   1026: 'Temperature Measurement',
   1027: 'Pressure Measurement',
   1029: 'Relative Humidity',
+  1037: 'CO2 Concentration Measurement',
+  1066: 'PM2.5 Concentration Measurement',
   1030: 'Occupancy Sensing',
   1280: 'IAS Zone',
   1794: 'Simple Metering',
@@ -97,14 +100,16 @@ function DeviceVisual({ device, type }: { device: Device; type: string }) {
   if (type === 'Smart plugs' || type === 'Switches') return <span aria-hidden="true">{type === 'Smart plugs' ? '🔌' : '⏻'}</span>
   if (type === 'Motion sensors') return <span aria-hidden="true">{device.occupied ? '◉' : '◎'}</span>
   if (type === 'Presence sensors') return <span aria-hidden="true">{device.occupied ? '●' : '○'}</span>
+  if (type === 'Air quality sensors') return <span aria-hidden="true">🫧</span>
   return <span aria-hidden="true">{type === 'Remotes' ? '🎛️' : '📡'}</span>
 }
 export const deviceTypes = [
   { name: 'Contact sensors', matches: (device: Device) => device.has_contact },
   {
     name: 'Climate sensors',
-    matches: (device: Device) => device.has_temperature || device.has_humidity,
+    matches: (device: Device) => !device.has_light && (device.has_temperature || device.has_humidity),
   },
+  { name: 'Air quality sensors', matches: (device: Device) => !device.has_light && Boolean(device.matter_servers?.some(cluster => [91, 1037, 1066].includes(cluster))) },
   { name: 'Presence sensors', matches: (device: Device) => device.source === 'fritz_box' && device.has_occupancy },
   { name: 'Motion sensors', matches: (device: Device) => device.has_occupancy && device.source !== 'fritz_box' },
   { name: 'Lights', matches: (device: Device) => device.has_light },
@@ -198,18 +203,19 @@ function DeviceCard({
   onConnection: () => void
 }) {
   const [brightness, setBrightness] = useState(
-    device.has_brightness ? device.brightness_percent : 100
+    device.has_brightness && device.brightness_known !== false ? device.brightness_percent : 100
   )
   useEffect(
-    () => setBrightness(device.has_brightness ? device.brightness_percent : 100),
-    [device.brightness_percent, device.has_brightness]
+    () => setBrightness(device.has_brightness && device.brightness_known !== false ? device.brightness_percent : 100),
+    [device.brightness_percent, device.has_brightness, device.brightness_known]
   )
   const url = `/api/devices/${encodeURIComponent(device.id)}`
   const canDim = isDimmable(device)
+  const controlsAvailable = device.online !== false && device.controller_available !== false
   const type = getDeviceType(device)
   const extraReadings = [
-    type !== 'Climate sensors' && device.has_temperature && `🌡 ${device.temperature_celsius} °C`,
-    type !== 'Climate sensors' && device.has_humidity && `💧 ${device.humidity_percent}%`,
+    type !== 'Climate sensors' && device.has_temperature && `🌡 Temperature: ${device.temperature_known ? `${device.temperature_celsius} °C` : 'Unknown'}`,
+    type !== 'Climate sensors' && device.has_humidity && `💧 Humidity: ${device.humidity_known === false ? 'Unknown' : `${device.humidity_percent}%`}`,
     type !== 'Contact sensors' && device.has_contact && (device.contact_trigger_mode
       ? (device.contact_trigger_active ? 'Triggered' : 'Idle')
       : (device.contact_open ? 'Open' : 'Closed')),
@@ -217,6 +223,8 @@ function DeviceCard({
     type !== 'Presence sensors' && device.source === 'fritz_box' && device.has_wifi_signal && `Wi‑Fi ${device.wifi_signal_percent}%`,
     type !== 'Lights' && device.has_light && (device.light_on ? 'Light on' : 'Light off'),
     type !== 'Smart plugs' && device.has_power && device.power_known && `${device.power_watts.toFixed(1)} W`,
+    ...Object.entries(device.matter_measurements ?? {}).filter(([cluster]) => !['1026', '1029'].includes(cluster))
+      .map(([cluster, reading]) => `${cluster === '91' ? 'Air quality' : cluster === '1037' ? 'CO₂' : cluster === '1066' ? 'PM2.5' : 'Measurement'}: ${reading.value === null ? 'Unknown' : `${reading.value}${reading.unit ? ` ${reading.unit}` : ''}`}`),
   ].filter(Boolean)
   return (
     <article className={`device-card device-card-${type.toLowerCase().replace(/[^a-z]+/g, '-')} ${
@@ -243,7 +251,7 @@ function DeviceCard({
           {device.has_humidity && (
             <div className="climate-reading">
               <span className="reading-label"><span className="reading-icon" aria-hidden="true">💧</span>Humidity</span>
-              <strong>{device.humidity_percent}<span className="reading-unit">%</span></strong>
+              <strong>{device.humidity_known === false ? 'Unknown' : device.humidity_percent}{device.humidity_known === false ? null : <span className="reading-unit">%</span>}</strong>
             </div>
           )}
         </div>
@@ -256,13 +264,15 @@ function DeviceCard({
               : (!device.contact_known ? 'Unknown' : device.contact_open ? 'Open' : 'Closed'))
               : type === 'Presence sensors' ? (!device.last_seen || Date.now() / 1000 - device.last_seen > 90 ? 'Unknown' : device.occupied ? 'Present' : 'Not present')
               : type === 'Motion sensors' ? (device.occupied ? 'Occupied' : 'Clear')
-              : type === 'Lights' ? (device.light_on ? 'On' : 'Off')
+              : type === 'Lights' ? (device.light_known === false ? 'Unknown' : device.light_on ? 'On' : 'Off')
+              : type === 'Air quality sensors' ? 'Air quality readings'
               : type === 'Switches' || type === 'Smart plugs' ? (!device.actor_known ? 'Unknown' : device.actor_on ? 'On' : 'Off')
               : type === 'Remotes' ? 'Remote' : device.kind}</strong>
             <span>{type === 'Contact sensors' ? (device.contact_trigger_mode ? 'Trigger mode' : 'Contact sensor')
               : type === 'Presence sensors' ? 'Wi‑Fi presence sensor'
               : type === 'Motion sensors' ? 'Motion sensor'
               : type === 'Lights' ? 'Light'
+              : type === 'Air quality sensors' ? 'Air quality sensor'
               : type === 'Switches' ? 'Switch'
               : type === 'Smart plugs' ? 'Smart plug'
               : type === 'Remotes' ? 'Control' : 'Device'}</span>
@@ -275,11 +285,12 @@ function DeviceCard({
         </div>
       )}
       {device.has_power && <div className="extra-readings"><span>Power: {device.power_known ? `${device.power_watts.toFixed(1)} W` : 'Unknown'}</span></div>}
-      {device.has_actor && <div className="light-panel"><button className={`button light-toggle ${device.actor_known && device.actor_on ? 'primary' : ''}`} onClick={() => action(`${url}/actor`, form({ state: device.actor_known && device.actor_on ? 'off' : 'on' }))}>{device.actor_known && device.actor_on ? 'Turn off' : 'Turn on'}</button></div>}
+      {device.has_actor && <div className="light-panel"><button className={`button light-toggle ${device.actor_known && device.actor_on ? 'primary' : ''}`} disabled={!controlsAvailable} onClick={() => action(`${url}/actor`, form({ state: device.actor_known && device.actor_on ? 'off' : 'on' }))}>{device.actor_known && device.actor_on ? 'Turn off' : 'Turn on'}</button></div>}
       {device.has_light && (
         <div className="light-panel">
           <button
             className={`button light-toggle ${device.light_on ? 'primary' : ''}`}
+            disabled={!controlsAvailable}
             onClick={() => action(`${url}/light`, form({ state: device.light_on ? 'off' : 'on' }))}
           >
             {device.light_on ? 'Turn off' : 'Turn on'}
@@ -287,15 +298,16 @@ function DeviceCard({
           {canDim && (
             <>
               <div className="brightness-row">
-                <label htmlFor={`brightness-${device.ieee_address}`}>Brightness</label>
-                <span>{brightness}%</span>
+                <label htmlFor={`brightness-${device.id}`}>Brightness</label>
+                <span>{device.brightness_known === false ? 'Unknown' : `${brightness}%`}</span>
               </div>
               <input
-                id={`brightness-${device.ieee_address}`}
+                id={`brightness-${device.id}`}
                 type="range"
                 min="0"
                 max="100"
                 value={brightness}
+                disabled={!controlsAvailable}
                 aria-label={`Brightness for ${device.name}`}
                 onChange={(event) => setBrightness(Number(event.target.value))}
                 onPointerUp={(event) =>
@@ -308,7 +320,7 @@ function DeviceCard({
               />
               <div className="presets">
                 {[25, 50, 75, 100].map((level) => (
-                  <button className="button" key={level} onClick={() => action(`${url}/light`, form({ brightness: level }))}>
+                  <button className="button" key={level} disabled={!controlsAvailable} onClick={() => action(`${url}/light`, form({ brightness: level }))}>
                     {level}%
                   </button>
                 ))}
@@ -333,10 +345,8 @@ function DeviceCard({
           >
             ⓘ
           </button>
-          <button title="Settings" aria-label={`Settings for ${device.name}`} onClick={onSettings}>
-            ⚙
-          </button>
-          {(device.has_temperature || device.has_humidity || device.has_contact || device.has_power) && (
+          {device.source !== 'matter' && <button title="Settings" aria-label={`Settings for ${device.name}`} onClick={onSettings}>⚙</button>}
+          {device.source !== 'matter' && (device.has_temperature || device.has_humidity || device.has_contact || device.has_power) && (
             <button title="History" aria-label={`History for ${device.name}`} onClick={onHistory}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M3 3v18h18" />
@@ -348,6 +358,7 @@ function DeviceCard({
           <button
             title="Refresh attributes"
             aria-label={`Refresh ${device.name}`}
+            disabled={!controlsAvailable}
             onClick={() => action(`${url}/refresh`)}
           >
             ↻

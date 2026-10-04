@@ -31,7 +31,7 @@ export interface NodeDescriptor {
 
 export interface Device {
   id: string
-  source: 'zigbee' | 'shelly' | 'fritz_box'
+  source: 'zigbee' | 'shelly' | 'fritz_box' | 'matter'
   component: string
   external_id: string
   ieee_address: string
@@ -79,6 +79,15 @@ export interface Device {
   model_id: string
   node_descriptor: NodeDescriptor | null
   endpoint_descriptors: EndpointDescriptor[]
+  online?: boolean
+  controller_available?: boolean
+  matter_node?: string
+  matter_endpoint?: number
+  matter_servers?: number[]
+  matter_measurements?: Record<string, { value: number | string | null; unit: string; quality: 'measured' | 'unknown' }>
+  light_known?: boolean
+  brightness_known?: boolean
+  humidity_known?: boolean
 }
 
 export interface SceneSummary {

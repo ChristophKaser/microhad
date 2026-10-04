@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { matterAvailability, matterCall, sessionResult, terminalSession, validDataset, validSession } from './matter'
 import type { MatterSession, MatterStatus, ThreadStatus } from './matter'
-import { MatterDevices } from './MatterDevices'
 
 const phases: Record<string, string> = {
   waiting_ble: 'Waiting for phone BLE connection', pase: 'Checking setup code', provisioning: 'Providing Thread network',
@@ -121,6 +120,5 @@ export function MatterPanel() {
       </div>}
     </>}
     {pending && <p role="status">Waiting for gateway reply…</p>}
-    {availability?.matter.enabled && <MatterDevices available={Boolean(availability.matter.available && availability.matter.controller_initialized && availability.matter.fabric_ready)} />}
   </section>
 }

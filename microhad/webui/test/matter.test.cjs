@@ -240,3 +240,38 @@ test('unknown CurrentLevel remains null and cannot confirm a MoveToLevel', async
       { kind: 'move', level: 50, transitionDeciseconds: 0 }, signal()), /protocol/);
   });
 });
+
+test('Matter sensor reads retain signed values, units, quality and air-quality levels', async () => {
+  const readings = new Map([
+    [91, { type: 'air_quality', value: { value: 'moderate', quality: 'measured' } }],
+    [1026, { type: 'measurement', value: { value: -5.25, unit: 'celsius', quality: 'measured' } }],
+    [1029, { type: 'measurement', value: { value: null, unit: 'percent', quality: 'unknown' } }],
+    [1037, { type: 'measurement', value: { value: 758.5, unit: 'ppm', quality: 'measured' } }],
+    [1066, { type: 'measurement', value: { value: 12.75, unit: 'ug/m3', quality: 'measured' } }],
+  ]);
+  let requestedCluster = 0;
+  await peer(call => {
+    if (call.method === 'POST') { requestedCluster = call.body.cluster; return { body: accepted }; }
+    return { body: completed({ state: 'complete', job: '0000000000000001', result: {
+      node: '0000000000000002', endpoint: 1, cluster: requestedCluster,
+      attribute: 0, value: readings.get(requestedCluster) } }) };
+  }, async calls => {
+    for (const cluster of [91, 1026, 1029, 1037, 1066])
+      assert.deepEqual(await wire.matterSensor('0000000000000002', 1, cluster, signal()),
+        cluster === 91 ? 'moderate' : readings.get(cluster).value);
+    assert.equal(calls.filter(call => call.method === 'POST').length, 5);
+  });
+});
+
+test('Matter endpoint adapter creates the shared device shape and drops descriptor-only endpoints', () => {
+  const endpoint = { node: '0000000000000002', state: 'complete', online: true,
+    id: 'matter:0000000000000001:0000000000000002:0001', endpoint: 1, servers: [6, 8, 29, 1026] };
+  const device = wire.matterDeviceModel(endpoint);
+  assert.equal(device.source, 'matter');
+  assert.equal(device.id, endpoint.id);
+  assert.equal(device.has_light, true);
+  assert.equal(device.has_temperature, true);
+  assert.equal(device.temperature_known, false);
+  assert.equal(device.brightness_known, false);
+  assert.equal(wire.matterDeviceModel({ ...endpoint, servers: [29] }), null);
+});

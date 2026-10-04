@@ -1,126 +1,62 @@
-import React, { useState } from 'react'
+import React from 'react'
 import { createRoot } from 'react-dom/client'
-import { MatterDevices } from '../src/MatterDevices'
+import type { Status } from '../src/api'
+import { DeviceGroups } from '../src/devices'
+import { MatterPanel } from '../src/MatterPanel'
+import { useMatterDevices } from '../src/useMatterDevices'
 
-let setAvailable: (value: boolean) => void
-let unmount: () => void
-let stage = 'mount'
 function Host() {
-  const [available, update] = useState(true)
-  setAvailable = update
-  return <MatterDevices available={available} />
+  const controller = useMatterDevices()
+  const status = { devices: controller.devices, scene_groups: [] } as unknown as Status
+  async function action(url: string, body = '') {
+    const id = decodeURIComponent(url.slice('/api/devices/'.length).split('/')[0])
+    const device = controller.devices.find(item => item.id === id)
+    if (device) await controller.execute(device, url, body)
+  }
+  return <>
+    <DeviceGroups status={status} action={(url, body) => { void action(url, body) }}
+      onSettings={() => { throw new Error('Matter device exposed protocol-specific settings') }}
+      onDetails={() => {}} onHistory={() => {}} onConnection={() => {}} />
+    <MatterPanel />
+  </>
 }
+
 const root = createRoot(document.getElementById('root')!)
-unmount = () => root.unmount()
 root.render(<Host />)
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 function check(value: unknown, message: string) { if (!value) throw new Error(message) }
 function button(label: string): HTMLButtonElement {
-  const value = [...document.querySelectorAll('button')].find(item => item.textContent === label)
+  const value = [...document.querySelectorAll('button')].find(item => item.textContent?.trim() === label)
   check(value, `missing button ${label}`)
   return value!
 }
-function setInput(input: HTMLInputElement, value: string) {
-  const previous = input.value
-  input.value = value
-  const tracker = (input as HTMLInputElement & { _valueTracker?: { setValue(value: string): void } })._valueTracker
-  tracker?.setValue(previous)
-  input.dispatchEvent(new Event('input', { bubbles: true }))
-  input.dispatchEvent(new Event('change', { bubbles: true }))
+async function wait(test: () => boolean, message: string) {
+  for (let index = 0; index < 500; index++) { if (test()) return; await delay(20) }
+  throw new Error(`timed out: ${message}`)
 }
-async function wait(checkValue: () => boolean) {
-  for (let index = 0; index < 100; index++) { if (checkValue()) return; await delay(20) }
-  throw new Error(`rendered condition timed out: ${stage}`)
-}
-async function mode(value: string) {
-  stage = value
-  await fetch('/fixture/mode', { method: 'POST', body: value })
-}
-async function count() { return (await (await fetch('/fixture/count')).json()).posts as number }
-async function tests() {
-  await wait(() => Boolean(document.querySelector('button')))
-  check(await count() === 0, 'initial mount requested snapshots')
-  await mode('normal')
-  button('Refresh devices').click()
-  await wait(() => document.querySelectorAll('li').length === 1)
-  check(document.body.textContent?.includes('Endpoint 0'), 'root endpoint missing')
-  button('Load next endpoint').click()
-  await wait(() => document.querySelectorAll('li').length === 2)
-  check(document.body.textContent?.includes('Advertised features: Power'), 'feature label missing')
-  check(![...document.querySelectorAll('button')].some(item => item.textContent === 'Load next endpoint'), 'terminal page retained next button')
-  check(await count() === 2, 'pagination submitted extra calls')
-  button('Read power').click()
-  await wait(() => document.body.textContent?.includes('Power: Off'))
+async function run() {
+  await wait(() => document.body.textContent?.includes('Matter light') === true, 'Matter endpoint in shared device catalog')
+  check(document.body.textContent?.includes('Device setup'), 'Matter join/settings panel missing')
+  check(!document.body.textContent?.includes('Matter devices'), 'separate Matter device list remains in setup UI')
+  check(![...document.querySelectorAll('button')].some(item => item.textContent?.trim() === 'Refresh devices'), 'Matter-specific device list controls remain')
+  check(document.body.textContent?.includes('Unknown'), 'unknown initial Matter values were not kept explicit')
+
   button('Turn on').click()
-  await wait(() => document.body.textContent?.includes('Power: On'))
-  button('Toggle').click()
-  await wait(() => document.body.textContent?.includes('Power: Off'))
-  button('Read brightness').click()
-  await wait(() => document.body.textContent?.includes('Brightness: 0/254'))
-  const slider = document.querySelector<HTMLInputElement>('input[aria-label="Brightness level for node 0000000000000002 endpoint 1"]')!
-  setInput(slider, '124')
-  const transition = document.querySelector<HTMLInputElement>('input[aria-label="Transition deciseconds for node 0000000000000002 endpoint 1"]')!
-  setInput(transition, '20')
-  button('Set brightness').click()
-  await wait(() => document.body.textContent?.includes('Brightness: 124/254'))
-  check(await count() === 2, 'device commands caused unexpected snapshot calls')
-  await mode('normal')
-  button('Refresh devices').click()
-  await wait(() => document.querySelectorAll('li').length === 1)
-  await mode('stale')
-  button('Load next endpoint').click()
-  await wait(() => Boolean(document.querySelector('[role=alert]')))
-  check(document.body.textContent?.includes('The device list changed'), 'stale revision message missing')
-  check(button('Load next endpoint').disabled, 'stale revision allowed more pages')
-  check(document.querySelectorAll('li').length === 1 && document.body.textContent?.includes('Previously loaded information'), 'stale page did not retain labelled cached rows')
-  await delay(100)
-  check(await count() === 1, 'stale revision automatically replayed')
-  await mode('recovery')
-  button('Refresh devices').click()
-  await wait(() => Boolean(document.body.textContent?.includes('Setup needs recovery')))
-  check(document.querySelectorAll('li').length === 1, 'refresh retained old endpoints')
-  await mode('offline')
-  button('Refresh devices').click()
-  await wait(() => Boolean(document.body.textContent?.includes('Offline')))
-  check(document.querySelectorAll('li').length === 1, 'offline snapshot lost identity')
-  await mode('duplicate')
-  button('Refresh devices').click()
-  await wait(() => !document.body.textContent?.includes('Offline') && Boolean([...document.querySelectorAll('button')].find(item => item.textContent === 'Load next endpoint' && !item.disabled)))
-  button('Load next endpoint').click()
-  await wait(() => Boolean(document.querySelector('[role=alert]')))
-  check(document.querySelectorAll('li').length === 1, 'duplicate endpoint merged')
-  await mode('empty')
-  button('Refresh devices').click()
-  await wait(() => Boolean(document.body.textContent?.includes('No Matter devices have been recorded')))
-  check(document.querySelectorAll('li').length === 0, 'empty refresh kept stale rows')
-  setAvailable(false)
-  await wait(() => button('Refresh devices').disabled)
-  const before = await count()
-  button('Refresh devices').click()
-  await delay(50)
-  check(await count() === before, 'unavailable view submitted a request')
-  setAvailable(true)
-  await wait(() => !button('Refresh devices').disabled)
-  await mode('pending')
-  button('Refresh devices').click()
-  await wait(() => button('Refresh devices').disabled)
-  setAvailable(false)
-  await wait(() => Boolean(document.body.textContent?.includes('Gateway unavailable')))
-  setAvailable(true)
-  await wait(() => !button('Refresh devices').disabled)
-  await mode('normal')
-  button('Refresh devices').click()
-  await wait(() => document.querySelectorAll('li').length === 1)
-  await mode('pending')
-  button('Refresh devices').click()
-  await wait(() => button('Refresh devices').disabled)
-  unmount()
-  await delay(100)
-  check(!document.getElementById('root')!.textContent, 'unmounted request updated UI')
+  await wait(() => document.body.textContent?.includes('Turn off') === true, 'confirmed OnOff state through common light card')
+  button('75%').click()
+  await wait(() => [...document.querySelectorAll('.brightness-row')].some(row => row.textContent?.includes('75%')),
+    'confirmed Level value through common brightness control')
+  const refresh = document.querySelector<HTMLButtonElement>('button[title="Refresh attributes"]')
+  check(refresh, 'shared catalog refresh action missing')
+  refresh!.click()
+  await wait(() => document.body.textContent?.includes('23.15') && document.body.textContent?.includes('52.34') &&
+    document.body.textContent?.includes('758.5 ppm') && document.body.textContent?.includes('12.75 ug/m3') &&
+    document.body.textContent?.includes('Air quality: moderate'), 'typed sensor reads shown in shared device card')
+  check(document.body.textContent?.includes('Temperature') && document.body.textContent?.includes('Humidity'), 'shared climate fields were not used')
   document.body.dataset.result = 'passed'
-  document.getElementById('result')!.textContent = 'PASS rendered device refresh, pagination, confirmed OnOff and Level read/control, revision loss, recovery, duplicates, empty state, availability and unmount'
+  document.getElementById('result')!.textContent = 'PASS Matter endpoints render and operate through the shared device catalog, common controls and Matter join/settings area'
 }
-void tests().catch(error => {
+void run().catch(error => {
   document.body.dataset.result = 'failed'
-  document.getElementById('result')!.textContent = `${stage}: ${String(error)}`
+  document.getElementById('result')!.textContent = String(error)
 })

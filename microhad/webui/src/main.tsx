@@ -11,6 +11,7 @@ import { ExternalDeviceDialog } from './ExternalDevices'
 import { PushDevices } from './PushDevices'
 import { ControllerStats } from './ControllerStats'
 import { MatterPanel } from './MatterPanel'
+import { useMatterDevices } from './useMatterDevices'
 import { useGatewayData } from './useGatewayData'
 import './style.css'
 
@@ -66,13 +67,15 @@ function JoinButton({
 function App() {
   const [tab, setTab] = useState('Dashboard')
   const { status, statusError, logs, logsError, refreshStatus } = useGatewayData(tab === 'Diagnostics')
+  const matterController = useMatterDevices()
+  const catalogStatus = status ? { ...status, devices: [...status.devices, ...matterController.devices] } : null
   const [dialog, setDialog] = useState<'network' | 'scenes' | 'remotes' | 'text' | 'push' | null>(null)
   const [selected, setSelected] = useState<Device | null>(null)
   const [detailsDevice, setDetailsDevice] = useState<Device | null>(null)
   const [historyDevice, setHistoryDevice] = useState<Device | null>(null)
   const [restarting, setRestarting] = useState(false)
   const [externalDeviceId, setExternalDeviceId] = useState<string | null>(null)
-  const visibleDeviceTypes = deviceTypes.filter(type => status?.devices.some(device => getDeviceType(device) === type.name))
+  const visibleDeviceTypes = deviceTypes.filter(type => catalogStatus?.devices.some(device => getDeviceType(device) === type.name))
   const visibleTypeNames = visibleDeviceTypes.map(type => type.name).join('|')
   useEffect(() => {
     if (deviceTypes.some(type => type.name === tab) && !visibleTypeNames.split('|').includes(tab)) setTab('Dashboard')
@@ -114,7 +117,11 @@ function App() {
   }
   const action = async (url: string, body = '') => {
     try {
-      const result = await post<{ message?: string }>(url, body)
+      const deviceId = url.startsWith('/api/devices/') ? decodeURIComponent(url.slice('/api/devices/'.length).split('/')[0]) : ''
+      const matterDevice = matterController.devices.find(device => device.id === deviceId)
+      const result: { message?: string } = matterDevice?.source === 'matter'
+        ? await matterController.execute(matterDevice, url, body).then(() => ({}))
+        : await post<{ message?: string }>(url, body)
       if (result?.message) window.alert(result.message)
       await refreshStatus()
     } catch (e) {
@@ -225,7 +232,7 @@ function App() {
       {tab === 'Dashboard' && <Dashboard
         config={dashboardEditing ? dashboardDraft : dashboard}
         editing={dashboardEditing}
-        devices={status?.devices ?? []}
+        devices={catalogStatus?.devices ?? []}
         groups={status?.scene_groups ?? []}
         status={status}
         restarting={restarting}
@@ -266,7 +273,7 @@ function App() {
           <span className="overview-icon">▦</span>
           <div>
             <span className="overview-label">Devices</span>
-            <strong>{status?.devices.length ?? '—'}</strong>
+            <strong>{catalogStatus?.devices.length ?? '—'}</strong>
           </div>
         </div>
       </section>
@@ -329,7 +336,7 @@ function App() {
           </div>
         </div>
         <DeviceGroups
-          status={status}
+          status={catalogStatus}
           action={action}
           onSettings={setSelected}
           onDetails={setDetailsDevice}
@@ -363,7 +370,7 @@ function App() {
       )}
       {detailsDevice && (
         <DeviceDetailsDialog
-          device={status?.devices.find((device) => device.id === detailsDevice.id) ?? detailsDevice}
+          device={catalogStatus?.devices.find((device) => device.id === detailsDevice.id) ?? detailsDevice}
           configuration={status?.device_configurations.find((item) => item.ieee_address === detailsDevice.ieee_address)}
           onClose={() => setDetailsDevice(null)}
         />
@@ -374,7 +381,7 @@ function App() {
       {externalDeviceId !== null && <ExternalDeviceDialog key={externalDeviceId || 'new'} id={externalDeviceId} onClose={() => setExternalDeviceId(null)} onSaved={() => void refreshStatus()} />}
       {dialog === 'scenes' && (
         <SceneEditor
-          devices={status?.devices ?? []}
+          devices={status?.devices.filter(device => device.source === 'zigbee') ?? []}
           nativeStatuses={status?.native_bindings ?? []}
           mode="scenes"
           onClose={() => setDialog(null)}
@@ -383,7 +390,7 @@ function App() {
       )}
       {dialog === 'remotes' && (
         <SceneEditor
-          devices={status?.devices ?? []}
+          devices={status?.devices.filter(device => device.source === 'zigbee') ?? []}
           nativeStatuses={status?.native_bindings ?? []}
           mode="remotes"
           onClose={() => setDialog(null)}
