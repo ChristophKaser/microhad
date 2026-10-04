@@ -203,10 +203,11 @@ explicit-rendezvous fixture alone does not establish operational discovery.
    sources such as Shelly. Test signed values and ALPSTUGA-related clusters
    without assuming every target advertises all measurements.
 6. A bounded one-attribute subscription request with 1-second minimum and
-   3600-second maximum interval now drains priming chunks and returns the
-   negotiated subscription ID (`e4b5f8d`). It is only exercised as a protocol
-   fixture; schedule subscriptions per endpoint, receive active reports, add
-   retry/refresh policy, and persist only meaningful state changes.
+   3600-second maximum interval drains priming chunks and returns the
+   negotiated subscription ID (`e4b5f8d`). A synthetic active OnOff report is
+   now received and acknowledged (`4cc53c4`). Schedule subscriptions per
+   endpoint, decode all supported reports, add retry/refresh policy, and persist
+   only meaningful state changes.
 7. Integrate snapshots, history, alerts and the shared dashboard through the
    native worker using
    distinct Matter IDs. Test restart, unsupported clusters, missing reports
@@ -254,11 +255,29 @@ Verified with the release build and
 catalog restore, descriptor discovery, read/control, and subscription
 establishment over its synthetic RCP.
 
-A diagnostic follow-up changed a synthetic sensor after subscription and
-waited five seconds for a server-initiated `ReportData`, but none arrived. This
-does not verify active reports. Report publishing/acceptance, endpoint
-subscription lifecycle, reading conversion and native IPC event delivery
-remain open; no report-driven gateway state change is claimed.
+A first diagnostic follow-up used a sensor value change that did not match its
+active subscription and timed out. The later OnOff fixture below corrects the
+path and proves one supported active report exchange.
+
+## Synthetic active Matter report exchange — 2026-10-04
+
+Rust commit `4cc53c4` extends the production-owned commissioning fixture: it
+establishes a bounded OnOff attribute subscription after operational CASE,
+changes OnOff, accepts the immediate server-initiated `ReportData`, and checks
+the authenticated fabric/node, negotiated subscription ID, endpoint, cluster,
+and value. It returns `StatusResponse(Success)`, changes OnOff back, and
+receives/acknowledges the second report so the remaining fixture starts from
+the original device state. Verified with the release commissioning-probe build
+and `python3 scripts/test-openthread-matter-transport.py --commissioning --ble
+--service-owner --service-discovery` against the synthetic RCP; all commissioning,
+catalog, CASE control, two report transitions, and restart checks passed.
+The listener must use immediate `Exchange::accept()`; delaying acceptance for
+one second lets the transport discard an unclaimed responder exchange.
+
+This proves the library's OnOff subscription/report exchange only. Production
+subscription scheduling, report parsing for all supported measurement types,
+native IPC event delivery, deduplication/reconnect behavior and gateway state
+updates from reports remain open.
 
 ## Dependencies
 
