@@ -7,8 +7,8 @@ bounded asynchronous OnOff reads/commands and job polling; native validation,
 HTTP admission and worker-side operation polling carry jobs through confirmed
 readback. Rust also dispatches Level Control and advertised sensor reads with
 typed readbacks. Native validators accept OnOff, Level and sensor-typed replies;
-sensor UI/model projection, device events, broader recovery and complete
-cross-language vectors remain open.
+sensor UI/model projection and initial Matter report-event consumption now exist;
+broader recovery and complete cross-language vectors remain open.
 Snapshot API remains verified (`237d110`).
 
 Native commit `750c4c9` adds a stalled-peer timeout regression: a fake IPC peer
@@ -186,11 +186,11 @@ event consumption; Thread subscription does not replace that work.
 | Step | Current status | Evidence / remaining work |
 | --- | --- | --- |
 | 1 | Complete | Opcodes, optional subscription and concrete callback result fields documented in IPC v1. |
-| 2 | Partial | Strict requests, session/Thread replies, device job requests/replies and typed commissioning/BLE/Thread events implemented; native device events and broader vectors remain. |
+| 2 | Partial | Strict requests, session/Thread replies, device job requests/replies, typed commissioning/BLE/Thread events, and typed Matter report events implemented; broader report vectors remain. |
 | 3 | Complete | Production owner uses the bounded session manager and pinned real commissioner future with cancellation/reconnect cleanup. |
 | 4 | Partial | Status, Thread lifecycle, commissioning/relay and native/Rust OnOff job path verified through confirmed readback. Broader failure/recovery gates remain. |
-| 5 | Partial | Native observer/status worker implemented; persistent event consumer and queued commissioning/control requests remain pending. |
-| 6 | Partial | Rust body vectors, callback/reconnect/timeout tests and actual service IPC tests pass; full native cross-language body/event vectors remain pending. |
+| 5 | Partial | Native observer/status worker consumes Matter report events into shared device state; queued commissioning/control requests remain pending. |
+| 6 | Partial | Rust body vectors, callback/reconnect/timeout, Matter broadcast, and native report parser tests pass; full native cross-language body/event vectors remain pending. |
 | 7 | Current | Contract and implementation evidence updated at this checkpoint. |
 
 The running service accepts start only with an active canonical dataset and a
@@ -580,3 +580,24 @@ registered Matter devices before completing their job. The shared status view
 exposes those values to the common device/dashboard path; persistence, history,
 subscriptions, reports and broad restart/failure coverage remain open. No
 device deployment or plan 08 acceptance occurred.
+
+## Matter report-event IPC checkpoint — 2026-10-04
+
+Rust commit `3aa4600` adds a strictly validated `matter_report` event carrying
+the typed common operation value, broadcasts it to all live IPC clients, and
+retains queued readings until at least one client accepts each event. The native
+client validates node, endpoint, attribute, cluster, value type, units, ranges,
+and known/unknown quality. Native commit `5ec72cb` routes these events directly
+to `Gateway::applyMatterReading`, so common device state, history, and value
+alerts receive them; they do not enter the phone relay event queue.
+
+Verification passed: all 65 Rust service-feature library tests including event
+serialization and multi-client IPC broadcast; controller-service release build;
+`make ZIGGURAT=1 MATTER=1 host test`; and `make ZIGGURAT=1 MATTER=1 mips` (with
+the toolchain's existing LOAD-USE warnings). Native unit coverage checks valid
+OnOff/Level report events and rejects out-of-range CurrentLevel. The manager's
+synthetic production-owner fixture verifies subscription and report correlation
+separately; a single live Rust-service-to-native-process report fixture remains
+open. Sensor reports are scheduled but not yet decoded, and remote-node
+recovery, sleepy-device policy, broader backpressure/restart tests, and physical
+acceptance remain open. No device deployment or plan 08 action occurred.

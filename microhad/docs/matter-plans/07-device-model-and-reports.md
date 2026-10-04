@@ -332,12 +332,33 @@ probes, and
 `python3 scripts/test-openthread-matter-transport.py --commissioning --ble
 --service-owner --service-discovery` against the synthetic RCP.
 
-The queue is not yet published through Matter IPC or applied to native
-`Gateway::Device`; only OnOff and CurrentLevel report values are decoded today.
+At that checkpoint, the queue was not yet published through Matter IPC or
+applied to native `Gateway::Device`; only OnOff and CurrentLevel report values
+were decoded.
 Sensor report parsing, delivery/backpressure, shared history/alerts, adaptive
 sleepy-device timing, broad multi-subscription/reconnect coverage, and remote
 catalog recovery remain open. Plan checklist items 6 and 7 therefore remain
 unchecked.
+
+## Shared-device report delivery checkpoint — 2026-10-04
+
+Rust commit `3aa4600` serializes validated readings as a typed `matter_report`
+event, broadcasts to connected native IPC clients, and retains queue entries
+until at least one client accepts them. Native commit `5ec72cb` validates the
+event and applies it in `MatterWorker::collectEvents` through
+`Gateway::applyMatterReading`. OnOff and CurrentLevel reports therefore update
+the shared device state, source-neutral history, and common alert engine, and
+remain separate from commissioning/phone BLE events.
+
+Verification passed: Rust's 65 service library tests (including strict event
+serialization and broadcast to two IPC clients), controller-service release
+build, native `make ZIGGURAT=1 MATTER=1 host test`, and MIPS build. The C++ tests
+cover valid OnOff/Level report payloads and reject CurrentLevel 255. The manager
+synthetic fixture separately verifies production subscription scheduling and
+report correlation; the direct live IPC-to-native-worker process round trip is
+not yet covered. Only OnOff and Level report values are currently decoded.
+Sensor reports, broad multiple-subscription/reconnect/backpressure behavior,
+remote-node reconciliation, and sleepy-device policy remain open.
 
 ## Dependencies
 

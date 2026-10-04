@@ -32,12 +32,12 @@ specific evidence recorded in a file, not to end-to-end Matter support.
 | Open point | Current status | Next checkpoint |
 | --- | --- | --- |
 | [01 Runtime](01-rust-service-runtime.md) | Host service and optional supervision implemented; recovery and target verification incomplete | Extend integrated failure/restart coverage and record final artifacts |
-| [02 IPC](02-commissioning-control-ipc.md) | Service/native commissioning, relay and OnOff/Level job dispatch host-tested; device events and broad recovery incomplete | Extend failure/backpressure and event coverage |
+| [02 IPC](02-commissioning-control-ipc.md) | Service/native commissioning, relay, OnOff/Level jobs, and typed Matter report events into shared state host-tested (`3aa4600`, `5ec72cb`); broad recovery and full cross-language vectors incomplete | Add live end-to-end service/native event fixture; extend failure/backpressure coverage |
 | [03 Identity](03-persistent-fabric-identity.md) | Persistent authority and host CASE recovery implemented | Exercise documented backup/restore on synthetic state; target checks stay in plan 08 |
 | [04 Native API/dashboard](04-native-api-dashboard.md) | Status, shared cards, restart-restored common alerts, unit-aware CO2/PM2.5 thresholds and bounded shared-source history (`d5d94ba`); history intentionally remains volatile to avoid flash wear | Extend API failure gates |
 | [05 Garage BLE relay](05-garage-ble-relay.md) | Foreground onboarding and parser/GATT/HTTP/WebSocket implemented; 60 tests and APK builds pass per flavor | Implementation checklist complete; physical acceptance stays in plan 08 |
 | [06 Thread lifecycle](06-thread-network-lifecycle.md) | Guarded dataset lifecycle and native observation worker verified on host | Extend channel-change/restart recovery and target verification |
-| [07 Devices/reports](07-device-model-and-reports.md) | Owned commissioner, CASE reads, shared cards, restart-restored endpoint metadata/readings and common alerts, unit-aware thresholds and bounded shared-source history; manager-scheduled subscriptions and correlated bounded OnOff reports (`713948c`) | Publish manager reports through native IPC, decode sensor reports, update shared device state/history/alerts, and reconcile incomplete nodes |
+| [07 Devices/reports](07-device-model-and-reports.md) | Owned commissioner, CASE reads, shared cards, restart-restored endpoint metadata/readings and common alerts, unit-aware thresholds/history; manager subscriptions and OnOff/Level reports now reach shared device state (`713948c`, `3aa4600`, `5ec72cb`) | Decode and deliver sensor reports; add live process-level event coverage, recovery, and sleepy-device policy |
 | [08 Real-device acceptance](08-real-device-acceptance.md) | Pending final acceptance gate | Review plans 01–07, then arrange backed-up device testing |
 
 Update the relevant file after each verified checkpoint with the changed
