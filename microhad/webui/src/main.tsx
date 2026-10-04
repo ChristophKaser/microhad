@@ -10,6 +10,7 @@ import { SceneEditor } from './SceneEditor'
 import { ExternalDeviceDialog } from './ExternalDevices'
 import { PushDevices } from './PushDevices'
 import { ControllerStats } from './ControllerStats'
+import { MatterPanel } from './MatterPanel'
 import { useGatewayData } from './useGatewayData'
 import './style.css'
 
@@ -299,6 +300,7 @@ function App() {
           <button className="button" disabled={!status?.notifications_enabled} onClick={() => void action('/api/notifications/test')}>Test alert</button>
         </div>
       </section>
+      <MatterPanel />
       <ControllerStats />
       </>}
       {tab === 'Groups' && <section className="panel">

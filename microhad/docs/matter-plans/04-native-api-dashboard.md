@@ -2,12 +2,12 @@
 
 ## Current open work — 2026-10-04
 
-Queued commissioning/Thread APIs and the owned WebSocket relay exist; onboarding UI and
-device API/views remain open.
+Queued commissioning/Thread APIs, the owned WebSocket relay and a feature-aware
+dashboard onboarding/progress panel exist. Device API/views remain open.
 
-Next deliverable: Implement feature-aware onboarding, progress, cancel and retry views
-against the existing API. Verify disabled/unavailable states and build the dashboard;
-add device views after plan 07.
+Next deliverable: Add device snapshots/read/control and measurements after plan
+07 supplies the production device pipeline. Extend the broader API/failure gates
+in checklist item 6; rendered browser interaction remains unverified.
 
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.
@@ -56,30 +56,22 @@ supported controls through the native HTTP service and dashboard.
 
 ## Status quo — 2026-10-04
 
-Read-only Matter/Thread status routes and the `MATTER` compiler flag exist.
-Commissioning, relay, Thread mutation, device-control routes and dashboard
-onboarding are pending. The current status client is insufficient for the
-asynchronous integration: connection deadlines and status/observation reply validation are implemented;
-worker scheduling, queues and remaining typed bodies are still pending.
+Native status, queued commissioning/Thread mutation routes and the owned relay
+are host-tested. The Controls tab now hides Matter controls on disabled builds,
+gates mutations on validated readiness, creates/imports an absent Thread network,
+hands accessory onboarding to Garage and watches/cancels a known commissioning
+session. The dashboard client has nine actual localhost HTTP tests and passes
+the required production web build. Device views remain pending plan 07.
 
 ## Remaining checkpoints
 
-1. Implemented: protected snapshots now expose the confirmed Ziggurat channel
-   and online/formed state through immutable lease accessors. Persisted network
-   configuration never populates this observation; offline/unknown is zero.
-2. Observation/status worker implemented: fresh coordinator observations and
-   cached status keep IPC outside coordinator/HTTP threads. Mutation job queues
-   and asynchronous commissioning/control dispatch remain pending.
-3. Implement commissioning start/status/cancel and Thread create/import using
-   validated bodies, fixed public errors and asynchronous job/session IDs.
-4. Add bounded WebSocket relay routing with generation and sequence checks,
-   disconnect cleanup and write-confirmation forwarding. Agree the contract
-   with plan 05 before building the app against it.
-5. Expose device snapshots/read/control once plan 07 provides them, then build
-   feature-aware onboarding and device views with redacted progress/errors.
-6. Verify disabled/enabled builds, absent/stalled service, malformed replies,
-   queue pressure, cancellation and HTTP/WebSocket behavior. Run required
-   native host/MIPS and web UI builds for their respective changes.
+1. Expose production device snapshots/read/control once plan 07 provides them,
+   then render advertised controls and measurements with unavailable/null states.
+2. Extend broad enabled/disabled, absent/stalled service, malformed reply, queue
+   pressure, cancellation, socket-loss and secret-redaction gates. Existing native
+   and new frontend tests cover subsets; checklist item 6 remains open.
+3. Inspect rendered browser interactions in addition to the host client and
+   TypeScript/build evidence. Physical pairing remains exclusively in plan 08.
 
 ## Dependencies
 
@@ -151,7 +143,7 @@ are historical; the latest status/evidence section above takes precedence.
 3. [x] Define and implement one bounded WebSocket BLE relay contract with
    attach, indication, write, write-complete and connection-loss behavior.
    Test generations, ordering, cancellation and relay ownership with plan 05.
-4. [ ] Add feature-aware onboarding/progress/retry UI. Preserve trusted-LAN
+4. [x] Add feature-aware onboarding/progress/retry UI. Preserve trusted-LAN
    HTTP/WS operation without requiring a trusted gateway certificate; keep
    setup input out of logs and persistent dashboard state.
 5. [ ] When plan 07 is ready, expose device snapshots/read/control and render
@@ -352,3 +344,29 @@ Both factory builds remain static stripped big-endian MIPS-I ELF files. Android
 GATT/permissions, dashboard onboarding, production DNS-SD/catalog/device reports
 and broader timeout/backpressure/target recovery evidence remain open. No
 physical gateway, real accessory or plan 08 acceptance action was performed.
+
+## Dashboard onboarding/progress checkpoint — 2026-10-04
+
+The Controls tab contains a feature-aware Matter/Thread panel. Disabled builds
+hide its controls; unavailable/reconnecting status gates mutations. Users can
+create/import only an absent Thread network, hand setup to Garage without
+entering PINs into the browser, and watch/cancel a copied session ID. Garage
+commit `7540b17` adds selectable session IDs with retained terminal results.
+Device controls remain pending plan 07.
+
+The separate bounded frontend client validates Matter/Thread readiness, canonical
+session/dataset IDs, correlation and fixed errors. It caps retained replies at
+2048 bytes, each request at three seconds and an operation at ten seconds.
+Job completion is distinguished from accessory session completion; mutations
+are never automatically replayed. Dataset input is masked and cleared on
+submission/background/configuration, without dashboard persistence or logs.
+
+Verification: `make webui` passed TypeScript and Vite production build;
+`python3 scripts/test_matter_webui.py` passed nine tests against actual localhost
+HTTP fixtures. Both Garage flavor suites pass 60 tests and both APKs build after
+session display. Browser rendering/interaction and physical accessory behavior
+were not tested. No C++ source/header changes or deployment occurred.
+
+Usage, cleanup limits, trusted-LAN policy and evidence:
+[dashboard guide](../matter-dashboard.md). This completes checklist item 4's
+implementation checkpoint; items 5 and 6 remain open.

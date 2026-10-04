@@ -270,3 +270,12 @@ App documentation: `garage-app/docs/matter-onboarding.md`. QR scanning requires
 Google Play services/scanner module; manual entry is the fallback. Permissions,
 recovery, secret retention limits and host-test scope are documented there. No
 physical phone/accessory or plan 08 action was performed.
+
+## Dashboard session handoff — 2026-10-04
+
+Garage commit `7540b17` displays a selectable session ID in active/terminal
+progress, enabling the plan 04 dashboard to inspect/cancel that session. IDs are
+correlation values, not authentication. Both flavor suites still pass 60 tests
+and APK builds; controller assertions verify publication/terminal retention.
+No setup PIN/code is added to snapshots or logs, and physical acceptance remains
+plan 08.

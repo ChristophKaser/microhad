@@ -33,7 +33,7 @@ specific evidence recorded in a file, not to end-to-end Matter support.
 | [01 Runtime](01-rust-service-runtime.md) | Host service and optional supervision implemented; recovery and target verification incomplete | Extend integrated failure/restart coverage and record final artifacts |
 | [02 IPC](02-commissioning-control-ipc.md) | Service and native commissioning/relay dispatch implemented; device dispatch incomplete | Extend failure/backpressure tests, then implement device bodies with plan 07 |
 | [03 Identity](03-persistent-fabric-identity.md) | Persistent authority and host CASE recovery implemented | Exercise documented backup/restore on synthetic state; target checks stay in plan 08 |
-| [04 Native API/dashboard](04-native-api-dashboard.md) | Status, queued commissioning/Thread routes and owned relay implemented; UI pending | Add feature-aware onboarding and device UI |
+| [04 Native API/dashboard](04-native-api-dashboard.md) | Status, queued routes, relay and onboarding/progress UI implemented; device views pending | Add device API/views with plan 07 and finish broad failure gates |
 | [05 Garage BLE relay](05-garage-ble-relay.md) | Foreground onboarding and parser/GATT/HTTP/WebSocket implemented; 60 tests and APK builds pass per flavor | Implementation checklist complete; physical acceptance stays in plan 08 |
 | [06 Thread lifecycle](06-thread-network-lifecycle.md) | Guarded dataset lifecycle and native observation worker verified on host | Extend channel-change/restart recovery and target verification |
 | [07 Devices/reports](07-device-model-and-reports.md) | Encrypted fixture proves transport; production device pipeline pending | Implement operational DNS-SD, persist nodes, then add device/report integration |
@@ -52,7 +52,7 @@ Each open point has a dedicated file with a current open-work summary, ordered
 steps, dependencies, acceptance criteria, evidence and an execution checklist.
 The native persistent IPC channel, queued mutation APIs and owned relay are
 already implemented. Plan 05's Android onboarding implementation is verified on host. Continue with
-plan 04's dashboard using the existing contract. Plan 07 supplies production discovery
+plan 04's device API/views using plan 07's production pipeline. Plan 07 supplies production discovery
 and device operations. Finish recovery work in plans 01/02/03/06 alongside
 those integrations. Plan 08 remains the physical acceptance gate and is not
 initiated by writing these plans.

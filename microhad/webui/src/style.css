@@ -1097,3 +1097,7 @@ button:disabled {
 .push-dialog { display: grid; gap: 1rem; }
 .push-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.65rem; }
 .push-dialog .push-phones { max-height: min(55vh, 620px); overflow: auto; padding: 1px; }
+
+.matter-panel form { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; margin: 14px 0; }
+.matter-panel label { display: grid; gap: 6px; flex: 1; min-width: 200px; }
+.matter-panel input { min-width: 0; width: 100%; box-sizing: border-box; }
