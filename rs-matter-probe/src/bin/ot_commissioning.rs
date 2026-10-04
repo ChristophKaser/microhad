@@ -29,7 +29,7 @@ use lexra_rs_matter_probe::{
 use rs_matter::cert::gen::VALID_FOREVER;
 use rs_matter::cert::{MAX_CERT_TLV_AND_ASN1_LEN, MAX_CERT_TLV_LEN};
 use rs_matter::crypto::{default_crypto, Crypto, CryptoSensitiveRef, Rng};
-use rs_matter::dm::clusters::app::level_control::LevelControlHooks;
+use rs_matter::dm::clusters::app::level_control::{self, LevelControlHooks};
 use rs_matter::dm::clusters::app::on_off::{
     self, test::TestOnOffDeviceLogic, OnOffClient, OnOffHooks,
 };
@@ -141,6 +141,20 @@ struct TestTemperature {
     value: Cell<Option<i16>>,
     dataver: Cell<u32>,
 }
+
+struct TestLevelControl;
+impl LevelControlHooks for TestLevelControl {
+    const MIN_LEVEL: u8 = 1;
+    const MAX_LEVEL: u8 = 254;
+    const FASTEST_RATE: u8 = 50;
+    const CURRENT_LEVEL: Option<u8> = Some(1);
+    const PERSIST_DELAY_MS: u32 = 0;
+    const CLUSTER: rs_matter::dm::Cluster<'static> =
+        level_control::test::TestLevelControlDeviceLogic::CLUSTER.with_features(0);
+    fn set_device_level(&self, level: u8) -> Result<Option<u8>, ()> {
+        Ok(Some(level))
+    }
+}
 impl temperature_measurement::ClusterHandler for TestTemperature {
     const CLUSTER: rs_matter::dm::Cluster<'static> = temperature_measurement::FULL_CLUSTER;
     fn dataver(&self) -> u32 {
@@ -178,15 +192,17 @@ const NODE: Node<'static> = Node {
             clusters!(
                 desc::DescHandler::CLUSTER,
                 TestOnOffDeviceLogic::CLUSTER,
+                TestLevelControl::CLUSTER,
                 TestTemperature::CLUSTER
             ),
         ),
     ],
 };
 
-fn data_model<'a, OH: OnOffHooks, LH: LevelControlHooks>(
+fn data_model<'a>(
     mut rand: impl Rng + Copy,
-    on_off: &'a on_off::OnOffHandler<'a, OH, LH>,
+    on_off: &'a on_off::OnOffHandler<'a, TestOnOffDeviceLogic, on_off::NoLevelControl>,
+    level: &'a level_control::LevelControlHandler<'a, TestLevelControl, level_control::NoOnOff>,
     temperature: &'a TestTemperature,
     thread_network: &'a TestThreadNetwork,
 ) -> impl DataModel + 'a {
@@ -201,6 +217,10 @@ fn data_model<'a, OH: OnOffHooks, LH: LevelControlHooks>(
             .chain(
                 |e, c| e == 1 && c == TestOnOffDeviceLogic::CLUSTER.id,
                 Async(on_off::HandlerAdaptor(on_off)),
+            )
+            .chain(
+                |e, c| e == 1 && c == TestLevelControl::CLUSTER.id,
+                Async(level_control::HandlerAdaptor(level)),
             )
             .chain(
                 |e, c| e == 1 && c == TestTemperature::CLUSTER.id,
@@ -284,6 +304,12 @@ async fn run(
         rs_matter::persist::VENDOR_KEYS_START + 0x10,
         TestOnOffDeviceLogic::new(false),
     );
+    let level_control_handler = level_control::LevelControlHandler::new_standalone(
+        Dataver::new_rand(&mut rand),
+        1,
+        rs_matter::persist::VENDOR_KEYS_START + 0x11,
+        TestLevelControl,
+    );
 
     let temperature = TestTemperature {
         value: Cell::new(Some(2315)),
@@ -296,7 +322,13 @@ async fn run(
         device_matter,
         &device_crypto,
         device_buffers,
-        data_model(rand, &on_off_handler, &temperature, &thread_network),
+        data_model(
+            rand,
+            &on_off_handler,
+            &level_control_handler,
+            &temperature,
+            &thread_network,
+        ),
         &device_kv,
         device_state,
     );
@@ -413,23 +445,45 @@ async fn run(
                 "OpenThread"
             }
         );
-        let endpoints = lexra_rs_matter_probe::devices::discover(ctrl_matter, ctrl_crypto, fab, node).await?;
-        assert_eq!(endpoints.iter().map(|endpoint| endpoint.id).collect::<Vec<_>>(), vec![0, 1]);
+        let endpoints =
+            lexra_rs_matter_probe::devices::discover(ctrl_matter, ctrl_crypto, fab, node).await?;
+        assert_eq!(
+            endpoints
+                .iter()
+                .map(|endpoint| endpoint.id)
+                .collect::<Vec<_>>(),
+            vec![0, 1]
+        );
         assert!(endpoints[1].servers.contains(&6));
         println!("PASS bounded operational descriptor endpoint and cluster discovery over CASE");
         if service_owner {
             let persisted = Identity::open(&active_store, ctrl_crypto, ADMIN_VENDOR_ID)?;
             let catalog = lexra_rs_matter_probe::catalog::Catalog::open(
-                active_store.clone(), persisted.fabric_id(), persisted.next_node())?;
+                active_store.clone(),
+                persisted.fabric_id(),
+                persisted.next_node(),
+            )?;
             let mut manager = lexra_rs_matter_probe::devices::Manager::new(
-                ctrl_matter, &ctrl_crypto, fab, catalog).map_err(|_| rs_matter::error::ErrorCode::Failure)?;
+                ctrl_matter,
+                &ctrl_crypto,
+                fab,
+                catalog,
+            )
+            .map_err(|_| rs_matter::error::ErrorCode::Failure)?;
             for attempt in 0..2 {
                 std::future::poll_fn(|context| {
                     manager.poll(true, false, std::time::Instant::now(), context);
-                    if manager.snapshots().iter().any(|s| s.node == node && s.online) {
+                    if manager
+                        .snapshots()
+                        .iter()
+                        .any(|s| s.node == node && s.online)
+                    {
                         std::task::Poll::Ready(())
-                    } else { std::task::Poll::Pending }
-                }).await;
+                    } else {
+                        std::task::Poll::Pending
+                    }
+                })
+                .await;
                 assert_eq!(manager.snapshots()[0].endpoints, endpoints);
                 if attempt == 0 {
                     let waker = std::task::Waker::noop();
@@ -437,49 +491,138 @@ async fn run(
                     manager.poll(false, false, std::time::Instant::now(), &mut context);
                     assert!(!manager.snapshots()[0].online);
                     let body = format!("{{\"schema\":1,\"command\":\"on\",\"node\":\"{node:016x}\",\"endpoint\":1}}");
-                    assert!(matches!(manager.prepare(lexra_rs_matter_probe::control::Request::decode(11, body.as_bytes()).unwrap()),
-                        Err(lexra_rs_matter_probe::operations::Failure::NotReady)));
+                    assert!(matches!(
+                        manager.prepare(
+                            lexra_rs_matter_probe::control::Request::decode(11, body.as_bytes())
+                                .unwrap()
+                        ),
+                        Err(lexra_rs_matter_probe::operations::Failure::NotReady)
+                    ));
                 }
             }
             println!("PASS production device scheduler catalog restore and radio detach refresh over CASE");
-            let first = manager.page(0, None).map_err(|_| rs_matter::error::ErrorCode::InvalidData)?;
+            let first = manager
+                .page(0, None)
+                .map_err(|_| rs_matter::error::ErrorCode::InvalidData)?;
             assert_eq!(first.devices[0].node.0, node);
             assert_eq!(first.devices[0].endpoint, Some(0));
             assert_eq!(first.next_cursor, Some(1));
-            let last = manager.page(1, Some(first.revision)).map_err(|_| rs_matter::error::ErrorCode::InvalidData)?;
+            let last = manager
+                .page(1, Some(first.revision))
+                .map_err(|_| rs_matter::error::ErrorCode::InvalidData)?;
             assert_eq!(last.devices[0].endpoint, Some(1));
             assert!(last.devices[0].online && last.devices[0].servers.contains(&6));
+            assert!(last.devices[0].servers.contains(&8));
             assert_eq!(last.next_cursor, None);
-            assert_eq!(last.devices[0].id.as_deref(), Some(format!("matter:{:016x}:{node:016x}:0001", persisted.fabric_id()).as_str()));
-            println!("PASS bounded revisioned device snapshot pages from encrypted CASE descriptors");
+            assert_eq!(
+                last.devices[0].id.as_deref(),
+                Some(format!("matter:{:016x}:{node:016x}:0001", persisted.fabric_id()).as_str())
+            );
+            println!(
+                "PASS bounded revisioned device snapshot pages from encrypted CASE descriptors"
+            );
             for (command, expected) in [("on", true), ("toggle", false), ("off", false)] {
                 let body = format!("{{\"schema\":1,\"command\":\"{command}\",\"node\":\"{node:016x}\",\"endpoint\":1}}");
-                let accepted = manager.submit(
-                    lexra_rs_matter_probe::control::Request::decode(11, body.as_bytes())
-                        .map_err(|_| rs_matter::error::ErrorCode::InvalidData)?,
-                    true,
-                    false,
-                    std::time::Instant::now(),
-                ).map_err(|_| rs_matter::error::ErrorCode::InvalidData)?;
+                let accepted = manager
+                    .submit(
+                        lexra_rs_matter_probe::control::Request::decode(11, body.as_bytes())
+                            .map_err(|_| rs_matter::error::ErrorCode::InvalidData)?,
+                        true,
+                        false,
+                        std::time::Instant::now(),
+                    )
+                    .map_err(|_| rs_matter::error::ErrorCode::InvalidData)?;
                 let outcome = std::future::poll_fn(|context| {
                     manager.poll(true, false, std::time::Instant::now(), context);
-                    match manager.job(accepted.job).map_err(|_| rs_matter::error::ErrorCode::InvalidData) {
-                        Ok(state @ (lexra_rs_matter_probe::devices::JobState::Complete { .. } |
-                            lexra_rs_matter_probe::devices::JobState::Failed { .. })) => std::task::Poll::Ready(Ok(state)),
+                    match manager
+                        .job(accepted.job)
+                        .map_err(|_| rs_matter::error::ErrorCode::InvalidData)
+                    {
+                        Ok(
+                            state @ (lexra_rs_matter_probe::devices::JobState::Complete { .. }
+                            | lexra_rs_matter_probe::devices::JobState::Failed { .. }),
+                        ) => std::task::Poll::Ready(Ok(state)),
                         Ok(_) => {
                             context.waker().wake_by_ref();
                             std::task::Poll::Pending
                         }
                         Err(error) => std::task::Poll::Ready(Err(error)),
                     }
-                }).await?;
+                })
+                .await?;
+                match outcome {
+                    lexra_rs_matter_probe::devices::JobState::Complete { result, .. } => {
+                        match result.value {
+                            lexra_rs_matter_probe::operations::Value::Bool(actual) => {
+                                assert_eq!(actual, expected, "OnOff {command}")
+                            }
+                            _ => panic!("OnOff {command} returned the wrong value type"),
+                        }
+                    }
+                    lexra_rs_matter_probe::devices::JobState::Failed { error, .. } => {
+                        panic!("OnOff job failed: {error:?}");
+                    }
+                    _ => unreachable!(),
+                }
+            }
+            for (body, opcode, expected) in [
+                (format!("{{\"schema\":1,\"action\":\"read\",\"node\":\"{node:016x}\",\"endpoint\":1,\"cluster\":8,\"attribute\":0}}"), 10, 1),
+                (format!("{{\"schema\":1,\"command\":\"move_to_level\",\"node\":\"{node:016x}\",\"endpoint\":1,\"level\":124,\"transition_deciseconds\":0}}"), 11, 124),
+                (format!("{{\"schema\":1,\"action\":\"read\",\"node\":\"{node:016x}\",\"endpoint\":1,\"cluster\":8,\"attribute\":0}}"), 10, 124),
+            ] {
+                let accepted = manager
+                    .submit(
+                        lexra_rs_matter_probe::control::Request::decode(opcode, body.as_bytes())
+                            .map_err(|_| rs_matter::error::ErrorCode::InvalidData)?,
+                        true,
+                        false,
+                        std::time::Instant::now(),
+                    )
+                    .map_err(|_| rs_matter::error::ErrorCode::InvalidData)?;
+                let outcome = std::future::poll_fn(|context| {
+                    manager.poll(true, false, std::time::Instant::now(), context);
+                    match manager.job(accepted.job) {
+                        Ok(state @ (lexra_rs_matter_probe::devices::JobState::Complete { .. }
+                            | lexra_rs_matter_probe::devices::JobState::Failed { .. })) => {
+                            std::task::Poll::Ready(state)
+                        }
+                        Ok(_) => {
+                            context.waker().wake_by_ref();
+                            std::task::Poll::Pending
+                        }
+                        Err(_) => panic!("Level job status lookup failed"),
+                    }
+                })
+                .await;
                 assert!(matches!(outcome,
                     lexra_rs_matter_probe::devices::JobState::Complete { result, .. }
-                        if matches!(result.value, lexra_rs_matter_probe::operations::Value::Bool(actual) if actual == expected)));
+                        if result.cluster == 8 && result.attribute == 0 &&
+                            matches!(result.value, lexra_rs_matter_probe::operations::Value::U8(Some(actual)) if actual == expected)));
             }
-            let denied = format!("{{\"schema\":1,\"command\":\"on\",\"node\":\"{node:016x}\",\"endpoint\":0}}");
-            assert!(matches!(manager.prepare(lexra_rs_matter_probe::control::Request::decode(11, denied.as_bytes()).map_err(|_| rs_matter::error::ErrorCode::InvalidData)?),
-                Err(lexra_rs_matter_probe::operations::Failure::Unsupported)));
+            println!("PASS capability-gated Level reads, MoveToLevel and confirmed CASE readback");
+            let denied_level_read = format!(
+                "{{\"schema\":1,\"action\":\"read\",\"node\":\"{node:016x}\",\"endpoint\":0,\"cluster\":8,\"attribute\":0}}"
+            );
+            assert!(matches!(
+                manager.prepare(
+                    lexra_rs_matter_probe::control::Request::decode(
+                        10,
+                        denied_level_read.as_bytes()
+                    )
+                    .map_err(|_| rs_matter::error::ErrorCode::InvalidData)?
+                ),
+                Err(lexra_rs_matter_probe::operations::Failure::Unsupported)
+            ));
+            let denied = format!(
+                "{{\"schema\":1,\"command\":\"on\",\"node\":\"{node:016x}\",\"endpoint\":0}}"
+            );
+            assert!(matches!(
+                manager.prepare(
+                    lexra_rs_matter_probe::control::Request::decode(11, denied.as_bytes())
+                        .map_err(|_| rs_matter::error::ErrorCode::InvalidData)?
+                ),
+                Err(lexra_rs_matter_probe::operations::Failure::Unsupported)
+            ));
             println!("PASS capability-gated OnOff transactions and confirmed readback over CASE");
         }
         let exchange = Exchange::initiate(ctrl_matter, ctrl_crypto, fab, node).await?;
