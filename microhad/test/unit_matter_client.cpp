@@ -84,6 +84,19 @@ void* serveChannel(void* opaque) {
     close(peer->fd); return 0;
 }
 
+struct StalledPeer { int fd; };
+void* serveStalledPeer(void* opaque) {
+    StalledPeer* peer = static_cast<StalledPeer*>(opaque);
+    unsigned char header[10];
+    assert(readExact(peer->fd, header, sizeof(header)));
+    const unsigned int payloadSize = header[0] | (static_cast<unsigned int>(header[1]) << 8);
+    std::vector<unsigned char> body(payloadSize);
+    if (payloadSize != 0) assert(readExact(peer->fd, &body[0], payloadSize));
+    usleep(150000);
+    close(peer->fd);
+    return 0;
+}
+
 struct WorkerPeer {
     int listener;
     bool fail;
@@ -159,6 +172,21 @@ void runMatterClientUnitTests() {
         assert(valid == (i == 0 || i == 7 || i == 9 || i == 10));
         if (valid) assert(json == peer.reply && error.empty());
         else assert(json.empty() && error == "Matter service response invalid");
+        assert(pthread_join(server, 0) == 0);
+    }
+
+    {
+        int sockets[2]; assert(socketpair(AF_UNIX, SOCK_STREAM, 0, sockets) == 0);
+        StalledPeer stalled; stalled.fd = sockets[1];
+        pthread_t server; assert(pthread_create(&server, 0, serveStalledPeer, &stalled) == 0);
+        struct timespec begin, end;
+        assert(clock_gettime(CLOCK_MONOTONIC, &begin) == 0);
+        const int64_t deadline = static_cast<int64_t>(begin.tv_sec) * 1000 + begin.tv_nsec / 1000000 + 25;
+        json = "old";
+        assert(!client.exchange(sockets[0], 2, "", deadline, &json, &error));
+        assert(json.empty() && error == "Matter service response timed out");
+        assert(clock_gettime(CLOCK_MONOTONIC, &end) == 0);
+        assert((end.tv_sec-begin.tv_sec)*1000 + (end.tv_nsec-begin.tv_nsec)/1000000 < 125);
         assert(pthread_join(server, 0) == 0);
     }
 
