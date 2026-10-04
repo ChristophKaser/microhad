@@ -125,9 +125,14 @@ as complete. Shared `/api/status` exposes confirmed state and canonical
 `sensor_values` with measured/unknown quality and service-reported units;
 legacy `co2_ppm` and `pm25_micrograms_m3` fields remain meaningful only for
 their named units. Snapshot reconciliation preserves values and quality.
-Values remain in memory only; durable persistence/history, alerts and reports
-remain open. The Matter-enabled host suite and MIPS cross-build pass for this
-checkpoint; MIPS emits the toolchain's existing LOAD-USE warnings.
+Values remain in memory only; durable persistence/history and reports remain
+open. Native commit `e81af44` now feeds Matter
+temperature, humidity and brightness values into the common alert-threshold
+processor and preserves alert configuration/state when snapshot capabilities
+refresh. Alert configuration is not yet restored for Matter after process
+restart; CO2/PM2.5 alert thresholds are not modeled. The Matter-enabled host
+suite and MIPS cross-build pass; MIPS emits the toolchain's existing LOAD-USE
+warnings.
 
 ## Remaining checkpoints
 
@@ -136,9 +141,12 @@ checkpoint; MIPS emits the toolchain's existing LOAD-USE warnings.
    source provenance. Unknown readings retain their units and serialize as
    null/unknown; refresh reconciliation preserves confirmed values.
 2. Persist Matter-backed measurements and confirmed state through the shared
-   catalog/history path used by Zigbee and external HTTP devices such as
-   Shelly. Keep source-specific transport in adapters; keep join and
-   Thread-specific settings in the Matter area.
+   history path used by Zigbee and external HTTP devices such as Shelly. Give
+   history stable source-neutral IDs and preserve units without placing Matter
+   IDs in Zigbee IEEE fields. Restore common alert settings across Matter
+   service/gateway restart, then add unit-aware CO2/PM2.5 alert support. Keep
+   source-specific transport in adapters; keep join and Thread-specific
+   settings in the Matter area.
 3. Extend broad enabled/disabled, absent/stalled service, malformed reply, queue
    pressure, cancellation, socket-loss and secret-redaction gates. Existing native
    and new frontend tests cover subsets; checklist item 6 remains open.

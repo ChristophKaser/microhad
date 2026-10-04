@@ -50,12 +50,17 @@ typed completed CASE reads also update matching registered native
 `Gateway::Device` instances. The shared status view reports normalized
 `sensor_values` with units and measured/unknown quality, and snapshot refreshes
 preserve the last confirmed values. State is currently in memory only; durable
-values/history, alerts and reports remain open. Remote recovery of catalogued
-nodes and legacy migration also remain open. Verification passed:
+values/history and reports remain open. Native commit `e81af44` routes Matter
+temperature, humidity and brightness readings through the common value-alert
+engine and preserves alert configuration/state across snapshot refresh. Matter
+alert settings are not restored after process restart, and CO2/PM2.5 alert
+units are not modeled. Remote recovery of catalogued nodes and legacy
+migration also remain open. Verification passed:
 `make ZIGGURAT=1 MATTER=1 host test` and
 `make ZIGGURAT=1 MATTER=1 mips` (the MIPS toolchain prints its existing
-LOAD-USE warnings). Next deliverable: persist these shared
-values and feed them to history and alert processing. The Matter endpoint
+LOAD-USE warnings). Next deliverable: add source-neutral bounded history keys
+and telemetry units, restore Matter alert settings across restart, and feed the
+additional sensors into the history/notification paths. The Matter endpoint
 catalog is refreshed when the dashboard pages its snapshot; persistent native
 restart restoration remains open.
 
@@ -235,7 +240,9 @@ are historical; the latest status/evidence section above takes precedence.
    synthetic descriptors rather than assuming ALPSTUGA exposes every cluster.
 6. [ ] Add bounded subscriptions, duplicate filtering, sleepy-device refresh
    and reconnect backoff; persist meaningful changes rather than each report.
-7. [ ] Feed native snapshots/history/alerts and dashboard through plan 04.
+7. [ ] CASE operation values feed the common in-memory state and the shared
+   temperature/humidity/brightness alert engine. Add restart restoration,
+   source-neutral unit-aware history, CO2/PM2.5 alert support and reports.
    Test unsupported clusters, missing/duplicate reports, address changes,
    restart and concurrent synthetic Zigbee activity; document remaining limits.
 
