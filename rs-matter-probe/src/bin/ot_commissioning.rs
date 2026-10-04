@@ -413,6 +413,10 @@ async fn run(
                 "OpenThread"
             }
         );
+        let endpoints = lexra_rs_matter_probe::devices::discover(ctrl_matter, ctrl_crypto, fab, node).await?;
+        assert_eq!(endpoints.iter().map(|endpoint| endpoint.id).collect::<Vec<_>>(), vec![0, 1]);
+        assert!(endpoints[1].servers.contains(&6));
+        println!("PASS bounded operational descriptor endpoint and cluster discovery over CASE");
         let exchange = Exchange::initiate(ctrl_matter, ctrl_crypto, fab, node).await?;
         assert!(!exchange.on_off().on_off_read(1).await?);
         let exchange = Exchange::initiate(ctrl_matter, ctrl_crypto, fab, node).await?;

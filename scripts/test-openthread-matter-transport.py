@@ -49,6 +49,8 @@ def main():
                 raise RuntimeError('SRP/DNS fixture registration did not complete: ' + result.stdout + result.stderr)
             if args.service_discovery and 'PASS DNS cancelled callback isolation' not in result.stdout:
                 raise RuntimeError('DNS cancellation/error isolation did not complete: ' + result.stdout + result.stderr)
+            if args.commissioning and 'PASS bounded operational descriptor endpoint and cluster discovery over CASE' not in result.stdout:
+                raise RuntimeError('Operational descriptor discovery did not complete: ' + result.stdout + result.stderr)
             if result.returncode or marker not in result.stdout:
                 raise RuntimeError('Transport failed: ' + result.stdout + result.stderr + '\nRCP error: ' + str(radio.error))
             if radio.error:
@@ -59,6 +61,7 @@ def main():
                       'encrypted_commissioning_tested': args.commissioning, 'production_owned_commissioner_tested': args.service_owner, 'synthetic_phone_gatt_tested': args.ble,
                       'production_dns_resolver_tested': args.service_discovery,
                       'signed_srp_registration_tested': args.service_discovery,
+                      'operational_descriptor_discovery_tested': args.commissioning,
                       'fixture_address_injection': args.commissioning and not args.service_discovery,
                       'real_ble_access': False,
                       'multicast_membership_api_tested': not args.commissioning,
