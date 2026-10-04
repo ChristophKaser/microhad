@@ -6,7 +6,8 @@ Queued commissioning/Thread APIs, the owned WebSocket relay and a feature-aware
 dashboard onboarding/progress panel exist. Queued device snapshot pages now have
 native validation, HTTP exposure and a dashboard view. Device controls/measurement APIs and views remain open.
 
-Next deliverable: Verify rendered snapshot interaction, then add device read/control and measurements after plan
+Rendered snapshot component interaction is verified in Chromium. Next deliverable:
+add device read/control and measurements after plan
 07 supplies the production device pipeline. Extend the broader API/failure gates
 in checklist item 6; rendered browser interaction remains unverified.
 
@@ -149,8 +150,8 @@ are historical; the latest status/evidence section above takes precedence.
    setup input out of logs and persistent dashboard state.
 5. [ ] When plan 07 is ready, expose device snapshots/read/control and render
    advertised controls and measurements, including unavailable/null values.
-   Snapshot API/view and bounded HTTP client are implemented; rendered interaction,
-   read/control and measurement rendering keep this item open.
+   Snapshot API/view, bounded HTTP client and rendered component interaction are
+   verified. Read/control and measurement rendering keep this item open.
 6. [ ] Verify enabled/disabled builds, unavailable/stalled service, invalid
    input, queue saturation, WebSocket loss and secret redaction. Run default
    and enabled host/MIPS suites sequentially and make webui for UI edits.
@@ -427,3 +428,30 @@ rejection before HTTP submission. No native C++ source changed in this checkpoin
 Rendered browser interaction remains unverified: local Chromium needs runtime
 paths outside the workspace sandbox. This does not close checklist items 5/6.
 Controls, measurements, history and alerts remain open; plan 08 is excluded.
+
+## Rendered device component checkpoint — 2026-10-04
+
+`webui/test/matter-devices-browser.cjs` bundles the production React
+`MatterDevices` component and serves it with actual localhost HTTP job/page
+fixtures. It runs headless Chromium and requires the browser's DOM success
+marker; a failed condition or browser exit fails the command. The harness has
+bounded virtual time and a 55-second process timeout, uses a temporary profile,
+and closes the browser/server on completion. `CHROMIUM` can select another
+Chromium executable. Local browser execution requires access to its runtime
+paths outside the workspace sandbox; this was verified with approved execution.
+
+Verified with Chromium 154.0.8037.57: initial mount submits no page calls;
+explicit refresh/next renders two endpoints and feature labels; final pages
+remove the next button; stale revision stops further loading without replay and
+retains labelled cached rows; refresh replaces old endpoints; recovery and
+offline states retain identity; duplicates are rejected; empty results clear
+rows; unavailability disables requests and aborts pending work; unmount prevents
+late UI updates. The fixture waits for refreshed data and enabled controls
+before interacting, so a click on a disabled button cannot falsely satisfy it.
+
+Commands passed: `make webui`, `node webui/test/matter-devices-browser.cjs`,
+`python3 scripts/test_matter_webui.py` (14 actual-HTTP client tests).
+This proves the isolated production device component's interactions, not the
+entire dashboard layout or onboarding flow, nor physical gateway/accessory
+behavior. Checklist 5/6 remain open for read/control/measurements and broader
+failure gates. No native C++ code changed or plan 08 action was performed.

@@ -94,7 +94,8 @@ advertised feature labels. It stops on changed revisions, rejects loops or
 contradictory metadata, and offers explicit refresh without replaying calls.
 Loaded information remains visibly cached after a read failure. The view
 neither polls all pages automatically nor implies controls/measurement values
-are implemented. Rendered browser interaction remains unverified.
+are implemented. Rendered device component interaction is verified in an isolated
+Chromium HTTP fixture; broader dashboard interaction remains open.
 
 ## Thread dataset mutations
 
