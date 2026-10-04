@@ -1,0 +1,120 @@
+//! Typed, bounded outgoing bodies. No Debug or payload logging implementation.
+use crate::ipc::{Frame, MAX_PAYLOAD};
+use serde::{Serialize, Serializer};
+
+pub fn serialize_hex<S: Serializer>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error> {
+    const DIGITS: &[u8] = b"0123456789abcdef";
+    let mut value = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        value.push(DIGITS[usize::from(byte >> 4)] as char);
+        value.push(DIGITS[usize::from(byte & 15)] as char);
+    }
+    serializer.serialize_str(&value)
+}
+
+#[derive(Serialize)]
+#[serde(untagged)]
+enum Reply<T, E> {
+    Success { schema: u8, ok: bool, result: T },
+    Failure { schema: u8, ok: bool, error: E },
+}
+pub fn reply<T: Serialize, E: Serialize>(result: Result<T, E>) -> Option<Vec<u8>> {
+    let body = match result {
+        Ok(result) => Reply::Success {
+            schema: 1,
+            ok: true,
+            result,
+        },
+        Err(error) => Reply::Failure {
+            schema: 1,
+            ok: false,
+            error,
+        },
+    };
+    let bytes = serde_json::to_vec(&body).ok()?;
+    (bytes.len() <= MAX_PAYLOAD).then_some(bytes)
+}
+
+#[derive(Serialize)]
+#[serde(tag = "event", content = "data", rename_all = "snake_case")]
+pub enum Event<'a> {
+    Commissioning(&'a crate::sessions::Snapshot),
+    BleWrite(&'a crate::sessions::Write),
+    #[cfg(feature = "controller-service")]
+    Thread(&'a crate::thread_lifecycle::Snapshot),
+}
+#[derive(Serialize)]
+struct Envelope<'a> {
+    schema: u8,
+    #[serde(flatten)]
+    event: Event<'a>,
+}
+pub fn event(event: Event<'_>) -> Option<Frame> {
+    // ATT relay bytes remain opaque and are permitted only in this typed event.
+    if let Event::BleWrite(write) = &event {
+        if write.data.is_empty()
+            || write.data.len() > 244
+            || write.session.0 == 0
+            || write.generation == 0
+            || write.write == 0
+        {
+            return None;
+        }
+    }
+    let payload = serde_json::to_vec(&Envelope { schema: 1, event }).ok()?;
+    (payload.len() <= MAX_PAYLOAD).then_some(Frame {
+        kind: 2,
+        opcode: 12,
+        id: 0,
+        payload,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        control::Id,
+        sessions::{Phase, SessionError, Snapshot, Write},
+    };
+
+    #[test]
+    fn fixed_reply_and_session_event_vectors() {
+        let failure = reply::<(), _>(Err(SessionError::StaleGeneration)).unwrap();
+        assert_eq!(
+            failure,
+            br#"{"schema":1,"ok":false,"error":"stale_generation"}"#
+        );
+        let snapshot = Snapshot {
+            session: Id(0xabcdef),
+            state: Phase::Cancelled,
+            deadline_remaining_seconds: 0,
+            error: Some(SessionError::Cancelled),
+            node: None,
+        };
+        assert_eq!(reply::<_, SessionError>(Ok(&snapshot)).unwrap(),
+            br#"{"schema":1,"ok":true,"result":{"session":"0000000000abcdef","state":"cancelled","deadline_remaining_seconds":0,"error":"cancelled"}}"#);
+        let frame = event(Event::Commissioning(&snapshot)).unwrap();
+        assert_eq!((frame.kind, frame.opcode, frame.id), (2, 12, 0));
+        assert_eq!(frame.payload,
+            br#"{"schema":1,"event":"commissioning","data":{"session":"0000000000abcdef","state":"cancelled","deadline_remaining_seconds":0,"error":"cancelled"}}"#);
+    }
+    #[test]
+    fn opaque_write_hex_limits_and_bounds() {
+        let mut write = Write {
+            session: Id(1),
+            generation: 2,
+            write: 3,
+            data: vec![0, 15, 255],
+        };
+        assert_eq!(event(Event::BleWrite(&write)).unwrap().payload,
+            br#"{"schema":1,"event":"ble_write","data":{"session":"0000000000000001","generation":2,"write":3,"data":"000fff"}}"#);
+        write.data = vec![255; 244];
+        assert!(event(Event::BleWrite(&write)).is_some());
+        write.data.push(0);
+        assert!(event(Event::BleWrite(&write)).is_none());
+        write.data.clear();
+        assert!(event(Event::BleWrite(&write)).is_none());
+        assert!(reply::<_, SessionError>(Ok("x".repeat(MAX_PAYLOAD))).is_none());
+    }
+}

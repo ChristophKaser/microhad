@@ -51,6 +51,13 @@ def status(path, opcode, ident, body=b""):
         return json.loads(receive(peer, length))
 
 
+def ipc_frame(peer):
+    header = receive(peer, 10)
+    length, version, kind, opcode, reserved, ident = struct.unpack("<HBBBBI", header)
+    assert version == 1 and reserved == 0 and length <= 2048
+    return kind, opcode, ident, json.loads(receive(peer, length))
+
+
 def main():
     radio = ChannelRcp("127.0.0.1", tcp_nodelay=True)
     relay = service = None
@@ -87,12 +94,29 @@ def main():
             assert not thread["linux_ipv6_or_tun"]
             assert thread["state"] == "awaiting_coordinator"
             assert not radio.requests
+            subscriber = socket.socket(socket.AF_UNIX)
+            subscriber.settimeout(1)
+            subscriber.connect(str(ipc_path))
+            body = b'{"schema":1,"action":"status","subscribe":true}'
+            subscriber.sendall(struct.pack("<HBBBBI", len(body), 1, 0, 9, 0, 307) + body)
+            kind, opcode, ident, body = ipc_frame(subscriber)
+            assert (kind, opcode, ident) == (1, 9, 307) and body["ok"]
+            kind, opcode, ident, body = ipc_frame(subscriber)
+            assert (kind, opcode, ident) == (2, 12, 0)
+            assert body["schema"] == 1 and body["event"] == "thread"
+            assert body["data"]["state"] == "awaiting_coordinator"
+            assert not ({"dataset", "pin", "key"} & body["data"].keys())
             observed = status(ipc_path, 9, 310, b'{"schema":1,"action":"observe","zigbee_channel":15,"zigbee_online":true}')
             assert observed["ok"]
             deadline = time.monotonic() + 3
             while status(ipc_path, 1, 311)["state"] != "running":
                 assert time.monotonic() < deadline
                 time.sleep(0.01)
+            kind, opcode, ident, body = ipc_frame(subscriber)
+            assert (kind, opcode, ident) == (2, 12, 0) and body["event"] == "thread"
+            assert body["data"]["zigbee_channel"] == 15
+            assert body["data"]["state"] == "detached"
+            subscriber.close()
             assert ipc_path.stat().st_mode & 0o777 == 0o600
             duplicate = subprocess.run(args, capture_output=True, timeout=2)
             assert duplicate.returncode == 1
@@ -209,7 +233,7 @@ def main():
             assert not radio.error
             assert radio.counts.get("command_1", 0) == 0
             assert radio.channel_writes and all(channel == 15 for channel in radio.channel_writes)
-            print("PASS private IPC, fabric restore, gated Thread create/restore, mismatch/expiry/cache guards, no read writes, no RCP reset")
+            print("PASS private IPC and targeted Thread events, fabric restore, gated Thread create/restore, mismatch/expiry/cache guards, no read writes, no RCP reset")
     finally:
         for process in (service, relay):
             if process is not None and process.poll() is None:

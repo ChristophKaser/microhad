@@ -74,10 +74,12 @@ pub struct Attempt {
     pub pin: Zeroizing<u32>,
     pub progress: Progress,
 }
+#[derive(Serialize)]
 pub struct Write {
     pub session: Id,
     pub generation: u32,
     pub write: u32,
+    #[serde(serialize_with = "crate::responses::serialize_hex")]
     pub data: Vec<u8>,
 }
 struct Session {

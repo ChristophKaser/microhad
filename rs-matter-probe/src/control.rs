@@ -110,6 +110,8 @@ pub enum ThreadRequest {
     },
     Status {
         schema: Schema,
+        #[serde(default)]
+        subscribe: bool,
     },
     Create {
         schema: Schema,
@@ -275,6 +277,17 @@ mod tests {
     }
     fn invalid(op: u8, body: &str) {
         assert!(Request::decode(op, body.as_bytes()).is_err());
+    }
+    #[test]
+    fn thread_subscription_is_optional_and_strictly_boolean() {
+        valid(9, r#"{"schema":1,"action":"status","subscribe":true}"#);
+        valid(9, r#"{"schema":1,"action":"status","subscribe":false}"#);
+        invalid(9, r#"{"schema":1,"action":"status","subscribe":1}"#);
+        invalid(9, r#"{"schema":1,"action":"status","subscribe":"true"}"#);
+        invalid(
+            9,
+            r#"{"schema":1,"action":"status","subscribe":true,"subscribe":false}"#,
+        );
     }
     #[test]
     fn all_assigned_request_shapes_decode() {

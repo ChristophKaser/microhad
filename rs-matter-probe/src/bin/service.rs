@@ -63,6 +63,8 @@ impl std::task::Wake for Wake {
 
 fn dispatch(
     request: Frame,
+    peer: u64,
+    subscribers: &mut Vec<(u64, Vec<u8>)>,
     lifecycle: &mut Lifecycle,
     thread: Option<&OpenThread>,
     entropy: &mut OsEntropy,
@@ -80,7 +82,12 @@ fn dispatch(
             let now = Instant::now();
             let radio = thread.map(|r| r as &dyn Radio);
             let result = match body {
-                ThreadRequest::Status { .. } => Ok(lifecycle.snapshot()),
+                ThreadRequest::Status { subscribe, .. } => {
+                    if subscribe && !subscribers.iter().any(|entry| entry.0 == peer) {
+                        subscribers.push((peer, Vec::new()));
+                    }
+                    Ok(lifecycle.snapshot())
+                },
                 ThreadRequest::Observe { zigbee_channel, zigbee_online, .. } =>
                     lifecycle.observe(zigbee_channel, zigbee_online, radio, now),
                 ThreadRequest::Create { zigbee_channel, .. } => match radio {
@@ -92,10 +99,7 @@ fn dispatch(
                     None => Err(Failure::NotReady),
                 },
             };
-            match result {
-                Ok(snapshot) => format!("{{\"schema\":1,\"ok\":true,\"result\":{}}}", serde_json::to_string(&snapshot).ok()?),
-                Err(error) => format!("{{\"schema\":1,\"ok\":false,\"error\":{}}}", serde_json::to_string(&error).ok()?),
-            }
+            String::from_utf8(lexra_rs_matter_probe::responses::reply(result)?).ok()?
         },
         Ok(_) => "{\"schema\":1,\"ok\":false,\"error\":\"unsupported\"}".into(),
         Err(_) if request.opcode == OP_MATTER_STATUS || request.opcode == OP_THREAD_STATUS => return None,
@@ -107,6 +111,30 @@ fn dispatch(
         id: request.id,
         payload: payload.into_bytes(),
     })
+}
+
+fn publish_thread(
+    ipc: &mut IpcServer,
+    subscribers: &mut Vec<(u64, Vec<u8>)>,
+    lifecycle: &Lifecycle,
+) -> Result<(), std::io::Error> {
+    subscribers.retain(|entry| ipc.has_peer(entry.0));
+    if subscribers.is_empty() {
+        return Ok(());
+    }
+    let snapshot = lifecycle.snapshot();
+    let event = lexra_rs_matter_probe::responses::event(
+        lexra_rs_matter_probe::responses::Event::Thread(&snapshot),
+    )
+    .ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::InvalidData, "Thread event unavailable")
+    })?;
+    for (peer, previous) in subscribers.iter_mut() {
+        if *previous != event.payload && ipc.publish(*peer, &event)? {
+            *previous = event.payload.clone();
+        }
+    }
+    Ok(())
 }
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
@@ -208,6 +236,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let _controller_fabric = identity.install(matter, &crypto, &store)?;
     let mut lifecycle = Lifecycle::load(store.clone()).map_err(|_| "Thread state unavailable")?;
     let mut configuration_entropy = OsEntropy::open()?;
+    let mut subscribers = Vec::new();
     // Do not initialize OT (and restore POSIX settings) until a fresh protected
     // native coordinator observation agrees with the persisted dataset.
     eprintln!("Matter controller service started");
@@ -219,15 +248,18 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         lifecycle
             .tick(None, Instant::now())
             .map_err(|_| "Thread state unavailable")?;
-        ipc.poll(|request| {
+        ipc.poll_with_peer(|peer, request| {
             dispatch(
                 request,
+                peer,
+                &mut subscribers,
                 &mut lifecycle,
                 None,
                 &mut configuration_entropy,
                 matter.has_fabrics(),
             )
         })?;
+        publish_thread(&mut ipc, &mut subscribers, &lifecycle)?;
         if let Some(channel) = lifecycle.boot_channel(Instant::now()) {
             break channel;
         }
@@ -251,15 +283,18 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         lifecycle
             .tick(Some(&thread), Instant::now())
             .map_err(|_| "Thread radio stop failed")?;
-        ipc.poll(|request| {
+        ipc.poll_with_peer(|peer, request| {
             dispatch(
                 request,
+                peer,
+                &mut subscribers,
                 &mut lifecycle,
                 Some(&thread),
                 &mut configuration_entropy,
                 matter.has_fabrics(),
             )
         })?;
+        publish_thread(&mut ipc, &mut subscribers, &lifecycle)?;
         if lifecycle.fatal() {
             return Err("Thread radio stop failed".into());
         }

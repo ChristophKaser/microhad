@@ -131,3 +131,35 @@ Thread to `awaiting_coordinator`, and service shutdown produces cached HTTP
 503 without stopping native. Commands: `python3
 ../microhad-zigbee-native/scripts/test_matter_native_worker.py --real-service` from
 this project (requires both host builds). This is synthetic host evidence only.
+
+## Targeted IPC events — 2026-10-04
+
+Private opcode-9 Thread status accepts optional `subscribe:true` (default false).
+The correlated response is followed by an opcode-12 event carrying schema 1,
+event `thread`, and the redacted snapshot in `data`; later events are emitted
+only when that snapshot changes. Existing status/observation callers do not
+subscribe and keep their request/reply behavior. Subscription is tied to the
+connection, not a reusable correlation or session identifier.
+
+The listener assigns monotonically increasing, nonzero internal peer IDs and
+never reuses them; exhaustion fails closed. Targeted publish is bounded by the
+existing eight-frame reply/event queue and 4096-byte per-turn write budget.
+Full queues, expired/closed connections and malformed requests affect only
+that peer. Outgoing events do not renew the two-second idle deadline; a
+subscriber must send requests to remain connected. No broadcast, flash write
+or payload logging is introduced.
+
+`responses` provides bounded schema-1 reply serialization and typed Thread,
+commissioning-snapshot and opaque BLE-write event bodies. BLE bytes serialize
+as lowercase hex, bounded at 244 decoded bytes, with nonzero session/generation/
+write IDs. Exact vectors and secret-free session snapshots are covered by tests.
+Commissioning/BLE events are building blocks only: production commissioner
+dispatch and the native persistent event consumer are still pending.
+
+Verification: 41 controller-service library tests, 24 control-ipc-only library
+tests, the synthetic service test (subscription before OT startup, then channel
+observation/change event), and native-to-real-Rust synthetic HTTP regression
+pass. The factory build/artifact is recorded in native plan 02 after verification.
+
+The factory event-enabled service build is static big-endian MIPS-I/o32 and
+1,556,124 stripped bytes. No target execution or real-device test was performed.

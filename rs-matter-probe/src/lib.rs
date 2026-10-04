@@ -11,6 +11,8 @@ pub mod ipc;
 pub mod sessions;
 pub mod store;
 
+#[cfg(feature = "control-ipc")]
+pub mod responses;
 #[cfg(feature = "controller-service")]
 pub mod service;
 #[cfg(feature = "controller-service")]

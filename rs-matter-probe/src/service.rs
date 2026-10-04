@@ -69,6 +69,7 @@ fn private_file(path: &Path, socket: bool) -> io::Result<fs::Metadata> {
 }
 
 struct Client {
+    id: u64,
     stream: UnixStream,
     decoder: Decoder,
     responses: VecDeque<Vec<u8>>,
@@ -80,6 +81,7 @@ impl Client {
     fn new(stream: UnixStream) -> io::Result<Self> {
         stream.set_nonblocking(true)?;
         Ok(Self {
+            id: 0,
             stream,
             decoder: Decoder::default(),
             responses: VecDeque::new(),
@@ -171,6 +173,7 @@ pub struct IpcServer {
     path: PathBuf,
     identity: (u64, u64),
     clients: Vec<Client>,
+    next_client: u64,
 }
 impl IpcServer {
     pub fn bind(path: &Path) -> io::Result<Self> {
@@ -225,16 +228,31 @@ impl IpcServer {
             path: path.into(),
             identity: (meta.dev(), meta.ino()),
             clients: Vec::new(),
+            next_client: 1,
         })
     }
     pub fn poll(&mut self, mut dispatch: impl FnMut(Frame) -> Option<Frame>) -> io::Result<()> {
+        self.poll_with_peer(|_, request| dispatch(request))
+    }
+    /// Peer IDs are connection lifetimes, never administrator authentication.
+    /// A reused IPC correlation cannot target a retired connection.
+    pub fn poll_with_peer(
+        &mut self,
+        mut dispatch: impl FnMut(u64, Frame) -> Option<Frame>,
+    ) -> io::Result<()> {
         // Bound accepts per turn as well as resident clients so a connection flood
         // cannot starve OpenThread, Matter timers, or another peer.
         for _ in 0..MAX_CLIENTS {
             match self.listener.accept() {
                 Ok((stream, _)) => {
                     if self.clients.len() < MAX_CLIENTS {
-                        self.clients.push(Client::new(stream)?);
+                        let next = self.next_client.checked_add(1).ok_or_else(|| {
+                            io::Error::new(io::ErrorKind::Other, "IPC peer IDs exhausted")
+                        })?;
+                        let mut client = Client::new(stream)?;
+                        client.id = self.next_client;
+                        self.next_client = next;
+                        self.clients.push(client);
                     }
                 }
                 Err(error)
@@ -248,9 +266,44 @@ impl IpcServer {
                 Err(error) => return Err(error),
             }
         }
-        self.clients
-            .retain_mut(|client| client.poll(&mut dispatch).unwrap_or(false));
+        self.clients.retain_mut(|client| {
+            let id = client.id;
+            client
+                .poll(&mut |request| dispatch(id, request))
+                .unwrap_or(false)
+        });
         Ok(())
+    }
+    pub fn has_peer(&self, peer: u64) -> bool {
+        self.clients
+            .iter()
+            .any(|client| client.id == peer && !client.eof && Instant::now() < client.deadline)
+    }
+    /// Queue an event only for its explicitly selected peer. Backpressure drops
+    /// that peer; it never drops another client or renews the request deadline.
+    /// The caller must poll again to flush the bounded output queue.
+    pub fn publish(&mut self, peer: u64, event: &Frame) -> io::Result<bool> {
+        if event.kind != 2 || event.opcode != 12 || event.id != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "invalid IPC event",
+            ));
+        }
+        let encoded = event
+            .encode()
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid IPC event"))?;
+        let Some(index) = self.clients.iter().position(|client| client.id == peer) else {
+            return Ok(false);
+        };
+        if self.clients[index].eof
+            || Instant::now() >= self.clients[index].deadline
+            || self.clients[index].responses.len() >= MAX_RESPONSES
+        {
+            self.clients.remove(index);
+            return Ok(false);
+        }
+        self.clients[index].responses.push_back(encoded);
+        Ok(true)
     }
 }
 impl Drop for IpcServer {
@@ -422,5 +475,126 @@ mod tests {
         fs::write(&path, b"replacement").unwrap();
         drop(server);
         assert_eq!(fs::read(&path).unwrap(), b"replacement");
+    }
+    #[test]
+    fn targeted_events_follow_replies_without_broadcast_or_deadline_extension() {
+        let directory = Directory::new();
+        let mut server = IpcServer::bind(&directory.socket()).unwrap();
+        let mut first = UnixStream::connect(directory.socket()).unwrap();
+        let mut second = UnixStream::connect(directory.socket()).unwrap();
+        first
+            .set_read_timeout(Some(Duration::from_secs(1)))
+            .unwrap();
+        second
+            .set_read_timeout(Some(Duration::from_secs(1)))
+            .unwrap();
+        first.write_all(&request(1)).unwrap();
+        second.write_all(&request(2)).unwrap();
+        let mut peers = vec![];
+        server
+            .poll_with_peer(|id, frame| {
+                peers.push((frame.id, id));
+                respond(frame)
+            })
+            .unwrap();
+        assert_eq!(peers.len(), 2);
+        assert_ne!(peers[0].1, peers[1].1);
+        let target = peers.iter().find(|p| p.0 == 1).unwrap().1;
+        let deadline = server
+            .clients
+            .iter()
+            .find(|c| c.id == target)
+            .unwrap()
+            .deadline;
+        let event = Frame {
+            kind: 2,
+            opcode: 12,
+            id: 0,
+            payload: br#"{"schema":1,"event":"thread","data":{}}"#.to_vec(),
+        };
+        assert!(server.publish(target, &event).unwrap());
+        assert_eq!(
+            server
+                .clients
+                .iter()
+                .find(|c| c.id == target)
+                .unwrap()
+                .deadline,
+            deadline
+        );
+        server.poll(respond).unwrap();
+        let expected_reply = respond(Frame {
+            kind: 0,
+            opcode: 1,
+            id: 1,
+            payload: vec![],
+        })
+        .unwrap()
+        .encode()
+        .unwrap();
+        let mut received = vec![0; expected_reply.len() + event.encode().unwrap().len()];
+        first.read_exact(&mut received).unwrap();
+        let mut decoder = Decoder::default();
+        decoder.feed(&received).unwrap();
+        assert_eq!(decoder.pop().unwrap().id, 1);
+        let delivered = decoder.pop().unwrap();
+        assert_eq!(delivered.kind, 2);
+        assert_eq!(delivered.payload, event.payload);
+        let mut second_reply = vec![0; expected_reply.len()];
+        second.read_exact(&mut second_reply).unwrap();
+        second.set_nonblocking(true).unwrap();
+        assert_eq!(
+            second.read(&mut [0; 1]).unwrap_err().kind(),
+            io::ErrorKind::WouldBlock
+        );
+    }
+    #[test]
+    fn event_backpressure_retired_peers_and_expiry_are_isolated() {
+        let directory = Directory::new();
+        let mut server = IpcServer::bind(&directory.socket()).unwrap();
+        let _first = UnixStream::connect(directory.socket()).unwrap();
+        let _second = UnixStream::connect(directory.socket()).unwrap();
+        server.poll(respond).unwrap();
+        let first = server.clients[0].id;
+        let second = server.clients[1].id;
+        let event = Frame {
+            kind: 2,
+            opcode: 12,
+            id: 0,
+            payload: vec![b'x'],
+        };
+        for _ in 0..MAX_RESPONSES {
+            assert!(server.publish(first, &event).unwrap());
+        }
+        assert!(!server.publish(first, &event).unwrap());
+        assert!(!server.has_peer(first));
+        assert!(server.has_peer(second));
+        let _replacement = UnixStream::connect(directory.socket()).unwrap();
+        server.poll(respond).unwrap();
+        assert!(server.clients.iter().any(|c| c.id > second));
+        assert!(!server.publish(first, &event).unwrap());
+        let mut malformed = Frame {
+            kind: 2,
+            opcode: 12,
+            id: 1,
+            payload: vec![],
+        };
+        assert!(server.publish(second, &malformed).is_err());
+        malformed.id = 0;
+        malformed.payload = vec![0; MAX_PAYLOAD + 1];
+        assert!(server.publish(second, &malformed).is_err());
+        assert!(server.has_peer(second));
+        server
+            .clients
+            .iter_mut()
+            .find(|c| c.id == second)
+            .unwrap()
+            .deadline = Instant::now();
+        assert!(!server.has_peer(second));
+        assert!(!server.publish(second, &event).unwrap());
+        server.next_client = u64::MAX;
+        let _exhausted = UnixStream::connect(directory.socket()).unwrap();
+        assert!(server.poll(respond).is_err());
+        assert_eq!(server.next_client, u64::MAX);
     }
 }
