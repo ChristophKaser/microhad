@@ -49,8 +49,8 @@ device state. Snapshot values continue to render in the shared cards, while
 typed completed CASE reads also update matching registered native
 `Gateway::Device` instances. The shared status view reports normalized
 `sensor_values` with units and measured/unknown quality, and snapshot refreshes
-preserve the last confirmed values. Confirmed values remain in memory; reports
-remain open. Native commit `e81af44` routes Matter
+preserve the last confirmed values. Confirmed values remain in memory; the new
+manager report queue is not yet applied to `Gateway::Device`. Native commit `e81af44` routes Matter
 temperature, humidity and brightness readings through the common value-alert
 engine and preserves alert configuration/state across snapshot refresh. Matter
 alert settings are restored across gateway restart and Matter snapshot
@@ -306,8 +306,38 @@ Verification passed: release commissioning probe build, all 62 Rust library
 tests with Unix-domain socket access, and
 `python3 scripts/test-openthread-matter-transport.py --commissioning --ble
 --service-owner --service-discovery` against the synthetic RCP. The production
-Manager still does not schedule subscriptions or poll this receiver, and the
+Manager at this earlier checkpoint did not schedule subscriptions or poll this
+receiver, and the
 service/native IPC path does not yet deliver reports to shared device state.
+
+## Production device-manager subscription checkpoint — 2026-10-04
+
+Rust commit `713948c` makes the production `devices::Manager` derive
+subscriptions from each online endpoint's advertised OnOff, Level, air-quality,
+temperature, humidity, CO2, and PM2.5 clusters. Establishment is serialized
+behind queued control jobs and discovery, bounded to 224 paths with 30-second
+deadlines, exponential retry, and renewal at the negotiated maximum interval.
+Radio detach clears established IDs for fresh establishment after recovery;
+commissioning pauses new setup while allowing an already accepted report to
+finish its acknowledgement. The manager polls the active-report receiver,
+correlates fabric/node/subscription/path, suppresses identical consecutive
+values, and exposes a 512-value bounded queue for its consumer.
+
+The production-owner synthetic fixture limits itself to one subscription,
+proves the manager establishes it from descriptors, then toggles OnOff twice
+and reads both peer-correlated values from the manager queue. The harness now
+requires that exact success marker. Verification passed: all 63 service-feature
+library tests, release builds of the controller service and commissioning
+probes, and
+`python3 scripts/test-openthread-matter-transport.py --commissioning --ble
+--service-owner --service-discovery` against the synthetic RCP.
+
+The queue is not yet published through Matter IPC or applied to native
+`Gateway::Device`; only OnOff and CurrentLevel report values are decoded today.
+Sensor report parsing, delivery/backpressure, shared history/alerts, adaptive
+sleepy-device timing, broad multi-subscription/reconnect coverage, and remote
+catalog recovery remain open. Plan checklist items 6 and 7 therefore remain
+unchecked.
 
 ## Dependencies
 
