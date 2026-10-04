@@ -34,7 +34,7 @@ specific evidence recorded in a file, not to end-to-end Matter support.
 | [02 IPC](02-commissioning-control-ipc.md) | Service and native commissioning/relay dispatch implemented; device dispatch incomplete | Extend failure/backpressure tests, then implement device bodies with plan 07 |
 | [03 Identity](03-persistent-fabric-identity.md) | Persistent authority and host CASE recovery implemented | Finish backup/recovery procedure and target filesystem checks |
 | [04 Native API/dashboard](04-native-api-dashboard.md) | Status, queued commissioning/Thread routes and owned relay implemented; UI pending | Add feature-aware onboarding and device UI |
-| [05 Garage BLE relay](05-garage-ble-relay.md) | Native relay and tested app parser/relay core implemented; Android wiring pending | Wire Android permissions, GATT/WebSocket adapters and onboarding UI |
+| [05 Garage BLE relay](05-garage-ble-relay.md) | Native relay and tested app parser/relay/GATT building blocks implemented; UI/socket wiring pending | Implement HTTP/WebSocket client and wire foreground onboarding UI |
 | [06 Thread lifecycle](06-thread-network-lifecycle.md) | Guarded dataset lifecycle and native observation worker verified on host | Extend channel-change/restart recovery and target verification |
 | [07 Devices/reports](07-device-model-and-reports.md) | Encrypted fixture proves transport; production device pipeline pending | Implement operational DNS-SD, persist nodes, then add device/report integration |
 | [08 Real-device acceptance](08-real-device-acceptance.md) | Pending final acceptance gate | Review plans 01–07, then arrange backed-up device testing |

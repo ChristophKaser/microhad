@@ -2,8 +2,8 @@
 
 ## Current open work — 2026-10-04
 
-The native relay contract exists; Android onboarding, GATT/WebSocket adapters and app
-validation remain open.
+The native relay contract and tested Android GATT building blocks exist; onboarding UI,
+WebSocket wiring and end-to-end app validation remain open.
 
 Next deliverable: Build the setup-code/session model with fake gateway/GATT tests, then
 wire permissions, foreground UI, scanning and serialized relay transport. Unverified app
@@ -81,7 +81,7 @@ API routes in [the API plan](04-native-api-dashboard.md).
 All unchecked items below remain open. Earlier checkpoint measurements
 are historical; the latest status/evidence section above takes precedence.
 
-1. [ ] Inspect the separate Garage repository, identify networking/UI paths,
+1. [x] Inspect the separate Garage repository, identify networking/UI paths,
    and document Android API/permission requirements and foreground lifecycle.
    Agree plan 04's WebSocket schema before implementing app transport.
 2. [ ] Add setup-code/QR input, start/progress/cancel/retry UI and an in-memory
@@ -164,3 +164,32 @@ permissions from API 31, foreground cleanup and trusted-LAN HTTP/WS. The current
 classes are not yet connected to Android permissions, GATT, WebSocket or UI.
 These checklist items remain open; core tests are not app or physical acceptance.
 No gateway/phone deployment, pairing or plan 08 action occurred.
+
+## Android BLE adapter checkpoint — 2026-10-04
+
+Garage commit `9442f02` implements foreground Matter scanning and a serialized
+GATT adapter, alongside version-zero commissionable advertisement decoding.
+The manifest declares legacy Bluetooth/location permissions through API 30 and
+runtime scan/connect permissions from API 31. Fixed availability errors,
+20-second scan/32-candidate limits, discriminator and optional vendor/product
+matching, discovery, MTU fallback, C2 CCCD completion and acknowledged C1 writes
+are implemented. Android 33 explicit-value and legacy GATT APIs are supported.
+
+The main looper owns operations/callbacks; connection tokens and GATT identity
+reject obsolete callbacks. Callback tasks are capped at eight; preparation
+stages and pending writes have ten-second deadlines. Cleanup releases scan,
+timers and GATT without logging payloads. Permissions are declared and checked;
+runtime permission requests and selection/progress UI still require wiring.
+
+Both flavor unit suites and debug APK builds pass: 29 tests per flavor, including
+28 Matter tests and the existing sample. Ten new fake-GATT-port tests verify
+preparation order, MTU fallback, writes/callbacks, bounds, deadlines and teardown;
+two advertisement tests verify matching and malformed/unsupported rejection.
+The Android SDK adapter is compile-checked, not tested on a phone. The legacy
+callback deprecation warning is expected for supporting API 28–32.
+
+App documentation is in Garage `docs/matter-onboarding.md`. Next implement the
+HTTP/WebSocket client and foreground onboarding UI, wire these adapters and run
+an end-to-end fake gateway/peripheral flow. Steps 2–6 remain incomplete; current
+GATT building blocks do not establish working Android commissioning. No APK or
+gateway deployment, physical pairing or plan 08 action occurred.
