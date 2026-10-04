@@ -19,9 +19,12 @@ if [[ ! -e "$probe_dir" ]]; then
     git -C "$source_dir" worktree add --detach "$probe_dir" "$revision"
 fi
 [[ $(git -C "$probe_dir" rev-parse HEAD) == "$revision" ]] || exit 1
-patch_file="$project_root/patches/rs-matter-probe-spake2p.patch"
-if ! git -C "$probe_dir" apply --reverse --check "$patch_file" 2>/dev/null; then
-    git -C "$probe_dir" apply --check "$patch_file"
-    git -C "$probe_dir" apply "$patch_file"
-fi
+for patch_file in \
+    "$project_root/patches/rs-matter-probe-spake2p.patch" \
+    "$project_root/patches/rs-matter-probe-peer-identity.patch"; do
+    if ! git -C "$probe_dir" apply --reverse --check "$patch_file" 2>/dev/null; then
+        git -C "$probe_dir" apply --check "$patch_file"
+        git -C "$probe_dir" apply "$patch_file"
+    fi
+done
 echo "Pinned rs-matter $revision; private SPAKE2+ module exposed only in probe worktree"

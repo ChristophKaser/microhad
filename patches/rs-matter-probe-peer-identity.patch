@@ -1,0 +1,23 @@
+diff --git a/rs-matter/src/transport/exchange.rs b/rs-matter/src/transport/exchange.rs
+--- a/rs-matter/src/transport/exchange.rs
++++ b/rs-matter/src/transport/exchange.rs
+@@ -1628,6 +1628,19 @@ impl<'a> Exchange<'a> {
+         })
+     }
+ 
++    /// Return the authenticated peer's fabric index and node ID for this
++    /// exchange. Group and unauthenticated sessions have no peer node identity.
++    /// This is useful when dispatching server-initiated exchanges such as active
++    /// Interaction Model subscription reports.
++    pub fn peer_identity(&self) -> Result<Option<(u8, u64)>, Error> {
++        self.with_state(|state| {
++            let session = self.id().session(&mut state.sessions);
++            Ok(session
++                .get_peer_node_id()
++                .map(|node| (session.get_local_fabric_idx(), node)))
++        })
++    }
++
+     pub(crate) fn with_state<F, T>(&self, f: F) -> Result<T, Error>
+     where
+         F: FnOnce(&mut MatterState) -> Result<T, Error>,
