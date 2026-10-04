@@ -197,6 +197,30 @@ def commissioning_calls(path, credentials):
         records = catalog_records(credentials)
         assert len(records) == 3 and all(phase == 5 for _, phase in records)
         assert len(set(node for node, _ in records)) == 3
+
+        # Losing the coordinator while a phone relay is active must fail the
+        # commissioning task and invalidate its outstanding BLE write.
+        assert client.call(9, heartbeat)["ok"]
+        active_session = client.call(3, start)["result"]["session"]
+        attach["session"] = active_session
+        generation = client.call(6, attach)["result"]["generation"]
+        write = client.event("ble_write", generation)
+        assert write["session"] == active_session
+        assert client.call(9, dict(schema=1, action="observe", zigbee_channel=0,
+                                   zigbee_online=False))["ok"]
+        deadline = time.monotonic() + 3
+        while True:
+            failed = client.call(4, dict(schema=1, session=active_session))
+            if failed["result"]["state"] == "failed":
+                break
+            assert time.monotonic() < deadline, failed
+            time.sleep(.01)
+        assert failed["result"]["error"] == "not_ready"
+        late_write = client.call(8, dict(schema=1, session=active_session,
+            generation=generation, write=write["write"], success=True))
+        assert late_write.get("error") in ("cancelled", "stale_generation", "stale_session"), late_write
+        assert client.call(9, heartbeat)["ok"]
+
         # Abandoned waiting-BLE jobs expire without status/heartbeat extending the deadline.
         client.call(9, heartbeat)
         expired_session = client.call(3, start)["result"]["session"]
@@ -213,6 +237,7 @@ def commissioning_calls(path, credentials):
         assert state["result"]["error"] == "timeout"
         assert state["result"]["deadline_remaining_seconds"] == 0
         assert credentials.read_bytes() == before
+
     finally:
         client.close()
 
