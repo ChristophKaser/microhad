@@ -34,15 +34,19 @@ Commit `39a2469` maps Matter temperature, humidity, air quality, CO2 and PM2.5
 into canonical `sensor_values` names and uses those names for shared card
 classification and presentation; cluster IDs stay in Matter provenance and
 the source adapter. The API and rendered browser tests pass. Existing
-temperature/humidity fields already serve Zigbee and Shelly.
+temperature/humidity fields already serve Zigbee and Shelly. Native commit
+`a841aca` extends `Gateway::Device` and `/api/status` with shared known/value
+fields for air quality, CO2 and PM2.5, with serialization coverage. Matter
+snapshot/operation results do not populate those native fields yet.
 Temperature, humidity, CO2, PM2.5 and air-quality values are rendered from the
 Matter snapshot cache, but are not yet in shared persistent values, history or
 alerts. Reports, remote recovery of catalogued nodes and legacy migration
 remain open. Verification for this frontend checkpoint: `make webui`,
 `node webui/test/matter-devices-browser.cjs`, and
 `python3 scripts/test_matter_webui.py` (20/20). Next deliverable: converge
-source-neutral capability/telemetry fields in native `Gateway::Device` and
-integrate Matter state into shared history and alert processing.
+Matter descriptors and confirmed operation values into native `Gateway::Device`
+through the worker/runner command path, then write those values to shared
+history and alert processing. The common field contract itself is now present.
 
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.
@@ -123,8 +127,9 @@ explicit-rendezvous fixture alone does not establish operational discovery.
    controls dispatch through the Matter adapter; Zigbee and Shelly retain their
    existing source controllers. Commit `39a2469` adds source-neutral sensor
    names for shared card grouping/rendering. Keep Matter UI limited to joining
-   and Matter/Thread settings. Native `Gateway::Device` registration remains
-   open.
+   and Matter/Thread settings. Native `Gateway::Device` population from Matter
+   descriptors and readings remains open (`a841aca` adds its shared field
+   contract only).
 5. Implemented CASE reads and typed native validation cover advertised
    temperature, humidity, CO2, PM2.5 and air-quality clusters; the frontend
    renders those values from its snapshot cache. Move them into shared native

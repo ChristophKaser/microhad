@@ -102,13 +102,16 @@ Commit `39a2469` moves air-quality classification and CO2/PM2.5 presentation to
 canonical `sensor_values` keys, so shared cards no longer inspect Matter cluster
 IDs. Temperature and humidity continue through the gateway's existing common
 fields. The dashboard build, browser interaction and 20 API tests pass again.
+Native commit `a841aca` adds shared `/api/status` fields for air quality, CO2
+and PM2.5, including unknown-state flags and serialization tests. The Matter
+worker does not yet populate these fields; wiring native Matter observations,
+persistence/history and alerts remains open.
 
 ## Remaining checkpoints
 
-1. Converge the common device contract so capability and telemetry fields are
-   source-neutral where behavior overlaps. Preserve stable `matter:` IDs,
-   protocol provenance, advertised capabilities and unknown values; keep
-   source-specific setup and transport behind their existing boundaries.
+1. Feed Matter descriptors and confirmed values through the worker/runner into
+   native `Gateway::Device` instances while preserving stable `matter:` IDs,
+   source provenance, advertised capabilities and unknown values.
 2. Integrate Matter-backed measurements and confirmed state into the existing
    catalog/history path; Shelly and Zigbee continue through their existing
    source controllers. Keep join and Thread-specific settings in the Matter area.

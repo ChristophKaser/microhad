@@ -34,10 +34,10 @@ specific evidence recorded in a file, not to end-to-end Matter support.
 | [01 Runtime](01-rust-service-runtime.md) | Host service and optional supervision implemented; recovery and target verification incomplete | Extend integrated failure/restart coverage and record final artifacts |
 | [02 IPC](02-commissioning-control-ipc.md) | Service/native commissioning, relay and OnOff/Level job dispatch host-tested; device events and broad recovery incomplete | Extend failure/backpressure and event coverage |
 | [03 Identity](03-persistent-fabric-identity.md) | Persistent authority and host CASE recovery implemented | Exercise documented backup/restore on synthetic state; target checks stay in plan 08 |
-| [04 Native API/dashboard](04-native-api-dashboard.md) | Status, queued snapshot API, relay/onboarding UI, shared cards and source-neutral Matter sensor names | Integrate Matter measurements into native persistent state/history and extend failure gates |
+| [04 Native API/dashboard](04-native-api-dashboard.md) | Status, queued snapshot API, shared cards, source-neutral sensor names and native common sensor fields | Feed Matter state into native devices, then persist measurements/history and extend failure gates |
 | [05 Garage BLE relay](05-garage-ble-relay.md) | Foreground onboarding and parser/GATT/HTTP/WebSocket implemented; 60 tests and APK builds pass per flavor | Implementation checklist complete; physical acceptance stays in plan 08 |
 | [06 Thread lifecycle](06-thread-network-lifecycle.md) | Guarded dataset lifecycle and native observation worker verified on host | Extend channel-change/restart recovery and target verification |
-| [07 Devices/reports](07-device-model-and-reports.md) | Owned commissioner, catalog, SRP/DNS, CASE control/sensor reads, shared cards and canonical sensor-value presentation | Register Matter in the native device model/history; add reports and reconcile incomplete nodes |
+| [07 Devices/reports](07-device-model-and-reports.md) | Owned commissioner, catalog, CASE control/sensor reads, shared cards and native fields for common sensor values | Populate native Matter devices/history; add reports and reconcile incomplete nodes |
 | [08 Real-device acceptance](08-real-device-acceptance.md) | Pending final acceptance gate | Review plans 01–07, then arrange backed-up device testing |
 
 Update the relevant file after each verified checkpoint with the changed
