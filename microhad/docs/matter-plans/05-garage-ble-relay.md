@@ -141,3 +141,26 @@ Both factory builds remain static stripped big-endian MIPS-I ELF files. Android
 GATT/permissions, dashboard onboarding, production DNS-SD/catalog/device reports
 and broader timeout/backpressure/target recovery evidence remain open. No
 physical gateway, real accessory or plan 08 acceptance action was performed.
+
+## Garage setup and relay core checkpoint — 2026-10-04
+
+Garage commit `6b54fec` implements this checkpoint. The app now has a bounded manual/QR setup parser
+and serialized transport-independent relay model. Manual short discriminators
+remain distinct from full advertised discriminators; PINs are consumed once,
+cleared on close and excluded from debug/error text. Epoch/generation/write
+correlation, matching GATT completion, gateway acknowledgement, payload bounds,
+fixed attempt/write deadlines and transport cleanup have fake-port coverage.
+
+Both `testPommernDebugUnitTest`/`assemblePommernDebug` and
+`testNeptunDebugUnitTest`/`assembleNeptunDebug` pass using a complete temporary
+JDK 17: seven parser and nine relay tests in each flavor, plus the existing
+sample test. Earlier JRE-only builds failed because AGP required `jlink`;
+the complete JDK resolves this without changing Android dependencies.
+The existing pump string formatting warning remains unrelated.
+
+App requirements and findings are in Garage `docs/matter-onboarding.md`:
+API 28+, legacy BLE/location permissions through API 30, runtime scan/connect
+permissions from API 31, foreground cleanup and trusted-LAN HTTP/WS. The current
+classes are not yet connected to Android permissions, GATT, WebSocket or UI.
+These checklist items remain open; core tests are not app or physical acceptance.
+No gateway/phone deployment, pairing or plan 08 action occurred.
