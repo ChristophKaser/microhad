@@ -11,6 +11,7 @@ import shutil
 import stat
 import tarfile
 import tempfile
+import threading
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -23,12 +24,21 @@ class ChannelRcp(sim.ThreadRcp):
     def reset_properties(self):
         super().reset_properties()
         self.channel_writes = []
+        self.dataset_writes = []
+        self.pause_dataset_write = False
+        self.dataset_write_seen = threading.Event()
+        self.release_dataset_write = threading.Event()
     def receive_frame(self, data):
         command, offset = sim.sim.unpacked(data, 1)
         prop, offset = sim.sim.unpacked(data, offset)
         if command == 3 and prop == 33:
             assert len(data[offset:]) == 1
             self.channel_writes.append(data[offset])
+        if command == 3 and prop == 2048:
+            self.dataset_writes.append(data[offset:])
+            if self.pause_dataset_write:
+                self.dataset_write_seen.set()
+                self.release_dataset_write.wait(timeout=3)
         super().receive_frame(data)
 
 
@@ -347,10 +357,71 @@ def main():
             assert mismatch["error"] == "not_ready"
             assert credentials.read_bytes() == before
             assert len(radio.requests) == calls
-            created = status(ipc_path, 9, 314, b'{"schema":1,"action":"create","zigbee_channel":15}')
-            assert created["ok"] and created["result"]["configured"]
-            assert created["result"]["state"] in ("attaching", "attached")
-            assert "dataset" not in created["result"]
+            apply_result = []
+            radio.pause_dataset_write = True
+            def create_during_apply():
+                try:
+                    apply_result.append(status(ipc_path, 9, 314,
+                        b'{"schema":1,"action":"create","zigbee_channel":15}'))
+                except Exception as error:
+                    apply_result.append(error)
+            apply_request = threading.Thread(target=create_during_apply, daemon=True)
+            apply_request.start()
+            assert radio.dataset_write_seen.wait(timeout=3), "Dataset apply never reached the RCP"
+            interrupted_dataset = thread_dataset(credentials)
+            interrupted_envelope = credentials.read_bytes()
+            assert interrupted_dataset and interrupted_envelope != before
+            relay.terminate()
+            relay.wait(timeout=2)
+            radio.release_dataset_write.set()
+            apply_request.join(timeout=5)
+            assert not apply_request.is_alive()
+            assert apply_result and isinstance(apply_result[0], Exception), apply_result
+            assert service.wait(timeout=5) != 0
+            service_output, service_error = service.communicate(timeout=2)
+            assert not service_output and service_error.startswith(b"Matter controller service started\n")
+            assert credentials.read_bytes() == interrupted_envelope
+            assert thread_dataset(credentials) == interrupted_dataset
+
+            # The interrupted apply committed its dataset before touching the
+            # RCP. Restart must wait for a fresh coordinator observation, then
+            # restore only that persisted dataset on the permitted channel.
+            radio.close()
+            if radio_path.exists() and stat.S_ISSOCK(radio_path.lstat().st_mode):
+                radio_path.unlink()
+            radio = ChannelRcp("127.0.0.1", tcp_nodelay=True)
+            relay = subprocess.Popen([str(ROOT / "build/openthread-unix/sim-relay-host"),
+                str(radio_path), radio.address, str(radio.port), "60"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            deadline = time.monotonic() + 3
+            while not radio_path.exists():
+                if relay.poll() is not None or time.monotonic() >= deadline:
+                    raise RuntimeError("Recovery relay did not start")
+                time.sleep(0.02)
+            service = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            deadline = time.monotonic() + 5
+            while True:
+                if service.poll() is not None or time.monotonic() >= deadline:
+                    raise RuntimeError("Service did not wait after interrupted apply")
+                try:
+                    assert status(ipc_path, 2, 315)["state"] == "awaiting_coordinator"
+                    break
+                except (OSError, RuntimeError):
+                    time.sleep(0.02)
+            assert not radio.requests
+            assert credentials.read_bytes() == interrupted_envelope
+            assert thread_dataset(credentials) == interrupted_dataset
+            resumed = status(ipc_path, 9, 316,
+                b'{"schema":1,"action":"observe","zigbee_channel":15,"zigbee_online":true}')
+            assert resumed["ok"]
+            deadline = time.monotonic() + 3
+            while status(ipc_path, 1, 317)["state"] != "running":
+                assert time.monotonic() < deadline
+                time.sleep(0.01)
+            assert radio.channel_writes and all(channel == 15 for channel in radio.channel_writes)
+            created = status(ipc_path, 2, 318)
+            assert created["configured"] and created["dataset_channel"] == 15
+            assert credentials.read_bytes() == interrupted_envelope
             commissioning_calls(ipc_path, credentials)
 
             # RCP socket death must stop the service; restored state must wait
