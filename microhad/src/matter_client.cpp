@@ -2,6 +2,8 @@
 #include "matter_protocol.h"
 
 #include <cerrno>
+#include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
 #include <map>
@@ -97,11 +99,7 @@ private:
                 while (at_ < text_.size() && text_[at_] != ',' && text_[at_] != '}' &&
                        text_[at_] != ' ' && text_[at_] != '\t' && text_[at_] != '\r' && text_[at_] != '\n') ++at_;
                 value = text_.substr(start, at_ - start);
-                if (value != "true" && value != "false" && value != "null") {
-                    if (value.empty() || value.size() > 10 || (value.size() > 1 && value[0] == '0')) return false;
-                    for (unsigned long i = 0; i < value.size(); ++i)
-                        if (value[i] < '0' || value[i] > '9') return false;
-                }
+                if (value != "true" && value != "false" && value != "null" && !jsonNumber(value)) return false;
             }
             (*fields)[key] = value;
             whitespace();
@@ -109,6 +107,28 @@ private:
             if (!take(',')) return false;
         }
         return false;
+    }
+    static bool jsonNumber(const std::string& value) {
+        if (value.empty() || value.size() > 32) return false;
+        unsigned long i = value[0] == '-' ? 1 : 0;
+        if (i == value.size()) return false;
+        if (value[i] == '0') ++i;
+        else {
+            if (value[i] < '1' || value[i] > '9') return false;
+            while (i < value.size() && value[i] >= '0' && value[i] <= '9') ++i;
+        }
+        if (i < value.size() && value[i] == '.') {
+            ++i; unsigned long start = i;
+            while (i < value.size() && value[i] >= '0' && value[i] <= '9') ++i;
+            if (i == start) return false;
+        }
+        if (i < value.size() && (value[i] == 'e' || value[i] == 'E')) {
+            ++i; if (i < value.size() && (value[i] == '+' || value[i] == '-')) ++i;
+            unsigned long start = i;
+            while (i < value.size() && value[i] >= '0' && value[i] <= '9') ++i;
+            if (i == start) return false;
+        }
+        return i == value.size();
     }
 };
 
@@ -151,6 +171,50 @@ bool number(const std::string& value, uint32_t minimum, uint32_t maximum) {
         result = result * 10 + value[i] - '0';
     }
     return result >= minimum && result <= maximum;
+}
+bool finiteNumber(const std::string& value, double minimum, double maximum) {
+    if (value == "null") return true;
+    if (value.empty() || value.size() > 32) return false;
+    char* end = 0;
+    const double parsed = std::strtod(value.c_str(), &end);
+    return end == value.c_str() + value.size() && std::isfinite(parsed) && parsed >= minimum && parsed <= maximum;
+}
+bool measurementValueValid(const std::string& text, uint32_t cluster) {
+    Fields measurement;
+    if (!StatusJson(text).parse(&measurement) || measurement.size() != 3 ||
+        !measurement.count("value") || !measurement.count("unit") || !measurement.count("quality")) return false;
+    const bool unknown = measurement["value"] == "null";
+    if (measurement["quality"] != (unknown ? "\"unknown\"" : "\"measured\"")) return false;
+    if (cluster == 1026) return measurement["unit"] == "\"celsius\"" &&
+        finiteNumber(measurement["value"], -327.68, 327.67);
+    if (cluster == 1029) return measurement["unit"] == "\"percent\"" &&
+        finiteNumber(measurement["value"], 0.0, 100.0);
+    static const char* const units[] = {"\"ppm\"", "\"ppb\"", "\"ppt\"", "\"mg/m3\"", "\"ug/m3\"",
+        "\"ng/m3\"", "\"particles/m3\"", "\"Bq/m3\"", "\"dB/m\"", "\"particles/ft3\""};
+    return (cluster == 1037 || cluster == 1066) && member(measurement["unit"], units, 10) &&
+        finiteNumber(measurement["value"], 0.0, 3.402823466e38);
+}
+bool typedValueValid(const Fields& result, Fields value) {
+    const std::string& clusterName = result.find("cluster")->second;
+    if (clusterName == "6") return value.size() == 2 && value["type"] == "\"bool\"" && booleanField(value, "value");
+    if (clusterName == "8") return value.size() == 2 && value["type"] == "\"u8\"" &&
+        (value["value"] == "null" || number(value["value"], 0, 254));
+    uint32_t cluster = 0;
+    if (clusterName == "91") cluster = 91;
+    else if (clusterName == "1026") cluster = 1026;
+    else if (clusterName == "1029") cluster = 1029;
+    else if (clusterName == "1037") cluster = 1037;
+    else if (clusterName == "1066") cluster = 1066;
+    else return false;
+    if (value.size() != 2 || !value.count("type") || !value.count("value")) return false;
+    if (cluster != 91) return value["type"] == "\"measurement\"" && measurementValueValid(value["value"], cluster);
+    static const char* const qualities[] = {"\"unknown\"", "\"measured\""};
+    static const char* const levels[] = {"\"unknown\"", "\"good\"", "\"fair\"", "\"moderate\"",
+        "\"poor\"", "\"very_poor\"", "\"extremely_poor\""};
+    Fields air;
+    return value["type"] == "\"air_quality\"" && StatusJson(value["value"]).parse(&air) &&
+        air.size() == 2 && member(air["value"], levels, 7) && member(air["quality"], qualities, 2) &&
+        ((air["value"] == "\"unknown\"") == (air["quality"] == "\"unknown\""));
 }
 bool hex(const std::string& value, unsigned int minimum, unsigned int maximum) {
     if (value.size() < minimum + 2 || value.size() > maximum + 2 ||
@@ -224,10 +288,7 @@ bool operationalJobValid(Fields fields) {
         !hex(result["node"], 16, 16) || result["node"] == "\"0000000000000000\"" ||
         !number(result["endpoint"], 0, 65534) || result["attribute"] != "0" ||
         !StatusJson(result["value"]).parse(&value) || value.size() != 2) return false;
-    if (result["cluster"] == "6") return value["type"] == "\"bool\"" && booleanField(value, "value");
-    if (result["cluster"] == "8") return value["type"] == "\"u8\"" &&
-        (value["value"] == "null" || number(value["value"], 0, 254));
-    return false;
+    return typedValueValid(result, value);
 }
 bool acceptedOperationValid(Fields fields) {
     return fields.size() == 2 && hex(fields["job"], 16, 16) &&
@@ -256,7 +317,9 @@ bool requestValid(unsigned char opcode, const std::string& text) {
         if (fields["action"] == "\"read\"") return fields.size() == 6 &&
             hex(fields["node"], 16, 16) && fields["node"] > "\"0000000000000001\"" &&
             number(fields["endpoint"], 0, 65534) &&
-            (fields["cluster"] == "6" || fields["cluster"] == "8") && fields["attribute"] == "0";
+            (fields["cluster"] == "6" || fields["cluster"] == "8" || fields["cluster"] == "91" ||
+             fields["cluster"] == "1026" || fields["cluster"] == "1029" ||
+             fields["cluster"] == "1037" || fields["cluster"] == "1066") && fields["attribute"] == "0";
         if (fields["action"] == "\"job\"") return fields.size() == 3 &&
             hex(fields["job"], 16, 16) && fields["job"] != "\"0000000000000000\"";
         if (fields["action"] != "\"snapshot\"" ||
@@ -597,7 +660,9 @@ bool MatterChannel::deviceReadRequest(const std::string& input, std::string* bod
     if (input.size() > MatterWire::MaxPayload || !StatusJson(input).parse(&fields) || fields.size() != 4 ||
         !hex(fields["node"], 16, 16) || fields["node"] <= "\"0000000000000001\"" ||
         !number(fields["endpoint"], 0, 65534) ||
-        (fields["cluster"] != "6" && fields["cluster"] != "8") || fields["attribute"] != "0") return false;
+        (fields["cluster"] != "6" && fields["cluster"] != "8" && fields["cluster"] != "91" &&
+         fields["cluster"] != "1026" && fields["cluster"] != "1029" &&
+         fields["cluster"] != "1037" && fields["cluster"] != "1066") || fields["attribute"] != "0") return false;
     *body = "{\"schema\":1,\"action\":\"read\",\"node\":" + fields["node"] +
         ",\"endpoint\":" + fields["endpoint"] + ",\"cluster\":" + fields["cluster"] + ",\"attribute\":0}";
     return requestValid(10, *body);

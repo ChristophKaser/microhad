@@ -91,22 +91,32 @@ Before returning a successful job response, native validation checks exact
 fields, bounded arrays, canonical nonzero IDs, endpoint ID/node/number agreement,
 cluster ordering/uniqueness, Descriptor support and online/catalog consistency.
 Malformed peer replies fail the job and invalidate the service connection.
-Default Matter-disabled builds return 404 for this route. OnOff read/command
-routes are described below; other reads and measurements remain pending. The dashboard provides explicit refresh and
-next-endpoint loading, catalog/recovery states, availability, stable IDs and
-advertised feature labels. It stops on changed revisions, rejects loops or
+Default Matter-disabled builds return 404 for this route. The interim Matter
+view provides explicit refresh and next-endpoint loading, catalog/recovery
+states, availability, stable IDs and advertised feature labels; OnOff and Level
+controls are verified there. It stops on changed revisions, rejects loops or
 contradictory metadata, and offers explicit refresh without replaying calls.
-Loaded information remains visibly cached after a read failure. The view
-neither polls all pages automatically nor implies controls/measurement values
-are implemented. Rendered device component interaction is verified in an isolated
-Chromium HTTP fixture; broader dashboard interaction remains open.
+Loaded information remains visibly cached after a read failure. Sensor reads
+are capability-gated transport support, but sensor values are not projected
+into the shared gateway device model. The Matter-specific device view is an
+interim state: common controls and telemetry must move into the same
+Zigbee/Matter/Shelly catalog, leaving joining and Matter/Thread settings in the
+Matter area. Broader dashboard interaction remains open.
 
 ## OnOff operations
 
 Device read and command routes use the same native job queue and polling
 contract. `node` is a 16-character lowercase hexadecimal Matter node ID;
-`endpoint` is 0–65534. Reads accept cluster 6 attribute 0 (OnOff) or cluster 8
-attribute 0 (CurrentLevel). The command route accepts `on`, `off`, `toggle`, or
+`endpoint` is 0–65534. Reads accept attribute 0 for OnOff (cluster 6), CurrentLevel
+(cluster 8), Air Quality (91), Temperature Measurement (1026), Relative Humidity
+Measurement (1029), CO2 Concentration Measurement (1037), and PM2.5 Concentration
+Measurement (1066). Sensor replies use tagged `measurement` values with unit and
+quality fields or tagged `air_quality` values; null values carry `unknown`
+quality. Native validation rejects units or value ranges that do not match the
+cluster. These sensor reads are transport support and are not yet wired into the
+shared Zigbee/Matter/Shelly device model or dashboard.
+
+The command route accepts `on`, `off`, `toggle`, or
 `move_to_level`. Level commands require `level` in 0–254 and
 `transition_deciseconds` in 0–65535. Unsupported or malformed requests return
 400 before queueing. Submission returns 202 with a native job ID. Rust checks

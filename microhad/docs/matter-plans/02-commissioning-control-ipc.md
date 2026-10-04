@@ -5,14 +5,14 @@
 Native commissioning/relay dispatch and bounded jobs exist. Rust now dispatches
 bounded asynchronous OnOff reads/commands and job polling; native validation,
 HTTP admission and worker-side operation polling carry jobs through confirmed
-readback. Rust also dispatches Level Control reads and MoveToLevel with confirmed
-CurrentLevel readback. Native typed Level request/reply validation, HTTP
-admission, worker polling and rendered dashboard controls are now verified.
-Device events, broader recovery and complete cross-language vectors remain open.
+readback. Rust also dispatches Level Control and advertised sensor reads with
+typed readbacks. Native validators accept OnOff, Level and sensor-typed replies;
+sensor UI/model projection, device events, broader recovery and complete
+cross-language vectors remain open.
 Snapshot API remains verified (`237d110`).
 
 Next deliverable: extend failure/restart and cross-language event coverage as
-plan 07 adds sensor and report bodies.
+plan 07 adds shared-model sensor and report delivery.
 
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.
@@ -552,3 +552,22 @@ toolchain's expected LOAD-USE warnings. No target execution occurred.
 
 This closes native Level IPC/API admission; plan 04 dashboard control remains
 open, as do reports, subscriptions and broad restart/failure coverage.
+
+## Sensor read IPC checkpoint — 2026-10-04
+
+Rust commit `ca0019e` adds advertised-cluster CASE reads for Air Quality (91),
+Temperature Measurement (1026), Relative Humidity Measurement (1029), CO2
+Concentration (1037), and PM2.5 Concentration (1066), returning typed values,
+units, and measured/unknown quality. Native read admission and completed-job
+validation now accept these clusters and reject bad cluster-specific units,
+ranges, malformed decimals, and inconsistent null/quality states.
+
+Verification passed: 60 Rust service library tests; the production-owned
+synthetic encrypted fixture including SRP/DNS discovery and all five sensor
+reads; and `make ZIGGURAT=1 MATTER=1 host test` including native unit,
+integration, and Ziggurat peer tests. Details and value scaling are in
+`ziggurat-compilation/docs/matter-sensors.md` and
+`docs/matter-native-api-v1.md`. The generic worker can carry the typed results,
+but they are not yet projected into the shared Zigbee/Matter/Shelly device
+model or dashboard. Subscriptions, reports and broad restart/failure coverage
+remain open; no device deployment or plan 08 acceptance occurred.

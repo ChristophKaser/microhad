@@ -25,10 +25,12 @@ That view does not satisfy the product architecture: Matter endpoints must use
 the existing protocol-neutral gateway device model, controller dispatch, and
 device catalog/dashboard shared with Zigbee and external HTTP devices such as
 Shelly. Keep only Matter/Thread joining and protocol-specific settings in the
-Matter area. Sensor measurements and reports remain open. Remote recovery of
-catalogued nodes and legacy migration remain open. Next deliverable: converge
-endpoint metadata into the common model, then add sensor decoding, subscriptions
-and native reports.
+Matter area. Rust CASE sensor reads and native typed IPC validation are now
+implemented for temperature, humidity, CO2, PM2.5 and air quality; mapping these
+values into the shared gateway model and dashboard remains open. Reports remain
+open. Remote recovery of catalogued nodes and legacy migration remain open.
+Next deliverable: converge endpoint metadata into the common model, including
+the validated sensor values, then add subscriptions and native reports.
 
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.
@@ -391,3 +393,27 @@ component in headless Chromium via `node webui/test/matter-devices-browser.cjs`.
 The fixture verified level 0 read, MoveToLevel 124 with a 20-decisecond
 transition, and confirmed 124. Sensors, subscriptions/reports, remote node
 recovery and legacy migration remain open; plan 08 was not performed.
+
+## CASE sensor transport checkpoint — 2026-10-04
+
+Rust commit `ca0019e` adds capability-gated CASE reads for Air Quality (91),
+Temperature Measurement (1026), Relative Humidity (1029), CO2 Concentration
+(1037), and PM2.5 Concentration (1066). It converts signed hundredths-Celsius
+and hundredths-percent values, preserves nullable values and quality, and
+returns concentration measurements with the endpoint's MeasurementUnit.
+Negative/non-finite concentrations and humidity above 100 percent are rejected.
+The encrypted production-owner fixture reads all five from an advertised
+synthetic endpoint.
+
+Native commit for this checkpoint adds strict decimal JSON parsing,
+cluster-specific typed response validation for units/ranges/null-quality, and
+read admission for those five clusters. Verification passed: 60 Rust service
+library tests; host commissioning-probe build; the full encrypted production
+service-owner fixture with synthetic BLE and SRP/DNS discovery; and
+`make ZIGGURAT=1 MATTER=1 host test` including native unit/integration tests and
+the 13-case Ziggurat peer verifier. Native validation rejects malformed units
+and inconsistent null/quality pairs. These are service/native transport
+capabilities only. The values are not yet in the shared Zigbee/Matter/Shelly
+gateway model, controller or dashboard. That common projection remains the next
+device-model checkpoint. Synthetic host evidence does not establish
+physical-device behavior or plan 08 acceptance.

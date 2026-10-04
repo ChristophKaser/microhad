@@ -4,6 +4,7 @@
 
 #include <assert.h>
 #include <pthread.h>
+#include <sstream>
 #include <string.h>
 #include <sys/socket.h>
 #include <stdio.h>
@@ -170,12 +171,24 @@ void runMatterClientUnitTests() {
     const std::string commandBody = "{\"schema\":1,\"command\":\"toggle\",\"node\":\"0000000000000002\",\"endpoint\":1}";
     assert(MatterChannel::validRequest(10, readBody));
     const std::string levelReadBody = "{\"schema\":1,\"action\":\"read\",\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":8,\"attribute\":0}";
+    std::string devicePrepared;
     const std::string levelCommandBody = "{\"schema\":1,\"command\":\"move_to_level\",\"node\":\"0000000000000002\",\"endpoint\":1,\"level\":124,\"transition_deciseconds\":20}";
     assert(MatterChannel::validRequest(10, levelReadBody));
+    const unsigned int sensorClusters[] = {91, 1026, 1029, 1037, 1066};
+    for (unsigned int i = 0; i < sizeof(sensorClusters) / sizeof(sensorClusters[0]); ++i) {
+        std::ostringstream sensorRead;
+        sensorRead << "{\"schema\":1,\"action\":\"read\",\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":"
+                   << sensorClusters[i] << ",\"attribute\":0}";
+        assert(MatterChannel::validRequest(10, sensorRead.str()));
+        std::ostringstream sensorInput;
+        sensorInput << "{\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":"
+                    << sensorClusters[i] << ",\"attribute\":0}";
+        assert(MatterChannel::deviceReadRequest(sensorInput.str(), &devicePrepared));
+    }
+    assert(!MatterChannel::validRequest(10, "{\"schema\":1,\"action\":\"read\",\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":1026,\"attribute\":1}"));
     assert(MatterChannel::validRequest(10, jobBody));
     assert(MatterChannel::validRequest(11, commandBody));
     assert(MatterChannel::validRequest(11, levelCommandBody));
-    std::string devicePrepared;
     assert(MatterChannel::deviceReadRequest("{\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":6,\"attribute\":0}", &devicePrepared));
     assert(devicePrepared == readBody);
     assert(MatterChannel::deviceReadRequest("{\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":8,\"attribute\":0}", &devicePrepared));
@@ -217,6 +230,24 @@ void runMatterClientUnitTests() {
         peer.body = i == 0 ? commandBody : jobBody; peer.reply = operationReplies[i];
         pthread_t server; assert(pthread_create(&server, 0, serveStatus, &peer) == 0);
         assert(channel.call(peer.opcode, peer.body, &json, &error) == (i < 7));
+        assert(pthread_join(server, 0) == 0);
+    }
+    const std::string sensorReplies[] = {
+        "{\"schema\":1,\"ok\":true,\"result\":{\"state\":\"complete\",\"job\":\"0000000000000001\",\"result\":{\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":1026,\"attribute\":0,\"value\":{\"type\":\"measurement\",\"value\":{\"value\":-5.25,\"unit\":\"celsius\",\"quality\":\"measured\"}}}}}",
+        "{\"schema\":1,\"ok\":true,\"result\":{\"state\":\"complete\",\"job\":\"0000000000000001\",\"result\":{\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":1029,\"attribute\":0,\"value\":{\"type\":\"measurement\",\"value\":{\"value\":null,\"unit\":\"percent\",\"quality\":\"unknown\"}}}}}",
+        "{\"schema\":1,\"ok\":true,\"result\":{\"state\":\"complete\",\"job\":\"0000000000000001\",\"result\":{\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":1037,\"attribute\":0,\"value\":{\"type\":\"measurement\",\"value\":{\"value\":758.5,\"unit\":\"ppm\",\"quality\":\"measured\"}}}}}",
+        "{\"schema\":1,\"ok\":true,\"result\":{\"state\":\"complete\",\"job\":\"0000000000000001\",\"result\":{\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":1066,\"attribute\":0,\"value\":{\"type\":\"measurement\",\"value\":{\"value\":12.75,\"unit\":\"ug/m3\",\"quality\":\"measured\"}}}}}",
+        "{\"schema\":1,\"ok\":true,\"result\":{\"state\":\"complete\",\"job\":\"0000000000000001\",\"result\":{\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":91,\"attribute\":0,\"value\":{\"type\":\"air_quality\",\"value\":{\"value\":\"moderate\",\"quality\":\"measured\"}}}}}",
+        "{\"schema\":1,\"ok\":true,\"result\":{\"state\":\"complete\",\"job\":\"0000000000000001\",\"result\":{\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":1026,\"attribute\":0,\"value\":{\"type\":\"measurement\",\"value\":{\"value\":-5.25,\"unit\":\"fahrenheit\",\"quality\":\"measured\"}}}}}",
+        "{\"schema\":1,\"ok\":true,\"result\":{\"state\":\"complete\",\"job\":\"0000000000000001\",\"result\":{\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":1029,\"attribute\":0,\"value\":{\"type\":\"measurement\",\"value\":{\"value\":null,\"unit\":\"percent\",\"quality\":\"measured\"}}}}}"
+    };
+    for (unsigned int i = 0; i < sizeof(sensorReplies) / sizeof(sensorReplies[0]); ++i) {
+        int pair[2]; assert(socketpair(AF_UNIX, SOCK_STREAM, 0, pair) == 0);
+        assert(fcntl(pair[0], F_SETFL, O_NONBLOCK) == 0);
+        MatterChannel channel("unused"); channel.fd_ = pair[0];
+        Peer peer; peer.fd = pair[1]; peer.opcode = 10; peer.body = jobBody; peer.reply = sensorReplies[i];
+        pthread_t server; assert(pthread_create(&server, 0, serveStatus, &peer) == 0);
+        assert(channel.call(10, jobBody, &json, &error) == (i < 5));
         assert(pthread_join(server, 0) == 0);
     }
     const std::string device = "{\"node\":\"0000000000000002\",\"state\":\"complete\",\"online\":true,"
