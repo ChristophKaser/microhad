@@ -769,6 +769,13 @@ async fn run(
                 Err(lexra_rs_matter_probe::operations::Failure::Unsupported)
             ));
             println!("PASS capability-gated OnOff transactions and confirmed readback over CASE");
+            let subscription = lexra_rs_matter_probe::subscriptions::establish_attribute(
+                ctrl_matter, ctrl_crypto, fab, node, 1, 1026, 0,
+            )
+            .await?;
+            assert!(subscription.subscription_id != 0);
+            assert!(subscription.max_int <= 3600);
+            println!("PASS bounded Matter attribute subscription priming and establishment");
         }
         let exchange = Exchange::initiate(ctrl_matter, ctrl_crypto, fab, node).await?;
         assert!(!exchange.on_off().on_off_read(1).await?);
