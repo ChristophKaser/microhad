@@ -54,6 +54,10 @@ private:
     std::map<uint32_t, Job> jobs_;
     std::deque<uint32_t> pending_;
     std::deque<std::string> events_;
+    std::vector<MatterEndpoint> snapshotBuilding_;
+    std::vector<MatterEndpoint> snapshotDevices_;
+    std::string snapshotRevision_;
+    long snapshotNextCursor_;
     uint32_t nextJob_;
     void unavailable();
     bool collectEvents();

@@ -25,6 +25,16 @@ struct EndpointDescriptor {
     EndpointDescriptor();
 };
 
+struct MatterEndpoint {
+    std::string id;
+    std::string node;
+    std::string state;
+    unsigned short endpoint;
+    bool online;
+    std::vector<unsigned int> servers;
+    MatterEndpoint() : endpoint(0), online(false) {}
+};
+
 struct DeviceValueAlert {
     bool hasLow;
     bool hasHigh;
@@ -96,6 +106,10 @@ struct Device {
     std::string modelId;
     std::string softwareBuildId; /* read during interview; persisted for remote binding compatibility */
     std::vector<EndpointDescriptor> endpoints;
+    std::string matterNode;
+    int matterEndpoint;
+    bool online;
+    std::vector<unsigned int> matterServers;
     std::vector<unsigned char> nodeDescriptor; /* raw 13-byte Zigbee Node Descriptor body */
     Device();
 };
@@ -211,6 +225,7 @@ public:
                         const std::string& model, int temperatureIndex, std::string* error);
     bool removeShelly(const std::string& id, std::string* error);
     bool reconcileShelly(const std::vector<std::string>& ids, std::string* error);
+    bool reconcileMatterDevices(const std::vector<MatterEndpoint>& endpoints, std::string* error);
     bool reconcileFritzClients(const std::vector<std::string>& ids, std::string* error);
     bool applyShellyEvent(const std::string& id, int metric, int channelIndex, double value, std::string* error);
     bool applyFritzEvent(const std::string& id, bool connected, bool hasSignal, int signalPercent, std::string* error);

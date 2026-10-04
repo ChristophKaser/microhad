@@ -48,7 +48,7 @@ Device::Device() : source("zigbee"), networkAddress(0xffff), kind("generic"), co
                    iasZoneId(-1), hasLowTemperatureAlert(false), hasHighTemperatureAlert(false), lowTemperatureAlert(0),
                    highTemperatureAlert(0), contactInitialAlertMinutes(10), contactReminderAlertMinutes(5),
                    contactTriggerMode(false), contactTriggerCooldownSeconds(60), contactTriggerUntil(0),
-                   sensorRefreshIntervalMinutes(60) {
+                   sensorRefreshIntervalMinutes(60), matterEndpoint(-1), online(false) {
 }
 
 namespace {
@@ -459,6 +459,90 @@ bool Gateway::reconcileShelly(const std::vector<std::string>& ids, std::string* 
         } else ++it;
     }
     if (changed) { markViewDirty(); saveState(); savePersistentState(); }
+    return true;
+}
+
+bool Gateway::reconcileMatterDevices(const std::vector<MatterEndpoint>& endpoints, std::string* error) {
+    if (error) error->clear();
+    std::map<std::string, Device> replacement;
+    for (unsigned long i = 0; i < endpoints.size(); ++i) {
+        const MatterEndpoint& endpoint = endpoints[i];
+        if (endpoint.id.empty() || endpoint.node.empty() || endpoint.endpoint == 0xffff ||
+            endpoint.servers.size() > 64 || replacement.find(endpoint.id) != replacement.end()) {
+            if (error) *error = "invalid Matter endpoint snapshot";
+            return false;
+        }
+        const unsigned int supported[] = {6, 8, 91, 1026, 1029, 1037, 1066};
+        bool userFacing = false;
+        for (unsigned int cluster = 0; cluster < sizeof(supported) / sizeof(supported[0]); ++cluster)
+            userFacing = userFacing || std::find(endpoint.servers.begin(), endpoint.servers.end(), supported[cluster]) != endpoint.servers.end();
+        if (!userFacing) continue;
+        Device device;
+        device.source = "matter";
+        device.externalId = endpoint.id;
+        device.ieeeAddress = endpoint.id;
+        device.matterNode = endpoint.node;
+        device.matterEndpoint = endpoint.endpoint;
+        device.matterServers = endpoint.servers;
+        device.online = endpoint.online;
+        device.component = "endpoint";
+        device.name = endpoint.servers.end() != std::find(endpoint.servers.begin(), endpoint.servers.end(), 8U)
+            ? "Matter dimmable light" : "Matter endpoint";
+        device.kind = "Matter device";
+        device.hasLight = std::find(endpoint.servers.begin(), endpoint.servers.end(), 6U) != endpoint.servers.end() &&
+                          std::find(endpoint.servers.begin(), endpoint.servers.end(), 8U) != endpoint.servers.end();
+        device.hasBrightness = device.hasLight;
+        device.hasActor = std::find(endpoint.servers.begin(), endpoint.servers.end(), 6U) != endpoint.servers.end() && !device.hasLight;
+        if (device.hasLight) device.kind = "light";
+        else if (device.hasActor) { device.kind = "switch"; device.name = "Matter switch"; }
+        device.hasTemperature = std::find(endpoint.servers.begin(), endpoint.servers.end(), 1026U) != endpoint.servers.end();
+        device.hasHumidity = std::find(endpoint.servers.begin(), endpoint.servers.end(), 1029U) != endpoint.servers.end();
+        device.hasAirQuality = std::find(endpoint.servers.begin(), endpoint.servers.end(), 91U) != endpoint.servers.end();
+        device.hasCo2 = std::find(endpoint.servers.begin(), endpoint.servers.end(), 1037U) != endpoint.servers.end();
+        device.hasPm25 = std::find(endpoint.servers.begin(), endpoint.servers.end(), 1066U) != endpoint.servers.end();
+        device.manufacturerName = "Matter";
+        device.lastSeen = endpoint.online ? time(0) : 0;
+        replacement[endpoint.id] = device;
+    }
+    for (std::map<std::string, Device>::const_iterator it = replacement.begin(); it != replacement.end(); ++it) {
+        std::map<std::string, Device>::const_iterator existing = devices_.find(it->first);
+        if (existing != devices_.end() && existing->second.source != "matter") {
+            if (error) *error = "Matter device ID conflicts with an existing device";
+            return false;
+        }
+    }
+    bool changed = false;
+    for (std::map<std::string, Device>::iterator it = devices_.begin(); it != devices_.end();) {
+        if (it->second.source == "matter" && replacement.find(it->first) == replacement.end()) {
+            devices_.erase(it++);
+            changed = true;
+        } else ++it;
+    }
+    for (std::map<std::string, Device>::iterator it = replacement.begin(); it != replacement.end(); ++it) {
+        std::map<std::string, Device>::iterator existing = devices_.find(it->first);
+        if (existing == devices_.end()) {
+            devices_[it->first] = it->second;
+            changed = true;
+        } else {
+            Device& current = existing->second;
+            Device& fresh = it->second;
+            fresh.lightOn = current.lightOn;
+            fresh.brightnessPercent = current.brightnessPercent;
+            fresh.temperatureCelsius = current.temperatureCelsius;
+            fresh.temperatureKnown = current.temperatureKnown;
+            fresh.humidityPercent = current.humidityPercent;
+            fresh.airQuality = current.airQuality;
+            fresh.airQualityKnown = current.airQualityKnown;
+            fresh.co2Ppm = current.co2Ppm;
+            fresh.co2Known = current.co2Known;
+            fresh.pm25MicrogramsM3 = current.pm25MicrogramsM3;
+            fresh.pm25Known = current.pm25Known;
+            if (current.online != fresh.online || current.lastSeen != fresh.lastSeen ||
+                current.name != fresh.name || current.matterServers != fresh.matterServers) changed = true;
+            current = fresh;
+        }
+    }
+    if (changed) markViewDirty();
     return true;
 }
 
@@ -2519,7 +2603,19 @@ std::string GatewayView::statusJson() const {
         json << "},\"last_seen\":" << device.lastSeen
              << ",\"manufacturer_name\":\"" << jsonEscape(device.manufacturerName)
              << "\",\"model_id\":\"" << jsonEscape(device.modelId)
-             << "\",\"node_descriptor\":";
+             << '\"';
+        if (device.source == "matter") {
+            json << ",\"online\":" << (device.online ? "true" : "false")
+                 << ",\"matter_node\":\"" << jsonEscape(device.matterNode)
+                 << "\",\"matter_endpoint\":" << device.matterEndpoint
+                 << ",\"light_known\":false,\"brightness_known\":false,\"matter_servers\":[";
+            for (unsigned long cluster = 0; cluster < device.matterServers.size(); ++cluster) {
+                if (cluster) json << ',';
+                json << device.matterServers[cluster];
+            }
+            json << ']';
+        }
+        json << ",\"node_descriptor\":";
         if (device.nodeDescriptor.size() == 13) {
             const std::vector<unsigned char>& d = device.nodeDescriptor;
             unsigned short manufacturerCode = static_cast<unsigned short>(d[3]) |

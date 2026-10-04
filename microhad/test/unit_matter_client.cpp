@@ -166,6 +166,18 @@ void runMatterClientUnitTests() {
     assert(MatterChannel::validRequest(10, pageBody));
     assert(!MatterChannel::validRequest(10, "{\"schema\":1,\"action\":\"snapshot\",\"cursor\":1}"));
     assert(!MatterChannel::validRequest(10, "{\"schema\":1,\"action\":\"read\"}"));
+    const std::string pageReply = "{\"schema\":1,\"ok\":true,\"result\":{\"revision\":\"0000000000000001\","
+        "\"devices\":[{\"node\":\"0000000000000002\",\"state\":\"complete\",\"online\":true,"
+        "\"id\":\"matter:0000000000000001:0000000000000002:0001\",\"endpoint\":1,"
+        "\"servers\":[6,8,29,1026]}],\"next_cursor\":null}}";
+    std::string pageRevision;
+    long pageCursor = 0;
+    std::vector<MatterEndpoint> pageDevices;
+    assert(MatterChannel::devicePage(pageReply, &pageRevision, &pageCursor, &pageDevices));
+    assert(pageRevision == "0000000000000001" && pageCursor == -1 && pageDevices.size() == 1);
+    assert(pageDevices[0].id == "matter:0000000000000001:0000000000000002:0001");
+    assert(pageDevices[0].node == "0000000000000002" && pageDevices[0].endpoint == 1 && pageDevices[0].online);
+    assert(pageDevices[0].servers.size() == 4 && pageDevices[0].servers[0] == 6 && pageDevices[0].servers[3] == 1026);
     const std::string readBody = "{\"schema\":1,\"action\":\"read\",\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":6,\"attribute\":0}";
     const std::string jobBody = "{\"schema\":1,\"action\":\"job\",\"job\":\"0000000000000001\"}";
     const std::string commandBody = "{\"schema\":1,\"command\":\"toggle\",\"node\":\"0000000000000002\",\"endpoint\":1}";

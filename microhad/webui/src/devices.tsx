@@ -109,9 +109,8 @@ export const deviceTypes = [
     name: 'Climate sensors',
     matches: (device: Device) => !device.has_light && (device.has_temperature || device.has_humidity),
   },
-  { name: 'Air quality sensors', matches: (device: Device) => !device.has_light && Boolean(
-    device.sensor_values && ['air_quality', 'co2', 'pm25'].some(value => value in device.sensor_values!)
-  ) },
+  { name: 'Air quality sensors', matches: (device: Device) => !device.has_light &&
+    (device.has_air_quality || device.has_co2 || device.has_pm25) },
   { name: 'Presence sensors', matches: (device: Device) => device.source === 'fritz_box' && device.has_occupancy },
   { name: 'Motion sensors', matches: (device: Device) => device.has_occupancy && device.source !== 'fritz_box' },
   { name: 'Lights', matches: (device: Device) => device.has_light },
@@ -227,6 +226,9 @@ function DeviceCard({
     type !== 'Smart plugs' && device.has_power && device.power_known && `${device.power_watts.toFixed(1)} W`,
     ...Object.entries(device.sensor_values ?? {}).filter(([sensor]) => !['temperature', 'humidity'].includes(sensor))
       .map(([sensor, reading]) => `${({ air_quality: 'Air quality', co2: 'CO₂', pm25: 'PM2.5' } as Record<string, string>)[sensor] ?? 'Measurement'}: ${reading.quality === 'unknown' || reading.value === null ? 'Unknown' : `${reading.value}${reading.unit ? ` ${reading.unit}` : ''}`}`),
+    !device.sensor_values?.air_quality && device.has_air_quality && `Air quality: ${device.air_quality_known ? device.air_quality : 'Unknown'}`,
+    !device.sensor_values?.co2 && device.has_co2 && `CO₂: ${device.co2_known ? `${device.co2_ppm} ppm` : 'Unknown'}`,
+    !device.sensor_values?.pm25 && device.has_pm25 && `PM2.5: ${device.pm25_known ? `${device.pm25_micrograms_m3} ug/m3` : 'Unknown'}`,
   ].filter(Boolean)
   return (
     <article className={`device-card device-card-${type.toLowerCase().replace(/[^a-z]+/g, '-')} ${

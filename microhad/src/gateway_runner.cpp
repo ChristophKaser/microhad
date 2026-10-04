@@ -200,6 +200,7 @@ void GatewayRunner::execute(Command* command) {
                                                                                  command->relayIndices, &error);
     else if (command->type == ShellyRemove) result = gateway_->removeShelly(command->address, &error);
     else if (command->type == ShellyReconcile) result = gateway_->reconcileShelly(command->ids, &error);
+    else if (command->type == MatterReconcile) result = gateway_->reconcileMatterDevices(command->matterEndpoints, &error);
     else if (command->type == ShellyEvent) result = gateway_->applyShellyEvent(command->address, command->metric,
                                                                                 command->channelIndex, command->value, &error);
     else if (command->type == FritzEvent) result = gateway_->applyFritzEvent(command->address, command->on,
@@ -397,6 +398,9 @@ bool GatewayRunner::removeShelly(const std::string& id, std::string* error) {
 }
 bool GatewayRunner::reconcileShelly(const std::vector<std::string>& ids, std::string* error) {
     Command command; command.type = ShellyReconcile; command.ids = ids; return invoke(&command, error);
+}
+bool GatewayRunner::reconcileMatterDevices(const std::vector<MatterEndpoint>& endpoints, std::string* error) {
+    Command command; command.type = MatterReconcile; command.matterEndpoints = endpoints; return invoke(&command, error);
 }
 bool GatewayRunner::reconcileFritzClients(const std::vector<std::string>& ids, std::string* error) {
     Command command; command.type = FritzReconcile; command.ids = ids; return invoke(&command, error);

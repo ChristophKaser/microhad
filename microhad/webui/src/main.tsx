@@ -68,7 +68,13 @@ function App() {
   const [tab, setTab] = useState('Dashboard')
   const { status, statusError, logs, logsError, refreshStatus } = useGatewayData(tab === 'Diagnostics')
   const matterController = useMatterDevices()
-  const catalogStatus = status ? { ...status, devices: [...status.devices, ...matterController.devices] } : null
+  const catalogStatus = status ? {
+    ...status,
+    devices: [...new Map([
+      ...status.devices.map(device => [device.id, device] as const),
+      ...matterController.devices.map(device => [device.id, { ...status.devices.find(item => item.id === device.id), ...device }] as const),
+    ]).values()],
+  } : null
   const [dialog, setDialog] = useState<'network' | 'scenes' | 'remotes' | 'text' | 'push' | null>(null)
   const [selected, setSelected] = useState<Device | null>(null)
   const [detailsDevice, setDetailsDevice] = useState<Device | null>(null)

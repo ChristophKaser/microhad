@@ -1,5 +1,6 @@
 #include "matter_worker.h"
 #include "gateway_runner.h"
+#include "json_util.h"
 #include "thread_name.h"
 #include <time.h>
 #include <unistd.h>
@@ -25,7 +26,8 @@ void wipe(std::string* value) {
 
 MatterWorker::MatterWorker(GatewayRunner* gateway, const std::string& socketPath) :
     gateway_(gateway), phonePendingFd_(-1), phoneActive_(false), phoneFd_(-1), phoneReady_(false), phoneOffset_(0),
-    phoneReceived_(0), phoneWriteSince_(0), phoneLastId_(0), phoneGeneration_(0), client_(socketPath), nextJob_(1), running_(false), started_(false), refreshed_(0) {
+    phoneReceived_(0), phoneWriteSince_(0), phoneLastId_(0), phoneGeneration_(0), client_(socketPath),
+    snapshotNextCursor_(0), nextJob_(1), running_(false), started_(false), refreshed_(0) {
     pthread_mutex_init(&mutex_, 0);
 }
 MatterWorker::~MatterWorker() { stop(); pthread_mutex_destroy(&mutex_); }
@@ -119,14 +121,28 @@ bool MatterWorker::takeEvent(std::string* json) {
 void MatterWorker::unavailable() {
     dropPhone(false, 1011);
     client_.disconnect();
+    std::vector<MatterEndpoint> offline;
     pthread_mutex_lock(&mutex_);
     matterStatus_.clear(); threadStatus_.clear(); refreshed_ = 0; events_.clear();
+    offline = snapshotDevices_;
+    bool wasOnline = false;
+    for (unsigned long i = 0; i < offline.size(); ++i) {
+        wasOnline = wasOnline || offline[i].online;
+        offline[i].online = false;
+    }
+    if (wasOnline) snapshotDevices_ = offline;
+    else offline.clear();
+    snapshotBuilding_.clear(); snapshotRevision_.clear(); snapshotNextCursor_ = 0;
     for (std::map<uint32_t, Job>::iterator it = jobs_.begin(); it != jobs_.end(); ++it) {
         if (it->second.state == "queued" || it->second.state == "running") {
             wipe(&it->second.body); it->second.state = "failed"; it->second.error = "transport";
         }
     }
     pending_.clear(); pthread_mutex_unlock(&mutex_);
+    if (!offline.empty() && gateway_) {
+        std::string ignored;
+        gateway_->reconcileMatterDevices(offline, &ignored);
+    }
 }
 bool MatterWorker::collectEvents() {
     std::string event;
@@ -159,6 +175,38 @@ void MatterWorker::executeJob() {
         } else valid = client_.call(9, request, &response, &error);
         wipe(&request);
     } else valid = client_.call(opcode, body, &response, &error);
+    if (valid && opcode == 10 && gateway_) {
+        long cursor = 0, nextCursor = -1;
+        long suppliedCursor = 0;
+        if (jsonLongField(body, "cursor", &suppliedCursor)) cursor = suppliedCursor;
+        std::string revision;
+        std::vector<MatterEndpoint> page;
+        if (MatterChannel::devicePage(response, &revision, &nextCursor, &page)) {
+            std::vector<MatterEndpoint> complete;
+            bool finalPage = false;
+            pthread_mutex_lock(&mutex_);
+            bool sequenceValid = true;
+            if (cursor == 0) {
+                snapshotBuilding_.clear(); snapshotRevision_ = revision; snapshotNextCursor_ = 0;
+            } else sequenceValid = snapshotRevision_ == revision && snapshotNextCursor_ == cursor;
+            if (sequenceValid) {
+                snapshotBuilding_.insert(snapshotBuilding_.end(), page.begin(), page.end());
+                snapshotNextCursor_ = nextCursor < 0 ? -1 : nextCursor;
+                if (nextCursor < 0) {
+                    complete = snapshotBuilding_;
+                    snapshotDevices_ = complete;
+                    finalPage = true;
+                }
+            } else {
+                snapshotBuilding_.clear(); snapshotRevision_.clear(); snapshotNextCursor_ = 0;
+            }
+            pthread_mutex_unlock(&mutex_);
+            if (finalPage) {
+                std::string ignored;
+                gateway_->reconcileMatterDevices(complete, &ignored);
+            }
+        }
+    }
     wipe(&body);
     std::string serviceJob;
     const bool operation = valid && MatterChannel::acceptedOperationJob(opcode, response, &serviceJob);

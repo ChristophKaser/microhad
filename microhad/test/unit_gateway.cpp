@@ -64,6 +64,25 @@ public:
                std::string::npos);
         assert(sensorJson.find("\"has_pm25\":true,\"pm25_known\":true,"
                                "\"pm25_micrograms_m3\":12.75") != std::string::npos);
+
+        MatterEndpoint endpoint;
+        endpoint.id = "matter:0000000000000001:0000000000000002:0001";
+        endpoint.node = "0000000000000002";
+        endpoint.endpoint = 1;
+        endpoint.online = true;
+        endpoint.servers.push_back(6);
+        endpoint.servers.push_back(8);
+        endpoint.servers.push_back(29);
+        endpoint.servers.push_back(1037);
+        std::vector<MatterEndpoint> endpoints(1, endpoint);
+        std::string error;
+        assert(gateway.reconcileMatterDevices(endpoints, &error));
+        const std::string matterStatus = gateway.statusJson();
+        assert(matterStatus.find("\"id\":\"matter:0000000000000001:0000000000000002:0001\"") !=
+               std::string::npos);
+        assert(matterStatus.find("\"matter_node\":\"0000000000000002\",\"matter_endpoint\":1") !=
+               std::string::npos);
+        assert(matterStatus.find("\"has_co2\":true,\"co2_known\":false") != std::string::npos);
     }
     static void ineligibleSensorRefreshCannotSpin() {
         char directory[] = "/tmp/microhad-refresh-timers-XXXXXX";

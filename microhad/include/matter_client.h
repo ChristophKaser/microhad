@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include "matter_protocol.h"
 #include <deque>
+#include "gateway.h"
 
 class MatterClient {
 public:
@@ -36,6 +37,8 @@ public:
     static bool threadChannel(const std::string& input, unsigned char channel, std::string* body);
     static bool deviceReadRequest(const std::string& input, std::string* body);
     static bool deviceCommandRequest(const std::string& input, std::string* body);
+    static bool devicePage(const std::string& response, std::string* revision, long* nextCursor,
+                           std::vector<MatterEndpoint>* endpoints);
     static bool relayRequest(const std::string& input, uint32_t* id, unsigned char* opcode,
                              std::string* session, std::string* body);
     static std::string relayResponseSession(const std::string& response);

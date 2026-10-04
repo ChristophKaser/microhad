@@ -684,6 +684,36 @@ bool MatterChannel::deviceCommandRequest(const std::string& input, std::string* 
     *body += '}';
     return requestValid(11, *body);
 }
+bool MatterChannel::devicePage(const std::string& response, std::string* revision, long* nextCursor,
+                              std::vector<MatterEndpoint>* endpoints) {
+    revision->clear(); *nextCursor = -1; endpoints->clear();
+    if (!responseValid(10, response)) return false;
+    Fields envelope, result;
+    if (!StatusJson(response).parse(&envelope) || !StatusJson(envelope["result"]).parse(&result)) return false;
+    *revision = result["revision"].substr(1, result["revision"].size() - 2);
+    if (result["next_cursor"] != "null") {
+        if (!number(result["next_cursor"], 1, 2047)) return false;
+        *nextCursor = strtol(result["next_cursor"].c_str(), 0, 10);
+    }
+    std::vector<std::string> rows;
+    if (!StatusJson(result["devices"]).parseArray(&rows)) return false;
+    for (unsigned long i = 0; i < rows.size(); ++i) {
+        Fields row;
+        if (!StatusJson(rows[i]).parse(&row) || row["endpoint"] == "null") continue;
+        MatterEndpoint endpoint;
+        endpoint.id = row["id"].substr(1, row["id"].size() - 2);
+        endpoint.node = row["node"].substr(1, row["node"].size() - 2);
+        endpoint.state = row["state"].substr(1, row["state"].size() - 2);
+        endpoint.endpoint = static_cast<unsigned short>(strtoul(row["endpoint"].c_str(), 0, 10));
+        endpoint.online = row["online"] == "true";
+        std::vector<std::string> clusters;
+        if (!StatusJson(row["servers"]).parseArray(&clusters)) return false;
+        for (unsigned long cluster = 0; cluster < clusters.size(); ++cluster)
+            endpoint.servers.push_back(static_cast<unsigned int>(strtoul(clusters[cluster].c_str(), 0, 10)));
+        endpoints->push_back(endpoint);
+    }
+    return true;
+}
 
 bool MatterChannel::relayRequest(const std::string& input, uint32_t* id, unsigned char* opcode,
                                 std::string* session, std::string* body) {

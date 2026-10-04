@@ -190,8 +190,10 @@ export function matterDeviceModel(endpoint: MatterDevice, state: MatterDeviceSta
   const sensorValues = Object.fromEntries(Object.entries(measurements).map(([cluster, reading]) => [
     sensorNames[cluster] ?? `cluster_${cluster}`, reading,
   ]))
-  const isLight = servers.includes(8)
-  const hasActor = servers.includes(6) && !isLight
+  const hasOnOff = servers.includes(6)
+  const hasLevel = servers.includes(8)
+  const isLight = hasOnOff && hasLevel
+  const hasActor = hasOnOff && !hasLevel
   const suffix = `${endpoint.node.slice(-4)} · ${endpoint.endpoint}`
   return {
     id: endpoint.id, source: 'matter', component: 'endpoint', external_id: endpoint.id, ieee_address: '',
@@ -214,7 +216,7 @@ export function matterDeviceModel(endpoint: MatterDevice, state: MatterDeviceSta
     has_occupancy: false, occupied: false, has_battery: false, battery_percent: 0,
     link_quality: 0, has_wifi_signal: false, wifi_signal_percent: 0,
     has_light: isLight, light_on: state.power ?? false, light_known: state.power !== undefined,
-    has_brightness: servers.includes(8), brightness_percent: state.level === null || state.level === undefined ? 0 : Math.round(state.level * 100 / 254),
+    has_brightness: isLight, brightness_percent: state.level === null || state.level === undefined ? 0 : Math.round(state.level * 100 / 254),
     brightness_known: state.level !== undefined && state.level !== null, has_remote: false,
     has_actor: hasActor, actor_known: state.power !== undefined, actor_on: state.power ?? false,
     has_power: false, power_known: false, power_watts: 0,
