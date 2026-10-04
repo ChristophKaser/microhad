@@ -85,7 +85,10 @@ Matter-disabled behavior when it is absent. `deploy.sh --activate-paired`
 separately stages the Matter-aware launcher for next boot; it requires an
 explicit Matter-enabled native binary and service path, is restricted to
 `/tuya/native`, preserves the existing launcher backup and never restarts live
-processes. Mocked SSH tests verify staging and activation commands without
+processes. The MIPS build emits a feature manifest containing the Ziggurat and
+Matter selections plus the binary SHA-256; deployment rejects a missing,
+disabled or stale manifest before SSH and stages the matching manifest beside
+the executable. Mocked SSH tests verify staging and activation commands without
 network access. No gateway connection or launcher activation was performed.
 
 ## Remaining checkpoints

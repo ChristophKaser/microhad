@@ -522,7 +522,9 @@ Matter-enabled paired installation, `deploy.sh --activate-paired` selects
 `/tuya/native/thread-matter` executable is present. This option assumes the
 paired Ziggurat/native artifacts, config and maintenance binary are already
 installed and verified; it does not perform first-time paired-backend setup.
-It was host-tested only and is not used before plan 08 acceptance.
+The deployer also verifies a build-generated SHA-256 feature manifest proving
+the selected native binary was built with both Ziggurat and Matter enabled.
+This path was host-tested only and is not used before plan 08 acceptance.
 
 The new launcher must create the private RAM socket directory, start Ziggurat,
 wait for API readiness with a deadline, then start the native daemon. Native

@@ -368,8 +368,11 @@ only static start/stop/failure messages. Shutdown has the existing bounded
 TERM/KILL deadline; restart socket ownership is checked by the Rust listener.
 
 For a Matter-enabled native bridge, build and pass the `ZIGGURAT=1 MATTER=1`
-binary explicitly. Matter-service deployment refuses to use the default
-Matter-disabled binary implicitly:
+binary explicitly. The MIPS build emits the adjacent
+`microhad-zigbee-native.matter-manifest`, which records both feature selections
+and the binary SHA-256. Matter-service deployment refuses missing, disabled,
+or stale manifests before opening SSH and stages the manifest beside the
+binary:
 
 ```sh
 make ZIGGURAT=1 MATTER=1 mips
@@ -392,8 +395,8 @@ have already been verified. Existing `--activate` remains native-only. No
 target execution, launcher activation, credentials transfer or process restart
 was performed here; physical acceptance remains in plan 08.
 
-Validation for the deployment-path checkpoint: four mocked service/launcher
-deployment tests, the Matter build-flag test, shell syntax checks, ten paired
+Validation for the deployment-path checkpoint: five mocked service/launcher
+deployment tests, the Matter build-flag/manifest test, shell syntax checks, ten paired
 supervisor tests and the Rust service-feature library suite pass. No physical
 radio, target CPU/RSS sample or device configuration was touched; startup
 latency and sustained resource feasibility remain for plan 08. See

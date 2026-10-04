@@ -54,6 +54,19 @@ done
 [ -z "$matter_service" ] || [ "$binary_explicit" = true ] || {
     echo "--matter-service requires --binary from a ZIGGURAT=1 MATTER=1 build" >&2; exit 2;
 }
+[ -z "$matter_service" ] || {
+    manifest="$binary.matter-manifest"
+    [ -f "$manifest" ] || { echo "Matter build manifest missing: $manifest" >&2; exit 2; }
+    grep -qx 'format=microhad-native-build-v1' "$manifest" &&
+        grep -qx 'ziggurat=1' "$manifest" && grep -qx 'matter=1' "$manifest" || {
+            echo "Matter build manifest does not identify an enabled Ziggurat Matter binary" >&2; exit 2;
+        }
+    expected_hash=$(sed -n 's/^binary_sha256=//p' "$manifest")
+    actual_hash=$(sha256sum "$binary" | awk '{print $1}')
+    [ -n "$expected_hash" ] && [ "$expected_hash" = "$actual_hash" ] || {
+        echo "Matter build manifest does not match the selected native binary" >&2; exit 2;
+    }
+}
 [ "$deploy_binary" = false ] || [ -x "$binary" ] || { echo "MIPS binary not found or not executable: $binary" >&2; exit 1; }
 [ "$deploy_webui" = false ] || { [ -f "$project_dir/webui/dist/index.html" ] && [ -f "$project_dir/webui/dist/sw.js" ]; } || { echo "Built Web UI not found; run make webui first" >&2; exit 1; }
 [ -z "$config" ] || { [ "$deploy_binary" = true ] && [ -f "$config" ]; } || usage
@@ -107,6 +120,8 @@ fi
 if [ -n "$matter_service" ]; then
     # Stage the optional service and supervisor only. No launcher activation,
     # credential state transfer, UART ownership change or process restart here.
+    ssh_command "dd of=\"$target/.microhad-zigbee-native.matter-manifest.new\"" < "$binary.matter-manifest"
+    ssh_command "chmod 600 \"$target/.microhad-zigbee-native.matter-manifest.new\"; mv \"$target/.microhad-zigbee-native.matter-manifest.new\" \"$target/tuya-zigbee-native.matter-manifest\""
     ssh_command "dd of=\"$target/.thread-matter.new\"" < "$matter_service"
     ssh_command "chmod 700 \"$target/.thread-matter.new\"; mv \"$target/.thread-matter.new\" \"$target/thread-matter\""
     ssh_command "dd of=\"$target/.paired_start.sh.new\"" < "$project_dir/paired_start.sh"

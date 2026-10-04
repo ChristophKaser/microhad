@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Exercise optional service staging with a fake SSH transport; no network access."""
 import json
+import hashlib
 import os
 from pathlib import Path
 import subprocess
@@ -15,6 +16,12 @@ data = sys.stdin.buffer.read()
 with open(os.environ['STAGING_CALLS'], 'a') as output:
     output.write(json.dumps({'command':sys.argv[-1], 'bytes':len(data)})+'\\n')
 '''
+
+
+def matter_manifest(binary, matter=1):
+    digest = hashlib.sha256(binary.read_bytes()).hexdigest()
+    return (f'format=microhad-native-build-v1\nziggurat=1\nmatter={matter}\n'
+            f'binary_sha256={digest}\n')
 
 
 class Staging(unittest.TestCase):
@@ -52,6 +59,7 @@ class Staging(unittest.TestCase):
             root = Path(directory)
             fake = root / 'sshpass';fake.write_text(FAKE_SSH);fake.chmod(0o700)
             binary = root / 'native';binary.write_bytes(b'fake native');binary.chmod(0o700)
+            Path(str(binary) + '.matter-manifest').write_text(matter_manifest(binary))
             service = root / 'thread-matter';service.write_bytes(b'fake service');service.chmod(0o700)
             password = root / 'password';password.touch()
             calls = root / 'calls'
@@ -63,9 +71,10 @@ class Staging(unittest.TestCase):
                            check=True, timeout=10)
             rows = [json.loads(line) for line in calls.read_text().splitlines()]
             uploads = [row for row in rows if row['bytes']]
-            self.assertEqual(len(uploads), 3)
-            self.assertEqual(uploads[1]['bytes'], service.stat().st_size)
-            self.assertEqual(uploads[2]['bytes'], (ROOT / 'paired_start.sh').stat().st_size)
+            self.assertEqual(len(uploads), 4)
+            self.assertEqual(uploads[1]['bytes'], len(Path(str(binary) + '.matter-manifest').read_bytes()))
+            self.assertEqual(uploads[2]['bytes'], service.stat().st_size)
+            self.assertEqual(uploads[3]['bytes'], (ROOT / 'paired_start.sh').stat().st_size)
             commands = '\n'.join(row['command'] for row in rows)
             self.assertIn('/tuya/native-test/.thread-matter.new', commands)
             self.assertIn('chmod 700', commands)
@@ -82,6 +91,7 @@ class Staging(unittest.TestCase):
             root = Path(directory)
             fake = root / 'sshpass';fake.write_text(FAKE_SSH);fake.chmod(0o700)
             binary = root / 'native';binary.write_bytes(b'fake native');binary.chmod(0o700)
+            Path(str(binary) + '.matter-manifest').write_text(matter_manifest(binary))
             service = root / 'thread-matter';service.write_bytes(b'fake service');service.chmod(0o700)
             password = root / 'password';password.touch()
             calls = root / 'calls'
@@ -95,8 +105,8 @@ class Staging(unittest.TestCase):
             rows = [json.loads(line) for line in calls.read_text().splitlines()]
             uploads = [row for row in rows if row['bytes']]
             self.assertEqual([row['bytes'] for row in uploads], [binary.stat().st_size,
-                service.stat().st_size, (ROOT / 'paired_start.sh').stat().st_size,
-                (ROOT / 'ziggurat_start.sh').stat().st_size])
+                len(Path(str(binary) + '.matter-manifest').read_bytes()), service.stat().st_size,
+                (ROOT / 'paired_start.sh').stat().st_size, (ROOT / 'ziggurat_start.sh').stat().st_size])
             commands = '\n'.join(row['command'] for row in rows)
             self.assertIn('cp /tuya/tuya_start.sh /tuya/tuya_start.sh.lowjs-backup', commands)
             self.assertIn('mv "/tuya/native/.gateway_start.sh.new" /tuya/tuya_start.sh', commands)
@@ -110,6 +120,7 @@ class Staging(unittest.TestCase):
             root = Path(directory)
             fake = root / 'sshpass';fake.write_text(FAKE_SSH);fake.chmod(0o700)
             binary = root / 'native';binary.write_bytes(b'fake native');binary.chmod(0o700)
+            Path(str(binary) + '.matter-manifest').write_text(matter_manifest(binary))
             password = root / 'password';password.touch()
             calls = root / 'calls'
             env = dict(os.environ,PATH=str(root)+os.pathsep+os.environ['PATH'],STAGING_CALLS=str(calls))
@@ -132,6 +143,27 @@ class Staging(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn('ZIGGURAT=1 MATTER=1', result.stderr)
             self.assertFalse(calls.exists())
+
+    def test_matter_deployment_rejects_disabled_or_stale_build_manifest(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake = root / 'sshpass';fake.write_text(FAKE_SSH);fake.chmod(0o700)
+            binary = root / 'native';binary.write_bytes(b'fake native');binary.chmod(0o700)
+            service = root / 'thread-matter';service.write_bytes(b'fake service');service.chmod(0o700)
+            password = root / 'password';password.touch()
+            calls = root / 'calls'
+            env = dict(os.environ,PATH=str(root)+os.pathsep+os.environ['PATH'],STAGING_CALLS=str(calls))
+            args = ['sh', str(ROOT / 'deploy.sh'), '--password-file', str(password),
+                    '--binary-only', '--binary', str(binary), '--matter-service', str(service),
+                    '--target', '/tuya/native-test']
+            manifest = Path(str(binary) + '.matter-manifest')
+            for body in (matter_manifest(binary, matter=0), matter_manifest(binary).replace(
+                    hashlib.sha256(binary.read_bytes()).hexdigest(), '0' * 64)):
+                manifest.write_text(body)
+                result = subprocess.run(args, env=env, stdin=subprocess.DEVNULL, capture_output=True,
+                                        text=True, check=False, timeout=10)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(calls.exists())
 
 
 if __name__ == '__main__':

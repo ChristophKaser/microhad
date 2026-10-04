@@ -2,6 +2,8 @@
 """Check Make feature selection without compiling, fetching, or touching a device."""
 from pathlib import Path
 import subprocess
+import hashlib
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -48,7 +50,23 @@ def main():
                             text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     assert result.returncode == 0, result.stderr
     assert 'Matter IPC/status bridge enabled' in result.stdout
-    print('PASS disabled defaults, isolated enabled outputs, macros, invalid flags, and enabled IPC build gate')
+    result = subprocess.run(['make', '-n', 'ZIGGURAT=1', 'MATTER=1', 'mips'], cwd=ROOT,
+                            text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    assert result.returncode == 0, result.stderr
+    assert 'build/mips-ziggurat-matter/microhad-zigbee-native.matter-manifest' in result.stdout
+    assert "'matter=1'" in result.stdout and 'sha256sum' in result.stdout
+    with tempfile.TemporaryDirectory(prefix='matter-build-manifest-') as directory:
+        binary = Path(directory) / 'microhad-zigbee-native'
+        binary.write_bytes(b'synthetic Matter-enabled MIPS executable')
+        manifest = Path(str(binary) + '.matter-manifest')
+        result = subprocess.run(['make', '--no-print-directory', 'ZIGGURAT=1', 'MATTER=1',
+                                 f'MIPS_BIN={binary}', str(manifest)], cwd=ROOT,
+                                text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        assert result.returncode == 0, result.stderr
+        assert manifest.read_text().splitlines() == [
+            'format=microhad-native-build-v1', 'ziggurat=1', 'matter=1',
+            f'binary_sha256={hashlib.sha256(binary.read_bytes()).hexdigest()}']
+    print('PASS disabled defaults, isolated enabled outputs, feature macros/manifest, invalid flags, and build gate')
 
 
 if __name__ == '__main__':

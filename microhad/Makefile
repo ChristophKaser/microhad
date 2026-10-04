@@ -58,6 +58,7 @@ HOST_BUILD := build/host$(BACKEND_SUFFIX)
 MIPS_BUILD := build/mips$(BACKEND_SUFFIX)
 HOST_BIN := $(HOST_BUILD)/microhad-zigbee-native
 MIPS_BIN := $(MIPS_BUILD)/microhad-zigbee-native
+MIPS_MATTER_MANIFEST := $(MIPS_BIN).matter-manifest
 HOST_CXXFLAGS += -DMICROHAD_TEST_BINARY=\"$(HOST_BIN)\"
 TLS_C_SOURCES := src/fcm_signer.c src/https_client.c src/vapid_key.c src/web_push_crypto.c src/tls_server.c
 HOST_C_OBJECTS := $(patsubst src/%.c,$(HOST_BUILD)/%.o,$(TLS_C_SOURCES))
@@ -86,6 +87,14 @@ $(HOST_BIN): $(SOURCES) $(HOST_C_OBJECTS) $(HOST_MBEDTLS_LIBS) $(wildcard includ
 	$(HOST_CXX) $(HOST_CXXFLAGS) $(SOURCES) $(HOST_C_OBJECTS) -o $@ $(HOST_MBEDTLS_LIBS) $(LDFLAGS)
 
 mips: mbedtls-mips $(MIPS_BIN) verify-target
+ifeq ($(MATTER),1)
+mips: $(MIPS_MATTER_MANIFEST)
+
+$(MIPS_MATTER_MANIFEST): $(MIPS_BIN) Makefile
+	@{ printf '%s\n' 'format=microhad-native-build-v1' 'ziggurat=1' 'matter=1'; \
+	  printf 'binary_sha256='; sha256sum "$(MIPS_BIN)" | awk '{print $$1}'; } > "$@.tmp"
+	@mv "$@.tmp" "$@"
+endif
 
 mbedtls-host: $(HOST_MBEDTLS_LIBS)
 
