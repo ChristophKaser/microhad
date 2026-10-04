@@ -715,6 +715,39 @@ bool MatterChannel::devicePage(const std::string& response, std::string* revisio
     return true;
 }
 
+bool MatterChannel::deviceResult(const std::string& response, const std::string& job, MatterReading* reading) {
+    if (!reading || !responseValid(10, response)) return false;
+    Fields envelope, status, result, value;
+    if (!StatusJson(response).parse(&envelope) || envelope["ok"] != "true" ||
+        !StatusJson(envelope["result"]).parse(&status) || !operationalJobValid(status) ||
+        status["state"] != "\"complete\"" || status["job"] != '"' + job + '"' ||
+        !StatusJson(status["result"]).parse(&result) || !StatusJson(result["value"]).parse(&value)) return false;
+    MatterReading parsed;
+    parsed.node = result["node"].substr(1, result["node"].size() - 2);
+    parsed.endpoint = static_cast<unsigned short>(strtoul(result["endpoint"].c_str(), 0, 10));
+    parsed.cluster = static_cast<unsigned int>(strtoul(result["cluster"].c_str(), 0, 10));
+    if (parsed.cluster == 6) {
+        parsed.known = true;
+        parsed.booleanValue = value["value"] == "true";
+    } else if (parsed.cluster == 8) {
+        parsed.known = value["value"] != "null";
+        if (parsed.known) parsed.numberValue = strtod(value["value"].c_str(), 0);
+    } else if (parsed.cluster == 91) {
+        Fields air;
+        if (!StatusJson(value["value"]).parse(&air)) return false;
+        parsed.known = air["quality"] == "\"measured\"";
+        parsed.textValue = air["value"].substr(1, air["value"].size() - 2);
+    } else {
+        Fields measurement;
+        if (!StatusJson(value["value"]).parse(&measurement)) return false;
+        parsed.known = measurement["quality"] == "\"measured\"" && measurement["value"] != "null";
+        parsed.unit = measurement["unit"].substr(1, measurement["unit"].size() - 2);
+        if (parsed.known) parsed.numberValue = strtod(measurement["value"].c_str(), 0);
+    }
+    *reading = parsed;
+    return true;
+}
+
 bool MatterChannel::relayRequest(const std::string& input, uint32_t* id, unsigned char* opcode,
                                 std::string* session, std::string* body) {
     *id = 0; *opcode = 0; session->clear(); body->clear();

@@ -53,17 +53,21 @@ public:
         matter.hasCo2 = true;
         matter.co2Known = true;
         matter.co2Ppm = 758.5;
+        matter.co2Unit = "ppb";
         matter.hasPm25 = true;
         matter.pm25Known = true;
         matter.pm25MicrogramsM3 = 12.75;
+        matter.pm25Unit = "ug/m3";
         sensors.devices.push_back(matter);
         const std::string sensorJson = sensors.statusJson();
         assert(sensorJson.find("\"has_air_quality\":true,\"air_quality_known\":true,"
                                "\"air_quality\":\"moderate\"") != std::string::npos);
-        assert(sensorJson.find("\"has_co2\":true,\"co2_known\":true,\"co2_ppm\":758.5") !=
+        assert(sensorJson.find("\"has_co2\":true,\"co2_known\":false,\"co2_ppm\":0") !=
                std::string::npos);
         assert(sensorJson.find("\"has_pm25\":true,\"pm25_known\":true,"
                                "\"pm25_micrograms_m3\":12.75") != std::string::npos);
+        assert(sensorJson.find("\"co2\":{\"value\":758.5,\"unit\":\"ppb\",\"quality\":\"measured\"}") !=
+               std::string::npos);
 
         MatterEndpoint endpoint;
         endpoint.id = "matter:0000000000000001:0000000000000002:0001";
@@ -83,6 +87,23 @@ public:
         assert(matterStatus.find("\"matter_node\":\"0000000000000002\",\"matter_endpoint\":1") !=
                std::string::npos);
         assert(matterStatus.find("\"has_co2\":true,\"co2_known\":false") != std::string::npos);
+        MatterReading co2;
+        co2.node = endpoint.node;
+        co2.endpoint = endpoint.endpoint;
+        co2.cluster = 1037;
+        co2.known = true;
+        co2.numberValue = 810.5;
+        co2.unit = "ppb";
+        assert(gateway.applyMatterReading(co2, &error));
+        assert(gateway.statusJson().find("\"co2\":{\"value\":810.5,\"unit\":\"ppb\",\"quality\":\"measured\"}") !=
+               std::string::npos);
+        co2.known = false;
+        assert(gateway.applyMatterReading(co2, &error));
+        assert(gateway.statusJson().find("\"co2\":{\"value\":null,\"unit\":\"ppb\",\"quality\":\"unknown\"}") !=
+               std::string::npos);
+        assert(gateway.reconcileMatterDevices(endpoints, &error));
+        assert(gateway.statusJson().find("\"co2\":{\"value\":null,\"unit\":\"ppb\",\"quality\":\"unknown\"}") !=
+               std::string::npos);
     }
     static void ineligibleSensorRefreshCannotSpin() {
         char directory[] = "/tmp/microhad-refresh-timers-XXXXXX";

@@ -48,6 +48,7 @@ public:
     bool removeShelly(const std::string& id, std::string* error);
     bool reconcileShelly(const std::vector<std::string>& ids, std::string* error);
     bool reconcileMatterDevices(const std::vector<MatterEndpoint>& endpoints, std::string* error);
+    bool applyMatterReading(const MatterReading& reading, std::string* error);
     bool reconcileFritzClients(const std::vector<std::string>& ids, std::string* error);
     bool applyShellyEvent(const std::string& id, int metric, int channelIndex, double value, std::string* error);
     bool applyFritzEvent(const std::string& id, bool connected, bool hasSignal, int signalPercent, std::string* error);
@@ -77,7 +78,7 @@ public:
     bool setEventLoopDebug(bool enabled, std::string* error);
 
 private:
-    enum CommandType { NetworkBackup, Join, CreateNetwork, DeviceSettings, DeviceValueAlerts, DeviceRefresh, DeviceIdentify, DeviceConfiguration, LightState, SceneConfiguration, SceneActivate, SceneOff, TestNotification, NotificationSetting, EventLoopDebug, ShellyRegister, ShellyRemove, ShellyReconcile, MatterReconcile, ShellyEvent, FritzEvent, FritzReconcile, ActorState };
+    enum CommandType { NetworkBackup, Join, CreateNetwork, DeviceSettings, DeviceValueAlerts, DeviceRefresh, DeviceIdentify, DeviceConfiguration, LightState, SceneConfiguration, SceneActivate, SceneOff, TestNotification, NotificationSetting, EventLoopDebug, ShellyRegister, ShellyRemove, ShellyReconcile, MatterReconcile, MatterValue, ShellyEvent, FritzEvent, FritzReconcile, ActorState };
     struct Command {
         CommandType type;
         unsigned int seconds;
@@ -90,6 +91,7 @@ private:
         std::vector<int> temperatureIndices;
         std::vector<int> relayIndices;
         std::vector<MatterEndpoint> matterEndpoints;
+        MatterReading matterReading;
         int metric;
         double value;
         bool on;

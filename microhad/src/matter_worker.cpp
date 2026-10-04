@@ -242,6 +242,14 @@ void MatterWorker::pollOperationJob() {
     bool terminal = false, failed = false;
     std::string operationError;
     if (valid) valid = MatterChannel::operationStatus(response, serviceJob, &terminal, &failed, &operationError);
+    MatterReading reading;
+    if (valid && terminal && !failed) {
+        valid = MatterChannel::deviceResult(response, serviceJob, &reading);
+        if (valid && gateway_) {
+            std::string ignored;
+            gateway_->applyMatterReading(reading, &ignored);
+        }
+    }
     pthread_mutex_lock(&mutex_);
     std::map<uint32_t, Job>::iterator found = jobs_.find(id);
     if (found != jobs_.end() && found->second.state == "running" && found->second.serviceJob == serviceJob) {

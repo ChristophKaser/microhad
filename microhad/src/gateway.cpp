@@ -40,11 +40,11 @@ Gateway::SceneRetry::SceneRetry() : off(false), inFlight(false), retryRequested(
                                     ezspSequence(0), attempts(0), sentAt(0), retryAt(0) {}
 
 Device::Device() : source("zigbee"), networkAddress(0xffff), kind("generic"), contactOpen(false), hasContact(false), contactKnown(false), hasTemperature(false), temperatureKnown(false),
-                   temperatureCelsius(0), hasHumidity(false), humidityPercent(0), hasAirQuality(false),
+                   temperatureCelsius(0), hasHumidity(false), humidityKnown(false), humidityPercent(0), hasAirQuality(false),
                    airQualityKnown(false), hasCo2(false), co2Known(false), co2Ppm(0), hasPm25(false),
                    pm25Known(false), pm25MicrogramsM3(0), hasOccupancy(false), occupied(false),
-                   hasBattery(false), batteryPercent(0), hasLight(false), lightOn(false), hasBrightness(false),
-                   brightnessPercent(0), hasRemote(false), hasActor(false), actorKnown(false), actorOn(false), hasPower(false), powerKnown(false), powerWatts(0), linkQuality(0), hasWifiSignal(false), wifiSignalPercent(0), lastSeen(0),
+                   hasBattery(false), batteryPercent(0), hasLight(false), lightOn(false), lightKnown(false), hasBrightness(false),
+                   brightnessPercent(0), brightnessKnown(false), hasRemote(false), hasActor(false), actorKnown(false), actorOn(false), hasPower(false), powerKnown(false), powerWatts(0), linkQuality(0), hasWifiSignal(false), wifiSignalPercent(0), lastSeen(0),
                    iasZoneId(-1), hasLowTemperatureAlert(false), hasHighTemperatureAlert(false), lowTemperatureAlert(0),
                    highTemperatureAlert(0), contactInitialAlertMinutes(10), contactReminderAlertMinutes(5),
                    contactTriggerMode(false), contactTriggerCooldownSeconds(60), contactTriggerUntil(0),
@@ -527,15 +527,22 @@ bool Gateway::reconcileMatterDevices(const std::vector<MatterEndpoint>& endpoint
             Device& current = existing->second;
             Device& fresh = it->second;
             fresh.lightOn = current.lightOn;
+            fresh.lightKnown = current.lightKnown;
+            fresh.actorOn = current.actorOn;
+            fresh.actorKnown = current.actorKnown;
             fresh.brightnessPercent = current.brightnessPercent;
+            fresh.brightnessKnown = current.brightnessKnown;
             fresh.temperatureCelsius = current.temperatureCelsius;
             fresh.temperatureKnown = current.temperatureKnown;
             fresh.humidityPercent = current.humidityPercent;
+            fresh.humidityKnown = current.humidityKnown;
             fresh.airQuality = current.airQuality;
             fresh.airQualityKnown = current.airQualityKnown;
             fresh.co2Ppm = current.co2Ppm;
+            fresh.co2Unit = current.co2Unit;
             fresh.co2Known = current.co2Known;
             fresh.pm25MicrogramsM3 = current.pm25MicrogramsM3;
+            fresh.pm25Unit = current.pm25Unit;
             fresh.pm25Known = current.pm25Known;
             if (current.online != fresh.online || current.lastSeen != fresh.lastSeen ||
                 current.name != fresh.name || current.matterServers != fresh.matterServers) changed = true;
@@ -543,6 +550,73 @@ bool Gateway::reconcileMatterDevices(const std::vector<MatterEndpoint>& endpoint
         }
     }
     if (changed) markViewDirty();
+    return true;
+}
+
+bool Gateway::applyMatterReading(const MatterReading& reading, std::string* error) {
+    if (error) error->clear();
+    if (reading.node.size() != 16 || reading.endpoint == 0xffff) {
+        if (error) *error = "invalid Matter reading identity";
+        return false;
+    }
+    if (reading.known && reading.cluster != 6 && reading.cluster != 91 &&
+        (!std::isfinite(reading.numberValue) ||
+         (reading.cluster == 8 && (reading.numberValue < 0 || reading.numberValue > 254)) ||
+         (reading.cluster == 1026 && (reading.numberValue < -327.68 || reading.numberValue > 327.67)) ||
+         (reading.cluster == 1029 && (reading.numberValue < 0 || reading.numberValue > 100)) ||
+         ((reading.cluster == 1037 || reading.cluster == 1066) &&
+          (reading.numberValue < 0 || reading.numberValue > 3.402823466e38)))) {
+        if (error) *error = "invalid Matter reading value";
+        return false;
+    }
+    std::map<std::string, Device>::iterator target = devices_.end();
+    for (std::map<std::string, Device>::iterator it = devices_.begin(); it != devices_.end(); ++it) {
+        if (it->second.source == "matter" && it->second.matterNode == reading.node &&
+            it->second.matterEndpoint == static_cast<int>(reading.endpoint)) {
+            if (target != devices_.end()) {
+                if (error) *error = "ambiguous Matter endpoint";
+                return false;
+            }
+            target = it;
+        }
+    }
+    if (target == devices_.end()) {
+        if (error) *error = "Matter endpoint not found";
+        return false;
+    }
+    Device& device = target->second;
+    if (reading.cluster == 6 && (device.hasLight || device.hasActor)) {
+        if (device.hasLight) { device.lightOn = reading.booleanValue; device.lightKnown = true; }
+        if (device.hasActor) { device.actorOn = reading.booleanValue; device.actorKnown = true; }
+    } else if (reading.cluster == 8 && device.hasBrightness) {
+        if (reading.known) {
+            device.brightnessPercent = static_cast<int>((reading.numberValue * 100.0 + 127.0) / 254.0);
+            device.brightnessKnown = true;
+        } else device.brightnessKnown = false;
+    } else if (reading.cluster == 1026 && device.hasTemperature) {
+        if (reading.known) device.temperatureCelsius = reading.numberValue;
+        device.temperatureKnown = reading.known;
+    } else if (reading.cluster == 1029 && device.hasHumidity) {
+        if (reading.known) device.humidityPercent = reading.numberValue;
+        device.humidityKnown = reading.known;
+    } else if (reading.cluster == 91 && device.hasAirQuality) {
+        if (reading.known) device.airQuality = reading.textValue;
+        device.airQualityKnown = reading.known;
+    } else if (reading.cluster == 1037 && device.hasCo2) {
+        if (reading.known) device.co2Ppm = reading.numberValue;
+        device.co2Unit = reading.unit;
+        device.co2Known = reading.known;
+    } else if (reading.cluster == 1066 && device.hasPm25) {
+        if (reading.known) device.pm25MicrogramsM3 = reading.numberValue;
+        device.pm25Unit = reading.unit;
+        device.pm25Known = reading.known;
+    } else {
+        if (error) *error = "Matter reading is not advertised by endpoint";
+        return false;
+    }
+    device.lastSeen = time(0);
+    device.online = true;
+    markViewDirty();
     return true;
 }
 
@@ -2561,11 +2635,11 @@ std::string GatewayView::statusJson() const {
              << ",\"air_quality_known\":" << (device.airQualityKnown ? "true" : "false")
              << ",\"air_quality\":\"" << jsonEscape(device.airQuality) << '\"'
              << ",\"has_co2\":" << (device.hasCo2 ? "true" : "false")
-             << ",\"co2_known\":" << (device.co2Known ? "true" : "false")
-             << ",\"co2_ppm\":" << device.co2Ppm
+             << ",\"co2_known\":" << ((device.source != "matter" || device.co2Unit == "ppm") && device.co2Known ? "true" : "false")
+             << ",\"co2_ppm\":" << (device.source == "matter" && device.co2Unit != "ppm" ? 0 : device.co2Ppm)
              << ",\"has_pm25\":" << (device.hasPm25 ? "true" : "false")
-             << ",\"pm25_known\":" << (device.pm25Known ? "true" : "false")
-             << ",\"pm25_micrograms_m3\":" << device.pm25MicrogramsM3
+             << ",\"pm25_known\":" << ((device.source != "matter" || device.pm25Unit == "ug/m3") && device.pm25Known ? "true" : "false")
+             << ",\"pm25_micrograms_m3\":" << (device.source == "matter" && device.pm25Unit != "ug/m3" ? 0 : device.pm25MicrogramsM3)
              << ",\"has_occupancy\":" << (device.hasOccupancy ? "true" : "false")
              << ",\"occupied\":" << (device.occupied ? "true" : "false")
              << ",\"has_battery\":" << (device.hasBattery ? "true" : "false")
@@ -2608,7 +2682,47 @@ std::string GatewayView::statusJson() const {
             json << ",\"online\":" << (device.online ? "true" : "false")
                  << ",\"matter_node\":\"" << jsonEscape(device.matterNode)
                  << "\",\"matter_endpoint\":" << device.matterEndpoint
-                 << ",\"light_known\":false,\"brightness_known\":false,\"matter_servers\":[";
+                 << ",\"light_known\":" << (device.lightKnown || device.actorKnown ? "true" : "false")
+                 << ",\"brightness_known\":" << (device.brightnessKnown ? "true" : "false")
+                 << ",\"humidity_known\":" << (device.humidityKnown ? "true" : "false")
+                 << ",\"co2_unit\":\"" << jsonEscape(device.co2Unit)
+                 << "\",\"pm25_unit\":\"" << jsonEscape(device.pm25Unit)
+                 << "\",\"sensor_values\":{";
+            bool firstSensor = true;
+            if (device.hasTemperature) {
+                json << "\"temperature\":{\"value\":";
+                if (device.temperatureKnown) json << device.temperatureCelsius; else json << "null";
+                json << ",\"unit\":\"°C\",\"quality\":\"" << (device.temperatureKnown ? "measured" : "unknown") << "\"}";
+                firstSensor = false;
+            }
+            if (device.hasHumidity) {
+                if (!firstSensor) json << ',';
+                json << "\"humidity\":{\"value\":";
+                if (device.humidityKnown) json << device.humidityPercent; else json << "null";
+                json << ",\"unit\":\"%\",\"quality\":\"" << (device.humidityKnown ? "measured" : "unknown") << "\"}";
+                firstSensor = false;
+            }
+            if (device.hasAirQuality) {
+                if (!firstSensor) json << ',';
+                json << "\"air_quality\":{\"value\":";
+                if (device.airQualityKnown) json << '"' << jsonEscape(device.airQuality) << '"'; else json << "null";
+                json << ",\"unit\":\"\",\"quality\":\"" << (device.airQualityKnown ? "measured" : "unknown") << "\"}";
+                firstSensor = false;
+            }
+            if (device.hasCo2) {
+                if (!firstSensor) json << ',';
+                json << "\"co2\":{\"value\":";
+                if (device.co2Known) json << device.co2Ppm; else json << "null";
+                json << ",\"unit\":\"" << jsonEscape(device.co2Unit) << "\",\"quality\":\"" << (device.co2Known ? "measured" : "unknown") << "\"}";
+                firstSensor = false;
+            }
+            if (device.hasPm25) {
+                if (!firstSensor) json << ',';
+                json << "\"pm25\":{\"value\":";
+                if (device.pm25Known) json << device.pm25MicrogramsM3; else json << "null";
+                json << ",\"unit\":\"" << jsonEscape(device.pm25Unit) << "\",\"quality\":\"" << (device.pm25Known ? "measured" : "unknown") << "\"}";
+            }
+            json << "},\"matter_servers\":[";
             for (unsigned long cluster = 0; cluster < device.matterServers.size(); ++cluster) {
                 if (cluster) json << ',';
                 json << device.matterServers[cluster];

@@ -253,6 +253,27 @@ void runMatterClientUnitTests() {
         "{\"schema\":1,\"ok\":true,\"result\":{\"state\":\"complete\",\"job\":\"0000000000000001\",\"result\":{\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":1026,\"attribute\":0,\"value\":{\"type\":\"measurement\",\"value\":{\"value\":-5.25,\"unit\":\"fahrenheit\",\"quality\":\"measured\"}}}}}",
         "{\"schema\":1,\"ok\":true,\"result\":{\"state\":\"complete\",\"job\":\"0000000000000001\",\"result\":{\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":1029,\"attribute\":0,\"value\":{\"type\":\"measurement\",\"value\":{\"value\":null,\"unit\":\"percent\",\"quality\":\"measured\"}}}}}"
     };
+    MatterReading decoded;
+    assert(MatterChannel::deviceResult(operationReplies[3], "0000000000000001", &decoded));
+    assert(decoded.node == "0000000000000002" && decoded.endpoint == 1 && decoded.cluster == 6 &&
+           decoded.known && decoded.booleanValue);
+    assert(MatterChannel::deviceResult(operationReplies[5], "0000000000000001", &decoded));
+    assert(decoded.cluster == 8 && decoded.known && decoded.numberValue == 124);
+    assert(MatterChannel::deviceResult(operationReplies[6], "0000000000000001", &decoded));
+    assert(decoded.cluster == 8 && !decoded.known);
+    assert(!MatterChannel::deviceResult(operationReplies[3], "0000000000000002", &decoded));
+    assert(!MatterChannel::deviceResult(operationReplies[4], "0000000000000001", &decoded));
+    for (unsigned int i = 0; i < 5; ++i) {
+        assert(MatterChannel::deviceResult(sensorReplies[i], "0000000000000001", &decoded));
+        assert(decoded.node == "0000000000000002" && decoded.endpoint == 1);
+        if (i == 0) assert(decoded.cluster == 1026 && decoded.known && decoded.numberValue == -5.25 && decoded.unit == "celsius");
+        if (i == 1) assert(decoded.cluster == 1029 && !decoded.known && decoded.unit == "percent");
+        if (i == 2) assert(decoded.cluster == 1037 && decoded.known && decoded.numberValue == 758.5 && decoded.unit == "ppm");
+        if (i == 3) assert(decoded.cluster == 1066 && decoded.known && decoded.numberValue == 12.75 && decoded.unit == "ug/m3");
+        if (i == 4) assert(decoded.cluster == 91 && decoded.known && decoded.textValue == "moderate");
+    }
+    assert(!MatterChannel::deviceResult(sensorReplies[5], "0000000000000001", &decoded));
+    assert(!MatterChannel::deviceResult(sensorReplies[6], "0000000000000001", &decoded));
     for (unsigned int i = 0; i < sizeof(sensorReplies) / sizeof(sensorReplies[0]); ++i) {
         int pair[2]; assert(socketpair(AF_UNIX, SOCK_STREAM, 0, pair) == 0);
         assert(fcntl(pair[0], F_SETFL, O_NONBLOCK) == 0);

@@ -1905,6 +1905,19 @@ void testGatewayRunnerCommandDispatch() {
         assert(view != 0 && view->statusJson().find("\"matter_node\":\"0000000000000002\"") != std::string::npos);
         assert(view->statusJson().find("\"source\":\"matter\"") != std::string::npos);
         delete view;
+        MatterReading co2;
+        co2.node = matter.node;
+        co2.endpoint = matter.endpoint;
+        co2.cluster = 1037;
+        co2.known = true;
+        co2.numberValue = 758.5;
+        co2.unit = "ppb";
+        assert(runner.applyMatterReading(co2, &error));
+        assert(runner.reconcileMatterDevices(matterEndpoints, &error));
+        view = runner.acquireView();
+        assert(view != 0 && view->statusJson().find("\"co2\":{\"value\":758.5,\"unit\":\"ppb\",\"quality\":\"measured\"}") !=
+               std::string::npos);
+        delete view;
         assert(!runner.refreshDevice("runner-light", &error) && error == "Zigbee network is not ready");
         assert(!runner.setLightState("runner-light", "on", -1, &error) && error == "Zigbee network is not ready");
         assert(runner.setSceneConfiguration(scenes, &error));

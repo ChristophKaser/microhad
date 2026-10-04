@@ -35,6 +35,18 @@ struct MatterEndpoint {
     MatterEndpoint() : endpoint(0), online(false) {}
 };
 
+struct MatterReading {
+    std::string node;
+    unsigned short endpoint;
+    unsigned int cluster;
+    bool known;
+    bool booleanValue;
+    double numberValue;
+    std::string textValue;
+    std::string unit;
+    MatterReading() : endpoint(0), cluster(0), known(false), booleanValue(false), numberValue(0) {}
+};
+
 struct DeviceValueAlert {
     bool hasLow;
     bool hasHigh;
@@ -61,6 +73,7 @@ struct Device {
     bool temperatureKnown;
     double temperatureCelsius;
     bool hasHumidity;
+    bool humidityKnown;
     double humidityPercent;
     bool hasAirQuality;
     bool airQualityKnown;
@@ -68,17 +81,21 @@ struct Device {
     bool hasCo2;
     bool co2Known;
     double co2Ppm;
+    std::string co2Unit;
     bool hasPm25;
     bool pm25Known;
     double pm25MicrogramsM3;
+    std::string pm25Unit;
     bool hasOccupancy;
     bool occupied;
     bool hasBattery;
     int batteryPercent;
     bool hasLight;
     bool lightOn;
+    bool lightKnown;
     bool hasBrightness;
     int brightnessPercent;
+    bool brightnessKnown;
     bool hasRemote;
     bool hasActor;
     bool actorKnown;
@@ -226,6 +243,7 @@ public:
     bool removeShelly(const std::string& id, std::string* error);
     bool reconcileShelly(const std::vector<std::string>& ids, std::string* error);
     bool reconcileMatterDevices(const std::vector<MatterEndpoint>& endpoints, std::string* error);
+    bool applyMatterReading(const MatterReading& reading, std::string* error);
     bool reconcileFritzClients(const std::vector<std::string>& ids, std::string* error);
     bool applyShellyEvent(const std::string& id, int metric, int channelIndex, double value, std::string* error);
     bool applyFritzEvent(const std::string& id, bool connected, bool hasSignal, int signalPercent, std::string* error);
