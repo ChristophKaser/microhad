@@ -19,13 +19,13 @@ namespace {
 const unsigned int ioTimeoutSeconds = 1;
 
 typedef std::map<std::string, std::string> Fields;
-// Bounded canonical ASCII strings, booleans, unsigned integers and one
-// nested object; typed validators below further restrict every body.
-// Arbitrary strings, escapes, arrays or extra fields must never reach HTTP.
+// Bounded JSON syntax; operation-specific validators restrict every field.
+// Arrays are bounded and used only by typed device snapshot replies.
 class StatusJson {
 public:
     explicit StatusJson(const std::string& text) : text_(text), at_(0) {}
     bool parse(Fields* fields) { return object(fields, 0) && whitespace() == text_.size(); }
+    bool parseArray(std::vector<std::string>* values) { return array(values, 0) && whitespace() == text_.size(); }
 private:
     const std::string& text_;
     unsigned long at_;
@@ -49,8 +49,29 @@ private:
         }
         return take('"');
     }
+    bool array(std::vector<std::string>* values, unsigned int depth) {
+        if (depth > 4 || !take('[')) return false;
+        whitespace();
+        if (at_ < text_.size() && text_[at_] == ']') { ++at_; return true; }
+        while (values->size() < 64) {
+            unsigned long start = whitespace();
+            if (at_ >= text_.size()) return false;
+            if (text_[at_] == '{') {
+                Fields nested;
+                if (!object(&nested, depth + 1)) return false;
+            } else {
+                while (at_ < text_.size() && text_[at_] >= '0' && text_[at_] <= '9') ++at_;
+                if (at_ == start || at_ - start > 10 || (at_ - start > 1 && text_[start] == '0')) return false;
+            }
+            values->push_back(text_.substr(start, at_ - start));
+            whitespace();
+            if (at_ < text_.size() && text_[at_] == ']') { ++at_; return true; }
+            if (!take(',')) return false;
+        }
+        return false;
+    }
     bool object(Fields* fields, unsigned int depth) {
-        if (depth > 1 || !take('{')) return false;
+        if (depth > 4 || !take('{')) return false;
         whitespace();
         if (at_ < text_.size() && text_[at_] == '}') { ++at_; return true; }
         while (fields->size() < 12) {
@@ -63,6 +84,11 @@ private:
                 Fields nested;
                 if (!object(&nested, depth + 1)) return false;
                 value = text_.substr(start, at_ - start);
+            } else if (text_[at_] == '[') {
+                unsigned long start = at_;
+                std::vector<std::string> values;
+                if (!array(&values, depth + 1)) return false;
+                value = text_.substr(start, at_ - start);
             } else if (text_[at_] == '"') {
                 if (!string(&value)) return false;
                 value = '"' + value + '"';
@@ -71,7 +97,7 @@ private:
                 while (at_ < text_.size() && text_[at_] != ',' && text_[at_] != '}' &&
                        text_[at_] != ' ' && text_[at_] != '\t' && text_[at_] != '\r' && text_[at_] != '\n') ++at_;
                 value = text_.substr(start, at_ - start);
-                if (value != "true" && value != "false") {
+                if (value != "true" && value != "false" && value != "null") {
                     if (value.empty() || value.size() > 10 || (value.size() > 1 && value[0] == '0')) return false;
                     for (unsigned long i = 0; i < value.size(); ++i)
                         if (value[i] < '0' || value[i] > '9') return false;
@@ -149,15 +175,56 @@ bool sessionValid(Fields fields) {
         fields["session"] != "\"0000000000000000\"" && member(fields["state"], states, 10) &&
         number(fields["deadline_remaining_seconds"], 0, 900);
 }
+bool devicePageValid(Fields fields) {
+    std::vector<std::string> devices;
+    if (fields.size() != 3 || !hex(fields["revision"], 16, 16) ||
+        fields["revision"] == "\"0000000000000000\"" ||
+        (fields["next_cursor"] != "null" && !number(fields["next_cursor"], 1, 2047)) ||
+        !StatusJson(fields["devices"]).parseArray(&devices) || devices.size() > 1) return false;
+    if (devices.empty()) return fields["next_cursor"] == "null";
+    Fields device;
+    if (!StatusJson(devices[0]).parse(&device) || device.size() != 6 ||
+        !hex(device["node"], 16, 16) || device["node"] <= "\"0000000000000001\"" ||
+        !booleanField(device, "online")) return false;
+    static const char* const states[] = {"\"complete\"", "\"recovery_required\"", "\"commissioning\""};
+    if (!member(device["state"], states, 3) ||
+        (device["online"] == "true" && device["state"] != "\"complete\"")) return false;
+    std::vector<std::string> clusters;
+    if (!StatusJson(device["servers"]).parseArray(&clusters)) return false;
+    if (device["endpoint"] == "null") return device["id"] == "null" &&
+        device["online"] == "false" && clusters.empty();
+    if (!number(device["endpoint"], 0, 65534)) return false;
+    const std::string id = device["id"];
+    if (id.size() != 47 || id.substr(0, 8) != "\"matter:" || id[24] != ':' || id[41] != ':' ||
+        id[46] != '\"' || !hex('\"' + id.substr(8, 16) + '\"', 16, 16) ||
+        id.substr(8, 16) == "0000000000000000" || id.substr(25, 16) != device["node"].substr(1, 16) ||
+        !hex('\"' + id.substr(42, 4) + '\"', 4, 4)) return false;
+    unsigned int endpoint = 0;
+    for (unsigned long i = 42; i < 46; ++i) endpoint = endpoint * 16 +
+        (id[i] <= '9' ? id[i] - '0' : id[i] - 'a' + 10);
+    std::ostringstream canonical; canonical << endpoint;
+    if (canonical.str() != device["endpoint"]) return false;
+    uint64_t previous = 0; bool descriptor = false;
+    for (unsigned long i = 0; i < clusters.size(); ++i) {
+        if (!number(clusters[i], 0, 0xffffffffU)) return false;
+        uint64_t value = 0;
+        for (unsigned long j = 0; j < clusters[i].size(); ++j) value = value * 10 + clusters[i][j] - '0';
+        if (i != 0 && value <= previous) return false;
+        previous = value; if (value == 29) descriptor = true;
+    }
+    return descriptor;
+}
 bool responseValid(unsigned char opcode, const std::string& text) {
     Fields fields;
     if (!StatusJson(text).parse(&fields)) return false;
     if (opcode == 1 || opcode == 2) return snapshotValid(fields, opcode == 2);
-    if (opcode < 3 || opcode > 9 || fields.size() != 3 || fields["schema"] != "1" || !booleanField(fields, "ok")) return false;
-    if (fields["ok"] == "false") return fields.count("error") && errorValid(fields["error"]);
+    if (opcode < 3 || opcode > 10 || fields.size() != 3 || fields["schema"] != "1" || !booleanField(fields, "ok")) return false;
+    if (fields["ok"] == "false") return fields.count("error") && (errorValid(fields["error"]) ||
+        (opcode == 10 && fields["error"] == "\"stale_revision\""));
     Fields result;
     if (!fields.count("result") || !StatusJson(fields["result"]).parse(&result)) return false;
     if (opcode == 9) return snapshotValid(result, true);
+    if (opcode == 10) return devicePageValid(result);
     if (opcode <= 5) return sessionValid(result);
     const char* name = opcode == 6 ? "generation" : opcode == 7 ? "sequence" : "write";
     return result.size() == 1 && number(result[name], 1, 0xffffffffU);
@@ -165,6 +232,13 @@ bool responseValid(unsigned char opcode, const std::string& text) {
 bool requestValid(unsigned char opcode, const std::string& text) {
     Fields fields;
     if (text.size() > MatterWire::MaxPayload || !StatusJson(text).parse(&fields) || fields["schema"] != "1") return false;
+    if (opcode == 10) {
+        if (fields["action"] != "\"snapshot\"" ||
+            (fields.count("cursor") && !number(fields["cursor"], 0, 2047)) ||
+            (fields.count("revision") && (!hex(fields["revision"], 16, 16) || fields["revision"] == "\"0000000000000000\"")) ||
+            (fields.count("cursor") && fields["cursor"] != "0" && !fields.count("revision"))) return false;
+        return fields.size() == 2 + fields.count("cursor") + fields.count("revision");
+    }
     if (opcode == 9) {
         if (fields["action"] == "\"create\"") return fields.size() == 2;
         return fields["action"] == "\"import\"" && fields.size() == 3 && hex(fields["dataset"], 2, 508);
@@ -396,7 +470,7 @@ bool MatterChannel::poll(std::string* error) {
 bool MatterChannel::call(unsigned char opcode, const std::string& body, std::string* json, std::string* error) {
     json->clear(); error->clear();
     int64_t now = nowMilliseconds();
-    if (now < 0 || nextId_ == 0 || opcode < 1 || opcode > 9 || body.size() > MatterWire::MaxPayload) {
+    if (now < 0 || nextId_ == 0 || opcode < 1 || opcode > 10 || body.size() > MatterWire::MaxPayload) {
         *error = "Matter service request invalid"; return false;
     }
     const int64_t deadline = now + 1000;

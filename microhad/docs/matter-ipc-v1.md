@@ -106,7 +106,12 @@ Missing/changed revisions return `stale_revision`; out-of-range cursors return
 initialized from OS randomness on service startup and advance only when visible
 catalog/descriptor/availability changes; exhaustion returns `capacity` without
 wrapping. No response contains credentials or waits for radio traffic.
-Native opcode-10 validation and HTTP routing remain pending.
+Native opcode-10 validation and queued HTTP routing are implemented. Public
+requests additionally restrict cursor values to 0–2047. Successful peer replies
+must contain exact fields, at most one endpoint, canonical matching IDs and up
+to 64 sorted unique clusters including Descriptor for a known endpoint. Malformed
+responses fail the native job and close the IPC connection. Snapshot jobs use
+the existing queue, deadlines and retention limits; device reads remain pending.
 `read` requires `node`,
 `endpoint` (u16), `cluster` (u32), `attribute` (u32). Only discovered/supported
 attribute paths are permitted. A value is tagged `null`, `bool`, `integer`,

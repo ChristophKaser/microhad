@@ -93,6 +93,20 @@ class MatterPeer:
                                     result = dict(schema=1, ok=True, result=thread)
                                 else:
                                     result = dict(schema=1, ok=False, error='malformed')
+                        elif opcode == 10:
+                            decoded = json.loads(body)
+                            assert decoded['action'] == 'snapshot'
+                            cursor = decoded.get('cursor', 0)
+                            revision = '0000000000000007'
+                            if decoded.get('revision', revision) != revision:
+                                result = dict(schema=1, ok=False, error='stale_revision')
+                            else:
+                                endpoint = cursor
+                                result = dict(schema=1, ok=True, result=dict(revision=revision,
+                                    devices=[dict(node='0000000000000002', state='complete', online=True,
+                                        id=f'matter:0000000000000001:0000000000000002:{endpoint:04x}',
+                                        endpoint=endpoint, servers=[6, 29])],
+                                    next_cursor=1 if cursor == 0 else None))
                         elif opcode == 1:
                             assert not body
                             result = dict(enabled=True, available=True, controller_initialized=True,
@@ -447,6 +461,41 @@ def relay_tests(fixture):
 
 
 
+def device_snapshot_http(fixture, real):
+    def page(body):
+        accepted = fixture.request('/api/matter/devices/snapshot', json.dumps(body).encode())
+        assert accepted['ok'] and accepted['state'] == 'queued'
+        def finished():
+            job = fixture.request('/api/matter/jobs/'+str(accepted['job']))
+            assert job['state'] != 'failed', job
+            return job if job['state'] == 'complete' else None
+        wait_for(finished)
+        return finished()['response']
+    for bad in (dict(schema=1, action='snapshot', cursor=1),
+                dict(schema=1, action='snapshot', revision='0000000000000000'),
+                dict(schema=1, action='snapshot', cursor=2048),
+                dict(schema=1, action='read'),
+                dict(schema=1, action='snapshot', secret='discard')):
+        try:
+            page(bad)
+        except urllib.error.HTTPError as error:
+            assert error.code == 400 and json.load(error)['error'] == 'malformed'
+        else:
+            raise AssertionError('Invalid snapshot request accepted')
+    first = page(dict(schema=1, action='snapshot'))
+    assert first['ok'] and len(first['result']['revision']) == 16
+    if real:
+        assert first['result']['devices'] == [] and first['result']['next_cursor'] is None
+    else:
+        assert first['result']['devices'][0]['endpoint'] == 0
+        final = page(dict(schema=1, action='snapshot', cursor=first['result']['next_cursor'],
+                          revision=first['result']['revision']))
+        assert final['result']['devices'][0]['endpoint'] == 1
+        assert final['result']['next_cursor'] is None
+    changed = '0000000000000001' if first['result']['revision'] != '0000000000000001' else '0000000000000002'
+    assert page(dict(schema=1, action='snapshot', revision=changed))['error'] == 'stale_revision'
+
+
 def main():
     real = '--real-service' in sys.argv[1:]
     matter = RealService() if real else MatterPeer()
@@ -464,6 +513,7 @@ def main():
                                  for o in matter.observations))
         assert fixture.status()['observed_network_channel'] == expected
         wait_for(lambda: fixture.request('/api/matter/status')['state'] == 'running')
+        device_snapshot_http(fixture, real)
         begin = time.monotonic()
         for _ in range(20):
             assert fixture.request('/api/thread/status')['available']

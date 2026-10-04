@@ -161,6 +161,31 @@ void runMatterClientUnitTests() {
         assert(pthread_join(server, 0) == 0);
     }
 
+    const std::string pageBody = "{\"schema\":1,\"action\":\"snapshot\"}";
+    assert(MatterChannel::validRequest(10, pageBody));
+    assert(!MatterChannel::validRequest(10, "{\"schema\":1,\"action\":\"snapshot\",\"cursor\":1}"));
+    assert(!MatterChannel::validRequest(10, "{\"schema\":1,\"action\":\"read\"}"));
+    const std::string device = "{\"node\":\"0000000000000002\",\"state\":\"complete\",\"online\":true,"
+        "\"id\":\"matter:0000000000000001:0000000000000002:0001\",\"endpoint\":1,\"servers\":[6,29]}";
+    std::vector<std::string> pages;
+    pages.push_back("{\"schema\":1,\"ok\":true,\"result\":{\"revision\":\"0000000000000001\",\"devices\":[" + device + "],\"next_cursor\":null}}");
+    pages.push_back("{\"schema\":1,\"ok\":true,\"result\":{\"revision\":\"0000000000000001\",\"devices\":[],\"next_cursor\":null}}");
+    pages.push_back("{\"schema\":1,\"ok\":false,\"error\":\"stale_revision\"}");
+    std::string bad = pages[0]; bad.replace(bad.find("[6,29]"), 6, "[29,29]"); pages.push_back(bad);
+    bad = pages[0]; bad.replace(bad.find("\"endpoint\":1"), 12, "\"endpoint\":2"); pages.push_back(bad);
+    bad = pages[0]; bad.replace(bad.find("\"complete\""), 10, "\"recovery_required\""); pages.push_back(bad);
+    bad = pages[0]; bad.replace(bad.find("[6,29]"), 6, "[6]"); pages.push_back(bad);
+    bad = pages[0]; bad.replace(bad.find("[" + device + "]"), device.size() + 2, "[" + device + "," + device + "]"); pages.push_back(bad);
+    for (unsigned int i = 0; i < pages.size(); ++i) {
+        int pair[2]; assert(socketpair(AF_UNIX, SOCK_STREAM, 0, pair) == 0);
+        assert(fcntl(pair[0], F_SETFL, O_NONBLOCK) == 0);
+        MatterChannel channel("unused"); channel.fd_ = pair[0];
+        Peer peer; peer.fd = pair[1]; peer.opcode = 10; peer.body = pageBody; peer.reply = pages[i];
+        pthread_t server; assert(pthread_create(&server, 0, serveStatus, &peer) == 0);
+        assert(channel.call(10, pageBody, &json, &error) == (i < 3));
+        assert(pthread_join(server, 0) == 0);
+    }
+
     const std::string writeEvent = "{\"schema\":1,\"event\":\"ble_write\",\"data\":{\"session\":\"0000000000000001\",\"generation\":4294967295,\"write\":3,\"data\":\"000fff\"}}";
     for (unsigned int i = 0; i < 2; ++i) {
         int pair[2]; assert(socketpair(AF_UNIX, SOCK_STREAM, 0, pair) == 0);

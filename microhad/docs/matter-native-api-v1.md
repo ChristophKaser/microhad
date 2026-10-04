@@ -18,6 +18,7 @@ queueing. No request body is returned or logged.
 | `POST /api/matter/commissioning/status` | `session`, optional boolean `subscribe` | Submit a session status call; default subscription is false |
 | `POST /api/matter/commissioning/cancel` | `session` | Submit cancellation; retained cancelled sessions are idempotent |
 | `GET /api/matter/jobs/<id>` | None | Read an ephemeral native call snapshot without contacting the service |
+| `POST /api/matter/devices/snapshot` | `action:"snapshot"`, optional `cursor`/`revision` | Queue a validated endpoint snapshot page; poll its job for the response |
 
 Successful submission returns HTTP **202 Accepted**:
 
@@ -62,6 +63,32 @@ implemented and verified through native/Rust BTP callbacks. Garage foreground on
 with host evidence. Operational SRP/DNS discovery now has encrypted host evidence. Production device
 operations and reports remain open work. A successful start does not establish
 end-to-end accessory support; native device operations still need the production device pipeline.
+
+## Device snapshot pages
+
+`POST /api/matter/devices/snapshot` uses the same bounded queue and job polling
+as commissioning. Start with `{"schema":1,"action":"snapshot"}`. The completed
+job's `response.result` contains `revision`, `devices` (zero or one endpoint)
+and nullable `next_cursor`. Continue with the returned cursor and revision.
+Native requests restrict cursors to 0–2047 and require a nonzero canonical
+revision for nonzero cursors. A changed revision is delivered as a completed
+job whose response is `{"schema":1,"ok":false,"error":"stale_revision"}`;
+restart pagination explicitly. There is no automatic replay or full-catalog
+HTTP aggregation.
+
+Entries contain node/catalog state, online flag, nullable stable endpoint ID,
+nullable endpoint number and up to 64 advertised server clusters. An undiscovered
+node is visible with null endpoint/ID and no clusters. Cached descriptors may
+remain when offline. Availability is based on successful descriptor discovery,
+not a guarantee the next command will succeed. No snapshot request waits for
+new accessory reads or writes flash.
+
+Before returning a successful job response, native validation checks exact
+fields, bounded arrays, canonical nonzero IDs, endpoint ID/node/number agreement,
+cluster ordering/uniqueness, Descriptor support and online/catalog consistency.
+Malformed peer replies fail the job and invalidate the service connection.
+Default Matter-disabled builds return 404 for this route. Reads, commands,
+measurements and dashboard device views remain pending.
 
 ## Thread dataset mutations
 

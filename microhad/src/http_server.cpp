@@ -708,10 +708,11 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
     } else if (request.find("POST /api/matter/commissioning/start ") == 0 ||
                request.find("POST /api/matter/commissioning/status ") == 0 ||
                request.find("POST /api/matter/commissioning/cancel ") == 0 ||
+               request.find("POST /api/matter/devices/snapshot ") == 0 ||
                request.find("POST /api/thread/create ") == 0 || request.find("POST /api/thread/import ") == 0) {
 #if MICROHAD_MATTER_ENABLED
         const bool threadMutation = request.find("POST /api/thread/create ") == 0 || request.find("POST /api/thread/import ") == 0;
-        const unsigned char opcode = threadMutation ? 9 : request.find("POST /api/matter/commissioning/start ") == 0 ? 3 :
+        const unsigned char opcode = request.find("POST /api/matter/devices/snapshot ") == 0 ? 10 : threadMutation ? 9 : request.find("POST /api/matter/commissioning/start ") == 0 ? 3 :
             request.find("POST /api/matter/commissioning/status ") == 0 ? 4 : 5;
         const std::string::size_type bodyAt = request.find("\r\n\r\n");
         std::string body = bodyAt == std::string::npos ? "" : request.substr(bodyAt + 4);

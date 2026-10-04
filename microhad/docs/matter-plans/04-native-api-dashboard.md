@@ -3,9 +3,10 @@
 ## Current open work — 2026-10-04
 
 Queued commissioning/Thread APIs, the owned WebSocket relay and a feature-aware
-dashboard onboarding/progress panel exist. Device API/views remain open.
+dashboard onboarding/progress panel exist. Queued device snapshot pages now have
+native validation and HTTP exposure. Device controls/measurement APIs and views remain open.
 
-Next deliverable: Add device snapshots/read/control and measurements after plan
+Next deliverable: Add snapshot views and device read/control and measurements after plan
 07 supplies the production device pipeline. Extend the broader API/failure gates
 in checklist item 6; rendered browser interaction remains unverified.
 
@@ -370,3 +371,31 @@ were not tested. No C++ source/header changes or deployment occurred.
 Usage, cleanup limits, trusted-LAN policy and evidence:
 [dashboard guide](../matter-dashboard.md). This completes checklist item 4's
 implementation checkpoint; items 5 and 6 remain open.
+
+## Native snapshot API checkpoint — 2026-10-04
+
+`POST /api/matter/devices/snapshot` now queues opcode 10 through the existing
+single-owner worker; HTTP returns 202 and job polling supplies the validated
+page. The native parser bounds nesting/arrays and validators enforce exact
+fields, canonical node/revision/endpoint IDs, ID/path agreement, cluster bounds,
+sorted uniqueness, Descriptor presence and catalog/online consistency. Nonzero
+cursors require a revision. Stale revision errors are delivered explicitly;
+malformed responses fail the call rather than reaching HTTP unchecked. There
+is no synchronous radio wait, flash write or implicit pagination retry.
+
+Verification passed: `make host test`, `make mips`, then `make host test
+MATTER=1 ZIGGURAT=1` and `make mips MATTER=1 ZIGGURAT=1`. Both host suites include
+unit/integration checks; enabled tests also pass 13 Ziggurat peer tests. Native
+socket tests cover valid empty/endpoint/error pages and reject contradictory
+IDs/states, duplicate clusters, absent Descriptor and multiple entries. Existing
+MIPS toolchain LOAD-USE warnings remain.
+
+`python3 scripts/test_matter_native_worker.py` verifies two synthetic endpoint
+pages over actual HTTP/jobs, malformed request rejection and stale revisions.
+The `--real-service` variant verifies the real Rust service's empty catalog and
+stale revision through HTTP. Both retain commissioning/Thread/relay/radio-loss
+and unavailable-service regression coverage. These checks do not claim a
+nonempty physical catalog or device control. No plan 08 test was performed.
+
+Device API implementation remains partial: snapshot views, read/control,
+measurements, subscriptions, history and alerts still require plan 07 work.

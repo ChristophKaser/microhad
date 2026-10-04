@@ -34,10 +34,10 @@ specific evidence recorded in a file, not to end-to-end Matter support.
 | [01 Runtime](01-rust-service-runtime.md) | Host service and optional supervision implemented; recovery and target verification incomplete | Extend integrated failure/restart coverage and record final artifacts |
 | [02 IPC](02-commissioning-control-ipc.md) | Service and native commissioning/relay dispatch implemented; device dispatch incomplete | Extend failure/backpressure tests, then implement device bodies with plan 07 |
 | [03 Identity](03-persistent-fabric-identity.md) | Persistent authority and host CASE recovery implemented | Exercise documented backup/restore on synthetic state; target checks stay in plan 08 |
-| [04 Native API/dashboard](04-native-api-dashboard.md) | Status, queued routes, relay and onboarding/progress UI implemented; device views pending | Add device API/views with plan 07 and finish broad failure gates |
+| [04 Native API/dashboard](04-native-api-dashboard.md) | Status, queued snapshot routes, relay and onboarding/progress UI implemented; device views pending | Add device views/read/control with plan 07 and finish broad failure gates |
 | [05 Garage BLE relay](05-garage-ble-relay.md) | Foreground onboarding and parser/GATT/HTTP/WebSocket implemented; 60 tests and APK builds pass per flavor | Implementation checklist complete; physical acceptance stays in plan 08 |
 | [06 Thread lifecycle](06-thread-network-lifecycle.md) | Guarded dataset lifecycle and native observation worker verified on host | Extend channel-change/restart recovery and target verification |
-| [07 Devices/reports](07-device-model-and-reports.md) | Owned commissioner, catalog, SRP/DNS, descriptor scheduler and snapshot IPC host-tested | Add native snapshot API, reconcile incomplete nodes, then add controls/reports |
+| [07 Devices/reports](07-device-model-and-reports.md) | Owned commissioner, catalog, SRP/DNS, descriptor scheduler and snapshot IPC/HTTP host-tested | Add snapshot views, reconcile incomplete nodes, then add controls/reports |
 | [08 Real-device acceptance](08-real-device-acceptance.md) | Pending final acceptance gate | Review plans 01–07, then arrange backed-up device testing |
 
 Update the relevant file after each verified checkpoint with the changed

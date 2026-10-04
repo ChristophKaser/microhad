@@ -4,7 +4,8 @@
 
 Native commissioning/relay dispatch and bounded jobs exist; device dispatch and broader
 recovery coverage remain open. Service opcode-10 snapshots now have host evidence
-(`237d110`); native device dispatch remains the next integration step.
+(`237d110`); native snapshot validation/dispatch is now verified. Device reads,
+commands and broad failure/recovery gates remain open.
 
 Next deliverable: Extend fake-peer and actual-service tests for queue pressure, stalled
 peers and interrupted calls without mutation replay. Then implement device bodies when
