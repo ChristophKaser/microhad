@@ -83,10 +83,10 @@ Active Matter report delivery now decodes all scheduled sensor paths in Rust,
 including signed/nullable temperature, humidity, air-quality enums, and CO2/
 PM2.5 values normalized using each endpoint's reported measurement unit
 (`1855f24`). The direct TLV decoder test passes, and the existing production
-manager OnOff report fixture still passes. A live synthetic sensor report has
-not yet been demonstrated: changing the fixture's external sensor cells does
-not notify its Matter subscription scheduler. Remote node recovery and a
-manager-to-native live sensor event fixture remain open. Native endpoint
+manager OnOff report fixture still passes. A notifier-backed synthetic fixture
+now proves all five sensor report types through the production manager (`62d7fd4`).
+The native process-level IPC-to-device update for sensor events is still open.
+Remote node recovery also remains open. Native endpoint
 metadata is persisted in the low-frequency device store; confirmed values are
 restored across gateway process restart from `/tmp`, and may be lost on power
 loss.
@@ -225,10 +225,11 @@ explicit-rendezvous fixture alone does not establish operational discovery.
    active OnOff reports reach its queue (`713948c`). Rust now decodes subscribed
    sensor paths, reads CO2/PM2.5 unit metadata before subscribing, and
    normalizes those values (`1855f24`). A TLV-level test covers measured and
-   unknown temperature, humidity, air quality, CO2, and PM2.5. Still add a
-   synthetic accessory that notifies sensor attribute changes and prove those
-   reports traverse manager correlation, IPC, native state, and the shared
-   history/alert path. Confirm bounded retry/refresh with multiple endpoints.
+   unknown values. The notifier-backed `--sensor-reports` fixture verifies
+   temperature, humidity, air quality, CO2, and PM2.5 through multi-cluster
+   subscriptions and manager correlation (`62d7fd4`). Still prove those sensor
+   events through live service IPC, native state, and shared history/alerts.
+   Confirm bounded retry/refresh with multiple endpoints and restart recovery.
 7. Integrate snapshots, history, alerts and the shared dashboard through the
    native worker using
    distinct Matter IDs. Test restart, unsupported clusters, missing reports
@@ -709,4 +710,28 @@ air-quality enum mapping, and raw CO2/PM2.5 decoding. Verification passed:
 path). A sensor report was not claimed from that fixture: changing its external
 test sensor cells does not notify the accessory's Matter subscription
 scheduler. A notifier-backed live sensor report and native IPC integration test
-remain open.
+were open at this checkpoint.
+
+## Active Matter sensor report fixture — 2026-10-04
+
+Rust commit `62d7fd4` adds a reproducible probe-only patch to the pinned
+`rs-matter` worktree exposing the interaction model's attribute-change
+notifier. The synthetic accessory now uses it when its sensor values change,
+so the fixture exercises actual server-initiated `ReportData` rather than
+priming reads. `scripts/fetch-rs-matter.sh` applies the patch idempotently.
+The production `Manager` establishes subscriptions for all seven advertised
+paths, receives OnOff changes and five sensor clusters, correlates fabric/node/
+subscription/path, converts measurement units, and returns normalized values.
+The isolated `--sensor-reports` mode exits before the separate controller-stack
+restart scenario; multi-subscription behavior across restart is still open.
+
+Verified with
+`python3 scripts/test-openthread-matter-transport.py --commissioning --ble
+--service-owner --service-discovery --sensor-reports`, which passes the
+notifier-backed temperature, humidity, air-quality, CO2, PM2.5, and OnOff
+reports over the synthetic RCP. The normal production-owner fixture without
+`--sensor-reports` also passes, including fresh CASE after controller restart.
+The Rust library suite passes 66/66 and the release `thread-matter` service
+build passes against the patched pinned dependency. This remains host-only
+evidence; live Rust-service-to-native report-event integration, remote recovery,
+and plan 08 acceptance remain open.
