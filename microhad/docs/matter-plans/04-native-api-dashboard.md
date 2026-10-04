@@ -7,12 +7,16 @@ dashboard onboarding/progress panel exist. Queued device snapshot pages now have
 native validation, HTTP exposure and a dashboard view. The dashboard exposes
 confirmed OnOff reads and commands for online cluster-6 endpoints. Native HTTP
 also admits validated CurrentLevel reads and MoveToLevel jobs for cluster-8
-endpoints. The dashboard now renders Level controls and confirmed readback;
-sensor measurements and the broader failure matrix remain open.
+endpoints. The dashboard now renders Level controls and confirmed readback.
+The current Matter-only endpoint list and controls are an interim view: device
+identity, shared capabilities, values and common controls must be folded into
+the gateway's existing catalog used by Zigbee and external HTTP devices such as
+Shelly. Keep only joining/commissioning and Matter/Thread-specific settings in
+the Matter area. Sensor measurements and broader failure gates remain open.
 
 Rendered snapshot and OnOff component interaction is verified in Chromium.
-Next deliverable: render sensor measurements when plan 07 supplies them and
-extend broader API failure gates in checklist item 6.
+Next deliverable: integrate Matter endpoints into the shared device catalog,
+then render sensor measurements there and extend broader API failure gates.
 
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.
@@ -21,8 +25,11 @@ assessing completion. Keep physical acceptance in plan 08.
 
 ## Goal
 
-Expose commissioning, Thread network status, discovered Matter devices, and
-supported controls through the native HTTP service and dashboard.
+Expose commissioning and Thread status through Matter-specific setup UI, and
+expose Matter devices through the same gateway device model, catalog, dashboard
+and controller paths used by Zigbee and external HTTP devices such as Shelly.
+Matter-specific UI is limited to join/commissioning and settings that have no
+shared equivalent.
 
 ## Steps
 
@@ -37,9 +44,12 @@ supported controls through the native HTTP service and dashboard.
    indications.
 4. Return stable public errors and session states. Do not return private keys,
    datasets, setup codes, or other secrets in status JSON or logs.
-5. Add feature-aware dashboard setup and device views. Hide onboarding and
-   controls when `MATTER=0`; show unavailable/reconnecting state when the
-   feature is enabled but the service is absent.
+5. Add feature-aware Matter setup UI, then project commissioned endpoints into
+   the existing protocol-neutral device model. Reuse the common device catalog,
+   capability controls, telemetry presentation and controller dispatch for
+   overlapping behavior; retain Matter-specific join and Thread settings.
+   Hide Matter setup when `MATTER=0`; show unavailable/reconnecting state when
+   the feature is enabled but the service is absent.
 6. Keep the user's trusted-LAN `http://` and `ws://` policy. Do not require an
    installed gateway certificate or disable TLS validation globally. Document
    that session IDs correlate relay traffic and are not administrator
@@ -55,29 +65,36 @@ supported controls through the native HTTP service and dashboard.
   duration of commissioning.
 - All state changes reach the Matter service through IPC and Zigbee changes
   remain coordinator-queued.
-- Disabled builds do not expose Matter controls; enabled builds clearly report
-  service unavailability.
+- Device discovery, identity, common controls and telemetry appear in the same
+  catalog and dashboard flow for Zigbee, Matter and external HTTP devices such
+  as Shelly.
+- The Matter-specific area contains only joining/commissioning and Matter or
+  Thread settings; disabled builds hide it and enabled builds report service
+  unavailability clearly.
 - The dashboard works over the selected trusted-LAN HTTP/WebSocket transport.
 
 ## Status quo — 2026-10-04
 
 Native status, queued commissioning/Thread mutation routes and the owned relay
-are host-tested. The Controls tab now hides Matter controls on disabled builds,
+are host-tested. The Controls tab now hides Matter setup on disabled builds,
 gates mutations on validated readiness, creates/imports an absent Thread network,
 hands accessory onboarding to Garage and watches/cancels a known commissioning
 session. The dashboard client has nine actual localhost HTTP tests and passes
-the required production web build. The rendered device view includes snapshot
-pages and confirmed OnOff controls. Native HTTP now admits Level Control reads
-and commands; rendered Level controls remain pending.
+the required production web build. The interim Matter-specific device view has
+snapshot pages plus rendered and verified OnOff/Level controls, but does not
+meet the shared device-model requirement above.
 
 ## Remaining checkpoints
 
-1. Expose production device snapshots/read/control once plan 07 provides them,
-   then render advertised controls and measurements with unavailable/null states.
-2. Extend broad enabled/disabled, absent/stalled service, malformed reply, queue
+1. Replace the interim Matter-specific device list with adapters into the common
+   gateway device model and controller dispatch. Preserve stable `matter:` IDs,
+   protocol provenance, advertised capabilities and unknown values.
+2. Render Matter-backed common controls and measurements in the existing device
+   catalog/dashboard; keep join and Thread-specific settings in the Matter area.
+3. Extend broad enabled/disabled, absent/stalled service, malformed reply, queue
    pressure, cancellation, socket-loss and secret-redaction gates. Existing native
    and new frontend tests cover subsets; checklist item 6 remains open.
-3. Inspect rendered browser interactions in addition to the host client and
+4. Inspect rendered browser interactions in addition to the host client and
    TypeScript/build evidence. Physical pairing remains exclusively in plan 08.
 
 ## Native Level API checkpoint — 2026-10-04

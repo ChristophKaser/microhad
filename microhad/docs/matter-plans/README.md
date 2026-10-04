@@ -34,10 +34,10 @@ specific evidence recorded in a file, not to end-to-end Matter support.
 | [01 Runtime](01-rust-service-runtime.md) | Host service and optional supervision implemented; recovery and target verification incomplete | Extend integrated failure/restart coverage and record final artifacts |
 | [02 IPC](02-commissioning-control-ipc.md) | Service/native commissioning, relay and OnOff/Level job dispatch host-tested; device events and broad recovery incomplete | Extend failure/backpressure and event coverage |
 | [03 Identity](03-persistent-fabric-identity.md) | Persistent authority and host CASE recovery implemented | Exercise documented backup/restore on synthetic state; target checks stay in plan 08 |
-| [04 Native API/dashboard](04-native-api-dashboard.md) | Status, queued snapshot API/view, rendered OnOff/Level interaction, relay and onboarding/progress UI implemented | Add measurements and broad failure gates |
+| [04 Native API/dashboard](04-native-api-dashboard.md) | Status, queued snapshot API, rendered OnOff/Level interaction, relay and onboarding UI implemented; Matter device list is interim | Fold Matter into shared Zigbee/Matter/Shelly device catalog and controls; retain Matter UI for join/settings, then add measurements and failure gates |
 | [05 Garage BLE relay](05-garage-ble-relay.md) | Foreground onboarding and parser/GATT/HTTP/WebSocket implemented; 60 tests and APK builds pass per flavor | Implementation checklist complete; physical acceptance stays in plan 08 |
 | [06 Thread lifecycle](06-thread-network-lifecycle.md) | Guarded dataset lifecycle and native observation worker verified on host | Extend channel-change/restart recovery and target verification |
-| [07 Devices/reports](07-device-model-and-reports.md) | Owned commissioner, catalog, SRP/DNS, descriptor scheduler and rendered OnOff/Level controls host-tested | Add sensors/reports and reconcile incomplete nodes |
+| [07 Devices/reports](07-device-model-and-reports.md) | Owned commissioner, catalog, SRP/DNS, descriptor scheduler and rendered OnOff/Level controls host-tested; protocol-neutral Matter projection remains open | Unify device identity/capabilities/controller dispatch for Zigbee, Matter and Shelly; then add sensors/reports and reconcile incomplete nodes |
 | [08 Real-device acceptance](08-real-device-acceptance.md) | Pending final acceptance gate | Review plans 01–07, then arrange backed-up device testing |
 
 Update the relevant file after each verified checkpoint with the changed
