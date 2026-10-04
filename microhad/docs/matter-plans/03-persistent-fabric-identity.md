@@ -8,8 +8,9 @@ candidate refusal, source preservation, authority restoration and allocator
 high-water. The real service fixture also verifies an allocated node is retained
 as `recovery_required` after active commissioning is interrupted by RCP loss.
 Archive preflight, private extraction and matching-service identity validation
-pass together on synthetic state. Incomplete archive/failed-restore preservation
-and target filesystem verification remain open.
+pass together on synthetic state, including failed candidate validation without
+changing the source tree. Power loss during replacement and target filesystem
+verification remain open.
 
 Native commit `7247c94` adds structural preflight for the plaintext tar produced
 after successful backup decryption. Commit `7f5ac3d` adds staged extraction that
@@ -89,8 +90,8 @@ defined. The authority is now implemented and connected to service startup.
 | 3 | Complete | Secure OS entropy generates all authority materials; full record committed before fabric installation; abandoned-stage and interrupted-install host checks pass. |
 | 4 | Complete | Restore verifies the certificate chain, all three key pairs, fabric/node/vendor metadata, counter and exact upstream fabric materials. Missing authority with a fabric or an unloaded corrupt fabric is rejected. Real host service process restart passes without rewriting state. |
 | 5 | Complete | Counter committed before an ID is returned; reload continues above prior IDs, failed writes return no ID, exhaustion is persisted and never wraps. |
-| 6 | Partial | Offline candidate validation refuses active owners, does not create paths or write records, and checks authority/vendor, installed fabric, catalog, Thread dataset and settings framing (`1ec79fd`). Controller-service library tests pass 69/69; synthetic service integration passes valid/incomplete/unsafe cases. Archive preflight/extract/validate passes end to end, and corrupt credentials are rejected without candidate writes (`0e133b4`). Interrupted replacement, allocator rollback and failed-restore preservation remain. The encrypted host fixture reloads authority and establishes fresh CASE over synthetic BTP and UDP. Target filesystem validation remains in plan 08. |
-| 7 | Partial | Schema and operational backup/restore policy are documented; the recovery runbook invokes the matching binary's `--validate-state-dir` command. Interrupted replacement and failed-restore preservation evidence remain. |
+| 6 | Partial | Offline candidate validation refuses active owners, does not create paths or write records, and checks authority/vendor, installed fabric, catalog, Thread dataset and settings framing (`1ec79fd`). Controller-service library tests pass 69/69; synthetic service integration passes valid/incomplete/unsafe cases. Archive preflight/extract/validate passes end to end; corrupt credentials fail validation without changing the candidate or source (`0e133b4`). Catalog high-water refusal and interrupted commissioning reservation recovery are covered. Power loss between replacement stages remains untested. The encrypted host fixture reloads authority and establishes fresh CASE over synthetic BTP and UDP. Target filesystem validation remains in plan 08. |
+| 7 | Partial | Schema and operational backup/restore policy are documented; the recovery runbook invokes the matching binary's `--validate-state-dir` command. Power-loss/interrupted replacement and target filesystem durability evidence remain. |
 
 The service now reports `fabric_ready:true`/`running` after initialization,
 with Thread still `detached` until plan 06. Administrator vendor metadata
@@ -115,9 +116,9 @@ it has not yet been executed on the gateway in this checkpoint.
 3. Add recovery exercises for wrong permissions, incomplete backup, corrupt
    state and interrupted replacement; prove failed restore does not replace
    the last valid state or silently create a new fabric. Offline staged-state
-   validation (`1ec79fd`) and archive-to-validator success/corrupt-envelope
-   refusal (`0e133b4`) pass; interrupted replacement and failed-restore
-   preservation still need end-to-end tests.
+   validation (`1ec79fd`), archive-to-validator success/corrupt-envelope
+   refusal (`0e133b4`), incomplete archive rejection and source preservation
+   pass. A crash during replacement itself remains untested.
 4. When target testing is arranged, verify owner-only filesystem behavior and
    crash/restart persistence on factory uClibc. Measure writes during repeated
    status reads and compare restored identity/allocator without exposing keys.
@@ -151,8 +152,9 @@ are historical; the latest status/evidence section above takes precedence.
    covers incomplete roots, unsafe/duplicate members, size limits, private modes
    and destination/source preservation (`7247c94`, `7f5ac3d`); staged authority/catalog recovery with
    allocator high-water, corrupt candidate refusal, abandoned-stage recovery and
-   separate wrong-mode/corrupt-store tests pass. Service-level validation and
-   failed-restore preservation still need end-to-end coverage.
+   separate wrong-mode/corrupt-store tests pass. Service-level validation
+   rejects corrupt staged credentials without changing the source tree; a crash
+   during atomic replacement remains to be tested.
 4. [ ] After plan 07 persists the node catalog, include it in backup/recovery
    tests and prove restart reaches the same node through fresh CASE.
 5. [ ] Prepare target filesystem checks for atomic replacement, fsync,

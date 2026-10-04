@@ -242,12 +242,13 @@ Synthetic archive tests cover incomplete state trees, traversal, duplicate
 paths, links, file/directory conflicts, size bounds, redacted CLI output,
 owner-only staged modes and preservation of existing/source data. The service
 harness covers offline identity validation, wrong permissions and
-archive-to-validator success/corrupt-envelope refusal. Plan 03 still requires
-interrupted-replacement and allocator/counter rollback tests, plus a failed
-restore preserving the last good tree. Extend recovery tests to node catalog
-remote reconciliation once plan 07 implements it. Factory filesystem
-durability and physical CASE/reception/resource measurements remain in excluded
-plan 08.
+archive-to-validator success/corrupt-envelope refusal without source changes.
+The service restart fixture also preserves the allocated node as
+`recovery_required` after an interrupted commissioning attempt. Plan 03 still
+requires a crash during atomic replacement and target filesystem durability
+checks. Extend recovery tests to node-catalog remote reconciliation once plan 07
+implements it. Factory filesystem durability and physical CASE/reception/
+resource measurements remain in excluded plan 08.
 
 [GnuPG command reference](https://www.gnupg.org/documentation/manuals/gnupg/Operational-GPG-Commands.html)
 describes public-key encryption and explicit-output decryption. The runbook's
