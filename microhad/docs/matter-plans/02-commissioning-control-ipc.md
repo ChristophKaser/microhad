@@ -11,6 +11,13 @@ sensor UI/model projection, device events, broader recovery and complete
 cross-language vectors remain open.
 Snapshot API remains verified (`237d110`).
 
+Native commit `750c4c9` adds a stalled-peer timeout regression: a fake IPC peer
+accepts the request and withholds its response past the supplied deadline; the
+client returns `Matter service response timed out` within the bounded test
+window. `make ZIGGURAT=1 MATTER=1 host test` and
+`make ZIGGURAT=1 MATTER=1 mips` pass. Fragmentation/coalescing, cross-language
+event vectors, broader recovery, and the remaining failure matrix stay open.
+
 Next deliverable: extend failure/restart and cross-language event coverage as
 plan 07 adds shared-model sensor and report delivery.
 

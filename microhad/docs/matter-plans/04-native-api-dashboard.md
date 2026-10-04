@@ -13,8 +13,11 @@ used by Zigbee and external HTTP devices such as Shelly. Shelly already uses
 those shared cards; its setup remains in the external-device dialog and its
 commands use its HTTP controller. The dashboard adapter for Matter preserves
 the common device shape while sending commands through the Matter controller.
-The native persistent device model, alert restoration, and broader failure
-gates remain open. A bounded unit-aware history journal now stores confirmed
+The native persistent device model and broader failure gates remain open. A
+new stalled-peer regression test proves the native Matter IPC exchange returns
+at its deadline without waiting for a peer that accepted but never answered
+(`750c4c9`); absent/stalled service matrix coverage remains incomplete. A
+bounded unit-aware history journal now stores confirmed
 Matter measurements under stable source IDs and is exposed by the common
 history API/dashboard. Keep only joining/commissioning and Matter/Thread-
 specific settings in the Matter area.
@@ -187,8 +190,9 @@ open. Verification passed:
    runtime directory. Keep join and Thread-specific settings in the Matter
    area.
 3. Extend broad enabled/disabled, absent/stalled service, malformed reply, queue
-   pressure, cancellation, socket-loss and secret-redaction gates. Existing native
-   and new frontend tests cover subsets; checklist item 6 remains open.
+   pressure, cancellation, socket-loss and secret-redaction gates. Native IPC
+   deadline behavior now has a stalled-peer test (`750c4c9`); existing native
+   and frontend tests cover other subsets, so checklist item 6 remains open.
 4. Inspect rendered browser interactions in addition to the host client and
    TypeScript/build evidence. Physical pairing remains exclusively in plan 08.
 
