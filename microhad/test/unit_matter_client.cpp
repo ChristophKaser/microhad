@@ -316,6 +316,22 @@ void runMatterClientUnitTests() {
         "{\"schema\":1,\"event\":\"matter_report\",\"data\":{\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":8,\"attribute\":0,\"value\":{\"type\":\"u8\",\"value\":124}}}";
     assert(MatterChannel::deviceReportEvent(levelReport, &decoded));
     assert(decoded.cluster == 8 && decoded.known && decoded.numberValue == 124);
+    const std::string sensorReports[] = {
+        "{\"schema\":1,\"event\":\"matter_report\",\"data\":{\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":1026,\"attribute\":0,\"value\":{\"type\":\"measurement\",\"value\":{\"value\":-5.25,\"unit\":\"celsius\",\"quality\":\"measured\"}}}}",
+        "{\"schema\":1,\"event\":\"matter_report\",\"data\":{\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":1029,\"attribute\":0,\"value\":{\"type\":\"measurement\",\"value\":{\"value\":null,\"unit\":\"percent\",\"quality\":\"unknown\"}}}}",
+        "{\"schema\":1,\"event\":\"matter_report\",\"data\":{\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":91,\"attribute\":0,\"value\":{\"type\":\"air_quality\",\"value\":{\"value\":\"moderate\",\"quality\":\"measured\"}}}}",
+        "{\"schema\":1,\"event\":\"matter_report\",\"data\":{\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":1037,\"attribute\":0,\"value\":{\"type\":\"measurement\",\"value\":{\"value\":758.5,\"unit\":\"ppm\",\"quality\":\"measured\"}}}}",
+        "{\"schema\":1,\"event\":\"matter_report\",\"data\":{\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":1066,\"attribute\":0,\"value\":{\"type\":\"measurement\",\"value\":{\"value\":12.75,\"unit\":\"ug/m3\",\"quality\":\"measured\"}}}}"
+    };
+    for (unsigned int i = 0; i < sizeof(sensorReports) / sizeof(sensorReports[0]); ++i) {
+        assert(MatterChannel::deviceReportEvent(sensorReports[i], &decoded));
+        assert(decoded.node == "0000000000000002" && decoded.endpoint == 1);
+        if (i == 0) assert(decoded.cluster == 1026 && decoded.known && decoded.numberValue == -5.25 && decoded.unit == "celsius");
+        if (i == 1) assert(decoded.cluster == 1029 && !decoded.known && decoded.unit == "percent");
+        if (i == 2) assert(decoded.cluster == 91 && decoded.known && decoded.textValue == "moderate");
+        if (i == 3) assert(decoded.cluster == 1037 && decoded.known && decoded.numberValue == 758.5 && decoded.unit == "ppm");
+        if (i == 4) assert(decoded.cluster == 1066 && decoded.known && decoded.numberValue == 12.75 && decoded.unit == "ug/m3");
+    }
     const std::string invalidReport =
         "{\"schema\":1,\"event\":\"matter_report\",\"data\":{\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":8,\"attribute\":0,\"value\":{\"type\":\"u8\",\"value\":255}}}";
     assert(!MatterChannel::deviceReportEvent(invalidReport, &decoded));

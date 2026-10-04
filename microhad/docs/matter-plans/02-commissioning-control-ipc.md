@@ -619,6 +619,18 @@ live service-to-native delivery, remote-node recovery, sleepy-device policy,
 broader backpressure/restart tests, and physical
 acceptance remain open. No device deployment or plan 08 action occurred.
 
+### Sensor report cross-language vectors — 2026-10-04
+
+Rust commit `23b8f19` asserts exact serialized opcode-12 event payloads for
+temperature, humidity unknown/null, air quality, CO2 and PM2.5. Matching native
+client vectors parse the same payloads and assert the shared typed values,
+units and quality. Verification passed with 70/70 Rust library tests using
+`source scripts/rust-env.sh && cargo +nightly-2026-10-02 test
+--manifest-path rs-matter-probe/Cargo.toml --features controller-probe --lib`
+and `make ZIGGURAT=1 MATTER=1 host test` (including all native unit,
+integration and Ziggurat peer tests). This closes the report wire-vector gap;
+it does not replace the still-open live Rust-service-to-native-process fixture.
+
 ## Production report-path revalidation — 2026-10-04
 
 The host-only `python3 scripts/test_matter_native_worker.py --real-service`

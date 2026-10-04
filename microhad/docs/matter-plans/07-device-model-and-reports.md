@@ -765,3 +765,10 @@ commissioned reporting accessory and its snapshot is empty. The tests remain
 separate, so live Rust-service-originated sensor events reaching registered
 native `Gateway::Device` state and shared history/alerts are still unverified.
 No plan 08 hardware test was run.
+
+Rust commit `23b8f19` and the native report parser tests now pin matching
+serialized IPC vectors for all five normalized sensor types, including unknown
+humidity and its unit/quality semantics. The 70-test Rust library suite and
+Matter-enabled native host suite pass. This strengthens cross-language value
+compatibility evidence; live process-to-process delivery into registered
+native state, history, and alerts remains open.
