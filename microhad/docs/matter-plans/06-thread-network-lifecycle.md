@@ -121,3 +121,40 @@ are historical; the latest status/evidence section above takes precedence.
 
 Validation: synthetic RCP traces, service/native status and unchanged-state
 checks establish lifecycle behavior; they do not establish RF reliability.
+
+## Queued Thread HTTP mutation checkpoint — 2026-10-04
+
+Public `POST /api/thread/create` and `/api/thread/import` now use the bounded
+Matter job queue. Strict bodies contain schema and, for import, 1–254 decoded
+hex bytes. HTTP input cannot supply an action/channel override or private online
+observation. Native parsing supports the full 508-character dataset bound while
+BLE bodies retain their smaller limits.
+
+The worker derives the confirmed coordinator channel at execution time; a
+queued request never retains an earlier channel. Missing/offline/stale observation
+returns a fixed `not_ready` result without sending the mutation. Rust remains the
+owner of dataset TLV validation, persisted network policy and radio apply. Status
+and job replies expose redacted snapshots only. Public API semantics, including
+busy create and idempotent identical import, are documented in
+[Native Matter HTTP API v1](../matter-native-api-v1.md).
+
+Focused tests cover native public/private body separation, channel override
+rejection, invalid hex, full dataset limits, duplicate schema and offline channel
+preparation. The actual-binary harness now creates through HTTP rather than a
+private test IPC call, tests malformed import and busy create, and exercises
+valid identical and wrong-channel imports against the actual Rust lifecycle.
+The valid dataset is read only from this harness's temporary synthetic private
+store and is never exported/logged. Offline create is rejected before forwarding.
+WebSocket/Android BLE, production discovery/devices and broader recovery work
+remain open; no plan 08 action is involved.
+
+Verification passed: default and Matter-enabled `make host test`/`make mips`,
+with sequential host suites and 13 enabled native peer checks. Both actual-native
+harness variants pass: `python3 scripts/test_matter_native_worker.py` and
+`python3 scripts/test_matter_native_worker.py --real-service` (companion commit
+`45782d3`). The real-service run verifies identical import without credential
+changes, refusal of a different valid PAN dataset with `busy`, wrong-channel
+import with `malformed`, all recorded channel writes matching the coordinator,
+dataset log redaction and offline local rejection. Both factory binaries are
+static stripped big-endian MIPS-I ELF files. No physical deployment or accessory
+acceptance was performed; WebSocket/Android and production discovery remain open.

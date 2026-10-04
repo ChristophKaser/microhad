@@ -143,7 +143,17 @@ void MatterWorker::executeJob() {
     std::string body; body.swap(value.body);
     pthread_mutex_unlock(&mutex_);
     std::string response, error;
-    bool valid = client_.call(opcode, body, &response, &error);
+    bool valid;
+    if (opcode == 9) {
+        unsigned char channel = 0; bool online = false;
+        if (gateway_) gateway_->coordinatorObservation(&channel, &online);
+        std::string request;
+        if (!online || !MatterChannel::threadChannel(body, channel, &request)) {
+            response = "{\"schema\":1,\"ok\":false,\"error\":\"not_ready\"}";
+            valid = true;
+        } else valid = client_.call(9, request, &response, &error);
+        wipe(&request);
+    } else valid = client_.call(opcode, body, &response, &error);
     wipe(&body);
     pthread_mutex_lock(&mutex_);
     Job& completed = jobs_[id]; completed.state = valid ? "complete" : "failed";

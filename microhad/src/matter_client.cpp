@@ -44,7 +44,7 @@ private:
         value->clear();
         while (at_ < text_.size() && text_[at_] != '"') {
             unsigned char c = text_[at_++];
-            if (c < 0x20 || c > 0x7e || c == '\\' || value->size() >= 488) return false;
+            if (c < 0x20 || c > 0x7e || c == '\\' || value->size() >= 508) return false;
             *value += static_cast<char>(c);
         }
         return take('"');
@@ -165,6 +165,10 @@ bool responseValid(unsigned char opcode, const std::string& text) {
 bool requestValid(unsigned char opcode, const std::string& text) {
     Fields fields;
     if (text.size() > MatterWire::MaxPayload || !StatusJson(text).parse(&fields) || fields["schema"] != "1") return false;
+    if (opcode == 9) {
+        if (fields["action"] == "\"create\"") return fields.size() == 2;
+        return fields["action"] == "\"import\"" && fields.size() == 3 && hex(fields["dataset"], 2, 508);
+    }
     if (opcode == 3) {
         static const char* const excluded[] = {"11111111", "22222222", "33333333", "44444444", "55555555",
             "66666666", "77777777", "88888888", "12345678", "87654321"};
@@ -421,4 +425,24 @@ bool MatterChannel::call(unsigned char opcode, const std::string& body, std::str
 
 bool MatterChannel::validRequest(unsigned char opcode, const std::string& body) {
     return requestValid(opcode, body);
+}
+
+bool MatterChannel::threadMutation(bool importing, const std::string& input, std::string* body) {
+    body->clear();
+    Fields fields;
+    if (input.size() > MatterWire::MaxPayload || !StatusJson(input).parse(&fields) || fields["schema"] != "1" ||
+        fields.size() != (importing ? 2U : 1U) || (importing && !hex(fields["dataset"], 2, 508))) return false;
+    *body = importing ? "{\"schema\":1,\"action\":\"import\",\"dataset\":" + fields["dataset"] + '}' :
+                        "{\"schema\":1,\"action\":\"create\"}";
+    return true;
+}
+bool MatterChannel::threadChannel(const std::string& input, unsigned char channel, std::string* body) {
+    body->clear();
+    if (channel < 11 || channel > 26 || !requestValid(9, input)) return false;
+    Fields fields; if (!StatusJson(input).parse(&fields)) return false;
+    std::ostringstream out;
+    out << "{\"schema\":1,\"action\":" << fields["action"] << ",\"zigbee_channel\":"
+        << static_cast<unsigned int>(channel);
+    if (fields["action"] == "\"import\"") out << ",\"dataset\":" << fields["dataset"];
+    out << '}'; *body = out.str(); return true;
 }

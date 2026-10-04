@@ -28,6 +28,8 @@ public:
     bool call(unsigned char opcode, const std::string& body, std::string* json, std::string* error);
     bool poll(std::string* error);
     static bool validRequest(unsigned char opcode, const std::string& body);
+    static bool threadMutation(bool importing, const std::string& input, std::string* body);
+    static bool threadChannel(const std::string& input, unsigned char channel, std::string* body);
     bool popEvent(std::string* json);
     void disconnect();
 private:

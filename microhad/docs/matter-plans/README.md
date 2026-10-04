@@ -2,7 +2,7 @@
 
 These files break the remaining integration work into reviewable stages. The
 native observation/status worker, Rust owned commissioner and guarded Thread
-lifecycle have host evidence; Thread mutation/WebSocket APIs, Garage onboarding and
+lifecycle have host evidence; WebSocket APIs, Garage onboarding and
 the production discovery/device pipeline remain open.
 
 Recommended order:
@@ -33,7 +33,7 @@ specific evidence recorded in a file, not to end-to-end Matter support.
 | [01 Runtime](01-rust-service-runtime.md) | Host service and optional supervision implemented; recovery and target verification incomplete | Extend integrated failure/restart coverage and record final artifacts |
 | [02 IPC](02-commissioning-control-ipc.md) | Service and persistent native commissioning dispatch implemented; public relay/device dispatch incomplete | Persistent worker/job queue implemented; finish public dispatch, recovery and device bodies |
 | [03 Identity](03-persistent-fabric-identity.md) | Persistent authority and host CASE recovery implemented | Finish backup/recovery procedure and target filesystem checks |
-| [04 Native API/dashboard](04-native-api-dashboard.md) | Status and queued commissioning/job routes implemented; Thread/relay APIs and UI pending | Add Thread mutation routes and the WebSocket relay |
+| [04 Native API/dashboard](04-native-api-dashboard.md) | Status and queued commissioning/Thread routes implemented; relay API and UI pending | Add the WebSocket relay and onboarding UI |
 | [05 Garage BLE relay](05-garage-ble-relay.md) | App integration pending | Freeze native relay contract, then implement fake-peer-tested GATT/WebSocket flow |
 | [06 Thread lifecycle](06-thread-network-lifecycle.md) | Guarded dataset lifecycle and native observation worker verified on host | Extend channel-change/restart recovery and target verification |
 | [07 Devices/reports](07-device-model-and-reports.md) | Encrypted fixture proves transport; production device pipeline pending | Implement operational DNS-SD, persist nodes, then add device/report integration |

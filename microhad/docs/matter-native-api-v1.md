@@ -54,7 +54,29 @@ HTTP/coordinator threads never wait for PASE, BLE, Thread or a service reply.
 
 The routes reach the real Rust session owner through the persistent worker.
 Waiting-BLE, busy/status/cancel/stale-session behavior is verified with the
-actual service and synthetic radio peers. Thread dataset create/import public
-routes, BLE WebSocket transport, Garage onboarding, production DNS-SD and device
+actual service and synthetic radio peers. BLE WebSocket transport, Garage onboarding, production DNS-SD and device
 operations remain separate open work. A successful start does not establish
 end-to-end accessory support; production CASE completion still needs discovery.
+
+## Thread dataset mutations
+
+`POST /api/thread/create` accepts exactly `{"schema":1}`.
+`POST /api/thread/import` accepts exactly `schema:1` and a lowercase hexadecimal
+`dataset` string encoding 1–254 bytes. Both return the same 202/job contract as
+commissioning. Unknown/duplicate fields, a supplied `zigbee_channel`, bad hex
+or an oversized dataset are rejected with 400 before queueing.
+
+The queued body contains no channel. At execution, the Matter worker obtains a
+fresh protected coordinator observation and adds its confirmed channel to the
+private service request. Offline, unknown or stale coordinator state completes
+the call with `response.ok:false,error:"not_ready"` without forwarding a dataset
+mutation. The Rust lifecycle independently checks observation freshness, dataset
+TLVs and channel compatibility before persistence/radio apply.
+
+A repeated create returns service `busy` rather than replacing an existing
+network. Import of an identical active dataset is idempotent; a different valid
+existing dataset is refused. Invalid TLVs or an incompatible dataset channel
+return service `malformed` in the completed job. Successful results contain only
+the redacted Thread snapshot, never dataset/key bytes. Dataset inputs remain
+transient and are removed from queued storage on execution/failure/shutdown.
+Cached `GET /api/thread/status` continues to expose lifecycle/readiness state.

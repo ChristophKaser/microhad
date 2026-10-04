@@ -12,6 +12,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+import zlib
 from test_ziggurat_native_peer import NativeTests, ROOT
 from test_ziggurat_service import wait_for
 
@@ -31,6 +32,8 @@ class MatterPeer:
         self.stop = threading.Event()
         self.observations = []
         self.session = None
+        self.configured = False
+        self.mutations = []
         self.error = None
         self.closed = False
         self.thread = threading.Thread(target=self.run, daemon=True)
@@ -65,14 +68,29 @@ class MatterPeer:
                         size, version, kind, opcode, reserved, ident = struct.unpack('<HBBBBI', header)
                         assert version == 1 and kind == 0 and reserved == 0 and ident != 0 and size <= 2048
                         body = self.exact(peer, size)
-                        thread = dict(enabled=True, available=True, configured=False, attached=False,
-                                      state='detached', linux_ipv6_or_tun=False)
+                        thread = dict(enabled=True, available=True, configured=self.configured, attached=False,
+                                      state='attaching' if self.configured else 'detached', linux_ipv6_or_tun=False)
                         if opcode == 9:
                             observation = json.loads(body)
-                            assert set(observation) == {'schema', 'action', 'zigbee_channel', 'zigbee_online'}
-                            assert observation['schema'] == 1 and observation['action'] == 'observe'
-                            self.observations.append(observation)
-                            result = dict(schema=1, ok=True, result=thread)
+                            action = observation['action']
+                            if action == 'observe':
+                                assert set(observation) == {'schema', 'action', 'zigbee_channel', 'zigbee_online'}
+                                assert observation['schema'] == 1
+                                self.observations.append(observation)
+                                result = dict(schema=1, ok=True, result=thread)
+                            else:
+                                assert action in ('create', 'import') and observation['schema'] == 1
+                                assert self.observations[-1]['zigbee_online']
+                                assert observation['zigbee_channel'] == self.observations[-1]['zigbee_channel']
+                                self.mutations.append((action, observation['zigbee_channel']))
+                                if action == 'create' and self.configured:
+                                    result = dict(schema=1, ok=False, error='busy')
+                                elif action == 'create':
+                                    self.configured = True
+                                    thread.update(configured=True, state='attaching')
+                                    result = dict(schema=1, ok=True, result=thread)
+                                else:
+                                    result = dict(schema=1, ok=False, error='malformed')
                         elif opcode == 1:
                             assert not body
                             result = dict(enabled=True, available=True, controller_initialized=True,
@@ -218,6 +236,44 @@ def commissioning_http(fixture):
     assert b'20202021' not in fixture.log.read()
 
 
+def thread_http(fixture, action, body):
+    request = urllib.request.Request(f'http://127.0.0.1:{fixture.port}/api/thread/{action}',
+                                     data=json.dumps(body).encode(), headers={'Content-Type': 'application/json'})
+    with urllib.request.urlopen(request, timeout=2) as response:
+        assert response.status == 202
+        accepted = json.load(response)
+    def done():
+        snapshot = fixture.request('/api/matter/jobs/'+str(accepted['job']))
+        assert snapshot['state'] != 'failed'
+        return snapshot if snapshot['state'] == 'complete' else None
+    wait_for(done)
+    result = done()['response']
+    assert 'dataset' not in result.get('result', {})
+    return result
+
+
+def synthetic_dataset(matter):
+    # Read only this harness's private synthetic state; never export a real gateway dataset.
+    assert Path(matter.tmp.name).name.startswith('ot-sim-native-real-service-')
+    blob = (Path(matter.tmp.name)/'state/credentials.bin').read_bytes()
+    assert blob[:8] == b'TMKV\x01\0\0\0'
+    size, crc = struct.unpack_from('<II', blob, 8)
+    assert size == len(blob)-16 and zlib.crc32(blob[16:]) == crc
+    count, = struct.unpack_from('<H', blob, 16)
+    offset = 18
+    for _ in range(count):
+        key, length = struct.unpack_from('<HH', blob, offset)
+        value = blob[offset+4:offset+4+length]
+        assert len(value) == length
+        offset += length+4
+        if key == 0x1001:
+            assert value[:8] == b'TMDT\x01\0\0\0'
+            length, = struct.unpack_from('<H', value, 9)
+            assert len(value) == 11+length
+            return value[11:]
+    raise AssertionError('Synthetic dataset record absent')
+
+
 def main():
     real = '--real-service' in sys.argv[1:]
     matter = RealService() if real else MatterPeer()
@@ -239,14 +295,62 @@ def main():
         for _ in range(20):
             assert fixture.request('/api/thread/status')['available']
         assert time.monotonic()-begin < 1
+        for action, invalid in (('create', dict(schema=1, zigbee_channel=20)),
+                                ('import', dict(schema=1, dataset='zz')),
+                                ('import', dict(schema=1, dataset='aa'*255)),
+                                ('import', dict(schema=1, dataset='00', zigbee_channel=20))):
+            try:
+                thread_http(fixture, action, invalid)
+            except urllib.error.HTTPError as error:
+                assert error.code == 400
+            else:
+                raise AssertionError('Malformed/overridden Thread input accepted')
+        assert thread_http(fixture, 'import', dict(schema=1, dataset='00'))['error'] == 'malformed'
+        created = thread_http(fixture, 'create', dict(schema=1))
+        assert created['ok'] and created['result']['configured']
+        wait_for(lambda: fixture.request('/api/thread/status')['configured'])
+        assert thread_http(fixture, 'create', dict(schema=1))['error'] == 'busy'
         if real:
             assert fixture.request('/api/thread/status')['zigbee_channel'] == expected
-            created = matter.runtime.status(matter.path, 9, 901, json.dumps(
-                dict(schema=1, action='create', zigbee_channel=expected)).encode())
-            assert created['ok'] and created['result']['configured']
-            wait_for(lambda: fixture.request('/api/thread/status')['configured'])
-            assert matter.radio.channel_writes and all(c == expected for c in matter.radio.channel_writes), (
-                expected, matter.radio.channel_writes)
+            dataset = synthetic_dataset(matter)
+            credentials = Path(matter.tmp.name)/'state/credentials.bin'
+            before = credentials.read_bytes()
+            imported = thread_http(fixture, 'import', dict(schema=1, dataset=dataset.hex()))
+            assert imported['ok'] and imported['result']['configured']
+            assert credentials.read_bytes() == before
+            changed = bytearray(dataset)
+            offset = 0
+            while offset < len(changed):
+                tag, length = changed[offset:offset+2]
+                if tag == 1:
+                    assert length == 2
+                    old = bytes(changed[offset+2:offset+4])
+                    changed[offset+2:offset+4] = b'\x00\x01' if old != b'\x00\x01' else b'\x00\x02'
+                    break
+                offset += length+2
+            else:
+                raise AssertionError('Synthetic dataset missing PAN TLV')
+            replacement = thread_http(fixture, 'import', dict(schema=1, dataset=changed.hex()))
+            assert replacement['error'] == 'busy' and credentials.read_bytes() == before
+            # Mutate only the channel TLV in a valid synthetic dataset.
+            mismatched = bytearray(dataset)
+            offset = 0
+            while offset < len(mismatched):
+                tag, length = mismatched[offset:offset+2]
+                if tag == 0:
+                    assert length == 3
+                    mismatched[offset+4] = 11 if expected != 11 else 26
+                    break
+                offset += length+2
+            else:
+                raise AssertionError('Synthetic dataset missing channel TLV')
+            rejected = thread_http(fixture, 'import', dict(schema=1, dataset=mismatched.hex()))
+            assert rejected['error'] == 'malformed' and credentials.read_bytes() == before
+            assert matter.radio.channel_writes and all(c == expected for c in matter.radio.channel_writes)
+            fixture.log.seek(0)
+            assert dataset.hex().encode() not in fixture.log.read()
+        else:
+            assert matter.mutations and all(c == expected for _, c in matter.mutations)
         commissioning_http(fixture)
         # Radio loss must publish offline, rather than renewing the old channel.
         fixture.peer.close()
@@ -256,6 +360,7 @@ def main():
             wait_for(lambda: any(not o['zigbee_online'] and o['zigbee_channel'] == 0
                                  for o in matter.observations))
         assert matter.error is None
+        assert thread_http(fixture, 'create', dict(schema=1)) == dict(schema=1, ok=False, error='not_ready')
         # Missing service clears the cache while Zigbee/native remains responsive.
         matter.close()
         def unavailable():
@@ -273,7 +378,7 @@ def main():
         else:
             raise AssertionError('Absent service accepted a new commissioning job')
         assert fixture.process.poll() is None
-        print('PASS persistent heartbeat, queued commissioning HTTP lifecycle, cached reads, radio loss and 503')
+        print('PASS persistent heartbeat, queued commissioning/Thread HTTP lifecycle, channel gating, cached reads, radio loss and 503')
     finally:
         if fixture.process is not None:
             fixture.tearDown()

@@ -209,6 +209,19 @@ void runMatterClientUnitTests() {
         else assert(channel.fd_ == -1 && !channel.popEvent(&json));
         close(pair[1]);
     }
+    std::string prepared, privateBody;
+    assert(MatterChannel::threadMutation(false, "{\"schema\":1}", &prepared));
+    assert(MatterChannel::validRequest(9, prepared));
+    assert(MatterChannel::threadChannel(prepared, 15, &privateBody));
+    assert(privateBody == "{\"schema\":1,\"action\":\"create\",\"zigbee_channel\":15}");
+    assert(!MatterChannel::validRequest(9, privateBody)); // Caller cannot queue a channel override.
+    assert(!MatterChannel::threadMutation(false, "{\"schema\":1,\"zigbee_channel\":20}", &prepared));
+    assert(!MatterChannel::threadMutation(false, "{\"schema\":1,\"schema\":1}", &prepared));
+    assert(!MatterChannel::threadMutation(true, "{\"schema\":1,\"dataset\":\"zz\"}", &prepared));
+    assert(MatterChannel::threadMutation(true, "{\"schema\":1,\"dataset\":\"" + std::string(508, 'a') + "\"}", &prepared));
+    assert(MatterChannel::threadChannel(prepared, 26, &privateBody));
+    assert(!MatterChannel::threadChannel(prepared, 0, &privateBody));
+    assert(!MatterChannel::threadMutation(true, "{\"schema\":1,\"dataset\":\"" + std::string(510, 'a') + "\"}", &prepared));
     assert(!client.status(false, &json, &error));
     assert(error == "Matter service socket unavailable");
     assert(!client.observe(10, true, &json, &error));

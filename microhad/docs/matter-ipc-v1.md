@@ -3,8 +3,9 @@
 This fixes the contract for the remaining implementation. The service dispatches
 status opcodes 1/2, commissioning/relay opcodes 3–8 and Thread lifecycle opcode 9.
 Thread, commissioning snapshot and opaque BLE-write events are implemented.
-Device opcodes 10/11 still return `unsupported`. Native persistent worker calls/events are implemented; public commissioning/relay
-APIs, Android BLE and production operational DNS-SD remain pending;
+Device opcodes 10/11 still return `unsupported`. Native persistent worker
+calls/events and queued commissioning/Thread HTTP routes are implemented;
+WebSocket relay, Android BLE and production operational DNS-SD remain pending;
 service dispatch alone does not complete end-to-end accessory support.
 
 ## Framing and compatibility
@@ -159,7 +160,7 @@ readiness fails an active attempt with `not_ready`; deadlines and terminal
 cleanup retain the rules above. Production CASE completion still needs the
 operational DNS-SD work from plan 07.
 
-## Native persistent consumer building block
+## Native persistent consumer building block (historical checkpoint)
 
 `MatterChannel` provides a single-owner persistent Unix stream, with private
 socket checks, nonblocking descriptors and one-second total call deadlines.
@@ -185,7 +186,7 @@ the running bridge still uses its existing observation/status client.
 ## Native worker scheduling and call snapshots
 
 One worker-owned persistent connection carries private coordinator heartbeats,
-status RPCs and queued commissioning/relay opcodes 3–8. Request validation rejects
+status RPCs, queued commissioning/relay opcodes 3–8 and Thread mutations. Request validation rejects
 malformed bodies before queueing. At most eight calls are pending; sixteen RAM
 job snapshots are retained and only terminal snapshots may be evicted. Job IDs
 are nonzero u32 and do not wrap. These ephemeral native IDs describe IPC delivery,
@@ -198,4 +199,13 @@ calls and await a single relay consumer in a queue of eight. Transport failure
 or event overflow disconnects, invalidates caches and fails pending calls without
 replay. The next heartbeat can reconnect, but session subscription/reattach must
 be explicit. Shutdown clears RAM queues; pending request bodies are erased when
-executed, failed or stopped. Public routes and relay ownership remain to be wired.
+executed, failed or stopped. Public commissioning/Thread/job routes are documented
+in [Native Matter HTTP API v1](matter-native-api-v1.md); WebSocket relay ownership
+remains to be wired.
+
+For native queued Thread mutations, the internal body contains schema/action and
+optional dataset only. It is not yet a wire request: the worker adds the fresh
+confirmed coordinator channel immediately before sending opcode 9. HTTP rejects
+supplied channels/private observations; offline coordinator state yields a fixed
+`not_ready` job reply without an IPC mutation. The Rust private request contract
+still requires the authoritative `zigbee_channel` and validates it independently.

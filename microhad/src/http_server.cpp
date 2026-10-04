@@ -696,14 +696,22 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
 #endif
     } else if (request.find("POST /api/matter/commissioning/start ") == 0 ||
                request.find("POST /api/matter/commissioning/status ") == 0 ||
-               request.find("POST /api/matter/commissioning/cancel ") == 0) {
+               request.find("POST /api/matter/commissioning/cancel ") == 0 ||
+               request.find("POST /api/thread/create ") == 0 || request.find("POST /api/thread/import ") == 0) {
 #if MICROHAD_MATTER_ENABLED
-        const unsigned char opcode = request.find("POST /api/matter/commissioning/start ") == 0 ? 3 :
+        const bool threadMutation = request.find("POST /api/thread/create ") == 0 || request.find("POST /api/thread/import ") == 0;
+        const unsigned char opcode = threadMutation ? 9 : request.find("POST /api/matter/commissioning/start ") == 0 ? 3 :
             request.find("POST /api/matter/commissioning/status ") == 0 ? 4 : 5;
         const std::string::size_type bodyAt = request.find("\r\n\r\n");
-        const std::string body = bodyAt == std::string::npos ? "" : request.substr(bodyAt + 4);
+        std::string body = bodyAt == std::string::npos ? "" : request.substr(bodyAt + 4);
         uint32_t id = 0; std::string error;
-        if (!MatterChannel::validRequest(opcode, body)) error = "malformed";
+        bool valid = true;
+        if (threadMutation) {
+            std::string prepared;
+            valid = MatterChannel::threadMutation(request.find("POST /api/thread/import ") == 0, body, &prepared);
+            body.swap(prepared);
+        }
+        if (!valid || !MatterChannel::validRequest(opcode, body)) error = "malformed";
         else if (!matterWorker_) error = "not_ready";
         else matterWorker_->submit(opcode, body, &id, &error);
         if (id != 0) {
