@@ -17,7 +17,7 @@ GatewayRunner::LoopDebugStats::LoopDebugStats() : iterations(0), commandSkips(0)
 
 GatewayRunner::GatewayRunner(Gateway* gateway) : gateway_(gateway), historyStore_(gateway->historyStore()), commandWakeRead_(-1), commandWakeWrite_(-1),
     commandHead_(0), commandTail_(0), started_(false), startupComplete_(false), startupSucceeded_(false), stopping_(false),
-    eventLoopDebug_(false), currentView_(0), runtimeDirectory_(gateway->runtimeDirectory()), historyPath_(gateway->historyPath()) {
+    eventLoopDebug_(false), currentView_(0), lastCoordinatorProgress_(0), runtimeDirectory_(gateway->runtimeDirectory()), historyPath_(gateway->historyPath()) {
     int wakePipe[2];
     pthread_mutex_init(&mutex_, 0);
     pthread_cond_init(&startupReady_, 0);
@@ -119,6 +119,11 @@ void GatewayRunner::run() {
         }
         gateway_->poll();
         publishView(false);
+        struct timespec progress;
+        pthread_mutex_lock(&mutex_);
+        lastCoordinatorProgress_ = clock_gettime(CLOCK_MONOTONIC, &progress) == 0 ?
+            static_cast<int64_t>(progress.tv_sec) * 1000 + progress.tv_nsec / 1000000 : 0;
+        pthread_mutex_unlock(&mutex_);
         waitForWork(&debugStats, eventLoopDebug_);
         if (eventLoopDebug_ && time(0) >= nextDebugReportAt) {
             std::ostringstream report;
@@ -296,6 +301,13 @@ void GatewayRunner::waitForWork(LoopDebugStats* stats, bool debugEnabled) {
         timeout.tv_usec = 0;
         timeoutPointer = &timeout;
     }
+#if MICROHAD_MATTER_ENABLED
+    // Refresh observation liveness even when an otherwise idle coordinator
+    // has no Zigbee deadline. The Matter worker never invokes Gateway itself.
+    if (timeoutPointer == 0 || timeout.tv_sec > 1) {
+        timeout.tv_sec = 1; timeout.tv_usec = 0; timeoutPointer = &timeout;
+    }
+#endif
     if (debugEnabled) {
         ++stats->selectCalls;
         stats->lastTimeoutSeconds = timeoutPointer == 0 ? -1 : static_cast<int>(timeout.tv_sec);
@@ -338,6 +350,24 @@ GatewayRunner::ViewLease* GatewayRunner::acquireView() {
     if (data != 0) ++data->references;
     pthread_mutex_unlock(&mutex_);
     return data == 0 ? 0 : new ViewLease(this, data);
+}
+
+void GatewayRunner::coordinatorObservation(unsigned char* channel, bool* online) {
+    struct timespec now;
+    int64_t tick = clock_gettime(CLOCK_MONOTONIC, &now) == 0 ?
+        static_cast<int64_t>(now.tv_sec) * 1000 + now.tv_nsec / 1000000 : 0;
+    *channel = 0; *online = false;
+    pthread_mutex_lock(&mutex_);
+    if (started_ && !stopping_ && startupSucceeded_ && currentView_ != 0 &&
+        lastCoordinatorProgress_ > 0 && tick >= lastCoordinatorProgress_ &&
+        tick - lastCoordinatorProgress_ <= 2500) {
+        const GatewayView& view = *currentView_->view;
+        if (view.online && view.networkFormed && view.observedNetworkChannel >= 11 &&
+            view.observedNetworkChannel <= 26) {
+            *channel = view.observedNetworkChannel; *online = true;
+        }
+    }
+    pthread_mutex_unlock(&mutex_);
 }
 
 void GatewayRunner::releaseView(ViewData* data) {

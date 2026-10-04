@@ -92,3 +92,9 @@ Latest Thread lifecycle checkpoint: 36 Rust checks, synthetic service restart
 and encrypted fixture regressions pass. Factory service size is 1,552,028 bytes.
 Startup now reports `awaiting_coordinator` before a fresh private channel
 observation, then `running`; prior measurements/states above are historical.
+
+Native worker checkpoint: an actual enabled native-to-Rust IPC/HTTP round trip
+now passes with a synthetic Ziggurat coordinator and Thread RCP. Native online
+channel observations authorize guarded startup and dataset creation, radio loss
+produces `awaiting_coordinator`, and service loss clears cached HTTP status to
+503. Target execution and broader restart/failure recovery remain pending.

@@ -42,13 +42,13 @@ Ziggurat as the only Zigbee UART and reset owner.
 
 The private no-reset transport and userspace UDP path are implemented. The
 service now implements persisted dataset create/import/restore, fresh-observation
-startup gating and expiry-driven detach. Native observation delivery remains
-pending, so the deployed native status-only bridge cannot yet authorize startup.
+startup gating and expiry-driven detach. Native observation delivery is implemented in the optional Matter worker;
+production activation and target runtime verification remain pending.
 
 | Step | Status | Evidence / remaining work |
 | --- | --- | --- |
 | 1–2 | Complete | Private no-reset Unix transport and optional supervision; no direct UART owner or Linux IPv6/TUN requirement. |
-| 3 | Partial | Typed private online/channel observations expire after five monotonic seconds; native observed-channel snapshot is implemented; periodic worker delivery remains pending. |
+| 3 | Complete | Typed private online/channel observations expire after five monotonic seconds; native protected observation/status worker implemented with coordinator liveness expiry; host round trips verified. |
 | 4 | Complete | Required/duplicate/truncated TLVs, channel/mask, prefix and PAN checks before mutation; malformed/mismatch synthetic and unit checks pass. |
 | 5 | Complete | OS-random create, bounded persisted import/restore, no implicit replacement; persist-before-apply failure disables Thread and requires explicit retry. |
 | 6 | Partial | Redacted lifecycle states, deferred boot, expiry detach and cached-channel guard implemented; radio-loss/restart reconciliation still needs integrated coverage. |
@@ -79,9 +79,9 @@ No physical radio test, deployment or plan 08 action occurred.
 2. Host check complete; extend recovery coverage against cached settings. Preserve security
    counters, reject corrupt settings and ensure no wrong-channel command is
    emitted before a fresh coordinator observation authorizes initialization.
-3. Implement native channel/online observations and bounded periodic delivery
-   through plan 04's worker. Test no observation, stale observation, offline
-   coordinator, changed channel and native restart.
+3. Implemented: native channel/online observations and periodic worker delivery.
+   Host tests cover readiness and radio loss; extend integrated coverage for
+   channel changes and coordinator stalls/restarts when adding job dispatch.
 4. Test create/import/restore, idempotent requests, attach/detach, apply failure,
    radio socket loss and restart. Confirm heartbeats/status do not rewrite
    persistent credentials and failed apply does not trigger uncontrolled retries.

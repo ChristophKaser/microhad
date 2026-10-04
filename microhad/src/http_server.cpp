@@ -7,6 +7,7 @@
 #include "external_http_device.h"
 #include "notification_worker.h"
 #include "matter_client.h"
+#include "matter_worker.h"
 #include "log_ring.h"
 #include "thread_name.h"
 
@@ -513,10 +514,10 @@ bool threadUsageOrder(const ThreadCpuReading& left, const ThreadCpuReading& righ
 
 HttpServer::HttpServer(int port, GatewayRunner* gateway, const std::string& webuiDirectory,
                        const std::string& certificatePath, const std::string& privateKeyPath,
-                       ExternalHttpDeviceWorker* shelly, NotificationWorker* notifications) :
+                       ExternalHttpDeviceWorker* shelly, NotificationWorker* notifications, MatterWorker* matterWorker) :
     port_(port), listenFd_(-1), gateway_(gateway), processId_(static_cast<unsigned long>(getpid())),
     threadNamePrefix_(certificatePath.empty() ? "http" : "https"), shelly_(shelly), notifications_(notifications),
-    matter_(new MatterClient("/tmp/microhad-matter.sock")), webPush_(new WebPushStore(gateway->runtimeDirectory())), webuiDirectory_(webuiDirectory),
+    matter_(new MatterClient("/tmp/microhad-matter.sock")), matterWorker_(matterWorker), webPush_(new WebPushStore(gateway->runtimeDirectory())), webuiDirectory_(webuiDirectory),
     certificatePath_(certificatePath), privateKeyPath_(privateKeyPath), tlsServer_(0), running_(false),
     previousCpuTotal_(0), previousCpuIdle_(0), hasPreviousCpu_(false), previousThreadSampleUptime_(0) {
     pthread_mutex_init(&queueMutex_, 0);
@@ -687,7 +688,8 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
 #if MICROHAD_MATTER_ENABLED
         std::string status, error;
         bool thread = request.find("GET /api/thread/status ") == 0;
-        if (matter_->status(thread, &status, &error)) writeResponse(clientFd, 200, "application/json", status);
+        if (matterWorker_ ? matterWorker_->status(thread, &status, &error) : matter_->status(thread, &status, &error))
+            writeResponse(clientFd, 200, "application/json", status);
         else writeResponse(clientFd, 503, "application/json", "{\"available\":false,\"error\":\"" + jsonEscape(error) + "\"}");
 #else
         writeResponse(clientFd, 200, "application/json", "{\"enabled\":false,\"available\":false}");

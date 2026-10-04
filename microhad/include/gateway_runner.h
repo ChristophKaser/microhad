@@ -2,6 +2,7 @@
 #define MICROHAD_ZIGBEE_GATEWAY_RUNNER_H
 
 #include <pthread.h>
+#include <stdint.h>
 #include <map>
 #include <string>
 #include <vector>
@@ -35,6 +36,7 @@ public:
     bool start(std::string* error);
     void stop();
     ViewLease* acquireView();
+    void coordinatorObservation(unsigned char* channel, bool* online);
     std::string runtimeDirectory() const;
     std::string historyPath() const;
     bool readHistoryJson(const std::string& address, unsigned long before,
@@ -158,6 +160,7 @@ private:
         ViewData(GatewayView* value) : view(value), references(0), retired(false) {}
     };
     ViewData* currentView_;
+    int64_t lastCoordinatorProgress_;
     std::string runtimeDirectory_;
     std::string historyPath_;
     static void* runThread(void* opaque);

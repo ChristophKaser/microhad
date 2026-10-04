@@ -1,5 +1,6 @@
 #include "matter_client.h"
 #include "matter_protocol.h"
+#include "matter_worker.h"
 
 #include <assert.h>
 #include <pthread.h>
@@ -57,6 +58,27 @@ void* serveStatus(void* opaque) {
     assert(MatterWire::encode(response, &bytes));
     for (unsigned int i = 0; i < bytes.size(); ++i) assert(write(client, &bytes[i], 1) == 1);
     close(client);
+    return 0;
+}
+
+struct WorkerPeer {
+    int listener;
+    std::string thread;
+};
+void* serveWorker(void* opaque) {
+    WorkerPeer* worker = static_cast<WorkerPeer*>(opaque);
+    for (unsigned int i = 0; i < 3; ++i) {
+        Peer peer;
+        peer.fd = accept(worker->listener, 0, 0); assert(peer.fd >= 0);
+        peer.opcode = i == 0 ? 9 : i;
+        if (i == 0) {
+            peer.body = "{\"schema\":1,\"action\":\"observe\",\"zigbee_channel\":0,\"zigbee_online\":false}";
+            peer.reply = "{\"schema\":1,\"ok\":true,\"result\":" + worker->thread + '}';
+        } else if (i == 1) {
+            peer.reply = "{\"enabled\":true,\"available\":true,\"controller_initialized\":true,\"fabric_ready\":true,\"state\":\"awaiting_coordinator\"}";
+        } else peer.reply = worker->thread;
+        serveStatus(&peer);
+    }
     return 0;
 }
 }
@@ -117,5 +139,29 @@ void runMatterClientUnitTests() {
     assert(clock_gettime(CLOCK_MONOTONIC, &end) == 0);
     assert((end.tv_sec-begin.tv_sec)*1000 + (end.tv_nsec-begin.tv_nsec)/1000000 < 1500);
     assert(json.empty());
-    close(queued); close(listener); assert(unlink(path.c_str()) == 0); assert(rmdir(directory) == 0);
+    close(queued);
+    int pending = accept(listener, 0, 0); assert(pending >= 0); close(pending);
+    WorkerPeer fake; fake.listener = listener; fake.thread = thread;
+    pthread_t peerThread; assert(pthread_create(&peerThread, 0, serveWorker, &fake) == 0);
+    MatterWorker worker(0, path);
+    assert(!worker.status(true, &json, &error));
+    assert(worker.start(&error));
+    assert(!worker.start(&error));
+    bool available = false;
+    for (unsigned int i = 0; i < 200; ++i) {
+        if (worker.status(true, &json, &error)) { available = true; break; }
+        usleep(5000);
+    }
+    assert(available && json == thread);
+    assert(pthread_join(peerThread, 0) == 0);
+    // A blocked/absent IPC peer must never block cached status readers.
+    assert(clock_gettime(CLOCK_MONOTONIC, &begin) == 0);
+    for (unsigned int i = 0; i < 100; ++i) assert(worker.status(false, &json, &error));
+    assert(clock_gettime(CLOCK_MONOTONIC, &end) == 0);
+    assert((end.tv_sec-begin.tv_sec)*1000 + (end.tv_nsec-begin.tv_nsec)/1000000 < 100);
+    worker.stop(); worker.stop();
+    assert(!worker.status(true, &json, &error));
+    close(listener); assert(unlink(path.c_str()) == 0); assert(rmdir(directory) == 0);
+    assert(worker.start(&error));
+    usleep(60000); assert(!worker.status(false, &json, &error)); worker.stop();
 }

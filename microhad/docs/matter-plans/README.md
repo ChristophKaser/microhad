@@ -32,9 +32,9 @@ specific evidence recorded in a file, not to end-to-end Matter support.
 | [01 Runtime](01-rust-service-runtime.md) | Host service and optional supervision implemented; recovery and target verification incomplete | Verify channel-gated startup and bounded failure/restart behavior |
 | [02 IPC](02-commissioning-control-ipc.md) | Framing, typed requests and session building blocks implemented | Wire commissioning, relay and control dispatch with typed replies/events |
 | [03 Identity](03-persistent-fabric-identity.md) | Persistent authority and host CASE recovery implemented | Finish backup/recovery procedure and target filesystem checks |
-| [04 Native API/dashboard](04-native-api-dashboard.md) | Status routes implemented; write APIs and UI pending | Add bounded native service worker and coordinator channel observation |
+| [04 Native API/dashboard](04-native-api-dashboard.md) | Status routes implemented; write APIs and UI pending | Add asynchronous commissioning/Thread mutation routes and job queues |
 | [05 Garage BLE relay](05-garage-ble-relay.md) | App integration pending | Agree relay contract, then implement fake-peer-tested GATT/WebSocket flow |
-| [06 Thread lifecycle](06-thread-network-lifecycle.md) | Guarded dataset lifecycle verified on host; native observations pending | Add native channel heartbeat wiring and integrated radio-loss coverage |
+| [06 Thread lifecycle](06-thread-network-lifecycle.md) | Guarded dataset lifecycle and native observation worker verified on host | Extend channel-change/restart recovery and target verification |
 | [07 Devices/reports](07-device-model-and-reports.md) | Encrypted fixture proves transport; production device pipeline pending | Persist commissioned nodes and resolve them through real DNS-SD |
 | [08 Real-device acceptance](08-real-device-acceptance.md) | Pending final acceptance gate | Review plans 01–07, then arrange backed-up device testing |
 

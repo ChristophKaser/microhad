@@ -60,8 +60,9 @@ for protected native coordinator observations, never a public HTTP override.
 Observations expire after five monotonic seconds and are not persisted. The
 service defers OpenThread initialization until a fresh online observation agrees
 with its stored dataset. Missing/expired observations stop Thread; mismatches
-return `not_ready` and expose `channel_mismatch`. The native observation worker
-is still pending, so startup currently waits for this message.
+return `not_ready` and expose `channel_mismatch`. The native Matter-enabled worker sends these messages about once per second;
+stale coordinator progress is sent as offline. Startup still waits until a
+fresh online observation agrees with the canonical dataset.
 
 Implemented Thread results contain `enabled`, `available`, `configured`,
 `attached`, `state`, optional `zigbee_channel`/`dataset_channel`, and

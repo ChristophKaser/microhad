@@ -13,12 +13,14 @@ class WebPushStore;
 class ExternalHttpDeviceWorker;
 class NotificationWorker;
 class MatterClient;
+class MatterWorker;
 
 class HttpServer {
 public:
     HttpServer(int port, GatewayRunner* gateway, const std::string& webuiDirectory,
                const std::string& certificatePath, const std::string& privateKeyPath,
-               ExternalHttpDeviceWorker* shelly = 0, NotificationWorker* notifications = 0);
+               ExternalHttpDeviceWorker* shelly = 0, NotificationWorker* notifications = 0,
+               MatterWorker* matterWorker = 0);
     ~HttpServer();
     bool start(std::string* error);
     void poll();
@@ -33,6 +35,7 @@ private:
     ExternalHttpDeviceWorker* shelly_;
     NotificationWorker* notifications_;
     MatterClient* matter_;
+    MatterWorker* matterWorker_;
     WebPushStore* webPush_;
     std::string webuiDirectory_;
     std::string certificatePath_;

@@ -53,9 +53,9 @@ worker scheduling, queues and remaining typed bodies are still pending.
 1. Implemented: protected snapshots now expose the confirmed Ziggurat channel
    and online/formed state through immutable lease accessors. Persisted network
    configuration never populates this observation; offline/unknown is zero.
-2. Add a single bounded Matter IPC worker with queues and cached snapshots.
-   Send fresh coordinator observations, stop authorizing Thread when stale,
-   and keep IPC waits outside the coordinator and HTTP workers.
+2. Observation/status worker implemented: fresh coordinator observations and
+   cached status keep IPC outside coordinator/HTTP threads. Mutation job queues
+   and asynchronous commissioning/control dispatch remain pending.
 3. Implement commissioning start/status/cancel and Thread create/import using
    validated bodies, fixed public errors and asynchronous job/session IDs.
 4. Add bounded WebSocket relay routing with generation and sequence checks,
@@ -88,3 +88,37 @@ Verification passed: `make host test`, `make mips`,
 checks. Suites must run sequentially because their legacy tests share `/tmp`
 log paths; the initial concurrent enabled run failed a redaction assertion,
 then the isolated full rerun passed. No gateway deployment occurred.
+
+Native worker checkpoint — 2026-10-04
+
+Matter-enabled startup creates one `matter-ipc` worker with a 64 KiB stack;
+Matter-disabled startup creates no Matter thread. Both HTTP listeners share its
+cached, validated status and never connect to the service for those reads.
+The worker sends private channel/online observations about once per second,
+then fetches Matter/Thread status. Failures clear the cache; snapshots expire
+after five monotonic seconds. Shutdown joins the worker before deleting the
+coordinator; each IPC operation has the existing one-second total deadline.
+
+Coordinator poll progress is recorded separately from dirty dashboard views.
+Progress older than 2.5 seconds, unknown channel, offline/unformed state or
+shutdown produces an offline channel-zero observation. Matter-enabled idle
+coordinator select sleeps are capped at one second to refresh liveness. A frozen
+coordinator therefore cannot keep renewing an old online snapshot. The worker
+does not read Gateway or radio state directly, write flash, or log payloads.
+
+Worker tests cover the offline observation body, strict snapshot exchange,
+cached reads, duplicate start, stop/restart and absent service. Synthetic native
+round-trip coverage uses the actual Matter-enabled binary and scripted Ziggurat
+and IPC peers for confirmed channel, radio loss, twenty quick HTTP reads and
+absent-service 503. Commissioning/relay mutation routes and queues remain open.
+
+Verification: default and Matter-enabled `make host test`/`make mips` pass,
+including the final default rerun after startup cleanup/test edits. Both
+`python3 scripts/test_matter_native_worker.py` and the same command with
+`--real-service` pass. The latter runs the real Rust service against a synthetic
+RCP, authorizes create through the native channel observation, confirms cached
+HTTP status/configuration, records only matching channel writes, then observes
+Thread return to `awaiting_coordinator` on Zigbee peer loss. It shuts down both
+temporary services and removes private synthetic state; no physical gateway
+or real accessory is used. The real-service check requires the already built
+companion host service and synthetic relay binaries.

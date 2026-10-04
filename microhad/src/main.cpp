@@ -5,6 +5,7 @@
 #include "gateway_config.h"
 #include "external_http_device.h"
 #include "thread_name.h"
+#include "matter_worker.h"
 
 #include <cerrno>
 #include <csignal>
@@ -73,11 +74,13 @@ int main(int argc, char** argv) {
     gateway->useZiggurat(config.zigguratSocket);
 #endif
     gatewayRunner = new GatewayRunner(gateway);
+    MatterWorker matterWorker(gatewayRunner);
     shellyIntegration = new ExternalHttpDeviceWorker(runtimeDirectory, gatewayRunner);
     gateway->setShellyTransport(shellyIntegration);
     if (!gatewayRunner->start(&error)) {
         fprintf(stderr, "gateway startup failed: %s\n", error.c_str());
         delete shellyIntegration;
+        matterWorker.stop();
         delete gatewayRunner;
         delete notificationWorker;
         return 1;
@@ -85,15 +88,24 @@ int main(int argc, char** argv) {
     if (!shellyIntegration->start(&error)) {
         fprintf(stderr, "Shelly integration startup failed: %s\n", error.c_str());
         delete shellyIntegration;
+        matterWorker.stop();
         delete gatewayRunner;
         delete notificationWorker;
         return 1;
     }
-    server = new HttpServer(httpPort, gatewayRunner, runtimeDirectory + "/webui", "", "", shellyIntegration, notificationWorker);
+#if MICROHAD_MATTER_ENABLED
+    if (!matterWorker.start(&error)) {
+        fprintf(stderr, "Matter worker startup failed: %s\n", error.c_str());
+        delete shellyIntegration; matterWorker.stop(); delete gatewayRunner; delete notificationWorker;
+        return 1;
+    }
+#endif
+    server = new HttpServer(httpPort, gatewayRunner, runtimeDirectory + "/webui", "", "", shellyIntegration, notificationWorker, &matterWorker);
     if (!server->start(&error)) {
         fprintf(stderr, "web startup failed: %s\n", error.c_str());
         delete server;
         delete shellyIntegration;
+        matterWorker.stop();
         delete gatewayRunner;
         delete notificationWorker;
         return 1;
@@ -106,16 +118,18 @@ int main(int argc, char** argv) {
             fprintf(stderr, "both tls_certificate and tls_private_key are required for HTTPS\n");
             delete server;
             delete shellyIntegration;
+            matterWorker.stop();
             delete gatewayRunner;
             delete notificationWorker;
             return 2;
         }
-        httpsServer = new HttpServer(httpsPort, gatewayRunner, runtimeDirectory + "/webui", certificatePath, privateKeyPath, shellyIntegration, notificationWorker);
+        httpsServer = new HttpServer(httpsPort, gatewayRunner, runtimeDirectory + "/webui", certificatePath, privateKeyPath, shellyIntegration, notificationWorker, &matterWorker);
         if (!httpsServer->start(&error)) {
             fprintf(stderr, "HTTPS startup failed: %s\n", error.c_str());
             delete httpsServer;
             delete server;
             delete shellyIntegration;
+            matterWorker.stop();
             delete gatewayRunner;
             delete notificationWorker;
             return 1;
@@ -133,6 +147,7 @@ int main(int argc, char** argv) {
     delete server;
     delete httpsServer;
     delete shellyIntegration;
+    matterWorker.stop();
     delete gatewayRunner;
     delete notificationWorker;
     return 0;
