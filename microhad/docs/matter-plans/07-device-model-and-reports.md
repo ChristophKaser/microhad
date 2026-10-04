@@ -20,17 +20,21 @@ through confirmed readback. Rust service jobs implement Level Control read and
 MoveToLevel with separate CurrentLevel readback (`6ec569a`). Native strict Level
 IPC validators, HTTP admission, worker polling and typed U8 job-response
 validation are implemented and host-tested; dashboard CurrentLevel reads and
-MoveToLevel controls are rendered and verified in an interim Matter-only view.
-That view does not satisfy the product architecture: Matter endpoints must use
-the existing protocol-neutral gateway device model, controller dispatch, and
-device catalog/dashboard shared with Zigbee and external HTTP devices such as
-Shelly. Keep only Matter/Thread joining and protocol-specific settings in the
-Matter area. Rust CASE sensor reads and native typed IPC validation are now
-implemented for temperature, humidity, CO2, PM2.5 and air quality; mapping these
-values into the shared gateway model and dashboard remains open. Reports remain
-open. Remote recovery of catalogued nodes and legacy migration remain open.
-Next deliverable: converge endpoint metadata into the common model, including
-the validated sensor values, then add subscriptions and native reports.
+MoveToLevel controls are rendered and verified in the shared device cards.
+Native UI commit `7822c32` removes the separate Matter device list and adds the
+Matter-to-common-device adapter. `make webui`,
+`node webui/test/matter-devices-browser.cjs`, and
+`python3 scripts/test_matter_webui.py` pass (20/20 API tests). The dashboard
+now projects Matter endpoints into the common `Device` shape and
+renders them with the same `DeviceGroups` cards used by Zigbee and HTTP devices
+such as Shelly. Common Matter commands use the Matter controller adapter;
+Shelly setup remains source-specific and its commands use its HTTP controller.
+This frontend adapter is not yet native `Gateway::Device` registration.
+Temperature, humidity, CO2, PM2.5 and air-quality values are rendered from the
+Matter snapshot cache, but are not yet in shared persistent values, history or
+alerts. Reports, remote recovery of catalogued nodes and legacy migration
+remain open. Next deliverable: converge source-neutral capability/telemetry
+fields and integrate Matter state into the native shared model and history.
 
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.
@@ -57,9 +61,10 @@ Matter/Thread-only settings in the Matter area.
    clusters, with explicit command/value validation and optimistic-state
    reconciliation after reports.
 4. Map Matter endpoint identity and advertised capabilities into the same
-   protocol-neutral native device model and controller dispatch used by Zigbee
-   and external HTTP devices such as Shelly. Keep stable `matter:` IDs and
-   source provenance.
+   protocol-neutral device contract and controller dispatch used by Zigbee and
+   external HTTP devices such as Shelly. Reuse shared cards and common controls;
+   keep stable `matter:` IDs and source provenance, with source-specific setup
+   and transport at the boundary.
 5. Map supported sensor clusters and units into shared device values/history.
    For ALPSTUGA, include temperature, humidity, CO2, PM2.5, and air-quality
    values only when advertised by the device. Preserve unknown values as null
@@ -68,7 +73,8 @@ Matter/Thread-only settings in the Matter area.
    for sleepy devices. Avoid tight polling and unnecessary flash writes.
 7. Route Matter observations into snapshots, bounded history, alert thresholds,
    and notification rules while keeping Matter IDs distinct from Zigbee IEEE
-   addresses.
+   addresses. Keep the common presentation/source capabilities aligned with
+   Zigbee and HTTP devices such as Shelly wherever they overlap.
 8. Test with synthetic endpoints for supported/unsupported clusters, signed
    and unknown values, missing reports, reconnect, duplicate reports, and
    restart recovery. Verify Matter uses the shared controller/dashboard path.
@@ -104,11 +110,18 @@ explicit-rendezvous fixture alone does not establish operational discovery.
    have encrypted host evidence (`05053ec`, `6ec569a`) and native rendered
    controls (`1ab6e91`, `7ea5a52`). Reconcile catalogued nodes after remote
    CASE failure and integrate future reports into confirmed state.
-4. Replace the interim Matter-only list with common device-model/controller
-   adapters, keeping Matter UI limited to joining and Matter/Thread settings.
-5. Implement advertised sensor decoding with signed values, correct units and
-   null/unknown handling; test ALPSTUGA-related clusters synthetically without
-   assuming every target advertises all measurements.
+4. A frontend adapter now projects Matter descriptors and cached values into
+   the shared dashboard `Device` shape and `DeviceGroups` cards. Generic light
+   controls dispatch through the Matter adapter; Zigbee and Shelly retain their
+   existing source controllers. Keep Matter UI limited to joining and
+   Matter/Thread settings. Native `Gateway::Device` integration and
+   source-neutral capability cleanup remain open.
+5. Implemented CASE reads and typed native validation cover advertised
+   temperature, humidity, CO2, PM2.5 and air-quality clusters; the frontend
+   renders those values from its snapshot cache. Move them into shared native
+   values/history and test signed values, correct units and null/unknown
+   handling; test ALPSTUGA-related clusters without assuming every target
+   advertises all measurements.
 6. Add bounded subscriptions, duplicate filtering and reconnect/refresh policy;
    retain only state changes that warrant persistence.
 7. Integrate snapshots, history, alerts and the shared dashboard through the

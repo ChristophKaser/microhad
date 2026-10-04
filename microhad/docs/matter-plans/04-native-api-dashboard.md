@@ -8,15 +8,19 @@ native validation, HTTP exposure and a dashboard view. The dashboard exposes
 confirmed OnOff reads and commands for online cluster-6 endpoints. Native HTTP
 also admits validated CurrentLevel reads and MoveToLevel jobs for cluster-8
 endpoints. The dashboard now renders Level controls and confirmed readback.
-The current Matter-only endpoint list and controls are an interim view: device
-identity, shared capabilities, values and common controls must be folded into
-the gateway's existing catalog used by Zigbee and external HTTP devices such as
-Shelly. Keep only joining/commissioning and Matter/Thread-specific settings in
-the Matter area. Sensor measurements and broader failure gates remain open.
+Matter endpoint projections now feed the same dashboard `DeviceGroups` cards
+used by Zigbee and external HTTP devices such as Shelly. Shelly already uses
+those shared cards; its setup remains in the external-device dialog and its
+commands use its HTTP controller. The dashboard adapter for Matter preserves
+the common device shape while sending commands through the Matter controller.
+The native persistent device model, history/alerts, and broader failure gates
+remain open. Keep only joining/commissioning and Matter/Thread-specific
+settings in the Matter area.
 
 Rendered snapshot and OnOff component interaction is verified in Chromium.
-Next deliverable: integrate Matter endpoints into the shared device catalog,
-then render sensor measurements there and extend broader API failure gates.
+Next deliverable: converge source-specific capability fields and controller
+dispatch behind the common device contract, then bring Matter measurements
+into shared persistence/history and extend broader API failure gates.
 
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.
@@ -47,7 +51,9 @@ shared equivalent.
 5. Add feature-aware Matter setup UI, then project commissioned endpoints into
    the existing protocol-neutral device model. Reuse the common device catalog,
    capability controls, telemetry presentation and controller dispatch for
-   overlapping behavior; retain Matter-specific join and Thread settings.
+   overlapping behavior across Zigbee, Matter and external HTTP sources such as
+   Shelly. Keep transport and source-specific setup at the source boundary;
+   retain Matter-specific join and Thread settings.
    Hide Matter setup when `MATTER=0`; show unavailable/reconnecting state when
    the feature is enabled but the service is absent.
 6. Keep the user's trusted-LAN `http://` and `ws://` policy. Do not require an
@@ -67,7 +73,8 @@ shared equivalent.
   remain coordinator-queued.
 - Device discovery, identity, common controls and telemetry appear in the same
   catalog and dashboard flow for Zigbee, Matter and external HTTP devices such
-  as Shelly.
+  as Shelly; protocol differences do not create duplicate device cards or
+  common-control flows.
 - The Matter-specific area contains only joining/commissioning and Matter or
   Thread settings; disabled builds hide it and enabled builds report service
   unavailability clearly.
@@ -80,17 +87,27 @@ are host-tested. The Controls tab now hides Matter setup on disabled builds,
 gates mutations on validated readiness, creates/imports an absent Thread network,
 hands accessory onboarding to Garage and watches/cancels a known commissioning
 session. The dashboard client has nine actual localhost HTTP tests and passes
-the required production web build. The interim Matter-specific device view has
-snapshot pages plus rendered and verified OnOff/Level controls, but does not
-meet the shared device-model requirement above.
+the required production web build. The dashboard projects Matter endpoints
+into the shared device cards and routes common controls through the Matter
+adapter. Shelly continues to use those cards with its HTTP controller. This is
+a frontend projection: native persistent model, history/alerts, reports and
+broad failure gates remain open.
+
+Native UI commit `7822c32` removes the separate Matter device list and adds the
+Matter-to-common-device adapter and controller dispatch. `make webui`,
+`node webui/test/matter-devices-browser.cjs`, and
+`python3 scripts/test_matter_webui.py` pass. The browser test confirms shared
+device cards plus the Matter join/settings area; the API suite passes 20/20.
 
 ## Remaining checkpoints
 
-1. Replace the interim Matter-specific device list with adapters into the common
-   gateway device model and controller dispatch. Preserve stable `matter:` IDs,
-   protocol provenance, advertised capabilities and unknown values.
-2. Render Matter-backed common controls and measurements in the existing device
-   catalog/dashboard; keep join and Thread-specific settings in the Matter area.
+1. Converge the common device contract so capability and telemetry fields are
+   source-neutral where behavior overlaps. Preserve stable `matter:` IDs,
+   protocol provenance, advertised capabilities and unknown values; keep
+   source-specific setup and transport behind their existing boundaries.
+2. Integrate Matter-backed measurements and confirmed state into the existing
+   catalog/history path; Shelly and Zigbee continue through their existing
+   source controllers. Keep join and Thread-specific settings in the Matter area.
 3. Extend broad enabled/disabled, absent/stalled service, malformed reply, queue
    pressure, cancellation, socket-loss and secret-redaction gates. Existing native
    and new frontend tests cover subsets; checklist item 6 remains open.

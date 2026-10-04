@@ -34,10 +34,10 @@ specific evidence recorded in a file, not to end-to-end Matter support.
 | [01 Runtime](01-rust-service-runtime.md) | Host service and optional supervision implemented; recovery and target verification incomplete | Extend integrated failure/restart coverage and record final artifacts |
 | [02 IPC](02-commissioning-control-ipc.md) | Service/native commissioning, relay and OnOff/Level job dispatch host-tested; device events and broad recovery incomplete | Extend failure/backpressure and event coverage |
 | [03 Identity](03-persistent-fabric-identity.md) | Persistent authority and host CASE recovery implemented | Exercise documented backup/restore on synthetic state; target checks stay in plan 08 |
-| [04 Native API/dashboard](04-native-api-dashboard.md) | Status, queued snapshot API, rendered OnOff/Level interaction, relay and onboarding UI implemented; Matter device list is interim | Fold Matter into shared Zigbee/Matter/Shelly device catalog and controls; retain Matter UI for join/settings, then add measurements and failure gates |
+| [04 Native API/dashboard](04-native-api-dashboard.md) | Status, queued snapshot API, relay/onboarding UI, and shared dashboard cards for Matter, Zigbee and Shelly | Converge shared capabilities/controller contract, integrate Matter measurements into persistent history/state, then extend failure gates |
 | [05 Garage BLE relay](05-garage-ble-relay.md) | Foreground onboarding and parser/GATT/HTTP/WebSocket implemented; 60 tests and APK builds pass per flavor | Implementation checklist complete; physical acceptance stays in plan 08 |
 | [06 Thread lifecycle](06-thread-network-lifecycle.md) | Guarded dataset lifecycle and native observation worker verified on host | Extend channel-change/restart recovery and target verification |
-| [07 Devices/reports](07-device-model-and-reports.md) | Owned commissioner, catalog, SRP/DNS, descriptor scheduler and rendered OnOff/Level controls host-tested; protocol-neutral Matter projection remains open | Unify device identity/capabilities/controller dispatch for Zigbee, Matter and Shelly; then add sensors/reports and reconcile incomplete nodes |
+| [07 Devices/reports](07-device-model-and-reports.md) | Owned commissioner, catalog, SRP/DNS, CASE control/sensor reads and shared frontend device projection for Zigbee, Matter and Shelly | Integrate Matter in the native persistent device model/history; add reports and reconcile incomplete nodes |
 | [08 Real-device acceptance](08-real-device-acceptance.md) | Pending final acceptance gate | Review plans 01–07, then arrange backed-up device testing |
 
 Update the relevant file after each verified checkpoint with the changed
@@ -52,11 +52,13 @@ permanent launcher activation.
 Each open point has a dedicated file with a current open-work summary, ordered
 steps, dependencies, acceptance criteria, evidence and an execution checklist.
 The native persistent IPC channel, queued mutation APIs and owned relay are
-already implemented. Plan 05's Android onboarding implementation is verified on host. Continue with
-plan 04's device API/views using plan 07's production pipeline. Plan 07 supplies production discovery
-and device operations. Finish recovery work in plans 01/02/03/06 alongside
-those integrations. Plan 08 remains the physical acceptance gate and is not
-initiated by writing these plans.
+already implemented. The dashboard uses shared device cards for Matter,
+Zigbee and external HTTP devices such as Shelly; source-specific setup and
+transport remain at their respective boundaries. Plan 05's Android onboarding
+implementation is verified on host. Continue with plan 04's shared data,
+history and failure gates using plan 07's production pipeline. Finish recovery
+work in plans 01/02/03/06 alongside those integrations. Plan 08 remains the
+physical acceptance gate and is not initiated by writing these plans.
 
 After each verified step, check its item, update status and commands/results,
 and commit the implementation and documentation in their owning repositories.
