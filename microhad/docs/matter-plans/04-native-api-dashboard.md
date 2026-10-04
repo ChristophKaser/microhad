@@ -98,6 +98,10 @@ Matter-to-common-device adapter and controller dispatch. `make webui`,
 `node webui/test/matter-devices-browser.cjs`, and
 `python3 scripts/test_matter_webui.py` pass. The browser test confirms shared
 device cards plus the Matter join/settings area; the API suite passes 20/20.
+Commit `39a2469` moves air-quality classification and CO2/PM2.5 presentation to
+canonical `sensor_values` keys, so shared cards no longer inspect Matter cluster
+IDs. Temperature and humidity continue through the gateway's existing common
+fields. The dashboard build, browser interaction and 20 API tests pass again.
 
 ## Remaining checkpoints
 

@@ -30,11 +30,19 @@ renders them with the same `DeviceGroups` cards used by Zigbee and HTTP devices
 such as Shelly. Common Matter commands use the Matter controller adapter;
 Shelly setup remains source-specific and its commands use its HTTP controller.
 This frontend adapter is not yet native `Gateway::Device` registration.
+Commit `39a2469` maps Matter temperature, humidity, air quality, CO2 and PM2.5
+into canonical `sensor_values` names and uses those names for shared card
+classification and presentation; cluster IDs stay in Matter provenance and
+the source adapter. The API and rendered browser tests pass. Existing
+temperature/humidity fields already serve Zigbee and Shelly.
 Temperature, humidity, CO2, PM2.5 and air-quality values are rendered from the
 Matter snapshot cache, but are not yet in shared persistent values, history or
 alerts. Reports, remote recovery of catalogued nodes and legacy migration
-remain open. Next deliverable: converge source-neutral capability/telemetry
-fields and integrate Matter state into the native shared model and history.
+remain open. Verification for this frontend checkpoint: `make webui`,
+`node webui/test/matter-devices-browser.cjs`, and
+`python3 scripts/test_matter_webui.py` (20/20). Next deliverable: converge
+source-neutral capability/telemetry fields in native `Gateway::Device` and
+integrate Matter state into shared history and alert processing.
 
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.
@@ -113,9 +121,10 @@ explicit-rendezvous fixture alone does not establish operational discovery.
 4. A frontend adapter now projects Matter descriptors and cached values into
    the shared dashboard `Device` shape and `DeviceGroups` cards. Generic light
    controls dispatch through the Matter adapter; Zigbee and Shelly retain their
-   existing source controllers. Keep Matter UI limited to joining and
-   Matter/Thread settings. Native `Gateway::Device` integration and
-   source-neutral capability cleanup remain open.
+   existing source controllers. Commit `39a2469` adds source-neutral sensor
+   names for shared card grouping/rendering. Keep Matter UI limited to joining
+   and Matter/Thread settings. Native `Gateway::Device` registration remains
+   open.
 5. Implemented CASE reads and typed native validation cover advertised
    temperature, humidity, CO2, PM2.5 and air-quality clusters; the frontend
    renders those values from its snapshot cache. Move them into shared native
