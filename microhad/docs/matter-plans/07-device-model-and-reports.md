@@ -68,3 +68,10 @@ address injection does not establish operational discovery support.
 [persistent identity](03-persistent-fabric-identity.md),
 [Thread lifecycle](06-thread-network-lifecycle.md), and
 [commissioning/control IPC](02-commissioning-control-ipc.md).
+
+The production-owned commissioner now reaches encrypted PASE, Thread provision
+and CASE completion in the synthetic accessory fixture. The running service
+contains that task, but lacks the production DNS-SD resolver and persistent node
+catalog. It uses no fixture address injection and can time out waiting for CASE.
+Descriptor/control/report integration and real operational discovery remain the
+next requirements here; the owned fixture is not device-model acceptance.

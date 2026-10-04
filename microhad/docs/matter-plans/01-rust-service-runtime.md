@@ -98,3 +98,9 @@ now passes with a synthetic Ziggurat coordinator and Thread RCP. Native online
 channel observations authorize guarded startup and dataset creation, radio loss
 produces `awaiting_coordinator`, and service loss clears cached HTTP status to
 503. Target execution and broader restart/failure recovery remain pending.
+
+The owned-commissioner checkpoint connects the session task, BTP/UDP transport
+and commissioning IPC/events. 42 service-feature checks and the actual running
+service lifetime harness, including a real 30-second timeout, pass. Current
+factory service is 1,740,456 stripped bytes; target execution remains unverified.
+Native event consumption, production discovery and device jobs remain open.

@@ -89,3 +89,9 @@ it has not yet been executed on the gateway in this checkpoint.
 
 [Rust service runtime](01-rust-service-runtime.md) and its single-owner store.
 Complete this before real accessory commissioning.
+
+The encrypted fixture now also exercises the production-owned commissioning
+future with this persisted signer/allocator, then verifies authority/fabric
+reopen and fresh CASE with the phone detached. This strengthens host integration
+evidence; it does not replace target filesystem checks or the outstanding
+operational backup/restore documentation.

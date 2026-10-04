@@ -1,12 +1,11 @@
 # Matter IPC version 1
 
-This fixes the contract for the remaining implementation. Status opcodes 1/2
-and Thread lifecycle opcode 9 dispatch in the service. Opt-in Thread snapshot
-events are implemented. Requests 3–8 and 10–11 have strict Rust body decoding
-but return `unsupported` until production dispatch is connected. Typed
-commissioning/BLE event vectors exist; their production event wiring and native
-consumer are pending. Reserved device/commissioning rows describe future
-success behavior, not completed accessory support.
+This fixes the contract for the remaining implementation. The service dispatches
+status opcodes 1/2, commissioning/relay opcodes 3–8 and Thread lifecycle opcode 9.
+Thread, commissioning snapshot and opaque BLE-write events are implemented.
+Device opcodes 10/11 still return `unsupported`. Native commissioning/event
+consumption, Android BLE and production operational DNS-SD remain pending;
+service dispatch alone does not complete end-to-end accessory support.
 
 ## Framing and compatibility
 
@@ -41,7 +40,7 @@ above. No API caller can request arbitrary Matter cluster commands.
 | 1 Matter status | Empty | Existing enabled/available/controller_initialized/fabric_ready/state object | 2048 bytes |
 | 2 Thread status | Empty | Existing enabled/available/attached/state/linux_ipv6_or_tun object | 2048 bytes |
 | 3 Commission start | `discriminator`, `pin`, `timeout_seconds` | `session`, `state`, `deadline_remaining_seconds` | discriminator 0–4095; valid Matter PIN; timeout 30–900 seconds |
-| 4 Commission status | `session` | Session state, remaining time, optional terminal `error` and commissioned `node` | One active session; latest terminal session retained until next start |
+| 4 Commission status | `session`, optional boolean `subscribe` (default false) | Session state, remaining time, optional terminal `error` and commissioned `node` | One active session; latest terminal session retained until next start |
 | 5 Commission cancel | `session` | Same session snapshot in terminal `cancelled` state | Idempotent for retained cancelled session; mismatched session is stale |
 | 6 BLE attach | `session`, `address`, `mtu` | `generation` | Address exactly 12 hex characters; ATT MTU 23–517 |
 | 7 BLE indication | `session`, `generation`, `sequence`, `data` | Accepted sequence | Generation/sequence u32 nonzero; data 1–244 decoded bytes, also at most negotiated MTU minus three |
@@ -65,7 +64,12 @@ lasts only for that connection and is not broadcast to status-only clients.
 Requests, rather than outgoing events, must renew the two-second idle deadline.
 Disconnect or eight queued replies/events removes only the affected peer.
 Connection IDs remain internal; IPC correlations and session IDs cannot target
-another connection. Commissioning/BLE event subscription wiring remains pending.
+another connection. Commissioning events select the start/attach connection; status opcode 4 with
+`subscribe:true` can retarget that session to another persistent peer. Ordinary
+status does not retarget. These messages are not broadcast or replayed to
+retired connections; a lost pending C1 write requires a new BLE attach or fails
+within the write/session deadline. Indication success is `{sequence:u32}` and
+write-completion success is `{write:u32}` inside the normal result envelope.
 
 `observe` takes `zigbee_channel` and boolean `zigbee_online`. An online channel
 must be 11–26; an offline observation also permits zero. This private action is
@@ -146,3 +150,11 @@ Secrets remain gateway-owned: the phone relays GATT C1/C2 bytes only. Manufactur
 attestation follows the owner's chosen bypass policy; PASE and CASE remain
 encrypted/authenticated. Setup PINs, datasets, authority keys and BTP ciphertext
 must never be placed in status, events outside the opaque relay, or logs.
+
+The current commissioner start returns `not_ready` unless the canonical Thread
+dataset is active on a fresh matching observed channel. It does not allocate a
+node until the owned attach task first polls. Reattach is allowed during waiting
+BLE/PASE and cancels the old task before changing generation. Loss of Thread
+readiness fails an active attempt with `not_ready`; deadlines and terminal
+cleanup retain the rules above. Production CASE completion still needs the
+operational DNS-SD work from plan 07.

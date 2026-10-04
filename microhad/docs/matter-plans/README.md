@@ -30,7 +30,7 @@ specific evidence recorded in a file, not to end-to-end Matter support.
 | Open point | Current status | Next checkpoint |
 | --- | --- | --- |
 | [01 Runtime](01-rust-service-runtime.md) | Host service and optional supervision implemented; recovery and target verification incomplete | Verify channel-gated startup and bounded failure/restart behavior |
-| [02 IPC](02-commissioning-control-ipc.md) | Framing, typed requests and session building blocks implemented | Wire commissioning, relay and control dispatch with typed replies/events |
+| [02 IPC](02-commissioning-control-ipc.md) | Service commissioning/relay dispatch and targeted events implemented; native event/control dispatch incomplete | Add native persistent event/job dispatch and device bodies |
 | [03 Identity](03-persistent-fabric-identity.md) | Persistent authority and host CASE recovery implemented | Finish backup/recovery procedure and target filesystem checks |
 | [04 Native API/dashboard](04-native-api-dashboard.md) | Status routes implemented; write APIs and UI pending | Add asynchronous commissioning/Thread mutation routes and job queues |
 | [05 Garage BLE relay](05-garage-ble-relay.md) | App integration pending | Agree relay contract, then implement fake-peer-tested GATT/WebSocket flow |

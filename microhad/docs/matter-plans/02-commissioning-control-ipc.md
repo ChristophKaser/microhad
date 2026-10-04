@@ -154,3 +154,48 @@ Implementation is committed in `ziggurat-compilation`; see its latest
 `Add bounded targeted Matter events and typed outgoing bodies` checkpoint.
 The next step remains owned commissioner/session dispatch and persistent native
 event consumption; Thread subscription does not replace that work.
+
+## Owned commissioner dispatch status — 2026-10-04
+
+| Step | Current status | Evidence / remaining work |
+| --- | --- | --- |
+| 1 | Complete | Opcodes, optional subscription and concrete callback result fields documented in IPC v1. |
+| 2 | Partial | Strict requests, session/Thread replies and typed commissioning/BLE/Thread events implemented; device replies/events and native validators remain. |
+| 3 | Complete | Production owner uses the bounded session manager and pinned real commissioner future with cancellation/reconnect cleanup. |
+| 4 | Partial | Status, Thread lifecycle and commissioning/relay opcodes 3–8 dispatch; owned encrypted PASE, provision and CASE path verified in fixture. Production operational discovery and device read/control dispatch remain in plan 07. |
+| 5 | Partial | Native observer/status worker implemented; persistent event consumer and queued commissioning/control requests remain pending. |
+| 6 | Partial | Rust body vectors, callback/reconnect/timeout tests and actual service IPC tests pass; full native cross-language body/event vectors remain pending. |
+| 7 | Current | Contract and implementation evidence updated at this checkpoint. |
+
+The running service accepts start only with an active canonical dataset and a
+fresh matching native channel observation. Start/status do not write credentials.
+Attach installs the real task; it commits a monotonic node allocation before
+using the persisted signer, authenticating PASE, provisioning Thread and trying
+CASE completion. Reattach drops the old task and authority borrow first. It
+publishes typed progress and C1 events, validates generation/sequence/write IDs,
+and rejects stale callbacks. Thread readiness loss fails active work rather than
+continuing on a mismatched network. No producer logs or echoes setup secrets.
+
+42 service-feature tests and 24 control-only tests pass. The actual service
+harness proves waiting-BLE/busy/status, BTP write generation, PASE reconnect,
+stale callbacks, cancel/idempotence, failed write, a real 30-second timeout and
+no status/heartbeat store writes. The native-to-real-Rust HTTP regression passes.
+
+`python3 scripts/test-openthread-matter-transport.py --commissioning --ble
+--service-owner` uses this production owner/future with the encrypted synthetic
+accessory; it passes PASE, Thread provisioning, CASE completion/controls and fresh
+CASE after committed authority/fabric reopen with the phone detached. It retains
+synthetic GATT and fixture-only rendezvous, not production DNS-SD or real Android
+BLE. Owner/direct BTP/direct UDP host timings are 206/199/246 ms.
+
+Factory service and fixture builds pass, static big-endian MIPS-I/o32: stripped
+service 1,740,456 bytes; commissioning fixture 2,076,352 bytes. These are package
+sizes, not target RSS/performance measurements; no updated target execution or
+plan 08 action occurred. Production commissioning completion remains dependent
+on plan 07 DNS-SD/catalog work and native/Garage wiring from plans 04/05.
+
+Implementation checkpoint: `ziggurat-compilation` commit
+`Wire production owned commissioner into service IPC and BTP transport`.
+Detailed callback/lifetime and fixture scope are recorded in its
+`docs/matter-session-lifecycle.md` and
+`docs/rs-matter-openthread-commissioning.md`.
