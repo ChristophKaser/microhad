@@ -7,8 +7,8 @@ states are implemented and host-tested. Rust commit `e59c3dc` drives encrypted
 CASE/CommissioningComplete and fresh CASE through the resolver in the synthetic
 accessory fixture without injected rendezvous.
 
-Bounded endpoint/cluster descriptor reads now have encrypted host evidence
-(`05053ec`); their production service scheduling remains open.
+Bounded endpoint/cluster descriptor reads and service scheduling now have
+encrypted host evidence (`05053ec`, `5c588df`); snapshot IPC/API exposure remains open.
 Remote recovery of catalogued nodes, legacy migration, device
 operations and report integration remain open. Next deliverable: reconcile
 recovery-required nodes over operational CASE, discover endpoint descriptors and
@@ -133,8 +133,9 @@ are historical; the latest status/evidence section above takes precedence.
 3. [ ] Complete production CASE/CommissioningComplete through the resolver,
    then discover descriptors, endpoints and advertised clusters. Test restart
    against the same catalog and authority without the phone.
-   Bounded PartsList/ServerList helper is verified over encrypted CASE
-   (`05053ec`); service scheduling, recovery and device snapshots remain open.
+   Bounded PartsList/ServerList helper and service scheduler are verified over
+   encrypted CASE (`05053ec`, `5c588df`). Completed nodes refresh after catalog
+   restore and radio reattachment; incomplete-node recovery and IPC/API snapshots remain open.
 4. [ ] Implement validated OnOff/Level reads and commands plus typed IPC
    bodies in plan 02. Confirm resulting values through reads/reports and expose
    unsupported clusters and failed commands explicitly.
@@ -218,3 +219,28 @@ cache invalidation after CASE failure belongs to that recovery pipeline. Older
 comparison fixtures retain explicit rendezvous; they are not the discovery
 evidence. Host timing includes Thread/SRP bootstrap and is not target CPU/RSS.
 No deployment or plan 08 acceptance occurred.
+
+## Service descriptor scheduler checkpoint — 2026-10-04
+
+Rust commit `5c588df` schedules operational discovery for Complete catalog nodes
+in the production service event loop. New completions are observed without a
+restart. One job runs at a time with a 30-second total deadline; successful
+snapshots refresh after 300 seconds and failed nodes back off from 5 to 320
+seconds. Oldest due jobs run first. Commissioning preempts discovery; Thread
+detach drops work, marks cached descriptors offline and triggers refresh after
+reattachment. No scheduler operation writes credentials or promotes an incomplete
+catalog entry. In-memory snapshots have at most 64 nodes, each with the existing
+32 endpoint/64 server-cluster bounds.
+
+Verification: 57 library tests pass, including deadline expiry, fairness,
+preemption, radio invalidation, retry cap, incomplete-node exclusion and no flash
+writes. The encrypted fixture exercises the actual manager after catalog reopen,
+then detach and refresh. Both service/probe host and MIPS builds pass; actual
+service IPC and native real-service worker regressions pass. Stripped MIPS
+service/probe sizes are 1,961,656/2,301,648 bytes. Findings and commands are in
+`ziggurat-compilation/docs/matter-device-discovery.md`.
+
+Checklist items 2–7 remain open. Completed-node runtime recovery is implemented;
+remote recovery of incomplete nodes, legacy migration, feature/type metadata,
+snapshot IPC/API, reads/commands, subscriptions and native reports remain.
+No physical gateway execution or plan 08 acceptance was performed.
