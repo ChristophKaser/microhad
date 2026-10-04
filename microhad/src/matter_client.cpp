@@ -548,6 +548,27 @@ bool MatterChannel::threadChannel(const std::string& input, unsigned char channe
     if (fields["action"] == "\"import\"") out << ",\"dataset\":" << fields["dataset"];
     out << '}'; *body = out.str(); return true;
 }
+bool MatterChannel::deviceReadRequest(const std::string& input, std::string* body) {
+    body->clear();
+    Fields fields;
+    if (input.size() > MatterWire::MaxPayload || !StatusJson(input).parse(&fields) || fields.size() != 4 ||
+        !hex(fields["node"], 16, 16) || fields["node"] <= "\"0000000000000001\"" ||
+        !number(fields["endpoint"], 0, 65534) || fields["cluster"] != "6" || fields["attribute"] != "0") return false;
+    *body = "{\"schema\":1,\"action\":\"read\",\"node\":" + fields["node"] +
+        ",\"endpoint\":" + fields["endpoint"] + ",\"cluster\":6,\"attribute\":0}";
+    return requestValid(10, *body);
+}
+bool MatterChannel::deviceCommandRequest(const std::string& input, std::string* body) {
+    body->clear();
+    Fields fields;
+    static const char* const commands[] = {"\"on\"", "\"off\"", "\"toggle\""};
+    if (input.size() > MatterWire::MaxPayload || !StatusJson(input).parse(&fields) || fields.size() != 3 ||
+        !member(fields["command"], commands, 3) || !hex(fields["node"], 16, 16) ||
+        fields["node"] <= "\"0000000000000001\"" || !number(fields["endpoint"], 0, 65534)) return false;
+    *body = "{\"schema\":1,\"command\":" + fields["command"] + ",\"node\":" + fields["node"] +
+        ",\"endpoint\":" + fields["endpoint"] + '}';
+    return requestValid(11, *body);
+}
 
 bool MatterChannel::relayRequest(const std::string& input, uint32_t* id, unsigned char* opcode,
                                 std::string* session, std::string* body) {

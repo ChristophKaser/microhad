@@ -30,6 +30,8 @@ public:
     static bool validRequest(unsigned char opcode, const std::string& body);
     static bool threadMutation(bool importing, const std::string& input, std::string* body);
     static bool threadChannel(const std::string& input, unsigned char channel, std::string* body);
+    static bool deviceReadRequest(const std::string& input, std::string* body);
+    static bool deviceCommandRequest(const std::string& input, std::string* body);
     static bool relayRequest(const std::string& input, uint32_t* id, unsigned char* opcode,
                              std::string* session, std::string* body);
     static std::string relayResponseSession(const std::string& response);

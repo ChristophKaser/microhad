@@ -175,10 +175,12 @@ are serialized. The encrypted synthetic accessory fixture exercises all three
 commands via this service queue.
 
 Verification: 59 service-feature Rust tests, encrypted service-owner fixture,
-and host/MIPS service and commissioning builds pass. Native HTTP read/control
-routes, rendered controls, Level Control,
-sensors, subscriptions/reporting, remote recovery and broader restart handling
-remain open. No physical-device test or plan 08 acceptance was performed.
+and host/MIPS service and commissioning builds pass. Native read/control HTTP
+admission routes and strict request/reply validators now build; the Matter worker
+still needs to poll Rust operation jobs to confirmed completion before these
+routes expose accessory results. Rendered controls, Level Control, sensors,
+subscriptions/reporting, remote recovery and broader restart handling remain
+open. No physical-device test or plan 08 acceptance was performed.
 
 ## Persistent catalog checkpoint — 2026-10-04
 

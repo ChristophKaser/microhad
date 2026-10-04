@@ -279,6 +279,20 @@ existing assembler LOAD-USE warnings. The Rust fixture remains the encrypted
 CASE evidence for actual job completion. No gateway deployment or plan 08 test
 occurred.
 
+## Native OnOff HTTP admission checkpoint — 2026-10-04
+
+The native server now validates and accepts `/api/matter/devices/read` and
+`/api/matter/devices/command` requests, converts them to the private opcode-10/11
+contract and submits them through the worker queue. It rejects unsupported
+cluster paths and Level commands before queueing. This currently ends at Rust's
+job-acceptance reply; the native worker still needs to poll that Rust job to
+terminal state and deliver confirmed readback through its own job endpoint.
+
+Default and Matter-enabled host unit/integration suites and MIPS builds pass.
+The Matter-enabled HTTP tests confirm accepted OnOff request validation and
+pre-queue rejection for unsupported Level commands. Device deployment remains
+out of scope.
+
 Validation: golden vectors plus actual-service request/event round trips; no
 HTTP worker may wait for a commissioning lifetime or forward unchecked JSON.
 

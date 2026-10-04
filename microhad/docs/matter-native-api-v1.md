@@ -19,6 +19,8 @@ queueing. No request body is returned or logged.
 | `POST /api/matter/commissioning/cancel` | `session` | Submit cancellation; retained cancelled sessions are idempotent |
 | `GET /api/matter/jobs/<id>` | None | Read an ephemeral native call snapshot without contacting the service |
 | `POST /api/matter/devices/snapshot` | `action:"snapshot"`, optional `cursor`/`revision` | Queue a validated endpoint snapshot page; poll its job for the response |
+| `POST /api/matter/devices/read` | `node`, `endpoint`, `cluster:6`, `attribute:0` | Queue an OnOff read and return its confirmed boolean value |
+| `POST /api/matter/devices/command` | `command:"on"|"off"|"toggle"`, `node`, `endpoint` | Queue an OnOff command; result is a separate CASE readback |
 
 Successful submission returns HTTP **202 Accepted**:
 
@@ -62,7 +64,7 @@ actual service and synthetic radio peers. The owned plain WebSocket relay is
 implemented and verified through native/Rust BTP callbacks. Garage foreground onboarding and dashboard session monitoring are implemented
 with host evidence. Operational SRP/DNS discovery now has encrypted host evidence. Production device
 operations and reports remain open work. A successful start does not establish
-end-to-end accessory support; native device operations still need the production device pipeline.
+end-to-end accessory support.
 
 ## Device snapshot pages
 
@@ -96,6 +98,19 @@ Loaded information remains visibly cached after a read failure. The view
 neither polls all pages automatically nor implies controls/measurement values
 are implemented. Rendered device component interaction is verified in an isolated
 Chromium HTTP fixture; broader dashboard interaction remains open.
+
+## OnOff operations
+
+Device read and command routes use the same native job queue and polling
+contract. `node` is a 16-character lowercase hexadecimal Matter node ID;
+`endpoint` is 0–65534. Reads currently accept only cluster 6 attribute 0. The
+command route accepts only `on`, `off` and `toggle`; unsupported cluster/command
+requests return 400 before queueing. Submission returns 202 with a native job
+ID. At this checkpoint the native worker stores the immediate Rust job
+acceptance as its completed response; it does not yet poll the Rust operation
+to confirmed readback. The route is therefore an IPC submission surface, not
+end-to-end device control. The worker must bridge Rust job state before this
+endpoint can claim operation completion.
 
 ## Thread dataset mutations
 

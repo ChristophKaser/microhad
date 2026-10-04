@@ -171,6 +171,13 @@ void runMatterClientUnitTests() {
     assert(MatterChannel::validRequest(10, readBody));
     assert(MatterChannel::validRequest(10, jobBody));
     assert(MatterChannel::validRequest(11, commandBody));
+    std::string devicePrepared;
+    assert(MatterChannel::deviceReadRequest("{\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":6,\"attribute\":0}", &devicePrepared));
+    assert(devicePrepared == readBody);
+    assert(!MatterChannel::deviceReadRequest("{\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":8,\"attribute\":0}", &devicePrepared));
+    assert(MatterChannel::deviceCommandRequest("{\"command\":\"toggle\",\"node\":\"0000000000000002\",\"endpoint\":1}", &devicePrepared));
+    assert(devicePrepared == commandBody);
+    assert(!MatterChannel::deviceCommandRequest("{\"command\":\"move_to_level\",\"node\":\"0000000000000002\",\"endpoint\":1}", &devicePrepared));
     assert(!MatterChannel::validRequest(10, "{\"schema\":1,\"action\":\"read\",\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":8,\"attribute\":0}"));
     assert(!MatterChannel::validRequest(11, "{\"schema\":1,\"command\":\"move_to_level\",\"node\":\"0000000000000002\",\"endpoint\":1}"));
     std::vector<std::string> operationReplies;

@@ -373,6 +373,26 @@ void testServers() {
 #else
     expectStatus("http commissioning disabled", response, 404);
 #endif
+    const std::string matterReadBody = "{\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":6,\"attribute\":0}";
+    std::ostringstream matterReadRequest;
+    matterReadRequest << "POST /api/matter/devices/read HTTP/1.1\r\nHost: localhost\r\nContent-Length: "
+        << matterReadBody.size() << "\r\n\r\n" << matterReadBody;
+    response = plainRequest(http.boundPort(), matterReadRequest.str());
+#if MICROHAD_MATTER_ENABLED
+    expectStatus("http accepted Matter OnOff read awaits service", response, 503);
+#else
+    expectStatus("http Matter read disabled", response, 404);
+#endif
+    const std::string badMatterCommandBody = "{\"command\":\"move_to_level\",\"node\":\"0000000000000002\",\"endpoint\":1}";
+    std::ostringstream badMatterCommandRequest;
+    badMatterCommandRequest << "POST /api/matter/devices/command HTTP/1.1\r\nHost: localhost\r\nContent-Length: "
+        << badMatterCommandBody.size() << "\r\n\r\n" << badMatterCommandBody;
+    response = plainRequest(http.boundPort(), badMatterCommandRequest.str());
+#if MICROHAD_MATTER_ENABLED
+    expectStatus("http rejects unsupported Matter Level command", response, 400);
+#else
+    expectStatus("http Matter command disabled", response, 404);
+#endif
     response = plainRequest(http.boundPort(), "GET /api/matter/jobs/4294967296 HTTP/1.1\r\nHost: localhost\r\n\r\n");
 #if MICROHAD_MATTER_ENABLED
     expectStatus("http rejects overflowing Matter job ID", response, 400);
