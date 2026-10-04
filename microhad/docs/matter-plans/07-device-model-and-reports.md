@@ -225,6 +225,19 @@ reconciliation. Verified with `make ZIGGURAT=1 MATTER=1 host test` and
 `make ZIGGURAT=1 MATTER=1 mips`; the latter passed with the toolchain's existing
 LOAD-USE warnings. Report subscriptions and remote node recovery remain open.
 
+## Matter report peer-correlation prerequisite — 2026-10-04
+
+Rust repository commit `f58dcb7` adds a public `Exchange::peer_identity()` API
+to the pinned `rs-matter` source through the repository's reproducible patch
+mechanism. It returns the authenticated local fabric index and peer node ID for
+an exchange, while group or unauthenticated sessions have no peer identity.
+This provides the key needed to correlate later server-initiated reports
+without treating a device-chosen subscription ID as globally unique. The patch
+applies to the clean pinned source and is applied idempotently by
+`scripts/fetch-rs-matter.sh`; Rust controller-identity tests pass 25/25.
+Active report intake, client subscription establishment, native IPC event
+delivery and report lifecycle tests remain open.
+
 ## Dependencies
 
 [persistent identity](03-persistent-fabric-identity.md),
