@@ -287,7 +287,8 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
             Device device;
             device.ieeeAddress = ieeeAddress;
             jsonStringField(line, "source", &device.source);
-            if (device.source != "zigbee" && device.source != "shelly" && device.source != "fritz_box") continue;
+            if (device.source != "zigbee" && device.source != "shelly" && device.source != "fritz_box" &&
+                device.source != "matter") continue;
             jsonStringField(line, "external_id", &device.externalId);
             jsonStringField(line, "component", &device.component);
             if (addressValue != 0) device.networkAddress = static_cast<unsigned short>(networkAddress);

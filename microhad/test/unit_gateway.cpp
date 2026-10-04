@@ -23,6 +23,7 @@
 
 class GatewayTestPeer {
 public:
+    static void restoreState(Gateway& gateway) { gateway.loadState(); }
     static void observedChannelSnapshot() {
         char valueHistory[] = "/tmp/microhad-matter-values-test-XXXXXX";
         int valueHistoryFd = mkstemp(valueHistory);
@@ -1795,6 +1796,59 @@ static void testDeviceSettings() {
     rmdir(directory.c_str());
 }
 
+static void testMatterAlertSettingsSurviveRestart() {
+    char directory[] = "/tmp/microhad-matter-alert-restart-XXXXXX";
+    assert(mkdtemp(directory) != 0);
+    const std::string endpointId = "matter:0000000000000001:0000000000000002:0001";
+    MatterEndpoint endpoint;
+    endpoint.id = endpointId;
+    endpoint.node = "0000000000000002";
+    endpoint.endpoint = 1;
+    endpoint.online = true;
+    endpoint.servers.push_back(1026);
+    std::vector<MatterEndpoint> endpoints(1, endpoint);
+    std::string error;
+    {
+        Gateway gateway("/dev/null", 115200, directory, "", "", "");
+        assert(gateway.reconcileMatterDevices(endpoints, &error));
+        DeviceValueAlert alert;
+        alert.hasHigh = true;
+        alert.high = 28.5;
+        alert.hysteresis = 1.5;
+        std::map<std::string, DeviceValueAlert> alerts;
+        alerts["temperature"] = alert;
+        assert(gateway.setDeviceValueAlerts(endpointId, alerts, &error));
+    }
+    {
+        std::vector<Device> parsed;
+        assert(loadDevices(std::string(directory) + "/devices.json", &parsed, &error));
+        assert(parsed.size() == 1 && parsed[0].source == "matter");
+    }
+    {
+        Gateway restarted("/dev/null", 115200, directory, "", "", "");
+        GatewayTestPeer::restoreState(restarted);
+        std::vector<Device> loaded = restarted.devices();
+        bool restoredBeforeSnapshot = false;
+        for (unsigned long i = 0; i < loaded.size(); ++i)
+            if (loaded[i].source == "matter" && loaded[i].externalId == endpointId &&
+                loaded[i].valueAlerts.find("temperature") != loaded[i].valueAlerts.end()) restoredBeforeSnapshot = true;
+        assert(restoredBeforeSnapshot);
+        assert(restarted.reconcileMatterDevices(endpoints, &error));
+        loaded = restarted.devices();
+        bool restoredAfterSnapshot = false;
+        for (unsigned long i = 0; i < loaded.size(); ++i) {
+            if (loaded[i].source != "matter" || loaded[i].externalId != endpointId) continue;
+            std::map<std::string, DeviceValueAlert>::const_iterator restored = loaded[i].valueAlerts.find("temperature");
+            restoredAfterSnapshot = restored != loaded[i].valueAlerts.end() && restored->second.hasHigh &&
+                                    restored->second.high == 28.5 && restored->second.hysteresis == 1.5;
+        }
+        assert(restoredAfterSnapshot);
+    }
+    unlink((std::string(directory) + "/devices.json").c_str());
+    unlink((std::string(directory) + "/devices.json.tmp").c_str());
+    assert(rmdir(directory) == 0);
+}
+
 static void testNetworkPersistence() {
     std::ostringstream path;
     std::string error;
@@ -2657,6 +2711,7 @@ void runUnitTests() {
     testDevicePersistence();
     testDeviceLoadRejectsCorruptDuplicatesAndNumbers();
     testDeviceSettings();
+    testMatterAlertSettingsSurviveRestart();
     testNetworkPersistence();
     testNetworkPersistenceRejectsInvalidState();
     testSceneConfigurationPersistence();
