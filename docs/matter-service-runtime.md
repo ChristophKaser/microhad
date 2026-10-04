@@ -3,8 +3,8 @@
 The `thread-matter` executable is a single-threaded controller process. It owns
 OpenThread, the Matter UDP transport, the private store, and a bounded Unix IPC
 listener. It creates/restores a private controller authority and fabric;
-Thread create/import/restore is implemented; commissioning command wiring,
-DNS-SD and device reports remain pending. The optional native worker now
+Thread create/import/restore and commissioning/relay dispatch are implemented.
+Production operational DNS-SD, node catalog and device reports remain pending. The optional native worker now
 supplies protected coordinator observations and caches status for HTTP.
 
 Build with `bash scripts/build-rs-matter-transport.sh host service` or
@@ -163,3 +163,30 @@ pass. The factory build/artifact is recorded in native plan 02 after verificatio
 
 The factory event-enabled service build is static big-endian MIPS-I/o32 and
 1,556,124 stripped bytes. No target execution or real-device test was performed.
+
+## Owned commissioner dispatch — 2026-10-04
+
+The current runtime dispatches commissioning/relay opcodes 3–8; device opcodes
+10/11 remain unsupported. Start requires a freshly observed matching channel
+and active validated dataset; no accessory responder or manufacturer/gateway
+certificate is introduced. Attach installs the actual owned commissioner future,
+using persisted authority, monotonic allocation and zeroizing setup-code copies.
+BTP and userspace UDP share the single Matter pump. Targeted phase/write events
+are produced on the selected persistent commissioning peer. See
+`matter-session-lifecycle.md` for ownership and callback rules.
+
+Native event consumption, phone BLE transport and operational DNS-SD remain
+open. A job may reach CASE only after encrypted PASE and Thread provisioning;
+without a real resolver its commissioning deadline still bounds completion.
+No production fixture address injection or fake success is used. The encrypted
+probe's new `--service-owner` mode exercises this same owner/future with a
+synthetic accessory and explicit fixture rendezvous; it passes PASE, provisioning,
+CASE completion, controls and fresh CASE after persisted authority/fabric reopen.
+
+Checks: 42 service-feature tests, 24 control-only tests, the running-service IPC
+harness including a real 30-second timeout, native-to-real-Rust HTTP regression,
+and encrypted owner/direct BTP/direct UDP fixtures pass. Host timings were
+206/199/246 ms respectively; they are not gateway performance measurements.
+Both factory builds pass: service 1,740,456 stripped bytes, commissioning probe
+2,076,352 bytes, static big-endian MIPS-I/o32. Neither updated artifact was run
+on the physical gateway.

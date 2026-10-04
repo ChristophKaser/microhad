@@ -1,7 +1,9 @@
 //! Gateway controller process. Owns OpenThread, Matter and IPC on a single thread.
 use core::pin::pin;
 use lexra_rs_matter_probe::{
+    ble::BleRelay,
     control::{Request, ThreadRequest},
+    controller::Controller,
     entropy::OsEntropy,
     identity::Identity,
     ipc::{Frame, OP_MATTER_STATUS, OP_THREAD_STATUS},
@@ -11,11 +13,11 @@ use lexra_rs_matter_probe::{
     thread_lifecycle::{Failure, Lifecycle, Radio},
 };
 use rs_matter::crypto::{
-    default_crypto, CanonPkcPublicKeyRef, CanonPkcSecretKeyRef, CryptoSensitiveRef, TryRng,
+    default_crypto, CanonPkcPublicKeyRef, CanonPkcSecretKeyRef, Crypto, CryptoSensitiveRef, TryRng,
 };
 use rs_matter::dm::clusters::{basic_info::BasicInfoConfig, dev_att::DeviceAttestation};
 use rs_matter::sc::pase::{Spake2pVerifierPassword, Spake2pVerifierPasswordRef};
-use rs_matter::transport::network::NoNetwork;
+use rs_matter::transport::network::{Address, ChainedNetwork, NoNetwork};
 use rs_matter::utils::{init::InitMaybeUninit, sync::DynBase};
 use rs_matter::{BasicCommData, Matter, MATTER_PORT};
 use static_cell::StaticCell;
@@ -61,7 +63,7 @@ impl std::task::Wake for Wake {
     fn wake(self: std::sync::Arc<Self>) {}
 }
 
-fn dispatch(
+fn dispatch<C: Crypto>(
     request: Frame,
     peer: u64,
     subscribers: &mut Vec<(u64, Vec<u8>)>,
@@ -69,6 +71,7 @@ fn dispatch(
     thread: Option<&OpenThread>,
     entropy: &mut OsEntropy,
     fabric_ready: bool,
+    controller: &mut Controller<'_, C>,
 ) -> Option<Frame> {
     if request.opcode == 12 {
         return None;
@@ -101,6 +104,11 @@ fn dispatch(
             };
             String::from_utf8(lexra_rs_matter_probe::responses::reply(result)?).ok()?
         },
+        Ok(body @ (Request::CommissionStart(_) | Request::CommissionStatus(_) |
+            Request::CommissionCancel(_) | Request::BleAttach(_) | Request::BleIndication(_) |
+            Request::BleWriteComplete(_))) => String::from_utf8(controller.handle(
+                body, peer, lifecycle, entropy, Instant::now(),
+            )?).ok()?,
         Ok(_) => "{\"schema\":1,\"ok\":false,\"error\":\"unsupported\"}".into(),
         Err(_) if request.opcode == OP_MATTER_STATUS || request.opcode == OP_THREAD_STATUS => return None,
         Err(_) => "{\"schema\":1,\"ok\":false,\"error\":\"malformed\"}".into(),
@@ -233,7 +241,16 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let identity = Identity::open(&store, &crypto, administrator_vendor)?;
     let kv = matter.kv(store.clone());
     matter.startup(&kv)?;
-    let _controller_fabric = identity.install(matter, &crypto, &store)?;
+    let controller_fabric = identity.install(matter, &crypto, &store)?;
+    let relay = BleRelay::new();
+    let mut controller = Controller::new(
+        &relay,
+        matter,
+        &crypto,
+        identity,
+        store.clone(),
+        controller_fabric,
+    );
     let mut lifecycle = Lifecycle::load(store.clone()).map_err(|_| "Thread state unavailable")?;
     let mut configuration_entropy = OsEntropy::open()?;
     let mut subscribers = Vec::new();
@@ -257,6 +274,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 None,
                 &mut configuration_entropy,
                 matter.has_fabrics(),
+                &mut controller,
             )
         })?;
         publish_thread(&mut ipc, &mut subscribers, &lifecycle)?;
@@ -270,7 +288,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         .restore(&thread, Instant::now())
         .map_err(|_| "Thread restore failed")?;
     let network = thread.bind(MATTER_PORT)?;
-    let transport = matter.run(&crypto, &network, &network, NoNetwork);
+    let route_btp = |address: &Address| matches!(address, Address::Btp(_));
+    let send = ChainedNetwork::new(route_btp, relay.transport(), &network);
+    let receive = send.clone();
+    let transport = matter.run(&crypto, send, receive, NoNetwork);
     let mut transport = pin!(transport);
     let waker = std::task::Waker::from(std::sync::Arc::new(Wake));
     let mut context = std::task::Context::from_waker(&waker);
@@ -292,8 +313,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 Some(&thread),
                 &mut configuration_entropy,
                 matter.has_fabrics(),
+                &mut controller,
             )
         })?;
+        controller.poll(&lifecycle, Instant::now(), &mut context);
+        controller.publish(&mut ipc, Instant::now())?;
         publish_thread(&mut ipc, &mut subscribers, &lifecycle)?;
         if lifecycle.fatal() {
             return Err("Thread radio stop failed".into());

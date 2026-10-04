@@ -155,3 +155,35 @@ Thread status; each request has an empty body and receives a JSON status object.
 The native side now has a private-socket client and read-only status routes.
 The Rust listener and operation dispatch remain pending, so no live controller
 status or device control is available yet.
+
+## Production-owned commissioner fixture — 2026-10-04
+
+The probe now has `--service-owner` (requires `--ble`). Build and run:
+
+```sh
+bash scripts/build-rs-matter-transport.sh host commissioning
+python3 scripts/test-openthread-matter-transport.py --commissioning --ble --service-owner
+```
+
+This mode drives `controller::Controller`, the same owner and pinned future
+installed by `thread-matter`. It validates an active dataset, starts/attaches
+through typed requests, allocates from the production authority, and polls the
+actual PASE/provision/CASE task. The existing synthetic GATT loop carries BTP
+bytes and the fixture rendezvous resolves only this synthetic accessory;
+production code does not inject addresses. The owner reports a nonzero node
+only after actual CASE completion. The remaining fixture then verifies OnOff,
+signed/null temperature, committed authority/fabric reopen and fresh CASE with
+the phone detached.
+
+The fixture's GATT loop accesses the relay directly. Full session callback
+validation and event delivery are tested separately against the running service
+in `test-matter-service.py`: real C1 generation, reconnect/cancel, stale callbacks,
+write failure and the real 30-second deadline. This split proves the owned
+crypto/provisioning path and the IPC lifetime path; it does not prove full
+native/Android onboarding or production operational DNS-SD.
+
+Host owner/direct BTP/direct UDP runs pass in 206/199/246 ms. Factory builds
+pass: service 1,740,456 bytes; updated fixture 2,076,352 bytes, stripped static
+big-endian MIPS-I/o32. These are package sizes and host timings; no updated
+fixture/service has been run on the gateway in this checkpoint. Plan 08 remains
+excluded, and no real accessory or RF network was touched.

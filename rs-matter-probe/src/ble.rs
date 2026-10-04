@@ -111,6 +111,12 @@ impl BleRelay {
         self.active(generation)?;
         Ok(&self.btp)
     }
+    /// Stable single-owner transport for Matter's long-running network pump.
+    /// Connect/callback operations still require the active generation; the
+    /// owner drops the commissioning future before resetting this transport.
+    pub fn transport(&self) -> &Btp {
+        &self.btp
+    }
     /// Accept only characteristic C2 indication payloads from the current phone connection.
     pub fn indication(&self, generation: u64, data: &[u8]) -> Result<(), Error> {
         let c = self.active(generation)?;

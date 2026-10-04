@@ -36,6 +36,7 @@ impl Phase {
 #[serde(rename_all = "snake_case")]
 pub enum SessionError {
     Malformed,
+    NotReady,
     Busy,
     StaleSession,
     StaleGeneration,
@@ -215,6 +216,19 @@ impl<'a> Sessions<'a> {
             error: session.error,
             node: session.node,
         })
+    }
+    pub fn current_snapshot(&mut self, now: Instant) -> Option<Snapshot> {
+        let id = self.current.as_ref()?.id;
+        self.snapshot(id, now).ok()
+    }
+    pub fn fail(&mut self, error: SessionError) {
+        if self
+            .current
+            .as_ref()
+            .is_some_and(|session| !session.phase.terminal())
+        {
+            self.finish(Phase::Failed, Some(error), None);
+        }
     }
     pub fn cancel(&mut self, id: Id, now: Instant) -> Result<Snapshot, SessionError> {
         self.tick(now);

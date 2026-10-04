@@ -2,9 +2,10 @@
 
 `sessions::Sessions` is a single-owner manager for one active job and one
 retained terminal snapshot. It owns the pinned commissioning future and borrows
-the stable gateway BTP relay. It is not wired into production IPC yet: start
-must remain unavailable until persistent fabric identity, Thread readiness and
-the actual commissioner task are connected.
+the stable gateway BTP relay. The production `controller::Controller` now
+connects it to IPC, persisted authority/allocator and the actual commissioner.
+Start remains `not_ready` until a validated dataset is active on a freshly
+observed matching coordinator channel.
 
 Session IDs are unpredictable nonzero OS-entropy u64 values, rendered as sixteen
 lowercase hex characters. They are distinct from IPC correlations. Status uses
@@ -39,3 +40,37 @@ actual BTP fragmentation checks at MTUs 23 and 247. The combined service-feature
 library suite now has 27 passing tests. Synthetic future completion in these
 tests is not accessory commissioning evidence; encrypted PASE/CASE fixture
 coverage remains documented separately.
+
+## Production owner checkpoint — 2026-10-04
+
+IPC opcodes 3–8 dispatch start/status/cancel, attach, indication and write
+completion. Start returns the waiting-BLE snapshot without allocating a node or
+writing credentials. Attach creates and installs the actual pinned commissioner
+future; its first poll persists a unique node allocation before PASE/fabric
+provisioning. Reattach during PASE drops the old future and authority borrow
+before resetting BTP and creating a new attempt. Allocator gaps remain deliberate.
+
+The future uses the production signer and owner's attestation policy, provisions
+the validated active dataset over authenticated PASE and completes over CASE.
+The service pumps BTP and userspace UDP in one chained Matter transport. Losing
+Thread readiness fails an active job with `not_ready`; deadline expiry takes
+precedence when both happen at the same poll. Terminal states drop the task
+and zeroizing passcodes before invalidating callbacks.
+
+Start/attach select the persistent IPC event peer. Valid status with optional
+`subscribe:true` can select a new peer; status without it does not retarget.
+Commissioning snapshots and opaque C1 writes use the targeted bounded event
+queue. Missing IPC peers do not cancel jobs; write/session deadlines bound them.
+Reconnection must attach a new BLE generation when a pending write was lost.
+Native persistent event consumption remains to be implemented.
+
+Evidence: 42 service-feature tests, including production-owner readiness/no-write
+status/cancel/deadline checks; 24 control-only tests; actual running-service
+start, busy, status, attach/write event, reconnect, stale callbacks, cancellation,
+failed write and real 30-second timeout all pass. The encrypted accessory fixture
+also completes through this owner/future, then proves CASE controls and authority/
+fabric recovery after the phone is detached. The fixture retains synthetic GATT
+and explicit fixture-only rendezvous, so it does not prove production DNS-SD.
+Production completion must still wait for actual operational discovery; it
+never injects fixture addresses or returns simulated success. Node catalog and
+report integration remain in plan 07.

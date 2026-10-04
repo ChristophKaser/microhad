@@ -76,6 +76,14 @@ pub struct SessionRequest {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct CommissionStatusRequest {
+    pub schema: Schema,
+    pub session: Id,
+    #[serde(default)]
+    pub subscribe: bool,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BleAttach {
     pub schema: Schema,
     pub session: Id,
@@ -169,7 +177,7 @@ pub enum Request {
     MatterStatus,
     ThreadStatus,
     CommissionStart(CommissionStart),
-    CommissionStatus(SessionRequest),
+    CommissionStatus(CommissionStatusRequest),
     CommissionCancel(SessionRequest),
     BleAttach(BleAttach),
     BleIndication(BleIndication),
@@ -280,6 +288,18 @@ mod tests {
     }
     #[test]
     fn thread_subscription_is_optional_and_strictly_boolean() {
+        valid(
+            4,
+            r#"{"schema":1,"session":"123456789abcdef0","subscribe":true}"#,
+        );
+        invalid(
+            4,
+            r#"{"schema":1,"session":"123456789abcdef0","subscribe":1}"#,
+        );
+        invalid(
+            5,
+            r#"{"schema":1,"session":"123456789abcdef0","subscribe":true}"#,
+        );
         valid(9, r#"{"schema":1,"action":"status","subscribe":true}"#);
         valid(9, r#"{"schema":1,"action":"status","subscribe":false}"#);
         invalid(9, r#"{"schema":1,"action":"status","subscribe":1}"#);

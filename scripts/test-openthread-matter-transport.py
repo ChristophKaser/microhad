@@ -18,7 +18,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--commissioning', action='store_true', help='Run encrypted Matter fixture')
     parser.add_argument('--ble', action='store_true', help='Commission over synthetic phone GATT/BTP')
+    parser.add_argument('--service-owner', action='store_true', help='Exercise the production owned commissioner with synthetic BLE')
     args = parser.parse_args()
+    if args.service_owner and not args.ble:
+        parser.error('--service-owner requires --ble')
     if args.ble and not args.commissioning:
         parser.error('--ble requires --commissioning')
     timeout = 100 if args.commissioning else 22
@@ -37,7 +40,7 @@ def main():
                     raise RuntimeError('Synthetic relay startup failed')
                 time.sleep(0.02)
             binary = ROOT / 'build/rs-matter/target/release' / name
-            result = subprocess.run([str(binary), 'spinel+hdlc+unix://' + str(socket) + '?no-reset'] + (['--ble'] if args.ble else []),
+            result = subprocess.run([str(binary), 'spinel+hdlc+unix://' + str(socket) + '?no-reset'] + (['--ble'] if args.ble else []) + (['--service-owner'] if args.service_owner else []),
                                     cwd=directory, capture_output=True, text=True, timeout=timeout)
             if result.returncode or marker not in result.stdout:
                 raise RuntimeError('Transport failed: ' + result.stdout + result.stderr + '\nRCP error: ' + str(radio.error))
@@ -46,7 +49,7 @@ def main():
             report = {'platform': 'development host', 'radio': 'synthetic RCP',
                       'linux_ipv6_or_tun': False, 'real_radio_access': False,
                       'datagram_payload_lengths': [] if args.commissioning else [0, 4, 256, 1232],
-                      'encrypted_commissioning_tested': args.commissioning, 'synthetic_phone_gatt_tested': args.ble,
+                      'encrypted_commissioning_tested': args.commissioning, 'production_owned_commissioner_tested': args.service_owner, 'synthetic_phone_gatt_tested': args.ble,
                       'real_ble_access': False,
                       'multicast_membership_api_tested': not args.commissioning,
                       'uart_and_reset_guards_tested': True, 'output': result.stdout.splitlines()}

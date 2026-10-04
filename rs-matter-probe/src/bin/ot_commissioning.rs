@@ -254,7 +254,7 @@ impl TryRng for OsEntropy {
 }
 impl TryCryptoRng for OsEntropy {}
 
-async fn run(thread: &OpenThread, use_ble: bool) -> Result<(), Error> {
+async fn run(thread: &OpenThread, use_ble: bool, service_owner: bool) -> Result<(), Error> {
     let mut entropy =
         OsEntropy(std::fs::File::open("/dev/urandom").expect("OS entropy unavailable"));
     let mut singleton = [0; 32];
@@ -327,6 +327,7 @@ async fn run(thread: &OpenThread, use_ble: bool) -> Result<(), Error> {
     let responder = DefaultResponder::new(&dm);
     let ble = BleRelay::new();
     let generation = ble.connect(BtAddr([0xbb; 6]), 247)?;
+    let relay_generation = Cell::new(generation);
     let accessory_btp = Btp::new();
     let controller_btp = ble.network(generation)?;
     let can_btp = |address: &Address| matches!(address, Address::Btp(_));
@@ -340,14 +341,14 @@ async fn run(thread: &OpenThread, use_ble: bool) -> Result<(), Error> {
                 Timer::after(Duration::from_millis(10)).await;
                 continue;
             }
-            if let Some(packet) = ble.next_write(generation)? {
+            if let Some(packet) = ble.next_write(relay_generation.get())? {
                 accessory_btp.process_incoming(Some(247), BtAddr([0xaa; 6]), &packet.bytes)?;
-                ble.write_complete(generation, packet.sequence, true)?;
+                ble.write_complete(relay_generation.get(), packet.sequence, true)?;
             }
             let mut bytes = [0; 512];
             let length = accessory_btp.process_outgoing(Some(247), &mut bytes)?;
             if length != 0 {
-                ble.indication(generation, &bytes[..length])?;
+                ble.indication(relay_generation.get(), &bytes[..length])?;
             }
             Timer::after(Duration::from_millis(1)).await;
         }
@@ -374,15 +375,30 @@ async fn run(thread: &OpenThread, use_ble: bool) -> Result<(), Error> {
         } else {
             thread.own_address(5540)?
         };
-        let (fab, node) = test_commission(
-            ctrl_matter,
-            ctrl_crypto,
-            peer,
-            operational,
-            &thread_network,
-            &active_store,
-        )
-        .await?;
+        let (fab, node) = if service_owner {
+            assert!(use_ble);
+            commission_owned(
+                ctrl_matter,
+                ctrl_crypto,
+                &active_store,
+                &ble,
+                &relay_generation,
+                &phone_connected,
+                thread,
+                operational,
+            )
+            .await?
+        } else {
+            test_commission(
+                ctrl_matter,
+                ctrl_crypto,
+                peer,
+                operational,
+                &thread_network,
+                &active_store,
+            )
+            .await?
+        };
         println!(
             "PASS PASE and Thread provisioning over {}; CASE and completion over OpenThread",
             if use_ble {
@@ -427,7 +443,9 @@ async fn run(thread: &OpenThread, use_ble: bool) -> Result<(), Error> {
         // Replace the controller stack, including all sessions, with a fresh instance.
         // The accessory and OpenThread instance keep running; the phone is detached.
         phone_connected.set(false);
-        ble.disconnect(generation)?;
+        if !service_owner {
+            ble.disconnect(generation)?;
+        }
         let restarted = RESTART_MATTER.uninit().init_with(Matter::init(
             &TEST_DEV_DET,
             TEST_DEV_COMM,
@@ -522,10 +540,12 @@ async fn run_commissioner<C: Crypto>(
 }
 
 // Fixture-only rendezvous; external multicast discovery is a separate gate.
+// Node zero selects this run's single synthetic accessory for the owned-task test.
 async fn resolve_fixture(matter: &Matter<'_>, node: u64, sock: SocketAddrV6) -> ! {
     loop {
         let service = matter.transport().wait_mdns_resolve_request().await;
-        if !matches!(service, MatterRemoteService::Operational { node_id, .. } if node_id == node) {
+        if !matches!(service, MatterRemoteService::Operational { node_id, .. } if node == 0 || node_id == node)
+        {
             continue;
         }
         let mut name = heapless::String::<128>::new();
@@ -542,6 +562,102 @@ async fn resolve_fixture(matter: &Matter<'_>, node: u64, sock: SocketAddrV6) -> 
         );
     }
 }
+// Exercise the production owner/future against the encrypted synthetic accessory.
+// Only this probe provides fixture rendezvous; the service never injects addresses.
+async fn commission_owned<C: Crypto>(
+    matter: &Matter<'_>,
+    crypto: &C,
+    store: &PrivateStore,
+    ble: &BleRelay,
+    generation: &Cell<u64>,
+    phone_connected: &Cell<bool>,
+    thread: &OpenThread,
+    operational: SocketAddrV6,
+) -> Result<(core::num::NonZeroU8, u64), Error> {
+    use lexra_rs_matter_probe::{
+        control::Request, controller::Controller, entropy::OsEntropy, thread_lifecycle::Lifecycle,
+    };
+    let identity = Identity::open(store, crypto, ADMIN_VENDOR_ID)?;
+    let fabric = identity.install(matter, crypto, store)?;
+    let mut owner = Controller::new(ble, matter, crypto, identity, store.clone(), fabric);
+    let mut lifecycle =
+        Lifecycle::load(store.clone()).map_err(|_| rs_matter::error::ErrorCode::InvalidState)?;
+    let now = std::time::Instant::now();
+    lifecycle
+        .observe(15, true, Some(thread), now)
+        .map_err(|_| rs_matter::error::ErrorCode::InvalidState)?;
+    lifecycle
+        .import(&dataset(), 15, thread, now)
+        .map_err(|_| rs_matter::error::ErrorCode::InvalidState)?;
+    let mut entropy = OsEntropy::open().map_err(|_| rs_matter::error::ErrorCode::InvalidState)?;
+    let start = Request::decode(
+        3,
+        br#"{"schema":1,"discriminator":3840,"pin":20202021,"timeout_seconds":120}"#,
+    )
+    .unwrap();
+    let reply = owner
+        .handle(start, 1, &lifecycle, &mut entropy, now)
+        .unwrap();
+    let reply: serde_json::Value = serde_json::from_slice(&reply).unwrap();
+    assert_eq!(reply["ok"], true);
+    let session = reply["result"]["session"].as_str().unwrap();
+    let attach =
+        format!(r#"{{"schema":1,"session":"{session}","address":"bbbbbbbbbbbb","mtu":247}}"#);
+    let reply = owner
+        .handle(
+            Request::decode(6, attach.as_bytes()).unwrap(),
+            1,
+            &lifecycle,
+            &mut entropy,
+            now,
+        )
+        .unwrap();
+    let reply: serde_json::Value = serde_json::from_slice(&reply).unwrap();
+    assert_eq!(reply["ok"], true);
+    generation.set(reply["result"]["generation"].as_u64().unwrap());
+    let status = format!(r#"{{"schema":1,"session":"{session}"}}"#);
+    let work = async {
+        let waker = std::task::Waker::from(std::sync::Arc::new(NoopWake));
+        let mut context = std::task::Context::from_waker(&waker);
+        loop {
+            let now = std::time::Instant::now();
+            lifecycle
+                .observe(15, true, Some(thread), now)
+                .map_err(|_| rs_matter::error::ErrorCode::InvalidState)?;
+            owner.poll(&lifecycle, now, &mut context);
+            let reply = owner
+                .handle(
+                    Request::decode(4, status.as_bytes()).unwrap(),
+                    1,
+                    &lifecycle,
+                    &mut entropy,
+                    now,
+                )
+                .unwrap();
+            let reply: serde_json::Value = serde_json::from_slice(&reply).unwrap();
+            assert_eq!(reply["ok"], true);
+            let state = reply["result"]["state"].as_str().unwrap();
+            if state == "complete" {
+                phone_connected.set(false);
+                let node =
+                    u64::from_str_radix(reply["result"]["node"].as_str().unwrap(), 16).unwrap();
+                println!(
+                    "PASS production owned commissioner PASE, provisioning and CASE completion"
+                );
+                return Ok::<_, Error>((fabric, node));
+            }
+            if matches!(state, "failed" | "timed_out" | "cancelled") {
+                return Err(rs_matter::error::ErrorCode::InvalidState.into());
+            }
+            Timer::after(Duration::from_millis(1)).await;
+        }
+    };
+    match select(work, resolve_fixture(matter, 0, operational)).await {
+        Either::First(result) => result,
+        Either::Second(_) => unreachable!(),
+    }
+}
+
 const ADMIN_VENDOR_ID: u16 = 0xFFF1;
 
 // Use exactly the authority and allocator installed by the production service.
@@ -591,9 +707,11 @@ fn main() {
     thread
         .set_dataset(&dataset(), 15)
         .expect("public fixture dataset");
-    let use_ble = std::env::args().nth(2).as_deref() == Some("--ble");
+    let use_ble = std::env::args().any(|arg| arg == "--ble");
+    let service_owner = std::env::args().any(|arg| arg == "--service-owner");
+    assert!(!service_owner || use_ble);
     let work = async {
-        run(&thread, use_ble)
+        run(&thread, use_ble, service_owner)
             .await
             .expect("encrypted Matter fixture");
     };

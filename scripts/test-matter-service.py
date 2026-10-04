@@ -58,6 +58,112 @@ def ipc_frame(peer):
     return kind, opcode, ident, json.loads(receive(peer, length))
 
 
+class SessionPeer:
+    def __init__(self, path):
+        self.peer = socket.socket(socket.AF_UNIX)
+        self.peer.settimeout(1)
+        self.peer.connect(str(path))
+        self.ident = 1000
+        self.events = []
+
+    def call(self, opcode, body):
+        self.ident += 1
+        body = json.dumps(body).encode() if body is not None else b""
+        self.peer.sendall(struct.pack("<HBBBBI", len(body), 1, 0, opcode, 0, self.ident) + body)
+        while True:
+            kind, operation, ident, body = ipc_frame(self.peer)
+            if kind == 2:
+                assert operation == 12 and ident == 0 and body["schema"] == 1
+                assert len(self.events) < 128
+                self.events.append(body)
+                continue
+            assert (kind, operation, ident) == (1, opcode, self.ident)
+            return body
+
+    def event(self, name, generation):
+        while True:
+            for index, event in enumerate(self.events):
+                if event["event"] == name and event["data"]["generation"] == generation:
+                    return self.events.pop(index)["data"]
+            kind, opcode, ident, body = ipc_frame(self.peer)
+            assert (kind, opcode, ident) == (2, 12, 0)
+            self.events.append(body)
+
+    def close(self):
+        self.peer.close()
+
+
+def commissioning_calls(path, credentials):
+    client = SessionPeer(path)
+    try:
+        start = dict(schema=1, discriminator=3840, pin=20202021, timeout_seconds=30)
+        heartbeat = dict(schema=1, action="observe", zigbee_channel=15, zigbee_online=True)
+        assert client.call(9, heartbeat)["ok"]
+        before = credentials.read_bytes()
+        first = client.call(3, start)
+        assert first["ok"] and first["result"]["state"] == "waiting_ble"
+        session = first["result"]["session"]
+        assert len(session) == 16 and int(session, 16) != 0
+        assert "20202021" not in json.dumps(first)
+        assert client.call(3, start)["error"] == "busy"
+        state = client.call(4, dict(schema=1, session=session, subscribe=True))
+        assert state["result"]["state"] == "waiting_ble"
+        assert credentials.read_bytes() == before
+        attach = dict(schema=1, session=session, address="bbbbbbbbbbbb", mtu=247)
+        generation = client.call(6, attach)["result"]["generation"]
+        write = client.event("ble_write", generation)
+        assert write["session"] == session and write["write"] > 0
+        assert 1 <= len(bytes.fromhex(write["data"])) <= 244
+        assert credentials.read_bytes() != before  # allocator committed before actual transport work
+        assert client.call(7, dict(schema=1, session=session, generation=generation+1,
+            sequence=1, data="01"))["error"] == "stale_generation"
+        assert client.call(7, dict(schema=1, session=session, generation=generation,
+            sequence=2, data="01"))["error"] == "stale_generation"
+        assert client.call(8, dict(schema=1, session=session, generation=generation,
+            write=write["write"]+1, success=True))["error"] == "stale_generation"
+        # Replacing PASE drops the actual task and its authority borrow before starting another.
+        newer = client.call(6, attach)["result"]["generation"]
+        assert newer > generation
+        new_write = client.event("ble_write", newer)
+        assert client.call(8, dict(schema=1, session=session, generation=generation,
+            write=write["write"], success=True))["error"] == "stale_generation"
+        cancelled = client.call(5, dict(schema=1, session=session))
+        assert cancelled["result"]["state"] == "cancelled"
+        assert cancelled["result"]["deadline_remaining_seconds"] == 0
+        assert client.call(5, dict(schema=1, session=session)) == cancelled
+        assert client.call(8, dict(schema=1, session=session, generation=newer,
+            write=new_write["write"], success=True))["error"] == "cancelled"
+        assert client.call(9, heartbeat)["ok"]
+        second = client.call(3, start)["result"]["session"]
+        assert second != session
+        assert client.call(4, dict(schema=1, session=session))["error"] == "stale_session"
+        attach["session"] = second
+        generation = client.call(6, attach)["result"]["generation"]
+        write = client.event("ble_write", generation)
+        assert client.call(8, dict(schema=1, session=second, generation=generation,
+            write=write["write"], success=False))["error"] == "transport"
+        failed = client.call(4, dict(schema=1, session=second))
+        assert failed["result"]["state"] == "failed" and failed["result"]["error"] == "transport"
+        # Abandoned waiting-BLE jobs expire without status/heartbeat extending the deadline.
+        client.call(9, heartbeat)
+        expired_session = client.call(3, start)["result"]["session"]
+        before = credentials.read_bytes()
+        deadline = time.monotonic() + 33
+        while True:
+            client.call(9, heartbeat)
+            state = client.call(4, dict(schema=1, session=expired_session))
+            if state["result"]["state"] == "timed_out":
+                break
+            assert state["result"]["state"] == "waiting_ble" and time.monotonic() < deadline
+            client.events.clear()
+            time.sleep(.5)
+        assert state["result"]["error"] == "timeout"
+        assert state["result"]["deadline_remaining_seconds"] == 0
+        assert credentials.read_bytes() == before
+    finally:
+        client.close()
+
+
 def main():
     radio = ChannelRcp("127.0.0.1", tcp_nodelay=True)
     relay = service = None
@@ -67,7 +173,7 @@ def main():
             radio_path = private / "radio.sock"
             ipc_path = private / "matter.sock"
             relay = subprocess.Popen([str(ROOT / "build/openthread-unix/sim-relay-host"),
-                str(radio_path), radio.address, str(radio.port), "30"],
+                str(radio_path), radio.address, str(radio.port), "60"],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             deadline = time.monotonic() + 3
             while not radio_path.exists():
@@ -138,6 +244,7 @@ def main():
             assert created["ok"] and created["result"]["configured"]
             assert created["result"]["state"] in ("attaching", "attached")
             assert "dataset" not in created["result"]
+            commissioning_calls(ipc_path, credentials)
             # Status traffic stays responsive across multiple independent clients.
             start = time.monotonic()
             for ident in range(400, 420):
@@ -233,7 +340,7 @@ def main():
             assert not radio.error
             assert radio.counts.get("command_1", 0) == 0
             assert radio.channel_writes and all(channel == 15 for channel in radio.channel_writes)
-            print("PASS private IPC and targeted Thread events, fabric restore, gated Thread create/restore, mismatch/expiry/cache guards, no read writes, no RCP reset")
+            print("PASS commissioner IPC/BTP lifetime and timeout, targeted Thread events, fabric restore, gated Thread create/restore, mismatch/expiry/cache guards, no read writes, no RCP reset")
     finally:
         for process in (service, relay):
             if process is not None and process.poll() is None:
