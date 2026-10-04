@@ -59,14 +59,16 @@ migration also remain open. Verification passed:
 `make ZIGGURAT=1 MATTER=1 host test` and
 `make ZIGGURAT=1 MATTER=1 mips` (the MIPS toolchain prints its existing
 LOAD-USE warnings). Native commit `e35abb7` routes Shelly history into the
-bounded unit-aware source-ID journal. Matter confirmed measurements and Shelly
-HTTP updates now enter the same journal. Shelly contact, relay,
-temperature and power measurements are readable through the common device
-history route and rendered dialog; temperature and power preserve their units.
-The dashboard continues to use common cards and source-specific controllers.
-The journal caps at 8,192 records, compacts to recent records and uses `/tmp`.
-Zigbee and FRITZ!Box history integration and power-loss persistence remain open.
-The Shelly checkpoint passed `make ZIGGURAT=1 MATTER=1 host test`,
+bounded unit-aware source-ID journal. Commit `a522062` adds Zigbee temperature,
+humidity, contact, occupancy and battery samples and FRITZ!Box presence
+transitions to the same journal. Matter confirmed measurements and Shelly
+HTTP updates also enter it. All providers use the common device history route
+and rendered dialog while keeping source-specific controllers. Stable IDs are
+prefixed by source, and samples preserve units. Zigbee reads retain a legacy V2
+fallback if the source-ID journal has no samples for that device. The journal
+caps at 8,192 records, compacts to recent records and uses `/tmp`; power-loss
+persistence remains open. The source-unification checkpoint passed
+`make ZIGGURAT=1 MATTER=1 host test`,
 `make ZIGGURAT=1 MATTER=1 mips`, `npm run build`,
 `node webui/test/matter-devices-browser.cjs`, and
 `python3 scripts/test_matter_webui.py` (20/20 API tests).

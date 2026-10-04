@@ -147,8 +147,13 @@ numeric samples are suppressed. The common history route serves these records,
 and the dashboard renders the added measurements with unit-aware plots.
 Native commit `e35abb7` routes Shelly history through the same stable-ID
 journal and dashboard history dialog. Shelly contact, relay, temperature and
-power history use the shared device history route. Zigbee and FRITZ!Box
-presence history remain outside this journal, and the `/tmp` journal does not
+power history use the shared device history route. Native commit `a522062`
+moves Zigbee temperature, humidity, contact, occupancy and battery, plus
+FRITZ!Box presence transitions, into this same journal. IDs are source-prefixed
+(`zigbee:<IEEE>`, `shelly:<external-id>:<component>`, and
+`fritz:<external-id>:presence`); Matter retains its full endpoint ID. Values
+keep their units. Zigbee still falls back to the legacy history file when its
+source-ID journal has no samples. The bounded journal uses `/tmp` and does not
 survive power loss. Alert restoration and CO2/PM2.5 threshold support remain
 open. Verification passed:
 `make ZIGGURAT=1 MATTER=1 host test`, `make ZIGGURAT=1 MATTER=1 mips`,
@@ -161,13 +166,12 @@ open. Verification passed:
    `Gateway::Device` instances while preserving stable `matter:` IDs and
    source provenance. Unknown readings retain their units and serialize as
    null/unknown; refresh reconciliation preserves confirmed values.
-2. Route Zigbee and remaining external HTTP measurements through the
-   source-neutral, unit-aware history journal already used by Matter and
-   Shelly. Decide and implement
-   power-loss persistence if history must survive gateway reboot. Restore
-   common alert settings across Matter service/gateway restart, then add
-   unit-aware CO2/PM2.5 alert support. Keep source-specific transport in
-   adapters; keep join and Thread-specific settings in the Matter area.
+2. [x] Route Matter, Zigbee, Shelly and FRITZ!Box telemetry through the
+   source-neutral unit-aware journal while keeping setup and transport in
+   source adapters. Decide and implement power-loss persistence if history
+   must survive gateway reboot. Restore common alert settings across Matter
+   service/gateway restart, then add unit-aware CO2/PM2.5 alert support. Keep
+   join and Thread-specific settings in the Matter area.
 3. Extend broad enabled/disabled, absent/stalled service, malformed reply, queue
    pressure, cancellation, socket-loss and secret-redaction gates. Existing native
    and new frontend tests cover subsets; checklist item 6 remains open.
