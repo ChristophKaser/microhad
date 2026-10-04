@@ -362,6 +362,60 @@ mod tests {
         let mut identity = Identity::open(&store, &crypto, 0xfff1).unwrap();
         assert!(identity.allocate_node(&store).is_err());
     }
+
+    #[test]
+    fn staged_envelope_restores_authority_catalog_and_allocator_together() {
+        use crate::catalog::{Catalog, Phase};
+
+        let source = Directory::new();
+        let store = PrivateStore::open(&source.0).unwrap();
+        let crypto = default_crypto(
+            OsEntropy::open().unwrap(),
+            CryptoSensitiveRef::new(&[4; 32]),
+        );
+        let mut identity = Identity::open(&store, &crypto, 0xfff1).unwrap();
+        let fabric = identity.fabric_id();
+        assert_eq!(identity.allocate_node(&store).unwrap(), 2);
+        let catalog = Catalog::open(store.clone(), fabric, identity.next_node()).unwrap();
+        let reservation = catalog.reserve(2).unwrap();
+        reservation.fabric_installed().unwrap();
+        reservation.thread_provisioned().unwrap();
+        reservation.complete().unwrap();
+        let source_bytes = std::fs::read(source.0.join("credentials.bin")).unwrap();
+        drop(catalog);
+        drop(identity);
+        drop(store);
+
+        let staged = Directory::new();
+        drop(PrivateStore::open(&staged.0).unwrap());
+        std::fs::copy(
+            source.0.join("credentials.bin"),
+            staged.0.join("credentials.bin"),
+        )
+        .unwrap();
+        let staged_store = PrivateStore::open(&staged.0).unwrap();
+        let mut restored = Identity::open(&staged_store, &crypto, 0xfff1).unwrap();
+        assert_eq!(restored.fabric_id(), fabric);
+        assert_eq!(restored.next_node(), 3);
+        let restored_catalog = Catalog::open(
+            staged_store.clone(),
+            restored.fabric_id(),
+            restored.next_node(),
+        )
+        .unwrap();
+        let nodes = restored_catalog.nodes();
+        assert_eq!(nodes.len(), 1);
+        assert_eq!(nodes[0].id, 2);
+        assert!(matches!(nodes[0].phase, Phase::Complete));
+        assert_eq!(restored.allocate_node(&staged_store).unwrap(), 3);
+        drop(restored_catalog);
+        drop(restored);
+        drop(staged_store);
+        assert_eq!(
+            std::fs::read(source.0.join("credentials.bin")).unwrap(),
+            source_bytes
+        );
+    }
     #[test]
     fn partial_wrong_keys_and_orphaned_fabric_fail_closed() {
         let directory = Directory::new();
