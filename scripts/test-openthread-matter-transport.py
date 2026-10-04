@@ -57,6 +57,8 @@ def main():
                 raise RuntimeError('Device snapshot pagination did not complete: ' + result.stdout + result.stderr)
             if args.service_owner and 'PASS capability-gated OnOff transactions and confirmed readback over CASE' not in result.stdout:
                 raise RuntimeError('Operational OnOff transaction did not complete: ' + result.stdout + result.stderr)
+            if args.service_owner and 'PASS production manager subscription and peer-correlated OnOff reports' not in result.stdout:
+                raise RuntimeError('Production subscription/report path did not complete: ' + result.stdout + result.stderr)
             if result.returncode or marker not in result.stdout:
                 raise RuntimeError('Transport failed: ' + result.stdout + result.stderr + '\nRCP error: ' + str(radio.error))
             if radio.error:

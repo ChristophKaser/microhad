@@ -551,11 +551,12 @@ async fn run(
                 persisted.fabric_id(),
                 persisted.next_node(),
             )?;
-            let mut manager = lexra_rs_matter_probe::devices::Manager::new(
+            let mut manager = lexra_rs_matter_probe::devices::Manager::new_with_subscription_limit(
                 ctrl_matter,
                 &ctrl_crypto,
                 fab,
                 catalog,
+                1,
             )
             .map_err(|_| rs_matter::error::ErrorCode::Failure)?;
             for attempt in 0..2 {
@@ -769,52 +770,74 @@ async fn run(
                 Err(lexra_rs_matter_probe::operations::Failure::Unsupported)
             ));
             println!("PASS capability-gated OnOff transactions and confirmed readback over CASE");
-            let subscription = lexra_rs_matter_probe::subscriptions::establish_attribute(
-                ctrl_matter, ctrl_crypto, fab, node, 1, 6, 0,
-            )
-            .await?;
-            assert!(subscription.subscription_id != 0);
-            assert!(subscription.max_int <= 3600);
-            let exchange = Exchange::initiate(ctrl_matter, ctrl_crypto, fab, node).await?;
-            exchange.on_off().toggle(1).await?;
-            let report = embassy_time::with_timeout(
-                Duration::from_secs(5),
-                lexra_rs_matter_probe::subscriptions::receive_report(ctrl_matter),
+            let subscription_id = embassy_time::with_timeout(
+                Duration::from_secs(35),
+                std::future::poll_fn(|context| {
+                    manager.poll(true, false, std::time::Instant::now(), context);
+                    if let Some(id) = manager.subscription_id(node, 1, 6, 0) {
+                        std::task::Poll::Ready(id)
+                    } else {
+                        context.waker().wake_by_ref();
+                        std::task::Poll::Pending
+                    }
+                }),
             )
             .await
-            .map_err(|_| rs_matter::error::ErrorCode::RxTimeout)??;
-            assert_eq!((report.fabric, report.node), (fab.get(), node));
-            assert_eq!(report.subscription_id, subscription.subscription_id);
+            .map_err(|_| rs_matter::error::ErrorCode::RxTimeout)?;
+            assert!(subscription_id != 0);
+            let exchange = Exchange::initiate(ctrl_matter, ctrl_crypto, fab, node).await?;
+            exchange.on_off().toggle(1).await?;
+            let reported_on = embassy_time::with_timeout(
+                Duration::from_secs(5),
+                std::future::poll_fn(|context| {
+                    manager.poll(true, false, std::time::Instant::now(), context);
+                    if let Some(report) = manager.pop_report() {
+                        std::task::Poll::Ready(report)
+                    } else {
+                        context.waker().wake_by_ref();
+                        std::task::Poll::Pending
+                    }
+                }),
+            )
+            .await
+            .map_err(|_| rs_matter::error::ErrorCode::RxTimeout)?;
             assert!(matches!(
-                report.values.as_slice(),
-                [lexra_rs_matter_probe::operations::ResultValue {
+                reported_on,
+                lexra_rs_matter_probe::operations::ResultValue {
                     node: lexra_rs_matter_probe::control::Id(reported_node),
                     endpoint: 1,
                     cluster: 6,
                     attribute: 0,
                     value: lexra_rs_matter_probe::operations::Value::Bool(true),
-                }] if *reported_node == node
+                } if reported_node == node
             ));
             let exchange = Exchange::initiate(ctrl_matter, ctrl_crypto, fab, node).await?;
             exchange.on_off().toggle(1).await?;
-            let report = embassy_time::with_timeout(
+            let reported_off = embassy_time::with_timeout(
                 Duration::from_secs(5),
-                lexra_rs_matter_probe::subscriptions::receive_report(ctrl_matter),
+                std::future::poll_fn(|context| {
+                    manager.poll(true, false, std::time::Instant::now(), context);
+                    if let Some(report) = manager.pop_report() {
+                        std::task::Poll::Ready(report)
+                    } else {
+                        context.waker().wake_by_ref();
+                        std::task::Poll::Pending
+                    }
+                }),
             )
             .await
-            .map_err(|_| rs_matter::error::ErrorCode::RxTimeout)??;
-            assert_eq!(report.subscription_id, subscription.subscription_id);
+            .map_err(|_| rs_matter::error::ErrorCode::RxTimeout)?;
             assert!(matches!(
-                report.values.as_slice(),
-                [lexra_rs_matter_probe::operations::ResultValue {
+                reported_off,
+                lexra_rs_matter_probe::operations::ResultValue {
                     node: lexra_rs_matter_probe::control::Id(reported_node),
                     endpoint: 1,
                     cluster: 6,
                     attribute: 0,
                     value: lexra_rs_matter_probe::operations::Value::Bool(false),
-                }] if *reported_node == node
+                } if reported_node == node
             ));
-            println!("PASS bounded subscription and immediate peer-correlated OnOff report");
+            println!("PASS production manager subscription and peer-correlated OnOff reports");
         }
         let exchange = Exchange::initiate(ctrl_matter, ctrl_crypto, fab, node).await?;
         assert!(!exchange.on_off().on_off_read(1).await?);

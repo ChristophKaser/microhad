@@ -20,7 +20,10 @@ use std::{
 pub const MAX_ENDPOINTS: usize = 32;
 pub const MAX_CLUSTERS: usize = 64;
 pub const MAX_OPERATION_JOBS: usize = 8;
+// Seven standard reportable values across at most 32 discovered endpoints.
+pub const MAX_DEVICE_SUBSCRIPTIONS: usize = MAX_ENDPOINTS * 7;
 const MAX_RETAINED_JOBS: usize = 16;
+const MAX_QUEUED_REPORT_VALUES: usize = 512;
 
 #[derive(Serialize)]
 pub struct Device {
@@ -75,6 +78,28 @@ struct ActiveOperation<'a> {
     deadline: Instant,
     work: OperationWork<'a>,
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct SubscriptionKey {
+    node: u64,
+    endpoint: u16,
+    cluster: u32,
+    attribute: u32,
+}
+struct SubscriptionState {
+    key: SubscriptionKey,
+    id: Option<u32>,
+    next_retry: Instant,
+    failures: u8,
+    last_report: Option<Vec<u8>>,
+}
+type SubscriptionWork<'a> = Pin<
+    Box<
+        dyn Future<Output = Result<rs_matter::im::client::SubscribeEstablished, Error>> + 'a,
+    >,
+>;
+type ReportWork<'a> = Pin<
+    Box<dyn Future<Output = Result<crate::subscriptions::ReceivedReport, Error>> + 'a>,
+>;
 #[derive(Debug, Serialize)]
 pub struct JobAccepted {
     pub job: crate::control::Id,
@@ -123,6 +148,11 @@ pub struct Manager<'a, C: Crypto> {
     queued: VecDeque<QueuedOperation>,
     active: Option<ActiveOperation<'a>>,
     jobs: VecDeque<JobRecord>,
+    subscription_limit: usize,
+    subscriptions: Vec<SubscriptionState>,
+    subscription_work: Option<(SubscriptionKey, Instant, SubscriptionWork<'a>)>,
+    report_work: Option<ReportWork<'a>>,
+    reports: VecDeque<crate::operations::ResultValue>,
 }
 impl<'a, C: Crypto + 'a> Manager<'a, C> {
     pub fn new(
@@ -131,6 +161,27 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         fabric: NonZeroU8,
         catalog: Catalog,
     ) -> Result<Self, std::io::Error> {
+        Self::new_with_subscription_limit(
+            matter,
+            crypto,
+            fabric,
+            catalog,
+            MAX_DEVICE_SUBSCRIPTIONS,
+        )
+    }
+    pub fn new_with_subscription_limit(
+        matter: &'a Matter<'a>,
+        crypto: &'a C,
+        fabric: NonZeroU8,
+        catalog: Catalog,
+        subscription_limit: usize,
+    ) -> Result<Self, std::io::Error> {
+        if subscription_limit > MAX_DEVICE_SUBSCRIPTIONS {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Matter subscription limit exceeds manager bound",
+            ));
+        }
         use rs_matter::crypto::TryRng;
         let mut entropy = crate::entropy::OsEntropy::open()?;
         let revision = entropy.try_next_u64().unwrap().max(1);
@@ -148,10 +199,38 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             queued: VecDeque::new(),
             active: None,
             jobs: VecDeque::new(),
+            subscription_limit,
+            subscriptions: Vec::new(),
+            subscription_work: None,
+            report_work: None,
+            reports: VecDeque::new(),
         })
     }
     pub fn snapshots(&self) -> &[Snapshot] {
         &self.snapshots
+    }
+    pub fn subscription_id(
+        &self,
+        node: u64,
+        endpoint: u16,
+        cluster: u32,
+        attribute: u32,
+    ) -> Option<u32> {
+        self.subscriptions
+            .iter()
+            .find(|subscription| {
+                subscription.key
+                    == SubscriptionKey {
+                        node,
+                        endpoint,
+                        cluster,
+                        attribute,
+                    }
+            })
+            .and_then(|subscription| subscription.id)
+    }
+    pub fn pop_report(&mut self) -> Option<crate::operations::ResultValue> {
+        self.reports.pop_front()
     }
     pub fn operations_busy(&self) -> bool {
         self.active.is_some() || !self.queued.is_empty()
@@ -332,18 +411,37 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 );
             }
         }
-        if !ready || commissioning {
+        if !ready {
             self.work = None;
-            if !ready {
-                let changed = self.snapshots.iter().any(|s| s.online);
-                for snapshot in &mut self.snapshots {
-                    snapshot.online = false;
-                    snapshot.next = now;
-                }
-                if changed {
-                    self.changed();
+            self.subscription_work = None;
+            self.report_work = None;
+            let changed = self.snapshots.iter().any(|s| s.online);
+            for snapshot in &mut self.snapshots {
+                snapshot.online = false;
+                snapshot.next = now;
+            }
+            for subscription in &mut self.subscriptions {
+                subscription.id = None;
+                subscription.next_retry = now;
+            }
+            if changed {
+                self.changed();
+            }
+            return;
+        }
+        if self.report_work.is_none() {
+            self.report_work = Some(Box::pin(crate::subscriptions::receive_report(self.matter)));
+        }
+        if let Some(work) = &mut self.report_work {
+            if let Poll::Ready(result) = work.as_mut().poll(context) {
+                self.report_work = None;
+                if let Ok(report) = result {
+                    self.record_report(report);
                 }
             }
+        }
+        if commissioning {
+            self.work = None;
             return;
         }
         if let Some(active) = &mut self.active {
@@ -403,6 +501,40 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             self.record_state(id, JobRecordState::Running);
             return;
         }
+        if let Some((key, deadline, work)) = &mut self.subscription_work {
+            let result = if now >= *deadline {
+                Some(Err(ErrorCode::RxTimeout.into()))
+            } else {
+                match work.as_mut().poll(context) {
+                    Poll::Ready(result) => Some(result),
+                    Poll::Pending => None,
+                }
+            };
+            if let Some(result) = result {
+                let key = *key;
+                self.subscription_work = None;
+                if let Some(subscription) = self
+                    .subscriptions
+                    .iter_mut()
+                    .find(|subscription| subscription.key == key)
+                {
+                    match result {
+                        Ok(established) => {
+                            subscription.id = Some(established.subscription_id);
+                            subscription.failures = 0;
+                            subscription.next_retry = now
+                                + Duration::from_secs(u64::from(established.max_int).max(1));
+                        }
+                        Err(_) => {
+                            subscription.id = None;
+                            subscription.failures = subscription.failures.saturating_add(1);
+                            subscription.next_retry = now + retry_delay(subscription.failures);
+                        }
+                    }
+                }
+            }
+            return;
+        }
         if let Some((node, deadline, work)) = &mut self.work {
             let result = if now >= *deadline {
                 Some(Err(ErrorCode::RxTimeout.into()))
@@ -436,6 +568,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 if visible_changed {
                     self.changed();
                 }
+                self.sync_subscriptions(now);
             }
             return;
         }
@@ -474,8 +607,102 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                     snapshot.node,
                 )),
             ));
+            return;
+        }
+        self.sync_subscriptions(now);
+        if let Some(subscription) = self
+            .subscriptions
+            .iter()
+            .filter(|subscription| subscription.next_retry <= now)
+            .min_by_key(|subscription| subscription.next_retry)
+        {
+            let key = subscription.key;
+            self.subscription_work = Some((
+                key,
+                now + Duration::from_secs(30),
+                Box::pin(crate::subscriptions::establish_attribute(
+                    self.matter,
+                    self.crypto,
+                    self.fabric,
+                    key.node,
+                    key.endpoint,
+                    key.cluster,
+                    key.attribute,
+                )),
+            ));
         }
     }
+    fn sync_subscriptions(&mut self, now: Instant) {
+        let desired = subscription_keys(&self.snapshots, self.subscription_limit);
+        self.subscriptions
+            .retain(|subscription| desired.contains(&subscription.key));
+        for key in desired {
+            if !self
+                .subscriptions
+                .iter()
+                .any(|subscription| subscription.key == key)
+            {
+                self.subscriptions.push(SubscriptionState {
+                    key,
+                    id: None,
+                    next_retry: now,
+                    failures: 0,
+                    last_report: None,
+                });
+            }
+        }
+    }
+    fn record_report(&mut self, report: crate::subscriptions::ReceivedReport) {
+        if report.fabric != self.fabric.get() {
+            return;
+        }
+        let Some(subscription) = self.subscriptions.iter_mut().find(|subscription| {
+            subscription.key.node == report.node
+                && subscription.id == Some(report.subscription_id)
+        }) else {
+            return;
+        };
+        for value in report.values {
+            if value.node.0 != subscription.key.node
+                || value.endpoint != subscription.key.endpoint
+                || value.cluster != subscription.key.cluster
+                || value.attribute != subscription.key.attribute
+            {
+                continue;
+            }
+            let Ok(encoded) = serde_json::to_vec(&value) else {
+                continue;
+            };
+            if subscription.last_report.as_ref() == Some(&encoded) {
+                continue;
+            }
+            subscription.last_report = Some(encoded);
+            if self.reports.len() == MAX_QUEUED_REPORT_VALUES {
+                self.reports.pop_front();
+            }
+            self.reports.push_back(value);
+        }
+    }
+}
+fn subscription_keys(snapshots: &[Snapshot], maximum: usize) -> Vec<SubscriptionKey> {
+    snapshots
+        .iter()
+        .filter(|snapshot| snapshot.online)
+        .flat_map(|snapshot| {
+            snapshot.endpoints.iter().flat_map(move |endpoint| {
+                [6, 8, 91, 1026, 1029, 1037, 1066]
+                    .into_iter()
+                    .filter(move |cluster| endpoint.servers.contains(cluster))
+                    .map(move |cluster| SubscriptionKey {
+                        node: snapshot.node,
+                        endpoint: endpoint.id,
+                        cluster,
+                        attribute: 0,
+                    })
+            })
+        })
+        .take(maximum)
+        .collect()
 }
 fn retry_delay(failures: u8) -> Duration {
     Duration::from_secs(5u64 << failures.saturating_sub(1).min(6))
@@ -535,6 +762,68 @@ pub async fn discover<C: Crypto>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn subscription_candidates_follow_advertised_clusters_and_stay_bounded() {
+        let now = Instant::now();
+        let snapshot = Snapshot {
+            node: 2,
+            endpoints: vec![
+                Endpoint {
+                    id: 1,
+                    servers: vec![6, 1026, 0x1d],
+                },
+                Endpoint {
+                    id: 2,
+                    servers: vec![8, 91, 1029, 1037, 1066, 0x1d],
+                },
+            ],
+            online: true,
+            next: now,
+            failures: 0,
+        };
+        let offline = Snapshot {
+            node: 3,
+            endpoints: snapshot.endpoints.iter().map(|endpoint| Endpoint {
+                id: endpoint.id,
+                servers: endpoint.servers.clone(),
+            }).collect(),
+            online: false,
+            next: now,
+            failures: 0,
+        };
+        let keys = subscription_keys(&[snapshot, offline], MAX_DEVICE_SUBSCRIPTIONS);
+        assert_eq!(keys.len(), 7);
+        assert!(keys.contains(&SubscriptionKey {
+            node: 2,
+            endpoint: 1,
+            cluster: 6,
+            attribute: 0,
+        }));
+        assert!(keys.contains(&SubscriptionKey {
+            node: 2,
+            endpoint: 2,
+            cluster: 1066,
+            attribute: 0,
+        }));
+        assert!(keys.iter().all(|key| key.node == 2));
+        let oversized = Snapshot {
+            node: 4,
+            endpoints: (1..=40)
+                .map(|id| Endpoint {
+                    id,
+                    servers: vec![6, 8, 91, 1026, 1029, 1037, 1066],
+                })
+                .collect(),
+            online: true,
+            next: now,
+            failures: 0,
+        };
+        assert_eq!(
+            subscription_keys(&[oversized], MAX_DEVICE_SUBSCRIPTIONS).len(),
+            MAX_DEVICE_SUBSCRIPTIONS
+        );
+    }
+
     #[test]
     fn operational_jobs_are_bounded_status_addressable_and_fail_on_radio_loss() {
         use crate::{control::Request, entropy::OsEntropy, store::PrivateStore};
