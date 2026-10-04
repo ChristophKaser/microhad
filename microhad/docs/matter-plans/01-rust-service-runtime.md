@@ -2,12 +2,13 @@
 
 ## Current open work — 2026-10-04
 
-Runtime recovery and final build evidence remain open; the host service and optional
-supervisor exist.
+Host service/native round trips and the paired supervisor failure matrix pass.
+Target runtime/resource evidence and report delivery from the installed daemon
+to a registered native device remain open.
 
-Next deliverable: Add an integrated failure/restart matrix for service exit, coordinator
-restart, Thread socket loss and exhausted supervisor retries. Record bounded recovery
-and continued Zigbee ownership.
+Next deliverable: Verify the complete paired launch on the gateway under plan 08,
+including CPU, memory, startup/IPC deadlines, and Matter reports from a real
+commissioned device. Continue host coverage for production-daemon report delivery.
 
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.
@@ -166,3 +167,26 @@ in `ziggurat-compilation/docs/matter-operational-discovery-validation.json`.
 This is a current artifact manifest, not target resource/performance acceptance.
 Broader integrated failure/restart work remains open; no physical execution or
 plan 08 work occurred.
+
+## Native worker and paired supervisor recovery checkpoint — 2026-10-04
+
+`python3 scripts/test_matter_native_worker.py --real-service` passed against
+the actual `thread-matter` process and native Matter worker. It verified native
+HTTP status, Thread observation and dataset lifecycle requests, coordinator
+loss transitioning the service to `awaiting_coordinator`, continued native
+availability, and 503 responses after the service stopped.
+
+`python3 scripts/test_paired_supervisor.py` passed all 10 tests with local Unix
+sockets enabled. This covers independent Matter retry exhaustion without
+stopping Zigbee/native, radio failure stopping and restarting the Matter/native/
+Zigbee pair in order, native crash retry bounds without a second radio owner,
+quiesce ordering, missing Thread endpoint behavior, stale socket handling,
+duplicate supervisor refusal and unsafe stop refusal. The default sandbox run
+was not valid evidence because it denies Unix sockets; the elevated host run
+passed in 66.7 seconds.
+
+This closes the planned host failure/restart matrix for the paired supervisor
+and real-service/native lifecycle checkpoint. Production daemon report delivery
+into a registered Matter endpoint remains a host-fixture gap; target startup,
+CPU, RSS, deadlines, physical commissioning and RF behavior remain exclusively
+in plan 08. No gateway deployment occurred.
