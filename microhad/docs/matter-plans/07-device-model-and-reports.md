@@ -10,7 +10,8 @@ accessory fixture without injected rendezvous.
 Bounded endpoint/cluster descriptor reads and service scheduling now have
 encrypted host evidence (`05053ec`, `5c588df`). Revisioned service snapshot IPC
 is implemented (`237d110`); native validation and queued snapshot HTTP exposure
-are implemented. Dashboard views, controls and reports remain open.
+are implemented. The dashboard snapshot view builds and its HTTP client is
+verified; rendered interaction, controls and reports remain open.
 Remote recovery of catalogued nodes, legacy migration, device
 operations and report integration remain open. Next deliverable: reconcile
 recovery-required nodes over operational CASE, discover endpoint descriptors and

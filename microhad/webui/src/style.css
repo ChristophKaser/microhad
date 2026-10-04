@@ -1101,3 +1101,6 @@ button:disabled {
 .matter-panel form { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; margin: 14px 0; }
 .matter-panel label { display: grid; gap: 6px; flex: 1; min-width: 200px; }
 .matter-panel input { min-width: 0; width: 100%; box-sizing: border-box; }
+.matter-devices { margin-top: 24px; padding-top: 16px; }
+.matter-device-list { list-style: none; padding: 0; }
+.matter-device-list li { margin: 12px 0; overflow-wrap: anywhere; }

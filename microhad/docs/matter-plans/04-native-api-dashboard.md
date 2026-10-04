@@ -4,9 +4,9 @@
 
 Queued commissioning/Thread APIs, the owned WebSocket relay and a feature-aware
 dashboard onboarding/progress panel exist. Queued device snapshot pages now have
-native validation and HTTP exposure. Device controls/measurement APIs and views remain open.
+native validation, HTTP exposure and a dashboard view. Device controls/measurement APIs and views remain open.
 
-Next deliverable: Add snapshot views and device read/control and measurements after plan
+Next deliverable: Verify rendered snapshot interaction, then add device read/control and measurements after plan
 07 supplies the production device pipeline. Extend the broader API/failure gates
 in checklist item 6; rendered browser interaction remains unverified.
 
@@ -149,6 +149,8 @@ are historical; the latest status/evidence section above takes precedence.
    setup input out of logs and persistent dashboard state.
 5. [ ] When plan 07 is ready, expose device snapshots/read/control and render
    advertised controls and measurements, including unavailable/null values.
+   Snapshot API/view and bounded HTTP client are implemented; rendered interaction,
+   read/control and measurement rendering keep this item open.
 6. [ ] Verify enabled/disabled builds, unavailable/stalled service, invalid
    input, queue saturation, WebSocket loss and secret redaction. Run default
    and enabled host/MIPS suites sequentially and make webui for UI edits.
@@ -399,3 +401,29 @@ nonempty physical catalog or device control. No plan 08 test was performed.
 
 Device API implementation remains partial: snapshot views, read/control,
 measurements, subscriptions, history and alerts still require plan 07 work.
+
+## Dashboard device snapshot checkpoint — 2026-10-04
+
+`MatterDevices` now consumes queued snapshot pages through the production
+TypeScript client. Refresh begins a new revision; Load next endpoint advances
+one page explicitly. It shows recorded node/endpoint IDs, discovery/setup/recovery
+state, availability and advertised features using pinned SDK cluster IDs. Empty
+and undiscovered catalogs are distinct. Changed revisions stop pagination and
+require explicit refresh. Previous information is labelled cached on error;
+service loss/unmount aborts outstanding work. Calls retain the existing 10-second
+job deadline, 3-second HTTP deadline and 2048-byte response limit.
+
+The client rejects changed revisions, cursor loops/skips, contradictory IDs,
+invalid availability, duplicate/unsorted clusters, excess entries and unknown
+fields. The view additionally bounds retained entries to 2048, rejects duplicate
+identities and checks ordering between pages. UI state stays in memory; no
+background full-catalog traversal or automatic retry is introduced.
+
+Verification: `make webui` passes TypeScript and Vite compilation; production
+client tests via `python3 scripts/test_matter_webui.py` pass 14 actual-localhost
+HTTP tests. New checks cover two-page revision handoff, stale revision without
+replay, contradictory metadata, empty/recovery entries and invalid cursor/token
+rejection before HTTP submission. No native C++ source changed in this checkpoint.
+Rendered browser interaction remains unverified: local Chromium needs runtime
+paths outside the workspace sandbox. This does not close checklist items 5/6.
+Controls, measurements, history and alerts remain open; plan 08 is excluded.

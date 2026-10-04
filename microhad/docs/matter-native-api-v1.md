@@ -88,7 +88,13 @@ fields, bounded arrays, canonical nonzero IDs, endpoint ID/node/number agreement
 cluster ordering/uniqueness, Descriptor support and online/catalog consistency.
 Malformed peer replies fail the job and invalidate the service connection.
 Default Matter-disabled builds return 404 for this route. Reads, commands,
-measurements and dashboard device views remain pending.
+measurements remain pending. The dashboard provides explicit refresh and
+next-endpoint loading, catalog/recovery states, availability, stable IDs and
+advertised feature labels. It stops on changed revisions, rejects loops or
+contradictory metadata, and offers explicit refresh without replaying calls.
+Loaded information remains visibly cached after a read failure. The view
+neither polls all pages automatically nor implies controls/measurement values
+are implemented. Rendered browser interaction remains unverified.
 
 ## Thread dataset mutations
 

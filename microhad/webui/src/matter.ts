@@ -3,7 +3,9 @@ export type MatterSession = { session: string; state: string; deadline_remaining
 export type MatterStatus = { enabled: boolean; available: boolean; fabric_ready?: boolean; controller_initialized?: boolean; state?: string }
 export type ThreadStatus = { enabled: boolean; available: boolean; configured?: boolean; attached?: boolean; state?: string; zigbee_channel?: number; dataset_channel?: number }
 const states = ['waiting_ble', 'pase', 'provisioning', 'waiting_thread', 'case', 'completing', 'complete', 'cancelled', 'failed', 'timed_out']
-const errors = ['malformed', 'unsupported', 'not_ready', 'busy', 'stale_session', 'stale_generation', 'not_found', 'timeout', 'cancelled', 'transport', 'storage', 'capacity', 'accessory', 'protocol', 'disabled']
+const errors = ['malformed', 'unsupported', 'not_ready', 'busy', 'stale_session', 'stale_generation', 'stale_revision', 'not_found', 'timeout', 'cancelled', 'transport', 'storage', 'capacity', 'accessory', 'protocol', 'disabled']
+export type MatterDevice = { node: string; state: 'complete' | 'recovery_required' | 'commissioning'; online: boolean; id: string | null; endpoint: number | null; servers: number[] }
+export type MatterDevicePage = { revision: string; devices: MatterDevice[]; next_cursor: number | null }
 export class MatterError extends Error { constructor(code: string) { super(errors.includes(code) ? code : 'protocol') } }
 function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new MatterError('protocol')
@@ -95,11 +97,15 @@ function pause(ms: number, signal: AbortSignal): Promise<void> {
   })
 }
 export async function matterCall(route: string, fields: Record<string, unknown>, signal: AbortSignal): Promise<unknown> {
-  if (!['/api/thread/create', '/api/thread/import', '/api/matter/commissioning/status', '/api/matter/commissioning/cancel'].includes(route)) throw new MatterError('unsupported')
+  if (!['/api/thread/create', '/api/thread/import', '/api/matter/commissioning/status', '/api/matter/commissioning/cancel', '/api/matter/devices/snapshot'].includes(route)) throw new MatterError('unsupported')
   const keys = Object.keys(fields)
   if (route.endsWith('/create') && keys.length !== 0) throw new MatterError('malformed')
   if (route.endsWith('/import') && (keys.length !== 1 || typeof fields.dataset !== 'string' || !validDataset(fields.dataset))) throw new MatterError('malformed')
   if (route.includes('/commissioning/') && (keys.length !== 1 || typeof fields.session !== 'string' || !validSession(fields.session))) throw new MatterError('malformed')
+  if (route.endsWith('/snapshot') && (fields.action !== 'snapshot' || keys.some(key => !['action', 'cursor', 'revision'].includes(key)) ||
+      (fields.cursor !== undefined && !integer(fields.cursor, 0, 2047)) ||
+      (fields.revision !== undefined && (typeof fields.revision !== 'string' || !validSession(fields.revision))) ||
+      (fields.cursor !== undefined && fields.cursor !== 0 && fields.revision === undefined))) throw new MatterError('malformed')
   const controller = new AbortController()
   const abort = () => controller.abort()
   signal.addEventListener('abort', abort, { once: true })
@@ -125,4 +131,30 @@ export async function matterCall(route: string, fields: Record<string, unknown>,
     if (controller.signal.aborted && !signal.aborted) throw new MatterError('timeout')
     throw error
   } finally { clearTimeout(timer); signal.removeEventListener('abort', abort) }
+}
+
+export async function matterDevicePage(cursor: number, revision: string | undefined, signal: AbortSignal): Promise<MatterDevicePage> {
+  const data = object(await matterCall('/api/matter/devices/snapshot', { action: 'snapshot', cursor, ...(revision === undefined ? {} : { revision }) }, signal))
+  if (Object.keys(data).length !== 3 || typeof data.revision !== 'string' || !validSession(data.revision) ||
+      (revision !== undefined && data.revision !== revision) ||
+      !Array.isArray(data.devices) || data.devices.length > 1 ||
+      (data.next_cursor !== null && (data.next_cursor !== cursor + 1 || !integer(data.next_cursor, 1, 2047))) ||
+      (data.devices.length === 0 && (cursor !== 0 || data.next_cursor !== null))) throw new MatterError('protocol')
+  const devices = data.devices.map(value => {
+    const device = object(value)
+    if (Object.keys(device).length !== 6 || typeof device.node !== 'string' || !validSession(device.node) || device.node <= '0000000000000001' ||
+        !['complete', 'recovery_required', 'commissioning'].includes(String(device.state)) || typeof device.online !== 'boolean' ||
+        (device.online && device.state !== 'complete') || !Array.isArray(device.servers) || device.servers.length > 64 ||
+        device.servers.some((cluster, index, clusters) => !integer(cluster, 0, 0xffffffff) || (index > 0 && cluster <= clusters[index - 1]))) throw new MatterError('protocol')
+    if (device.endpoint === null) {
+      if (device.id !== null || device.online || device.servers.length !== 0) throw new MatterError('protocol')
+    } else {
+      if (!integer(device.endpoint, 0, 65534) || typeof device.id !== 'string' ||
+          !/^matter:[0-9a-f]{16}:[0-9a-f]{16}:[0-9a-f]{4}$/.test(device.id) ||
+          device.id.slice(7, 23) === '0000000000000000' || device.id.slice(24, 40) !== device.node ||
+          parseInt(device.id.slice(41), 16) !== device.endpoint || !device.servers.includes(29)) throw new MatterError('protocol')
+    }
+    return device as MatterDevice
+  })
+  return { revision: data.revision, devices, next_cursor: data.next_cursor as number | null }
 }
