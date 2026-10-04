@@ -9,10 +9,12 @@ import struct
 import subprocess
 import shutil
 import stat
+import tarfile
 import tempfile
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
+ARCHIVE_HELPER = ROOT.parent / "microhad-zigbee-native/scripts/matter_archive.py"
 spec = importlib.util.spec_from_file_location("ot_sim", ROOT / "scripts/test-openthread-device.py")
 sim = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(sim)
@@ -128,6 +130,12 @@ def state_image(directory):
         image[relative] = (metadata.st_mode & 0o777, metadata.st_ino,
                            metadata.st_mtime_ns, metadata.st_size, contents)
     return image
+
+
+def archive_state(source, archive_path):
+    with tarfile.open(archive_path, "w:", format=tarfile.USTAR_FORMAT) as archive:
+        for path in sorted(source.iterdir()):
+            archive.add(path, arcname=path.name)
 
 
 def commissioning_calls(path, credentials):
@@ -323,6 +331,47 @@ def main():
             relay.wait(timeout=2)
             radio.close()
             original_image = state_image(private / "state")
+            archive_path = private / "matter-state.tar"
+            archive_state(private / "state", archive_path)
+            preflight = subprocess.run(["python3", str(ARCHIVE_HELPER), str(archive_path)],
+                capture_output=True, timeout=5)
+            assert preflight.returncode == 0, preflight.stderr.decode(errors="replace")
+            staged = private / "archive-staged-state"
+            extracted = subprocess.run(["python3", str(ARCHIVE_HELPER), str(archive_path),
+                "--extract-to", str(staged)], capture_output=True, timeout=5)
+            assert extracted.returncode == 0, extracted.stderr.decode(errors="replace")
+            staged_image = state_image(staged)
+            checked = subprocess.run([str(ROOT / "build/rs-matter/target/release/thread-matter"),
+                "--validate-state-dir", str(staged)], capture_output=True, timeout=5)
+            assert checked.returncode == 0, checked.stderr.decode(errors="replace")
+            assert checked.stderr == b"Matter state validated\n"
+            assert state_image(staged) == staged_image
+            assert state_image(private / "state") == original_image
+
+            # Structurally valid archive content still has to pass Rust identity
+            # and Matter-record checks after extraction.
+            corrupt_source = private / "corrupt-source"
+            shutil.copytree(private / "state", corrupt_source)
+            corrupt_credentials = bytearray((corrupt_source / "credentials.bin").read_bytes())
+            corrupt_credentials[-1] ^= 1
+            (corrupt_source / "credentials.bin").write_bytes(corrupt_credentials)
+            corrupt_archive = private / "corrupt-state.tar"
+            archive_state(corrupt_source, corrupt_archive)
+            corrupt_preflight = subprocess.run(["python3", str(ARCHIVE_HELPER), str(corrupt_archive)],
+                capture_output=True, timeout=5)
+            assert corrupt_preflight.returncode == 0
+            corrupt_staged = private / "corrupt-staged-state"
+            extracted = subprocess.run(["python3", str(ARCHIVE_HELPER), str(corrupt_archive),
+                "--extract-to", str(corrupt_staged)], capture_output=True, timeout=5)
+            assert extracted.returncode == 0
+            corrupt_image = state_image(corrupt_staged)
+            rejected = subprocess.run([str(ROOT / "build/rs-matter/target/release/thread-matter"),
+                "--validate-state-dir", str(corrupt_staged)], capture_output=True, timeout=5)
+            assert rejected.returncode == 1 and not rejected.stdout
+            assert rejected.stderr == (b"Matter state validation failed (private store)\n"
+                                       b"Matter controller service failed\n")
+            assert state_image(corrupt_staged) == corrupt_image
+
             checked = subprocess.run([str(ROOT / "build/rs-matter/target/release/thread-matter"),
                 "--validate-state-dir", str(private / "state")], capture_output=True, timeout=5)
             assert checked.returncode == 0, checked.stderr.decode(errors="replace")
