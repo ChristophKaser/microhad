@@ -80,14 +80,19 @@ report subscriptions, remote
 node recovery, and persistent native endpoint restart restoration remain open.
 
 This shared device contract applies equally to Zigbee, Matter, and external
-HTTP sources such as Shelly: stable source identity, common capabilities,
-normalized telemetry with units and quality, and common presentation. Each
-source adapter owns discovery/setup and translates common control intents to
-its transport. HTTP integrations are ordinary providers of the shared model,
-not a parallel dashboard path. Matter cluster IDs and commissioning details
-stay in Matter provenance/setup; Shelly HTTP details stay in its source adapter.
-Add fields and controls to the common contract when their meaning overlaps,
-and keep truly source-only settings at the boundary.
+HTTP sources such as Shelly: stable source identity, canonical semantic device
+type, common capabilities, normalized state and telemetry with units and
+quality, and common presentation. Equivalent functions map to the same
+semantic type and capability vocabulary even when their transports differ.
+Lights, switches, contacts, temperature/humidity sensors, and power readings,
+for example, use shared fields and controls wherever each source exposes the
+same behavior. Each source adapter owns discovery/setup and translates common
+control intents to its transport. HTTP integrations are ordinary providers of
+the shared model, not a parallel dashboard path. Matter cluster IDs and
+commissioning details stay in Matter provenance/setup; Shelly HTTP details
+stay in its source adapter. Add fields and controls to the common contract
+when their meaning overlaps, and keep truly source-only settings at the
+boundary.
 
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.
@@ -138,6 +143,9 @@ Matter/Thread-only settings in the Matter area.
 - Zigbee, Matter and external HTTP devices such as Shelly share the device
   catalog and common dashboard/controller behavior wherever capabilities
   overlap.
+- Equivalent functions use the same semantic type, capability names, state
+  fields, and common control intents across Zigbee, Matter, and HTTP sources;
+  adapters provide protocol translation rather than duplicate UI models.
 - Sensor values retain correct units and unknown/null semantics.
 - Device identity remains stable across gateway and service restart.
 - Reports flow without blocking Zigbee coordination or causing frequent flash

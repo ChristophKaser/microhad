@@ -54,9 +54,13 @@ steps, dependencies, acceptance criteria, evidence and an execution checklist.
 The native persistent IPC channel, queued mutation APIs and owned relay are
 already implemented. The dashboard uses shared device cards for Matter,
 Zigbee and external HTTP devices such as Shelly. The roadmap requires a shared
-source-neutral identity/capability/telemetry contract and common presentation;
-each source adapter retains its own setup and transport. HTTP devices are
-first-class model providers, not a Shelly-specific dashboard exception. Plan
+source-neutral identity, semantic device type, capability, state, and telemetry
+contract and common presentation; each source adapter retains its own setup
+and transport. HTTP devices are first-class model providers, not a
+Shelly-specific dashboard exception. Matching functions such as lights,
+switches, contacts, temperature/humidity sensors, and power readings must map
+to the same shared types and controls wherever capabilities overlap,
+independent of protocol. Plan
 05's Android onboarding
 implementation is verified on host. Continue with plan 04's shared data,
 history and failure gates using plan 07's production pipeline. Finish recovery

@@ -21,11 +21,16 @@ specific settings in the Matter area.
 
 The shared-device requirement includes external HTTP integrations such as
 Shelly as first-class sources, not just a visual reuse of cards. The common
-device contract owns identity, displayed state, telemetry names/units/quality,
-and capability presentation. Each source adapter owns discovery/setup and
-translates common control intents to its transport (Zigbee coordinator, Matter
-service, or Shelly HTTP API). Common dashboard components should consume the
-contract and capabilities rather than branch on protocol names or cluster IDs.
+device contract owns stable identity, semantic device type, displayed state,
+telemetry names/units/quality, and capability presentation. Equivalent
+capabilities must produce the same common type and controls across Zigbee,
+Matter, and HTTP devices: a controllable light, for example, uses the common
+light presentation and intent regardless of adapter. Each source adapter owns
+discovery/setup and translates common control intents to its transport
+(Zigbee coordinator, Matter service, or Shelly HTTP API). Common dashboard
+components consume the contract and capabilities rather than branch on
+protocol names or cluster IDs. Source-specific controls remain at the boundary
+only when their meaning or transport behavior has no shared equivalent.
 
 Rendered snapshot and OnOff component interaction is verified in Chromium.
 Next deliverable: route Zigbee and external HTTP measurements through the same
@@ -85,6 +90,8 @@ shared equivalent.
   catalog and dashboard flow for Zigbee, Matter and external HTTP devices such
   as Shelly; protocol differences do not create duplicate device cards,
   protocol-specific copies of common telemetry, or common-control flows.
+  Equivalent functions use the same semantic type, capability names, state
+  fields, and common control intents across all three source families.
   Source adapters may provide extra settings only where their transport or
   device type requires them.
 - The Matter-specific area contains only joining/commissioning and Matter or
