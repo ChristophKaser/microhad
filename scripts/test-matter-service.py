@@ -121,6 +121,25 @@ def catalog_records(credentials):
     return [struct.unpack_from("<QB", catalog, 18 + index * 9) for index in range(count)]
 
 
+def thread_dataset(credentials):
+    data = credentials.read_bytes()
+    assert data[:8] == b"TMKV\x01\0\0\0"
+    count = struct.unpack_from("<H", data, 16)[0]
+    offset = 18
+    for _ in range(count):
+        key, length = struct.unpack_from("<HH", data, offset)
+        offset += 4
+        value = data[offset:offset + length]
+        assert len(value) == length
+        offset += length
+        if key == 0x1001:
+            assert value[:8] == b"TMDT\x01\0\0\0"
+            size = struct.unpack_from("<H", value, 9)[0]
+            assert len(value) == 11 + size
+            return value[11:]
+    raise AssertionError("Synthetic Thread dataset missing")
+
+
 def state_image(directory):
     image = {}
     for path in sorted(directory.rglob("*")):
@@ -332,11 +351,22 @@ def main():
             assert created["ok"] and created["result"]["configured"]
             assert created["result"]["state"] in ("attaching", "attached")
             assert "dataset" not in created["result"]
+            commissioning_calls(ipc_path, credentials)
 
             # RCP socket death must stop the service; restored state must wait
             # for a fresh matching coordinator observation before radio use.
-            radio_credentials = credentials.read_bytes()
-            radio_metadata = credentials.stat()
+            previous_nodes = catalog_records(credentials)
+            previous_dataset = thread_dataset(credentials)
+            relay_client = SessionPeer(ipc_path)
+            active_session = relay_client.call(3, dict(
+                schema=1, discriminator=3840, pin=20202021, timeout_seconds=30))["result"]["session"]
+            generation = relay_client.call(6, dict(schema=1, session=active_session,
+                address="bbbbbbbbbbbb", mtu=247))["result"]["generation"]
+            pending_write = relay_client.event("ble_write", generation)
+            allocated_nodes = catalog_records(credentials)
+            assert len(allocated_nodes) == len(previous_nodes) + 1
+            allocated_id, allocated_phase = allocated_nodes[-1]
+            assert allocated_id > previous_nodes[-1][0] and allocated_phase == 1
             assert status(ipc_path, 9, 315, b'{"schema":1,"action":"observe","zigbee_channel":15,"zigbee_online":true}')['ok']
             deadline = time.monotonic() + 3
             while status(ipc_path, 1, 316)["state"] != "running":
@@ -349,8 +379,8 @@ def main():
             assert stderr.startswith(b"Matter controller service started\n"), stderr
             # Low-level OpenThread failure may bypass Rust destructors; startup
             # must reclaim the stale socket before answering below.
-            assert ipc_path.exists() and credentials.read_bytes() == radio_credentials
-            assert (credentials.stat().st_ino, credentials.stat().st_mtime_ns) == (radio_metadata.st_ino, radio_metadata.st_mtime_ns)
+            assert ipc_path.exists() and thread_dataset(credentials) == previous_dataset
+            relay_client.close()
             radio.close()
             if radio_path.exists() and stat.S_ISSOCK(radio_path.lstat().st_mode):
                 radio_path.unlink()
@@ -376,19 +406,23 @@ def main():
                     time.sleep(.02)
             assert status(ipc_path, 2, 318)["state"] == "awaiting_coordinator"
             assert not radio.requests
-            wrong = status(ipc_path, 9, 319, b'{"schema":1,"action":"observe","zigbee_channel":11,"zigbee_online":true}')
+            stale = status(ipc_path, 8, 319, json.dumps(dict(schema=1, session=active_session,
+                generation=generation, write=pending_write["write"], success=True)).encode())
+            assert stale["error"] == "stale_session"
+            wrong = status(ipc_path, 9, 320, b'{"schema":1,"action":"observe","zigbee_channel":11,"zigbee_online":true}')
             assert wrong["error"] == "not_ready" and not radio.requests
-            assert status(ipc_path, 2, 320)["state"] == "channel_mismatch"
-            assert status(ipc_path, 9, 321, b'{"schema":1,"action":"observe","zigbee_channel":15,"zigbee_online":true}')['ok']
+            assert status(ipc_path, 2, 321)["state"] == "channel_mismatch"
+            assert status(ipc_path, 9, 322, b'{"schema":1,"action":"observe","zigbee_channel":15,"zigbee_online":true}')['ok']
             deadline = time.monotonic() + 3
-            while status(ipc_path, 1, 322)["state"] != "running":
+            while status(ipc_path, 1, 323)["state"] != "running":
                 assert time.monotonic() < deadline
                 time.sleep(.01)
-            assert status(ipc_path, 2, 323)["configured"]
-            assert credentials.read_bytes() == radio_credentials
-            assert (credentials.stat().st_ino, credentials.stat().st_mtime_ns) == (radio_metadata.st_ino, radio_metadata.st_mtime_ns)
+            assert status(ipc_path, 2, 324)["configured"]
+            recovered_nodes = catalog_records(credentials)
+            assert recovered_nodes[:-1] == previous_nodes
+            assert recovered_nodes[-1] == (allocated_id, 5)
+            assert thread_dataset(credentials) == previous_dataset
 
-            commissioning_calls(ipc_path, credentials)
             # Status traffic stays responsive across multiple independent clients.
             start = time.monotonic()
             for ident in range(400, 420):
