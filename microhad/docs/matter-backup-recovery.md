@@ -161,19 +161,35 @@ retention policy rather than routinely writing copies to gateway flash.
    exact payload length and CRC without printing records. Then use the matching
    service's identity/store validation to verify certificates, key pairs,
    fabric/vendor metadata and allocator. A newer service/schema requires its
-   explicit migration procedure, never reinterpretation or record edits.
+   explicit migration procedure, never reinterpretation or record edits. With
+   the matching controller binary and service UID, validate the extracted
+   candidate before considering activation:
+
+   ```sh
+   thread-matter --validate-state-dir "$MATTER_STAGE_DIR"
+   ```
+
+   This command is offline: it does not bind IPC or access OpenThread. It
+   requires the current store owner to be stopped, acquires the candidate's
+   existing owner lock when present, and opens the store without creating or
+   changing files. It checks Thread settings ownership/record framing, the
+   authority and vendor ID, installed Matter fabric records, node catalog and
+   Thread dataset. A failure exits nonzero with a fixed stage label. Run it
+   before any activation; success does not replace fresh CASE or target checks.
 7. Exercise fresh CASE to a retained node against the restored catalog/authority
    in an isolated synthetic test before considering physical activation. Do
    not start a second service against the production Thread socket for this
    check. The target may need separately arranged radio startup validation.
 
 The credential-envelope format and authority fields are defined in
-[the identity schema](matter-identity-store-v1.md). The exact runtime validation
-exists in companion `rs-matter-probe/src/store.rs` and `src/identity.rs`.
-A dedicated offline service identity-validation command and an automated
-staged-restore harness remain open; archive preflight/extraction checks
-structure and filesystem safety only. They do not validate credential contents
-or authorize activation.
+[the identity schema](matter-identity-store-v1.md). The matching Rust service
+implements the read-only validator in companion
+[`matter-state-validation.md`](../../ziggurat-compilation/docs/matter-state-validation.md).
+The synthetic service harness verifies valid-state success plus incomplete and
+wrong-permission rejection, with file contents and metadata unchanged. A full
+archive-extract-then-validate recovery matrix, interrupted replacement,
+allocator rollback refusal, and target filesystem checks remain open; this
+command alone does not authorize physical activation.
 
 ## Counter rollback and activation
 
