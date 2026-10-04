@@ -7,13 +7,12 @@ dashboard onboarding/progress panel exist. Queued device snapshot pages now have
 native validation, HTTP exposure and a dashboard view. The dashboard exposes
 confirmed OnOff reads and commands for online cluster-6 endpoints. Native HTTP
 also admits validated CurrentLevel reads and MoveToLevel jobs for cluster-8
-endpoints. Level dashboard controls, sensor measurements and the broader
-failure matrix remain open.
+endpoints. The dashboard now renders Level controls and confirmed readback;
+sensor measurements and the broader failure matrix remain open.
 
 Rendered snapshot and OnOff component interaction is verified in Chromium.
-Next deliverable: add rendered CurrentLevel read/MoveToLevel controls, then
-render sensor measurements when plan 07 supplies them and extend broader API
-failure gates in checklist item 6.
+Next deliverable: render sensor measurements when plan 07 supplies them and
+extend broader API failure gates in checklist item 6.
 
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.
@@ -94,6 +93,23 @@ The device view still has no Level slider/read control. Rendered Level
 interaction, sensor measurements, subscriptions/reports and the broader
 failure matrix remain open. No device acceptance or plan 08 action occurred.
 
+## Rendered Level controls checkpoint — 2026-10-04
+
+Native UI commit `7ea5a52` adds a CurrentLevel read, a 0–254 brightness slider,
+transition input in deciseconds, and a Set brightness action for online
+endpoints advertising cluster 8. Values update only after the service returns
+its typed CurrentLevel readback; null reads display as unknown and cannot
+confirm a mutation. Controls are disabled for offline endpoints or unavailable
+service.
+
+Verification passed: `make webui`, 18 actual-localhost tests in
+`python3 scripts/test_matter_webui.py`, and
+`node webui/test/matter-devices-browser.cjs` under Chromium. The rendered test
+changes the selected level and transition, submits MoveToLevel, and confirms the
+returned value. It also retains the existing pagination/revision and availability
+checks. Sensors, other cluster controls, broad failure gates and physical
+accessory behavior remain open; plan 08 was not performed.
+
 ## Dependencies
 
 [Commissioning and control IPC](02-commissioning-control-ipc.md) and
@@ -169,9 +185,8 @@ are historical; the latest status/evidence section above takes precedence.
    setup input out of logs and persistent dashboard state.
 5. [ ] Expose device snapshots/read/control and render advertised controls and
    measurements, including unavailable/null values. Snapshot API/view, bounded
-   HTTP client, OnOff read/control and rendered OnOff interaction are verified.
-   Level HTTP admission is verified; rendered Level controls, sensor
-   measurements and other cluster controls remain open.
+   HTTP client, OnOff read/control and rendered OnOff/Level interaction are
+   verified. Sensor measurements and other cluster controls remain open.
 6. [ ] Verify enabled/disabled builds, unavailable/stalled service, invalid
    input, queue saturation, WebSocket loss and secret redaction. Run default
    and enabled host/MIPS suites sequentially and make webui for UI edits.

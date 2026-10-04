@@ -19,11 +19,11 @@ confirmed readback. The dashboard now renders OnOff read/control interactions
 through confirmed readback. Rust service jobs implement Level Control read and
 MoveToLevel with separate CurrentLevel readback (`6ec569a`). Native strict Level
 IPC validators, HTTP admission, worker polling and typed U8 job-response
-validation are implemented and host-tested; dashboard Level controls remain
-open. Sensor measurements and
+validation are implemented and host-tested; dashboard CurrentLevel reads and
+MoveToLevel controls are rendered and verified. Sensor measurements and
 reports remain open. Remote recovery of catalogued nodes and legacy migration
-remain open. Next deliverable: add rendered Level controls, then sensor
-decoding, subscriptions and native reports.
+remain open. Next deliverable: add sensor decoding, subscriptions and native
+reports.
 
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.
@@ -83,9 +83,10 @@ explicit-rendezvous fixture alone does not establish operational discovery.
 2. Bounded operational SRP/DNS-SD, TTL/cache limits and query backoff are
    implemented. Add proactive address invalidation/re-resolution on CASE failure
    with the production device/recovery pipeline.
-3. Discover descriptors/clusters and implement validated OnOff/Level reads and
-   commands. Reconcile confirmed values instead of keeping optimistic state
-   after an operation fails.
+3. Descriptor discovery and capability-gated OnOff/Level reads and commands
+   have encrypted host evidence (`05053ec`, `6ec569a`) and native rendered
+   controls (`1ab6e91`, `7ea5a52`). Reconcile catalogued nodes after remote
+   CASE failure and integrate future reports into confirmed state.
 4. Implement advertised sensor decoding with signed values, correct units and
    null/unknown handling; test ALPSTUGA-related clusters synthetically without
    assuming every target advertises all measurements.
@@ -148,13 +149,14 @@ are historical; the latest status/evidence section above takes precedence.
    encrypted CASE (`05053ec`, `5c588df`). Completed nodes refresh after catalog
    restore and radio reattachment; revisioned snapshot IPC is implemented (`237d110`).
    Incomplete-node recovery, native snapshot validation/API/UI remain open.
-4. [ ] Implement validated OnOff/Level reads and commands plus typed IPC
+4. [x] Implement validated OnOff/Level reads and commands plus typed IPC
    bodies in plan 02. Confirm resulting values through reads/reports and expose
    unsupported clusters and failed commands explicitly.
    OnOff executor/readback and native API/dashboard are verified (`0c66b87`,
    `ee9a4bb`). Rust Level executor/readback is verified (`6ec569a`); native
-   Level IPC/API validation and HTTP admission are implemented in this
-   checkpoint, while dashboard controls remain open until rendered tests pass.
+   Level IPC/API validation, HTTP admission and rendered controls are verified
+   (`1ab6e91`, `7ea5a52`). Commands return confirmed values,
+   with explicit operation errors and no optimistic state.
 5. [ ] Decode advertised sensor attributes with units, signed values and null
    semantics. Cover temperature, humidity, CO2, PM2.5 and air quality using
    synthetic descriptors rather than assuming ALPSTUGA exposes every cluster.
@@ -356,3 +358,18 @@ trip. It read level 0, commanded 124 with a 20-decisecond transition and
 confirmed level 124. Host/MIPS builds do not establish target radio behavior.
 Rendered controls, sensors, subscriptions/reports, remote node recovery and
 legacy migration remain open; plan 08 was not performed.
+
+## Rendered Level control checkpoint — 2026-10-04
+
+Native UI commit `7ea5a52` exposes a cluster-8 CurrentLevel read and MoveToLevel
+control in the device catalog. The slider sends a selected 0–254 level and an
+explicit transition duration; the displayed value changes only after confirmed
+CurrentLevel readback. Null read values display as unknown, and a null command
+readback remains an error. Offline or unavailable endpoints cannot be operated.
+
+Verified with `make webui`, all 18 actual-HTTP tests in
+`python3 scripts/test_matter_webui.py`, and the production `MatterDevices`
+component in headless Chromium via `node webui/test/matter-devices-browser.cjs`.
+The fixture verified level 0 read, MoveToLevel 124 with a 20-decisecond
+transition, and confirmed 124. Sensors, subscriptions/reports, remote node
+recovery and legacy migration remain open; plan 08 was not performed.

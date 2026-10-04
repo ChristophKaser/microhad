@@ -7,13 +7,12 @@ bounded asynchronous OnOff reads/commands and job polling; native validation,
 HTTP admission and worker-side operation polling carry jobs through confirmed
 readback. Rust also dispatches Level Control reads and MoveToLevel with confirmed
 CurrentLevel readback. Native typed Level request/reply validation, HTTP
-admission and worker polling are now verified. Dashboard Level controls, device
-events, broader recovery and complete cross-language vectors remain open.
+admission, worker polling and rendered dashboard controls are now verified.
+Device events, broader recovery and complete cross-language vectors remain open.
 Snapshot API remains verified (`237d110`).
 
-Next deliverable: expose verified Level jobs in the dashboard, then extend
-failure/restart and cross-language event coverage as plan 07 adds sensor and
-report bodies.
+Next deliverable: extend failure/restart and cross-language event coverage as
+plan 07 adds sensor and report bodies.
 
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.
@@ -237,9 +236,10 @@ are historical; the latest status/evidence section above takes precedence.
 4. [ ] Test cross-language body/event vectors, fragmented/coalesced frames,
    interleaved events, wrong IDs, queue pressure, disconnects and stale BLE
    callbacks against both fake peers and the actual Rust service.
-5. [ ] Once plan 07 supplies discovery/catalog operations, finish typed device
-   snapshot/read/command replies and dispatch. Retain explicit unsupported or
-   not-ready results until each operation is available.
+5. [x] Once plan 07 supplies discovery/catalog operations, finish typed device
+   snapshot/read/command replies and dispatch. Snapshot pages and OnOff/Level
+   jobs are implemented; retain explicit unsupported or not-ready results for
+   operations whose service implementation is still open.
 6. [ ] Update IPC v1 and compatibility notes, run both native build variants
    sequentially plus Rust tests/factory build, then record and commit evidence.
 
