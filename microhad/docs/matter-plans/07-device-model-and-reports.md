@@ -794,3 +794,21 @@ five sensor types. The commissioning probe is still a fixture process rather
 than the `thread-matter` daemon, and the receiving client is not the native
 gateway. The registered `Gateway::Device`, shared history and alert path still
 need a composed process-level test.
+
+## Composed native device and history checkpoint — 2026-10-04
+
+Rust commit `53c49dd` adds test-only IPC responses and a release-probe mode
+that holds the commissioned accessory open while a native client registers its
+snapshot. This native checkpoint adds
+`scripts/test_matter_native_report_integration.py`. The test runs the actual
+native gateway and `MatterWorker`, requests snapshot pages until endpoint 1 is
+registered, then releases five notifier-backed CASE reports from the Rust
+production `Manager`/`IpcServer`. All five normalized readings appear in the
+common `/api/status` device shape, and the shared history route returns all
+five typed samples. The test passes against the synthetic RCP and accessory.
+
+This closes the composed gateway device/history checkpoint. The sender is the
+Rust commissioning probe fixture, not the installed `thread-matter` daemon;
+the gateway reports the endpoint offline when that fixture exits. Service
+daemon-originated delivery, disconnect/restart recovery and native value-alert
+crossing behavior remain open. No deployment or plan 08 device test occurred.

@@ -33,9 +33,30 @@ window. `make ZIGGURAT=1 MATTER=1 host test` and
 `make ZIGGURAT=1 MATTER=1 mips` pass. Fragmentation/coalescing, cross-language
 event vectors, broader recovery, and the remaining failure matrix stay open.
 
-Next deliverable: produce a report event from the Rust service process and
-verify that it reaches native shared sensor state; then extend failure/restart
-and cross-language vector coverage.
+## Composed Rust-to-native report delivery — 2026-10-04
+
+Rust commit `53c49dd` adds a host-only gate to the encrypted commissioning
+probe. It serves Matter status, Thread observation, and real revisioned device
+snapshot pages over the production Rust `IpcServer`, then publishes its
+notifier-backed CASE sensor reports on that connection. Native test
+`scripts/test_matter_native_report_integration.py` starts the production
+`MatterWorker` and native gateway, registers the endpoint using snapshot
+pagination, and verifies all five readings in the shared device status and
+history API. The composed run passed against the synthetic RCP and synthetic
+accessory. This proves the production Rust Manager/IpcServer and native
+worker/Gateway paths together; the producer is still the commissioning probe,
+not the installed `thread-matter` service process. Service-daemon report
+delivery, disconnect/restart recovery, backpressure, and broader malformed
+cross-language vectors remain open. No gateway or physical radio was used.
+
+Verification: `python3 scripts/test_matter_native_report_integration.py`
+(host-only; local UDP and Unix sockets required) passed; the underlying
+`python3 scripts/test-openthread-matter-transport.py --commissioning --ble
+--service-owner --service-discovery --sensor-reports` fixture also passed.
+
+Next deliverable: exercise the installed `thread-matter` service process
+through registered native device reports, then extend disconnect/restart and
+failure coverage. Keep physical acceptance in plan 08.
 
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.
