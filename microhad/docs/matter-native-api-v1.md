@@ -19,8 +19,8 @@ queueing. No request body is returned or logged.
 | `POST /api/matter/commissioning/cancel` | `session` | Submit cancellation; retained cancelled sessions are idempotent |
 | `GET /api/matter/jobs/<id>` | None | Read an ephemeral native call snapshot without contacting the service |
 | `POST /api/matter/devices/snapshot` | `action:"snapshot"`, optional `cursor`/`revision` | Queue a validated endpoint snapshot page; poll its job for the response |
-| `POST /api/matter/devices/read` | `node`, `endpoint`, `cluster:6`, `attribute:0` | Queue an OnOff read and return its confirmed boolean value |
-| `POST /api/matter/devices/command` | `command:"on"|"off"|"toggle"`, `node`, `endpoint` | Queue an OnOff command; result is a separate CASE readback |
+| `POST /api/matter/devices/read` | `node`, `endpoint`, `cluster:6|8`, `attribute:0` | Queue an OnOff or CurrentLevel read |
+| `POST /api/matter/devices/command` | OnOff: `command:"on"|"off"|"toggle"`, `node`, `endpoint`; Level: `command:"move_to_level"`, `node`, `endpoint`, `level`, `transition_deciseconds` | Queue a capability-checked command; result is a separate CASE readback |
 
 Successful submission returns HTTP **202 Accepted**:
 
@@ -62,9 +62,11 @@ The routes reach the real Rust session owner through the persistent worker.
 Waiting-BLE, busy/status/cancel/stale-session behavior is verified with the
 actual service and synthetic radio peers. The owned plain WebSocket relay is
 implemented and verified through native/Rust BTP callbacks. Garage foreground onboarding and dashboard session monitoring are implemented
-with host evidence. Operational SRP/DNS discovery now has encrypted host evidence. Production device
-operations and reports remain open work. A successful start does not establish
-end-to-end accessory support.
+with host evidence. Operational SRP/DNS discovery now has encrypted host
+evidence. OnOff and Level read/command jobs have native HTTP admission and host
+worker-round-trip evidence; physical accessory behavior, reports and
+measurements remain open. A successful start does not establish end-to-end
+accessory support.
 
 ## Device snapshot pages
 
@@ -103,15 +105,19 @@ Chromium HTTP fixture; broader dashboard interaction remains open.
 
 Device read and command routes use the same native job queue and polling
 contract. `node` is a 16-character lowercase hexadecimal Matter node ID;
-`endpoint` is 0–65534. Reads currently accept only cluster 6 attribute 0. The
-command route accepts only `on`, `off` and `toggle`; unsupported cluster/command
-requests return 400 before queueing. Submission returns 202 with a native job
-ID. The native worker keeps that job in `running` after Rust accepts it and polls
-the Rust operation status through the persistent IPC connection. The native job
-becomes `complete` only after Rust returns its confirmed readback; an operation
-failure becomes a fixed native `failed` error. A disconnected or restarted
-service never causes an operation replay. The HTTP request itself returns after
-queue acceptance and callers poll `GET /api/matter/jobs/<id>`.
+`endpoint` is 0–65534. Reads accept cluster 6 attribute 0 (OnOff) or cluster 8
+attribute 0 (CurrentLevel). The command route accepts `on`, `off`, `toggle`, or
+`move_to_level`. Level commands require `level` in 0–254 and
+`transition_deciseconds` in 0–65535. Unsupported or malformed requests return
+400 before queueing. Submission returns 202 with a native job ID. Rust checks
+that the discovered online endpoint advertises the requested cluster. The
+native worker polls Rust operation status through the persistent IPC connection;
+the native job becomes `complete` only after Rust returns a typed value from a
+separate CASE readback. OnOff values are boolean; CurrentLevel values are U8
+and may be null for an unknown read. A command that cannot confirm its resulting
+level fails. An operation failure becomes a fixed native `failed` error. A
+disconnected or restarted service never causes an operation replay. Callers poll
+`GET /api/matter/jobs/<id>` after queue acceptance.
 
 ## Thread dataset mutations
 

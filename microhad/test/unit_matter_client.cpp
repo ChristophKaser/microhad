@@ -169,16 +169,24 @@ void runMatterClientUnitTests() {
     const std::string jobBody = "{\"schema\":1,\"action\":\"job\",\"job\":\"0000000000000001\"}";
     const std::string commandBody = "{\"schema\":1,\"command\":\"toggle\",\"node\":\"0000000000000002\",\"endpoint\":1}";
     assert(MatterChannel::validRequest(10, readBody));
+    const std::string levelReadBody = "{\"schema\":1,\"action\":\"read\",\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":8,\"attribute\":0}";
+    const std::string levelCommandBody = "{\"schema\":1,\"command\":\"move_to_level\",\"node\":\"0000000000000002\",\"endpoint\":1,\"level\":124,\"transition_deciseconds\":20}";
+    assert(MatterChannel::validRequest(10, levelReadBody));
     assert(MatterChannel::validRequest(10, jobBody));
     assert(MatterChannel::validRequest(11, commandBody));
+    assert(MatterChannel::validRequest(11, levelCommandBody));
     std::string devicePrepared;
     assert(MatterChannel::deviceReadRequest("{\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":6,\"attribute\":0}", &devicePrepared));
     assert(devicePrepared == readBody);
-    assert(!MatterChannel::deviceReadRequest("{\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":8,\"attribute\":0}", &devicePrepared));
+    assert(MatterChannel::deviceReadRequest("{\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":8,\"attribute\":0}", &devicePrepared));
+    assert(devicePrepared == levelReadBody);
     assert(MatterChannel::deviceCommandRequest("{\"command\":\"toggle\",\"node\":\"0000000000000002\",\"endpoint\":1}", &devicePrepared));
     assert(devicePrepared == commandBody);
-    assert(!MatterChannel::deviceCommandRequest("{\"command\":\"move_to_level\",\"node\":\"0000000000000002\",\"endpoint\":1}", &devicePrepared));
-    assert(!MatterChannel::validRequest(10, "{\"schema\":1,\"action\":\"read\",\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":8,\"attribute\":0}"));
+    assert(MatterChannel::deviceCommandRequest("{\"command\":\"move_to_level\",\"node\":\"0000000000000002\",\"endpoint\":1,\"level\":124,\"transition_deciseconds\":20}", &devicePrepared));
+    assert(devicePrepared == levelCommandBody);
+    assert(!MatterChannel::deviceCommandRequest("{\"command\":\"move_to_level\",\"node\":\"0000000000000002\",\"endpoint\":1,\"level\":255,\"transition_deciseconds\":20}", &devicePrepared));
+    assert(!MatterChannel::deviceCommandRequest("{\"command\":\"move_to_level\",\"node\":\"0000000000000002\",\"endpoint\":1,\"level\":1,\"transition_deciseconds\":65536}", &devicePrepared));
+    assert(!MatterChannel::validRequest(11, "{\"schema\":1,\"command\":\"move_to_level\",\"node\":\"0000000000000002\",\"endpoint\":1,\"level\":255,\"transition_deciseconds\":0}"));
     assert(!MatterChannel::validRequest(11, "{\"schema\":1,\"command\":\"move_to_level\",\"node\":\"0000000000000002\",\"endpoint\":1}"));
     std::vector<std::string> operationReplies;
     operationReplies.push_back("{\"schema\":1,\"ok\":true,\"result\":{\"job\":\"0000000000000001\",\"state\":\"queued\"}}");
@@ -186,7 +194,10 @@ void runMatterClientUnitTests() {
     operationReplies.push_back("{\"schema\":1,\"ok\":true,\"result\":{\"state\":\"running\",\"job\":\"0000000000000001\"}}");
     operationReplies.push_back("{\"schema\":1,\"ok\":true,\"result\":{\"state\":\"complete\",\"job\":\"0000000000000001\",\"result\":{\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":6,\"attribute\":0,\"value\":{\"type\":\"bool\",\"value\":true}}}}");
     operationReplies.push_back("{\"schema\":1,\"ok\":true,\"result\":{\"state\":\"failed\",\"job\":\"0000000000000001\",\"error\":\"not_ready\"}}");
+    operationReplies.push_back("{\"schema\":1,\"ok\":true,\"result\":{\"state\":\"complete\",\"job\":\"0000000000000001\",\"result\":{\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":8,\"attribute\":0,\"value\":{\"type\":\"u8\",\"value\":124}}}}");
+    operationReplies.push_back("{\"schema\":1,\"ok\":true,\"result\":{\"state\":\"complete\",\"job\":\"0000000000000001\",\"result\":{\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":8,\"attribute\":0,\"value\":{\"type\":\"u8\",\"value\":null}}}}");
     std::string malformedJob = operationReplies[3]; malformedJob.replace(malformedJob.find("\"cluster\":6"), 10, "\"cluster\":8"); operationReplies.push_back(malformedJob);
+    std::string malformedLevel = operationReplies[5]; malformedLevel.replace(malformedLevel.find("\"value\":124"), 12, "\"value\":255"); operationReplies.push_back(malformedLevel);
     std::string serviceJob;
     assert(MatterChannel::acceptedOperationJob(11, operationReplies[0], &serviceJob) && serviceJob == "0000000000000001");
     assert(MatterChannel::operationPollRequest(serviceJob) == jobBody);
@@ -205,7 +216,7 @@ void runMatterClientUnitTests() {
         Peer peer; peer.fd = pair[1]; peer.opcode = i == 0 ? 11 : 10;
         peer.body = i == 0 ? commandBody : jobBody; peer.reply = operationReplies[i];
         pthread_t server; assert(pthread_create(&server, 0, serveStatus, &peer) == 0);
-        assert(channel.call(peer.opcode, peer.body, &json, &error) == (i < 5));
+        assert(channel.call(peer.opcode, peer.body, &json, &error) == (i < 7));
         assert(pthread_join(server, 0) == 0);
     }
     const std::string device = "{\"node\":\"0000000000000002\",\"state\":\"complete\",\"online\":true,"

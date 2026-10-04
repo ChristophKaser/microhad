@@ -383,13 +383,33 @@ void testServers() {
 #else
     expectStatus("http Matter read disabled", response, 404);
 #endif
-    const std::string badMatterCommandBody = "{\"command\":\"move_to_level\",\"node\":\"0000000000000002\",\"endpoint\":1}";
+    const std::string matterLevelReadBody = "{\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":8,\"attribute\":0}";
+    std::ostringstream matterLevelReadRequest;
+    matterLevelReadRequest << "POST /api/matter/devices/read HTTP/1.1\r\nHost: localhost\r\nContent-Length: "
+        << matterLevelReadBody.size() << "\r\n\r\n" << matterLevelReadBody;
+    response = plainRequest(http.boundPort(), matterLevelReadRequest.str());
+#if MICROHAD_MATTER_ENABLED
+    expectStatus("http accepted Matter Level read awaits service", response, 503);
+#else
+    expectStatus("http Matter Level read disabled", response, 404);
+#endif
+    const std::string levelCommandBody = "{\"command\":\"move_to_level\",\"node\":\"0000000000000002\",\"endpoint\":1,\"level\":124,\"transition_deciseconds\":20}";
+    std::ostringstream levelCommandRequest;
+    levelCommandRequest << "POST /api/matter/devices/command HTTP/1.1\r\nHost: localhost\r\nContent-Length: "
+        << levelCommandBody.size() << "\r\n\r\n" << levelCommandBody;
+    response = plainRequest(http.boundPort(), levelCommandRequest.str());
+#if MICROHAD_MATTER_ENABLED
+    expectStatus("http accepted Matter Level command awaits service", response, 503);
+#else
+    expectStatus("http Matter Level command disabled", response, 404);
+#endif
+    const std::string badMatterCommandBody = "{\"command\":\"move_to_level\",\"node\":\"0000000000000002\",\"endpoint\":1,\"level\":255,\"transition_deciseconds\":20}";
     std::ostringstream badMatterCommandRequest;
     badMatterCommandRequest << "POST /api/matter/devices/command HTTP/1.1\r\nHost: localhost\r\nContent-Length: "
         << badMatterCommandBody.size() << "\r\n\r\n" << badMatterCommandBody;
     response = plainRequest(http.boundPort(), badMatterCommandRequest.str());
 #if MICROHAD_MATTER_ENABLED
-    expectStatus("http rejects unsupported Matter Level command", response, 400);
+    expectStatus("http rejects out-of-range Matter Level command", response, 400);
 #else
     expectStatus("http Matter command disabled", response, 404);
 #endif

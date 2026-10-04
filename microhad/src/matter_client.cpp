@@ -222,9 +222,12 @@ bool operationalJobValid(Fields fields) {
     Fields result, value;
     if (!StatusJson(fields["result"]).parse(&result) || result.size() != 5 ||
         !hex(result["node"], 16, 16) || result["node"] == "\"0000000000000000\"" ||
-        !number(result["endpoint"], 0, 65534) || result["cluster"] != "6" || result["attribute"] != "0" ||
-        !StatusJson(result["value"]).parse(&value)) return false;
-    return value.size() == 2 && value["type"] == "\"bool\"" && booleanField(value, "value");
+        !number(result["endpoint"], 0, 65534) || result["attribute"] != "0" ||
+        !StatusJson(result["value"]).parse(&value) || value.size() != 2) return false;
+    if (result["cluster"] == "6") return value["type"] == "\"bool\"" && booleanField(value, "value");
+    if (result["cluster"] == "8") return value["type"] == "\"u8\"" &&
+        (value["value"] == "null" || number(value["value"], 0, 254));
+    return false;
 }
 bool acceptedOperationValid(Fields fields) {
     return fields.size() == 2 && hex(fields["job"], 16, 16) &&
@@ -252,7 +255,8 @@ bool requestValid(unsigned char opcode, const std::string& text) {
     if (opcode == 10) {
         if (fields["action"] == "\"read\"") return fields.size() == 6 &&
             hex(fields["node"], 16, 16) && fields["node"] > "\"0000000000000001\"" &&
-            number(fields["endpoint"], 0, 65534) && fields["cluster"] == "6" && fields["attribute"] == "0";
+            number(fields["endpoint"], 0, 65534) &&
+            (fields["cluster"] == "6" || fields["cluster"] == "8") && fields["attribute"] == "0";
         if (fields["action"] == "\"job\"") return fields.size() == 3 &&
             hex(fields["job"], 16, 16) && fields["job"] != "\"0000000000000000\"";
         if (fields["action"] != "\"snapshot\"" ||
@@ -263,9 +267,11 @@ bool requestValid(unsigned char opcode, const std::string& text) {
     }
     if (opcode == 11) {
         static const char* const commands[] = {"\"on\"", "\"off\"", "\"toggle\""};
-        return fields.size() == 4 && member(fields["command"], commands, 3) &&
-            hex(fields["node"], 16, 16) && fields["node"] > "\"0000000000000001\"" &&
-            number(fields["endpoint"], 0, 65534);
+        if (!hex(fields["node"], 16, 16) || fields["node"] <= "\"0000000000000001\"" ||
+            !number(fields["endpoint"], 0, 65534)) return false;
+        if (member(fields["command"], commands, 3)) return fields.size() == 4;
+        return fields["command"] == "\"move_to_level\"" && fields.size() == 6 &&
+            number(fields["level"], 0, 254) && number(fields["transition_deciseconds"], 0, 65535);
     }
     if (opcode == 9) {
         if (fields["action"] == "\"create\"") return fields.size() == 2;
@@ -590,20 +596,27 @@ bool MatterChannel::deviceReadRequest(const std::string& input, std::string* bod
     Fields fields;
     if (input.size() > MatterWire::MaxPayload || !StatusJson(input).parse(&fields) || fields.size() != 4 ||
         !hex(fields["node"], 16, 16) || fields["node"] <= "\"0000000000000001\"" ||
-        !number(fields["endpoint"], 0, 65534) || fields["cluster"] != "6" || fields["attribute"] != "0") return false;
+        !number(fields["endpoint"], 0, 65534) ||
+        (fields["cluster"] != "6" && fields["cluster"] != "8") || fields["attribute"] != "0") return false;
     *body = "{\"schema\":1,\"action\":\"read\",\"node\":" + fields["node"] +
-        ",\"endpoint\":" + fields["endpoint"] + ",\"cluster\":6,\"attribute\":0}";
+        ",\"endpoint\":" + fields["endpoint"] + ",\"cluster\":" + fields["cluster"] + ",\"attribute\":0}";
     return requestValid(10, *body);
 }
 bool MatterChannel::deviceCommandRequest(const std::string& input, std::string* body) {
     body->clear();
     Fields fields;
     static const char* const commands[] = {"\"on\"", "\"off\"", "\"toggle\""};
-    if (input.size() > MatterWire::MaxPayload || !StatusJson(input).parse(&fields) || fields.size() != 3 ||
-        !member(fields["command"], commands, 3) || !hex(fields["node"], 16, 16) ||
-        fields["node"] <= "\"0000000000000001\"" || !number(fields["endpoint"], 0, 65534)) return false;
+    if (input.size() > MatterWire::MaxPayload || !StatusJson(input).parse(&fields) ||
+        !hex(fields["node"], 16, 16) || fields["node"] <= "\"0000000000000001\"" ||
+        !number(fields["endpoint"], 0, 65534)) return false;
+    const bool level = fields["command"] == "\"move_to_level\"";
+    if ((level && (fields.size() != 5 || !number(fields["level"], 0, 254) ||
+                   !number(fields["transition_deciseconds"], 0, 65535))) ||
+        (!level && (fields.size() != 3 || !member(fields["command"], commands, 3)))) return false;
     *body = "{\"schema\":1,\"command\":" + fields["command"] + ",\"node\":" + fields["node"] +
-        ",\"endpoint\":" + fields["endpoint"] + '}';
+        ",\"endpoint\":" + fields["endpoint"];
+    if (level) *body += ",\"level\":" + fields["level"] + ",\"transition_deciseconds\":" + fields["transition_deciseconds"];
+    *body += '}';
     return requestValid(11, *body);
 }
 

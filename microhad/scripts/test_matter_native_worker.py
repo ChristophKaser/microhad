@@ -38,6 +38,7 @@ class MatterPeer:
         self.next_operation_job = 1
         self.operation_jobs = {}
         self.onoff = False
+        self.level = 0
         self.error = None
         self.closed = False
         self.thread = threading.Thread(target=self.run, daemon=True)
@@ -111,10 +112,11 @@ class MatterPeer:
                                             endpoint=endpoint, servers=[6, 29])],
                                         next_cursor=1 if cursor == 0 else None))
                             elif decoded['action'] == 'read':
-                                assert decoded['cluster'] == 6 and decoded['attribute'] == 0
+                                assert decoded['cluster'] in (6, 8) and decoded['attribute'] == 0
                                 job = self.next_operation_job
                                 self.next_operation_job += 1
-                                self.operation_jobs[f'{job:016x}'] = dict(kind='read', polls=0)
+                                self.operation_jobs[f'{job:016x}'] = dict(kind='read', polls=0,
+                                    cluster=decoded['cluster'])
                                 result = dict(schema=1, ok=True, result=dict(job=f'{job:016x}', state='queued'))
                             else:
                                 assert decoded['action'] == 'job'
@@ -126,14 +128,19 @@ class MatterPeer:
                                     if job['kind'] == 'on': self.onoff = True
                                     elif job['kind'] == 'off': self.onoff = False
                                     elif job['kind'] == 'toggle': self.onoff = not self.onoff
+                                    elif job['kind'] == 'move_to_level': self.level = job['level']
+                                    cluster = job.get('cluster', 8 if job['kind'] == 'move_to_level' else 6)
+                                    value = (dict(type='bool', value=self.onoff) if cluster == 6 else
+                                             dict(type='u8', value=self.level))
                                     result = dict(schema=1, ok=True, result=dict(state='complete', job=decoded['job'],
-                                        result=dict(node='0000000000000002', endpoint=1, cluster=6, attribute=0,
-                                            value=dict(type='bool', value=self.onoff))))
+                                        result=dict(node='0000000000000002', endpoint=1, cluster=cluster, attribute=0,
+                                            value=value)))
                         elif opcode == 11:
                             decoded = json.loads(body)
                             job = self.next_operation_job
                             self.next_operation_job += 1
-                            self.operation_jobs[f'{job:016x}'] = dict(kind=decoded['command'], polls=0)
+                            self.operation_jobs[f'{job:016x}'] = dict(kind=decoded['command'], polls=0,
+                                level=decoded.get('level'))
                             result = dict(schema=1, ok=True, result=dict(job=f'{job:016x}', state='queued'))
                         elif opcode == 1:
                             assert not body
@@ -540,6 +547,10 @@ def device_operations_http(fixture):
     assert operation('/api/matter/devices/read', dict(identity, cluster=6, attribute=0)) == {'value': True}
     assert operation('/api/matter/devices/command', dict(identity, command='toggle')) == {'value': False}
     assert operation('/api/matter/devices/command', dict(identity, command='off')) == {'value': False}
+    assert operation('/api/matter/devices/read', dict(identity, cluster=8, attribute=0)) == {'value': 0}
+    assert operation('/api/matter/devices/command', dict(identity, command='move_to_level',
+        level=124, transition_deciseconds=20)) == {'value': 124}
+    assert operation('/api/matter/devices/read', dict(identity, cluster=8, attribute=0)) == {'value': 124}
 
 
 def main():
