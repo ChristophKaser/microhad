@@ -72,6 +72,7 @@ fn dispatch<C: Crypto>(
     entropy: &mut OsEntropy,
     fabric_ready: bool,
     controller: &mut Controller<'_, C>,
+    devices: &mut lexra_rs_matter_probe::devices::Manager<'_, C>,
 ) -> Option<Frame> {
     if request.opcode == 12 {
         return None;
@@ -109,6 +110,8 @@ fn dispatch<C: Crypto>(
             Request::BleWriteComplete(_))) => String::from_utf8(controller.handle(
                 body, peer, lifecycle, entropy, Instant::now(),
             )?).ok()?,
+        Ok(Request::Device(lexra_rs_matter_probe::control::DeviceRequest::Snapshot { cursor, revision, .. })) =>
+            String::from_utf8(lexra_rs_matter_probe::responses::reply(devices.page(cursor, revision))?).ok()?,
         Ok(_) => "{\"schema\":1,\"ok\":false,\"error\":\"unsupported\"}".into(),
         Err(_) if request.opcode == OP_MATTER_STATUS || request.opcode == OP_THREAD_STATUS => return None,
         Err(_) => "{\"schema\":1,\"ok\":false,\"error\":\"malformed\"}".into(),
@@ -252,6 +255,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         controller_fabric,
     )?;
     let mut lifecycle = Lifecycle::load(store.clone()).map_err(|_| "Thread state unavailable")?;
+    let mut devices = lexra_rs_matter_probe::devices::Manager::new(
+        matter, &crypto, controller_fabric, controller.catalog())?;
     let mut configuration_entropy = OsEntropy::open()?;
     let mut subscribers = Vec::new();
     // Do not initialize OT (and restore POSIX settings) until a fresh protected
@@ -275,6 +280,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 &mut configuration_entropy,
                 matter.has_fabrics(),
                 &mut controller,
+                &mut devices,
             )
         })?;
         publish_thread(&mut ipc, &mut subscribers, &lifecycle)?;
@@ -289,8 +295,6 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         .map_err(|_| "Thread restore failed")?;
     thread.start_discovery()?;
     let discovery = lexra_rs_matter_probe::discovery::run(matter, &thread);
-    let mut devices = lexra_rs_matter_probe::devices::Manager::new(
-        matter, &crypto, controller_fabric, controller.catalog());
     let mut discovery = pin!(discovery);
     let network = thread.bind(MATTER_PORT)?;
     let route_btp = |address: &Address| matches!(address, Address::Btp(_));
@@ -323,6 +327,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 &mut configuration_entropy,
                 matter.has_fabrics(),
                 &mut controller,
+                &mut devices,
             )
         })?;
         controller.poll(&lifecycle, Instant::now(), &mut context);

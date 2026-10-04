@@ -19,7 +19,7 @@ pub enum Phase {
     Complete = 4,
     RecoveryRequired = 5,
 }
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Node {
     pub id: u64,
     pub phase: Phase,

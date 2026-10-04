@@ -138,6 +138,8 @@ pub enum DeviceRequest {
         schema: Schema,
         #[serde(default)]
         cursor: u16,
+        #[serde(default)]
+        revision: Option<Id>,
     },
     Read {
         schema: Schema,

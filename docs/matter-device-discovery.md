@@ -58,7 +58,26 @@ heartbeat, queued mutations, owned relay callbacks, cancellation, radio loss
 and unavailable-service responses. Stripped MIPS artifacts are 1,961,656 bytes
 for the service and 2,301,648 bytes for the probe; neither was deployed.
 
-Device IPC/API exposure, remote reconciliation of recovery-required nodes,
+Device IPC/API exposure at this scheduler checkpoint, remote reconciliation of recovery-required nodes,
 legacy catalog migration, device types/features and native controls remain open.
 Host fixture coverage does not establish real accessory interoperability;
 plan 08 remains excluded.
+
+## Paginated IPC checkpoint — 2026-10-04
+
+Opcode 10 now exposes cached catalog/endpoint snapshots before radio startup and
+while running. [The snapshot contract](matter-device-snapshot-ipc.md) defines
+one endpoint per page, stable IDs, incomplete-node placeholders and revision
+validation across pagination. Revisions start from OS randomness, advance only
+for observable changes, and fail closed on exhaustion. Worst-case pages with
+64 full-width cluster IDs fit the 2048-byte IPC limit. Reads do not write flash
+or wait for accessory traffic.
+
+Verification: all 57 service-feature tests pass, with added pagination/stable-ID,
+missing/stale revision, out-of-range cursor, maximum page size and revision
+exhaustion checks. Host and MIPS service/probe builds pass. The actual service
+IPC harness checks an empty catalog, missing revision and invalid cursor before
+Thread startup. The encrypted accessory fixture checks both endpoint pages
+using the production manager's CASE-derived descriptors; its success marker is
+mandatory. Native request/reply validation, HTTP routing and device UI are the
+next integration requirements. Real accessories remain excluded under plan 08.

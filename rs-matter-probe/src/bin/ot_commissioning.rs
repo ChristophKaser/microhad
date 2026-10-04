@@ -422,7 +422,7 @@ async fn run(
             let catalog = lexra_rs_matter_probe::catalog::Catalog::open(
                 active_store.clone(), persisted.fabric_id(), persisted.next_node())?;
             let mut manager = lexra_rs_matter_probe::devices::Manager::new(
-                ctrl_matter, &ctrl_crypto, fab, catalog);
+                ctrl_matter, &ctrl_crypto, fab, catalog).map_err(|_| rs_matter::error::ErrorCode::Failure)?;
             for attempt in 0..2 {
                 std::future::poll_fn(|context| {
                     manager.poll(true, false, std::time::Instant::now(), context);
@@ -439,6 +439,16 @@ async fn run(
                 }
             }
             println!("PASS production device scheduler catalog restore and radio detach refresh over CASE");
+            let first = manager.page(0, None).map_err(|_| rs_matter::error::ErrorCode::InvalidData)?;
+            assert_eq!(first.devices[0].node.0, node);
+            assert_eq!(first.devices[0].endpoint, Some(0));
+            assert_eq!(first.next_cursor, Some(1));
+            let last = manager.page(1, Some(first.revision)).map_err(|_| rs_matter::error::ErrorCode::InvalidData)?;
+            assert_eq!(last.devices[0].endpoint, Some(1));
+            assert!(last.devices[0].online && last.devices[0].servers.contains(&6));
+            assert_eq!(last.next_cursor, None);
+            assert_eq!(last.devices[0].id.as_deref(), Some(format!("matter:{:016x}:{node:016x}:0001", persisted.fabric_id()).as_str()));
+            println!("PASS bounded revisioned device snapshot pages from encrypted CASE descriptors");
         }
         let exchange = Exchange::initiate(ctrl_matter, ctrl_crypto, fab, node).await?;
         assert!(!exchange.on_off().on_off_read(1).await?);

@@ -8,6 +8,7 @@ use rs_matter::{
     transport::exchange::Exchange,
     Matter,
 };
+use serde::Serialize;
 use std::{
     future::Future,
     pin::Pin,
@@ -17,6 +18,29 @@ use std::{
 
 pub const MAX_ENDPOINTS: usize = 32;
 pub const MAX_CLUSTERS: usize = 64;
+
+#[derive(Serialize)]
+pub struct Device {
+    pub node: crate::control::Id,
+    pub state: &'static str,
+    pub online: bool,
+    pub id: Option<String>,
+    pub endpoint: Option<u16>,
+    pub servers: Vec<u32>,
+}
+#[derive(Serialize)]
+pub struct Page {
+    pub revision: crate::control::Id,
+    pub devices: Vec<Device>,
+    pub next_cursor: Option<u16>,
+}
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PageError {
+    Malformed,
+    StaleRevision,
+    Capacity,
+}
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Endpoint {
@@ -41,20 +65,87 @@ pub struct Manager<'a, C: Crypto> {
     catalog: Catalog,
     snapshots: Vec<Snapshot>,
     work: Option<(u64, Instant, Work<'a>)>,
+    revision: u64,
+    seen: Vec<crate::catalog::Node>,
 }
 impl<'a, C: Crypto + 'a> Manager<'a, C> {
-    pub fn new(matter: &'a Matter<'a>, crypto: &'a C, fabric: NonZeroU8, catalog: Catalog) -> Self {
-        Self {
+    pub fn new(
+        matter: &'a Matter<'a>,
+        crypto: &'a C,
+        fabric: NonZeroU8,
+        catalog: Catalog,
+    ) -> Result<Self, std::io::Error> {
+        use rs_matter::crypto::TryRng;
+        let mut entropy = crate::entropy::OsEntropy::open()?;
+        let revision = entropy.try_next_u64().unwrap().max(1);
+        Ok(Self {
             matter,
             crypto,
             fabric,
             catalog,
             snapshots: Vec::new(),
             work: None,
-        }
+            revision,
+            seen: Vec::new(),
+        })
     }
     pub fn snapshots(&self) -> &[Snapshot] {
         &self.snapshots
+    }
+    fn changed(&mut self) {
+        if self.revision != 0 {
+            self.revision = self.revision.checked_add(1).unwrap_or(0);
+        }
+    }
+    pub fn page(
+        &mut self,
+        cursor: u16,
+        revision: Option<crate::control::Id>,
+    ) -> Result<Page, PageError> {
+        let nodes = self.catalog.nodes();
+        if nodes != self.seen {
+            self.seen = nodes.clone();
+            self.changed();
+        }
+        if self.revision == 0 {
+            return Err(PageError::Capacity);
+        }
+        if (cursor != 0 && revision.is_none()) || revision.is_some_and(|r| r.0 != self.revision) {
+            return Err(PageError::StaleRevision);
+        }
+        let mut offset = 0usize;
+        let mut device = None;
+        for node in nodes {
+            let snapshot = self.snapshots.iter().find(|s| s.node == node.id);
+            let endpoints = snapshot.map(|s| s.endpoints.as_slice()).unwrap_or(&[]);
+            let state = match node.phase {
+                Phase::Complete => "complete",
+                Phase::RecoveryRequired => "recovery_required",
+                _ => "commissioning",
+            };
+            for index in 0..endpoints.len().max(1) {
+                if offset == usize::from(cursor) {
+                    let endpoint = endpoints.get(index);
+                    device = Some(Device {
+                        node: crate::control::Id(node.id),
+                        state,
+                        online: node.phase == Phase::Complete && snapshot.is_some_and(|s| s.online),
+                        id: endpoint.map(|e| self.catalog.endpoint_id(node.id, e.id).unwrap()),
+                        endpoint: endpoint.map(|e| e.id),
+                        servers: endpoint.map(|e| e.servers.clone()).unwrap_or_default(),
+                    });
+                }
+                offset += 1;
+            }
+        }
+        if usize::from(cursor) > offset || (usize::from(cursor) == offset && cursor != 0) {
+            return Err(PageError::Malformed);
+        }
+        Ok(Page {
+            revision: crate::control::Id(self.revision),
+            devices: device.into_iter().collect(),
+            next_cursor: (usize::from(cursor) + 1 < offset).then_some(cursor + 1),
+        })
     }
     pub fn poll(
         &mut self,
@@ -66,9 +157,13 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         if !ready || commissioning {
             self.work = None;
             if !ready {
+                let changed = self.snapshots.iter().any(|s| s.online);
                 for snapshot in &mut self.snapshots {
                     snapshot.online = false;
                     snapshot.next = now;
+                }
+                if changed {
+                    self.changed();
                 }
             }
             return;
@@ -86,6 +181,10 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 let node = *node;
                 self.work = None;
                 let snapshot = self.snapshots.iter_mut().find(|s| s.node == node).unwrap();
+                let visible_changed = match &result {
+                    Ok(endpoints) => !snapshot.online || snapshot.endpoints != *endpoints,
+                    Err(_) => snapshot.online,
+                };
                 match result {
                     Ok(endpoints) => {
                         snapshot.endpoints = endpoints;
@@ -98,6 +197,9 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                         snapshot.failures = snapshot.failures.saturating_add(1);
                         snapshot.next = now + retry_delay(snapshot.failures);
                     }
+                }
+                if visible_changed {
+                    self.changed();
                 }
             }
             return;
@@ -225,9 +327,20 @@ mod tests {
             &TEST_DEV_ATT,
             5540,
         ));
-        let mut manager = Manager::new(matter, &crypto, NonZeroU8::new(1).unwrap(), catalog);
+        let mut manager =
+            Manager::new(matter, &crypto, NonZeroU8::new(1).unwrap(), catalog).unwrap();
         let now = Instant::now();
         let mut context = Context::from_waker(std::task::Waker::noop());
+        let first = manager.page(0, None).unwrap();
+        assert_eq!(first.devices[0].node.0, 2);
+        assert_eq!(first.next_cursor, Some(1));
+        assert_eq!(first.devices[0].endpoint, None);
+        assert!(manager.page(1, None).is_err());
+        assert_eq!(
+            manager.page(2, Some(first.revision)).unwrap().devices[0].state,
+            "recovery_required"
+        );
+        assert!(manager.page(3, Some(first.revision)).is_err());
         manager.poll(true, true, now, &mut context);
         assert!(manager.work.is_none());
         manager.poll(true, false, now, &mut context);
@@ -256,12 +369,50 @@ mod tests {
         ));
         manager.poll(true, false, now + Duration::from_secs(30), &mut context);
         assert!(manager.snapshots[1].online);
+        assert!(manager.page(1, Some(first.revision)).is_err());
+        let refreshed = manager.page(0, None).unwrap();
+        let second = manager.page(1, Some(refreshed.revision)).unwrap();
+        assert_eq!(second.devices[0].endpoint, Some(0));
+        assert!(second.devices[0].online);
+        assert_eq!(
+            second.devices[0].id.as_deref(),
+            Some("matter:0000000000000001:0000000000000003:0000")
+        );
+        assert!(
+            crate::responses::reply::<_, PageError>(Ok(second))
+                .unwrap()
+                .len()
+                < crate::ipc::MAX_PAYLOAD
+        );
         manager.poll(false, false, now + Duration::from_secs(31), &mut context);
         assert!(manager.snapshots.iter().all(|s| !s.online));
         manager.poll(true, false, now + Duration::from_secs(31), &mut context);
         assert!(manager.work.is_some());
         manager.poll(true, true, now + Duration::from_secs(31), &mut context);
         assert!(manager.work.is_none());
+        manager.snapshots[1].endpoints = (0..MAX_ENDPOINTS)
+            .map(|id| Endpoint {
+                id: id as u16,
+                servers: (u32::MAX - MAX_CLUSTERS as u32 + 1..=u32::MAX).collect(),
+            })
+            .collect();
+        manager.changed();
+        let revision = manager.page(0, None).unwrap().revision;
+        for cursor in 1..=MAX_ENDPOINTS as u16 {
+            let page = manager.page(cursor, Some(revision)).unwrap();
+            assert_eq!(page.devices[0].servers.len(), MAX_CLUSTERS);
+            assert!(
+                crate::responses::reply::<_, PageError>(Ok(page))
+                    .unwrap()
+                    .len()
+                    <= crate::ipc::MAX_PAYLOAD
+            );
+        }
+        assert!(manager.page(u16::MAX, Some(revision)).is_err());
+        manager.revision = u64::MAX;
+        manager.changed();
+        manager.changed();
+        assert!(matches!(manager.page(0, None), Err(PageError::Capacity)));
         assert_eq!(
             std::fs::read(directory.join("credentials.bin")).unwrap(),
             before

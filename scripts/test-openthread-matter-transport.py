@@ -53,6 +53,8 @@ def main():
                 raise RuntimeError('Operational descriptor discovery did not complete: ' + result.stdout + result.stderr)
             if args.service_owner and 'PASS production device scheduler catalog restore and radio detach refresh over CASE' not in result.stdout:
                 raise RuntimeError('Device scheduler did not complete: ' + result.stdout + result.stderr)
+            if args.service_owner and 'PASS bounded revisioned device snapshot pages from encrypted CASE descriptors' not in result.stdout:
+                raise RuntimeError('Device snapshot pagination did not complete: ' + result.stdout + result.stderr)
             if result.returncode or marker not in result.stdout:
                 raise RuntimeError('Transport failed: ' + result.stdout + result.stderr + '\nRCP error: ' + str(radio.error))
             if radio.error:
