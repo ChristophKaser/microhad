@@ -274,10 +274,26 @@ catalog, CASE control, two report transitions, and restart checks passed.
 The listener must use immediate `Exchange::accept()`; delaying acceptance for
 one second lets the transport discard an unclaimed responder exchange.
 
-This proves the library's OnOff subscription/report exchange only. Production
-subscription scheduling, report parsing for all supported measurement types,
-native IPC event delivery, deduplication/reconnect behavior and gateway state
-updates from reports remain open.
+## Typed report decoder checkpoint — 2026-10-04
+
+Rust commit `1b23a36` adds supported-path decoding for OnOff and CurrentLevel
+`ReportData` values into the same `ResultValue` shape used by confirmed reads.
+The synthetic OnOff report fixture asserts the decoded node, endpoint, cluster,
+attribute, and boolean value after checking the authenticated peer and
+subscription ID. This decoder is not yet called by the production service's
+report receiver: subscriptions are still fixture-only, and report values do
+not yet reach native IPC or `Gateway::Device`. Sensor report decoding,
+subscription scheduling, endpoint/subscription correlation, duplicate
+filtering, reconnect behavior, and gateway state/history/alert updates remain
+open.
+
+Verification passed: focused Rust operations unit test, release commissioning
+probe build, and
+`python3 scripts/test-openthread-matter-transport.py --commissioning --ble
+--service-owner --service-discovery` against the synthetic RCP. The broader
+Rust library suite ran 62 tests; 54 passed and eight AF_UNIX tests were denied
+by sandbox `EPERM` before their assertions. Re-run those in the socket-capable
+host environment before claiming full library-suite verification.
 
 ## Dependencies
 
