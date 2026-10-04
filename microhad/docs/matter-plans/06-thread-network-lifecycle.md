@@ -1,13 +1,17 @@
 # Plan: Thread network lifecycle on the shared radio
 
-## Current open work — 2026-10-04
+## Current open work — 2026-10-05
 
 Guarded datasets, fresh coordinator observations, and active commissioning
-cancellation on readiness loss are host-verified. Integrated
-stall/channel-change/restart recovery remains open.
+cancellation on readiness loss are host-verified. The native gateway now
+reconnects through a Zigbee channel change while the Matter service refuses the
+incompatible Thread dataset and resumes after the original channel returns.
+Target RF behavior, coordinator-expiry edge cases and operator recovery remain
+open.
 
-Next deliverable: Exercise native-worker continuity through mismatch/recovery and
-bounded operator recovery. Keep physical coexistence and RF acceptance in plan 08.
+Next deliverable: Extend integrated coverage for coordinator expiry, interrupted
+dataset apply and bounded operator recovery. Keep physical coexistence and RF
+acceptance in plan 08.
 
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.
@@ -120,8 +124,10 @@ are historical; the latest status/evidence section above takes precedence.
    channel changes and Thread socket loss while the native worker remains live.
    The Rust service fixture now covers active-session RCP loss/restart and fresh
    channel gating (`34b4839`), plus repeated incompatible observations and
-   matching-channel recovery (`77d70f0`); native-worker continuity remains.
-   Confirm expiry detaches Thread and stale observations cannot renew readiness.
+   matching-channel recovery (`77d70f0`). The native process integration now
+   covers coordinator loss, a live channel change, Thread `channel_mismatch`,
+   and restoration to `attached`; coordinator expiry and stale-observation
+   renewal remain open.
 2. [ ] Define and verify explicit recovery when the observed Zigbee channel
    differs from the persisted dataset. Reject incompatible apply before any
    store/radio mutation; never silently replace credentials or reset the UART.
@@ -240,3 +246,29 @@ timeout, active-session RCP-loss recovery, repeated mismatch checks and final
 state validation. This covers changing/offline coordinator reports while the
 service is alive; actual Zigbee channel migration and RF coexistence remain
 target acceptance work in plan 08.
+
+## Native coordinator channel-change recovery — 2026-10-05
+
+The native Ziggurat client previously compared the active channel byte as part
+of Zigbee network identity. After a coordinator reconnect on a new channel, it
+treated the same PAN, extended PAN, keys and coordinator EUI as a different
+network and permanently rejected the coordinator. Identity comparison now
+allows the channel to change while retaining checks on the remaining network
+identity fields and security counters.
+
+The real Rust service/native gateway integration now disconnects the synthetic
+coordinator, reconnects it on an incompatible channel, verifies the service
+reports `channel_mismatch` while the gateway process stays alive, and confirms
+the Thread radio writes only the permitted dataset channel. It then reconnects
+on the original Zigbee channel and verifies Thread returns to `attached`.
+Verification passed:
+`make ZIGGURAT=1 MATTER=1 host`,
+`make ZIGGURAT=1 MATTER=1 mips`,
+`python3 scripts/test_matter_native_worker.py`,
+`python3 scripts/test_matter_native_worker.py --real-service`, and
+`python3 scripts/test_ziggurat_native_peer.py` (13 tests). This is host
+synthetic evidence; real coordinator behavior and RF coexistence remain in
+plan 08, which was not run. The MIPS artifact is a stripped, static, big-endian
+MIPS-I ELF; `size` reports 1,593,436 bytes text, 138,108 data, and 65,768 BSS
+(1,797,312 bytes total). This build size is not a substitute for target peak
+RSS, available-RAM, CPU, or scheduling-deadline measurements.

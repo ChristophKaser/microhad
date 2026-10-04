@@ -13,7 +13,7 @@ import time
 import urllib.error
 import urllib.request
 import zlib
-from test_ziggurat_native_peer import NativeTests, ROOT
+from test_ziggurat_native_peer import NativeTests, Peer, ROOT
 from test_ziggurat_service import wait_for
 
 
@@ -741,15 +741,61 @@ def main():
             assert matter.mutations and all(c == expected for _, c in matter.mutations)
         commissioning_http(fixture)
         relay_tests(fixture)
-        # Radio loss must publish offline, rather than renewing the old channel.
-        fixture.peer.close()
+        # Coordinator loss and a live channel change must not strand the native
+        # worker or permit Thread radio writes on an incompatible channel.
         if real:
+            fixture.peer.close()
             wait_for(lambda: fixture.request('/api/thread/status')['state'] == 'awaiting_coordinator')
+            assert fixture.process.poll() is None
+
+            def reconnect_coordinator(channel):
+                fixture.path.unlink()
+                # The native client advances persisted security counters during
+                # startup, so a returning coordinator must report its current state.
+                coordinator_state = fixture.saved()
+                network = bytearray.fromhex(coordinator_state['network'])
+                network[0] = channel
+                coordinator_state['network'] = network.hex()
+                fixture.peer = Peer(fixture.path, coordinator_state)
+                fixture.peer.configured = True
+                fixture.peer.started = True
+                try:
+                    wait_for(lambda: fixture.status()['observed_network_channel'] == channel)
+                except TimeoutError:
+                    fixture.log.seek(0)
+                    sys.stderr.write(f'Coordinator peer error: {fixture.peer.error}\n')
+                    sys.stderr.write(f'Native status: {fixture.status()}\n')
+                    sys.stderr.write(f'Coordinator commands: {[command for command, _ in fixture.peer.commands]}\n')
+                    logs = fixture.request('/api/logs').get('lines', [])
+                    sys.stderr.write(f'Native logs: {logs[-8:]}\n')
+                    sys.stderr.write(fixture.log.read().decode(errors='replace'))
+                    raise
+
+            mismatched_channel = 11 if expected != 11 else 26
+            reconnect_coordinator(mismatched_channel)
+            wait_for(lambda: fixture.request('/api/thread/status')['state'] == 'channel_mismatch')
+            assert fixture.process.poll() is None
+            assert matter.radio.channel_writes and all(c == expected for c in matter.radio.channel_writes)
+            fixture.peer.close()
+            wait_for(lambda: fixture.request('/api/thread/status')['state'] == 'awaiting_coordinator')
+            reconnect_coordinator(expected)
+            try:
+                wait_for(lambda: fixture.request('/api/thread/status')['state'] == 'attached')
+            except TimeoutError:
+                sys.stderr.write(f'Thread recovery status: {fixture.request("/api/thread/status")}\n')
+                sys.stderr.write(f'Matter radio writes: {matter.radio.channel_writes}\n')
+                raise
+            assert fixture.process.poll() is None
         else:
+            fixture.peer.close()
             wait_for(lambda: any(not o['zigbee_online'] and o['zigbee_channel'] == 0
                                  for o in matter.observations))
         assert matter.error is None
-        assert thread_http(fixture, 'create', dict(schema=1)) == dict(schema=1, ok=False, error='not_ready')
+        create_result = thread_http(fixture, 'create', dict(schema=1))
+        if real:
+            assert create_result == dict(schema=1, ok=False, error='busy')
+        else:
+            assert create_result == dict(schema=1, ok=False, error='not_ready')
         # Missing service clears the cache while Zigbee/native remains responsive.
         matter.close()
         def unavailable():

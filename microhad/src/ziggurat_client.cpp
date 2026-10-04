@@ -68,7 +68,9 @@ bool tableValid(const Bytes& b, unsigned long row, unsigned long maximum) {
 bool sameIdentity(const Bytes& a, const Bytes& b) {
     if (a.size()!=82 || b.size()!=82) return false;
     for (unsigned long i=0;i<82;++i) {
-        if ((i>=39 && i<43) || (i>=78 && i<82)) continue;
+        // The active channel can change after a Zigbee network channel update;
+        // network identity is anchored by PAN, extended PAN, keys and EUI.
+        if (i==0 || (i>=39 && i<43) || (i>=78 && i<82)) continue;
         if (a[i]!=b[i]) return false;
     }
     return true;
