@@ -79,8 +79,10 @@ source-unification checkpoint passed
 `make ZIGGURAT=1 MATTER=1 mips`, `npm run build`,
 `node webui/test/matter-devices-browser.cjs`, and
 `python3 scripts/test_matter_webui.py` (20/20 API tests).
-report subscriptions, remote
-node recovery, and persistent native endpoint restart restoration remain open.
+report subscriptions and remote node recovery remain open. Native endpoint
+metadata is persisted in the low-frequency device store; confirmed values are
+restored across gateway process restart from `/tmp`, and may be lost on power
+loss.
 
 This shared device contract applies equally to Zigbee, Matter, and external
 HTTP sources such as Shelly: stable source identity, canonical semantic device
@@ -187,22 +189,41 @@ explicit-rendezvous fixture alone does not establish operational discovery.
    for shared card grouping/rendering. Commit `1f5077d` registers
    validated Matter snapshot endpoints in native `Gateway::Device` and
    deduplicates them in the common dashboard by stable ID. Keep Matter UI
-   limited to joining and Matter/Thread settings. Confirmed reading ingestion
-   is implemented in memory; durable persistence remains open.
+   limited to joining and Matter/Thread settings. Native endpoint identity,
+   descriptors and capabilities persist in `devices.json`; confirmed readings
+   persist for process restart in `/tmp/microhad-zigbee-native-values.json` and are
+   intentionally not power-loss durable.
 5. Implemented CASE reads and typed native validation cover advertised
    temperature, humidity, CO2, PM2.5 and air-quality clusters; the frontend
    renders those values from its snapshot cache. Successful typed CASE results
    now update matching common native values, preserving units and null/unknown
-   quality through snapshot reconciliation. Persist this state and feed shared
-   history/alerts consumed by Matter, Zigbee and HTTP sources such as Shelly.
-   Test signed values and ALPSTUGA-related clusters without assuming every
-   target advertises all measurements.
+   quality through snapshot reconciliation. Endpoint metadata is restored
+   from the low-frequency store and latest confirmed values from `/tmp` after
+   process restart. Shared history and alerts serve Matter, Zigbee and HTTP
+   sources such as Shelly. Test signed values and ALPSTUGA-related clusters
+   without assuming every target advertises all measurements.
 6. Add bounded subscriptions, duplicate filtering and reconnect/refresh policy;
    retain only state changes that warrant persistence.
 7. Integrate snapshots, history, alerts and the shared dashboard through the
    native worker using
    distinct Matter IDs. Test restart, unsupported clusters, missing reports
    and concurrent Zigbee activity with synthetic peers.
+
+## Native endpoint and reading restart restoration — 2026-10-04
+
+Native commit `be2e98a` persists Matter endpoint identity, endpoint number,
+advertised server clusters, and capability metadata to the low-frequency
+`devices.json` store when the reconciled catalog changes. Confirmed values are
+written to `/tmp/microhad-zigbee-native-values.json` only when they change, then
+merged with the persisted endpoint by stable Matter ID during gateway startup.
+This restores last confirmed values across a gateway process restart, while
+keeping high-frequency updates off persistent flash; readings can be lost on
+power loss. Snapshot reconciliation retains restored values and alert settings.
+The persistence test round-trips Matter descriptors/capabilities and the
+restart test restores CO2/PM2.5 units and readings before and after snapshot
+reconciliation. Verified with `make ZIGGURAT=1 MATTER=1 host test` and
+`make ZIGGURAT=1 MATTER=1 mips`; the latter passed with the toolchain's existing
+LOAD-USE warnings. Report subscriptions and remote node recovery remain open.
 
 ## Dependencies
 
@@ -273,8 +294,9 @@ are historical; the latest status/evidence section above takes precedence.
 7. [ ] CASE operation values feed the common in-memory state and the shared
    temperature/humidity/brightness alert engine. Matter writes confirmed
    values to the source-neutral unit-aware journal; route Zigbee and remaining
-   external HTTP history through it too. Add restart restoration, CO2/PM2.5 alert
-   support and reports.
+   external HTTP history through it too. Restart restoration of endpoint
+   metadata and readings, CO2/PM2.5 alert support and alert-setting restoration
+   are implemented. Bounded reports remain open.
    Test unsupported clusters, missing/duplicate reports, address changes,
    restart and concurrent synthetic Zigbee activity; document remaining limits.
 

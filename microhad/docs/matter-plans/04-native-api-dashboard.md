@@ -13,7 +13,10 @@ used by Zigbee and external HTTP devices such as Shelly. Shelly already uses
 those shared cards; its setup remains in the external-device dialog and its
 commands use its HTTP controller. The dashboard adapter for Matter preserves
 the common device shape while sending commands through the Matter controller.
-The native persistent device model and broader failure gates remain open. A
+Matter endpoint identity, descriptors and advertised capabilities now restore
+from the low-frequency device store; confirmed readings restore across gateway
+process restart from `/tmp` and can be lost on power loss. Broader failure gates
+remain open. A
 new stalled-peer regression test proves the native Matter IPC exchange returns
 at its deadline without waiting for a peer that accepted but never answered
 (`750c4c9`); absent/stalled service matrix coverage remains incomplete. A
@@ -118,9 +121,10 @@ session. The dashboard client has nine actual localhost HTTP tests and passes
 the required production web build. The dashboard projects Matter endpoints
 into the shared device cards and routes common controls through the Matter
 adapter. Shelly continues to use those cards with its HTTP controller. Matter
-endpoints also enter the native in-memory catalog from validated snapshot
-pages; native persistence, history/alerts, reports and broad failure gates
-remain open.
+endpoints also enter the native catalog from validated snapshot pages. Endpoint
+metadata and latest readings now restore across gateway process restart;
+bounded history remains volatile across power loss. Report subscriptions and
+broad failure gates remain open.
 
 Native UI commit `7822c32` removes the separate Matter device list and adds the
 Matter-to-common-device adapter and controller dispatch. `make webui`,
