@@ -31,9 +31,9 @@ specific evidence recorded in a file, not to end-to-end Matter support.
 | Open point | Current status | Next checkpoint |
 | --- | --- | --- |
 | [01 Runtime](01-rust-service-runtime.md) | Host service and optional supervision implemented; recovery and target verification incomplete | Extend integrated failure/restart coverage and record final artifacts |
-| [02 IPC](02-commissioning-control-ipc.md) | Service commissioning/relay dispatch and targeted events implemented; native event/control dispatch incomplete | Wire the validated persistent native channel into worker jobs/events; add device bodies |
+| [02 IPC](02-commissioning-control-ipc.md) | Service commissioning/relay dispatch and targeted events implemented; native event/control dispatch incomplete | Persistent worker/job queue implemented; finish public dispatch, recovery and device bodies |
 | [03 Identity](03-persistent-fabric-identity.md) | Persistent authority and host CASE recovery implemented | Finish backup/recovery procedure and target filesystem checks |
-| [04 Native API/dashboard](04-native-api-dashboard.md) | Status routes implemented; write APIs and UI pending | Add asynchronous commissioning/Thread mutation routes and job queues |
+| [04 Native API/dashboard](04-native-api-dashboard.md) | Status routes implemented; write APIs and UI pending | Expose queued commissioning/Thread mutation routes and WebSocket relay |
 | [05 Garage BLE relay](05-garage-ble-relay.md) | App integration pending | Freeze native relay contract, then implement fake-peer-tested GATT/WebSocket flow |
 | [06 Thread lifecycle](06-thread-network-lifecycle.md) | Guarded dataset lifecycle and native observation worker verified on host | Extend channel-change/restart recovery and target verification |
 | [07 Devices/reports](07-device-model-and-reports.md) | Encrypted fixture proves transport; production device pipeline pending | Implement operational DNS-SD, persist nodes, then add device/report integration |

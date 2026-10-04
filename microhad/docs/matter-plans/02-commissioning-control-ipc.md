@@ -205,10 +205,10 @@ Detailed callback/lifetime and fixture scope are recorded in its
 All unchecked items below remain open. Earlier checkpoint measurements
 are historical; the latest status/evidence section above takes precedence.
 
-1. [ ] Implement one worker-owned persistent native IPC channel. Preserve
+1. [x] Implement one worker-owned persistent native IPC channel. Preserve
    private-socket checks, bounded connect/read/write deadlines and unique live
    correlations; demultiplex replies and opcode-12 events between requests.
-2. [ ] Add strict native validators for session replies, progress, BLE writes
+2. [x] Add strict native validators for session replies, progress, BLE writes
    and callback acknowledgements. Bound hex payloads, counters and event queues;
    reject unknown fields, stale correlations and malformed service data.
 3. [ ] Add a bounded mutation queue and reconnect policy. Discard interrupted
@@ -256,3 +256,51 @@ the enabled suite includes 13 native peer tests. Both factory binaries are
 stripped static 32-bit big-endian MIPS-I ELF files. Host IPC tests require
 execution outside the workspace sandbox, which blocked the initial socket
 write. No gateway deployment, physical pairing or plan 08 action occurred.
+
+## Persistent worker and queued-call checkpoint — 2026-10-04
+
+The native Matter worker now owns one persistent IPC channel. Its private
+coordinator observations, Matter/Thread snapshots and commissioning/relay calls
+share that channel; the worker polls typed events between calls. Heartbeats
+remain approximately one second apart and take scheduling priority over queued
+jobs. HTTP status still reads only protected cached snapshots.
+
+The worker accepts strict schema-1 commissioning/relay requests (opcodes 3–8)
+into a RAM queue of at most eight pending calls. Job IDs are nonzero u32 and do
+not wrap; at most sixteen job snapshots are retained, with only terminal jobs
+eligible for eviction. Submission returns immediately; a completed IPC call's
+validated reply is available separately from the commissioning session lifetime.
+A service-level error is a completed call with an `ok:false` reply, while a
+transport failure marks the call failed. Pending request bodies are cleared on
+execution/failure/shutdown and never returned in snapshots or logs.
+
+Eight validated events may await the relay consumer. Event overflow or service
+loss closes the IPC channel, clears stale cached status/events and fails pending
+calls. The worker reconnects for the next heartbeat but never automatically
+replays a mutation or BLE callback. A later relay implementation must explicitly
+recover session state and reattach rather than assume a lost C1 write was sent.
+No new flash writes are introduced.
+
+Public commissioning/job/Thread mutation APIs and the WebSocket event consumer
+remain open in plan 04; Thread create/import queue support is also still open.
+
+Focused worker tests use a single persistent fake peer to verify offline
+heartbeat/status correlations, asynchronous cancellation submission, cached
+reads during a delayed reply and an event arriving between calls. A failed
+peer test blocks one call, fills all eight pending slots, rejects overflow and
+checks all nine jobs fail on disconnect without returning request bodies.
+Restart preserves monotonic IPC correlations; worker shutdown clears job/event
+caches. Invalid setup PINs and unavailable-service submissions fail early.
+
+Verification passed: default `make host test`/`make mips` and
+`make ZIGGURAT=1 MATTER=1 host test`/`make ZIGGURAT=1 MATTER=1 mips`.
+Host suites ran sequentially; enabled peer checks pass (13 tests). Both
+factory binaries remain stripped static big-endian MIPS-I ELF files.
+`python3 scripts/test_matter_native_worker.py` passes with its updated persistent
+fake peer, and `python3 scripts/test_matter_native_worker.py --real-service`
+passes against companion commit `45782d3` with synthetic RCP/Ziggurat peers.
+The actual native binary renews confirmed channel observations, reads cached
+HTTP snapshots, observes radio loss and returns 503 after service exit.
+Queue/cancellation/event delivery evidence is from the focused fake-peer tests;
+public API-to-commissioner integration remains open. No physical gateway test,
+deployment, accessory pairing or plan 08 action was performed.

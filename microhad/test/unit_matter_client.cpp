@@ -21,6 +21,9 @@ struct Peer {
     unsigned char opcode;
     std::string body;
     std::string reply;
+    unsigned int id;
+    bool keep;
+    Peer() : fd(-1), opcode(0), id(1), keep(false) {}
 };
 
 bool readExact(int fd, unsigned char* bytes, unsigned int size) {
@@ -48,7 +51,7 @@ void* serveStatus(void* opaque) {
     assert(decoder.pop(&request));
     assert(request.kind == MatterWire::Frame::Request);
     assert(request.opcode == peer->opcode);
-    assert(request.id == 1);
+    assert(request.id == peer->id);
     assert(std::string(request.payload.begin(), request.payload.end()) == peer->body);
     MatterWire::Frame response;
     response.kind = MatterWire::Frame::Response;
@@ -57,7 +60,7 @@ void* serveStatus(void* opaque) {
     response.payload.assign(peer->reply.begin(), peer->reply.end());
     assert(MatterWire::encode(response, &bytes));
     for (unsigned int i = 0; i < bytes.size(); ++i) assert(write(client, &bytes[i], 1) == 1);
-    close(client);
+    if (!peer->keep) close(client);
     return 0;
 }
 
@@ -82,23 +85,43 @@ void* serveChannel(void* opaque) {
 
 struct WorkerPeer {
     int listener;
+    bool fail;
+    unsigned int firstId;
     std::string thread;
 };
 void* serveWorker(void* opaque) {
     WorkerPeer* worker = static_cast<WorkerPeer*>(opaque);
-    for (unsigned int i = 0; i < 3; ++i) {
-        Peer peer;
-        peer.fd = accept(worker->listener, 0, 0); assert(peer.fd >= 0);
-        peer.opcode = i == 0 ? 9 : i;
+    int fd = accept(worker->listener, 0, 0); assert(fd >= 0);
+    for (unsigned int i = 0; i < 4; ++i) {
+        Peer peer; peer.fd = fd; peer.id = i + worker->firstId; peer.keep = true;
+        peer.opcode = i == 0 ? 9 : i == 3 ? 5 : i;
         if (i == 0) {
             peer.body = "{\"schema\":1,\"action\":\"observe\",\"zigbee_channel\":0,\"zigbee_online\":false}";
             peer.reply = "{\"schema\":1,\"ok\":true,\"result\":" + worker->thread + '}';
         } else if (i == 1) {
             peer.reply = "{\"enabled\":true,\"available\":true,\"controller_initialized\":true,\"fabric_ready\":true,\"state\":\"awaiting_coordinator\"}";
-        } else peer.reply = worker->thread;
+        } else if (i == 2) peer.reply = worker->thread;
+        else {
+            peer.body = "{\"schema\":1,\"session\":\"0000000000000001\"}";
+            peer.reply = "{\"schema\":1,\"ok\":true,\"result\":{\"session\":\"0000000000000001\",\"state\":\"cancelled\",\"deadline_remaining_seconds\":0,\"error\":\"cancelled\"}}";
+            usleep(200000); // Queued submission/status reads must not wait for this reply.
+        }
+        if (i == 3 && worker->fail) {
+            unsigned char header[10]; assert(readExact(fd, header, 10));
+            assert(header[4] == 5);
+            std::vector<unsigned char> body(header[0] | (static_cast<unsigned int>(header[1]) << 8));
+            assert(!body.empty() && readExact(fd, &body[0], body.size()));
+            usleep(200000); close(fd); return 0;
+        }
         serveStatus(&peer);
     }
-    return 0;
+    MatterWire::Frame event; event.kind = MatterWire::Frame::Event; event.opcode = 12;
+    const std::string text = "{\"schema\":1,\"event\":\"thread\",\"data\":" + worker->thread + '}';
+    event.payload.assign(text.begin(), text.end()); MatterWire::Bytes bytes;
+    assert(MatterWire::encode(event, &bytes));
+    assert(write(fd, &bytes[0], bytes.size()) == static_cast<ssize_t>(bytes.size()));
+    unsigned char byte; assert(read(fd, &byte, 1) == 0);
+    close(fd); return 0;
 }
 }
 
@@ -209,7 +232,7 @@ void runMatterClientUnitTests() {
     assert(json.empty());
     close(queued);
     int pending = accept(listener, 0, 0); assert(pending >= 0); close(pending);
-    WorkerPeer fake; fake.listener = listener; fake.thread = thread;
+    WorkerPeer fake; fake.listener = listener; fake.thread = thread; fake.fail = false; fake.firstId = 1;
     pthread_t peerThread; assert(pthread_create(&peerThread, 0, serveWorker, &fake) == 0);
     MatterWorker worker(0, path);
     assert(!worker.status(true, &json, &error));
@@ -221,15 +244,65 @@ void runMatterClientUnitTests() {
         usleep(5000);
     }
     assert(available && json == thread);
-    assert(pthread_join(peerThread, 0) == 0);
+    uint32_t jobId = 0;
+    assert(!worker.submit(3, "{\"schema\":1,\"discriminator\":0,\"pin\":12345678,\"timeout_seconds\":30}", &jobId, &error));
+    assert(error == "malformed" && jobId == 0);
+    assert(clock_gettime(CLOCK_MONOTONIC, &begin) == 0);
+    assert(worker.submit(5, "{\"schema\":1,\"session\":\"0000000000000001\"}", &jobId, &error));
+    assert(jobId != 0 && worker.job(jobId, &json));
+    assert(clock_gettime(CLOCK_MONOTONIC, &end) == 0);
+    assert((end.tv_sec-begin.tv_sec)*1000 + (end.tv_nsec-begin.tv_nsec)/1000000 < 100);
     // A blocked/absent IPC peer must never block cached status readers.
     assert(clock_gettime(CLOCK_MONOTONIC, &begin) == 0);
     for (unsigned int i = 0; i < 100; ++i) assert(worker.status(false, &json, &error));
     assert(clock_gettime(CLOCK_MONOTONIC, &end) == 0);
     assert((end.tv_sec-begin.tv_sec)*1000 + (end.tv_nsec-begin.tv_nsec)/1000000 < 100);
+    bool completed = false, eventReceived = false;
+    for (unsigned int i = 0; i < 100; ++i) {
+        assert(worker.job(jobId, &json));
+        if (json.find("\"state\":\"complete\"") != std::string::npos) completed = true;
+        if (worker.takeEvent(&json)) { assert(json.find("\"event\":\"thread\"") != std::string::npos); eventReceived = true; }
+        if (completed && eventReceived) break;
+        usleep(5000);
+    }
+    assert(completed && eventReceived);
     worker.stop(); worker.stop();
+    assert(pthread_join(peerThread, 0) == 0);
+    assert(!worker.job(jobId, &json));
     assert(!worker.status(true, &json, &error));
+    fake.fail = true; fake.firstId = 5;
+    assert(pthread_create(&peerThread, 0, serveWorker, &fake) == 0);
+    assert(worker.start(&error));
+    available = false;
+    for (unsigned int i = 0; i < 200; ++i) {
+        if (worker.status(true, &json, &error)) { available = true; break; }
+        usleep(5000);
+    }
+    assert(available);
+    const std::string cancel = "{\"schema\":1,\"session\":\"0000000000000001\"}";
+    std::vector<uint32_t> failedJobs;
+    assert(worker.submit(5, cancel, &jobId, &error)); failedJobs.push_back(jobId);
+    usleep(50000); // First call is blocked at the peer; fill all pending slots.
+    for (unsigned int i = 0; i < 8; ++i) {
+        assert(worker.submit(5, cancel, &jobId, &error)); failedJobs.push_back(jobId);
+    }
+    assert(!worker.submit(5, cancel, &jobId, &error) && error == "capacity");
+    bool allFailed = false;
+    for (unsigned int i = 0; i < 100; ++i) {
+        allFailed = true;
+        for (unsigned int n = 0; n < failedJobs.size(); ++n) {
+            assert(worker.job(failedJobs[n], &json));
+            if (json.find("\"state\":\"failed\"") == std::string::npos) allFailed = false;
+            assert(json.find("\"session\"") == std::string::npos);
+        }
+        if (allFailed) break;
+        usleep(5000);
+    }
+    assert(allFailed && !worker.status(true, &json, &error));
+    worker.stop(); assert(pthread_join(peerThread, 0) == 0);
     close(listener); assert(unlink(path.c_str()) == 0); assert(rmdir(directory) == 0);
     assert(worker.start(&error));
+    assert(!worker.submit(5, "{\"schema\":1,\"session\":\"0000000000000001\"}", &jobId, &error));
+    assert(error == "not_ready");
     usleep(60000); assert(!worker.status(false, &json, &error)); worker.stop();
 }

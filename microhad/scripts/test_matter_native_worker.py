@@ -51,28 +51,34 @@ class MatterPeer:
                 except socket.timeout:
                     continue
                 with peer:
-                    peer.settimeout(1)
-                    header = self.exact(peer, 10)
-                    size, version, kind, opcode, reserved, ident = struct.unpack('<HBBBBI', header)
-                    assert version == 1 and kind == 0 and reserved == 0 and ident != 0 and size <= 2048
-                    body = self.exact(peer, size)
-                    thread = dict(enabled=True, available=True, configured=False, attached=False,
-                                  state='detached', linux_ipv6_or_tun=False)
-                    if opcode == 9:
-                        observation = json.loads(body)
-                        assert set(observation) == {'schema', 'action', 'zigbee_channel', 'zigbee_online'}
-                        assert observation['schema'] == 1 and observation['action'] == 'observe'
-                        self.observations.append(observation)
-                        result = dict(schema=1, ok=True, result=thread)
-                    elif opcode == 1:
-                        assert not body
-                        result = dict(enabled=True, available=True, controller_initialized=True,
-                                      fabric_ready=True, state='running')
-                    else:
-                        assert opcode == 2 and not body
-                        result = thread
-                    payload = json.dumps(result).encode()
-                    peer.sendall(struct.pack('<HBBBBI', len(payload), 1, 1, opcode, 0, ident)+payload)
+                    peer.settimeout(.1)
+                    while not self.stop.is_set():
+                        try:
+                            header = self.exact(peer, 10)
+                        except socket.timeout:
+                            continue
+                        except RuntimeError:
+                            break
+                        size, version, kind, opcode, reserved, ident = struct.unpack('<HBBBBI', header)
+                        assert version == 1 and kind == 0 and reserved == 0 and ident != 0 and size <= 2048
+                        body = self.exact(peer, size)
+                        thread = dict(enabled=True, available=True, configured=False, attached=False,
+                                      state='detached', linux_ipv6_or_tun=False)
+                        if opcode == 9:
+                            observation = json.loads(body)
+                            assert set(observation) == {'schema', 'action', 'zigbee_channel', 'zigbee_online'}
+                            assert observation['schema'] == 1 and observation['action'] == 'observe'
+                            self.observations.append(observation)
+                            result = dict(schema=1, ok=True, result=thread)
+                        elif opcode == 1:
+                            assert not body
+                            result = dict(enabled=True, available=True, controller_initialized=True,
+                                          fabric_ready=True, state='running')
+                        else:
+                            assert opcode == 2 and not body
+                            result = thread
+                        payload = json.dumps(result).encode()
+                        peer.sendall(struct.pack('<HBBBBI', len(payload), 1, 1, opcode, 0, ident)+payload)
         except Exception as error:
             if not self.stop.is_set():
                 self.error = type(error).__name__

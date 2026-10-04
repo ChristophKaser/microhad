@@ -3,8 +3,8 @@
 This fixes the contract for the remaining implementation. The service dispatches
 status opcodes 1/2, commissioning/relay opcodes 3–8 and Thread lifecycle opcode 9.
 Thread, commissioning snapshot and opaque BLE-write events are implemented.
-Device opcodes 10/11 still return `unsupported`. Native commissioning/event
-consumption, Android BLE and production operational DNS-SD remain pending;
+Device opcodes 10/11 still return `unsupported`. Native persistent worker calls/events are implemented; public commissioning/relay
+APIs, Android BLE and production operational DNS-SD remain pending;
 service dispatch alone does not complete end-to-end accessory support.
 
 ## Framing and compatibility
@@ -181,3 +181,21 @@ u32 overflow, invalid hex, unexpected fields and event queue saturation. Exact
 Rust cancelled-session and BLE-write vectors are included. Worker integration,
 mutation queues, subscriptions/reconnect recovery and public APIs remain open;
 the running bridge still uses its existing observation/status client.
+
+## Native worker scheduling and call snapshots
+
+One worker-owned persistent connection carries private coordinator heartbeats,
+status RPCs and queued commissioning/relay opcodes 3–8. Request validation rejects
+malformed bodies before queueing. At most eight calls are pending; sixteen RAM
+job snapshots are retained and only terminal snapshots may be evicted. Job IDs
+are nonzero u32 and do not wrap. These ephemeral native IDs describe IPC delivery,
+not accessory identity or commissioning success; inspect the validated service
+reply/session state separately.
+
+Calls never run on HTTP/coordinator threads. Cached status reads and submission
+are independent of a delayed service reply. Validated events are polled between
+calls and await a single relay consumer in a queue of eight. Transport failure
+or event overflow disconnects, invalidates caches and fails pending calls without
+replay. The next heartbeat can reconnect, but session subscription/reattach must
+be explicit. Shutdown clears RAM queues; pending request bodies are erased when
+executed, failed or stopped. Public routes and relay ownership remain to be wired.

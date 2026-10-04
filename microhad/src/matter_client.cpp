@@ -162,6 +162,27 @@ bool responseValid(unsigned char opcode, const std::string& text) {
     const char* name = opcode == 6 ? "generation" : opcode == 7 ? "sequence" : "write";
     return result.size() == 1 && number(result[name], 1, 0xffffffffU);
 }
+bool requestValid(unsigned char opcode, const std::string& text) {
+    Fields fields;
+    if (text.size() > MatterWire::MaxPayload || !StatusJson(text).parse(&fields) || fields["schema"] != "1") return false;
+    if (opcode == 3) {
+        static const char* const excluded[] = {"11111111", "22222222", "33333333", "44444444", "55555555",
+            "66666666", "77777777", "88888888", "12345678", "87654321"};
+        return fields.size() == 4 && number(fields["discriminator"], 0, 4095) &&
+            number(fields["pin"], 1, 99999998) && !member(fields["pin"], excluded, 10) &&
+            number(fields["timeout_seconds"], 30, 900);
+    }
+    if (opcode < 4 || opcode > 8 || !hex(fields["session"], 16, 16) ||
+        fields["session"] == "\"0000000000000000\"") return false;
+    if (opcode == 4) return fields.size() == (fields.count("subscribe") ? 3U : 2U) &&
+        (!fields.count("subscribe") || booleanField(fields, "subscribe"));
+    if (opcode == 5) return fields.size() == 2;
+    if (opcode == 6) return fields.size() == 4 && hex(fields["address"], 12, 12) && number(fields["mtu"], 23, 517);
+    if (!number(fields["generation"], 1, 0xffffffffU)) return false;
+    if (opcode == 7) return fields.size() == 5 && number(fields["sequence"], 1, 0xffffffffU) && hex(fields["data"], 2, 488);
+    return fields.size() == 5 && number(fields["write"], 1, 0xffffffffU) && booleanField(fields, "success");
+}
+
 bool eventValid(const std::string& text) {
     Fields fields, data;
     if (!StatusJson(text).parse(&fields) || fields.size() != 3 || fields["schema"] != "1" ||
@@ -396,4 +417,8 @@ bool MatterChannel::call(unsigned char opcode, const std::string& body, std::str
         if (valid) valid = receive(deadline, true);
     }
     disconnect(); *error = "Matter service exchange failed"; return false;
+}
+
+bool MatterChannel::validRequest(unsigned char opcode, const std::string& body) {
+    return requestValid(opcode, body);
 }
