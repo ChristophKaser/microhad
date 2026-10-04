@@ -8,12 +8,14 @@ reconnects through a Zigbee channel change while the Matter service refuses the
 incompatible Thread dataset and resumes after the original channel returns.
 The actual service process also passes its five-second coordinator-observation
 expiry gate while preserving the configured dataset and making no additional
-radio channel writes. Stale-observation renewal, target RF behavior and operator
-recovery remain open.
+radio channel writes. It also recovers a dataset committed immediately before
+the synthetic RCP is lost during apply. Stale-observation renewal, direct
+`apply_failed` retry-gate verification, target RF behavior and operator recovery
+remain open.
 
 Next deliverable: Extend integrated coverage for stale-observation renewal,
-interrupted dataset apply and bounded operator recovery. Keep physical
-coexistence and RF acceptance in plan 08.
+explicit recovery after a failed apply and bounded operator recovery. Keep
+physical coexistence and RF acceptance in plan 08.
 
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.
@@ -137,7 +139,11 @@ are historical; the latest status/evidence section above takes precedence.
    store/radio mutation; never silently replace credentials or reset the UART.
 3. [ ] Exercise failed dataset apply, idempotent create/import, corrupt cached
    settings and service/RCP restarts. Verify counters survive and all channel
-   writes follow fresh observations of the permitted channel.
+   writes follow fresh observations of the permitted channel. The process test
+   now interrupts the first active-dataset apply after its credential commit,
+   restarts the service, and verifies fresh-observation gating plus restoration
+   on the permitted channel (`987316f` Rust). Direct `apply_failed` heartbeat
+   suppression and explicit retry still need process/RCP-boundary coverage.
 4. [ ] Repeat these scenarios with an active commissioning job after plans
    02/04 are wired. Confirm readiness loss terminates work and stale BLE events
    cannot resume a failed attempt.
@@ -276,6 +282,24 @@ plan 08, which was not run. The MIPS artifact is a stripped, static, big-endian
 MIPS-I ELF; `size` reports 1,593,436 bytes text, 138,108 data, and 65,768 BSS
 (1,797,312 bytes total). This build size is not a substitute for target peak
 RSS, available-RAM, CPU, or scheduling-deadline measurements.
+
+## RCP loss during active-dataset apply — 2026-10-05
+
+Rust commit `987316f` extends the real `thread-matter` service process test to
+pause the synthetic RCP on the active-dataset Spinel property write, after the
+Thread dataset is committed to the private credential envelope. The test drops
+the RCP relay during that apply, confirms the service exits, and verifies the
+committed dataset survives unchanged. After restart the service reports
+`awaiting_coordinator` without radio requests; only a fresh channel-15
+observation permits OpenThread restoration. The restored status reports the
+dataset configured on channel 15, and every simulated radio channel write uses
+that permitted channel.
+
+`python3 scripts/test-matter-service.py` passes with this scenario and the
+existing commissioning, RCP restart, mismatch and expiry checks. This covers
+process recovery from RCP loss during apply. It does not exercise the separate
+in-process `apply_failed` heartbeat suppression and explicit retry path against
+the real RCP boundary. No target deployment or plan 08 test was performed.
 
 ## Coordinator observation expiry gate — 2026-10-05
 
