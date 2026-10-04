@@ -232,6 +232,9 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
     pub fn pop_report(&mut self) -> Option<crate::operations::ResultValue> {
         self.reports.pop_front()
     }
+    pub fn front_report(&self) -> Option<&crate::operations::ResultValue> {
+        self.reports.front()
+    }
     pub fn operations_busy(&self) -> bool {
         self.active.is_some() || !self.queued.is_empty()
     }

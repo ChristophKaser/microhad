@@ -40,6 +40,7 @@ pub fn reply<T: Serialize, E: Serialize>(result: Result<T, E>) -> Option<Vec<u8>
 pub enum Event<'a> {
     Commissioning(&'a crate::sessions::Snapshot),
     BleWrite(&'a crate::sessions::Write),
+    MatterReport(&'a crate::operations::ResultValue),
     #[cfg(feature = "controller-service")]
     Thread(&'a crate::thread_lifecycle::Snapshot),
 }
@@ -61,6 +62,11 @@ pub fn event(event: Event<'_>) -> Option<Frame> {
             return None;
         }
     }
+    if let Event::MatterReport(reading) = &event {
+        if !matter_report_valid(reading) {
+            return None;
+        }
+    }
     let payload = serde_json::to_vec(&Envelope { schema: 1, event }).ok()?;
     (payload.len() <= MAX_PAYLOAD).then_some(Frame {
         kind: 2,
@@ -68,6 +74,53 @@ pub fn event(event: Event<'_>) -> Option<Frame> {
         id: 0,
         payload,
     })
+}
+
+fn matter_report_valid(reading: &crate::operations::ResultValue) -> bool {
+    use crate::operations::Value;
+    if reading.node.0 < 2 || reading.endpoint == u16::MAX || reading.attribute != 0 {
+        return false;
+    }
+    match (reading.cluster, &reading.value) {
+        (6, Value::Bool(_)) => true,
+        (8, Value::U8(value)) => value.is_none_or(|value| value <= 254),
+        (91, Value::AirQuality(value)) => {
+            let known = matches!(
+                value.value,
+                "good" | "fair" | "moderate" | "poor" | "very_poor" | "extremely_poor"
+            );
+            (known && value.quality == "measured")
+                || (value.value == "unknown" && value.quality == "unknown")
+        }
+        (1026 | 1029 | 1037 | 1066, Value::Measurement(value)) => {
+            let unit_valid = match reading.cluster {
+                1026 => value.unit == "celsius",
+                1029 => value.unit == "percent",
+                1037 | 1066 => matches!(
+                    value.unit,
+                    "ppm" | "ppb" | "ppt" | "mg/m3" | "ug/m3" | "ng/m3"
+                        | "particles/m3" | "Bq/m3" | "dB/m" | "particles/ft3"
+                ),
+                _ => false,
+            };
+            let quality_valid = if value.value.is_some() {
+                value.quality == "measured"
+            } else {
+                value.quality == "unknown"
+            };
+            let range_valid = value.value.is_none_or(|number| {
+                number.is_finite()
+                    && match reading.cluster {
+                        1026 => (-327.68..=327.67).contains(&number),
+                        1029 => (0.0..=100.0).contains(&number),
+                        1037 | 1066 => number >= 0.0,
+                        _ => false,
+                    }
+            });
+            unit_valid && quality_valid && range_valid
+        }
+        _ => false,
+    }
 }
 
 #[cfg(test)]
@@ -116,5 +169,30 @@ mod tests {
         write.data.clear();
         assert!(event(Event::BleWrite(&write)).is_none());
         assert!(reply::<_, SessionError>(Ok("x".repeat(MAX_PAYLOAD))).is_none());
+    }
+
+    #[test]
+    fn matter_report_events_are_typed_and_strictly_validated() {
+        let reading = crate::operations::ResultValue {
+            node: Id(2),
+            endpoint: 1,
+            cluster: 6,
+            attribute: 0,
+            value: crate::operations::Value::Bool(true),
+        };
+        let frame = event(Event::MatterReport(&reading)).unwrap();
+        assert_eq!((frame.kind, frame.opcode, frame.id), (2, 12, 0));
+        assert_eq!(
+            frame.payload,
+            br#"{"schema":1,"event":"matter_report","data":{"node":"0000000000000002","endpoint":1,"cluster":6,"attribute":0,"value":{"type":"bool","value":true}}}"#
+        );
+        let invalid = crate::operations::ResultValue {
+            node: Id(2),
+            endpoint: 1,
+            cluster: 8,
+            attribute: 0,
+            value: crate::operations::Value::U8(Some(255)),
+        };
+        assert!(event(Event::MatterReport(&invalid)).is_none());
     }
 }

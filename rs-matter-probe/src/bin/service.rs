@@ -359,6 +359,16 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             Instant::now(),
             &mut context,
         );
+        while let Some(reading) = devices.front_report() {
+            let event = lexra_rs_matter_probe::responses::event(
+                lexra_rs_matter_probe::responses::Event::MatterReport(reading),
+            )
+            .ok_or("invalid Matter report event")?;
+            if ipc.publish_all(&event)? == 0 {
+                break;
+            }
+            devices.pop_report();
+        }
         controller.publish(&mut ipc, Instant::now())?;
         publish_thread(&mut ipc, &mut subscribers, &lifecycle)?;
         if controller.fatal() {

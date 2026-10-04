@@ -305,6 +305,33 @@ impl IpcServer {
         self.clients[index].responses.push_back(encoded);
         Ok(true)
     }
+    /// Broadcast a validated state event to every live IPC client. Clients with
+    /// expired deadlines or full output queues are retired independently.
+    pub fn publish_all(&mut self, event: &Frame) -> io::Result<usize> {
+        if event.kind != 2 || event.opcode != 12 || event.id != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "invalid IPC event",
+            ));
+        }
+        let encoded = event
+            .encode()
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid IPC event"))?;
+        let now = Instant::now();
+        let mut published = 0;
+        self.clients.retain_mut(|client| {
+            if client.eof
+                || now >= client.deadline
+                || client.responses.len() >= MAX_RESPONSES
+            {
+                return false;
+            }
+            client.responses.push_back(encoded.clone());
+            published += 1;
+            true
+        });
+        Ok(published)
+    }
 }
 impl Drop for IpcServer {
     fn drop(&mut self) {
@@ -548,6 +575,50 @@ mod tests {
             io::ErrorKind::WouldBlock
         );
     }
+
+    #[test]
+    fn matter_readings_broadcast_to_connected_native_clients() {
+        let directory = Directory::new();
+        let mut server = IpcServer::bind(&directory.socket()).unwrap();
+        let mut first = UnixStream::connect(directory.socket()).unwrap();
+        let mut second = UnixStream::connect(directory.socket()).unwrap();
+        first
+            .set_read_timeout(Some(Duration::from_secs(1)))
+            .unwrap();
+        second
+            .set_read_timeout(Some(Duration::from_secs(1)))
+            .unwrap();
+        first.write_all(&request(1)).unwrap();
+        second.write_all(&request(2)).unwrap();
+        server.poll(respond).unwrap();
+        let event = Frame {
+            kind: 2,
+            opcode: 12,
+            id: 0,
+            payload: br#"{"schema":1,"event":"matter_report","data":{"node":"0000000000000002"}}"#.to_vec(),
+        };
+        assert_eq!(server.publish_all(&event).unwrap(), 2);
+        server.poll(respond).unwrap();
+        let reply_len = respond(Frame {
+            kind: 0,
+            opcode: 1,
+            id: 1,
+            payload: vec![],
+        })
+        .unwrap()
+        .encode()
+        .unwrap()
+        .len();
+        for (peer, id) in [(&mut first, 1), (&mut second, 2)] {
+            let mut bytes = vec![0; event.encode().unwrap().len() + reply_len];
+            peer.read_exact(&mut bytes).unwrap();
+            let mut decoder = Decoder::default();
+            decoder.feed(&bytes).unwrap();
+            assert_eq!(decoder.pop().unwrap().id, id);
+            assert_eq!(decoder.pop().unwrap().payload, event.payload);
+        }
+    }
+
     #[test]
     fn event_backpressure_retired_peers_and_expiry_are_isolated() {
         let directory = Directory::new();
