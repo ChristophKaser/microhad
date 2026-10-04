@@ -129,9 +129,19 @@ retention policy rather than routinely writing copies to gateway flash.
    streaming extractor's successful exit proves GnuPG succeeded upstream.
 4. Preflight archive members before extraction: relative canonical paths only;
    no traversal, symlinks, hard links, devices, sockets or duplicate targets.
-   Bound the archive/member sizes and allow only the private state tree. The
-   automated archive preflight/staging helper remains an open recovery exercise;
-   do not use unrestricted tar extraction on an unreviewed archive.
+   Bound the archive/member sizes and require the `credentials.bin` file and
+   OpenThread `tmp/` directory. After successful decryption, run the host
+   preflight helper before extraction:
+
+   ```bash
+   python3 scripts/matter_archive.py "$MATTER_STAGE_ARCHIVE"
+   ```
+
+   The helper accepts only uncompressed tar archives, caps the archive and
+   extracted sizes at 64 MiB, caps individual files at 16 MiB and member count
+   at 4,096, and never extracts files. It prints only an entry/byte count or a
+   generic failure; it does not print member paths or contents. Do not use
+   unrestricted tar extraction when preflight fails.
 5. Extract into a new private staging tree on RAM or an encrypted host filesystem,
    restrict directories/files to 0700/0600, and assign the intended service UID
    when staging onto the gateway. Verify the entire tree is present, including
@@ -150,7 +160,8 @@ The credential-envelope format and authority fields are defined in
 [the identity schema](matter-identity-store-v1.md). The exact runtime validation
 exists in companion `rs-matter-probe/src/store.rs` and `src/identity.rs`.
 A dedicated offline service validation command and automated staged-restore
-harness remain open; this runbook does not claim either exists.
+harness remain open; archive preflight checks structure only and does not
+validate credential contents or authorize activation.
 
 ## Counter rollback and activation
 
@@ -197,10 +208,12 @@ All document links and shell-template syntax are checked on the host. No actual
 credentials were read, encrypted, exported or restored, and no gateway was
 contacted. These are documented procedures, not executed recovery evidence.
 
-Plan 03 still requires synthetic tests for incomplete/corrupt archives, wrong
-permissions, interrupted replacement, invalid identity, allocator rollback and
-failed restore preserving the last good tree. Extend the tests to the node
-catalog remote reconciliation once plan 07 implements it. Factory filesystem durability and physical
+Synthetic archive-structure tests cover incomplete state trees, traversal,
+duplicate paths, links, file/directory conflicts, size bounds and redacted CLI
+output. Plan 03 still requires wrong-permission and interrupted-replacement
+tests, invalid identity and allocator rollback, and a failed restore preserving
+the last good tree. Extend recovery tests to node catalog remote reconciliation
+once plan 07 implements it. Factory filesystem durability and physical
 CASE/reception/resource measurements remain in excluded plan 08.
 
 [GnuPG command reference](https://www.gnupg.org/documentation/manuals/gnupg/Operational-GPG-Commands.html)
