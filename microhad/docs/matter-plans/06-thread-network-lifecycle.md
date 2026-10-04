@@ -9,13 +9,14 @@ incompatible Thread dataset and resumes after the original channel returns.
 The actual service process also passes its five-second coordinator-observation
 expiry gate while preserving the configured dataset and making no additional
 radio channel writes. It also recovers a dataset committed immediately before
-the synthetic RCP is lost during apply. Stale-observation renewal, direct
-`apply_failed` retry-gate verification, target RF behavior and operator recovery
-remain open.
+the synthetic RCP is lost during apply. Stale-observation renewal, real-RCP
+in-process apply-failure injection, target RF behavior and operator recovery
+remain open. The `apply_failed` suppression and explicit retry behavior now has
+a Rust FakeRadio unit gate.
 
-Next deliverable: Extend integrated coverage for stale-observation renewal,
-explicit recovery after a failed apply and bounded operator recovery. Keep
-physical coexistence and RF acceptance in plan 08.
+Next deliverable: Extend integrated coverage for stale-observation renewal and
+bounded operator recovery, and find a reliable real-RCP injection point for an
+in-process failed apply. Keep physical coexistence and RF acceptance in plan 08.
 
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.
@@ -314,3 +315,18 @@ the existing commissioning, RCP restart and mismatch recovery checks. This
 closes the host process expiry checkpoint; stale-observation renewal semantics,
 failed dataset apply at the process/RCP boundary and physical acceptance remain
 open. No target deployment or plan 08 test was performed.
+
+## Failed dataset apply suppression and explicit retry unit gate — 2026-10-05
+
+The existing lifecycle unit test verifies that an active-dataset apply failure
+stops the radio and leaves the lifecycle in `Error`. Repeated coordinator
+observations and a later heartbeat do not retry the failed apply or rewrite the
+committed credential envelope. A subsequent explicit import retries the apply
+and succeeds after the radio recovers.
+
+Verification passed with the project-local toolchain and cache:
+`source scripts/rust-env.sh && cargo +nightly-2026-10-02 test --offline
+--manifest-path rs-matter-probe/Cargo.toml --features controller-service
+thread_lifecycle::tests::failed_apply_is_stopped_and_heartbeats_do_not_retry_or_rewrite
+--lib --locked`. This is a FakeRadio unit gate; reliable real-RCP injection for
+the same in-process failure path remains open.
