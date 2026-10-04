@@ -45,8 +45,12 @@ a parallel Shelly device dashboard or require users to learn a different
 control for the same capability.
 
 Rendered snapshot and OnOff component interaction is verified in Chromium.
-Next deliverable: route Zigbee and external HTTP measurements through the same
-journal, restore Matter alert settings, and extend broader API failure gates.
+Shared cards, source-neutral history, and restart-restored common alert settings
+now cover Matter, Zigbee, Shelly, and FRITZ!Box where their capabilities
+overlap. The remaining dashboard/API work is to extend broader enabled/disabled,
+absent/stalled service, malformed reply, queue pressure, cancellation,
+socket-loss, and secret-redaction gates. Keep each provider on the same semantic
+device contract and capability-driven presentation as those gates are added.
 
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.
