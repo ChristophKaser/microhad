@@ -358,12 +358,77 @@ bool requestValid(unsigned char opcode, const std::string& text) {
     return fields.size() == 5 && number(fields["write"], 1, 0xffffffffU) && booleanField(fields, "success");
 }
 
+bool matterReadingFromReport(const Fields& data, MatterReading* reading) {
+    if (!reading || data.size() != 5 || !data.count("node") || !data.count("endpoint") ||
+        !data.count("cluster") || !data.count("attribute") || !data.count("value") ||
+        !hex(data.find("node")->second, 16, 16) ||
+        data.find("node")->second <= "\"0000000000000001\"" ||
+        !number(data.find("endpoint")->second, 0, 65534) ||
+        !number(data.find("attribute")->second, 0, 0)) return false;
+    const std::string& clusterText = data.find("cluster")->second;
+    uint32_t cluster = 0;
+    if (number(clusterText, 6, 6)) cluster = 6;
+    else if (number(clusterText, 8, 8)) cluster = 8;
+    else if (number(clusterText, 91, 91)) cluster = 91;
+    else if (number(clusterText, 1026, 1026)) cluster = 1026;
+    else if (number(clusterText, 1029, 1029)) cluster = 1029;
+    else if (number(clusterText, 1037, 1037)) cluster = 1037;
+    else if (number(clusterText, 1066, 1066)) cluster = 1066;
+    else return false;
+
+    Fields value;
+    if (!StatusJson(data.find("value")->second).parse(&value) || value.size() != 2 ||
+        !value.count("type") || !value.count("value")) return false;
+    MatterReading parsed;
+    parsed.node = data.find("node")->second.substr(1, 16);
+    parsed.endpoint = static_cast<unsigned short>(strtoul(data.find("endpoint")->second.c_str(), 0, 10));
+    parsed.cluster = cluster;
+    if (cluster == 6) {
+        if (value["type"] != "\"bool\"" || (value["value"] != "true" && value["value"] != "false")) return false;
+        parsed.known = true;
+        parsed.booleanValue = value["value"] == "true";
+    } else if (cluster == 8) {
+        if (value["type"] != "\"u8\"") return false;
+        parsed.known = value["value"] != "null";
+        if (parsed.known) {
+            if (!number(value["value"], 0, 254)) return false;
+            parsed.numberValue = strtod(value["value"].c_str(), 0);
+        }
+    } else if (cluster == 91) {
+        Fields quality;
+        if (value["type"] != "\"air_quality\"" ||
+            !StatusJson(value["value"]).parse(&quality) || quality.size() != 2 ||
+            !quality.count("value") || !quality.count("quality")) return false;
+        static const char* const qualities[] = {"\"good\"", "\"fair\"", "\"moderate\"",
+            "\"poor\"", "\"very_poor\"", "\"extremely_poor\""};
+        if (member(quality["value"], qualities, 6) && quality["quality"] == "\"measured\"") {
+            parsed.known = true;
+        } else if (quality["value"] == "\"unknown\"" && quality["quality"] == "\"unknown\"") {
+            parsed.known = false;
+        } else return false;
+        parsed.textValue = quality["value"].substr(1, quality["value"].size() - 2);
+    } else {
+        if (value["type"] != "\"measurement\"" || !measurementValueValid(value["value"], cluster)) return false;
+        Fields measurement;
+        if (!StatusJson(value["value"]).parse(&measurement)) return false;
+        parsed.known = measurement["value"] != "null";
+        parsed.unit = measurement["unit"].substr(1, measurement["unit"].size() - 2);
+        if (parsed.known) parsed.numberValue = strtod(measurement["value"].c_str(), 0);
+    }
+    *reading = parsed;
+    return true;
+}
+
 bool eventValid(const std::string& text) {
     Fields fields, data;
     if (!StatusJson(text).parse(&fields) || fields.size() != 3 || fields["schema"] != "1" ||
         !fields.count("data") || !StatusJson(fields["data"]).parse(&data)) return false;
     if (fields["event"] == "\"thread\"") return snapshotValid(data, true);
     if (fields["event"] == "\"commissioning\"") return sessionValid(data);
+    if (fields["event"] == "\"matter_report\"") {
+        MatterReading reading;
+        return matterReadingFromReport(data, &reading);
+    }
     return fields["event"] == "\"ble_write\"" && data.size() == 4 && hex(data["session"], 16, 16) &&
         data["session"] != "\"0000000000000000\"" && number(data["generation"], 1, 0xffffffffU) &&
         number(data["write"], 1, 0xffffffffU) && hex(data["data"], 2, 488);
@@ -746,6 +811,14 @@ bool MatterChannel::deviceResult(const std::string& response, const std::string&
     }
     *reading = parsed;
     return true;
+}
+
+bool MatterChannel::deviceReportEvent(const std::string& input, MatterReading* reading) {
+    if (!reading || !eventValid(input)) return false;
+    Fields envelope, data;
+    if (!StatusJson(input).parse(&envelope) ||
+        !StatusJson(envelope["data"]).parse(&data)) return false;
+    return matterReadingFromReport(data, reading);
 }
 
 bool MatterChannel::relayRequest(const std::string& input, uint32_t* id, unsigned char* opcode,

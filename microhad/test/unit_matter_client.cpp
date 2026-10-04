@@ -302,6 +302,18 @@ void runMatterClientUnitTests() {
     }
     assert(!MatterChannel::deviceResult(sensorReplies[5], "0000000000000001", &decoded));
     assert(!MatterChannel::deviceResult(sensorReplies[6], "0000000000000001", &decoded));
+    const std::string onReport =
+        "{\"schema\":1,\"event\":\"matter_report\",\"data\":{\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":6,\"attribute\":0,\"value\":{\"type\":\"bool\",\"value\":true}}}";
+    assert(MatterChannel::deviceReportEvent(onReport, &decoded));
+    assert(decoded.node == "0000000000000002" && decoded.endpoint == 1 && decoded.cluster == 6 &&
+        decoded.known && decoded.booleanValue);
+    const std::string levelReport =
+        "{\"schema\":1,\"event\":\"matter_report\",\"data\":{\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":8,\"attribute\":0,\"value\":{\"type\":\"u8\",\"value\":124}}}";
+    assert(MatterChannel::deviceReportEvent(levelReport, &decoded));
+    assert(decoded.cluster == 8 && decoded.known && decoded.numberValue == 124);
+    const std::string invalidReport =
+        "{\"schema\":1,\"event\":\"matter_report\",\"data\":{\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":8,\"attribute\":0,\"value\":{\"type\":\"u8\",\"value\":255}}}";
+    assert(!MatterChannel::deviceReportEvent(invalidReport, &decoded));
     for (unsigned int i = 0; i < sizeof(sensorReplies) / sizeof(sensorReplies[0]); ++i) {
         int pair[2]; assert(socketpair(AF_UNIX, SOCK_STREAM, 0, pair) == 0);
         assert(fcntl(pair[0], F_SETFL, O_NONBLOCK) == 0);

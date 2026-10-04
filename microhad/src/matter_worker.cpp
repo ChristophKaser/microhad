@@ -147,6 +147,14 @@ void MatterWorker::unavailable() {
 bool MatterWorker::collectEvents() {
     std::string event;
     while (client_.popEvent(&event)) {
+        MatterReading reading;
+        if (MatterChannel::deviceReportEvent(event, &reading)) {
+            if (gateway_) {
+                std::string ignored;
+                gateway_->applyMatterReading(reading, &ignored);
+            }
+            continue;
+        }
         pthread_mutex_lock(&mutex_);
         bool full = events_.size() >= 8;
         if (!full) events_.push_back(event);
