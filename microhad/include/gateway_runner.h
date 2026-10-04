@@ -19,6 +19,8 @@ public:
         ~ViewLease();
         std::string statusJson() const;
         long serialOpenedAt() const;
+        bool coordinatorOnline() const;
+        unsigned char coordinatorChannel() const;
     private:
         friend class GatewayRunner;
         ViewData* data_;

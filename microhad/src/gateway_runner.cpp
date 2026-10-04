@@ -324,6 +324,13 @@ GatewayRunner::ViewLease::ViewLease(GatewayRunner* owner, ViewData* data) : data
 GatewayRunner::ViewLease::~ViewLease() { owner_->releaseView(data_); }
 std::string GatewayRunner::ViewLease::statusJson() const { return data_->view->statusJson(); }
 long GatewayRunner::ViewLease::serialOpenedAt() const { return data_->view->serialOpenedAt; }
+bool GatewayRunner::ViewLease::coordinatorOnline() const {
+    return data_->view->online && data_->view->networkFormed &&
+           data_->view->observedNetworkChannel >= 11 && data_->view->observedNetworkChannel <= 26;
+}
+unsigned char GatewayRunner::ViewLease::coordinatorChannel() const {
+    return coordinatorOnline() ? data_->view->observedNetworkChannel : 0;
+}
 
 GatewayRunner::ViewLease* GatewayRunner::acquireView() {
     pthread_mutex_lock(&mutex_);

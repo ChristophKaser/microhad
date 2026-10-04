@@ -23,6 +23,26 @@
 
 class GatewayTestPeer {
 public:
+    static void observedChannelSnapshot() {
+        Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+        gateway.online_ = true;
+        gateway.networkFormed_ = true;
+        gateway.networkChannel_ = 20; /* Persisted configuration is not an observation. */
+        gateway.observedNetworkChannel_ = 0;
+        assert(gateway.captureView().observedNetworkChannel == 0);
+        gateway.observedNetworkChannel_ = 15;
+        GatewayView first = gateway.captureView();
+        assert(first.observedNetworkChannel == 15);
+        assert(first.statusJson().find("\"observed_network_channel\":15") != std::string::npos);
+        gateway.observedNetworkChannel_ = 26;
+        assert(first.observedNetworkChannel == 15);
+        assert(gateway.captureView().observedNetworkChannel == 26);
+        gateway.online_ = false;
+        assert(gateway.captureView().observedNetworkChannel == 0);
+        gateway.online_ = true;
+        gateway.networkFormed_ = false;
+        assert(gateway.captureView().observedNetworkChannel == 0);
+    }
     static void ineligibleSensorRefreshCannotSpin() {
         char directory[] = "/tmp/microhad-refresh-timers-XXXXXX";
         assert(mkdtemp(directory) != 0);
@@ -2065,6 +2085,7 @@ static void testInterviewRetryDeadline() {
 }
 
 static void testGatewayViewIsImmutable() {
+    GatewayTestPeer::observedChannelSnapshot();
     unlink("/tmp/microhad-zigbee-native.log");
     Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
     GatewayTestPeer::completeViewSchema(&gateway);

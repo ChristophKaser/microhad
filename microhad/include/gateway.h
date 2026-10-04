@@ -156,6 +156,7 @@ public:
     bool online;
     bool networkForming;
     bool networkFormed;
+    unsigned char observedNetworkChannel;
     unsigned long serialRxBytes;
     unsigned long ashRxFrames;
     long serialOpenedAt;
@@ -335,6 +336,7 @@ private:
     std::vector<unsigned char> preconfiguredKey_;
     unsigned short networkPanId_;
     unsigned char networkChannel_;
+    unsigned char observedNetworkChannel_;
     std::map<std::string, Device> devices_;
     std::map<unsigned short, std::string> nodeAddresses_;
     enum InterviewOperationType {

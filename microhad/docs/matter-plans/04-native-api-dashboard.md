@@ -49,9 +49,9 @@ asynchronous integration: connection deadlines and reply validation need work.
 
 ## Remaining checkpoints
 
-1. Expose the actual active coordinator channel and online state in protected
-   `GatewayRunner` snapshots. Never substitute the configured channel for a
-   confirmed radio observation.
+1. Implemented: protected snapshots now expose the confirmed Ziggurat channel
+   and online/formed state through immutable lease accessors. Persisted network
+   configuration never populates this observation; offline/unknown is zero.
 2. Add a single bounded Matter IPC worker with queues and cached snapshots.
    Send fresh coordinator observations, stop authorizing Thread when stale,
    and keep IPC waits outside the coordinator and HTTP workers.
@@ -72,3 +72,18 @@ asynchronous integration: connection deadlines and reply validation need work.
 [persistent identity](03-persistent-fabric-identity.md). Define the relay
 endpoint contract with the Garage workstream so the app can connect when its
 plan is implemented.
+
+Native snapshot checkpoint — 2026-10-04: `observed_network_channel` is populated
+only by Ziggurat Ready, cleared on Down, and suppressed when offline/unformed.
+Legacy EZSP and persisted configuration report zero until a radio observation
+exists. `ViewLease::coordinatorOnline()` and `coordinatorChannel()` expose the
+immutable data without accessing Gateway from a worker. Tests cover persisted
+channel versus observed channel, immutable copies and offline/unformed state.
+The periodic Matter worker, queues and IPC forwarding remain pending.
+
+Verification passed: `make host test`, `make mips`,
+`make ZIGGURAT=1 MATTER=1 host test` and
+`make ZIGGURAT=1 MATTER=1 mips`. The enabled suite includes 13 native peer
+checks. Suites must run sequentially because their legacy tests share `/tmp`
+log paths; the initial concurrent enabled run failed a redaction assertion,
+then the isolated full rerun passed. No gateway deployment occurred.

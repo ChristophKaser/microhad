@@ -334,7 +334,7 @@ Gateway::Gateway(const std::string& serialDevice, int serialBaud, const std::str
     firebaseServiceAccount_(firebaseServiceAccount), firebaseTopic_(firebaseTopic), caBundle_(caBundle), history_(historyPath), shellyTransport_(0), notificationWorker_(notificationWorker), serialFd_(-1), serialOpenedAt_(0),
     online_(false), joinUntil_(0), joinPermitRenewAt_(0), joinPermitClosePending_(false), joinPermitCloseDeadline_(0), pendingJoinSeconds_(0), joinPreparationStep_(0), joinPreparationDeadline_(0), ashSendSequence_(0), ashReceiveSequence_(0), ezspSequence_(0),
     ashAckDeadline_(0), ashRetries_(0), ashPendingSensitive_(false), networkBackupQuery_(0, std::vector<unsigned char>()), networkBackupSequence_(0), networkBackupDeadline_(0), networkBackupStarted_(0), ezspVersion_(4), zdoSequence_(0), zclTransactionSequence_(0), ezspVersionNegotiated_(false), stackTokenWritingRequested_(false), networkInitRequested_(false), tradfriBindGroupConfigured_(false), coordinatorInitializationStep_(0), coordinatorInitializationDeadline_(0), resetDeadline_(0), serialReconnectFailures_(0), zigbeeDownAlertQueued_(false), nextHeartbeatAt_(0), serialRxBytes_(0), ashRxFrames_(0), networkForming_(false), networkFormationStep_(0), networkFormationDeadline_(0), networkFormed_(false), networkPanId_(0),
-    networkChannel_(0), interviewRequestInFlight_(false), interviewSendAccepted_(false), interviewEzspSequence_(0), interviewNode_(0xffff),
+    networkChannel_(0), observedNetworkChannel_(0), interviewRequestInFlight_(false), interviewSendAccepted_(false), interviewEzspSequence_(0), interviewNode_(0xffff),
     interviewDeadline_(0), nextMessageTag_(1), coordinatorIeeeAddressRequested_(false), logRing_(LogRing::defaultPath()), logBytes_(0), viewDirty_(true) {
 #if MICROHAD_ZIGGURAT_ENABLED
     ziggurat_ = 0;
@@ -668,6 +668,7 @@ void Gateway::pollZiggurat() {
     ZigguratClient::Event event(ZigguratClient::Event::Diagnostic);
     while (ziggurat_->pop(&event)) {
         if (event.type==ZigguratClient::Event::Down) {
+            observedNetworkChannel_=0;
             online_=false; networkFormed_=false; zigguratSends_.clear();
             interviewRequestInFlight_=false; interviewDeadline_=0;
             for (std::map<unsigned short, SceneRetry>::iterator i=sceneRetries_.begin();i!=sceneRetries_.end();++i)
@@ -679,6 +680,7 @@ void Gateway::pollZiggurat() {
             online_=true; networkFormed_=true; networkInitRequested_=true; nextHeartbeatAt_=0;
             coordinatorIeeeAddress_.assign(n.begin()+14,n.begin()+22); coordinatorIeeeAddressRequested_=true;
             networkChannel_=n[0]; networkPanId_=static_cast<unsigned short>(n[2] | (static_cast<unsigned short>(n[3])<<8));
+            observedNetworkChannel_=n[0];
             networkExtendedPan_.assign(n.begin()+4,n.begin()+12); networkKey_.assign(n.begin()+22,n.begin()+38);
             preconfiguredKey_.assign(n.begin()+43,n.begin()+59);
             addLog("Ziggurat network ready; native state reconciled"); markViewDirty(); continue;
@@ -2437,7 +2439,7 @@ std::vector<Device> Gateway::devices() const {
     return result;
 }
 
-GatewayView::GatewayView() : online(false), networkForming(false), networkFormed(false), serialRxBytes(0), ashRxFrames(0),
+GatewayView::GatewayView() : online(false), networkForming(false), networkFormed(false), observedNetworkChannel(0), serialRxBytes(0), ashRxFrames(0),
     serialOpenedAt(0), joiningUntil(0), joiningPreparing(false), notificationsEnabled(false) {
 }
 
@@ -2445,6 +2447,7 @@ std::string GatewayView::statusJson() const {
     std::ostringstream json;
     json << "{\"coordinator_backend\":\"" << (coordinatorBackend.empty() ? "ezsp" : coordinatorBackend) << "\",\"online\":" << (online ? "true" : "false") << ",\"network_forming\":"
          << (networkForming ? "true" : "false") << ",\"network_formed\":" << (networkFormed ? "true" : "false")
+         << ",\"observed_network_channel\":" << static_cast<unsigned int>(observedNetworkChannel)
          << ",\"serial_rx_bytes\":" << serialRxBytes << ",\"ash_rx_frames\":" << ashRxFrames
          << ",\"joining_until\":" << joiningUntil << ",\"joining_preparing\":"
          << (joiningPreparing ? "true" : "false")
@@ -2634,6 +2637,7 @@ GatewayView Gateway::captureView(bool includeLogs) const {
     if (ziggurat_ != 0) view.coordinatorBackend = "ziggurat";
 #endif
     view.online = online_; view.networkForming = networkForming_; view.networkFormed = networkFormed_;
+    view.observedNetworkChannel = online_ && networkFormed_ ? observedNetworkChannel_ : 0;
     view.serialRxBytes = serialRxBytes_; view.ashRxFrames = ashRxFrames_; view.joiningUntil = joinUntil_;
     view.serialOpenedAt = serialOpenedAt_;
     view.joiningPreparing = joinPreparationStep_ != 0; view.notificationsEnabled = notificationsEnabled();

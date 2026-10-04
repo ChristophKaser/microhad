@@ -48,7 +48,7 @@ pending, so the deployed native status-only bridge cannot yet authorize startup.
 | Step | Status | Evidence / remaining work |
 | --- | --- | --- |
 | 1–2 | Complete | Private no-reset Unix transport and optional supervision; no direct UART owner or Linux IPv6/TUN requirement. |
-| 3 | Partial | Typed private online/channel observations expire after five monotonic seconds; native snapshot/worker delivery remains pending. |
+| 3 | Partial | Typed private online/channel observations expire after five monotonic seconds; native observed-channel snapshot is implemented; periodic worker delivery remains pending. |
 | 4 | Complete | Required/duplicate/truncated TLVs, channel/mask, prefix and PAN checks before mutation; malformed/mismatch synthetic and unit checks pass. |
 | 5 | Complete | OS-random create, bounded persisted import/restore, no implicit replacement; persist-before-apply failure disables Thread and requires explicit retry. |
 | 6 | Partial | Redacted lifecycle states, deferred boot, expiry detach and cached-channel guard implemented; radio-loss/restart reconciliation still needs integrated coverage. |
