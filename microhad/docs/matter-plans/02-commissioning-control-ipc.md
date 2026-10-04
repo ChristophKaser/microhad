@@ -21,8 +21,10 @@ native device state. The full native host suite, the synthetic-peer worker
 fixture, the isolated Rust-service/native-worker fixture, and the Matter-enabled
 MIPS build pass. The Rust-service fixture still does not generate a sensor
 report through a commissioned accessory; the report-event proof uses the
-synthetic IPC peer. Full cross-language vectors, event backpressure, and broader
-recovery remain open.
+synthetic IPC peer. Follow-up native commit `6fe31b3` expands that peer test to
+send both OnOff and measured Celsius temperature reports, then verifies the
+shared device state and normalized sensor value through `/api/status`. Full
+cross-language vectors, event backpressure, and broader recovery remain open.
 
 Native commit `750c4c9` adds a stalled-peer timeout regression: a fake IPC peer
 accepts the request and withholds its response past the supplied deadline; the
