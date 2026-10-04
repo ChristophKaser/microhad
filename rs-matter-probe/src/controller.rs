@@ -181,6 +181,10 @@ impl<'a, C: Crypto + 'a> Controller<'a, C> {
     pub fn fatal(&self) -> bool {
         self.catalog.fatal()
     }
+    pub fn catalog(&self) -> Catalog { self.catalog.clone() }
+    pub fn commissioning(&mut self, now: Instant) -> bool {
+        self.sessions.current_snapshot(now).map(|s| s.state < Phase::Complete).unwrap_or(false)
+    }
     pub fn poll(&mut self, lifecycle: &Lifecycle, now: Instant, context: &mut Context<'_>) {
         self.sessions.tick(now);
         if !Self::ready(lifecycle, now) {

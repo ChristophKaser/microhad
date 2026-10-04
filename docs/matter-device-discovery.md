@@ -26,9 +26,39 @@ Verification on 2026-10-04:
   success marker. Existing OnOff/temperature and persisted-authority reopen
   checks also passed.
 
-This is a reusable discovery helper exercised by the synthetic accessory probe.
-It is not yet scheduled by the service or exposed through device IPC/API.
-Production node recovery, device types/features, overall job deadlines, retry
-policy, capability snapshots and native controls remain open in plan 07.
-The helper does not write flash or mark catalog recovery complete. Host fixture
-coverage does not establish real accessory interoperability; plan 08 is excluded.
+## Service scheduler checkpoint — 2026-10-04
+
+The service now polls a `devices::Manager` alongside transport, discovery and
+IPC. It loads only Complete catalog entries and observes newly completed nodes
+without a restart. The catalog's limit of 64 nodes bounds retained snapshots.
+Only one discovery job runs at a time, with a total 30-second deadline. A
+successful snapshot refreshes after 300 seconds. Failures mark it offline and
+retry after 5, 10, 20, 40, 80, 160 and finally 320 seconds. Old descriptors remain
+available as cached metadata, with `online=false`; no partial result replaces
+them. Oldest due jobs run first so an unavailable node does not block others.
+
+Commissioning preempts discovery by dropping its future. Radio detach also
+cancels the job, marks snapshots offline and makes them due for refresh when
+attachment returns. The manager does not mutate flash, promote incomplete
+catalog entries or assume interrupted commissioning succeeded. Worst-case
+cluster-ID storage alone is 524,288 bytes (64 nodes × 32 endpoints × 64 IDs × 4),
+plus vectors and bookkeeping; target CPU/RSS remain unmeasured.
+
+Verification: 57 library tests pass, including deadline expiry, unavailable-node
+fairness, commissioning preemption, radio invalidation, retry cap, incomplete-node
+exclusion and unchanged credentials after scheduler operations. The encrypted
+fixture now exercises the production manager with a reopened catalog, then
+detach and refresh, comparing both snapshots to the descriptor helper's result.
+The harness requires the scheduler success marker. Host service/probe and MIPS
+service/probe builds pass; existing MIPS linker warnings remain.
+`python3 scripts/test-matter-service.py` passes real service IPC/lifetime,
+fabric and guarded Thread restore checks. The native repository's
+`python3 scripts/test_matter_native_worker.py --real-service` passes persistent
+heartbeat, queued mutations, owned relay callbacks, cancellation, radio loss
+and unavailable-service responses. Stripped MIPS artifacts are 1,961,656 bytes
+for the service and 2,301,648 bytes for the probe; neither was deployed.
+
+Device IPC/API exposure, remote reconciliation of recovery-required nodes,
+legacy catalog migration, device types/features and native controls remain open.
+Host fixture coverage does not establish real accessory interoperability;
+plan 08 remains excluded.

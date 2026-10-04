@@ -417,6 +417,29 @@ async fn run(
         assert_eq!(endpoints.iter().map(|endpoint| endpoint.id).collect::<Vec<_>>(), vec![0, 1]);
         assert!(endpoints[1].servers.contains(&6));
         println!("PASS bounded operational descriptor endpoint and cluster discovery over CASE");
+        if service_owner {
+            let persisted = Identity::open(&active_store, ctrl_crypto, ADMIN_VENDOR_ID)?;
+            let catalog = lexra_rs_matter_probe::catalog::Catalog::open(
+                active_store.clone(), persisted.fabric_id(), persisted.next_node())?;
+            let mut manager = lexra_rs_matter_probe::devices::Manager::new(
+                ctrl_matter, &ctrl_crypto, fab, catalog);
+            for attempt in 0..2 {
+                std::future::poll_fn(|context| {
+                    manager.poll(true, false, std::time::Instant::now(), context);
+                    if manager.snapshots().iter().any(|s| s.node == node && s.online) {
+                        std::task::Poll::Ready(())
+                    } else { std::task::Poll::Pending }
+                }).await;
+                assert_eq!(manager.snapshots()[0].endpoints, endpoints);
+                if attempt == 0 {
+                    let waker = std::task::Waker::noop();
+                    let mut context = std::task::Context::from_waker(waker);
+                    manager.poll(false, false, std::time::Instant::now(), &mut context);
+                    assert!(!manager.snapshots()[0].online);
+                }
+            }
+            println!("PASS production device scheduler catalog restore and radio detach refresh over CASE");
+        }
         let exchange = Exchange::initiate(ctrl_matter, ctrl_crypto, fab, node).await?;
         assert!(!exchange.on_off().on_off_read(1).await?);
         let exchange = Exchange::initiate(ctrl_matter, ctrl_crypto, fab, node).await?;

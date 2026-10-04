@@ -51,6 +51,8 @@ def main():
                 raise RuntimeError('DNS cancellation/error isolation did not complete: ' + result.stdout + result.stderr)
             if args.commissioning and 'PASS bounded operational descriptor endpoint and cluster discovery over CASE' not in result.stdout:
                 raise RuntimeError('Operational descriptor discovery did not complete: ' + result.stdout + result.stderr)
+            if args.service_owner and 'PASS production device scheduler catalog restore and radio detach refresh over CASE' not in result.stdout:
+                raise RuntimeError('Device scheduler did not complete: ' + result.stdout + result.stderr)
             if result.returncode or marker not in result.stdout:
                 raise RuntimeError('Transport failed: ' + result.stdout + result.stderr + '\nRCP error: ' + str(radio.error))
             if radio.error:

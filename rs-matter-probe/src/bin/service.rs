@@ -289,6 +289,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         .map_err(|_| "Thread restore failed")?;
     thread.start_discovery()?;
     let discovery = lexra_rs_matter_probe::discovery::run(matter, &thread);
+    let mut devices = lexra_rs_matter_probe::devices::Manager::new(
+        matter, &crypto, controller_fabric, controller.catalog());
     let mut discovery = pin!(discovery);
     let network = thread.bind(MATTER_PORT)?;
     let route_btp = |address: &Address| matches!(address, Address::Btp(_));
@@ -324,6 +326,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             )
         })?;
         controller.poll(&lifecycle, Instant::now(), &mut context);
+        devices.poll(lifecycle.snapshot().attached, controller.commissioning(Instant::now()),
+            Instant::now(), &mut context);
         controller.publish(&mut ipc, Instant::now())?;
         publish_thread(&mut ipc, &mut subscribers, &lifecycle)?;
         if controller.fatal() {
