@@ -3,10 +3,11 @@
 This fixes the contract for the remaining implementation. The service dispatches
 status opcodes 1/2, commissioning/relay opcodes 3–8 and Thread lifecycle opcode 9.
 Thread, commissioning snapshot and opaque BLE-write events are implemented.
-Device opcodes 10/11 still return `unsupported`. Native persistent worker
+Opcode 10 snapshot dispatch is implemented with bounded revisioned pages;
+device reads and opcode 11 commands still return `unsupported`. Native persistent worker
 calls/events and queued commissioning/Thread HTTP routes are implemented;
-Owned native WebSocket relay dispatch is implemented; Android BLE and
-production operational DNS-SD remain pending;
+Owned native WebSocket relay dispatch, Android BLE onboarding and production
+operational SRP/DNS have host implementation evidence;
 service dispatch alone does not complete end-to-end accessory support.
 
 ## Framing and compatibility
@@ -93,9 +94,20 @@ Apply failure disables Thread, retains committed credentials and reports
 `transport`; heartbeats do not retry that failure. A failure to disable exits
 the service. No response contains dataset bytes.
 
-Device actions: `snapshot` takes `cursor` (u16, default 0), returning `devices`
-and optional `next_cursor`. Summaries contain stable node IDs, availability and
-bounded names (at most 32 UTF-8 bytes); no credentials. `read` requires `node`,
+Device actions: `snapshot` takes `cursor` (u16, default 0) and optional `revision`
+(nonzero 16-character lowercase hex token). It returns `revision`, `devices`
+(zero or one endpoint entry) and nullable `next_cursor`. Each entry contains
+`node`, catalog `state` (`complete`, `recovery_required`, `commissioning`),
+`online`, nullable stable `id`, nullable `endpoint` and up to 64 `servers` cluster
+IDs. Undiscovered nodes have null IDs/endpoints and no clusters; an empty catalog
+has no entries. Subsequent nonzero cursors require the returned revision.
+Missing/changed revisions return `stale_revision`; out-of-range cursors return
+`malformed`. Restart pagination explicitly after revision changes. Revisions are
+initialized from OS randomness on service startup and advance only when visible
+catalog/descriptor/availability changes; exhaustion returns `capacity` without
+wrapping. No response contains credentials or waits for radio traffic.
+Native opcode-10 validation and HTTP routing remain pending.
+`read` requires `node`,
 `endpoint` (u16), `cluster` (u32), `attribute` (u32). Only discovered/supported
 attribute paths are permitted. A value is tagged `null`, `bool`, `integer`,
 `number`, or `text`; text is at most 128 UTF-8 bytes. Descriptor/measurement

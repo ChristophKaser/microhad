@@ -3,7 +3,8 @@
 ## Current open work — 2026-10-04
 
 Native commissioning/relay dispatch and bounded jobs exist; device dispatch and broader
-recovery coverage remain open.
+recovery coverage remain open. Service opcode-10 snapshots now have host evidence
+(`237d110`); native device dispatch remains the next integration step.
 
 Next deliverable: Extend fake-peer and actual-service tests for queue pressure, stalled
 peers and interrupted calls without mutation replay. Then implement device bodies when

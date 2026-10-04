@@ -37,7 +37,7 @@ specific evidence recorded in a file, not to end-to-end Matter support.
 | [04 Native API/dashboard](04-native-api-dashboard.md) | Status, queued routes, relay and onboarding/progress UI implemented; device views pending | Add device API/views with plan 07 and finish broad failure gates |
 | [05 Garage BLE relay](05-garage-ble-relay.md) | Foreground onboarding and parser/GATT/HTTP/WebSocket implemented; 60 tests and APK builds pass per flavor | Implementation checklist complete; physical acceptance stays in plan 08 |
 | [06 Thread lifecycle](06-thread-network-lifecycle.md) | Guarded dataset lifecycle and native observation worker verified on host | Extend channel-change/restart recovery and target verification |
-| [07 Devices/reports](07-device-model-and-reports.md) | Owned commissioner, catalog, SRP/DNS and service descriptor scheduler host-tested | Expose device snapshots, reconcile incomplete nodes, then add controls/reports |
+| [07 Devices/reports](07-device-model-and-reports.md) | Owned commissioner, catalog, SRP/DNS, descriptor scheduler and snapshot IPC host-tested | Add native snapshot API, reconcile incomplete nodes, then add controls/reports |
 | [08 Real-device acceptance](08-real-device-acceptance.md) | Pending final acceptance gate | Review plans 01–07, then arrange backed-up device testing |
 
 Update the relevant file after each verified checkpoint with the changed

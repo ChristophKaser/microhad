@@ -8,7 +8,8 @@ CASE/CommissioningComplete and fresh CASE through the resolver in the synthetic
 accessory fixture without injected rendezvous.
 
 Bounded endpoint/cluster descriptor reads and service scheduling now have
-encrypted host evidence (`05053ec`, `5c588df`); snapshot IPC/API exposure remains open.
+encrypted host evidence (`05053ec`, `5c588df`). Revisioned service snapshot IPC
+is implemented (`237d110`); native validation/API/UI exposure remains open.
 Remote recovery of catalogued nodes, legacy migration, device
 operations and report integration remain open. Next deliverable: reconcile
 recovery-required nodes over operational CASE, discover endpoint descriptors and
@@ -135,7 +136,8 @@ are historical; the latest status/evidence section above takes precedence.
    against the same catalog and authority without the phone.
    Bounded PartsList/ServerList helper and service scheduler are verified over
    encrypted CASE (`05053ec`, `5c588df`). Completed nodes refresh after catalog
-   restore and radio reattachment; incomplete-node recovery and IPC/API snapshots remain open.
+   restore and radio reattachment; revisioned snapshot IPC is implemented (`237d110`).
+   Incomplete-node recovery, native snapshot validation/API/UI remain open.
 4. [ ] Implement validated OnOff/Level reads and commands plus typed IPC
    bodies in plan 02. Confirm resulting values through reads/reports and expose
    unsupported clusters and failed commands explicitly.
@@ -244,3 +246,26 @@ Checklist items 2–7 remain open. Completed-node runtime recovery is implemente
 remote recovery of incomplete nodes, legacy migration, feature/type metadata,
 snapshot IPC/API, reads/commands, subscriptions and native reports remain.
 No physical gateway execution or plan 08 acceptance was performed.
+
+## Revisioned snapshot IPC checkpoint — 2026-10-04
+
+Rust commit `237d110` dispatches opcode-10 snapshot requests from the private
+catalog and cached descriptors, including before Thread startup. One endpoint
+per page bounds payloads; incomplete/undiscovered nodes remain visible with
+explicit state and null endpoint/ID. Stable endpoint IDs include fabric/node.
+Each reply includes an opaque revision initialized from OS randomness; nonzero
+cursors require it, and visible changes invalidate prior pages. Revisions do
+not change on identical refreshes or wrap on exhaustion.
+
+All 57 service-feature tests pass, including pagination, stable IDs, stale or
+missing revision, invalid cursor, maximum cluster-ID page size and exhaustion.
+Actual service IPC verifies empty snapshots and error handling before Thread
+startup. The encrypted synthetic accessory fixture verifies both descriptor
+pages through the actual manager. Host/MIPS service/probe builds and existing
+native real-service worker regressions pass. Details and artifact hashes are in
+`ziggurat-compilation/docs/matter-device-snapshot-ipc.md`.
+
+Plan 02 device dispatch and plan 04 snapshot API/views remain open: native
+opcode-10 request/reply validation must precede HTTP exposure. Reads, commands,
+subscriptions, incomplete-node reconciliation and native reports remain pending.
+No physical gateway/accessory acceptance or plan 08 action was performed.
