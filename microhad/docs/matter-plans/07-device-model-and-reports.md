@@ -58,11 +58,14 @@ units are not modeled. Remote recovery of catalogued nodes and legacy
 migration also remain open. Verification passed:
 `make ZIGGURAT=1 MATTER=1 host test` and
 `make ZIGGURAT=1 MATTER=1 mips` (the MIPS toolchain prints its existing
-LOAD-USE warnings). Next deliverable: add source-neutral bounded history keys
-and telemetry units, restore Matter alert settings across restart, and feed the
-additional sensors into the history/notification paths. The Matter endpoint
-catalog is refreshed when the dashboard pages its snapshot; persistent native
-restart restoration remains open.
+LOAD-USE warnings). Matter confirmed measurements now enter the bounded
+unit-aware source-ID history journal; dashboard charts render temperature,
+humidity, CO2, PM2.5, air quality, light and brightness. The journal caps at
+8,192 records, compacts to recent records and is exposed through the common
+history route. It is currently written by Matter only and uses `/tmp`, so
+power-loss persistence and convergence with Zigbee/Shelly history remain open.
+Matter alert restoration, CO2/PM2.5 alert units, report subscriptions, remote
+node recovery, and persistent native endpoint restart restoration remain open.
 
 This shared device contract applies equally to Zigbee, Matter, and external
 HTTP sources such as Shelly: stable source identity, common capabilities,
@@ -241,8 +244,10 @@ are historical; the latest status/evidence section above takes precedence.
 6. [ ] Add bounded subscriptions, duplicate filtering, sleepy-device refresh
    and reconnect backoff; persist meaningful changes rather than each report.
 7. [ ] CASE operation values feed the common in-memory state and the shared
-   temperature/humidity/brightness alert engine. Add restart restoration,
-   source-neutral unit-aware history, CO2/PM2.5 alert support and reports.
+   temperature/humidity/brightness alert engine. Matter writes confirmed
+   values to the source-neutral unit-aware journal; route Zigbee and external
+   HTTP/Shelly history through it too. Add restart restoration, CO2/PM2.5 alert
+   support and reports.
    Test unsupported clusters, missing/duplicate reports, address changes,
    restart and concurrent synthetic Zigbee activity; document remaining limits.
 
