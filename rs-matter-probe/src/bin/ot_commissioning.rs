@@ -60,6 +60,49 @@ use rs_matter::utils::select::Coalesce;
 use rs_matter::{clusters, devices, root_endpoint, Matter, MATTER_PORT};
 use static_cell::StaticCell;
 
+fn native_test_response(
+    request: lexra_rs_matter_probe::ipc::Frame,
+    manager: &mut lexra_rs_matter_probe::devices::Manager<'_, impl Crypto>,
+) -> Option<lexra_rs_matter_probe::ipc::Frame> {
+    use lexra_rs_matter_probe::control::{DeviceRequest, Request, ThreadRequest};
+
+    let payload = match Request::decode(request.opcode, &request.payload) {
+        Ok(Request::MatterStatus) => br#"{"enabled":true,"available":true,"controller_initialized":true,"fabric_ready":true,"state":"running"}"#.to_vec(),
+        Ok(Request::ThreadStatus) | Ok(Request::Thread(ThreadRequest::Status { .. })) => {
+            br#"{"enabled":true,"available":true,"configured":true,"attached":true,"state":"attached","linux_ipv6_or_tun":false}"#.to_vec()
+        }
+        Ok(Request::Thread(ThreadRequest::Observe {
+            zigbee_channel,
+            zigbee_online,
+            ..
+        })) => {
+            let valid_channel = zigbee_online && (11..=26).contains(&zigbee_channel);
+            let status = if valid_channel {
+                format!("{{\"enabled\":true,\"available\":true,\"configured\":true,\"attached\":true,\"state\":\"attached\",\"zigbee_channel\":{},\"dataset_channel\":{},\"linux_ipv6_or_tun\":false}}", zigbee_channel, zigbee_channel)
+            } else {
+                r#"{"enabled":true,"available":true,"configured":false,"attached":false,"state":"detached","linux_ipv6_or_tun":false}"#.to_owned()
+            };
+            format!("{{\"schema\":1,\"ok\":true,\"result\":{status}}}").into_bytes()
+        }
+        Ok(Request::Device(DeviceRequest::Snapshot {
+            cursor, revision, ..
+        })) => {
+            let page = manager.page(cursor, revision);
+            lexra_rs_matter_probe::responses::reply(page).unwrap_or_default()
+        }
+        Ok(_) => lexra_rs_matter_probe::responses::reply::<(), _>(Err("unsupported"))
+            .unwrap_or_default(),
+        Err(_) => lexra_rs_matter_probe::responses::reply::<(), _>(Err("malformed"))
+            .unwrap_or_default(),
+    };
+    (!payload.is_empty()).then_some(lexra_rs_matter_probe::ipc::Frame {
+        kind: 1,
+        opcode: request.opcode,
+        id: request.id,
+        payload,
+    })
+}
+
 const TEST_PASSCODE: u32 = 20202021;
 type DeviceDmState = InteractionModelState<DummyNetworks, DEFAULT_MAX_SUBSCRIPTIONS, 0>;
 static DEVICE_MATTER: StaticCell<Matter> = StaticCell::new();
@@ -382,6 +425,7 @@ async fn run(
     service_owner: bool,
     service_discovery: bool,
     sensor_reports: bool,
+    native_ipc: bool,
 ) -> Result<(), Error> {
     let mut entropy =
         OsEntropy(std::fs::File::open("/dev/urandom").expect("OS entropy unavailable"));
@@ -827,7 +871,9 @@ async fn run(
                         .map_err(|_| rs_matter::error::ErrorCode::Failure)?
                         .join(&state_directory)
                 };
-                let path = directory.join("report-ipc.sock");
+                let path = std::env::var_os("MICROHAD_MATTER_TEST_IPC_SOCKET")
+                    .map(std::path::PathBuf::from)
+                    .unwrap_or_else(|| directory.join("report-ipc.sock"));
                 let mut ipc = lexra_rs_matter_probe::service::IpcServer::bind(&path)
                     .map_err(|_| rs_matter::error::ErrorCode::Failure)?;
                 ipc.poll(|_| None)
@@ -889,6 +935,29 @@ async fn run(
                 } if reported_node == node
             ));
             if sensor_reports {
+                if native_ipc {
+                    let ready_path = std::env::var_os("MICROHAD_MATTER_TEST_NATIVE_READY_FILE")
+                        .map(std::path::PathBuf::from)
+                        .ok_or(rs_matter::error::ErrorCode::InvalidData)?;
+                    let release_path = std::env::var_os("MICROHAD_MATTER_TEST_NATIVE_RELEASE_FILE")
+                        .map(std::path::PathBuf::from)
+                        .ok_or(rs_matter::error::ErrorCode::InvalidData)?;
+                    std::fs::write(ready_path, b"ipc-ready")
+                        .map_err(|_| rs_matter::error::ErrorCode::Failure)?;
+                    let (ipc, _) = report_ipc.as_mut().unwrap();
+                    while !release_path.exists() {
+                        std::future::poll_fn(|context| {
+                            manager.poll(true, false, std::time::Instant::now(), context);
+                            ipc.poll_with_peer(|_, request| {
+                                native_test_response(request, &mut manager)
+                            })
+                            .unwrap();
+                            std::task::Poll::Ready(())
+                        })
+                        .await;
+                        Timer::after_millis(5).await;
+                    }
+                }
                 for cluster in [1026, 1029, 91, 1037, 1066] {
                     match cluster {
                         1026 => temperature.value.set(Some(-525)),
@@ -899,7 +968,9 @@ async fn run(
                         _ => unreachable!(),
                     }
                     dm.notify_attr_changed(1, cluster, 0);
-                    let mut report_peer = if let Some((ipc, path)) = &mut report_ipc {
+                    let mut report_peer = if native_ipc {
+                        None
+                    } else if let Some((ipc, path)) = &mut report_ipc {
                         let peer = UnixStream::connect(path)
                             .map_err(|_| rs_matter::error::ErrorCode::Failure)?;
                         ipc.poll(|_| None)
@@ -911,10 +982,29 @@ async fn run(
                     let payload = embassy_time::with_timeout(
                         Duration::from_secs(5),
                         std::future::poll_fn(|context| {
+                            if let Some((ipc, _)) = &mut report_ipc {
+                                if native_ipc {
+                                    ipc.poll_with_peer(|_, request| {
+                                        native_test_response(request, &mut manager)
+                                    })
+                                    .unwrap();
+                                }
+                            }
                             manager.poll(true, false, std::time::Instant::now(), context);
-                            if let (Some((ipc, _)), Some(peer)) =
-                                (&mut report_ipc, &mut report_peer)
-                            {
+                            if native_ipc {
+                                if let Some((ipc, _)) = &mut report_ipc {
+                                    if manager.front_report().is_some()
+                                        && manager.publish_reports(ipc).unwrap() != 0
+                                    {
+                                        ipc.poll_with_peer(|_, request| {
+                                            native_test_response(request, &mut manager)
+                                        })
+                                        .unwrap();
+                                        return std::task::Poll::Ready(Vec::new());
+                                    }
+                                }
+                            } else if let (Some((ipc, _)), Some(peer)) =
+                                (&mut report_ipc, &mut report_peer) {
                                 if manager.front_report().is_some() {
                                     if manager.publish_reports(ipc).unwrap() != 0 {
                                         ipc.poll(|_| None).unwrap();
@@ -956,7 +1046,11 @@ async fn run(
                         1066 => br#"{"schema":1,"event":"matter_report","data":{"node":"0000000000000002","endpoint":1,"cluster":1066,"attribute":0,"value":{"type":"measurement","value":{"value":25.5,"unit":"ug/m3","quality":"measured"}}}}"#.as_slice(),
                         _ => unreachable!(),
                     };
-                    assert_eq!(payload, expected);
+                    if native_ipc {
+                        assert!(payload.is_empty());
+                    } else {
+                        assert_eq!(payload, expected);
+                    }
                 }
                 println!(
                     "PASS production manager sensor reports reach IPC from subscribed CASE reports"
@@ -1345,13 +1439,22 @@ fn main() {
     let service_owner = std::env::args().any(|arg| arg == "--service-owner");
     let service_discovery = std::env::args().any(|arg| arg == "--service-discovery");
     let sensor_reports = std::env::args().any(|arg| arg == "--sensor-reports");
+    let native_ipc = std::env::args().any(|arg| arg == "--native-ipc");
     assert!(!service_owner || use_ble);
     assert!(!service_discovery || service_owner);
     assert!(!sensor_reports || service_owner);
+    assert!(!native_ipc || (sensor_reports && service_discovery));
     let work = async {
-        run(&thread, use_ble, service_owner, service_discovery, sensor_reports)
-            .await
-            .expect("encrypted Matter fixture");
+        run(
+            &thread,
+            use_ble,
+            service_owner,
+            service_discovery,
+            sensor_reports,
+            native_ipc,
+        )
+        .await
+        .expect("encrypted Matter fixture");
     };
     let pump = async {
         loop {
