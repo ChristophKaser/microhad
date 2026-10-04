@@ -217,17 +217,19 @@ bool plainText(const std::string& value, unsigned long maximum, bool allowEmpty)
 }
 bool valueMetricValid(unsigned char metric, const std::string& value, const std::string& unit) {
     if (!plainText(value, 24, false) || !plainText(unit, 16, true)) return false;
+    if (metric == SensorHistory::Contact || metric == SensorHistory::Occupancy)
+        return unit.empty() && (value == "0" || value == "1");
     if (metric == SensorHistory::AirQuality)
         return unit.empty() && (value == "good" || value == "fair" || value == "moderate" || value == "poor" ||
             value == "very_poor" || value == "extremely_poor");
     if (metric == SensorHistory::Light) return unit.empty() && (value == "0" || value == "1");
-    if (metric < SensorHistory::Temperature || metric > SensorHistory::Brightness || metric == SensorHistory::Contact ||
-        metric == SensorHistory::Power || metric == SensorHistory::Occupancy || metric == SensorHistory::Battery) return false;
+    if (metric < SensorHistory::Temperature || metric > SensorHistory::Brightness || metric == SensorHistory::Battery) return false;
     char* end = 0;
     const double numeric = std::strtod(value.c_str(), &end);
     if (end != value.c_str() + value.size() || !std::isfinite(numeric)) return false;
     if (metric == SensorHistory::Temperature) return unit == "celsius" && numeric >= -327.68 && numeric <= 327.67;
     if (metric == SensorHistory::Humidity) return unit == "percent" && numeric >= 0 && numeric <= 100;
+    if (metric == SensorHistory::Power) return unit == "watts" && numeric >= 0 && numeric <= 6553.5;
     if (metric == SensorHistory::CarbonDioxide) {
         static const char* const units[] = {"ppm", "ppb", "ppt", "mg/m3", "ug/m3", "ng/m3",
             "particles/m3", "Bq/m3", "dB/m", "particles/ft3"};
@@ -909,7 +911,8 @@ bool SensorHistory::readValuesJson(const std::string& deviceId, unsigned long be
 
 bool SensorHistory::readForDevice(const std::string& address, unsigned long before,
         std::string* json, std::string* error, ReadStats* stats) const {
-    if (address.find("matter:") == 0) return readValuesJson(address, before, json, error, stats);
+    if (address.find("matter:") == 0 || address.find("shelly:") == 0)
+        return readValuesJson(address, before, json, error, stats);
     return readV2Json(address, before, json, error, stats);
 }
 

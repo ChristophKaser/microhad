@@ -612,6 +612,10 @@ void testServers() {
         if (!contactUpdated) usleep(20000);
     }
     assert(contactUpdated);
+    response = plainRequest(http.boundPort(), "GET /api/devices/shelly%3A" + savedId +
+                            "%3Acontact/history HTTP/1.1\r\nHost: localhost\r\n\r\n");
+    expectStatus("http Shelly stable-ID history", response, 200);
+    assert(response.find(",3,1,\"\"") != std::string::npos);
     std::string relayAddress = "0x" + savedId;
     const char* hex = "0123456789abcdef";
     relayAddress[relayAddress.size() - 1] = hex[(static_cast<unsigned int>(std::string(hex).find(relayAddress[relayAddress.size() - 1])) ^ 3) & 15];

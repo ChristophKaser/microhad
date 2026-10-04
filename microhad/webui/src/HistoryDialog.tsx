@@ -102,6 +102,9 @@ export function HistoryDialog({ device, onClose }: { device: Device; onClose: ()
     ...(device.has_light || device.has_actor ? [10 as const] : []),
     ...(device.has_brightness ? [11 as const] : []),
   ]
+  const historyId = device.source === 'shelly'
+    ? `shelly:${device.external_id}:${device.component}`
+    : device.source === 'matter' ? device.external_id : device.id
   const series = metrics.flatMap((metric) => {
     const units = [...new Set(samples.filter((sample) => sample[2] === metric).map((sample) => historyUnit(metric, sample)))]
     return (units.length ? units : [historyUnit(metric)]).map((unit) => ({ metric, unit }))
@@ -115,7 +118,7 @@ export function HistoryDialog({ device, onClose }: { device: Device; onClose: ()
         let before = 0
         const loaded: HistorySample[] = []
         do {
-          const page = await jsonRequest<HistoryPage>(`/api/devices/${encodeURIComponent(device.id)}/history${before ? `?before=${before}` : ''}`)
+          const page = await jsonRequest<HistoryPage>(`/api/devices/${encodeURIComponent(historyId)}/history${before ? `?before=${before}` : ''}`)
           loaded.push(...page.samples)
           before = page.next_before
         } while (before && loaded.length < 10000)
@@ -131,7 +134,7 @@ export function HistoryDialog({ device, onClose }: { device: Device; onClose: ()
     }
     void load()
     return () => { active = false }
-  }, [device.id])
+  }, [historyId])
   const start = range === 'all' ? (samples[0]?.[1] ?? now) : now - rangeSeconds[range]
   const visible = useMemo(() => {
     const current = samples.filter((sample) => sample[1] >= start && sample[1] <= now)

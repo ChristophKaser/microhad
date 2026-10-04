@@ -301,6 +301,7 @@ void runSensorHistoryUnitTests() {
 
     const std::string matterId = "matter:0000000000000001:0000000000000002:0001";
     const std::string secondMatterId = "matter:0000000000000001:0000000000000002:0002";
+    const std::string shellyId = "shelly:0011223344556677:temperature:2";
     {
         SensorHistory history(path);
         assert(history.appendValue(matterId, SensorHistory::Temperature, "-5.25", "celsius", 1708000000L));
@@ -311,12 +312,20 @@ void runSensorHistoryUnitTests() {
         assert(history.appendValue(matterId, SensorHistory::Light, "1", "", 1708000002L));
         assert(history.appendValue(matterId, SensorHistory::Brightness, "50", "percent", 1708000003L));
         assert(history.appendValue(secondMatterId, SensorHistory::Temperature, "21.5", "celsius", 1708000000L));
+        assert(history.appendValue(shellyId, SensorHistory::Temperature, "22.375", "celsius", 1708000000L));
+        assert(history.appendValue(shellyId, SensorHistory::Contact, "1", "", 1708000001L));
+        assert(history.appendValue(shellyId, SensorHistory::Power, "42.3", "watts", 1708000002L));
+        assert(!history.appendValue(shellyId, SensorHistory::Power, "42.3", "kW", 1708000060L));
         assert(!history.appendValue(matterId, SensorHistory::CarbonDioxide, "758.5", "miles", 1708000060L));
         assert(history.readForDevice(matterId, 0, &json, &error));
         assert(json.find("-5.25,\"celsius\"") != std::string::npos);
         assert(json.find("758.5,\"ppb\"") != std::string::npos);
         assert(json.find("\"moderate\",\"\"") != std::string::npos);
         assert(json.find("21.5") == std::string::npos);
+        assert(history.readForDevice(shellyId, 0, &json, &error));
+        assert(json.find("22.375,\"celsius\"") != std::string::npos);
+        assert(json.find(",3,1,\"\"") != std::string::npos);
+        assert(json.find("42.3,\"watts\"") != std::string::npos);
     }
     {
         SensorHistory restarted(path);

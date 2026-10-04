@@ -16,6 +16,7 @@ export const historyUnit = (metric: HistoryMetric, sample?: HistorySample): stri
   if (!unit) return defaultUnits[metric]
   if (unit === 'celsius') return '°C'
   if (unit === 'percent') return '%'
+  if (unit === 'watts') return 'W'
   return unit
 }
 export const historyY = (metric: HistoryMetric, sample: HistorySample): number => {

@@ -688,25 +688,37 @@ bool Gateway::applyShellyEvent(const std::string& id, int metric, int channelInd
             const bool changed = !d.contactKnown || d.contactOpen != (value != 0);
             d.contactOpen = value != 0; d.contactKnown = true;
             if (changed) {
-                history_.append(d.ieeeAddress, SensorHistory::Contact, d.contactOpen ? 1 : 0, now);
+                history_.appendValue("shelly:" + d.externalId + ":" + d.component, SensorHistory::Contact,
+                                     d.contactOpen ? "1" : "0", "", now);
                 updateContactAlert(d.ieeeAddress, wasOpen, hadKnownState);
             }
-        } else { d.actorOn = value != 0; d.actorKnown = true; }
+        } else {
+            const bool changed = !d.actorKnown || d.actorOn != (value != 0);
+            d.actorOn = value != 0; d.actorKnown = true;
+            if (changed)
+                history_.appendValue("shelly:" + d.externalId + ":" + d.component, SensorHistory::Light,
+                                     d.actorOn ? "1" : "0", "", now);
+        }
     } else if (metric == 2) {
         Device before = d;
         if (value < -100 || value > 200) { *error = "invalid Shelly temperature"; return false; }
         bool known = d.temperatureKnown;
         double previous = d.temperatureCelsius;
         d.temperatureCelsius = value; d.temperatureKnown = true;
-        history_.append(d.ieeeAddress, SensorHistory::Temperature,
-                        static_cast<int>(value * 100 + (value >= 0 ? 0.5 : -0.5)), now);
+        std::ostringstream historyValue;
+        historyValue << std::setprecision(15) << value;
+        history_.appendValue("shelly:" + d.externalId + ":" + d.component, SensorHistory::Temperature,
+                             historyValue.str(), "celsius", now);
         updateTemperatureAlert(d, known, previous);
         updateValueAlerts(d, before);
     } else {
         Device before = d;
         if (value < 0 || value > 6553.5) { *error = "invalid Shelly power"; return false; }
         d.powerWatts = value; d.powerKnown = true;
-        history_.append(d.ieeeAddress, SensorHistory::Power, static_cast<int>(value * 10 + 0.5), now);
+        std::ostringstream historyValue;
+        historyValue << std::setprecision(15) << value;
+        history_.appendValue("shelly:" + d.externalId + ":" + d.component, SensorHistory::Power,
+                             historyValue.str(), "watts", now);
         updateValueAlerts(d, before);
     }
     d.lastSeen = now;

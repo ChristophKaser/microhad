@@ -74,24 +74,16 @@ void runExternalHttpDeviceWorkerUnitTests() {
         assert(gateway.registerShelly("1234567890abcdef", "My Uni", "My Uni", "uni", -1, &error));
         std::vector<Device> devices = gateway.devices();
         assert(devices.size() == 2);
-        std::string contactAddress;
-        for (unsigned long i = 0; i < devices.size(); ++i)
-            if (devices[i].component == "contact") contactAddress = devices[i].ieeeAddress;
-        assert(!contactAddress.empty());
         assert(gateway.applyShellyEvent("1234567890abcdef", 1, 1, &error));
         assert(gateway.statusJson().find("\"source\":\"shelly\"") != std::string::npos);
         std::string json;
-        assert(SensorHistory::readJson(history, contactAddress, 0, &json, &error));
-        assert(json.find(",3,1]") != std::string::npos);
+        assert(SensorHistory::readJson(history, "shelly:1234567890abcdef:contact", 0, &json, &error));
+        assert(json.find(",3,1,\"\"") != std::string::npos);
         assert(gateway.registerShelly("fedcba0987654321", "My Plug", "My Plug", "plug", -1, &error));
         assert(gateway.applyShellyEvent("fedcba0987654321", 4, 3500.0, &error));
         devices = gateway.devices();
-        std::string plugAddress;
-        for (unsigned long i = 0; i < devices.size(); ++i)
-            if (devices[i].component == "plug") plugAddress = devices[i].ieeeAddress;
-        assert(!plugAddress.empty());
-        assert(SensorHistory::readJson(history, plugAddress, 0, &json, &error));
-        assert(json.find(",4,35000]") != std::string::npos);
+        assert(SensorHistory::readJson(history, "shelly:fedcba0987654321:plug", 0, &json, &error));
+        assert(json.find(",4,3500,\"watts\"") != std::string::npos);
         assert(gateway.registerShelly("fb123456789abcde", "Wi-Fi Phone", "Wi-Fi Phone", "fritz", std::vector<int>(), std::vector<int>(), std::vector<int>(), &error));
         assert(gateway.applyFritzEvent("fb123456789abcde", true, true, 72, &error));
         devices = gateway.devices();
@@ -128,6 +120,7 @@ void runExternalHttpDeviceWorkerUnitTests() {
         assert(gateway.removeShelly("1234567890abcdef", &error));
         assert(gateway.devices().size() == 9);
         assert(unlink(history.c_str()) == 0);
+        assert(unlink((history + ".values").c_str()) == 0);
     }
     std::string controllerState = std::string(directory) + "/devices.json";
     assert(unlink(controllerState.c_str()) == 0);
