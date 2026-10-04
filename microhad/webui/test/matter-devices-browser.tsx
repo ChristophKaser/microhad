@@ -20,6 +20,14 @@ function button(label: string): HTMLButtonElement {
   check(value, `missing button ${label}`)
   return value!
 }
+function setInput(input: HTMLInputElement, value: string) {
+  const previous = input.value
+  input.value = value
+  const tracker = (input as HTMLInputElement & { _valueTracker?: { setValue(value: string): void } })._valueTracker
+  tracker?.setValue(previous)
+  input.dispatchEvent(new Event('input', { bubbles: true }))
+  input.dispatchEvent(new Event('change', { bubbles: true }))
+}
 async function wait(checkValue: () => boolean) {
   for (let index = 0; index < 100; index++) { if (checkValue()) return; await delay(20) }
   throw new Error(`rendered condition timed out: ${stage}`)
@@ -47,6 +55,14 @@ async function tests() {
   await wait(() => document.body.textContent?.includes('Power: On'))
   button('Toggle').click()
   await wait(() => document.body.textContent?.includes('Power: Off'))
+  button('Read brightness').click()
+  await wait(() => document.body.textContent?.includes('Brightness: 0/254'))
+  const slider = document.querySelector<HTMLInputElement>('input[aria-label="Brightness level for node 0000000000000002 endpoint 1"]')!
+  setInput(slider, '124')
+  const transition = document.querySelector<HTMLInputElement>('input[aria-label="Transition deciseconds for node 0000000000000002 endpoint 1"]')!
+  setInput(transition, '20')
+  button('Set brightness').click()
+  await wait(() => document.body.textContent?.includes('Brightness: 124/254'))
   check(await count() === 2, 'device commands caused unexpected snapshot calls')
   await mode('normal')
   button('Refresh devices').click()
@@ -102,9 +118,9 @@ async function tests() {
   await delay(100)
   check(!document.getElementById('root')!.textContent, 'unmounted request updated UI')
   document.body.dataset.result = 'passed'
-  document.getElementById('result')!.textContent = 'PASS rendered device refresh, pagination, confirmed OnOff read/control, revision loss, recovery, duplicates, empty state, availability and unmount'
+  document.getElementById('result')!.textContent = 'PASS rendered device refresh, pagination, confirmed OnOff and Level read/control, revision loss, recovery, duplicates, empty state, availability and unmount'
 }
 void tests().catch(error => {
   document.body.dataset.result = 'failed'
-  document.getElementById('result')!.textContent = String(error)
+  document.getElementById('result')!.textContent = `${stage}: ${String(error)}`
 })

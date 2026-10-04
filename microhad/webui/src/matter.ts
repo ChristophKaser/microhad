@@ -108,9 +108,14 @@ export async function matterCall(route: string, fields: Record<string, unknown>,
       (fields.revision !== undefined && (typeof fields.revision !== 'string' || !validSession(fields.revision))) ||
       (fields.cursor !== undefined && fields.cursor !== 0 && fields.revision === undefined))) throw new MatterError('malformed')
   if (route.endsWith('/devices/read') && (keys.length !== 4 || typeof fields.node !== 'string' || !validSession(fields.node) ||
-      !integer(fields.endpoint, 0, 65534) || fields.cluster !== 6 || fields.attribute !== 0)) throw new MatterError('malformed')
-  if (route.endsWith('/devices/command') && (keys.length !== 3 || typeof fields.node !== 'string' || !validSession(fields.node) ||
-      !integer(fields.endpoint, 0, 65534) || !['on', 'off', 'toggle'].includes(String(fields.command)))) throw new MatterError('malformed')
+      !integer(fields.endpoint, 0, 65534) || (fields.cluster !== 6 && fields.cluster !== 8) || fields.attribute !== 0)) throw new MatterError('malformed')
+  if (route.endsWith('/devices/command')) {
+    const identityValid = typeof fields.node === 'string' && validSession(fields.node) && integer(fields.endpoint, 0, 65534)
+    const onOff = keys.length === 3 && ['on', 'off', 'toggle'].includes(String(fields.command))
+    const level = keys.length === 5 && fields.command === 'move_to_level' && integer(fields.level, 0, 254) &&
+      integer(fields.transition_deciseconds, 0, 65535)
+    if (!identityValid || (!onOff && !level)) throw new MatterError('malformed')
+  }
   const controller = new AbortController()
   const abort = () => controller.abort()
   signal.addEventListener('abort', abort, { once: true })
@@ -180,4 +185,27 @@ export async function matterOnOff(node: string, endpoint: number, action: 'read'
   const value = object(result.value)
   if (Object.keys(value).length !== 2 || value.type !== 'bool' || typeof value.value !== 'boolean') throw new MatterError('protocol')
   return value.value
+}
+
+export async function matterLevel(node: string, endpoint: number,
+  action: { kind: 'read' } | { kind: 'move'; level: number; transitionDeciseconds: number },
+  signal: AbortSignal): Promise<number | null> {
+  const route = action.kind === 'read' ? '/api/matter/devices/read' : '/api/matter/devices/command'
+  const fields = action.kind === 'read' ? { node, endpoint, cluster: 8, attribute: 0 } : {
+    node, endpoint, command: 'move_to_level', level: action.level, transition_deciseconds: action.transitionDeciseconds,
+  }
+  const data = object(await matterCall(route, fields, signal))
+  if (Object.keys(data).length !== 3 || data.state !== 'complete' || typeof data.job !== 'string' || !/^[0-9a-f]{16}$/.test(data.job)) {
+    throw new MatterError('protocol')
+  }
+  const result = object(data.result)
+  if (Object.keys(result).length !== 5 || result.node !== node || result.endpoint !== endpoint || result.cluster !== 8 || result.attribute !== 0) {
+    throw new MatterError('protocol')
+  }
+  const value = object(result.value)
+  if (Object.keys(value).length !== 2 || value.type !== 'u8' ||
+      (value.value !== null && !integer(value.value, 0, 254)) || (action.kind === 'move' && value.value === null)) {
+    throw new MatterError('protocol')
+  }
+  return value.value as number | null
 }

@@ -203,8 +203,40 @@ test('OnOff reads and commands return only typed confirmed CASE values', async (
 
 test('unsupported or malformed device commands never reach the gateway', async () => {
   await peer(() => ({ body: accepted }), async calls => {
-    await assert.rejects(wire.matterCall('/api/matter/devices/read', { node: id, endpoint: 1, cluster: 8, attribute: 0 }, signal()), /malformed/);
+    await assert.rejects(wire.matterCall('/api/matter/devices/read', { node: id, endpoint: 1, cluster: 9, attribute: 0 }, signal()), /malformed/);
     await assert.rejects(wire.matterCall('/api/matter/devices/command', { node: id, endpoint: 65535, command: 'on' }, signal()), /malformed/);
+    await assert.rejects(wire.matterCall('/api/matter/devices/command', { node: id, endpoint: 1, command: 'move_to_level', level: 255, transition_deciseconds: 0 }, signal()), /malformed/);
+    await assert.rejects(wire.matterCall('/api/matter/devices/command', { node: id, endpoint: 1, command: 'move_to_level', level: 1, transition_deciseconds: 65536 }, signal()), /malformed/);
     assert.equal(calls.length, 0);
+  });
+});
+
+test('Level reads and MoveToLevel return typed confirmed CurrentLevel values', async () => {
+  let value = 18;
+  await peer(call => {
+    if (call.method === 'POST') {
+      if (call.path.endsWith('/command')) value = call.body.level;
+      return { body: accepted };
+    }
+    return { body: completed({ state: 'complete', job: '0000000000000001', result: {
+      node: '0000000000000002', endpoint: 1, cluster: 8, attribute: 0, value: { type: 'u8', value } } }) };
+  }, async calls => {
+    assert.equal(await wire.matterLevel('0000000000000002', 1, { kind: 'read' }, signal()), 18);
+    assert.equal(await wire.matterLevel('0000000000000002', 1,
+      { kind: 'move', level: 124, transitionDeciseconds: 20 }, signal()), 124);
+    assert.deepEqual(calls.filter(call => call.method === 'POST').map(call => call.body), [
+      { schema: 1, node: '0000000000000002', endpoint: 1, cluster: 8, attribute: 0 },
+      { schema: 1, node: '0000000000000002', endpoint: 1, command: 'move_to_level', level: 124, transition_deciseconds: 20 },
+    ]);
+  });
+});
+
+test('unknown CurrentLevel remains null and cannot confirm a MoveToLevel', async () => {
+  await peer(call => call.method === 'POST' ? { body: accepted } : { body: completed({ state: 'complete',
+    job: '0000000000000001', result: { node: '0000000000000002', endpoint: 1, cluster: 8, attribute: 0,
+      value: { type: 'u8', value: null } } }) }, async () => {
+    assert.equal(await wire.matterLevel('0000000000000002', 1, { kind: 'read' }, signal()), null);
+    await assert.rejects(wire.matterLevel('0000000000000002', 1,
+      { kind: 'move', level: 50, transitionDeciseconds: 0 }, signal()), /protocol/);
   });
 });

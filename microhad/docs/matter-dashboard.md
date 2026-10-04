@@ -66,9 +66,21 @@ they do not establish rendered browser interaction, Android Bluetooth/camera or
 real accessory behavior. No device deployment or plan 08 acceptance occurred.
 
 Device catalog/controls/measurements still depend on plan 07 and remain open in
-plan 04. The catalog view now supports confirmed OnOff power reads and On/Off/Toggle
-for online endpoints advertising cluster 6. It waits for the gateway's separate
-CASE readback before updating the displayed value. Other cluster controls and
-sensor measurements remain open. See [API contract](matter-native-api-v1.md),
+plan 04. The catalog view supports confirmed OnOff power reads and On/Off/Toggle
+for online endpoints advertising cluster 6. It also supports CurrentLevel reads
+and MoveToLevel slider commands for online endpoints advertising cluster 8. The
+slider accepts levels 0–254 and transition durations in deciseconds; the
+display changes only after the gateway's separate CASE readback. Other cluster
+controls and sensor measurements remain open. See [API contract](matter-native-api-v1.md),
 [plan 04](matter-plans/04-native-api-dashboard.md) and
 [plan 05](matter-plans/05-garage-ble-relay.md).
+
+## Level controls — 2026-10-04
+
+`make webui` passes TypeScript checking and the production build. The updated
+`python3 scripts/test_matter_webui.py` suite passes 18 actual-localhost tests for
+OnOff/Level typed values, invalid ranges, null reads and null mutation rejection.
+`node webui/test/matter-devices-browser.cjs` passes under Chromium with rendered
+CurrentLevel read and MoveToLevel slider interaction, including a 20-decisecond
+transition and confirmed level 124. These synthetic checks do not verify a
+physical accessory.

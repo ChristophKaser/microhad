@@ -9,7 +9,7 @@ const esbuild = require('esbuild');
 async function main() {
   const build = await esbuild.build({ entryPoints: [path.join(__dirname, 'matter-devices-browser.tsx')],
     bundle: true, write: false, platform: 'browser', jsx: 'automatic', define: { 'process.env.NODE_ENV': '"production"' } });
-  let mode = 'normal', posts = 0, nextJob = 1, operationValue = false;
+  let mode = 'normal', posts = 0, nextJob = 1, operationValue = false, operationLevel = 0;
   const jobs = new Map();
   const server = http.createServer(async (request, response) => {
     let body = '';
@@ -28,7 +28,7 @@ async function main() {
       const endpoint = mode === 'duplicate' ? 0 : fields.cursor;
       const device = { node: '0000000000000002', state: 'complete', online: mode !== 'offline',
         id: `matter:0000000000000001:0000000000000002:${endpoint.toString(16).padStart(4, '0')}`,
-        endpoint, servers: endpoint === 0 ? [29] : [6, 29] };
+        endpoint, servers: endpoint === 0 ? [29] : [6, 8, 29] };
       const result = { revision: '0000000000000007', devices: mode === 'empty' ? [] : [mode === 'recovery' ?
         { ...device, state: 'recovery_required', online: false, id: null, endpoint: null, servers: [] } : device],
         next_cursor: mode === 'empty' || mode === 'recovery' || fields.cursor === 1 ? null : 1 };
@@ -41,10 +41,13 @@ async function main() {
         if (fields.command === 'on') operationValue = true;
         if (fields.command === 'off') operationValue = false;
         if (fields.command === 'toggle') operationValue = !operationValue;
+        if (fields.command === 'move_to_level') operationLevel = fields.level;
       }
+      const level = fields.cluster === 8 || fields.command === 'move_to_level';
       jobs.set(job, { job, state: 'complete', response: { schema: 1, ok: true, result: {
         state: 'complete', job: job.toString(16).padStart(16, '0'), result: { node: fields.node, endpoint: fields.endpoint,
-          cluster: 6, attribute: 0, value: { type: 'bool', value: operationValue } } } } });
+          cluster: level ? 8 : 6, attribute: 0, value: level ? { type: 'u8', value: operationLevel } :
+            { type: 'bool', value: operationValue } } } } });
       response.statusCode = 202; send({ schema: 1, ok: true, job, state: 'queued' });
     } else if (request.url.startsWith('/api/matter/jobs/')) send(jobs.get(Number(request.url.split('/').pop())));
     else { response.statusCode = 404; send({ ok: false }); }
