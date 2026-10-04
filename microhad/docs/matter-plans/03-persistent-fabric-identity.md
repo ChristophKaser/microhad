@@ -115,10 +115,10 @@ operational backup/restore documentation.
 All unchecked items below remain open. Earlier checkpoint measurements
 are historical; the latest status/evidence section above takes precedence.
 
-1. [ ] Write a backup runbook covering owner shutdown, consistent copying of
+1. [x] Write a backup runbook covering owner shutdown, consistent copying of
    the entire private state, encrypted storage, permissions and verification
    without displaying credential contents.
-2. [ ] Write a restore runbook using a separate private directory, validation
+2. [x] Write a restore runbook using a separate private directory, validation
    before activation, rollback and retention. Forbid merging stores or
    lowering the allocator; preserve rejected state for diagnosis.
 3. [ ] Exercise these procedures on synthetic state: incomplete backup,
@@ -132,3 +132,21 @@ are historical; the latest status/evidence section above takes precedence.
 
 Validation: host recovery exercises and encrypted fixture CASE recovery first;
 target persistence semantics require separately recorded target evidence.
+
+## Backup/restore runbook checkpoint — 2026-10-04
+
+[The recovery runbook](../matter-backup-recovery.md) now specifies complete-state
+scope, private permissions, owner/supervisor quiescence, encrypted SSH-to-GnuPG
+backup, separately staged restore, identity/schema validation, counter rollback
+refusal, controlled activation, retention and cleanup. It distinguishes document
+instructions from executed recovery evidence. Quiesce stops Matter and native
+while leaving Ziggurat alive; removing the marker does not resume the existing
+supervisor. This behavior was checked in the actual launcher before documenting.
+
+No credentials or gateway state were read/exported/restored. The shell template
+and relative links were checked locally. Archive preflight/staging automation,
+offline service validation, synthetic failed/interrupted restore tests and node
+catalog recovery remain open. Target filesystem/physical acceptance stays in
+plan 08. The Garage failed-GATT-confirmation fix is separately uncommitted;
+its required Android build/TCP checks were not executed because automatic
+approval review reported exhausted workspace credits, not an unsafe action.

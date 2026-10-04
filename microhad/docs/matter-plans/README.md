@@ -32,7 +32,7 @@ specific evidence recorded in a file, not to end-to-end Matter support.
 | --- | --- | --- |
 | [01 Runtime](01-rust-service-runtime.md) | Host service and optional supervision implemented; recovery and target verification incomplete | Extend integrated failure/restart coverage and record final artifacts |
 | [02 IPC](02-commissioning-control-ipc.md) | Service and native commissioning/relay dispatch implemented; device dispatch incomplete | Extend failure/backpressure tests, then implement device bodies with plan 07 |
-| [03 Identity](03-persistent-fabric-identity.md) | Persistent authority and host CASE recovery implemented | Finish backup/recovery procedure and target filesystem checks |
+| [03 Identity](03-persistent-fabric-identity.md) | Persistent authority and host CASE recovery implemented | Exercise documented backup/restore on synthetic state; target checks stay in plan 08 |
 | [04 Native API/dashboard](04-native-api-dashboard.md) | Status, queued commissioning/Thread routes and owned relay implemented; UI pending | Add feature-aware onboarding and device UI |
 | [05 Garage BLE relay](05-garage-ble-relay.md) | Native relay and tested app parser/GATT/HTTP/WebSocket implemented; foreground UI wiring pending | Wire foreground onboarding, permissions, selection and lifecycle UI |
 | [06 Thread lifecycle](06-thread-network-lifecycle.md) | Guarded dataset lifecycle and native observation worker verified on host | Extend channel-change/restart recovery and target verification |
