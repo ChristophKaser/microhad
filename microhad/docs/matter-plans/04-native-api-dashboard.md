@@ -89,9 +89,10 @@ hands accessory onboarding to Garage and watches/cancels a known commissioning
 session. The dashboard client has nine actual localhost HTTP tests and passes
 the required production web build. The dashboard projects Matter endpoints
 into the shared device cards and routes common controls through the Matter
-adapter. Shelly continues to use those cards with its HTTP controller. This is
-a frontend projection: native persistent model, history/alerts, reports and
-broad failure gates remain open.
+adapter. Shelly continues to use those cards with its HTTP controller. Matter
+endpoints also enter the native in-memory catalog from validated snapshot
+pages; native persistence, history/alerts, reports and broad failure gates
+remain open.
 
 Native UI commit `7822c32` removes the separate Matter device list and adds the
 Matter-to-common-device adapter and controller dispatch. `make webui`,
@@ -103,15 +104,20 @@ canonical `sensor_values` keys, so shared cards no longer inspect Matter cluster
 IDs. Temperature and humidity continue through the gateway's existing common
 fields. The dashboard build, browser interaction and 20 API tests pass again.
 Native commit `a841aca` adds shared `/api/status` fields for air quality, CO2
-and PM2.5, including unknown-state flags and serialization tests. The Matter
-worker does not yet populate these fields; wiring native Matter observations,
-persistence/history and alerts remains open.
+and PM2.5, including unknown-state flags and serialization tests. Commit
+`1f5077d` parses completed snapshot pages and registers Matter endpoint
+identity, online state and advertised capabilities in native `Gateway::Device`
+through the coordinator runner. The UI deduplicates matching IDs with its live
+projection. CASE operation results do not yet populate native reading fields;
+persistence/history and alerts remain open. The production UI build, browser
+test, 20 API tests, full Matter-enabled host suite and Matter-enabled MIPS
+cross-build pass for this checkpoint.
 
 ## Remaining checkpoints
 
-1. Feed Matter descriptors and confirmed values through the worker/runner into
-   native `Gateway::Device` instances while preserving stable `matter:` IDs,
-   source provenance, advertised capabilities and unknown values.
+1. Apply typed confirmed Matter operation results to registered native
+   `Gateway::Device` instances while preserving stable `matter:` IDs and
+   source provenance.
 2. Integrate Matter-backed measurements and confirmed state into the existing
    catalog/history path; Shelly and Zigbee continue through their existing
    source controllers. Keep join and Thread-specific settings in the Matter area.

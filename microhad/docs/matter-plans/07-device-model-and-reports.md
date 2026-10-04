@@ -36,17 +36,25 @@ classification and presentation; cluster IDs stay in Matter provenance and
 the source adapter. The API and rendered browser tests pass. Existing
 temperature/humidity fields already serve Zigbee and Shelly. Native commit
 `a841aca` extends `Gateway::Device` and `/api/status` with shared known/value
-fields for air quality, CO2 and PM2.5, with serialization coverage. Matter
-snapshot/operation results do not populate those native fields yet.
+fields for air quality, CO2 and PM2.5, with serialization coverage. Native
+commit `1f5077d` now parses validated revisioned snapshot pages, assembles them
+by cursor/revision and reconciles endpoint identity, online state and advertised
+capabilities into the coordinator-owned `Gateway::Device` catalog. The
+dashboard deduplicates those entries with the live Matter projection by stable
+ID. Matter IDs remain in `id`/`external_id`; the Zigbee `ieee_address` field
+stays empty.
 Temperature, humidity, CO2, PM2.5 and air-quality values are rendered from the
 Matter snapshot cache, but are not yet in shared persistent values, history or
 alerts. Reports, remote recovery of catalogued nodes and legacy migration
-remain open. Verification for this frontend checkpoint: `make webui`,
-`node webui/test/matter-devices-browser.cjs`, and
-`python3 scripts/test_matter_webui.py` (20/20). Next deliverable: converge
-Matter descriptors and confirmed operation values into native `Gateway::Device`
-through the worker/runner command path, then write those values to shared
-history and alert processing. The common field contract itself is now present.
+remain open. Verification: `make webui`,
+`node webui/test/matter-devices-browser.cjs`,
+`python3 scripts/test_matter_webui.py` (20/20),
+`make ZIGGURAT=1 MATTER=1 host test`, and
+`make ZIGGURAT=1 MATTER=1 mips` pass. Next deliverable: apply typed confirmed
+CASE reads/commands to registered `Gateway::Device` values, then write those
+values to shared history and alert processing. The Matter endpoint catalog is
+refreshed when the dashboard pages its snapshot; persistent native restart
+restoration remains open.
 
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.
@@ -126,16 +134,18 @@ explicit-rendezvous fixture alone does not establish operational discovery.
    the shared dashboard `Device` shape and `DeviceGroups` cards. Generic light
    controls dispatch through the Matter adapter; Zigbee and Shelly retain their
    existing source controllers. Commit `39a2469` adds source-neutral sensor
-   names for shared card grouping/rendering. Keep Matter UI limited to joining
-   and Matter/Thread settings. Native `Gateway::Device` population from Matter
-   descriptors and readings remains open (`a841aca` adds its shared field
-   contract only).
+   names for shared card grouping/rendering. Commit `1f5077d` registers
+   validated Matter snapshot endpoints in native `Gateway::Device` and
+   deduplicates them in the common dashboard by stable ID. Keep Matter UI
+   limited to joining and Matter/Thread settings. Confirmed reading ingestion
+   and persistence remain open.
 5. Implemented CASE reads and typed native validation cover advertised
    temperature, humidity, CO2, PM2.5 and air-quality clusters; the frontend
-   renders those values from its snapshot cache. Move them into shared native
-   values/history and test signed values, correct units and null/unknown
-   handling; test ALPSTUGA-related clusters without assuming every target
-   advertises all measurements.
+   renders those values from its snapshot cache. Common native fields and
+   endpoint capability flags are present, but operation results do not yet
+   update them. Move confirmed values into shared native state/history and test
+   signed values, correct units and null/unknown handling; test ALPSTUGA-related
+   clusters without assuming every target advertises all measurements.
 6. Add bounded subscriptions, duplicate filtering and reconnect/refresh policy;
    retain only state changes that warrant persistence.
 7. Integrate snapshots, history, alerts and the shared dashboard through the
