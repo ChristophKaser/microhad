@@ -2,12 +2,14 @@
 
 ## Current open work — 2026-10-04
 
-Production operational discovery, node catalog, device operations and report integration
-remain open.
+Production operational discovery, remote recovery of catalogued nodes, device
+operations and report integration remain open. A bounded persistent node catalog
+and local interrupted-commissioning recovery states are implemented in Rust
+commit `5002f88` and verified on host; they do not establish operational discovery.
 
-Next deliverable: Implement bounded operational DNS-SD over userspace OpenThread and a
-persistent node catalog. Verify production CASE completion before descriptors, commands,
-subscriptions and native reports.
+Next deliverable: Integrate SRP/DNS-SD through userspace OpenThread, resolve
+operational nodes and reconcile recovery-required entries using the existing
+authority. Then implement descriptors, commands, subscriptions and native reports.
 
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.
@@ -54,15 +56,16 @@ values through the existing gateway model, history, alerts, and dashboard.
 ## Status quo — 2026-10-04
 
 Encrypted synthetic fixtures prove commissioning and fresh CASE with persisted
-authority. Production node catalog, operational DNS-SD, endpoint discovery,
+authority. The production owner now persists node identity and completion/recovery
+states. Operational DNS-SD, remote catalog reconciliation, endpoint discovery,
 commands, subscriptions and native report integration remain pending. Fixture
 address injection does not establish operational discovery support.
 
 ## Remaining checkpoints
 
-1. Persist a bounded node catalog after successful commissioning, including
-   stable identity and recovery state; define failed/interrupted completion
-   behavior without reusing allocated node IDs.
+1. Local catalog persistence, stable identity and failed/interrupted state are
+   implemented. Reconcile recovery-required remote nodes and legacy stores without
+   catalog metadata without reusing allocated node IDs.
 2. Resolve operational nodes using bounded DNS-SD over userspace OpenThread;
    handle address changes and resolve/CASE timeout with bounded backoff.
 3. Discover descriptors/clusters and implement validated OnOff/Level reads and
@@ -85,8 +88,8 @@ address injection does not establish operational discovery support.
 
 The production-owned commissioner now reaches encrypted PASE, Thread provision
 and CASE completion in the synthetic accessory fixture. The running service
-contains that task, but lacks the production DNS-SD resolver and persistent node
-catalog. It uses no fixture address injection and can time out waiting for CASE.
+contains that task and a persistent bounded node catalog, but lacks the
+production DNS-SD resolver and remote node recovery. It uses no fixture address injection and can time out waiting for CASE.
 Descriptor/control/report integration and real operational discovery remain the
 next requirements here; the owned fixture is not device-model acceptance.
 
@@ -101,6 +104,8 @@ are historical; the latest status/evidence section above takes precedence.
 2. [ ] Persist a bounded node catalog with stable fabric/node identity and
    explicit commissioning-completion/recovery states. Never reuse an allocated
    ID after interrupted completion; reconcile incomplete entries on restart.
+   Local catalog/state persistence is verified (`5002f88`); remote reconciliation
+   and legacy no-catalog migration keep this item open.
 3. [ ] Complete production CASE/CommissioningComplete through the resolver,
    then discover descriptors, endpoints and advertised clusters. Test restart
    against the same catalog and authority without the phone.
@@ -118,3 +123,33 @@ are historical; the latest status/evidence section above takes precedence.
 
 Validation: encrypted synthetic accessory tests using production discovery,
 private catalog restore and phone-detached CASE, followed by report/API tests.
+
+## Persistent catalog checkpoint — 2026-10-04
+
+Rust commit `5002f88` adds TMKV key 0x1002 with a versioned bounded catalog of up
+to 64 nodes. The owned commissioner checks capacity before allocation, commits
+a reservation before accessory work, records fabric and Thread milestones and
+marks complete only after successful operational CASE/CommissioningComplete.
+Endpoint identity strings combine fabric, node and endpoint. Catalog/allocator
+gaps never permit ID reuse. Reads do not write flash.
+
+Cancelled, failed, replaced or timed-out futures mark recovery-required. Startup
+converts interrupted local stages once, preserving completed/recovery records
+on later reads. Cleanup storage failure makes the owner fatal and exits the
+service. Wrong fabric, allocator inconsistency, malformed catalog and orphaned
+catalog-without-authority fail closed; no replacement authority is generated.
+
+Validation: 48 service-feature library tests, 23 identity-only library tests,
+the running-service IPC fixture with independent catalog decoding and the
+encrypted production-owner fixture passed. The latter confirms a catalogued
+complete node and then persisted authority/fresh CASE. Both host and MIPS
+service/probe builds passed; static big-endian MIPS-I/o32 soft-float artifacts
+are 1,748,648 and 2,084,544 stripped bytes. Each increased 8,192 bytes. Hashes and
+scope are in `ziggurat-compilation/docs/matter-node-catalog-validation.json`.
+
+The encrypted fixture still supplies rendezvous explicitly. SRP/DNS-SD over
+userspace OpenThread, remote recovery, legacy catalog migration, descriptors,
+commands, reports and native device integration remain open. Recovery records
+consume capacity; they are never silently discarded. Checklist items 1–3 remain
+open until those integration requirements are proven. No physical deployment
+or plan 08 action was performed.

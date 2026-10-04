@@ -150,3 +150,12 @@ catalog recovery remain open. Target filesystem/physical acceptance stays in
 plan 08. The Garage failed-GATT-confirmation fix is separately uncommitted;
 its required Android build/TCP checks were not executed because automatic
 approval review reported exhausted workspace credits, not an unsafe action.
+
+## Catalog/authority consistency checkpoint — 2026-10-04
+
+Rust commit `5002f88` adds the bounded node catalog to the same private envelope.
+Its fabric/node IDs are checked against persisted authority/allocation, and an
+orphaned catalog cannot silently create replacement credentials. A regression
+verifies refusal leaves the envelope unchanged. Full service tests pass 48;
+identity-only tests pass 23. Backup/recovery documentation now includes catalog
+metadata. Synthetic backup/restore failure tests remain open in this plan.

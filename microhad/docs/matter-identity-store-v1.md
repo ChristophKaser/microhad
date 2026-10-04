@@ -10,7 +10,7 @@ are plaintext credentials protected by owner-only permissions.
 | --- | --- |
 | `0x1000` | Complete controller authority, identity and next-node counter below |
 | `0x1001` | Reserved for Thread active-dataset lifecycle |
-| `0x1002` | Reserved for device catalogue index/version |
+| `0x1002` | Versioned bounded node catalog and commissioning/recovery states |
 | `0x1100`–`0x113f` | Reserved for at most 64 device catalogue records |
 
 The authority is one blob so first-start creation never exposes a partial key
@@ -71,3 +71,19 @@ not lower the allocator counter below any value already used in the fabric.
 
 The service implements this schema. Implementation/restart/CASE evidence is tracked
 separately in [plan 03](matter-plans/03-persistent-fabric-identity.md).
+
+## Node catalog checkpoint — 2026-10-04
+
+Rust commit `5002f88` implements key 0x1002 as a single bounded record: eight-byte
+`TMNC`/version-1 magic, little-endian u64 fabric ID, little-endian u16 count and
+up to 64 nine-byte entries (u64 node ID plus phase byte), at most 594 bytes.
+Entries must be increasing, unique, allocated below the persisted next-node
+counter and bound to the same fabric. Phases are reserved (1), fabric-installed
+(2), Thread-provisioned (3), complete (4), recovery-required (5). Descriptor
+records under 0x1100–0x113f remain reserved for later plan 07 work.
+
+Only confirmed CASE/CommissioningComplete yields phase 4. Dropped tasks and
+interrupted startup stages yield phase 5, without reusing IDs or rewriting
+observations. Remote reconciliation remains pending. A catalog without authority
+is corruption and never creates replacement credentials. Back up the entire
+TMKV envelope with the OpenThread state; do not transplant individual records.

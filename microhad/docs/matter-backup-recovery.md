@@ -11,7 +11,7 @@ The configured `MATTER_STATE_DIR` defaults to `/tuya/native/matter`. Confirm the
 actual invocation rather than assuming the default. Include the whole directory:
 
 - `credentials.bin`: the atomic TMKV version-1 envelope, including authority,
-  fabric, allocator, canonical Thread dataset and future node catalog records.
+  fabric, allocator, canonical Thread dataset and node catalog records.
 - `tmp/`: OpenThread POSIX settings, including persistent network/security state.
 - All additional private files/subdirectories belonging to the same state tree.
 
@@ -135,7 +135,7 @@ retention policy rather than routinely writing copies to gateway flash.
 5. Extract into a new private staging tree on RAM or an encrypted host filesystem,
    restrict directories/files to 0700/0600, and assign the intended service UID
    when staging onto the gateway. Verify the entire tree is present, including
-   OpenThread settings and, once implemented, the node catalog.
+   OpenThread settings and the versioned node catalog.
 6. Validate the TMKV magic/version, bounded record count/lengths, unique keys,
    exact payload length and CRC without printing records. Then use the matching
    service's identity/store validation to verify certificates, key pairs,
@@ -200,7 +200,7 @@ contacted. These are documented procedures, not executed recovery evidence.
 Plan 03 still requires synthetic tests for incomplete/corrupt archives, wrong
 permissions, interrupted replacement, invalid identity, allocator rollback and
 failed restore preserving the last good tree. Extend the tests to the node
-catalog once plan 07 implements it. Factory filesystem durability and physical
+catalog remote reconciliation once plan 07 implements it. Factory filesystem durability and physical
 CASE/reception/resource measurements remain in excluded plan 08.
 
 [GnuPG command reference](https://www.gnupg.org/documentation/manuals/gnupg/Operational-GPG-Commands.html)
