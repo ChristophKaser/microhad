@@ -39,6 +39,7 @@ class MatterPeer:
         self.operation_jobs = {}
         self.onoff = False
         self.level = 0
+        self.report_sent = False
         self.error = None
         self.closed = False
         self.thread = threading.Thread(target=self.run, daemon=True)
@@ -188,6 +189,17 @@ class MatterPeer:
                         peer.sendall(struct.pack('<HBBBBI', len(payload), 1, 1, opcode, 0, ident)+payload)
                         if event:
                             payload = json.dumps(event).encode()
+                            peer.sendall(struct.pack('<HBBBBI', len(payload), 1, 2, 12, 0, 0)+payload)
+                        if (opcode == 10 and decoded.get('action') == 'job' and not self.report_sent and
+                                self.operation_jobs[decoded['job']].get('cluster') == 8 and
+                                self.operation_jobs[decoded['job']]['polls'] > 1):
+                            # Exercise the unsolicited-report path after endpoint reconciliation and
+                            # normal command/read handling have completed.
+                            self.report_sent = True
+                            report = dict(schema=1, event='matter_report', data=dict(
+                                node='0000000000000002', endpoint=1, cluster=6, attribute=0,
+                                value=dict(type='bool', value=True)))
+                            payload = json.dumps(report).encode()
                             peer.sendall(struct.pack('<HBBBBI', len(payload), 1, 2, 12, 0, 0)+payload)
         except Exception as error:
             if not self.stop.is_set():
@@ -576,8 +588,15 @@ def main():
                 device_operations_http(fixture)
             except Exception:
                 fixture.log.seek(0)
+                sys.stderr.write(f'IPC peer error: {matter.error}\n')
                 sys.stderr.write(fixture.log.read().decode(errors='replace'))
                 raise
+            def report_applied():
+                devices = fixture.status()['devices']
+                return next((device for device in devices
+                    if device['source'] == 'matter' and device['matter_node'] == '0000000000000002' and
+                    device['matter_endpoint'] == 1 and device['actor_known'] and device['actor_on']), None)
+            assert wait_for(report_applied), 'Unsolicited Matter report did not update shared device state'
         begin = time.monotonic()
         for _ in range(20):
             assert fixture.request('/api/thread/status')['available']

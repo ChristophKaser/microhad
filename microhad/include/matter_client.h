@@ -29,6 +29,7 @@ public:
     bool call(unsigned char opcode, const std::string& body, std::string* json, std::string* error);
     bool poll(std::string* error);
     static bool validRequest(unsigned char opcode, const std::string& body);
+    static bool deviceSnapshotRequest(const std::string& body);
     static bool acceptedOperationJob(unsigned char opcode, const std::string& response, std::string* job);
     static bool operationStatus(const std::string& response, const std::string& job,
                                 bool* terminal, bool* failed, std::string* error);

@@ -662,6 +662,10 @@ bool MatterChannel::call(unsigned char opcode, const std::string& body, std::str
 bool MatterChannel::validRequest(unsigned char opcode, const std::string& body) {
     return requestValid(opcode, body);
 }
+bool MatterChannel::deviceSnapshotRequest(const std::string& body) {
+    Fields fields;
+    return StatusJson(body).parse(&fields) && fields.count("action") && fields["action"] == "\"snapshot\"";
+}
 bool MatterChannel::acceptedOperationJob(unsigned char opcode, const std::string& response, std::string* job) {
     job->clear();
     if ((opcode != 10 && opcode != 11) || !responseValid(opcode, response)) return false;
@@ -754,7 +758,8 @@ bool MatterChannel::devicePage(const std::string& response, std::string* revisio
     revision->clear(); *nextCursor = -1; endpoints->clear();
     if (!responseValid(10, response)) return false;
     Fields envelope, result;
-    if (!StatusJson(response).parse(&envelope) || !StatusJson(envelope["result"]).parse(&result)) return false;
+    if (!StatusJson(response).parse(&envelope) || !StatusJson(envelope["result"]).parse(&result) ||
+        !devicePageValid(result)) return false;
     *revision = result["revision"].substr(1, result["revision"].size() - 2);
     if (result["next_cursor"] != "null") {
         if (!number(result["next_cursor"], 1, 2047)) return false;

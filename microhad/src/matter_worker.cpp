@@ -171,6 +171,7 @@ void MatterWorker::executeJob() {
     unsigned char opcode = value.opcode;
     std::string body; body.swap(value.body);
     pthread_mutex_unlock(&mutex_);
+    const bool snapshotRequest = opcode == 10 && MatterChannel::deviceSnapshotRequest(body);
     std::string response, error;
     bool valid;
     if (opcode == 9) {
@@ -183,7 +184,7 @@ void MatterWorker::executeJob() {
         } else valid = client_.call(9, request, &response, &error);
         wipe(&request);
     } else valid = client_.call(opcode, body, &response, &error);
-    if (valid && opcode == 10 && gateway_) {
+    if (valid && snapshotRequest && gateway_) {
         long cursor = 0, nextCursor = -1;
         long suppliedCursor = 0;
         if (jsonLongField(body, "cursor", &suppliedCursor)) cursor = suppliedCursor;

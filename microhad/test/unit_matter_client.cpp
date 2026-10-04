@@ -140,6 +140,9 @@ void* serveWorker(void* opaque) {
 }
 
 void runMatterClientUnitTests() {
+    assert(MatterChannel::deviceSnapshotRequest("{\"schema\":1,\"action\":\"snapshot\"}"));
+    assert(MatterChannel::deviceSnapshotRequest("{ \"action\" : \"snapshot\", \"schema\" : 1 }"));
+    assert(!MatterChannel::deviceSnapshotRequest("{\"schema\":1,\"action\":\"job\",\"job\":\"0000000000000001\"}"));
     const std::string thread = "{\"enabled\":true,\"available\":true,\"configured\":false,\"attached\":false,\"state\":\"detached\",\"linux_ipv6_or_tun\":false}";
     MatterClient client("/tmp/microhad-matter-status-test-missing.sock");
     std::vector<std::string> replies;
@@ -206,6 +209,8 @@ void runMatterClientUnitTests() {
     assert(pageDevices[0].id == "matter:0000000000000001:0000000000000002:0001");
     assert(pageDevices[0].node == "0000000000000002" && pageDevices[0].endpoint == 1 && pageDevices[0].online);
     assert(pageDevices[0].servers.size() == 4 && pageDevices[0].servers[0] == 6 && pageDevices[0].servers[3] == 1026);
+    assert(!MatterChannel::devicePage("{\"schema\":1,\"ok\":true,\"result\":{\"job\":\"0000000000000001\",\"state\":\"queued\"}}",
+                                      &pageRevision, &pageCursor, &pageDevices));
     const std::string readBody = "{\"schema\":1,\"action\":\"read\",\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":6,\"attribute\":0}";
     const std::string jobBody = "{\"schema\":1,\"action\":\"job\",\"job\":\"0000000000000001\"}";
     const std::string commandBody = "{\"schema\":1,\"command\":\"toggle\",\"node\":\"0000000000000002\",\"endpoint\":1}";
