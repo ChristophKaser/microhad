@@ -261,3 +261,39 @@ import with `malformed`, all recorded channel writes matching the coordinator,
 dataset log redaction and offline local rejection. Both factory binaries are
 static stripped big-endian MIPS-I ELF files. No physical deployment or accessory
 acceptance was performed; WebSocket/Android and production discovery remain open.
+
+## WebSocket transport checkpoint — 2026-10-04
+
+`matter_websocket.cpp` supplies the server handshake and incremental frame codec
+needed before socket ownership can move from an HTTP request worker to the
+Matter worker. It follows the relevant framing/handshake rules from
+[RFC 6455](https://www.rfc-editor.org/rfc/rfc6455.html). The handshake checks the
+exact HTTP/1.1 GET path, required headers/version, a canonical 16-byte base64
+nonce and duplicate fields, and computes the accept value using existing Mbed
+TLS SHA-1/base64 support. It does not negotiate extensions or a subprotocol.
+
+Inbound frames must be masked with clear reserved bits. Text continuations can
+span input chunks and UTF-8 sequences; ping/pong/close frames may occur between
+fragments. The application profile rejects binary messages. Frame/message limits
+are 2048 bytes, input chunks 4096 bytes and eight queued messages. Invalid framing,
+UTF-8, oversized data and queue overflow fail closed with fixed close codes and
+clear retained payloads. Outbound frames are unmasked and validate their type,
+control limits and text/close payloads. No packet logging is added.
+
+Focused tests cover the standard handshake accept vector, bad/duplicate keys,
+wrong version/path/body, byte-fragmented masked input, interleaved ping, split
+UTF-8, maximum-size messages, server encoding, missing masks, invalid fragment
+ordering, binary input, invalid UTF-8, oversized/fragmented messages, noncanonical
+lengths, bad close payloads, queue saturation and post-close input.
+
+This checkpoint is a transport building block. No WebSocket endpoint is active,
+no HTTP socket is handed off yet, and no phone relay/session ownership is claimed.
+The next checkpoint must integrate the single connection owner, nonblocking
+read/write deadlines, typed attach/indication/write-complete dispatch, progress/C1
+events, cancellation/reconnect and shutdown with the existing worker. Garage
+integration and real-accessory acceptance remain separate work.
+
+Verification passed: default and Matter-enabled `make host test`/`make mips`.
+Host suites ran sequentially; enabled peer regression checks pass (13 tests).
+Both factory builds produce static stripped big-endian MIPS-I ELF files.
+No HTTP handoff, actual phone relay, deployment or plan 08 action occurred.

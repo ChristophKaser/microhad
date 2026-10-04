@@ -80,3 +80,12 @@ return service `malformed` in the completed job. Successful results contain only
 the redacted Thread snapshot, never dataset/key bytes. Dataset inputs remain
 transient and are removed from queued storage on execution/failure/shutdown.
 Cached `GET /api/thread/status` continues to expose lifecycle/readiness state.
+
+## WebSocket relay implementation status
+
+The bounded [RFC 6455](https://www.rfc-editor.org/rfc/rfc6455.html) handshake/frame
+codec is implemented and host tested, with 2048-byte text messages, masked
+fragment handling, interleaved controls, UTF-8 validation and eight queued
+messages. It is not yet attached to `/api/matter/relay` or any public upgrade
+route. Socket handoff to the Matter worker and typed BLE/session dispatch remain
+pending; the existing HTTP commissioning and Thread routes are unchanged.

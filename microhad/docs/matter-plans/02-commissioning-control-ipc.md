@@ -369,3 +369,18 @@ import with `malformed`, all recorded channel writes matching the coordinator,
 dataset log redaction and offline local rejection. Both factory binaries are
 static stripped big-endian MIPS-I ELF files. No physical deployment or accessory
 acceptance was performed; WebSocket/Android and production discovery remain open.
+
+## WebSocket transport checkpoint — 2026-10-04
+
+The bounded handshake/frame codec and focused host tests are implemented as a
+building block for the native relay. Details, message limits and current scope
+are recorded in [plan 04](04-native-api-dashboard.md#websocket-transport-checkpoint--2026-10-04).
+There is no public upgrade route yet. Socket handoff, typed session/BLE dispatch,
+connection ownership, deadlines and recovery remain open before Garage can
+consume a stable native relay API. This is neither Android implementation nor
+real-accessory acceptance evidence.
+
+Verification passed: default and Matter-enabled `make host test`/`make mips`.
+Host suites ran sequentially; enabled peer regression checks pass (13 tests).
+Both factory builds produce static stripped big-endian MIPS-I ELF files.
+No HTTP handoff, actual phone relay, deployment or plan 08 action occurred.

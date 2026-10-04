@@ -1,6 +1,7 @@
 #include <cstdio>
 
 void runUnitTests();
+void runMatterWebSocketUnitTests();
 void runMatterProtocolUnitTests();
 void runMatterClientUnitTests();
 void runNetworkBackupUnitTests();
@@ -19,6 +20,7 @@ int main() {
 #if MICROHAD_ZIGGURAT_ENABLED
     runZigguratUnitTests();
 #endif
+    runMatterWebSocketUnitTests();
     runMatterProtocolUnitTests();
     runMatterClientUnitTests();
     runNetworkBackupUnitTests();
