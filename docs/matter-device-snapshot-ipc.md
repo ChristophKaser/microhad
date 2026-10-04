@@ -41,9 +41,12 @@ instead of wrapping. Revisions are opaque tokens, not persistent IDs or clocks.
 
 The service supports snapshots before Thread initialization as well as while
 running or detached. Descriptor-based reads, commands, sensor values and native
-API routing remain pending. Native clients must first add strict opcode-10
-request/reply validation; the current native HTTP surface does not expose this
-operation. No credential or setup-code fields are present.
+device UI remain pending. Native commit `8fff04c` implements strict opcode-10
+request/reply validation and `POST /api/matter/devices/snapshot` through queued
+HTTP jobs. Both synthetic paginated pages and real-service empty/stale-revision
+HTTP checks pass. Clients poll the returned job, then request the next page
+explicitly; no aggregate or retry is implicit. Native default/enabled host
+suites and both MIPS builds pass. No credential or setup-code fields are present.
 
 Verified 2026-10-04: 57 service-feature library tests, host/MIPS service and
 commissioning-probe builds, real service IPC, encrypted descriptor/snapshot

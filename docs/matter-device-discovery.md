@@ -79,5 +79,7 @@ exhaustion checks. Host and MIPS service/probe builds pass. The actual service
 IPC harness checks an empty catalog, missing revision and invalid cursor before
 Thread startup. The encrypted accessory fixture checks both endpoint pages
 using the production manager's CASE-derived descriptors; its success marker is
-mandatory. Native request/reply validation, HTTP routing and device UI are the
-next integration requirements. Real accessories remain excluded under plan 08.
+mandatory. Native commit `8fff04c` subsequently implements request/reply validation
+and queued HTTP snapshot routing, verified against synthetic pages and the real
+Rust service. Device UI, controls and reports remain integration requirements.
+Real accessories remain excluded under plan 08.
