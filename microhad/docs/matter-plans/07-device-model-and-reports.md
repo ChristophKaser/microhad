@@ -56,6 +56,16 @@ values to shared history and alert processing. The Matter endpoint catalog is
 refreshed when the dashboard pages its snapshot; persistent native restart
 restoration remains open.
 
+This shared device contract applies equally to Zigbee, Matter, and external
+HTTP sources such as Shelly: stable source identity, common capabilities,
+normalized telemetry with units and quality, and common presentation. Each
+source adapter owns discovery/setup and translates common control intents to
+its transport. HTTP integrations are ordinary providers of the shared model,
+not a parallel dashboard path. Matter cluster IDs and commissioning details
+stay in Matter provenance/setup; Shelly HTTP details stay in its source adapter.
+Add fields and controls to the common contract when their meaning overlaps,
+and keep truly source-only settings at the boundary.
+
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.
 Earlier checkpoint sections are historical; use the latest evidence when
@@ -133,8 +143,10 @@ explicit-rendezvous fixture alone does not establish operational discovery.
 4. A frontend adapter now projects Matter descriptors and cached values into
    the shared dashboard `Device` shape and `DeviceGroups` cards. Generic light
    controls dispatch through the Matter adapter; Zigbee and Shelly retain their
-   existing source controllers. Commit `39a2469` adds source-neutral sensor
-   names for shared card grouping/rendering. Commit `1f5077d` registers
+   existing source controllers while using the same capability/state contract.
+   HTTP integrations such as Shelly are peers in this shared model, not a
+   separate dashboard path. Commit `39a2469` adds source-neutral sensor names
+   for shared card grouping/rendering. Commit `1f5077d` registers
    validated Matter snapshot endpoints in native `Gateway::Device` and
    deduplicates them in the common dashboard by stable ID. Keep Matter UI
    limited to joining and Matter/Thread settings. Confirmed reading ingestion
@@ -143,9 +155,11 @@ explicit-rendezvous fixture alone does not establish operational discovery.
    temperature, humidity, CO2, PM2.5 and air-quality clusters; the frontend
    renders those values from its snapshot cache. Common native fields and
    endpoint capability flags are present, but operation results do not yet
-   update them. Move confirmed values into shared native state/history and test
-   signed values, correct units and null/unknown handling; test ALPSTUGA-related
-   clusters without assuming every target advertises all measurements.
+   update them. Move confirmed values into the shared native state/history
+   consumed by Matter, Zigbee and HTTP sources such as Shelly. Preserve units
+   and null/unknown quality consistently across adapters. Test signed values
+   and ALPSTUGA-related clusters without assuming every target advertises all
+   measurements.
 6. Add bounded subscriptions, duplicate filtering and reconnect/refresh policy;
    retain only state changes that warrant persistence.
 7. Integrate snapshots, history, alerts and the shared dashboard through the

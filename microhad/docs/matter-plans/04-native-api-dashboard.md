@@ -17,6 +17,14 @@ The native persistent device model, history/alerts, and broader failure gates
 remain open. Keep only joining/commissioning and Matter/Thread-specific
 settings in the Matter area.
 
+The shared-device requirement includes external HTTP integrations such as
+Shelly as first-class sources, not just a visual reuse of cards. The common
+device contract owns identity, displayed state, telemetry names/units/quality,
+and capability presentation. Each source adapter owns discovery/setup and
+translates common control intents to its transport (Zigbee coordinator, Matter
+service, or Shelly HTTP API). Common dashboard components should consume the
+contract and capabilities rather than branch on protocol names or cluster IDs.
+
 Rendered snapshot and OnOff component interaction is verified in Chromium.
 Next deliverable: converge source-specific capability fields and controller
 dispatch behind the common device contract, then bring Matter measurements
@@ -52,8 +60,9 @@ shared equivalent.
    the existing protocol-neutral device model. Reuse the common device catalog,
    capability controls, telemetry presentation and controller dispatch for
    overlapping behavior across Zigbee, Matter and external HTTP sources such as
-   Shelly. Keep transport and source-specific setup at the source boundary;
-   retain Matter-specific join and Thread settings.
+   Shelly. Treat HTTP integrations as normal contract providers, not special
+   dashboard-only exceptions. Keep transport and source-specific setup at the
+   source boundary; retain Matter-specific join and Thread settings.
    Hide Matter setup when `MATTER=0`; show unavailable/reconnecting state when
    the feature is enabled but the service is absent.
 6. Keep the user's trusted-LAN `http://` and `ws://` policy. Do not require an
@@ -73,8 +82,10 @@ shared equivalent.
   remain coordinator-queued.
 - Device discovery, identity, common controls and telemetry appear in the same
   catalog and dashboard flow for Zigbee, Matter and external HTTP devices such
-  as Shelly; protocol differences do not create duplicate device cards or
-  common-control flows.
+  as Shelly; protocol differences do not create duplicate device cards,
+  protocol-specific copies of common telemetry, or common-control flows.
+  Source adapters may provide extra settings only where their transport or
+  device type requires them.
 - The Matter-specific area contains only joining/commissioning and Matter or
   Thread settings; disabled builds hide it and enabled builds report service
   unavailability clearly.
@@ -119,8 +130,10 @@ cross-build pass for this checkpoint.
    `Gateway::Device` instances while preserving stable `matter:` IDs and
    source provenance.
 2. Integrate Matter-backed measurements and confirmed state into the existing
-   catalog/history path; Shelly and Zigbee continue through their existing
-   source controllers. Keep join and Thread-specific settings in the Matter area.
+   catalog/history path through the same source-neutral fields and consumers
+   used by Zigbee and external HTTP devices such as Shelly. Keep source-specific
+   transport in adapters; keep join and Thread-specific settings in the Matter
+   area.
 3. Extend broad enabled/disabled, absent/stalled service, malformed reply, queue
    pressure, cancellation, socket-loss and secret-redaction gates. Existing native
    and new frontend tests cover subsets; checklist item 6 remains open.
