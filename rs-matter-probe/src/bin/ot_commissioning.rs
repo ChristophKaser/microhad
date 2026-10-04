@@ -436,6 +436,9 @@ async fn run(
                     let mut context = std::task::Context::from_waker(waker);
                     manager.poll(false, false, std::time::Instant::now(), &mut context);
                     assert!(!manager.snapshots()[0].online);
+                    let body = format!("{{\"schema\":1,\"command\":\"on\",\"node\":\"{node:016x}\",\"endpoint\":1}}");
+                    assert!(matches!(manager.prepare(lexra_rs_matter_probe::control::Request::decode(11, body.as_bytes()).unwrap()),
+                        Err(lexra_rs_matter_probe::operations::Failure::NotReady)));
                 }
             }
             println!("PASS production device scheduler catalog restore and radio detach refresh over CASE");
@@ -449,6 +452,17 @@ async fn run(
             assert_eq!(last.next_cursor, None);
             assert_eq!(last.devices[0].id.as_deref(), Some(format!("matter:{:016x}:{node:016x}:0001", persisted.fabric_id()).as_str()));
             println!("PASS bounded revisioned device snapshot pages from encrypted CASE descriptors");
+            for (command, expected) in [("on", true), ("toggle", false), ("off", false)] {
+                let body = format!("{{\"schema\":1,\"command\":\"{command}\",\"node\":\"{node:016x}\",\"endpoint\":1}}");
+                let value = manager.prepare(lexra_rs_matter_probe::control::Request::decode(11, body.as_bytes()).map_err(|_| rs_matter::error::ErrorCode::InvalidData)?)
+                    .map_err(|_| rs_matter::error::ErrorCode::InvalidData)?.await
+                    .map_err(|_| rs_matter::error::ErrorCode::Failure)?;
+                assert!(matches!(value.value, lexra_rs_matter_probe::operations::Value::Bool(actual) if actual == expected));
+            }
+            let denied = format!("{{\"schema\":1,\"command\":\"on\",\"node\":\"{node:016x}\",\"endpoint\":0}}");
+            assert!(matches!(manager.prepare(lexra_rs_matter_probe::control::Request::decode(11, denied.as_bytes()).map_err(|_| rs_matter::error::ErrorCode::InvalidData)?),
+                Err(lexra_rs_matter_probe::operations::Failure::Unsupported)));
+            println!("PASS capability-gated OnOff transactions and confirmed readback over CASE");
         }
         let exchange = Exchange::initiate(ctrl_matter, ctrl_crypto, fab, node).await?;
         assert!(!exchange.on_off().on_off_read(1).await?);

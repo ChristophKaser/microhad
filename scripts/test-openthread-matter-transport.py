@@ -55,6 +55,8 @@ def main():
                 raise RuntimeError('Device scheduler did not complete: ' + result.stdout + result.stderr)
             if args.service_owner and 'PASS bounded revisioned device snapshot pages from encrypted CASE descriptors' not in result.stdout:
                 raise RuntimeError('Device snapshot pagination did not complete: ' + result.stdout + result.stderr)
+            if args.service_owner and 'PASS capability-gated OnOff transactions and confirmed readback over CASE' not in result.stdout:
+                raise RuntimeError('Operational OnOff transaction did not complete: ' + result.stdout + result.stderr)
             if result.returncode or marker not in result.stdout:
                 raise RuntimeError('Transport failed: ' + result.stdout + result.stderr + '\nRCP error: ' + str(radio.error))
             if radio.error:

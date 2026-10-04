@@ -92,6 +92,25 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
     pub fn snapshots(&self) -> &[Snapshot] {
         &self.snapshots
     }
+    pub fn prepare(
+        &self,
+        request: crate::control::Request,
+    ) -> Result<
+        impl Future<Output = Result<crate::operations::ResultValue, crate::operations::Failure>> + 'a,
+        crate::operations::Failure,
+    > {
+        let operation = crate::operations::Operation::decode(request)?;
+        if !self
+            .catalog
+            .nodes()
+            .iter()
+            .any(|node| node.id == operation.node && node.phase == Phase::Complete)
+        {
+            return Err(crate::operations::Failure::NotFound);
+        }
+        operation.authorize(&self.snapshots)?;
+        Ok(operation.run(self.matter, self.crypto, self.fabric))
+    }
     fn changed(&mut self) {
         if self.revision != 0 {
             self.revision = self.revision.checked_add(1).unwrap_or(0);
