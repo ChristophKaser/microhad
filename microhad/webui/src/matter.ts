@@ -184,6 +184,12 @@ export function matterDeviceModel(endpoint: MatterDevice, state: MatterDeviceSta
   }
   const temperature = measurements['1026']
   const humidity = measurements['1029']
+  const sensorNames: Record<string, string> = {
+    '91': 'air_quality', '1026': 'temperature', '1029': 'humidity', '1037': 'co2', '1066': 'pm25',
+  }
+  const sensorValues = Object.fromEntries(Object.entries(measurements).map(([cluster, reading]) => [
+    sensorNames[cluster] ?? `cluster_${cluster}`, reading,
+  ]))
   const isLight = servers.includes(8)
   const hasActor = servers.includes(6) && !isLight
   const suffix = `${endpoint.node.slice(-4)} · ${endpoint.endpoint}`
@@ -208,7 +214,8 @@ export function matterDeviceModel(endpoint: MatterDevice, state: MatterDeviceSta
     contact_trigger_cooldown_seconds: 0, contact_trigger_active: false, sensor_refresh_interval_minutes: 0,
     value_alerts: {}, last_seen: 0, manufacturer_name: 'Matter', model_id: '', node_descriptor: null,
     endpoint_descriptors: [], online: endpoint.online, controller_available: controllerAvailable, matter_node: endpoint.node,
-    matter_endpoint: endpoint.endpoint, matter_servers: servers, matter_measurements: measurements,
+    matter_endpoint: endpoint.endpoint, matter_servers: servers,
+    sensor_values: sensorValues,
   }
 }
 

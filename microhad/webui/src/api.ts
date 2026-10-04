@@ -84,7 +84,7 @@ export interface Device {
   matter_node?: string
   matter_endpoint?: number
   matter_servers?: number[]
-  matter_measurements?: Record<string, { value: number | string | null; unit: string; quality: 'measured' | 'unknown' }>
+  sensor_values?: Record<string, { value: number | string | null; unit: string; quality: 'measured' | 'unknown' }>
   light_known?: boolean
   brightness_known?: boolean
   humidity_known?: boolean

@@ -273,5 +273,18 @@ test('Matter endpoint adapter creates the shared device shape and drops descript
   assert.equal(device.has_temperature, true);
   assert.equal(device.temperature_known, false);
   assert.equal(device.brightness_known, false);
+  const measured = wire.matterDeviceModel({ ...endpoint, servers: [6, 8, 29, 91, 1026, 1029, 1037, 1066] }, {
+    measurements: {
+      91: 'moderate', 1026: { value: 21.5, unit: 'celsius', quality: 'measured' },
+      1029: { value: null, unit: 'percent', quality: 'unknown' },
+      1037: { value: 600, unit: 'ppm', quality: 'measured' },
+      1066: { value: 7, unit: 'ug/m3', quality: 'measured' },
+    },
+  });
+  assert.equal(measured.sensor_values.temperature.value, 21.5);
+  assert.equal(measured.sensor_values.humidity.quality, 'unknown');
+  assert.equal(measured.sensor_values.air_quality.value, 'moderate');
+  assert.equal(measured.sensor_values.co2.value, 600);
+  assert.equal(measured.sensor_values.pm25.value, 7);
   assert.equal(wire.matterDeviceModel({ ...endpoint, servers: [29] }), null);
 });

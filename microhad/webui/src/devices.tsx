@@ -109,7 +109,9 @@ export const deviceTypes = [
     name: 'Climate sensors',
     matches: (device: Device) => !device.has_light && (device.has_temperature || device.has_humidity),
   },
-  { name: 'Air quality sensors', matches: (device: Device) => !device.has_light && Boolean(device.matter_servers?.some(cluster => [91, 1037, 1066].includes(cluster))) },
+  { name: 'Air quality sensors', matches: (device: Device) => !device.has_light && Boolean(
+    device.sensor_values && ['air_quality', 'co2', 'pm25'].some(value => value in device.sensor_values!)
+  ) },
   { name: 'Presence sensors', matches: (device: Device) => device.source === 'fritz_box' && device.has_occupancy },
   { name: 'Motion sensors', matches: (device: Device) => device.has_occupancy && device.source !== 'fritz_box' },
   { name: 'Lights', matches: (device: Device) => device.has_light },
@@ -223,8 +225,8 @@ function DeviceCard({
     type !== 'Presence sensors' && device.source === 'fritz_box' && device.has_wifi_signal && `Wi‑Fi ${device.wifi_signal_percent}%`,
     type !== 'Lights' && device.has_light && (device.light_on ? 'Light on' : 'Light off'),
     type !== 'Smart plugs' && device.has_power && device.power_known && `${device.power_watts.toFixed(1)} W`,
-    ...Object.entries(device.matter_measurements ?? {}).filter(([cluster]) => !['1026', '1029'].includes(cluster))
-      .map(([cluster, reading]) => `${cluster === '91' ? 'Air quality' : cluster === '1037' ? 'CO₂' : cluster === '1066' ? 'PM2.5' : 'Measurement'}: ${reading.value === null ? 'Unknown' : `${reading.value}${reading.unit ? ` ${reading.unit}` : ''}`}`),
+    ...Object.entries(device.sensor_values ?? {}).filter(([sensor]) => !['temperature', 'humidity'].includes(sensor))
+      .map(([sensor, reading]) => `${({ air_quality: 'Air quality', co2: 'CO₂', pm25: 'PM2.5' } as Record<string, string>)[sensor] ?? 'Measurement'}: ${reading.quality === 'unknown' || reading.value === null ? 'Unknown' : `${reading.value}${reading.unit ? ` ${reading.unit}` : ''}`}`),
   ].filter(Boolean)
   return (
     <article className={`device-card device-card-${type.toLowerCase().replace(/[^a-z]+/g, '-')} ${
