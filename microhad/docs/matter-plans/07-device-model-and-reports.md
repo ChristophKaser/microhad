@@ -29,7 +29,8 @@ now projects Matter endpoints into the common `Device` shape and
 renders them with the same `DeviceGroups` cards used by Zigbee and HTTP devices
 such as Shelly. Common Matter commands use the Matter controller adapter;
 Shelly setup remains source-specific and its commands use its HTTP controller.
-This frontend adapter is not yet native `Gateway::Device` registration.
+The frontend projection initially preceded native `Gateway::Device`
+registration, which is covered by the later checkpoint below.
 Commit `39a2469` maps Matter temperature, humidity, air quality, CO2 and PM2.5
 into canonical `sensor_values` names and uses those names for shared card
 classification and presentation; cluster IDs stay in Matter provenance and
@@ -43,18 +44,20 @@ capabilities into the coordinator-owned `Gateway::Device` catalog. The
 dashboard deduplicates those entries with the live Matter projection by stable
 ID. Matter IDs remain in `id`/`external_id`; the Zigbee `ieee_address` field
 stays empty.
-Temperature, humidity, CO2, PM2.5 and air-quality values are rendered from the
-Matter snapshot cache, but are not yet in shared persistent values, history or
-alerts. Reports, remote recovery of catalogued nodes and legacy migration
-remain open. Verification: `make webui`,
-`node webui/test/matter-devices-browser.cjs`,
-`python3 scripts/test_matter_webui.py` (20/20),
-`make ZIGGURAT=1 MATTER=1 host test`, and
-`make ZIGGURAT=1 MATTER=1 mips` pass. Next deliverable: apply typed confirmed
-CASE reads/commands to registered `Gateway::Device` values, then write those
-values to shared history and alert processing. The Matter endpoint catalog is
-refreshed when the dashboard pages its snapshot; persistent native restart
-restoration remains open.
+Native commit `02f170f` feeds confirmed operation results into the shared
+device state. Snapshot values continue to render in the shared cards, while
+typed completed CASE reads also update matching registered native
+`Gateway::Device` instances. The shared status view reports normalized
+`sensor_values` with units and measured/unknown quality, and snapshot refreshes
+preserve the last confirmed values. State is currently in memory only; durable
+values/history, alerts and reports remain open. Remote recovery of catalogued
+nodes and legacy migration also remain open. Verification passed:
+`make ZIGGURAT=1 MATTER=1 host test` and
+`make ZIGGURAT=1 MATTER=1 mips` (the MIPS toolchain prints its existing
+LOAD-USE warnings). Next deliverable: persist these shared
+values and feed them to history and alert processing. The Matter endpoint
+catalog is refreshed when the dashboard pages its snapshot; persistent native
+restart restoration remains open.
 
 This shared device contract applies equally to Zigbee, Matter, and external
 HTTP sources such as Shelly: stable source identity, common capabilities,
@@ -150,16 +153,15 @@ explicit-rendezvous fixture alone does not establish operational discovery.
    validated Matter snapshot endpoints in native `Gateway::Device` and
    deduplicates them in the common dashboard by stable ID. Keep Matter UI
    limited to joining and Matter/Thread settings. Confirmed reading ingestion
-   and persistence remain open.
+   is implemented in memory; durable persistence remains open.
 5. Implemented CASE reads and typed native validation cover advertised
    temperature, humidity, CO2, PM2.5 and air-quality clusters; the frontend
-   renders those values from its snapshot cache. Common native fields and
-   endpoint capability flags are present, but operation results do not yet
-   update them. Move confirmed values into the shared native state/history
-   consumed by Matter, Zigbee and HTTP sources such as Shelly. Preserve units
-   and null/unknown quality consistently across adapters. Test signed values
-   and ALPSTUGA-related clusters without assuming every target advertises all
-   measurements.
+   renders those values from its snapshot cache. Successful typed CASE results
+   now update matching common native values, preserving units and null/unknown
+   quality through snapshot reconciliation. Persist this state and feed shared
+   history/alerts consumed by Matter, Zigbee and HTTP sources such as Shelly.
+   Test signed values and ALPSTUGA-related clusters without assuming every
+   target advertises all measurements.
 6. Add bounded subscriptions, duplicate filtering and reconnect/refresh policy;
    retain only state changes that warrant persistence.
 7. Integrate snapshots, history, alerts and the shared dashboard through the

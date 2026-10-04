@@ -119,21 +119,26 @@ and PM2.5, including unknown-state flags and serialization tests. Commit
 `1f5077d` parses completed snapshot pages and registers Matter endpoint
 identity, online state and advertised capabilities in native `Gateway::Device`
 through the coordinator runner. The UI deduplicates matching IDs with its live
-projection. CASE operation results do not yet populate native reading fields;
-persistence/history and alerts remain open. The production UI build, browser
-test, 20 API tests, full Matter-enabled host suite and Matter-enabled MIPS
-cross-build pass for this checkpoint.
+projection. Native commit `02f170f` decodes successful typed CASE operation
+results and updates the matching registered device before the job is published
+as complete. Shared `/api/status` exposes confirmed state and canonical
+`sensor_values` with measured/unknown quality and service-reported units;
+legacy `co2_ppm` and `pm25_micrograms_m3` fields remain meaningful only for
+their named units. Snapshot reconciliation preserves values and quality.
+Values remain in memory only; durable persistence/history, alerts and reports
+remain open. The Matter-enabled host suite and MIPS cross-build pass for this
+checkpoint; MIPS emits the toolchain's existing LOAD-USE warnings.
 
 ## Remaining checkpoints
 
-1. Apply typed confirmed Matter operation results to registered native
+1. [x] Apply typed confirmed Matter operation results to registered native
    `Gateway::Device` instances while preserving stable `matter:` IDs and
-   source provenance.
-2. Integrate Matter-backed measurements and confirmed state into the existing
-   catalog/history path through the same source-neutral fields and consumers
-   used by Zigbee and external HTTP devices such as Shelly. Keep source-specific
-   transport in adapters; keep join and Thread-specific settings in the Matter
-   area.
+   source provenance. Unknown readings retain their units and serialize as
+   null/unknown; refresh reconciliation preserves confirmed values.
+2. Persist Matter-backed measurements and confirmed state through the shared
+   catalog/history path used by Zigbee and external HTTP devices such as
+   Shelly. Keep source-specific transport in adapters; keep join and
+   Thread-specific settings in the Matter area.
 3. Extend broad enabled/disabled, absent/stalled service, malformed reply, queue
    pressure, cancellation, socket-loss and secret-redaction gates. Existing native
    and new frontend tests cover subsets; checklist item 6 remains open.

@@ -568,6 +568,8 @@ reads; and `make ZIGGURAT=1 MATTER=1 host test` including native unit,
 integration, and Ziggurat peer tests. Details and value scaling are in
 `ziggurat-compilation/docs/matter-sensors.md` and
 `docs/matter-native-api-v1.md`. The generic worker can carry the typed results,
-but they are not yet projected into the shared Zigbee/Matter/Shelly device
-model or dashboard. Subscriptions, reports and broad restart/failure coverage
-remain open; no device deployment or plan 08 acceptance occurred.
+and native commit `02f170f` now applies successful results to matching
+registered Matter devices before completing their job. The shared status view
+exposes those values to the common device/dashboard path; persistence, history,
+subscriptions, reports and broad restart/failure coverage remain open. No
+device deployment or plan 08 acceptance occurred.
