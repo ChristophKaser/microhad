@@ -175,3 +175,36 @@ test('invalid snapshot cursor and revision never submit HTTP jobs', async () => 
     assert.equal(calls.length, 0);
   });
 });
+
+test('OnOff reads and commands return only typed confirmed CASE values', async () => {
+  let value = false;
+  await peer(call => {
+    if (call.method === 'POST') {
+      if (call.path.endsWith('/command')) {
+        if (call.body.command === 'on') value = true;
+        if (call.body.command === 'off') value = false;
+        if (call.body.command === 'toggle') value = !value;
+      }
+      return { body: accepted };
+    }
+    return { body: completed({ state: 'complete', job: '0000000000000001', result: {
+      node: '0000000000000002', endpoint: 1, cluster: 6, attribute: 0, value: { type: 'bool', value } } }) };
+  }, async calls => {
+    assert.equal(await wire.matterOnOff('0000000000000002', 1, 'read', signal()), false);
+    assert.equal(await wire.matterOnOff('0000000000000002', 1, 'on', signal()), true);
+    assert.equal(await wire.matterOnOff('0000000000000002', 1, 'toggle', signal()), false);
+    assert.deepEqual(calls.filter(call => call.method === 'POST').map(call => call.body), [
+      { schema: 1, node: '0000000000000002', endpoint: 1, cluster: 6, attribute: 0 },
+      { schema: 1, node: '0000000000000002', endpoint: 1, command: 'on' },
+      { schema: 1, node: '0000000000000002', endpoint: 1, command: 'toggle' },
+    ]);
+  });
+});
+
+test('unsupported or malformed device commands never reach the gateway', async () => {
+  await peer(() => ({ body: accepted }), async calls => {
+    await assert.rejects(wire.matterCall('/api/matter/devices/read', { node: id, endpoint: 1, cluster: 8, attribute: 0 }, signal()), /malformed/);
+    await assert.rejects(wire.matterCall('/api/matter/devices/command', { node: id, endpoint: 65535, command: 'on' }, signal()), /malformed/);
+    assert.equal(calls.length, 0);
+  });
+});

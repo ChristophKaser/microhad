@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { matterDevicePage } from './matter'
+import { matterDevicePage, matterOnOff } from './matter'
 import type { MatterDevice } from './matter'
 
 const features: Record<number, string> = { 6: 'Power', 8: 'Brightness', 1026: 'Temperature', 1029: 'Humidity', 1037: 'CO₂', 1066: 'PM2.5', 91: 'Air quality' }
@@ -11,9 +11,12 @@ export function MatterDevices({ available }: { available: boolean }) {
   const [loaded, setLoaded] = useState(false)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState('')
+  const [power, setPower] = useState<Record<string, boolean>>({})
+  const [operationError, setOperationError] = useState<Record<string, string>>({})
+  const [activeDevice, setActiveDevice] = useState<string | null>(null)
   const operation = useRef<AbortController | null>(null)
   useEffect(() => () => operation.current?.abort(), [])
-  useEffect(() => { if (!available) { operation.current?.abort(); setPending(false) } }, [available])
+  useEffect(() => { if (!available) { operation.current?.abort(); setPending(false); setActiveDevice(null) } }, [available])
   async function load(refresh: boolean) {
     if (operation.current || !available || (!refresh && next === null)) return
     const controller = new AbortController()
@@ -36,9 +39,24 @@ export function MatterDevices({ available }: { available: boolean }) {
       if (!controller.signal.aborted) setPending(false)
     }
   }
+  async function operate(device: MatterDevice, action: 'read' | 'on' | 'off' | 'toggle') {
+    if (!available || pending || operation.current || !device.online || device.endpoint === null || activeDevice !== null) return
+    const key = `${device.node}:${device.endpoint}`
+    const controller = new AbortController()
+    operation.current = controller; setActiveDevice(key); setOperationError(current => ({ ...current, [key]: '' }))
+    try {
+      const value = await matterOnOff(device.node, device.endpoint, action, controller.signal)
+      if (!controller.signal.aborted) setPower(current => ({ ...current, [key]: value }))
+    } catch (cause) {
+      if (!controller.signal.aborted) setOperationError(current => ({ ...current, [key]: cause instanceof Error ? cause.message : 'protocol' }))
+    } finally {
+      if (operation.current === controller) operation.current = null
+      if (!controller.signal.aborted) setActiveDevice(null)
+    }
+  }
   return <div className="matter-devices">
     <div className="section-heading"><h3>Matter devices</h3>
-      <button className="button" disabled={!available || pending} onClick={() => void load(true)}>Refresh devices</button></div>
+      <button className="button" disabled={!available || pending || activeDevice !== null} onClick={() => void load(true)}>Refresh devices</button></div>
     {error && <p role="alert" className="error">{error}{devices.length > 0 ? ' Previously loaded information is shown below.' : ''}</p>}
     {!available && <p className="muted">Gateway unavailable. Previously loaded information may be out of date.</p>}
     {!loaded && !pending && <p className="muted">Refresh to read the gateway’s Matter device list.</p>}
@@ -47,9 +65,16 @@ export function MatterDevices({ available }: { available: boolean }) {
       <strong>Node {device.node}{device.endpoint !== null ? ` · Endpoint ${device.endpoint}` : ''}</strong>
       <p>{device.state === 'recovery_required' ? 'Setup needs recovery' : device.state === 'commissioning' ? 'Setup incomplete' : device.endpoint === null ? 'Waiting for discovery' : device.online ? 'Available' : 'Offline'}</p>
       {device.servers.some(cluster => features[cluster]) && <p>Advertised features: {device.servers.filter(cluster => features[cluster]).map(cluster => features[cluster]).join(', ')}</p>}
+      {device.endpoint !== null && device.servers.includes(6) && <div className="matter-device-controls" aria-label={`OnOff controls for node ${device.node} endpoint ${device.endpoint}`}>
+        <p>Power: {power[`${device.node}:${device.endpoint}`] === undefined ? 'Not read' : power[`${device.node}:${device.endpoint}`] ? 'On' : 'Off'}</p>
+        {(['read', 'on', 'off', 'toggle'] as const).map(action => <button key={action} className="button" disabled={!available || pending || !device.online || activeDevice !== null}
+          onClick={() => void operate(device, action)}>{action === 'read' ? 'Read power' : action === 'on' ? 'Turn on' : action === 'off' ? 'Turn off' : 'Toggle'}</button>)}
+        {operationError[`${device.node}:${device.endpoint}`] && <p role="alert" className="error">Power operation failed ({operationError[`${device.node}:${device.endpoint}`]}). Read the device again to check its current state.</p>}
+        {activeDevice === `${device.node}:${device.endpoint}` && <p role="status" aria-live="polite">Waiting for confirmed power state…</p>}
+      </div>}
       {device.id && <details><summary>Device ID</summary><code>{device.id}</code></details>}
     </li>)}</ul>
-    {next !== null && <button className="button" disabled={!available || pending || Boolean(error)} onClick={() => void load(false)}>Load next endpoint</button>}
+    {next !== null && <button className="button" disabled={!available || pending || activeDevice !== null || Boolean(error)} onClick={() => void load(false)}>Load next endpoint</button>}
     {pending && <p role="status" aria-live="polite">Reading device list…</p>}
   </div>
 }

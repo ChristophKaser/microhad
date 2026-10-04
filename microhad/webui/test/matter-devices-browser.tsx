@@ -41,6 +41,13 @@ async function tests() {
   check(document.body.textContent?.includes('Advertised features: Power'), 'feature label missing')
   check(![...document.querySelectorAll('button')].some(item => item.textContent === 'Load next endpoint'), 'terminal page retained next button')
   check(await count() === 2, 'pagination submitted extra calls')
+  button('Read power').click()
+  await wait(() => document.body.textContent?.includes('Power: Off'))
+  button('Turn on').click()
+  await wait(() => document.body.textContent?.includes('Power: On'))
+  button('Toggle').click()
+  await wait(() => document.body.textContent?.includes('Power: Off'))
+  check(await count() === 2, 'device commands caused unexpected snapshot calls')
   await mode('normal')
   button('Refresh devices').click()
   await wait(() => document.querySelectorAll('li').length === 1)
@@ -95,7 +102,7 @@ async function tests() {
   await delay(100)
   check(!document.getElementById('root')!.textContent, 'unmounted request updated UI')
   document.body.dataset.result = 'passed'
-  document.getElementById('result')!.textContent = 'PASS rendered device refresh, pagination, revision loss, recovery, duplicates, empty state, availability and unmount'
+  document.getElementById('result')!.textContent = 'PASS rendered device refresh, pagination, confirmed OnOff read/control, revision loss, recovery, duplicates, empty state, availability and unmount'
 }
 void tests().catch(error => {
   document.body.dataset.result = 'failed'

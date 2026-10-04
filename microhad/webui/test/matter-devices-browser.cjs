@@ -9,7 +9,7 @@ const esbuild = require('esbuild');
 async function main() {
   const build = await esbuild.build({ entryPoints: [path.join(__dirname, 'matter-devices-browser.tsx')],
     bundle: true, write: false, platform: 'browser', jsx: 'automatic', define: { 'process.env.NODE_ENV': '"production"' } });
-  let mode = 'normal', posts = 0, nextJob = 1;
+  let mode = 'normal', posts = 0, nextJob = 1, operationValue = false;
   const jobs = new Map();
   const server = http.createServer(async (request, response) => {
     let body = '';
@@ -34,6 +34,17 @@ async function main() {
         next_cursor: mode === 'empty' || mode === 'recovery' || fields.cursor === 1 ? null : 1 };
       jobs.set(job, mode === 'pending' ? { job, state: 'running' } : { job, state: 'complete', response:
         mode === 'stale' ? { schema: 1, ok: false, error: 'stale_revision' } : { schema: 1, ok: true, result } });
+      response.statusCode = 202; send({ schema: 1, ok: true, job, state: 'queued' });
+    } else if (request.url === '/api/matter/devices/read' || request.url === '/api/matter/devices/command') {
+      const fields = JSON.parse(body), job = nextJob++;
+      if (request.url.endsWith('/command')) {
+        if (fields.command === 'on') operationValue = true;
+        if (fields.command === 'off') operationValue = false;
+        if (fields.command === 'toggle') operationValue = !operationValue;
+      }
+      jobs.set(job, { job, state: 'complete', response: { schema: 1, ok: true, result: {
+        state: 'complete', job: job.toString(16).padStart(16, '0'), result: { node: fields.node, endpoint: fields.endpoint,
+          cluster: 6, attribute: 0, value: { type: 'bool', value: operationValue } } } } });
       response.statusCode = 202; send({ schema: 1, ok: true, job, state: 'queued' });
     } else if (request.url.startsWith('/api/matter/jobs/')) send(jobs.get(Number(request.url.split('/').pop())));
     else { response.statusCode = 404; send({ ok: false }); }

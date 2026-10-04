@@ -4,12 +4,13 @@
 
 Queued commissioning/Thread APIs, the owned WebSocket relay and a feature-aware
 dashboard onboarding/progress panel exist. Queued device snapshot pages now have
-native validation, HTTP exposure and a dashboard view. Device controls/measurement APIs and views remain open.
+native validation, HTTP exposure and a dashboard view. The dashboard exposes
+confirmed OnOff reads and commands for online cluster-6 endpoints. Sensor
+measurements, other clusters and the broader failure matrix remain open.
 
-Rendered snapshot component interaction is verified in Chromium. Next deliverable:
-add device read/control and measurements after plan
-07 supplies the production device pipeline. Extend the broader API/failure gates
-in checklist item 6; rendered browser interaction remains unverified.
+Rendered snapshot and OnOff component interaction is verified in Chromium.
+Next deliverable: render sensor measurements when plan 07 supplies them, then
+extend the broader API/failure gates in checklist item 6.
 
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.
@@ -148,16 +149,36 @@ are historical; the latest status/evidence section above takes precedence.
 4. [x] Add feature-aware onboarding/progress/retry UI. Preserve trusted-LAN
    HTTP/WS operation without requiring a trusted gateway certificate; keep
    setup input out of logs and persistent dashboard state.
-5. [ ] When plan 07 is ready, expose device snapshots/read/control and render
-   advertised controls and measurements, including unavailable/null values.
-   Snapshot API/view, bounded HTTP client and rendered component interaction are
-   verified. Read/control and measurement rendering keep this item open.
+5. [ ] Expose device snapshots/read/control and render advertised controls and
+   measurements, including unavailable/null values. Snapshot API/view, bounded
+   HTTP client, OnOff read/control and rendered OnOff component interaction are
+   verified. Sensor measurements and other cluster controls remain open.
 6. [ ] Verify enabled/disabled builds, unavailable/stalled service, invalid
    input, queue saturation, WebSocket loss and secret redaction. Run default
    and enabled host/MIPS suites sequentially and make webui for UI edits.
 
 Validation: fake and actual-service API tests must show responsive cached reads
 and immediate job submission while commissioning waits on BLE or Thread.
+
+## Confirmed OnOff dashboard checkpoint — 2026-10-04
+
+The device view now offers power read, On, Off and Toggle only for an online
+endpoint advertising OnOff cluster 6. Each action uses the bounded native job
+API, waits for operation completion and displays only a schema-checked CASE
+readback boolean. Requests are not automatically retried; operation polling
+allows 35 seconds for the service's bounded 30-second queue/operation deadline.
+Offline endpoints and unavailable service disable controls, and operation
+failures ask the user to read again before trusting the displayed state.
+
+`make webui` passes TypeScript checking and the production build.
+`python3 scripts/test_matter_webui.py` passes 16 client tests, including exact
+typed values and rejection of malformed/unsupported requests. The headless
+Chromium harness passes rendered refresh/pagination plus confirmed read, On and
+Toggle interactions, stale revisions, recovery state, duplicates, empty state,
+availability and unmount. No device deployment or plan 08 acceptance occurred.
+
+Plan item 5 remains open for sensor measurement rendering and controls for
+additional clusters; item 6's broader API and failure matrix also remains open.
 
 ## Persistent worker and queued-call checkpoint — 2026-10-04
 
@@ -400,8 +421,9 @@ stale revision through HTTP. Both retain commissioning/Thread/relay/radio-loss
 and unavailable-service regression coverage. These checks do not claim a
 nonempty physical catalog or device control. No plan 08 test was performed.
 
-Device API implementation remains partial: snapshot views, read/control,
-measurements, subscriptions, history and alerts still require plan 07 work.
+Device API implementation remains partial: OnOff read/control is wired through
+confirmed readback; Level, sensor measurements, subscriptions, history and alerts
+still require plan 07 work.
 
 ## Dashboard device snapshot checkpoint — 2026-10-04
 
@@ -449,9 +471,30 @@ rows; unavailability disables requests and aborts pending work; unmount prevents
 late UI updates. The fixture waits for refreshed data and enabled controls
 before interacting, so a click on a disabled button cannot falsely satisfy it.
 
-Commands passed: `make webui`, `node webui/test/matter-devices-browser.cjs`,
+Commands passed at that checkpoint: `make webui`,
+`node webui/test/matter-devices-browser.cjs`,
 `python3 scripts/test_matter_webui.py` (14 actual-HTTP client tests).
 This proves the isolated production device component's interactions, not the
 entire dashboard layout or onboarding flow, nor physical gateway/accessory
 behavior. Checklist 5/6 remain open for read/control/measurements and broader
 failure gates. No native C++ code changed or plan 08 action was performed.
+
+## Confirmed OnOff dashboard checkpoint — 2026-10-04
+
+The device view now offers power read, On, Off and Toggle only for an online
+endpoint advertising OnOff cluster 6. Each action uses the bounded native job
+API, waits for operation completion and displays only a schema-checked CASE
+readback boolean. Requests are not automatically retried; operation polling
+allows 35 seconds for the service's bounded 30-second queue/operation deadline.
+Offline endpoints and unavailable service disable controls, and operation
+failures ask the user to read again before trusting the displayed state.
+
+`make webui` passes TypeScript checking and the production build.
+`python3 scripts/test_matter_webui.py` passes 16 client tests, including exact
+typed values and rejection of malformed/unsupported requests. The headless
+Chromium harness passes rendered refresh/pagination plus confirmed read, On and
+Toggle interactions, stale revisions, recovery state, duplicates, empty state,
+availability and unmount. No device deployment or plan 08 acceptance occurred.
+
+Plan item 5 remains open for sensor measurement rendering and controls for
+additional clusters; item 6's broader API and failure matrix also remains open.

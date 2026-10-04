@@ -11,12 +11,13 @@ Bounded endpoint/cluster descriptor reads and service scheduling now have
 encrypted host evidence (`05053ec`, `5c588df`). Revisioned service snapshot IPC
 is implemented (`237d110`); native validation and queued snapshot HTTP exposure
 are implemented. The dashboard snapshot view builds and its HTTP client is
-verified, including rendered component interaction in Chromium. Controls and
-reports remain open. Capability-gated OnOff execution with confirmed CASE
+verified, including rendered component interaction in Chromium. Capability-gated
+OnOff execution with confirmed CASE
 readback is verified (`0c66b87`), Rust service dispatch now exposes bounded
 asynchronous OnOff jobs, and native HTTP routes/worker polling now expose
-confirmed readback. Dashboard controls and operations for other clusters remain
-open.
+confirmed readback. The dashboard now renders OnOff read/control interactions
+through confirmed readback. Other cluster controls, measurements and reports
+remain open.
 Remote recovery of catalogued nodes, legacy migration, Level/sensor operations
 and report integration remain open. Next deliverable: reconcile
 recovery-required nodes over operational CASE, discover endpoint descriptors and

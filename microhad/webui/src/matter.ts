@@ -97,7 +97,8 @@ function pause(ms: number, signal: AbortSignal): Promise<void> {
   })
 }
 export async function matterCall(route: string, fields: Record<string, unknown>, signal: AbortSignal): Promise<unknown> {
-  if (!['/api/thread/create', '/api/thread/import', '/api/matter/commissioning/status', '/api/matter/commissioning/cancel', '/api/matter/devices/snapshot'].includes(route)) throw new MatterError('unsupported')
+  if (!['/api/thread/create', '/api/thread/import', '/api/matter/commissioning/status', '/api/matter/commissioning/cancel',
+    '/api/matter/devices/snapshot', '/api/matter/devices/read', '/api/matter/devices/command'].includes(route)) throw new MatterError('unsupported')
   const keys = Object.keys(fields)
   if (route.endsWith('/create') && keys.length !== 0) throw new MatterError('malformed')
   if (route.endsWith('/import') && (keys.length !== 1 || typeof fields.dataset !== 'string' || !validDataset(fields.dataset))) throw new MatterError('malformed')
@@ -106,11 +107,16 @@ export async function matterCall(route: string, fields: Record<string, unknown>,
       (fields.cursor !== undefined && !integer(fields.cursor, 0, 2047)) ||
       (fields.revision !== undefined && (typeof fields.revision !== 'string' || !validSession(fields.revision))) ||
       (fields.cursor !== undefined && fields.cursor !== 0 && fields.revision === undefined))) throw new MatterError('malformed')
+  if (route.endsWith('/devices/read') && (keys.length !== 4 || typeof fields.node !== 'string' || !validSession(fields.node) ||
+      !integer(fields.endpoint, 0, 65534) || fields.cluster !== 6 || fields.attribute !== 0)) throw new MatterError('malformed')
+  if (route.endsWith('/devices/command') && (keys.length !== 3 || typeof fields.node !== 'string' || !validSession(fields.node) ||
+      !integer(fields.endpoint, 0, 65534) || !['on', 'off', 'toggle'].includes(String(fields.command)))) throw new MatterError('malformed')
   const controller = new AbortController()
   const abort = () => controller.abort()
   signal.addEventListener('abort', abort, { once: true })
   if (signal.aborted) abort()
-  const timer = setTimeout(abort, 10000)
+  const operationRoute = route === '/api/matter/devices/read' || route === '/api/matter/devices/command'
+  const timer = setTimeout(abort, operationRoute ? 35000 : 10000)
   try {
     const accepted = await request(route, { schema: 1, ...fields }, controller.signal)
     if (accepted.schema !== 1 || accepted.ok !== true || accepted.state !== 'queued' || !integer(accepted.job, 1, 0xffffffff)) throw new MatterError('protocol')
@@ -157,4 +163,21 @@ export async function matterDevicePage(cursor: number, revision: string | undefi
     return device as MatterDevice
   })
   return { revision: data.revision, devices, next_cursor: data.next_cursor as number | null }
+}
+
+export async function matterOnOff(node: string, endpoint: number, action: 'read' | 'on' | 'off' | 'toggle', signal: AbortSignal): Promise<boolean> {
+  const route = action === 'read' ? '/api/matter/devices/read' : '/api/matter/devices/command'
+  const fields = action === 'read' ? { node, endpoint, cluster: 6, attribute: 0 } : { node, endpoint, command: action }
+  const data = object(await matterCall(route, fields, signal))
+  if (Object.keys(data).length !== 3 || data.state !== 'complete' || typeof data.job !== 'string' ||
+      !/^[0-9a-f]{16}$/.test(data.job)) {
+    throw new MatterError('protocol')
+  }
+  const result = object(data.result)
+  if (Object.keys(result).length !== 5 || result.node !== node || result.endpoint !== endpoint || result.cluster !== 6 || result.attribute !== 0) {
+    throw new MatterError('protocol')
+  }
+  const value = object(result.value)
+  if (Object.keys(value).length !== 2 || value.type !== 'bool' || typeof value.value !== 'boolean') throw new MatterError('protocol')
+  return value.value
 }
