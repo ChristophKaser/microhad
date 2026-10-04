@@ -26,11 +26,11 @@ Matter measurements under stable source IDs and is exposed by the common
 history API/dashboard. Keep only joining/commissioning and Matter/Thread-
 specific settings in the Matter area.
 
-The native IPC failure gates inject one malformed unsolicited event and an
-overflow of nine valid events into the eight-event channel queue. Both verify
-that the worker clears cached Matter status, returns HTTP 503 during recovery,
-reconnects, and resumes serving status. Malformed request replies and the wider
-failure matrix remain open.
+The native IPC failure gates inject a malformed reply body, one malformed
+unsolicited event, and an overflow of nine valid events into the eight-event
+channel queue. Each verifies that the worker clears cached Matter status,
+returns HTTP 503 during recovery, reconnects, and resumes serving status.
+Malformed frame headers/IDs and the wider failure matrix remain open.
 
 The shared-device requirement includes external HTTP integrations such as
 Shelly as first-class sources, not just a visual reuse of cards. The common
@@ -221,9 +221,10 @@ open. Verification passed:
    area.
 3. Extend broad enabled/disabled, absent/stalled service, malformed reply, queue
    pressure, cancellation, socket-loss and secret-redaction gates. Native IPC
-   deadline behavior has a stalled-peer test (`750c4c9`), and malformed event
-   invalidation and event-queue overflow/reconnect now have integration gates.
-   The wider matrix remains open.
+   deadline behavior has a stalled-peer test (`750c4c9`), and malformed reply
+   body/event invalidation and event-queue overflow/reconnect now have
+   integration gates. Malformed frame headers/IDs and the wider matrix remain
+   open.
 4. Inspect rendered browser interactions in addition to the host client and
    TypeScript/build evidence. Physical pairing remains exclusively in plan 08.
 
@@ -391,8 +392,9 @@ Verification passed:
 `python3 scripts/test_matter_native_worker.py`, and
 `python3 scripts/test_matter_native_worker.py --real-service`. These are
 host-only checks; target timing and resource measurements remain in plan 08.
-Malformed request replies and the remaining cross-language failure matrix
-remain open; event-queue saturation is covered by this host gate.
+Malformed reply bodies, malformed events and event-queue saturation are covered
+by host gates; malformed frame headers/IDs and the wider failure matrix remain
+open.
 
 ## Matter IPC event-queue overflow recovery checkpoint — 2026-10-05
 
@@ -407,6 +409,19 @@ Both `python3 scripts/test_matter_native_worker.py` and
 Rust service mode confirms this fixture extension does not regress the process
 integration; the injected overflow itself is host synthetic. Target queue timing
 and remaining failure-matrix checks remain open in plan 08 and this plan.
+
+## Matter IPC malformed-reply recovery checkpoint — 2026-10-05
+
+The synthetic service returns a correctly framed response with an invalid JSON
+body. The native worker clears cached Matter readiness, returns HTTP 503 during
+recovery, reconnects over a fresh IPC channel, and restores `running` status.
+This complements the malformed unsolicited-event and queue-overflow gates.
+
+`python3 -m py_compile scripts/test_matter_native_worker.py`,
+`python3 scripts/test_matter_native_worker.py`, and
+`python3 scripts/test_matter_native_worker.py --real-service` pass. The malformed
+reply case uses the synthetic peer in both modes. Wrong frame headers/IDs,
+absent/stalled service combinations and the wider failure matrix remain open.
 
 ## Persistent worker and queued-call checkpoint — 2026-10-04
 

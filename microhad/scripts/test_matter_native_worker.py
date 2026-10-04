@@ -39,6 +39,7 @@ class MatterPeer:
         self.operation_jobs = {}
         self.stall_jobs = False
         self.malformed_next_event = False
+        self.malformed_next_reply = False
         self.saturate_next_event_queue = False
         self.onoff = False
         self.level = 0
@@ -197,6 +198,13 @@ class MatterPeer:
                             assert opcode == 2 and not body
                             result = thread
                         payload = json.dumps(result).encode()
+                        if self.malformed_next_reply:
+                            self.malformed_next_reply = False
+                            malformed = b'{'
+                            frame = struct.pack('<HBBBBI', len(malformed), 1, 1, opcode, 0, ident)
+                            if not self.send(peer, frame + malformed):
+                                break
+                            continue
                         wire = bytearray(struct.pack('<HBBBBI', len(payload), 1, 1, opcode, 0, ident)+payload)
                         if self.malformed_next_event:
                             self.malformed_next_event = False
@@ -684,6 +692,11 @@ def main():
                 sys.stderr.write(f'Overflow peer error: {matter.error}\n')
                 sys.stderr.write(fixture.log.read().decode(errors='replace'))
                 raise
+            # A malformed response body must invalidate the persistent channel
+            # and cached status, then recover through a fresh IPC connection.
+            matter.malformed_next_reply = True
+            wait_for(matter_unavailable)
+            wait_for(lambda: fixture.request('/api/matter/status')['state'] == 'running')
         device_snapshot_http(fixture, real)
         if not real:
             try:
