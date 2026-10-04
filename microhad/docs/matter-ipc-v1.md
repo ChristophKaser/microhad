@@ -1,9 +1,12 @@
 # Matter IPC version 1
 
 This fixes the contract for the remaining implementation. Status opcodes 1/2
-dispatch in the service. Requests for 3–11 now have strict Rust body decoding,
-but return `unsupported` until their lifecycle is implemented. The other rows
-define future success behavior, not implemented commissioning, relay, or control.
+and Thread lifecycle opcode 9 dispatch in the service. Opt-in Thread snapshot
+events are implemented. Requests 3–8 and 10–11 have strict Rust body decoding
+but return `unsupported` until production dispatch is connected. Typed
+commissioning/BLE event vectors exist; their production event wiring and native
+consumer are pending. Reserved device/commissioning rows describe future
+success behavior, not completed accessory support.
 
 ## Framing and compatibility
 
@@ -48,11 +51,21 @@ above. No API caller can request arbitrary Matter cluster commands.
 | 11 Device command | `node`, `endpoint`, `command`, optional fields below | Accepted job ID and state; completion through event/snapshot | Endpoint u16; only enumerated commands |
 | 12 Event | No request allowed | Event from service to client | kind 2, correlation 0; same 2048-byte limit |
 
-Thread actions: `status` has no other fields. `create` takes `zigbee_channel`.
+Thread actions: `status` has no other required fields. `create` takes `zigbee_channel`.
 `import` takes `zigbee_channel` and `dataset`, 1–254 decoded hex bytes. Neither
 response includes dataset credentials. Only the native coordinator owner may
 supply the current channel; HTTP input must not override it. Existing attached
 network replacement requires explicit lifecycle policy, implemented in plan 06.
+
+Thread `status` also accepts optional boolean `subscribe` (default false).
+When true, its persistent IPC connection receives opcode-12 `thread` events
+after the correlated reply and when the redacted snapshot changes. Each event
+is `{"schema":1,"event":"thread","data":{SNAPSHOT_FIELDS}}`. Subscription
+lasts only for that connection and is not broadcast to status-only clients.
+Requests, rather than outgoing events, must renew the two-second idle deadline.
+Disconnect or eight queued replies/events removes only the affected peer.
+Connection IDs remain internal; IPC correlations and session IDs cannot target
+another connection. Commissioning/BLE event subscription wiring remains pending.
 
 `observe` takes `zigbee_channel` and boolean `zigbee_online`. An online channel
 must be 11–26; an offline observation also permits zero. This private action is

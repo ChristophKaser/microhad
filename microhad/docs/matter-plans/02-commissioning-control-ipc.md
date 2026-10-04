@@ -122,3 +122,35 @@ Verification passed in sequence: `make host test`, `make mips`,
 `make ZIGGURAT=1 MATTER=1 mips`. Native linking includes `-lrt` for the
 monotonic-clock interface on older libc platforms. Full commissioning/device
 body vectors and asynchronous dispatch remain open.
+
+Targeted event checkpoint — 2026-10-04
+
+Step 2 now includes typed bounded success/error reply envelopes and typed
+Thread, commissioning-snapshot and opaque BLE-write events, with fixed Rust
+serialization vectors. Thread replies use the new serializer. BLE-write bounds
+are 1–244 decoded bytes and nonzero IDs; only the dedicated event contains
+opaque relay data. Device response/event schemas and native event/body vectors
+remain pending.
+
+Step 4 includes targeted event queues with stable connection IDs, no broadcast,
+no event-driven idle extension and per-peer backpressure/disconnect isolation.
+The running service supports opt-in Thread snapshot events. Commissioning/BLE
+event production will be wired with the owned commissioner task; jobs 3–8
+and 10–11 still return `unsupported` rather than simulating successful work.
+
+Evidence: 41 service-feature Rust tests and 24 control-ipc-only tests pass.
+Focused tests cover reply/event order, isolated subscriber delivery, queue
+overflow, retired peer IDs, expiry, malformed event framing and ID exhaustion.
+The real synthetic service test receives the initial awaiting-coordinator event
+and the subsequent observed-channel event. Native-to-real-Rust synthetic
+observation/HTTP regression also passes; no gateway deployment is involved.
+
+Factory service build passes: `bash scripts/build-rs-matter-transport.sh mips
+service`; stripped artifact is static big-endian MIPS-I/o32, 1,556,124 bytes.
+It was not deployed or executed on the gateway. This checkpoint supplies the
+event-delivery prerequisite for commissioning, not a commissioned accessory.
+
+Implementation is committed in `ziggurat-compilation`; see its latest
+`Add bounded targeted Matter events and typed outgoing bodies` checkpoint.
+The next step remains owned commissioner/session dispatch and persistent native
+event consumption; Thread subscription does not replace that work.
