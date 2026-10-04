@@ -6,12 +6,14 @@ Guarded datasets, fresh coordinator observations, and active commissioning
 cancellation on readiness loss are host-verified. The native gateway now
 reconnects through a Zigbee channel change while the Matter service refuses the
 incompatible Thread dataset and resumes after the original channel returns.
-Target RF behavior, coordinator-expiry edge cases and operator recovery remain
-open.
+The actual service process also passes its five-second coordinator-observation
+expiry gate while preserving the configured dataset and making no additional
+radio channel writes. Stale-observation renewal, target RF behavior and operator
+recovery remain open.
 
-Next deliverable: Extend integrated coverage for coordinator expiry, interrupted
-dataset apply and bounded operator recovery. Keep physical coexistence and RF
-acceptance in plan 08.
+Next deliverable: Extend integrated coverage for stale-observation renewal,
+interrupted dataset apply and bounded operator recovery. Keep physical
+coexistence and RF acceptance in plan 08.
 
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.
@@ -126,8 +128,10 @@ are historical; the latest status/evidence section above takes precedence.
    channel gating (`34b4839`), plus repeated incompatible observations and
    matching-channel recovery (`77d70f0`). The native process integration now
    covers coordinator loss, a live channel change, Thread `channel_mismatch`,
-   and restoration to `attached`; coordinator expiry and stale-observation
-   renewal remain open.
+   and restoration to `attached`. The service process test verifies five-second
+   expiry, detached state, omitted stale Zigbee channel, retained dataset
+   channel and no additional radio channel write (`37325c0` Rust). Stale-
+   observation renewal remains open.
 2. [ ] Define and verify explicit recovery when the observed Zigbee channel
    differs from the persisted dataset. Reject incompatible apply before any
    store/radio mutation; never silently replace credentials or reset the UART.
@@ -272,3 +276,17 @@ plan 08, which was not run. The MIPS artifact is a stripped, static, big-endian
 MIPS-I ELF; `size` reports 1,593,436 bytes text, 138,108 data, and 65,768 BSS
 (1,797,312 bytes total). This build size is not a substitute for target peak
 RSS, available-RAM, CPU, or scheduling-deadline measurements.
+
+## Coordinator observation expiry gate — 2026-10-05
+
+Rust commit `37325c0` strengthens the actual `thread-matter` process test after
+5.1 seconds without a coordinator observation. It verifies the service returns
+to `awaiting_coordinator`, is detached, omits the expired Zigbee channel while
+retaining the configured dataset channel, leaves the credential envelope
+unchanged, and performs no additional radio channel write.
+
+`python3 scripts/test-matter-service.py` passes with this process scenario and
+the existing commissioning, RCP restart and mismatch recovery checks. This
+closes the host process expiry checkpoint; stale-observation renewal semantics,
+failed dataset apply at the process/RCP boundary and physical acceptance remain
+open. No target deployment or plan 08 test was performed.
