@@ -42,6 +42,28 @@ public:
         gateway.online_ = true;
         gateway.networkFormed_ = false;
         assert(gateway.captureView().observedNetworkChannel == 0);
+
+        GatewayView sensors;
+        Device matter;
+        matter.source = "matter";
+        matter.externalId = "matter:0000000000000001:0000000000000002:0001";
+        matter.hasAirQuality = true;
+        matter.airQualityKnown = true;
+        matter.airQuality = "moderate";
+        matter.hasCo2 = true;
+        matter.co2Known = true;
+        matter.co2Ppm = 758.5;
+        matter.hasPm25 = true;
+        matter.pm25Known = true;
+        matter.pm25MicrogramsM3 = 12.75;
+        sensors.devices.push_back(matter);
+        const std::string sensorJson = sensors.statusJson();
+        assert(sensorJson.find("\"has_air_quality\":true,\"air_quality_known\":true,"
+                               "\"air_quality\":\"moderate\"") != std::string::npos);
+        assert(sensorJson.find("\"has_co2\":true,\"co2_known\":true,\"co2_ppm\":758.5") !=
+               std::string::npos);
+        assert(sensorJson.find("\"has_pm25\":true,\"pm25_known\":true,"
+                               "\"pm25_micrograms_m3\":12.75") != std::string::npos);
     }
     static void ineligibleSensorRefreshCannotSpin() {
         char directory[] = "/tmp/microhad-refresh-timers-XXXXXX";

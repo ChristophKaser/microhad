@@ -45,6 +45,15 @@ export interface Device {
   temperature_celsius: number
   has_humidity: boolean
   humidity_percent: number
+  has_air_quality: boolean
+  air_quality_known: boolean
+  air_quality: string
+  has_co2: boolean
+  co2_known: boolean
+  co2_ppm: number
+  has_pm25: boolean
+  pm25_known: boolean
+  pm25_micrograms_m3: number
   has_occupancy: boolean
   occupied: boolean
   has_battery: boolean

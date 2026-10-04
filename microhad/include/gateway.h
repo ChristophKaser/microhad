@@ -52,6 +52,15 @@ struct Device {
     double temperatureCelsius;
     bool hasHumidity;
     double humidityPercent;
+    bool hasAirQuality;
+    bool airQualityKnown;
+    std::string airQuality;
+    bool hasCo2;
+    bool co2Known;
+    double co2Ppm;
+    bool hasPm25;
+    bool pm25Known;
+    double pm25MicrogramsM3;
     bool hasOccupancy;
     bool occupied;
     bool hasBattery;

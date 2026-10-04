@@ -40,7 +40,9 @@ Gateway::SceneRetry::SceneRetry() : off(false), inFlight(false), retryRequested(
                                     ezspSequence(0), attempts(0), sentAt(0), retryAt(0) {}
 
 Device::Device() : source("zigbee"), networkAddress(0xffff), kind("generic"), contactOpen(false), hasContact(false), contactKnown(false), hasTemperature(false), temperatureKnown(false),
-                   temperatureCelsius(0), hasHumidity(false), humidityPercent(0), hasOccupancy(false), occupied(false),
+                   temperatureCelsius(0), hasHumidity(false), humidityPercent(0), hasAirQuality(false),
+                   airQualityKnown(false), hasCo2(false), co2Known(false), co2Ppm(0), hasPm25(false),
+                   pm25Known(false), pm25MicrogramsM3(0), hasOccupancy(false), occupied(false),
                    hasBattery(false), batteryPercent(0), hasLight(false), lightOn(false), hasBrightness(false),
                    brightnessPercent(0), hasRemote(false), hasActor(false), actorKnown(false), actorOn(false), hasPower(false), powerKnown(false), powerWatts(0), linkQuality(0), hasWifiSignal(false), wifiSignalPercent(0), lastSeen(0),
                    iasZoneId(-1), hasLowTemperatureAlert(false), hasHighTemperatureAlert(false), lowTemperatureAlert(0),
@@ -2471,6 +2473,15 @@ std::string GatewayView::statusJson() const {
              << ",\"temperature_celsius\":" << device.temperatureCelsius
              << ",\"has_humidity\":" << (device.hasHumidity ? "true" : "false")
              << ",\"humidity_percent\":" << device.humidityPercent
+             << ",\"has_air_quality\":" << (device.hasAirQuality ? "true" : "false")
+             << ",\"air_quality_known\":" << (device.airQualityKnown ? "true" : "false")
+             << ",\"air_quality\":\"" << jsonEscape(device.airQuality) << '\"'
+             << ",\"has_co2\":" << (device.hasCo2 ? "true" : "false")
+             << ",\"co2_known\":" << (device.co2Known ? "true" : "false")
+             << ",\"co2_ppm\":" << device.co2Ppm
+             << ",\"has_pm25\":" << (device.hasPm25 ? "true" : "false")
+             << ",\"pm25_known\":" << (device.pm25Known ? "true" : "false")
+             << ",\"pm25_micrograms_m3\":" << device.pm25MicrogramsM3
              << ",\"has_occupancy\":" << (device.hasOccupancy ? "true" : "false")
              << ",\"occupied\":" << (device.occupied ? "true" : "false")
              << ",\"has_battery\":" << (device.hasBattery ? "true" : "false")
