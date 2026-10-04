@@ -15,6 +15,8 @@ pub mod store;
 
 #[cfg(feature = "controller-service")]
 pub mod controller;
+#[cfg(feature = "controller-service")]
+pub mod discovery;
 #[cfg(feature = "control-ipc")]
 pub mod responses;
 #[cfg(feature = "controller-service")]

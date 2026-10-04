@@ -254,7 +254,12 @@ impl TryRng for OsEntropy {
 }
 impl TryCryptoRng for OsEntropy {}
 
-async fn run(thread: &OpenThread, use_ble: bool, service_owner: bool) -> Result<(), Error> {
+async fn run(
+    thread: &OpenThread,
+    use_ble: bool,
+    service_owner: bool,
+    service_discovery: bool,
+) -> Result<(), Error> {
     let mut entropy =
         OsEntropy(std::fs::File::open("/dev/urandom").expect("OS entropy unavailable"));
     let mut singleton = [0; 32];
@@ -327,7 +332,7 @@ async fn run(thread: &OpenThread, use_ble: bool, service_owner: bool) -> Result<
     let responder = DefaultResponder::new(&dm);
     let ble = BleRelay::new();
     let generation = ble.connect(BtAddr([0xbb; 6]), 247)?;
-    let relay_generation = Cell::new(generation);
+    let relay_generation = Cell::new(if service_owner { 0 } else { generation });
     let accessory_btp = Btp::new();
     let controller_btp = ble.network(generation)?;
     let can_btp = |address: &Address| matches!(address, Address::Btp(_));
@@ -337,7 +342,7 @@ async fn run(thread: &OpenThread, use_ble: bool, service_owner: bool) -> Result<
     let controller_receive = controller_send.clone();
     let gatt = async {
         loop {
-            if !phone_connected.get() {
+            if !phone_connected.get() || relay_generation.get() == 0 {
                 Timer::after(Duration::from_millis(10)).await;
                 continue;
             }
@@ -386,6 +391,7 @@ async fn run(thread: &OpenThread, use_ble: bool, service_owner: bool) -> Result<
                 &phone_connected,
                 thread,
                 operational,
+                service_discovery,
             )
             .await?
         } else {
@@ -473,7 +479,7 @@ async fn run(thread: &OpenThread, use_ble: bool, service_owner: bool) -> Result<
         match select3(
             restarted.run(ctrl_crypto, &ctrl_net, &ctrl_net, NoNetwork),
             recovered,
-            resolve_fixture(restarted, node, operational),
+            resolve_for_probe(restarted, thread, node, operational, service_discovery),
         )
         .await
         {
@@ -573,13 +579,13 @@ async fn commission_owned<C: Crypto>(
     phone_connected: &Cell<bool>,
     thread: &OpenThread,
     operational: SocketAddrV6,
+    service_discovery: bool,
 ) -> Result<(core::num::NonZeroU8, u64), Error> {
     use lexra_rs_matter_probe::{
         control::Request, controller::Controller, entropy::OsEntropy, thread_lifecycle::Lifecycle,
     };
     let identity = Identity::open(store, crypto, ADMIN_VENDOR_ID)?;
     let fabric = identity.install(matter, crypto, store)?;
-    let mut owner = Controller::new(ble, matter, crypto, identity, store.clone(), fabric)?;
     let mut lifecycle =
         Lifecycle::load(store.clone()).map_err(|_| rs_matter::error::ErrorCode::InvalidState)?;
     let now = std::time::Instant::now();
@@ -589,6 +595,59 @@ async fn commission_owned<C: Crypto>(
     lifecycle
         .import(&dataset(), 15, thread, now)
         .map_err(|_| rs_matter::error::ErrorCode::InvalidState)?;
+    if service_discovery {
+        thread.start_discovery()?;
+        let compressed = matter.with_state(|state| {
+            Ok::<_, Error>(state.fabrics.fabric(fabric)?.compressed_fabric_id())
+        })?;
+        let label =
+            std::ffi::CString::new(format!("{compressed:016X}-{:016X}", identity.next_node()))
+                .unwrap();
+        unsafe {
+            assert_eq!(
+                gatewayOtDiscoveryTestRegister(
+                    label.as_ptr(),
+                    operational.ip().octets().as_ptr(),
+                    operational.port()
+                ),
+                0
+            );
+        }
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(45);
+        while !unsafe { gatewayOtDiscoveryTestRegistered() } {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "Synthetic SRP registration deadline"
+            );
+            Timer::after(Duration::from_millis(10)).await;
+        }
+        // Drop a submitted query before pumping its callback. The adapter retains
+        // only its generation cookie; subsequent callbacks cannot touch Rust memory.
+        {
+            let mut abandoned = pin!(thread.resolve_service(label.to_str().unwrap()));
+            let wake = std::task::Waker::from(std::sync::Arc::new(NoopWake));
+            let mut context = std::task::Context::from_waker(&wake);
+            assert!(std::future::Future::poll(abandoned.as_mut(), &mut context).is_pending());
+        }
+        Timer::after(Duration::from_millis(50)).await;
+        let reply = thread.resolve_service(label.to_str().unwrap()).await?;
+        assert_eq!(reply.port, operational.port());
+        assert!(reply.ttl > 0 && reply.count > 0);
+        assert!(reply.addresses[..usize::from(reply.count)].contains(&operational.ip().octets()));
+        let missing = format!("{compressed:016X}-{:016X}", identity.next_node() + 100);
+        assert!(thread.resolve_service(&missing).await.is_err());
+        assert!(thread
+            .resolve_service(label.to_str().unwrap())
+            .await
+            .is_ok());
+        println!("PASS DNS cancelled callback isolation, missing service and subsequent valid SRV/TXT/AAAA");
+        println!("PASS synthetic accessory signed SRP registration through userspace OpenThread");
+    }
+    let now = std::time::Instant::now();
+    lifecycle
+        .observe(15, true, Some(thread), now)
+        .map_err(|_| rs_matter::error::ErrorCode::InvalidState)?;
+    let mut owner = Controller::new(ble, matter, crypto, identity, store.clone(), fabric)?;
     let mut entropy = OsEntropy::open().map_err(|_| rs_matter::error::ErrorCode::InvalidState)?;
     let start = Request::decode(
         3,
@@ -665,7 +724,12 @@ async fn commission_owned<C: Crypto>(
             Timer::after(Duration::from_millis(1)).await;
         }
     };
-    match select(work, resolve_fixture(matter, 0, operational)).await {
+    match select(
+        work,
+        resolve_for_probe(matter, thread, 0, operational, service_discovery),
+    )
+    .await
+    {
         Either::First(result) => result,
         Either::Second(_) => unreachable!(),
     }
@@ -722,9 +786,11 @@ fn main() {
         .expect("public fixture dataset");
     let use_ble = std::env::args().any(|arg| arg == "--ble");
     let service_owner = std::env::args().any(|arg| arg == "--service-owner");
+    let service_discovery = std::env::args().any(|arg| arg == "--service-discovery");
     assert!(!service_owner || use_ble);
+    assert!(!service_discovery || service_owner);
     let work = async {
-        run(&thread, use_ble, service_owner)
+        run(&thread, use_ble, service_owner, service_discovery)
             .await
             .expect("encrypted Matter fixture");
     };
@@ -762,4 +828,26 @@ fn main() {
 struct NoopWake;
 impl std::task::Wake for NoopWake {
     fn wake(self: std::sync::Arc<Self>) {}
+}
+
+unsafe extern "C" {
+    fn gatewayOtDiscoveryTestRegister(name: *const core::ffi::c_char, ip: *const u8, port: u16)
+        -> i32;
+    fn gatewayOtDiscoveryTestRegistered() -> bool;
+}
+async fn resolve_for_probe(
+    matter: &Matter<'_>,
+    thread: &OpenThread,
+    node: u64,
+    sock: SocketAddrV6,
+    discovery: bool,
+) -> ! {
+    if discovery {
+        lexra_rs_matter_probe::discovery::run(matter, thread)
+            .await
+            .expect("production operational resolver");
+        unreachable!()
+    } else {
+        resolve_fixture(matter, node, sock).await
+    }
 }

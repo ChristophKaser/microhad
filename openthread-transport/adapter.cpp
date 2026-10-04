@@ -1,6 +1,9 @@
 // Single-threaded C ABI for OpenThread's userspace UDP stack. Never owns the UART.
 #include <openthread/openthread-system.h>
 #include <openthread/dataset.h>
+#include <openthread/dns_client.h>
+#include <openthread/srp_server.h>
+#include <openthread/srp_client.h>
 #include <openthread/ip6.h>
 #include <openthread/link.h>
 #include <openthread/platform/settings.h>
@@ -11,6 +14,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <cerrno>
+#include <strings.h>
 
 extern "C" {
 struct GatewayOtAddress { uint8_t ip[16]; uint16_t port; };
@@ -18,6 +22,7 @@ typedef void (*GatewayOtReceive)(void *, const GatewayOtAddress *, const uint8_t
 }
 namespace {
 otInstance *instance = nullptr;
+void resetDiscovery();
 bool guardedSettings = false;
 bool activeRestoreAllowed = true;
 bool settingsReadError = false;
@@ -185,6 +190,7 @@ extern "C" void gatewayOtDeinit()
     if (!instance) return;
     for (int i = 0; i < 2; ++i) if (slots[i].open) gatewayOtClose(i);
     otSysDeinit();
+    resetDiscovery();
     instance = nullptr;
     guardedSettings = false;
     activeRestoreAllowed = true;
@@ -231,3 +237,146 @@ extern "C" int clock_nanosleep(clockid_t clock, int flags, const struct timespec
     return errno;
 }
 #endif
+
+// DNS query contexts are static generation cookies, never pointers into a Rust future.
+extern "C" {
+struct GatewayOtDnsAnswer {
+    uint8_t addresses[4][16];
+    uint32_t ttl;
+    uint16_t port;
+    uint16_t txtLength;
+    uint8_t count;
+    uint8_t txt[256];
+};
+}
+static_assert(sizeof(GatewayOtDnsAnswer) == 332, "DNS ABI size");
+namespace {
+const char matterService[] = "_matter._tcp.default.service.arpa.";
+struct DnsQuery {
+    uint32_t token;
+    bool pending;
+    bool discarded;
+    bool done;
+    otError error;
+    char label[34];
+    GatewayOtDnsAnswer answer;
+};
+DnsQuery dnsQuery = {};
+uint32_t nextDnsToken = 0;
+void resetDiscovery() { std::memset(&dnsQuery, 0, sizeof(dnsQuery)); }
+void srpUpdate(otSrpServerServiceUpdateId id, const otSrpServerHost *updated, uint32_t, void *)
+{
+    // Count retained key-leases as well as live records; replacement is one host.
+    unsigned hosts = 1;
+    unsigned services = 0;
+    uint8_t count = 0;
+    otSrpServerHostGetAddresses(updated, &count);
+    otError error = count <= 8 ? OT_ERROR_NONE : OT_ERROR_NO_BUFS;
+    for (const otSrpServerHost *host = nullptr; (host = otSrpServerGetNextHost(instance, host)) != nullptr;) {
+        if (strcasecmp(otSrpServerHostGetFullName(host), otSrpServerHostGetFullName(updated)) == 0) continue;
+        ++hosts;
+        for (const otSrpServerService *service = nullptr; (service = otSrpServerHostGetNextService(host, service)) != nullptr;) ++services;
+    }
+    unsigned added = 0;
+    for (const otSrpServerService *service = nullptr; (service = otSrpServerHostGetNextService(updated, service)) != nullptr;) {
+        ++added;
+        uint16_t length = 0;
+        otSrpServerServiceGetTxtData(service, &length);
+        if (length > 256) error = OT_ERROR_NO_BUFS;
+    }
+    if (hosts > 64 || added > 8 || services + added > 128) error = OT_ERROR_NO_BUFS;
+    otSrpServerHandleServiceUpdateResult(instance, id, error);
+}
+void dnsResolved(otError error, const otDnsServiceResponse *response, void *context)
+{
+    if (static_cast<uint32_t>(reinterpret_cast<uintptr_t>(context)) != dnsQuery.token) return;
+    dnsQuery.pending = false;
+    dnsQuery.done = !dnsQuery.discarded;
+    dnsQuery.error = error;
+    if (dnsQuery.discarded || error != OT_ERROR_NONE) return;
+    char label[64] = {};
+    char name[128] = {};
+    char host[256] = {};
+    error = otDnsServiceResponseGetServiceName(response, label, sizeof(label), name, sizeof(name));
+    if (error == OT_ERROR_NONE && (strcasecmp(label, dnsQuery.label) != 0 || strcasecmp(name, matterService) != 0)) error = OT_ERROR_PARSE;
+    otDnsServiceInfo info = {};
+    info.mHostNameBuffer = host;
+    info.mHostNameBufferSize = sizeof(host);
+    info.mTxtData = dnsQuery.answer.txt;
+    info.mTxtDataSize = sizeof(dnsQuery.answer.txt);
+    if (error == OT_ERROR_NONE) error = otDnsServiceResponseGetServiceInfo(response, &info);
+    if (error == OT_ERROR_NONE && (info.mTxtDataTruncated || info.mPort == 0 || info.mTtl == 0)) error = OT_ERROR_PARSE;
+    if (error == OT_ERROR_NONE) {
+        dnsQuery.answer.port = info.mPort;
+        dnsQuery.answer.ttl = info.mTtl;
+        dnsQuery.answer.txtLength = info.mTxtDataSize;
+        if (info.mTxtDataSize && info.mTxtDataTtl < dnsQuery.answer.ttl) dnsQuery.answer.ttl = info.mTxtDataTtl;
+        for (uint16_t i = 0; i < 4; ++i) {
+            otIp6Address address;
+            uint32_t ttl = 0;
+            otError item = otDnsServiceResponseGetHostAddress(response, host, i, &address, &ttl);
+            if (item == OT_ERROR_NOT_FOUND) break;
+            if (item != OT_ERROR_NONE) { error = item; break; }
+            std::memcpy(dnsQuery.answer.addresses[dnsQuery.answer.count++], address.mFields.m8, 16);
+            if (ttl < dnsQuery.answer.ttl) dnsQuery.answer.ttl = ttl;
+        }
+        if (dnsQuery.answer.count == 0 || dnsQuery.answer.ttl == 0) error = OT_ERROR_NOT_FOUND;
+    }
+    dnsQuery.error = error;
+}
+}
+extern "C" int gatewayOtDiscoveryStart()
+{
+    if (!instance) return -OT_ERROR_INVALID_STATE;
+    otError error = otSrpServerSetAddressMode(instance, OT_SRP_SERVER_ADDRESS_MODE_UNICAST);
+    if (error != OT_ERROR_NONE) return -static_cast<int>(error);
+    otSrpServerSetServiceUpdateHandler(instance, srpUpdate, nullptr);
+    otSrpServerSetEnabled(instance, true);
+    // Auto-start selects an advertised SRP server and also updates the DNS client's
+    // default address. No local host or service is registered by the production client.
+    otSrpClientEnableAutoStartMode(instance, nullptr, nullptr);
+    return 0;
+}
+extern "C" int gatewayOtDnsStart(const char *label, uint32_t *token)
+{
+    if (!instance || !label || !token || std::strlen(label) != 33 || label[16] != '-') return -OT_ERROR_INVALID_ARGS;
+    for (unsigned i = 0; i < 33; ++i) {
+        if (i == 16) continue;
+        if (!((label[i] >= '0' && label[i] <= '9') || (label[i] >= 'A' && label[i] <= 'F'))) return -OT_ERROR_INVALID_ARGS;
+    }
+    if (dnsQuery.pending || dnsQuery.done) return -OT_ERROR_BUSY;
+    if (!otSrpClientIsRunning(instance)) return -OT_ERROR_INVALID_STATE;
+    if (nextDnsToken == UINT32_MAX) return -OT_ERROR_NO_BUFS;
+    std::memset(&dnsQuery, 0, sizeof(dnsQuery));
+    dnsQuery.token = ++nextDnsToken;
+    std::memcpy(dnsQuery.label, label, 34);
+    otDnsQueryConfig config = *otDnsClientGetDefaultConfig(instance);
+    config.mResponseTimeout = 1000;
+    config.mMaxTxAttempts = 2;
+    config.mServiceMode = OT_DNS_SERVICE_MODE_SRV_TXT;
+    config.mTransportProto = OT_DNS_TRANSPORT_UDP;
+    config.mNat64Mode = OT_DNS_NAT64_DISALLOW;
+    dnsQuery.pending = true;
+    otError error = otDnsClientResolveServiceAndHostAddress(instance, label, matterService, dnsResolved,
+        reinterpret_cast<void *>(static_cast<uintptr_t>(dnsQuery.token)), &config);
+    if (error != OT_ERROR_NONE) { dnsQuery.pending = false; return -static_cast<int>(error); }
+    *token = dnsQuery.token;
+    return 0;
+}
+extern "C" int gatewayOtDnsPoll(uint32_t token, GatewayOtDnsAnswer *answer)
+{
+    if (!instance || token == 0 || token != dnsQuery.token || dnsQuery.discarded || !answer) return -OT_ERROR_INVALID_STATE;
+    if (dnsQuery.pending) return 1;
+    if (!dnsQuery.done) return -OT_ERROR_INVALID_STATE;
+    dnsQuery.done = false;
+    if (dnsQuery.error != OT_ERROR_NONE) return -static_cast<int>(dnsQuery.error);
+    *answer = dnsQuery.answer;
+    return 0;
+}
+extern "C" void gatewayOtDnsRelease(uint32_t token)
+{
+    if (token == dnsQuery.token) { dnsQuery.discarded = true; dnsQuery.done = false; }
+}
+// Only referenced by the separate probe fixture archive; linker GC removes it
+// from the production service. There is no IPC or Rust production accessor.
+extern "C" otInstance *gatewayOtDiscoveryTestInstance() { return instance; }

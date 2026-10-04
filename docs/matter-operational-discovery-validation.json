@@ -1,0 +1,40 @@
+{
+  "date": "2026-10-04",
+  "service_feature_tests": 54,
+  "userspace_srp_dns": true,
+  "encrypted_owned_commissioning_and_fresh_case": true,
+  "abandoned_query_and_missing_service_checks": true,
+  "fixture_address_injection": false,
+  "service_ipc_regression": true,
+  "fixture_symbols_absent_from_service": true,
+  "cache_records": 16,
+  "max_ttl_seconds": 120,
+  "physical_acceptance": false,
+  "artifacts": [
+    {
+      "name": "thread-matter-mips",
+      "bytes": 1924788,
+      "sha256": "0b859ba145db647638465ca3f14535e0906570435aaa33aa7f662b17e50b1c9a",
+      "target": "static big-endian MIPS-I/o32 soft-float"
+    },
+    {
+      "name": "ot-commissioning-mips",
+      "bytes": 2264780,
+      "sha256": "596e72be5a3e42bbf0214d6c39a6e9f914530e68e1ce3a0747b2a051f73b00ec",
+      "target": "static big-endian MIPS-I/o32 soft-float"
+    }
+  ],
+  "fixture_output": [
+    "PASS DNS cancelled callback isolation, missing service and subsequent valid SRV/TXT/AAAA",
+    "PASS synthetic accessory signed SRP registration through userspace OpenThread",
+    "PASS persisted production node catalog and stable endpoint identity",
+    "PASS production owned commissioner PASE, provisioning and CASE completion",
+    "PASS PASE and Thread provisioning over synthetic phone GATT/BTP; CASE and completion over OpenThread",
+    "PASS CASE OnOff read, toggle and readback over OpenThread",
+    "PASS CASE signed and unknown temperature values over OpenThread",
+    "PASS persisted production authority reload and monotonic node allocation",
+    "PASS committed flash fabric reopen, fresh CASE and OnOff readback with phone detached",
+    "PASS commissioning complete elapsed_ms=7703"
+  ],
+  "native_worker_real_service_regression": true
+}

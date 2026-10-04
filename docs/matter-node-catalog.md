@@ -73,15 +73,15 @@ the catalog to verify three distinct recovery-required IDs after reattach,
 cancellation and failed GATT writes. The encrypted owner fixture asserts the
 completed catalog entry before testing persisted authority and fresh CASE.
 
-These remain synthetic radio/accessory checks. The encrypted fixture still uses
-explicit rendezvous, and production operational discovery, remote recovery,
+These remain synthetic radio/accessory checks. The original encrypted fixture uses explicit rendezvous. A newer
+`--service-discovery` mode exercises production SRP/DNS lookup; remote recovery,
 descriptors, subscriptions and native device/report integration remain open.
 No physical gateway/accessory acceptance is claimed.
 
 Thread discovery must use SRP/DNS-SD over the userspace Thread network rather
 than assume multicast DNS on the mesh. OpenThread's pinned API provides SRP
-server and DNS client functionality; their build/runtime integration is still
-needed. References: [OpenThread SRP](https://openthread.io/reference/cli/concepts/srp)
+server and DNS client functionality; their build/runtime integration is now
+implemented. See [operational discovery](matter-operational-discovery.md). References: [OpenThread SRP](https://openthread.io/reference/cli/concepts/srp)
 and [Thread discovery architecture](https://openthread.io/codelabs/openthread-border-router).
 
 Verified commands — 2026-10-04:

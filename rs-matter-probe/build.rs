@@ -15,6 +15,19 @@ fn main() {
         "host"
     };
     let base = root.join("build/openthread-unix").join(mode);
+    if env::var_os("CARGO_FEATURE_CONTROLLER_PROBE").is_some() {
+        let fixture = base.join("src/posix/libgateway-thread-discovery-fixture.a");
+        assert!(
+            fixture.is_file(),
+            "Build the separate discovery probe fixture archive first"
+        );
+        println!("cargo:rerun-if-changed={}", fixture.display());
+        println!(
+            "cargo:rustc-link-search=native={}",
+            fixture.parent().unwrap().display()
+        );
+        println!("cargo:rustc-link-lib=static=gateway-thread-discovery-fixture");
+    }
     let archives = [
         "src/posix/libgateway-thread-transport.a",
         "src/posix/platform/libopenthread-posix.a",

@@ -35,6 +35,10 @@ unsafe extern "C" {
     fn gatewayOtSend(id: i32, peer: *const OtAddress, bytes: *const u8, length: u16) -> i32;
     fn gatewayOtOwnAddress(address: *mut OtAddress) -> i32;
     fn gatewayOtMulticast(bytes: *const u8, join: bool) -> i32;
+    fn gatewayOtDiscoveryStart() -> i32;
+    fn gatewayOtDnsStart(label: *const core::ffi::c_char, token: *mut u32) -> i32;
+    fn gatewayOtDnsPoll(token: u32, answer: *mut DnsAnswer) -> i32;
+    fn gatewayOtDnsRelease(token: u32);
 }
 fn checked(result: i32) -> Result<(), Error> {
     if result == 0 {
@@ -94,6 +98,26 @@ impl OpenThread {
             0,
             0,
         ))))
+    }
+    pub fn start_discovery(&self) -> Result<(), Error> {
+        checked(unsafe { gatewayOtDiscoveryStart() })
+    }
+    pub async fn resolve_service(&self, label: &str) -> Result<DnsAnswer, Error> {
+        let label = CString::new(label).map_err(|_| ErrorCode::InvalidData)?;
+        let mut token = 0;
+        checked(unsafe { gatewayOtDnsStart(label.as_ptr(), &mut token) })?;
+        let _request = DnsRequest {
+            _owner: self,
+            token,
+        };
+        let mut answer = DnsAnswer::empty();
+        loop {
+            match unsafe { gatewayOtDnsPoll(token, &mut answer) } {
+                0 => return Ok(answer),
+                1 => embassy_time::Timer::after_millis(10).await,
+                _ => return Err(ErrorCode::NotFound.into()),
+            }
+        }
     }
     pub fn bind(&self, port: u16) -> Result<ThreadNetwork<'_>, Error> {
         let mut queue = Box::new(RefCell::new(Queue {
@@ -213,5 +237,38 @@ impl NetworkMulticast for &ThreadNetwork<'_> {
             return Err(ErrorCode::InvalidData.into());
         };
         checked(unsafe { gatewayOtMulticast(address.octets().as_ptr(), false) })
+    }
+}
+
+/// Fixed C ABI response; no callback may retain pointers to this value.
+#[repr(C)]
+#[derive(Clone)]
+pub struct DnsAnswer {
+    pub addresses: [[u8; 16]; 4],
+    pub ttl: u32,
+    pub port: u16,
+    pub txt_length: u16,
+    pub count: u8,
+    pub txt: [u8; 256],
+}
+impl DnsAnswer {
+    pub fn empty() -> Self {
+        Self {
+            addresses: [[0; 16]; 4],
+            ttl: 0,
+            port: 0,
+            txt_length: 0,
+            count: 0,
+            txt: [0; 256],
+        }
+    }
+}
+struct DnsRequest<'a> {
+    _owner: &'a OpenThread,
+    token: u32,
+}
+impl Drop for DnsRequest<'_> {
+    fn drop(&mut self) {
+        unsafe { gatewayOtDnsRelease(self.token) };
     }
 }

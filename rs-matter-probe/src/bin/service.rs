@@ -287,6 +287,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     lifecycle
         .restore(&thread, Instant::now())
         .map_err(|_| "Thread restore failed")?;
+    thread.start_discovery()?;
+    let discovery = lexra_rs_matter_probe::discovery::run(matter, &thread);
+    let mut discovery = pin!(discovery);
     let network = thread.bind(MATTER_PORT)?;
     let route_btp = |address: &Address| matches!(address, Address::Btp(_));
     let send = ChainedNetwork::new(route_btp, relay.transport(), &network);
@@ -299,6 +302,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         if let std::task::Poll::Ready(result) = transport.as_mut().poll(&mut context) {
             result?;
             return Err("Matter transport ended".into());
+        }
+        if let std::task::Poll::Ready(result) = discovery.as_mut().poll(&mut context) {
+            result?;
+            return Err("Operational discovery ended".into());
         }
         thread.poll(5_000)?;
         lifecycle

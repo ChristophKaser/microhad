@@ -4,7 +4,8 @@ The `thread-matter` executable is a single-threaded controller process. It owns
 OpenThread, the Matter UDP transport, the private store, and a bounded Unix IPC
 listener. It creates/restores a private controller authority and fabric;
 Thread create/import/restore and commissioning/relay dispatch are implemented.
-Production operational DNS-SD, remote catalog recovery and device reports remain pending. The optional native worker now
+Production operational SRP/DNS-SD is wired and host-tested; remote catalog
+recovery and device reports remain pending. The optional native worker now
 supplies protected coordinator observations and caches status for HTTP.
 
 Build with `bash scripts/build-rs-matter-transport.sh host service` or
@@ -204,3 +205,19 @@ owned fixture pass. Both host and MIPS service/probe builds pass; stripped sizes
 are 1,748,648 and 2,084,544 bytes, respectively. This adds durable catalog metadata,
 not production DNS-SD, remote reconciliation or device/report dispatch. No physical
 execution occurred. See [catalog format and evidence](matter-node-catalog.md).
+
+## Operational SRP/DNS checkpoint — 2026-10-04
+
+The service now runs a bounded OpenThread resolver alongside Matter/IPC and
+advertises an SRP server through standard Network Data publication. Validated
+SRV/TXT/AAAA answers drive operational CASE without injected rendezvous. The
+separate synthetic fixture uses signed SRP registration and the production
+resolver, including fresh CASE after authority/fabric reopen. Query callbacks
+use static generation cookies and survive dropped futures safely.
+
+54 service library tests, encrypted resolver/cancellation/error fixture,
+running-service IPC/catalog and native real-service HTTP/WebSocket checks pass.
+Both host and MIPS builds pass; service/probe sizes are 1,924,788/2,264,780 bytes.
+Fixture symbols are absent from the service. Remote catalog recovery, production
+descriptors/operations/subscriptions and reports remain open. No deployment or
+physical performance test occurred. See [resolver details and evidence](matter-operational-discovery.md).
