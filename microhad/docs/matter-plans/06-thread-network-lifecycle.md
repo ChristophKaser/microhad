@@ -12,7 +12,8 @@ radio channel writes. It also recovers a dataset committed immediately before
 the synthetic RCP is lost during apply. Stale-observation renewal, real-RCP
 in-process apply-failure injection, target RF behavior and operator recovery
 remain open. The `apply_failed` suppression and explicit retry behavior now has
-a Rust FakeRadio unit gate.
+a Rust FakeRadio unit gate and a host process-level gate that injects at the
+OpenThread adapter boundary.
 
 Next deliverable: Extend integrated coverage for stale-observation renewal and
 bounded operator recovery, and find a reliable real-RCP injection point for an
@@ -330,3 +331,23 @@ Verification passed with the project-local toolchain and cache:
 thread_lifecycle::tests::failed_apply_is_stopped_and_heartbeats_do_not_retry_or_rewrite
 --lib --locked`. This is a FakeRadio unit gate; reliable real-RCP injection for
 the same in-process failure path remains open.
+
+## Failed dataset apply service-process gate — 2026-10-05
+
+Rust commit `f04d043` adds a host-only `controller-service-test-hooks` Cargo
+feature. Its one-shot marker injects a failure at `OpenThread::set_dataset`
+after dataset validation and before entering the C OpenThread adapter. The
+real `thread-matter` process remains alive, reports `Error`, refuses to retry
+on a fresh coordinator heartbeat without changing the committed credential
+envelope, and accepts an explicit import retry after the one-shot failure is
+consumed. The normal `controller-service` build excludes the hook.
+
+Verification passed:
+`source scripts/rust-env.sh && CARGO_TARGET_DIR="$PWD/build/rs-matter/target"
+cargo +nightly-2026-10-02 build --offline --manifest-path
+rs-matter-probe/Cargo.toml --features controller-service-test-hooks --bin
+thread-matter --locked`, `python3 scripts/test-matter-service.py`, and the
+targeted lifecycle unit test with `controller-service-test-hooks` (1/1). The
+full service script also passes its existing commissioning, timeout, mismatch,
+expiry, and restart gates. This does not test the OpenThread C API or a failure
+reported by the real RCP; reliable real-RCP injection remains open.
