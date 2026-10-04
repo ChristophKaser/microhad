@@ -1,8 +1,9 @@
 # Matter-over-Thread implementation plans
 
 These files break the remaining integration work into reviewable stages. The
-native status client and Rust commissioning fixture are already implemented;
-the plans below describe production service behavior and acceptance.
+native observation/status worker, Rust owned commissioner and guarded Thread
+lifecycle have host evidence; native mutations/events, Garage onboarding and
+the production discovery/device pipeline remain open.
 
 Recommended order:
 
@@ -29,13 +30,13 @@ specific evidence recorded in a file, not to end-to-end Matter support.
 
 | Open point | Current status | Next checkpoint |
 | --- | --- | --- |
-| [01 Runtime](01-rust-service-runtime.md) | Host service and optional supervision implemented; recovery and target verification incomplete | Verify channel-gated startup and bounded failure/restart behavior |
+| [01 Runtime](01-rust-service-runtime.md) | Host service and optional supervision implemented; recovery and target verification incomplete | Extend integrated failure/restart coverage and record final artifacts |
 | [02 IPC](02-commissioning-control-ipc.md) | Service commissioning/relay dispatch and targeted events implemented; native event/control dispatch incomplete | Add native persistent event/job dispatch and device bodies |
 | [03 Identity](03-persistent-fabric-identity.md) | Persistent authority and host CASE recovery implemented | Finish backup/recovery procedure and target filesystem checks |
 | [04 Native API/dashboard](04-native-api-dashboard.md) | Status routes implemented; write APIs and UI pending | Add asynchronous commissioning/Thread mutation routes and job queues |
-| [05 Garage BLE relay](05-garage-ble-relay.md) | App integration pending | Agree relay contract, then implement fake-peer-tested GATT/WebSocket flow |
+| [05 Garage BLE relay](05-garage-ble-relay.md) | App integration pending | Freeze native relay contract, then implement fake-peer-tested GATT/WebSocket flow |
 | [06 Thread lifecycle](06-thread-network-lifecycle.md) | Guarded dataset lifecycle and native observation worker verified on host | Extend channel-change/restart recovery and target verification |
-| [07 Devices/reports](07-device-model-and-reports.md) | Encrypted fixture proves transport; production device pipeline pending | Persist commissioned nodes and resolve them through real DNS-SD |
+| [07 Devices/reports](07-device-model-and-reports.md) | Encrypted fixture proves transport; production device pipeline pending | Implement operational DNS-SD, persist nodes, then add device/report integration |
 | [08 Real-device acceptance](08-real-device-acceptance.md) | Pending final acceptance gate | Review plans 01–07, then arrange backed-up device testing |
 
 Update the relevant file after each verified checkpoint with the changed
@@ -44,3 +45,18 @@ available. Commit documentation and implementation in their owning repositories.
 Do not promote uncommitted experiments or synthetic fixtures to production
 acceptance evidence. Planning alone does not authorize deployment, pairing or
 permanent launcher activation.
+
+## How to execute these plans
+
+Each open point has a dedicated file with ordered steps, dependencies,
+acceptance criteria, evidence and an unchecked execution checklist. Start with
+plan 02's native persistent IPC/event channel, then plan 04's queued mutation
+APIs and relay contract. Plan 05 consumes that contract; plan 07 supplies
+production discovery and device operations. Finish recovery work in plans
+01/03/06 alongside those integrations. Plan 08 remains the physical acceptance
+gate and is not initiated by writing these plans.
+
+After each verified step, check its item, update status and commands/results,
+and commit the implementation and documentation in their owning repositories.
+Leave unverified target behavior open. A completed fixture or cross-build does
+not imply production commissioning, Android onboarding or RF acceptance.

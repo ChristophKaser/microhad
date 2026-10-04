@@ -95,3 +95,26 @@ future with this persisted signer/allocator, then verifies authority/fabric
 reopen and fresh CASE with the phone detached. This strengthens host integration
 evidence; it does not replace target filesystem checks or the outstanding
 operational backup/restore documentation.
+
+## Execution checklist for open work — 2026-10-04
+
+All unchecked items below remain open. Earlier checkpoint measurements
+are historical; the latest status/evidence section above takes precedence.
+
+1. [ ] Write a backup runbook covering owner shutdown, consistent copying of
+   the entire private state, encrypted storage, permissions and verification
+   without displaying credential contents.
+2. [ ] Write a restore runbook using a separate private directory, validation
+   before activation, rollback and retention. Forbid merging stores or
+   lowering the allocator; preserve rejected state for diagnosis.
+3. [ ] Exercise these procedures on synthetic state: incomplete backup,
+   corruption, wrong permissions and interrupted replacement. Verify that a
+   failed restore preserves the last valid identity and allocator.
+4. [ ] After plan 07 persists the node catalog, include it in backup/recovery
+   tests and prove restart reaches the same node through fresh CASE.
+5. [ ] Prepare target filesystem checks for atomic replacement, fsync,
+   ownership, crash recovery and unchanged state during status polling; run
+   them within plan 08 and record redacted pass/fail evidence.
+
+Validation: host recovery exercises and encrypted fixture CASE recovery first;
+target persistence semantics require separately recorded target evidence.

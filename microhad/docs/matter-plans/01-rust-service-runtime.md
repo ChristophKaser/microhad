@@ -104,3 +104,25 @@ and commissioning IPC/events. 42 service-feature checks and the actual running
 service lifetime harness, including a real 30-second timeout, pass. Current
 factory service is 1,740,456 stripped bytes; target execution remains unverified.
 Native event consumption, production discovery and device jobs remain open.
+
+## Execution checklist for open work — 2026-10-04
+
+All unchecked items below remain open. Earlier checkpoint measurements
+are historical; the latest status/evidence section above takes precedence.
+
+1. [ ] Add integrated failure scenarios for service exit, Thread socket loss,
+   coordinator restart and supervisor retry exhaustion. Verify the native
+   bridge and Zigbee supervision continue and no second UART owner starts.
+2. [ ] Define recovery for every startup/radio-loss state and verify bounded
+   reconnect/backoff with plan 06. Test IPC responsiveness during recovery.
+3. [ ] Repeat the enabled native HTTP-to-service test after persistent IPC is
+   added in plan 02; include absent, malformed and stalled peers.
+4. [ ] Record reproducible host/factory build commands, hashes, ELF properties
+   and artifact sizes for the final implementation. Keep host timings separate
+   from target CPU/RSS measurements.
+5. [ ] Hand target startup, shutdown and resource verification to plan 08 with
+   a concrete test manifest. Close this plan only after its acceptance evidence
+   is recorded; a cross-build alone does not verify target execution.
+
+Validation: synthetic supervisor/service/native integration tests and factory
+cross-build; physical execution remains a separate acceptance checkpoint.

@@ -61,3 +61,28 @@ in a Rust fixture is not an Android implementation.
 
 [Commissioning and control IPC](02-commissioning-control-ipc.md) and the native
 API routes in [the API plan](04-native-api-dashboard.md).
+
+## Execution checklist for open work — 2026-10-04
+
+All unchecked items below remain open. Earlier checkpoint measurements
+are historical; the latest status/evidence section above takes precedence.
+
+1. [ ] Inspect the separate Garage repository, identify networking/UI paths,
+   and document Android API/permission requirements and foreground lifecycle.
+   Agree plan 04's WebSocket schema before implementing app transport.
+2. [ ] Add setup-code/QR input, start/progress/cancel/retry UI and an in-memory
+   session model tested against a fake gateway. Clear setup data at termination.
+3. [ ] Implement discriminator-aware scan/selection, connect, service discovery,
+   MTU negotiation and C2 indications, then serialize C1 writes and acknowledge
+   only matching GATT completion callbacks.
+4. [ ] Connect GATT to the WebSocket relay with bounded payloads and per-attempt
+   generations. Define socket loss, BLE loss, backgrounding, reattach and cancel
+   handling; reject callbacks from prior connections.
+5. [ ] Test fake-GATT/fake-WebSocket ordering, fragmentation, MTU limits, stale
+   callbacks, failed writes, deadlines and lifecycle loss. Build the Android app.
+6. [ ] Document permissions and recovery, commit app changes in its own
+   repository, and hand physical pairing verification to plan 08. Keep PASE,
+   fabric keys and Thread provisioning in the gateway service.
+
+Validation: Android build and fake transport/lifecycle tests before real BLE;
+the Rust synthetic phone fixture does not satisfy this app checkpoint.

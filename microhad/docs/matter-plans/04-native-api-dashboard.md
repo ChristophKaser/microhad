@@ -122,3 +122,29 @@ Thread return to `awaiting_coordinator` on Zigbee peer loss. It shuts down both
 temporary services and removes private synthetic state; no physical gateway
 or real accessory is used. The real-service check requires the already built
 companion host service and synthetic relay binaries.
+
+## Execution checklist for open work — 2026-10-04
+
+All unchecked items below remain open. Earlier checkpoint measurements
+are historical; the latest status/evidence section above takes precedence.
+
+1. [ ] Consume plan 02's persistent channel and bounded queue in MatterWorker.
+   Publish protected session/job snapshots and events; retain coordinator-only
+   ownership of Gateway and keep HTTP handlers independent of IPC waits.
+2. [ ] Define and implement asynchronous commissioning start/status/cancel
+   and Thread create/import routes with bounded input, stable IDs, fixed
+   errors and immediate queue acceptance/rejection.
+3. [ ] Define and implement one bounded WebSocket BLE relay contract with
+   attach, indication, write, write-complete and connection-loss behavior.
+   Test generations, ordering, cancellation and relay ownership with plan 05.
+4. [ ] Add feature-aware onboarding/progress/retry UI. Preserve trusted-LAN
+   HTTP/WS operation without requiring a trusted gateway certificate; keep
+   setup input out of logs and persistent dashboard state.
+5. [ ] When plan 07 is ready, expose device snapshots/read/control and render
+   advertised controls and measurements, including unavailable/null values.
+6. [ ] Verify enabled/disabled builds, unavailable/stalled service, invalid
+   input, queue saturation, WebSocket loss and secret redaction. Run default
+   and enabled host/MIPS suites sequentially and make webui for UI edits.
+
+Validation: fake and actual-service API tests must show responsive cached reads
+and immediate job submission while commissioning waits on BLE or Thread.

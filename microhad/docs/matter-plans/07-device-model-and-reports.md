@@ -75,3 +75,32 @@ contains that task, but lacks the production DNS-SD resolver and persistent node
 catalog. It uses no fixture address injection and can time out waiting for CASE.
 Descriptor/control/report integration and real operational discovery remain the
 next requirements here; the owned fixture is not device-model acceptance.
+
+## Execution checklist for open work — 2026-10-04
+
+All unchecked items below remain open. Earlier checkpoint measurements
+are historical; the latest status/evidence section above takes precedence.
+
+1. [ ] Implement bounded operational DNS-SD over userspace OpenThread UDP,
+   including answer validation, address changes, TTL/cache limits and timeout
+   backoff. Remove the need for fixture-only rendezvous in integration tests.
+2. [ ] Persist a bounded node catalog with stable fabric/node identity and
+   explicit commissioning-completion/recovery states. Never reuse an allocated
+   ID after interrupted completion; reconcile incomplete entries on restart.
+3. [ ] Complete production CASE/CommissioningComplete through the resolver,
+   then discover descriptors, endpoints and advertised clusters. Test restart
+   against the same catalog and authority without the phone.
+4. [ ] Implement validated OnOff/Level reads and commands plus typed IPC
+   bodies in plan 02. Confirm resulting values through reads/reports and expose
+   unsupported clusters and failed commands explicitly.
+5. [ ] Decode advertised sensor attributes with units, signed values and null
+   semantics. Cover temperature, humidity, CO2, PM2.5 and air quality using
+   synthetic descriptors rather than assuming ALPSTUGA exposes every cluster.
+6. [ ] Add bounded subscriptions, duplicate filtering, sleepy-device refresh
+   and reconnect backoff; persist meaningful changes rather than each report.
+7. [ ] Feed native snapshots/history/alerts and dashboard through plan 04.
+   Test unsupported clusters, missing/duplicate reports, address changes,
+   restart and concurrent synthetic Zigbee activity; document remaining limits.
+
+Validation: encrypted synthetic accessory tests using production discovery,
+private catalog restore and phone-detached CASE, followed by report/API tests.

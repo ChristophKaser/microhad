@@ -70,3 +70,30 @@ pairing.
 
 All preceding plans, especially persistent identity, Thread lifecycle, the
 Garage BLE relay, and device report integration. This is the final release gate.
+
+## Execution checklist for open work — 2026-10-04
+
+All unchecked items below remain open. Earlier checkpoint measurements
+are historical; the latest status/evidence section above takes precedence.
+
+1. [ ] Review acceptance evidence from plans 01–07 and list remaining risks.
+   Assemble exact commits, artifact hashes, configuration, radio mapping and
+   rollback commands into a test manifest.
+2. [ ] Arrange the physical test scope; take private consistent backups and
+   redacted Zigbee/resource baselines before staging anything on the gateway.
+3. [ ] Stage and verify artifacts in a temporary directory. Establish sole
+   UART ownership and cleanup/rollback before starting the test services.
+4. [ ] Commission the factory-new accessory using Garage; record redacted
+   phase timings and failures, then verify advertised values and controls with
+   the phone disconnected.
+5. [ ] Verify service/gateway restart, identity/catalog restore, fresh CASE and
+   the listed BLE/radio/state failure scenarios without losing Zigbee state.
+6. [ ] Measure sustained CPU, peak RSS, free RAM, RF/report reliability and
+   flash writes against the manifest's acceptance gates; do not substitute
+   development-host timings or binary sizes for these measurements.
+7. [ ] Demonstrate rollback, remove temporary artifacts, compare to baseline
+   and publish a redacted pass/fail report. Treat permanent launcher activation
+   as a separate deployment decision after acceptance.
+
+Validation: backed-up physical gateway/accessory testing. This is a planning
+file only; no deployment, pairing or cutover is initiated by this update.

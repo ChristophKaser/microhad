@@ -96,3 +96,28 @@ No physical radio test, deployment or plan 08 action occurred.
 [Rust service runtime](01-rust-service-runtime.md),
 [commissioning/control IPC](02-commissioning-control-ipc.md), and native
 channel reporting.
+
+## Execution checklist for open work — 2026-10-04
+
+All unchecked items below remain open. Earlier checkpoint measurements
+are historical; the latest status/evidence section above takes precedence.
+
+1. [ ] Extend synthetic integration coverage for coordinator stalls/restarts,
+   channel changes and Thread socket loss while the native worker remains live.
+   Confirm expiry detaches Thread and stale observations cannot renew readiness.
+2. [ ] Define and verify explicit recovery when the observed Zigbee channel
+   differs from the persisted dataset. Reject incompatible apply before any
+   store/radio mutation; never silently replace credentials or reset the UART.
+3. [ ] Exercise failed dataset apply, idempotent create/import, corrupt cached
+   settings and service/RCP restarts. Verify counters survive and all channel
+   writes follow fresh observations of the permitted channel.
+4. [ ] Repeat these scenarios with an active commissioning job after plans
+   02/04 are wired. Confirm readiness loss terminates work and stale BLE events
+   cannot resume a failed attempt.
+5. [ ] Update operator state/recovery documentation and record current host
+   tests and factory artifacts. Check polling/heartbeats cause no flash writes.
+6. [ ] Hand RF coexistence, reception and target recovery measurements to
+   plan 08 with baseline/rollback steps; keep them open until measured.
+
+Validation: synthetic RCP traces, service/native status and unchanged-state
+checks establish lifecycle behavior; they do not establish RF reliability.

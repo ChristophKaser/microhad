@@ -199,3 +199,29 @@ Implementation checkpoint: `ziggurat-compilation` commit
 Detailed callback/lifetime and fixture scope are recorded in its
 `docs/matter-session-lifecycle.md` and
 `docs/rs-matter-openthread-commissioning.md`.
+
+## Execution checklist for open work — 2026-10-04
+
+All unchecked items below remain open. Earlier checkpoint measurements
+are historical; the latest status/evidence section above takes precedence.
+
+1. [ ] Implement one worker-owned persistent native IPC channel. Preserve
+   private-socket checks, bounded connect/read/write deadlines and unique live
+   correlations; demultiplex replies and opcode-12 events between requests.
+2. [ ] Add strict native validators for session replies, progress, BLE writes
+   and callback acknowledgements. Bound hex payloads, counters and event queues;
+   reject unknown fields, stale correlations and malformed service data.
+3. [ ] Add a bounded mutation queue and reconnect policy. Discard interrupted
+   calls explicitly and resubscribe retained sessions without replaying
+   commissioning start, dataset mutations or GATT writes blindly.
+4. [ ] Test cross-language body/event vectors, fragmented/coalesced frames,
+   interleaved events, wrong IDs, queue pressure, disconnects and stale BLE
+   callbacks against both fake peers and the actual Rust service.
+5. [ ] Once plan 07 supplies discovery/catalog operations, finish typed device
+   snapshot/read/command replies and dispatch. Retain explicit unsupported or
+   not-ready results until each operation is available.
+6. [ ] Update IPC v1 and compatibility notes, run both native build variants
+   sequentially plus Rust tests/factory build, then record and commit evidence.
+
+Validation: golden vectors plus actual-service request/event round trips; no
+HTTP worker may wait for a commissioning lifetime or forward unchecked JSON.
