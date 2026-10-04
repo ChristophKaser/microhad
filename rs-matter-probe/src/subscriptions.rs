@@ -2,17 +2,26 @@
 use core::num::NonZeroU8;
 use rs_matter::{
     crypto::Crypto,
-    error::Error,
+    error::{Error, ErrorCode},
     im::{
         client::{ImClient, SubscribeEstablished, SubscribeOutcome},
         AttrPath,
     },
     transport::exchange::Exchange,
+    tlv::FromTLV,
     Matter,
 };
 
 pub const MIN_REPORT_INTERVAL_SECONDS: u16 = 1;
 pub const MAX_REPORT_INTERVAL_SECONDS: u16 = 3600;
+pub const MAX_REPORT_VALUES: usize = 128;
+
+pub struct ReceivedReport {
+    pub fabric: u8,
+    pub node: u64,
+    pub subscription_id: u32,
+    pub values: Vec<crate::operations::ResultValue>,
+}
 
 /// Establish one bounded attribute subscription and drain every priming chunk.
 /// Active reports are received separately on server-initiated exchanges.
@@ -50,4 +59,61 @@ pub async fn establish_attribute<C: Crypto>(
             SubscribeOutcome::Established(established) => return Ok(established),
         }
     }
+}
+
+/// Accept and acknowledge one active server-initiated ReportData exchange.
+/// Chunked reports are combined under a strict value bound, and the authenticated
+/// fabric/node and subscription ID are retained for manager-side correlation.
+pub async fn receive_report(matter: &Matter<'_>) -> Result<ReceivedReport, Error> {
+    let mut exchange = Exchange::accept(matter).await?;
+    let (fabric, node) = exchange
+        .peer_identity()?
+        .ok_or(ErrorCode::InvalidData)?;
+    let mut subscription_id = None;
+    let mut values = Vec::new();
+    loop {
+        let (received_id, more_chunks, suppress_response, mut chunk_values) = {
+            let rx = exchange.recv_fetch().await?;
+            if rx.meta().proto_opcode != rs_matter::im::OpCode::ReportData as u8 {
+                return Err(ErrorCode::InvalidOpcode.into());
+            }
+            let report = rs_matter::im::ReportDataResp::from_tlv(
+                &rs_matter::tlv::TLVElement::new(rx.payload()),
+            )?;
+            (
+                report.subscription_id.ok_or(ErrorCode::InvalidData)?,
+                report.more_chunks.unwrap_or(false),
+                report.suppress_response.unwrap_or(false),
+                crate::operations::report_values(node, &report)?,
+            )
+        };
+        if subscription_id.is_some_and(|id| id != received_id)
+            || values.len().saturating_add(chunk_values.len()) > MAX_REPORT_VALUES
+            || (more_chunks && suppress_response)
+        {
+            return Err(ErrorCode::InvalidData.into());
+        }
+        subscription_id = Some(received_id);
+        values.append(&mut chunk_values);
+        if !suppress_response {
+            exchange
+                .send_with(|_, writer| {
+                    rs_matter::im::StatusResp::write(
+                        writer,
+                        rs_matter::im::IMStatusCode::Success,
+                    )?;
+                    Ok(Some(rs_matter::im::OpCode::StatusResponse.into()))
+                })
+                .await?;
+        }
+        if !more_chunks {
+            break;
+        }
+    }
+    Ok(ReceivedReport {
+        fabric,
+        node,
+        subscription_id: subscription_id.ok_or(ErrorCode::InvalidData)?,
+        values,
+    })
 }

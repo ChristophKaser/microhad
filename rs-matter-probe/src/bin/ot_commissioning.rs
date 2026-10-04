@@ -48,7 +48,7 @@ use rs_matter::onboard::{CommissionResult, Commissioner};
 use rs_matter::persist::DummyKvBlobStore;
 use rs_matter::respond::DefaultResponder;
 use rs_matter::sc::pase::MAX_COMM_WINDOW_TIMEOUT_SECS;
-use rs_matter::tlv::{FromTLV, Nullable, TLVTag, TLVWrite};
+use rs_matter::tlv::{Nullable, TLVTag, TLVWrite};
 use rs_matter::transport::exchange::{Exchange, MatterBuffers};
 use rs_matter::transport::network::mdns::{DottedName, MdnsRemoteService};
 use rs_matter::transport::network::{
@@ -777,31 +777,16 @@ async fn run(
             assert!(subscription.max_int <= 3600);
             let exchange = Exchange::initiate(ctrl_matter, ctrl_crypto, fab, node).await?;
             exchange.on_off().toggle(1).await?;
-            let mut report = embassy_time::with_timeout(
+            let report = embassy_time::with_timeout(
                 Duration::from_secs(5),
-                Exchange::accept(ctrl_matter),
+                lexra_rs_matter_probe::subscriptions::receive_report(ctrl_matter),
             )
             .await
             .map_err(|_| rs_matter::error::ErrorCode::RxTimeout)??;
-            assert_eq!(report.peer_identity()?, Some((fab.get(), node)));
-            let (subscription_id, reported_on, decoded_report) = {
-                let rx = report.recv_fetch().await?;
-                assert_eq!(rx.meta().proto_opcode, rs_matter::im::OpCode::ReportData as u8);
-                let message = rs_matter::im::ReportDataResp::from_tlv(
-                    &rs_matter::tlv::TLVElement::new(rx.payload()),
-                )?;
-                let value = message
-                    .attrs::<bool>(6, 0)
-                    .find_map(|(reported_endpoint, value)| {
-                        (reported_endpoint == 1).then(|| value.ok()).flatten()
-                    });
-                let decoded = lexra_rs_matter_probe::operations::report_values(node, &message)?;
-                (message.subscription_id, value, decoded)
-            };
-            assert_eq!(subscription_id, Some(subscription.subscription_id));
-            assert_eq!(reported_on, Some(true));
+            assert_eq!((report.fabric, report.node), (fab.get(), node));
+            assert_eq!(report.subscription_id, subscription.subscription_id);
             assert!(matches!(
-                decoded_report.as_slice(),
+                report.values.as_slice(),
                 [lexra_rs_matter_probe::operations::ResultValue {
                     node: lexra_rs_matter_probe::control::Id(reported_node),
                     endpoint: 1,
@@ -810,46 +795,25 @@ async fn run(
                     value: lexra_rs_matter_probe::operations::Value::Bool(true),
                 }] if *reported_node == node
             ));
-            report
-                .send_with(|_, writer| {
-                    rs_matter::im::StatusResp::write(
-                        writer,
-                        rs_matter::im::IMStatusCode::Success,
-                    )?;
-                    Ok(Some(rs_matter::im::OpCode::StatusResponse.into()))
-                })
-                .await?;
             let exchange = Exchange::initiate(ctrl_matter, ctrl_crypto, fab, node).await?;
             exchange.on_off().toggle(1).await?;
-            let mut report = embassy_time::with_timeout(
+            let report = embassy_time::with_timeout(
                 Duration::from_secs(5),
-                Exchange::accept(ctrl_matter),
+                lexra_rs_matter_probe::subscriptions::receive_report(ctrl_matter),
             )
             .await
             .map_err(|_| rs_matter::error::ErrorCode::RxTimeout)??;
-            let (subscription_id, reported_off) = {
-                let rx = report.recv_fetch().await?;
-                let message = rs_matter::im::ReportDataResp::from_tlv(
-                    &rs_matter::tlv::TLVElement::new(rx.payload()),
-                )?;
-                let value = message
-                    .attrs::<bool>(6, 0)
-                    .find_map(|(reported_endpoint, value)| {
-                        (reported_endpoint == 1).then(|| value.ok()).flatten()
-                    });
-                (message.subscription_id, value)
-            };
-            assert_eq!(subscription_id, Some(subscription.subscription_id));
-            assert_eq!(reported_off, Some(false));
-            report
-                .send_with(|_, writer| {
-                    rs_matter::im::StatusResp::write(
-                        writer,
-                        rs_matter::im::IMStatusCode::Success,
-                    )?;
-                    Ok(Some(rs_matter::im::OpCode::StatusResponse.into()))
-                })
-                .await?;
+            assert_eq!(report.subscription_id, subscription.subscription_id);
+            assert!(matches!(
+                report.values.as_slice(),
+                [lexra_rs_matter_probe::operations::ResultValue {
+                    node: lexra_rs_matter_probe::control::Id(reported_node),
+                    endpoint: 1,
+                    cluster: 6,
+                    attribute: 0,
+                    value: lexra_rs_matter_probe::operations::Value::Bool(false),
+                }] if *reported_node == node
+            ));
             println!("PASS bounded subscription and immediate peer-correlated OnOff report");
         }
         let exchange = Exchange::initiate(ctrl_matter, ctrl_crypto, fab, node).await?;
