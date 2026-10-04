@@ -351,11 +351,36 @@ impl TryRng for OsEntropy {
 }
 impl TryCryptoRng for OsEntropy {}
 
+async fn wait_manager_subscriptions<C: Crypto>(
+    manager: &mut lexra_rs_matter_probe::devices::Manager<'_, C>,
+    node: u64,
+    clusters: &[u32],
+) -> Result<(), Error> {
+    embassy_time::with_timeout(
+        Duration::from_secs(60),
+        std::future::poll_fn(|context| {
+            manager.poll(true, false, std::time::Instant::now(), context);
+            if clusters
+                .iter()
+                .all(|cluster| manager.subscription_id(node, 1, *cluster, 0).is_some())
+            {
+                std::task::Poll::Ready(())
+            } else {
+                context.waker().wake_by_ref();
+                std::task::Poll::Pending
+            }
+        }),
+    )
+    .await
+    .map_err(|_| rs_matter::error::ErrorCode::RxTimeout.into())
+}
+
 async fn run(
     thread: &OpenThread,
     use_ble: bool,
     service_owner: bool,
     service_discovery: bool,
+    sensor_reports: bool,
 ) -> Result<(), Error> {
     let mut entropy =
         OsEntropy(std::fs::File::open("/dev/urandom").expect("OS entropy unavailable"));
@@ -556,7 +581,7 @@ async fn run(
                 &ctrl_crypto,
                 fab,
                 catalog,
-                1,
+                if sensor_reports { 7 } else { 1 },
             )
             .map_err(|_| rs_matter::error::ErrorCode::Failure)?;
             for attempt in 0..2 {
@@ -785,6 +810,14 @@ async fn run(
             .await
             .map_err(|_| rs_matter::error::ErrorCode::RxTimeout)?;
             assert!(subscription_id != 0);
+            if sensor_reports {
+                wait_manager_subscriptions(
+                    &mut manager,
+                    node,
+                    &[6, 8, 91, 1026, 1029, 1037, 1066],
+                )
+                .await?;
+            }
             let exchange = Exchange::initiate(ctrl_matter, ctrl_crypto, fab, node).await?;
             exchange.on_off().toggle(1).await?;
             let reported_on = embassy_time::with_timeout(
@@ -837,7 +870,59 @@ async fn run(
                     value: lexra_rs_matter_probe::operations::Value::Bool(false),
                 } if reported_node == node
             ));
+            if sensor_reports {
+                for cluster in [1026, 1029, 91, 1037, 1066] {
+                    match cluster {
+                        1026 => temperature.value.set(Some(-525)),
+                        1029 => humidity.value.set(Some(6400)),
+                        91 => air_quality::ClusterHandler::dataver_changed(&air_quality),
+                        1037 => co2.value.set(Some(800.0)),
+                        1066 => pm25.value.set(Some(25.5)),
+                        _ => unreachable!(),
+                    }
+                    dm.notify_attr_changed(1, cluster, 0);
+                    let report = embassy_time::with_timeout(
+                        Duration::from_secs(5),
+                        std::future::poll_fn(|context| {
+                            manager.poll(true, false, std::time::Instant::now(), context);
+                            while let Some(report) = manager.pop_report() {
+                                if report.cluster == cluster {
+                                    return std::task::Poll::Ready(report);
+                                }
+                            }
+                            context.waker().wake_by_ref();
+                            std::task::Poll::Pending
+                        }),
+                    )
+                    .await
+                    .map_err(|_| rs_matter::error::ErrorCode::RxTimeout)?;
+                    match (cluster, report.value) {
+                        (1026, lexra_rs_matter_probe::operations::Value::Measurement(value)) => {
+                            assert_eq!(value.value, Some(-5.25));
+                            assert_eq!(value.unit, "celsius");
+                        }
+                        (1029, lexra_rs_matter_probe::operations::Value::Measurement(value)) => {
+                            assert_eq!(value.value, Some(64.0));
+                            assert_eq!(value.unit, "percent");
+                        }
+                        (91, lexra_rs_matter_probe::operations::Value::AirQuality(value)) => {
+                            assert_eq!(value.value, "moderate");
+                        }
+                        (1037 | 1066, lexra_rs_matter_probe::operations::Value::Measurement(value)) => {
+                            assert_eq!(value.value, Some(if cluster == 1037 { 800.0 } else { 25.5 }));
+                            assert_eq!(value.unit, if cluster == 1037 { "ppm" } else { "ug/m3" });
+                        }
+                        _ => panic!("unexpected normalized report type for cluster {cluster}"),
+                    }
+                }
+                println!(
+                    "PASS production manager receives normalized subscribed sensor reports over CASE"
+                );
+            }
             println!("PASS production manager subscription and peer-correlated OnOff reports");
+        }
+        if sensor_reports {
+            return Ok((fab, node, operational));
         }
         let exchange = Exchange::initiate(ctrl_matter, ctrl_crypto, fab, node).await?;
         assert!(!exchange.on_off().on_off_read(1).await?);
@@ -872,6 +957,9 @@ async fn run(
             }
             Either::Second(result) => result?,
         };
+        if sensor_reports {
+            return Ok(());
+        }
         // Replace the controller stack, including all sessions, with a fresh instance.
         // The accessory and OpenThread instance keep running; the phone is detached.
         phone_connected.set(false);
@@ -1213,10 +1301,12 @@ fn main() {
     let use_ble = std::env::args().any(|arg| arg == "--ble");
     let service_owner = std::env::args().any(|arg| arg == "--service-owner");
     let service_discovery = std::env::args().any(|arg| arg == "--service-discovery");
+    let sensor_reports = std::env::args().any(|arg| arg == "--sensor-reports");
     assert!(!service_owner || use_ble);
     assert!(!service_discovery || service_owner);
+    assert!(!sensor_reports || service_owner);
     let work = async {
-        run(&thread, use_ble, service_owner, service_discovery)
+        run(&thread, use_ble, service_owner, service_discovery, sensor_reports)
             .await
             .expect("encrypted Matter fixture");
     };

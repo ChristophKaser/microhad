@@ -21,10 +21,11 @@ fi
 [[ $(git -C "$probe_dir" rev-parse HEAD) == "$revision" ]] || exit 1
 for patch_file in \
     "$project_root/patches/rs-matter-probe-spake2p.patch" \
-    "$project_root/patches/rs-matter-probe-peer-identity.patch"; do
+    "$project_root/patches/rs-matter-probe-peer-identity.patch" \
+    "$project_root/patches/rs-matter-probe-attribute-notify.patch"; do
     if ! git -C "$probe_dir" apply --reverse --check "$patch_file" 2>/dev/null; then
         git -C "$probe_dir" apply --check "$patch_file"
         git -C "$probe_dir" apply "$patch_file"
     fi
 done
-echo "Pinned rs-matter $revision; private SPAKE2+ module exposed only in probe worktree"
+echo "Pinned rs-matter $revision; probe-only visibility and notification patches applied"
