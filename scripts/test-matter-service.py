@@ -422,6 +422,22 @@ def main():
             assert recovered_nodes[:-1] == previous_nodes
             assert recovered_nodes[-1] == (allocated_id, 5)
             assert thread_dataset(credentials) == previous_dataset
+            channel_writes = len(radio.channel_writes)
+            gated_credentials = credentials.read_bytes()
+            for ident, channel in ((325, 20), (327, 11)):
+                mismatch = status(ipc_path, 9, ident, json.dumps(dict(schema=1, action="observe",
+                    zigbee_channel=channel, zigbee_online=True)).encode())
+                assert mismatch["error"] == "not_ready"
+                assert status(ipc_path, 2, ident + 1)["state"] == "channel_mismatch"
+                assert credentials.read_bytes() == gated_credentials
+                assert len(radio.channel_writes) == channel_writes
+            assert status(ipc_path, 9, 329, b'{"schema":1,"action":"observe","zigbee_channel":15,"zigbee_online":true}')['ok']
+            deadline = time.monotonic() + 3
+            while status(ipc_path, 1, 330)["state"] != "running":
+                assert time.monotonic() < deadline
+                time.sleep(.01)
+            assert len(radio.channel_writes) >= channel_writes
+            assert radio.channel_writes and all(channel == 15 for channel in radio.channel_writes)
 
             # Status traffic stays responsive across multiple independent clients.
             start = time.monotonic()
