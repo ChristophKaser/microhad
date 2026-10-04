@@ -291,9 +291,7 @@ Verification passed: focused Rust operations unit test, release commissioning
 probe build, and
 `python3 scripts/test-openthread-matter-transport.py --commissioning --ble
 --service-owner --service-discovery` against the synthetic RCP. The broader
-Rust library suite ran 62 tests; 54 passed and eight AF_UNIX tests were denied
-by sandbox `EPERM` before their assertions. Re-run those in the socket-capable
-host environment before claiming full library-suite verification.
+Rust library suite passed all 62 tests when run with Unix-domain socket access.
 
 ## Dependencies
 
