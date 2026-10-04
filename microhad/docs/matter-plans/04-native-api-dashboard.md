@@ -26,12 +26,11 @@ Matter measurements under stable source IDs and is exposed by the common
 history API/dashboard. Keep only joining/commissioning and Matter/Thread-
 specific settings in the Matter area.
 
-The native IPC failure gate now injects one malformed unsolicited event from a
-synthetic service. It verifies that the worker clears cached Matter status,
-returns HTTP 503 while the channel is unavailable, reconnects, and resumes
-serving status. This covers one malformed-event/reconnect path; malformed
-request replies, event-queue saturation, and the wider failure matrix remain
-open.
+The native IPC failure gates inject one malformed unsolicited event and an
+overflow of nine valid events into the eight-event channel queue. Both verify
+that the worker clears cached Matter status, returns HTTP 503 during recovery,
+reconnects, and resumes serving status. Malformed request replies and the wider
+failure matrix remain open.
 
 The shared-device requirement includes external HTTP integrations such as
 Shelly as first-class sources, not just a visual reuse of cards. The common
@@ -223,8 +222,8 @@ open. Verification passed:
 3. Extend broad enabled/disabled, absent/stalled service, malformed reply, queue
    pressure, cancellation, socket-loss and secret-redaction gates. Native IPC
    deadline behavior has a stalled-peer test (`750c4c9`), and malformed event
-   invalidation/reconnect now has an integration gate. The wider matrix remains
-   open.
+   invalidation and event-queue overflow/reconnect now have integration gates.
+   The wider matrix remains open.
 4. Inspect rendered browser interactions in addition to the host client and
    TypeScript/build evidence. Physical pairing remains exclusively in plan 08.
 
@@ -380,19 +379,34 @@ host-only; no target deployment or plan 08 acceptance occurred.
 ## Malformed Matter IPC event recovery checkpoint — 2026-10-05
 
 The native worker integration fixture can send one malformed unsolicited
-Matter event over the live IPC stream. The test verifies that the invalid event
-invalidates cached status, the public status route returns HTTP 503 during
-recovery, and a subsequent IPC connection restores `running` status. The
-fixture tolerates the expected peer-side disconnect and accepts the worker's
-reconnection.
+Matter events over the live IPC stream. The malformed-event case verifies that
+invalid data clears cached status. The overflow case sends nine valid reports
+into the native channel's eight-event queue. Both cases verify the public status
+route returns HTTP 503 during recovery and a subsequent IPC connection restores
+`running` status. The fixture accepts the expected peer-side disconnect and
+worker reconnection.
 
 Verification passed:
 `python3 -m py_compile scripts/test_matter_native_worker.py`,
 `python3 scripts/test_matter_native_worker.py`, and
 `python3 scripts/test_matter_native_worker.py --real-service`. These are
 host-only checks; target timing and resource measurements remain in plan 08.
-Malformed replies, event-queue saturation and the remaining cross-language
-failure matrix remain open.
+Malformed request replies and the remaining cross-language failure matrix
+remain open; event-queue saturation is covered by this host gate.
+
+## Matter IPC event-queue overflow recovery checkpoint — 2026-10-05
+
+The synthetic service sends nine valid `matter_report` events in one IPC burst,
+exceeding the native channel's bounded eight-event queue. The gateway clears
+cached Matter readiness, reports HTTP 503 during recovery, reconnects to the
+service, and restores `running` status. The service peer also tolerates the
+connection reset caused by overflow.
+
+Both `python3 scripts/test_matter_native_worker.py` and
+`python3 scripts/test_matter_native_worker.py --real-service` pass. The real
+Rust service mode confirms this fixture extension does not regress the process
+integration; the injected overflow itself is host synthetic. Target queue timing
+and remaining failure-matrix checks remain open in plan 08 and this plan.
 
 ## Persistent worker and queued-call checkpoint — 2026-10-04
 

@@ -39,6 +39,7 @@ class MatterPeer:
         self.operation_jobs = {}
         self.stall_jobs = False
         self.malformed_next_event = False
+        self.saturate_next_event_queue = False
         self.onoff = False
         self.level = 0
         self.report_sent = False
@@ -79,7 +80,7 @@ class MatterPeer:
                             header = self.exact(peer, 10)
                         except socket.timeout:
                             continue
-                        except RuntimeError:
+                        except (RuntimeError, ConnectionResetError):
                             break
                         size, version, kind, opcode, reserved, ident = struct.unpack('<HBBBBI', header)
                         assert version == 1 and kind == 0 and reserved == 0 and ident != 0 and size <= 2048
@@ -201,6 +202,16 @@ class MatterPeer:
                             self.malformed_next_event = False
                             malformed = b'{"schema":1,"event":"matter_report","data":{}}'
                             wire.extend(struct.pack('<HBBBBI', len(malformed), 1, 2, 12, 0, 0)+malformed)
+                        if self.saturate_next_event_queue:
+                            self.saturate_next_event_queue = False
+                            overflow_report = dict(schema=1, event='matter_report', data=dict(
+                                node='0000000000000002', endpoint=1, cluster=1026, attribute=0,
+                                value=dict(type='measurement', value=dict(
+                                    value=21.5, unit='celsius', quality='measured'))))
+                            overflow_payload = json.dumps(overflow_report).encode()
+                            overflow_frame = struct.pack('<HBBBBI', len(overflow_payload), 1, 2, 12, 0, 0)
+                            for _ in range(9):
+                                wire.extend(overflow_frame + overflow_payload)
                         if not self.send(peer, wire):
                             break
                         if event:
@@ -660,6 +671,17 @@ def main():
             except TimeoutError:
                 fixture.log.seek(0)
                 sys.stderr.write(f'Matter peer error: {matter.error}\n')
+                sys.stderr.write(fixture.log.read().decode(errors='replace'))
+                raise
+            # Nine valid events exceed MatterChannel's bounded eight-event
+            # queue. The worker must clear readiness and reconnect cleanly.
+            matter.saturate_next_event_queue = True
+            wait_for(matter_unavailable)
+            try:
+                wait_for(lambda: fixture.request('/api/matter/status')['state'] == 'running')
+            except TimeoutError:
+                fixture.log.seek(0)
+                sys.stderr.write(f'Overflow peer error: {matter.error}\n')
                 sys.stderr.write(fixture.log.read().decode(errors='replace'))
                 raise
         device_snapshot_http(fixture, real)
