@@ -38,6 +38,7 @@ class MatterPeer:
         self.next_operation_job = 1
         self.operation_jobs = {}
         self.stall_jobs = False
+        self.malformed_next_event = False
         self.onoff = False
         self.level = 0
         self.report_sent = False
@@ -55,6 +56,14 @@ class MatterPeer:
                 raise RuntimeError('Incomplete synthetic IPC request')
             data.extend(chunk)
         return data
+
+    @staticmethod
+    def send(peer, data):
+        try:
+            peer.sendall(data)
+            return True
+        except (BrokenPipeError, ConnectionResetError):
+            return False
 
     def run(self):
         try:
@@ -187,10 +196,17 @@ class MatterPeer:
                             assert opcode == 2 and not body
                             result = thread
                         payload = json.dumps(result).encode()
-                        peer.sendall(struct.pack('<HBBBBI', len(payload), 1, 1, opcode, 0, ident)+payload)
+                        wire = bytearray(struct.pack('<HBBBBI', len(payload), 1, 1, opcode, 0, ident)+payload)
+                        if self.malformed_next_event:
+                            self.malformed_next_event = False
+                            malformed = b'{"schema":1,"event":"matter_report","data":{}}'
+                            wire.extend(struct.pack('<HBBBBI', len(malformed), 1, 2, 12, 0, 0)+malformed)
+                        if not self.send(peer, wire):
+                            break
                         if event:
                             payload = json.dumps(event).encode()
-                            peer.sendall(struct.pack('<HBBBBI', len(payload), 1, 2, 12, 0, 0)+payload)
+                            if not self.send(peer, struct.pack('<HBBBBI', len(payload), 1, 2, 12, 0, 0)+payload):
+                                break
                         if (opcode == 10 and decoded.get('action') == 'job' and not self.report_sent and
                                 self.operation_jobs[decoded['job']].get('cluster') == 8 and
                                 self.operation_jobs[decoded['job']]['polls'] > 1):
@@ -201,13 +217,15 @@ class MatterPeer:
                                 node='0000000000000002', endpoint=1, cluster=6, attribute=0,
                                 value=dict(type='bool', value=True)))
                             payload = json.dumps(report).encode()
-                            peer.sendall(struct.pack('<HBBBBI', len(payload), 1, 2, 12, 0, 0)+payload)
+                            if not self.send(peer, struct.pack('<HBBBBI', len(payload), 1, 2, 12, 0, 0)+payload):
+                                break
                             sensor_report = dict(schema=1, event='matter_report', data=dict(
                                 node='0000000000000002', endpoint=1, cluster=1026, attribute=0,
                                 value=dict(type='measurement', value=dict(
                                     value=21.5, unit='celsius', quality='measured'))))
                             payload = json.dumps(sensor_report).encode()
-                            peer.sendall(struct.pack('<HBBBBI', len(payload), 1, 2, 12, 0, 0)+payload)
+                            if not self.send(peer, struct.pack('<HBBBBI', len(payload), 1, 2, 12, 0, 0)+payload):
+                                break
         except Exception as error:
             if not self.stop.is_set():
                 self.error = type(error).__name__
@@ -626,6 +644,24 @@ def main():
                                  for o in matter.observations))
         assert fixture.status()['observed_network_channel'] == expected
         wait_for(lambda: fixture.request('/api/matter/status')['state'] == 'running')
+        if not real:
+            # An invalid unsolicited event must clear cached readiness and force
+            # the native worker to reconnect before serving Matter status again.
+            matter.malformed_next_event = True
+            def matter_unavailable():
+                try:
+                    fixture.request('/api/matter/status')
+                except urllib.error.HTTPError as error:
+                    return error.code == 503
+                return False
+            wait_for(matter_unavailable)
+            try:
+                wait_for(lambda: fixture.request('/api/matter/status')['state'] == 'running')
+            except TimeoutError:
+                fixture.log.seek(0)
+                sys.stderr.write(f'Matter peer error: {matter.error}\n')
+                sys.stderr.write(fixture.log.read().decode(errors='replace'))
+                raise
         device_snapshot_http(fixture, real)
         if not real:
             try:

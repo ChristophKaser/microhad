@@ -26,6 +26,13 @@ Matter measurements under stable source IDs and is exposed by the common
 history API/dashboard. Keep only joining/commissioning and Matter/Thread-
 specific settings in the Matter area.
 
+The native IPC failure gate now injects one malformed unsolicited event from a
+synthetic service. It verifies that the worker clears cached Matter status,
+returns HTTP 503 while the channel is unavailable, reconnects, and resumes
+serving status. This covers one malformed-event/reconnect path; malformed
+request replies, event-queue saturation, and the wider failure matrix remain
+open.
+
 The shared-device requirement includes external HTTP integrations such as
 Shelly as first-class sources, not just a visual reuse of cards. The common
 device contract owns stable identity, semantic device type, displayed state,
@@ -215,8 +222,9 @@ open. Verification passed:
    area.
 3. Extend broad enabled/disabled, absent/stalled service, malformed reply, queue
    pressure, cancellation, socket-loss and secret-redaction gates. Native IPC
-   deadline behavior now has a stalled-peer test (`750c4c9`); existing native
-   and frontend tests cover other subsets, so checklist item 6 remains open.
+   deadline behavior has a stalled-peer test (`750c4c9`), and malformed event
+   invalidation/reconnect now has an integration gate. The wider matrix remains
+   open.
 4. Inspect rendered browser interactions in addition to the host client and
    TypeScript/build evidence. Physical pairing remains exclusively in plan 08.
 
@@ -368,6 +376,23 @@ blocking the HTTP workers or dropping the gateway process.
 Absent/malformed/stalled real-service combinations, event backpressure and the
 remaining cross-language failure matrix are still open. The fixture is
 host-only; no target deployment or plan 08 acceptance occurred.
+
+## Malformed Matter IPC event recovery checkpoint — 2026-10-05
+
+The native worker integration fixture can send one malformed unsolicited
+Matter event over the live IPC stream. The test verifies that the invalid event
+invalidates cached status, the public status route returns HTTP 503 during
+recovery, and a subsequent IPC connection restores `running` status. The
+fixture tolerates the expected peer-side disconnect and accepts the worker's
+reconnection.
+
+Verification passed:
+`python3 -m py_compile scripts/test_matter_native_worker.py`,
+`python3 scripts/test_matter_native_worker.py`, and
+`python3 scripts/test_matter_native_worker.py --real-service`. These are
+host-only checks; target timing and resource measurements remain in plan 08.
+Malformed replies, event-queue saturation and the remaining cross-language
+failure matrix remain open.
 
 ## Persistent worker and queued-call checkpoint — 2026-10-04
 
