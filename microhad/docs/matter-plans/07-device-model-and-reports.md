@@ -780,3 +780,9 @@ checks no-client retention followed by successful sensor event delivery; all
 Manager-to-IPC boundary, while a running `thread-matter` process delivering a
 commissioned accessory report into the registered native device/history/alert
 path remains the next end-to-end checkpoint.
+
+The rebuilt release service also passes
+`python3 scripts/test_matter_native_worker.py --real-service`; its fixture
+continues to have an empty Matter snapshot, so this is a regression check for
+the production manager handoff and worker lifecycle, not report delivery to a
+registered native device.

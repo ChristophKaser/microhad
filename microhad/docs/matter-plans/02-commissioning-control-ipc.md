@@ -660,3 +660,8 @@ release `thread-matter` build. The C++ native parser has matching vectors in
 native commit `3a763df` and its full host suite passes. A process-level test
 where the live `thread-matter` binary delivers an accessory report into native
 shared device state remains open.
+
+Revalidation after the manager refactor: the rebuilt release service passes
+`python3 scripts/test_matter_native_worker.py --real-service` with the native
+worker. This covers process startup, IPC status/snapshot and Thread lifecycle
+traffic after the change, but still has no commissioned accessory or report.
