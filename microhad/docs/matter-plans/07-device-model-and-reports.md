@@ -95,7 +95,11 @@ the shared model, not a parallel dashboard path. Matter cluster IDs and
 commissioning details stay in Matter provenance/setup; Shelly HTTP details
 stay in its source adapter. Add fields and controls to the common contract
 when their meaning overlaps, and keep truly source-only settings at the
-boundary.
+boundary. In particular, Shelly credentials, host/protocol details, polling or
+callback options, and channel selection stay in Shelly setup. Shared relay,
+light, contact, sensor and power capabilities appear in the same catalog and
+cards as equivalent Zigbee or Matter capabilities and dispatch through the
+Shelly HTTP adapter behind the common control intent.
 
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.

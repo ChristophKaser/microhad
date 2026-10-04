@@ -34,6 +34,12 @@ discovery/setup and translates common control intents to its transport
 components consume the contract and capabilities rather than branch on
 protocol names or cluster IDs. Source-specific controls remain at the boundary
 only when their meaning or transport behavior has no shared equivalent.
+For Shelly, connection details, credentials, polling/callback configuration,
+and device-specific channel selection belong in the Shelly setup flow; relay,
+light, contact, temperature and power behavior that overlaps the common model
+must use the shared catalog, cards, history and controller intents. Do not add
+a parallel Shelly device dashboard or require users to learn a different
+control for the same capability.
 
 Rendered snapshot and OnOff component interaction is verified in Chromium.
 Next deliverable: route Zigbee and external HTTP measurements through the same
