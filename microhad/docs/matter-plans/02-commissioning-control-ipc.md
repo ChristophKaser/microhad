@@ -1,5 +1,19 @@
 # Plan: Commissioning and device-control IPC
 
+## Current open work — 2026-10-04
+
+Native commissioning/relay dispatch and bounded jobs exist; device dispatch and broader
+recovery coverage remain open.
+
+Next deliverable: Extend fake-peer and actual-service tests for queue pressure, stalled
+peers and interrupted calls without mutation replay. Then implement device bodies when
+plan 07 supplies operations.
+
+Follow the ordered steps and execution checklist below. Record verification
+commands, results and the owning repository commit after each completed step.
+Earlier checkpoint sections are historical; use the latest evidence when
+assessing completion. Keep physical acceptance in plan 08.
+
 ## Goal
 
 Extend the status-only private IPC contract into a versioned interface for

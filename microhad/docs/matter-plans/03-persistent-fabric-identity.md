@@ -1,5 +1,19 @@
 # Plan: Persistent Matter fabric identity
 
+## Current open work — 2026-10-04
+
+Persistent authority and host CASE restore exist; operational backup/restore and target
+filesystem verification remain open.
+
+Next deliverable: Write consistent encrypted backup and staged restore runbooks, then
+exercise incomplete, corrupt and interrupted restores on synthetic state before
+including the plan 07 catalog.
+
+Follow the ordered steps and execution checklist below. Record verification
+commands, results and the owning repository commit after each completed step.
+Earlier checkpoint sections are historical; use the latest evidence when
+assessing completion. Keep physical acceptance in plan 08.
+
 ## Goal
 
 Preserve the gateway's Matter authority, fabric, node allocation, and device

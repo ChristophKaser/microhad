@@ -1,5 +1,19 @@
 # Plan: Native Matter API and dashboard
 
+## Current open work — 2026-10-04
+
+Queued commissioning/Thread APIs and the owned WebSocket relay exist; onboarding UI and
+device API/views remain open.
+
+Next deliverable: Implement feature-aware onboarding, progress, cancel and retry views
+against the existing API. Verify disabled/unavailable states and build the dashboard;
+add device views after plan 07.
+
+Follow the ordered steps and execution checklist below. Record verification
+commands, results and the owning repository commit after each completed step.
+Earlier checkpoint sections are historical; use the latest evidence when
+assessing completion. Keep physical acceptance in plan 08.
+
 ## Goal
 
 Expose commissioning, Thread network status, discovered Matter devices, and
@@ -134,7 +148,7 @@ are historical; the latest status/evidence section above takes precedence.
 2. [x] Define and implement asynchronous commissioning start/status/cancel
    and Thread create/import routes with bounded input, stable IDs, fixed
    errors and immediate queue acceptance/rejection.
-3. [ ] Define and implement one bounded WebSocket BLE relay contract with
+3. [x] Define and implement one bounded WebSocket BLE relay contract with
    attach, indication, write, write-complete and connection-loss behavior.
    Test generations, ordering, cancellation and relay ownership with plan 05.
 4. [ ] Add feature-aware onboarding/progress/retry UI. Preserve trusted-LAN

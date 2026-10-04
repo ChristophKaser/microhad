@@ -1,5 +1,19 @@
 # Plan: Rust Matter service runtime
 
+## Current open work — 2026-10-04
+
+Runtime recovery and final build evidence remain open; the host service and optional
+supervisor exist.
+
+Next deliverable: Add an integrated failure/restart matrix for service exit, coordinator
+restart, Thread socket loss and exhausted supervisor retries. Record bounded recovery
+and continued Zigbee ownership.
+
+Follow the ordered steps and execution checklist below. Record verification
+commands, results and the owning repository commit after each completed step.
+Earlier checkpoint sections are historical; use the latest evidence when
+assessing completion. Keep physical acceptance in plan 08.
+
 ## Goal
 
 Run the production Matter controller as a separate MIPS process and make the

@@ -1,5 +1,19 @@
 # Plan: Matter device model and reports
 
+## Current open work — 2026-10-04
+
+Production operational discovery, node catalog, device operations and report integration
+remain open.
+
+Next deliverable: Implement bounded operational DNS-SD over userspace OpenThread and a
+persistent node catalog. Verify production CASE completion before descriptors, commands,
+subscriptions and native reports.
+
+Follow the ordered steps and execution checklist below. Record verification
+commands, results and the owning repository commit after each completed step.
+Earlier checkpoint sections are historical; use the latest evidence when
+assessing completion. Keep physical acceptance in plan 08.
+
 ## Goal
 
 Discover Thread Matter devices and expose their supported controls and sensor

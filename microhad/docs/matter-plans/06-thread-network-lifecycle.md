@@ -1,5 +1,19 @@
 # Plan: Thread network lifecycle on the shared radio
 
+## Current open work — 2026-10-04
+
+Guarded datasets and fresh coordinator observations exist; integrated
+stall/channel-change/restart recovery remains open.
+
+Next deliverable: Exercise coordinator stalls, channel changes and RCP/service restart
+with an active commissioning job. Verify fail-closed readiness, preserved credentials
+and bounded operator recovery.
+
+Follow the ordered steps and execution checklist below. Record verification
+commands, results and the owning repository commit after each completed step.
+Earlier checkpoint sections are historical; use the latest evidence when
+assessing completion. Keep physical acceptance in plan 08.
+
 ## Goal
 
 Attach OpenThread through Ziggurat's private RCP socket while preserving

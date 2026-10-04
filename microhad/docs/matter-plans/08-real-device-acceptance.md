@@ -1,5 +1,19 @@
 # Plan: Real-device acceptance
 
+## Current open work — 2026-10-04
+
+Physical gateway/accessory acceptance remains pending; this document is a test plan
+only.
+
+Next deliverable: Collect evidence and artifact hashes from plans 01–07, then prepare
+the private backup, baseline, staging and rollback manifest. Physical testing requires
+its separately arranged scope.
+
+Follow the ordered steps and execution checklist below. Record verification
+commands, results and the owning repository commit after each completed step.
+Earlier checkpoint sections are historical; use the latest evidence when
+assessing completion. Keep physical acceptance in plan 08.
+
 ## Goal
 
 Demonstrate end-to-end commissioning and sustained operation with the target

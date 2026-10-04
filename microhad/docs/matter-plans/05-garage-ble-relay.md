@@ -1,5 +1,19 @@
 # Plan: Garage phone BLE relay
 
+## Current open work — 2026-10-04
+
+The native relay contract exists; Android onboarding, GATT/WebSocket adapters and app
+validation remain open.
+
+Next deliverable: Build the setup-code/session model with fake gateway/GATT tests, then
+wire permissions, foreground UI, scanning and serialized relay transport. Unverified app
+experiments do not close these steps.
+
+Follow the ordered steps and execution checklist below. Record verification
+commands, results and the owning repository commit after each completed step.
+Earlier checkpoint sections are historical; use the latest evidence when
+assessing completion. Keep physical acceptance in plan 08.
+
 ## Goal
 
 Use the Garage Android app as a temporary BLE/GATT bridge during Matter

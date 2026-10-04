@@ -31,10 +31,10 @@ specific evidence recorded in a file, not to end-to-end Matter support.
 | Open point | Current status | Next checkpoint |
 | --- | --- | --- |
 | [01 Runtime](01-rust-service-runtime.md) | Host service and optional supervision implemented; recovery and target verification incomplete | Extend integrated failure/restart coverage and record final artifacts |
-| [02 IPC](02-commissioning-control-ipc.md) | Service and native commissioning/relay dispatch implemented; device dispatch incomplete | Persistent worker/job queue implemented; finish public dispatch, recovery and device bodies |
+| [02 IPC](02-commissioning-control-ipc.md) | Service and native commissioning/relay dispatch implemented; device dispatch incomplete | Extend failure/backpressure tests, then implement device bodies with plan 07 |
 | [03 Identity](03-persistent-fabric-identity.md) | Persistent authority and host CASE recovery implemented | Finish backup/recovery procedure and target filesystem checks |
 | [04 Native API/dashboard](04-native-api-dashboard.md) | Status, queued commissioning/Thread routes and owned relay implemented; UI pending | Add feature-aware onboarding and device UI |
-| [05 Garage BLE relay](05-garage-ble-relay.md) | Native relay contract implemented; app integration pending | Freeze native relay contract, then implement fake-peer-tested GATT/WebSocket flow |
+| [05 Garage BLE relay](05-garage-ble-relay.md) | Native relay contract implemented; app integration pending | Implement fake-peer-tested setup/session model and Android GATT/WebSocket flow |
 | [06 Thread lifecycle](06-thread-network-lifecycle.md) | Guarded dataset lifecycle and native observation worker verified on host | Extend channel-change/restart recovery and target verification |
 | [07 Devices/reports](07-device-model-and-reports.md) | Encrypted fixture proves transport; production device pipeline pending | Implement operational DNS-SD, persist nodes, then add device/report integration |
 | [08 Real-device acceptance](08-real-device-acceptance.md) | Pending final acceptance gate | Review plans 01–07, then arrange backed-up device testing |
@@ -48,13 +48,14 @@ permanent launcher activation.
 
 ## How to execute these plans
 
-Each open point has a dedicated file with ordered steps, dependencies,
-acceptance criteria, evidence and an unchecked execution checklist. Start with
-plan 02's native persistent IPC/event channel, then plan 04's queued mutation
-APIs and relay contract. Plan 05 consumes that contract; plan 07 supplies
-production discovery and device operations. Finish recovery work in plans
-01/03/06 alongside those integrations. Plan 08 remains the physical acceptance
-gate and is not initiated by writing these plans.
+Each open point has a dedicated file with a current open-work summary, ordered
+steps, dependencies, acceptance criteria, evidence and an execution checklist.
+The native persistent IPC channel, queued mutation APIs and owned relay are
+already implemented. Continue with plan 05's Android onboarding and plan 04's
+dashboard, using the existing contract. Plan 07 supplies production discovery
+and device operations. Finish recovery work in plans 01/02/03/06 alongside
+those integrations. Plan 08 remains the physical acceptance gate and is not
+initiated by writing these plans.
 
 After each verified step, check its item, update status and commands/results,
 and commit the implementation and documentation in their owning repositories.
