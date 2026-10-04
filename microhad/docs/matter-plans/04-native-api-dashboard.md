@@ -16,7 +16,8 @@ the common device shape while sending commands through the Matter controller.
 Matter endpoint identity, descriptors and advertised capabilities now restore
 from the low-frequency device store; confirmed readings restore across gateway
 process restart from `/tmp` and can be lost on power loss. Broader failure gates
-remain open. A
+remain open; the job-capacity and drain behavior now has a composed HTTP/worker
+test. A
 new stalled-peer regression test proves the native Matter IPC exchange returns
 at its deadline without waiting for a peer that accepted but never answered
 (`750c4c9`); absent/stalled service matrix coverage remains incomplete. A
@@ -352,6 +353,21 @@ availability and unmount. No device deployment or plan 08 acceptance occurred.
 
 Plan item 5 remains open for sensor measurement rendering and controls for
 additional clusters; item 6's broader API and failure matrix also remains open.
+
+## Native Matter job queue pressure checkpoint — 2026-10-04
+
+The synthetic native worker fixture now holds service operations in `running`
+while the actual gateway HTTP workers submit commands. It verifies the native
+admission cap directly: 16 jobs are accepted, the next 8 requests return HTTP
+503 with the fixed `capacity` error, and all accepted jobs complete after the
+service peer resumes. This covers bounded admission and recovery without
+blocking the HTTP workers or dropping the gateway process.
+
+`python3 scripts/test_matter_native_worker.py` passes and reports
+`Matter job queue admitted 16 and rejected 8 at capacity, then drained`.
+Absent/malformed/stalled real-service combinations, event backpressure and the
+remaining cross-language failure matrix are still open. The fixture is
+host-only; no target deployment or plan 08 acceptance occurred.
 
 ## Persistent worker and queued-call checkpoint — 2026-10-04
 

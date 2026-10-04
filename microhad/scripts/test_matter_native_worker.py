@@ -37,6 +37,7 @@ class MatterPeer:
         self.generation = 0
         self.next_operation_job = 1
         self.operation_jobs = {}
+        self.stall_jobs = False
         self.onoff = False
         self.level = 0
         self.report_sent = False
@@ -123,7 +124,7 @@ class MatterPeer:
                                 assert decoded['action'] == 'job'
                                 job = self.operation_jobs[decoded['job']]
                                 job['polls'] += 1
-                                if job['polls'] == 1:
+                                if self.stall_jobs or job['polls'] == 1:
                                     result = dict(schema=1, ok=True, result=dict(state='running', job=decoded['job']))
                                 else:
                                     if job['kind'] == 'on': self.onoff = True
@@ -571,6 +572,42 @@ def device_operations_http(fixture):
     assert operation('/api/matter/devices/read', dict(identity, cluster=8, attribute=0)) == {'value': 124}
 
 
+def device_queue_pressure_http(fixture, matter):
+    matter.stall_jobs = True
+    body = json.dumps(dict(node='0000000000000002', endpoint=1,
+                           command='on')).encode()
+
+    def submit(index):
+        try:
+            accepted = fixture.request('/api/matter/devices/command', body)
+            assert accepted['ok'] and accepted['state'] == 'queued', accepted
+            return accepted['job']
+        except urllib.error.HTTPError as error:
+            response = json.load(error)
+            assert error.code == 503 and response == {'ok': False, 'error': 'capacity'}, (index, error.code, response)
+            return None
+
+    try:
+        results = [submit(index) for index in range(24)]
+        accepted = [job for job in results if job is not None]
+        rejected = results.count(None)
+        assert accepted and rejected, results
+        assert len(accepted) <= 16, len(accepted)
+    finally:
+        matter.stall_jobs = False
+
+    def drained():
+        states = []
+        for job in accepted:
+            status = fixture.request('/api/matter/jobs/' + str(job))
+            assert status['state'] != 'failed', status
+            states.append(status['state'])
+        return states if all(state == 'complete' for state in states) else None
+
+    assert wait_for(drained, timeout=8), 'Accepted Matter jobs did not drain after peer recovery'
+    return len(accepted), rejected
+
+
 def main():
     real = '--real-service' in sys.argv[1:]
     matter = RealService() if real else MatterPeer()
@@ -580,6 +617,7 @@ def main():
             '--config', str(fixture.config)], stdout=fixture.log, stderr=fixture.log)
         wait_for(lambda: fixture.status()['online'])
     fixture.launch = launch
+    queue_counts = (0, 0)
     try:
         fixture.setUp()
         expected = bytes.fromhex(fixture.state['network'])[0]
@@ -592,6 +630,7 @@ def main():
         if not real:
             try:
                 device_operations_http(fixture)
+                queue_counts = device_queue_pressure_http(fixture, matter)
             except Exception:
                 fixture.log.seek(0)
                 sys.stderr.write(f'IPC peer error: {matter.error}\n')
@@ -692,7 +731,8 @@ def main():
         else:
             raise AssertionError('Absent service accepted a new commissioning job')
         assert fixture.process.poll() is None
-        print('PASS persistent heartbeat, queued HTTP/Thread lifecycle, owned WebSocket/BTP callbacks, cancellation, radio loss and 503')
+        print('PASS persistent heartbeat, queued HTTP/Thread lifecycle, owned WebSocket/BTP callbacks, cancellation, radio loss and 503; ' +
+              f'Matter job queue admitted {queue_counts[0]} and rejected {queue_counts[1]} at capacity, then drained')
     finally:
         if fixture.process is not None:
             fixture.tearDown()
