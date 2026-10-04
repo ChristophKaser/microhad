@@ -786,3 +786,11 @@ The rebuilt release service also passes
 continues to have an empty Matter snapshot, so this is a regression check for
 the production manager handoff and worker lifecycle, not report delivery to a
 registered native device.
+
+Rust commit `db459aa` now proves live sensor ReportData from the synthetic
+commissioned accessory through the production Manager and production IPC
+server to a connected Unix client, with exact normalized event checks for all
+five sensor types. The commissioning probe is still a fixture process rather
+than the `thread-matter` daemon, and the receiving client is not the native
+gateway. The registered `Gateway::Device`, shared history and alert path still
+need a composed process-level test.

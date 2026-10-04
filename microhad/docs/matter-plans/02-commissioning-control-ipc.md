@@ -665,3 +665,19 @@ Revalidation after the manager refactor: the rebuilt release service passes
 `python3 scripts/test_matter_native_worker.py --real-service` with the native
 worker. This covers process startup, IPC status/snapshot and Thread lifecycle
 traffic after the change, but still has no commissioned accessory or report.
+
+## Live accessory report through production IPC — 2026-10-04
+
+Rust commit `db459aa` extends the notifier-backed encrypted accessory fixture:
+each temperature, humidity, air-quality, CO2 and PM2.5 ReportData value enters
+the production Manager, is correlated by fabric/node/subscription/path, passes
+through `Manager::publish_reports` and the production `IpcServer`, and is read
+from a connected Unix socket client. The fixture checks the full typed event
+payload for each measurement. Verification passed with
+`bash scripts/build-rs-matter-transport.sh host commissioning` followed by
+`python3 scripts/test-openthread-matter-transport.py --commissioning --ble
+--service-owner --service-discovery --sensor-reports`. This composes accessory,
+Manager and IPC delivery in one host fixture. It still does not start the
+`thread-matter` daemon or a native gateway process; delivery into registered
+native shared state, history and alerts remains open. No gateway or hardware
+radio was used.
