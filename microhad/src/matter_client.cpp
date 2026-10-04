@@ -446,3 +446,43 @@ bool MatterChannel::threadChannel(const std::string& input, unsigned char channe
     if (fields["action"] == "\"import\"") out << ",\"dataset\":" << fields["dataset"];
     out << '}'; *body = out.str(); return true;
 }
+
+bool MatterChannel::relayRequest(const std::string& input, uint32_t* id, unsigned char* opcode,
+                                std::string* session, std::string* body) {
+    *id = 0; *opcode = 0; session->clear(); body->clear();
+    Fields fields, request;
+    if (input.size() > MatterWire::MaxPayload || !StatusJson(input).parse(&fields) || fields.size() != 4 ||
+        fields["schema"] != "1" || !number(fields["id"], 1, 0xffffffffU) || !number(fields["opcode"], 4, 8) ||
+        !fields.count("body") || !StatusJson(fields["body"]).parse(&request)) return false;
+    unsigned int operation = static_cast<unsigned int>(fields["opcode"][0] - '0');
+    if (!requestValid(operation, fields["body"])) return false;
+    uint64_t correlation = 0;
+    for (unsigned long i = 0; i < fields["id"].size(); ++i) correlation = correlation * 10 + fields["id"][i] - '0';
+    *id = static_cast<uint32_t>(correlation); *opcode = static_cast<unsigned char>(operation);
+    *session = request["session"].substr(1, 16);
+    *body = operation == 4 ? "{\"schema\":1,\"session\":\"" + *session + "\",\"subscribe\":true}" : fields["body"];
+    return true;
+}
+uint32_t MatterChannel::relayGeneration(const std::string& response) {
+    Fields fields, result;
+    if (!StatusJson(response).parse(&fields) || fields["ok"] != "true" ||
+        !StatusJson(fields["result"]).parse(&result) || !number(result["generation"], 1, 0xffffffffU)) return 0;
+    uint64_t value = 0;
+    for (unsigned long i = 0; i < result["generation"].size(); ++i) value = value * 10 + result["generation"][i] - '0';
+    return static_cast<uint32_t>(value);
+}
+bool MatterChannel::relayEvent(const std::string& input, const std::string& session, uint32_t generation) {
+    Fields fields, data;
+    if (!eventValid(input) || !StatusJson(input).parse(&fields) ||
+        !StatusJson(fields["data"]).parse(&data) || data["session"] != '"' + session + '"') return false;
+    if (fields["event"] == "\"commissioning\"") return true;
+    std::ostringstream value; value << generation;
+    return fields["event"] == "\"ble_write\"" && generation != 0 && data["generation"] == value.str();
+}
+
+std::string MatterChannel::relayResponseSession(const std::string& response) {
+    Fields fields, result;
+    if (!StatusJson(response).parse(&fields) || fields["ok"] != "true" ||
+        !StatusJson(fields["result"]).parse(&result) || !hex(result["session"], 16, 16)) return "";
+    return result["session"].substr(1, 16);
+}

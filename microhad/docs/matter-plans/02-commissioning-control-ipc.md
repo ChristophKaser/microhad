@@ -384,3 +384,29 @@ Verification passed: default and Matter-enabled `make host test`/`make mips`.
 Host suites ran sequentially; enabled peer regression checks pass (13 tests).
 Both factory builds produce static stripped big-endian MIPS-I ELF files.
 No HTTP handoff, actual phone relay, deployment or plan 08 action occurred.
+
+## Native relay ownership checkpoint — 2026-10-04
+
+The native plain-HTTP WebSocket endpoint and typed session/BLE dispatch are now
+wired to the persistent Matter worker. Contract, queue/deadline bounds, single
+phone ownership, session/generation filtering and disconnect/reconnect policy
+are documented in [the native API](../matter-native-api-v1.md#owned-ble-relay-websocket)
+and [plan 04](04-native-api-dashboard.md#worker-owned-relay-checkpoint--2026-10-04).
+The app can now target a concrete relay contract; Garage code and fake-GATT/app
+lifecycle tests remain open. Native synthetic peer evidence is not Android or
+real-device acceptance evidence.
+
+Verification passed: default and Matter-enabled `make host test`/`make mips`,
+with sequential host suites and 13 enabled native peer regression checks. Both
+`python3 scripts/test_matter_native_worker.py` and its `--real-service` variant
+pass. The real-service run reaches companion commit `45782d3` and verifies actual
+BTP C1 events, successful write confirmation, reattach, stale indication/write
+generations, matching failed-write `transport`, terminal preservation, unbound
+phone isolation, bound disconnect cancellation, malformed-mask/repeated-ID
+cleanup and setup-code log redaction. The initial failed-write test assumed a
+success ack; it was corrected to the existing Rust error contract and the fake
+peer was aligned. No production code change was needed for that test mismatch.
+Both factory builds remain static stripped big-endian MIPS-I ELF files. Android
+GATT/permissions, dashboard onboarding, production DNS-SD/catalog/device reports
+and broader timeout/backpressure/target recovery evidence remain open. No
+physical gateway, real accessory or plan 08 acceptance action was performed.

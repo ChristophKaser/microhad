@@ -30,6 +30,11 @@ public:
     static bool validRequest(unsigned char opcode, const std::string& body);
     static bool threadMutation(bool importing, const std::string& input, std::string* body);
     static bool threadChannel(const std::string& input, unsigned char channel, std::string* body);
+    static bool relayRequest(const std::string& input, uint32_t* id, unsigned char* opcode,
+                             std::string* session, std::string* body);
+    static std::string relayResponseSession(const std::string& response);
+    static uint32_t relayGeneration(const std::string& response);
+    static bool relayEvent(const std::string& input, const std::string& session, uint32_t generation);
     bool popEvent(std::string* json);
     void disconnect();
 private:

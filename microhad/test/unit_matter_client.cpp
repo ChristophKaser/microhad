@@ -209,6 +209,16 @@ void runMatterClientUnitTests() {
         else assert(channel.fd_ == -1 && !channel.popEvent(&json));
         close(pair[1]);
     }
+    uint32_t relayId; unsigned char relayOpcode; std::string relaySession, relayBody;
+    assert(MatterChannel::relayRequest("{\"schema\":1,\"id\":4294967295,\"opcode\":4,\"body\":{\"schema\":1,\"session\":\"0000000000000001\"}}",
+        &relayId, &relayOpcode, &relaySession, &relayBody));
+    assert(relayId == 0xffffffffU && relayOpcode == 4 && relaySession == "0000000000000001");
+    assert(relayBody == "{\"schema\":1,\"session\":\"0000000000000001\",\"subscribe\":true}");
+    assert(!MatterChannel::relayRequest("{\"schema\":1,\"id\":1,\"opcode\":3,\"body\":{}}",
+        &relayId, &relayOpcode, &relaySession, &relayBody));
+    assert(MatterChannel::relayEvent(writeEvent, "0000000000000001", 0xffffffffU));
+    assert(!MatterChannel::relayEvent(writeEvent, "0000000000000001", 1));
+    assert(!MatterChannel::relayEvent(writeEvent, "0000000000000002", 0xffffffffU));
     std::string prepared, privateBody;
     assert(MatterChannel::threadMutation(false, "{\"schema\":1}", &prepared));
     assert(MatterChannel::validRequest(9, prepared));

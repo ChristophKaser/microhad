@@ -4,6 +4,9 @@
 #include <time.h>
 #include <unistd.h>
 #include <sstream>
+#include <fcntl.h>
+#include <sys/socket.h>
+#include <cerrno>
 
 namespace {
 int64_t tick() {
@@ -21,7 +24,8 @@ void wipe(std::string* value) {
 }
 
 MatterWorker::MatterWorker(GatewayRunner* gateway, const std::string& socketPath) :
-    gateway_(gateway), client_(socketPath), nextJob_(1), running_(false), started_(false), refreshed_(0) {
+    gateway_(gateway), phonePendingFd_(-1), phoneActive_(false), phoneFd_(-1), phoneReady_(false), phoneOffset_(0),
+    phoneReceived_(0), phoneWriteSince_(0), phoneLastId_(0), phoneGeneration_(0), client_(socketPath), nextJob_(1), running_(false), started_(false), refreshed_(0) {
     pthread_mutex_init(&mutex_, 0);
 }
 MatterWorker::~MatterWorker() { stop(); pthread_mutex_destroy(&mutex_); }
@@ -113,6 +117,7 @@ bool MatterWorker::takeEvent(std::string* json) {
     pthread_mutex_unlock(&mutex_); return !json->empty();
 }
 void MatterWorker::unavailable() {
+    dropPhone(false, 1011);
     client_.disconnect();
     pthread_mutex_lock(&mutex_);
     matterStatus_.clear(); threadStatus_.clear(); refreshed_ = 0; events_.clear();
@@ -183,10 +188,118 @@ void MatterWorker::run() {
             if (!valid) unavailable(); else collectEvents();
         }
         if (!running()) break;
+        phonePump();
+        if (!running()) break;
         executeJob();
         std::string error;
         if (!client_.poll(&error)) unavailable(); else collectEvents();
         usleep(10000);
     }
+    dropPhone(true, 1001);
     unavailable();
+}
+
+bool MatterWorker::adoptRelay(int fd, const std::string& handshake, std::string* error) {
+    error->clear(); pthread_mutex_lock(&mutex_);
+    const int64_t now = tick();
+    if (!running_ || refreshed_ <= 0 || now < refreshed_ || now - refreshed_ > 5000) {
+        pthread_mutex_unlock(&mutex_); *error = "not_ready"; return false;
+    }
+    if (phoneActive_) { pthread_mutex_unlock(&mutex_); *error = "busy"; return false; }
+    int owned = dup(fd);
+    if (owned < 0 || fcntl(owned, F_SETFD, FD_CLOEXEC) != 0 || fcntl(owned, F_SETFL, O_NONBLOCK) != 0) {
+        if (owned >= 0) close(owned);
+        pthread_mutex_unlock(&mutex_); *error = "transport"; return false;
+    }
+    phoneActive_ = true; phonePendingFd_ = owned; phoneHandshake_ = handshake;
+    pthread_mutex_unlock(&mutex_); return true;
+}
+bool MatterWorker::phoneQueue(unsigned char opcode, const std::string& payload) {
+    MatterWebSocket::Message message; message.opcode = opcode; message.payload = payload;
+    std::string frame;
+    if (phoneOutput_.size() >= 8 || !MatterWebSocket::encode(message, &frame)) return false;
+    if (phoneOutput_.empty()) phoneWriteSince_ = tick();
+    phoneOutput_.push_back(frame); return true;
+}
+void MatterWorker::dropPhone(bool cancel, unsigned int code) {
+    std::string session; session.swap(phoneSession_);
+    if (phoneFd_ >= 0) {
+        // A close frame is best-effort; never append it to a partially sent frame.
+        if (phoneReady_ && (phoneOutput_.empty() || phoneOffset_ == 0)) {
+            MatterWebSocket::Message message; message.opcode = 8;
+            message.payload += static_cast<char>(code >> 8); message.payload += static_cast<char>(code);
+            std::string frame;
+            if (MatterWebSocket::encode(message, &frame)) send(phoneFd_, frame.data(), frame.size(), MSG_DONTWAIT | MSG_NOSIGNAL);
+        }
+        close(phoneFd_); phoneFd_ = -1;
+    }
+    phoneDecoder_ = MatterWebSocket::Decoder(); phoneOutput_.clear(); phoneOffset_ = 0;
+    phoneLastId_ = 0; phoneGeneration_ = 0; phoneReady_ = false;
+    pthread_mutex_lock(&mutex_);
+    if (phonePendingFd_ >= 0) { close(phonePendingFd_); phonePendingFd_ = -1; }
+    phoneHandshake_.clear(); phoneActive_ = false;
+    pthread_mutex_unlock(&mutex_);
+    if (cancel && !session.empty()) {
+        std::string response, error;
+        if (!client_.call(5, "{\"schema\":1,\"session\":\"" + session + "\"}", &response, &error)) unavailable();
+    }
+}
+void MatterWorker::phonePump() {
+    pthread_mutex_lock(&mutex_);
+    if (phonePendingFd_ >= 0) {
+        phoneFd_ = phonePendingFd_; phonePendingFd_ = -1;
+        phoneOutput_.push_back(phoneHandshake_); phoneHandshake_.clear(); phoneWriteSince_ = tick();
+        phoneReceived_ = tick(); events_.clear();
+    }
+    pthread_mutex_unlock(&mutex_);
+    if (phoneFd_ < 0) return;
+    const int64_t now = tick();
+    if (now - phoneReceived_ > 30000 || (!phoneOutput_.empty() && now - phoneWriteSince_ > 2000)) {
+        dropPhone(true, 1008); return;
+    }
+    char buffer[MatterWebSocket::MaxChunk];
+    ssize_t count = recv(phoneFd_, buffer, sizeof(buffer), MSG_DONTWAIT);
+    if (count == 0 || (count < 0 && errno != EINTR && errno != EAGAIN && errno != EWOULDBLOCK)) {
+        dropPhone(true, 1001); return;
+    }
+    if (count > 0 && !phoneReady_) { dropPhone(true, 1002); return; }
+    if (count > 0 && !phoneDecoder_.feed(std::string(buffer, count))) {
+        dropPhone(true, phoneDecoder_.closeCode()); return;
+    }
+    MatterWebSocket::Message message;
+    if (phoneDecoder_.pop(&message)) {
+        phoneReceived_ = tick();
+        if (message.opcode == 8) { dropPhone(true, 1000); return; }
+        if (message.opcode == 9) {
+            if (!phoneQueue(10, message.payload)) { dropPhone(true, 1009); return; }
+        } else if (message.opcode == 1) {
+            uint32_t id; unsigned char opcode; std::string session, body;
+            if (!MatterChannel::relayRequest(message.payload, &id, &opcode, &session, &body) || id <= phoneLastId_ ||
+                (phoneSession_.empty() && opcode != 4) || (!phoneSession_.empty() && session != phoneSession_)) {
+                dropPhone(true, 1008); return;
+            }
+            phoneLastId_ = id;
+            std::string response, error;
+            if (!client_.call(opcode, body, &response, &error)) { unavailable(); return; }
+            if (opcode == 4 && MatterChannel::relayResponseSession(response) == session) phoneSession_ = session;
+            if (opcode == 6) { uint32_t generation = MatterChannel::relayGeneration(response); if (generation) phoneGeneration_ = generation; }
+            std::ostringstream out; out << "{\"schema\":1,\"id\":" << id << ",\"response\":" << response << '}';
+            if (!phoneQueue(1, out.str())) { dropPhone(true, 1009); return; }
+            if (!collectEvents()) return;
+        }
+    }
+    std::string event;
+    while (takeEvent(&event)) {
+        if (MatterChannel::relayEvent(event, phoneSession_, phoneGeneration_) && !phoneQueue(1, event)) {
+            dropPhone(true, 1009); return;
+        }
+    }
+    if (!phoneOutput_.empty()) {
+        const std::string& frame = phoneOutput_.front();
+        ssize_t written = send(phoneFd_, frame.data() + phoneOffset_, frame.size() - phoneOffset_, MSG_DONTWAIT | MSG_NOSIGNAL);
+        if (written > 0) {
+            phoneOffset_ += written;
+            if (phoneOffset_ == frame.size()) { phoneOutput_.pop_front(); phoneReady_ = true; phoneOffset_ = 0; phoneWriteSince_ = tick(); }
+        } else if (written < 0 && errno != EINTR && errno != EAGAIN && errno != EWOULDBLOCK) dropPhone(true, 1001);
+    }
 }

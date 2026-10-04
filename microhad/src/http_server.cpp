@@ -672,7 +672,18 @@ void HttpServer::handleClient(int clientFd) {
         session != 0 ||
 #endif
         readResult == RequestReadOk) {
-        handleRequest(clientFd, request);
+        if (request.find("GET /api/matter/relay ") == 0) {
+#if MICROHAD_MATTER_ENABLED
+            std::string upgrade, error;
+            if (tlsServer_ != 0 || !MatterWebSocket::handshake(request, "/api/matter/relay", &upgrade))
+                writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"malformed\"}");
+            else if (!matterWorker_ || !matterWorker_->adoptRelay(clientFd, upgrade, &error))
+                writeResponse(clientFd, 503, "application/json", "{\"ok\":false,\"error\":\"" +
+                              (error.empty() ? "not_ready" : error) + "\"}");
+#else
+            writeResponse(clientFd, 404, "application/json", "{\"ok\":false,\"error\":\"unsupported\"}");
+#endif
+        } else handleRequest(clientFd, request);
     } else {
         writeResponse(clientFd, readResult == RequestReadTooLarge ? 413 : 400, "application/json",
                       readResult == RequestReadTooLarge ? "{\"error\":\"request is too large\"}" : "{\"error\":\"malformed request\"}");

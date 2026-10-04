@@ -2,6 +2,7 @@
 #define MICROHAD_MATTER_WORKER_H
 
 #include "matter_client.h"
+#include "matter_websocket.h"
 #include <pthread.h>
 #include <map>
 
@@ -18,9 +19,27 @@ public:
     bool submit(unsigned char opcode, const std::string& body, uint32_t* id, std::string* error);
     bool job(uint32_t id, std::string* json);
     bool takeEvent(std::string* json);
+    bool adoptRelay(int fd, const std::string& handshake, std::string* error);
 
 private:
     GatewayRunner* gateway_;
+    int phonePendingFd_;
+    std::string phoneHandshake_;
+    bool phoneActive_;
+    int phoneFd_;
+    bool phoneReady_;
+    MatterWebSocket::Decoder phoneDecoder_;
+    std::deque<std::string> phoneOutput_;
+    unsigned long phoneOffset_;
+    int64_t phoneReceived_;
+    int64_t phoneWriteSince_;
+    uint32_t phoneLastId_;
+    uint32_t phoneGeneration_;
+    std::string phoneSession_;
+    bool phoneQueue(unsigned char opcode, const std::string& payload);
+    void phonePump();
+    void dropPhone(bool cancel, unsigned int code);
+
     MatterChannel client_;
     struct Job {
         unsigned char opcode;

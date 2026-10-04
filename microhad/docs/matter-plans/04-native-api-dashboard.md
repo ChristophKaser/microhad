@@ -297,3 +297,44 @@ Verification passed: default and Matter-enabled `make host test`/`make mips`.
 Host suites ran sequentially; enabled peer regression checks pass (13 tests).
 Both factory builds produce static stripped big-endian MIPS-I ELF files.
 No HTTP handoff, actual phone relay, deployment or plan 08 action occurred.
+
+## Worker-owned relay checkpoint — 2026-10-04
+
+The plain HTTP WebSocket upgrade now hands a duplicated nonblocking socket to
+the existing Matter worker; HTTP threads return promptly and no relay thread is
+added. One phone owner is allowed. The typed schema/id/opcode/body envelope binds
+status first, then permits only session-matching status/cancel/attach/indication/
+write-complete calls. Bind requests select the private event subscription; reply
+and event validation remains strict. IDs increase on the connection; outgoing
+progress is session-filtered and C1 writes also require the active generation.
+
+Read/write work is bounded, with eight-frame/message queues, 30-second input
+idle expiry and two-second incomplete-write expiry. Disconnect/protocol failure
+cancels only the bound active session; terminal results remain intact. Service
+loss drops the phone without replay. Pending handoff and active descriptors are
+closed on shutdown. Phone I/O never accesses Gateway or opens/reset the UART.
+The public contract and reconnect policy are in
+[Native Matter HTTP API v1](../matter-native-api-v1.md#owned-ble-relay-websocket).
+
+Focused tests validate the relay envelope and session/generation event filters.
+The actual-native harness adds upgrade, single-owner rejection, fast concurrent
+HTTP reads, ping/pong, status bind, BLE attach/C1, stale-generation rejection,
+failed write, terminal state preservation, disconnect cancellation and malformed
+client-mask cleanup. Actual Rust service evidence remains synthetic BTP/GATT;
+Android integration and production operational discovery remain separate work.
+No plan 08 physical gateway/accessory acceptance is performed.
+
+Verification passed: default and Matter-enabled `make host test`/`make mips`,
+with sequential host suites and 13 enabled native peer regression checks. Both
+`python3 scripts/test_matter_native_worker.py` and its `--real-service` variant
+pass. The real-service run reaches companion commit `45782d3` and verifies actual
+BTP C1 events, successful write confirmation, reattach, stale indication/write
+generations, matching failed-write `transport`, terminal preservation, unbound
+phone isolation, bound disconnect cancellation, malformed-mask/repeated-ID
+cleanup and setup-code log redaction. The initial failed-write test assumed a
+success ack; it was corrected to the existing Rust error contract and the fake
+peer was aligned. No production code change was needed for that test mismatch.
+Both factory builds remain static stripped big-endian MIPS-I ELF files. Android
+GATT/permissions, dashboard onboarding, production DNS-SD/catalog/device reports
+and broader timeout/backpressure/target recovery evidence remain open. No
+physical gateway, real accessory or plan 08 acceptance action was performed.

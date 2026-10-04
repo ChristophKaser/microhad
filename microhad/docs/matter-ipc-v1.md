@@ -5,7 +5,8 @@ status opcodes 1/2, commissioning/relay opcodes 3–8 and Thread lifecycle opcod
 Thread, commissioning snapshot and opaque BLE-write events are implemented.
 Device opcodes 10/11 still return `unsupported`. Native persistent worker
 calls/events and queued commissioning/Thread HTTP routes are implemented;
-WebSocket relay, Android BLE and production operational DNS-SD remain pending;
+Owned native WebSocket relay dispatch is implemented; Android BLE and
+production operational DNS-SD remain pending;
 service dispatch alone does not complete end-to-end accessory support.
 
 ## Framing and compatibility
@@ -200,8 +201,8 @@ or event overflow disconnects, invalidates caches and fails pending calls withou
 replay. The next heartbeat can reconnect, but session subscription/reattach must
 be explicit. Shutdown clears RAM queues; pending request bodies are erased when
 executed, failed or stopped. Public commissioning/Thread/job routes are documented
-in [Native Matter HTTP API v1](matter-native-api-v1.md); WebSocket relay ownership
-remains to be wired.
+in [Native Matter HTTP API v1](matter-native-api-v1.md), including the owned
+plain WebSocket relay, session/generation filtering and disconnect cleanup.
 
 For native queued Thread mutations, the internal body contains schema/action and
 optional dataset only. It is not yet a wire request: the worker adds the fresh

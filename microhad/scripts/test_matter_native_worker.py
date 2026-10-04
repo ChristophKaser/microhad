@@ -34,6 +34,7 @@ class MatterPeer:
         self.session = None
         self.configured = False
         self.mutations = []
+        self.generation = 0
         self.error = None
         self.closed = False
         self.thread = threading.Thread(target=self.run, daemon=True)
@@ -70,6 +71,7 @@ class MatterPeer:
                         body = self.exact(peer, size)
                         thread = dict(enabled=True, available=True, configured=self.configured, attached=False,
                                       state='attaching' if self.configured else 'detached', linux_ipv6_or_tun=False)
+                        event = None
                         if opcode == 9:
                             observation = json.loads(body)
                             action = observation['action']
@@ -108,15 +110,36 @@ class MatterPeer:
                             elif not self.session or decoded['session'] != self.session['session']:
                                 result = dict(schema=1, ok=False, error='stale_session')
                             else:
-                                if opcode == 5:
+                                if opcode == 5 and self.session['state'] not in ('cancelled', 'failed', 'complete', 'timed_out'):
                                     self.session = dict(session=self.session['session'], state='cancelled',
                                                         deadline_remaining_seconds=0, error='cancelled')
                                 result = dict(schema=1, ok=True, result=self.session)
+                        elif opcode in (6, 7, 8):
+                            decoded = json.loads(body)
+                            assert self.session and decoded['session'] == self.session['session']
+                            if opcode == 6:
+                                self.generation += 1
+                                self.session.update(state='pase')
+                                result = dict(schema=1, ok=True, result=dict(generation=self.generation))
+                                event = dict(schema=1, event='ble_write', data=dict(session=self.session['session'],
+                                             generation=self.generation, write=1, data='010203'))
+                            elif decoded['generation'] != self.generation:
+                                result = dict(schema=1, ok=False, error='stale_generation')
+                            elif opcode == 8:
+                                result = dict(schema=1, ok=True, result=dict(write=decoded['write']))
+                                if not decoded['success']:
+                                    result = dict(schema=1, ok=False, error='transport')
+                                    self.session.update(state='failed', error='transport', deadline_remaining_seconds=0)
+                            else:
+                                result = dict(schema=1, ok=True, result=dict(sequence=decoded['sequence']))
                         else:
                             assert opcode == 2 and not body
                             result = thread
                         payload = json.dumps(result).encode()
                         peer.sendall(struct.pack('<HBBBBI', len(payload), 1, 1, opcode, 0, ident)+payload)
+                        if event:
+                            payload = json.dumps(event).encode()
+                            peer.sendall(struct.pack('<HBBBBI', len(payload), 1, 2, 12, 0, 0)+payload)
         except Exception as error:
             if not self.stop.is_set():
                 self.error = type(error).__name__
@@ -274,6 +297,156 @@ def synthetic_dataset(matter):
     raise AssertionError('Synthetic dataset record absent')
 
 
+class RelaySocket:
+    def __init__(self, fixture, expected=101):
+        self.peer = socket.create_connection(('127.0.0.1', fixture.port), timeout=2)
+        self.events = []
+        self.ident = 0
+        self.peer.sendall(b'GET /api/matter/relay HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\n'
+                          b'Connection: Upgrade\r\nSec-WebSocket-Version: 13\r\n'
+                          b'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n')
+        header = bytearray()
+        while not header.endswith(b'\r\n\r\n'):
+            header.extend(MatterPeer.exact(self.peer, 1))
+            assert len(header) <= 4096
+        assert header.startswith(f'HTTP/1.1 {expected} '.encode()), header
+        if expected == 101:
+            assert b'Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=' in header
+        else:
+            self.peer.close()
+
+    def send(self, opcode, payload):
+        if isinstance(payload, dict):
+            payload = json.dumps(payload).encode()
+        assert len(payload) <= 2048
+        header = bytes([0x80 | opcode])
+        header += bytes([0x80 | len(payload)]) if len(payload) < 126 else b'\xfe'+struct.pack('>H', len(payload))
+        mask = b'abcd'
+        encoded = bytes(value ^ mask[i % 4] for i, value in enumerate(payload))
+        self.peer.sendall(header+mask+encoded)
+
+    def receive(self):
+        first, second = MatterPeer.exact(self.peer, 2)
+        assert first & 0x80 and not first & 0x70 and not second & 0x80
+        size = second & 127
+        if size == 126:
+            size, = struct.unpack('>H', MatterPeer.exact(self.peer, 2))
+        assert size <= 2048
+        return first & 15, bytes(MatterPeer.exact(self.peer, size))
+
+    def call(self, opcode, body):
+        self.ident += 1
+        self.send(1, dict(schema=1, id=self.ident, opcode=opcode, body=body))
+        while True:
+            kind, payload = self.receive()
+            assert kind == 1, (kind, payload[:2])
+            result = json.loads(payload)
+            if 'event' in result:
+                self.events.append(result)
+                continue
+            assert result['id'] == self.ident and result['schema'] == 1
+            return result['response']
+
+    def write_event(self):
+        while True:
+            for event in self.events:
+                if event['event'] == 'ble_write':
+                    self.events.remove(event)
+                    return event['data']
+            kind, payload = self.receive()
+            assert kind == 1
+            self.events.append(json.loads(payload))
+
+    def close(self):
+        self.peer.close()
+
+
+def relay_http_call(fixture, action, body):
+    accepted = fixture.request('/api/matter/commissioning/'+action, json.dumps(body).encode())
+    def done():
+        result = fixture.request('/api/matter/jobs/'+str(accepted['job']))
+        assert result['state'] != 'failed'
+        return result if result['state'] == 'complete' else None
+    wait_for(done)
+    return done()['response']
+
+
+def relay_tests(fixture):
+    def start():
+        result = relay_http_call(fixture, 'start', dict(schema=1, discriminator=3840, pin=20202021, timeout_seconds=30))
+        assert result['ok']
+        return result['result']['session']
+    def cancelled(session):
+        result = relay_http_call(fixture, 'status', dict(schema=1, session=session))
+        return result['result']['state'] == 'cancelled'
+    session = start()
+    unbound = RelaySocket(fixture)
+    unbound.close()
+    assert relay_http_call(fixture, 'status', dict(schema=1, session=session))['result']['state'] == 'waiting_ble'
+    relay = RelaySocket(fixture)
+    try:
+        RelaySocket(fixture, expected=503)  # One phone owner; HTTP workers remain free.
+        begin = time.monotonic()
+        for _ in range(10):
+            assert fixture.request('/api/matter/status')['available']
+        assert time.monotonic()-begin < 1
+        relay.send(9, b'ping')
+        assert relay.receive() == (10, b'ping')
+        assert relay.call(4, dict(schema=1, session=session))['result']['state'] == 'waiting_ble'
+        generation = relay.call(6, dict(schema=1, session=session, address='010203040506', mtu=247))['result']['generation']
+        write = relay.write_event()
+        assert write['session'] == session and write['generation'] == generation and write['data']
+        confirmed = relay.call(8, dict(schema=1, session=session, generation=generation, write=write['write'], success=True))
+        assert confirmed['ok'] and confirmed['result']['write'] == write['write']
+        generation = relay.call(6, dict(schema=1, session=session, address='010203040506', mtu=247))['result']['generation']
+        write = relay.write_event()
+        assert write['generation'] == generation
+        indication = relay.call(7, dict(schema=1, session=session, generation=generation+1, sequence=1, data='00'))
+        assert indication['error'] == 'stale_generation'
+        stale = relay.call(8, dict(schema=1, session=session, generation=generation+1, write=write['write'], success=False))
+        assert stale['error'] == 'stale_generation'
+        result = relay.call(8, dict(schema=1, session=session, generation=generation, write=write['write'], success=False))
+        assert result == dict(schema=1, ok=False, error='transport')
+        failed = relay.call(4, dict(schema=1, session=session))
+        assert failed['result']['state'] == 'failed' and failed['result']['error'] == 'transport'
+    finally:
+        relay.close()
+    # Disconnect cancels only the bound active session; terminal failure remains terminal.
+    wait_for(lambda: relay_http_call(fixture, 'status', dict(schema=1, session=session))['result']['state'] == 'failed')
+    session = start()
+    relay = RelaySocket(fixture)
+    assert relay.call(4, dict(schema=1, session=session))['ok']
+    relay.close()
+    wait_for(lambda: cancelled(session))
+    session = start()
+    relay = RelaySocket(fixture)
+    try:
+        assert relay.call(4, dict(schema=1, session=session))['ok']
+        relay.peer.sendall(b'\x81\x01x')  # Missing client mask is a protocol failure.
+        kind, payload = relay.receive()
+        while kind == 1:
+            kind, payload = relay.receive()
+        assert kind == 8 and struct.unpack('>H', payload[:2])[0] == 1002
+    finally:
+        relay.close()
+    wait_for(lambda: cancelled(session))
+    session = start()
+    relay = RelaySocket(fixture)
+    try:
+        assert relay.call(4, dict(schema=1, session=session))['ok']
+        relay.send(1, dict(schema=1, id=1, opcode=4, body=dict(schema=1, session=session)))
+        kind, payload = relay.receive()
+        while kind == 1:
+            kind, payload = relay.receive()
+        assert kind == 8 and struct.unpack('>H', payload[:2])[0] == 1008
+    finally:
+        relay.close()
+    wait_for(lambda: cancelled(session))
+    fixture.log.seek(0)
+    assert b'20202021' not in fixture.log.read()
+
+
+
 def main():
     real = '--real-service' in sys.argv[1:]
     matter = RealService() if real else MatterPeer()
@@ -352,6 +525,7 @@ def main():
         else:
             assert matter.mutations and all(c == expected for _, c in matter.mutations)
         commissioning_http(fixture)
+        relay_tests(fixture)
         # Radio loss must publish offline, rather than renewing the old channel.
         fixture.peer.close()
         if real:
@@ -378,7 +552,7 @@ def main():
         else:
             raise AssertionError('Absent service accepted a new commissioning job')
         assert fixture.process.poll() is None
-        print('PASS persistent heartbeat, queued commissioning/Thread HTTP lifecycle, channel gating, cached reads, radio loss and 503')
+        print('PASS persistent heartbeat, queued HTTP/Thread lifecycle, owned WebSocket/BTP callbacks, cancellation, radio loss and 503')
     finally:
         if fixture.process is not None:
             fixture.tearDown()

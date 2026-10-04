@@ -2,7 +2,7 @@
 
 These files break the remaining integration work into reviewable stages. The
 native observation/status worker, Rust owned commissioner and guarded Thread
-lifecycle have host evidence; WebSocket APIs, Garage onboarding and
+lifecycle have host evidence; Garage onboarding and
 the production discovery/device pipeline remain open.
 
 Recommended order:
@@ -31,10 +31,10 @@ specific evidence recorded in a file, not to end-to-end Matter support.
 | Open point | Current status | Next checkpoint |
 | --- | --- | --- |
 | [01 Runtime](01-rust-service-runtime.md) | Host service and optional supervision implemented; recovery and target verification incomplete | Extend integrated failure/restart coverage and record final artifacts |
-| [02 IPC](02-commissioning-control-ipc.md) | Service and persistent native commissioning dispatch implemented; public relay/device dispatch incomplete | Persistent worker/job queue implemented; finish public dispatch, recovery and device bodies |
+| [02 IPC](02-commissioning-control-ipc.md) | Service and native commissioning/relay dispatch implemented; device dispatch incomplete | Persistent worker/job queue implemented; finish public dispatch, recovery and device bodies |
 | [03 Identity](03-persistent-fabric-identity.md) | Persistent authority and host CASE recovery implemented | Finish backup/recovery procedure and target filesystem checks |
-| [04 Native API/dashboard](04-native-api-dashboard.md) | Status and queued commissioning/Thread routes implemented; relay API and UI pending | Add the WebSocket relay and onboarding UI |
-| [05 Garage BLE relay](05-garage-ble-relay.md) | App integration pending | Freeze native relay contract, then implement fake-peer-tested GATT/WebSocket flow |
+| [04 Native API/dashboard](04-native-api-dashboard.md) | Status, queued commissioning/Thread routes and owned relay implemented; UI pending | Add feature-aware onboarding and device UI |
+| [05 Garage BLE relay](05-garage-ble-relay.md) | Native relay contract implemented; app integration pending | Freeze native relay contract, then implement fake-peer-tested GATT/WebSocket flow |
 | [06 Thread lifecycle](06-thread-network-lifecycle.md) | Guarded dataset lifecycle and native observation worker verified on host | Extend channel-change/restart recovery and target verification |
 | [07 Devices/reports](07-device-model-and-reports.md) | Encrypted fixture proves transport; production device pipeline pending | Implement operational DNS-SD, persist nodes, then add device/report integration |
 | [08 Real-device acceptance](08-real-device-acceptance.md) | Pending final acceptance gate | Review plans 01–07, then arrange backed-up device testing |
