@@ -4,7 +4,8 @@ The `thread-matter` executable is a single-threaded controller process. It owns
 OpenThread, the Matter UDP transport, the private store, and a bounded Unix IPC
 listener. It creates/restores a private controller authority and fabric;
 Thread create/import/restore is implemented; commissioning command wiring,
-native coordinator observations, DNS-SD and device reports remain pending.
+DNS-SD and device reports remain pending. The optional native worker now
+supplies protected coordinator observations and caches status for HTTP.
 
 Build with `bash scripts/build-rs-matter-transport.sh host service` or
 `bash scripts/build-rs-matter-transport.sh mips service`. The stripped target
@@ -23,7 +24,7 @@ cannot open the UART. Unexpected platform reset requests abort this process.
 Thread uses OpenThread's userspace IPv6/UDP stack, requiring neither a kernel
 IPv6 interface nor TUN. It supports validated create/import/restore, gated by fresh private native
 coordinator observations. It waits in `awaiting_coordinator` before initializing
-OpenThread; the native observation sender remains pending.
+OpenThread until the optional native worker supplies the observation.
 
 The private state directory must be absolute. The store validates owner-only
 directory/files, refuses symlinks, and locks out another store owner. The process
@@ -97,8 +98,9 @@ This does not yet wire the commissioner into the service's IPC job dispatch.
 Opcode 9 accepts status/create/import and private coordinator `observe` bodies.
 Observations expire after five monotonic seconds. Online channels must be 11–26
 and match the validated persisted dataset; an offline observation stops Thread.
-No observation is stored or inferred from configuration. Native heartbeat wiring
-is the next checkpoint; without it startup waits and sends no RCP traffic.
+No observation is stored or inferred from configuration. The Matter-enabled native worker sends heartbeat observations about once per
+second. Unknown/offline or coordinator progress older than 2.5 seconds is sent
+as offline. Without an online observation startup sends no RCP traffic.
 
 The owner-only store record at key 0x1001 contains magic `TMDT1`, channel byte,
 little-endian u16 TLV length and up to 254 validated TLV bytes. Create uses OS
@@ -120,3 +122,12 @@ malformed/mismatched imports without mutation, observation expiry, persisted
 restart, conflicting cached channel and unchanged credentials on status/reload.
 All recorded synthetic channel writes are 15 and no reset is issued. This does
 not prove physical RF attachment, coexistence or target runtime resource use.
+
+The native worker checkpoint (`microhad-zigbee-native` implementation documented in
+plan 04) passes an actual native-to-Rust IPC/HTTP host round trip with synthetic
+Ziggurat and Thread RCP peers. Native observations authorize dataset create;
+all recorded writes match the confirmed Zigbee channel. Coordinator loss moves
+Thread to `awaiting_coordinator`, and service shutdown produces cached HTTP
+503 without stopping native. Commands: `python3
+../microhad-zigbee-native/scripts/test_matter_native_worker.py --real-service` from
+this project (requires both host builds). This is synthetic host evidence only.
