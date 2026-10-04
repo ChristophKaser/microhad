@@ -24,7 +24,12 @@
 class GatewayTestPeer {
 public:
     static void observedChannelSnapshot() {
-        Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+        char valueHistory[] = "/tmp/microhad-matter-values-test-XXXXXX";
+        int valueHistoryFd = mkstemp(valueHistory);
+        assert(valueHistoryFd >= 0);
+        close(valueHistoryFd);
+        unlink(valueHistory);
+        Gateway gateway("/dev/null", 115200, "/tmp", "", "", "", 0, valueHistory);
         gateway.online_ = true;
         gateway.networkFormed_ = true;
         gateway.networkChannel_ = 20; /* Persisted configuration is not an observation. */
@@ -121,6 +126,7 @@ public:
         assert(gateway.devices_[endpoint.id].valueAlerts["temperature"].highActive);
         assert(gateway.reconcileMatterDevices(endpoints, &error));
         assert(gateway.devices_[endpoint.id].valueAlerts["temperature"].highActive);
+        unlink((std::string(valueHistory) + ".values").c_str());
     }
     static void ineligibleSensorRefreshCannotSpin() {
         char directory[] = "/tmp/microhad-refresh-timers-XXXXXX";

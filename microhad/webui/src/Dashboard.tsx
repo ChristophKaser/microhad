@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { Chart as ChartJS, LineController, LineElement, LinearScale, PointElement, Tooltip } from 'chart.js'
-import type { Device, HistoryPage, HistorySample, SceneGroupSummary, Status } from './api'
+import type { Device, HistoryMetric, HistoryPage, HistorySample, SceneGroupSummary, Status } from './api'
 import { errorMessage, jsonRequest } from './api'
 import { DeviceGroups } from './devices'
+import { historyDiscrete, historyLabel, historyTick, historyUnit, historyY } from './history'
 
 export type DashboardWidget = {
   id: string
@@ -21,6 +22,11 @@ export const sensorMetrics: SensorMetric[] = [
   { id: 4, name: 'Power', unit: 'W', scale: 10, color: '#b77928', available: d => d.has_power },
   { id: 5, name: 'Occupancy', unit: '', scale: 1, color: '#4b956a', available: d => d.has_occupancy },
   { id: 6, name: 'Battery', unit: '%', scale: 1, color: '#71859a', available: d => d.has_battery },
+  { id: 7, name: 'CO₂', unit: 'ppm', scale: 1, color: '#9a5b99', available: d => d.has_co2 },
+  { id: 8, name: 'PM2.5', unit: 'ug/m3', scale: 1, color: '#6d8293', available: d => d.has_pm25 },
+  { id: 9, name: 'Air quality', unit: '', scale: 1, color: '#368578', available: d => d.has_air_quality },
+  { id: 10, name: 'Light', unit: '', scale: 1, color: '#d2a635', available: d => d.has_light || d.has_actor },
+  { id: 11, name: 'Brightness', unit: '%', scale: 1, color: '#427fb0', available: d => d.has_brightness },
 ]
 const rangeSeconds = { day: 86400, week: 604800, all: Infinity }
 ChartJS.register(LineController, LineElement, LinearScale, PointElement, Tooltip)
@@ -61,17 +67,21 @@ function SensorChart({ device, metricId, range }: { device: Device | undefined; 
   }, [device?.id])
   const points = useMemo(() => samples.filter(sample => sample[2] === metricId).sort((a,b) => a[1]-b[1]), [samples, metricId])
   const start = range === 'all' ? (points[0]?.[1] ?? now) : now - rangeSeconds[range]
+  const latest = points[points.length - 1]
+  const historyMetric = metricId as HistoryMetric
+  const unit = latest && metric ? historyUnit(historyMetric, latest) : metric?.unit ?? ''
+  const unitPoints = points.filter(point => historyUnit(historyMetric, point) === unit)
   useEffect(() => {
-    if (!canvas.current || !points.length || !metric) return
+    if (!canvas.current || !unitPoints.length || !metric) return
+    const discrete = historyDiscrete(historyMetric)
     const chart = new ChartJS(canvas.current, {
       type: 'line',
-      data: { datasets: [{ label: metric.name, data: points.filter(p => p[1] >= start).map(p => ({x:p[1], y: metricId === 3 || metricId === 5 ? p[3] : p[3] / metric.scale})), borderColor: metric.color, backgroundColor: metric.color, borderWidth: 2, stepped: metricId === 3 || metricId === 5 ? 'after' : false, pointRadius: 0 }] },
-      options: { responsive: true, maintainAspectRatio: false, animation: false, parsing: false, plugins: { legend: { display: false }, tooltip: { callbacks: { title: items => items.length ? new Date(Number(items[0].parsed.x) * 1000).toLocaleString() : '', label: item => metricId === 3 ? (item.parsed.y ? 'Open' : 'Closed') : metricId === 5 ? (item.parsed.y ? 'Occupied' : 'Clear') : `${item.parsed.y} ${metric.unit}` } } }, scales: { x: { type: 'linear', min: start, max: now, ticks: { maxTicksLimit: 4, callback: value => new Date(Number(value)*1000).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) } }, y: { ticks: { maxTicksLimit: 4, callback: value => metricId === 3 ? (Number(value) ? 'Open' : 'Closed') : metricId === 5 ? (Number(value) ? 'Occupied' : 'Clear') : `${value}${metric.unit}` } } } }
+      data: { datasets: [{ label: metric.name, data: unitPoints.filter(p => p[1] >= start).map(p => ({x:p[1], y:historyY(historyMetric, p)})), borderColor: metric.color, backgroundColor: metric.color, borderWidth: 2, stepped: discrete ? 'after' : false, pointRadius: 0 }] },
+      options: { responsive: true, maintainAspectRatio: false, animation: false, parsing: false, plugins: { legend: { display: false }, tooltip: { callbacks: { title: items => items.length ? new Date(Number(items[0].parsed.x) * 1000).toLocaleString() : '', label: item => historyLabel(historyMetric, unitPoints.filter(p => p[1] >= start)[item.dataIndex]) } } }, scales: { x: { type: 'linear', min: start, max: now, ticks: { maxTicksLimit: 4, callback: value => new Date(Number(value)*1000).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) } }, y: { ticks: { maxTicksLimit: discrete ? 6 : 4, callback: value => { const tick = historyTick(historyMetric, Number(value)); return unit ? `${tick} ${unit}` : tick } } } } }
     })
     return () => chart.destroy()
-  }, [points, metric, metricId, start, now])
-  const latest = points[points.length-1]
-  const value = !latest || !metric ? '—' : metricId === 3 ? (latest[3] ? 'Open' : 'Closed') : metricId === 5 ? (latest[3] ? 'Occupied' : 'Clear') : `${(latest[3] / metric.scale).toFixed(metric.scale === 1 ? 0 : 1)} ${metric.unit}`
+  }, [points, unitPoints, metric, historyMetric, metricId, start, now, unit])
+  const value = !latest || !metric ? '—' : historyLabel(historyMetric, latest)
   return <article className="dashboard-widget dashboard-chart" style={{ '--sensor-color': metric?.color ?? '#71859a' } as CSSProperties}><div className="dashboard-widget-title"><div><h3>{device?.name ?? 'Unavailable device'}</h3><span>{metric?.name ?? 'Sensor'} · {value}</span></div></div>{error ? <p className="error">{error}</p> : points.length ? <div className="dashboard-chart-canvas"><canvas ref={canvas} role="img" aria-label={`${device?.name} ${metric?.name} chart`} /></div> : <p className="muted small">No retained samples for this value yet.</p>}</article>
 }
 

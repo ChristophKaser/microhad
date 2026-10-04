@@ -1876,7 +1876,8 @@ void testGatewayRunnerCommandDispatch() {
     NotificationWorker notifications(directory, "", "", "");
     assert(notifications.start(&error));
     {
-        Gateway* gateway = new Gateway("/dev/null", 115200, directory, "", "", "", &notifications);
+        Gateway* gateway = new Gateway("/dev/null", 115200, directory, "", "", "", &notifications,
+                                        std::string(directory) + "/history.bin");
         GatewayIntegrationTestPeer::prepareRunnerCommandDevice(gateway);
         GatewayIntegrationTestPeer::attachSerial(gateway, serial[0]);
         GatewayRunner runner(gateway);
@@ -1918,6 +1919,9 @@ void testGatewayRunnerCommandDispatch() {
         assert(view != 0 && view->statusJson().find("\"co2\":{\"value\":758.5,\"unit\":\"ppb\",\"quality\":\"measured\"}") !=
                std::string::npos);
         delete view;
+        std::string matterHistory;
+        assert(runner.readHistoryJson(matter.id, 0, &matterHistory, &error));
+        assert(matterHistory.find("758.5,\"ppb\"") != std::string::npos);
         assert(!runner.refreshDevice("runner-light", &error) && error == "Zigbee network is not ready");
         assert(!runner.setLightState("runner-light", "on", -1, &error) && error == "Zigbee network is not ready");
         assert(runner.setSceneConfiguration(scenes, &error));
@@ -1938,6 +1942,8 @@ void testGatewayRunnerCommandDispatch() {
     unlink((std::string(directory) + "/scenes.conf").c_str());
     unlink((std::string(directory) + "/network.json").c_str());
     unlink((std::string(directory) + "/notifications.json").c_str());
+    unlink((std::string(directory) + "/history.bin").c_str());
+    unlink((std::string(directory) + "/history.bin.values").c_str());
     for (pathIndex = 0; pathIndex < 3; ++pathIndex) {
         unlink(transientPaths[pathIndex]);
         if (preserved[pathIndex]) assert(rename(backups[pathIndex].c_str(), transientPaths[pathIndex]) == 0);

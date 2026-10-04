@@ -618,6 +618,35 @@ bool Gateway::applyMatterReading(const MatterReading& reading, std::string* erro
     }
     device.lastSeen = time(0);
     device.online = true;
+    std::string historyValue;
+    std::string historyUnit;
+    unsigned char historyMetric = 0;
+    if (reading.known) {
+        if (reading.cluster == 6) {
+            historyMetric = SensorHistory::Light;
+            historyValue = reading.booleanValue ? "1" : "0";
+        } else if (reading.cluster == 8) {
+            historyMetric = SensorHistory::Brightness;
+            std::ostringstream value;
+            value << device.brightnessPercent;
+            historyValue = value.str();
+            historyUnit = "percent";
+        } else if (reading.cluster == 1026) historyMetric = SensorHistory::Temperature;
+        else if (reading.cluster == 1029) historyMetric = SensorHistory::Humidity;
+        else if (reading.cluster == 91) {
+            historyMetric = SensorHistory::AirQuality;
+            historyValue = reading.textValue;
+        } else if (reading.cluster == 1037) historyMetric = SensorHistory::CarbonDioxide;
+        else if (reading.cluster == 1066) historyMetric = SensorHistory::Pm25;
+        if (historyMetric != SensorHistory::Light && historyMetric != SensorHistory::AirQuality &&
+            historyMetric != SensorHistory::Brightness) {
+            std::ostringstream value;
+            value << std::setprecision(15) << reading.numberValue;
+            historyValue = value.str();
+            historyUnit = reading.unit;
+        }
+        if (historyMetric != 0) history_.appendValue(device.externalId, historyMetric, historyValue, historyUnit, time(0));
+    }
     updateValueAlerts(device, before);
     markViewDirty();
     return true;

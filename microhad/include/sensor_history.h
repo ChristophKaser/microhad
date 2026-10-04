@@ -13,7 +13,8 @@
    snapshot to read only pages for a requested device. */
 class SensorHistory {
 public:
-    enum { Temperature = 1, Humidity = 2, Contact = 3, Power = 4, Occupancy = 5, Battery = 6 };
+    enum { Temperature = 1, Humidity = 2, Contact = 3, Power = 4, Occupancy = 5, Battery = 6,
+           CarbonDioxide = 7, Pm25 = 8, AirQuality = 9, Light = 10, Brightness = 11 };
     struct ReadStats {
         unsigned long pagesRead;
         unsigned long recordsChecked;
@@ -26,6 +27,8 @@ public:
     const std::string& path() const;
     bool initialize(std::string* error = 0);
     bool append(const std::string& address, unsigned char metric, int value, long timestamp);
+    bool appendValue(const std::string& deviceId, unsigned char metric, const std::string& value,
+                     const std::string& unit, long timestamp);
     void setActiveDevices(const std::vector<std::string>& addresses);
     bool setDevicePresent(const std::string& address, bool present);
     bool readForDevice(const std::string& address, unsigned long before,
@@ -58,6 +61,23 @@ private:
     std::map<std::string, long> lastMinute_;
     std::map<std::string, int> lastValue_;
     std::map<std::string, unsigned long> recordCount_;
+    struct ValueRecord {
+        unsigned long sequence;
+        off_t offset;
+        ValueRecord(unsigned long seq = 0, off_t at = 0) : sequence(seq), offset(at) {}
+    };
+    struct ValueJournal {
+        std::string path;
+        unsigned long sequence;
+        unsigned long recordCount;
+        bool initialized;
+        mutable pthread_mutex_t mutex;
+        std::map<std::string, std::vector<ValueRecord> > records;
+        std::map<std::string, std::string> lastValues;
+        std::map<std::string, long> lastMinutes;
+        ValueJournal();
+        ~ValueJournal();
+    } values_;
     bool initializeV2(int fd, off_t size, std::string* error);
     bool readV2Json(const std::string& address, unsigned long before,
                     std::string* json, std::string* error, ReadStats* stats) const;
@@ -65,6 +85,11 @@ private:
                       unsigned long* pageId);
     bool writeNewFileHeader(int fd);
     void rebuildPairState(const std::string& key);
+    bool initializeValues(std::string* error);
+    bool appendValueLocked(const std::string& deviceId, unsigned char metric, const std::string& value,
+                           const std::string& unit, long timestamp);
+    bool readValuesJson(const std::string& deviceId, unsigned long before,
+                        std::string* json, std::string* error, ReadStats* stats) const;
 };
 
 #endif

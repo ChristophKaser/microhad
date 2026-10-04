@@ -1,38 +1,37 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Chart as ChartJS, LineController, LineElement, LinearScale, PointElement, Tooltip } from 'chart.js'
-import type { Device, HistoryPage, HistorySample } from './api'
+import type { Device, HistoryMetric, HistoryPage, HistorySample } from './api'
 import { errorMessage, jsonRequest } from './api'
+import { historyDiscrete, historyLabel, historyName, historyTick, historyUnit, historyY } from './history'
 
 type Range = 'day' | 'week' | 'all'
-type Metric = 1 | 2 | 3 | 4 | 5 | 6
-
 const rangeSeconds: Record<Range, number> = { day: 86400, week: 604800, all: Infinity }
-const metricName: Record<Metric, string> = { 1: 'Temperature', 2: 'Humidity', 3: 'Contact', 4: 'Power', 5: 'Occupancy', 6: 'Battery' }
-const metricUnit: Record<Metric, string> = { 1: '°C', 2: '%', 3: '', 4: 'W', 5: '', 6: '%' }
-const metricColor: Record<Metric, string> = { 1: '#d97543', 2: '#3384aa', 3: '#7554a4', 4: '#b77928', 5: '#4b956a', 6: '#71859a' }
-const reading = (metric: Metric, raw: number) => metric === 3 || metric === 5 || metric === 6 ? raw : raw / (metric === 4 ? 10 : 100)
+const metricColor: Record<HistoryMetric, string> = {
+  1: '#d97543', 2: '#3384aa', 3: '#7554a4', 4: '#b77928', 5: '#4b956a', 6: '#71859a',
+  7: '#9a5b99', 8: '#6d8293', 9: '#368578', 10: '#d2a635', 11: '#427fb0',
+}
 
 ChartJS.register(LineController, LineElement, LinearScale, PointElement, Tooltip)
 
-function Chart({ samples, metric, now, start }: { samples: HistorySample[]; metric: Metric; now: number; start: number }) {
-  const values = samples.filter((sample) => sample[2] === metric)
+function Chart({ samples, metric, unit, now, start }: { samples: HistorySample[]; metric: HistoryMetric; unit: string; now: number; start: number }) {
+  const values = samples.filter((sample) => sample[2] === metric && historyUnit(metric, sample) === unit)
   const canvas = useRef<HTMLCanvasElement>(null)
   const latest = values[values.length - 1]
-  const latestLabel = latest && (metric === 3 ? (latest[3] ? 'Open' : 'Closed') : `${reading(metric, latest[3]).toFixed(metric === 4 ? 1 : 2)} ${metricUnit[metric]}`)
+  const latestLabel = latest && historyLabel(metric, latest)
 
   useEffect(() => {
     if (!canvas.current || !values.length) return
     const first = Math.min(start, values[0][1])
-    const numeric = values.map((sample) => reading(metric, sample[3]))
-    const discrete = metric === 3 || metric === 5
+    const numeric = values.map((sample) => historyY(metric, sample))
+    const discrete = historyDiscrete(metric)
     const low = discrete ? 0 : Math.floor(Math.min(...numeric) - 1)
-    const high = discrete ? 1 : Math.ceil(Math.max(...numeric) + 1)
-    const points = values.map((sample) => ({ x: sample[1], y: reading(metric, sample[3]) }))
+    const high = discrete ? (metric === 9 ? 5 : 1) : Math.ceil(Math.max(...numeric) + 1)
+    const points = values.map((sample) => ({ x: sample[1], y: historyY(metric, sample) }))
     if (points[points.length - 1].x < now) points.push({ x: now, y: points[points.length - 1].y })
     const chart = new ChartJS(canvas.current, {
       type: 'line',
       data: { datasets: [{
-        label: metricName[metric], data: points, borderColor: metricColor[metric],
+        label: historyName(metric), data: points, borderColor: metricColor[metric],
         backgroundColor: metricColor[metric], borderWidth: 2.5, tension: 0,
         stepped: discrete ? 'after' : false,
         pointRadius: (context) => context.dataIndex === values.length - 1 ? 4 : 0,
@@ -48,7 +47,7 @@ function Chart({ samples, metric, now, start }: { samples: HistorySample[]; metr
             filter: (context) => context.dataIndex < values.length,
             callbacks: {
               title: (items) => items.length ? new Date(Number(items[0].parsed.x) * 1000).toLocaleString() : '',
-                label: (item) => metric === 3 ? (item.parsed.y ? 'Open' : 'Closed') : metric === 5 ? (item.parsed.y ? 'Occupied' : 'Clear') : `${Number(item.parsed.y).toFixed(metric === 4 ? 1 : 2)} ${metricUnit[metric]}`,
+                label: (item) => historyLabel(metric, values[item.dataIndex]),
             },
           },
         },
@@ -63,20 +62,23 @@ function Chart({ samples, metric, now, start }: { samples: HistorySample[]; metr
           },
           y: {
             min: low, max: high, grid: { color: '#dbe6ed' },
-            ticks: { maxTicksLimit: discrete ? 2 : 5, stepSize: discrete ? 1 : undefined,
-              callback: (value) => metric === 3 ? (Number(value) ? 'Open' : 'Closed') : metric === 5 ? (Number(value) ? 'Occupied' : 'Clear') : `${value}${metricUnit[metric]}` },
+            ticks: { maxTicksLimit: discrete ? (metric === 9 ? 6 : 2) : 5, stepSize: discrete ? 1 : undefined,
+              callback: (value) => {
+                const tick = historyTick(metric, Number(value))
+                return unit ? `${tick} ${unit}` : tick
+              } },
           },
         },
       },
     })
     return () => chart.destroy()
-  }, [values, metric, now, start])
+  }, [values, metric, unit, now, start])
 
-  if (!latest) return <div className="history-empty">No {metricName[metric].toLowerCase()} samples in this range.</div>
+  if (!latest) return <div className="history-empty">No {historyName(metric).toLowerCase()} samples in this range.</div>
   return (
     <section className="history-chart">
-      <div className="history-chart-title"><h3>{metricName[metric]}</h3><span>{latestLabel} · {values.length} samples</span></div>
-      <div className="history-canvas"><canvas ref={canvas} role="img" aria-label={`${metricName[metric]} history, latest ${latestLabel}`} /></div>
+      <div className="history-chart-title"><h3>{historyName(metric)}{unit ? ` (${unit})` : ''}</h3><span>{latestLabel} · {values.length} samples</span></div>
+      <div className="history-canvas"><canvas ref={canvas} role="img" aria-label={`${historyName(metric)} history, latest ${latestLabel}`} /></div>
     </section>
   )
 }
@@ -87,6 +89,23 @@ export function HistoryDialog({ device, onClose }: { device: Device; onClose: ()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [now, setNow] = useState(() => Math.floor(Date.now() / 1000))
+  const metrics: HistoryMetric[] = [
+    ...(device.has_temperature ? [1 as const] : []),
+    ...(device.has_humidity ? [2 as const] : []),
+    ...(device.has_contact ? [3 as const] : []),
+    ...(device.has_power ? [4 as const] : []),
+    ...(device.has_occupancy ? [5 as const] : []),
+    ...(device.has_battery ? [6 as const] : []),
+    ...(device.has_co2 ? [7 as const] : []),
+    ...(device.has_pm25 ? [8 as const] : []),
+    ...(device.has_air_quality ? [9 as const] : []),
+    ...(device.has_light || device.has_actor ? [10 as const] : []),
+    ...(device.has_brightness ? [11 as const] : []),
+  ]
+  const series = metrics.flatMap((metric) => {
+    const units = [...new Set(samples.filter((sample) => sample[2] === metric).map((sample) => historyUnit(metric, sample)))]
+    return (units.length ? units : [historyUnit(metric)]).map((unit) => ({ metric, unit }))
+  })
   useEffect(() => {
     let active = true
     const load = async () => {
@@ -116,12 +135,12 @@ export function HistoryDialog({ device, onClose }: { device: Device; onClose: ()
   const start = range === 'all' ? (samples[0]?.[1] ?? now) : now - rangeSeconds[range]
   const visible = useMemo(() => {
     const current = samples.filter((sample) => sample[1] >= start && sample[1] <= now)
-    for (const metric of [1, 2, 3, 4, 5, 6] as const) {
+    for (const metric of metrics) {
       const prior = [...samples].reverse().find((sample) => sample[2] === metric && sample[1] < start)
-      if (prior) current.unshift([prior[0], start, metric, prior[3]])
+      if (prior) current.unshift([prior[0], start, metric, prior[3], prior[4]])
     }
     return current.sort((left, right) => left[1] - right[1])
-  }, [samples, start, now])
+  }, [samples, start, now, metrics])
   return (
     <div className="modal" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
       <div className="dialog wide history-dialog" role="dialog" aria-modal="true" aria-label={`History for ${device.name}`}>
@@ -133,12 +152,7 @@ export function HistoryDialog({ device, onClose }: { device: Device; onClose: ()
         {loading && <p className="muted">Loading history…</p>}
         {error && <p className="error" role="alert">{error}</p>}
         {!loading && !error && <>
-          {device.has_temperature && <Chart samples={visible} metric={1} now={now} start={start} />}
-          {device.has_humidity && <Chart samples={visible} metric={2} now={now} start={start} />}
-          {device.has_contact && <Chart samples={visible} metric={3} now={now} start={start} />}
-          {device.has_power && <Chart samples={visible} metric={4} now={now} start={start} />}
-          {device.has_occupancy && <Chart samples={visible} metric={5} now={now} start={start} />}
-          {device.has_battery && <Chart samples={visible} metric={6} now={now} start={start} />}
+          {series.map(({ metric, unit }) => <Chart key={`${metric}-${unit}`} samples={visible} metric={metric} unit={unit} now={now} start={start} />)}
         </>}
       </div>
     </div>

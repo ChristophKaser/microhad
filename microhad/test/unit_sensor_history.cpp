@@ -28,6 +28,11 @@ std::string historyPath() {
     unlink(name);
     return name;
 }
+void removeHistoryFiles(const std::string& path) {
+    unlink(path.c_str());
+    unlink((path + ".values").c_str());
+    unlink((path + ".values.tmp").c_str());
+}
 
 unsigned long nextBefore(const std::string& json) {
     std::string::size_type at = json.find("\"next_before\":");
@@ -133,7 +138,7 @@ void runSensorHistoryUnitTests() {
         cursor = nextBefore(json);
     }
     assert(foundOldValue);
-    unlink(path.c_str());
+    removeHistoryFiles(path);
 
     path = historyPath();
     {
@@ -153,7 +158,7 @@ void runSensorHistoryUnitTests() {
     close(fd);
     assert(SensorHistory::readJson(path, sensor, 0, &json, &error));
     assert(json == "{\"samples\":[],\"next_before\":0}");
-    unlink(path.c_str());
+    removeHistoryFiles(path);
 
     path = historyPath();
     {
@@ -170,7 +175,7 @@ void runSensorHistoryUnitTests() {
     close(fd);
     assert(SensorHistory::readJson(path, sensor, 0, &json, &error));
     assert(json == "{\"samples\":[],\"next_before\":0}");
-    unlink(path.c_str());
+    removeHistoryFiles(path);
 
     path = historyPath();
     {
@@ -187,7 +192,7 @@ void runSensorHistoryUnitTests() {
     close(fd);
     assert(SensorHistory::readJson(path, sensor, 0, &json, &error));
     assert(json == "{\"samples\":[],\"next_before\":0}");
-    unlink(path.c_str());
+    removeHistoryFiles(path);
 
     path = historyPath();
     int unsupported = open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
@@ -199,7 +204,7 @@ void runSensorHistoryUnitTests() {
         assert(error.find("file preserved") != std::string::npos);
     }
     assert(stat(path.c_str(), &info) == 0 && info.st_size == 15);
-    unlink(path.c_str());
+    removeHistoryFiles(path);
 
     path = historyPath();
     {
@@ -224,7 +229,7 @@ void runSensorHistoryUnitTests() {
     assert(json.find(",5,1]") != std::string::npos);
     assert(json.find(",6,87]") != std::string::npos);
     assert(json.find("1702000060") == std::string::npos);
-    unlink(path.c_str());
+    removeHistoryFiles(path);
 
     path = historyPath();
     {
@@ -241,7 +246,7 @@ void runSensorHistoryUnitTests() {
                 stats.pagesRead, stats.bytesRead,
                 static_cast<unsigned long>((finish.tv_sec - start.tv_sec) * 1000000L + finish.tv_usec - start.tv_usec));
     }
-    unlink(path.c_str());
+    removeHistoryFiles(path);
 
     path = historyPath();
     {
@@ -292,5 +297,49 @@ void runSensorHistoryUnitTests() {
         assert(history.readForDevice("0x0000000000000002", 0, &json, &error));
         assert(json.find("\"samples\":[") == 1);
     }
-    unlink(path.c_str());
+    removeHistoryFiles(path);
+
+    const std::string matterId = "matter:0000000000000001:0000000000000002:0001";
+    const std::string secondMatterId = "matter:0000000000000001:0000000000000002:0002";
+    {
+        SensorHistory history(path);
+        assert(history.appendValue(matterId, SensorHistory::Temperature, "-5.25", "celsius", 1708000000L));
+        assert(history.appendValue(matterId, SensorHistory::Humidity, "45.5", "percent", 1708000000L));
+        assert(history.appendValue(matterId, SensorHistory::CarbonDioxide, "758.5", "ppb", 1708000000L));
+        assert(history.appendValue(matterId, SensorHistory::Pm25, "12.75", "ug/m3", 1708000000L));
+        assert(history.appendValue(matterId, SensorHistory::AirQuality, "moderate", "", 1708000001L));
+        assert(history.appendValue(matterId, SensorHistory::Light, "1", "", 1708000002L));
+        assert(history.appendValue(matterId, SensorHistory::Brightness, "50", "percent", 1708000003L));
+        assert(history.appendValue(secondMatterId, SensorHistory::Temperature, "21.5", "celsius", 1708000000L));
+        assert(!history.appendValue(matterId, SensorHistory::CarbonDioxide, "758.5", "miles", 1708000060L));
+        assert(history.readForDevice(matterId, 0, &json, &error));
+        assert(json.find("-5.25,\"celsius\"") != std::string::npos);
+        assert(json.find("758.5,\"ppb\"") != std::string::npos);
+        assert(json.find("\"moderate\",\"\"") != std::string::npos);
+        assert(json.find("21.5") == std::string::npos);
+    }
+    {
+        SensorHistory restarted(path);
+        assert(restarted.initialize(&error));
+        assert(restarted.readForDevice(matterId, 0, &json, &error));
+        assert(json.find("12.75,\"ug/m3\"") != std::string::npos);
+    }
+
+    std::string boundedPath = historyPath();
+    {
+        SensorHistory bounded(boundedPath);
+        char value[16];
+        for (unsigned long i = 0; i < 8193; ++i) {
+            snprintf(value, sizeof(value), "%lu", i % 10000);
+            assert(bounded.appendValue(matterId, SensorHistory::CarbonDioxide, value, "ppm",
+                                       1708000000L + static_cast<long>(i) * 60L));
+        }
+        struct stat boundedFile;
+        assert(stat((boundedPath + ".values").c_str(), &boundedFile) == 0);
+        assert(boundedFile.st_size <= 16 + 4097 * 128);
+        assert(bounded.readForDevice(matterId, 0, &json, &error));
+        assert(json.find(",7,0,\"ppm\"]") == std::string::npos);
+        assert(json.find(",7,8192,\"ppm\"]") != std::string::npos);
+    }
+    removeHistoryFiles(boundedPath);
 }
