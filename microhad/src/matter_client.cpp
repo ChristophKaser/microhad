@@ -162,8 +162,8 @@ bool hex(const std::string& value, unsigned int minimum, unsigned int maximum) {
 bool errorValid(const std::string& value) {
     static const char* const errors[] = {"\"malformed\"", "\"not_ready\"", "\"busy\"", "\"stale_session\"",
         "\"stale_generation\"", "\"timeout\"", "\"cancelled\"", "\"transport\"", "\"storage\"",
-        "\"capacity\"", "\"accessory\"", "\"unsupported\""};
-    return member(value, errors, 12);
+        "\"capacity\"", "\"accessory\"", "\"unsupported\"", "\"not_found\""};
+    return member(value, errors, 13);
 }
 bool sessionValid(Fields fields) {
     static const char* const states[] = {"\"waiting_ble\"", "\"pase\"", "\"provisioning\"", "\"waiting_thread\"",
@@ -214,17 +214,34 @@ bool devicePageValid(Fields fields) {
     }
     return descriptor;
 }
+bool operationalJobValid(Fields fields) {
+    if (!fields.count("state") || !hex(fields["job"], 16, 16) || fields["job"] == "\"0000000000000000\"") return false;
+    if (fields["state"] == "\"queued\"" || fields["state"] == "\"running\"") return fields.size() == 2;
+    if (fields["state"] == "\"failed\"") return fields.size() == 3 && errorValid(fields["error"]);
+    if (fields["state"] != "\"complete\"" || fields.size() != 3) return false;
+    Fields result, value;
+    if (!StatusJson(fields["result"]).parse(&result) || result.size() != 5 ||
+        !hex(result["node"], 16, 16) || result["node"] == "\"0000000000000000\"" ||
+        !number(result["endpoint"], 0, 65534) || result["cluster"] != "6" || result["attribute"] != "0" ||
+        !StatusJson(result["value"]).parse(&value)) return false;
+    return value.size() == 2 && value["type"] == "\"bool\"" && booleanField(value, "value");
+}
+bool acceptedOperationValid(Fields fields) {
+    return fields.size() == 2 && hex(fields["job"], 16, 16) &&
+        fields["job"] != "\"0000000000000000\"" && fields["state"] == "\"queued\"";
+}
 bool responseValid(unsigned char opcode, const std::string& text) {
     Fields fields;
     if (!StatusJson(text).parse(&fields)) return false;
     if (opcode == 1 || opcode == 2) return snapshotValid(fields, opcode == 2);
-    if (opcode < 3 || opcode > 10 || fields.size() != 3 || fields["schema"] != "1" || !booleanField(fields, "ok")) return false;
+    if (opcode < 3 || opcode > 11 || fields.size() != 3 || fields["schema"] != "1" || !booleanField(fields, "ok")) return false;
     if (fields["ok"] == "false") return fields.count("error") && (errorValid(fields["error"]) ||
         (opcode == 10 && fields["error"] == "\"stale_revision\""));
     Fields result;
     if (!fields.count("result") || !StatusJson(fields["result"]).parse(&result)) return false;
     if (opcode == 9) return snapshotValid(result, true);
-    if (opcode == 10) return devicePageValid(result);
+    if (opcode == 10) return devicePageValid(result) || operationalJobValid(result) || acceptedOperationValid(result);
+    if (opcode == 11) return acceptedOperationValid(result);
     if (opcode <= 5) return sessionValid(result);
     const char* name = opcode == 6 ? "generation" : opcode == 7 ? "sequence" : "write";
     return result.size() == 1 && number(result[name], 1, 0xffffffffU);
@@ -233,11 +250,22 @@ bool requestValid(unsigned char opcode, const std::string& text) {
     Fields fields;
     if (text.size() > MatterWire::MaxPayload || !StatusJson(text).parse(&fields) || fields["schema"] != "1") return false;
     if (opcode == 10) {
+        if (fields["action"] == "\"read\"") return fields.size() == 6 &&
+            hex(fields["node"], 16, 16) && fields["node"] > "\"0000000000000001\"" &&
+            number(fields["endpoint"], 0, 65534) && fields["cluster"] == "6" && fields["attribute"] == "0";
+        if (fields["action"] == "\"job\"") return fields.size() == 3 &&
+            hex(fields["job"], 16, 16) && fields["job"] != "\"0000000000000000\"";
         if (fields["action"] != "\"snapshot\"" ||
             (fields.count("cursor") && !number(fields["cursor"], 0, 2047)) ||
             (fields.count("revision") && (!hex(fields["revision"], 16, 16) || fields["revision"] == "\"0000000000000000\"")) ||
             (fields.count("cursor") && fields["cursor"] != "0" && !fields.count("revision"))) return false;
         return fields.size() == 2 + fields.count("cursor") + fields.count("revision");
+    }
+    if (opcode == 11) {
+        static const char* const commands[] = {"\"on\"", "\"off\"", "\"toggle\""};
+        return fields.size() == 4 && member(fields["command"], commands, 3) &&
+            hex(fields["node"], 16, 16) && fields["node"] > "\"0000000000000001\"" &&
+            number(fields["endpoint"], 0, 65534);
     }
     if (opcode == 9) {
         if (fields["action"] == "\"create\"") return fields.size() == 2;
@@ -470,7 +498,7 @@ bool MatterChannel::poll(std::string* error) {
 bool MatterChannel::call(unsigned char opcode, const std::string& body, std::string* json, std::string* error) {
     json->clear(); error->clear();
     int64_t now = nowMilliseconds();
-    if (now < 0 || nextId_ == 0 || opcode < 1 || opcode > 10 || body.size() > MatterWire::MaxPayload) {
+    if (now < 0 || nextId_ == 0 || opcode < 1 || opcode > 11 || body.size() > MatterWire::MaxPayload) {
         *error = "Matter service request invalid"; return false;
     }
     const int64_t deadline = now + 1000;

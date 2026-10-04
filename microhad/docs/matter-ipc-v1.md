@@ -121,14 +121,11 @@ immediately. Poll that job through opcode 10 `{"schema":1,"action":"job",
 readback result) or `failed` (with a fixed error). Rust admits at most eight
 operations and runs one CASE transaction at a time. A 30-second deadline starts
 at admission, including queue wait. Thread loss fails queued/active operations;
-commissioning is serialized against operations. Native strict validation, HTTP
-read/control routing and dashboard controls are still pending. The existing
-snapshot HTTP path remains available.
-`read` requires `node`,
-`endpoint` (u16), `cluster` (u32), `attribute` (u32). Only discovered/supported
-attribute paths are permitted. A value is tagged `null`, `bool`, `integer`,
-`number`, or `text`; text is at most 128 UTF-8 bytes. Descriptor/measurement
-discovery, scaling and report semantics are implemented under plan 07.
+commissioning is serialized against operations. Native strict validation now
+accepts and checks this Rust job contract. HTTP read/control routing and
+dashboard controls are still pending. The existing snapshot HTTP path remains
+available. For now, `read` accepts only cluster 6 attribute 0; it returns a
+typed boolean readback. Other paths return `unsupported`.
 
 Commands: `on`, `off`, `toggle` have no additional fields. `move_to_level`
 requires `level` (0–254) and `transition_deciseconds` (0–65535). Reject command

@@ -176,9 +176,9 @@ event consumption; Thread subscription does not replace that work.
 | Step | Current status | Evidence / remaining work |
 | --- | --- | --- |
 | 1 | Complete | Opcodes, optional subscription and concrete callback result fields documented in IPC v1. |
-| 2 | Partial | Strict requests, session/Thread replies and typed commissioning/BLE/Thread events implemented; device replies/events and native validators remain. |
+| 2 | Partial | Strict requests, session/Thread replies, device job requests/replies and typed commissioning/BLE/Thread events implemented; native device events and broader vectors remain. |
 | 3 | Complete | Production owner uses the bounded session manager and pinned real commissioner future with cancellation/reconnect cleanup. |
-| 4 | Partial | Status, Thread lifecycle and commissioning/relay opcodes 3–8 dispatch; owned encrypted PASE, provision and CASE path verified in fixture. Production operational discovery and device read/control dispatch remain in plan 07. |
+| 4 | Partial | Status, Thread lifecycle, commissioning/relay and Rust operational device job dispatch verified. Native HTTP read/control routes and broader failure/recovery gates remain. |
 | 5 | Partial | Native observer/status worker implemented; persistent event consumer and queued commissioning/control requests remain pending. |
 | 6 | Partial | Rust body vectors, callback/reconnect/timeout tests and actual service IPC tests pass; full native cross-language body/event vectors remain pending. |
 | 7 | Current | Contract and implementation evidence updated at this checkpoint. |
@@ -263,6 +263,21 @@ read/control routes, dashboard controls, Level operations, sensors, reporting,
 and extended interruption/restart recovery remain open. Implementation and
 executor behavior are documented in
 `ziggurat-compilation/docs/matter-operational-transactions.md`.
+
+## Native operational job validator checkpoint — 2026-10-04
+
+The native Matter channel now validates opcode-10 OnOff read and job-poll
+requests, opcode-11 on/off/toggle requests, Rust asynchronous acceptance/status
+replies, fixed failure codes and completed typed boolean readbacks. Unsupported
+cluster paths and Level commands are rejected before queueing. This is strict
+wire validation only; public HTTP read/control routes are still open.
+
+Verification: default `make host test` and `make mips`, then
+`make ZIGGURAT=1 MATTER=1 host test` and `make ZIGGURAT=1 MATTER=1 mips` all
+pass. Host integration includes the native IPC/HTTP suite; MIPS emits the
+existing assembler LOAD-USE warnings. The Rust fixture remains the encrypted
+CASE evidence for actual job completion. No gateway deployment or plan 08 test
+occurred.
 
 Validation: golden vectors plus actual-service request/event round trips; no
 HTTP worker may wait for a commissioning lifetime or forward unchecked JSON.

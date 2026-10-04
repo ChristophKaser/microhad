@@ -165,6 +165,31 @@ void runMatterClientUnitTests() {
     assert(MatterChannel::validRequest(10, pageBody));
     assert(!MatterChannel::validRequest(10, "{\"schema\":1,\"action\":\"snapshot\",\"cursor\":1}"));
     assert(!MatterChannel::validRequest(10, "{\"schema\":1,\"action\":\"read\"}"));
+    const std::string readBody = "{\"schema\":1,\"action\":\"read\",\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":6,\"attribute\":0}";
+    const std::string jobBody = "{\"schema\":1,\"action\":\"job\",\"job\":\"0000000000000001\"}";
+    const std::string commandBody = "{\"schema\":1,\"command\":\"toggle\",\"node\":\"0000000000000002\",\"endpoint\":1}";
+    assert(MatterChannel::validRequest(10, readBody));
+    assert(MatterChannel::validRequest(10, jobBody));
+    assert(MatterChannel::validRequest(11, commandBody));
+    assert(!MatterChannel::validRequest(10, "{\"schema\":1,\"action\":\"read\",\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":8,\"attribute\":0}"));
+    assert(!MatterChannel::validRequest(11, "{\"schema\":1,\"command\":\"move_to_level\",\"node\":\"0000000000000002\",\"endpoint\":1}"));
+    std::vector<std::string> operationReplies;
+    operationReplies.push_back("{\"schema\":1,\"ok\":true,\"result\":{\"job\":\"0000000000000001\",\"state\":\"queued\"}}");
+    operationReplies.push_back("{\"schema\":1,\"ok\":true,\"result\":{\"state\":\"queued\",\"job\":\"0000000000000001\"}}");
+    operationReplies.push_back("{\"schema\":1,\"ok\":true,\"result\":{\"state\":\"running\",\"job\":\"0000000000000001\"}}");
+    operationReplies.push_back("{\"schema\":1,\"ok\":true,\"result\":{\"state\":\"complete\",\"job\":\"0000000000000001\",\"result\":{\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":6,\"attribute\":0,\"value\":{\"type\":\"bool\",\"value\":true}}}}");
+    operationReplies.push_back("{\"schema\":1,\"ok\":true,\"result\":{\"state\":\"failed\",\"job\":\"0000000000000001\",\"error\":\"not_ready\"}}");
+    std::string malformedJob = operationReplies[3]; malformedJob.replace(malformedJob.find("\"cluster\":6"), 10, "\"cluster\":8"); operationReplies.push_back(malformedJob);
+    for (unsigned int i = 0; i < operationReplies.size(); ++i) {
+        int pair[2]; assert(socketpair(AF_UNIX, SOCK_STREAM, 0, pair) == 0);
+        assert(fcntl(pair[0], F_SETFL, O_NONBLOCK) == 0);
+        MatterChannel channel("unused"); channel.fd_ = pair[0];
+        Peer peer; peer.fd = pair[1]; peer.opcode = i == 0 ? 11 : 10;
+        peer.body = i == 0 ? commandBody : jobBody; peer.reply = operationReplies[i];
+        pthread_t server; assert(pthread_create(&server, 0, serveStatus, &peer) == 0);
+        assert(channel.call(peer.opcode, peer.body, &json, &error) == (i < 5));
+        assert(pthread_join(server, 0) == 0);
+    }
     const std::string device = "{\"node\":\"0000000000000002\",\"state\":\"complete\",\"online\":true,"
         "\"id\":\"matter:0000000000000001:0000000000000002:0001\",\"endpoint\":1,\"servers\":[6,29]}";
     std::vector<std::string> pages;
