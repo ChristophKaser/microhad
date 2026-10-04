@@ -6,9 +6,9 @@ Guarded datasets, fresh coordinator observations, and active commissioning
 cancellation on readiness loss are host-verified. Integrated
 stall/channel-change/restart recovery remains open.
 
-Next deliverable: Exercise coordinator stalls, channel changes and RCP/service restart
-with an active commissioning job. Verify fail-closed readiness, preserved credentials
-and bounded operator recovery.
+Next deliverable: Combine RCP/service loss with an active commissioning job, then
+exercise repeated channel changes and bounded operator recovery. Keep physical
+coexistence and RF acceptance in plan 08.
 
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.
@@ -189,3 +189,23 @@ verifies session cancellation and stale callback isolation when readiness is
 lost. RCP process death/reconnect while the session is active, repeated channel
 changes, and physical recovery remain open; no target deployment or plan 08
 test occurred.
+
+## RCP socket-loss restart and dataset gating — 2026-10-04
+
+Rust commit `f33d47c` extends the actual `thread-matter` process fixture to
+terminate the synthetic Ziggurat RCP relay while Thread is configured. The
+service exits nonzero, its stale IPC socket pathname is reclaimed on restart,
+and the restarted service remains `awaiting_coordinator` without radio traffic.
+An observation on the wrong channel returns `not_ready` and leaves radio quiet;
+a fresh observation matching the stored dataset starts OpenThread and returns
+the service to `running`. The test compares credential bytes, inode and mtime
+before and after the failure/restart, and verifies the synthetic RCP receives no
+reset command and writes only the permitted channel.
+
+`python3 scripts/test-matter-service.py` passes with this scenario, including
+the active BLE-session cancellation-on-offline case, bounded commissioning
+timeout, state validation and final restart checks. This proves host process
+recovery and credential/channel guards against the synthetic RCP. Combining
+actual RCP socket death with an active BLE commissioning session, repeated
+channel changes and all physical RF/coexistence behavior remain open. No target
+deployment or plan 08 acceptance occurred.

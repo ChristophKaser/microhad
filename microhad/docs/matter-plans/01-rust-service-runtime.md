@@ -190,3 +190,11 @@ and real-service/native lifecycle checkpoint. Production daemon report delivery
 into a registered Matter endpoint remains a host-fixture gap; target startup,
 CPU, RSS, deadlines, physical commissioning and RF behavior remain exclusively
 in plan 08. No gateway deployment occurred.
+
+Rust commit `f33d47c` additionally exercises the actual service binary across
+synthetic RCP socket death and restart. It verifies stale IPC socket reclamation,
+unchanged credentials, startup waiting without radio traffic, wrong-channel
+rejection before radio use, and recovery after a fresh matching observation.
+`python3 scripts/test-matter-service.py` passes. This closes the host service/
+RCP restart checkpoint; active commissioning during RCP death, target startup
+and resource deadlines, and physical acceptance remain open.
