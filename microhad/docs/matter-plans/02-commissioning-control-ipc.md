@@ -72,6 +72,20 @@ session/lifecycle race over production IPC. Installed-daemon reports reaching
 a registered native device, process restart during active commissioning, and
 the broader malformed/backpressure matrix remain open.
 
+## Commissioning session recovery across service restart — 2026-10-04
+
+Rust commit `34b4839` starts an actual service-owned BLE commissioning task,
+then drops its RCP connection before the phone write completes. On restart,
+the old session callback is rejected with `stale_session`; its allocated node
+is preserved as `recovery_required`, and the Thread dataset is unchanged.
+The restarted service refuses radio initialization until a fresh matching
+coordinator observation is received.
+
+`python3 scripts/test-matter-service.py` passes this service-process scenario.
+This closes the active-session/RCP-restart host checkpoint. Installed-daemon
+sensor reports reaching a registered native device and the broader malformed,
+backpressure, and cross-language failure matrix remain open.
+
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.
 Earlier checkpoint sections are historical; use the latest evidence when

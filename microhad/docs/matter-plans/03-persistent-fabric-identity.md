@@ -5,10 +5,11 @@
 Persistent authority and host CASE restore exist. Synthetic staged recovery now
 has evidence for a completed catalog, stable endpoint identity, corrupt
 candidate refusal, source preservation, authority restoration and allocator
-high-water. Archive preflight, private extraction and matching-service identity
-validation now pass together on synthetic state. Interrupted replacement,
-counter/high-water rollback refusal and target filesystem verification remain
-open.
+high-water. The real service fixture also verifies an allocated node is retained
+as `recovery_required` after active commissioning is interrupted by RCP loss.
+Archive preflight, private extraction and matching-service identity validation
+pass together on synthetic state. Incomplete archive/failed-restore preservation
+and target filesystem verification remain open.
 
 Native commit `7247c94` adds structural preflight for the plaintext tar produced
 after successful backup decryption. Commit `7f5ac3d` adds staged extraction that
@@ -206,3 +207,18 @@ recovery tests. The test uses synthetic directories and does not export or
 activate live state. Archive completeness, OpenThread `tmp/` preservation and
 end-to-end rejection of an incomplete archive remain open, so checklist item 3
 is still unchecked.
+
+## Interrupted commissioning allocation recovery — 2026-10-04
+
+Rust commit `34b4839` extends the real service restart fixture to allocate a
+node for an active commissioning attempt, then terminate the RCP connection.
+On service restart the catalog retains that node in `recovery_required`; the
+Thread dataset bytes remain unchanged, and the service rejects the old
+commissioning session callback. This confirms that an interrupted attempt
+does not recycle its operational node ID or overwrite the active Thread
+credentials.
+
+`python3 scripts/test-matter-service.py` passes this scenario. It is host
+synthetic-RCP evidence, not crash-at-every-write filesystem acceptance.
+Interrupted archive replacement, corrupt/incomplete failed-restore preservation,
+and target filesystem behavior remain open; plan 08 was not run.

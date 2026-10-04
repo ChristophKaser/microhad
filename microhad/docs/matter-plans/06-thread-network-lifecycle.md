@@ -6,9 +6,8 @@ Guarded datasets, fresh coordinator observations, and active commissioning
 cancellation on readiness loss are host-verified. Integrated
 stall/channel-change/restart recovery remains open.
 
-Next deliverable: Combine RCP/service loss with an active commissioning job, then
-exercise repeated channel changes and bounded operator recovery. Keep physical
-coexistence and RF acceptance in plan 08.
+Next deliverable: Exercise repeated channel changes and bounded operator recovery.
+Keep physical coexistence and RF acceptance in plan 08.
 
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.
@@ -119,7 +118,10 @@ are historical; the latest status/evidence section above takes precedence.
 
 1. [ ] Extend synthetic integration coverage for coordinator stalls/restarts,
    channel changes and Thread socket loss while the native worker remains live.
-   Confirm expiry detaches Thread and stale observations cannot renew readiness.
+   The Rust service fixture now covers active-session RCP loss/restart and fresh
+   channel gating (`34b4839`); native-worker continuity and repeated channel
+   change cases remain. Confirm expiry detaches Thread and stale observations
+   cannot renew readiness.
 2. [ ] Define and verify explicit recovery when the observed Zigbee channel
    differs from the persisted dataset. Reject incompatible apply before any
    store/radio mutation; never silently replace credentials or reset the UART.
@@ -205,7 +207,22 @@ reset command and writes only the permitted channel.
 `python3 scripts/test-matter-service.py` passes with this scenario, including
 the active BLE-session cancellation-on-offline case, bounded commissioning
 timeout, state validation and final restart checks. This proves host process
-recovery and credential/channel guards against the synthetic RCP. Combining
-actual RCP socket death with an active BLE commissioning session, repeated
+recovery and credential/channel guards against the synthetic RCP. Repeated
 channel changes and all physical RF/coexistence behavior remain open. No target
 deployment or plan 08 acceptance occurred.
+
+## Active commissioning across RCP process restart — 2026-10-04
+
+Rust commit `34b4839` extends the service fixture with the harder failure: it
+queues a BLE commissioning write, kills the synthetic RCP relay, then restarts
+`thread-matter`. The allocated node remains in the catalog and is recovered as
+`recovery_required`; the Thread dataset stays byte-for-byte unchanged. The old
+session's BLE write completion returns `stale_session`. Startup emits no radio
+traffic before observation, rejects a wrong channel without radio mutation,
+then resumes on the matching channel.
+
+`python3 scripts/test-matter-service.py` passes with this case, including the
+existing 30-second commissioning timeout and subsequent fabric/state checks.
+This verifies active-session/RCP failure recovery on the host synthetic RCP.
+Repeated channel changes and target RF/recovery acceptance remain open; plan
+08 was not run.
