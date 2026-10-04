@@ -332,6 +332,62 @@ def main():
             assert created["ok"] and created["result"]["configured"]
             assert created["result"]["state"] in ("attaching", "attached")
             assert "dataset" not in created["result"]
+
+            # RCP socket death must stop the service; restored state must wait
+            # for a fresh matching coordinator observation before radio use.
+            radio_credentials = credentials.read_bytes()
+            radio_metadata = credentials.stat()
+            assert status(ipc_path, 9, 315, b'{"schema":1,"action":"observe","zigbee_channel":15,"zigbee_online":true}')['ok']
+            deadline = time.monotonic() + 3
+            while status(ipc_path, 1, 316)["state"] != "running":
+                assert time.monotonic() < deadline
+                time.sleep(.01)
+            relay.terminate()
+            relay.wait(timeout=2)
+            stdout, stderr = service.communicate(timeout=5)
+            assert service.returncode != 0 and not stdout, (service.returncode, stdout, stderr)
+            assert stderr.startswith(b"Matter controller service started\n"), stderr
+            # Low-level OpenThread failure may bypass Rust destructors; startup
+            # must reclaim the stale socket before answering below.
+            assert ipc_path.exists() and credentials.read_bytes() == radio_credentials
+            assert (credentials.stat().st_ino, credentials.stat().st_mtime_ns) == (radio_metadata.st_ino, radio_metadata.st_mtime_ns)
+            radio.close()
+            if radio_path.exists() and stat.S_ISSOCK(radio_path.lstat().st_mode):
+                radio_path.unlink()
+
+            radio = ChannelRcp("127.0.0.1", tcp_nodelay=True)
+            relay = subprocess.Popen([str(ROOT / "build/openthread-unix/sim-relay-host"),
+                str(radio_path), radio.address, str(radio.port), "90"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            deadline = time.monotonic() + 3
+            while not radio_path.exists():
+                if relay.poll() is not None or time.monotonic() >= deadline:
+                    raise RuntimeError("Restart relay did not start")
+                time.sleep(.02)
+            service = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            deadline = time.monotonic() + 5
+            while True:
+                if service.poll() is not None or time.monotonic() >= deadline:
+                    raise RuntimeError("Service did not wait for a fresh coordinator observation")
+                try:
+                    status(ipc_path, 1, 317)
+                    break
+                except (OSError, RuntimeError):
+                    time.sleep(.02)
+            assert status(ipc_path, 2, 318)["state"] == "awaiting_coordinator"
+            assert not radio.requests
+            wrong = status(ipc_path, 9, 319, b'{"schema":1,"action":"observe","zigbee_channel":11,"zigbee_online":true}')
+            assert wrong["error"] == "not_ready" and not radio.requests
+            assert status(ipc_path, 2, 320)["state"] == "channel_mismatch"
+            assert status(ipc_path, 9, 321, b'{"schema":1,"action":"observe","zigbee_channel":15,"zigbee_online":true}')['ok']
+            deadline = time.monotonic() + 3
+            while status(ipc_path, 1, 322)["state"] != "running":
+                assert time.monotonic() < deadline
+                time.sleep(.01)
+            assert status(ipc_path, 2, 323)["configured"]
+            assert credentials.read_bytes() == radio_credentials
+            assert (credentials.stat().st_ino, credentials.stat().st_mtime_ns) == (radio_metadata.st_ino, radio_metadata.st_mtime_ns)
+
             commissioning_calls(ipc_path, credentials)
             # Status traffic stays responsive across multiple independent clients.
             start = time.monotonic()
@@ -344,6 +400,7 @@ def main():
             expired = status(ipc_path, 2, 499)
             assert expired["state"] == "awaiting_coordinator" and not expired["attached"]
             assert credentials.read_bytes() == committed
+
             service.terminate()
             stdout, stderr = service.communicate(timeout=2)
             assert service.returncode == 0
