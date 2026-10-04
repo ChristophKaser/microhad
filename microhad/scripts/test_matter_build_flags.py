@@ -50,7 +50,7 @@ def main():
                             text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     assert result.returncode == 0, result.stderr
     assert 'Matter IPC/status bridge enabled' in result.stdout
-    result = subprocess.run(['make', '-n', 'ZIGGURAT=1', 'MATTER=1', 'mips'], cwd=ROOT,
+    result = subprocess.run(['make', '-B', '-n', 'ZIGGURAT=1', 'MATTER=1', 'mips'], cwd=ROOT,
                             text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     assert result.returncode == 0, result.stderr
     assert 'build/mips-ziggurat-matter/microhad-zigbee-native.matter-manifest' in result.stdout
