@@ -139,13 +139,24 @@ retention policy rather than routinely writing copies to gateway flash.
 
    The helper accepts only uncompressed tar archives, caps the archive and
    extracted sizes at 64 MiB, caps individual files at 16 MiB and member count
-   at 4,096, and never extracts files. It prints only an entry/byte count or a
-   generic failure; it does not print member paths or contents. Do not use
-   unrestricted tar extraction when preflight fails.
+   at 4,096. Preflight mode never extracts files. It prints only an entry/byte
+   count or a generic failure; it does not print member paths or contents. Do
+   not extract when preflight fails.
 5. Extract into a new private staging tree on RAM or an encrypted host filesystem,
-   restrict directories/files to 0700/0600, and assign the intended service UID
-   when staging onto the gateway. Verify the entire tree is present, including
-   OpenThread settings and the versioned node catalog.
+   using the same helper so extraction repeats preflight and applies owner-only
+   modes:
+
+   ```bash
+   python3 scripts/matter_archive.py "$MATTER_STAGE_ARCHIVE" \
+       --extract-to "$MATTER_STAGE_DIR"
+   ```
+
+   The destination must be an absolute path that does not already exist. The
+   helper never follows archive links, never overwrites an existing file/tree,
+   fsyncs staged files/directories, and leaves a failed private candidate in
+   place for diagnosis. Assign the intended service UID when staging onto the
+   gateway. Verify the entire tree is present, including OpenThread settings
+   and the versioned node catalog.
 6. Validate the TMKV magic/version, bounded record count/lengths, unique keys,
    exact payload length and CRC without printing records. Then use the matching
    service's identity/store validation to verify certificates, key pairs,
@@ -159,9 +170,10 @@ retention policy rather than routinely writing copies to gateway flash.
 The credential-envelope format and authority fields are defined in
 [the identity schema](matter-identity-store-v1.md). The exact runtime validation
 exists in companion `rs-matter-probe/src/store.rs` and `src/identity.rs`.
-A dedicated offline service validation command and automated staged-restore
-harness remain open; archive preflight checks structure only and does not
-validate credential contents or authorize activation.
+A dedicated offline service identity-validation command and an automated
+staged-restore harness remain open; archive preflight/extraction checks
+structure and filesystem safety only. They do not validate credential contents
+or authorize activation.
 
 ## Counter rollback and activation
 
@@ -208,13 +220,14 @@ All document links and shell-template syntax are checked on the host. No actual
 credentials were read, encrypted, exported or restored, and no gateway was
 contacted. These are documented procedures, not executed recovery evidence.
 
-Synthetic archive-structure tests cover incomplete state trees, traversal,
-duplicate paths, links, file/directory conflicts, size bounds and redacted CLI
-output. Plan 03 still requires wrong-permission and interrupted-replacement
-tests, invalid identity and allocator rollback, and a failed restore preserving
-the last good tree. Extend recovery tests to node catalog remote reconciliation
-once plan 07 implements it. Factory filesystem durability and physical
-CASE/reception/resource measurements remain in excluded plan 08.
+Synthetic archive tests cover incomplete state trees, traversal, duplicate
+paths, links, file/directory conflicts, size bounds, redacted CLI output,
+owner-only staged modes and preservation of existing/source data. Plan 03 still
+requires wrong-permission and interrupted-replacement tests, service identity
+validation, allocator rollback, and a failed restore preserving the last good
+tree. Extend recovery tests to node catalog remote reconciliation once plan 07
+implements it. Factory filesystem durability and physical CASE/reception/
+resource measurements remain in excluded plan 08.
 
 [GnuPG command reference](https://www.gnupg.org/documentation/manuals/gnupg/Operational-GPG-Commands.html)
 describes public-key encryption and explicit-output decryption. The runbook's

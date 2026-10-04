@@ -8,12 +8,13 @@ candidate refusal, source preservation, authority restoration and allocator
 high-water; full archive/Thread-settings recovery and target filesystem
 verification remain open.
 
-Native commit `7247c94` adds a structural preflight for the plaintext tar produced
-after successful backup decryption. It rejects incomplete state roots,
-noncanonical/traversing paths, duplicate entries, links/special files, size
-overruns and file/directory conflicts without extracting or displaying names.
-Five synthetic tests pass. Wrong-permission/interrupted replacement, identity
-and allocator rollback, and failed-restore preservation remain open.
+Native commit `7247c94` adds structural preflight for the plaintext tar produced
+after successful backup decryption. Commit `7f5ac3d` adds staged extraction that
+repeats preflight, requires a new absolute destination, writes only regular
+files and directories with owner-only modes, and preserves source
+archives/existing trees. Seven synthetic tests pass. Service identity validation,
+wrong-permission/interrupted replacement, allocator rollback, and failed-restore
+preservation remain open.
 
 Consistent backup/staged restore procedures are documented in
 [the recovery runbook](../matter-backup-recovery.md). Next deliverable: exercise
@@ -133,12 +134,12 @@ are historical; the latest status/evidence section above takes precedence.
    before activation, rollback and retention. Forbid merging stores or
    lowering the allocator; preserve rejected state for diagnosis.
 3. [ ] Complete the synthetic recovery matrix for incomplete backup, corruption,
-   wrong permissions and interrupted replacement. Archive structure preflight
-   now covers incomplete roots, unsafe/duplicate members and size limits; staged
-   authority/catalog recovery with allocator high-water, corrupt candidate
-   refusal, abandoned-stage recovery and separate wrong-mode/corrupt-store tests
-   pass. Wrong permissions during archive extraction and failed-restore
-   preservation still need end-to-end coverage.
+   wrong permissions and interrupted replacement. Archive preflight/staging now
+   covers incomplete roots, unsafe/duplicate members, size limits, private modes
+   and destination/source preservation (`7247c94`, `7f5ac3d`); staged authority/catalog recovery with
+   allocator high-water, corrupt candidate refusal, abandoned-stage recovery and
+   separate wrong-mode/corrupt-store tests pass. Service-level validation and
+   failed-restore preservation still need end-to-end coverage.
 4. [ ] After plan 07 persists the node catalog, include it in backup/recovery
    tests and prove restart reaches the same node through fresh CASE.
 5. [ ] Prepare target filesystem checks for atomic replacement, fsync,
