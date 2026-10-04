@@ -280,9 +280,8 @@ Rust commit `1b23a36` adds supported-path decoding for OnOff and CurrentLevel
 `ReportData` values into the same `ResultValue` shape used by confirmed reads.
 The synthetic OnOff report fixture asserts the decoded node, endpoint, cluster,
 attribute, and boolean value after checking the authenticated peer and
-subscription ID. This decoder is not yet called by the production service's
-report receiver: subscriptions are still fixture-only, and report values do
-not yet reach native IPC or `Gateway::Device`. Sensor report decoding,
+subscription ID. At this checkpoint, reports are still fixture-only and do not
+reach native IPC or `Gateway::Device`. Sensor report decoding, production
 subscription scheduling, endpoint/subscription correlation, duplicate
 filtering, reconnect behavior, and gateway state/history/alert updates remain
 open.
@@ -292,6 +291,23 @@ probe build, and
 `python3 scripts/test-openthread-matter-transport.py --commissioning --ble
 --service-owner --service-discovery` against the synthetic RCP. The broader
 Rust library suite passed all 62 tests when run with Unix-domain socket access.
+
+## Bounded active-report receiver checkpoint — 2026-10-04
+
+Rust commit `5bcd632` adds a reusable receiver for server-initiated `ReportData`
+exchanges. It accepts immediately, requires authenticated fabric/node identity
+and a subscription ID, validates the report opcode, decodes supported OnOff and
+CurrentLevel paths, combines chunked reports under a 128-value bound, and sends
+`StatusResponse(Success)` for chunks that request an acknowledgement. The
+synthetic fixture now uses this helper for both OnOff transitions and verifies
+the peer, subscription, typed value, and continued accessory operation.
+
+Verification passed: release commissioning probe build, all 62 Rust library
+tests with Unix-domain socket access, and
+`python3 scripts/test-openthread-matter-transport.py --commissioning --ble
+--service-owner --service-discovery` against the synthetic RCP. The production
+Manager still does not schedule subscriptions or poll this receiver, and the
+service/native IPC path does not yet deliver reports to shared device state.
 
 ## Dependencies
 
