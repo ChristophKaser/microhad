@@ -1,5 +1,7 @@
 //! Controller building blocks for the factory gateway; with an optional userspace OpenThread transport.
 pub mod ble;
+#[cfg(feature = "controller-identity")]
+pub mod catalog;
 pub mod commissioning;
 #[cfg(feature = "control-ipc")]
 pub mod control;

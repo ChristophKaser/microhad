@@ -93,6 +93,29 @@ class SessionPeer:
         self.peer.close()
 
 
+def catalog_records(credentials):
+    # Independent decoder for the private envelope and public node catalog fields.
+    data = credentials.read_bytes()
+    assert data[:8] == b"TMKV\x01\0\0\0"
+    count = struct.unpack_from("<H", data, 16)[0]
+    offset = 18
+    catalog = None
+    for _ in range(count):
+        key, length = struct.unpack_from("<HH", data, offset)
+        offset += 4
+        value = data[offset:offset + length]
+        assert len(value) == length
+        offset += length
+        if key == 0x1002:
+            catalog = value
+    assert offset == len(data) and catalog is not None
+    assert catalog[:8] == b"TMNC\x01\0\0\0"
+    assert struct.unpack_from("<Q", catalog, 8)[0] != 0
+    count = struct.unpack_from("<H", catalog, 16)[0]
+    assert count <= 64 and len(catalog) == 18 + count * 9
+    return [struct.unpack_from("<QB", catalog, 18 + index * 9) for index in range(count)]
+
+
 def commissioning_calls(path, credentials):
     client = SessionPeer(path)
     try:
@@ -115,6 +138,8 @@ def commissioning_calls(path, credentials):
         assert write["session"] == session and write["write"] > 0
         assert 1 <= len(bytes.fromhex(write["data"])) <= 244
         assert credentials.read_bytes() != before  # allocator committed before actual transport work
+        records = catalog_records(credentials)
+        assert len(records) == 1 and records[0][0] >= 2 and records[0][1] == 1
         assert client.call(7, dict(schema=1, session=session, generation=generation+1,
             sequence=1, data="01"))["error"] == "stale_generation"
         assert client.call(7, dict(schema=1, session=session, generation=generation,
@@ -130,6 +155,9 @@ def commissioning_calls(path, credentials):
         cancelled = client.call(5, dict(schema=1, session=session))
         assert cancelled["result"]["state"] == "cancelled"
         assert cancelled["result"]["deadline_remaining_seconds"] == 0
+        records = catalog_records(credentials)
+        assert len(records) == 2 and records[0][0] < records[1][0]
+        assert all(phase == 5 for _, phase in records)
         assert client.call(5, dict(schema=1, session=session)) == cancelled
         assert client.call(8, dict(schema=1, session=session, generation=newer,
             write=new_write["write"], success=True))["error"] == "cancelled"
@@ -144,6 +172,9 @@ def commissioning_calls(path, credentials):
             write=write["write"], success=False))["error"] == "transport"
         failed = client.call(4, dict(schema=1, session=second))
         assert failed["result"]["state"] == "failed" and failed["result"]["error"] == "transport"
+        records = catalog_records(credentials)
+        assert len(records) == 3 and all(phase == 5 for _, phase in records)
+        assert len(set(node for node, _ in records)) == 3
         # Abandoned waiting-BLE jobs expire without status/heartbeat extending the deadline.
         client.call(9, heartbeat)
         expired_session = client.call(3, start)["result"]["session"]

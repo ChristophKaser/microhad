@@ -79,7 +79,11 @@ impl Identity {
             return Ok(identity);
         }
         // Never silently create a different authority for an existing fabric.
-        if store.contains_in(0..256).map_err(storage)? {
+        if store.contains_in(0..256).map_err(storage)?
+            || store
+                .contains_in(crate::catalog::CATALOG_KEY..crate::catalog::CATALOG_KEY + 1)
+                .map_err(storage)?
+        {
             return Err(invalid());
         }
         let identity = Self::create(crypto, vendor)?;
@@ -275,6 +279,12 @@ impl Identity {
         persist.run()?;
         Ok(index)
     }
+    pub fn fabric_id(&self) -> u64 {
+        self.fabric_id
+    }
+    pub fn next_node(&self) -> u64 {
+        self.next_node
+    }
     pub fn allocate_node(&mut self, store: &PrivateStore) -> Result<u64, Error> {
         if self.next_node > MAX_NODE {
             return Err(ErrorCode::NoSpace.into());
@@ -462,5 +472,23 @@ mod tests {
         );
         std::fs::rename(&moved.0, &directory.0).unwrap();
         assert_eq!(identity.allocate_node(&store).unwrap(), 2);
+    }
+    #[test]
+    fn orphaned_catalog_never_creates_a_replacement_authority() {
+        let directory = Directory::new();
+        let store = PrivateStore::open(&directory.0).unwrap();
+        store
+            .set(crate::catalog::CATALOG_KEY, Some(b"orphaned node catalog"))
+            .unwrap();
+        let before = std::fs::read(directory.0.join("credentials.bin")).unwrap();
+        let crypto = default_crypto(
+            OsEntropy::open().unwrap(),
+            CryptoSensitiveRef::new(&[1; 32]),
+        );
+        assert!(Identity::open(&store, &crypto, 0xfff1).is_err());
+        assert_eq!(
+            std::fs::read(directory.0.join("credentials.bin")).unwrap(),
+            before
+        );
     }
 }

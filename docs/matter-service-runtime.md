@@ -4,7 +4,7 @@ The `thread-matter` executable is a single-threaded controller process. It owns
 OpenThread, the Matter UDP transport, the private store, and a bounded Unix IPC
 listener. It creates/restores a private controller authority and fabric;
 Thread create/import/restore and commissioning/relay dispatch are implemented.
-Production operational DNS-SD, node catalog and device reports remain pending. The optional native worker now
+Production operational DNS-SD, remote catalog recovery and device reports remain pending. The optional native worker now
 supplies protected coordinator observations and caches status for HTTP.
 
 Build with `bash scripts/build-rs-matter-transport.sh host service` or
@@ -190,3 +190,17 @@ and encrypted owner/direct BTP/direct UDP fixtures pass. Host timings were
 Both factory builds pass: service 1,740,456 stripped bytes, commissioning probe
 2,076,352 bytes, static big-endian MIPS-I/o32. Neither updated artifact was run
 on the physical gateway.
+
+## Persistent node catalog checkpoint — 2026-10-04
+
+The owned commissioner now persists bounded node reservations and fabric/Thread/
+completion milestones in TMKV key 0x1002. Dropped tasks become recovery-required;
+startup reconciles interrupted local stages without reusing IDs. Cleanup storage
+failure makes the owner fatal and exits the service. An orphaned catalog cannot
+generate replacement authority. Reads introduce no flash writes.
+
+48 service-feature tests, actual-service IPC/catalog assertions and the encrypted
+owned fixture pass. Both host and MIPS service/probe builds pass; stripped sizes
+are 1,748,648 and 2,084,544 bytes, respectively. This adds durable catalog metadata,
+not production DNS-SD, remote reconciliation or device/report dispatch. No physical
+execution occurred. See [catalog format and evidence](matter-node-catalog.md).

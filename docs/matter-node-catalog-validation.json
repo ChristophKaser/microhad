@@ -1,0 +1,24 @@
+{
+  "date": "2026-10-04",
+  "service_feature_tests": 48,
+  "running_service_catalog_checks": true,
+  "owned_encrypted_fixture_catalog_complete": true,
+  "production_dns_sd": false,
+  "remote_recovery_reconciliation": false,
+  "physical_acceptance": false,
+  "artifacts": [
+    {
+      "name": "thread-matter-mips",
+      "bytes": 1748648,
+      "sha256": "1c56ca61103836424bd14cf5432437457ca2f075e7672640e0bc64e860f1ba16",
+      "target": "static big-endian MIPS-I/o32 soft-float"
+    },
+    {
+      "name": "ot-commissioning-mips",
+      "bytes": 2084544,
+      "sha256": "f4f9982813a59ee04a63efc195aad108508b39d078a3eab9ee6671c9c228fbe5",
+      "target": "static big-endian MIPS-I/o32 soft-float"
+    }
+  ],
+  "identity_only_tests": 23
+}

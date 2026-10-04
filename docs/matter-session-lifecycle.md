@@ -72,5 +72,5 @@ also completes through this owner/future, then proves CASE controls and authorit
 fabric recovery after the phone is detached. The fixture retains synthetic GATT
 and explicit fixture-only rendezvous, so it does not prove production DNS-SD.
 Production completion must still wait for actual operational discovery; it
-never injects fixture addresses or returns simulated success. Node catalog and
+never injects fixture addresses or returns simulated success. Remote catalog recovery and
 report integration remain in plan 07.

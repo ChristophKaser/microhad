@@ -250,7 +250,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         identity,
         store.clone(),
         controller_fabric,
-    );
+    )?;
     let mut lifecycle = Lifecycle::load(store.clone()).map_err(|_| "Thread state unavailable")?;
     let mut configuration_entropy = OsEntropy::open()?;
     let mut subscribers = Vec::new();
@@ -319,6 +319,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         controller.poll(&lifecycle, Instant::now(), &mut context);
         controller.publish(&mut ipc, Instant::now())?;
         publish_thread(&mut ipc, &mut subscribers, &lifecycle)?;
+        if controller.fatal() {
+            return Err("Matter catalog storage failed".into());
+        }
         if lifecycle.fatal() {
             return Err("Thread radio stop failed".into());
         }

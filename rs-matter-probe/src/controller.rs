@@ -1,6 +1,7 @@
 //! Production commissioning owner. The phone only carries opaque GATT data.
 use crate::{
     ble::BleRelay,
+    catalog::Catalog,
     commissioning::{provision_thread, CommissioningPolicy, ThreadDataset},
     control::{Id, Request},
     entropy::OsEntropy,
@@ -43,6 +44,7 @@ pub struct Controller<'a, C: Crypto> {
     identity: Rc<RefCell<Identity>>,
     store: PrivateStore,
     fabric: NonZeroU8,
+    catalog: Catalog,
     peer: Option<u64>,
     last_snapshot: Vec<u8>,
 }
@@ -54,17 +56,19 @@ impl<'a, C: Crypto + 'a> Controller<'a, C> {
         identity: Identity,
         store: PrivateStore,
         fabric: NonZeroU8,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, rs_matter::error::Error> {
+        let catalog = Catalog::open(store.clone(), identity.fabric_id(), identity.next_node())?;
+        Ok(Self {
             sessions: Sessions::new(relay),
             matter,
             crypto,
             identity: Rc::new(RefCell::new(identity)),
             store,
             fabric,
+            catalog,
             peer: None,
             last_snapshot: Vec::new(),
-        }
+        })
     }
     fn ready(lifecycle: &Lifecycle, now: Instant) -> bool {
         lifecycle.snapshot().configured
@@ -130,6 +134,7 @@ impl<'a, C: Crypto + 'a> Controller<'a, C> {
                         self.identity.clone(),
                         self.store.clone(),
                         self.fabric,
+                        self.catalog.clone(),
                         address,
                         attempt,
                         dataset,
@@ -173,6 +178,9 @@ impl<'a, C: Crypto + 'a> Controller<'a, C> {
             _ => None,
         }
     }
+    pub fn fatal(&self) -> bool {
+        self.catalog.fatal()
+    }
     pub fn poll(&mut self, lifecycle: &Lifecycle, now: Instant, context: &mut Context<'_>) {
         self.sessions.tick(now);
         if !Self::ready(lifecycle, now) {
@@ -215,6 +223,7 @@ async fn commission<C: Crypto>(
     identity: Rc<RefCell<Identity>>,
     store: PrivateStore,
     fabric: NonZeroU8,
+    catalog: Catalog,
     address: BtAddr,
     attempt: Attempt,
     dataset: Zeroizing<Vec<u8>>,
@@ -222,6 +231,12 @@ async fn commission<C: Crypto>(
 ) -> Result<Id, SessionError> {
     // The old pinned task (and its authority borrow) is dropped before attach
     // installs another one. Allocator gaps on cancellation are intentional.
+    if catalog.fatal() {
+        return Err(SessionError::Storage);
+    }
+    if !catalog.has_capacity() {
+        return Err(SessionError::Capacity);
+    }
     let mut authority = identity.borrow_mut();
     let node = authority.allocate_node(&store).map_err(|error| {
         if error.code() == ErrorCode::NoSpace {
@@ -230,6 +245,7 @@ async fn commission<C: Crypto>(
             SessionError::Storage
         }
     })?;
+    let reservation = catalog.reserve(node).map_err(|_| SessionError::Storage)?;
     let mut noc_buffer = [0; MAX_CERT_TLV_AND_ASN1_LEN];
     let mut signer = authority
         .signer(&mut noc_buffer)
@@ -250,11 +266,17 @@ async fn commission<C: Crypto>(
     if result.device_node_id != node {
         return Err(SessionError::Accessory);
     }
+    reservation
+        .fabric_installed()
+        .map_err(|_| SessionError::Storage)?;
     attempt.progress.set(Phase::Provisioning);
     let parsed = ThreadDataset::parse(&dataset, channel).map_err(|_| SessionError::Storage)?;
     provision_thread(matter, crypto, peer, *attempt.pin, &parsed)
         .await
         .map_err(accessory_error)?;
+    reservation
+        .thread_provisioned()
+        .map_err(|_| SessionError::Storage)?;
     attempt.progress.set(Phase::WaitingThread);
     // Completion requires operational DNS-SD/CASE; no fixture address injection
     // or fake completion is permitted. The owned session deadline bounds it.
@@ -264,6 +286,7 @@ async fn commission<C: Crypto>(
         .await
         .map_err(accessory_error)?;
     attempt.progress.set(Phase::Completing);
+    reservation.complete().map_err(|_| SessionError::Storage)?;
     Ok(Id(node))
 }
 fn accessory_error(error: rs_matter::error::Error) -> SessionError {
@@ -325,7 +348,8 @@ mod tests {
         matter.startup(&matter.kv(store.clone())).unwrap();
         let fabric = identity.install(matter, &crypto, &store).unwrap();
         let relay = BleRelay::new();
-        let mut owner = Controller::new(&relay, matter, &crypto, identity, store.clone(), fabric);
+        let mut owner =
+            Controller::new(&relay, matter, &crypto, identity, store.clone(), fabric).unwrap();
         let mut lifecycle = Lifecycle::load(store.clone()).unwrap();
         let mut entropy = OsEntropy::open().unwrap();
         let now = Instant::now();

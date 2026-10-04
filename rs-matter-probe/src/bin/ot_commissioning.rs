@@ -579,7 +579,7 @@ async fn commission_owned<C: Crypto>(
     };
     let identity = Identity::open(store, crypto, ADMIN_VENDOR_ID)?;
     let fabric = identity.install(matter, crypto, store)?;
-    let mut owner = Controller::new(ble, matter, crypto, identity, store.clone(), fabric);
+    let mut owner = Controller::new(ble, matter, crypto, identity, store.clone(), fabric)?;
     let mut lifecycle =
         Lifecycle::load(store.clone()).map_err(|_| rs_matter::error::ErrorCode::InvalidState)?;
     let now = std::time::Instant::now();
@@ -641,6 +641,19 @@ async fn commission_owned<C: Crypto>(
                 phone_connected.set(false);
                 let node =
                     u64::from_str_radix(reply["result"]["node"].as_str().unwrap(), 16).unwrap();
+                let persisted = Identity::open(store, crypto, ADMIN_VENDOR_ID)?;
+                let catalog = lexra_rs_matter_probe::catalog::Catalog::open(
+                    store.clone(),
+                    persisted.fabric_id(),
+                    persisted.next_node(),
+                )?;
+                assert!(catalog.nodes().iter().any(|entry| entry.id == node
+                    && entry.phase == lexra_rs_matter_probe::catalog::Phase::Complete));
+                assert_eq!(
+                    catalog.endpoint_id(node, 1)?,
+                    format!("matter:{:016x}:{node:016x}:0001", persisted.fabric_id())
+                );
+                println!("PASS persisted production node catalog and stable endpoint identity");
                 println!(
                     "PASS production owned commissioner PASE, provisioning and CASE completion"
                 );
