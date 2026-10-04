@@ -5,12 +5,15 @@
 Queued commissioning/Thread APIs, the owned WebSocket relay and a feature-aware
 dashboard onboarding/progress panel exist. Queued device snapshot pages now have
 native validation, HTTP exposure and a dashboard view. The dashboard exposes
-confirmed OnOff reads and commands for online cluster-6 endpoints. Sensor
-measurements, other clusters and the broader failure matrix remain open.
+confirmed OnOff reads and commands for online cluster-6 endpoints. Native HTTP
+also admits validated CurrentLevel reads and MoveToLevel jobs for cluster-8
+endpoints. Level dashboard controls, sensor measurements and the broader
+failure matrix remain open.
 
 Rendered snapshot and OnOff component interaction is verified in Chromium.
-Next deliverable: render sensor measurements when plan 07 supplies them, then
-extend the broader API/failure gates in checklist item 6.
+Next deliverable: add rendered CurrentLevel read/MoveToLevel controls, then
+render sensor measurements when plan 07 supplies them and extend broader API
+failure gates in checklist item 6.
 
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.
@@ -64,7 +67,9 @@ are host-tested. The Controls tab now hides Matter controls on disabled builds,
 gates mutations on validated readiness, creates/imports an absent Thread network,
 hands accessory onboarding to Garage and watches/cancels a known commissioning
 session. The dashboard client has nine actual localhost HTTP tests and passes
-the required production web build. Device views remain pending plan 07.
+the required production web build. The rendered device view includes snapshot
+pages and confirmed OnOff controls. Native HTTP now admits Level Control reads
+and commands; rendered Level controls remain pending.
 
 ## Remaining checkpoints
 
@@ -75,6 +80,19 @@ the required production web build. Device views remain pending plan 07.
    and new frontend tests cover subsets; checklist item 6 remains open.
 3. Inspect rendered browser interactions in addition to the host client and
    TypeScript/build evidence. Physical pairing remains exclusively in plan 08.
+
+## Native Level API checkpoint — 2026-10-04
+
+Native commit `1ab6e91` adds strict HTTP/IPC admission for CurrentLevel reads
+and MoveToLevel commands. Levels are bounded to 0–254 and transition duration
+to 0–65535 deciseconds. The native worker polls the service operation job and
+returns the typed U8 value only after service confirmation. The fake-service
+HTTP round trip reads level 0, moves to 124 over 20 deciseconds, and confirms
+124. Native host tests and both Matter-enabled and default MIPS builds pass.
+
+The device view still has no Level slider/read control. Rendered Level
+interaction, sensor measurements, subscriptions/reports and the broader
+failure matrix remain open. No device acceptance or plan 08 action occurred.
 
 ## Dependencies
 
@@ -151,8 +169,9 @@ are historical; the latest status/evidence section above takes precedence.
    setup input out of logs and persistent dashboard state.
 5. [ ] Expose device snapshots/read/control and render advertised controls and
    measurements, including unavailable/null values. Snapshot API/view, bounded
-   HTTP client, OnOff read/control and rendered OnOff component interaction are
-   verified. Sensor measurements and other cluster controls remain open.
+   HTTP client, OnOff read/control and rendered OnOff interaction are verified.
+   Level HTTP admission is verified; rendered Level controls, sensor
+   measurements and other cluster controls remain open.
 6. [ ] Verify enabled/disabled builds, unavailable/stalled service, invalid
    input, queue saturation, WebSocket loss and secret redaction. Run default
    and enabled host/MIPS suites sequentially and make webui for UI edits.

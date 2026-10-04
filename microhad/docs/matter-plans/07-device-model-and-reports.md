@@ -16,12 +16,14 @@ OnOff execution with confirmed CASE
 readback is verified (`0c66b87`), Rust service dispatch now exposes bounded
 asynchronous OnOff jobs, and native HTTP routes/worker polling now expose
 confirmed readback. The dashboard now renders OnOff read/control interactions
-through confirmed readback. Rust service jobs now also implement Level Control
-read and MoveToLevel with separate CurrentLevel readback (`6ec569a`); native
-validation/routes/UI for Level remain open. Sensor measurements and reports
-remain open. Remote recovery of catalogued nodes and legacy migration remain
-open. Next deliverable: carry Level IPC through native APIs/dashboard, then add
-sensor decoding, subscriptions and native reports.
+through confirmed readback. Rust service jobs implement Level Control read and
+MoveToLevel with separate CurrentLevel readback (`6ec569a`). Native strict Level
+IPC validators, HTTP admission, worker polling and typed U8 job-response
+validation are implemented and host-tested; dashboard Level controls remain
+open. Sensor measurements and
+reports remain open. Remote recovery of catalogued nodes and legacy migration
+remain open. Next deliverable: add rendered Level controls, then sensor
+decoding, subscriptions and native reports.
 
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.
@@ -149,9 +151,10 @@ are historical; the latest status/evidence section above takes precedence.
 4. [ ] Implement validated OnOff/Level reads and commands plus typed IPC
    bodies in plan 02. Confirm resulting values through reads/reports and expose
    unsupported clusters and failed commands explicitly.
-   OnOff executor/readback is verified (`0c66b87`) and Rust asynchronous service
-   jobs plus Level executor/readback are verified (`6ec569a`). Native Level
-   dispatch, HTTP API and dashboard controls keep this item open.
+   OnOff executor/readback and native API/dashboard are verified (`0c66b87`,
+   `ee9a4bb`). Rust Level executor/readback is verified (`6ec569a`); native
+   Level IPC/API validation and HTTP admission are implemented in this
+   checkpoint, while dashboard controls remain open until rendered tests pass.
 5. [ ] Decode advertised sensor attributes with units, signed values and null
    semantics. Cover temperature, humidity, CO2, PM2.5 and air quality using
    synthetic descriptors rather than assuming ALPSTUGA exposes every cluster.
@@ -337,3 +340,19 @@ This closes the Rust service-executor portion of checklist item 4. Native typed
 IPC validation, HTTP read/command admission, worker result handling and dashboard
 controls for Level remain open; sensor measurements, subscriptions and reports
 also remain open. No target execution or plan 08 acceptance occurred.
+
+## Native Level operation pipeline checkpoint — 2026-10-04
+
+Native commit `1ab6e91` completes the Level request/reply half of item 4: strict
+CurrentLevel read and MoveToLevel IPC validation, HTTP admission, generic worker
+polling, and cluster-typed U8 response validation. Unknown CurrentLevel reads
+retain `null`; mutations require a concrete value from the service's separate
+CASE readback. Range validation rejects levels above 254 and transition values
+above 65535.
+
+Verification passed: default and Matter-enabled native host suites, default and
+Matter-enabled MIPS cross-builds, and the synthetic native worker HTTP round
+trip. It read level 0, commanded 124 with a 20-decisecond transition and
+confirmed level 124. Host/MIPS builds do not establish target radio behavior.
+Rendered controls, sensors, subscriptions/reports, remote node recovery and
+legacy migration remain open; plan 08 was not performed.

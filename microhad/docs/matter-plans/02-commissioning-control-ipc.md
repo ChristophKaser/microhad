@@ -4,16 +4,16 @@
 
 Native commissioning/relay dispatch and bounded jobs exist. Rust now dispatches
 bounded asynchronous OnOff reads/commands and job polling; native validation,
-HTTP admission and worker-side operation polling now carry jobs through confirmed
-readback. The Rust service executor now also dispatches Level Control reads and
-MoveToLevel with confirmed CurrentLevel readback; native typed validation, HTTP
-admission, worker handling and dashboard controls for Level remain open. Device
+HTTP admission and worker-side operation polling carry jobs through confirmed
+readback. Rust also dispatches Level Control reads and MoveToLevel with confirmed
+CurrentLevel readback. Native typed Level request/reply validation, HTTP
+admission and worker polling are now verified. Dashboard Level controls, device
 events, broader recovery and complete cross-language vectors remain open.
 Snapshot API remains verified (`237d110`).
 
-Next deliverable: Carry the verified Level IPC bodies through native validation,
-HTTP and the dashboard, then extend failure/restart and cross-language event
-coverage as plan 07 adds sensor and report bodies.
+Next deliverable: expose verified Level jobs in the dashboard, then extend
+failure/restart and cross-language event coverage as plan 07 adds sensor and
+report bodies.
 
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.
@@ -529,3 +529,26 @@ Native C++ typed reply checks, HTTP route, worker execution and dashboard do not
 yet support Level. Plan 02 device-control integration and plan 04 dashboard work
 therefore remain partial; sensors, subscriptions and report delivery remain
 open in plan 07.
+
+## Native Level request/reply checkpoint — 2026-10-04
+
+Native commit `1ab6e91` extends the strict opcode-10 read validator to accept only
+OnOff cluster 6 or Level Control cluster 8 attribute 0. Opcode 11 accepts
+`move_to_level` only with level 0–254 and transition time 0–65535; unknown and
+extra fields remain rejected. Completed operation validation checks the
+cluster-specific boolean/U8 tag and value, preserving null for unknown
+CurrentLevel reads. The generic Matter worker carries these operation jobs
+through confirmed Rust readback without replay.
+
+Verification passed: `make host test`,
+`make ZIGGURAT=1 MATTER=1 host test`, `make mips`,
+`make ZIGGURAT=1 MATTER=1 mips`, and
+`python3 scripts/test_matter_native_worker.py`. Unit tests cover valid OnOff and
+Level bodies, malformed ranges and typed result validation; HTTP integration
+checks accept valid Level reads/commands for service admission and reject level
+255. The synthetic worker fixture verifies CurrentLevel read, MoveToLevel and
+confirmed value 124 over the native HTTP/job path. The MIPS builds pass with the
+toolchain's expected LOAD-USE warnings. No target execution occurred.
+
+This closes native Level IPC/API admission; plan 04 dashboard control remains
+open, as do reports, subscriptions and broad restart/failure coverage.
