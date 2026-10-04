@@ -48,7 +48,7 @@ use rs_matter::onboard::{CommissionResult, Commissioner};
 use rs_matter::persist::DummyKvBlobStore;
 use rs_matter::respond::DefaultResponder;
 use rs_matter::sc::pase::MAX_COMM_WINDOW_TIMEOUT_SECS;
-use rs_matter::tlv::{Nullable, TLVTag, TLVWrite};
+use rs_matter::tlv::{FromTLV, Nullable, TLVTag, TLVWrite};
 use rs_matter::transport::exchange::{Exchange, MatterBuffers};
 use rs_matter::transport::network::mdns::{DottedName, MdnsRemoteService};
 use rs_matter::transport::network::{
@@ -770,12 +770,76 @@ async fn run(
             ));
             println!("PASS capability-gated OnOff transactions and confirmed readback over CASE");
             let subscription = lexra_rs_matter_probe::subscriptions::establish_attribute(
-                ctrl_matter, ctrl_crypto, fab, node, 1, 1026, 0,
+                ctrl_matter, ctrl_crypto, fab, node, 1, 6, 0,
             )
             .await?;
             assert!(subscription.subscription_id != 0);
             assert!(subscription.max_int <= 3600);
-            println!("PASS bounded Matter attribute subscription priming and establishment");
+            let exchange = Exchange::initiate(ctrl_matter, ctrl_crypto, fab, node).await?;
+            exchange.on_off().toggle(1).await?;
+            let mut report = embassy_time::with_timeout(
+                Duration::from_secs(5),
+                Exchange::accept(ctrl_matter),
+            )
+            .await
+            .map_err(|_| rs_matter::error::ErrorCode::RxTimeout)??;
+            assert_eq!(report.peer_identity()?, Some((fab.get(), node)));
+            let (subscription_id, reported_on) = {
+                let rx = report.recv_fetch().await?;
+                assert_eq!(rx.meta().proto_opcode, rs_matter::im::OpCode::ReportData as u8);
+                let message = rs_matter::im::ReportDataResp::from_tlv(
+                    &rs_matter::tlv::TLVElement::new(rx.payload()),
+                )?;
+                let value = message
+                    .attrs::<bool>(6, 0)
+                    .find_map(|(reported_endpoint, value)| {
+                        (reported_endpoint == 1).then(|| value.ok()).flatten()
+                    });
+                (message.subscription_id, value)
+            };
+            assert_eq!(subscription_id, Some(subscription.subscription_id));
+            assert_eq!(reported_on, Some(true));
+            report
+                .send_with(|_, writer| {
+                    rs_matter::im::StatusResp::write(
+                        writer,
+                        rs_matter::im::IMStatusCode::Success,
+                    )?;
+                    Ok(Some(rs_matter::im::OpCode::StatusResponse.into()))
+                })
+                .await?;
+            let exchange = Exchange::initiate(ctrl_matter, ctrl_crypto, fab, node).await?;
+            exchange.on_off().toggle(1).await?;
+            let mut report = embassy_time::with_timeout(
+                Duration::from_secs(5),
+                Exchange::accept(ctrl_matter),
+            )
+            .await
+            .map_err(|_| rs_matter::error::ErrorCode::RxTimeout)??;
+            let (subscription_id, reported_off) = {
+                let rx = report.recv_fetch().await?;
+                let message = rs_matter::im::ReportDataResp::from_tlv(
+                    &rs_matter::tlv::TLVElement::new(rx.payload()),
+                )?;
+                let value = message
+                    .attrs::<bool>(6, 0)
+                    .find_map(|(reported_endpoint, value)| {
+                        (reported_endpoint == 1).then(|| value.ok()).flatten()
+                    });
+                (message.subscription_id, value)
+            };
+            assert_eq!(subscription_id, Some(subscription.subscription_id));
+            assert_eq!(reported_off, Some(false));
+            report
+                .send_with(|_, writer| {
+                    rs_matter::im::StatusResp::write(
+                        writer,
+                        rs_matter::im::IMStatusCode::Success,
+                    )?;
+                    Ok(Some(rs_matter::im::OpCode::StatusResponse.into()))
+                })
+                .await?;
+            println!("PASS bounded subscription and immediate peer-correlated OnOff report");
         }
         let exchange = Exchange::initiate(ctrl_matter, ctrl_crypto, fab, node).await?;
         assert!(!exchange.on_off().on_off_read(1).await?);
