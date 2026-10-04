@@ -62,6 +62,7 @@ pub enum Value {
     U8(Option<u8>),
     Measurement(MeasurementValue),
     AirQuality(AirQualityValue),
+    RawMeasurement(Option<f32>),
 }
 #[derive(Clone, Serialize)]
 pub struct MeasurementValue {
@@ -107,6 +108,79 @@ pub fn report_values(
             cluster: 8,
             attribute: 0,
             value: Value::U8(value?.as_opt_ref().copied()),
+        });
+    }
+    for (endpoint, value) in report.attrs::<
+        rs_matter::dm::clusters::decl::air_quality::AirQualityEnum,
+    >(91, 0)
+    {
+        use rs_matter::dm::clusters::decl::air_quality::AirQualityEnum;
+        let (value, quality) = match value? {
+            AirQualityEnum::Unknown => ("unknown", "unknown"),
+            AirQualityEnum::Good => ("good", "measured"),
+            AirQualityEnum::Fair => ("fair", "measured"),
+            AirQualityEnum::Moderate => ("moderate", "measured"),
+            AirQualityEnum::Poor => ("poor", "measured"),
+            AirQualityEnum::VeryPoor => ("very_poor", "measured"),
+            AirQualityEnum::ExtremelyPoor => ("extremely_poor", "measured"),
+        };
+        values.push(ResultValue {
+            node: Id(node),
+            endpoint,
+            cluster: 91,
+            attribute: 0,
+            value: Value::AirQuality(AirQualityValue { value, quality }),
+        });
+    }
+    for (endpoint, value) in report.attrs::<Nullable<i16>>(1026, 0) {
+        values.push(ResultValue {
+            node: Id(node),
+            endpoint,
+            cluster: 1026,
+            attribute: 0,
+            value: measurement(
+                value?.as_opt_ref().map(|value| f32::from(*value) / 100.0),
+                "celsius",
+            ),
+        });
+    }
+    for (endpoint, value) in report.attrs::<Nullable<u16>>(1029, 0) {
+        let value = value?.as_opt_ref().copied();
+        if value.is_some_and(|value| value > 10_000) {
+            return Err(ErrorCode::InvalidData.into());
+        }
+        values.push(ResultValue {
+            node: Id(node),
+            endpoint,
+            cluster: 1029,
+            attribute: 0,
+            value: measurement(value.map(|value| f32::from(value) / 100.0), "percent"),
+        });
+    }
+    for (endpoint, value) in report.attrs::<Nullable<f32>>(1037, 0) {
+        let value = value?.as_opt_ref().copied();
+        if value.is_some_and(|value| !value.is_finite() || value < 0.0) {
+            return Err(ErrorCode::InvalidData.into());
+        }
+        values.push(ResultValue {
+            node: Id(node),
+            endpoint,
+            cluster: 1037,
+            attribute: 0,
+            value: Value::RawMeasurement(value),
+        });
+    }
+    for (endpoint, value) in report.attrs::<Nullable<f32>>(1066, 0) {
+        let value = value?.as_opt_ref().copied();
+        if value.is_some_and(|value| !value.is_finite() || value < 0.0) {
+            return Err(ErrorCode::InvalidData.into());
+        }
+        values.push(ResultValue {
+            node: Id(node),
+            endpoint,
+            cluster: 1066,
+            attribute: 0,
+            value: Value::RawMeasurement(value),
         });
     }
     Ok(values)
@@ -338,7 +412,9 @@ fn measurement(value: Option<f32>, unit: &'static str) -> Value {
     Value::Measurement(MeasurementValue { value, unit, quality })
 }
 
-fn measurement_unit(unit: rs_matter::dm::clusters::decl::globals::MeasurementUnitEnum) -> &'static str {
+pub fn measurement_unit(
+    unit: rs_matter::dm::clusters::decl::globals::MeasurementUnitEnum,
+) -> &'static str {
     use rs_matter::dm::clusters::decl::globals::MeasurementUnitEnum;
     match unit {
         MeasurementUnitEnum::PPM => "ppm",
@@ -354,9 +430,117 @@ fn measurement_unit(unit: rs_matter::dm::clusters::decl::globals::MeasurementUni
     }
 }
 
+pub async fn read_measurement_unit<C: Crypto>(
+    matter: &Matter<'_>,
+    crypto: &C,
+    fabric: NonZeroU8,
+    node: u64,
+    endpoint: u16,
+    cluster: u32,
+) -> Result<&'static str, Error> {
+    let exchange = Exchange::initiate(matter, crypto, fabric, node).await?;
+    let unit = match cluster {
+        1037 => exchange
+            .carbon_dioxide_concentration_measurement()
+            .measurement_unit_read(endpoint)
+            .await?,
+        1066 => exchange
+            .pm_25_concentration_measurement()
+            .measurement_unit_read(endpoint)
+            .await?,
+        _ => return Err(ErrorCode::InvalidData.into()),
+    };
+    Ok(measurement_unit(unit))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rs_matter::{
+        im::{AttrData, AttrPath, AttrResp, ReportDataResp},
+        tlv::{FromTLV, TLVElement, TLVTag, TLVWrite, ToTLV},
+        utils::storage::WriteBuf,
+    };
+
+    fn append_attribute_report(writer: &mut WriteBuf<'_>, cluster: u32, data: &[u8]) {
+        AttrResp::from(AttrData::new(
+            None,
+            AttrPath {
+                endpoint: Some(1),
+                cluster: Some(cluster),
+                attr: Some(0),
+                ..Default::default()
+            },
+            TLVElement::new(data),
+        ))
+        .to_tlv(&TLVTag::Anonymous, writer)
+        .unwrap_or_else(|error| panic!("attribute report cluster {cluster}: {error:?}"));
+    }
+
+    fn encode_attribute_value<T: ToTLV>(value: &T) -> Vec<u8> {
+        let mut buffer = [0u8; 32];
+        let mut writer = WriteBuf::new(&mut buffer);
+        value.to_tlv(&TLVTag::Context(2), &mut writer).unwrap();
+        writer.as_slice().to_vec()
+    }
+
+    #[test]
+    fn report_decoder_normalizes_supported_sensor_attributes() {
+        let mut buffer = [0u8; 512];
+        let mut writer = WriteBuf::new(&mut buffer);
+        writer.start_struct(&TLVTag::Anonymous).unwrap();
+        writer.u32(&TLVTag::Context(0), 7).unwrap();
+        writer.start_array(&TLVTag::Context(1)).unwrap();
+        append_attribute_report(
+            &mut writer,
+            1026,
+            &encode_attribute_value(&Nullable::some(-525i16)),
+        );
+        append_attribute_report(
+            &mut writer,
+            1026,
+            &encode_attribute_value(&Nullable::<i16>::none()),
+        );
+        append_attribute_report(
+            &mut writer,
+            1029,
+            &encode_attribute_value(&Nullable::some(6400u16)),
+        );
+        append_attribute_report(
+            &mut writer,
+            91,
+            &encode_attribute_value(
+                &rs_matter::dm::clusters::decl::air_quality::AirQualityEnum::Poor,
+            ),
+        );
+        append_attribute_report(
+            &mut writer,
+            1037,
+            &encode_attribute_value(&Nullable::some(800.0f32)),
+        );
+        append_attribute_report(
+            &mut writer,
+            1066,
+            &encode_attribute_value(&Nullable::some(25.5f32)),
+        );
+        writer.end_container().unwrap();
+        writer.u8(&TLVTag::Context(0xff), 12).unwrap();
+        writer.end_container().unwrap();
+        let report = ReportDataResp::from_tlv(&TLVElement::new(writer.as_slice())).unwrap();
+
+        let values = report_values(2, &report).unwrap();
+        assert_eq!(values.len(), 6);
+        assert!(matches!(values[0].value, Value::AirQuality(ref value)
+            if value.value == "poor" && value.quality == "measured"));
+        assert!(matches!(values[1].value, Value::Measurement(ref value)
+            if value.value == Some(-5.25) && value.unit == "celsius" && value.quality == "measured"));
+        assert!(matches!(values[2].value, Value::Measurement(ref value)
+            if value.value.is_none() && value.unit == "celsius" && value.quality == "unknown"));
+        assert!(matches!(values[3].value, Value::Measurement(ref value)
+            if value.value == Some(64.0) && value.unit == "percent" && value.quality == "measured"));
+        assert!(matches!(values[4].value, Value::RawMeasurement(Some(value)) if value == 800.0));
+        assert!(matches!(values[5].value, Value::RawMeasurement(Some(value)) if value == 25.5));
+    }
     #[test]
     fn unsupported_paths_and_invalid_identity_are_rejected() {
         let decode = |opcode, body: &str| {

@@ -22,6 +22,10 @@ pub struct ReceivedReport {
     pub subscription_id: u32,
     pub values: Vec<crate::operations::ResultValue>,
 }
+pub struct DeviceSubscription {
+    pub established: SubscribeEstablished,
+    pub unit: Option<&'static str>,
+}
 
 /// Establish one bounded attribute subscription and drain every priming chunk.
 /// Active reports are received separately on server-initiated exchanges.
@@ -59,6 +63,31 @@ pub async fn establish_attribute<C: Crypto>(
             SubscribeOutcome::Established(established) => return Ok(established),
         }
     }
+}
+
+/// Establish one endpoint subscription and capture metadata needed to normalize
+/// its reports. Matter concentration-unit attributes are static for the
+/// lifetime of the endpoint subscription and are read before it is accepted.
+pub async fn establish_device_attribute<C: Crypto>(
+    matter: &Matter<'_>,
+    crypto: &C,
+    fabric: NonZeroU8,
+    node: u64,
+    endpoint: u16,
+    cluster: u32,
+    attribute: u32,
+) -> Result<DeviceSubscription, Error> {
+    let unit = match cluster {
+        1037 | 1066 => Some(crate::operations::read_measurement_unit(
+            matter, crypto, fabric, node, endpoint, cluster,
+        ).await?),
+        _ => None,
+    };
+    let established = establish_attribute(
+        matter, crypto, fabric, node, endpoint, cluster, attribute,
+    )
+    .await?;
+    Ok(DeviceSubscription { established, unit })
 }
 
 /// Accept and acknowledge one active server-initiated ReportData exchange.

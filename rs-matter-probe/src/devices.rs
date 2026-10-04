@@ -90,11 +90,12 @@ struct SubscriptionState {
     id: Option<u32>,
     next_retry: Instant,
     failures: u8,
+    unit: Option<&'static str>,
     last_report: Option<Vec<u8>>,
 }
 type SubscriptionWork<'a> = Pin<
     Box<
-        dyn Future<Output = Result<rs_matter::im::client::SubscribeEstablished, Error>> + 'a,
+        dyn Future<Output = Result<crate::subscriptions::DeviceSubscription, Error>> + 'a,
     >,
 >;
 type ReportWork<'a> = Pin<
@@ -523,10 +524,13 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 {
                     match result {
                         Ok(established) => {
-                            subscription.id = Some(established.subscription_id);
+                            subscription.id = Some(established.established.subscription_id);
                             subscription.failures = 0;
                             subscription.next_retry = now
-                                + Duration::from_secs(u64::from(established.max_int).max(1));
+                                + Duration::from_secs(
+                                    u64::from(established.established.max_int).max(1),
+                                );
+                            subscription.unit = established.unit;
                         }
                         Err(_) => {
                             subscription.id = None;
@@ -623,7 +627,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             self.subscription_work = Some((
                 key,
                 now + Duration::from_secs(30),
-                Box::pin(crate::subscriptions::establish_attribute(
+                Box::pin(crate::subscriptions::establish_device_attribute(
                     self.matter,
                     self.crypto,
                     self.fabric,
@@ -650,6 +654,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                     id: None,
                     next_retry: now,
                     failures: 0,
+                    unit: None,
                     last_report: None,
                 });
             }
@@ -665,13 +670,30 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         }) else {
             return;
         };
-        for value in report.values {
+        for mut value in report.values {
             if value.node.0 != subscription.key.node
                 || value.endpoint != subscription.key.endpoint
                 || value.cluster != subscription.key.cluster
                 || value.attribute != subscription.key.attribute
             {
                 continue;
+            }
+            if let crate::operations::Value::RawMeasurement(measured) = &value.value {
+                let Some(unit) = subscription.unit else {
+                    continue;
+                };
+                let quality = if measured.is_some() {
+                    "measured"
+                } else {
+                    "unknown"
+                };
+                value.value = crate::operations::Value::Measurement(
+                    crate::operations::MeasurementValue {
+                        value: *measured,
+                        unit,
+                        quality,
+                    },
+                );
             }
             let Ok(encoded) = serde_json::to_vec(&value) else {
                 continue;
