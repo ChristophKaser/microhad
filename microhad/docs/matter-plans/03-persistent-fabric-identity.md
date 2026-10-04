@@ -4,8 +4,9 @@
 
 Persistent authority and host CASE restore exist. Synthetic staged recovery now
 has evidence for a completed catalog, stable endpoint identity, corrupt
-candidate refusal, source preservation and an abandoned replacement marker;
-full archive/allocator recovery and target filesystem verification remain open.
+candidate refusal, source preservation, authority restoration and allocator
+high-water; full archive/Thread-settings recovery and target filesystem
+verification remain open.
 
 Consistent backup/staged restore procedures are documented in
 [the recovery runbook](../matter-backup-recovery.md). Next deliverable: exercise
@@ -125,10 +126,10 @@ are historical; the latest status/evidence section above takes precedence.
    before activation, rollback and retention. Forbid merging stores or
    lowering the allocator; preserve rejected state for diagnosis.
 3. [ ] Complete the synthetic recovery matrix for incomplete backup, corruption,
-   wrong permissions and interrupted replacement. Catalog-only staged copy,
-   corrupt candidate refusal, abandoned-stage recovery and separate wrong-mode /
-   corrupt-store tests now pass; prove preservation of authority and node
-   allocator together before checking this item.
+   wrong permissions and interrupted replacement. Staged authority/catalog
+   recovery with allocator high-water, corrupt candidate refusal, abandoned-
+   stage recovery and separate wrong-mode/corrupt-store tests now pass. Complete
+   archive completeness and failed-restore validation before checking this item.
 4. [ ] After plan 07 persists the node catalog, include it in backup/recovery
    tests and prove restart reaches the same node through fresh CASE.
 5. [ ] Prepare target filesystem checks for atomic replacement, fsync,
@@ -172,8 +173,14 @@ staging directory and verifies that the completed catalog and stable endpoint
 identity reopen. The test corrupts a separate candidate and proves the source
 envelope is unchanged, then reopens the valid source with an abandoned staging
 file present. Existing store tests cover wrong directory permissions and
-corrupt/truncated envelopes. The `controller-identity` feature library suite
-passes 24/24, including these cases; `rustfmt --check` passes for the changed
-file. The test does not yet reopen authority plus catalog and verify allocator
-high-water together, validate a complete archive including OpenThread `tmp/`,
-or exercise archive extraction. Checklist item 3 remains open.
+corrupt/truncated envelopes. This was the catalog-only first checkpoint; the
+follow-up below adds authority and allocator recovery to the same staged copy.
+
+Rust commit `78f4573` closes the authority/catalog gap: it stages the same
+private envelope in a separate directory, validates the original fabric and
+completed node, then confirms allocation resumes above the restored high-water
+mark. The `controller-identity` feature library suite passes 25/25 with both
+recovery tests. The test uses synthetic directories and does not export or
+activate live state. Archive completeness, OpenThread `tmp/` preservation and
+end-to-end rejection of an incomplete archive remain open, so checklist item 3
+is still unchecked.
