@@ -58,6 +58,20 @@ Next deliverable: exercise the installed `thread-matter` service process
 through registered native device reports, then extend disconnect/restart and
 failure coverage. Keep physical acceptance in plan 08.
 
+## Active-session stale BLE rejection — 2026-10-04
+
+Rust commit `42ca014` adds a service-process regression that starts a
+commissioning session, queues a phone BLE write, reports coordinator loss,
+waits for the controller to fail the session with `not_ready`, then submits
+the delayed write completion. The service rejects it as `stale_session`.
+The fixture restores a fresh matching coordinator observation and completes its
+existing timeout, credentials, and restart checks.
+
+`python3 scripts/test-matter-service.py` passes. This covers a real service
+session/lifecycle race over production IPC. Installed-daemon reports reaching
+a registered native device, process restart during active commissioning, and
+the broader malformed/backpressure matrix remain open.
+
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.
 Earlier checkpoint sections are historical; use the latest evidence when

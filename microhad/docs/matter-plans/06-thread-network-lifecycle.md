@@ -2,7 +2,8 @@
 
 ## Current open work — 2026-10-04
 
-Guarded datasets and fresh coordinator observations exist; integrated
+Guarded datasets, fresh coordinator observations, and active commissioning
+cancellation on readiness loss are host-verified. Integrated
 stall/channel-change/restart recovery remains open.
 
 Next deliverable: Exercise coordinator stalls, channel changes and RCP/service restart
@@ -172,3 +173,19 @@ import with `malformed`, all recorded channel writes matching the coordinator,
 dataset log redaction and offline local rejection. Both factory binaries are
 static stripped big-endian MIPS-I ELF files. No physical deployment or accessory
 acceptance was performed; WebSocket/Android and production discovery remain open.
+
+## Active commissioning cancellation on coordinator loss — 2026-10-04
+
+Rust commit `42ca014` extends the actual `thread-matter` service process test.
+While a commissioning session has an active BLE write, an offline coordinator
+observation now has an explicit acceptance check: the session reaches `failed`
+with `not_ready`, and completion of the old BLE write is rejected with
+`stale_session`. A fresh matching observation is then restored before the
+remaining expiry, fabric persistence, and restart checks continue.
+
+`python3 scripts/test-matter-service.py` passes with the new case, including
+the commissioning timeout and guarded cached-dataset restart fixture. This
+verifies session cancellation and stale callback isolation when readiness is
+lost. RCP process death/reconnect while the session is active, repeated channel
+changes, and physical recovery remain open; no target deployment or plan 08
+test occurred.
