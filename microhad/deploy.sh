@@ -10,11 +10,13 @@ host=192.168.178.62
 user=root
 target=/tuya/native-test
 binary="$project_dir/build/mips/microhad-zigbee-native"
+binary_explicit=false
 password_file=""
 config=""
 deploy_binary=true
 deploy_webui=true
 activate=false
+activate_paired=false
 restart=false
 certificate=""
 private_key=""
@@ -22,7 +24,7 @@ ca_bundle=""
 matter_service=""
 
 usage() {
-    echo "usage: $0 --password-file PATH [--binary-only | --webui-only | --both] [--config PATH] [--host HOST] [--user USER] [--target DIR] [--binary PATH] [--matter-service PATH] [--tls-certificate PATH --tls-private-key PATH] [--ca-bundle PATH] [--activate] [--restart]" >&2
+    echo "usage: $0 --password-file PATH [--binary-only | --webui-only | --both] [--config PATH] [--host HOST] [--user USER] [--target DIR] [--binary PATH] [--matter-service PATH] [--tls-certificate PATH --tls-private-key PATH] [--ca-bundle PATH] [--activate | --activate-paired] [--restart]" >&2
     exit 2
 }
 
@@ -36,18 +38,22 @@ while [ "$#" -gt 0 ]; do
         --host) host=${2-}; shift 2 ;;
         --user) user=${2-}; shift 2 ;;
         --target) target=${2-}; shift 2 ;;
-        --binary) binary=${2-}; shift 2 ;;
+        --binary) binary=${2-}; binary_explicit=true; shift 2 ;;
         --matter-service) matter_service=${2-}; shift 2 ;;
         --tls-certificate) certificate=${2-}; shift 2 ;;
         --tls-private-key) private_key=${2-}; shift 2 ;;
         --ca-bundle) ca_bundle=${2-}; shift 2 ;;
         --activate) activate=true; shift ;;
+        --activate-paired) activate_paired=true; shift ;;
         --restart) restart=true; shift ;;
         *) usage ;;
     esac
 done
 
 [ -n "$password_file" ] && [ -r "$password_file" ] || usage
+[ -z "$matter_service" ] || [ "$binary_explicit" = true ] || {
+    echo "--matter-service requires --binary from a ZIGGURAT=1 MATTER=1 build" >&2; exit 2;
+}
 [ "$deploy_binary" = false ] || [ -x "$binary" ] || { echo "MIPS binary not found or not executable: $binary" >&2; exit 1; }
 [ "$deploy_webui" = false ] || { [ -f "$project_dir/webui/dist/index.html" ] && [ -f "$project_dir/webui/dist/sw.js" ]; } || { echo "Built Web UI not found; run make webui first" >&2; exit 1; }
 [ -z "$config" ] || { [ "$deploy_binary" = true ] && [ -f "$config" ]; } || usage
@@ -63,8 +69,12 @@ command -v sshpass >/dev/null 2>&1 || { echo "sshpass is required for password a
 case "$target" in /tuya/*) ;; *) echo "target must be below /tuya" >&2; exit 2 ;; esac
 case "$target" in *[!A-Za-z0-9_./-]*) echo "target contains unsupported characters" >&2; exit 2 ;; esac
 [ "$activate" = false ] || [ "$target" = /tuya/native ] || { echo "--activate requires --target /tuya/native" >&2; exit 2; }
+[ "$activate_paired" = false ] || [ "$activate" = false ] || usage
+[ "$activate_paired" = false ] || [ "$restart" = false ] || { echo "--activate-paired cannot be combined with --restart" >&2; exit 2; }
+[ "$activate_paired" = false ] || [ "$target" = /tuya/native ] || { echo "--activate-paired requires --target /tuya/native" >&2; exit 2; }
+[ "$activate_paired" = false ] || [ -n "$matter_service" ] || { echo "--activate-paired requires --matter-service PATH" >&2; exit 2; }
 [ "$restart" = false ] || [ "$target" = /tuya/native ] || { echo "--restart requires --target /tuya/native" >&2; exit 2; }
-[ "$deploy_binary" = true ] || { [ -z "$config" ] && [ "$activate" = false ] && [ "$restart" = false ]; } || { echo "--config, --activate, and --restart require binary deployment" >&2; exit 2; }
+[ "$deploy_binary" = true ] || { [ -z "$config" ] && [ "$activate" = false ] && [ "$activate_paired" = false ] && [ "$restart" = false ]; } || { echo "--config, launcher activation, and --restart require binary deployment" >&2; exit 2; }
 
 ssh_command() {
     remote_command=$1
@@ -135,6 +145,10 @@ if [ "$activate" = true ]; then
     ssh_command "dd of=\"$target/.gateway_start.sh.new\"" < "$project_dir/native_start.sh"
     ssh_command "test -f /tuya/tuya_start.sh.lowjs-backup || cp /tuya/tuya_start.sh /tuya/tuya_start.sh.lowjs-backup; chmod 755 \"$target/.gateway_start.sh.new\"; mv \"$target/.gateway_start.sh.new\" /tuya/tuya_start.sh"
 fi
+if [ "$activate_paired" = true ]; then
+    ssh_command "dd of=\"$target/.gateway_start.sh.new\"" < "$project_dir/ziggurat_start.sh"
+    ssh_command "test -f /tuya/tuya_start.sh.lowjs-backup || cp /tuya/tuya_start.sh /tuya/tuya_start.sh.lowjs-backup; chmod 755 \"$target/.gateway_start.sh.new\"; mv \"$target/.gateway_start.sh.new\" /tuya/tuya_start.sh"
+fi
 if [ "$restart" = true ]; then
     printf 'Restarting the supervised native daemon\n'
     ssh_command "killall -TERM microhad-zigbee-native >/dev/null 2>&1 || true
@@ -157,6 +171,8 @@ exit 1"
     echo "Selected assets uploaded and service restarted."
 elif [ "$activate" = true ]; then
     echo "Selected assets uploaded and activated for the next boot. Existing processes were not restarted."
+elif [ "$activate_paired" = true ]; then
+    echo "Paired Matter-capable launcher activated for the next boot. Existing processes were not restarted."
 else
     echo "Selected assets uploaded. Existing services were not changed."
 fi

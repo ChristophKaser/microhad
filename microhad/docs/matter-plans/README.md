@@ -31,7 +31,7 @@ specific evidence recorded in a file, not to end-to-end Matter support.
 
 | Open point | Current status | Next checkpoint |
 | --- | --- | --- |
-| [01 Runtime](01-rust-service-runtime.md) | Host service and optional supervision implemented; recovery and target verification incomplete | Extend integrated failure/restart coverage and record final artifacts |
+| [01 Runtime](01-rust-service-runtime.md) | Host service/supervision implemented; Matter-aware paired launcher activation and opt-in service selection now pass mocked deployment tests; target verification remains in plan 08 | Extend integrated failure/restart coverage and record final artifacts |
 | [02 IPC](02-commissioning-control-ipc.md) | Commissioning/relay/control and synthetic-peer OnOff/temperature report events into shared state host-tested (`3aa4600`, `5ec72cb`, `c22f38a`, `6fe31b3`); Rust-service/native worker lifecycle passes; broad recovery and cross-language vectors incomplete | Generate a report from the Rust service through native shared state; extend failure/backpressure coverage |
 | [03 Identity](03-persistent-fabric-identity.md) | Persistent authority/host CASE recovery, private archive staging and offline read-only staged-state validation implemented (`7247c94`, `7f5ac3d`, Rust `1ec79fd`, `0e133b4`); synthetic archive-to-validator and corrupt-envelope refusal pass without writes | Add interrupted-replacement and failed-restore/allocator-rollback coverage; target checks stay in plan 08 |
 | [04 Native API/dashboard](04-native-api-dashboard.md) | Status, shared cards, restart-restored common alerts, unit-aware CO2/PM2.5 thresholds and bounded shared-source history (`d5d94ba`); history intentionally remains volatile to avoid flash wear | Extend API failure gates |

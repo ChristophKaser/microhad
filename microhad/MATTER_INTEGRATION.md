@@ -1,15 +1,21 @@
 # Optional Matter-over-Thread integration
 
-## Current result: controller proven in simulation; native status IPC wired
+## Current result: commissioning and shared device control are host-tested
 
-The opt-in build flag, private IPC framing and native status client are
-implemented. The chosen Rust controller passes synthetic PASE/Thread
-provisioning, CASE, light and sensor operations, and committed-flash fabric
-reload tests on the factory MIPS gateway. `MATTER=1` builds the native IPC
-bridge and enables read-only `/api/matter/status` and `/api/thread/status`
-routes. Those routes return 503 until the controller daemon creates its private
-socket. Commissioning, device control, dashboard controls and the Garage
-GATT/WebSocket relay remain pending.
+The opt-in native build, Rust Matter/OpenThread service, private IPC, Garage
+BLE relay, Thread lifecycle, persistent controller identity, operational
+discovery, bounded reads/commands, shared device model and dashboard controls
+are implemented with synthetic host evidence. These checks do not establish
+real-accessory compatibility or physical gateway acceptance. The companion
+plans track remaining service/report recovery and target checks; plan 08 is the
+physical acceptance gate.
+
+Matter deployment is explicitly opt-in. `deploy.sh --matter-service PATH`
+stages the service and paired supervisor without changing the active launcher.
+`--activate-paired` is a separate next-boot launcher selection for an already
+prepared Ziggurat/native pair. The paired launcher enables Matter only when
+`/tuya/native/thread-matter` is executable. Neither option restarts live
+processes, and no deployment was performed for this implementation checkpoint.
 
 The remaining work is broken into eight sequenced implementation plans in
 [`docs/matter-plans/README.md`](docs/matter-plans/README.md).
@@ -361,17 +367,36 @@ so retries create no growing log or flash log. The standalone runtime emits
 only static start/stop/failure messages. Shutdown has the existing bounded
 TERM/KILL deadline; restart socket ownership is checked by the Rust listener.
 
-`deploy.sh --matter-service PATH` stages `thread-matter` and `paired_start.sh`
-with mode 0700 alongside a binary deployment. It does not upload credential
-state, select the paired launcher, or enable the child. Normal `--activate`
-continues to select `native_start.sh`. Stage below `/tuya/native-test` for later
-review; production cutover and real-accessory acceptance remain excluded under
-plan 08. The candidate permanent launcher is not changed or installed here.
+For a Matter-enabled native bridge, build and pass the `ZIGGURAT=1 MATTER=1`
+binary explicitly. Matter-service deployment refuses to use the default
+Matter-disabled binary implicitly:
 
-Validation: 19 Rust checks, the synthetic real-service runtime test, ten paired
-supervisor checks (including Matter isolation, ordering and missing endpoint),
-shell syntax checks and mocked optional deployment staging pass. No physical
-radio or device configuration was touched. See
+```sh
+make ZIGGURAT=1 MATTER=1 mips
+cd ../ziggurat-compilation
+bash scripts/build-rs-matter-transport.sh mips service
+cd ../microhad-zigbee-native
+./deploy.sh --binary-only --binary build/mips-ziggurat-matter/microhad-zigbee-native \
+  --matter-service ../ziggurat-compilation/build/rs-matter/thread-matter-mips \
+  --target /tuya/native-test --password-file ../ssh_password.txt
+```
+
+Staging uses mode 0700 and leaves the active launcher alone. After the paired
+Ziggurat installation has passed its own acceptance, the explicit
+`--activate-paired` option can install the Matter-aware launcher for the next
+boot; it requires `--target /tuya/native`, `--matter-service PATH`, and an
+explicit `--binary`, preserves `/tuya/tuya_start.sh.lowjs-backup`, and does not
+restart existing processes. Use it only when the installed Ziggurat binary,
+configuration, maintenance tool, paired supervisor, backup and recovery path
+have already been verified. Existing `--activate` remains native-only. No
+target execution, launcher activation, credentials transfer or process restart
+was performed here; physical acceptance remains in plan 08.
+
+Validation for the deployment-path checkpoint: four mocked service/launcher
+deployment tests, the Matter build-flag test, shell syntax checks, ten paired
+supervisor tests and the Rust service-feature library suite pass. No physical
+radio, target CPU/RSS sample or device configuration was touched; startup
+latency and sustained resource feasibility remain for plan 08. See
 [`docs/matter-plans/01-rust-service-runtime.md`](docs/matter-plans/01-rust-service-runtime.md)
 for remaining acceptance gaps.
 

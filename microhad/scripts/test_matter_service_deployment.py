@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
+import time
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -17,6 +18,35 @@ with open(os.environ['STAGING_CALLS'], 'a') as output:
 
 
 class Staging(unittest.TestCase):
+    def test_paired_launcher_enables_matter_only_for_staged_executable(self):
+        for staged in (False, True):
+            with self.subTest(staged=staged), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                native = root / 'native';native.mkdir()
+                if staged:
+                    service = native / 'thread-matter';service.write_text('#!/bin/sh\nexit 0\n')
+                    service.chmod(0o700)
+                capture = root / 'matter-bin'
+                paired = native / 'paired_start.sh'
+                paired.write_text('#!/bin/sh\nprintf "%s" "${MATTER_BIN-}" > "$MATTER_CAPTURE"\n')
+                paired.chmod(0o700)
+                set_time = root / 'set_time.sh';set_time.write_text('#!/bin/sh\nexit 0\n')
+                set_time.chmod(0o700)
+                launcher_text = (ROOT / 'ziggurat_start.sh').read_text()
+                launcher_text = launcher_text.replace('/tuya/native', str(native))
+                launcher_text = launcher_text.replace('/tuya/set_time.sh', str(set_time))
+                launcher = root / 'ziggurat_start.sh';launcher.write_text(launcher_text)
+                env = dict(os.environ, MATTER_CAPTURE=str(capture))
+                env.pop('MATTER_BIN', None)
+                subprocess.run(['sh', str(launcher)], env=env, check=True, timeout=2)
+                for _ in range(50):
+                    if capture.exists():
+                        break
+                    time.sleep(0.01)
+                self.assertTrue(capture.exists())
+                expected = str(native / 'thread-matter') if staged else ''
+                self.assertEqual(capture.read_text(), expected)
+
     def test_service_stages_without_start_or_state_upload(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -45,6 +75,62 @@ class Staging(unittest.TestCase):
             result = subprocess.run(args + ['--webui-only'], env=env, stdin=subprocess.DEVNULL,
                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
             self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(calls.exists())
+
+    def test_explicit_paired_activation_installs_matter_aware_launcher(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake = root / 'sshpass';fake.write_text(FAKE_SSH);fake.chmod(0o700)
+            binary = root / 'native';binary.write_bytes(b'fake native');binary.chmod(0o700)
+            service = root / 'thread-matter';service.write_bytes(b'fake service');service.chmod(0o700)
+            password = root / 'password';password.touch()
+            calls = root / 'calls'
+            env = dict(os.environ,PATH=str(root)+os.pathsep+os.environ['PATH'],STAGING_CALLS=str(calls))
+            args = ['sh', str(ROOT / 'deploy.sh'), '--password-file', str(password),
+                    '--binary-only', '--binary', str(binary), '--matter-service', str(service),
+                    '--target', '/tuya/native', '--activate-paired']
+            result = subprocess.run(args, env=env, stdin=subprocess.DEVNULL, capture_output=True,
+                                    text=True, check=False, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            rows = [json.loads(line) for line in calls.read_text().splitlines()]
+            uploads = [row for row in rows if row['bytes']]
+            self.assertEqual([row['bytes'] for row in uploads], [binary.stat().st_size,
+                service.stat().st_size, (ROOT / 'paired_start.sh').stat().st_size,
+                (ROOT / 'ziggurat_start.sh').stat().st_size])
+            commands = '\n'.join(row['command'] for row in rows)
+            self.assertIn('cp /tuya/tuya_start.sh /tuya/tuya_start.sh.lowjs-backup', commands)
+            self.assertIn('mv "/tuya/native/.gateway_start.sh.new" /tuya/tuya_start.sh', commands)
+            self.assertIn('export MATTER_BIN=/tuya/native/thread-matter',
+                          (ROOT / 'ziggurat_start.sh').read_text())
+            self.assertNotIn('killall', commands)
+            self.assertIn('Existing processes were not restarted', result.stdout)
+
+    def test_paired_activation_requires_explicit_service_and_native_target(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake = root / 'sshpass';fake.write_text(FAKE_SSH);fake.chmod(0o700)
+            binary = root / 'native';binary.write_bytes(b'fake native');binary.chmod(0o700)
+            password = root / 'password';password.touch()
+            calls = root / 'calls'
+            env = dict(os.environ,PATH=str(root)+os.pathsep+os.environ['PATH'],STAGING_CALLS=str(calls))
+            base = ['sh', str(ROOT / 'deploy.sh'), '--password-file', str(password),
+                    '--binary-only', '--binary', str(binary), '--activate-paired']
+            result = subprocess.run(base, env=env, stdin=subprocess.DEVNULL, capture_output=True,
+                                    text=True, check=False, timeout=10)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(calls.exists())
+            service = root / 'thread-matter';service.write_bytes(b'fake service');service.chmod(0o700)
+            result = subprocess.run(base + ['--matter-service', str(service), '--target', '/tuya/native-test'],
+                                    env=env, stdin=subprocess.DEVNULL, capture_output=True,
+                                    text=True, check=False, timeout=10)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(calls.exists())
+            staging = ['sh', str(ROOT / 'deploy.sh'), '--password-file', str(password),
+                       '--binary-only', '--matter-service', str(service), '--target', '/tuya/native-test']
+            result = subprocess.run(staging, env=env, stdin=subprocess.DEVNULL, capture_output=True,
+                                    text=True, check=False, timeout=10)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('ZIGGURAT=1 MATTER=1', result.stderr)
             self.assertFalse(calls.exists())
 
 

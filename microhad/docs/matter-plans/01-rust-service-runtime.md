@@ -59,7 +59,7 @@ native status routes report its actual state over `/tmp/microhad-matter.sock`.
 | Step | Status | Evidence / remaining work |
 | --- | --- | --- |
 | 1 | Complete | `thread-matter` owns Matter, OpenThread, private store and IPC in one event loop; host synthetic-RCP startup/status/shutdown passed. |
-| 2 | Complete | Optional `MATTER_BIN` child in `paired_start.sh`, independent bounded retries, stop-before-native/radio ordering and opt-in staging; ten synthetic supervisor tests pass. Production launcher activation remains outside this checkpoint. |
+| 2 | Complete | Optional `MATTER_BIN` child in `paired_start.sh`, independent bounded retries and stop-before-native/radio ordering pass synthetic tests. The paired launcher now selects the staged service explicitly; `deploy.sh --activate-paired` provides a separate next-boot path and preserves the existing launcher backup. Mocked deployment tests pass. No gateway activation or target execution was performed; those remain in plan 08. |
 | 3 | Complete | Mode 0600, flock duplicate exclusion, nonblocking stale socket probe, unsafe path refusal and inode-specific orderly cleanup; host checks passed. |
 | 4 | Complete | Four clients, four accepts per turn, 4096-byte read/write budgets, eight queued replies, two-second idle expiry; malformed/overload/idle checks passed. |
 | 5 | Complete | Empty requests for opcodes 1/2 return bounded JSON; synthetic host reports `running` with its persistent fabric and Thread `detached`, without credentials. |
@@ -77,10 +77,16 @@ Unix sockets return EPERM). The factory link additionally required an `accept4`
 shim for old uClibc, using `accept` and immediate descriptor flags in the
 single-threaded process.
 
-The launcher checkpoint also passes a mocked deployment check proving that
-`--matter-service` stages only the optional executable and paired supervisor
-alongside the selected native binary. It neither transfers credentials nor
-starts a process. No gateway connection was made during these tests.
+The deployment checkpoint initially exposed a blocker: `--matter-service`
+staged the Rust executable and supervisor, but the paired launcher did not set
+`MATTER_BIN`, and `--activate` selected the native-only launcher. The launcher
+now opts into Matter when the staged executable exists, while preserving
+Matter-disabled behavior when it is absent. `deploy.sh --activate-paired`
+separately stages the Matter-aware launcher for next boot; it requires an
+explicit Matter-enabled native binary and service path, is restricted to
+`/tuya/native`, preserves the existing launcher backup and never restarts live
+processes. Mocked SSH tests verify staging and activation commands without
+network access. No gateway connection or launcher activation was performed.
 
 ## Remaining checkpoints
 
@@ -93,8 +99,9 @@ starts a process. No gateway connection was made during these tests.
 3. Verify a native HTTP-to-service status round trip with valid, malformed,
    absent and stalled service peers. Record the current factory binary hash,
    size and ELF checks rather than reusing earlier build measurements.
-4. Defer physical startup/resource measurements to an explicitly arranged,
-   backed-up gateway test; distinguish synthetic evidence from target evidence.
+4. Keep physical startup/resource measurements and launcher activation in plan
+   08; distinguish synthetic evidence from target evidence. Before that gate,
+   the deployment package and explicit paired-launcher path are host-verified.
 
 ## Dependencies
 

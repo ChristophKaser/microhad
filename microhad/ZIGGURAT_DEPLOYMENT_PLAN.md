@@ -516,7 +516,13 @@ returned online with 23 inventory entries. Next test quiesce/freeze/stop and reb
 Prepare an atomic launcher update retaining the original `/tuya/tuya_start.sh`
 and v13-compatible binary/config privately. The prepared `ziggurat_start.sh` uses the paired supervisor. The old `native_start.sh` only
 supervises the native daemon: it is **not sufficient** for the two-process backend.
-Do not use `deploy.sh --activate` unchanged for this cutover.
+Do not use `deploy.sh --activate` unchanged for this cutover. For a later
+Matter-enabled paired installation, `deploy.sh --activate-paired` selects
+`ziggurat_start.sh`, which opts into Matter only when the explicitly staged
+`/tuya/native/thread-matter` executable is present. This option assumes the
+paired Ziggurat/native artifacts, config and maintenance binary are already
+installed and verified; it does not perform first-time paired-backend setup.
+It was host-tested only and is not used before plan 08 acceptance.
 
 The new launcher must create the private RAM socket directory, start Ziggurat,
 wait for API readiness with a deadline, then start the native daemon. Native
