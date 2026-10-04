@@ -54,8 +54,11 @@ remain open. Native commit `e81af44` routes Matter
 temperature, humidity and brightness readings through the common value-alert
 engine and preserves alert configuration/state across snapshot refresh. Matter
 alert settings are restored across gateway restart and Matter snapshot
-reconciliation by native commit `5cfb3b1`. CO2/PM2.5 alert units are not
-modeled yet. Remote recovery of catalogued nodes and legacy
+reconciliation by native commit `5cfb3b1`. Native commit `d5d94ba` adds unit-
+matched CO2 and PM2.5 thresholds, persists their units with the alert settings,
+and triggers alerts only when readings cross thresholds in the same unit. The
+shared device settings dialog presents the reported concentration units.
+Remote recovery of catalogued nodes and legacy
 migration also remain open. Verification passed:
 `make ZIGGURAT=1 MATTER=1 host test` and
 `make ZIGGURAT=1 MATTER=1 mips` (the MIPS toolchain prints its existing
@@ -73,7 +76,7 @@ persistence remains open. The source-unification checkpoint passed
 `make ZIGGURAT=1 MATTER=1 mips`, `npm run build`,
 `node webui/test/matter-devices-browser.cjs`, and
 `python3 scripts/test_matter_webui.py` (20/20 API tests).
-CO2/PM2.5 alert units, report subscriptions, remote
+report subscriptions, remote
 node recovery, and persistent native endpoint restart restoration remain open.
 
 This shared device contract applies equally to Zigbee, Matter, and external

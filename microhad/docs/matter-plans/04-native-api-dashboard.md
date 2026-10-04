@@ -132,9 +132,12 @@ temperature, humidity and brightness values into the common alert-threshold
 processor and preserves alert configuration/state when snapshot capabilities
 refresh. Native commit `5cfb3b1` restores common alert settings for stable
 Matter endpoint IDs from `devices.json` across gateway restart and snapshot
-reconciliation. CO2/PM2.5 alert thresholds are not modeled yet. The host suite
-and MIPS cross-build pass; MIPS emits the toolchain's existing LOAD-USE
-warnings.
+reconciliation. Native commit `d5d94ba` adds CO2 and PM2.5 threshold alerts
+whose configured unit must match the current reported sensor unit; that unit
+survives restart with the limits. The shared Matter card now exposes the same
+settings and history actions as other providers, and Chromium verifies the
+unit-labeled CO2/PM2.5 alert fields. Host, API, browser and MIPS checks pass;
+the MIPS toolchain emits its existing LOAD-USE warnings.
 
 ## Source-neutral history checkpoint — 2026-10-04
 
@@ -170,9 +173,10 @@ open. Verification passed:
 2. [x] Route Matter, Zigbee, Shelly and FRITZ!Box telemetry through the
    source-neutral unit-aware journal and restore common Matter alert settings
    across gateway restart, while keeping setup and transport in source
-   adapters. Decide and implement power-loss persistence if history must
-   survive gateway reboot. Add unit-aware CO2/PM2.5 alert support. Keep join
-   and Thread-specific settings in the Matter area.
+   adapters. Unit-aware CO2/PM2.5 alerts and gateway-restart restoration are
+   implemented; decide and implement power-loss persistence if history must
+   survive gateway reboot. Keep join and Thread-specific settings in the Matter
+   area.
 3. Extend broad enabled/disabled, absent/stalled service, malformed reply, queue
    pressure, cancellation, socket-loss and secret-redaction gates. Existing native
    and new frontend tests cover subsets; checklist item 6 remains open.
