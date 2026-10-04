@@ -195,4 +195,54 @@ mod tests {
         };
         assert!(event(Event::MatterReport(&invalid)).is_none());
     }
+
+    #[test]
+    fn normalized_sensor_reports_match_shared_ipc_golden_vectors() {
+        use crate::operations::{AirQualityValue, MeasurementValue, ResultValue, Value};
+
+        let readings = [
+            ResultValue {
+                node: Id(2), endpoint: 1, cluster: 1026, attribute: 0,
+                value: Value::Measurement(MeasurementValue {
+                    value: Some(-5.25), unit: "celsius", quality: "measured",
+                }),
+            },
+            ResultValue {
+                node: Id(2), endpoint: 1, cluster: 1029, attribute: 0,
+                value: Value::Measurement(MeasurementValue {
+                    value: None, unit: "percent", quality: "unknown",
+                }),
+            },
+            ResultValue {
+                node: Id(2), endpoint: 1, cluster: 91, attribute: 0,
+                value: Value::AirQuality(AirQualityValue {
+                    value: "moderate", quality: "measured",
+                }),
+            },
+            ResultValue {
+                node: Id(2), endpoint: 1, cluster: 1037, attribute: 0,
+                value: Value::Measurement(MeasurementValue {
+                    value: Some(758.5), unit: "ppm", quality: "measured",
+                }),
+            },
+            ResultValue {
+                node: Id(2), endpoint: 1, cluster: 1066, attribute: 0,
+                value: Value::Measurement(MeasurementValue {
+                    value: Some(12.75), unit: "ug/m3", quality: "measured",
+                }),
+            },
+        ];
+        let expected: [&[u8]; 5] = [
+            br#"{"schema":1,"event":"matter_report","data":{"node":"0000000000000002","endpoint":1,"cluster":1026,"attribute":0,"value":{"type":"measurement","value":{"value":-5.25,"unit":"celsius","quality":"measured"}}}}"#,
+            br#"{"schema":1,"event":"matter_report","data":{"node":"0000000000000002","endpoint":1,"cluster":1029,"attribute":0,"value":{"type":"measurement","value":{"value":null,"unit":"percent","quality":"unknown"}}}}"#,
+            br#"{"schema":1,"event":"matter_report","data":{"node":"0000000000000002","endpoint":1,"cluster":91,"attribute":0,"value":{"type":"air_quality","value":{"value":"moderate","quality":"measured"}}}}"#,
+            br#"{"schema":1,"event":"matter_report","data":{"node":"0000000000000002","endpoint":1,"cluster":1037,"attribute":0,"value":{"type":"measurement","value":{"value":758.5,"unit":"ppm","quality":"measured"}}}}"#,
+            br#"{"schema":1,"event":"matter_report","data":{"node":"0000000000000002","endpoint":1,"cluster":1066,"attribute":0,"value":{"type":"measurement","value":{"value":12.75,"unit":"ug/m3","quality":"measured"}}}}"#,
+        ];
+        for (reading, expected) in readings.iter().zip(expected) {
+            let frame = event(Event::MatterReport(reading)).unwrap();
+            assert_eq!((frame.kind, frame.opcode, frame.id), (2, 12, 0));
+            assert_eq!(frame.payload, expected);
+        }
+    }
 }
