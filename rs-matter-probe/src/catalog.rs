@@ -326,4 +326,66 @@ mod tests {
         assert!(!catalog.has_capacity());
         assert!(catalog.reserve(3).is_err());
     }
+
+    #[test]
+    fn staged_backup_restores_catalog_and_rejects_bad_candidate_without_touching_source() {
+        let source = Directory::new();
+        let source_store = source.store();
+        let catalog = Catalog::open(source_store.clone(), 17, 2).unwrap();
+        let reservation = catalog.reserve(2).unwrap();
+        reservation.fabric_installed().unwrap();
+        reservation.thread_provisioned().unwrap();
+        reservation.complete().unwrap();
+        let source_bytes = std::fs::read(source.0.join("credentials.bin")).unwrap();
+        drop(catalog);
+        drop(source_store);
+
+        let restored = Directory::new();
+        drop(restored.store());
+        std::fs::copy(
+            source.0.join("credentials.bin"),
+            restored.0.join("credentials.bin"),
+        )
+        .unwrap();
+        let restored_store = restored.store();
+        let recovered = Catalog::open(restored_store.clone(), 17, 3).unwrap();
+        assert_eq!(recovered.nodes().len(), 1);
+        assert_eq!(recovered.nodes()[0].id, 2);
+        assert!(matches!(recovered.nodes()[0].phase, Phase::Complete));
+        assert_eq!(
+            recovered.endpoint_id(2, 1).unwrap(),
+            "matter:0000000000000011:0000000000000002:0001"
+        );
+        drop(recovered);
+        drop(restored_store);
+
+        let candidate = Directory::new();
+        drop(candidate.store());
+        std::fs::copy(
+            source.0.join("credentials.bin"),
+            candidate.0.join("credentials.bin"),
+        )
+        .unwrap();
+        let candidate_path = candidate.0.join("credentials.bin");
+        let mut corrupt = std::fs::read(&candidate_path).unwrap();
+        *corrupt.last_mut().unwrap() ^= 1;
+        std::fs::write(&candidate_path, corrupt).unwrap();
+        assert!(PrivateStore::open(&candidate.0).is_err());
+        assert_eq!(
+            std::fs::read(source.0.join("credentials.bin")).unwrap(),
+            source_bytes
+        );
+
+        std::fs::write(
+            source.0.join(".credentials-abandoned"),
+            b"partial replacement",
+        )
+        .unwrap();
+        let reopened = source.store();
+        let catalog = Catalog::open(reopened.clone(), 17, 3).unwrap();
+        assert_eq!(catalog.nodes().len(), 1);
+        assert!(matches!(catalog.nodes()[0].phase, Phase::Complete));
+        drop(catalog);
+        drop(reopened);
+    }
 }
