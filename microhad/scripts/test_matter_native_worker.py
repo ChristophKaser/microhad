@@ -110,7 +110,7 @@ class MatterPeer:
                                     result = dict(schema=1, ok=True, result=dict(revision=revision,
                                         devices=[dict(node='0000000000000002', state='complete', online=True,
                                             id=f'matter:0000000000000001:0000000000000002:{endpoint:04x}',
-                                            endpoint=endpoint, servers=[6, 29])],
+                                            endpoint=endpoint, servers=[6, 29, 1026])],
                                         next_cursor=1 if cursor == 0 else None))
                             elif decoded['action'] == 'read':
                                 assert decoded['cluster'] in (6, 8) and decoded['attribute'] == 0
@@ -200,6 +200,12 @@ class MatterPeer:
                                 node='0000000000000002', endpoint=1, cluster=6, attribute=0,
                                 value=dict(type='bool', value=True)))
                             payload = json.dumps(report).encode()
+                            peer.sendall(struct.pack('<HBBBBI', len(payload), 1, 2, 12, 0, 0)+payload)
+                            sensor_report = dict(schema=1, event='matter_report', data=dict(
+                                node='0000000000000002', endpoint=1, cluster=1026, attribute=0,
+                                value=dict(type='measurement', value=dict(
+                                    value=21.5, unit='celsius', quality='measured'))))
+                            payload = json.dumps(sensor_report).encode()
                             peer.sendall(struct.pack('<HBBBBI', len(payload), 1, 2, 12, 0, 0)+payload)
         except Exception as error:
             if not self.stop.is_set():
@@ -595,8 +601,9 @@ def main():
                 devices = fixture.status()['devices']
                 return next((device for device in devices
                     if device['source'] == 'matter' and device['matter_node'] == '0000000000000002' and
-                    device['matter_endpoint'] == 1 and device['actor_known'] and device['actor_on']), None)
-            assert wait_for(report_applied), 'Unsolicited Matter report did not update shared device state'
+                    device['matter_endpoint'] == 1 and device['actor_known'] and device['actor_on'] and
+                    device['sensor_values']['temperature'] == dict(value=21.5, unit='°C', quality='measured')), None)
+            assert wait_for(report_applied), 'Unsolicited Matter reports did not update shared device state'
         begin = time.monotonic()
         for _ in range(20):
             assert fixture.request('/api/thread/status')['available']
