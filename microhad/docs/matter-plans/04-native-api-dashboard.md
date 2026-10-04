@@ -181,8 +181,10 @@ open. Verification passed:
    source-neutral unit-aware journal and restore common Matter alert settings
    across gateway restart, while keeping setup and transport in source
    adapters. Unit-aware CO2/PM2.5 alerts and gateway-restart restoration are
-   implemented; decide and implement power-loss persistence if history must
-   survive gateway reboot. Keep join and Thread-specific settings in the Matter
+   implemented. History is intentionally volatile across power loss: the
+   bounded journal remains in `/tmp` to honor the no-high-frequency-flash-write
+   policy; low-frequency settings that need restart restoration remain in the
+   runtime directory. Keep join and Thread-specific settings in the Matter
    area.
 3. Extend broad enabled/disabled, absent/stalled service, malformed reply, queue
    pressure, cancellation, socket-loss and secret-redaction gates. Existing native

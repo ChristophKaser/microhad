@@ -70,8 +70,11 @@ HTTP updates also enter it. All providers use the common device history route
 and rendered dialog while keeping source-specific controllers. Stable IDs are
 prefixed by source, and samples preserve units. Zigbee reads retain a legacy V2
 fallback if the source-ID journal has no samples for that device. The journal
-caps at 8,192 records, compacts to recent records and uses `/tmp`; power-loss
-persistence remains open. The source-unification checkpoint passed
+caps at 8,192 records, compacts to recent records and uses `/tmp`. History is
+intentionally volatile across power loss because daily writes under `/tuya`
+would violate the gateway's no-high-frequency-flash-write policy. Low-frequency
+settings that require restart restoration remain in the runtime directory. The
+source-unification checkpoint passed
 `make ZIGGURAT=1 MATTER=1 host test`,
 `make ZIGGURAT=1 MATTER=1 mips`, `npm run build`,
 `node webui/test/matter-devices-browser.cjs`, and
