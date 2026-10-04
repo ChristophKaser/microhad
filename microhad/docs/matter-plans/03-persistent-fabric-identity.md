@@ -5,8 +5,10 @@
 Persistent authority and host CASE restore exist. Synthetic staged recovery now
 has evidence for a completed catalog, stable endpoint identity, corrupt
 candidate refusal, source preservation, authority restoration and allocator
-high-water; full archive/Thread-settings recovery and target filesystem
-verification remain open.
+high-water. Archive preflight, private extraction and matching-service identity
+validation now pass together on synthetic state. Interrupted replacement,
+counter/high-water rollback refusal and target filesystem verification remain
+open.
 
 Native commit `7247c94` adds structural preflight for the plaintext tar produced
 after successful backup decryption. Commit `7f5ac3d` adds staged extraction that
