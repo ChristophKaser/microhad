@@ -330,6 +330,7 @@ use core::convert::Infallible;
 use rs_matter::crypto::{TryCryptoRng, TryRng};
 use std::fs::File;
 use std::io::Read;
+use std::os::unix::net::UnixStream;
 // Actual OS entropy; read failures abort this test rather than returning weak bytes.
 struct OsEntropy(File);
 impl TryRng for OsEntropy {
@@ -818,6 +819,23 @@ async fn run(
                 )
                 .await?;
             }
+            let mut report_ipc = if sensor_reports {
+                let directory = if state_directory.is_absolute() {
+                    state_directory.clone()
+                } else {
+                    std::env::current_dir()
+                        .map_err(|_| rs_matter::error::ErrorCode::Failure)?
+                        .join(&state_directory)
+                };
+                let path = directory.join("report-ipc.sock");
+                let mut ipc = lexra_rs_matter_probe::service::IpcServer::bind(&path)
+                    .map_err(|_| rs_matter::error::ErrorCode::Failure)?;
+                ipc.poll(|_| None)
+                    .map_err(|_| rs_matter::error::ErrorCode::Failure)?;
+                Some((ipc, path))
+            } else {
+                None
+            };
             let exchange = Exchange::initiate(ctrl_matter, ctrl_crypto, fab, node).await?;
             exchange.on_off().toggle(1).await?;
             let reported_on = embassy_time::with_timeout(
@@ -881,13 +899,46 @@ async fn run(
                         _ => unreachable!(),
                     }
                     dm.notify_attr_changed(1, cluster, 0);
-                    let report = embassy_time::with_timeout(
+                    let mut report_peer = if let Some((ipc, path)) = &mut report_ipc {
+                        let peer = UnixStream::connect(path)
+                            .map_err(|_| rs_matter::error::ErrorCode::Failure)?;
+                        ipc.poll(|_| None)
+                            .map_err(|_| rs_matter::error::ErrorCode::Failure)?;
+                        Some(peer)
+                    } else {
+                        None
+                    };
+                    let payload = embassy_time::with_timeout(
                         Duration::from_secs(5),
                         std::future::poll_fn(|context| {
                             manager.poll(true, false, std::time::Instant::now(), context);
-                            while let Some(report) = manager.pop_report() {
-                                if report.cluster == cluster {
-                                    return std::task::Poll::Ready(report);
+                            if let (Some((ipc, _)), Some(peer)) =
+                                (&mut report_ipc, &mut report_peer)
+                            {
+                                if manager.front_report().is_some() {
+                                    if manager.publish_reports(ipc).unwrap() != 0 {
+                                        ipc.poll(|_| None).unwrap();
+                                        let mut header = [0; 10];
+                                        peer.read_exact(&mut header).unwrap();
+                                        let length = usize::from(u16::from_le_bytes([
+                                            header[0], header[1],
+                                        ]));
+                                        let mut bytes = header.to_vec();
+                                        bytes.resize(10 + length, 0);
+                                        peer.read_exact(&mut bytes[10..]).unwrap();
+                                        let mut decoder =
+                                            lexra_rs_matter_probe::ipc::Decoder::default();
+                                        decoder.feed(&bytes).unwrap();
+                                        let event = decoder.pop().unwrap();
+                                        assert_eq!((event.kind, event.opcode, event.id), (2, 12, 0));
+                                        return std::task::Poll::Ready(event.payload);
+                                    }
+                                }
+                            } else {
+                                while let Some(report) = manager.pop_report() {
+                                    if report.cluster == cluster {
+                                        return std::task::Poll::Ready(Vec::new());
+                                    }
                                 }
                             }
                             context.waker().wake_by_ref();
@@ -896,27 +947,19 @@ async fn run(
                     )
                     .await
                     .map_err(|_| rs_matter::error::ErrorCode::RxTimeout)?;
-                    match (cluster, report.value) {
-                        (1026, lexra_rs_matter_probe::operations::Value::Measurement(value)) => {
-                            assert_eq!(value.value, Some(-5.25));
-                            assert_eq!(value.unit, "celsius");
-                        }
-                        (1029, lexra_rs_matter_probe::operations::Value::Measurement(value)) => {
-                            assert_eq!(value.value, Some(64.0));
-                            assert_eq!(value.unit, "percent");
-                        }
-                        (91, lexra_rs_matter_probe::operations::Value::AirQuality(value)) => {
-                            assert_eq!(value.value, "moderate");
-                        }
-                        (1037 | 1066, lexra_rs_matter_probe::operations::Value::Measurement(value)) => {
-                            assert_eq!(value.value, Some(if cluster == 1037 { 800.0 } else { 25.5 }));
-                            assert_eq!(value.unit, if cluster == 1037 { "ppm" } else { "ug/m3" });
-                        }
-                        _ => panic!("unexpected normalized report type for cluster {cluster}"),
-                    }
+                    drop(report_peer);
+                    let expected = match cluster {
+                        1026 => br#"{"schema":1,"event":"matter_report","data":{"node":"0000000000000002","endpoint":1,"cluster":1026,"attribute":0,"value":{"type":"measurement","value":{"value":-5.25,"unit":"celsius","quality":"measured"}}}}"#.as_slice(),
+                        1029 => br#"{"schema":1,"event":"matter_report","data":{"node":"0000000000000002","endpoint":1,"cluster":1029,"attribute":0,"value":{"type":"measurement","value":{"value":64.0,"unit":"percent","quality":"measured"}}}}"#.as_slice(),
+                        91 => br#"{"schema":1,"event":"matter_report","data":{"node":"0000000000000002","endpoint":1,"cluster":91,"attribute":0,"value":{"type":"air_quality","value":{"value":"moderate","quality":"measured"}}}}"#.as_slice(),
+                        1037 => br#"{"schema":1,"event":"matter_report","data":{"node":"0000000000000002","endpoint":1,"cluster":1037,"attribute":0,"value":{"type":"measurement","value":{"value":800.0,"unit":"ppm","quality":"measured"}}}}"#.as_slice(),
+                        1066 => br#"{"schema":1,"event":"matter_report","data":{"node":"0000000000000002","endpoint":1,"cluster":1066,"attribute":0,"value":{"type":"measurement","value":{"value":25.5,"unit":"ug/m3","quality":"measured"}}}}"#.as_slice(),
+                        _ => unreachable!(),
+                    };
+                    assert_eq!(payload, expected);
                 }
                 println!(
-                    "PASS production manager receives normalized subscribed sensor reports over CASE"
+                    "PASS production manager sensor reports reach IPC from subscribed CASE reports"
                 );
             }
             println!("PASS production manager subscription and peer-correlated OnOff reports");
