@@ -226,3 +226,15 @@ Ktor channel-cancel cause, inferred JUnit return type and digit-containing nativ
 field name) were corrected before verification. Next implement and wire the
 foreground screen and runtime permission/lifecycle flows; checklist steps 2–6
 remain incomplete as full app tasks. No phone/gateway deployment or plan 08 action.
+
+## Failed-write delivery checkpoint — 2026-10-04
+
+Garage commit `ddba4cf` fixes premature relay teardown after a failed GATT
+completion. `success:false` is now delivered before remote failure/terminal
+cleanup; the existing write deadline bounds a lost reply. The foreground owner
+can distinguish pending failed-write delivery from an unrelated BLE loss.
+Both flavors pass all 50 unit tests and debug builds, including a real localhost
+WebSocket regression proving receipt before the Rust-contract `transport` reply.
+The earlier workspace-credit review failure was retried and verification ran.
+This closes that transport bug; foreground UI/lifecycle wiring remains open.
+No phone/gateway deployment or plan 08 action occurred.
