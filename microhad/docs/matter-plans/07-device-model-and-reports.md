@@ -448,17 +448,27 @@ are historical; the latest status/evidence section above takes precedence.
    Level IPC/API validation, HTTP admission and rendered controls are verified
    (`1ab6e91`, `7ea5a52`). Commands return confirmed values,
    with explicit operation errors and no optimistic state.
-5. [ ] Decode advertised sensor attributes with units, signed values and null
+5. [x] Decode advertised sensor attributes with units, signed values and null
    semantics. Cover temperature, humidity, CO2, PM2.5 and air quality using
    synthetic descriptors rather than assuming ALPSTUGA exposes every cluster.
+   Rust commit `1855f24` decodes and normalizes all five sensor types, and
+   `62d7fd4` verifies server-initiated reports through the production manager.
+   Native commit `6fe31b3` verifies a measured temperature report reaches the
+   shared state through Matter IPC.
 6. [ ] Add bounded subscriptions, duplicate filtering, sleepy-device refresh
    and reconnect backoff; persist meaningful changes rather than each report.
+   Subscription count and report queue are bounded, identical values are
+   filtered, and retries use capped exponential backoff. Endpoint metadata and
+   settings persist; telemetry stays in RAM and the bounded `/tmp` history, so
+   reports do not cause flash writes. Explicit sleepy-device policy and live
+   service-to-native report verification remain open.
 7. [ ] CASE operation values feed the common in-memory state and the shared
    temperature/humidity/brightness alert engine. Matter writes confirmed
    values to the source-neutral unit-aware journal; route Zigbee and remaining
    external HTTP history through it too. Restart restoration of endpoint
    metadata and readings, CO2/PM2.5 alert support and alert-setting restoration
-   are implemented. Bounded reports remain open.
+   are implemented. The native report adapter is host-tested with a synthetic
+   IPC peer; live Rust-service-originated report delivery remains open.
    Test unsupported clusters, missing/duplicate reports, address changes,
    restart and concurrent synthetic Zigbee activity; document remaining limits.
 
