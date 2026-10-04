@@ -82,6 +82,36 @@ pub struct ResultValue {
     pub attribute: u32,
     pub value: Value,
 }
+
+/// Decode supported attribute paths from an unsolicited Matter ReportData
+/// message into the same value shape used by confirmed reads. Unsupported
+/// paths are ignored; malformed values for supported paths reject the report.
+pub fn report_values(
+    node: u64,
+    report: &rs_matter::im::ReportDataResp<'_>,
+) -> Result<Vec<ResultValue>, Error> {
+    let mut values = Vec::new();
+    for (endpoint, value) in report.attrs::<bool>(6, 0) {
+        values.push(ResultValue {
+            node: Id(node),
+            endpoint,
+            cluster: 6,
+            attribute: 0,
+            value: Value::Bool(value?),
+        });
+    }
+    for (endpoint, value) in report.attrs::<Nullable<u8>>(8, 0) {
+        values.push(ResultValue {
+            node: Id(node),
+            endpoint,
+            cluster: 8,
+            attribute: 0,
+            value: Value::U8(value?.as_opt_ref().copied()),
+        });
+    }
+    Ok(values)
+}
+
 impl Operation {
     pub fn decode(request: Request) -> Result<Self, Failure> {
         let (node, endpoint, action) = match request {

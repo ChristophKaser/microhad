@@ -784,7 +784,7 @@ async fn run(
             .await
             .map_err(|_| rs_matter::error::ErrorCode::RxTimeout)??;
             assert_eq!(report.peer_identity()?, Some((fab.get(), node)));
-            let (subscription_id, reported_on) = {
+            let (subscription_id, reported_on, decoded_report) = {
                 let rx = report.recv_fetch().await?;
                 assert_eq!(rx.meta().proto_opcode, rs_matter::im::OpCode::ReportData as u8);
                 let message = rs_matter::im::ReportDataResp::from_tlv(
@@ -795,10 +795,21 @@ async fn run(
                     .find_map(|(reported_endpoint, value)| {
                         (reported_endpoint == 1).then(|| value.ok()).flatten()
                     });
-                (message.subscription_id, value)
+                let decoded = lexra_rs_matter_probe::operations::report_values(node, &message)?;
+                (message.subscription_id, value, decoded)
             };
             assert_eq!(subscription_id, Some(subscription.subscription_id));
             assert_eq!(reported_on, Some(true));
+            assert!(matches!(
+                decoded_report.as_slice(),
+                [lexra_rs_matter_probe::operations::ResultValue {
+                    node: lexra_rs_matter_probe::control::Id(reported_node),
+                    endpoint: 1,
+                    cluster: 6,
+                    attribute: 0,
+                    value: lexra_rs_matter_probe::operations::Value::Bool(true),
+                }] if *reported_node == node
+            ));
             report
                 .send_with(|_, writer| {
                     rs_matter::im::StatusResp::write(
