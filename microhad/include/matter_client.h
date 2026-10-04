@@ -28,6 +28,10 @@ public:
     bool call(unsigned char opcode, const std::string& body, std::string* json, std::string* error);
     bool poll(std::string* error);
     static bool validRequest(unsigned char opcode, const std::string& body);
+    static bool acceptedOperationJob(unsigned char opcode, const std::string& response, std::string* job);
+    static bool operationStatus(const std::string& response, const std::string& job,
+                                bool* terminal, bool* failed, std::string* error);
+    static std::string operationPollRequest(const std::string& job);
     static bool threadMutation(bool importing, const std::string& input, std::string* body);
     static bool threadChannel(const std::string& input, unsigned char channel, std::string* body);
     static bool deviceReadRequest(const std::string& input, std::string* body);

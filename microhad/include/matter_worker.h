@@ -46,7 +46,10 @@ private:
         std::string body;
         std::string state;
         std::string response;
-        Job() : opcode(0) {}
+        std::string error;
+        std::string serviceJob;
+        int64_t pollAt;
+        Job() : opcode(0), pollAt(0) {}
     };
     std::map<uint32_t, Job> jobs_;
     std::deque<uint32_t> pending_;
@@ -55,6 +58,7 @@ private:
     void unavailable();
     bool collectEvents();
     void executeJob();
+    void pollOperationJob();
     pthread_mutex_t mutex_;
     pthread_t thread_;
     bool running_;

@@ -106,7 +106,7 @@ bool MatterWorker::job(uint32_t id, std::string* json) {
         std::ostringstream out;
         out << "{\"job\":" << id << ",\"state\":\"" << value.state << "\"";
         if (!value.response.empty()) out << ",\"response\":" << value.response;
-        if (value.state == "failed") out << ",\"error\":\"transport\"";
+        if (value.state == "failed") out << ",\"error\":\"" << (value.error.empty() ? "transport" : value.error) << '"';
         out << '}'; *json = out.str();
     }
     pthread_mutex_unlock(&mutex_); return !json->empty();
@@ -123,7 +123,7 @@ void MatterWorker::unavailable() {
     matterStatus_.clear(); threadStatus_.clear(); refreshed_ = 0; events_.clear();
     for (std::map<uint32_t, Job>::iterator it = jobs_.begin(); it != jobs_.end(); ++it) {
         if (it->second.state == "queued" || it->second.state == "running") {
-            wipe(&it->second.body); it->second.state = "failed";
+            wipe(&it->second.body); it->second.state = "failed"; it->second.error = "transport";
         }
     }
     pending_.clear(); pthread_mutex_unlock(&mutex_);
@@ -160,9 +160,52 @@ void MatterWorker::executeJob() {
         wipe(&request);
     } else valid = client_.call(opcode, body, &response, &error);
     wipe(&body);
+    std::string serviceJob;
+    const bool operation = valid && MatterChannel::acceptedOperationJob(opcode, response, &serviceJob);
     pthread_mutex_lock(&mutex_);
-    Job& completed = jobs_[id]; completed.state = valid ? "complete" : "failed";
-    completed.response = response;
+    Job& completed = jobs_[id];
+    if (operation) {
+        completed.state = "running";
+        completed.serviceJob = serviceJob;
+        completed.pollAt = tick() + 200;
+    } else {
+        completed.state = valid ? "complete" : "failed";
+        completed.error = valid ? "" : "transport";
+        completed.response = response;
+    }
+    pthread_mutex_unlock(&mutex_);
+    if (!valid) unavailable(); else collectEvents();
+}
+void MatterWorker::pollOperationJob() {
+    uint32_t id = 0;
+    std::string serviceJob;
+    const int64_t now = tick();
+    pthread_mutex_lock(&mutex_);
+    for (std::map<uint32_t, Job>::iterator it = jobs_.begin(); it != jobs_.end(); ++it) {
+        if (it->second.state == "running" && !it->second.serviceJob.empty() && it->second.pollAt <= now) {
+            id = it->first; serviceJob = it->second.serviceJob; it->second.pollAt = now + 200; break;
+        }
+    }
+    pthread_mutex_unlock(&mutex_);
+    if (id == 0) return;
+    const std::string body = MatterChannel::operationPollRequest(serviceJob);
+    std::string response, error;
+    bool valid = !body.empty() && client_.call(10, body, &response, &error);
+    bool terminal = false, failed = false;
+    std::string operationError;
+    if (valid) valid = MatterChannel::operationStatus(response, serviceJob, &terminal, &failed, &operationError);
+    pthread_mutex_lock(&mutex_);
+    std::map<uint32_t, Job>::iterator found = jobs_.find(id);
+    if (found != jobs_.end() && found->second.state == "running" && found->second.serviceJob == serviceJob) {
+        if (!valid) {
+            found->second.state = "failed"; found->second.error = "transport";
+        } else if (terminal) {
+            found->second.state = failed ? "failed" : "complete";
+            found->second.error = operationError;
+            found->second.response = response;
+            found->second.serviceJob.clear();
+        }
+    }
     pthread_mutex_unlock(&mutex_);
     if (!valid) unavailable(); else collectEvents();
 }
@@ -191,6 +234,8 @@ void MatterWorker::run() {
         phonePump();
         if (!running()) break;
         executeJob();
+        if (!running()) break;
+        pollOperationJob();
         std::string error;
         if (!client_.poll(&error)) unavailable(); else collectEvents();
         usleep(10000);

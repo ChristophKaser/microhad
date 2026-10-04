@@ -3,8 +3,8 @@
 This fixes the contract for the remaining implementation. The service dispatches
 status opcodes 1/2, commissioning/relay opcodes 3–8 and Thread lifecycle opcode 9.
 Thread, commissioning snapshot and opaque BLE-write events are implemented.
-Opcode 10 snapshot dispatch is implemented with bounded revisioned pages;
-device reads and opcode 11 commands still return `unsupported`. Native persistent worker
+Opcode 10 snapshot dispatch and bounded OnOff operation jobs plus opcode 11
+on/off/toggle commands are implemented. Native persistent worker
 calls/events and queued commissioning/Thread HTTP routes are implemented;
 Owned native WebSocket relay dispatch, Android BLE onboarding and production
 operational SRP/DNS have host implementation evidence;
@@ -121,11 +121,11 @@ immediately. Poll that job through opcode 10 `{"schema":1,"action":"job",
 readback result) or `failed` (with a fixed error). Rust admits at most eight
 operations and runs one CASE transaction at a time. A 30-second deadline starts
 at admission, including queue wait. Thread loss fails queued/active operations;
-commissioning is serialized against operations. Native strict validation now
-accepts and checks this Rust job contract. HTTP read/control routing and
-dashboard controls are still pending. The existing snapshot HTTP path remains
-available. For now, `read` accepts only cluster 6 attribute 0; it returns a
-typed boolean readback. Other paths return `unsupported`.
+commissioning is serialized against operations. Native strict validation,
+HTTP read/control routes and worker polling now carry each accepted operation
+through to confirmed readback. Dashboard controls remain pending. For now,
+`read` accepts only cluster 6 attribute 0; it returns a typed boolean readback.
+Other paths return `unsupported`.
 
 Commands: `on`, `off`, `toggle` have no additional fields. `move_to_level`
 requires `level` (0–254) and `transition_deciseconds` (0–65535). Reject command

@@ -187,6 +187,17 @@ void runMatterClientUnitTests() {
     operationReplies.push_back("{\"schema\":1,\"ok\":true,\"result\":{\"state\":\"complete\",\"job\":\"0000000000000001\",\"result\":{\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":6,\"attribute\":0,\"value\":{\"type\":\"bool\",\"value\":true}}}}");
     operationReplies.push_back("{\"schema\":1,\"ok\":true,\"result\":{\"state\":\"failed\",\"job\":\"0000000000000001\",\"error\":\"not_ready\"}}");
     std::string malformedJob = operationReplies[3]; malformedJob.replace(malformedJob.find("\"cluster\":6"), 10, "\"cluster\":8"); operationReplies.push_back(malformedJob);
+    std::string serviceJob;
+    assert(MatterChannel::acceptedOperationJob(11, operationReplies[0], &serviceJob) && serviceJob == "0000000000000001");
+    assert(MatterChannel::operationPollRequest(serviceJob) == jobBody);
+    bool terminal = true, failed = false; std::string operationError;
+    assert(MatterChannel::operationStatus(operationReplies[1], serviceJob, &terminal, &failed, &operationError));
+    assert(!terminal && !failed && operationError.empty());
+    assert(MatterChannel::operationStatus(operationReplies[3], serviceJob, &terminal, &failed, &operationError));
+    assert(terminal && !failed && operationError.empty());
+    assert(MatterChannel::operationStatus(operationReplies[4], serviceJob, &terminal, &failed, &operationError));
+    assert(terminal && failed && operationError == "not_ready");
+    assert(!MatterChannel::acceptedOperationJob(11, operationReplies[5], &serviceJob));
     for (unsigned int i = 0; i < operationReplies.size(); ++i) {
         int pair[2]; assert(socketpair(AF_UNIX, SOCK_STREAM, 0, pair) == 0);
         assert(fcntl(pair[0], F_SETFL, O_NONBLOCK) == 0);

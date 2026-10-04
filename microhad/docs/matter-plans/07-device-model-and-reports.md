@@ -14,10 +14,11 @@ are implemented. The dashboard snapshot view builds and its HTTP client is
 verified, including rendered component interaction in Chromium. Controls and
 reports remain open. Capability-gated OnOff execution with confirmed CASE
 readback is verified (`0c66b87`), Rust service dispatch now exposes bounded
-asynchronous OnOff jobs, and the native IPC client validates those typed replies.
-Public native controls remain open.
-Remote recovery of catalogued nodes, legacy migration, device
-operations and report integration remain open. Next deliverable: reconcile
+asynchronous OnOff jobs, and native HTTP routes/worker polling now expose
+confirmed readback. Dashboard controls and operations for other clusters remain
+open.
+Remote recovery of catalogued nodes, legacy migration, Level/sensor operations
+and report integration remain open. Next deliverable: reconcile
 recovery-required nodes over operational CASE, discover endpoint descriptors and
 advertised clusters, then add commands/subscriptions/native reports.
 
@@ -176,9 +177,8 @@ commands via this service queue.
 
 Verification: 59 service-feature Rust tests, encrypted service-owner fixture,
 and host/MIPS service and commissioning builds pass. Native read/control HTTP
-admission routes and strict request/reply validators now build; the Matter worker
-still needs to poll Rust operation jobs to confirmed completion before these
-routes expose accessory results. Rendered controls, Level Control, sensors,
+routes and worker polling now deliver Rust's confirmed boolean readback through
+the native job API. Rendered controls, Level Control, sensors,
 subscriptions/reporting, remote recovery and broader restart handling remain
 open. No physical-device test or plan 08 acceptance was performed.
 

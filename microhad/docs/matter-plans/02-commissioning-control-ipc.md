@@ -3,13 +3,13 @@
 ## Current open work — 2026-10-04
 
 Native commissioning/relay dispatch and bounded jobs exist. Rust now dispatches
-bounded asynchronous OnOff reads/commands and job polling; native device request
-validation/routes and broader recovery coverage remain open. Snapshot API remains
-verified (`237d110`).
+bounded asynchronous OnOff reads/commands and job polling; native validation,
+HTTP admission and worker-side operation polling now carry jobs through confirmed
+readback. Device events, broader recovery and complete cross-language vectors
+remain open. Snapshot API remains verified (`237d110`).
 
-Next deliverable: Extend fake-peer and actual-service tests for queue pressure, stalled
-peers and interrupted calls without mutation replay. Then implement device bodies when
-plan 07 supplies operations.
+Next deliverable: Extend failure/restart and cross-language event coverage, then
+add the remaining Level, sensor and report bodies as plan 07 implements them.
 
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.
@@ -178,7 +178,7 @@ event consumption; Thread subscription does not replace that work.
 | 1 | Complete | Opcodes, optional subscription and concrete callback result fields documented in IPC v1. |
 | 2 | Partial | Strict requests, session/Thread replies, device job requests/replies and typed commissioning/BLE/Thread events implemented; native device events and broader vectors remain. |
 | 3 | Complete | Production owner uses the bounded session manager and pinned real commissioner future with cancellation/reconnect cleanup. |
-| 4 | Partial | Status, Thread lifecycle, commissioning/relay and Rust operational device job dispatch verified. Native HTTP read/control routes and broader failure/recovery gates remain. |
+| 4 | Partial | Status, Thread lifecycle, commissioning/relay and native/Rust OnOff job path verified through confirmed readback. Broader failure/recovery gates remain. |
 | 5 | Partial | Native observer/status worker implemented; persistent event consumer and queued commissioning/control requests remain pending. |
 | 6 | Partial | Rust body vectors, callback/reconnect/timeout tests and actual service IPC tests pass; full native cross-language body/event vectors remain pending. |
 | 7 | Current | Contract and implementation evidence updated at this checkpoint. |
@@ -284,14 +284,32 @@ occurred.
 The native server now validates and accepts `/api/matter/devices/read` and
 `/api/matter/devices/command` requests, converts them to the private opcode-10/11
 contract and submits them through the worker queue. It rejects unsupported
-cluster paths and Level commands before queueing. This currently ends at Rust's
-job-acceptance reply; the native worker still needs to poll that Rust job to
-terminal state and deliver confirmed readback through its own job endpoint.
+cluster paths and Level commands before queueing. The worker retains the Rust
+job ID, polls status without replaying the operation, and keeps its native job
+running until confirmed readback or a fixed failure reaches the public job API.
 
 Default and Matter-enabled host unit/integration suites and MIPS builds pass.
 The Matter-enabled HTTP tests confirm accepted OnOff request validation and
 pre-queue rejection for unsupported Level commands. Device deployment remains
 out of scope.
+
+## Native Matter operation polling checkpoint — 2026-10-04
+
+The native worker now follows Rust operational jobs after IPC acceptance. It
+polls one Rust job at a time over the persistent channel, exposes the native job
+as running while Rust reports queued/running, and publishes completion only
+after Rust's separate CASE readback. Rust operation failures become bounded
+native error codes; transport loss fails pending work as `transport` and clears
+it without replay. Heartbeats, status refresh and Thread coordinator ownership
+remain on the same Matter worker.
+
+The synthetic native worker harness exercises On, read, toggle and off through
+the HTTP endpoints and a fake peer's queued/running/complete responses, checking
+confirmed boolean values. The `--real-service` harness also passes against the
+actual Rust service and synthetic RCP, preserving existing status, Thread and
+relay behavior. Default and Matter-enabled host tests plus both MIPS builds
+pass; the target assembler emits its existing LOAD-USE warnings. No physical
+gateway or plan 08 test was performed.
 
 Validation: golden vectors plus actual-service request/event round trips; no
 HTTP worker may wait for a commissioning lifetime or forward unchecked JSON.

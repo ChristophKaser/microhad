@@ -89,8 +89,8 @@ Before returning a successful job response, native validation checks exact
 fields, bounded arrays, canonical nonzero IDs, endpoint ID/node/number agreement,
 cluster ordering/uniqueness, Descriptor support and online/catalog consistency.
 Malformed peer replies fail the job and invalidate the service connection.
-Default Matter-disabled builds return 404 for this route. Reads, commands,
-measurements remain pending. The dashboard provides explicit refresh and
+Default Matter-disabled builds return 404 for this route. OnOff read/command
+routes are described below; other reads and measurements remain pending. The dashboard provides explicit refresh and
 next-endpoint loading, catalog/recovery states, availability, stable IDs and
 advertised feature labels. It stops on changed revisions, rejects loops or
 contradictory metadata, and offers explicit refresh without replaying calls.
@@ -106,11 +106,12 @@ contract. `node` is a 16-character lowercase hexadecimal Matter node ID;
 `endpoint` is 0–65534. Reads currently accept only cluster 6 attribute 0. The
 command route accepts only `on`, `off` and `toggle`; unsupported cluster/command
 requests return 400 before queueing. Submission returns 202 with a native job
-ID. At this checkpoint the native worker stores the immediate Rust job
-acceptance as its completed response; it does not yet poll the Rust operation
-to confirmed readback. The route is therefore an IPC submission surface, not
-end-to-end device control. The worker must bridge Rust job state before this
-endpoint can claim operation completion.
+ID. The native worker keeps that job in `running` after Rust accepts it and polls
+the Rust operation status through the persistent IPC connection. The native job
+becomes `complete` only after Rust returns its confirmed readback; an operation
+failure becomes a fixed native `failed` error. A disconnected or restarted
+service never causes an operation replay. The HTTP request itself returns after
+queue acceptance and callers poll `GET /api/matter/jobs/<id>`.
 
 ## Thread dataset mutations
 

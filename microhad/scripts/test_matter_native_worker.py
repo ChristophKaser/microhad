@@ -35,6 +35,9 @@ class MatterPeer:
         self.configured = False
         self.mutations = []
         self.generation = 0
+        self.next_operation_job = 1
+        self.operation_jobs = {}
+        self.onoff = False
         self.error = None
         self.closed = False
         self.thread = threading.Thread(target=self.run, daemon=True)
@@ -95,18 +98,43 @@ class MatterPeer:
                                     result = dict(schema=1, ok=False, error='malformed')
                         elif opcode == 10:
                             decoded = json.loads(body)
-                            assert decoded['action'] == 'snapshot'
-                            cursor = decoded.get('cursor', 0)
-                            revision = '0000000000000007'
-                            if decoded.get('revision', revision) != revision:
-                                result = dict(schema=1, ok=False, error='stale_revision')
+                            if decoded['action'] == 'snapshot':
+                                cursor = decoded.get('cursor', 0)
+                                revision = '0000000000000007'
+                                if decoded.get('revision', revision) != revision:
+                                    result = dict(schema=1, ok=False, error='stale_revision')
+                                else:
+                                    endpoint = cursor
+                                    result = dict(schema=1, ok=True, result=dict(revision=revision,
+                                        devices=[dict(node='0000000000000002', state='complete', online=True,
+                                            id=f'matter:0000000000000001:0000000000000002:{endpoint:04x}',
+                                            endpoint=endpoint, servers=[6, 29])],
+                                        next_cursor=1 if cursor == 0 else None))
+                            elif decoded['action'] == 'read':
+                                assert decoded['cluster'] == 6 and decoded['attribute'] == 0
+                                job = self.next_operation_job
+                                self.next_operation_job += 1
+                                self.operation_jobs[f'{job:016x}'] = dict(kind='read', polls=0)
+                                result = dict(schema=1, ok=True, result=dict(job=f'{job:016x}', state='queued'))
                             else:
-                                endpoint = cursor
-                                result = dict(schema=1, ok=True, result=dict(revision=revision,
-                                    devices=[dict(node='0000000000000002', state='complete', online=True,
-                                        id=f'matter:0000000000000001:0000000000000002:{endpoint:04x}',
-                                        endpoint=endpoint, servers=[6, 29])],
-                                    next_cursor=1 if cursor == 0 else None))
+                                assert decoded['action'] == 'job'
+                                job = self.operation_jobs[decoded['job']]
+                                job['polls'] += 1
+                                if job['polls'] == 1:
+                                    result = dict(schema=1, ok=True, result=dict(state='running', job=decoded['job']))
+                                else:
+                                    if job['kind'] == 'on': self.onoff = True
+                                    elif job['kind'] == 'off': self.onoff = False
+                                    elif job['kind'] == 'toggle': self.onoff = not self.onoff
+                                    result = dict(schema=1, ok=True, result=dict(state='complete', job=decoded['job'],
+                                        result=dict(node='0000000000000002', endpoint=1, cluster=6, attribute=0,
+                                            value=dict(type='bool', value=self.onoff))))
+                        elif opcode == 11:
+                            decoded = json.loads(body)
+                            job = self.next_operation_job
+                            self.next_operation_job += 1
+                            self.operation_jobs[f'{job:016x}'] = dict(kind=decoded['command'], polls=0)
+                            result = dict(schema=1, ok=True, result=dict(job=f'{job:016x}', state='queued'))
                         elif opcode == 1:
                             assert not body
                             result = dict(enabled=True, available=True, controller_initialized=True,
@@ -496,6 +524,24 @@ def device_snapshot_http(fixture, real):
     assert page(dict(schema=1, action='snapshot', revision=changed))['error'] == 'stale_revision'
 
 
+def device_operations_http(fixture):
+    def operation(path, body):
+        accepted = fixture.request(path, json.dumps(body).encode())
+        assert accepted['ok'] and accepted['state'] == 'queued'
+        def finished():
+            job = fixture.request('/api/matter/jobs/'+str(accepted['job']))
+            assert job['state'] != 'failed', job
+            if job['state'] != 'complete': return None
+            assert job['response']['ok'] and job['response']['result']['state'] == 'complete'
+            return {'value': job['response']['result']['result']['value']['value']}
+        return wait_for(finished)
+    identity = dict(node='0000000000000002', endpoint=1)
+    assert operation('/api/matter/devices/command', dict(identity, command='on')) == {'value': True}
+    assert operation('/api/matter/devices/read', dict(identity, cluster=6, attribute=0)) == {'value': True}
+    assert operation('/api/matter/devices/command', dict(identity, command='toggle')) == {'value': False}
+    assert operation('/api/matter/devices/command', dict(identity, command='off')) == {'value': False}
+
+
 def main():
     real = '--real-service' in sys.argv[1:]
     matter = RealService() if real else MatterPeer()
@@ -514,6 +560,13 @@ def main():
         assert fixture.status()['observed_network_channel'] == expected
         wait_for(lambda: fixture.request('/api/matter/status')['state'] == 'running')
         device_snapshot_http(fixture, real)
+        if not real:
+            try:
+                device_operations_http(fixture)
+            except Exception:
+                fixture.log.seek(0)
+                sys.stderr.write(fixture.log.read().decode(errors='replace'))
+                raise
         begin = time.monotonic()
         for _ in range(20):
             assert fixture.request('/api/thread/status')['available']

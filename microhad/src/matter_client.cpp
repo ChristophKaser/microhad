@@ -528,6 +528,43 @@ bool MatterChannel::call(unsigned char opcode, const std::string& body, std::str
 bool MatterChannel::validRequest(unsigned char opcode, const std::string& body) {
     return requestValid(opcode, body);
 }
+bool MatterChannel::acceptedOperationJob(unsigned char opcode, const std::string& response, std::string* job) {
+    job->clear();
+    if ((opcode != 10 && opcode != 11) || !responseValid(opcode, response)) return false;
+    Fields envelope, result;
+    if (!StatusJson(response).parse(&envelope) || envelope["ok"] != "true" ||
+        !StatusJson(envelope["result"]).parse(&result) || !acceptedOperationValid(result)) return false;
+    *job = result["job"].substr(1, 16);
+    return true;
+}
+bool MatterChannel::operationStatus(const std::string& response, const std::string& job,
+                                    bool* terminal, bool* failed, std::string* error) {
+    *terminal = false; *failed = false; error->clear();
+    if (!responseValid(10, response) || job.size() != 16) return false;
+    Fields envelope;
+    if (!StatusJson(response).parse(&envelope)) return false;
+    if (envelope["ok"] == "false") {
+        Fields failure;
+        if (!envelope.count("error")) return false;
+        *terminal = true; *failed = true;
+        *error = envelope["error"].substr(1, envelope["error"].size() - 2);
+        return true;
+    }
+    Fields result;
+    if (!StatusJson(envelope["result"]).parse(&result) || !operationalJobValid(result) ||
+        result["job"] != '"' + job + '"') return false;
+    if (result["state"] == "\"queued\"" || result["state"] == "\"running\"") return true;
+    *terminal = true;
+    if (result["state"] == "\"failed\"") {
+        *failed = true;
+        *error = result["error"].substr(1, result["error"].size() - 2);
+    }
+    return true;
+}
+std::string MatterChannel::operationPollRequest(const std::string& job) {
+    if (!hex('"' + job + '"', 16, 16) || job == "0000000000000000") return std::string();
+    return "{\"schema\":1,\"action\":\"job\",\"job\":\"" + job + "\"}";
+}
 
 bool MatterChannel::threadMutation(bool importing, const std::string& input, std::string* body) {
     body->clear();
