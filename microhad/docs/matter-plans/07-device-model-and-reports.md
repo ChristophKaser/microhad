@@ -49,12 +49,13 @@ device state. Snapshot values continue to render in the shared cards, while
 typed completed CASE reads also update matching registered native
 `Gateway::Device` instances. The shared status view reports normalized
 `sensor_values` with units and measured/unknown quality, and snapshot refreshes
-preserve the last confirmed values. State is currently in memory only; durable
-values/history and reports remain open. Native commit `e81af44` routes Matter
+preserve the last confirmed values. Confirmed values remain in memory; reports
+remain open. Native commit `e81af44` routes Matter
 temperature, humidity and brightness readings through the common value-alert
 engine and preserves alert configuration/state across snapshot refresh. Matter
-alert settings are not restored after process restart, and CO2/PM2.5 alert
-units are not modeled. Remote recovery of catalogued nodes and legacy
+alert settings are restored across gateway restart and Matter snapshot
+reconciliation by native commit `5cfb3b1`. CO2/PM2.5 alert units are not
+modeled yet. Remote recovery of catalogued nodes and legacy
 migration also remain open. Verification passed:
 `make ZIGGURAT=1 MATTER=1 host test` and
 `make ZIGGURAT=1 MATTER=1 mips` (the MIPS toolchain prints its existing
@@ -72,7 +73,7 @@ persistence remains open. The source-unification checkpoint passed
 `make ZIGGURAT=1 MATTER=1 mips`, `npm run build`,
 `node webui/test/matter-devices-browser.cjs`, and
 `python3 scripts/test_matter_webui.py` (20/20 API tests).
-Matter alert restoration, CO2/PM2.5 alert units, report subscriptions, remote
+CO2/PM2.5 alert units, report subscriptions, remote
 node recovery, and persistent native endpoint restart restoration remain open.
 
 This shared device contract applies equally to Zigbee, Matter, and external
