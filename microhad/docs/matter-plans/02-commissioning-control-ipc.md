@@ -225,3 +225,34 @@ are historical; the latest status/evidence section above takes precedence.
 
 Validation: golden vectors plus actual-service request/event round trips; no
 HTTP worker may wait for a commissioning lifetime or forward unchecked JSON.
+
+## Native persistent channel checkpoint — 2026-10-04
+
+`MatterChannel` provides a single-owner persistent Unix stream, with private
+socket checks, nonblocking descriptors and one-second total call deadlines.
+Each call has a new nonzero 32-bit correlation; exhaustion refuses further calls
+rather than wrapping. It consumes interleaved events while waiting for replies
+and can poll events between calls. Fragmented data remains in the bounded frame
+decoder. Wrong replies, malformed events, transport failure and overflow close
+the connection and discard queued events; interrupted mutations are not replayed.
+
+Native schema validation now covers commissioning start/status/cancel replies,
+BLE attach/indication/write-complete acknowledgements and typed commissioning,
+Thread and BLE-write events. It validates canonical IDs, states/errors, deadlines,
+u32 counters and opaque lowercase hex payloads of at most 244 bytes. There are
+at most eight queued events. Payloads are never logged.
+
+Focused socket tests cover successive correlated calls on one connection,
+byte-fragmented events before replies, idle event consumption, wrong reply IDs,
+u32 overflow, invalid hex, unexpected fields and event queue saturation. Exact
+Rust cancelled-session and BLE-write vectors are included. Worker integration,
+mutation queues, subscriptions/reconnect recovery and public APIs remain open;
+the running bridge still uses its existing observation/status client.
+
+Verification passed: `make host test`, `make mips`,
+`make ZIGGURAT=1 MATTER=1 host test` and
+`make ZIGGURAT=1 MATTER=1 mips`. Default/enabled test suites ran sequentially;
+the enabled suite includes 13 native peer tests. Both factory binaries are
+stripped static 32-bit big-endian MIPS-I ELF files. Host IPC tests require
+execution outside the workspace sandbox, which blocked the initial socket
+write. No gateway deployment, physical pairing or plan 08 action occurred.

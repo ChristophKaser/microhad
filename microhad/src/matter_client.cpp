@@ -19,8 +19,8 @@ namespace {
 const unsigned int ioTimeoutSeconds = 1;
 
 typedef std::map<std::string, std::string> Fields;
-// Deliberately limited to the ASCII names/enums, booleans, small unsigned
-// integers and one nested result object used by status/observation schema 1.
+// Bounded canonical ASCII strings, booleans, unsigned integers and one
+// nested object; typed validators below further restrict every body.
 // Arbitrary strings, escapes, arrays or extra fields must never reach HTTP.
 class StatusJson {
 public:
@@ -44,7 +44,7 @@ private:
         value->clear();
         while (at_ < text_.size() && text_[at_] != '"') {
             unsigned char c = text_[at_++];
-            if (c < 0x20 || c > 0x7e || c == '\\' || value->size() >= 64) return false;
+            if (c < 0x20 || c > 0x7e || c == '\\' || value->size() >= 488) return false;
             *value += static_cast<char>(c);
         }
         return take('"');
@@ -72,7 +72,7 @@ private:
                        text_[at_] != ' ' && text_[at_] != '\t' && text_[at_] != '\r' && text_[at_] != '\n') ++at_;
                 value = text_.substr(start, at_ - start);
                 if (value != "true" && value != "false") {
-                    if (value.empty() || value.size() > 3 || (value.size() > 1 && value[0] == '0')) return false;
+                    if (value.empty() || value.size() > 10 || (value.size() > 1 && value[0] == '0')) return false;
                     for (unsigned long i = 0; i < value.size(); ++i)
                         if (value[i] < '0' || value[i] > '9') return false;
                 }
@@ -117,17 +117,60 @@ bool snapshotValid(const Fields& fields, bool thread) {
     }
     return true;
 }
+bool number(const std::string& value, uint32_t minimum, uint32_t maximum) {
+    if (value.empty() || value.size() > 10 || (value.size() > 1 && value[0] == '0')) return false;
+    uint64_t result = 0;
+    for (unsigned long i = 0; i < value.size(); ++i) {
+        if (value[i] < '0' || value[i] > '9') return false;
+        result = result * 10 + value[i] - '0';
+    }
+    return result >= minimum && result <= maximum;
+}
+bool hex(const std::string& value, unsigned int minimum, unsigned int maximum) {
+    if (value.size() < minimum + 2 || value.size() > maximum + 2 ||
+        value[0] != '"' || value[value.size()-1] != '"' || (value.size() % 2)) return false;
+    for (unsigned long i = 1; i + 1 < value.size(); ++i)
+        if (!((value[i] >= '0' && value[i] <= '9') || (value[i] >= 'a' && value[i] <= 'f'))) return false;
+    return true;
+}
+bool errorValid(const std::string& value) {
+    static const char* const errors[] = {"\"malformed\"", "\"not_ready\"", "\"busy\"", "\"stale_session\"",
+        "\"stale_generation\"", "\"timeout\"", "\"cancelled\"", "\"transport\"", "\"storage\"",
+        "\"capacity\"", "\"accessory\"", "\"unsupported\""};
+    return member(value, errors, 12);
+}
+bool sessionValid(Fields fields) {
+    static const char* const states[] = {"\"waiting_ble\"", "\"pase\"", "\"provisioning\"", "\"waiting_thread\"",
+        "\"case\"", "\"completing\"", "\"complete\"", "\"cancelled\"", "\"failed\"", "\"timed_out\""};
+    unsigned int count = 3;
+    if (fields.count("error")) { ++count; if (!errorValid(fields["error"]) || fields["error"] == "\"unsupported\"") return false; }
+    if (fields.count("node")) { ++count; if (!hex(fields["node"], 16, 16) || fields["node"] == "\"0000000000000000\"") return false; }
+    return fields.size() == count && hex(fields["session"], 16, 16) &&
+        fields["session"] != "\"0000000000000000\"" && member(fields["state"], states, 10) &&
+        number(fields["deadline_remaining_seconds"], 0, 900);
+}
 bool responseValid(unsigned char opcode, const std::string& text) {
     Fields fields;
     if (!StatusJson(text).parse(&fields)) return false;
     if (opcode == 1 || opcode == 2) return snapshotValid(fields, opcode == 2);
-    if (opcode != 9 || fields.size() != 3 || fields["schema"] != "1" || !booleanField(fields, "ok")) return false;
-    if (fields["ok"] == "true") {
-        Fields snapshot;
-        return fields.count("result") && StatusJson(fields["result"]).parse(&snapshot) && snapshotValid(snapshot, true);
-    }
-    static const char* const errors[] = {"\"malformed\"", "\"not_ready\"", "\"busy\"", "\"transport\"", "\"storage\""};
-    return fields.count("error") && member(fields["error"], errors, 5);
+    if (opcode < 3 || opcode > 9 || fields.size() != 3 || fields["schema"] != "1" || !booleanField(fields, "ok")) return false;
+    if (fields["ok"] == "false") return fields.count("error") && errorValid(fields["error"]);
+    Fields result;
+    if (!fields.count("result") || !StatusJson(fields["result"]).parse(&result)) return false;
+    if (opcode == 9) return snapshotValid(result, true);
+    if (opcode <= 5) return sessionValid(result);
+    const char* name = opcode == 6 ? "generation" : opcode == 7 ? "sequence" : "write";
+    return result.size() == 1 && number(result[name], 1, 0xffffffffU);
+}
+bool eventValid(const std::string& text) {
+    Fields fields, data;
+    if (!StatusJson(text).parse(&fields) || fields.size() != 3 || fields["schema"] != "1" ||
+        !fields.count("data") || !StatusJson(fields["data"]).parse(&data)) return false;
+    if (fields["event"] == "\"thread\"") return snapshotValid(data, true);
+    if (fields["event"] == "\"commissioning\"") return sessionValid(data);
+    return fields["event"] == "\"ble_write\"" && data.size() == 4 && hex(data["session"], 16, 16) &&
+        data["session"] != "\"0000000000000000\"" && number(data["generation"], 1, 0xffffffffU) &&
+        number(data["write"], 1, 0xffffffffU) && hex(data["data"], 2, 488);
 }
 
 int64_t nowMilliseconds() {
@@ -178,6 +221,39 @@ bool readAll(int fd, unsigned char* data, unsigned int size, int64_t deadline) {
     }
     return true;
 }
+int connectPrivate(const std::string& socketPath, int64_t deadline, std::string* error) {
+    struct stat pathInfo;
+    if (socketPath.empty() || socketPath[0] != '/' || socketPath.size() >= sizeof(((struct sockaddr_un*)0)->sun_path) ||
+        lstat(socketPath.c_str(), &pathInfo) != 0 || !S_ISSOCK(pathInfo.st_mode) ||
+        pathInfo.st_uid != geteuid() || (pathInfo.st_mode & 0077) != 0) {
+        *error = "Matter service socket unavailable";
+        return -1;
+    }
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0) { *error = "Matter service unavailable"; return -1; }
+    if (fd >= FD_SETSIZE || fcntl(fd, F_SETFL, O_NONBLOCK) != 0 ||
+        fcntl(fd, F_SETFD, FD_CLOEXEC) != 0) {
+        close(fd); *error = "Matter service unavailable"; return -1;
+    }
+    struct sockaddr_un address;
+    memset(&address, 0, sizeof(address));
+    address.sun_family = AF_UNIX;
+    memcpy(address.sun_path, socketPath.c_str(), socketPath.size() + 1);
+    if (connect(fd, reinterpret_cast<struct sockaddr*>(&address), sizeof(address)) != 0) {
+        // Linux Unix sockets report EAGAIN when the listen backlog is full;
+        // that is not an in-progress connection and must not be mistaken for one.
+        if (errno != EINPROGRESS || !waitFor(fd, true, deadline)) {
+            close(fd); *error = "Matter service unavailable"; return -1;
+        }
+        int connectionError = 0;
+        socklen_t length = sizeof(connectionError);
+        if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &connectionError, &length) != 0 || connectionError != 0) {
+            close(fd); *error = "Matter service unavailable"; return -1;
+        }
+    }
+    return fd;
+}
+
 }
 
 MatterClient::MatterClient(const std::string& socketPath) : socketPath_(socketPath) {
@@ -203,35 +279,8 @@ bool MatterClient::call(unsigned char opcode, const std::string& body, std::stri
     const int64_t now = nowMilliseconds();
     if (now < 0) { *error = "Matter service clock unavailable"; return false; }
     const int64_t deadline = now + ioTimeoutSeconds * 1000;
-    struct stat pathInfo;
-    if (socketPath_.empty() || socketPath_.size() >= sizeof(((struct sockaddr_un*)0)->sun_path) ||
-        lstat(socketPath_.c_str(), &pathInfo) != 0 || !S_ISSOCK(pathInfo.st_mode) ||
-        pathInfo.st_uid != geteuid() || (pathInfo.st_mode & 0077) != 0) {
-        *error = "Matter service socket unavailable";
-        return false;
-    }
-    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
-    if (fd < 0) { *error = "Matter service unavailable"; return false; }
-    if (fd >= FD_SETSIZE || fcntl(fd, F_SETFL, O_NONBLOCK) != 0 ||
-        fcntl(fd, F_SETFD, FD_CLOEXEC) != 0) {
-        close(fd); *error = "Matter service unavailable"; return false;
-    }
-    struct sockaddr_un address;
-    memset(&address, 0, sizeof(address));
-    address.sun_family = AF_UNIX;
-    memcpy(address.sun_path, socketPath_.c_str(), socketPath_.size() + 1);
-    if (connect(fd, reinterpret_cast<struct sockaddr*>(&address), sizeof(address)) != 0) {
-        // Linux Unix sockets report EAGAIN when the listen backlog is full;
-        // that is not an in-progress connection and must not be mistaken for one.
-        if (errno != EINPROGRESS || !waitFor(fd, true, deadline)) {
-            close(fd); *error = "Matter service unavailable"; return false;
-        }
-        int connectionError = 0;
-        socklen_t length = sizeof(connectionError);
-        if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &connectionError, &length) != 0 || connectionError != 0) {
-            close(fd); *error = "Matter service unavailable"; return false;
-        }
-    }
+    int fd = connectPrivate(socketPath_, deadline, error);
+    if (fd < 0) return false;
     return exchange(fd, opcode, body, deadline, json, error);
 }
 
@@ -280,4 +329,71 @@ bool MatterClient::exchange(int fd, unsigned char opcode, const std::string& bod
     if (!responseValid(opcode, bodyJson)) { *error = "Matter service response invalid"; return false; }
     *json = bodyJson;
     return true;
+}
+
+MatterChannel::MatterChannel(const std::string& path) : socketPath_(path), fd_(-1), nextId_(1) {}
+MatterChannel::~MatterChannel() { disconnect(); }
+void MatterChannel::disconnect() {
+    if (fd_ >= 0) close(fd_);
+    fd_ = -1;
+    decoder_ = MatterWire::Decoder();
+    events_.clear();
+}
+bool MatterChannel::receive(int64_t deadline, bool wait) {
+    if (fd_ < 0 || (wait && !waitFor(fd_, false, deadline))) return false;
+    unsigned char buffer[MatterWire::MaxChunk];
+    ssize_t count;
+    do { count = recv(fd_, buffer, sizeof(buffer), MSG_DONTWAIT); } while (count < 0 && errno == EINTR);
+    if (count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) return !wait;
+    return count > 0 && decoder_.feed(MatterWire::Bytes(buffer, buffer + count));
+}
+bool MatterChannel::event(const MatterWire::Frame& frame) {
+    const std::string text(frame.payload.begin(), frame.payload.end());
+    if (frame.kind != MatterWire::Frame::Event || frame.opcode != 12 || frame.id != 0 ||
+        events_.size() >= 8 || !eventValid(text)) return false;
+    events_.push_back(text);
+    return true;
+}
+bool MatterChannel::popEvent(std::string* json) {
+    json->clear();
+    if (events_.empty()) return false;
+    *json = events_.front(); events_.pop_front(); return true;
+}
+bool MatterChannel::poll(std::string* error) {
+    error->clear();
+    if (!receive(0, false)) { disconnect(); *error = "Matter service unavailable"; return false; }
+    MatterWire::Frame frame;
+    while (decoder_.pop(&frame)) {
+        if (!event(frame)) { disconnect(); *error = "Matter service event invalid"; return false; }
+    }
+    return true;
+}
+bool MatterChannel::call(unsigned char opcode, const std::string& body, std::string* json, std::string* error) {
+    json->clear(); error->clear();
+    int64_t now = nowMilliseconds();
+    if (now < 0 || nextId_ == 0 || opcode < 1 || opcode > 9 || body.size() > MatterWire::MaxPayload) {
+        *error = "Matter service request invalid"; return false;
+    }
+    const int64_t deadline = now + 1000;
+    if (fd_ < 0) fd_ = connectPrivate(socketPath_, deadline, error);
+    if (fd_ < 0) return false;
+    MatterWire::Frame request;
+    request.kind = MatterWire::Frame::Request; request.opcode = opcode; request.id = nextId_++;
+    request.payload.assign(body.begin(), body.end());
+    MatterWire::Bytes bytes;
+    bool valid = MatterWire::encode(request, &bytes) && writeAll(fd_, &bytes[0], bytes.size(), deadline);
+    while (valid) {
+        MatterWire::Frame frame;
+        while (decoder_.pop(&frame)) {
+            if (frame.kind == MatterWire::Frame::Event) { if (!event(frame)) { valid = false; break; } }
+            else {
+                const std::string text(frame.payload.begin(), frame.payload.end());
+                if (frame.kind != MatterWire::Frame::Response || frame.id != request.id ||
+                    frame.opcode != opcode || !responseValid(opcode, text)) { valid = false; break; }
+                *json = text; return true;
+            }
+        }
+        if (valid) valid = receive(deadline, true);
+    }
+    disconnect(); *error = "Matter service exchange failed"; return false;
 }

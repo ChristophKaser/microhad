@@ -3,6 +3,8 @@
 
 #include <string>
 #include <stdint.h>
+#include "matter_protocol.h"
+#include <deque>
 
 class MatterClient {
 public:
@@ -16,6 +18,28 @@ private:
     bool call(unsigned char opcode, const std::string& body, std::string* json, std::string* error) const;
     bool exchange(int fd, unsigned char opcode, const std::string& body, int64_t deadline,
                   std::string* json, std::string* error) const;
+};
+
+// Single worker owner; no internal locking and no payload logging.
+class MatterChannel {
+public:
+    explicit MatterChannel(const std::string& socketPath);
+    ~MatterChannel();
+    bool call(unsigned char opcode, const std::string& body, std::string* json, std::string* error);
+    bool poll(std::string* error);
+    bool popEvent(std::string* json);
+    void disconnect();
+private:
+    friend void runMatterClientUnitTests();
+    MatterChannel(const MatterChannel&);
+    MatterChannel& operator=(const MatterChannel&);
+    std::string socketPath_;
+    int fd_;
+    uint32_t nextId_;
+    MatterWire::Decoder decoder_;
+    std::deque<std::string> events_;
+    bool receive(int64_t deadline, bool wait);
+    bool event(const MatterWire::Frame& frame);
 };
 
 #endif

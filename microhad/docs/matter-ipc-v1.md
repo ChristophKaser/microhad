@@ -158,3 +158,26 @@ BLE/PASE and cancels the old task before changing generation. Loss of Thread
 readiness fails an active attempt with `not_ready`; deadlines and terminal
 cleanup retain the rules above. Production CASE completion still needs the
 operational DNS-SD work from plan 07.
+
+## Native persistent consumer building block
+
+`MatterChannel` provides a single-owner persistent Unix stream, with private
+socket checks, nonblocking descriptors and one-second total call deadlines.
+Each call has a new nonzero 32-bit correlation; exhaustion refuses further calls
+rather than wrapping. It consumes interleaved events while waiting for replies
+and can poll events between calls. Fragmented data remains in the bounded frame
+decoder. Wrong replies, malformed events, transport failure and overflow close
+the connection and discard queued events; interrupted mutations are not replayed.
+
+Native schema validation now covers commissioning start/status/cancel replies,
+BLE attach/indication/write-complete acknowledgements and typed commissioning,
+Thread and BLE-write events. It validates canonical IDs, states/errors, deadlines,
+u32 counters and opaque lowercase hex payloads of at most 244 bytes. There are
+at most eight queued events. Payloads are never logged.
+
+Focused socket tests cover successive correlated calls on one connection,
+byte-fragmented events before replies, idle event consumption, wrong reply IDs,
+u32 overflow, invalid hex, unexpected fields and event queue saturation. Exact
+Rust cancelled-session and BLE-write vectors are included. Worker integration,
+mutation queues, subscriptions/reconnect recovery and public APIs remain open;
+the running bridge still uses its existing observation/status client.
