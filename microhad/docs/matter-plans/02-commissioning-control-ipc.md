@@ -304,3 +304,31 @@ HTTP snapshots, observes radio loss and returns 503 after service exit.
 Queue/cancellation/event delivery evidence is from the focused fake-peer tests;
 public API-to-commissioner integration remains open. No physical gateway test,
 deployment, accessory pairing or plan 08 action was performed.
+
+## Queued commissioning HTTP checkpoint — 2026-10-04
+
+Start/status/cancel now have native POST routes that validate strict schema-1
+bodies and return 202 with an ephemeral job ID. GET job reads use protected RAM
+snapshots only. `complete` means receipt of a validated service reply, not
+successful accessory commissioning; service errors remain in that reply.
+Invalid input returns 400; unavailable/full queues return fixed 503 errors;
+unknown jobs and disabled control routes return 404. The 202 reason phrase is
+`Accepted`. Input/setup codes are not reflected in replies or logs.
+
+The route contract is [Native Matter HTTP API v1](../matter-native-api-v1.md).
+Native integration tests cover disabled routes and malformed/overflowing input.
+The actual-binary harness adds queued start, busy/status, cancel/idempotence,
+stale-session and job-ID validation, plus fast HTTP acceptance and cached reads
+while the synthetic service delays a reply. Actual Rust service verification
+uses synthetic coordinator/RCP peers and the existing private dataset-create
+setup; this checkpoint does not add public Thread create/import or BLE transport.
+WebSocket relay, dashboard onboarding, Garage and production discovery/device
+operations remain open. Plan 08 remains excluded.
+
+Verification passed: default and Matter-enabled `make host test`/`make mips`,
+with host suites run sequentially; enabled peer checks pass (13 tests). Both
+`python3 scripts/test_matter_native_worker.py` and its `--real-service` variant
+pass, including fixed 503 `not_ready` rejection after service exit and setup-PIN
+log redaction. The latter reaches companion commit `45782d3` through the actual
+native HTTP/worker/IPC path. Both factory binaries remain static stripped
+big-endian MIPS-I ELF files; target execution is not inferred from these builds.

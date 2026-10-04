@@ -10,6 +10,8 @@ import struct
 import subprocess
 import threading
 import time
+import urllib.error
+import urllib.request
 from test_ziggurat_native_peer import NativeTests, ROOT
 from test_ziggurat_service import wait_for
 
@@ -28,6 +30,7 @@ class MatterPeer:
         self.listener.settimeout(.1)
         self.stop = threading.Event()
         self.observations = []
+        self.session = None
         self.error = None
         self.closed = False
         self.thread = threading.Thread(target=self.run, daemon=True)
@@ -74,6 +77,23 @@ class MatterPeer:
                             assert not body
                             result = dict(enabled=True, available=True, controller_initialized=True,
                                           fabric_ready=True, state='running')
+                        elif opcode in (3, 4, 5):
+                            decoded = json.loads(body)
+                            if opcode == 3:
+                                time.sleep(.2)  # HTTP acceptance must not wait for the service reply.
+                                if self.session and self.session['state'] == 'waiting_ble':
+                                    result = dict(schema=1, ok=False, error='busy')
+                                else:
+                                    self.session = dict(session='0000000000000001', state='waiting_ble',
+                                                        deadline_remaining_seconds=30)
+                                    result = dict(schema=1, ok=True, result=self.session)
+                            elif not self.session or decoded['session'] != self.session['session']:
+                                result = dict(schema=1, ok=False, error='stale_session')
+                            else:
+                                if opcode == 5:
+                                    self.session = dict(session=self.session['session'], state='cancelled',
+                                                        deadline_remaining_seconds=0, error='cancelled')
+                                result = dict(schema=1, ok=True, result=self.session)
                         else:
                             assert opcode == 2 and not body
                             result = thread
@@ -134,6 +154,70 @@ class RealService:
         self.tmp.cleanup()
 
 
+def commissioning_http(fixture):
+    def post(action, body):
+        encoded = json.dumps(body).encode() if isinstance(body, dict) else body
+        request = urllib.request.Request(f'http://127.0.0.1:{fixture.port}/api/matter/commissioning/{action}',
+                                         data=encoded, headers={'Content-Type': 'application/json'})
+        with urllib.request.urlopen(request, timeout=2) as response:
+            assert response.status == 202 and response.reason == 'Accepted'
+            result = json.load(response)
+            assert result['schema'] == 1 and result['ok'] and result['state'] == 'queued'
+            return result['job']
+
+    def finished(job):
+        snapshot = fixture.request(f'/api/matter/jobs/{job}')
+        assert snapshot['job'] == job
+        if snapshot['state'] == 'failed':
+            raise AssertionError('Synthetic commissioning HTTP delivery failed')
+        return snapshot if snapshot['state'] == 'complete' else None
+
+    def call(action, body):
+        job = post(action, body)
+        wait_for(lambda: finished(job))
+        return finished(job)['response']
+
+    start = dict(schema=1, discriminator=3840, pin=20202021, timeout_seconds=30)
+    for invalid in (dict(start, pin=12345678), dict(start, unexpected=True),
+                    dict(start, timeout_seconds=29), b'{"schema":1,"schema":1}'):
+        try:
+            post('start', invalid)
+        except urllib.error.HTTPError as error:
+            assert error.code == 400 and json.load(error) == dict(ok=False, error='malformed')
+        else:
+            raise AssertionError('Malformed setup input accepted')
+    begin = time.monotonic()
+    job = post('start', start)
+    assert time.monotonic()-begin < .15
+    for _ in range(10):
+        assert fixture.request('/api/matter/status')['available']
+    wait_for(lambda: finished(job))
+    result = finished(job)['response']
+    assert result['ok'] and result['result']['state'] == 'waiting_ble'
+    session = result['result']['session']
+    assert call('start', start) == dict(schema=1, ok=False, error='busy')
+    assert call('status', dict(schema=1, session=session))['result']['state'] == 'waiting_ble'
+    cancelled = call('cancel', dict(schema=1, session=session))
+    assert cancelled['ok'] and cancelled['result']['state'] == 'cancelled'
+    assert call('cancel', dict(schema=1, session=session))['result']['state'] == 'cancelled'
+    assert call('status', dict(schema=1, session='ffffffffffffffff'))['error'] == 'stale_session'
+    for ident in ('0', '01', '4294967296', '1garbage'):
+        try:
+            fixture.request('/api/matter/jobs/'+ident)
+        except urllib.error.HTTPError as error:
+            assert error.code == 400
+        else:
+            raise AssertionError('Invalid job ID accepted')
+    try:
+        fixture.request('/api/matter/jobs/4294967295')
+    except urllib.error.HTTPError as error:
+        assert error.code == 404
+    else:
+        raise AssertionError('Unknown job found')
+    fixture.log.seek(0)
+    assert b'20202021' not in fixture.log.read()
+
+
 def main():
     real = '--real-service' in sys.argv[1:]
     matter = RealService() if real else MatterPeer()
@@ -163,6 +247,7 @@ def main():
             wait_for(lambda: fixture.request('/api/thread/status')['configured'])
             assert matter.radio.channel_writes and all(c == expected for c in matter.radio.channel_writes), (
                 expected, matter.radio.channel_writes)
+        commissioning_http(fixture)
         # Radio loss must publish offline, rather than renewing the old channel.
         fixture.peer.close()
         if real:
@@ -180,8 +265,15 @@ def main():
                 return getattr(error, 'code', None) == 503
             return False
         wait_for(unavailable)
+        try:
+            fixture.request('/api/matter/commissioning/start', json.dumps(dict(
+                schema=1, discriminator=3840, pin=20202021, timeout_seconds=30)).encode())
+        except urllib.error.HTTPError as error:
+            assert error.code == 503 and json.load(error) == dict(ok=False, error='not_ready')
+        else:
+            raise AssertionError('Absent service accepted a new commissioning job')
         assert fixture.process.poll() is None
-        print('PASS confirmed channel heartbeat, offline on radio loss, cached HTTP, absent-service 503')
+        print('PASS persistent heartbeat, queued commissioning HTTP lifecycle, cached reads, radio loss and 503')
     finally:
         if fixture.process is not None:
             fixture.tearDown()

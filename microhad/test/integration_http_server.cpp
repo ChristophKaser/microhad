@@ -367,6 +367,18 @@ void testServers() {
 #else
     expectStatus("http Thread disabled status", response, 200);
 #endif
+    response = plainRequest(http.boundPort(), "POST /api/matter/commissioning/start HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n");
+#if MICROHAD_MATTER_ENABLED
+    expectStatus("http rejects malformed commissioning body", response, 400);
+#else
+    expectStatus("http commissioning disabled", response, 404);
+#endif
+    response = plainRequest(http.boundPort(), "GET /api/matter/jobs/4294967296 HTTP/1.1\r\nHost: localhost\r\n\r\n");
+#if MICROHAD_MATTER_ENABLED
+    expectStatus("http rejects overflowing Matter job ID", response, 400);
+#else
+    expectStatus("http Matter jobs disabled", response, 404);
+#endif
     response = plainRequest(http.boundPort(), "GET /api/controller-stats HTTP/1.1\r\nHost: localhost\r\n\r\n");
     expectStatus("http controller stats", response, 200);
     assert(response.find("\"cpu_usage_percent\":") != std::string::npos &&

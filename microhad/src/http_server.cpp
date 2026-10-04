@@ -80,7 +80,7 @@ bool writeBytes(int fd, const std::string& bytes) {
 
 void writeResponse(int fd, int status, const char* contentType, const std::string& body) {
     std::ostringstream response;
-    response << "HTTP/1.1 " << status << (status == 200 ? " OK" : status == 500 ? " Internal Server Error" :
+    response << "HTTP/1.1 " << status << (status == 200 ? " OK" : status == 202 ? " Accepted" : status == 500 ? " Internal Server Error" :
                                            status == 503 ? " Service Unavailable" :
                                            status == 413 ? " Payload Too Large" : status == 404 ? " Not Found" : " Bad Request") << "\r\n"
              << "Content-Type: " << contentType << "\r\nCache-Control: no-store\r\nConnection: close\r\n"
@@ -693,6 +693,47 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
         else writeResponse(clientFd, 503, "application/json", "{\"available\":false,\"error\":\"" + jsonEscape(error) + "\"}");
 #else
         writeResponse(clientFd, 200, "application/json", "{\"enabled\":false,\"available\":false}");
+#endif
+    } else if (request.find("POST /api/matter/commissioning/start ") == 0 ||
+               request.find("POST /api/matter/commissioning/status ") == 0 ||
+               request.find("POST /api/matter/commissioning/cancel ") == 0) {
+#if MICROHAD_MATTER_ENABLED
+        const unsigned char opcode = request.find("POST /api/matter/commissioning/start ") == 0 ? 3 :
+            request.find("POST /api/matter/commissioning/status ") == 0 ? 4 : 5;
+        const std::string::size_type bodyAt = request.find("\r\n\r\n");
+        const std::string body = bodyAt == std::string::npos ? "" : request.substr(bodyAt + 4);
+        uint32_t id = 0; std::string error;
+        if (!MatterChannel::validRequest(opcode, body)) error = "malformed";
+        else if (!matterWorker_) error = "not_ready";
+        else matterWorker_->submit(opcode, body, &id, &error);
+        if (id != 0) {
+            std::ostringstream out;
+            out << "{\"schema\":1,\"ok\":true,\"job\":" << id << ",\"state\":\"queued\"}";
+            writeResponse(clientFd, 202, "application/json", out.str());
+        } else writeResponse(clientFd, error == "malformed" ? 400 : 503, "application/json",
+                            "{\"ok\":false,\"error\":\"" + jsonEscape(error) + "\"}");
+#else
+        writeResponse(clientFd, 404, "application/json", "{\"ok\":false,\"error\":\"unsupported\"}");
+#endif
+    } else if (request.find("GET /api/matter/jobs/") == 0) {
+#if MICROHAD_MATTER_ENABLED
+        const unsigned long start = std::string("GET /api/matter/jobs/").size();
+        const std::string::size_type end = request.find(' ', start);
+        const std::string idText = end == std::string::npos ? "" : request.substr(start, end - start);
+        bool valid = !idText.empty() && idText.size() <= 10 && idText[0] != '0';
+        uint64_t value = 0;
+        for (unsigned long i = 0; valid && i < idText.size(); ++i) {
+            valid = idText[i] >= '0' && idText[i] <= '9';
+            if (valid) value = value * 10 + idText[i] - '0';
+        }
+        valid = valid && value <= 0xffffffffU;
+        std::string json;
+        if (!valid) writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"malformed\"}");
+        else if (!matterWorker_) writeResponse(clientFd, 503, "application/json", "{\"ok\":false,\"error\":\"not_ready\"}");
+        else if (matterWorker_->job(static_cast<uint32_t>(value), &json)) writeResponse(clientFd, 200, "application/json", json);
+        else writeResponse(clientFd, 404, "application/json", "{\"ok\":false,\"error\":\"not_found\"}");
+#else
+        writeResponse(clientFd, 404, "application/json", "{\"ok\":false,\"error\":\"unsupported\"}");
 #endif
     } else if (request.find("GET /api/controller-stats ") == 0) {
         writeResponse(clientFd, 200, "application/json", controllerStatsJson());
