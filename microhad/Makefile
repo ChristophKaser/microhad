@@ -52,7 +52,7 @@ TARGET_CXXFLAGS := $(WARNINGS) -Iinclude -Ithird_party/mbedtls/include -O2 -ffun
 HOST_CXXFLAGS += -DMICROHAD_MATTER_ENABLED=$(MATTER)
 TARGET_CXXFLAGS += -DMICROHAD_MATTER_ENABLED=$(MATTER)
 TARGET_CFLAGS := $(WARNINGS) -O2 -ffunction-sections -fdata-sections
-LDFLAGS := -lpthread
+LDFLAGS := -lpthread -lrt
 SOURCES := src/main.cpp src/matter_protocol.cpp src/matter_client.cpp src/gateway_config.cpp src/ash.cpp src/json_util.cpp src/storage.cpp src/network_backup.cpp $(ZIGGURAT_SOURCES) src/http_server.cpp src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/sensor_history.cpp src/log_ring.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp src/external_http_device.cpp src/device_shelly.cpp src/device_fritz_box.cpp
 HOST_BUILD := build/host$(BACKEND_SUFFIX)
 MIPS_BUILD := build/mips$(BACKEND_SUFFIX)

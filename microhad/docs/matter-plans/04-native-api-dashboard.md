@@ -45,7 +45,8 @@ supported controls through the native HTTP service and dashboard.
 Read-only Matter/Thread status routes and the `MATTER` compiler flag exist.
 Commissioning, relay, Thread mutation, device-control routes and dashboard
 onboarding are pending. The current status client is insufficient for the
-asynchronous integration: connection deadlines and reply validation need work.
+asynchronous integration: connection deadlines and status/observation reply validation are implemented;
+worker scheduling, queues and remaining typed bodies are still pending.
 
 ## Remaining checkpoints
 

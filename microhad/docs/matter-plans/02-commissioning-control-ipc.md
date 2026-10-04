@@ -95,3 +95,30 @@ Implementation details are in
 
 [Rust service runtime](01-rust-service-runtime.md). Final body shapes should be
 settled before the API and Garage relay depend on them.
+
+Native client checkpoint — 2026-10-04
+
+The client now supports private opcode-9 coordinator observations and uses one
+one-second CLOCK_MONOTONIC deadline across nonblocking connect/send/receive.
+Unix backlog EAGAIN is a failed connection, not an in-progress connection;
+MSG_NOSIGNAL prevents a disconnected service from terminating the caller.
+Descriptors are close-on-exec and checked against select's descriptor limit.
+
+Status and observation replies are validated against their implemented schema
+before returning JSON. Duplicate/unknown fields, missing fields, non-boolean
+flags, unknown states/errors, invalid channels, trailing data and secret-bearing
+fields fail closed, leaving an empty result. The limited parser accepts the
+canonical ASCII fields/enums emitted by Rust, booleans, small unsigned integers
+and the single result object; it rejects strings with escapes and arrays. This
+is not yet the validator for device or commissioning replies.
+
+Focused tests cover fragmented replies, schema failures, valid observation
+success/error envelopes, invalid channel input and bounded connect against a
+full Unix listen backlog. The private observer worker and other opcode dispatch
+remain pending. No gateway deployment is involved.
+
+Verification passed in sequence: `make host test`, `make mips`,
+`make ZIGGURAT=1 MATTER=1 host test`, and
+`make ZIGGURAT=1 MATTER=1 mips`. Native linking includes `-lrt` for the
+monotonic-clock interface on older libc platforms. Full commissioning/device
+body vectors and asynchronous dispatch remain open.
