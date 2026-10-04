@@ -3,6 +3,7 @@
 /targets/
 /prototype/target/
 /dependency-probe/target/
+/rs-matter-probe/target/
 /worktrees/
 /build/
 *.core

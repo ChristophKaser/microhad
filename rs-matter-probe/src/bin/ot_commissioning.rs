@@ -15,6 +15,8 @@
  *    limitations under the License.
  */
 
+#![recursion_limit = "256"]
+
 //! Synthetic accessory commissioning over the factory userspace OpenThread transport.
 //! Adapted from the pinned upstream commissioning fixture; never production state.
 use core::cell::{Cell, RefCell};
@@ -135,6 +137,12 @@ impl Handler for TestThreadNetwork {
 use rs_matter::dm::clusters::decl::temperature_measurement::{
     self, ClusterHandler as _, TemperatureMeasurementClient,
 };
+use rs_matter::dm::clusters::decl::{
+    air_quality, carbon_dioxide_concentration_measurement as co2_measurement,
+    pm_25_concentration_measurement as pm25_measurement,
+    relative_humidity_measurement as humidity_measurement,
+};
+use rs_matter::dm::clusters::decl::globals::{MeasurementMediumEnum, MeasurementUnitEnum};
 
 // Test-only sensor: exercise signed and unknown measurements over actual CASE exchanges.
 struct TestTemperature {
@@ -183,6 +191,59 @@ impl temperature_measurement::ClusterHandler for TestTemperature {
         Ok(Nullable::some(32767))
     }
 }
+struct TestHumidity { value: Cell<Option<u16>>, dataver: Cell<u32> }
+impl humidity_measurement::ClusterHandler for TestHumidity {
+    const CLUSTER: rs_matter::dm::Cluster<'static> = humidity_measurement::FULL_CLUSTER;
+    fn dataver(&self) -> u32 { self.dataver.get() }
+    fn dataver_changed(&self) { self.dataver.set(self.dataver.get().wrapping_add(1)); }
+    fn measured_value(&self, _: impl rs_matter::dm::ReadContext) -> Result<Nullable<u16>, Error> {
+        Ok(self.value.get().map(Nullable::some).unwrap_or_else(Nullable::none))
+    }
+    fn min_measured_value(&self, _: impl rs_matter::dm::ReadContext) -> Result<Nullable<u16>, Error> {
+        Ok(Nullable::some(0))
+    }
+    fn max_measured_value(&self, _: impl rs_matter::dm::ReadContext) -> Result<Nullable<u16>, Error> {
+        Ok(Nullable::some(10_000))
+    }
+}
+struct TestConcentration { value: Cell<Option<f32>>, dataver: Cell<u32> }
+impl co2_measurement::ClusterHandler for TestConcentration {
+    const CLUSTER: rs_matter::dm::Cluster<'static> = co2_measurement::FULL_CLUSTER;
+    fn dataver(&self) -> u32 { self.dataver.get() }
+    fn dataver_changed(&self) { self.dataver.set(self.dataver.get().wrapping_add(1)); }
+    fn measured_value(&self, _: impl rs_matter::dm::ReadContext) -> Result<Nullable<f32>, Error> {
+        Ok(self.value.get().map(Nullable::some).unwrap_or_else(Nullable::none))
+    }
+    fn measurement_unit(&self, _: impl rs_matter::dm::ReadContext) -> Result<MeasurementUnitEnum, Error> {
+        Ok(MeasurementUnitEnum::PPM)
+    }
+    fn measurement_medium(&self, _: impl rs_matter::dm::ReadContext) -> Result<MeasurementMediumEnum, Error> {
+        Ok(MeasurementMediumEnum::Air)
+    }
+}
+impl pm25_measurement::ClusterHandler for TestConcentration {
+    const CLUSTER: rs_matter::dm::Cluster<'static> = pm25_measurement::FULL_CLUSTER;
+    fn dataver(&self) -> u32 { self.dataver.get() }
+    fn dataver_changed(&self) { self.dataver.set(self.dataver.get().wrapping_add(1)); }
+    fn measured_value(&self, _: impl rs_matter::dm::ReadContext) -> Result<Nullable<f32>, Error> {
+        Ok(self.value.get().map(Nullable::some).unwrap_or_else(Nullable::none))
+    }
+    fn measurement_unit(&self, _: impl rs_matter::dm::ReadContext) -> Result<MeasurementUnitEnum, Error> {
+        Ok(MeasurementUnitEnum::UGM3)
+    }
+    fn measurement_medium(&self, _: impl rs_matter::dm::ReadContext) -> Result<MeasurementMediumEnum, Error> {
+        Ok(MeasurementMediumEnum::Air)
+    }
+}
+struct TestAirQuality { dataver: Cell<u32> }
+impl air_quality::ClusterHandler for TestAirQuality {
+    const CLUSTER: rs_matter::dm::Cluster<'static> = air_quality::FULL_CLUSTER;
+    fn dataver(&self) -> u32 { self.dataver.get() }
+    fn dataver_changed(&self) { self.dataver.set(self.dataver.get().wrapping_add(1)); }
+    fn air_quality(&self, _: impl rs_matter::dm::ReadContext) -> Result<air_quality::AirQualityEnum, Error> {
+        Ok(air_quality::AirQualityEnum::Moderate)
+    }
+}
 const NODE: Node<'static> = Node {
     endpoints: &[
         root_endpoint!(thread),
@@ -193,7 +254,11 @@ const NODE: Node<'static> = Node {
                 desc::DescHandler::CLUSTER,
                 TestOnOffDeviceLogic::CLUSTER,
                 TestLevelControl::CLUSTER,
-                TestTemperature::CLUSTER
+                TestTemperature::CLUSTER,
+                humidity_measurement::FULL_CLUSTER,
+                co2_measurement::FULL_CLUSTER,
+                pm25_measurement::FULL_CLUSTER,
+                air_quality::FULL_CLUSTER,
             ),
         ),
     ],
@@ -204,6 +269,10 @@ fn data_model<'a>(
     on_off: &'a on_off::OnOffHandler<'a, TestOnOffDeviceLogic, on_off::NoLevelControl>,
     level: &'a level_control::LevelControlHandler<'a, TestLevelControl, level_control::NoOnOff>,
     temperature: &'a TestTemperature,
+    humidity: &'a TestHumidity,
+    co2: &'a TestConcentration,
+    pm25: &'a TestConcentration,
+    air_quality: &'a TestAirQuality,
     thread_network: &'a TestThreadNetwork,
 ) -> impl DataModel + 'a {
     (
@@ -226,6 +295,14 @@ fn data_model<'a>(
                 |e, c| e == 1 && c == TestTemperature::CLUSTER.id,
                 Async(temperature_measurement::HandlerAdaptor(temperature)),
             )
+            .chain(|e, c| e == 1 && c == humidity_measurement::FULL_CLUSTER.id,
+                Async(humidity_measurement::HandlerAdaptor(humidity)))
+            .chain(|e, c| e == 1 && c == co2_measurement::FULL_CLUSTER.id,
+                Async(co2_measurement::HandlerAdaptor(co2)))
+            .chain(|e, c| e == 1 && c == pm25_measurement::FULL_CLUSTER.id,
+                Async(pm25_measurement::HandlerAdaptor(pm25)))
+            .chain(|e, c| e == 1 && c == air_quality::FULL_CLUSTER.id,
+                Async(air_quality::HandlerAdaptor(air_quality)))
             .chain(|e, c| e == 0 && c == 49, Async(thread_network)),
     )
 }
@@ -315,6 +392,10 @@ async fn run(
         value: Cell::new(Some(2315)),
         dataver: Cell::new(1),
     };
+    let humidity = TestHumidity { value: Cell::new(Some(5234)), dataver: Cell::new(1) };
+    let co2 = TestConcentration { value: Cell::new(Some(758.5)), dataver: Cell::new(1) };
+    let pm25 = TestConcentration { value: Cell::new(Some(12.75)), dataver: Cell::new(1) };
+    let air_quality = TestAirQuality { dataver: Cell::new(1) };
     let thread_network = TestThreadNetwork::new();
     let device_kv = device_matter.kv(DummyKvBlobStore);
 
@@ -327,6 +408,10 @@ async fn run(
             &on_off_handler,
             &level_control_handler,
             &temperature,
+            &humidity,
+            &co2,
+            &pm25,
+            &air_quality,
             &thread_network,
         ),
         &device_kv,
@@ -455,6 +540,9 @@ async fn run(
             vec![0, 1]
         );
         assert!(endpoints[1].servers.contains(&6));
+        for cluster in [8, 91, 1026, 1029, 1037, 1066] {
+            assert!(endpoints[1].servers.contains(&cluster), "synthetic endpoint missing sensor cluster {cluster}");
+        }
         println!("PASS bounded operational descriptor endpoint and cluster discovery over CASE");
         if service_owner {
             let persisted = Identity::open(&active_store, ctrl_crypto, ADMIN_VENDOR_ID)?;
@@ -501,6 +589,63 @@ async fn run(
                 }
             }
             println!("PASS production device scheduler catalog restore and radio detach refresh over CASE");
+            for (cluster, expected, unit) in [
+                (1026, 23.15, "celsius"),
+                (1029, 52.34, "percent"),
+                (1037, 758.5, "ppm"),
+                (1066, 12.75, "ug/m3"),
+            ] {
+                let body = format!("{{\"schema\":1,\"action\":\"read\",\"node\":\"{node:016x}\",\"endpoint\":1,\"cluster\":{cluster},\"attribute\":0}}");
+                let accepted = manager.submit(
+                    lexra_rs_matter_probe::control::Request::decode(10, body.as_bytes())
+                        .map_err(|_| rs_matter::error::ErrorCode::InvalidData)?,
+                    true, false, std::time::Instant::now(),
+                ).map_err(|_| rs_matter::error::ErrorCode::InvalidData)?;
+                let outcome = std::future::poll_fn(|context| {
+                    manager.poll(true, false, std::time::Instant::now(), context);
+                    match manager.job(accepted.job) {
+                        Ok(state @ (lexra_rs_matter_probe::devices::JobState::Complete { .. }
+                            | lexra_rs_matter_probe::devices::JobState::Failed { .. })) => std::task::Poll::Ready(state),
+                        Ok(_) => { context.waker().wake_by_ref(); std::task::Poll::Pending }
+                        Err(_) => panic!("sensor job status lookup failed"),
+                    }
+                }).await;
+                match outcome {
+                    lexra_rs_matter_probe::devices::JobState::Complete { result, .. } => match result.value {
+                        lexra_rs_matter_probe::operations::Value::Measurement(value) => {
+                            assert_eq!(result.cluster, cluster);
+                            assert_eq!(result.attribute, 0);
+                            assert_eq!(value.unit, unit);
+                            assert_eq!(value.quality, "measured");
+                            assert!((value.value.unwrap() - expected).abs() < 0.001);
+                        }
+                        _ => panic!("sensor cluster {cluster} returned the wrong value type"),
+                    },
+                    lexra_rs_matter_probe::devices::JobState::Failed { error, .. } => panic!("sensor job failed: {error:?}"),
+                    _ => unreachable!(),
+                }
+            }
+            let body = format!("{{\"schema\":1,\"action\":\"read\",\"node\":\"{node:016x}\",\"endpoint\":1,\"cluster\":91,\"attribute\":0}}");
+            let accepted = manager.submit(
+                lexra_rs_matter_probe::control::Request::decode(10, body.as_bytes())
+                    .map_err(|_| rs_matter::error::ErrorCode::InvalidData)?,
+                true, false, std::time::Instant::now(),
+            ).map_err(|_| rs_matter::error::ErrorCode::InvalidData)?;
+            let outcome = std::future::poll_fn(|context| {
+                manager.poll(true, false, std::time::Instant::now(), context);
+                match manager.job(accepted.job) {
+                    Ok(state @ (lexra_rs_matter_probe::devices::JobState::Complete { .. }
+                        | lexra_rs_matter_probe::devices::JobState::Failed { .. })) => std::task::Poll::Ready(state),
+                    Ok(_) => { context.waker().wake_by_ref(); std::task::Poll::Pending }
+                    Err(_) => panic!("air quality job status lookup failed"),
+                }
+            }).await;
+            assert!(matches!(outcome,
+                lexra_rs_matter_probe::devices::JobState::Complete { result, .. }
+                    if result.cluster == 91 && result.attribute == 0 &&
+                    matches!(result.value, lexra_rs_matter_probe::operations::Value::AirQuality(ref value)
+                        if value.value == "moderate" && value.quality == "measured")));
+            println!("PASS capability-gated signed/nullable sensor reads, units and air-quality enum over CASE");
             let first = manager
                 .page(0, None)
                 .map_err(|_| rs_matter::error::ErrorCode::InvalidData)?;

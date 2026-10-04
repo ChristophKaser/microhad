@@ -1,4 +1,4 @@
-//! Capability-gated operational OnOff/Level transactions. No automatic mutation replay.
+//! Capability-gated operational OnOff/Level/sensor transactions. No automatic mutation replay.
 use crate::{
     control::{CommandRequest, DeviceRequest, Id, Request},
     devices::Snapshot,
@@ -11,6 +11,13 @@ use rs_matter::{
         level_control::{LevelControlClient, OptionsBitmap},
         on_off::OnOffClient,
     },
+    dm::clusters::decl::{
+        air_quality::AirQualityClient,
+        carbon_dioxide_concentration_measurement::CarbonDioxideConcentrationMeasurementClient,
+        pm_25_concentration_measurement::Pm25ConcentrationMeasurementClient,
+        relative_humidity_measurement::RelativeHumidityMeasurementClient,
+        temperature_measurement::TemperatureMeasurementClient,
+    },
     error::{Error, ErrorCode},
     transport::exchange::Exchange,
     Matter,
@@ -21,6 +28,7 @@ use serde::Serialize;
 pub enum Action {
     Read,
     ReadLevel,
+    ReadSensor { cluster: u32 },
     On,
     Off,
     Toggle,
@@ -52,6 +60,19 @@ pub enum Failure {
 pub enum Value {
     Bool(bool),
     U8(Option<u8>),
+    Measurement(MeasurementValue),
+    AirQuality(AirQualityValue),
+}
+#[derive(Clone, Serialize)]
+pub struct MeasurementValue {
+    pub value: Option<f32>,
+    pub unit: &'static str,
+    pub quality: &'static str,
+}
+#[derive(Clone, Serialize)]
+pub struct AirQualityValue {
+    pub value: &'static str,
+    pub quality: &'static str,
 }
 #[derive(Clone, Serialize)]
 pub struct ResultValue {
@@ -78,6 +99,11 @@ impl Operation {
                 attribute: 0,
                 ..
             }) => (node, endpoint, Action::ReadLevel),
+            Request::Device(DeviceRequest::Read { node, endpoint, cluster, attribute: 0, .. })
+                if matches!(cluster, 91 | 1026 | 1029 | 1037 | 1066) =>
+            {
+                (node, endpoint, Action::ReadSensor { cluster })
+            }
             Request::Command(CommandRequest::On { node, endpoint, .. }) => {
                 (node, endpoint, Action::On)
             }
@@ -128,6 +154,7 @@ impl Operation {
         let required_cluster = match self.action {
             Action::Read | Action::On | Action::Off | Action::Toggle => 6,
             Action::ReadLevel | Action::MoveToLevel { .. } => 8,
+            Action::ReadSensor { cluster } => cluster,
         };
         if !endpoint.servers.contains(&required_cluster) {
             return Err(Failure::Unsupported);
@@ -158,7 +185,7 @@ impl Operation {
         timeout: embassy_time::Duration,
     ) -> Result<ResultValue, Failure> {
         let transaction = async {
-            if !matches!(self.action, Action::Read | Action::ReadLevel) {
+            if !matches!(self.action, Action::Read | Action::ReadLevel | Action::ReadSensor { .. }) {
                 let exchange = Exchange::initiate(matter, &crypto, fabric, self.node).await?;
                 match self.action {
                     Action::On => exchange.on_off().on(self.endpoint).await?,
@@ -180,11 +207,66 @@ impl Operation {
                             })
                             .await?
                     }
-                    Action::Read | Action::ReadLevel => unreachable!(),
+                    Action::Read | Action::ReadLevel | Action::ReadSensor { .. } => unreachable!(),
                 }
             }
             // An invocation acknowledgement is insufficient: return the actual value.
             let exchange = Exchange::initiate(matter, &crypto, fabric, self.node).await?;
+            if let Action::ReadSensor { cluster } = self.action {
+                let (value, attribute) = match cluster {
+                    91 => {
+                        use rs_matter::dm::clusters::decl::air_quality::AirQualityEnum;
+                        let value = exchange.air_quality().air_quality_read(self.endpoint).await?;
+                        let (value, quality) = match value {
+                            AirQualityEnum::Unknown => ("unknown", "unknown"),
+                            AirQualityEnum::Good => ("good", "measured"),
+                            AirQualityEnum::Fair => ("fair", "measured"),
+                            AirQualityEnum::Moderate => ("moderate", "measured"),
+                            AirQualityEnum::Poor => ("poor", "measured"),
+                            AirQualityEnum::VeryPoor => ("very_poor", "measured"),
+                            AirQualityEnum::ExtremelyPoor => ("extremely_poor", "measured"),
+                        };
+                        (Value::AirQuality(AirQualityValue { value, quality }), 0)
+                    }
+                    1026 => {
+                        let raw = exchange.temperature_measurement().measured_value_read(self.endpoint).await?;
+                        let value = raw.as_opt_ref().map(|value| f32::from(*value) / 100.0);
+                        (measurement(value, "celsius"), 0)
+                    }
+                    1029 => {
+                        let raw = exchange.relative_humidity_measurement().measured_value_read(self.endpoint).await?;
+                        if raw.as_opt_ref().is_some_and(|value| *value > 10_000) {
+                            return Err(ErrorCode::InvalidData.into());
+                        }
+                        let value = raw.as_opt_ref().map(|value| f32::from(*value) / 100.0);
+                        (measurement(value, "percent"), 0)
+                    }
+                    1037 => {
+                        let raw = exchange.carbon_dioxide_concentration_measurement().measured_value_read(self.endpoint).await?;
+                        let unit = Exchange::initiate(matter, &crypto, fabric, self.node).await?
+                            .carbon_dioxide_concentration_measurement().measurement_unit_read(self.endpoint).await?;
+                        let value = raw.as_opt_ref().copied();
+                        if value.is_some_and(|value| !value.is_finite() || value < 0.0) {
+                            return Err(ErrorCode::InvalidData.into());
+                        }
+                        (measurement(value, measurement_unit(unit)), 0)
+                    }
+                    1066 => {
+                        let raw = exchange.pm_25_concentration_measurement().measured_value_read(self.endpoint).await?;
+                        let unit = Exchange::initiate(matter, &crypto, fabric, self.node).await?
+                            .pm_25_concentration_measurement().measurement_unit_read(self.endpoint).await?;
+                        let value = raw.as_opt_ref().copied();
+                        if value.is_some_and(|value| !value.is_finite() || value < 0.0) {
+                            return Err(ErrorCode::InvalidData.into());
+                        }
+                        (measurement(value, measurement_unit(unit)), 0)
+                    }
+                    _ => return Err(ErrorCode::InvalidData.into()),
+                };
+                return Ok(ResultValue {
+                    node: Id(self.node), endpoint: self.endpoint, cluster, attribute, value,
+                });
+            }
             if matches!(self.action, Action::ReadLevel | Action::MoveToLevel { .. }) {
                 let value = exchange
                     .level_control()
@@ -221,6 +303,27 @@ impl Operation {
     }
 }
 
+fn measurement(value: Option<f32>, unit: &'static str) -> Value {
+    let quality = if value.is_some() { "measured" } else { "unknown" };
+    Value::Measurement(MeasurementValue { value, unit, quality })
+}
+
+fn measurement_unit(unit: rs_matter::dm::clusters::decl::globals::MeasurementUnitEnum) -> &'static str {
+    use rs_matter::dm::clusters::decl::globals::MeasurementUnitEnum;
+    match unit {
+        MeasurementUnitEnum::PPM => "ppm",
+        MeasurementUnitEnum::PPB => "ppb",
+        MeasurementUnitEnum::PPT => "ppt",
+        MeasurementUnitEnum::MGM3 => "mg/m3",
+        MeasurementUnitEnum::UGM3 => "ug/m3",
+        MeasurementUnitEnum::NGM3 => "ng/m3",
+        MeasurementUnitEnum::PM3 => "particles/m3",
+        MeasurementUnitEnum::BQM3 => "Bq/m3",
+        MeasurementUnitEnum::DBPM => "dB/m",
+        MeasurementUnitEnum::PCFT => "particles/ft3",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -234,6 +337,12 @@ mod tests {
         assert_eq!(level_read.authorize(&[]), Err(Failure::NotFound));
         let move_to_level = decode(11, r#"{"schema":1,"command":"move_to_level","node":"0000000000000002","endpoint":1,"level":124,"transition_deciseconds":20}"#).unwrap();
         assert_eq!(move_to_level.authorize(&[]), Err(Failure::NotFound));
+        for cluster in [91, 1026, 1029, 1037, 1066] {
+            let body = format!(r#"{{"schema":1,"action":"read","node":"0000000000000002","endpoint":1,"cluster":{cluster},"attribute":0}}"#);
+            let sensor = decode(10, &body).unwrap();
+            assert!(matches!(sensor.action, Action::ReadSensor { cluster: actual } if actual == cluster));
+        }
+        assert!(matches!(decode(10, r#"{"schema":1,"action":"read","node":"0000000000000002","endpoint":1,"cluster":1066,"attribute":1}"#), Err(Failure::Unsupported)));
         assert!(matches!(
             decode(
                 11,
@@ -272,5 +381,24 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(encoded, br#"{"schema":1,"ok":true,"result":{"node":"0000000000000002","endpoint":1,"cluster":8,"attribute":0,"value":{"type":"u8","value":124}}}"#);
+    }
+
+    #[test]
+    fn typed_sensor_values_preserve_unit_and_null_quality() {
+        let measured = crate::responses::reply::<_, Failure>(Ok(ResultValue {
+            node: Id(2), endpoint: 1, cluster: 1026, attribute: 0,
+            value: measurement(Some(-5.25), "celsius"),
+        })).unwrap();
+        assert_eq!(measured, br#"{"schema":1,"ok":true,"result":{"node":"0000000000000002","endpoint":1,"cluster":1026,"attribute":0,"value":{"type":"measurement","value":{"value":-5.25,"unit":"celsius","quality":"measured"}}}}"#);
+        let unknown = crate::responses::reply::<_, Failure>(Ok(ResultValue {
+            node: Id(2), endpoint: 1, cluster: 1066, attribute: 0,
+            value: measurement(None, "ug/m3"),
+        })).unwrap();
+        assert_eq!(unknown, br#"{"schema":1,"ok":true,"result":{"node":"0000000000000002","endpoint":1,"cluster":1066,"attribute":0,"value":{"type":"measurement","value":{"value":null,"unit":"ug/m3","quality":"unknown"}}}}"#);
+        let air = crate::responses::reply::<_, Failure>(Ok(ResultValue {
+            node: Id(2), endpoint: 1, cluster: 91, attribute: 0,
+            value: Value::AirQuality(AirQualityValue { value: "moderate", quality: "measured" }),
+        })).unwrap();
+        assert_eq!(air, br#"{"schema":1,"ok":true,"result":{"node":"0000000000000002","endpoint":1,"cluster":91,"attribute":0,"value":{"type":"air_quality","value":{"value":"moderate","quality":"measured"}}}}"#);
     }
 }
