@@ -544,6 +544,7 @@ bool Gateway::reconcileMatterDevices(const std::vector<MatterEndpoint>& endpoint
             fresh.pm25MicrogramsM3 = current.pm25MicrogramsM3;
             fresh.pm25Unit = current.pm25Unit;
             fresh.pm25Known = current.pm25Known;
+            fresh.valueAlerts = current.valueAlerts;
             if (current.online != fresh.online || current.lastSeen != fresh.lastSeen ||
                 current.name != fresh.name || current.matterServers != fresh.matterServers) changed = true;
             current = fresh;
@@ -585,6 +586,7 @@ bool Gateway::applyMatterReading(const MatterReading& reading, std::string* erro
         return false;
     }
     Device& device = target->second;
+    Device before = device;
     if (reading.cluster == 6 && (device.hasLight || device.hasActor)) {
         if (device.hasLight) { device.lightOn = reading.booleanValue; device.lightKnown = true; }
         if (device.hasActor) { device.actorOn = reading.booleanValue; device.actorKnown = true; }
@@ -616,6 +618,7 @@ bool Gateway::applyMatterReading(const MatterReading& reading, std::string* erro
     }
     device.lastSeen = time(0);
     device.online = true;
+    updateValueAlerts(device, before);
     markViewDirty();
     return true;
 }
@@ -2501,11 +2504,15 @@ void Gateway::updateValueAlerts(Device& device, const Device& before) {
         {"temperature", "Temperature", device.hasTemperature,
          before.source == "zigbee" ? before.hasTemperature : before.temperatureKnown,
          device.temperatureCelsius, before.temperatureCelsius},
-        {"humidity", "Humidity", device.hasHumidity, before.hasHumidity && before.lastSeen != 0, device.humidityPercent, before.humidityPercent},
+        {"humidity", "Humidity", device.hasHumidity,
+         before.source == "matter" ? before.humidityKnown : before.hasHumidity && before.lastSeen != 0,
+         device.humidityPercent, before.humidityPercent},
         {"battery", "Battery", device.hasBattery, before.hasBattery, static_cast<double>(device.batteryPercent), static_cast<double>(before.batteryPercent)},
         {"link_quality", "Link quality", device.source == "zigbee", before.source == "zigbee" && before.lastSeen != 0, static_cast<double>(device.linkQuality), static_cast<double>(before.linkQuality)},
         {"wifi_signal", "Wi-Fi signal", device.hasWifiSignal, before.hasWifiSignal, static_cast<double>(device.wifiSignalPercent), static_cast<double>(before.wifiSignalPercent)},
-        {"brightness", "Brightness", device.hasBrightness, before.hasBrightness, static_cast<double>(device.brightnessPercent), static_cast<double>(before.brightnessPercent)},
+        {"brightness", "Brightness", device.hasBrightness,
+         before.source == "matter" ? before.brightnessKnown : before.hasBrightness,
+         static_cast<double>(device.brightnessPercent), static_cast<double>(before.brightnessPercent)},
         {"power", "Power", device.hasPower, before.powerKnown, device.powerWatts, before.powerWatts}
     };
     for (unsigned int i = 0; i < sizeof(readings) / sizeof(readings[0]); ++i) {

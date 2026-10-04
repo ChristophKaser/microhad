@@ -77,6 +77,7 @@ public:
         endpoint.servers.push_back(6);
         endpoint.servers.push_back(8);
         endpoint.servers.push_back(29);
+        endpoint.servers.push_back(1026);
         endpoint.servers.push_back(1037);
         std::vector<MatterEndpoint> endpoints(1, endpoint);
         std::string error;
@@ -104,6 +105,22 @@ public:
         assert(gateway.reconcileMatterDevices(endpoints, &error));
         assert(gateway.statusJson().find("\"co2\":{\"value\":null,\"unit\":\"ppb\",\"quality\":\"unknown\"}") !=
                std::string::npos);
+        DeviceValueAlert temperatureAlert;
+        temperatureAlert.hasHigh = true;
+        temperatureAlert.high = 25;
+        gateway.devices_[endpoint.id].valueAlerts["temperature"] = temperatureAlert;
+        MatterReading temperature;
+        temperature.node = endpoint.node;
+        temperature.endpoint = endpoint.endpoint;
+        temperature.cluster = 1026;
+        temperature.known = true;
+        temperature.numberValue = 20;
+        assert(gateway.applyMatterReading(temperature, &error));
+        temperature.numberValue = 26;
+        assert(gateway.applyMatterReading(temperature, &error));
+        assert(gateway.devices_[endpoint.id].valueAlerts["temperature"].highActive);
+        assert(gateway.reconcileMatterDevices(endpoints, &error));
+        assert(gateway.devices_[endpoint.id].valueAlerts["temperature"].highActive);
     }
     static void ineligibleSensorRefreshCannotSpin() {
         char directory[] = "/tmp/microhad-refresh-timers-XXXXXX";
