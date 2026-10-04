@@ -2,12 +2,13 @@
 
 ## Current open work — 2026-10-04
 
-The native relay contract and tested Android GATT building blocks exist; onboarding UI,
-WebSocket wiring and end-to-end app validation remain open.
+The native relay contract, tested Android GATT adapter, setup/relay core and
+HTTP/WebSocket client exist. Foreground onboarding UI, runtime permission requests,
+real adapter wiring and end-to-end app lifecycle validation remain open.
 
-Next deliverable: Build the setup-code/session model with fake gateway/GATT tests, then
-wire permissions, foreground UI, scanning and serialized relay transport. Unverified app
-experiments do not close these steps.
+Next deliverable: Implement setup-code/QR input, device selection, progress/cancel/retry
+and feature/unavailable states. Wire the existing BLE and gateway clients through one
+foreground owner, then test lifecycle loss, cancellation and retry without replay.
 
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.
@@ -193,3 +194,35 @@ HTTP/WebSocket client and foreground onboarding UI, wire these adapters and run
 an end-to-end fake gateway/peripheral flow. Steps 2–6 remain incomplete; current
 GATT building blocks do not establish working Android commissioning. No APK or
 gateway deployment, physical pairing or plan 08 action occurred.
+
+## Garage HTTP/WebSocket client checkpoint — 2026-10-04
+
+Garage commit `6e3a407` supplies the dedicated Ktor 2.2.3 CIO client and strict
+canonical v1 codec. HTTP jobs are accepted/polled with bounded response retention
+and deadlines; RPC delivery remains distinct from accessory commissioning.
+The actual schema-less HTTP errors and schema-1 relay errors are both validated.
+No setup input, payload logger, redirect/retry plugin or TLS override is added.
+
+One relay binds status before attach, owns eight pending/queued requests, uses
+monotonic correlations and validates session/generation/sequence/write replies.
+Attach publishes generation before subsequent C1; GATT completion acknowledgement
+releases the model before the next C1. Ping, aggregate message/send limits,
+unanswered-call deadlines and fail-closed shutdown are implemented. Socket loss
+never reconnects/replays implicitly; the future foreground owner drives explicit
+retry and best-effort cancellation.
+
+Both Android flavors pass unit suites and debug builds: 48 tests each (47 Matter
+plus the existing sample). Nineteen new codec/client/relay tests use real localhost
+TCP for HTTP and masked WebSocket traffic. Fake GATT/session ports demonstrate
+fragmented C1 with interleaved ping/pong, two matching confirmations, ordered C2
+and a simulated terminal state. Foreign correlations/sessions, stale reattach,
+binary/oversized single and fragmented messages, queue exhaustion and unanswered
+calls fail closed. These tests do not prove encrypted accessory commissioning or
+real Android Bluetooth-stack behavior.
+
+Run with the complete JDK 17 using the four Gradle commands already recorded in
+Garage `docs/matter-onboarding.md`. Initial compilation/test issues (explicit
+Ktor channel-cancel cause, inferred JUnit return type and digit-containing native
+field name) were corrected before verification. Next implement and wire the
+foreground screen and runtime permission/lifecycle flows; checklist steps 2–6
+remain incomplete as full app tasks. No phone/gateway deployment or plan 08 action.

@@ -39,6 +39,9 @@ contain `response.ok:false` with a fixed service error such as `busy` or
 `stale_session`. A native transport failure is `state:"failed"` with
 `error:"transport"`; mutations are never replayed automatically.
 
+HTTP control/job errors use `{"ok":false,"error":"CODE"}` without a `schema`
+field; the nested IPC response and WebSocket envelopes retain schema 1.
+
 Malformed requests/job IDs return 400; an unavailable worker/service or a full
 queue returns 503 with fixed `not_ready`/`capacity` errors. Unknown or evicted job
 IDs return 404 `not_found`. IDs are nonzero canonical decimal u32 values. They
