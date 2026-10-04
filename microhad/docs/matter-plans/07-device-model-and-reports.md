@@ -85,8 +85,13 @@ PM2.5 values normalized using each endpoint's reported measurement unit
 (`1855f24`). The direct TLV decoder test passes, and the existing production
 manager OnOff report fixture still passes. A notifier-backed synthetic fixture
 now proves all five sensor report types through the production manager (`62d7fd4`).
-The native process-level IPC-to-device update for sensor events is still open.
-Remote node recovery also remains open. Native endpoint
+Native commit `c22f38a` now verifies an unsolicited `matter_report` event over
+the native worker's IPC connection updating the shared device model. The
+process-level native proof uses a synthetic IPC peer and exercises a shared
+switch state update. The isolated Rust-service/native-worker fixture also
+passes, but it does not generate a report from a commissioned accessory, so a
+live Rust-service-originated sensor event through native shared sensor state
+remains open. Remote node recovery also remains open. Native endpoint
 metadata is persisted in the low-frequency device store; confirmed values are
 restored across gateway process restart from `/tmp`, and may be lost on power
 loss.

@@ -11,6 +11,19 @@ sensor UI/model projection and initial Matter report-event consumption now exist
 broader recovery and complete cross-language vectors remain open.
 Snapshot API remains verified (`237d110`).
 
+Native commit `c22f38a` fixes Matter opcode 10 dispatch: the worker previously
+treated asynchronous read/command job replies as device snapshot pages, which
+could throw while parsing missing snapshot fields. Snapshot handling now runs
+only for snapshot requests, and the page decoder rejects a valid non-page job
+reply safely. A synthetic IPC peer now sends an unsolicited `matter_report`
+event after endpoint reconciliation and verifies that it updates the shared
+native device state. The full native host suite, the synthetic-peer worker
+fixture, the isolated Rust-service/native-worker fixture, and the Matter-enabled
+MIPS build pass. The Rust-service fixture still does not generate a sensor
+report through a commissioned accessory; the report-event proof uses the
+synthetic IPC peer. Full cross-language vectors, event backpressure, and broader
+recovery remain open.
+
 Native commit `750c4c9` adds a stalled-peer timeout regression: a fake IPC peer
 accepts the request and withholds its response past the supplied deadline; the
 client returns `Matter service response timed out` within the bounded test
@@ -18,8 +31,9 @@ window. `make ZIGGURAT=1 MATTER=1 host test` and
 `make ZIGGURAT=1 MATTER=1 mips` pass. Fragmentation/coalescing, cross-language
 event vectors, broader recovery, and the remaining failure matrix stay open.
 
-Next deliverable: extend failure/restart and cross-language event coverage as
-plan 07 adds shared-model sensor and report delivery.
+Next deliverable: produce a report event from the Rust service process and
+verify that it reaches native shared sensor state; then extend failure/restart
+and cross-language vector coverage.
 
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.
