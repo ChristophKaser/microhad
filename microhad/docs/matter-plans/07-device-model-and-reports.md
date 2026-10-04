@@ -79,7 +79,7 @@ source-unification checkpoint passed
 `make ZIGGURAT=1 MATTER=1 mips`, `npm run build`,
 `node webui/test/matter-devices-browser.cjs`, and
 `python3 scripts/test_matter_webui.py` (20/20 API tests).
-report subscriptions and remote node recovery remain open. Native endpoint
+active report delivery and remote node recovery remain open. Native endpoint
 metadata is persisted in the low-frequency device store; confirmed values are
 restored across gateway process restart from `/tmp`, and may be lost on power
 loss.
@@ -202,8 +202,11 @@ explicit-rendezvous fixture alone does not establish operational discovery.
    process restart. Shared history and alerts serve Matter, Zigbee and HTTP
    sources such as Shelly. Test signed values and ALPSTUGA-related clusters
    without assuming every target advertises all measurements.
-6. Add bounded subscriptions, duplicate filtering and reconnect/refresh policy;
-   retain only state changes that warrant persistence.
+6. A bounded one-attribute subscription request with 1-second minimum and
+   3600-second maximum interval now drains priming chunks and returns the
+   negotiated subscription ID (`e4b5f8d`). It is only exercised as a protocol
+   fixture; schedule subscriptions per endpoint, receive active reports, add
+   retry/refresh policy, and persist only meaningful state changes.
 7. Integrate snapshots, history, alerts and the shared dashboard through the
    native worker using
    distinct Matter IDs. Test restart, unsupported clusters, missing reports
@@ -235,8 +238,27 @@ This provides the key needed to correlate later server-initiated reports
 without treating a device-chosen subscription ID as globally unique. The patch
 applies to the clean pinned source and is applied idempotently by
 `scripts/fetch-rs-matter.sh`; Rust controller-identity tests pass 25/25.
-Active report intake, client subscription establishment, native IPC event
-delivery and report lifecycle tests remain open.
+Active report intake, managed subscription lifecycle, native IPC event delivery
+and report lifecycle tests remain open.
+
+## Bounded Matter subscription establishment — 2026-10-04
+
+Rust commit `e4b5f8d` adds `subscriptions::establish_attribute`, which requests
+one endpoint/cluster/attribute with a one-second minimum and one-hour maximum
+report interval, acknowledges every priming chunk, and returns the negotiated
+subscription ID and maximum interval. The production-owned synthetic accessory
+fixture establishes an OnOff subscription after commissioned CASE discovery.
+Verified with the release build and
+`python3 scripts/test-openthread-matter-transport.py --commissioning --ble
+--service-owner --service-discovery`; the fixture passed commissioning,
+catalog restore, descriptor discovery, read/control, and subscription
+establishment over its synthetic RCP.
+
+A diagnostic follow-up changed a synthetic sensor after subscription and
+waited five seconds for a server-initiated `ReportData`, but none arrived. This
+does not verify active reports. Report publishing/acceptance, endpoint
+subscription lifecycle, reading conversion and native IPC event delivery
+remain open; no report-driven gateway state change is claimed.
 
 ## Dependencies
 
