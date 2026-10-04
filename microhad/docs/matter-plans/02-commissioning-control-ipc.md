@@ -645,3 +645,18 @@ They do not close the live Rust-service-to-native report-delivery checkpoint.
 No gateway or radio was used. The next deliverable remains a composed host
 fixture that drives a production Manager report through service IPC and
 verifies native shared state.
+
+## Rust Manager-to-IPC delivery step — 2026-10-04
+
+Rust commit `146cfbd` moves the service report-drain path onto
+`Manager::publish_reports`, which serializes and broadcasts queued readings
+through the production `IpcServer`, and only removes a report after at least
+one connected client accepts it. A Rust socket test enters through
+`record_report` with a matching fabric/node/subscription, verifies that the
+report remains queued with no clients, then checks the exact sensor event
+payload received by a Unix IPC client. The production service now calls this
+same method. Verification passed: 71/71 controller-probe library tests and the
+release `thread-matter` build. The C++ native parser has matching vectors in
+native commit `3a763df` and its full host suite passes. A process-level test
+where the live `thread-matter` binary delivers an accessory report into native
+shared device state remains open.

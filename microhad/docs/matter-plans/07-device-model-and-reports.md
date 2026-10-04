@@ -772,3 +772,11 @@ humidity and its unit/quality semantics. The 70-test Rust library suite and
 Matter-enabled native host suite pass. This strengthens cross-language value
 compatibility evidence; live process-to-process delivery into registered
 native state, history, and alerts remains open.
+
+Rust commit `146cfbd` now has the production device manager drain its correlated
+report queue through the production IPC server. Its Unix socket regression
+checks no-client retention followed by successful sensor event delivery; all
+71 Rust library tests and the release service build pass. This verifies the
+Manager-to-IPC boundary, while a running `thread-matter` process delivering a
+commissioned accessory report into the registered native device/history/alert
+path remains the next end-to-end checkpoint.
