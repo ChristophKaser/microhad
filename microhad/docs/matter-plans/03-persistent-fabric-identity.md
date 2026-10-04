@@ -5,9 +5,10 @@
 Persistent authority and host CASE restore exist; operational backup/restore and target
 filesystem verification remain open.
 
-Next deliverable: Write consistent encrypted backup and staged restore runbooks, then
-exercise incomplete, corrupt and interrupted restores on synthetic state before
-including the plan 07 catalog.
+Consistent backup/staged restore procedures are documented in
+[the recovery runbook](../matter-backup-recovery.md). Next deliverable: exercise
+incomplete, corrupt and interrupted restores on synthetic state, including
+the plan 07 catalog.
 
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.

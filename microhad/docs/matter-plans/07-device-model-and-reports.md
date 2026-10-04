@@ -12,7 +12,8 @@ encrypted host evidence (`05053ec`, `5c588df`). Revisioned service snapshot IPC
 is implemented (`237d110`); native validation and queued snapshot HTTP exposure
 are implemented. The dashboard snapshot view builds and its HTTP client is
 verified, including rendered component interaction in Chromium. Controls and
-reports remain open.
+reports remain open. Capability-gated OnOff execution with confirmed CASE
+readback is verified (`0c66b87`), but service job dispatch and native controls remain open.
 Remote recovery of catalogued nodes, legacy migration, device
 operations and report integration remain open. Next deliverable: reconcile
 recovery-required nodes over operational CASE, discover endpoint descriptors and
@@ -144,6 +145,8 @@ are historical; the latest status/evidence section above takes precedence.
 4. [ ] Implement validated OnOff/Level reads and commands plus typed IPC
    bodies in plan 02. Confirm resulting values through reads/reports and expose
    unsupported clusters and failed commands explicitly.
+   OnOff executor/readback is verified (`0c66b87`); asynchronous service jobs,
+   native dispatch, Level control and dashboard controls keep this item open.
 5. [ ] Decode advertised sensor attributes with units, signed values and null
    semantics. Cover temperature, humidity, CO2, PM2.5 and air quality using
    synthetic descriptors rather than assuming ALPSTUGA exposes every cluster.
@@ -272,3 +275,25 @@ Plan 02 device dispatch and plan 04 snapshot API/views remain open: native
 opcode-10 request/reply validation must precede HTTP exposure. Reads, commands,
 subscriptions, incomplete-node reconciliation and native reports remain pending.
 No physical gateway/accessory acceptance or plan 08 action was performed.
+
+## Capability-gated OnOff executor checkpoint — 2026-10-04
+
+Rust commit `0c66b87` adds strict OnOff read/on/off/toggle transaction decoding
+and admission through the manager's Complete catalog/online endpoint/advertised
+cluster checks. The executor performs encrypted invocation then a separate
+confirmed readback, with a 30-second execution deadline and typed boolean result.
+It does not publish optimistic values, retry mutations or write flash. Offline,
+unknown and unsupported endpoints fail before an exchange starts.
+
+All 58 library tests and host/MIPS service/probe builds pass. The encrypted
+synthetic accessory fixture exercises on/toggle/off confirmed values, rejects
+root OnOff support that is not advertised and rejects offline operation. The
+harness requires its executor success marker; existing discovery/catalog,
+snapshots, temperature and fresh CASE checks still pass. Commands, result shape
+and cancellation limits are documented in
+`ziggurat-compilation/docs/matter-operational-transactions.md`.
+
+Item 4 remains open: the executor is not yet connected to service IPC. Next
+implement bounded asynchronous jobs with queue-inclusive deadlines and readiness
+revalidation, then native replies/routes/UI. Level control and sensor/report
+integration remain pending. This is host implementation evidence, not plan 08.
