@@ -2,8 +2,10 @@
 
 ## Current open work — 2026-10-04
 
-Persistent authority and host CASE restore exist; operational backup/restore and target
-filesystem verification remain open.
+Persistent authority and host CASE restore exist. Synthetic staged recovery now
+has evidence for a completed catalog, stable endpoint identity, corrupt
+candidate refusal, source preservation and an abandoned replacement marker;
+full archive/allocator recovery and target filesystem verification remain open.
 
 Consistent backup/staged restore procedures are documented in
 [the recovery runbook](../matter-backup-recovery.md). Next deliverable: exercise
@@ -122,9 +124,11 @@ are historical; the latest status/evidence section above takes precedence.
 2. [x] Write a restore runbook using a separate private directory, validation
    before activation, rollback and retention. Forbid merging stores or
    lowering the allocator; preserve rejected state for diagnosis.
-3. [ ] Exercise these procedures on synthetic state: incomplete backup,
-   corruption, wrong permissions and interrupted replacement. Verify that a
-   failed restore preserves the last valid identity and allocator.
+3. [ ] Complete the synthetic recovery matrix for incomplete backup, corruption,
+   wrong permissions and interrupted replacement. Catalog-only staged copy,
+   corrupt candidate refusal, abandoned-stage recovery and separate wrong-mode /
+   corrupt-store tests now pass; prove preservation of authority and node
+   allocator together before checking this item.
 4. [ ] After plan 07 persists the node catalog, include it in backup/recovery
    tests and prove restart reaches the same node through fresh CASE.
 5. [ ] Prepare target filesystem checks for atomic replacement, fsync,
@@ -160,3 +164,16 @@ orphaned catalog cannot silently create replacement credentials. A regression
 verifies refusal leaves the envelope unchanged. Full service tests pass 48;
 identity-only tests pass 23. Backup/recovery documentation now includes catalog
 metadata. Synthetic backup/restore failure tests remain open in this plan.
+
+## Synthetic staged catalog recovery checkpoint — 2026-10-04
+
+Rust commit `6e0d445` copies the private credentials envelope into a separate
+staging directory and verifies that the completed catalog and stable endpoint
+identity reopen. The test corrupts a separate candidate and proves the source
+envelope is unchanged, then reopens the valid source with an abandoned staging
+file present. Existing store tests cover wrong directory permissions and
+corrupt/truncated envelopes. The `controller-identity` feature library suite
+passes 24/24, including these cases; `rustfmt --check` passes for the changed
+file. The test does not yet reopen authority plus catalog and verify allocator
+high-water together, validate a complete archive including OpenThread `tmp/`,
+or exercise archive extraction. Checklist item 3 remains open.
