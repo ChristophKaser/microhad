@@ -13,7 +13,7 @@ impl<'de> Deserialize<'de> for Schema {
         Ok(Self)
     }
 }
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Id(pub u64);
 impl serde::Serialize for Id {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
@@ -147,6 +147,10 @@ pub enum DeviceRequest {
         endpoint: u16,
         cluster: u32,
         attribute: u32,
+    },
+    Job {
+        schema: Schema,
+        job: Id,
     },
 }
 #[derive(Deserialize)]

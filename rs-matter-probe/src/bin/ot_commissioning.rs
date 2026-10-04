@@ -454,10 +454,28 @@ async fn run(
             println!("PASS bounded revisioned device snapshot pages from encrypted CASE descriptors");
             for (command, expected) in [("on", true), ("toggle", false), ("off", false)] {
                 let body = format!("{{\"schema\":1,\"command\":\"{command}\",\"node\":\"{node:016x}\",\"endpoint\":1}}");
-                let value = manager.prepare(lexra_rs_matter_probe::control::Request::decode(11, body.as_bytes()).map_err(|_| rs_matter::error::ErrorCode::InvalidData)?)
-                    .map_err(|_| rs_matter::error::ErrorCode::InvalidData)?.await
-                    .map_err(|_| rs_matter::error::ErrorCode::Failure)?;
-                assert!(matches!(value.value, lexra_rs_matter_probe::operations::Value::Bool(actual) if actual == expected));
+                let accepted = manager.submit(
+                    lexra_rs_matter_probe::control::Request::decode(11, body.as_bytes())
+                        .map_err(|_| rs_matter::error::ErrorCode::InvalidData)?,
+                    true,
+                    false,
+                    std::time::Instant::now(),
+                ).map_err(|_| rs_matter::error::ErrorCode::InvalidData)?;
+                let outcome = std::future::poll_fn(|context| {
+                    manager.poll(true, false, std::time::Instant::now(), context);
+                    match manager.job(accepted.job).map_err(|_| rs_matter::error::ErrorCode::InvalidData) {
+                        Ok(state @ (lexra_rs_matter_probe::devices::JobState::Complete { .. } |
+                            lexra_rs_matter_probe::devices::JobState::Failed { .. })) => std::task::Poll::Ready(Ok(state)),
+                        Ok(_) => {
+                            context.waker().wake_by_ref();
+                            std::task::Poll::Pending
+                        }
+                        Err(error) => std::task::Poll::Ready(Err(error)),
+                    }
+                }).await?;
+                assert!(matches!(outcome,
+                    lexra_rs_matter_probe::devices::JobState::Complete { result, .. }
+                        if matches!(result.value, lexra_rs_matter_probe::operations::Value::Bool(actual) if actual == expected)));
             }
             let denied = format!("{{\"schema\":1,\"command\":\"on\",\"node\":\"{node:016x}\",\"endpoint\":0}}");
             assert!(matches!(manager.prepare(lexra_rs_matter_probe::control::Request::decode(11, denied.as_bytes()).map_err(|_| rs_matter::error::ErrorCode::InvalidData)?),

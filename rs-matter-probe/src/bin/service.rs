@@ -105,6 +105,10 @@ fn dispatch<C: Crypto>(
             };
             String::from_utf8(lexra_rs_matter_probe::responses::reply(result)?).ok()?
         },
+        Ok(Request::CommissionStart(_)) if devices.operations_busy() =>
+            String::from_utf8(lexra_rs_matter_probe::responses::reply::<(), _>(Err(
+                lexra_rs_matter_probe::sessions::SessionError::Busy,
+            ))?).ok()?,
         Ok(body @ (Request::CommissionStart(_) | Request::CommissionStatus(_) |
             Request::CommissionCancel(_) | Request::BleAttach(_) | Request::BleIndication(_) |
             Request::BleWriteComplete(_))) => String::from_utf8(controller.handle(
@@ -112,6 +116,20 @@ fn dispatch<C: Crypto>(
             )?).ok()?,
         Ok(Request::Device(lexra_rs_matter_probe::control::DeviceRequest::Snapshot { cursor, revision, .. })) =>
             String::from_utf8(lexra_rs_matter_probe::responses::reply(devices.page(cursor, revision))?).ok()?,
+        Ok(Request::Device(body @ lexra_rs_matter_probe::control::DeviceRequest::Read { .. })) =>
+            String::from_utf8(lexra_rs_matter_probe::responses::reply(devices.submit(
+                Request::Device(body), lifecycle.snapshot().attached && thread.is_some(),
+                controller.commissioning(Instant::now()), Instant::now(),
+            ))?).ok()?,
+        Ok(Request::Command(body @ (lexra_rs_matter_probe::control::CommandRequest::On { .. } |
+            lexra_rs_matter_probe::control::CommandRequest::Off { .. } |
+            lexra_rs_matter_probe::control::CommandRequest::Toggle { .. }))) =>
+            String::from_utf8(lexra_rs_matter_probe::responses::reply(devices.submit(
+                Request::Command(body), lifecycle.snapshot().attached && thread.is_some(),
+                controller.commissioning(Instant::now()), Instant::now(),
+            ))?).ok()?,
+        Ok(Request::Device(lexra_rs_matter_probe::control::DeviceRequest::Job { job, .. })) =>
+            String::from_utf8(lexra_rs_matter_probe::responses::reply(devices.job(job))?).ok()?,
         Ok(_) => "{\"schema\":1,\"ok\":false,\"error\":\"unsupported\"}".into(),
         Err(_) if request.opcode == OP_MATTER_STATUS || request.opcode == OP_THREAD_STATUS => return None,
         Err(_) => "{\"schema\":1,\"ok\":false,\"error\":\"malformed\"}".into(),
@@ -256,7 +274,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     )?;
     let mut lifecycle = Lifecycle::load(store.clone()).map_err(|_| "Thread state unavailable")?;
     let mut devices = lexra_rs_matter_probe::devices::Manager::new(
-        matter, &crypto, controller_fabric, controller.catalog())?;
+        matter,
+        &crypto,
+        controller_fabric,
+        controller.catalog(),
+    )?;
     let mut configuration_entropy = OsEntropy::open()?;
     let mut subscribers = Vec::new();
     // Do not initialize OT (and restore POSIX settings) until a fresh protected
@@ -331,8 +353,12 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             )
         })?;
         controller.poll(&lifecycle, Instant::now(), &mut context);
-        devices.poll(lifecycle.snapshot().attached, controller.commissioning(Instant::now()),
-            Instant::now(), &mut context);
+        devices.poll(
+            lifecycle.snapshot().attached,
+            controller.commissioning(Instant::now()),
+            Instant::now(),
+            &mut context,
+        );
         controller.publish(&mut ipc, Instant::now())?;
         publish_thread(&mut ipc, &mut subscribers, &lifecycle)?;
         if controller.fatal() {

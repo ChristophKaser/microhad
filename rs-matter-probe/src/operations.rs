@@ -26,7 +26,7 @@ pub struct Operation {
     pub endpoint: u16,
     pub action: Action,
 }
-#[derive(Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Failure {
     Malformed,
@@ -35,13 +35,15 @@ pub enum Failure {
     Unsupported,
     Timeout,
     Accessory,
+    Busy,
+    Capacity,
 }
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
 pub enum Value {
     Bool(bool),
 }
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 pub struct ResultValue {
     pub node: Id,
     pub endpoint: u16,
@@ -105,6 +107,21 @@ impl Operation {
         crypto: C,
         fabric: NonZeroU8,
     ) -> Result<ResultValue, Failure> {
+        self.run_for(
+            matter,
+            crypto,
+            fabric,
+            embassy_time::Duration::from_secs(30),
+        )
+        .await
+    }
+    pub async fn run_for<C: Crypto>(
+        self,
+        matter: &Matter<'_>,
+        crypto: C,
+        fabric: NonZeroU8,
+        timeout: embassy_time::Duration,
+    ) -> Result<ResultValue, Failure> {
         let transaction = async {
             if !matches!(self.action, Action::Read) {
                 let exchange = Exchange::initiate(matter, &crypto, fabric, self.node).await?;
@@ -126,7 +143,7 @@ impl Operation {
                 value: Value::Bool(value),
             })
         };
-        embassy_time::with_timeout(embassy_time::Duration::from_secs(30), transaction)
+        embassy_time::with_timeout(timeout, transaction)
             .await
             .map_err(|_| Failure::Timeout)?
             .map_err(|error| match error.code() {

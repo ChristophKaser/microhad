@@ -10,6 +10,7 @@ use rs_matter::{
 };
 use serde::Serialize;
 use std::{
+    collections::VecDeque,
     future::Future,
     pin::Pin,
     task::{Context, Poll},
@@ -18,6 +19,8 @@ use std::{
 
 pub const MAX_ENDPOINTS: usize = 32;
 pub const MAX_CLUSTERS: usize = 64;
+pub const MAX_OPERATION_JOBS: usize = 8;
+const MAX_RETAINED_JOBS: usize = 16;
 
 #[derive(Serialize)]
 pub struct Device {
@@ -56,6 +59,55 @@ pub struct Snapshot {
     failures: u8,
 }
 type Work<'a> = Pin<Box<dyn Future<Output = Result<Vec<Endpoint>, Error>> + 'a>>;
+type OperationWork<'a> = Pin<
+    Box<
+        dyn Future<Output = Result<crate::operations::ResultValue, crate::operations::Failure>>
+            + 'a,
+    >,
+>;
+struct QueuedOperation {
+    id: u64,
+    operation: crate::operations::Operation,
+    deadline: Instant,
+}
+struct ActiveOperation<'a> {
+    id: u64,
+    deadline: Instant,
+    work: OperationWork<'a>,
+}
+#[derive(Debug, Serialize)]
+pub struct JobAccepted {
+    pub job: crate::control::Id,
+    pub state: &'static str,
+}
+#[derive(Serialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum JobState {
+    Queued {
+        job: crate::control::Id,
+    },
+    Running {
+        job: crate::control::Id,
+    },
+    Complete {
+        job: crate::control::Id,
+        result: crate::operations::ResultValue,
+    },
+    Failed {
+        job: crate::control::Id,
+        error: crate::operations::Failure,
+    },
+}
+struct JobRecord {
+    id: u64,
+    state: JobRecordState,
+}
+enum JobRecordState {
+    Queued,
+    Running,
+    Complete(crate::operations::ResultValue),
+    Failed(crate::operations::Failure),
+}
 
 /// One operational job at a time, yielding to commissioning and radio recovery.
 pub struct Manager<'a, C: Crypto> {
@@ -67,6 +119,10 @@ pub struct Manager<'a, C: Crypto> {
     work: Option<(u64, Instant, Work<'a>)>,
     revision: u64,
     seen: Vec<crate::catalog::Node>,
+    next_job: u64,
+    queued: VecDeque<QueuedOperation>,
+    active: Option<ActiveOperation<'a>>,
+    jobs: VecDeque<JobRecord>,
 }
 impl<'a, C: Crypto + 'a> Manager<'a, C> {
     pub fn new(
@@ -78,6 +134,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         use rs_matter::crypto::TryRng;
         let mut entropy = crate::entropy::OsEntropy::open()?;
         let revision = entropy.try_next_u64().unwrap().max(1);
+        let next_job = entropy.try_next_u64().unwrap().max(1);
         Ok(Self {
             matter,
             crypto,
@@ -87,10 +144,98 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             work: None,
             revision,
             seen: Vec::new(),
+            next_job,
+            queued: VecDeque::new(),
+            active: None,
+            jobs: VecDeque::new(),
         })
     }
     pub fn snapshots(&self) -> &[Snapshot] {
         &self.snapshots
+    }
+    pub fn operations_busy(&self) -> bool {
+        self.active.is_some() || !self.queued.is_empty()
+    }
+    pub fn submit(
+        &mut self,
+        request: crate::control::Request,
+        ready: bool,
+        commissioning: bool,
+        now: Instant,
+    ) -> Result<JobAccepted, crate::operations::Failure> {
+        use crate::operations::Failure;
+        if !ready {
+            return Err(Failure::NotReady);
+        }
+        if commissioning {
+            return Err(Failure::Busy);
+        }
+        if self.queued.len() + usize::from(self.active.is_some()) >= MAX_OPERATION_JOBS {
+            return Err(Failure::Capacity);
+        }
+        let operation = crate::operations::Operation::decode(request)?;
+        if !self
+            .catalog
+            .nodes()
+            .iter()
+            .any(|node| node.id == operation.node && node.phase == Phase::Complete)
+        {
+            return Err(Failure::NotFound);
+        }
+        operation.authorize(&self.snapshots)?;
+        if self.next_job == 0 {
+            return Err(Failure::Capacity);
+        }
+        let id = self.next_job;
+        self.next_job = self.next_job.checked_add(1).unwrap_or(0);
+        self.queued.push_back(QueuedOperation {
+            id,
+            operation,
+            deadline: now + Duration::from_secs(30),
+        });
+        self.jobs.push_back(JobRecord {
+            id,
+            state: JobRecordState::Queued,
+        });
+        Ok(JobAccepted {
+            job: crate::control::Id(id),
+            state: "queued",
+        })
+    }
+    pub fn job(&self, id: crate::control::Id) -> Result<JobState, crate::operations::Failure> {
+        let record = self
+            .jobs
+            .iter()
+            .find(|record| record.id == id.0)
+            .ok_or(crate::operations::Failure::NotFound)?;
+        Ok(match &record.state {
+            JobRecordState::Queued => JobState::Queued { job: id },
+            JobRecordState::Running => JobState::Running { job: id },
+            JobRecordState::Complete(result) => JobState::Complete {
+                job: id,
+                result: result.clone(),
+            },
+            JobRecordState::Failed(error) => JobState::Failed {
+                job: id,
+                error: *error,
+            },
+        })
+    }
+    fn record_state(&mut self, id: u64, state: JobRecordState) {
+        if let Some(record) = self.jobs.iter_mut().find(|record| record.id == id) {
+            record.state = state;
+        }
+        while self.jobs.len() > MAX_RETAINED_JOBS {
+            if self.jobs.front().is_some_and(|record| {
+                matches!(
+                    record.state,
+                    JobRecordState::Queued | JobRecordState::Running
+                )
+            }) {
+                break;
+            }
+            self.jobs.pop_front();
+        }
     }
     pub fn prepare(
         &self,
@@ -173,6 +318,20 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         now: Instant,
         context: &mut Context<'_>,
     ) {
+        if !ready {
+            if let Some(active) = self.active.take() {
+                self.record_state(
+                    active.id,
+                    JobRecordState::Failed(crate::operations::Failure::NotReady),
+                );
+            }
+            while let Some(queued) = self.queued.pop_front() {
+                self.record_state(
+                    queued.id,
+                    JobRecordState::Failed(crate::operations::Failure::NotReady),
+                );
+            }
+        }
         if !ready || commissioning {
             self.work = None;
             if !ready {
@@ -185,6 +344,63 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                     self.changed();
                 }
             }
+            return;
+        }
+        if let Some(active) = &mut self.active {
+            let completed = if now >= active.deadline {
+                Some(Err(crate::operations::Failure::Timeout))
+            } else {
+                match active.work.as_mut().poll(context) {
+                    Poll::Ready(result) => Some(result),
+                    Poll::Pending => None,
+                }
+            };
+            if let Some(result) = completed {
+                let id = active.id;
+                self.active = None;
+                self.record_state(
+                    id,
+                    match result {
+                        Ok(value) => JobRecordState::Complete(value),
+                        Err(error) => JobRecordState::Failed(error),
+                    },
+                );
+            }
+            return;
+        }
+        if let Some(queued) = self.queued.pop_front() {
+            let id = queued.id;
+            if now >= queued.deadline {
+                self.record_state(
+                    id,
+                    JobRecordState::Failed(crate::operations::Failure::Timeout),
+                );
+                return;
+            }
+            let authorization = self
+                .catalog
+                .nodes()
+                .iter()
+                .any(|node| node.id == queued.operation.node && node.phase == Phase::Complete)
+                .then(|| queued.operation.authorize(&self.snapshots))
+                .unwrap_or(Err(crate::operations::Failure::NotFound));
+            if let Err(error) = authorization {
+                self.record_state(id, JobRecordState::Failed(error));
+                return;
+            }
+            let remaining = queued.deadline.saturating_duration_since(now);
+            let timeout = embassy_time::Duration::from_millis(
+                remaining.as_millis().min(u64::MAX as u128) as u64,
+            );
+            let work = queued
+                .operation
+                .run_for(self.matter, self.crypto, self.fabric, timeout);
+            self.active = Some(ActiveOperation {
+                id,
+                deadline: queued.deadline,
+                work: Box::pin(work),
+            });
+            self.record_state(id, JobRecordState::Running);
             return;
         }
         if let Some((node, deadline, work)) = &mut self.work {
@@ -221,6 +437,9 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                     self.changed();
                 }
             }
+            return;
+        }
+        if self.operations_busy() {
             return;
         }
         for node in self
@@ -316,6 +535,87 @@ pub async fn discover<C: Crypto>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn operational_jobs_are_bounded_status_addressable_and_fail_on_radio_loss() {
+        use crate::{control::Request, entropy::OsEntropy, store::PrivateStore};
+        use rs_matter::{
+            crypto::{default_crypto, CryptoSensitiveRef},
+            dm::devices::test::{TEST_DEV_ATT, TEST_DEV_COMM, TEST_DEV_DET},
+            utils::init::InitMaybeUninit,
+        };
+        let directory = std::env::temp_dir().join(format!("matter-jobs-{}", std::process::id()));
+        let store = PrivateStore::open(&directory).unwrap();
+        let catalog = Catalog::open(store, 1, 5).unwrap();
+        let reservation = catalog.reserve(2).unwrap();
+        reservation.fabric_installed().unwrap();
+        reservation.thread_provisioned().unwrap();
+        reservation.complete().unwrap();
+        let crypto = default_crypto(
+            OsEntropy::open().unwrap(),
+            CryptoSensitiveRef::new(&[9; 32]),
+        );
+        let mut memory = Box::new(std::mem::MaybeUninit::uninit());
+        let matter = memory.init_with(Matter::init(
+            &TEST_DEV_DET,
+            TEST_DEV_COMM,
+            &TEST_DEV_ATT,
+            5540,
+        ));
+        let mut manager =
+            Manager::new(matter, &crypto, NonZeroU8::new(1).unwrap(), catalog).unwrap();
+        manager.snapshots.push(Snapshot {
+            node: 2,
+            endpoints: vec![Endpoint {
+                id: 1,
+                servers: vec![6],
+            }],
+            online: true,
+            next: Instant::now() + Duration::from_secs(300),
+            failures: 0,
+        });
+        let request = || {
+            Request::decode(
+                11,
+                br#"{"schema":1,"command":"toggle","node":"0000000000000002","endpoint":1}"#,
+            )
+            .unwrap()
+        };
+        let now = Instant::now();
+        let first = manager.submit(request(), true, false, now).unwrap();
+        assert_eq!(first.state, "queued");
+        assert!(matches!(
+            manager.job(first.job).unwrap(),
+            JobState::Queued { .. }
+        ));
+        assert!(manager.operations_busy());
+        assert_eq!(
+            manager.submit(request(), false, false, now).unwrap_err(),
+            crate::operations::Failure::NotReady
+        );
+        for _ in 1..MAX_OPERATION_JOBS {
+            manager.submit(request(), true, false, now).unwrap();
+        }
+        assert_eq!(
+            manager.submit(request(), true, false, now).unwrap_err(),
+            crate::operations::Failure::Capacity
+        );
+        let mut context = Context::from_waker(std::task::Waker::noop());
+        manager.poll(false, false, now, &mut context);
+        assert!(!manager.operations_busy());
+        assert!(matches!(
+            manager.job(first.job).unwrap(),
+            JobState::Failed {
+                error: crate::operations::Failure::NotReady,
+                ..
+            }
+        ));
+        assert_eq!(
+            manager.submit(request(), true, false, now).unwrap_err(),
+            crate::operations::Failure::NotReady
+        );
+        drop(manager);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
     #[test]
     fn scheduler_deadlines_preemption_fairness_and_no_flash_writes() {
         use crate::{entropy::OsEntropy, store::PrivateStore};
