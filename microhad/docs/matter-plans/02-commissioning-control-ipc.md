@@ -5,11 +5,15 @@
 Native commissioning/relay dispatch and bounded jobs exist. Rust now dispatches
 bounded asynchronous OnOff reads/commands and job polling; native validation,
 HTTP admission and worker-side operation polling now carry jobs through confirmed
-readback. Device events, broader recovery and complete cross-language vectors
-remain open. Snapshot API remains verified (`237d110`).
+readback. The Rust service executor now also dispatches Level Control reads and
+MoveToLevel with confirmed CurrentLevel readback; native typed validation, HTTP
+admission, worker handling and dashboard controls for Level remain open. Device
+events, broader recovery and complete cross-language vectors remain open.
+Snapshot API remains verified (`237d110`).
 
-Next deliverable: Extend failure/restart and cross-language event coverage, then
-add the remaining Level, sensor and report bodies as plan 07 implements them.
+Next deliverable: Carry the verified Level IPC bodies through native validation,
+HTTP and the dashboard, then extend failure/restart and cross-language event
+coverage as plan 07 adds sensor and report bodies.
 
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.
@@ -498,3 +502,30 @@ Both factory builds remain static stripped big-endian MIPS-I ELF files. Android
 GATT/permissions, dashboard onboarding, production DNS-SD/catalog/device reports
 and broader timeout/backpressure/target recovery evidence remain open. No
 physical gateway, real accessory or plan 08 acceptance action was performed.
+
+## Rust Level Control executor checkpoint — 2026-10-04
+
+Rust commit `6ec569a` adds opcode-10 CurrentLevel reads and opcode-11
+MoveToLevel to the bounded operational job manager. Start-time capability checks
+require an online completed catalog node and endpoint advertising cluster 8.
+The command validates a Matter level of 0–254 and `u16` transition time, then
+performs a separate CurrentLevel read; a null readback cannot report mutation
+success. Typed results retain cluster/attribute identity and return a tagged
+`u8` value. Unsupported cluster paths fail before an exchange starts.
+
+Verification passed: 59 Rust service-feature library tests; host service and
+commissioning-probe builds; MIPS service and commissioning-probe builds; and
+`python3 scripts/test-openthread-matter-transport.py --commissioning --ble
+--service-owner --service-discovery`. The encrypted synthetic accessory confirms
+CurrentLevel read, MoveToLevel to 124, readback 124, and rejection of a root
+endpoint without cluster 8. The command marker is emitted only after those checks.
+The stripped MIPS service is 2,010,808 bytes (SHA-256
+`97d2125621658f93121cf35b1ac4bed87ce1b659bb832f80489c0fb1bb0a2b75`); the
+commissioning probe is 2,440,920 bytes (SHA-256
+`d290dce4c9fd24704267a485d426e8699dc3d56e4d7cec95698e5d55f675c239`). Expected
+MIPS-I/ABI linker warnings remain. No target execution or plan 08 action occurred.
+
+Native C++ typed reply checks, HTTP route, worker execution and dashboard do not
+yet support Level. Plan 02 device-control integration and plan 04 dashboard work
+therefore remain partial; sensors, subscriptions and report delivery remain
+open in plan 07.

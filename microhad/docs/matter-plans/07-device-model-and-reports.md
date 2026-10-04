@@ -16,12 +16,12 @@ OnOff execution with confirmed CASE
 readback is verified (`0c66b87`), Rust service dispatch now exposes bounded
 asynchronous OnOff jobs, and native HTTP routes/worker polling now expose
 confirmed readback. The dashboard now renders OnOff read/control interactions
-through confirmed readback. Other cluster controls, measurements and reports
-remain open.
-Remote recovery of catalogued nodes, legacy migration, Level/sensor operations
-and report integration remain open. Next deliverable: reconcile
-recovery-required nodes over operational CASE, discover endpoint descriptors and
-advertised clusters, then add commands/subscriptions/native reports.
+through confirmed readback. Rust service jobs now also implement Level Control
+read and MoveToLevel with separate CurrentLevel readback (`6ec569a`); native
+validation/routes/UI for Level remain open. Sensor measurements and reports
+remain open. Remote recovery of catalogued nodes and legacy migration remain
+open. Next deliverable: carry Level IPC through native APIs/dashboard, then add
+sensor decoding, subscriptions and native reports.
 
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.
@@ -150,8 +150,8 @@ are historical; the latest status/evidence section above takes precedence.
    bodies in plan 02. Confirm resulting values through reads/reports and expose
    unsupported clusters and failed commands explicitly.
    OnOff executor/readback is verified (`0c66b87`) and Rust asynchronous service
-   jobs are verified. Native dispatch, Level control and dashboard controls keep
-   this item open.
+   jobs plus Level executor/readback are verified (`6ec569a`). Native Level
+   dispatch, HTTP API and dashboard controls keep this item open.
 5. [ ] Decode advertised sensor attributes with units, signed values and null
    semantics. Cover temperature, humidity, CO2, PM2.5 and air quality using
    synthetic descriptors rather than assuming ALPSTUGA exposes every cluster.
@@ -317,7 +317,23 @@ snapshots, temperature and fresh CASE checks still pass. Commands, result shape
 and cancellation limits are documented in
 `ziggurat-compilation/docs/matter-operational-transactions.md`.
 
-Item 4 remains open: the executor is not yet connected to service IPC. Next
-implement bounded asynchronous jobs with queue-inclusive deadlines and readiness
-revalidation, then native replies/routes/UI. Level control and sensor/report
-integration remain pending. This is host implementation evidence, not plan 08.
+At this earlier checkpoint, item 4 remained open because operations were not
+connected to service IPC. The subsequent Rust OnOff job-dispatch and Level
+executor checkpoints supersede that state. Native Level routes/UI and sensor,
+subscription/report integration remain pending. This is host implementation
+evidence, not plan 08.
+
+## Rust Level Control executor checkpoint — 2026-10-04
+
+Rust commit `6ec569a` adds capability-gated cluster-8 CurrentLevel reads and
+MoveToLevel commands to service jobs. The operation rechecks endpoint support
+when it leaves the queue and reports only a separate CurrentLevel readback.
+The encrypted accessory fixture advertises cluster 8 and confirms read level 1,
+move to level 124 and read back 124. It rejects Level reads against endpoints
+without cluster 8. Rust host tests, host/MIPS builds and the complete encrypted
+service-owner fixture pass; MIPS artifact hashes and limits are in plan 02.
+
+This closes the Rust service-executor portion of checklist item 4. Native typed
+IPC validation, HTTP read/command admission, worker result handling and dashboard
+controls for Level remain open; sensor measurements, subscriptions and reports
+also remain open. No target execution or plan 08 acceptance occurred.
