@@ -446,10 +446,13 @@ def main():
             assert time.monotonic() - start < 2
             committed = credentials.read_bytes()
             metadata = credentials.stat()
+            channel_writes_before_expiry = len(radio.channel_writes)
             time.sleep(5.1)
             expired = status(ipc_path, 2, 499)
             assert expired["state"] == "awaiting_coordinator" and not expired["attached"]
+            assert "zigbee_channel" not in expired and expired["dataset_channel"] == 15
             assert credentials.read_bytes() == committed
+            assert len(radio.channel_writes) == channel_writes_before_expiry
 
             service.terminate()
             stdout, stderr = service.communicate(timeout=2)
