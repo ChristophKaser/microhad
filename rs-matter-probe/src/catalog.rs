@@ -34,44 +34,52 @@ pub struct Catalog {
 fn invalid() -> Error {
     ErrorCode::InvalidData.into()
 }
-impl Catalog {
-    pub fn open(store: PrivateStore, fabric: u64, next_node: u64) -> Result<Self, Error> {
-        if fabric == 0 || !(2..=MAX_NODE + 1).contains(&next_node) {
+fn read_nodes(store: &PrivateStore, fabric: u64, next_node: u64) -> Result<Vec<Node>, Error> {
+    if fabric == 0 || !(2..=MAX_NODE + 1).contains(&next_node) {
+        return Err(invalid());
+    }
+    let mut bytes = [0; MAX_RECORD];
+    let size = store.get(CATALOG_KEY, &mut bytes).map_err(|_| invalid())?;
+    let mut nodes = Vec::new();
+    if let Some(size) = size {
+        let bytes = &bytes[..size];
+        if size < 18
+            || &bytes[..8] != MAGIC
+            || u64::from_le_bytes(bytes[8..16].try_into().unwrap()) != fabric
+        {
             return Err(invalid());
         }
-        let mut bytes = [0; MAX_RECORD];
-        let size = store.get(CATALOG_KEY, &mut bytes).map_err(|_| invalid())?;
-        let mut nodes = Vec::new();
-        if let Some(size) = size {
-            let bytes = &bytes[..size];
-            if size < 18
-                || &bytes[..8] != MAGIC
-                || u64::from_le_bytes(bytes[8..16].try_into().unwrap()) != fabric
-            {
-                return Err(invalid());
-            }
-            let count = usize::from(u16::from_le_bytes(bytes[16..18].try_into().unwrap()));
-            if count > MAX_NODES || size != 18 + count * 9 {
-                return Err(invalid());
-            }
-            let mut previous = 1;
-            for entry in bytes[18..].chunks_exact(9) {
-                let id = u64::from_le_bytes(entry[..8].try_into().unwrap());
-                if id <= previous || id >= next_node {
-                    return Err(invalid());
-                }
-                previous = id;
-                let phase = match entry[8] {
-                    1 => Phase::Reserved,
-                    2 => Phase::FabricInstalled,
-                    3 => Phase::ThreadProvisioned,
-                    4 => Phase::Complete,
-                    5 => Phase::RecoveryRequired,
-                    _ => return Err(invalid()),
-                };
-                nodes.push(Node { id, phase });
-            }
+        let count = usize::from(u16::from_le_bytes(bytes[16..18].try_into().unwrap()));
+        if count > MAX_NODES || size != 18 + count * 9 {
+            return Err(invalid());
         }
+        let mut previous = 1;
+        for entry in bytes[18..].chunks_exact(9) {
+            let id = u64::from_le_bytes(entry[..8].try_into().unwrap());
+            if id <= previous || id >= next_node {
+                return Err(invalid());
+            }
+            previous = id;
+            let phase = match entry[8] {
+                1 => Phase::Reserved,
+                2 => Phase::FabricInstalled,
+                3 => Phase::ThreadProvisioned,
+                4 => Phase::Complete,
+                5 => Phase::RecoveryRequired,
+                _ => return Err(invalid()),
+            };
+            nodes.push(Node { id, phase });
+        }
+    }
+    Ok(nodes)
+}
+impl Catalog {
+    /// Check catalog integrity without recovering or writing transitional phases.
+    pub fn validate(store: &PrivateStore, fabric: u64, next_node: u64) -> Result<(), Error> {
+        read_nodes(store, fabric, next_node).map(|_| ())
+    }
+    pub fn open(store: PrivateStore, fabric: u64, next_node: u64) -> Result<Self, Error> {
+        let nodes = read_nodes(&store, fabric, next_node)?;
         let catalog = Self {
             store,
             fabric,
@@ -257,6 +265,23 @@ mod tests {
             before
         );
         assert!(recovered.endpoint_id(3, 1).is_err());
+    }
+    #[test]
+    fn offline_validation_accepts_transitional_catalog_without_recovery_write() {
+        let directory = Directory::new();
+        let store = directory.store();
+        let mut record = MAGIC.to_vec();
+        record.extend(17u64.to_le_bytes());
+        record.extend(1u16.to_le_bytes());
+        record.extend(2u64.to_le_bytes());
+        record.push(Phase::Reserved as u8);
+        store.set(CATALOG_KEY, Some(&record)).unwrap();
+        let before = std::fs::read(directory.0.join("credentials.bin")).unwrap();
+        drop(store);
+        let readonly = PrivateStore::open_read_only(&directory.0).unwrap();
+        Catalog::validate(&readonly, 17, 3).unwrap();
+        assert!(Catalog::open(readonly.clone(), 17, 3).is_err());
+        assert_eq!(std::fs::read(directory.0.join("credentials.bin")).unwrap(), before);
     }
     #[test]
     fn cancelled_or_crashed_commissioning_requires_explicit_recovery() {

@@ -2,6 +2,7 @@
 use core::pin::pin;
 use lexra_rs_matter_probe::{
     ble::BleRelay,
+    catalog::Catalog,
     control::{Request, ThreadRequest},
     controller::Controller,
     entropy::OsEntropy,
@@ -61,6 +62,76 @@ extern "C" fn stop(_: libc::c_int) {
 struct Wake;
 impl std::task::Wake for Wake {
     fn wake(self: std::sync::Arc<Self>) {}
+}
+
+fn validate_thread_settings(state: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
+    use std::os::unix::fs::MetadataExt;
+    let settings = state.join("tmp");
+    let metadata = std::fs::symlink_metadata(&settings)?;
+    if !metadata.is_dir()
+        || metadata.uid() != unsafe { libc::geteuid() }
+        || metadata.mode() & 0o077 != 0
+    {
+        return Err("unsafe Thread settings directory".into());
+    }
+    for entry in std::fs::read_dir(&settings)? {
+        let path = entry?.path();
+        let metadata = std::fs::symlink_metadata(&path)?;
+        if !metadata.is_file()
+            || metadata.uid() != unsafe { libc::geteuid() }
+            || metadata.mode() & 0o077 != 0
+            || metadata.len() > 65536
+        {
+            return Err("unsafe Thread settings file".into());
+        }
+        let bytes = std::fs::read(&path)?;
+        let mut offset = 0usize;
+        while offset < bytes.len() {
+            if bytes.len() - offset < 4 {
+                return Err("invalid Thread settings file".into());
+            }
+            let length = usize::from(u16::from_ne_bytes([bytes[offset + 2], bytes[offset + 3]]));
+            offset += length + 4;
+            if offset > bytes.len() {
+                return Err("invalid Thread settings file".into());
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_state_directory(
+    state: &std::path::Path,
+    administrator_vendor: u16,
+) -> Result<(), &'static str> {
+    validate_thread_settings(state).map_err(|_| "Thread settings")?;
+    let store = PrivateStore::open_read_only(state).map_err(|_| "private store")?;
+    let mut entropy = OsEntropy::open().map_err(|_| "OS entropy")?;
+    let mut singleton = [0; 32];
+    entropy.try_fill_bytes(&mut singleton).unwrap();
+    let crypto = default_crypto(entropy, CryptoSensitiveRef::new(&singleton));
+    let matter = MATTER.uninit().init_with(Matter::init(
+        &DETAILS,
+        BasicCommData {
+            password: Spake2pVerifierPassword::new_from_ref(Spake2pVerifierPasswordRef::new(
+                &[0; 4],
+            )),
+            discriminator: 0,
+        },
+        &ATTESTATION,
+        MATTER_PORT,
+    ));
+    let identity = Identity::validate_existing(&store, &crypto, administrator_vendor)
+        .map_err(|_| "controller authority")?;
+    let kv = matter.kv(store.clone());
+    matter.startup(&kv).map_err(|_| "Matter fabric records")?;
+    identity
+        .validate_installed(matter)
+        .map_err(|_| "Matter fabric identity")?;
+    Catalog::validate(&store, identity.fabric_id(), identity.next_node())
+        .map_err(|_| "node catalog")?;
+    Lifecycle::load(store).map_err(|_| "Thread dataset")?;
+    Ok(())
 }
 
 fn dispatch<C: Crypto>(
@@ -184,12 +255,17 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = PathBuf::from("/tuya/native/matter");
     let mut radio = None;
     let mut administrator_vendor = 0xfff1u16;
+    let mut validate_only = false;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         let value = args.next().ok_or("missing option value")?;
         match arg.as_str() {
             "--socket" => socket = value.into(),
             "--state-dir" => state = value.into(),
+            "--validate-state-dir" => {
+                state = value.into();
+                validate_only = true;
+            }
             "--radio-url" => radio = Some(value),
             "--administrator-vendor-id" => administrator_vendor = value.parse()?,
             _ => return Err("unknown option".into()),
@@ -197,6 +273,19 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     if !state.is_absolute() {
         return Err("absolute state directory required".into());
+    }
+    if validate_only {
+        if radio.is_some() {
+            return Err("state validation does not accept a radio".into());
+        }
+        match validate_state_directory(&state, administrator_vendor) {
+            Ok(()) => eprintln!("Matter state validated"),
+            Err(stage) => {
+                eprintln!("Matter state validation failed ({stage})");
+                return Err("Matter state validation failed".into());
+            }
+        }
+        return Ok(());
     }
     let radio = radio.ok_or("private no-reset radio URL required")?;
     if !radio.starts_with("spinel+hdlc+unix:///")
@@ -215,35 +304,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => (),
         Err(error) => return Err(error.into()),
     }
-    use std::os::unix::fs::MetadataExt;
-    let meta = std::fs::symlink_metadata("tmp")?;
-    if !meta.is_dir() || meta.uid() != unsafe { libc::geteuid() } || meta.mode() & 0o077 != 0 {
-        return Err("unsafe Thread settings directory".into());
-    }
-    for entry in std::fs::read_dir("tmp")? {
-        let path = entry?.path();
-        let meta = std::fs::symlink_metadata(&path)?;
-        if !meta.is_file() || meta.uid() != unsafe { libc::geteuid() } || meta.mode() & 0o077 != 0 {
-            return Err("unsafe Thread settings file".into());
-        }
-        // The pinned POSIX backend truncates a malformed record file. Reject it
-        // before OT can discard persisted security/frame-counter information.
-        if meta.len() > 65536 {
-            return Err("invalid Thread settings file".into());
-        }
-        let bytes = std::fs::read(&path)?;
-        let mut offset = 0usize;
-        while offset < bytes.len() {
-            if bytes.len() - offset < 4 {
-                return Err("invalid Thread settings file".into());
-            }
-            let length = usize::from(u16::from_ne_bytes([bytes[offset + 2], bytes[offset + 3]]));
-            offset += length + 4;
-            if offset > bytes.len() {
-                return Err("invalid Thread settings file".into());
-            }
-        }
-    }
+    // Reject malformed POSIX records before OpenThread can truncate the file.
+    validate_thread_settings(&state)?;
     let mut entropy = OsEntropy::open()?;
     let mut singleton = [0; 32];
     entropy.try_fill_bytes(&mut singleton).unwrap();

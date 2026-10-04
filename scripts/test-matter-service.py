@@ -2,10 +2,13 @@
 """Host-only runtime check: synthetic RCP, private state, no UART or deployment."""
 import importlib.util
 import json
+import os
 from pathlib import Path
 import socket
 import struct
 import subprocess
+import shutil
+import stat
 import tempfile
 import time
 
@@ -114,6 +117,17 @@ def catalog_records(credentials):
     count = struct.unpack_from("<H", catalog, 16)[0]
     assert count <= 64 and len(catalog) == 18 + count * 9
     return [struct.unpack_from("<QB", catalog, 18 + index * 9) for index in range(count)]
+
+
+def state_image(directory):
+    image = {}
+    for path in sorted(directory.rglob("*")):
+        metadata = path.lstat()
+        relative = str(path.relative_to(directory))
+        contents = path.read_bytes() if stat.S_ISREG(metadata.st_mode) else None
+        image[relative] = (metadata.st_mode & 0o777, metadata.st_ino,
+                           metadata.st_mtime_ns, metadata.st_size, contents)
+    return image
 
 
 def commissioning_calls(path, credentials):
@@ -308,6 +322,32 @@ def main():
             assert radio.channel_writes and all(channel == 15 for channel in radio.channel_writes)
             relay.wait(timeout=2)
             radio.close()
+            original_image = state_image(private / "state")
+            checked = subprocess.run([str(ROOT / "build/rs-matter/target/release/thread-matter"),
+                "--validate-state-dir", str(private / "state")], capture_output=True, timeout=5)
+            assert checked.returncode == 0, checked.stderr.decode(errors="replace")
+            assert not checked.stdout and checked.stderr == b"Matter state validated\n"
+            assert state_image(private / "state") == original_image
+            incomplete = private / "incomplete-state"
+            shutil.copytree(private / "state", incomplete)
+            (incomplete / "credentials.bin").unlink()
+            incomplete_image = state_image(incomplete)
+            rejected = subprocess.run([str(ROOT / "build/rs-matter/target/release/thread-matter"),
+                "--validate-state-dir", str(incomplete)], capture_output=True, timeout=5)
+            assert rejected.returncode == 1 and not rejected.stdout
+            assert rejected.stderr == (b"Matter state validation failed (private store)\n"
+                                       b"Matter controller service failed\n")
+            assert state_image(incomplete) == incomplete_image
+            unsafe = private / "unsafe-state"
+            shutil.copytree(private / "state", unsafe)
+            os.chmod(unsafe / "tmp", 0o755)
+            unsafe_image = state_image(unsafe)
+            rejected = subprocess.run([str(ROOT / "build/rs-matter/target/release/thread-matter"),
+                "--validate-state-dir", str(unsafe)], capture_output=True, timeout=5)
+            assert rejected.returncode == 1 and not rejected.stdout
+            assert rejected.stderr == (b"Matter state validation failed (Thread settings)\n"
+                                       b"Matter controller service failed\n")
+            assert state_image(unsafe) == unsafe_image
             # Corrupt only the cached active channel (valid POSIX record envelope).
             # Guarded OT startup must ignore it and apply the authoritative dataset.
             changed = False

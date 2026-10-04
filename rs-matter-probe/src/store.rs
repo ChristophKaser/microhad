@@ -24,7 +24,8 @@ struct Inner {
     values: RefCell<BTreeMap<u16, Vec<u8>>>,
     sequence: Cell<u32>,
     poisoned: Cell<bool>,
-    _lock: File,
+    read_only: bool,
+    _lock: Option<File>,
 }
 #[derive(Clone)]
 pub struct PrivateStore(Rc<Inner>);
@@ -154,6 +155,43 @@ impl PrivateStore {
             values: RefCell::new(values),
             sequence: Cell::new(0),
             poisoned: Cell::new(false),
+            read_only: false,
+            _lock: Some(lock),
+        })))
+    }
+    /// Open an existing candidate without creating paths or permitting writes.
+    pub fn open_read_only(directory: &Path) -> io::Result<Self> {
+        private(directory, true)?;
+        let lock_path = directory.join("owner.lock");
+        let lock = match fs::symlink_metadata(&lock_path) {
+            Ok(_) => {
+                private(&lock_path, false)?;
+                let file = File::open(&lock_path)?;
+                if unsafe { flock(file.as_raw_fd(), 2 | 4) } != 0 {
+                    return Err(io::Error::last_os_error());
+                }
+                Some(file)
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+            Err(error) => return Err(error),
+        };
+        let credentials = directory.join("credentials.bin");
+        private(&credentials, false)?;
+        let metadata = fs::symlink_metadata(&credentials)?;
+        if metadata.len() > MAX_FILE as u64 {
+            return Err(invalid());
+        }
+        let mut bytes = Vec::new();
+        File::open(&credentials)?
+            .take(MAX_FILE as u64 + 1)
+            .read_to_end(&mut bytes)?;
+        let values = decode(&bytes)?;
+        Ok(Self(Rc::new(Inner {
+            directory: directory.into(),
+            values: RefCell::new(values),
+            sequence: Cell::new(0),
+            poisoned: Cell::new(false),
+            read_only: true,
             _lock: lock,
         })))
     }
@@ -180,7 +218,7 @@ impl PrivateStore {
     /// Commit one whole envelope. A crash before rename retains the previous envelope.
     /// A post-rename durability error poisons this owner; restart must reload the file.
     pub fn set(&self, key: u16, data: Option<&[u8]>) -> io::Result<()> {
-        if self.0.poisoned.get() {
+        if self.0.read_only || self.0.poisoned.get() {
             return Err(invalid());
         }
         if data.map(|d| d.len() > MAX_BLOB).unwrap_or(false) {
@@ -314,6 +352,21 @@ mod tests {
         let length = store.get(1, &mut bytes).unwrap().unwrap();
         assert_eq!(&bytes[..length], b"public fixture");
         assert!(store.get(1, &mut [0; 1]).is_err());
+    }
+    #[test]
+    fn read_only_open_refuses_live_owner_and_never_creates_paths() {
+        let dir = Fixture::new();
+        let store = PrivateStore::open(&dir.0).unwrap();
+        store.set(7, Some(b"synthetic state")).unwrap();
+        assert!(PrivateStore::open_read_only(&dir.0).is_err());
+        drop(store);
+        fs::remove_file(dir.0.join("owner.lock")).unwrap();
+        let before = fs::read(dir.0.join("credentials.bin")).unwrap();
+        let readonly = PrivateStore::open_read_only(&dir.0).unwrap();
+        assert!(readonly.set(7, Some(b"changed")).is_err());
+        drop(readonly);
+        assert!(!dir.0.join("owner.lock").exists());
+        assert_eq!(fs::read(dir.0.join("credentials.bin")).unwrap(), before);
     }
     #[test]
     fn refuses_public_directory_or_symlink_credentials() {

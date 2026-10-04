@@ -65,6 +65,24 @@ impl<'a> Reader<'a> {
     }
 }
 impl Identity {
+    /// Validate an already persisted authority without creating or rewriting it.
+    pub fn validate_existing<C: Crypto>(
+        store: &PrivateStore,
+        crypto: &C,
+        vendor: u16,
+    ) -> Result<Self, Error> {
+        let mut bytes = Zeroizing::new([0; MAX_RECORD]);
+        let size = store
+            .get(AUTHORITY_KEY, &mut bytes[..])
+            .map_err(storage)?
+            .ok_or_else(invalid)?;
+        let identity = Self::decode(&bytes[..size])?;
+        if identity.vendor != vendor {
+            return Err(invalid());
+        }
+        identity.validate(crypto)?;
+        Ok(identity)
+    }
     pub fn open<C: Crypto>(store: &PrivateStore, crypto: &C, vendor: u16) -> Result<Self, Error> {
         if vendor == 0 || vendor == 0xffff {
             return Err(invalid());
@@ -232,26 +250,7 @@ impl Identity {
         crypto: &C,
         store: &PrivateStore,
     ) -> Result<NonZeroU8, Error> {
-        let existing = matter.with_state(|state| {
-            let mut fabrics = state.fabrics.iter();
-            let Some(fabric) = fabrics.next() else {
-                return Ok(None);
-            };
-            if fabrics.next().is_some()
-                || fabric.fabric_id() != self.fabric_id
-                || fabric.node_id() != self.controller
-                || fabric.vendor_id() != self.vendor
-                || fabric.root_ca() != self.root
-                || fabric.icac() != self.intermediate
-                || fabric.noc() != self.noc
-                || fabric.secret_key().access() != self.operational_secret.access()
-                || fabric.ipk().epoch_key().access() != self.ipk.access()
-            {
-                return Err(invalid());
-            }
-            Ok(Some(fabric.fab_idx()))
-        })?;
-        if let Some(index) = existing {
+        if let Some(index) = self.installed_fabric(matter)? {
             return Ok(index);
         }
         // An unloaded persisted fabric is corruption, not an interrupted install.
@@ -278,6 +277,34 @@ impl Identity {
         matter.with_state(|state| persist.store(state.fabrics.get(index).unwrap()))?;
         persist.run()?;
         Ok(index)
+    }
+    pub fn validate_installed(&self, matter: &Matter<'_>) -> Result<(), Error> {
+        if self.installed_fabric(matter)?.is_some() {
+            Ok(())
+        } else {
+            Err(invalid())
+        }
+    }
+    fn installed_fabric(&self, matter: &Matter<'_>) -> Result<Option<NonZeroU8>, Error> {
+        matter.with_state(|state| {
+            let mut fabrics = state.fabrics.iter();
+            let Some(fabric) = fabrics.next() else {
+                return Ok(None);
+            };
+            if fabrics.next().is_some()
+                || fabric.fabric_id() != self.fabric_id
+                || fabric.node_id() != self.controller
+                || fabric.vendor_id() != self.vendor
+                || fabric.root_ca() != self.root
+                || fabric.icac() != self.intermediate
+                || fabric.noc() != self.noc
+                || fabric.secret_key().access() != self.operational_secret.access()
+                || fabric.ipk().epoch_key().access() != self.ipk.access()
+            {
+                return Err(invalid());
+            }
+            Ok(Some(fabric.fab_idx()))
+        })
     }
     pub fn fabric_id(&self) -> u64 {
         self.fabric_id
@@ -361,6 +388,25 @@ mod tests {
         let store = PrivateStore::open(&directory.0).unwrap();
         let mut identity = Identity::open(&store, &crypto, 0xfff1).unwrap();
         assert!(identity.allocate_node(&store).is_err());
+    }
+    #[test]
+    fn read_only_validation_checks_authority_without_allocating_or_writing() {
+        let directory = Directory::new();
+        let store = PrivateStore::open(&directory.0).unwrap();
+        let crypto = default_crypto(
+            OsEntropy::open().unwrap(),
+            CryptoSensitiveRef::new(&[2; 32]),
+        );
+        let identity = Identity::open(&store, &crypto, 0xfff1).unwrap();
+        let original = identity.encode(identity.next_node());
+        drop(identity);
+        drop(store);
+        let before = std::fs::read(directory.0.join("credentials.bin")).unwrap();
+        let readonly = PrivateStore::open_read_only(&directory.0).unwrap();
+        let restored = Identity::validate_existing(&readonly, &crypto, 0xfff1).unwrap();
+        assert_eq!(restored.encode(restored.next_node()).as_slice(), original.as_slice());
+        assert!(Identity::validate_existing(&readonly, &crypto, 0xfff2).is_err());
+        assert_eq!(std::fs::read(directory.0.join("credentials.bin")).unwrap(), before);
     }
 
     #[test]
