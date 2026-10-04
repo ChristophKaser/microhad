@@ -103,6 +103,15 @@ light, contact, sensor and power capabilities appear in the same catalog and
 cards as equivalent Zigbee or Matter capabilities and dispatch through the
 Shelly HTTP adapter behind the common control intent.
 
+Treat Shelly as an example of the external-HTTP source class, not a special
+case. Any later HTTP integration must register devices in this contract and
+implement the same source-adapter interface for discovery, updates, and
+commands. Provider-specific UI is limited to connection and configuration
+needs; shared controls, history, alerts, and device grouping remain capability
+driven. The common controller accepts semantic intents and selects the source
+adapter using stable device identity and advertised capability, so dashboard
+components do not need provider-specific control branches.
+
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.
 Earlier checkpoint sections are historical; use the latest evidence when

@@ -67,6 +67,12 @@ history and failure gates using plan 07's production pipeline. Finish recovery
 work in plans 01/02/03/06 alongside those integrations. Plan 08 remains the
 physical acceptance gate and is not initiated by writing these plans.
 
+For external HTTP providers, provider-specific dashboard UI is limited to
+connection, discovery, credentials, and settings with no common equivalent.
+Devices themselves use the shared catalog, capability cards, and semantic
+controller intents. The controller routes those intents through the provider's
+adapter; HTTP endpoints and payloads do not leak into common device UI.
+
 After each verified step, check its item, update status and commands/results,
 and commit the implementation and documentation in their owning repositories.
 Leave unverified target behavior open. A completed fixture or cross-build does

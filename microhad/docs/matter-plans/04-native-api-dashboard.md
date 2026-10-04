@@ -44,6 +44,15 @@ must use the shared catalog, cards, history and controller intents. Do not add
 a parallel Shelly device dashboard or require users to learn a different
 control for the same capability.
 
+Apply this rule to every external HTTP provider, not only the current Shelly
+implementation. Provider-specific dashboard UI is limited to connection,
+discovery, credentials, and settings with no common meaning. Each device appears
+in the shared catalog and uses the same capability-based cards and
+controller-intent interface as Zigbee and Matter. The controller routes each
+intent to the owning source adapter; transport-specific request formats and
+errors stay behind that adapter. Do not add a provider-specific device list or
+duplicate common controls for HTTP devices.
+
 Rendered snapshot and OnOff component interaction is verified in Chromium.
 Shared cards, source-neutral history, and restart-restored common alert settings
 now cover Matter, Zigbee, Shelly, and FRITZ!Box where their capabilities
