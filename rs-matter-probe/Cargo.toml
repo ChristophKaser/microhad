@@ -11,6 +11,7 @@ default = []
 openthread = ["dep:embassy-time-queue-utils"]
 controller-probe = ["controller-service", "dep:embassy-futures", "dep:static_cell", "dep:heapless"]
 controller-service = ["openthread", "control-ipc", "controller-identity", "dep:static_cell", "dep:libc", "dep:heapless", "dep:embassy-futures"]
+controller-service-test-hooks = ["controller-service"]
 controller-identity = ["dep:zeroize"]
 control-ipc = ["dep:serde", "dep:serde_json", "dep:zeroize"]
 

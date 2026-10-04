@@ -84,6 +84,14 @@ impl OpenThread {
     }
     pub fn set_dataset(&self, bytes: &[u8], zigbee_channel: u8) -> Result<(), Error> {
         ThreadDataset::parse(bytes, zigbee_channel)?;
+        #[cfg(feature = "controller-service-test-hooks")]
+        if let Some(path) = std::env::var_os("MICROHAD_MATTER_TEST_FAIL_APPLY_FILE") {
+            let path = std::path::PathBuf::from(path);
+            if path.exists() {
+                std::fs::remove_file(path).map_err(|_| ErrorCode::Failure)?;
+                return Err(ErrorCode::Failure.into());
+            }
+        }
         checked(unsafe { gatewayOtSetDataset(bytes.as_ptr(), bytes.len() as u16) })
     }
     pub fn own_address(&self, port: u16) -> Result<Address, Error> {

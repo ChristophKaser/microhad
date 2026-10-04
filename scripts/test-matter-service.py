@@ -357,6 +357,7 @@ def main():
             assert mismatch["error"] == "not_ready"
             assert credentials.read_bytes() == before
             assert len(radio.requests) == calls
+
             apply_result = []
             radio.pause_dataset_write = True
             def create_during_apply():
@@ -677,6 +678,88 @@ def main():
             assert radio.counts.get("command_1", 0) == 0
             assert radio.channel_writes and all(channel == 15 for channel in radio.channel_writes)
             print("PASS commissioner IPC/BTP lifetime and timeout, targeted Thread events, fabric restore, gated Thread create/restore, mismatch/expiry/cache guards, no read writes, no RCP reset")
+    finally:
+        for process in (service, relay):
+            if process is not None and process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=2)
+        radio.close()
+    failed_apply_retry_gate()
+
+
+def failed_apply_retry_gate():
+    radio = ChannelRcp("127.0.0.1", tcp_nodelay=True)
+    relay = service = None
+    try:
+        with tempfile.TemporaryDirectory(prefix="ot-sim-apply-retry-") as directory:
+            private = Path(directory)
+            radio_path = private / "radio.sock"
+            ipc_path = private / "matter.sock"
+            relay = subprocess.Popen([str(ROOT / "build/openthread-unix/sim-relay-host"),
+                str(radio_path), radio.address, str(radio.port), "30"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            deadline = time.monotonic() + 3
+            while not radio_path.exists():
+                if relay.poll() is not None or time.monotonic() >= deadline:
+                    raise RuntimeError("Apply-retry relay did not start")
+                time.sleep(0.02)
+            args = [str(ROOT / "build/rs-matter/target/release/thread-matter"),
+                "--socket", str(ipc_path), "--state-dir", str(private / "state"),
+                "--radio-url", f"spinel+hdlc+unix://{radio_path}?no-reset"]
+            fail_file = private / "fail-next-apply"
+            env = os.environ.copy()
+            env["MICROHAD_MATTER_TEST_FAIL_APPLY_FILE"] = str(fail_file)
+            service = subprocess.Popen(args, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            deadline = time.monotonic() + 5
+            while True:
+                if service.poll() is not None or time.monotonic() >= deadline:
+                    raise RuntimeError("Apply-retry service did not become responsive")
+                try:
+                    assert status(ipc_path, 1, 801)["state"] == "awaiting_coordinator"
+                    break
+                except (OSError, RuntimeError):
+                    time.sleep(0.02)
+            assert status(ipc_path, 9, 802,
+                b'{"schema":1,"action":"observe","zigbee_channel":15,"zigbee_online":true}')['ok']
+            deadline = time.monotonic() + 3
+            while status(ipc_path, 1, 803)["state"] != "running":
+                assert time.monotonic() < deadline
+                time.sleep(0.01)
+            credentials = private / "state/credentials.bin"
+            before = credentials.read_bytes()
+            fail_file.touch()
+            failed = status(ipc_path, 9, 804,
+                b'{"schema":1,"action":"create","zigbee_channel":15}')
+            assert failed["error"] == "transport", failed
+            assert not fail_file.exists()
+            failed_envelope = credentials.read_bytes()
+            dataset = thread_dataset(credentials)
+            assert dataset and failed_envelope != before
+            assert status(ipc_path, 2, 805)["state"] == "error"
+            request_count = len(radio.requests)
+            retry_gate = status(ipc_path, 9, 806,
+                b'{"schema":1,"action":"observe","zigbee_channel":15,"zigbee_online":true}')
+            assert retry_gate["error"] == "transport", retry_gate
+            time.sleep(0.1)
+            assert len(radio.requests) == request_count
+            assert credentials.read_bytes() == failed_envelope
+            explicit = status(ipc_path, 9, 807, json.dumps({
+                "schema": 1, "action": "import", "zigbee_channel": 15,
+                "dataset": dataset.hex()}).encode())
+            assert explicit["ok"], explicit
+            assert status(ipc_path, 2, 808)["configured"]
+            assert credentials.read_bytes() == failed_envelope
+            assert not radio.error and radio.counts.get("command_1", 0) == 0
+            service.terminate()
+            stdout, stderr = service.communicate(timeout=3)
+            assert service.returncode == 0 and not stdout
+            assert stderr == b"Matter controller service started\nMatter controller service stopped\n"
+            relay.wait(timeout=3)
+            print("PASS thread-matter apply-failure suppression and explicit retry")
     finally:
         for process in (service, relay):
             if process is not None and process.poll() is None:
