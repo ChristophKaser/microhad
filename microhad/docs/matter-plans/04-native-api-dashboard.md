@@ -140,17 +140,20 @@ warnings.
 The current implementation adds a bounded `.values` sidecar journal keyed by
 the complete stable source ID, preserving units without placing Matter IDs in
 Zigbee IEEE-address fields. It stores confirmed Matter temperature, humidity,
-CO2, PM2.5, air-quality, light and brightness samples. The journal caps at
-8,192 records and compacts to recent records; duplicate and same-minute
+CO2, PM2.5, air-quality, light and brightness samples, plus Shelly contact,
+relay, temperature and power updates under `shelly:<external-id>:<component>`.
+The journal caps at 8,192 records and compacts to recent records; duplicate and same-minute
 numeric samples are suppressed. The common history route serves these records,
 and the dashboard renders the added measurements with unit-aware plots.
+Native commit `e35abb7` routes Shelly history through the same stable-ID
+journal and dashboard history dialog. Shelly contact, relay, temperature and
+power history use the shared device history route. Zigbee and FRITZ!Box
+presence history remain outside this journal, and the `/tmp` journal does not
+survive power loss. Alert restoration and CO2/PM2.5 threshold support remain
+open. Verification passed:
 `make ZIGGURAT=1 MATTER=1 host test`, `make ZIGGURAT=1 MATTER=1 mips`,
-`make webui`, `node webui/test/matter-devices-browser.cjs`, and
-`python3 scripts/test_matter_webui.py` pass. The MIPS assembler emits its
-existing LOAD-USE warnings. The journal is currently written by Matter only;
-Zigbee and external HTTP/Shelly sources still use legacy history storage, and
-the `/tmp` journal does not survive power loss. Alert restoration and
-CO2/PM2.5 threshold support remain open.
+`npm run build`, `node webui/test/matter-devices-browser.cjs`, and
+`python3 scripts/test_matter_webui.py` (20/20 API tests).
 
 ## Remaining checkpoints
 
@@ -158,8 +161,9 @@ CO2/PM2.5 threshold support remain open.
    `Gateway::Device` instances while preserving stable `matter:` IDs and
    source provenance. Unknown readings retain their units and serialize as
    null/unknown; refresh reconciliation preserves confirmed values.
-2. Route Zigbee and external HTTP measurements through the source-neutral,
-   unit-aware history journal already used by Matter. Decide and implement
+2. Route Zigbee and remaining external HTTP measurements through the
+   source-neutral, unit-aware history journal already used by Matter and
+   Shelly. Decide and implement
    power-loss persistence if history must survive gateway reboot. Restore
    common alert settings across Matter service/gateway restart, then add
    unit-aware CO2/PM2.5 alert support. Keep source-specific transport in
