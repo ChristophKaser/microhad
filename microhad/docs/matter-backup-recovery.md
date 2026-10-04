@@ -185,11 +185,13 @@ The credential-envelope format and authority fields are defined in
 [the identity schema](matter-identity-store-v1.md). The matching Rust service
 implements the read-only validator in companion
 [`matter-state-validation.md`](../../ziggurat-compilation/docs/matter-state-validation.md).
-The synthetic service harness verifies valid-state success plus incomplete and
-wrong-permission rejection, with file contents and metadata unchanged. A full
-archive-extract-then-validate recovery matrix, interrupted replacement,
-allocator rollback refusal, and target filesystem checks remain open; this
-command alone does not authorize physical activation.
+The synthetic service harness verifies a valid archive through extraction and
+validation, then confirms a structurally valid archive with a corrupt
+credential envelope is rejected without changing the extracted candidate. It
+also tests missing credentials and wrong Thread-settings permissions, with
+file contents and metadata unchanged. Interrupted replacement, allocator
+rollback refusal, failed-restore preservation, and target filesystem checks
+remain open; this command alone does not authorize physical activation.
 
 ## Counter rollback and activation
 

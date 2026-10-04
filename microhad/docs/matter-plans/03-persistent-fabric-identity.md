@@ -16,8 +16,12 @@ archives/existing trees. Seven synthetic tests pass. Rust commit `1ec79fd` adds
 offline, read-only candidate validation for the authority, installed fabric,
 catalog, Thread dataset and OpenThread settings. The synthetic service harness
 passes valid, incomplete and wrong-permission cases and proves each candidate
-is unchanged. Archive-to-validator recovery, interrupted replacement, allocator
-rollback, and failed-restore preservation remain open.
+is unchanged. Rust commit `0e133b4` extends the synthetic service harness
+through native archive preflight and extraction, then validates the staged
+state. A structurally valid archive with a corrupt credential envelope is
+rejected without changing the candidate. Seven native archive-helper tests
+pass. Interrupted replacement, allocator rollback, and failed-restore
+preservation remain open.
 
 Consistent backup/staged restore procedures are documented in
 [the recovery runbook](../matter-backup-recovery.md). Next deliverable: exercise
@@ -82,8 +86,8 @@ defined. The authority is now implemented and connected to service startup.
 | 3 | Complete | Secure OS entropy generates all authority materials; full record committed before fabric installation; abandoned-stage and interrupted-install host checks pass. |
 | 4 | Complete | Restore verifies the certificate chain, all three key pairs, fabric/node/vendor metadata, counter and exact upstream fabric materials. Missing authority with a fabric or an unloaded corrupt fabric is rejected. Real host service process restart passes without rewriting state. |
 | 5 | Complete | Counter committed before an ID is returned; reload continues above prior IDs, failed writes return no ID, exhaustion is persisted and never wraps. |
-| 6 | Partial | Offline candidate validation refuses active owners, does not create paths or write records, and checks authority/vendor, installed fabric, catalog, Thread dataset and settings framing (`1ec79fd`). Controller-service library tests pass 69/69; synthetic service integration passes and proves valid/incomplete/unsafe candidates unchanged. Interrupted replacement and archive-to-validator recovery remain. The encrypted host fixture reloads authority and establishes fresh CASE over synthetic BTP and UDP. Target filesystem validation remains in plan 08. |
-| 7 | Partial | Schema and operational backup/restore policy are documented; the recovery runbook now invokes the matching binary's `--validate-state-dir` command. Automated archive-to-validator and failed-restore preservation evidence remains. |
+| 6 | Partial | Offline candidate validation refuses active owners, does not create paths or write records, and checks authority/vendor, installed fabric, catalog, Thread dataset and settings framing (`1ec79fd`). Controller-service library tests pass 69/69; synthetic service integration passes valid/incomplete/unsafe cases. Archive preflight/extract/validate passes end to end, and corrupt credentials are rejected without candidate writes (`0e133b4`). Interrupted replacement, allocator rollback and failed-restore preservation remain. The encrypted host fixture reloads authority and establishes fresh CASE over synthetic BTP and UDP. Target filesystem validation remains in plan 08. |
+| 7 | Partial | Schema and operational backup/restore policy are documented; the recovery runbook invokes the matching binary's `--validate-state-dir` command. Interrupted replacement and failed-restore preservation evidence remain. |
 
 The service now reports `fabric_ready:true`/`running` after initialization,
 with Thread still `detached` until plan 06. Administrator vendor metadata
@@ -108,7 +112,8 @@ it has not yet been executed on the gateway in this checkpoint.
 3. Add recovery exercises for wrong permissions, incomplete backup, corrupt
    state and interrupted replacement; prove failed restore does not replace
    the last valid state or silently create a new fabric. Offline staged-state
-   validation now passes (`1ec79fd`); archive-to-validator and failed-restore
+   validation (`1ec79fd`) and archive-to-validator success/corrupt-envelope
+   refusal (`0e133b4`) pass; interrupted replacement and failed-restore
    preservation still need end-to-end tests.
 4. When target testing is arranged, verify owner-only filesystem behavior and
    crash/restart persistence on factory uClibc. Measure writes during repeated
