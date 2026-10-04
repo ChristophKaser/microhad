@@ -49,8 +49,8 @@ above. No API caller can request arbitrary Matter cluster commands.
 | 7 BLE indication | `session`, `generation`, `sequence`, `data` | Accepted sequence | Generation/sequence u32 nonzero; data 1–244 decoded bytes, also at most negotiated MTU minus three |
 | 8 BLE write complete | `session`, `generation`, `write`, `success` | Accepted write ID | Write ID u32 nonzero; success boolean; must match one outstanding C1 write |
 | 9 Thread dataset | `action` plus fields below | Redacted Thread snapshot | Create/import require authoritative coordinator channel 11–26 |
-| 10 Device data | `action` plus fields below | Bounded device page or single typed attribute value | At most four device summaries per page; 64 stored devices maximum |
-| 11 Device command | `node`, `endpoint`, `command`, optional fields below | Accepted job ID and state; completion through event/snapshot | Endpoint u16; only enumerated commands |
+| 10 Device data | `action` plus fields below | Bounded device page, job acceptance/status, or supported attribute job | At most four device summaries per page; 64 stored devices maximum |
+| 11 Device command | `node`, `endpoint`, `command`, optional fields below | Accepted job ID and queued state; poll through opcode 10 | Endpoint u16; only enumerated commands |
 | 12 Event | No request allowed | Event from service to client | kind 2, correlation 0; same 2048-byte limit |
 
 Thread actions: `status` has no other required fields. `create` takes `zigbee_channel`.
@@ -106,12 +106,24 @@ Missing/changed revisions return `stale_revision`; out-of-range cursors return
 initialized from OS randomness on service startup and advance only when visible
 catalog/descriptor/availability changes; exhaustion returns `capacity` without
 wrapping. No response contains credentials or waits for radio traffic.
-Native opcode-10 validation and queued HTTP routing are implemented. Public
-requests additionally restrict cursor values to 0–2047. Successful peer replies
-must contain exact fields, at most one endpoint, canonical matching IDs and up
-to 64 sorted unique clusters including Descriptor for a known endpoint. Malformed
-responses fail the native job and close the IPC connection. Snapshot jobs use
-the existing queue, deadlines and retention limits; device reads remain pending.
+Native opcode-10 snapshot validation and queued HTTP routing are implemented.
+Public requests additionally restrict cursor values to 0–2047. Successful peer
+replies must contain exact fields, at most one endpoint, canonical matching IDs
+and up to 64 sorted unique clusters including Descriptor for a known endpoint.
+Malformed responses fail the native job and close the IPC connection. Rust now
+also accepts `{"schema":1,"action":"read","node":"…","endpoint":N,
+"cluster":6,"attribute":0}` and returns an asynchronous job acceptance. Only
+OnOff attribute 0 is currently supported; other paths return `unsupported`.
+
+Opcode 11 `on`, `off` and `toggle` also return `{"job":"…","state":"queued"}`
+immediately. Poll that job through opcode 10 `{"schema":1,"action":"job",
+"job":"…"}`. Status is `queued`, `running`, `complete` (with a typed confirmed
+readback result) or `failed` (with a fixed error). Rust admits at most eight
+operations and runs one CASE transaction at a time. A 30-second deadline starts
+at admission, including queue wait. Thread loss fails queued/active operations;
+commissioning is serialized against operations. Native strict validation, HTTP
+read/control routing and dashboard controls are still pending. The existing
+snapshot HTTP path remains available.
 `read` requires `node`,
 `endpoint` (u16), `cluster` (u32), `attribute` (u32). Only discovered/supported
 attribute paths are permitted. A value is tagged `null`, `bool`, `integer`,

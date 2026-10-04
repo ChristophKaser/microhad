@@ -2,10 +2,10 @@
 
 ## Current open work — 2026-10-04
 
-Native commissioning/relay dispatch and bounded jobs exist; device dispatch and broader
-recovery coverage remain open. Service opcode-10 snapshots now have host evidence
-(`237d110`); native snapshot validation/dispatch is now verified. Device reads,
-commands and broad failure/recovery gates remain open.
+Native commissioning/relay dispatch and bounded jobs exist. Rust now dispatches
+bounded asynchronous OnOff reads/commands and job polling; native device request
+validation/routes and broader recovery coverage remain open. Snapshot API remains
+verified (`237d110`).
 
 Next deliverable: Extend fake-peer and actual-service tests for queue pressure, stalled
 peers and interrupted calls without mutation replay. Then implement device bodies when
@@ -238,6 +238,31 @@ are historical; the latest status/evidence section above takes precedence.
    not-ready results until each operation is available.
 6. [ ] Update IPC v1 and compatibility notes, run both native build variants
    sequentially plus Rust tests/factory build, then record and commit evidence.
+
+## Rust operational job dispatch checkpoint — 2026-10-04
+
+The Rust service now accepts supported OnOff attribute reads and on/off/toggle
+commands as bounded asynchronous jobs. Opcode 10 also polls job status. Admission
+requires attached Thread, no active commissioning, a completed catalog entry and
+an online endpoint advertising OnOff. The service rechecks catalog and capability
+before execution, serializes operations with commissioning, runs one CASE
+operation at a time, caps the queue at eight and applies a 30-second deadline
+including queue wait. Radio loss fails queued and active jobs; mutations are
+never retried. The synthetic encrypted accessory fixture exercises queued CASE
+commands and confirmed readback.
+
+Verification: 59 service-feature Rust tests pass; the production-owned synthetic
+fixture passes commissioning, discovery and OnOff job readback; host and MIPS
+service and commissioning builds pass. MIPS linking reports existing experimental
+MIPS-I and abicalls/non-abicalls warnings. No gateway deployment or plan 08 test
+occurred.
+
+This closes the Rust service-dispatch portion of remaining checkpoint 4 and adds
+the Rust side of plan 07 OnOff operations. Native typed job validation, HTTP
+read/control routes, dashboard controls, Level operations, sensors, reporting,
+and extended interruption/restart recovery remain open. Implementation and
+executor behavior are documented in
+`ziggurat-compilation/docs/matter-operational-transactions.md`.
 
 Validation: golden vectors plus actual-service request/event round trips; no
 HTTP worker may wait for a commissioning lifetime or forward unchecked JSON.

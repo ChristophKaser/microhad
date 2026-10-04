@@ -13,7 +13,8 @@ is implemented (`237d110`); native validation and queued snapshot HTTP exposure
 are implemented. The dashboard snapshot view builds and its HTTP client is
 verified, including rendered component interaction in Chromium. Controls and
 reports remain open. Capability-gated OnOff execution with confirmed CASE
-readback is verified (`0c66b87`), but service job dispatch and native controls remain open.
+readback is verified (`0c66b87`), and Rust service dispatch now exposes bounded
+asynchronous OnOff jobs. Native typed job validation and controls remain open.
 Remote recovery of catalogued nodes, legacy migration, device
 operations and report integration remain open. Next deliverable: reconcile
 recovery-required nodes over operational CASE, discover endpoint descriptors and
@@ -145,8 +146,9 @@ are historical; the latest status/evidence section above takes precedence.
 4. [ ] Implement validated OnOff/Level reads and commands plus typed IPC
    bodies in plan 02. Confirm resulting values through reads/reports and expose
    unsupported clusters and failed commands explicitly.
-   OnOff executor/readback is verified (`0c66b87`); asynchronous service jobs,
-   native dispatch, Level control and dashboard controls keep this item open.
+   OnOff executor/readback is verified (`0c66b87`) and Rust asynchronous service
+   jobs are verified. Native dispatch, Level control and dashboard controls keep
+   this item open.
 5. [ ] Decode advertised sensor attributes with units, signed values and null
    semantics. Cover temperature, humidity, CO2, PM2.5 and air quality using
    synthetic descriptors rather than assuming ALPSTUGA exposes every cluster.
@@ -158,6 +160,24 @@ are historical; the latest status/evidence section above takes precedence.
 
 Validation: encrypted synthetic accessory tests using production discovery,
 private catalog restore and phone-detached CASE, followed by report/API tests.
+
+## Rust OnOff job-dispatch checkpoint — 2026-10-04
+
+Rust now exposes OnOff attribute reads and on/off/toggle commands through a
+bounded asynchronous job queue. Admission and start-time authorization require
+a completed catalog node and an online discovered endpoint advertising cluster
+6. A job returns its confirmed post-command OnOff readback; unsupported paths
+are rejected without an exchange. The queue holds at most eight live jobs, runs
+one CASE operation at a time, includes queue wait in its 30-second deadline and
+fails on Thread loss without replaying mutations. Commissioning and operations
+are serialized. The encrypted synthetic accessory fixture exercises all three
+commands via this service queue.
+
+Verification: 59 service-feature Rust tests, encrypted service-owner fixture,
+and host/MIPS service and commissioning builds pass. Native HTTP read/control
+routes and strict job-response validation, rendered controls, Level Control,
+sensors, subscriptions/reporting, remote recovery and broader restart handling
+remain open. No physical-device test or plan 08 acceptance was performed.
 
 ## Persistent catalog checkpoint — 2026-10-04
 
