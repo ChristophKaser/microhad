@@ -2,8 +2,8 @@
 
 These files break the remaining integration work into reviewable stages. The
 native observation/status worker, Rust owned commissioner and guarded Thread
-lifecycle have host evidence; Garage onboarding and
-the production discovery/device pipeline remain open.
+lifecycle and Garage onboarding have host evidence;
+the production discovery/device pipeline remains open.
 
 Recommended order:
 
@@ -34,7 +34,7 @@ specific evidence recorded in a file, not to end-to-end Matter support.
 | [02 IPC](02-commissioning-control-ipc.md) | Service and native commissioning/relay dispatch implemented; device dispatch incomplete | Extend failure/backpressure tests, then implement device bodies with plan 07 |
 | [03 Identity](03-persistent-fabric-identity.md) | Persistent authority and host CASE recovery implemented | Exercise documented backup/restore on synthetic state; target checks stay in plan 08 |
 | [04 Native API/dashboard](04-native-api-dashboard.md) | Status, queued commissioning/Thread routes and owned relay implemented; UI pending | Add feature-aware onboarding and device UI |
-| [05 Garage BLE relay](05-garage-ble-relay.md) | Native relay and tested app parser/GATT/HTTP/WebSocket implemented; foreground UI wiring pending | Wire foreground onboarding, permissions, selection and lifecycle UI |
+| [05 Garage BLE relay](05-garage-ble-relay.md) | Foreground onboarding and parser/GATT/HTTP/WebSocket implemented; 60 tests and APK builds pass per flavor | Implementation checklist complete; physical acceptance stays in plan 08 |
 | [06 Thread lifecycle](06-thread-network-lifecycle.md) | Guarded dataset lifecycle and native observation worker verified on host | Extend channel-change/restart recovery and target verification |
 | [07 Devices/reports](07-device-model-and-reports.md) | Encrypted fixture proves transport; production device pipeline pending | Implement operational DNS-SD, persist nodes, then add device/report integration |
 | [08 Real-device acceptance](08-real-device-acceptance.md) | Pending final acceptance gate | Review plans 01–07, then arrange backed-up device testing |
@@ -51,8 +51,8 @@ permanent launcher activation.
 Each open point has a dedicated file with a current open-work summary, ordered
 steps, dependencies, acceptance criteria, evidence and an execution checklist.
 The native persistent IPC channel, queued mutation APIs and owned relay are
-already implemented. Continue with plan 05's Android onboarding and plan 04's
-dashboard, using the existing contract. Plan 07 supplies production discovery
+already implemented. Plan 05's Android onboarding implementation is verified on host. Continue with
+plan 04's dashboard using the existing contract. Plan 07 supplies production discovery
 and device operations. Finish recovery work in plans 01/02/03/06 alongside
 those integrations. Plan 08 remains the physical acceptance gate and is not
 initiated by writing these plans.

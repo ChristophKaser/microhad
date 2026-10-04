@@ -2,13 +2,12 @@
 
 ## Current open work — 2026-10-04
 
-The native relay contract, tested Android GATT adapter, setup/relay core and
-HTTP/WebSocket client exist. Foreground onboarding UI, runtime permission requests,
-real adapter wiring and end-to-end app lifecycle validation remain open.
-
-Next deliverable: Implement setup-code/QR input, device selection, progress/cancel/retry
-and feature/unavailable states. Wire the existing BLE and gateway clients through one
-foreground owner, then test lifecycle loss, cancellation and retry without replay.
+The native relay, Android BLE/GATT adapter, setup parser, bounded gateway client
+and foreground commissioning screen are implemented and committed. Both Android
+flavor suites pass 60 tests and both debug APKs build. This plan's host-tested
+implementation checklist is complete; real Android Bluetooth/camera behavior,
+accessory pairing and phone-detached operation are deferred to plan 08. Production
+operational discovery remains a plan 07 dependency for end-to-end commissioning.
 
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.
@@ -53,24 +52,18 @@ commissioning while the gateway remains the Matter commissioner.
 
 ## Status quo — 2026-10-04
 
-Gateway BTP and session-lifetime building blocks have synthetic coverage.
-Garage GATT/WebSocket onboarding has not been integrated; a simulated phone
-in a Rust fixture is not an Android implementation.
+Gateway BTP/session lifetime, owned native relay, Android transport and foreground
+onboarding have synthetic host coverage. Garage commit `6cadf8a` wires runtime
+permissions, setup/QR acquisition, discriminator selection, HTTP start/cancel,
+WebSocket/GATT progress, lifecycle cleanup and explicit retry. This establishes
+the app implementation checkpoint, not physical commissioning acceptance.
 
 ## Remaining checkpoints
 
-1. Freeze the native relay contract and supported Android permission/foreground
-   lifecycle requirements; identify the app's existing networking and UI paths.
-2. Add setup input and session progress/cancel UI with in-memory setup-code
-   handling and a fake gateway peer before attaching real BLE hardware.
-3. Implement scan/connect/discover/MTU/indication subscription and serialized
-   C1 writes. Forward confirmation only after the matching GATT callback.
-4. Wire one WebSocket relay session; enforce bounds and reject callbacks from
-   obsolete connections. Handle app backgrounding, socket loss and cancellation.
-5. Run fake-GATT/fake-WebSocket ordering, fragmentation and failure tests;
-   build the Android app and document permissions and retry instructions.
-6. Commit in the separate Garage repository. Reserve real accessory pairing
-   and phone-detached operation for plan 08.
+No unchecked implementation items remain in this plan's execution checklist.
+Keep real phone/accessory tests in plan 08. Plans 04 and 07 still need dashboard
+and production discovery/device integration before overall Matter support is
+complete. Any defects found there must receive focused regression checks here.
 
 ## Dependencies
 
@@ -85,17 +78,17 @@ are historical; the latest status/evidence section above takes precedence.
 1. [x] Inspect the separate Garage repository, identify networking/UI paths,
    and document Android API/permission requirements and foreground lifecycle.
    Agree plan 04's WebSocket schema before implementing app transport.
-2. [ ] Add setup-code/QR input, start/progress/cancel/retry UI and an in-memory
+2. [x] Add setup-code/QR input, start/progress/cancel/retry UI and an in-memory
    session model tested against a fake gateway. Clear setup data at termination.
-3. [ ] Implement discriminator-aware scan/selection, connect, service discovery,
+3. [x] Implement discriminator-aware scan/selection, connect, service discovery,
    MTU negotiation and C2 indications, then serialize C1 writes and acknowledge
    only matching GATT completion callbacks.
-4. [ ] Connect GATT to the WebSocket relay with bounded payloads and per-attempt
+4. [x] Connect GATT to the WebSocket relay with bounded payloads and per-attempt
    generations. Define socket loss, BLE loss, backgrounding, reattach and cancel
    handling; reject callbacks from prior connections.
-5. [ ] Test fake-GATT/fake-WebSocket ordering, fragmentation, MTU limits, stale
+5. [x] Test fake-GATT/fake-WebSocket ordering, fragmentation, MTU limits, stale
    callbacks, failed writes, deadlines and lifecycle loss. Build the Android app.
-6. [ ] Document permissions and recovery, commit app changes in its own
+6. [x] Document permissions and recovery, commit app changes in its own
    repository, and hand physical pairing verification to plan 08. Keep PASE,
    fabric keys and Thread provisioning in the gateway service.
 
@@ -238,3 +231,42 @@ WebSocket regression proving receipt before the Rust-contract `transport` reply.
 The earlier workspace-credit review failure was retried and verification ran.
 This closes that transport bug; foreground UI/lifecycle wiring remains open.
 No phone/gateway deployment or plan 08 action occurred.
+
+## Foreground onboarding checkpoint — 2026-10-04
+
+Garage commit `6cadf8a` adds the Matter navigation entry, dedicated commissioning
+screen, editable local HTTP gateway address, feature/availability/Thread gates,
+explicit network creation, runtime Bluetooth/location permissions, manual and
+Google Play services QR input, candidate selection, progress/deadline/cancel/retry
+and one serialized foreground owner. Setup input is excluded from saved state
+and autofill, cleared on consumption/backgrounding, and never logged.
+
+The owner selects the full advertised discriminator before submitting the PIN,
+expires scan/selection after 60 seconds, requests a 120-second commissioning
+budget and never renews the session deadline on progress. Backgrounding closes
+GATT/WebSocket and attempts bounded HTTP cancellation. A late start reply is
+cancelled before closing the gateway client; new attempts wait for cleanup.
+Stale callbacks cannot affect a subsequent attempt. Completed sessions survive
+phone stop. Lost start/cancel replies are never replayed; gateway deadlines are
+the fallback when the phone cannot identify or confirm cancellation.
+
+Validation: full Pommern and Neptun unit suites and debug APK builds passed with
+60 tests per flavor, zero failures/errors. Ten added controller tests use fake
+gateway, BLE and relay ports for gates, selection, late-start cleanup, lifecycle
+loss, stale callbacks, completion preservation, failed GATT confirmation, fixed
+deadlines, retained scan timeout, no mutation replay and relay factory failure.
+Existing TCP peer tests cover actual HTTP and WebSocket framing/correlation.
+Status-read timeout and relay-construction exception handling were corrected.
+
+Command in Garage repository:
+
+```sh
+JAVA_HOME=/tmp/garage-matter-jdk ./gradlew --offline --no-daemon \
+  :app:testPommernDebugUnitTest :app:assemblePommernDebug \
+  :app:testNeptunDebugUnitTest :app:assembleNeptunDebug
+```
+
+App documentation: `garage-app/docs/matter-onboarding.md`. QR scanning requires
+Google Play services/scanner module; manual entry is the fallback. Permissions,
+recovery, secret retention limits and host-test scope are documented there. No
+physical phone/accessory or plan 08 action was performed.
