@@ -614,6 +614,22 @@ the toolchain's existing LOAD-USE warnings). Native unit coverage checks valid
 OnOff/Level report events and rejects out-of-range CurrentLevel. The manager's
 synthetic production-owner fixture verifies subscription and report correlation
 separately; a single live Rust-service-to-native-process report fixture remains
-open. Sensor reports are scheduled but not yet decoded, and remote-node
-recovery, sleepy-device policy, broader backpressure/restart tests, and physical
+open. Sensor reports are decoded and correlated in the production Manager, but
+live service-to-native delivery, remote-node recovery, sleepy-device policy,
+broader backpressure/restart tests, and physical
 acceptance remain open. No device deployment or plan 08 action occurred.
+
+## Production report-path revalidation — 2026-10-04
+
+The host-only `python3 scripts/test_matter_native_worker.py --real-service`
+fixture passes with the real Rust service process and native worker. Separately,
+`python3 scripts/test-openthread-matter-transport.py --commissioning --ble
+--service-owner --service-discovery --sensor-reports` passes against the
+synthetic RCP/accessory and production-owned Manager, including normalized
+subscribed sensor reports over CASE. These are adjacent but separate fixtures:
+the real-service fixture does not commission the synthetic accessory or
+produce a report, while the report fixture does not launch the native worker.
+They do not close the live Rust-service-to-native report-delivery checkpoint.
+No gateway or radio was used. The next deliverable remains a composed host
+fixture that drives a production Manager report through service IPC and
+verifies native shared state.

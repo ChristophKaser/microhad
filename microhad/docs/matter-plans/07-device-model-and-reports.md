@@ -750,3 +750,18 @@ The Rust library suite passes 66/66 and the release `thread-matter` service
 build passes against the patched pinned dependency. This remains host-only
 evidence; live Rust-service-to-native report-event integration, remote recovery,
 and plan 08 acceptance remain open.
+
+## Production sensor and native service fixture revalidation — 2026-10-04
+
+Re-ran the notifier-backed production-manager fixture with
+`python3 scripts/test-openthread-matter-transport.py --commissioning --ble
+--service-owner --service-discovery --sensor-reports`. It passes encrypted
+commissioning, operational DNS resolution and descriptors, typed sensor reads,
+all five normalized sensor report types, and OnOff reports through the
+production Manager over CASE. The native host fixture
+`python3 scripts/test_matter_native_worker.py --real-service` also passes with
+the real Rust service process and native worker, but its synthetic RCP has no
+commissioned reporting accessory and its snapshot is empty. The tests remain
+separate, so live Rust-service-originated sensor events reaching registered
+native `Gateway::Device` state and shared history/alerts are still unverified.
+No plan 08 hardware test was run.
