@@ -233,6 +233,29 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
     pub fn pop_report(&mut self) -> Option<crate::operations::ResultValue> {
         self.reports.pop_front()
     }
+
+    /// Deliver queued production Manager reports to connected IPC clients.
+    /// Keep the front report queued until at least one client accepts it.
+    pub fn publish_reports(
+        &mut self,
+        ipc: &mut crate::service::IpcServer,
+    ) -> std::io::Result<usize> {
+        let mut published = 0;
+        while let Some(reading) = self.front_report() {
+            let event = crate::responses::event(crate::responses::Event::MatterReport(reading))
+                .ok_or_else(|| std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "invalid Matter report event",
+                ))?;
+            if ipc.publish_all(&event)? == 0 {
+                break;
+            }
+            self.pop_report();
+            published += 1;
+        }
+        Ok(published)
+    }
+
     pub fn front_report(&self) -> Option<&crate::operations::ResultValue> {
         self.reports.front()
     }
@@ -787,6 +810,101 @@ pub async fn discover<C: Crypto>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn manager_report_queue_drains_only_after_ipc_delivery() {
+        use rs_matter::{
+            crypto::{default_crypto, CryptoSensitiveRef},
+            dm::devices::test::{TEST_DEV_ATT, TEST_DEV_COMM, TEST_DEV_DET},
+            utils::init::InitMaybeUninit,
+        };
+        use std::{
+            io::Read,
+            os::unix::{fs::PermissionsExt, net::UnixStream},
+            time::Duration,
+        };
+
+        let directory = std::env::temp_dir().join(format!(
+            "matter-report-ipc-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir(&directory).unwrap();
+        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let socket = directory.join("service.sock");
+        let mut ipc = crate::service::IpcServer::bind(&socket).unwrap();
+        let state_directory = directory.join("state");
+        let store = crate::store::PrivateStore::open(&state_directory).unwrap();
+        let catalog = Catalog::open(store, 1, 2).unwrap();
+        let crypto = crate::entropy::OsEntropy::open().unwrap();
+        let crypto = default_crypto(crypto, CryptoSensitiveRef::new(&[9; 32]));
+        let mut memory = Box::new(std::mem::MaybeUninit::uninit());
+        let matter = memory.init_with(Matter::init(
+            &TEST_DEV_DET,
+            TEST_DEV_COMM,
+            &TEST_DEV_ATT,
+            5540,
+        ));
+        let mut manager =
+            Manager::new(matter, &crypto, NonZeroU8::new(1).unwrap(), catalog).unwrap();
+        manager.subscriptions.push(SubscriptionState {
+            key: SubscriptionKey {
+                node: 2,
+                endpoint: 1,
+                cluster: 1026,
+                attribute: 0,
+            },
+            id: Some(77),
+            next_retry: Instant::now(),
+            failures: 0,
+            unit: None,
+            last_report: None,
+        });
+        manager.record_report(crate::subscriptions::ReceivedReport {
+            fabric: 1,
+            node: 2,
+            subscription_id: 77,
+            values: vec![crate::operations::ResultValue {
+                node: crate::control::Id(2),
+                endpoint: 1,
+                cluster: 1026,
+                attribute: 0,
+                value: crate::operations::Value::Measurement(
+                    crate::operations::MeasurementValue {
+                        value: Some(-5.25),
+                        unit: "celsius",
+                        quality: "measured",
+                    },
+                ),
+            }],
+        });
+        assert_eq!(manager.publish_reports(&mut ipc).unwrap(), 0);
+        assert!(manager.front_report().is_some());
+
+        let mut peer = UnixStream::connect(&socket).unwrap();
+        peer.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+        ipc.poll(|_| None).unwrap();
+        assert_eq!(manager.publish_reports(&mut ipc).unwrap(), 1);
+        ipc.poll(|_| None).unwrap();
+        let mut header = [0; 10];
+        peer.read_exact(&mut header).unwrap();
+        let length = usize::from(u16::from_le_bytes([header[0], header[1]]));
+        let mut bytes = header.to_vec();
+        bytes.resize(10 + length, 0);
+        peer.read_exact(&mut bytes[10..]).unwrap();
+        let mut decoder = crate::ipc::Decoder::default();
+        decoder.feed(&bytes).unwrap();
+        let event = decoder.pop().unwrap();
+        assert_eq!((event.kind, event.opcode, event.id), (2, 12, 0));
+        assert_eq!(
+            event.payload,
+            br#"{"schema":1,"event":"matter_report","data":{"node":"0000000000000002","endpoint":1,"cluster":1026,"attribute":0,"value":{"type":"measurement","value":{"value":-5.25,"unit":"celsius","quality":"measured"}}}}"#
+        );
+        assert!(manager.front_report().is_none());
+        drop(manager);
+        drop(ipc);
+        drop(peer);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
     #[test]
     fn subscription_candidates_follow_advertised_clusters_and_stay_bounded() {
         let now = Instant::now();
