@@ -1,10 +1,11 @@
 # Plan: Rust Matter service runtime
 
-## Current open work — 2026-10-04
+## Current open work — 2026-10-05
 
 Host service/native round trips and the paired supervisor failure matrix pass.
-Target runtime/resource evidence and report delivery from the installed daemon
-to a registered native device remain open.
+Current factory MIPS builds for both binaries pass. Target runtime/resource
+evidence and report delivery from the installed daemon to a registered native
+device remain open.
 
 Next deliverable: Verify the complete paired launch on the gateway under plan 08,
 including CPU, memory, startup/IPC deadlines, and Matter reports from a real
@@ -65,7 +66,7 @@ native status routes report its actual state over `/tmp/microhad-matter.sock`.
 | 4 | Complete | Four clients, four accepts per turn, 4096-byte read/write budgets, eight queued replies, two-second idle expiry; malformed/overload/idle checks passed. |
 | 5 | Complete | Empty requests for opcodes 1/2 return bounded JSON; synthetic host reports `running` with its persistent fabric and Thread `detached`, without credentials. |
 | 6 | Partial | Matter/Thread/IPC pumps and SIGTERM/SIGINT shutdown implemented. Supervisor retries failures with backoff and stops/restarts Matter on coordinator loss; complete dataset/radio reconnection remains in plan 06. |
-| 7 | Partial | All 31 Rust library tests pass, including six listener tests; synthetic runtime and process restart pass. Factory build with authority creation is static big-endian MIPS-I/o32, stripped 1,527,452 bytes with no interpreter. Target execution and full native API round trip remain unverified. |
+| 7 | Partial | Current native/Rust factory builds are static big-endian MIPS-I ELF32 files: 1,736,548-byte native bridge and 2,109,120-byte Rust service. Host suites and process tests pass; target execution, peak runtime resources and full production-daemon report delivery remain unverified. |
 | 8 | Complete | Runtime invocation, ownership, bounds and state paths documented in `ziggurat-compilation/docs/matter-service-runtime.md`; optional supervisor configuration, failure markers, retry budget and staging documented in `MATTER_INTEGRATION.md`. |
 
 This checkpoint supplies a running transport/status service and persistent
@@ -198,3 +199,26 @@ rejection before radio use, and recovery after a fresh matching observation.
 `python3 scripts/test-matter-service.py` passes. This closes the host service/
 RCP restart checkpoint; active commissioning during RCP death, target startup
 and resource deadlines, and physical acceptance remain open.
+
+## Current Matter factory cross-build checkpoint — 2026-10-05
+
+The Matter-enabled native bridge builds with
+`make ZIGGURAT=1 MATTER=1 mips`; the Rust service builds with
+`source scripts/rust-env.sh && CARGO_TARGET_DIR="$PWD/build/rs-matter/target"
+bash scripts/build-rs-matter-transport.sh mips service`. The native source was
+at `eb451f8`; the Rust source was at `980db77`. Both artifacts are stripped,
+static, 32-bit big-endian MIPS-I executables with no `PT_INTERP`: native
+1,736,548 bytes (SHA-256
+`258fc92c7bb5b588bdef5fce01588ac2b93064dd6fa6c712a5a8d500450a9eee`), service
+2,109,120 bytes (SHA-256
+`d7e030a815faef3ff56876a375d4419f700a14c93c9f047a80d1f5aae6f66a1c`). The
+combined executable payload is 3,845,668 bytes, excluding configuration,
+state, runtime files and concurrent-process overhead.
+
+The build emits the existing RSDK LOAD-USE warnings. The Rust link also reports
+mixed abicalls/non-abicalls inputs, despite producing the static artifact; this
+remains a target compatibility risk to verify. `file`, `readelf -h -l`, file
+sizes and hashes were checked. Cross-builds establish target code generation
+and package size only; they do not establish executable startup, CPU use, peak
+RSS, scheduling deadlines, coordinator coexistence or Matter accessory
+behavior. Those measurements remain in plan 08.
