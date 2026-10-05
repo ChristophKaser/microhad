@@ -390,7 +390,14 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         .restore(&thread, Instant::now())
         .map_err(|_| "Thread restore failed")?;
     thread.start_discovery()?;
-    let discovery = lexra_rs_matter_probe::discovery::run(matter, &thread);
+    let (compressed_fabric, next_node) = controller.discovery_identity();
+    let discovery = lexra_rs_matter_probe::discovery::run_with_catalog(
+        matter,
+        &thread,
+        controller.catalog(),
+        compressed_fabric,
+        next_node,
+    );
     let mut discovery = pin!(discovery);
     let network = thread.bind(MATTER_PORT)?;
     let route_btp = |address: &Address| matches!(address, Address::Btp(_));

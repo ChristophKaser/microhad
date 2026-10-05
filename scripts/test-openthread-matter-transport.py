@@ -48,7 +48,7 @@ def main():
             binary = ROOT / 'build/rs-matter/target/release' / name
             result = subprocess.run([str(binary), 'spinel+hdlc+unix://' + str(socket) + '?no-reset'] + (['--ble'] if args.ble else []) + (['--service-owner'] if args.service_owner else []) + (['--service-discovery'] if args.service_discovery else []) + (['--sensor-reports'] if args.sensor_reports else []),
                                     cwd=directory, capture_output=True, text=True, timeout=timeout)
-            if args.service_discovery and 'PASS synthetic accessory signed SRP registration' not in result.stdout:
+            if args.service_discovery and 'PASS synthetic accessory SRP registration' not in result.stdout:
                 raise RuntimeError('SRP/DNS fixture registration did not complete: ' + result.stdout + result.stderr)
             if args.service_discovery and 'PASS DNS cancelled callback isolation' not in result.stdout:
                 raise RuntimeError('DNS cancellation/error isolation did not complete: ' + result.stdout + result.stderr)

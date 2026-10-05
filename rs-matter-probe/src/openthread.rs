@@ -39,6 +39,9 @@ unsafe extern "C" {
     fn gatewayOtDnsStart(label: *const core::ffi::c_char, token: *mut u32) -> i32;
     fn gatewayOtDnsPoll(token: u32, answer: *mut DnsAnswer) -> i32;
     fn gatewayOtDnsRelease(token: u32);
+    fn gatewayOtBrowseStart(fabric: u64, next_node: u64, token: *mut u32) -> i32;
+    fn gatewayOtBrowsePoll(token: u32, result: *mut BrowseResult) -> i32;
+    fn gatewayOtBrowseRelease(token: u32);
 }
 fn checked(result: i32) -> Result<(), Error> {
     if result == 0 {
@@ -114,6 +117,33 @@ impl OpenThread {
         loop {
             match unsafe { gatewayOtDnsPoll(token, &mut answer) } {
                 0 => return Ok(answer),
+                1 => embassy_time::Timer::after_millis(10).await,
+                _ => return Err(ErrorCode::NotFound.into()),
+            }
+        }
+    }
+    /// Browse operational Matter service labels and retain only this fabric's
+    /// IDs below the old allocator high-water mark.
+    pub async fn browse_operational_nodes(
+        &self,
+        fabric: u64,
+        next_node: u64,
+    ) -> Result<Vec<u64>, Error> {
+        let mut token = 0;
+        checked(unsafe { gatewayOtBrowseStart(fabric, next_node, &mut token) })?;
+        let _request = BrowseRequest { _owner: self, token };
+        let mut result = BrowseResult::empty();
+        loop {
+            match unsafe { gatewayOtBrowsePoll(token, &mut result) } {
+                0 => {
+                    if usize::from(result.count) > result.nodes.len() || result.overflow {
+                        return Err(ErrorCode::NoSpace.into());
+                    }
+                    let mut nodes = result.nodes[..usize::from(result.count)].to_vec();
+                    nodes.sort_unstable();
+                    nodes.dedup();
+                    return Ok(nodes);
+                }
                 1 => embassy_time::Timer::after_millis(10).await,
                 _ => return Err(ErrorCode::NotFound.into()),
             }
@@ -263,6 +293,19 @@ impl DnsAnswer {
         }
     }
 }
+
+#[repr(C)]
+struct BrowseResult {
+    count: u16,
+    overflow: bool,
+    reserved: u8,
+    nodes: [u64; 64],
+}
+impl BrowseResult {
+    fn empty() -> Self {
+        Self { count: 0, overflow: false, reserved: 0, nodes: [0; 64] }
+    }
+}
 struct DnsRequest<'a> {
     _owner: &'a OpenThread,
     token: u32,
@@ -270,5 +313,14 @@ struct DnsRequest<'a> {
 impl Drop for DnsRequest<'_> {
     fn drop(&mut self) {
         unsafe { gatewayOtDnsRelease(self.token) };
+    }
+}
+struct BrowseRequest<'a> {
+    _owner: &'a OpenThread,
+    token: u32,
+}
+impl Drop for BrowseRequest<'_> {
+    fn drop(&mut self) {
+        unsafe { gatewayOtBrowseRelease(self.token) };
     }
 }

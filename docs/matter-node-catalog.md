@@ -56,17 +56,18 @@ Recovery-required records are retained and consume capacity; they are not
 silently erased or assumed uncommissioned. Remote CommissioningComplete may
 succeed immediately before a process dies, so recovery must inspect the same
 authority/node rather than reuse its identity. On startup, a legacy authority
-with no catalog uses its persisted next-node counter to migrate every prior
-allocation from node 2 up to (but excluding) that counter as
-`RecoveryRequired`. Because allocation is committed before its ID is returned,
-this preserves both completed devices and IDs abandoned during older
-commissioning attempts. The normal operational resolver and authenticated CASE
-descriptor discovery decide which entries represent reachable Matter devices;
-none is fabricated as complete. The migration writes the bounded catalog
-atomically once, and subsequent starts use the catalog normally. More than 64
-prior allocations without a catalog fail closed without creating a partial
-catalog; the service does not silently start with an empty device list or reuse
-any ID. Administrative pruning of permanently abandoned entries remains open.
+without a catalog remains pending until Thread is ready. The service browses
+`_matter._tcp.default.service.arpa.` through OpenThread's DNS client, filters
+instance labels to the current compressed fabric and IDs below the persisted
+next-node counter, then commits only those live IDs as `RecoveryRequired`. The
+normal authenticated CASE descriptor scheduler then decides which entries are
+usable; no entry is fabricated as complete. Historical allocation gaps
+therefore do not occupy catalog space. More than 64 matching operational
+services remains outside the bounded catalog and is rejected without
+committing a partial list. Browse errors leave the catalog absent and retry
+with a capped delay; a successful empty browse commits an empty catalog.
+Commissioning is disabled until reconciliation commits, preventing new IDs
+from racing the migration. A crash before commit safely repeats the browse.
 
 ## Verification scope
 
@@ -119,19 +120,26 @@ not target RSS or CPU measurements. Hashes/scope are recorded in
 MIPS linker abicalls/non-abicalls warnings remain; cross-build/ELF checks do not
 replace plan 08 physical execution. No deployment occurred.
 
-## Legacy catalog migration checkpoint — 2026-10-05
+## DNS-SD legacy migration checkpoint — 2026-10-05
 
-When an existing authority has no catalog, startup now converts its monotonic
-allocator history into at most 64 `RecoveryRequired` node entries. Production
-discovery schedules each through the existing DNS-SD plus authenticated CASE
-descriptor path, promoting only responsive nodes after durable catalog update.
-The migration does not change authority identity or allocator high-water. If
-more than 64 IDs were previously allocated, startup fails before writing so an
-older device list cannot be silently discarded; support for browsing the mesh
-and migrating larger sparse histories remains open.
+Rust commit `9e0922e` initially migrated every allocated ID and failed closed
+above the catalog's 64-entry bound. The current implementation defers migration
+until OpenThread is running, browses actual operational Matter instances and
+filters by compressed fabric plus allocator high-water. `Catalog::migrate_legacy`
+accepts only sorted, unique, in-range IDs; it persists them as
+`RecoveryRequired`, including a valid empty result, before enabling new
+commissioning. A DNS timeout or browse error does not write an empty catalog
+and uses capped retry delay. The fixed C ABI caps matching results at 64 and
+signals overflow instead of truncating. Host regression covers sparse IDs up to
+high-water 100,003, and the encrypted SRP fixture verifies the Browse callback
+returns the registered service's node.
 
-Controller-service library tests pass 76/76, including migration persistence
-and the over-capacity no-write check. The production service cross-build passes
-as a stripped static big-endian MIPS-I ELF, 2,109,120 bytes; SHA-256
-`bed049e5f9ea5195bfbd52a991ba58a181ac2337405b9da5713e4ba98dd92965`. No
-target execution or plan 08 acceptance was performed.
+Validation: all 76 controller-service tests pass when run with Unix socket
+permissions enabled; the Browse SRP/CASE fixture passes in 16.4 seconds on the
+development host. The static MIPS-I production service cross-build passes at
+2,129,600 bytes, SHA-256
+`1eecdc912a00d22c1f7a1557f090fdaf2916a7a2f9accc72e5d3d4465f17ce82` (20,480
+bytes over the previous checkpoint). Browse uses a fixed 520-byte result
+buffer and scans at most 256 labels per response; no gateway execution or
+reset-sensitive workload was run. Physical filesystem and power-loss
+verification remain excluded in plan 08.

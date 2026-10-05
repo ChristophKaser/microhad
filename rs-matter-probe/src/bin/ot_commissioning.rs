@@ -1332,8 +1332,12 @@ async fn commission_owned<C: Crypto>(
             .resolve_service(label.to_str().unwrap())
             .await
             .is_ok());
+        let browsed = thread
+            .browse_operational_nodes(compressed, identity.next_node() + 1)
+            .await?;
+        assert!(browsed.contains(&identity.next_node()));
         println!("PASS DNS cancelled callback isolation, missing service and subsequent valid SRV/TXT/AAAA");
-        println!("PASS synthetic accessory signed SRP registration through userspace OpenThread");
+        println!("PASS synthetic accessory SRP registration, operational DNS browse and resolve through userspace OpenThread");
     }
     let now = std::time::Instant::now();
     lifecycle

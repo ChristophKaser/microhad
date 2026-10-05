@@ -44,6 +44,8 @@ pub struct Controller<'a, C: Crypto> {
     identity: Rc<RefCell<Identity>>,
     store: PrivateStore,
     fabric: NonZeroU8,
+    compressed_fabric_id: u64,
+    next_node: u64,
     catalog: Catalog,
     peer: Option<u64>,
     last_snapshot: Vec<u8>,
@@ -57,6 +59,12 @@ impl<'a, C: Crypto + 'a> Controller<'a, C> {
         store: PrivateStore,
         fabric: NonZeroU8,
     ) -> Result<Self, rs_matter::error::Error> {
+        let compressed_fabric_id = matter.with_state(|state| {
+            Ok::<_, rs_matter::error::Error>(
+                state.fabrics.fabric(fabric)?.compressed_fabric_id(),
+            )
+        })?;
+        let next_node = identity.next_node();
         let catalog = Catalog::open(store.clone(), identity.fabric_id(), identity.next_node())?;
         Ok(Self {
             sessions: Sessions::new(relay),
@@ -65,6 +73,8 @@ impl<'a, C: Crypto + 'a> Controller<'a, C> {
             identity: Rc::new(RefCell::new(identity)),
             store,
             fabric,
+            compressed_fabric_id,
+            next_node,
             catalog,
             peer: None,
             last_snapshot: Vec::new(),
@@ -88,7 +98,7 @@ impl<'a, C: Crypto + 'a> Controller<'a, C> {
     ) -> Option<Vec<u8>> {
         match request {
             Request::CommissionStart(request) => {
-                let result = if Self::ready(lifecycle, now) {
+                let result = if Self::ready(lifecycle, now) && !self.catalog.legacy_pending() {
                     self.sessions.start(request, entropy, now)
                 } else {
                     Err(SessionError::NotReady)
@@ -112,7 +122,7 @@ impl<'a, C: Crypto + 'a> Controller<'a, C> {
             }
             Request::BleAttach(request) => {
                 let result = (|| {
-                    if !Self::ready(lifecycle, now) {
+                    if !Self::ready(lifecycle, now) || self.catalog.legacy_pending() {
                         return Err(SessionError::NotReady);
                     }
                     let channel = lifecycle.boot_channel(now).ok_or(SessionError::NotReady)?;
@@ -182,6 +192,9 @@ impl<'a, C: Crypto + 'a> Controller<'a, C> {
         self.catalog.fatal()
     }
     pub fn catalog(&self) -> Catalog { self.catalog.clone() }
+    pub fn discovery_identity(&self) -> (u64, u64) {
+        (self.compressed_fabric_id, self.next_node)
+    }
     pub fn commissioning(&mut self, now: Instant) -> bool {
         self.sessions.current_snapshot(now).map(|s| s.state < Phase::Complete).unwrap_or(false)
     }

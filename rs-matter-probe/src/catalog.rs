@@ -30,6 +30,7 @@ pub struct Catalog {
     fabric: u64,
     nodes: Rc<RefCell<Vec<Node>>>,
     fatal: Rc<Cell<bool>>,
+    legacy_pending: Rc<Cell<bool>>,
 }
 fn invalid() -> Error {
     ErrorCode::InvalidData.into()
@@ -82,35 +83,19 @@ impl Catalog {
         let catalog_exists = store
             .contains_in(CATALOG_KEY..CATALOG_KEY + 1)
             .map_err(|_| invalid())?;
-        let mut nodes = read_nodes(&store, fabric, next_node)?;
+        let nodes = read_nodes(&store, fabric, next_node)?;
         let legacy_count = next_node.saturating_sub(2);
-        if !catalog_exists && legacy_count > 0 {
-            // The authority's monotonic counter is committed before an ID is
-            // returned. When upgrading a pre-catalog store, every lower ID was
-            // therefore allocated at some point. Preserve those IDs and let
-            // authenticated CASE discovery distinguish live devices from
-            // abandoned commissioning attempts.
-            if legacy_count > MAX_NODES as u64 {
-                return Err(invalid());
-            }
-            nodes = (2..next_node)
-                .map(|id| Node {
-                    id,
-                    phase: Phase::RecoveryRequired,
-                })
-                .collect();
-        }
+        // An absent legacy catalog is reconciled asynchronously from operational
+        // DNS-SD after Thread attaches. Never mistake every historical allocation
+        // for a currently retained device or fail startup on a large high-water.
+        let legacy_pending = !catalog_exists && legacy_count > 0;
         let catalog = Self {
             store,
             fabric,
             nodes: Rc::new(RefCell::new(nodes)),
             fatal: Rc::new(Cell::new(false)),
+            legacy_pending: Rc::new(Cell::new(legacy_pending)),
         };
-        if !catalog_exists && legacy_count > 0 {
-            let migrated = catalog.nodes.borrow().clone();
-            catalog.commit(migrated)?;
-            return Ok(catalog);
-        }
         let mut recovered = catalog.nodes.borrow().clone();
         let mut changed = false;
         for node in &mut recovered {
@@ -130,8 +115,31 @@ impl Catalog {
     pub fn fatal(&self) -> bool {
         self.fatal.get()
     }
+    pub fn legacy_pending(&self) -> bool {
+        self.legacy_pending.get()
+    }
+    /// Commit the live operational nodes found by bounded Thread DNS-SD browse.
+    /// IDs are persisted only after matching the current compressed fabric and
+    /// the old allocator's high-water mark in the discovery adapter.
+    pub fn migrate_legacy(&self, ids: &[u64], next_node: u64) -> Result<(), Error> {
+        if !self.legacy_pending() || ids.len() > MAX_NODES {
+            return Err(invalid());
+        }
+        let mut nodes = Vec::with_capacity(ids.len());
+        let mut previous = 1;
+        for id in ids {
+            if *id <= previous || *id < 2 || *id >= next_node || *id > MAX_NODE {
+                return Err(invalid());
+            }
+            previous = *id;
+            nodes.push(Node { id: *id, phase: Phase::RecoveryRequired });
+        }
+        self.commit(nodes)?;
+        self.legacy_pending.set(false);
+        Ok(())
+    }
     pub fn has_capacity(&self) -> bool {
-        !self.fatal() && self.nodes.borrow().len() < MAX_NODES
+        !self.fatal() && !self.legacy_pending() && self.nodes.borrow().len() < MAX_NODES
     }
     pub fn endpoint_id(&self, node: u64, endpoint: u16) -> Result<String, Error> {
         if !self.nodes.borrow().iter().any(|entry| entry.id == node) {
@@ -304,35 +312,38 @@ mod tests {
         assert!(recovered.endpoint_id(3, 1).is_err());
     }
     #[test]
-    fn legacy_missing_catalog_preserves_every_allocated_id_for_case_recovery() {
+    fn legacy_missing_catalog_waits_for_bounded_operational_reconciliation() {
         let directory = Directory::new();
         let store = directory.store();
         let catalog = Catalog::open(store.clone(), 17, 5).unwrap();
+        assert!(catalog.legacy_pending());
+        assert!(!catalog.has_capacity());
+        assert!(catalog.nodes().is_empty());
+        catalog.migrate_legacy(&[2, 4], 5).unwrap();
         let nodes = catalog.nodes();
-        assert_eq!(nodes.len(), 3);
-        assert_eq!(
-            nodes.iter().map(|node| node.id).collect::<Vec<_>>(),
-            [2, 3, 4]
-        );
-        assert!(nodes
-            .iter()
-            .all(|node| node.phase == Phase::RecoveryRequired));
+        assert_eq!(nodes.iter().map(|node| node.id).collect::<Vec<_>>(), [2, 4]);
+        assert!(nodes.iter().all(|node| node.phase == Phase::RecoveryRequired));
         drop(catalog);
         drop(store);
         let reopened = Catalog::open(directory.store(), 17, 5).unwrap();
-        assert_eq!(reopened.nodes().len(), 3);
+        assert_eq!(reopened.nodes().len(), 2);
         assert!(reopened
             .nodes()
             .iter()
             .all(|node| node.phase == Phase::RecoveryRequired));
     }
     #[test]
-    fn legacy_catalog_migration_is_bounded_and_fails_without_partial_write() {
+    fn large_legacy_high_water_remains_pending_until_reconciliation() {
         let directory = Directory::new();
         let store = directory.store();
-        assert!(Catalog::open(store.clone(), 17, 3 + MAX_NODES as u64).is_err());
-        assert!(!store.contains_in(CATALOG_KEY..CATALOG_KEY + 1).unwrap());
-        assert!(Catalog::open(store, 17, 2).unwrap().nodes().is_empty());
+        let catalog = Catalog::open(store.clone(), 17, 100_003).unwrap();
+        assert!(catalog.legacy_pending());
+        assert!(catalog.migrate_legacy(&[2, 400, 100_001], 100_003).is_ok());
+        assert_eq!(catalog.nodes().iter().map(|node| node.id).collect::<Vec<_>>(), [2, 400, 100_001]);
+        assert!(store.contains_in(CATALOG_KEY..CATALOG_KEY + 1).unwrap());
+        let reopened = Catalog::open(store, 17, 100_003).unwrap();
+        assert!(!reopened.legacy_pending());
+        assert_eq!(reopened.nodes().len(), 3);
     }
     #[test]
     fn offline_validation_accepts_transitional_catalog_without_recovery_write() {

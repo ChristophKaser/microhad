@@ -248,6 +248,12 @@ struct GatewayOtDnsAnswer {
     uint8_t count;
     uint8_t txt[256];
 };
+struct GatewayOtBrowseResult {
+    uint16_t count;
+    bool overflow;
+    uint8_t reserved;
+    uint64_t nodes[64];
+};
 }
 static_assert(sizeof(GatewayOtDnsAnswer) == 332, "DNS ABI size");
 namespace {
@@ -263,7 +269,69 @@ struct DnsQuery {
 };
 DnsQuery dnsQuery = {};
 uint32_t nextDnsToken = 0;
-void resetDiscovery() { std::memset(&dnsQuery, 0, sizeof(dnsQuery)); }
+struct BrowseQuery {
+    uint32_t token;
+    bool pending;
+    bool discarded;
+    bool done;
+    otError error;
+    uint64_t fabric;
+    uint64_t nextNode;
+    GatewayOtBrowseResult result;
+};
+BrowseQuery browseQuery = {};
+uint32_t nextBrowseToken = 0;
+void resetDiscovery() {
+    std::memset(&dnsQuery, 0, sizeof(dnsQuery));
+    std::memset(&browseQuery, 0, sizeof(browseQuery));
+}
+void dnsBrowsed(otError error, const otDnsBrowseResponse *response, void *context)
+{
+    if (static_cast<uint32_t>(reinterpret_cast<uintptr_t>(context)) != browseQuery.token) return;
+    browseQuery.pending = false;
+    browseQuery.done = !browseQuery.discarded;
+    browseQuery.error = error;
+    if (browseQuery.discarded || error != OT_ERROR_NONE) return;
+    char service[128] = {};
+    error = otDnsBrowseResponseGetServiceName(response, service, sizeof(service));
+    if (error != OT_ERROR_NONE || strcasecmp(service, matterService) != 0) {
+        browseQuery.error = error == OT_ERROR_NONE ? OT_ERROR_PARSE : error;
+        return;
+    }
+    bool ended = false;
+    for (uint16_t index = 0; index < 256; ++index) {
+        char label[64] = {};
+        error = otDnsBrowseResponseGetServiceInstance(response, index, label, sizeof(label));
+        if (error == OT_ERROR_NOT_FOUND) { ended = true; break; }
+        if (error != OT_ERROR_NONE) { browseQuery.error = error; return; }
+        if (std::strlen(label) != 33 || label[16] != '-') continue;
+        bool hexLabel = true;
+        for (unsigned i = 0; i < 33; ++i) {
+            if (i == 16) continue;
+            char ch = label[i];
+            if (!((ch >= '0' && ch <= '9') || (ch >= 'A' && ch <= 'F') ||
+                  (ch >= 'a' && ch <= 'f'))) hexLabel = false;
+        }
+        if (!hexLabel) continue;
+        char fabricText[17] = {};
+        char nodeText[17] = {};
+        std::memcpy(fabricText, label, 16);
+        std::memcpy(nodeText, label + 17, 16);
+        char *end = nullptr;
+        uint64_t fabric = ::strtoull(fabricText, &end, 16);
+        if (!end || *end != '\0' || fabric != browseQuery.fabric) continue;
+        uint64_t node = ::strtoull(nodeText, &end, 16);
+        if (!end || *end != '\0' || node < 2 || node >= browseQuery.nextNode) continue;
+        bool duplicate = false;
+        for (uint16_t i = 0; i < browseQuery.result.count; ++i)
+            if (browseQuery.result.nodes[i] == node) duplicate = true;
+        if (duplicate) continue;
+        if (browseQuery.result.count == 64) { browseQuery.result.overflow = true; continue; }
+        browseQuery.result.nodes[browseQuery.result.count++] = node;
+    }
+    if (!ended) { browseQuery.error = OT_ERROR_NO_BUFS; return; }
+    browseQuery.error = OT_ERROR_NONE;
+}
 void srpUpdate(otSrpServerServiceUpdateId id, const otSrpServerHost *updated, uint32_t, void *)
 {
     // Count retained key-leases as well as live records; replacement is one host.
@@ -376,6 +444,43 @@ extern "C" int gatewayOtDnsPoll(uint32_t token, GatewayOtDnsAnswer *answer)
 extern "C" void gatewayOtDnsRelease(uint32_t token)
 {
     if (token == dnsQuery.token) { dnsQuery.discarded = true; dnsQuery.done = false; }
+}
+extern "C" int gatewayOtBrowseStart(uint64_t fabric, uint64_t nextNode, uint32_t *token)
+{
+    if (!instance || !fabric || nextNode < 2 || !token) return -OT_ERROR_INVALID_ARGS;
+    if (browseQuery.pending || browseQuery.done) return -OT_ERROR_BUSY;
+    if (nextBrowseToken == UINT32_MAX) return -OT_ERROR_NO_BUFS;
+    std::memset(&browseQuery, 0, sizeof(browseQuery));
+    browseQuery.token = ++nextBrowseToken;
+    browseQuery.fabric = fabric;
+    browseQuery.nextNode = nextNode;
+    otDnsQueryConfig config = *otDnsClientGetDefaultConfig(instance);
+    config.mResponseTimeout = 1000;
+    config.mMaxTxAttempts = 2;
+    config.mTransportProto = OT_DNS_TRANSPORT_UDP;
+    config.mNat64Mode = OT_DNS_NAT64_DISALLOW;
+    browseQuery.pending = true;
+    otError error = otDnsClientBrowse(instance, matterService, dnsBrowsed,
+        reinterpret_cast<void *>(static_cast<uintptr_t>(browseQuery.token)), &config);
+    if (error != OT_ERROR_NONE) { browseQuery.pending = false; return -static_cast<int>(error); }
+    *token = browseQuery.token;
+    return 0;
+}
+extern "C" int gatewayOtBrowsePoll(uint32_t token, GatewayOtBrowseResult *result)
+{
+    if (!instance || token == 0 || token != browseQuery.token || browseQuery.discarded || !result)
+        return -OT_ERROR_INVALID_STATE;
+    if (browseQuery.pending) return 1;
+    if (!browseQuery.done) return -OT_ERROR_INVALID_STATE;
+    browseQuery.done = false;
+    if (browseQuery.error != OT_ERROR_NONE) return -static_cast<int>(browseQuery.error);
+    if (browseQuery.result.overflow) return -OT_ERROR_NO_BUFS;
+    *result = browseQuery.result;
+    return 0;
+}
+extern "C" void gatewayOtBrowseRelease(uint32_t token)
+{
+    if (token == browseQuery.token) { browseQuery.discarded = true; browseQuery.done = false; }
 }
 // Only referenced by the separate probe fixture archive; linker GC removes it
 // from the production service. There is no IPC or Rust production accessor.

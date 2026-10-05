@@ -1,5 +1,5 @@
 //! Operational DNS-SD over OpenThread's userspace SRP/DNS path.
-use crate::openthread::{DnsAnswer, OpenThread};
+use crate::{catalog::Catalog, openthread::{DnsAnswer, OpenThread}};
 use embassy_time::{with_timeout, Duration as AsyncDuration, Timer};
 use rs_matter::{
     error::{Error, ErrorCode},
@@ -222,6 +222,42 @@ pub async fn run(matter: &Matter<'_>, thread: &OpenThread) -> Result<(), Error> 
             Timer::after_millis(delay).await;
         }
     }
+}
+
+/// Reconcile an old allocator-only identity before normal resolution or new
+/// commissioning. Query failures leave the catalog absent and retry with a
+/// capped delay, so a temporary Thread/DNS outage never loses node identities.
+pub async fn run_with_catalog(
+    matter: &Matter<'_>,
+    thread: &OpenThread,
+    catalog: Catalog,
+    compressed_fabric: u64,
+    next_node: u64,
+) -> Result<(), Error> {
+    let mut delay = 250;
+    while catalog.legacy_pending() {
+        if !thread.ready() {
+            Timer::after_millis(delay).await;
+            delay = (delay * 2).min(5_000);
+            continue;
+        }
+        match with_timeout(
+            AsyncDuration::from_secs(5),
+            thread.browse_operational_nodes(compressed_fabric, next_node),
+        )
+        .await
+        {
+            Ok(Ok(nodes)) => {
+                catalog.migrate_legacy(&nodes, next_node)?;
+                break;
+            }
+            _ => {
+                Timer::after_millis(delay).await;
+                delay = (delay * 2).min(5_000);
+            }
+        }
+    }
+    run(matter, thread).await
 }
 
 #[cfg(test)]
