@@ -21,14 +21,20 @@ API and dashboard expose a bounded retry action for recoverable in-process
 failures. A host composition now confirms the paired supervisor restarts the
 real Matter service after the wire-level Spinel apply error, preserves the
 dataset across service restart, and leaves the native/Zigbee pair running.
-Physical RCP error behavior and target RF remain open.
+Physical RCP error behavior and target RF remain open. The user authorized
+continued reset-frequency observation with the existing Zigbee service left
+running. A 13-minute window confirmed one further reboot during idle cooldown,
+after a guarded startup-only Matter profile had exited cleanly. The reboot was
+not observed during the profile's uptime bracket; the reset source and cadence
+remain undetermined. The production service recovered to online/formed about
+135 seconds after boot. See [the resource profile](../../../ziggurat-compilation/docs/openthread-resource-profile.md).
 
 Next deliverable: Verify native-worker recovery against the restarted service,
 including Thread reattachment and restored device operations. The native worker
 now recovers the persisted dataset through the restarted daemon; the synthetic
-RCP reaches `attaching` but has no mesh peer to demonstrate attachment. Diagnose
-the gateway reset before further target profiles. Keep physical coexistence and
-RF acceptance in plan 08.
+RCP reaches `attaching` but has no mesh peer to demonstrate attachment. Keep
+bounded reset-frequency observation separate from Matter stress testing; leave
+physical coexistence and RF acceptance in plan 08.
 
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.

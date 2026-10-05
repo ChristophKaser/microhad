@@ -10,16 +10,21 @@ service after a wire-level Spinel error and sees the restored dataset.
 Current factory MIPS builds for both binaries pass. Target runtime/resource
 evidence is partial: a prior isolated service profile was followed by a reboot.
 Later idle observations caught another uptime reset, without a target workload
-running. A bounded repeat profile
-and a five-second retry did not reboot the gateway; the retry passed with 788
-KiB RSS, zero sampled CPU ticks, and orderly shutdown. The repeated reset still
-needs investigation; no more target Matter load is planned until its cause is
-understood.
+running. In a user-authorized 13-minute reset-frequency observation, one more
+reboot occurred during idle cooldown after a clean Matter startup-only profile;
+the profile had no reboot across its own before/after uptime samples. A separate
+retry passed with 788 KiB RSS, zero sampled CPU ticks, and orderly shutdown.
+The production service came back online and formed about 135 seconds after the
+reset. `dmesg` contained no watchdog/reset reason, and no conventional Linux
+watchdog feeder was found. The reset source and long-term cadence remain
+unknown; target stress was not run.
 
-Next deliverable: Identify the recurring gateway reset source, then close the
-daemon live-report path from a wire-decoded CASE report through native
-state/history. The one silent isolated-service launch failure did not recur on
-the bounded retry. Full physical paired launch remains in excluded plan 08.
+Next deliverable: Close the daemon live-report path from a wire-decoded CASE
+report through native state/history. Continue bounded reset-frequency
+observations as authorized, keeping the production service running; avoid
+stress profiles until a real RCP is available through the production path. The
+one silent isolated-service launch failure did not recur on the bounded retry.
+Full physical paired launch remains in excluded plan 08.
 
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.
