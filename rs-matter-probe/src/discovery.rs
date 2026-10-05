@@ -65,12 +65,12 @@ fn parse_txt(bytes: &[u8]) -> Result<Vec<(String, String)>, Error> {
             .iter()
             .position(|byte| *byte == b'=')
             .unwrap_or(data.len());
-        // Ignore unknown TXT extensions, including binary values; known MRP/T fields
-        // are bounded numeric ASCII and case-insensitive duplicate keys are invalid.
+        // Ignore unknown TXT extensions, including binary values; known MRP/T and
+        // ICD mode fields are bounded numeric ASCII and duplicate keys are invalid.
         let Ok(key) = std::str::from_utf8(&data[..split]) else {
             continue;
         };
-        if !["SII", "SAI", "SAT", "T"]
+        if !["SII", "SAI", "SAT", "T", "ICD"]
             .iter()
             .any(|known| key.eq_ignore_ascii_case(known))
         {
@@ -89,6 +89,9 @@ fn parse_txt(bytes: &[u8]) -> Result<Vec<(String, String)>, Error> {
         let value = std::str::from_utf8(value).map_err(|_| invalid())?;
         let number = value.parse::<u32>().map_err(|_| invalid())?;
         if key.eq_ignore_ascii_case("SAT") && number > u32::from(u16::MAX) {
+            return Err(invalid());
+        }
+        if key.eq_ignore_ascii_case("ICD") && number > 1 {
             return Err(invalid());
         }
         result.push((key.to_owned(), value.to_owned()));
@@ -316,6 +319,18 @@ mod tests {
             value.addresses[0] = ip.parse::<Ipv6Addr>().unwrap().octets();
             assert!(Record::parse(key(2), value, now).is_err());
         }
+    }
+    #[test]
+    fn lit_advertisement_is_preserved_and_malformed_modes_are_rejected() {
+        let parsed = parse_txt(b"\x05ICD=1\x07SII=300000").unwrap();
+        assert_eq!(
+            parsed,
+            vec![("ICD".into(), "1".into()), ("SII".into(), "300000".into())]
+        );
+        assert!(parse_txt(b"\x05ICD=2").is_err());
+        assert!(parse_txt(b"\x05ICD=x").is_err());
+        assert!(parse_txt(b"\x05ICD=1\x05icd=0").is_err());
+        assert!(parse_txt(b"\x05ICD=").is_err());
     }
     #[test]
     fn duplicate_and_invalid_addresses_do_not_displace_routable_candidates() {
