@@ -325,3 +325,23 @@ radio work before Thread attachment. No target CPU, memory or timing profile
 was run because the bounded catalog initialization adds no complex target-side
 procedure. More than 64 prior allocations fail closed pending broader DNS-SD
 browse migration; no physical acceptance or deployment occurred.
+
+## Actual MIPS service startup profile — 2026-10-05
+
+`python3 scripts/test-matter-service-device.py --host 192.168.178.62
+--password-file ../ssh_password.txt --seconds 10` ran the current
+2,129,600-byte `thread-matter-mips` on the gateway with unique private state,
+IPC and radio paths. It waited for coordinator observation, so it did not open
+the RCP or production UART. Production stayed online/formed on Ziggurat. The
+service created its private socket, reached `Matter controller service started`
+1.07 seconds later and shut down cleanly on SIGTERM. Peak RSS was 796 KiB, raw
+MemFree stayed at or above 10,896 KiB, and effective free memory stayed at or
+above 19,620 KiB. CPU ticks did not increase across the 10-second awaiting-
+coordinator sample. Uptime advanced 34.89 seconds across the whole transfer and
+profile; no reset occurred, and unique paths were removed.
+
+This verifies target executable startup, IPC socket creation, idle waiting and
+shutdown. It does not attach the service to a target radio or measure active
+CASE, DNS-SD, native-worker coexistence or deadlines. The initial profile
+attempt exposed an immediate-marker race in the harness; it now waits up to 15
+seconds after IPC socket creation for the start marker and reports that interval.

@@ -115,7 +115,16 @@ while [ ! -S {runtime}/ipc.sock ]; do
  kill -0 "$child" 2>/dev/null || {{ echo SERVICE_EXITED_BEFORE_IPC; cat {runtime}/service.log; exit 1; }}
  sleep 1
 done
-grep 'Matter controller service started' {runtime}/service.log >/dev/null || {{ echo SERVICE_START_MARKER_MISSING; cat {runtime}/service.log; exit 1; }}
+startup_started=$(awk '{{print $1}}' /proc/uptime)
+startup_wait=0
+while ! grep 'Matter controller service started' {runtime}/service.log >/dev/null; do
+ startup_wait=$((startup_wait + 1))
+ [ "$startup_wait" -le 15 ] || {{ echo SERVICE_START_MARKER_TIMEOUT; cat {runtime}/service.log; exit 1; }}
+ kill -0 "$child" 2>/dev/null || {{ echo SERVICE_EXITED_BEFORE_START; cat {runtime}/service.log; exit 1; }}
+ sleep 1
+done
+startup_ready=$(awk '{{print $1}}' /proc/uptime)
+awk -v start="$startup_started" -v ready="$startup_ready" 'BEGIN {{printf "STARTUP after_socket_s=%.2f\\n", ready-start}}'
 count=0
 while [ "$count" -lt {args.seconds} ]; do
  count=$((count + 1))
@@ -151,6 +160,8 @@ exit "$result"
                                 else float(value) for key, value in
                                 re.findall(r'(\w+)=([0-9.]+)', line)})
         report['samples'] = samples
+        startup_match = re.search(r'STARTUP after_socket_s=([0-9.]+)', output)
+        report['startup_after_ipc_socket_seconds'] = float(startup_match.group(1)) if startup_match else None
         report['service_log'] = [line for line in output.splitlines()
                                   if line.startswith('Matter controller service ')]
         if exit_code != 0:
