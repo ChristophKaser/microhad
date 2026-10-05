@@ -221,3 +221,17 @@ Both host and MIPS builds pass; service/probe sizes are 1,924,788/2,264,780 byte
 Fixture symbols are absent from the service. Remote catalog recovery, production
 descriptors/operations/subscriptions and reports remain open. No deployment or
 physical performance test occurred. See [resolver details and evidence](matter-operational-discovery.md).
+
+## Current Matter service MIPS artifact — 2026-10-05
+
+`bash scripts/build-rs-matter-transport.sh mips service` succeeds for Rust
+source commit `980db77`. The stripped output
+`build/rs-matter/thread-matter-mips` is a static ELF32 big-endian MIPS-I
+executable with no `PT_INTERP`, 2,109,120 bytes, SHA-256
+`d7e030a815faef3ff56876a375d4419f700a14c93c9f047a80d1f5aae6f66a1c`.
+
+The link emits existing warnings about mixed abicalls/non-abicalls objects and
+the unsupported `-no-pie` option, even though it returns success. Treat this as
+a target ABI/runtime risk until device execution proves compatibility. This
+artifact size is not a measure of peak RSS, CPU load, or radio scheduling
+deadlines; none were measured on the gateway.
