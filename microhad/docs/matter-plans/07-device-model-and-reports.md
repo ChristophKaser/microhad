@@ -53,8 +53,12 @@ device state. Snapshot values continue to render in the shared cards, while
 typed completed CASE reads also update matching registered native
 `Gateway::Device` instances. The shared status view reports normalized
 `sensor_values` with units and measured/unknown quality, and snapshot refreshes
-preserve the last confirmed values. Confirmed values remain in memory; the new
-manager report queue is not yet applied to `Gateway::Device`. Native commit `e81af44` routes Matter
+preserve the last confirmed values. A composed host fixture now sends live
+CASE sensor reports through the production Manager and IPC event publisher
+into a registered native `Gateway::Device`; all five values are verified in
+`/api/status`. The fixture producer is the commissioning probe rather than the
+installed `thread-matter` daemon, so the daemon's own active subscription loop
+remains open. Native commit `e81af44` routes Matter
 temperature, humidity and brightness readings through the common value-alert
 engine and preserves alert configuration/state across snapshot refresh. Matter
 alert settings are restored across gateway restart and Matter snapshot
@@ -102,15 +106,18 @@ metadata is persisted in the low-frequency device store; confirmed values are
 restored across gateway process restart from `/tmp`, and may be lost on power
 loss.
 
-The report handoff now has a composed host test with the actual `thread-matter`
-process and native gateway. A notifier-backed CASE fixture first registers the
-endpoint and verifies all five sensor report values in `/api/status` and
-shared history. The process is then restarted from the same controller state;
-a test-hook-seeded batch passes through its production Manager queue and IPC
-publisher into that same native device, updating all five values and recording
-the air-quality transition in shared history. The daemon-side values are
-synthetic queue inputs, so CASE reports generated inside the daemon's own
-subscription task remain a separate end-to-end gap.
+The report handoff has two composed host proofs. The actual `thread-matter`
+process and native gateway test covers daemon startup, snapshot, Thread
+lifecycle and report-event consumption with test-hook-seeded decoded report
+values; it does not pair the daemon with a commissioned accessory. Separately,
+compiler commit `1d02151` runs the production Manager and `IpcServer` in the
+encrypted commissioning probe beside the native gateway process. That fixture
+registers the CASE accessory through revisioned snapshot pagination, receives
+five wire-decoded reports through active subscriptions, and verifies their
+normalized values, units and measured quality in native `/api/status`. Thus
+live CASE-to-native state is covered across the process boundary, while the
+installed daemon's own active subscription loop, shared history/alerts for
+these live values, remote node recovery and physical acceptance remain open.
 
 This shared device contract applies equally to Zigbee, Matter, and external
 HTTP sources such as Shelly: stable source identity, canonical semantic device

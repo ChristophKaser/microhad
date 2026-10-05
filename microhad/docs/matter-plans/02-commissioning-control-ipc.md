@@ -1,6 +1,6 @@
 # Plan: Commissioning and device-control IPC
 
-## Current open work — 2026-10-04
+## Current open work — 2026-10-05
 
 Native commissioning/relay dispatch and bounded jobs exist. Rust now dispatches
 bounded asynchronous OnOff reads/commands and job polling; native validation,
@@ -10,6 +10,17 @@ typed readbacks. Native validators accept OnOff, Level and sensor-typed replies;
 sensor UI/model projection and initial Matter report-event consumption now exist;
 broader recovery and complete cross-language vectors remain open.
 Snapshot API remains verified (`237d110`).
+
+The cross-boundary live report path is now composed in compiler commit
+`1d02151`: the encrypted commissioning probe runs the production Manager and
+`IpcServer`, subscribes to a synthetic accessory's CASE sensor clusters, and
+publishes five wire-decoded readings to the Matter-enabled native gateway
+process. Native `/api/status` verifies the shared device state and values after
+revisioned snapshot pagination. This closes the earlier gap between the
+commissioning probe's live report fixture and native event consumer. It does
+not start the installed `thread-matter` daemon process; its active Manager
+subscription loop remains the next process-level gate. Disconnect/restart,
+backpressure and the broader malformed cross-language matrix remain open.
 
 Native commit `c22f38a` fixes Matter opcode 10 dispatch: the worker previously
 treated asynchronous read/command job replies as device snapshot pages, which
@@ -54,6 +65,10 @@ Verification: `python3 scripts/test_matter_native_report_integration.py`
 `python3 scripts/test-openthread-matter-transport.py --commissioning --ble
 --service-owner --service-discovery --sensor-reports` fixture also passed.
 
+The joined host test is
+`python3 scripts/test-openthread-matter-transport.py --native-bridge
+--sensor-reports --service-discovery --service-owner --ble --commissioning`.
+It uses synthetic RCP/accessory traffic and does not use the gateway radio.
 Next deliverable: exercise the installed `thread-matter` service process
 through registered native device reports, then extend disconnect/restart and
 failure coverage. Keep physical acceptance in plan 08.

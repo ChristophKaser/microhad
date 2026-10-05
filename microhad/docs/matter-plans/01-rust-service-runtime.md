@@ -3,7 +3,9 @@
 ## Current open work — 2026-10-05
 
 Host service/native round trips, the generic paired supervisor failure matrix,
-and attached-daemon-to-native report delivery pass. A composed test now makes
+and attached-daemon-to-native report delivery pass. A synthetic gateway MIPS
+profile now also runs the production owned commissioning/Manager workload
+through subscribed CASE sensor reports. A composed test now makes
 the actual Matter service fail on Spinel, verifies recovery and dataset
 restoration, then kills that recovered service to exhaust the retry budget;
 the supervisor and native/Zigbee services remain running and native Matter
@@ -21,14 +23,16 @@ retry passed with 788 KiB RSS, zero sampled CPU ticks, and orderly shutdown.
 The production service came back online and formed about 135 seconds after the
 reset. `dmesg` contained no watchdog/reset reason, and no conventional Linux
 watchdog feeder was found. The reset source and long-term cadence remain
-unknown; target stress was not run.
+unknown. The new bounded target profile had no reset and preserved production
+Ziggurat, but measures the MIPS commissioning fixture rather than the installed
+Matter daemon.
 
-Next deliverable: Close the daemon live-report path from a wire-decoded CASE
-report through native state/history. Continue bounded reset-frequency
-observations as authorized, keeping the production service running; avoid
-stress profiles until a real RCP is available through the production path. The
-one silent isolated-service launch failure did not recur on the bounded retry.
-Full physical paired launch remains in excluded plan 08.
+Next deliverable: exercise the installed `thread-matter` daemon's active CASE
+subscription/report path into native state/history and measure its target
+resource use. Continue bounded reset-frequency observations as authorized,
+keeping the production service running. The one silent isolated-service launch
+failure did not recur on the bounded retry. Full physical paired launch remains
+in excluded plan 08.
 
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.
@@ -445,3 +449,26 @@ Zigbee/Thread load. The existing service remained healthy, and cleanup removed
 temporary binaries/settings/socket. See the detailed
 [resource profile](../../ziggurat-compilation/docs/openthread-resource-profile.md)
 and [machine-readable samples](../../ziggurat-compilation/docs/openthread-resource-profile.json).
+
+## MIPS CASE sensor-report workload — 2026-10-05
+
+The Matter commissioning MIPS probe was rebuilt from current source and run
+with `--service-owner --sensor-reports` against a synthetic accessory. Production
+Ziggurat remained `online=true`, `network_formed=true` before and after; the
+UART was never opened. Encrypted commissioning, production Manager discovery,
+reads/commands, seven CASE subscriptions and five sensor reports completed in
+10.94 seconds. The 2,580,192-byte probe reached 2,204 KiB RSS; minimum raw
+MemFree was 10,080 KiB, and minimum free plus clean inactive file cache was
+19,216 KiB. Sampled process CPU averaged about 37.5% of one core over the
+11.75-second sampled interval. It stayed within the 3,072 KiB RSS, 512 KiB raw
+MemFree and 4,096 KiB effective-free limits, cleaned temporary artifacts and
+did not reset the gateway. The machine-readable report is
+`ziggurat-compilation/build/rs-matter/openthread-ble-commissioning-device-validation.json`.
+
+The attempted `--service-discovery` variant timed out at its 45-second synthetic
+SRP-registration deadline because the device-side RCP simulator does not
+provide an SRP registrar. It peaked at 1,772 KiB RSS and left production
+online; no sensor-report results are inferred from it. Host SRP/DNS-SD
+integration passes separately. The successful MIPS run does not include the
+installed `thread-matter` daemon, native worker on target, physical radio, or a
+real accessory.
