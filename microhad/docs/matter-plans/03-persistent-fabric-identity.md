@@ -1,6 +1,6 @@
 # Plan: Persistent Matter fabric identity
 
-## Current open work — 2026-10-04
+## Current open work — 2026-10-05
 
 Persistent authority and host CASE restore exist. Synthetic staged recovery now
 has evidence for a completed catalog, stable endpoint identity, corrupt
@@ -9,8 +9,10 @@ high-water. The real service fixture also verifies an allocated node is retained
 as `recovery_required` after active commissioning is interrupted by RCP loss.
 Archive preflight, private extraction and matching-service identity validation
 pass together on synthetic state, including failed candidate validation without
-changing the source tree. Power loss during replacement and target filesystem
-verification remain open.
+changing the source tree. Rust commit `8db4897` now simulates a crash after the
+replacement envelope is fully written and synced but before atomic rename; the
+previous committed identity remains readable and writable after restart.
+Post-rename power-loss behavior and target filesystem verification remain open.
 
 Native commit `7247c94` adds structural preflight for the plaintext tar produced
 after successful backup decryption. Commit `7f5ac3d` adds staged extraction that
@@ -90,8 +92,8 @@ defined. The authority is now implemented and connected to service startup.
 | 3 | Complete | Secure OS entropy generates all authority materials; full record committed before fabric installation; abandoned-stage and interrupted-install host checks pass. |
 | 4 | Complete | Restore verifies the certificate chain, all three key pairs, fabric/node/vendor metadata, counter and exact upstream fabric materials. Missing authority with a fabric or an unloaded corrupt fabric is rejected. Real host service process restart passes without rewriting state. |
 | 5 | Complete | Counter committed before an ID is returned; reload continues above prior IDs, failed writes return no ID, exhaustion is persisted and never wraps. |
-| 6 | Partial | Offline candidate validation refuses active owners, does not create paths or write records, and checks authority/vendor, installed fabric, catalog, Thread dataset and settings framing (`1ec79fd`). Controller-service library tests pass 69/69; synthetic service integration passes valid/incomplete/unsafe cases. Archive preflight/extract/validate passes end to end; corrupt credentials fail validation without changing the candidate or source (`0e133b4`). Catalog high-water refusal and interrupted commissioning reservation recovery are covered. Power loss between replacement stages remains untested. The encrypted host fixture reloads authority and establishes fresh CASE over synthetic BTP and UDP. Target filesystem validation remains in plan 08. |
-| 7 | Partial | Schema and operational backup/restore policy are documented; the recovery runbook invokes the matching binary's `--validate-state-dir` command. Power-loss/interrupted replacement and target filesystem durability evidence remain. |
+| 6 | Partial | Offline candidate validation refuses active owners, does not create paths or write records, and checks authority/vendor, installed fabric, catalog, Thread dataset and settings framing (`1ec79fd`). Controller-service library tests pass 72/72; synthetic service integration passes valid/incomplete/unsafe cases. Archive preflight/extract/validate passes end to end; corrupt credentials fail validation without changing the candidate or source (`0e133b4`). Catalog high-water refusal, interrupted commissioning reservation recovery, and a synced orphan-stage pre-rename crash simulation are covered. Post-rename power-loss behavior remains untested. The encrypted host fixture reloads authority and establishes fresh CASE over synthetic BTP and UDP. Target filesystem validation remains in plan 08. |
+| 7 | Partial | Schema and operational backup/restore policy are documented; the recovery runbook invokes the matching binary's `--validate-state-dir` command. Pre-rename crash recovery is host-tested; post-rename power-loss and target filesystem durability evidence remain. |
 
 The service now reports `fabric_ready:true`/`running` after initialization,
 with Thread still `detached` until plan 06. Administrator vendor metadata
@@ -154,7 +156,8 @@ are historical; the latest status/evidence section above takes precedence.
    allocator high-water, corrupt candidate refusal, abandoned-stage recovery and
    separate wrong-mode/corrupt-store tests pass. Service-level validation
    rejects corrupt staged credentials without changing the source tree; a crash
-   during atomic replacement remains to be tested.
+   during atomic replacement is simulated before rename by Rust commit
+   `8db4897`; post-rename durability remains untested.
 4. [ ] After plan 07 persists the node catalog, include it in backup/recovery
    tests and prove restart reaches the same node through fresh CASE.
 5. [ ] Prepare target filesystem checks for atomic replacement, fsync,
@@ -173,6 +176,21 @@ refusal, controlled activation, retention and cleanup. It distinguishes document
 instructions from executed recovery evidence. Quiesce stops Matter and native
 while leaving Ziggurat alive; removing the marker does not resume the existing
 supervisor. This behavior was checked in the actual launcher before documenting.
+
+## Pre-rename credential replacement crash checkpoint — 2026-10-05
+
+Rust commit `8db4897` adds a `PrivateStore` regression that first commits an
+identity, then leaves behind a complete owner-only replacement envelope after
+`write_all`/`sync_all` but before rename, matching the filesystem state of a
+process crash at that boundary. Reopening ignores the orphan stage and reads
+the prior committed identity; a later update and second restart preserve that
+identity while committing the new counter.
+
+The focused test and all 72 controller-service library tests pass with local
+Unix socket permission. This verifies pre-rename process-crash recovery on the
+host filesystem. It does not simulate power loss or prove the durability of a
+rename followed by directory `fsync`; those checks and target filesystem
+semantics remain open in plan 08.
 
 No credentials or gateway state were read/exported/restored. The shell template
 and relative links were checked locally. Archive preflight/staging automation,
