@@ -481,7 +481,7 @@ bool Gateway::reconcileMatterDevices(const std::vector<MatterEndpoint>& endpoint
             if (error) *error = "invalid Matter endpoint snapshot";
             return false;
         }
-        const unsigned int supported[] = {6, 8, 91, 1026, 1029, 1037, 1066};
+        const unsigned int supported[] = {6, 8, 69, 91, 1026, 1029, 1037, 1066};
         bool userFacing = false;
         for (unsigned int cluster = 0; cluster < sizeof(supported) / sizeof(supported[0]); ++cluster)
             userFacing = userFacing || std::find(endpoint.servers.begin(), endpoint.servers.end(), supported[cluster]) != endpoint.servers.end();
@@ -502,8 +502,10 @@ bool Gateway::reconcileMatterDevices(const std::vector<MatterEndpoint>& endpoint
                           std::find(endpoint.servers.begin(), endpoint.servers.end(), 8U) != endpoint.servers.end();
         device.hasBrightness = device.hasLight;
         device.hasActor = std::find(endpoint.servers.begin(), endpoint.servers.end(), 6U) != endpoint.servers.end() && !device.hasLight;
+        device.hasContact = std::find(endpoint.servers.begin(), endpoint.servers.end(), 69U) != endpoint.servers.end();
         if (device.hasLight) device.kind = "light";
         else if (device.hasActor) { device.kind = "switch"; device.name = "Matter switch"; }
+        if (device.hasContact) { device.kind = "contact"; device.name = "Matter contact sensor"; }
         device.hasTemperature = std::find(endpoint.servers.begin(), endpoint.servers.end(), 1026U) != endpoint.servers.end();
         device.hasHumidity = std::find(endpoint.servers.begin(), endpoint.servers.end(), 1029U) != endpoint.servers.end();
         device.hasAirQuality = std::find(endpoint.servers.begin(), endpoint.servers.end(), 91U) != endpoint.servers.end();
@@ -545,6 +547,7 @@ bool Gateway::reconcileMatterDevices(const std::vector<MatterEndpoint>& endpoint
                 current.matterServers != fresh.matterServers || current.kind != fresh.kind ||
                 current.name != fresh.name || current.hasLight != fresh.hasLight ||
                 current.hasBrightness != fresh.hasBrightness || current.hasActor != fresh.hasActor ||
+                current.hasContact != fresh.hasContact ||
                 current.hasTemperature != fresh.hasTemperature || current.hasHumidity != fresh.hasHumidity ||
                 current.hasAirQuality != fresh.hasAirQuality || current.hasCo2 != fresh.hasCo2 ||
                 current.hasPm25 != fresh.hasPm25) persistentChanged = true;
@@ -552,6 +555,12 @@ bool Gateway::reconcileMatterDevices(const std::vector<MatterEndpoint>& endpoint
             fresh.lightKnown = current.lightKnown;
             fresh.actorOn = current.actorOn;
             fresh.actorKnown = current.actorKnown;
+            fresh.contactOpen = current.contactOpen;
+            fresh.contactKnown = current.contactKnown;
+            fresh.contactInitialAlertMinutes = current.contactInitialAlertMinutes;
+            fresh.contactReminderAlertMinutes = current.contactReminderAlertMinutes;
+            fresh.contactTriggerMode = current.contactTriggerMode;
+            fresh.contactTriggerCooldownSeconds = current.contactTriggerCooldownSeconds;
             fresh.brightnessPercent = current.brightnessPercent;
             fresh.brightnessKnown = current.brightnessKnown;
             fresh.temperatureCelsius = current.temperatureCelsius;
@@ -587,7 +596,7 @@ bool Gateway::applyMatterReading(const MatterReading& reading, std::string* erro
         if (error) *error = "invalid Matter reading identity";
         return false;
     }
-    if (reading.known && reading.cluster != 6 && reading.cluster != 91 &&
+    if (reading.known && reading.cluster != 6 && reading.cluster != 69 && reading.cluster != 91 &&
         (!std::isfinite(reading.numberValue) ||
          (reading.cluster == 8 && (reading.numberValue < 0 || reading.numberValue > 254)) ||
          (reading.cluster == 1026 && (reading.numberValue < -327.68 || reading.numberValue > 327.67)) ||
@@ -617,6 +626,9 @@ bool Gateway::applyMatterReading(const MatterReading& reading, std::string* erro
     if (reading.cluster == 6 && (device.hasLight || device.hasActor)) {
         if (device.hasLight) { device.lightOn = reading.booleanValue; device.lightKnown = true; }
         if (device.hasActor) { device.actorOn = reading.booleanValue; device.actorKnown = true; }
+    } else if (reading.cluster == 69 && device.hasContact) {
+        device.contactOpen = reading.booleanValue;
+        device.contactKnown = reading.known;
     } else if (reading.cluster == 8 && device.hasBrightness) {
         if (reading.known) {
             device.brightnessPercent = static_cast<int>((reading.numberValue * 100.0 + 127.0) / 254.0);
@@ -652,6 +664,9 @@ bool Gateway::applyMatterReading(const MatterReading& reading, std::string* erro
         if (reading.cluster == 6) {
             historyMetric = SensorHistory::Light;
             historyValue = reading.booleanValue ? "1" : "0";
+        } else if (reading.cluster == 69) {
+            historyMetric = SensorHistory::Contact;
+            historyValue = reading.booleanValue ? "1" : "0";
         } else if (reading.cluster == 8) {
             historyMetric = SensorHistory::Brightness;
             std::ostringstream value;
@@ -665,7 +680,7 @@ bool Gateway::applyMatterReading(const MatterReading& reading, std::string* erro
             historyValue = reading.textValue;
         } else if (reading.cluster == 1037) historyMetric = SensorHistory::CarbonDioxide;
         else if (reading.cluster == 1066) historyMetric = SensorHistory::Pm25;
-        if (historyMetric != SensorHistory::Light && historyMetric != SensorHistory::AirQuality &&
+        if (historyMetric != SensorHistory::Light && historyMetric != SensorHistory::Contact && historyMetric != SensorHistory::AirQuality &&
             historyMetric != SensorHistory::Brightness) {
             std::ostringstream value;
             value << std::setprecision(15) << reading.numberValue;
@@ -674,10 +689,15 @@ bool Gateway::applyMatterReading(const MatterReading& reading, std::string* erro
         }
         if (historyMetric != 0) history_.appendValue(device.externalId, historyMetric, historyValue, historyUnit, time(0));
     }
+    if (reading.cluster == 69 && reading.known &&
+        (!before.contactKnown || before.contactOpen != device.contactOpen)) {
+        updateContactAlert(device.ieeeAddress, before.contactOpen, before.contactKnown);
+    }
     updateValueAlerts(device, before);
     markViewDirty();
     bool volatileChanged = before.lightKnown != device.lightKnown || before.lightOn != device.lightOn ||
         before.actorKnown != device.actorKnown || before.actorOn != device.actorOn ||
+        before.contactKnown != device.contactKnown || before.contactOpen != device.contactOpen ||
         before.brightnessKnown != device.brightnessKnown || before.brightnessPercent != device.brightnessPercent ||
         before.temperatureKnown != device.temperatureKnown || before.temperatureCelsius != device.temperatureCelsius ||
         before.humidityKnown != device.humidityKnown || before.humidityPercent != device.humidityPercent ||

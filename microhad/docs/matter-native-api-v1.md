@@ -110,11 +110,11 @@ contract. `node` is a 16-character lowercase hexadecimal Matter node ID;
 `endpoint` is 0–65534. Reads accept attribute 0 for OnOff (cluster 6), CurrentLevel
 (cluster 8), Air Quality (91), Temperature Measurement (1026), Relative Humidity
 Measurement (1029), CO2 Concentration Measurement (1037), and PM2.5 Concentration
-Measurement (1066). Sensor replies use tagged `measurement` values with unit and
+Measurement (1066). Boolean State (69) reads return a typed boolean and map
+into shared contact device state. Sensor replies use tagged `measurement` values with unit and
 quality fields or tagged `air_quality` values; null values carry `unknown`
 quality. Native validation rejects units or value ranges that do not match the
-cluster. These sensor reads are transport support and are not yet wired into the
-shared Zigbee/Matter/Shelly device model or dashboard.
+cluster. Sensor reads map into the shared Zigbee/Matter/Shelly device model and dashboard.
 
 The command route accepts `on`, `off`, `toggle`, or
 `move_to_level`. Level commands require `level` in 0–254 and

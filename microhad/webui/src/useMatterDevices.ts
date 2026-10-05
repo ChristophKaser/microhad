@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Device } from './api'
 import { errorMessage } from './api'
-import { matterAvailability, matterDeviceModel, matterDevicePage, matterLevel, matterOnOff, matterSensor } from './matter'
+import { matterAvailability, matterContact, matterDeviceModel, matterDevicePage, matterLevel, matterOnOff, matterSensor } from './matter'
 import type { MatterDevice, MatterDeviceState } from './matter'
 
-const readClusters = [6, 8, 1026, 1029, 1037, 1066, 91]
+const readClusters = [6, 8, 69, 1026, 1029, 1037, 1066, 91]
 
 export function useMatterDevices() {
   const [devices, setDevices] = useState<Device[]>([])
@@ -130,6 +130,7 @@ export function useMatterDevices() {
       for (const cluster of readClusters) {
         if (!device.matter_servers?.includes(cluster)) continue
         if (cluster === 6) update.power = await matterOnOff(device.matter_node, device.matter_endpoint, 'read', signal)
+        else if (cluster === 69) update.contact = await matterContact(device.matter_node, device.matter_endpoint, signal)
         else if (cluster === 8) update.level = await matterLevel(device.matter_node, device.matter_endpoint, { kind: 'read' }, signal)
         else {
           const reading = await matterSensor(device.matter_node, device.matter_endpoint, cluster, signal)

@@ -196,7 +196,8 @@ bool measurementValueValid(const std::string& text, uint32_t cluster) {
 }
 bool typedValueValid(const Fields& result, Fields value) {
     const std::string& clusterName = result.find("cluster")->second;
-    if (clusterName == "6") return value.size() == 2 && value["type"] == "\"bool\"" && booleanField(value, "value");
+    if (clusterName == "6" || clusterName == "69")
+        return value.size() == 2 && value["type"] == "\"bool\"" && booleanField(value, "value");
     if (clusterName == "8") return value.size() == 2 && value["type"] == "\"u8\"" &&
         (value["value"] == "null" || number(value["value"], 0, 254));
     uint32_t cluster = 0;
@@ -317,7 +318,7 @@ bool requestValid(unsigned char opcode, const std::string& text) {
         if (fields["action"] == "\"read\"") return fields.size() == 6 &&
             hex(fields["node"], 16, 16) && fields["node"] > "\"0000000000000001\"" &&
             number(fields["endpoint"], 0, 65534) &&
-            (fields["cluster"] == "6" || fields["cluster"] == "8" || fields["cluster"] == "91" ||
+            (fields["cluster"] == "6" || fields["cluster"] == "8" || fields["cluster"] == "69" || fields["cluster"] == "91" ||
              fields["cluster"] == "1026" || fields["cluster"] == "1029" ||
              fields["cluster"] == "1037" || fields["cluster"] == "1066") && fields["attribute"] == "0";
         if (fields["action"] == "\"job\"") return fields.size() == 3 &&
@@ -369,6 +370,7 @@ bool matterReadingFromReport(const Fields& data, MatterReading* reading) {
     const std::string& clusterText = data.find("cluster")->second;
     uint32_t cluster = 0;
     if (number(clusterText, 6, 6)) cluster = 6;
+    else if (number(clusterText, 69, 69)) cluster = 69;
     else if (number(clusterText, 8, 8)) cluster = 8;
     else if (number(clusterText, 91, 91)) cluster = 91;
     else if (number(clusterText, 1026, 1026)) cluster = 1026;
@@ -384,7 +386,7 @@ bool matterReadingFromReport(const Fields& data, MatterReading* reading) {
     parsed.node = data.find("node")->second.substr(1, 16);
     parsed.endpoint = static_cast<unsigned short>(strtoul(data.find("endpoint")->second.c_str(), 0, 10));
     parsed.cluster = cluster;
-    if (cluster == 6) {
+    if (cluster == 6 || cluster == 69) {
         if (value["type"] != "\"bool\"" || (value["value"] != "true" && value["value"] != "false")) return false;
         parsed.known = true;
         parsed.booleanValue = value["value"] == "true";
@@ -735,7 +737,7 @@ bool MatterChannel::deviceReadRequest(const std::string& input, std::string* bod
     if (input.size() > MatterWire::MaxPayload || !StatusJson(input).parse(&fields) || fields.size() != 4 ||
         !hex(fields["node"], 16, 16) || fields["node"] <= "\"0000000000000001\"" ||
         !number(fields["endpoint"], 0, 65534) ||
-        (fields["cluster"] != "6" && fields["cluster"] != "8" && fields["cluster"] != "91" &&
+        (fields["cluster"] != "6" && fields["cluster"] != "8" && fields["cluster"] != "69" && fields["cluster"] != "91" &&
          fields["cluster"] != "1026" && fields["cluster"] != "1029" &&
          fields["cluster"] != "1037" && fields["cluster"] != "1066") || fields["attribute"] != "0") return false;
     *body = "{\"schema\":1,\"action\":\"read\",\"node\":" + fields["node"] +
@@ -802,7 +804,7 @@ bool MatterChannel::deviceResult(const std::string& response, const std::string&
     parsed.node = result["node"].substr(1, result["node"].size() - 2);
     parsed.endpoint = static_cast<unsigned short>(strtoul(result["endpoint"].c_str(), 0, 10));
     parsed.cluster = static_cast<unsigned int>(strtoul(result["cluster"].c_str(), 0, 10));
-    if (parsed.cluster == 6) {
+    if (parsed.cluster == 6 || parsed.cluster == 69) {
         parsed.known = true;
         parsed.booleanValue = value["value"] == "true";
     } else if (parsed.cluster == 8) {

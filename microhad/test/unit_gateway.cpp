@@ -85,6 +85,7 @@ public:
         endpoint.servers.push_back(29);
         endpoint.servers.push_back(1026);
         endpoint.servers.push_back(1037);
+        endpoint.servers.push_back(69);
         std::vector<MatterEndpoint> endpoints(1, endpoint);
         std::string error;
         assert(gateway.reconcileMatterDevices(endpoints, &error));
@@ -94,6 +95,15 @@ public:
         assert(matterStatus.find("\"matter_node\":\"0000000000000002\",\"matter_endpoint\":1") !=
                std::string::npos);
         assert(matterStatus.find("\"has_co2\":true,\"co2_known\":false") != std::string::npos);
+        assert(matterStatus.find("\"has_contact\":true") != std::string::npos);
+        MatterReading contact;
+        contact.node = endpoint.node;
+        contact.endpoint = endpoint.endpoint;
+        contact.cluster = 69;
+        contact.known = true;
+        contact.booleanValue = true;
+        assert(gateway.applyMatterReading(contact, &error));
+        assert(gateway.statusJson().find("\"contact_known\":true,\"contact_open\":true") != std::string::npos);
         MatterReading co2;
         co2.node = endpoint.node;
         co2.endpoint = endpoint.endpoint;

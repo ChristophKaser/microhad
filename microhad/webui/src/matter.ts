@@ -7,7 +7,7 @@ const states = ['waiting_ble', 'pase', 'provisioning', 'waiting_thread', 'case',
 const errors = ['malformed', 'unsupported', 'not_ready', 'busy', 'stale_session', 'stale_generation', 'stale_revision', 'not_found', 'timeout', 'cancelled', 'transport', 'storage', 'capacity', 'accessory', 'protocol', 'disabled']
 export type MatterDevice = { node: string; state: 'complete' | 'recovery_required' | 'commissioning'; online: boolean; id: string | null; endpoint: number | null; servers: number[] }
 export type MatterDevicePage = { revision: string; devices: MatterDevice[]; next_cursor: number | null }
-export type MatterDeviceState = { power?: boolean; level?: number | null; measurements?: Record<string, MatterMeasurement | string> }
+export type MatterDeviceState = { power?: boolean; level?: number | null; contact?: boolean; measurements?: Record<string, MatterMeasurement | string> }
 export class MatterError extends Error { constructor(code: string) { super(errors.includes(code) ? code : 'protocol') } }
 function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new MatterError('protocol')
@@ -176,7 +176,7 @@ export async function matterDevicePage(cursor: number, revision: string | undefi
 export function matterDeviceModel(endpoint: MatterDevice, state: MatterDeviceState = {}, controllerAvailable = true): Device | null {
   if (endpoint.id === null || endpoint.endpoint === null) return null
   const servers = endpoint.servers
-  if (![6, 8, 91, 1026, 1029, 1037, 1066].some(cluster => servers.includes(cluster))) return null
+  if (![6, 8, 69, 91, 1026, 1029, 1037, 1066].some(cluster => servers.includes(cluster))) return null
   const measurements: Record<string, { value: number | string | null; unit: string; quality: 'measured' | 'unknown' }> = {}
   for (const [cluster, measurement] of Object.entries(state.measurements ?? {})) {
     measurements[cluster] = typeof measurement === 'string'
@@ -195,12 +195,13 @@ export function matterDeviceModel(endpoint: MatterDevice, state: MatterDeviceSta
   const hasLevel = servers.includes(8)
   const isLight = hasOnOff && hasLevel
   const hasActor = hasOnOff && !hasLevel
+  const hasContact = servers.includes(69)
   const suffix = `${endpoint.node.slice(-4)} · ${endpoint.endpoint}`
   return {
     id: endpoint.id, source: 'matter', component: 'endpoint', external_id: endpoint.id, ieee_address: '',
-    name: `${isLight ? 'Matter light' : hasActor ? 'Matter switch' : 'Matter device'} ${suffix}`,
-    kind: isLight ? 'light' : hasActor ? 'switch' : 'Matter device',
-    has_contact: false, contact_known: false, contact_open: false,
+    name: `${hasContact ? 'Matter contact sensor' : isLight ? 'Matter light' : hasActor ? 'Matter switch' : 'Matter device'} ${suffix}`,
+    kind: hasContact ? 'contact' : isLight ? 'light' : hasActor ? 'switch' : 'Matter device',
+    has_contact: hasContact, contact_known: typeof state.contact === 'boolean', contact_open: state.contact ?? false,
     has_temperature: servers.includes(1026), temperature_known: temperature?.quality === 'measured' && typeof temperature.value === 'number',
     temperature_celsius: typeof temperature?.value === 'number' ? temperature.value : 0,
     has_humidity: servers.includes(1029), humidity_known: humidity?.quality === 'measured' && typeof humidity.value === 'number',
@@ -243,6 +244,16 @@ export async function matterOnOff(node: string, endpoint: number, action: 'read'
   if (Object.keys(result).length !== 5 || result.node !== node || result.endpoint !== endpoint || result.cluster !== 6 || result.attribute !== 0) {
     throw new MatterError('protocol')
   }
+  const value = object(result.value)
+  if (Object.keys(value).length !== 2 || value.type !== 'bool' || typeof value.value !== 'boolean') throw new MatterError('protocol')
+  return value.value
+}
+
+export async function matterContact(node: string, endpoint: number, signal: AbortSignal): Promise<boolean> {
+  const data = object(await matterCall('/api/matter/devices/read', { node, endpoint, cluster: 69, attribute: 0 }, signal))
+  if (Object.keys(data).length !== 3 || data.state !== 'complete' || typeof data.job !== 'string' || !/^[0-9a-f]{16}$/.test(data.job)) throw new MatterError('protocol')
+  const result = object(data.result)
+  if (Object.keys(result).length !== 5 || result.node !== node || result.endpoint !== endpoint || result.cluster !== 69 || result.attribute !== 0) throw new MatterError('protocol')
   const value = object(result.value)
   if (Object.keys(value).length !== 2 || value.type !== 'bool' || typeof value.value !== 'boolean') throw new MatterError('protocol')
   return value.value

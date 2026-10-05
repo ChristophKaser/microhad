@@ -211,6 +211,15 @@ test('OnOff reads and commands return only typed confirmed CASE values', async (
   });
 });
 
+test('Boolean State reads return typed contact values', async () => {
+  await peer(call => call.method === 'POST' ? { body: accepted } : { body: completed({ state: 'complete',
+    job: '0000000000000001', result: { node: '0000000000000002', endpoint: 1, cluster: 69, attribute: 0,
+      value: { type: 'bool', value: true } } }) }, async calls => {
+    assert.equal(await wire.matterContact('0000000000000002', 1, signal()), true);
+    assert.deepEqual(calls[0].body, { schema: 1, node: '0000000000000002', endpoint: 1, cluster: 69, attribute: 0 });
+  });
+});
+
 test('unsupported or malformed device commands never reach the gateway', async () => {
   await peer(() => ({ body: accepted }), async calls => {
     await assert.rejects(wire.matterCall('/api/matter/devices/read', { node: id, endpoint: 1, cluster: 9, attribute: 0 }, signal()), /malformed/);
@@ -283,6 +292,11 @@ test('Matter endpoint adapter creates the shared device shape and drops descript
   assert.equal(device.has_temperature, true);
   assert.equal(device.temperature_known, false);
   assert.equal(device.brightness_known, false);
+  const contact = wire.matterDeviceModel({ ...endpoint, servers: [29, 69] }, { contact: true });
+  assert.equal(contact.kind, 'contact');
+  assert.equal(contact.has_contact, true);
+  assert.equal(contact.contact_known, true);
+  assert.equal(contact.contact_open, true);
   const measured = wire.matterDeviceModel({ ...endpoint, servers: [6, 8, 29, 91, 1026, 1029, 1037, 1066] }, {
     measurements: {
       91: 'moderate', 1026: { value: 21.5, unit: 'celsius', quality: 'measured' },

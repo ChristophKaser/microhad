@@ -1,5 +1,15 @@
 # Plan: Matter device model and reports
 
+## Boolean State contact sensor model — 2026-10-06
+
+Matter endpoints advertising Boolean State (cluster 69) are retained as
+shared contact devices. Typed attribute reads and subscription reports decode
+the state as a boolean, update native contact state/history and existing alert
+behavior, and refresh the shared dashboard contact card. This closes a concrete
+device-model gap for contact-only accessories. No physical Matter accessory is
+available, so CASE interoperability and vendor state polarity remain part of
+plan 08 acceptance.
+
 ## Separate daemon report-process integration — 2026-10-05
 
 The composed native report integration was rerun successfully with
