@@ -117,6 +117,18 @@ impl Catalog {
             self.fabric
         ))
     }
+    /// Promote an interrupted commissioning record only after its peer has
+    /// answered authenticated operational CASE discovery.
+    pub(crate) fn recover_complete(&self, id: u64) -> Result<(), Error> {
+        let mut nodes = self.nodes.borrow().clone();
+        let node = nodes.iter_mut().find(|node| node.id == id).ok_or_else(invalid)?;
+        match node.phase {
+            Phase::Complete => return Ok(()),
+            Phase::RecoveryRequired => node.phase = Phase::Complete,
+            _ => return Err(invalid()),
+        }
+        self.commit(nodes)
+    }
     pub fn reserve(&self, id: u64) -> Result<Reservation, Error> {
         if self.fatal() {
             return Err(ErrorCode::Failure.into());
@@ -306,6 +318,22 @@ mod tests {
             std::fs::read(directory.0.join("credentials.bin")).unwrap(),
             before
         );
+    }
+    #[test]
+    fn case_recovery_promotes_only_an_interrupted_entry_and_persists_it() {
+        let directory = Directory::new();
+        let store = directory.store();
+        let catalog = Catalog::open(store.clone(), 17, 2).unwrap();
+        drop(catalog.reserve(2).unwrap());
+        assert!(catalog.nodes()[0].phase == Phase::RecoveryRequired);
+        catalog.recover_complete(2).unwrap();
+        catalog.recover_complete(2).unwrap();
+        assert!(catalog.nodes()[0].phase == Phase::Complete);
+        assert!(catalog.recover_complete(3).is_err());
+        drop(catalog);
+        drop(store);
+        let reopened = Catalog::open(directory.store(), 17, 3).unwrap();
+        assert!(reopened.nodes()[0].phase == Phase::Complete);
     }
     #[test]
     fn capacity_is_bounded_and_completion_cannot_skip_case() {

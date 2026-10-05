@@ -745,6 +745,16 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             if let Some(result) = result {
                 let node = *node;
                 self.work = None;
+                let recovery_required = self.catalog.nodes().iter().any(|entry| {
+                    entry.id == node && entry.phase == Phase::RecoveryRequired
+                });
+                let result = match result {
+                    Ok(endpoints) if recovery_required => self
+                        .catalog
+                        .recover_complete(node)
+                        .map(|()| endpoints),
+                    result => result,
+                };
                 let snapshot = self.snapshots.iter_mut().find(|s| s.node == node).unwrap();
                 let visible_changed = match &result {
                     Ok(endpoints) => !snapshot.online || snapshot.endpoints != *endpoints,
@@ -777,7 +787,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             .catalog
             .nodes()
             .into_iter()
-            .filter(|n| n.phase == Phase::Complete)
+            .filter(|n| matches!(n.phase, Phase::Complete | Phase::RecoveryRequired))
         {
             if !self.snapshots.iter().any(|s| s.node == node.id) {
                 self.snapshots.push(Snapshot {
@@ -1263,7 +1273,7 @@ mod tests {
         manager.poll(true, true, now, &mut context);
         assert!(manager.work.is_none());
         manager.poll(true, false, now, &mut context);
-        assert_eq!(manager.snapshots.len(), 2); // incomplete node is not silently trusted
+        assert_eq!(manager.snapshots.len(), 3); // recovery nodes are retried, not discarded
         assert_eq!(manager.work.as_ref().unwrap().0, 2);
         manager.work = Some((
             2,

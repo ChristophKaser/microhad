@@ -616,6 +616,37 @@ async fn run(
         println!("PASS bounded operational descriptor endpoint and cluster discovery over CASE");
         if service_owner {
             let persisted = Identity::open(&active_store, ctrl_crypto, ADMIN_VENDOR_ID)?;
+            if sensor_reports {
+                // Emulate a crash after the accessory installed its NOC but
+                // before the commissioning completion checkpoint was saved.
+                let mut record = [0u8; 18 + lexra_rs_matter_probe::catalog::MAX_NODES * 9];
+                let size = active_store
+                    .get(lexra_rs_matter_probe::catalog::CATALOG_KEY, &mut record)
+                    .map_err(|_| rs_matter::error::ErrorCode::Failure)?
+                    .ok_or(rs_matter::error::ErrorCode::InvalidData)?;
+                if size < 27 || &record[..8] != b"TMNC\x01\0\0\0" {
+                    return Err(rs_matter::error::ErrorCode::InvalidData.into());
+                }
+                let count = usize::from(u16::from_le_bytes([record[16], record[17]]));
+                if size != 18 + count * 9 || count > lexra_rs_matter_probe::catalog::MAX_NODES {
+                    return Err(rs_matter::error::ErrorCode::InvalidData.into());
+                }
+                let entry_index = record[18..size]
+                    .chunks_exact(9)
+                    .position(|entry| u64::from_le_bytes(entry[..8].try_into().unwrap()) == node)
+                    .ok_or(rs_matter::error::ErrorCode::InvalidData)?;
+                if record[18 + entry_index * 9 + 8]
+                    != lexra_rs_matter_probe::catalog::Phase::Complete as u8
+                {
+                    return Err(rs_matter::error::ErrorCode::InvalidData.into());
+                }
+                let phase_offset = 18 + entry_index * 9 + 8;
+                record[phase_offset] =
+                    lexra_rs_matter_probe::catalog::Phase::RecoveryRequired as u8;
+                active_store
+                    .set(lexra_rs_matter_probe::catalog::CATALOG_KEY, Some(&record[..size]))
+                    .map_err(|_| rs_matter::error::ErrorCode::Failure)?;
+            }
             let catalog = lexra_rs_matter_probe::catalog::Catalog::open(
                 active_store.clone(),
                 persisted.fabric_id(),
@@ -625,7 +656,7 @@ async fn run(
                 ctrl_matter,
                 &ctrl_crypto,
                 fab,
-                catalog,
+                catalog.clone(),
                 if sensor_reports { 7 } else { 1 },
             )
             .map_err(|_| rs_matter::error::ErrorCode::Failure)?;
@@ -644,6 +675,16 @@ async fn run(
                 })
                 .await;
                 assert_eq!(manager.snapshots()[0].endpoints, endpoints);
+                if sensor_reports && attempt == 0 {
+                    assert!(catalog
+                        .nodes()
+                        .iter()
+                        .any(|entry| entry.id == node
+                            && entry.phase == lexra_rs_matter_probe::catalog::Phase::Complete));
+                    println!(
+                        "PASS recovery-required catalog node reconciled after live CASE descriptor discovery"
+                    );
+                }
                 if attempt == 0 {
                     let waker = std::task::Waker::noop();
                     let mut context = std::task::Context::from_waker(waker);
