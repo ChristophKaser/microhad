@@ -322,7 +322,7 @@ mod tests {
     }
     #[test]
     fn lit_advertisement_is_preserved_and_malformed_modes_are_rejected() {
-        let parsed = parse_txt(b"\x05ICD=1\x07SII=300000").unwrap();
+        let parsed = parse_txt(b"\x05ICD=1\x0aSII=300000").unwrap();
         assert_eq!(
             parsed,
             vec![("ICD".into(), "1".into()), ("SII".into(), "300000".into())]
