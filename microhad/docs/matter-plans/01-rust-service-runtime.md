@@ -1,5 +1,21 @@
 # Plan: Rust Matter service runtime
 
+## Rust service test storage checkpoint — 2026-10-05
+
+Compilation repository commit `48a5dbc` disables Cargo incremental artifacts
+for the pinned Rust project and directs its default target directory to ignored
+`build/rs-matter/target/`. The service-library test command is now explicit in
+`ziggurat-compilation/docs/matter-sensors.md`. This addresses host disk growth
+during the controller-service test workflow; it changes no service runtime or
+deployment behavior.
+
+Validation passed with `cargo +nightly-2026-10-02 test --locked
+--manifest-path rs-matter-probe/Cargo.toml --features controller-service
+--lib`: 81/81 tests. The sandbox attempt could not create Unix sockets
+(`EPERM`); the same command passed outside the sandbox. Step 7 remains partial:
+the installed daemon's own active CASE report path and device/target acceptance
+remain open.
+
 ## Synthetic ICD gateway resource profile — 2026-10-05
 
 Rust commit `6a5c430` implements the receive path measured below.
