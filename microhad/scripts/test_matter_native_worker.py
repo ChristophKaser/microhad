@@ -41,6 +41,7 @@ class MatterPeer:
         self.malformed_next_event = False
         self.malformed_next_reply = False
         self.wrong_next_reply_id = False
+        self.stall_next_status = False
         self.saturate_next_event_queue = False
         self.onoff = False
         self.level = 0
@@ -202,6 +203,10 @@ class MatterPeer:
                         else:
                             assert opcode == 2 and not body
                             result = thread
+                        if opcode in (1, 2) and self.stall_next_status:
+                            self.stall_next_status = False
+                            time.sleep(2.5)
+                            break
                         payload = json.dumps(result).encode()
                         if self.malformed_next_reply:
                             self.malformed_next_reply = False
@@ -710,6 +715,11 @@ def main():
             # as a channel protocol failure, followed by a fresh connection.
             matter.wrong_next_reply_id = True
             wait_for(matter_unavailable)
+            wait_for(lambda: fixture.request('/api/matter/status')['state'] == 'running')
+            # A status peer that accepts IPC but withholds its reply must
+            # expire the worker cache and recover over a fresh connection.
+            matter.stall_next_status = True
+            wait_for(matter_unavailable, timeout=6)
             wait_for(lambda: fixture.request('/api/matter/status')['state'] == 'running')
         device_snapshot_http(fixture, real)
         if not real:
