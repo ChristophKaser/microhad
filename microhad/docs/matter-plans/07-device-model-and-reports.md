@@ -1,5 +1,17 @@
 # Plan: Matter device model and reports
 
+## Separate daemon report-process integration — 2026-10-05
+
+The composed native report integration was rerun successfully with
+`python3 scripts/test_matter_native_report_integration.py`. A live CASE
+commissioning fixture delivered temperature, humidity, Air Quality, CO2 and
+PM2.5 reports to native state/history. A second, separate host
+`thread-matter` process then sent the same five report shapes from its Manager
+queue through the daemon IPC publisher to that native gateway device and
+history. The second leg uses a host-only test-seeded queue; live CASE receive
+inside the separate daemon remains open. See the runtime plan for scope and
+limitations. No MIPS or physical gateway workload was run.
+
 ## Sessionless LIT Check-In and wake dispatch — 2026-10-05
 
 Rust commit `6a5c430` implements the pinned-source transport handoff and key

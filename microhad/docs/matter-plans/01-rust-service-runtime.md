@@ -1,5 +1,23 @@
 # Plan: Rust Matter service runtime
 
+## Composed daemon-to-native report rerun — 2026-10-05
+
+`python3 scripts/test_matter_native_report_integration.py` passed outside the
+sandbox. Its first stage received real encrypted CASE sensor `ReportData` in
+the production Manager fixture and verified all five values through native
+status/history. Its second stage ran the separate host `thread-matter` test
+service beside the native host gateway; the daemon's test-seeded Manager queue
+published all five values through its IPC loop into the same device/history
+path. The native report-before-snapshot buffering and online reconciliation
+were exercised in the first stage.
+
+This confirms the process boundary and daemon publisher path. The daemon's
+Manager queue was seeded by a host-only test hook, so this is not evidence that
+the separate daemon itself received CASE `ReportData`. No MIPS service or
+gateway workload was run. The remaining runtime deployment gate is to drive
+the daemon's own CASE receive loop from a separate synthetic accessory; physical
+acceptance remains excluded in plan 08.
+
 ## Rust service test storage checkpoint — 2026-10-05
 
 Compilation repository commit `48a5dbc` disables Cargo incremental artifacts
