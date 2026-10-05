@@ -8,7 +8,8 @@ umask 077
 control=${RUNTIME_CONTROL:-/tmp/ziggurat-supervisor}
 socket_path=${ZIGGURAT_SOCKET:-/tmp/ziggurat/native.sock}
 device=${ZIGGURAT_DEVICE:-/dev/ttyS1}
-zig_log=${ZIGGURAT_LOG:-/tmp/ziggurat.log}
+zig_log=${ZIGGURAT_LOG:-/dev/null}
+zig_log_level=${ZIGGURAT_LOG_LEVEL:-error}
 seed_helper=${RNG_SEED_HELPER:-/tuya/native/rng-seed}
 seed_file=${RNG_SEED_FILE:-/tuya/native/ziggurat-rng.seed}
 seed_log=${RNG_SEED_LOG:-/tmp/ziggurat-rng-seed.log}
@@ -86,7 +87,7 @@ start_zig() {
         set -- --thread-socket "$thread_socket"
     fi
     "$ZIGGURAT_BIN" --device "$device" --baudrate 460800 --flow-control hardware \
-        --spinel-iid 1 --api cobs-unix --listen "unix:$socket_path" --log-level info "$@" >>"$zig_log" 2>&1 &
+        --spinel-iid 1 --api cobs-unix --listen "unix:$socket_path" --log-level "$zig_log_level" "$@" >>"$zig_log" 2>&1 &
     zig_pid=$!;printf '%s\n' "$zig_pid" > "$control/ziggurat.pid"
     deadline=$(($(date +%s)+startup_limit))
     while [ "$(date +%s)" -lt "$deadline" ]; do

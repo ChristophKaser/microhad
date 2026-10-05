@@ -163,10 +163,11 @@ make rng-seed
   --rng-seed-only --rng-seed-helper build/rng-seed
 ```
 
-The supervisor writes seed-helper diagnostics to `/tmp/ziggurat-rng-seed.log`
-and Ziggurat startup tracing to `/tmp/ziggurat.log`. Both are RAM-backed. A
-deployment does not restart the active supervisor; the restore and delayed save
-take effect on its next start.
+The supervisor writes seed-helper diagnostics to `/tmp/ziggurat-rng-seed.log`.
+Ziggurat logging defaults to `error` with output discarded. For a diagnostic
+start, set `ZIGGURAT_LOG_LEVEL=info` and `ZIGGURAT_LOG=/tmp/ziggurat.log` in
+`ziggurat_start.sh`; both values are configurable. A deployment does not restart
+the active supervisor, so changes take effect on its next start.
 Stale control directories are refused and require PID inspection before cleanup.
 SIGTERM to the supervisor is bounded emergency shutdown, not an orderly rollback.
 
