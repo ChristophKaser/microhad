@@ -432,6 +432,17 @@ to a 2,678,504-byte MIPS binary; host release timing was 129 μs per packet over
 not fit in flash while preserving reserve and would consume nearly all free RAM
 if copied to temporary storage. The running service remains untouched.
 
+## Live resource recheck — 2026-10-06
+
+Read-only SSH observations confirmed `/tuya` has 2,268 KiB available. The
+gateway reports 27,892 KiB total RAM and 2,952 KiB raw `MemFree`; active
+`ziggurat`, `gateway-main`/`matter-ipc`, and `thread-matter` processes remain
+present, with RSS values of 1,992, 1,696, and 1,552 KiB respectively. The
+private Thread socket exists, and `/proc/uptime` advanced between observations.
+No files or processes were changed. This does not meet the 4,332 KiB
+executable-aware full-update requirement; keep staging and target profiling
+deferred until a planned maintenance window or additional safe flash headroom.
+
 ## Dependencies
 
 The existing bounded Rust/C++ frame format and status opcode assignments. The
