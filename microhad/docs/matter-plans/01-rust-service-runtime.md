@@ -2,16 +2,21 @@
 
 ## Current open work — 2026-10-05
 
-Host service/native round trips and the paired supervisor failure matrix pass.
+Host service/native round trips, the generic paired supervisor failure matrix,
+and attached-daemon-to-native report delivery pass. The daemon report fixture
+seeds decoded reports; the daemon's live CASE subscription path and supervisor
+restart after the specific Spinel failure remain open.
 Current factory MIPS builds for both binaries pass. Target runtime/resource
 evidence is partial: the service started on the gateway, but raw free RAM fell
 below the deployment gate and a reboot followed in the next status interval;
-the cause is unresolved. Report delivery from the installed daemon to a
-registered native device remains open.
+the cause is unresolved. No further target workload is planned until reset
+investigation permits it.
 
-Next deliverable: Investigate the gateway reset and improve raw free-RAM headroom
-before any further target workload. Continue host coverage for production-daemon
-report delivery. Full paired launch remains in excluded plan 08.
+Next deliverable: Verify the paired supervisor restarts the real service after
+the wire-level Spinel failure; then close the daemon live-report path from a
+wire-decoded CASE report through native state/history. Keep gateway reset
+investigation ahead of any further target workload. Full physical paired launch
+remains in excluded plan 08.
 
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.
@@ -68,7 +73,7 @@ native status routes report its actual state over `/tmp/microhad-matter.sock`.
 | 4 | Complete | Four clients, four accepts per turn, 4096-byte read/write budgets, eight queued replies, two-second idle expiry; malformed/overload/idle checks passed. |
 | 5 | Complete | Empty requests for opcodes 1/2 return bounded JSON; synthetic host reports `running` with its persistent fabric and Thread `detached`, without credentials. |
 | 6 | Partial | Matter/Thread/IPC pumps and SIGTERM/SIGINT shutdown implemented. Supervisor retries failures with backoff and stops/restarts Matter on coordinator loss; complete dataset/radio reconnection remains in plan 06. |
-| 7 | Partial | Current Matter-enabled native/Rust factory builds are static big-endian MIPS-I ELF32 files: 1,736,548-byte native bridge and 2,109,120-byte Rust service. Rust/OpenThread ABI flags are aligned (`4c02d8a`); host suites and process tests pass. Target execution, peak runtime resources and full production-daemon report delivery remain unverified. |
+| 7 | Partial | Current Matter-enabled native/Rust factory builds are static big-endian MIPS-I ELF32 files: 1,736,548-byte native bridge and 2,109,120-byte Rust service. Rust/OpenThread ABI flags are aligned (`4c02d8a`). The real service process's attached `Manager::poll()` to native IPC/device/history path passes with post-decode seeded reports; the daemon live CASE subscription path is open. Target resource evidence is limited to the isolated startup sample; full target runtime remains unverified. |
 | 8 | Complete | Runtime invocation, ownership, bounds and state paths documented in `ziggurat-compilation/docs/matter-service-runtime.md`; optional supervisor configuration, failure markers, retry budget and staging documented in `MATTER_INTEGRATION.md`. |
 
 This checkpoint supplies a running transport/status service and persistent
@@ -190,7 +195,9 @@ passed in 66.7 seconds.
 
 This closes the planned host failure/restart matrix for the paired supervisor
 and real-service/native lifecycle checkpoint. Production daemon report delivery
-into a registered Matter endpoint remains a host-fixture gap; target startup,
+into a registered Matter endpoint now passes for attached `Manager::poll()`
+events seeded after decoding; wire-decoded CASE reports inside the daemon remain
+open. Target startup,
 CPU, RSS, deadlines, physical commissioning and RF behavior remain exclusively
 in plan 08. No gateway deployment occurred.
 
