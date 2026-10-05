@@ -247,3 +247,15 @@ Matter use and service cutover still require the device startup/resource gate
 and completed production report delivery. The service dispatcher now accepts
 MoveToLevel through the manager; the composed test verifies bounded
 not-ready handling when the fixture has no attached accessory.
+
+## Authorized gateway simulation preflight — 2026-10-05
+
+The host attempted `python3 scripts/test-openthread-device.py --host
+192.168.178.62 --password-file ../ssh_password.txt --profile
+--profile-load-seconds 60` using the synthetic RCP path. The harness refused to
+stage or launch its test workload because MemFree was 2,980 KiB, below its
+3,072 KiB preflight requirement. It removed its unique temporary paths and
+confirmed production remained `online=true`, `network_formed=true`, and on the
+Ziggurat backend. A later read-only sample showed 2,960 KiB free. No CPU/RSS or
+deadline measurements were taken in this attempt; retry only when the existing
+preflight passes, without stopping the production service.
