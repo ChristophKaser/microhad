@@ -928,6 +928,8 @@ CASE descriptor discovery and requires the persisted catalog to return to
 --commissioning --ble --service-owner --service-discovery --sensor-reports`
 passes, including the existing commissioning, subscription, OnOff/Level and
 five-sensor-report checks. Controller-service library tests pass 74/74. The
+timeout regression in Rust commit `5b0eab9` verifies that missing/unresponsive
+peers stay offline and `recovery_required`; control remains unauthorized.
 production static MIPS-I service cross-build passes at 2,109,120 bytes; its
 SHA-256 is recorded in `ziggurat-compilation/docs/matter-service-runtime.md`.
 This does not test recovery on the physical gateway; the private device profile
