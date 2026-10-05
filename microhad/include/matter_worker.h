@@ -3,6 +3,7 @@
 
 #include "matter_client.h"
 #include "matter_websocket.h"
+#include <deque>
 #include <pthread.h>
 #include <map>
 
@@ -58,9 +59,12 @@ private:
     std::vector<MatterEndpoint> snapshotDevices_;
     std::string snapshotRevision_;
     long snapshotNextCursor_;
+    std::deque<MatterReading> deferredReadings_;
     uint32_t nextJob_;
     void unavailable();
     bool collectEvents();
+    void applyOrDeferReading(const MatterReading& reading);
+    void flushDeferredReadings();
     void executeJob();
     void pollOperationJob();
     pthread_mutex_t mutex_;

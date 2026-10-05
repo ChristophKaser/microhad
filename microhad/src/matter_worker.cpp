@@ -22,6 +22,11 @@ void wipe(std::string* value) {
     }
     value->clear();
 }
+bool sameReadingKey(const MatterReading& left, const MatterReading& right) {
+    return left.node == right.node && left.endpoint == right.endpoint &&
+        left.cluster == right.cluster;
+}
+const size_t MaxDeferredMatterReadings = 128;
 }
 
 MatterWorker::MatterWorker(GatewayRunner* gateway, const std::string& socketPath) :
@@ -57,6 +62,7 @@ void MatterWorker::stop() {
     pthread_mutex_lock(&mutex_);
     for (std::map<uint32_t, Job>::iterator it = jobs_.begin(); it != jobs_.end(); ++it) wipe(&it->second.body);
     jobs_.clear(); pending_.clear(); events_.clear();
+    deferredReadings_.clear();
     started_ = false; refreshed_ = 0; matterStatus_.clear(); threadStatus_.clear();
     pthread_mutex_unlock(&mutex_);
 }
@@ -149,10 +155,7 @@ bool MatterWorker::collectEvents() {
     while (client_.popEvent(&event)) {
         MatterReading reading;
         if (MatterChannel::deviceReportEvent(event, &reading)) {
-            if (gateway_) {
-                std::string ignored;
-                gateway_->applyMatterReading(reading, &ignored);
-            }
+            applyOrDeferReading(reading);
             continue;
         }
         pthread_mutex_lock(&mutex_);
@@ -162,6 +165,35 @@ bool MatterWorker::collectEvents() {
         if (full) { unavailable(); return false; }
     }
     return true;
+}
+
+void MatterWorker::applyOrDeferReading(const MatterReading& reading) {
+    if (!gateway_) return;
+    std::string error;
+    if (gateway_->applyMatterReading(reading, &error) || error != "Matter endpoint not found") return;
+    for (std::deque<MatterReading>::iterator it = deferredReadings_.begin();
+         it != deferredReadings_.end(); ++it) {
+        if (sameReadingKey(*it, reading)) {
+            *it = reading;
+            return;
+        }
+    }
+    if (deferredReadings_.size() == MaxDeferredMatterReadings) deferredReadings_.pop_front();
+    deferredReadings_.push_back(reading);
+}
+
+void MatterWorker::flushDeferredReadings() {
+    if (!gateway_) {
+        deferredReadings_.clear();
+        return;
+    }
+    for (std::deque<MatterReading>::iterator it = deferredReadings_.begin();
+         it != deferredReadings_.end();) {
+        std::string error;
+        if (gateway_->applyMatterReading(*it, &error) || error != "Matter endpoint not found")
+            it = deferredReadings_.erase(it);
+        else ++it;
+    }
 }
 void MatterWorker::executeJob() {
     pthread_mutex_lock(&mutex_);
@@ -212,7 +244,7 @@ void MatterWorker::executeJob() {
             pthread_mutex_unlock(&mutex_);
             if (finalPage) {
                 std::string ignored;
-                gateway_->reconcileMatterDevices(complete, &ignored);
+                if (gateway_->reconcileMatterDevices(complete, &ignored)) flushDeferredReadings();
             }
         }
     }

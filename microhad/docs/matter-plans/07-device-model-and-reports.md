@@ -58,7 +58,14 @@ CASE sensor reports through the production Manager and IPC event publisher
 into a registered native `Gateway::Device`; all five values are verified in
 `/api/status`. The fixture producer is the commissioning probe rather than the
 installed `thread-matter` daemon, so the daemon's own active subscription loop
-remains open. Native commit `e81af44` routes Matter
+remains open. The composed ordering regression now publishes reports before
+the initial endpoint snapshot and confirms all five readings in shared state
+and history afterward. The native worker buffers unmatched values in a
+128-reading bounded queue, coalescing by node/endpoint/cluster. A recent report
+also keeps online presence and its timestamp across a stale offline snapshot
+for up to 60 seconds. The joined test confirms the endpoint is online after
+reconciliation. These changes do not close the installed daemon's active
+wire-level CASE receive path. Native commit `e81af44` routes Matter
 temperature, humidity and brightness readings through the common value-alert
 engine and preserves alert configuration/state across snapshot refresh. Matter
 alert settings are restored across gateway restart and Matter snapshot
@@ -949,3 +956,22 @@ production static MIPS-I service cross-build passes at 2,109,120 bytes; its
 SHA-256 is recorded in `ziggurat-compilation/docs/matter-service-runtime.md`.
 This does not test recovery on the physical gateway; the private device profile
 has no real CASE peer and the production Zigbee/RCP owner remains untouched.
+
+## Reports arriving before endpoint registration — 2026-10-05
+
+The composed native integration now publishes the accessory's five subscribed,
+wire-decoded CASE reports before requesting the first native endpoint snapshot.
+The gateway has no Matter device immediately before that snapshot. Snapshot
+reconciliation then registers the endpoint and all five readings reach shared
+status and history, with `online=true`. The native worker now retains unmatched
+report values in a 128-entry queue, coalescing by node, endpoint and cluster;
+successful snapshot reconciliation flushes the queue. A report received in the
+last 60 seconds also keeps its online state and timestamp when an older offline
+snapshot reconciles. A focused Gateway unit regression covers that liveness
+rule. `make ZIGGURAT=1 MATTER=1 unit-test`, `make ZIGGURAT=1 MATTER=1 mips`,
+`make ZIGGURAT=1 MATTER=1 host`, and
+`python3 scripts/test_matter_native_report_integration.py` pass. The MIPS
+build emits the toolchain's existing LOAD-USE assembler warnings. This is host
+integration evidence using synthetic RCP/accessory traffic; no gateway binary
+was deployed. The separate daemon leg still injects test-only already-decoded
+`ReceivedReport` values; wire-decoded reports inside that daemon remain open.

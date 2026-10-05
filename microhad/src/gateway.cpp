@@ -538,6 +538,9 @@ bool Gateway::reconcileMatterDevices(const std::vector<MatterEndpoint>& endpoint
         } else {
             Device& current = existing->second;
             Device& fresh = it->second;
+            const time_t now = time(0);
+            const bool recentlyReported = current.online && current.lastSeen > 0 &&
+                now >= current.lastSeen && now - current.lastSeen <= 60;
             if (current.matterNode != fresh.matterNode || current.matterEndpoint != fresh.matterEndpoint ||
                 current.matterServers != fresh.matterServers || current.kind != fresh.kind ||
                 current.name != fresh.name || current.hasLight != fresh.hasLight ||
@@ -563,6 +566,10 @@ bool Gateway::reconcileMatterDevices(const std::vector<MatterEndpoint>& endpoint
             fresh.pm25MicrogramsM3 = current.pm25MicrogramsM3;
             fresh.pm25Unit = current.pm25Unit;
             fresh.pm25Known = current.pm25Known;
+            if (recentlyReported) {
+                fresh.online = true;
+                fresh.lastSeen = current.lastSeen;
+            }
             fresh.valueAlerts = current.valueAlerts;
             if (current.online != fresh.online || current.lastSeen != fresh.lastSeen ||
                 current.name != fresh.name || current.matterServers != fresh.matterServers) changed = true;

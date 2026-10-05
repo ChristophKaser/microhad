@@ -47,10 +47,14 @@ def main():
             state = directory / 'controller-state'
             ready = directory / 'native-ready'
             release = directory / 'native-release'
+            reports_sent = directory / 'native-reports-sent'
+            reports_ack = directory / 'native-reports-ack'
             env = os.environ.copy()
             env.update(MICROHAD_MATTER_TEST_STATE_DIR=str(state),
                        MICROHAD_MATTER_TEST_NATIVE_READY_FILE=str(ready),
                        MICROHAD_MATTER_TEST_NATIVE_RELEASE_FILE=str(release),
+                       MICROHAD_MATTER_TEST_NATIVE_REPORTS_SENT_FILE=str(reports_sent),
+                       MICROHAD_MATTER_TEST_NATIVE_REPORTS_ACK_FILE=str(reports_ack),
                        MICROHAD_MATTER_TEST_IPC_SOCKET='/tmp/microhad-matter.sock')
             probe = subprocess.Popen([
                 str(RUST_ROOT / 'build/rs-matter/target/release/ot-matter-commissioning-probe'),
@@ -72,6 +76,11 @@ def main():
             fixture.launch = launch
             fixture.setUp()
             assert fixture.status()['coordinator_backend'] == 'ziggurat'
+            release.touch()
+            wait_for(lambda: reports_sent.exists(), timeout=15)
+            assert not any(device.get('source') == 'matter' for device in fixture.status()['devices']), \
+                'CASE reports must arrive before the first native endpoint snapshot'
+            time.sleep(.1)
             accepted = fixture.request('/api/matter/devices/snapshot',
                                        json.dumps({'schema': 1, 'action': 'snapshot'}).encode())
             assert accepted['ok'] and accepted['state'] == 'queued', accepted
@@ -100,7 +109,7 @@ def main():
                 snapshot = wait_for(next_snapshot_complete)['response']
                 assert snapshot['ok'], snapshot
             assert any(item['endpoint'] == 1 for item in snapshot['result']['devices']), snapshot
-            release.touch()
+            reports_ack.touch()
 
             def reported_device():
                 for device in fixture.status()['devices']:
@@ -121,7 +130,7 @@ def main():
             except TimeoutError:
                 raise RuntimeError('Matter reports did not populate every advertised sensor: ' +
                                    json.dumps(fixture.status()['devices']))
-            assert device['online'], 'live CASE reports must confirm Matter device presence'
+            assert device['online'], 'live CASE reports must confirm Matter device presence: ' + json.dumps(device)
             values = device['sensor_values']
             external_id = urllib.parse.quote(device['external_id'], safe='')
             history = fixture.request('/api/devices/' + external_id + '/history')

@@ -525,3 +525,11 @@ to pause.
 A later two-minute read-only window advanced uptime from 403.33 to 525.97
 seconds over 12 samples while production remained online/formed. No reset
 occurred in that window; it is too short to rule out the earlier behavior.
+
+At 12:23 UTC, read-only checks found uptime advancing from 1,686.69 to
+1,716.06 seconds, with production online and formed. Current-boot `dmesg`
+showed normal initialization and no watchdog, reset, panic, OOM, brownout, or
+reboot-cause message. Since the ring buffer contains only the current boot, it
+does not reveal why earlier resets occurred. No reset occurred during this
+brief check; the cause remains unknown. See the detailed
+[resource-profile record](../../ziggurat-compilation/docs/openthread-resource-profile.md).

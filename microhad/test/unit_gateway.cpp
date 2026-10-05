@@ -108,9 +108,12 @@ public:
         assert(gateway.applyMatterReading(co2, &error));
         assert(gateway.statusJson().find("\"co2\":{\"value\":null,\"unit\":\"ppb\",\"quality\":\"unknown\"}") !=
                std::string::npos);
-        assert(gateway.reconcileMatterDevices(endpoints, &error));
+        std::vector<MatterEndpoint> staleEndpoints = endpoints;
+        staleEndpoints[0].online = false;
+        assert(gateway.reconcileMatterDevices(staleEndpoints, &error));
         assert(gateway.statusJson().find("\"co2\":{\"value\":null,\"unit\":\"ppb\",\"quality\":\"unknown\"}") !=
                std::string::npos);
+        assert(gateway.devices_[endpoint.id].online && gateway.devices_[endpoint.id].lastSeen > 0);
         DeviceValueAlert temperatureAlert;
         temperatureAlert.hasHigh = true;
         temperatureAlert.high = 25;

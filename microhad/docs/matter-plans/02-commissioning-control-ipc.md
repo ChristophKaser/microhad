@@ -22,6 +22,16 @@ not start the installed `thread-matter` daemon process; its active Manager
 subscription loop remains the next process-level gate. Disconnect/restart,
 backpressure and the broader malformed cross-language matrix remain open.
 
+The native report-ordering gate now releases all five CASE reports before the
+first endpoint snapshot request. The worker defers unmatched readings in a
+bounded 128-entry queue, coalesces newer values by node/endpoint/cluster, then
+applies them after successful snapshot reconciliation. Reconciliation also
+preserves online presence for a Matter endpoint with a report received within
+the last 60 seconds, so an older offline descriptor snapshot cannot erase
+newer liveness evidence. The joined integration verifies all values, online
+presence and history after this ordering. This does not yet prove that the
+installed daemon receives wire-decoded CASE reports itself.
+
 Native commit `c22f38a` fixes Matter opcode 10 dispatch: the worker previously
 treated asynchronous read/command job replies as device snapshot pages, which
 could throw while parsing missing snapshot fields. Snapshot handling now runs
@@ -269,9 +279,9 @@ event consumption; Thread subscription does not replace that work.
 | 2 | Partial | Strict requests, session/Thread replies, device job requests/replies, typed commissioning/BLE/Thread events, and typed Matter report events implemented; broader report vectors remain. |
 | 3 | Complete | Production owner uses the bounded session manager and pinned real commissioner future with cancellation/reconnect cleanup. |
 | 4 | Partial | Status, Thread lifecycle, commissioning/relay and native/Rust OnOff job path verified through confirmed readback. Broader failure/recovery gates remain. |
-| 5 | Partial | Native observer consumes Matter reports and HTTP jobs carry OnOff/Level commands through worker polling; production MoveToLevel dispatch is fixed in Rust commit `1b7ae98` and composed coverage passes in native commit `9f8e562`. Live accessory reports and broader recovery remain open. |
+| 5 | Partial | Native observer consumes Matter reports and HTTP jobs carry OnOff/Level commands through worker polling; production MoveToLevel dispatch is fixed in Rust commit `1b7ae98` and composed coverage passes in native commit `9f8e562`. Report-before-snapshot buffering and stale snapshot liveness handling now pass the composed host integration. Installed-daemon wire-level report delivery and broader recovery remain open. |
 | 6 | Partial | Rust body vectors, callback/reconnect/timeout, Matter broadcast, and native report parser tests pass; full native cross-language body/event vectors remain pending. |
-| 7 | Current | Contract and implementation evidence updated at this checkpoint. |
+| 7 | Current | Report ordering, buffering bounds and service/native integration evidence updated at this checkpoint. |
 
 ## Production Level-command dispatch — 2026-10-05
 
