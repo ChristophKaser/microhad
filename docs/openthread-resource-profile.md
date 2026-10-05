@@ -143,6 +143,17 @@ and userspace feeder remain absent, so a Tuya/board-level reset source is still
 possible but unproven. No further gateway workloads should run until the reset
 source is identified.
 
+The RTL8196E datasheet documents an on-chip watchdog reset indicator in
+`WDTCNR` at `0xB800311C`; this hardware path could exist without `/dev/watchdog`
+or a Linux watchdog driver. The target has no `/dev/mem` or `devmem` utility, and
+reading `/proc/watchdog_reboot` blocked SSH, so the hardware reset indicator
+could not be inspected safely. There is no known safe disable control. A later
+read-only check observed uptime at 2,222 seconds with `/api/status` online and
+formed; that is one healthy observation after the prior resets, not evidence
+that the issue is resolved. The register semantics are described in the
+[RTL8196E datasheet](https://www.elinfor.com/pdf/Realtek/RTL8196E-CG-Realtek.pdf),
+section 8.2.9.
+
 The guarded 15-second repeat service profile did not reset the gateway, but its
 first attempt exited before collecting samples and emitted no service log. A
 five-second retry passed: service RSS was 788 KiB, CPU ticks did not increase,
