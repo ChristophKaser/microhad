@@ -1,9 +1,12 @@
 # Plan: Matter device model and reports
 
-## Current open work — 2026-10-04
+## Current open work — 2026-10-05
 
 Bounded production operational SRP/DNS discovery and persistent local node catalog
-states are implemented and host-tested. Rust commit `e59c3dc` drives encrypted
+states are implemented and host-tested. Rust commit `9e0922e` migrates an absent
+legacy catalog from the monotonic authority allocator, preserving up to 64 prior
+IDs as `RecoveryRequired` until DNS-SD and authenticated CASE succeed; larger
+legacy histories fail closed without a partial write. Rust commit `e59c3dc` drives encrypted
 CASE/CommissioningComplete and fresh CASE through the resolver in the synthetic
 accessory fixture without injected rendezvous.
 
@@ -443,19 +446,22 @@ are historical; the latest status/evidence section above takes precedence.
 1. [x] Implement bounded operational DNS-SD over userspace OpenThread UDP,
    including answer validation, address changes, TTL/cache limits and timeout
    backoff. Remove the need for fixture-only rendezvous in integration tests.
-2. [ ] Persist a bounded node catalog with stable fabric/node identity and
+2. [x] Persist a bounded node catalog with stable fabric/node identity and
    explicit commissioning-completion/recovery states. Never reuse an allocated
    ID after interrupted completion; reconcile incomplete entries on restart.
    Local catalog/state persistence is verified (`5002f88`); CASE-gated recovery
-   now reconciles incomplete entries and preserves allocated IDs. Legacy
-   no-catalog migration keeps this item open.
+   now reconciles incomplete entries and preserves allocated IDs. Rust commit
+   `9e0922e` migrates absent legacy catalogs for up to 64 previously allocated
+   IDs; over-bound stores fail closed without writes. Larger sparse histories
+   and administrative pruning of unreachable allocated IDs remain limitations.
 3. [ ] Complete production CASE/CommissioningComplete through the resolver,
    then discover descriptors, endpoints and advertised clusters. Test restart
    against the same catalog and authority without the phone.
    Bounded PartsList/ServerList helper and service scheduler are verified over
    encrypted CASE (`05053ec`, `5c588df`). Completed nodes refresh after catalog
    restore and radio reattachment; revisioned snapshot IPC is implemented (`237d110`).
-   Native snapshot validation/API/UI and legacy no-catalog migration remain open.
+   Native snapshot validation/API/UI are implemented. Target filesystem and
+   broader-than-64 legacy migration behavior remain open.
 4. [x] Implement validated OnOff/Level reads and commands plus typed IPC
    bodies in plan 02. Confirm resulting values through reads/reports and expose
    unsupported clusters and failed commands explicitly.
