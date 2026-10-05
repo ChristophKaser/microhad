@@ -44,8 +44,10 @@ make webui
 ```
 
 Matter is an optional build selection, `MATTER=0|1`, defaulting to `0`.
-`MATTER=1` requires `ZIGGURAT=1`; enabled builds currently fail the documented
-factory C++ runtime gate. The Rust Matter service and common device/report
+`MATTER=1` requires `ZIGGURAT=1`. The small native C++03 bridge uses the
+factory runtime; Matter controller behavior runs in the separate Rust service
+because the factory C++ runtime cannot build the pinned C++ Matter SDK. The
+Rust Matter service and common device/report
 integration are implemented and synthetic-tested. The development gateway now
 runs the Matter service, has a persisted Thread dataset attached on the current
 Zigbee channel, and retains its existing Zigbee network. A first accessory has

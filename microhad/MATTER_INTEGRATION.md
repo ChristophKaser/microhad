@@ -1,27 +1,34 @@
 # Optional Matter-over-Thread integration
 
-## Current result: commissioning and shared device control are host-tested
+## Current result: gateway Matter service and Thread are running
 
 The opt-in native build, Rust Matter/OpenThread service, private IPC, Garage
 BLE relay, Thread lifecycle, persistent controller identity, operational
 discovery, bounded reads/commands, shared device model and dashboard controls
-are implemented with synthetic host evidence. These checks do not establish
-real-accessory compatibility or physical gateway acceptance. The companion
-plans track remaining service/report recovery and target checks; plan 08 is the
-physical acceptance gate.
+are implemented with synthetic host evidence. The Matter-aware paired launcher
+is active on the development gateway, and the production Rust service is
+available through the native gateway. The service created and attached a
+private Thread dataset on channel 11 while the existing Zigbee network remained
+online and formed. No accessory has been commissioned yet; live device
+compatibility, service-process CASE report delivery, and physical acceptance
+remain open. Plan 08 remains excluded.
 
 Matter deployment is explicitly opt-in. `deploy.sh --matter-service PATH`
 stages the service and paired supervisor without changing the active launcher.
-`--activate-paired` is a separate next-boot launcher selection for an already
-prepared Ziggurat/native pair. The paired launcher enables Matter only when
-`/tuya/native/thread-matter` is executable. Neither option restarts live
-processes. Before the first Matter upload, the deployer reads `/tuya` free
-space and existing destination sizes, simulates its atomic replacement order,
-and requires a 512 KiB free-space reserve by default. Set
+`--activate-paired` installs the paired launcher with the package;
+`--activate-paired-only` checks local hashes against an already staged package
+and switches the launcher without copying the large artifacts again. The paired
+launcher enables Matter only when `/tuya/native/thread-matter` is executable.
+Neither activation mode restarts live processes. The deployer reads `/tuya`
+free space and existing destination sizes, simulates the atomic replacement
+order, and requires a 512 KiB free-space reserve by default. Set
 `DEPLOY_FLASH_RESERVE_KIB` to choose another non-negative reserve. An
 insufficient-space result stops before staging or changing files. This is a
 snapshot preflight, not a reservation; recheck immediately before deployment.
-No Matter deployment was performed for this implementation checkpoint.
+After launcher activation, gracefully stop the paired supervisor by its PID in
+`/tmp/ziggurat-supervisor/supervisor.pid`, wait for cleanup, then launch
+`/tuya/tuya_start.sh`. The native-only `--restart` switch does not restart
+Ziggurat or reload the paired launcher.
 
 The remaining work is broken into eight sequenced implementation plans in
 [`docs/matter-plans/README.md`](docs/matter-plans/README.md).
