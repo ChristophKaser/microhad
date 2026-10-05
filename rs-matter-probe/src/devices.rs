@@ -3,7 +3,7 @@ use crate::catalog::{Catalog, Phase};
 use core::num::NonZeroU8;
 use rs_matter::{
     crypto::Crypto,
-    dm::clusters::desc::DescriptorClient,
+    dm::clusters::{desc::DescriptorClient, icd_mgmt::IcdManagementClient},
     error::{Error, ErrorCode},
     transport::exchange::Exchange,
     Matter,
@@ -24,6 +24,8 @@ pub const MAX_OPERATION_JOBS: usize = 8;
 pub const MAX_DEVICE_SUBSCRIPTIONS: usize = MAX_ENDPOINTS * 7;
 const MAX_RETAINED_JOBS: usize = 16;
 const MAX_QUEUED_REPORT_VALUES: usize = 512;
+const ICD_MANAGEMENT_CLUSTER: u32 = 0x0046;
+const MAX_ICD_CANDIDATES: usize = crate::icd::MAX_ICD_CLIENTS * MAX_ENDPOINTS;
 
 #[derive(Serialize)]
 pub struct Device {
@@ -93,13 +95,20 @@ struct SubscriptionState {
     unit: Option<&'static str>,
     last_report: Option<Vec<u8>>,
 }
-type SubscriptionWork<'a> = Pin<
+type SubscriptionWork<'a> =
+    Pin<Box<dyn Future<Output = Result<crate::subscriptions::DeviceSubscription, Error>> + 'a>>;
+type ReportWork<'a> =
+    Pin<Box<dyn Future<Output = Result<crate::subscriptions::IncomingMessage, Error>> + 'a>>;
+type IcdWork<'a> = Pin<
     Box<
-        dyn Future<Output = Result<crate::subscriptions::DeviceSubscription, Error>> + 'a,
+        dyn Future<
+                Output = (
+                    crate::icd::ClientRegistry,
+                    crate::entropy::OsEntropy,
+                    Result<(), Error>,
+                ),
+            > + 'a,
     >,
->;
-type ReportWork<'a> = Pin<
-    Box<dyn Future<Output = Result<crate::subscriptions::IncomingMessage, Error>> + 'a>,
 >;
 #[derive(Debug, Serialize)]
 pub struct JobAccepted {
@@ -141,6 +150,13 @@ pub struct Manager<'a, C: Crypto> {
     crypto: &'a C,
     fabric: NonZeroU8,
     catalog: Catalog,
+    icd_registry: Option<crate::icd::ClientRegistry>,
+    local_node: u64,
+    icd_entropy: Option<crate::entropy::OsEntropy>,
+    icd_work: Option<(u64, u16, IcdWork<'a>)>,
+    registered_nodes: Vec<u64>,
+    icd_checked: Vec<(u64, u16)>,
+    awake_until: Vec<(u64, Instant)>,
     snapshots: Vec<Snapshot>,
     work: Option<(u64, Instant, Work<'a>)>,
     revision: u64,
@@ -164,13 +180,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         fabric: NonZeroU8,
         catalog: Catalog,
     ) -> Result<Self, std::io::Error> {
-        Self::new_with_subscription_limit(
-            matter,
-            crypto,
-            fabric,
-            catalog,
-            MAX_DEVICE_SUBSCRIPTIONS,
-        )
+        Self::new_with_subscription_limit(matter, crypto, fabric, catalog, MAX_DEVICE_SUBSCRIPTIONS)
     }
     pub fn new_with_subscription_limit(
         matter: &'a Matter<'a>,
@@ -189,11 +199,24 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         let mut entropy = crate::entropy::OsEntropy::open()?;
         let revision = entropy.try_next_u64().unwrap().max(1);
         let next_job = entropy.try_next_u64().unwrap().max(1);
+        let local_node = matter
+            .with_state(|state| Ok::<_, Error>(state.fabrics.fabric(fabric)?.node_id()))
+            .unwrap_or(0);
+        let icd_registry = crate::icd::ClientRegistry::open(catalog.store())
+            .map_err(|_| std::io::Error::other("ICD registry unavailable"))?;
+        let registered_nodes = icd_registry.registered_nodes(fabric);
         Ok(Self {
             matter,
             crypto,
             fabric,
             catalog,
+            icd_registry: Some(icd_registry),
+            local_node,
+            icd_entropy: Some(crate::entropy::OsEntropy::open()?),
+            icd_work: None,
+            registered_nodes,
+            icd_checked: Vec::new(),
+            awake_until: Vec::new(),
             snapshots: Vec::new(),
             work: None,
             revision,
@@ -243,6 +266,14 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         self.matter.pop_icd_check_in()
     }
 
+    fn node_awake(&self, node: u64, now: Instant) -> bool {
+        !self.registered_nodes.contains(&node)
+            || self
+                .awake_until
+                .iter()
+                .any(|(awake_node, until)| *awake_node == node && *until > now)
+    }
+
     /// Deliver queued production Manager reports to connected IPC clients.
     /// Keep the front report queued until at least one client accepts it.
     pub fn publish_reports(
@@ -252,10 +283,12 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         let mut published = 0;
         while let Some(reading) = self.front_report() {
             let event = crate::responses::event(crate::responses::Event::MatterReport(reading))
-                .ok_or_else(|| std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    "invalid Matter report event",
-                ))?;
+                .ok_or_else(|| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "invalid Matter report event",
+                    )
+                })?;
             if ipc.publish_all(&event)? == 0 {
                 break;
             }
@@ -630,9 +663,9 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 }));
             }
             if self.report_work.is_none() {
-                self.report_work = Some(Box::pin(
-                    crate::subscriptions::receive_incoming(self.matter),
-                ));
+                self.report_work = Some(Box::pin(crate::subscriptions::receive_incoming(
+                    self.matter,
+                )));
             }
         }
         if let Some(work) = &mut self.report_work {
@@ -646,8 +679,12 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 }
             }
         }
+        self.poll_icd(now, context);
         if commissioning {
             self.work = None;
+            return;
+        }
+        if self.icd_work.is_some() {
             return;
         }
         if let Some(active) = &mut self.active {
@@ -672,15 +709,20 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             }
             return;
         }
-        if let Some(queued) = self.queued.pop_front() {
+        while let Some(index) = self.queued.iter().position(|queued| queued.deadline <= now) {
+            let queued = self.queued.remove(index).unwrap();
+            self.record_state(
+                queued.id,
+                JobRecordState::Failed(crate::operations::Failure::Timeout),
+            );
+        }
+        let ready_job = self
+            .queued
+            .iter()
+            .position(|queued| self.node_awake(queued.operation.node, now));
+        if let Some(index) = ready_job {
+            let queued = self.queued.remove(index).unwrap();
             let id = queued.id;
-            if now >= queued.deadline {
-                self.record_state(
-                    id,
-                    JobRecordState::Failed(crate::operations::Failure::Timeout),
-                );
-                return;
-            }
             let authorization = self
                 .catalog
                 .nodes()
@@ -756,16 +798,21 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             if let Some(result) = result {
                 let node = *node;
                 self.work = None;
-                let recovery_required = self.catalog.nodes().iter().any(|entry| {
-                    entry.id == node && entry.phase == Phase::RecoveryRequired
-                });
+                let recovery_required = self
+                    .catalog
+                    .nodes()
+                    .iter()
+                    .any(|entry| entry.id == node && entry.phase == Phase::RecoveryRequired);
                 let result = match result {
-                    Ok(endpoints) if recovery_required => self
-                        .catalog
-                        .recover_complete(node)
-                        .map(|()| endpoints),
+                    Ok(endpoints) if recovery_required => {
+                        self.catalog.recover_complete(node).map(|()| endpoints)
+                    }
                     result => result,
                 };
+                if result.is_ok() {
+                    self.icd_checked
+                        .retain(|(checked_node, _)| *checked_node != node);
+                }
                 let snapshot = self.snapshots.iter_mut().find(|s| s.node == node).unwrap();
                 let visible_changed = match &result {
                     Ok(endpoints) => !snapshot.online || snapshot.endpoints != *endpoints,
@@ -813,7 +860,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         if let Some(snapshot) = self
             .snapshots
             .iter()
-            .filter(|s| s.next <= now)
+            .filter(|s| s.next <= now && self.node_awake(s.node, now))
             .min_by_key(|s| s.next)
         {
             self.work = Some((
@@ -832,7 +879,9 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         if let Some(subscription) = self
             .subscriptions
             .iter()
-            .filter(|subscription| subscription.next_retry <= now)
+            .filter(|subscription| {
+                subscription.next_retry <= now && self.node_awake(subscription.key.node, now)
+            })
             .min_by_key(|subscription| subscription.next_retry)
         {
             let key = subscription.key;
@@ -849,6 +898,143 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                     key.attribute,
                 )),
             ));
+        }
+    }
+    fn poll_icd(&mut self, now: Instant, context: &mut Context<'_>) {
+        // Check-In capture is bounded inside Matter. Drain at most one message
+        // per service turn so authentication and private-store sync cannot
+        // starve Thread, IPC, or the Matter transport pump.
+        if self.icd_work.is_none() {
+            if let Some(message) = self.matter.pop_icd_check_in() {
+                let accepted = self
+                    .icd_registry
+                    .as_mut()
+                    .and_then(|registry| registry.accept(self.crypto, &message).ok());
+                if let Some(wake) = accepted {
+                    let until = now
+                        + Duration::from_millis(u64::from(wake.active_mode_threshold_ms).max(1));
+                    if let Some((_, awake_until)) = self
+                        .awake_until
+                        .iter_mut()
+                        .find(|(node, _)| *node == wake.node)
+                    {
+                        *awake_until = until;
+                    } else if self.awake_until.len() < crate::icd::MAX_ICD_CLIENTS {
+                        self.awake_until.push((wake.node, until));
+                    }
+                    if wake.refresh_required {
+                        if let Some(endpoint) = self
+                            .icd_registry
+                            .as_ref()
+                            .and_then(|registry| registry.registration(wake.fabric, wake.node))
+                            .map(|registration| registration.endpoint)
+                        {
+                            let matter = self.matter;
+                            let crypto = self.crypto;
+                            let Some(mut registry) = self.icd_registry.take() else {
+                                return;
+                            };
+                            let Some(mut entropy) = self.icd_entropy.take() else {
+                                self.icd_registry = Some(registry);
+                                return;
+                            };
+                            let fabric = wake.fabric;
+                            let node = wake.node;
+                            let local_node = self.local_node;
+                            self.icd_work = Some((
+                                node,
+                                endpoint,
+                                Box::pin(async move {
+                                    let result = registry
+                                        .register(
+                                            matter,
+                                            crypto,
+                                            fabric,
+                                            node,
+                                            endpoint,
+                                            local_node,
+                                            &mut entropy,
+                                        )
+                                        .await;
+                                    (registry, entropy, result)
+                                }),
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        if self.icd_work.is_none() {
+            let candidate = (self.local_node != 0)
+                .then(|| {
+                    self.snapshots.iter().find_map(|snapshot| {
+                        snapshot.endpoints.iter().find_map(|endpoint| {
+                            (endpoint.servers.contains(&ICD_MANAGEMENT_CLUSTER)
+                                && !self.icd_checked.contains(&(snapshot.node, endpoint.id))
+                                && !self.registered_nodes.contains(&snapshot.node))
+                            .then_some((snapshot.node, endpoint.id))
+                        })
+                    })
+                })
+                .flatten();
+            if let Some((node, endpoint)) = candidate {
+                let matter = self.matter;
+                let crypto = self.crypto;
+                let Some(mut registry) = self.icd_registry.take() else {
+                    return;
+                };
+                let Some(mut entropy) = self.icd_entropy.take() else {
+                    self.icd_registry = Some(registry);
+                    return;
+                };
+                let fabric = self.fabric;
+                let local_node = self.local_node;
+                self.icd_work = Some((
+                    node,
+                    endpoint,
+                    Box::pin(async move {
+                        let result = async {
+                            let mode = Exchange::initiate(matter, crypto, fabric, node)
+                                .await?
+                                .icd_management()
+                                .operating_mode_read(endpoint)
+                                .await?;
+                            if mode == rs_matter::dm::clusters::icd_mgmt::OperatingModeEnum::LIT {
+                                registry
+                                    .register(
+                                        matter,
+                                        crypto,
+                                        fabric,
+                                        node,
+                                        endpoint,
+                                        local_node,
+                                        &mut entropy,
+                                    )
+                                    .await?;
+                            }
+                            Ok(())
+                        }
+                        .await;
+                        (registry, entropy, result)
+                    }),
+                ));
+            }
+        }
+        if let Some((node, endpoint, work)) = &mut self.icd_work {
+            if let Poll::Ready((registry, entropy, result)) = work.as_mut().poll(context) {
+                let key = (*node, *endpoint);
+                let node_registered = registry.is_registered(self.fabric, key.0);
+                self.icd_work = None;
+                self.icd_registry = Some(registry);
+                self.icd_entropy = Some(entropy);
+                if node_registered && !self.registered_nodes.contains(&key.0) {
+                    self.registered_nodes.push(key.0);
+                }
+                if !self.icd_checked.contains(&key) && self.icd_checked.len() < MAX_ICD_CANDIDATES {
+                    self.icd_checked.push(key);
+                }
+                let _ = result;
+            }
         }
     }
     fn sync_subscriptions(&mut self, now: Instant) {
@@ -877,8 +1063,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             return;
         }
         let Some(subscription) = self.subscriptions.iter_mut().find(|subscription| {
-            subscription.key.node == report.node
-                && subscription.id == Some(report.subscription_id)
+            subscription.key.node == report.node && subscription.id == Some(report.subscription_id)
         }) else {
             return;
         };
@@ -899,13 +1084,12 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 } else {
                     "unknown"
                 };
-                value.value = crate::operations::Value::Measurement(
-                    crate::operations::MeasurementValue {
+                value.value =
+                    crate::operations::Value::Measurement(crate::operations::MeasurementValue {
                         value: *measured,
                         unit,
                         quality,
-                    },
-                );
+                    });
             }
             let Ok(encoded) = serde_json::to_vec(&value) else {
                 continue;
@@ -1012,10 +1196,8 @@ mod tests {
             time::Duration,
         };
 
-        let directory = std::env::temp_dir().join(format!(
-            "matter-report-ipc-{}",
-            std::process::id()
-        ));
+        let directory =
+            std::env::temp_dir().join(format!("matter-report-ipc-{}", std::process::id()));
         std::fs::create_dir(&directory).unwrap();
         std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700)).unwrap();
         let socket = directory.join("service.sock");
@@ -1056,13 +1238,11 @@ mod tests {
                 endpoint: 1,
                 cluster: 1026,
                 attribute: 0,
-                value: crate::operations::Value::Measurement(
-                    crate::operations::MeasurementValue {
-                        value: Some(-5.25),
-                        unit: "celsius",
-                        quality: "measured",
-                    },
-                ),
+                value: crate::operations::Value::Measurement(crate::operations::MeasurementValue {
+                    value: Some(-5.25),
+                    unit: "celsius",
+                    quality: "measured",
+                }),
             }],
         });
         assert_eq!(manager.publish_reports(&mut ipc).unwrap(), 0);
@@ -1124,10 +1304,8 @@ mod tests {
             }
         }
 
-        let directory = std::env::temp_dir().join(format!(
-            "matter-report-bound-{}",
-            std::process::id()
-        ));
+        let directory =
+            std::env::temp_dir().join(format!("matter-report-bound-{}", std::process::id()));
         std::fs::create_dir(&directory).unwrap();
         std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700)).unwrap();
         let store = crate::store::PrivateStore::open(&directory).unwrap();
@@ -1203,10 +1381,14 @@ mod tests {
         };
         let offline = Snapshot {
             node: 3,
-            endpoints: snapshot.endpoints.iter().map(|endpoint| Endpoint {
-                id: endpoint.id,
-                servers: endpoint.servers.clone(),
-            }).collect(),
+            endpoints: snapshot
+                .endpoints
+                .iter()
+                .map(|endpoint| Endpoint {
+                    id: endpoint.id,
+                    servers: endpoint.servers.clone(),
+                })
+                .collect(),
             online: false,
             next: now,
             failures: 0,
@@ -1272,6 +1454,13 @@ mod tests {
         ));
         let mut manager =
             Manager::new(matter, &crypto, NonZeroU8::new(1).unwrap(), catalog.clone()).unwrap();
+        manager
+            .icd_registry
+            .as_mut()
+            .unwrap()
+            .install(NonZeroU8::new(1).unwrap(), 2, 1, [0x42; 16], 7)
+            .unwrap();
+        manager.registered_nodes.push(2);
         manager.snapshots.push(Snapshot {
             node: 2,
             endpoints: vec![Endpoint {
@@ -1309,6 +1498,17 @@ mod tests {
             crate::operations::Failure::Capacity
         );
         let mut context = Context::from_waker(std::task::Waker::noop());
+        manager.poll(true, false, now, &mut context);
+        assert!(matches!(
+            manager.job(first.job).unwrap(),
+            JobState::Queued { .. }
+        ));
+        manager.awake_until.push((2, now + Duration::from_secs(1)));
+        manager.poll(true, false, now + Duration::from_millis(1), &mut context);
+        assert!(matches!(
+            manager.job(first.job).unwrap(),
+            JobState::Running { .. }
+        ));
         manager.poll(false, false, now, &mut context);
         assert!(!manager.operations_busy());
         assert!(matches!(

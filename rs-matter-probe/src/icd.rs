@@ -118,6 +118,18 @@ impl ClientRegistry {
         self.registrations.is_empty()
     }
 
+    pub fn is_registered(&self, fabric: NonZeroU8, node: u64) -> bool {
+        self.registration(fabric, node).is_some()
+    }
+
+    pub fn registered_nodes(&self, fabric: NonZeroU8) -> Vec<u64> {
+        self.registrations
+            .iter()
+            .filter(|registration| registration.fabric == fabric)
+            .map(|registration| registration.node)
+            .collect()
+    }
+
     /// Register a permanent client with one ICD and atomically retain the
     /// returned starting counter together with the key used in RegisterClient.
     pub async fn register<C: Crypto>(

@@ -75,6 +75,11 @@ fn read_nodes(store: &PrivateStore, fabric: u64, next_node: u64) -> Result<Vec<N
     Ok(nodes)
 }
 impl Catalog {
+    /// Clone the private store handle for sibling durable controller state.
+    pub fn store(&self) -> PrivateStore {
+        self.store.clone()
+    }
+
     /// Check catalog integrity without recovering or writing transitional phases.
     pub fn validate(store: &PrivateStore, fabric: u64, next_node: u64) -> Result<(), Error> {
         read_nodes(store, fabric, next_node).map(|_| ())
