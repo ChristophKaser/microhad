@@ -45,7 +45,21 @@ service: `/tuya/native/thread-matter` is absent, and the deployed
 source supervisor then starts it when the Thread socket is ready. Thus host
 and MIPS implementation evidence does not describe the gateway's active
 deployment; Matter use requires a separately reviewed staging/launcher update
-and service start. No files were changed on the gateway.
+and service start. No files were changed during this initial inspection.
+
+Deployment staging was then verified without activation. `deploy.sh` copied
+the Matter-enabled native binary (1,741,444 bytes), MIPS service (2,129,600
+bytes), manifest, and Matter-aware `paired_start.sh` to `/tuya/native-test`.
+Device MD5 sums matched the local native and service artifacts, and the
+manifest identified `ziggurat=1`, `matter=1` with the expected native SHA-256.
+The staging temporarily left 1,508 KiB free (88% partition use). The four
+staged files and test directory were removed after verification, and `/tuya`
+then reported 3,512 KiB free (71% use). No staged process was started; the
+production launcher, Ziggurat, and native bridge remained running. A
+post-cleanup idle memory sample
+reported 5,432 KiB `MemFree` and 14,364 KiB `Inactive(file)` (19,796 KiB
+combined reclaimable estimate); it does not measure Matter daemon usage. CPU
+and runtime deadlines were not sampled because no target workload ran.
 
 Next deliverable: run the installed `thread-matter` daemon through attached
 Thread startup and its own active CASE report loop into native state/history,
