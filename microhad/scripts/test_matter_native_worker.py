@@ -42,6 +42,7 @@ class MatterPeer:
         self.malformed_next_reply = False
         self.wrong_next_reply_id = False
         self.stall_next_status = False
+        self.malformed_next_header = False
         self.saturate_next_event_queue = False
         self.onoff = False
         self.level = 0
@@ -206,6 +207,11 @@ class MatterPeer:
                         if opcode in (1, 2) and self.stall_next_status:
                             self.stall_next_status = False
                             time.sleep(2.5)
+                            break
+                        if self.malformed_next_header:
+                            self.malformed_next_header = False
+                            malformed = struct.pack('<HBBBBI', 0, 2, 1, opcode, 0, ident)
+                            self.send(peer, malformed)
                             break
                         payload = json.dumps(result).encode()
                         if self.malformed_next_reply:
@@ -720,6 +726,10 @@ def main():
             # expire the worker cache and recover over a fresh connection.
             matter.stall_next_status = True
             wait_for(matter_unavailable, timeout=6)
+            wait_for(lambda: fixture.request('/api/matter/status')['state'] == 'running')
+            # A structurally invalid frame header must also clear readiness.
+            matter.malformed_next_header = True
+            wait_for(matter_unavailable)
             wait_for(lambda: fixture.request('/api/matter/status')['state'] == 'running')
         device_snapshot_http(fixture, real)
         if not real:
