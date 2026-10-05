@@ -862,3 +862,21 @@ the attached-daemon `Manager::poll()`-to-native IPC/device/history handoff gate.
 The fixture injects reports after wire decoding; reports received by the actual
 daemon subscription exchange through native state/history/alerts remain open.
 Remote recovery and plan 08 acceptance also remain open.
+
+## Isolated daemon report-test build — 2026-10-05
+
+Native commit `c10a966` makes the report integration invoke Rust commit
+`d88c4be` to build a host daemon with `controller-service-test-hooks` in its
+own Cargo target directory. Previously the test reused the production service
+binary, which has those hooks correctly compiled out; the daemon started but
+the synthetic report batch was never queued. The isolated build keeps the
+production host and MIPS service artifacts unchanged and makes the test
+self-contained.
+
+`python3 scripts/test_matter_native_report_integration.py` now builds that
+test-only binary, confirms notifier-backed CASE reports through the production
+manager fixture, then confirms the attached daemon's queued reports reach the
+registered native device and shared history. The daemon and synthetic RCP
+shut down cleanly. This still injects `ReceivedReport` after wire decoding; the
+daemon's live Matter subscription callback through native state/history/alerts
+remains open. No gateway process or physical radio was used.
