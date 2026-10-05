@@ -9,18 +9,17 @@ Matter-enabled gateway worker now reconnects to a supervisor-restarted Rust
 service after a wire-level Spinel error and sees the restored dataset.
 Current factory MIPS builds for both binaries pass. Target runtime/resource
 evidence is partial: a prior isolated service profile was followed by a reboot.
-A later idle observation caught repeated uptime resets, including two within
-roughly two minutes, without a target workload running. A bounded repeat profile did
-not reboot the gateway (uptime advanced 19.85 seconds), but the service exited
-before its first sample. A five-second diagnostic retry then passed with 788 KiB
-RSS, zero sampled CPU ticks, and orderly shutdown; uptime advanced 29.38 seconds.
-The repeated reset still needs investigation; no more target Matter load is
-planned until its cause is understood.
+Later idle observations caught repeated uptime resets, including two within
+roughly two minutes, without a target workload running. A bounded repeat profile
+and a five-second retry did not reboot the gateway; the retry passed with 788
+KiB RSS, zero sampled CPU ticks, and orderly shutdown. The repeated reset still
+needs investigation; no more target Matter load is planned until its cause is
+understood.
 
-Next deliverable: Investigate the recurring gateway reset and diagnose the
-isolated service launch failure, then close the daemon live-report path from a
-wire-decoded CASE report through native state/history. Full physical paired
-launch remains in excluded plan 08.
+Next deliverable: Identify the recurring gateway reset source, then close the
+daemon live-report path from a wire-decoded CASE report through native
+state/history. The one silent isolated-service launch failure did not recur on
+the bounded retry. Full physical paired launch remains in excluded plan 08.
 
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.
@@ -77,7 +76,7 @@ native status routes report its actual state over `/tmp/microhad-matter.sock`.
 | 4 | Complete | Four clients, four accepts per turn, 4096-byte read/write budgets, eight queued replies, two-second idle expiry; malformed/overload/idle checks passed. |
 | 5 | Complete | Empty requests for opcodes 1/2 return bounded JSON; synthetic host reports `running` with its persistent fabric and Thread `detached`, without credentials. |
 | 6 | Partial | Matter/Thread/IPC pumps and SIGTERM/SIGINT shutdown implemented. Supervisor retries failures with backoff and stops/restarts Matter on coordinator loss; complete dataset/radio reconnection remains in plan 06. |
-| 7 | Partial | Current Matter-enabled native/Rust factory builds are static big-endian MIPS-I ELF32 files: 1,736,548-byte native bridge and 2,109,120-byte Rust service. Rust/OpenThread ABI flags are aligned (`4c02d8a`). The real service process's attached `Manager::poll()` to native IPC/device/history path passes with post-decode seeded reports; the daemon live CASE subscription path is open. Target resource evidence is limited to the isolated startup sample; full target runtime remains unverified. |
+| 7 | Partial | Current Matter-enabled native/Rust factory builds are static big-endian MIPS-I ELF32 files: 1,736,548-byte native bridge and 2,109,120-byte Rust service. Rust/OpenThread ABI flags are aligned (`4c02d8a`). Production host and MIPS artifacts are now checked to exclude the test-only report-injection hook; the dedicated host fixture artifact is checked to include it (`6e44f33`). Service regression and Spinel-restart tests pass. The real service process's attached `Manager::poll()` to native IPC/device/history path passes with post-decode seeded reports; the daemon live CASE subscription path is open. Target resource evidence is limited to isolated startup samples; full target runtime remains unverified. |
 | 8 | Complete | Runtime invocation, ownership, bounds and state paths documented in `ziggurat-compilation/docs/matter-service-runtime.md`; optional supervisor configuration, failure markers, retry budget and staging documented in `MATTER_INTEGRATION.md`. |
 
 This checkpoint supplies a running transport/status service and persistent
@@ -333,6 +332,18 @@ were 2,756 KiB for the native bridge and 2,044 KiB for Ziggurat; kernel slab was
 looks low while clean inactive cache remains reclaimable. It is one snapshot,
 not Matter-service headroom evidence; full Matter-service CPU, RSS and deadline
 measurements remain open.
+
+## Keep report fixture hooks out of production artifacts — 2026-10-05
+
+Rust commit `6e44f33` adds a build-time binary-marker check for the
+`MICROHAD_MATTER_TEST_SEED_SENSOR_REPORT_NODE` injection hook. The dedicated host
+test-service build must contain the marker; host production and stripped MIPS
+production builds must not. All three artifact checks passed. The dedicated
+test-service build passed, both production service build paths passed, and
+`python3 scripts/test-matter-service.py` passed its commissioner, Thread
+lifecycle, and Spinel-failure recovery checks. The current MIPS service remains
+2,109,120 bytes. This closes the test-fixture/production artifact boundary; it
+does not close the live CASE-report path or the gateway reset investigation.
 
 ## Repeated reset and watchdog investigation — 2026-10-05
 
