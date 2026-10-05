@@ -9,6 +9,9 @@ control=${RUNTIME_CONTROL:-/tmp/ziggurat-supervisor}
 socket_path=${ZIGGURAT_SOCKET:-/tmp/ziggurat/native.sock}
 device=${ZIGGURAT_DEVICE:-/dev/ttyS1}
 zig_log=${ZIGGURAT_LOG:-/tmp/ziggurat.log}
+seed_helper=${RNG_SEED_HELPER:-/tuya/native/rng-seed}
+seed_file=${RNG_SEED_FILE:-/userdata/etc/ziggurat-rng.seed}
+seed_log=${RNG_SEED_LOG:-/tmp/ziggurat-rng-seed.log}
 limit=${RESTART_LIMIT:-5}
 startup_limit=${STARTUP_LIMIT:-15}
 stop_limit=${STOP_LIMIT:-8}
@@ -19,7 +22,7 @@ matter_socket=${MATTER_SOCKET:-/tmp/microhad-matter.sock}
 thread_socket=${THREAD_SOCKET:-/tmp/ziggurat/thread.sock}
 matter_limit=${MATTER_RESTART_LIMIT:-5}
 case "$limit:$startup_limit:$stop_limit:$backoff:$matter_limit" in *[!0-9:]*|:*|*::*) exit 2;; esac
-for path in "$ZIGGURAT_BIN" "$NATIVE_BIN" "$NATIVE_CONFIG" "$MAINTENANCE_BIN" "$control" "$socket_path" "$device" "$zig_log"; do
+for path in "$ZIGGURAT_BIN" "$NATIVE_BIN" "$NATIVE_CONFIG" "$MAINTENANCE_BIN" "$control" "$socket_path" "$device" "$zig_log" "$seed_helper" "$seed_file" "$seed_log"; do
     case "$path" in /*) ;; *) echo 'Absolute paths required' >&2;exit 2;; esac
 done
 if [ -n "$matter_bin" ]; then
@@ -34,6 +37,16 @@ fi
 mkdir "$control" || exit 2
 printf '%s\n' "$$" > "$control/supervisor.pid"
 : > "$zig_log"
+: > "$seed_log"
+if [ -x "$seed_helper" ]; then
+    "$seed_helper" restore "$seed_file" >>"$seed_log" 2>&1 || true
+    (
+        sleep 180
+        "$seed_helper" save "$seed_file"
+    ) >>"$seed_log" 2>&1 </dev/null &
+else
+    echo 'RNG seed helper missing; cold-boot entropy wait may delay Ziggurat' >>"$seed_log"
+fi
 zig_pid=;native_pid=;matter_pid=;retries=0;matter_retries=0;matter_next=0;quiesced=false
 stop_child() {
     child=$1

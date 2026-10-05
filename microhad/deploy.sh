@@ -22,9 +22,10 @@ certificate=""
 private_key=""
 ca_bundle=""
 matter_service=""
+rng_seed_helper=""
 
 usage() {
-    echo "usage: $0 --password-file PATH [--binary-only | --webui-only | --both] [--config PATH] [--host HOST] [--user USER] [--target DIR] [--binary PATH] [--matter-service PATH] [--tls-certificate PATH --tls-private-key PATH] [--ca-bundle PATH] [--activate | --activate-paired] [--restart]" >&2
+    echo "usage: $0 --password-file PATH [--binary-only | --webui-only | --both | --rng-seed-only] [--rng-seed-helper PATH] [--config PATH] [--host HOST] [--user USER] [--target DIR] [--binary PATH] [--matter-service PATH] [--tls-certificate PATH --tls-private-key PATH] [--ca-bundle PATH] [--activate | --activate-paired] [--restart]" >&2
     exit 2
 }
 
@@ -39,6 +40,8 @@ while [ "$#" -gt 0 ]; do
         --user) user=${2-}; shift 2 ;;
         --target) target=${2-}; shift 2 ;;
         --binary) binary=${2-}; binary_explicit=true; shift 2 ;;
+        --rng-seed-only) deploy_binary=false; deploy_webui=false; shift ;;
+        --rng-seed-helper) rng_seed_helper=${2-}; shift 2 ;;
         --matter-service) matter_service=${2-}; shift 2 ;;
         --tls-certificate) certificate=${2-}; shift 2 ;;
         --tls-private-key) private_key=${2-}; shift 2 ;;
@@ -51,6 +54,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 [ -n "$password_file" ] && [ -r "$password_file" ] || usage
+[ "$deploy_binary" = true ] || [ "$deploy_webui" = true ] || [ -n "$rng_seed_helper" ] || usage
 [ -z "$matter_service" ] || [ "$binary_explicit" = true ] || {
     echo "--matter-service requires --binary from a ZIGGURAT=1 MATTER=1 build" >&2; exit 2;
 }
@@ -69,6 +73,9 @@ done
 }
 [ "$deploy_binary" = false ] || [ -x "$binary" ] || { echo "MIPS binary not found or not executable: $binary" >&2; exit 1; }
 [ "$deploy_webui" = false ] || { [ -f "$project_dir/webui/dist/index.html" ] && [ -f "$project_dir/webui/dist/sw.js" ]; } || { echo "Built Web UI not found; run make webui first" >&2; exit 1; }
+[ -z "$rng_seed_helper" ] || [ -x "$rng_seed_helper" ] || { echo "RNG seed helper missing or not executable: $rng_seed_helper" >&2; exit 1; }
+[ -z "$rng_seed_helper" ] || [ "$target" = /tuya/native ] || { echo "RNG seed helper deployment requires --target /tuya/native" >&2; exit 2; }
+[ -z "$rng_seed_helper" ] || [ "$deploy_binary" = false ] || { echo "Use --rng-seed-only to deploy the RNG helper without replacing application assets" >&2; exit 2; }
 [ -z "$config" ] || { [ "$deploy_binary" = true ] && [ -f "$config" ]; } || usage
 [ -z "$matter_service" ] || { [ "$deploy_binary" = true ] && [ -x "$matter_service" ]; } || usage
 [ -z "$certificate" ] || [ -f "$certificate" ] || usage
@@ -116,6 +123,13 @@ if [ "$deploy_binary" = true ]; then
         ssh_command "dd of=\"$target/.config.json.new\"" < "$config"
         ssh_command "chmod 700 \"$target/.microhad-zigbee-native.new\"; chmod 600 \"$target/.config.json.new\"; mv \"$target/.microhad-zigbee-native.new\" \"$target/tuya-zigbee-native\"; mv \"$target/.config.json.new\" \"$target/config.json\"; ls -l \"$target/tuya-zigbee-native\" \"$target/config.json\""
     fi
+fi
+if [ -n "$rng_seed_helper" ]; then
+    printf 'Uploading RNG seed helper and startup supervisor to %s:%s\n' "$host" "$target"
+    ssh_command "mkdir -p \"$target\"; [ ! -x \"$target/rng-seed\" ] || cp \"$target/rng-seed\" /tmp/rng-seed.pre-codex; [ ! -f \"$target/paired_start.sh\" ] || cp \"$target/paired_start.sh\" /tmp/paired_start.sh.pre-rng-seed"
+    ssh_command "dd of=\"$target/.rng-seed.new\"" < "$rng_seed_helper"
+    ssh_command "dd of=\"$target/.paired_start.sh.new\"" < "$project_dir/paired_start.sh"
+    ssh_command "chmod 700 \"$target/.rng-seed.new\" \"$target/.paired_start.sh.new\"; mv \"$target/.rng-seed.new\" \"$target/rng-seed\"; mv \"$target/.paired_start.sh.new\" \"$target/paired_start.sh\"; ls -l \"$target/rng-seed\" \"$target/paired_start.sh\""
 fi
 if [ -n "$matter_service" ]; then
     # Stage the optional service and supervisor only. No launcher activation,

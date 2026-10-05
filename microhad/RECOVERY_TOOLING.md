@@ -143,6 +143,16 @@ On the gateway, during an orderly maintenance stop:
 Quiescence stops native, disables respawn and retains Ziggurat for export. The stop
 flag is an explicit operator assertion that export succeeded; it does not inspect
 the host file. A fresh supervisor start is required to resume after quiescence.
+
+Before starting Ziggurat, the supervisor restores a one-use kernel RNG seed from
+`/userdata/etc/ziggurat-rng.seed` through `rng-seed` and credits only the entropy
+count recorded when that seed was saved. The previous file is consumed before it
+is credited, preventing replay after an interrupted boot. Three minutes after
+supervisor startup, a background helper waits for kernel RNG readiness, saves a
+replacement atomically with mode `0600`, and removes the consumed marker. On a
+first boot, or if restore fails, Ziggurat retains its existing readiness wait;
+the helper does not bypass it. The seed contains no gateway identity or Zigbee
+state.
 Stale control directories are refused and require PID inspection before cleanup.
 SIGTERM to the supervisor is bounded emergency shutdown, not an orderly rollback.
 
