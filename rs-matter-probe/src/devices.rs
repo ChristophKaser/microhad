@@ -259,6 +259,93 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
     pub fn front_report(&self) -> Option<&crate::operations::ResultValue> {
         self.reports.front()
     }
+    #[cfg(feature = "controller-service-test-hooks")]
+    pub fn seed_host_test_sensor_reports(&mut self, node: u64) -> Result<(), &'static str> {
+        if !self
+            .catalog
+            .nodes()
+            .iter()
+            .any(|entry| entry.id == node && entry.phase == Phase::Complete)
+        {
+            return Err("test report node is not complete in catalog");
+        }
+        let now = Instant::now();
+        let endpoints = vec![Endpoint {
+            id: 1,
+            servers: vec![6, 8, 91, 1026, 1029, 1037, 1066],
+        }];
+        if let Some(snapshot) = self.snapshots.iter_mut().find(|entry| entry.node == node) {
+            snapshot.endpoints = endpoints;
+            snapshot.online = true;
+            snapshot.next = now + Duration::from_secs(3600);
+        } else {
+            self.snapshots.push(Snapshot {
+                node,
+                endpoints,
+                online: true,
+                next: now + Duration::from_secs(3600),
+                failures: 0,
+            });
+        }
+        self.changed();
+        self.reports.extend([
+            crate::operations::ResultValue {
+                node: crate::control::Id(node),
+                endpoint: 1,
+                cluster: 1026,
+                attribute: 0,
+                value: crate::operations::Value::Measurement(crate::operations::MeasurementValue {
+                    value: Some(-4.25),
+                    unit: "celsius",
+                    quality: "measured",
+                }),
+            },
+            crate::operations::ResultValue {
+                node: crate::control::Id(node),
+                endpoint: 1,
+                cluster: 1029,
+                attribute: 0,
+                value: crate::operations::Value::Measurement(crate::operations::MeasurementValue {
+                    value: Some(63.0),
+                    unit: "percent",
+                    quality: "measured",
+                }),
+            },
+            crate::operations::ResultValue {
+                node: crate::control::Id(node),
+                endpoint: 1,
+                cluster: 91,
+                attribute: 0,
+                value: crate::operations::Value::AirQuality(crate::operations::AirQualityValue {
+                    value: "poor",
+                    quality: "measured",
+                }),
+            },
+            crate::operations::ResultValue {
+                node: crate::control::Id(node),
+                endpoint: 1,
+                cluster: 1037,
+                attribute: 0,
+                value: crate::operations::Value::Measurement(crate::operations::MeasurementValue {
+                    value: Some(850.0),
+                    unit: "ppm",
+                    quality: "measured",
+                }),
+            },
+            crate::operations::ResultValue {
+                node: crate::control::Id(node),
+                endpoint: 1,
+                cluster: 1066,
+                attribute: 0,
+                value: crate::operations::Value::Measurement(crate::operations::MeasurementValue {
+                    value: Some(30.5),
+                    unit: "ug/m3",
+                    quality: "measured",
+                }),
+            },
+        ]);
+        Ok(())
+    }
     pub fn operations_busy(&self) -> bool {
         self.active.is_some() || !self.queued.is_empty()
     }

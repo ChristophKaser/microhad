@@ -341,6 +341,14 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         controller_fabric,
         controller.catalog(),
     )?;
+    #[cfg(feature = "controller-service-test-hooks")]
+    if let Some(node) = std::env::var("MICROHAD_MATTER_TEST_SEED_SENSOR_REPORT_NODE").ok() {
+        let node = u64::from_str_radix(node.trim_start_matches("0x"), 16)
+            .map_err(|_| "invalid test report node")?;
+        devices
+            .seed_host_test_sensor_reports(node)
+            .map_err(|_| "test report fixture unavailable")?;
+    }
     let mut configuration_entropy = OsEntropy::open()?;
     let mut subscribers = Vec::new();
     // Do not initialize OT (and restore POSIX settings) until a fresh protected
