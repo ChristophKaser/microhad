@@ -114,8 +114,15 @@ little-endian u16 TLV length and up to 254 validated TLV bytes. Create uses OS
 entropy and the observed channel. Imports reject malformed, duplicate, pending,
 invalid-prefix/PAN and mismatched-channel datasets before mutation. Replacement
 returns `busy`; identical import is idempotent. Persist-before-apply failure
-disables Thread and retains the validated record for explicit retry. Heartbeats
-do not repeatedly apply a failed dataset; inability to disable stops the process.
+retains the validated record. At the lifecycle boundary, a failed apply with a
+successful disable is held in `apply_failed`; heartbeats do not repeat the
+write, and an explicit retry may reapply it. A non-OK Spinel status during the
+real OpenThread RCP property transaction can leave the pinned OpenThread
+instance unusable: the service exits instead of replying on IPC. The host
+synthetic-RCP regression verifies that the committed dataset survives this
+exit and restores only after a fresh service process receives a matching
+coordinator observation. The test launches that second process directly; it
+does not exercise the paired launcher or physical RCP failure behavior.
 
 Cached active/pending datasets cannot select a boot channel. A settings-get
 linker wrapper suppresses their unchecked restore, preserves security counter

@@ -24,7 +24,9 @@ class ChannelRcp(sim.ThreadRcp):
     def reset_properties(self):
         super().reset_properties()
         self.channel_writes = []
-        self.dataset_writes = []
+        self.dataset_write_count = 0
+        self.dataset_write_errors = 0
+        self.fail_next_dataset_write = False
         self.pause_dataset_write = False
         self.dataset_write_seen = threading.Event()
         self.release_dataset_write = threading.Event()
@@ -35,10 +37,15 @@ class ChannelRcp(sim.ThreadRcp):
             assert len(data[offset:]) == 1
             self.channel_writes.append(data[offset])
         if command == 3 and prop == 2048:
-            self.dataset_writes.append(data[offset:])
+            self.dataset_write_count += 1
             if self.pause_dataset_write:
                 self.dataset_write_seen.set()
                 self.release_dataset_write.wait(timeout=3)
+            if self.fail_next_dataset_write:
+                self.fail_next_dataset_write = False
+                self.dataset_write_errors += 1
+                self.send(data[0], 0, sim.sim.packed(2))
+                return
         super().receive_frame(data)
 
 
@@ -699,30 +706,37 @@ def failed_apply_retry_gate():
             private = Path(directory)
             radio_path = private / "radio.sock"
             ipc_path = private / "matter.sock"
-            relay = subprocess.Popen([str(ROOT / "build/openthread-unix/sim-relay-host"),
-                str(radio_path), radio.address, str(radio.port), "30"],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            deadline = time.monotonic() + 3
-            while not radio_path.exists():
-                if relay.poll() is not None or time.monotonic() >= deadline:
-                    raise RuntimeError("Apply-retry relay did not start")
-                time.sleep(0.02)
-            args = [str(ROOT / "build/rs-matter/target/release/thread-matter"),
-                "--socket", str(ipc_path), "--state-dir", str(private / "state"),
-                "--radio-url", f"spinel+hdlc+unix://{radio_path}?no-reset"]
-            fail_file = private / "fail-next-apply"
-            env = os.environ.copy()
-            env["MICROHAD_MATTER_TEST_FAIL_APPLY_FILE"] = str(fail_file)
-            service = subprocess.Popen(args, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            deadline = time.monotonic() + 5
-            while True:
-                if service.poll() is not None or time.monotonic() >= deadline:
-                    raise RuntimeError("Apply-retry service did not become responsive")
-                try:
-                    assert status(ipc_path, 1, 801)["state"] == "awaiting_coordinator"
-                    break
-                except (OSError, RuntimeError):
+            binary = str(ROOT / "build/rs-matter/target/release/thread-matter")
+            state_path = private / "state"
+
+            def start_relay(path, rcp):
+                process = subprocess.Popen([str(ROOT / "build/openthread-unix/sim-relay-host"),
+                    str(path), rcp.address, str(rcp.port), "30"],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                deadline = time.monotonic() + 3
+                while not path.exists():
+                    if process.poll() is not None or time.monotonic() >= deadline:
+                        raise RuntimeError("Apply-retry relay did not start")
                     time.sleep(0.02)
+                return process
+
+            def start_service(path, socket_path):
+                nonlocal service
+                args = [binary, "--socket", str(socket_path), "--state-dir", str(state_path),
+                    "--radio-url", f"spinel+hdlc+unix://{path}?no-reset"]
+                service = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                deadline = time.monotonic() + 5
+                while True:
+                    if service.poll() is not None or time.monotonic() >= deadline:
+                        raise RuntimeError("Apply-retry service did not become responsive")
+                    try:
+                        assert status(socket_path, 1, 801)["state"] == "awaiting_coordinator"
+                        return
+                    except (OSError, RuntimeError):
+                        time.sleep(0.02)
+
+            relay = start_relay(radio_path, radio)
+            start_service(radio_path, ipc_path)
             assert status(ipc_path, 9, 802,
                 b'{"schema":1,"action":"observe","zigbee_channel":15,"zigbee_online":true}')['ok']
             deadline = time.monotonic() + 3
@@ -731,34 +745,54 @@ def failed_apply_retry_gate():
                 time.sleep(0.01)
             credentials = private / "state/credentials.bin"
             before = credentials.read_bytes()
-            fail_file.touch()
-            failed = status(ipc_path, 9, 804,
-                b'{"schema":1,"action":"create","zigbee_channel":15}')
-            assert failed["error"] == "transport", failed
-            assert not fail_file.exists()
+            radio.fail_next_dataset_write = True
+            try:
+                status(ipc_path, 9, 804,
+                    b'{"schema":1,"action":"create","zigbee_channel":15}')
+            except Exception as error:
+                assert isinstance(error, RuntimeError), error
+            else:
+                raise AssertionError("Spinel dataset rejection unexpectedly returned an IPC reply")
+            assert radio.dataset_write_errors == 1, radio.dataset_write_errors
+            failed_code = service.wait(timeout=5)
+            _, failed_stderr = service.communicate(timeout=2)
+            assert failed_code == 1, (failed_code, failed_stderr)
+            assert failed_stderr.startswith(b"Matter controller service started\n"), failed_stderr
             failed_envelope = credentials.read_bytes()
             dataset = thread_dataset(credentials)
             assert dataset and failed_envelope != before
-            assert status(ipc_path, 2, 805)["state"] == "error"
-            request_count = len(radio.requests)
-            retry_gate = status(ipc_path, 9, 806,
-                b'{"schema":1,"action":"observe","zigbee_channel":15,"zigbee_online":true}')
-            assert retry_gate["error"] == "transport", retry_gate
-            time.sleep(0.1)
-            assert len(radio.requests) == request_count
+
+            # A genuine Spinel status error leaves the pinned OpenThread
+            # instance unusable during cleanup, so the runtime exits and the
+            # paired supervisor's restart path owns recovery. The committed
+            # dataset must survive and restore on a fresh RCP connection.
+            relay.terminate()
+            relay.wait(timeout=3)
+            radio.close()
+            radio = ChannelRcp("127.0.0.1", tcp_nodelay=True)
+            radio_path.unlink(missing_ok=True)
+            ipc_path.unlink(missing_ok=True)
+            relay = start_relay(radio_path, radio)
+            start_service(radio_path, ipc_path)
             assert credentials.read_bytes() == failed_envelope
-            explicit = status(ipc_path, 9, 807,
-                b'{"schema":1,"action":"retry"}')
-            assert explicit["ok"], explicit
-            assert status(ipc_path, 2, 808)["configured"]
-            assert credentials.read_bytes() == failed_envelope
+            assert status(ipc_path, 9, 805,
+                b'{"schema":1,"action":"observe","zigbee_channel":15,"zigbee_online":true}')['ok']
+            deadline = time.monotonic() + 3
+            while status(ipc_path, 1, 806)["state"] != "running":
+                assert time.monotonic() < deadline
+                time.sleep(0.01)
+            restored = status(ipc_path, 2, 807)
+            assert restored["configured"] and restored["dataset_channel"] == 15, restored
+            assert radio.dataset_write_errors == 0 and radio.dataset_write_count > 0
+            assert all(channel == 15 for channel in radio.channel_writes), radio.channel_writes
             assert not radio.error and radio.counts.get("command_1", 0) == 0
+            assert credentials.read_bytes() == failed_envelope
             service.terminate()
             stdout, stderr = service.communicate(timeout=3)
             assert service.returncode == 0 and not stdout
             assert stderr == b"Matter controller service started\nMatter controller service stopped\n"
             relay.wait(timeout=3)
-            print("PASS thread-matter apply-failure suppression and explicit retry")
+            print("PASS Spinel apply rejection preserves the dataset and recovers after service restart")
     finally:
         for process in (service, relay):
             if process is not None and process.poll() is None:
