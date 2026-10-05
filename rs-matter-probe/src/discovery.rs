@@ -13,12 +13,40 @@ use rs_matter::{
     Matter,
 };
 use std::{
+    cell::RefCell,
     net::Ipv6Addr,
+    rc::Rc,
     time::{Duration, Instant},
 };
 
 const CACHE_SIZE: usize = 16;
 const MAX_TTL: u32 = 120;
+const MAX_REFRESH_REQUESTS: usize = 64;
+
+/// Bounded handoff for CASE clients to invalidate cached operational addresses.
+#[derive(Clone, Default)]
+pub struct RefreshRequests(Rc<RefCell<Vec<(u64, u64)>>>);
+impl RefreshRequests {
+    pub fn request(&self, fabric: u64, node: u64) {
+        let key = (fabric, node);
+        let mut requests = self.0.borrow_mut();
+        if !requests.contains(&key) && requests.len() < MAX_REFRESH_REQUESTS {
+            requests.push(key);
+        }
+    }
+
+    fn take(&self, key: Key) -> bool {
+        let mut requests = self.0.borrow_mut();
+        let Some(index) = requests
+            .iter()
+            .position(|(fabric, node)| *fabric == key.fabric && *node == key.node)
+        else {
+            return false;
+        };
+        requests.remove(index);
+        true
+    }
+}
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct Key {
     fabric: u64,
@@ -175,6 +203,14 @@ impl Cache {
 }
 /// One resolver future on the same event loop as OT, Matter and the coordinator IPC.
 pub async fn run(matter: &Matter<'_>, thread: &OpenThread) -> Result<(), Error> {
+    run_with_refresh(matter, thread, RefreshRequests::default()).await
+}
+
+async fn run_with_refresh(
+    matter: &Matter<'_>,
+    thread: &OpenThread,
+    refresh: RefreshRequests,
+) -> Result<(), Error> {
     let mut cache = Cache::default();
     loop {
         let service = matter.transport().wait_mdns_resolve_request().await;
@@ -194,6 +230,9 @@ pub async fn run(matter: &Matter<'_>, thread: &OpenThread) -> Result<(), Error> 
         if !thread.ready() || !matter.transport().mdns_resolve_in_flight() {
             cache.records.clear();
             continue;
+        }
+        if refresh.take(key) {
+            cache.records.retain(|record| record.key != key);
         }
         if let Some(record) = cache.get(key, Instant::now()) {
             record.deposit(matter);
@@ -240,6 +279,25 @@ pub async fn run_with_catalog(
     compressed_fabric: u64,
     next_node: u64,
 ) -> Result<(), Error> {
+    run_with_catalog_and_refresh(
+        matter,
+        thread,
+        catalog,
+        compressed_fabric,
+        next_node,
+        RefreshRequests::default(),
+    )
+    .await
+}
+
+pub async fn run_with_catalog_and_refresh(
+    matter: &Matter<'_>,
+    thread: &OpenThread,
+    catalog: Catalog,
+    compressed_fabric: u64,
+    next_node: u64,
+    refresh: RefreshRequests,
+) -> Result<(), Error> {
     let mut delay = 250;
     while catalog.legacy_pending() {
         if !thread.ready() {
@@ -263,7 +321,7 @@ pub async fn run_with_catalog(
             }
         }
     }
-    run(matter, thread).await
+    run_with_refresh(matter, thread, refresh).await
 }
 
 #[cfg(test)]

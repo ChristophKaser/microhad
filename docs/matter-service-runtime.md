@@ -137,6 +137,26 @@ the common gateway device model. It uses only a synthetic RCP and accessory;
 it does not start the installed `thread-matter` service process or use hardware.
 That daemon-process variant and physical accessory acceptance remain open.
 
+## CASE address invalidation and recovery — 2026-10-05
+
+CASE timeouts/accessory failures from operational reads, commands, subscription
+setup timeouts and descriptor discovery now invalidate only the affected
+fabric/node resolver cache entry. Failed jobs also mark the node snapshot
+offline and schedule discovery immediately; the existing retry backoff applies
+if that discovery fails. Refresh requests are bounded to 64 catalog entries.
+The resolver fetches a fresh SRP/DNS answer on the next CASE resolution for
+that node. Fabric/node identity and credential storage are unchanged.
+
+The production host service compiles, and the stripped MIPS service builds as a
+2,162,372-byte MIPS-I/o32 executable (SHA-256
+`5d7d9d0a236ee853ed3cf3f926ec23c0162bc5c3a4933c7190371309781133f4`). The
+test-hook marker is absent. The normal wrapper's local OpenThread socket smoke
+check is denied by the workspace sandbox, so the service was compiled directly
+against the prepared host/MIPS transport archives. No service restart or
+target workload was needed for this bounded cache refresh. Automated recovery
+coverage and proof of wire-decoded reports through the installed daemon remain
+open.
+
 ## Gateway MIPS CASE sensor-report profile — 2026-10-05
 
 The updated MIPS commissioning fixture was run on gateway `192.168.178.62`

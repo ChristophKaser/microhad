@@ -77,6 +77,7 @@ struct QueuedOperation {
 }
 struct ActiveOperation<'a> {
     id: u64,
+    node: u64,
     deadline: Instant,
     work: OperationWork<'a>,
 }
@@ -149,7 +150,9 @@ pub struct Manager<'a, C: Crypto> {
     matter: &'a Matter<'a>,
     crypto: &'a C,
     fabric: NonZeroU8,
+    compressed_fabric: u64,
     catalog: Catalog,
+    address_refresh: crate::discovery::RefreshRequests,
     icd_registry: Option<crate::icd::ClientRegistry>,
     local_node: u64,
     icd_entropy: Option<crate::entropy::OsEntropy>,
@@ -190,6 +193,25 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         catalog: Catalog,
         subscription_limit: usize,
     ) -> Result<Self, std::io::Error> {
+        Self::new_with_address_refresh(
+            matter,
+            crypto,
+            fabric,
+            catalog,
+            subscription_limit,
+            0,
+            crate::discovery::RefreshRequests::default(),
+        )
+    }
+    pub fn new_with_address_refresh(
+        matter: &'a Matter<'a>,
+        crypto: &'a C,
+        fabric: NonZeroU8,
+        catalog: Catalog,
+        subscription_limit: usize,
+        compressed_fabric: u64,
+        address_refresh: crate::discovery::RefreshRequests,
+    ) -> Result<Self, std::io::Error> {
         if subscription_limit > MAX_DEVICE_SUBSCRIPTIONS {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
@@ -210,7 +232,9 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             matter,
             crypto,
             fabric,
+            compressed_fabric,
             catalog,
+            address_refresh,
             icd_registry: Some(icd_registry),
             local_node,
             icd_entropy: Some(crate::entropy::OsEntropy::open()?),
@@ -522,6 +546,23 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             self.revision = self.revision.checked_add(1).unwrap_or(0);
         }
     }
+    fn mark_node_unreachable(&mut self, node: u64, now: Instant) {
+        self.address_refresh
+            .request(self.compressed_fabric, node);
+        let was_online = if let Some(snapshot) =
+            self.snapshots.iter_mut().find(|snapshot| snapshot.node == node)
+        {
+            let was_online = snapshot.online;
+            snapshot.online = false;
+            snapshot.next = now;
+            was_online
+        } else {
+            false
+        };
+        if was_online {
+            self.changed();
+        }
+    }
     pub fn page(
         &mut self,
         cursor: u16,
@@ -702,7 +743,17 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             };
             if let Some(result) = completed {
                 let id = active.id;
+                let node = active.node;
                 self.active = None;
+                if let Err(error) = result {
+                    if matches!(
+                        error,
+                        crate::operations::Failure::Accessory
+                            | crate::operations::Failure::Timeout
+                    ) {
+                        self.mark_node_unreachable(node, now);
+                    }
+                }
                 self.record_state(
                     id,
                     match result {
@@ -747,6 +798,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 .run_for(self.matter, self.crypto, self.fabric, timeout);
             self.active = Some(ActiveOperation {
                 id,
+                node: queued.operation.node,
                 deadline: queued.deadline,
                 work: Box::pin(work),
             });
@@ -765,6 +817,10 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             if let Some(result) = result {
                 let key = *key;
                 self.subscription_work = None;
+                let failed = result
+                    .as_ref()
+                    .err()
+                    .is_some_and(|error| error.code() == ErrorCode::RxTimeout);
                 if let Some(subscription) = self
                     .subscriptions
                     .iter_mut()
@@ -786,6 +842,9 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                             subscription.next_retry = now + retry_delay(subscription.failures);
                         }
                     }
+                }
+                if failed {
+                    self.mark_node_unreachable(key.node, now);
                 }
             }
             return;
@@ -822,6 +881,10 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                     Ok(endpoints) => !snapshot.online || snapshot.endpoints != *endpoints,
                     Err(_) => snapshot.online,
                 };
+                if result.is_err() {
+                    self.address_refresh
+                        .request(self.compressed_fabric, node);
+                }
                 match result {
                     Ok(endpoints) => {
                         snapshot.endpoints = endpoints;

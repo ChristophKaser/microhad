@@ -340,11 +340,16 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         controller_fabric,
     )?;
     let mut lifecycle = Lifecycle::load(store.clone()).map_err(|_| "Thread state unavailable")?;
-    let mut devices = lexra_rs_matter_probe::devices::Manager::new(
+    let (compressed_fabric, next_node) = controller.discovery_identity();
+    let address_refresh = lexra_rs_matter_probe::discovery::RefreshRequests::default();
+    let mut devices = lexra_rs_matter_probe::devices::Manager::new_with_address_refresh(
         matter,
         &crypto,
         controller_fabric,
         controller.catalog(),
+        lexra_rs_matter_probe::devices::MAX_DEVICE_SUBSCRIPTIONS,
+        compressed_fabric,
+        address_refresh.clone(),
     )?;
     #[cfg(feature = "controller-service-test-hooks")]
     if let Some(node) = std::env::var("MICROHAD_MATTER_TEST_SEED_SENSOR_REPORT_NODE").ok() {
@@ -391,13 +396,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         .restore(&thread, Instant::now())
         .map_err(|_| "Thread restore failed")?;
     thread.start_discovery()?;
-    let (compressed_fabric, next_node) = controller.discovery_identity();
-    let discovery = lexra_rs_matter_probe::discovery::run_with_catalog(
+    let discovery = lexra_rs_matter_probe::discovery::run_with_catalog_and_refresh(
         matter,
         &thread,
         controller.catalog(),
         compressed_fabric,
         next_node,
+        address_refresh,
     );
     let mut discovery = pin!(discovery);
     let network = thread.bind(MATTER_PORT)?;
