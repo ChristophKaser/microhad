@@ -1,5 +1,17 @@
 # Plan: Rust Matter service runtime
 
+## Gateway flash headroom observation — 2026-10-05
+
+A read-only `df -k /tuya` check reported 12,160 KiB total, 8,628 KiB used,
+3,532 KiB available (71% used). No files were uploaded or removed, and the
+production service was not restarted. This is enough space for the current
+2,162,372-byte Matter service as an additive file in principle, but does not
+prove the full native/service/supervisor package can be staged on the current
+partition: a test-target install also duplicates the 1.7 MiB native binary and
+requires atomic temporary files. Check available space again immediately before
+any staging; the current snapshot is not a reservation. No CPU/RSS or runtime
+deadline measurement was made.
+
 ## Composed daemon-to-native report rerun — 2026-10-05
 
 `python3 scripts/test_matter_native_report_integration.py` passed outside the
