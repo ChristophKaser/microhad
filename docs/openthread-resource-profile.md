@@ -284,3 +284,12 @@ cannot be inspected through available target interfaces, and no Tuya watchdog
 feeder or safe disable control has been found. Do not infer that the RTL8196E
 hardware watchdog caused this event from the uptime drop alone. Production
 service remained running throughout; no reset or watchdog control was changed.
+
+At 10:03 UTC a further read-only SSH check observed uptime increasing from
+1,990.12 to 2,001.07 seconds, and the paired supervisor, Ziggurat and native
+daemon were still present. The current `dmesg` ring buffer contains current
+boot initialization messages and no reset reason or watchdog initialization.
+Its final vendor messages read and write `0xb8000038`; no evidence ties that
+register to the documented watchdog register at `0xb800311c` or to resets.
+This short check confirms no reset during its interval and does not change the
+unknown reset-source assessment.
