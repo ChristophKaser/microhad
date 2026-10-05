@@ -248,3 +248,39 @@ Remaining work is real RCP access through Ziggurat, another Thread endpoint,
 combined Zigbee/Thread radio load, longer runtime/ABI testing, and Matter
 commissioning/control. This profile contains no real mesh routing, RF contention,
 cryptographic Matter sessions, or Matter controller memory usage.
+
+## Authorized reset-frequency observation — 2026-10-05
+
+The user authorized continued guarded gateway tests to measure how common the
+resets are. A 13-minute observation sampled `/proc/uptime` and redacted
+`/api/status` about every 15 seconds: a three-minute idle baseline, guarded
+15-second Matter startup profiles separated by two-minute idle windows, and a
+three-minute post-test idle window. Profiles used private paths, no physical
+radio, and did not stop or replace the production Zigbee service. The memory
+floors were 512 KiB raw free and 1,536 KiB effective free.
+
+One confirmed reboot occurred during the second profile's idle cooldown:
+uptime moved from 3,742.86 seconds at 09:29:45 UTC to 29.45 seconds at
+09:30:31 UTC. The profile had already exited cleanly at 09:29:38 UTC, with no
+reboot detected between its before/after samples. This is evidence the reset
+was not caused by that just-completed startup-only profile. The exact reset
+time is only bounded by adjacent polls. Earlier read-only observations had
+already confirmed two separate resets, so this is the third confirmed reset
+across the documented observations; the windows are discontinuous and do not
+support a reliable reset rate or prove a periodic cadence.
+
+The startup test had one harness failure (`SERVICE_START_MARKER_MISSING`) with
+no service samples and verified cleanup. A repeat passed: RSS peaked at 788
+KiB, CPU ticks did not increase, raw free memory bottomed at 11,008 KiB, and
+effective free memory at 19,244 KiB. A third attempt was correctly refused
+while production was still offline after reboot. The production API returned
+online and formed about 135 seconds after the reboot and stayed healthy through
+the remaining idle window. No second reset occurred in the observed 4.7
+minutes after it.
+
+A fresh `dmesg` capture returned no watchdog, WDT, reset, or reboot lines. This
+still does not identify the reset source: the hardware watchdog indicator
+cannot be inspected through available target interfaces, and no Tuya watchdog
+feeder or safe disable control has been found. Do not infer that the RTL8196E
+hardware watchdog caused this event from the uptime drop alone. Production
+service remained running throughout; no reset or watchdog control was changed.
