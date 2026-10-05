@@ -80,6 +80,14 @@ filename column, so comparing whitespace-separated fields directly rejects
 matching files. The preflight now extracts only column one with BusyBox `awk`;
 no remote files were changed by either failed preflight.
 
+The next attempt passed its hash and flash checks but revealed that providing
+`--matter-service` for verification also entered the regular service-upload
+block. I stopped that transfer before replacing the installed service, removed
+only its incomplete `.thread-matter.new` file, and confirmed the original
+service, launcher and paired processes remained intact. Available `/tuya` flash
+returned to 1,484 KiB. The launcher-only path now skips all artifact upload
+blocks; retry it before restarting the paired stack.
+
 ## Gateway flash headroom observation — 2026-10-05
 
 A read-only `df -k /tuya` check reported 12,160 KiB total, 8,628 KiB used,

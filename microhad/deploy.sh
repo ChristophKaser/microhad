@@ -251,7 +251,7 @@ if [ -n "$rng_seed_helper" ]; then
     ssh_command "dd of=\"$target/.paired_start.sh.new\"" < "$project_dir/paired_start.sh"
     ssh_command "chmod 700 \"$target/.rng-seed.new\" \"$target/.paired_start.sh.new\"; mv \"$target/.rng-seed.new\" \"$target/rng-seed\"; mv \"$target/.paired_start.sh.new\" \"$target/paired_start.sh\"; ls -l \"$target/rng-seed\" \"$target/paired_start.sh\""
 fi
-if [ -n "$matter_service" ]; then
+if [ -n "$matter_service" ] && [ "$activate_paired_only" = false ]; then
     # Stage the optional service and supervisor only. No launcher activation,
     # credential state transfer, UART ownership change or process restart here.
     ssh_command "dd of=\"$target/.microhad-zigbee-native.matter-manifest.new\"" < "$binary.matter-manifest"
