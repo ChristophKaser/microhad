@@ -8,15 +8,19 @@ seeds decoded reports; its live CASE subscription path remains open. The actual
 Matter-enabled gateway worker now reconnects to a supervisor-restarted Rust
 service after a wire-level Spinel error and sees the restored dataset.
 Current factory MIPS builds for both binaries pass. Target runtime/resource
-evidence is partial: the service started on the gateway, but raw free RAM fell
-below the deployment gate and a reboot followed in the next status interval;
-the cause is unresolved. No further target workload is planned until reset
-investigation permits it.
+evidence is partial: a prior isolated service profile was followed by a reboot.
+A later idle observation caught repeated uptime resets, including two within
+roughly two minutes, without a target workload running. A bounded repeat profile did
+not reboot the gateway (uptime advanced 19.85 seconds), but the service exited
+before its first sample. A five-second diagnostic retry then passed with 788 KiB
+RSS, zero sampled CPU ticks, and orderly shutdown; uptime advanced 29.38 seconds.
+The repeated reset still needs investigation; no more target Matter load is
+planned until its cause is understood.
 
-Next deliverable: Close the daemon live-report path from a wire-decoded CASE
-report through native state/history. Keep gateway reset investigation ahead of
-any further target workload. Full physical paired launch remains in excluded
-plan 08.
+Next deliverable: Investigate the recurring gateway reset and diagnose the
+isolated service launch failure, then close the daemon live-report path from a
+wire-decoded CASE report through native state/history. Full physical paired
+launch remains in excluded plan 08.
 
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.
@@ -329,3 +333,32 @@ were 2,756 KiB for the native bridge and 2,044 KiB for Ziggurat; kernel slab was
 looks low while clean inactive cache remains reclaimable. It is one snapshot,
 not Matter-service headroom evidence; full Matter-service CPU, RSS and deadline
 measurements remain open.
+
+## Repeated reset and watchdog investigation — 2026-10-05
+
+After a prior read-only observation of about 3,247 seconds uptime, a later
+pre-profile check found only 390.26 seconds. Subsequent idle monitoring caught
+more resets: uptime read 722.42 seconds, then 252.93 seconds about a minute
+later; after reaching 285.50 seconds, it advanced to 411.18 seconds across
+roughly another minute, indicating another intervening reset. These occurred
+when no target Matter workload was running. During the
+bounded repeat profile uptime advanced from 390.26 to 410.11 seconds over
+17.75 seconds of host time, `/api/status` stayed online/formed, and no reset
+occurred during that run. The profile itself exited before its first resource
+sample and emitted no service log. A five-second retry passed with five samples,
+788 KiB peak RSS, zero CPU-tick growth, 11,508 KiB minimum raw `MemFree`, and
+19,884 KiB minimum effective free. Both profiles preserved production Zigbee
+and showed no reboot; the initial silent launch failure did not reproduce.
+
+The running image exposes no `/dev/watchdog*` or `/sys/class/watchdog`, no
+watchdog module, process, or init feeder was found, and the current boot's
+kernel log has no watchdog initialization or reset message. The old init script
+and `/etc`/`/tuya` searches likewise showed no feeder. `/proc/watchdog_reboot`
+does exist, but reading it blocked the SSH session; it was not read again. The
+custom RTL8196E watchdog sources in the local firmware tree are not evidence
+that this driver is present in the running image. There is currently no
+identified watchdog control to disable safely. The cause may be a vendor
+hardware watchdog or another reset source; the current boot has no persistent
+prior-boot log, so attribution remains open. The production supervisor restored
+Zigbee after a reset and the API reported online/formed. Keep the service up and
+do not run more Matter load profiles until the reset source is diagnosed.

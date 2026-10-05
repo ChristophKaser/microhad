@@ -427,9 +427,14 @@ The later isolated MIPS service startup sampled 788 KiB RSS while waiting for a
 coordinator, without initializing OpenThread or touching the radio. Raw
 `MemFree` fell to 928–944 KiB, below the 1 MiB deployment gate. A device reboot
 was observed in the following status interval, followed by supervisor recovery;
-its cause is unknown. This is not Thread attach or coexistence evidence. Suspend
-further target profiles pending the runtime-plan reset investigation; details
-are recorded in [plan 01](01-rust-service-runtime.md).
+its cause is unknown. Later idle monitoring caught repeated reboots, including
+two within roughly two minutes, with no Matter target workload running. Bounded
+repeat profiles did not reset the device and preserved Zigbee health; after one
+transient silent launch failure, a five-second service profile passed. No
+watchdog node, feeder, or driver was identified; the reset cause remains open.
+This is not Thread attach or coexistence evidence. Suspend further target
+profiles pending the runtime-plan reset investigation; details are recorded in
+[plan 01](01-rust-service-runtime.md).
 
 ## Wire-level Spinel apply rejection and service recovery — 2026-10-05
 
