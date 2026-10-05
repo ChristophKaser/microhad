@@ -59,26 +59,29 @@ commissioning variants, `scripts/test-matter-service.py`, and
 
 ## Live CASE reports in the native gateway — 2026-10-05
 
-The extended synthetic integration command
-`python3 scripts/test-openthread-matter-transport.py --native-bridge
---sensor-reports --service-discovery --service-owner --ble --commissioning`
-starts the Matter-enabled native host gateway and the encrypted accessory
-fixture together. It requests snapshot pages through the native HTTP API,
-polls each bounded job and carries the revision/cursor until endpoint 1 is
-registered. While CASE sensor subscriptions remain active, the fixture then
-publishes all five real notifier-backed report values through the production
-Rust `Manager` and `IpcServer`; the native worker applies them to its shared
-device model. The check verifies `/api/status` values and units for temperature
+The composed synthetic integration command
+`python3 ../microhad-zigbee-native/scripts/test_matter_native_report_integration.py`
+starts the Matter-enabled native host gateway and encrypted accessory fixture
+together. A test-only reports-sent/acknowledgement handshake holds the Rust
+probe's IPC session open after it publishes all five reports. The integration
+confirms there is no native Matter device yet, then requests snapshot pages
+through the native HTTP API, polling each bounded job and carrying the
+revision/cursor until endpoint 1 is registered. The early reports then flow
+through the production Rust `Manager` and `IpcServer`; the native worker applies
+them to its shared device model after registration. The check verifies `/api/status` values and units for temperature
 (-5.25 °C), humidity (64%), air quality (`moderate`), CO2 (800 ppm), and PM2.5
 (25.5 ug/m3), each with measured quality. The validation JSON records these
 observed native values.
 
-The run passed on the development host using a synthetic RCP/accessory. It
+The native worker bounds pre-registration readings at 128 entries and applies
+them after snapshot reconciliation. The run passed on the development host using a synthetic RCP/accessory. It
 does not use gateway radio or UART, and it is not the installed
 `thread-matter` service process. The daemon's own active report loop remains a
 separate process-level verification item. Native API snapshot pagination is
 required before checking the shared device catalog; the initial page in this
-fixture contains the root endpoint and advertises another cursor.
+fixture contains the root endpoint and advertises another cursor. The test
+markers are enabled only through environment variables and do not alter
+production service behavior.
 
 Stripped MIPS artifacts (not deployed):
 

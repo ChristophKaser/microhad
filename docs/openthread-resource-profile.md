@@ -355,3 +355,12 @@ rate, periodic cadence, or hardware/software cause.
 A second two-minute, read-only idle window sampled gateway uptime from 403.33
 to 525.97 seconds. All 12 SSH samples advanced monotonically and production
 remained online/formed; no reset was detected during this interval.
+
+At 12:23 UTC on 2026-10-05, a new read-only check found uptime at 1,686.69
+seconds, then 1,716.06 seconds on a second sample. The production status API
+reported Ziggurat online and the network formed. The current `dmesg` ring buffer
+contains normal kernel/board startup output and vendor register messages at
+`0xb8000038`, but no watchdog, reset, panic, OOM, brownout, or reboot-cause
+message. The ring buffer covers only the current boot and therefore cannot
+explain earlier uptime drops. No reset occurred during this short check; the
+cause of the previously observed resets remains undetermined.

@@ -1096,6 +1096,27 @@ async fn run(
                 println!(
                     "PASS production manager sensor reports reach IPC from subscribed CASE reports"
                 );
+                if native_ipc {
+                    if let Some(path) = std::env::var_os("MICROHAD_MATTER_TEST_NATIVE_REPORTS_SENT_FILE") {
+                        std::fs::write(path, b"five CASE reports published")
+                            .map_err(|_| rs_matter::error::ErrorCode::Failure)?;
+                    }
+                    if let Some(path) = std::env::var_os("MICROHAD_MATTER_TEST_NATIVE_REPORTS_ACK_FILE") {
+                        let (ipc, _) = report_ipc.as_mut().unwrap();
+                        while !std::path::Path::new(&path).exists() {
+                            std::future::poll_fn(|context| {
+                                manager.poll(true, false, std::time::Instant::now(), context);
+                                ipc.poll_with_peer(|_, request| {
+                                    native_test_response(request, &mut manager)
+                                })
+                                .unwrap();
+                                std::task::Poll::Ready(())
+                            })
+                            .await;
+                            Timer::after_millis(5).await;
+                        }
+                    }
+                }
             }
             println!("PASS production manager subscription and peer-correlated OnOff reports");
         }
