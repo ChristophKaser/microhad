@@ -547,10 +547,11 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         }
     }
     fn mark_node_unreachable(&mut self, node: u64, now: Instant) {
-        self.address_refresh
-            .request(self.compressed_fabric, node);
-        let was_online = if let Some(snapshot) =
-            self.snapshots.iter_mut().find(|snapshot| snapshot.node == node)
+        self.address_refresh.request(self.compressed_fabric, node);
+        let was_online = if let Some(snapshot) = self
+            .snapshots
+            .iter_mut()
+            .find(|snapshot| snapshot.node == node)
         {
             let was_online = snapshot.online;
             snapshot.online = false;
@@ -748,8 +749,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 if let Err(error) = result {
                     if matches!(
                         error,
-                        crate::operations::Failure::Accessory
-                            | crate::operations::Failure::Timeout
+                        crate::operations::Failure::Accessory | crate::operations::Failure::Timeout
                     ) {
                         self.mark_node_unreachable(node, now);
                     }
@@ -882,8 +882,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                     Err(_) => snapshot.online,
                 };
                 if result.is_err() {
-                    self.address_refresh
-                        .request(self.compressed_fabric, node);
+                    self.address_refresh.request(self.compressed_fabric, node);
                 }
                 match result {
                     Ok(endpoints) => {
@@ -1817,6 +1816,65 @@ mod tests {
         assert_eq!(retry_delay(2), Duration::from_secs(10));
         assert_eq!(retry_delay(7), Duration::from_secs(320));
         assert_eq!(retry_delay(u8::MAX), Duration::from_secs(320));
+    }
+    #[test]
+    fn unreachable_case_node_is_hidden_and_queued_for_address_refresh() {
+        use rs_matter::{
+            crypto::{default_crypto, CryptoSensitiveRef},
+            dm::devices::test::{TEST_DEV_ATT, TEST_DEV_COMM, TEST_DEV_DET},
+            utils::init::InitMaybeUninit,
+        };
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory =
+            std::env::temp_dir().join(format!("matter-address-recovery-{}", std::process::id()));
+        std::fs::create_dir(&directory).unwrap();
+        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let store = crate::store::PrivateStore::open(&directory).unwrap();
+        let catalog = Catalog::open(store, 1, 2).unwrap();
+        let entropy = crate::entropy::OsEntropy::open().unwrap();
+        let crypto = default_crypto(entropy, CryptoSensitiveRef::new(&[9; 32]));
+        let mut memory = Box::new(std::mem::MaybeUninit::uninit());
+        let matter = memory.init_with(Matter::init(
+            &TEST_DEV_DET,
+            TEST_DEV_COMM,
+            &TEST_DEV_ATT,
+            5540,
+        ));
+        let refresh = crate::discovery::RefreshRequests::default();
+        let mut manager = Manager::new_with_address_refresh(
+            matter,
+            &crypto,
+            NonZeroU8::new(1).unwrap(),
+            catalog,
+            MAX_DEVICE_SUBSCRIPTIONS,
+            17,
+            refresh.clone(),
+        )
+        .unwrap();
+        let next = Instant::now() + Duration::from_secs(60);
+        manager.snapshots.push(Snapshot {
+            node: 2,
+            endpoints: vec![Endpoint {
+                id: 1,
+                servers: vec![6],
+            }],
+            online: true,
+            next,
+            failures: 0,
+        });
+        let now = Instant::now();
+
+        manager.mark_node_unreachable(2, now);
+
+        assert!(!manager.snapshots[0].online);
+        assert_eq!(manager.snapshots[0].next, now);
+        assert_eq!(manager.snapshots[0].endpoints[0].servers, vec![6]);
+        assert!(refresh.take_for(17, 2));
+        assert!(!refresh.take_for(17, 2));
+
+        drop(manager);
+        std::fs::remove_dir_all(directory).unwrap();
     }
     #[test]
     fn peer_lists_are_bounded_unique_and_canonical() {

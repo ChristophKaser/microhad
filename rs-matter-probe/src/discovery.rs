@@ -35,6 +35,10 @@ impl RefreshRequests {
         }
     }
 
+    pub(crate) fn take_for(&self, fabric: u64, node: u64) -> bool {
+        self.take(Key { fabric, node })
+    }
+
     fn take(&self, key: Key) -> bool {
         let mut requests = self.0.borrow_mut();
         let Some(index) = requests
@@ -192,6 +196,17 @@ impl Cache {
         self.records.retain(|record| record.expires > now);
         self.records.iter().find(|record| record.key == key)
     }
+    fn get_for_case(
+        &mut self,
+        key: Key,
+        now: Instant,
+        refresh: &RefreshRequests,
+    ) -> Option<&Record> {
+        if refresh.take_for(key.fabric, key.node) {
+            self.records.retain(|record| record.key != key);
+        }
+        self.get(key, now)
+    }
     fn put(&mut self, record: Record, now: Instant) {
         self.records
             .retain(|prior| prior.key != record.key && prior.expires > now);
@@ -231,10 +246,7 @@ async fn run_with_refresh(
             cache.records.clear();
             continue;
         }
-        if refresh.take(key) {
-            cache.records.retain(|record| record.key != key);
-        }
-        if let Some(record) = cache.get(key, Instant::now()) {
+        if let Some(record) = cache.get_for_case(key, Instant::now(), &refresh) {
             record.deposit(matter);
             continue;
         }
@@ -329,6 +341,9 @@ mod tests {
     use super::*;
     fn key(node: u64) -> Key {
         Key { fabric: 17, node }
+    }
+    fn key_on_fabric(fabric: u64, node: u64) -> Key {
+        Key { fabric, node }
     }
     fn answer(last: u8, ttl: u32) -> DnsAnswer {
         let mut answer = DnsAnswer::empty();
@@ -450,5 +465,49 @@ mod tests {
             cache.get(key(2), now).unwrap().addresses[0],
             "fd00::63".parse::<IpAddr>().unwrap()
         );
+    }
+    #[test]
+    fn case_refresh_evicts_only_the_requested_fabric_node_address() {
+        let now = Instant::now();
+        let mut cache = Cache::default();
+        for (entry, last) in [(key(2), 2), (key(3), 3), (key_on_fabric(18, 2), 4)] {
+            cache.put(Record::parse(entry, answer(last, 30), now).unwrap(), now);
+        }
+        let refresh = RefreshRequests::default();
+        refresh.request(17, 2);
+
+        assert!(cache.get_for_case(key(2), now, &refresh).is_none());
+        assert_eq!(
+            cache.get_for_case(key(3), now, &refresh).unwrap().addresses[0],
+            "fd00::3".parse::<IpAddr>().unwrap()
+        );
+        assert_eq!(
+            cache
+                .get_for_case(key_on_fabric(18, 2), now, &refresh)
+                .unwrap()
+                .addresses[0],
+            "fd00::4".parse::<IpAddr>().unwrap()
+        );
+
+        cache.put(Record::parse(key(2), answer(99, 30), now).unwrap(), now);
+        assert_eq!(
+            cache.get_for_case(key(2), now, &refresh).unwrap().addresses[0],
+            "fd00::63".parse::<IpAddr>().unwrap()
+        );
+    }
+    #[test]
+    fn case_refresh_handoff_is_bounded_and_deduplicated() {
+        let refresh = RefreshRequests::default();
+        for node in 1..=MAX_REFRESH_REQUESTS as u64 {
+            refresh.request(17, node);
+            refresh.request(17, node);
+        }
+        refresh.request(17, MAX_REFRESH_REQUESTS as u64 + 1);
+
+        for node in 1..=MAX_REFRESH_REQUESTS as u64 {
+            assert!(refresh.take_for(17, node));
+            assert!(!refresh.take_for(17, node));
+        }
+        assert!(!refresh.take_for(17, MAX_REFRESH_REQUESTS as u64 + 1));
     }
 }

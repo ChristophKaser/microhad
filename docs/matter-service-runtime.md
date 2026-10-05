@@ -149,13 +149,23 @@ that node. Fabric/node identity and credential storage are unchanged.
 
 The production host service compiles, and the stripped MIPS service builds as a
 2,162,372-byte MIPS-I/o32 executable (SHA-256
-`5d7d9d0a236ee853ed3cf3f926ec23c0162bc5c3a4933c7190371309781133f4`). The
-test-hook marker is absent. The normal wrapper's local OpenThread socket smoke
-check is denied by the workspace sandbox, so the service was compiled directly
-against the prepared host/MIPS transport archives. No service restart or
-target workload was needed for this bounded cache refresh. Automated recovery
-coverage and proof of wire-decoded reports through the installed daemon remain
-open.
+`08a55e0506de730bbe66f6cc906a422e3760dfd5bf06dbad48cb4f097ed6255f`). The
+test-hook marker is absent. Focused host tests verify the Manager marks an
+unreachable CASE node offline and queues its refresh, the resolver evicts only
+the requested fabric/node cache entry before its next lookup, the new DNS
+answer is used, and the refresh queue is bounded and deduplicated. Run them with:
+
+```sh
+cargo +nightly-2026-10-02 test --locked --manifest-path rs-matter-probe/Cargo.toml \
+  --features controller-service --lib address_refresh
+cargo +nightly-2026-10-02 test --locked --manifest-path rs-matter-probe/Cargo.toml \
+  --features controller-service --lib case_refresh
+```
+
+These checks do not exercise a live CASE exchange, an address change across a
+Thread mesh, or the installed daemon-to-native report path. No service restart
+or target workload was needed for this bounded cache refresh; those integration
+gaps remain open.
 
 ## Gateway MIPS CASE sensor-report profile — 2026-10-05
 
