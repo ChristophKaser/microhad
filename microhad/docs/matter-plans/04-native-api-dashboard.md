@@ -1,6 +1,6 @@
 # Plan: Native Matter API and dashboard
 
-## Current open work — 2026-10-04
+## Current open work — 2026-10-05
 
 Queued commissioning/Thread APIs, the owned WebSocket relay and a feature-aware
 dashboard onboarding/progress panel exist. Queued device snapshot pages now have
@@ -20,15 +20,18 @@ remain open; the job-capacity and drain behavior now has a composed HTTP/worker
 test. A
 new stalled-peer regression test proves the native Matter IPC exchange returns
 at its deadline without waiting for a peer that accepted but never answered
-(`750c4c9`); absent/stalled service matrix coverage remains incomplete. A
+(`750c4c9`); the native worker now also proves that a stalled status reply
+clears cached readiness and returns HTTP 503 before recovering on a fresh
+connection. A
 bounded unit-aware history journal now stores confirmed
 Matter measurements under stable source IDs and is exposed by the common
 history API/dashboard. Keep only joining/commissioning and Matter/Thread-
 specific settings in the Matter area.
 
 The native IPC failure gates inject a malformed reply body, a valid response
-with the wrong request ID, one malformed unsolicited event, and an overflow of
-nine valid events into the eight-event channel queue. Each verifies that the
+with the wrong request ID, a withheld status reply, one malformed unsolicited
+event, and an overflow of nine valid events into the eight-event channel queue.
+Each verifies that the
 worker clears cached Matter status, returns HTTP 503 during recovery,
 reconnects, and resumes serving status. Wrong frame headers and the wider
 failure matrix remain open.
@@ -224,8 +227,9 @@ open. Verification passed:
    pressure, cancellation, socket-loss and secret-redaction gates. Native IPC
    deadline behavior has a stalled-peer test (`750c4c9`), and malformed reply
    body, wrong reply ID, event invalidation and event-queue overflow/reconnect
-   now have integration gates. Malformed frame headers and the wider matrix
-   remain open.
+   now have integration gates. The combined worker/HTTP fixture now also covers
+   a withheld status reply, cache invalidation, 503 and fresh-channel recovery
+   (`1f8ebac`). Malformed frame headers and the wider matrix remain open.
 4. Inspect rendered browser interactions in addition to the host client and
    TypeScript/build evidence. Physical pairing remains exclusively in plan 08.
 
@@ -362,6 +366,22 @@ availability and unmount. No device deployment or plan 08 acceptance occurred.
 
 Plan item 5 remains open for sensor measurement rendering and controls for
 additional clusters; item 6's broader API and failure matrix also remains open.
+
+## Stalled service status recovery — 2026-10-05
+
+Native commit `1f8ebac` extends the native worker/HTTP fixture with a service
+peer that accepts a status request but withholds its response past the IPC
+deadline. The worker invalidates cached status, the enabled HTTP status route
+returns 503 while the service reconnects, and status returns to `running` over
+the new IPC connection. The same run covers malformed replies, wrong reply IDs,
+malformed unsolicited events, event-queue overflow, and absent-service 503
+behavior while Zigbee/native remain available.
+
+`python3 -m py_compile scripts/test_matter_native_worker.py` and
+`python3 scripts/test_matter_native_worker.py` pass with local sockets enabled.
+This closes the synthetic combined stalled-status/HTTP recovery gate, not the
+real device or real-RCP timing gate. Malformed frame headers, broader failure
+coverage and plan 08 acceptance remain open.
 
 ## Native Matter job queue pressure checkpoint — 2026-10-04
 
