@@ -79,13 +79,38 @@ impl Catalog {
         read_nodes(store, fabric, next_node).map(|_| ())
     }
     pub fn open(store: PrivateStore, fabric: u64, next_node: u64) -> Result<Self, Error> {
-        let nodes = read_nodes(&store, fabric, next_node)?;
+        let catalog_exists = store
+            .contains_in(CATALOG_KEY..CATALOG_KEY + 1)
+            .map_err(|_| invalid())?;
+        let mut nodes = read_nodes(&store, fabric, next_node)?;
+        let legacy_count = next_node.saturating_sub(2);
+        if !catalog_exists && legacy_count > 0 {
+            // The authority's monotonic counter is committed before an ID is
+            // returned. When upgrading a pre-catalog store, every lower ID was
+            // therefore allocated at some point. Preserve those IDs and let
+            // authenticated CASE discovery distinguish live devices from
+            // abandoned commissioning attempts.
+            if legacy_count > MAX_NODES as u64 {
+                return Err(invalid());
+            }
+            nodes = (2..next_node)
+                .map(|id| Node {
+                    id,
+                    phase: Phase::RecoveryRequired,
+                })
+                .collect();
+        }
         let catalog = Self {
             store,
             fabric,
             nodes: Rc::new(RefCell::new(nodes)),
             fatal: Rc::new(Cell::new(false)),
         };
+        if !catalog_exists && legacy_count > 0 {
+            let migrated = catalog.nodes.borrow().clone();
+            catalog.commit(migrated)?;
+            return Ok(catalog);
+        }
         let mut recovered = catalog.nodes.borrow().clone();
         let mut changed = false;
         for node in &mut recovered {
@@ -277,6 +302,37 @@ mod tests {
             before
         );
         assert!(recovered.endpoint_id(3, 1).is_err());
+    }
+    #[test]
+    fn legacy_missing_catalog_preserves_every_allocated_id_for_case_recovery() {
+        let directory = Directory::new();
+        let store = directory.store();
+        let catalog = Catalog::open(store.clone(), 17, 5).unwrap();
+        let nodes = catalog.nodes();
+        assert_eq!(nodes.len(), 3);
+        assert_eq!(
+            nodes.iter().map(|node| node.id).collect::<Vec<_>>(),
+            [2, 3, 4]
+        );
+        assert!(nodes
+            .iter()
+            .all(|node| node.phase == Phase::RecoveryRequired));
+        drop(catalog);
+        drop(store);
+        let reopened = Catalog::open(directory.store(), 17, 5).unwrap();
+        assert_eq!(reopened.nodes().len(), 3);
+        assert!(reopened
+            .nodes()
+            .iter()
+            .all(|node| node.phase == Phase::RecoveryRequired));
+    }
+    #[test]
+    fn legacy_catalog_migration_is_bounded_and_fails_without_partial_write() {
+        let directory = Directory::new();
+        let store = directory.store();
+        assert!(Catalog::open(store.clone(), 17, 3 + MAX_NODES as u64).is_err());
+        assert!(!store.contains_in(CATALOG_KEY..CATALOG_KEY + 1).unwrap());
+        assert!(Catalog::open(store, 17, 2).unwrap().nodes().is_empty());
     }
     #[test]
     fn offline_validation_accepts_transitional_catalog_without_recovery_write() {

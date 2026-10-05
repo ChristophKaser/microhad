@@ -1155,7 +1155,7 @@ mod tests {
         };
         let directory = std::env::temp_dir().join(format!("matter-jobs-{}", std::process::id()));
         let store = PrivateStore::open(&directory).unwrap();
-        let catalog = Catalog::open(store, 1, 5).unwrap();
+        let catalog = Catalog::open(store, 1, 2).unwrap();
         let reservation = catalog.reserve(2).unwrap();
         reservation.fabric_installed().unwrap();
         reservation.thread_provisioned().unwrap();
@@ -1237,7 +1237,7 @@ mod tests {
         let directory = std::env::temp_dir().join(format!("matter-devices-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&directory);
         let store = PrivateStore::open(&directory).unwrap();
-        let catalog = Catalog::open(store, 1, 5).unwrap();
+        let catalog = Catalog::open(store, 1, 2).unwrap();
         for node in [2, 3] {
             let reservation = catalog.reserve(node).unwrap();
             reservation.fabric_installed().unwrap();

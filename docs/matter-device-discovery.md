@@ -60,6 +60,16 @@ for the service and 2,301,648 bytes for the probe; neither was deployed.
 
 Device IPC/API exposure at this scheduler checkpoint, remote reconciliation of recovery-required nodes,
 legacy catalog migration, device types/features and native controls remain open.
+
+## Current status update — 2026-10-05
+
+Legacy catalogs are now initialized from the persisted authority node allocator:
+all prior IDs up to the saved high-water mark become `RecoveryRequired` and are
+validated by the existing production DNS-SD/CASE scheduler. Migration is
+bounded to 64 allocated IDs; larger missing-catalog histories fail closed
+without writing. See [catalog migration details](matter-node-catalog.md).
+Address invalidation after an established CASE failure and administrative
+pruning of unreachable migrated entries remain open.
 Host fixture coverage does not establish real accessory interoperability;
 plan 08 remains excluded.
 

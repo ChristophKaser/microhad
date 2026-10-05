@@ -421,8 +421,8 @@ mod tests {
         );
         let mut identity = Identity::open(&store, &crypto, 0xfff1).unwrap();
         let fabric = identity.fabric_id();
-        assert_eq!(identity.allocate_node(&store).unwrap(), 2);
         let catalog = Catalog::open(store.clone(), fabric, identity.next_node()).unwrap();
+        assert_eq!(identity.allocate_node(&store).unwrap(), 2);
         let reservation = catalog.reserve(2).unwrap();
         reservation.fabric_installed().unwrap();
         reservation.thread_provisioned().unwrap();

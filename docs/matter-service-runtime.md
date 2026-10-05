@@ -254,3 +254,18 @@ but the verified output is ET_EXEC with no interpreter or dynamic section.
 Target execution is still needed to prove runtime compatibility. Artifact size
 does not measure peak RSS, CPU load, or radio scheduling deadlines; none were
 measured on the gateway.
+
+## Legacy catalog migration verification — 2026-10-05
+
+The controller-service suite passes 76/76 tests. New catalog tests simulate a
+legacy authority with allocated IDs but no catalog, verify each ID is persisted
+as `RecoveryRequired` across reopen, and verify a history exceeding the 64-node
+bound fails without a partial catalog write. The production manager's existing
+recovery scheduler remains responsible for DNS-SD and authenticated CASE before
+promoting each node. The MIPS service cross-build passes at 2,109,120 bytes;
+SHA-256 `bed049e5f9ea5195bfbd52a991ba58a181ac2337405b9da5713e4ba98dd92965`.
+This code performs at most 64 small catalog records at startup; it does not add
+radio work before Thread attachment. No target CPU, memory or timing profile
+was run because the bounded catalog initialization adds no complex target-side
+procedure. More than 64 prior allocations fail closed pending broader DNS-SD
+browse migration; no physical acceptance or deployment occurred.
