@@ -132,16 +132,18 @@ watchdog initialization or reset reason. `/proc/watchdog_reboot` exists as a
 read-only, zero-length proc entry, but reading it blocked SSH, so its contents
 were not retried. No watchdog has been identified that can safely be disabled.
 
-Read-only monitoring then caught repeated uptime resets. Uptime read 722.42
-seconds, then 252.93 seconds about a minute later. It read 285.50 seconds
-shortly after that and 411.18 seconds about another minute later, indicating a
-further intervening reboot. Production process IDs changed after the first
-reset; the supervisor had restored the Zigbee processes and `/api/status` was
-online/formed. This confirms recurring instability during idle observation,
-not an isolated Matter-profile event. The conventional Linux watchdog interface
-and userspace feeder remain absent, so a Tuya/board-level reset source is still
-possible but unproven. No further gateway workloads should run until the reset
-source is identified.
+Read-only monitoring confirmed two uptime resets between observations. The
+earlier sequence changed from about 3,247 to 390 seconds; later, uptime read
+722.42 seconds and then 252.93 seconds about a minute later. Production process
+IDs changed after the latter reset; the supervisor restored the Zigbee
+processes and `/api/status` was online/formed. Other samples (285.50 and 411.18
+seconds) were separated by uncertain elapsed time and do not establish another
+reset. A later calibration increased uptime from 2,496.97 to 2,507.01 over a
+10-second device sleep. The two confirmed resets show that the earlier Matter
+profile was not the only possible trigger, but do not establish a continuing
+reset cadence. The conventional Linux watchdog interface and userspace feeder
+remain absent, so a Tuya/board-level reset source is possible but unproven. No
+further gateway workloads should run until the reset source is identified.
 
 The RTL8196E datasheet documents an on-chip watchdog reset indicator in
 `WDTCNR` at `0xB800311C`; this hardware path could exist without `/dev/watchdog`
@@ -149,9 +151,9 @@ or a Linux watchdog driver. The target has no `/dev/mem` or `devmem` utility, an
 reading `/proc/watchdog_reboot` blocked SSH, so the hardware reset indicator
 could not be inspected safely. There is no known safe disable control. A later
 read-only check observed uptime at 2,222 seconds with `/api/status` online and
-formed; that is one healthy observation after the prior resets, not evidence
-that the issue is resolved. The register semantics are described in the
-[RTL8196E datasheet](https://www.elinfor.com/pdf/Realtek/RTL8196E-CG-Realtek.pdf),
+formed; a later ten-second device sleep advanced uptime by 10.04 seconds. These
+healthy observations do not show the reset issue is resolved. The register
+semantics are described in the [RTL8196E datasheet](https://www.elinfor.com/pdf/Realtek/RTL8196E-CG-Realtek.pdf),
 section 8.2.9.
 
 The guarded 15-second repeat service profile did not reset the gateway, but its
