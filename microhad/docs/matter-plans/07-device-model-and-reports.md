@@ -89,18 +89,24 @@ Check-In capture. Rust commit `db6d93b` adds a bounded durable ICD client
 registry: it sends permanent RegisterClient requests, stores each client's
 fabric/node/endpoint/key and starting counter in the private store, validates
 Check-In MIC and monotonic counter offsets, and persists the accepted offset
-before returning a wake record. The focused registry tests passed 2/2 and the
-controller-service library check passed. Rust commit `bd1d79d` wires the
-registry into `devices::Manager`: endpoint descriptors identify ICD Management,
-the manager reads OperatingMode and registers LIT devices, authenticates and
-persists Check-In offsets, refreshes keys at the protocol threshold, and opens
-a bounded active window for queued operations. Registered sleepy nodes defer
-new operations, descriptor reads and subscriptions until an authenticated
-wake. The scheduler wake-window regression passes; all 80 controller-service
-library tests pass. The isolated MIPS service profile starts successfully and
-creates a Thread dataset, but has no commissioned LIT accessory and therefore
-does not exercise registration, Check-In or sleepy-device operations. End-to-end
-LIT accessory behavior remains unverified.
+before returning a wake record. Rust commit `8f69c39` wires the registry into
+`devices::Manager`. The manager detects LIT capability from FeatureMap's
+Check-In Protocol and Long Idle Time bits, gives ICD exchanges a 10-second
+deadline, retries failures/timeouts after 5 seconds, and yields the poll turn
+after ICD progress. It defers operations, descriptor reads and subscriptions
+until an authenticated wake and refreshes keys at the protocol threshold. All
+80 controller-service library tests pass.
+
+The synthetic commissioned ICD fixture proves that the production manager
+registers a client and that the accessory retains it (`OperatingMode=LIT`, one
+RegisteredClients entry). It still fails the next acceptance gate: no
+authenticated Check-In reaches the controller queue, so counter persistence
+and wake-window command dispatch are not verified. The fixture supplies the
+controller operational address to the accessory resolver, but the device
+still does not deliver an accepted Check-In. Diagnose sessionless UDP
+delivery/receiver behavior before trying this procedure on the gateway. The
+isolated MIPS profile has no commissioned ICD peer and gives no CPU, memory or
+timing evidence for registration or Check-In traffic.
 
 Operational DNS-SD parsing now accepts and preserves the standard `ICD=0|1`
 TXT field while rejecting malformed, out-of-range and duplicate values
@@ -108,7 +114,9 @@ TXT field while rejecting malformed, out-of-range and duplicate values
 and prevents malformed mode metadata from entering its resolve cache. The
 parser fixture length was corrected in `93a1333`; the focused offline test
 passes (1/1), with `git diff --check` clean. The manager confirms LIT support
-through its authenticated OperatingMode read before issuing RegisterClient.
+through the authenticated FeatureMap read before issuing RegisterClient. The
+fixture verifies the RegisterClient response and accessory readback; Check-In
+delivery remains open.
 
 The earlier Rust commit `02d631a` routed Check-In through the device manager's
 unrestricted exchange acceptor. Inspection showed that this raced rs-matter's

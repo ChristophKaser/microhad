@@ -61,10 +61,15 @@ reported 5,432 KiB `MemFree` and 14,364 KiB `Inactive(file)` (19,796 KiB
 combined reclaimable estimate); it does not measure Matter daemon usage. CPU
 and runtime deadlines were not sampled because no target workload ran.
 
-Latest service-resource checkpoint (`bd1d79d`): the production MIPS-I service
-is 2,150,084 bytes (SHA-256
-`40b58a81b1d434d8ab9e1f40e997cb0578b843a20d4b6d887df0fb0dab32bea7`). Its
-isolated 15-second synthetic-RCP profile verified startup, Thread dataset
+Latest service-resource checkpoint (`8f69c39`): the production MIPS-I service is 2,154,180
+bytes (SHA-256
+`4eaf5b551bafa2c3d1382f26b730b61b567e9b4121a5a1f9ca65e46e5b24cfdd`). The
+controller-service library suite passes 80/80, and the MIPS-I production
+cross-build succeeds. The additional ICD feature-detection, timeout and retry
+logic is not represented in the prior gateway profile: no new on-device
+profile was run because the synthetic LIT fixture still fails to deliver an
+authenticated Check-In. The existing isolated 15-second synthetic-RCP profile
+verified startup, Thread dataset
 creation, IPC status and orderly shutdown while production Zigbee/Ziggurat
 remained online. Startup after IPC socket creation was 1.09 seconds; peak RSS
 was 1,492 KiB, sampled CPU ticks did not increase, minimum MemFree was 2,564
