@@ -880,3 +880,15 @@ registered native device and shared history. The daemon and synthetic RCP
 shut down cleanly. This still injects `ReceivedReport` after wire decoding; the
 daemon's live Matter subscription callback through native state/history/alerts
 remains open. No gateway process or physical radio was used.
+
+## Report-driven device-presence regression — 2026-10-05
+
+The composed integration test now requires the shared Matter device to be
+`online` with `last_seen` populated while all five CASE sensor reports are
+visible. It checks this both for live reports from the commissioned accessory
+through the production Manager/IPC path and for report events published by the
+actual `thread-matter` process. `python3 scripts/test_matter_native_report_integration.py`
+passes with the synthetic RCP/accessory. This confirms that report receipt
+keeps common controls eligible while the device responds. The daemon half still
+uses test-only queued `ReceivedReport` values; reports received by the daemon's
+own active subscription exchange remain open.

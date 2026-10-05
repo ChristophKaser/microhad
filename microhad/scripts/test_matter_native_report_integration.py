@@ -121,6 +121,7 @@ def main():
             except TimeoutError:
                 raise RuntimeError('Matter reports did not populate every advertised sensor: ' +
                                    json.dumps(fixture.status()['devices']))
+            assert device['online'], 'live CASE reports must confirm Matter device presence'
             values = device['sensor_values']
             external_id = urllib.parse.quote(device['external_id'], safe='')
             history = fixture.request('/api/devices/' + external_id + '/history')
@@ -214,6 +215,7 @@ def main():
                                                'devices': fixture.status()['devices'],
                                                'stdout': daemon_out.decode(errors='replace'),
                                                'stderr': daemon_err.decode(errors='replace')}))
+            assert daemon_device['online'], 'daemon CASE reports must confirm Matter device presence'
             daemon_history = fixture.request('/api/devices/' + external_id + '/history')
             # Analog history is intentionally capped to one sample per metric
             # per minute; air-quality transitions are recorded immediately.
