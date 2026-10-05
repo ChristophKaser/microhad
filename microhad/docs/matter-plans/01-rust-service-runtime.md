@@ -492,3 +492,32 @@ machine report is
 This verifies MIPS process startup and shutdown only. Active coordinator attach,
 CASE subscriptions inside the installed daemon, native-worker coexistence on
 the gateway, radio deadlines and real device interaction remain unverified.
+
+## Installed service active Thread lifecycle on the gateway — 2026-10-05
+
+The user-authorized `--active-thread-simulation` harness now runs the installed
+2,129,600-byte MIPS daemon against a private synthetic Spinel RCP and sends
+coordinator observation, dataset-create and status requests over its actual
+Unix IPC socket. The latest run completed cleanly: the service created a
+channel-15 dataset and reported `configured=true`, `state=attaching`, and
+`attached=false`. It reached the service-start log 0.05 seconds after socket
+creation, sampled 1,468 KiB peak RSS and one CPU tick, and left at least
+11,516 KiB raw MemFree and 19,756 KiB MemFree plus clean inactive file cache.
+The production Zigbee service stayed online/formed before and after. The
+synthetic RCP has no peer mesh, so physical Thread attachment and the daemon's
+CASE report loop remain open.
+
+Three such active runs each passed their own before/after uptime check, but a
+subsequent gateway check found a reboot and temporary Zigbee outage after each
+run. In the latest case, uptime advanced to 206.05 seconds at test cleanup and
+was 37.75 seconds at the next SSH sample. The paired supervisor recovered
+Ziggurat online/formed within about 138–149 seconds. Current-boot kernel-log
+checks showed no watchdog, panic or OOM matches. Read-only inspection found no
+Linux watchdog device/sysfs entry, feeder process, or watchdog reference in the
+active init/paired-start scripts; `/proc/watchdog_reboot` was not read because
+it previously blocked SSH. No Tuya watchdog feeder or safe disable control is
+known. The timing association merits investigation but does not prove these
+Matter tests caused the reboots or establish their rate. Detailed evidence is
+in `ziggurat-compilation/docs/openthread-resource-profile.md`. The user
+explicitly authorized continued guarded tests after an earlier recommendation
+to pause.

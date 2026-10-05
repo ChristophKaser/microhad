@@ -45,8 +45,11 @@ make webui
 
 Matter is an optional build selection, `MATTER=0|1`, defaulting to `0`.
 `MATTER=1` requires `ZIGGURAT=1`; enabled builds currently fail the documented
-factory C++ runtime gate. Commissioning and control are not available yet.
-See [Matter build flags, compiler findings, and remaining integration](MATTER_INTEGRATION.md).
+factory C++ runtime gate. The Rust Matter service and common device/report
+integration are implemented and synthetic-tested, but gateway CASE reports,
+physical Thread attachment and deployment acceptance remain open. See [Matter
+build flags, compiler findings, and remaining integration](MATTER_INTEGRATION.md)
+and the [open-point plans](docs/matter-plans/README.md).
 
 Outputs are `build/mips/microhad-zigbee-native` (EZSP) and
 `build/mips-ziggurat/microhad-zigbee-native` (Ziggurat). Pass the chosen executable
