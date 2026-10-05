@@ -62,6 +62,8 @@ def main():
                 raise RuntimeError('Operational OnOff transaction did not complete: ' + result.stdout + result.stderr)
             if args.service_owner and 'PASS production manager subscription and peer-correlated OnOff reports' not in result.stdout:
                 raise RuntimeError('Production subscription/report path did not complete: ' + result.stdout + result.stderr)
+            if args.sensor_reports and 'PASS recovery-required catalog node reconciled after live CASE descriptor discovery' not in result.stdout:
+                raise RuntimeError('Interrupted node CASE recovery did not complete: ' + result.stdout + result.stderr)
             if args.sensor_reports and 'PASS production manager sensor reports reach IPC from subscribed CASE reports' not in result.stdout:
                 raise RuntimeError('Production sensor report-to-IPC path did not complete: ' + result.stdout + result.stderr)
             if result.returncode or marker not in result.stdout:
