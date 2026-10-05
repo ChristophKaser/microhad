@@ -40,6 +40,7 @@ class MatterPeer:
         self.stall_jobs = False
         self.malformed_next_event = False
         self.malformed_next_reply = False
+        self.wrong_next_reply_id = False
         self.saturate_next_event_queue = False
         self.onoff = False
         self.level = 0
@@ -205,7 +206,11 @@ class MatterPeer:
                             if not self.send(peer, frame + malformed):
                                 break
                             continue
-                        wire = bytearray(struct.pack('<HBBBBI', len(payload), 1, 1, opcode, 0, ident)+payload)
+                        response_id = ident
+                        if self.wrong_next_reply_id:
+                            self.wrong_next_reply_id = False
+                            response_id = ident + 1
+                        wire = bytearray(struct.pack('<HBBBBI', len(payload), 1, 1, opcode, 0, response_id)+payload)
                         if self.malformed_next_event:
                             self.malformed_next_event = False
                             malformed = b'{"schema":1,"event":"matter_report","data":{}}'
@@ -695,6 +700,11 @@ def main():
             # A malformed response body must invalidate the persistent channel
             # and cached status, then recover through a fresh IPC connection.
             matter.malformed_next_reply = True
+            wait_for(matter_unavailable)
+            wait_for(lambda: fixture.request('/api/matter/status')['state'] == 'running')
+            # A valid response with an unrelated request ID must be discarded
+            # as a channel protocol failure, followed by a fresh connection.
+            matter.wrong_next_reply_id = True
             wait_for(matter_unavailable)
             wait_for(lambda: fixture.request('/api/matter/status')['state'] == 'running')
         device_snapshot_http(fixture, real)
