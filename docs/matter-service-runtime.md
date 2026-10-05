@@ -406,3 +406,28 @@ shutdown. It does not attach the service to a target radio or measure active
 CASE, DNS-SD, native-worker coexistence or deadlines. The initial profile
 attempt exposed an immediate-marker race in the harness; it now waits up to 15
 seconds after IPC socket creation for the start marker and reports that interval.
+
+## Secure Channel ICD Check-In capture — 2026-10-05
+
+Rust source commit `02d631a` initially dispatched Check-In from the device
+manager's general exchange acceptor. Inspection of pinned rs-matter showed that
+its normal Secure Channel responder owns Check-In and defaults to dropping it;
+a second unrestricted acceptor could race that responder. The implementation
+now uses a small pinned-source patch: `Matter` implements
+`AsyncScHandler`, retaining the authenticated fabric/node and at most 128 bytes
+of still-encrypted payload in an eight-entry queue. The Interaction Model
+report listener uses a protocol/opcode-filtered exchange acceptor, so it leaves
+Secure Channel traffic to the normal responder. `Manager::pop_icd_check_in()`
+exposes that queue for the future ICD client.
+
+The controller-service library suite passes 77/77, and the production MIPS
+service cross-build passes. The stripped service is 2,125,504 bytes with SHA-256
+`6c88de77169251af9d9115679a8f9bb7617e1f3298c474f06c72021d3df944cf`.
+No gateway profile was run: this change adds only a fixed-size handoff, not the
+cryptographic/client-registration or wake-operation procedure that would merit
+a target workload under the current test policy. The dedicated rs-matter queue
+unit-test build ran out of host disk space before producing its test binary;
+generated intermediates were removed, recovering 12 GiB. Registration, Check-In
+MIC/counter validation, durable client keys/counters, and wake-triggered work
+remain unimplemented. This is deterministic message capture, not sleepy-device
+support.

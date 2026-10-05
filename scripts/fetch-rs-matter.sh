@@ -22,10 +22,11 @@ fi
 for patch_file in \
     "$project_root/patches/rs-matter-probe-spake2p.patch" \
     "$project_root/patches/rs-matter-probe-peer-identity.patch" \
-    "$project_root/patches/rs-matter-probe-attribute-notify.patch"; do
+    "$project_root/patches/rs-matter-probe-attribute-notify.patch" \
+    "$project_root/patches/rs-matter-probe-icd-capture.patch"; do
     if ! git -C "$probe_dir" apply --reverse --check "$patch_file" 2>/dev/null; then
         git -C "$probe_dir" apply --check "$patch_file"
         git -C "$probe_dir" apply "$patch_file"
     fi
 done
-echo "Pinned rs-matter $revision; probe-only visibility and notification patches applied"
+echo "Pinned rs-matter $revision; probe-only visibility, notification and ICD capture patches applied"

@@ -1,0 +1,241 @@
+diff --git a/rs-matter/src/lib.rs b/rs-matter/src/lib.rs
+index d9c1285..7358b63 100644
+--- a/rs-matter/src/lib.rs
++++ b/rs-matter/src/lib.rs
+@@ -71,6 +71,7 @@ use crate::utils::init::{init, Init};
+ use crate::utils::storage::pooled::Buffers;
+ use crate::utils::storage::WriteBuf;
+ use crate::utils::sync::blocking::Mutex;
++use heapless::Deque;
+ 
+ use rand_core::Rng;
+ 
+@@ -134,6 +135,28 @@ macro_rules! alloc {
+ /// The Matter UDP port
+ pub const MATTER_PORT: u16 = 5540;
+ 
++/// Maximum encrypted ICD Check-In payload retained before the controller loop
++/// consumes it.
++pub const MAX_ICD_CHECK_IN_BYTES: usize = 128;
++const MAX_PENDING_ICD_CHECK_INS: usize = 8;
++
++/// Authenticated peer identity and encrypted Check-In payload copied from the
++/// Secure Channel responder. The application-level MIC is verified later by
++/// the ICD client manager.
++#[derive(Clone)]
++pub struct IcdCheckIn {
++    pub fabric: u8,
++    pub node: u64,
++    payload: [u8; MAX_ICD_CHECK_IN_BYTES],
++    len: usize,
++}
++
++impl IcdCheckIn {
++    pub fn payload(&self) -> &[u8] {
++        &self.payload[..self.len]
++    }
++}
++
+ /// Device basic commissioning data
+ #[derive(Debug, Clone)]
+ #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+@@ -147,6 +170,9 @@ pub struct BasicCommData {
+ 
+ /// The primary Matter Object
+ pub struct Matter<'a> {
++    /// Bounded handoff from Secure Channel exchange handling to the controller
++    /// event loop. It contains encrypted payloads only.
++    icd_check_ins: Mutex<RefCell<Deque<IcdCheckIn, MAX_PENDING_ICD_CHECK_INS>>>,
+     /// The internal state of the Matter Object, protected by a mutex for concurrent access from different threads and async tasks.
+     state: Mutex<RefCell<MatterState>>,
+     /// The transport state of the Matter Object
+@@ -174,6 +200,22 @@ pub struct Matter<'a> {
+ }
+ 
+ impl<'a> Matter<'a> {
++    /// Remove the oldest authenticated, encrypted ICD Check-In received by the
++    /// normal Secure Channel responder.
++    pub fn pop_icd_check_in(&self) -> Option<IcdCheckIn> {
++        self.icd_check_ins.lock(|queue| queue.borrow_mut().pop_front())
++    }
++
++    fn queue_icd_check_in(&self, check_in: IcdCheckIn) {
++        self.icd_check_ins.lock(|queue| {
++            let mut queue = queue.borrow_mut();
++            if queue.is_full() {
++                queue.pop_front();
++            }
++            let _ = queue.push_back(check_in);
++        });
++    }
++
+     /// Create a new Matter object.
+     ///
+     /// # Parameters
+@@ -192,6 +234,7 @@ impl<'a> Matter<'a> {
+         port: u16,
+     ) -> Self {
+         Self {
++            icd_check_ins: Mutex::new(RefCell::new(Deque::new())),
+             state: Mutex::new(RefCell::new(MatterState::new())),
+             transport: Transport::new(dev_det),
+             dev_det,
+@@ -226,6 +269,7 @@ impl<'a> Matter<'a> {
+         {
+             init!(
+                 Self {
++                    icd_check_ins <- Mutex::init(RefCell::init(Deque::new())),
+                     state <- Mutex::init(RefCell::init(MatterState::init())),
+                     transport <- Transport::init(dev_det),
+                     dev_det,
+@@ -242,6 +286,7 @@ impl<'a> Matter<'a> {
+         {
+             init!(
+                 Self {
++                    icd_check_ins <- Mutex::init(RefCell::init(Deque::new())),
+                     state <- Mutex::init(RefCell::init(MatterState::init())),
+                     transport <- Transport::init(dev_det),
+                     dev_det,
+@@ -1086,6 +1131,30 @@ impl<'a> Matter<'a> {
+ /// The internal state of the Matter Object
+ ///
+ /// Public for unit tests.
++impl crate::sc::AsyncScHandler for Matter<'_> {
++    async fn check_in(
++        &self,
++        exchange: crate::transport::exchange::Exchange<'_>,
++    ) -> Result<(), Error> {
++        let (fabric, node) = exchange
++            .peer_identity()?
++            .ok_or(ErrorCode::InvalidData)?;
++        let payload = exchange.rx()?.payload();
++        if payload.len() > MAX_ICD_CHECK_IN_BYTES {
++            return Err(ErrorCode::InvalidData.into());
++        }
++        let mut check_in = IcdCheckIn {
++            fabric,
++            node,
++            payload: [0; MAX_ICD_CHECK_IN_BYTES],
++            len: payload.len(),
++        };
++        check_in.payload[..payload.len()].copy_from_slice(payload);
++        self.queue_icd_check_in(check_in);
++        Ok(())
++    }
++}
++
+ pub struct MatterState {
+     /// All fabrics
+     pub fabrics: Fabrics,
+@@ -1168,6 +1237,28 @@ impl MatterState {
+ pub mod test {
+     use crate::Matter;
+ 
++    #[test]
++    fn icd_check_in_handoff_is_bounded_and_keeps_newest_messages() {
++        let matter = test_matter();
++        for node in 0..=super::MAX_PENDING_ICD_CHECK_INS as u64 {
++            let mut payload = [0; super::MAX_ICD_CHECK_IN_BYTES];
++            payload[0] = node as u8;
++            matter.queue_icd_check_in(super::IcdCheckIn {
++                fabric: 1,
++                node,
++                payload,
++                len: 1,
++            });
++        }
++        for expected_node in 1..=super::MAX_PENDING_ICD_CHECK_INS as u64 {
++            let check_in = matter.pop_icd_check_in().unwrap();
++            assert_eq!(check_in.fabric, 1);
++            assert_eq!(check_in.node, expected_node);
++            assert_eq!(check_in.payload(), &[expected_node as u8]);
++        }
++        assert!(matter.pop_icd_check_in().is_none());
++    }
++
+     pub fn test_matter() -> Matter<'static> {
+         Matter::new(
+             &crate::dm::devices::test::TEST_DEV_DET,
+diff --git a/rs-matter/src/respond.rs b/rs-matter/src/respond.rs
+index 2351d9b..0b5d265 100644
+--- a/rs-matter/src/respond.rs
++++ b/rs-matter/src/respond.rs
+@@ -282,7 +282,7 @@ pub type DefaultExchangeHandler<
+     const NE: usize = DEFAULT_MAX_EVENTS_BUF_SIZE,
+ > = ChainedExchangeHandler<
+     &'d InteractionModel<'a, C, B, T, K, N, NC, R, NS, NE>,
+-    SecureChannel<'d, &'d C>,
++    SecureChannel<'d, &'d C, &'d Matter<'a>>,
+ >;
+ 
+ impl<'d, 'a, C, B, T, K, N, NC, R, const NS: usize, const NE: usize>
+@@ -308,7 +308,11 @@ where
+             ChainedExchangeHandler::new(
+                 PROTO_ID_INTERACTION_MODEL,
+                 data_model,
+-                SecureChannel::new(data_model.crypto(), data_model),
++                SecureChannel::new_with_handler(
++                    data_model.crypto(),
++                    data_model,
++                    data_model.matter(),
++                ),
+             ),
+             data_model.matter(),
+             0,
+@@ -398,7 +402,7 @@ where
+         'a,
+         ChainedExchangeHandler<
+             &'d InteractionModel<'a, C, B, T, K, N, NC, R, NS, NE>,
+-            SecureChannel<'d, &'d C>,
++            SecureChannel<'d, &'d C, &'d Matter<'a>>,
+         >,
+     > {
+         &self.responder
+diff --git a/rs-matter/src/transport/exchange.rs b/rs-matter/src/transport/exchange.rs
+index f09931e..d90ed2a 100644
+--- a/rs-matter/src/transport/exchange.rs
++++ b/rs-matter/src/transport/exchange.rs
+@@ -1315,6 +1315,23 @@ impl<'a> Exchange<'a> {
+         Self::accept_after(matter, 0).await
+     }
+ 
++    /// Accept only an exchange whose encrypted Matter protocol header matches
++    /// the supplied protocol and opcode. Other pending exchanges stay available
++    /// to the normal responder set.
++    pub async fn accept_matching(
++        matter: &'a Matter<'a>,
++        proto_id: u16,
++        proto_opcode: u8,
++    ) -> Result<Self, Error> {
++        matter
++            .transport()
++            .accept_if(matter, |_, _, packet| {
++                packet.header.proto.proto_id == proto_id
++                    && packet.header.proto.proto_opcode == proto_opcode
++            })
++            .await
++    }
++
+     /// Accepts a new responder exchange pending on the provided Matter stack, but only if the
+     /// pending exchange was pending for longer than `received_timeout_ms`.
+     ///
+@@ -1628,6 +1645,19 @@ impl<'a> Exchange<'a> {
+         })
+     }
+ 
++    /// Return the authenticated peer's fabric index and node ID for this
++    /// exchange. Group and unauthenticated sessions have no peer node identity.
++    /// This is useful when dispatching server-initiated exchanges such as active
++    /// Interaction Model subscription reports.
++    pub fn peer_identity(&self) -> Result<Option<(u8, u64)>, Error> {
++        self.with_state(|state| {
++            let session = self.id().session(&mut state.sessions);
++            Ok(session
++                .get_peer_node_id()
++                .map(|node| (session.get_local_fabric_idx(), node)))
++        })
++    }
++
+     pub(crate) fn with_state<F, T>(&self, f: F) -> Result<T, Error>
+     where
+         F: FnOnce(&mut MatterState) -> Result<T, Error>,
