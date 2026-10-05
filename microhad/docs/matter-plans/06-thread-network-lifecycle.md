@@ -11,15 +11,16 @@ expiry gate while preserving the configured dataset and making no additional
 radio channel writes. It also recovers a dataset committed immediately before
 the synthetic RCP is lost during apply. The native worker now renews the
 coordinator observation past the five-second expiry while Thread remains
-attached, with no extra radio channel writes. Real-RCP in-process apply-failure
-injection, target RF behavior and operator recovery remain open. The
-`apply_failed` suppression and explicit retry behavior now has
-a Rust FakeRadio unit gate and a host process-level gate that injects at the
-OpenThread adapter boundary.
+attached, with no extra radio channel writes. The `apply_failed` suppression
+and explicit retry behavior has Rust FakeRadio and host process-level gates
+that inject at the OpenThread adapter boundary. The native API and dashboard
+now expose a bounded retry action that reapplies the retained dataset after a
+fresh matching coordinator observation, avoiding another credential import
+after a transient apply failure. Reliable real-RCP apply-failure injection
+and target RF behavior remain open.
 
-Next deliverable: Define and verify bounded operator recovery, and find a
-reliable real-RCP injection point for an in-process failed apply. Keep physical
-coexistence and RF acceptance in plan 08.
+Next deliverable: Find reliable real-RCP injection for an in-process failed
+apply. Keep physical coexistence and RF acceptance in plan 08.
 
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.
@@ -77,7 +78,7 @@ production activation and target runtime verification remain pending.
 | 3 | Complete | Typed private online/channel observations expire after five monotonic seconds; native protected observation/status worker implemented with coordinator liveness expiry; host round trips verified. |
 | 4 | Complete | Required/duplicate/truncated TLVs, channel/mask, prefix and PAN checks before mutation; malformed/mismatch synthetic and unit checks pass. |
 | 5 | Complete | OS-random create, bounded persisted import/restore, no implicit replacement; persist-before-apply failure disables Thread and requires explicit retry. |
-| 6 | Partial | Redacted lifecycle states, deferred boot, expiry detach and cached-channel guard implemented; radio-loss/restart reconciliation still needs integrated coverage. |
+| 6 | Partial | Redacted lifecycle states, deferred boot, expiry detach, cached-channel guard, bounded stored-dataset retry and host radio-loss/restart reconciliation implemented; reliable real-RCP apply-failure coverage remains open. |
 | 7 | Partial | 36 Rust library tests and real host process/synthetic-RCP lifecycle test pass; physical coexistence/reception remains unverified. |
 
 The process test changes a persisted cached active channel to 20 while the
@@ -141,13 +142,14 @@ are historical; the latest status/evidence section above takes precedence.
 2. [ ] Define and verify explicit recovery when the observed Zigbee channel
    differs from the persisted dataset. Reject incompatible apply before any
    store/radio mutation; never silently replace credentials or reset the UART.
-3. [ ] Exercise failed dataset apply, idempotent create/import, corrupt cached
+3. [x] Exercise failed dataset apply, idempotent create/import, corrupt cached
    settings and service/RCP restarts. Verify counters survive and all channel
    writes follow fresh observations of the permitted channel. The process test
    now interrupts the first active-dataset apply after its credential commit,
    restarts the service, and verifies fresh-observation gating plus restoration
    on the permitted channel (`987316f` Rust). Direct `apply_failed` heartbeat
-   suppression and explicit retry still need process/RCP-boundary coverage.
+   suppression and explicit retry are covered by FakeRadio and service-process
+   gates; failure injection inside the real RCP remains open.
 4. [ ] Repeat these scenarios with an active commissioning job after plans
    02/04 are wired. Confirm readiness loss terminates work and stale BLE events
    cannot resume a failed attempt.
@@ -370,3 +372,27 @@ Verification passed with `python3 scripts/test_matter_native_worker.py
 host liveness renewal and bounded channel behavior; target scheduling, RF
 coexistence and real-RCP failed-apply injection remain open. No deployment or
 plan 08 test was performed.
+
+## Bounded operator recovery after dataset apply failure — 2026-10-05
+
+Rust commit `1603086` adds a strict `{"schema":1,"action":"retry"}` service
+request. Retry requires a fresh coordinator observation matching the retained
+dataset channel and reapplies that persisted dataset only after an earlier
+apply failure; it does not accept channel or credential overrides. A retry
+while observations are stale returns `not_ready`, and ordinary observations
+or heartbeats still do not trigger another apply. Native commit `cf81b2a`
+routes this through `POST /api/thread/retry` and adds a dashboard recovery
+control for the configured `error` state, so operators can recover without
+re-entering or exposing the dataset.
+
+Verification passed: the targeted Rust lifecycle test (1/1),
+`python3 scripts/test-matter-service.py` including adapter-boundary injected
+apply failure and explicit retry, Matter-enabled `make ZIGGURAT=1 MATTER=1
+host test` including 13 native peer checks, `npm run build`, the Chromium
+dashboard fixture including the retry button, `python3 scripts/test_matter_webui.py`
+(21 tests), `python3 scripts/test_matter_native_worker.py`, Python bytecode
+compilation, and `git diff --check`. This closes bounded host operator
+recovery. Failure injection at the real RCP boundary and all target acceptance
+remain open; CPU, peak memory, startup/scheduling deadlines and RF behavior
+have not been measured on the gateway. No deployment or plan 08 test was
+performed.
