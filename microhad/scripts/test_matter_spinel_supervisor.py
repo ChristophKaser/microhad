@@ -135,6 +135,7 @@ def start_relay(radio):
 
 def main():
     native_worker = '--native-worker' in sys.argv[1:]
+    exhaust_retries = '--exhaust-retries' in sys.argv[1:]
     binaries = (SERVICE, RELAY, MAINTENANCE, NATIVE_GATEWAY) if native_worker else (SERVICE, RELAY, MAINTENANCE)
     for binary in binaries:
         if not binary.is_file():
@@ -293,12 +294,35 @@ def main():
             assert events.read_text().count('zig start') == 1
             assert events.read_text().count('native start') == 1
             assert 'native stop' not in events.read_text()
+            if exhaust_retries:
+                matter_pid = int((control/'matter.pid').read_text())
+                os.kill(matter_pid, 9)
+                wait_for(lambda: (control/'matter.failed').is_file(), timeout=12)
+                time.sleep(1.1)
+                assert len(launches.read_text().splitlines()) == 2, launches.read_text()
+                assert supervisor.poll() is None, 'Matter exhaustion stopped the paired supervisor'
+                assert events.read_text().count('zig start') == 1
+                assert events.read_text().count('native start') == 1
+                assert 'native stop' not in events.read_text()
+                if native_worker:
+                    assert api_state(native_port, '/api/status', 'online')
+                    try:
+                        http_json(native_port, '/api/matter/status')
+                    except urllib.error.HTTPError as error:
+                        assert error.code == 503, error.code
+                    else:
+                        raise AssertionError('Matter status remained available after retry exhaustion')
             mode = 'native worker' if native_worker else 'native stand-in'
-            print('PASS real Spinel failure restarts Matter, restores Thread dataset through %s, and leaves Zigbee running' % mode)
+            result = 'PASS real Spinel failure restarts Matter, restores Thread dataset through %s, and leaves Zigbee running' % mode
+            if exhaust_retries:
+                result += '; repeated real-service failure exhausts its budget without stopping Zigbee/native'
+            print(result)
         finally:
             if supervisor is not None and supervisor.poll() is None:
                 supervisor.terminate()
                 supervisor.wait(timeout=10)
+            if native_worker:
+                matter_socket.unlink(missing_ok=True)
             if relay is not None and relay.poll() is None:
                 relay.terminate()
                 relay.wait(timeout=3)

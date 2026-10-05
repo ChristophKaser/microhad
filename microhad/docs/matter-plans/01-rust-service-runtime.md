@@ -3,10 +3,14 @@
 ## Current open work — 2026-10-05
 
 Host service/native round trips, the generic paired supervisor failure matrix,
-and attached-daemon-to-native report delivery pass. The daemon report fixture
-seeds decoded reports; its live CASE subscription path remains open. The actual
-Matter-enabled gateway worker now reconnects to a supervisor-restarted Rust
-service after a wire-level Spinel error and sees the restored dataset.
+and attached-daemon-to-native report delivery pass. A composed test now makes
+the actual Matter service fail on Spinel, verifies recovery and dataset
+restoration, then kills that recovered service to exhaust the retry budget;
+the supervisor and native/Zigbee services remain running and native Matter
+status returns 503. The daemon report fixture seeds decoded reports; its live
+CASE subscription path remains open. The actual Matter-enabled gateway worker
+now reconnects to a supervisor-restarted Rust service after a wire-level
+Spinel error and sees the restored dataset.
 Current factory MIPS builds for both binaries pass. Target runtime/resource
 evidence is partial: a prior isolated service profile was followed by a reboot.
 Later idle observations caught another uptime reset, without a target workload
@@ -153,9 +157,14 @@ Native event consumption, production discovery and device jobs remain open.
 All unchecked items below remain open. Earlier checkpoint measurements
 are historical; the latest status/evidence section above takes precedence.
 
-1. [ ] Add integrated failure scenarios for service exit, Thread socket loss,
-   coordinator restart and supervisor retry exhaustion. Verify the native
-   bridge and Zigbee supervision continue and no second UART owner starts.
+1. [x] Add integrated failure scenarios for service exit, Thread socket loss,
+   coordinator restart and supervisor retry exhaustion. `python3
+   scripts/test_matter_spinel_supervisor.py --native-worker --exhaust-retries`
+   passed against the real Rust service and native worker on a synthetic RCP:
+   Spinel failure restarted Matter and restored its dataset; killing the
+   recovered service exhausted the Matter-only budget, returned 503 for Matter
+   status, and left native HTTP online and the Zigbee/native pair running. No
+   second UART owner started. This is host evidence, not target acceptance.
 2. [ ] Define recovery for every startup/radio-loss state and verify bounded
    reconnect/backoff with plan 06. Test IPC responsiveness during recovery.
 3. [ ] Repeat the enabled native HTTP-to-service test after persistent IPC is
@@ -218,6 +227,19 @@ rejection before radio use, and recovery after a fresh matching observation.
 `python3 scripts/test-matter-service.py` passes. This closes the host service/
 RCP restart checkpoint; active commissioning during RCP death, target startup
 and resource deadlines, and physical acceptance remain open.
+
+## Real-service retry exhaustion checkpoint — 2026-10-05
+
+`python3 scripts/test_matter_spinel_supervisor.py --native-worker
+--exhaust-retries` passed. The first Matter process failed after a synthetic
+RCP Spinel dataset rejection; the paired supervisor restarted it, and the real
+Rust service restored its persisted dataset. The harness then killed that
+recovered service. With the configured two-launch budget exhausted, no third
+launch occurred and `control/matter.failed` was created. The paired supervisor
+stayed alive, the native `/api/status` remained online, `/api/matter/status`
+returned 503, and event records showed one Zigbee and one native start with no
+native stop. This closes the host retry-exhaustion composition; target CPU,
+memory, deadlines, startup and reset-source acceptance remain open.
 
 ## Current Matter factory cross-build checkpoint — 2026-10-05
 
