@@ -24,6 +24,8 @@ struct Inner {
     values: RefCell<BTreeMap<u16, Vec<u8>>>,
     sequence: Cell<u32>,
     poisoned: Cell<bool>,
+    #[cfg(test)]
+    fail_after_rename: Cell<bool>,
     read_only: bool,
     _lock: Option<File>,
 }
@@ -155,6 +157,8 @@ impl PrivateStore {
             values: RefCell::new(values),
             sequence: Cell::new(0),
             poisoned: Cell::new(false),
+            #[cfg(test)]
+            fail_after_rename: Cell::new(false),
             read_only: false,
             _lock: Some(lock),
         })))
@@ -191,6 +195,8 @@ impl PrivateStore {
             values: RefCell::new(values),
             sequence: Cell::new(0),
             poisoned: Cell::new(false),
+            #[cfg(test)]
+            fail_after_rename: Cell::new(false),
             read_only: true,
             _lock: lock,
         })))
@@ -259,6 +265,10 @@ impl PrivateStore {
             file.sync_all()?;
             fs::rename(&path, self.0.directory.join("credentials.bin"))?;
             self.0.poisoned.set(true);
+            #[cfg(test)]
+            if self.0.fail_after_rename.replace(false) {
+                return Err(io::Error::other("injected directory sync failure"));
+            }
             File::open(&self.0.directory)?.sync_all()?;
             *self.0.values.borrow_mut() = candidate;
             self.0.poisoned.set(false);
@@ -389,6 +399,22 @@ mod tests {
         assert_eq!(&bytes[..length], b"committed identity");
         let length = restarted.get(2, &mut bytes).unwrap().unwrap();
         assert_eq!(&bytes[..length], b"next committed counter");
+    }
+    #[test]
+    fn post_rename_sync_failure_poisons_owner_and_restart_loads_complete_envelope() {
+        let dir = Fixture::new();
+        let store = PrivateStore::open(&dir.0).unwrap();
+        store.set(1, Some(b"old complete identity")).unwrap();
+        store.0.fail_after_rename.set(true);
+
+        assert!(store.set(1, Some(b"new complete identity")).is_err());
+        assert!(store.get(1, &mut [0; 64]).is_err());
+        drop(store);
+
+        let restarted = PrivateStore::open(&dir.0).unwrap();
+        let mut bytes = [0; 64];
+        let length = restarted.get(1, &mut bytes).unwrap().unwrap();
+        assert_eq!(&bytes[..length], b"new complete identity");
     }
     #[test]
     fn read_only_open_refuses_live_owner_and_never_creates_paths() {
