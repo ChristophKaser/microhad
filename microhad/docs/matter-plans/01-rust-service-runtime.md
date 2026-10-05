@@ -379,9 +379,10 @@ The RTL8196E datasheet documents a hardware watchdog reset indicator at
 `WDTCNR` (`0xB800311C`), independent of whether Linux exposes `/dev/watchdog`.
 The target has no `/dev/mem` or `devmem` utility, and `/proc/watchdog_reboot`
 reads blocked SSH, so the reset indicator could not be inspected safely. A
-later read-only observation found 2,222 seconds uptime and healthy Zigbee; a
-later ten-second sleep advanced uptime by 10.04 seconds. These healthy checks do
-not resolve the earlier resets. There is no known safe way to
+latest read-only observation found 3,173 seconds uptime and healthy Zigbee; a
+later ten-second interval advanced uptime from 3,198.43 to 3,208.47 seconds.
+This rules out a reset during that check but does not resolve the earlier
+resets. There is no known safe way to
 disable the hardware watchdog from the current image. See the [resource-profile
 record](../../ziggurat-compilation/docs/openthread-resource-profile.md) for the
 observation and datasheet reference.
