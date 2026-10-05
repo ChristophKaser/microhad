@@ -113,6 +113,17 @@ Production reported `online=true`, `network_formed=true`, and
 `coordinator_backend=ziggurat` before and after. Those status checks establish
 continued service availability, not a measurement of Zigbee traffic latency.
 
+## Repeat-profile preflight — 2026-10-05
+
+An authorized repeat profile checked production status and found 2,980 KiB
+MemFree, below the harness's existing 3,072 KiB minimum. The test therefore
+did not upload or launch the CLI/relay workload. It cleaned its unique paths
+and confirmed production stayed online, formed, and on Ziggurat. A later
+read-only sample reported 2,960 KiB. The existing gate remains unchanged; no
+CPU, RSS, timing, or radio-load result was produced by this attempt. Retry the
+profile only after the preflight threshold is met, while preserving the active
+service.
+
 Tracked evidence is [openthread-resource-profile.json](openthread-resource-profile.json).
 Detailed local evidence remains ignored under `logs/`:
 
