@@ -1,5 +1,9 @@
 # Matter sensor reads
 
+Boolean State (cluster 69) is now read as a typed boolean using the generic
+Interaction Model attribute path and is included in subscription reports. The
+shared native/UI contact mapping is tracked in the native plan 07 checkpoint.
+
 The Rust Matter service accepts capability-gated reads of attribute 0 from
 advertised Air Quality (cluster 91), Temperature Measurement (1026), Relative
 Humidity Measurement (1029), Carbon Dioxide Concentration Measurement (1037),

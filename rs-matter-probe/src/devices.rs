@@ -1250,7 +1250,7 @@ fn subscription_keys(snapshots: &[Snapshot], maximum: usize) -> Vec<Subscription
         .filter(|snapshot| snapshot.online)
         .flat_map(|snapshot| {
             snapshot.endpoints.iter().flat_map(move |endpoint| {
-                [6, 8, 91, 1026, 1029, 1037, 1066]
+                [6, 8, 69, 91, 1026, 1029, 1037, 1066]
                     .into_iter()
                     .filter(move |cluster| endpoint.servers.contains(cluster))
                     .map(move |cluster| SubscriptionKey {
@@ -1507,7 +1507,7 @@ mod tests {
             endpoints: vec![
                 Endpoint {
                     id: 1,
-                    servers: vec![6, 1026, 0x1d],
+                    servers: vec![6, 69, 1026, 0x1d],
                 },
                 Endpoint {
                     id: 2,
@@ -1533,7 +1533,13 @@ mod tests {
             failures: 0,
         };
         let keys = subscription_keys(&[snapshot, offline], MAX_DEVICE_SUBSCRIPTIONS);
-        assert_eq!(keys.len(), 7);
+        assert_eq!(keys.len(), 8);
+        assert!(keys.contains(&SubscriptionKey {
+            node: 2,
+            endpoint: 1,
+            cluster: 69,
+            attribute: 0,
+        }));
         assert!(keys.contains(&SubscriptionKey {
             node: 2,
             endpoint: 1,

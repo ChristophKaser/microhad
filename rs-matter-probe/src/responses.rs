@@ -83,6 +83,7 @@ fn matter_report_valid(reading: &crate::operations::ResultValue) -> bool {
     }
     match (reading.cluster, &reading.value) {
         (6, Value::Bool(_)) => true,
+        (69, Value::Bool(_)) => true,
         (8, Value::U8(value)) => value.is_none_or(|value| value <= 254),
         (91, Value::AirQuality(value)) => {
             let known = matches!(
@@ -193,6 +194,18 @@ mod tests {
         assert_eq!(
             frame.payload,
             br#"{"schema":1,"event":"matter_report","data":{"node":"0000000000000002","endpoint":1,"cluster":6,"attribute":0,"value":{"type":"bool","value":true}}}"#
+        );
+        let contact = crate::operations::ResultValue {
+            node: Id(2),
+            endpoint: 1,
+            cluster: 69,
+            attribute: 0,
+            value: crate::operations::Value::Bool(true),
+        };
+        let frame = event(Event::MatterReport(&contact)).unwrap();
+        assert_eq!(
+            frame.payload,
+            br#"{"schema":1,"event":"matter_report","data":{"node":"0000000000000002","endpoint":1,"cluster":69,"attribute":0,"value":{"type":"bool","value":true}}}"#
         );
         let invalid = crate::operations::ResultValue {
             node: Id(2),

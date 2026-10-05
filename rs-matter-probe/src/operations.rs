@@ -19,6 +19,7 @@ use rs_matter::{
         temperature_measurement::TemperatureMeasurementClient,
     },
     error::{Error, ErrorCode},
+    im::{client::ImClient, AttrPath},
     transport::exchange::Exchange,
     Matter,
 };
@@ -99,6 +100,15 @@ pub fn report_values(
             node: Id(node),
             endpoint,
             cluster: 6,
+            attribute: 0,
+            value: Value::Bool(value?),
+        });
+    }
+    for (endpoint, value) in report.attrs::<bool>(69, 0) {
+        values.push(ResultValue {
+            node: Id(node),
+            endpoint,
+            cluster: 69,
             attribute: 0,
             value: Value::Bool(value?),
         });
@@ -210,7 +220,7 @@ impl Operation {
                 cluster,
                 attribute: 0,
                 ..
-            }) if matches!(cluster, 91 | 1026 | 1029 | 1037 | 1066) => {
+            }) if matches!(cluster, 69 | 91 | 1026 | 1029 | 1037 | 1066) => {
                 (node, endpoint, Action::ReadSensor { cluster })
             }
             Request::Command(CommandRequest::On { node, endpoint, .. }) => {
@@ -326,6 +336,39 @@ impl Operation {
             let exchange = Exchange::initiate(matter, &crypto, fabric, self.node).await?;
             if let Action::ReadSensor { cluster } = self.action {
                 let (value, attribute) = match cluster {
+                    69 => {
+                        let path = AttrPath {
+                            endpoint: Some(self.endpoint),
+                            cluster: Some(69),
+                            attr: Some(0),
+                            ..AttrPath::default()
+                        };
+                        let mut chunk = exchange
+                            .read_with(|builder| {
+                                builder
+                                    .attr_requests_from(core::slice::from_ref(&path))?
+                                    .fabric_filtered(true)?
+                                    .end()
+                            })
+                            .await?;
+                        let mut state = None;
+                        loop {
+                            {
+                                let response = chunk.response()?;
+                                for (endpoint, result) in response.attrs::<bool>(69, 0) {
+                                    if endpoint != self.endpoint || state.is_some() {
+                                        return Err(ErrorCode::InvalidData.into());
+                                    }
+                                    state = Some(result?);
+                                }
+                            }
+                            match chunk.complete().await? {
+                                Some(next) => chunk = next,
+                                None => break,
+                            }
+                        }
+                        (Value::Bool(state.ok_or(ErrorCode::NotFound)?), 0)
+                    }
                     91 => {
                         use rs_matter::dm::clusters::decl::air_quality::AirQualityEnum;
                         let value = exchange
@@ -536,6 +579,7 @@ mod tests {
         writer.start_struct(&TLVTag::Anonymous).unwrap();
         writer.u32(&TLVTag::Context(0), 7).unwrap();
         writer.start_array(&TLVTag::Context(1)).unwrap();
+        append_attribute_report(&mut writer, 69, &encode_attribute_value(&true));
         append_attribute_report(
             &mut writer,
             1026,
@@ -574,17 +618,18 @@ mod tests {
         let report = ReportDataResp::from_tlv(&TLVElement::new(writer.as_slice())).unwrap();
 
         let values = report_values(2, &report).unwrap();
-        assert_eq!(values.len(), 6);
-        assert!(matches!(values[0].value, Value::AirQuality(ref value)
+        assert_eq!(values.len(), 7);
+        assert!(matches!(values[0].value, Value::Bool(true)));
+        assert!(matches!(values[1].value, Value::AirQuality(ref value)
             if value.value == "poor" && value.quality == "measured"));
-        assert!(matches!(values[1].value, Value::Measurement(ref value)
-            if value.value == Some(-5.25) && value.unit == "celsius" && value.quality == "measured"));
         assert!(matches!(values[2].value, Value::Measurement(ref value)
-            if value.value.is_none() && value.unit == "celsius" && value.quality == "unknown"));
+            if value.value == Some(-5.25) && value.unit == "celsius" && value.quality == "measured"));
         assert!(matches!(values[3].value, Value::Measurement(ref value)
+            if value.value.is_none() && value.unit == "celsius" && value.quality == "unknown"));
+        assert!(matches!(values[4].value, Value::Measurement(ref value)
             if value.value == Some(64.0) && value.unit == "percent" && value.quality == "measured"));
-        assert!(matches!(values[4].value, Value::RawMeasurement(Some(value)) if value == 800.0));
-        assert!(matches!(values[5].value, Value::RawMeasurement(Some(value)) if value == 25.5));
+        assert!(matches!(values[5].value, Value::RawMeasurement(Some(value)) if value == 800.0));
+        assert!(matches!(values[6].value, Value::RawMeasurement(Some(value)) if value == 25.5));
     }
     #[test]
     fn unsupported_paths_and_invalid_identity_are_rejected() {
@@ -596,7 +641,7 @@ mod tests {
         assert_eq!(level_read.authorize(&[]), Err(Failure::NotFound));
         let move_to_level = decode(11, r#"{"schema":1,"command":"move_to_level","node":"0000000000000002","endpoint":1,"level":124,"transition_deciseconds":20}"#).unwrap();
         assert_eq!(move_to_level.authorize(&[]), Err(Failure::NotFound));
-        for cluster in [91, 1026, 1029, 1037, 1066] {
+        for cluster in [69, 91, 1026, 1029, 1037, 1066] {
             let body = format!(
                 r#"{{"schema":1,"action":"read","node":"0000000000000002","endpoint":1,"cluster":{cluster},"attribute":0}}"#
             );
