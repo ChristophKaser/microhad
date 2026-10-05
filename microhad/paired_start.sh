@@ -8,6 +8,7 @@ umask 077
 control=${RUNTIME_CONTROL:-/tmp/ziggurat-supervisor}
 socket_path=${ZIGGURAT_SOCKET:-/tmp/ziggurat/native.sock}
 device=${ZIGGURAT_DEVICE:-/dev/ttyS1}
+zig_log=${ZIGGURAT_LOG:-/tmp/ziggurat.log}
 limit=${RESTART_LIMIT:-5}
 startup_limit=${STARTUP_LIMIT:-15}
 stop_limit=${STOP_LIMIT:-8}
@@ -18,7 +19,7 @@ matter_socket=${MATTER_SOCKET:-/tmp/microhad-matter.sock}
 thread_socket=${THREAD_SOCKET:-/tmp/ziggurat/thread.sock}
 matter_limit=${MATTER_RESTART_LIMIT:-5}
 case "$limit:$startup_limit:$stop_limit:$backoff:$matter_limit" in *[!0-9:]*|:*|*::*) exit 2;; esac
-for path in "$ZIGGURAT_BIN" "$NATIVE_BIN" "$NATIVE_CONFIG" "$MAINTENANCE_BIN" "$control" "$socket_path" "$device"; do
+for path in "$ZIGGURAT_BIN" "$NATIVE_BIN" "$NATIVE_CONFIG" "$MAINTENANCE_BIN" "$control" "$socket_path" "$device" "$zig_log"; do
     case "$path" in /*) ;; *) echo 'Absolute paths required' >&2;exit 2;; esac
 done
 if [ -n "$matter_bin" ]; then
@@ -32,6 +33,7 @@ fi
 # Atomic directory claim refuses stale/duplicate supervisors; operator inspects it.
 mkdir "$control" || exit 2
 printf '%s\n' "$$" > "$control/supervisor.pid"
+: > "$zig_log"
 zig_pid=;native_pid=;matter_pid=;retries=0;matter_retries=0;matter_next=0;quiesced=false
 stop_child() {
     child=$1
@@ -71,7 +73,7 @@ start_zig() {
         set -- --thread-socket "$thread_socket"
     fi
     "$ZIGGURAT_BIN" --device "$device" --baudrate 460800 --flow-control hardware \
-        --spinel-iid 1 --api cobs-unix --listen "unix:$socket_path" --log-level error "$@" >/dev/null 2>&1 &
+        --spinel-iid 1 --api cobs-unix --listen "unix:$socket_path" --log-level info "$@" >>"$zig_log" 2>&1 &
     zig_pid=$!;printf '%s\n' "$zig_pid" > "$control/ziggurat.pid"
     deadline=$(($(date +%s)+startup_limit))
     while [ "$(date +%s)" -lt "$deadline" ]; do
