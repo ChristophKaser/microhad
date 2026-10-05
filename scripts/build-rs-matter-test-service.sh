@@ -10,3 +10,5 @@ export CARGO_TARGET_DIR="$project_root/build/rs-matter/service-test-target"
 cargo +nightly-2026-10-02 build --locked --release \
     --manifest-path rs-matter-probe/Cargo.toml \
     --features controller-service-test-hooks --bin thread-matter
+python3 scripts/check-matter-service-test-hooks.py \
+    "$CARGO_TARGET_DIR/release/thread-matter" present

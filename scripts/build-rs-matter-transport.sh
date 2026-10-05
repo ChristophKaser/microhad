@@ -24,4 +24,10 @@ cargo +nightly-2026-10-02 build "${args[@]}"
 if [ "$mode" = mips ]; then
     llvm-strip-18 --keep-section=.gnu.attributes -o "build/rs-matter/$output" \
         "build/rs-matter/target/lexra-stock-uclibc/release/$binary"
+    artifact="build/rs-matter/$output"
+else
+    artifact="build/rs-matter/target/release/$binary"
+fi
+if [ "$probe" = service ]; then
+    python3 scripts/check-matter-service-test-hooks.py "$artifact" absent
 fi

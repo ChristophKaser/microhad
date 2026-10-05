@@ -16,7 +16,11 @@ The native report-integration test uses the host-only
 `scripts/build-rs-matter-test-service.sh` command. It enables the
 `controller-service-test-hooks` feature in the isolated
 `build/rs-matter/service-test-target` directory, leaving the production host
-and MIPS service outputs untouched. Never deploy this test-hook executable.
+and MIPS service outputs untouched. Both build commands enforce this boundary:
+the test artifact must contain its fixture environment marker, while host
+production and stripped MIPS artifacts must not. The checks use
+`scripts/check-matter-service-test-hooks.py`. Never deploy this test-hook
+executable.
 
 Example invocation, once the coordinator provides a private Thread endpoint:
 
