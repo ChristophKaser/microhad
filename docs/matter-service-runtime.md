@@ -225,13 +225,15 @@ physical performance test occurred. See [resolver details and evidence](matter-o
 ## Current Matter service MIPS artifact — 2026-10-05
 
 `bash scripts/build-rs-matter-transport.sh mips service` succeeds for Rust
-source commit `980db77`. The stripped output
+source commit `4c02d8a`. The stripped output
 `build/rs-matter/thread-matter-mips` is a static ELF32 big-endian MIPS-I
 executable with no `PT_INTERP`, 2,109,120 bytes, SHA-256
-`d7e030a815faef3ff56876a375d4419f700a14c93c9f047a80d1f5aae6f66a1c`.
+`1ff121679781bfaa59caa99486f54d6ce5c76e0b52f2671c88eddddb866d7a28`.
 
-The link emits existing warnings about mixed abicalls/non-abicalls objects and
-the unsupported `-no-pie` option, even though it returns success. Treat this as
-a target ABI/runtime risk until device execution proves compatibility. This
-artifact size is not a measure of peak RSS, CPU load, or radio scheduling
-deadlines; none were measured on the gateway.
+Commit `4c02d8a` compiles OpenThread's C/C++ archives with abicalls enabled,
+matching Rust and the final `cpic`, o32 executable; the mixed-ABI warnings no
+longer appear. The RSDK still warns that GCC 4.4 does not recognize `-no-pie`,
+but the verified output is ET_EXEC with no interpreter or dynamic section.
+Target execution is still needed to prove runtime compatibility. Artifact size
+does not measure peak RSS, CPU load, or radio scheduling deadlines; none were
+measured on the gateway.
