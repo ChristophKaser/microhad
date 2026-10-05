@@ -58,8 +58,10 @@ reconciliation by native commit `5cfb3b1`. Native commit `d5d94ba` adds unit-
 matched CO2 and PM2.5 thresholds, persists their units with the alert settings,
 and triggers alerts only when readings cross thresholds in the same unit. The
 shared device settings dialog presents the reported concentration units.
-Remote recovery of catalogued nodes and legacy
-migration also remain open. Verification passed:
+Recovery-required catalog entries now retry authenticated CASE descriptor
+discovery after service restart and become complete only after both discovery
+and the durable catalog update succeed. Legacy no-catalog migration remains
+open. Verification passed:
 `make ZIGGURAT=1 MATTER=1 host test` and
 `make ZIGGURAT=1 MATTER=1 mips` (the MIPS toolchain prints its existing
 LOAD-USE warnings). Native commit `e35abb7` routes Shelly history into the
@@ -444,15 +446,16 @@ are historical; the latest status/evidence section above takes precedence.
 2. [ ] Persist a bounded node catalog with stable fabric/node identity and
    explicit commissioning-completion/recovery states. Never reuse an allocated
    ID after interrupted completion; reconcile incomplete entries on restart.
-   Local catalog/state persistence is verified (`5002f88`); remote reconciliation
-   and legacy no-catalog migration keep this item open.
+   Local catalog/state persistence is verified (`5002f88`); CASE-gated recovery
+   now reconciles incomplete entries and preserves allocated IDs. Legacy
+   no-catalog migration keeps this item open.
 3. [ ] Complete production CASE/CommissioningComplete through the resolver,
    then discover descriptors, endpoints and advertised clusters. Test restart
    against the same catalog and authority without the phone.
    Bounded PartsList/ServerList helper and service scheduler are verified over
    encrypted CASE (`05053ec`, `5c588df`). Completed nodes refresh after catalog
    restore and radio reattachment; revisioned snapshot IPC is implemented (`237d110`).
-   Incomplete-node recovery, native snapshot validation/API/UI remain open.
+   Native snapshot validation/API/UI and legacy no-catalog migration remain open.
 4. [x] Implement validated OnOff/Level reads and commands plus typed IPC
    bodies in plan 02. Confirm resulting values through reads/reports and expose
    unsupported clusters and failed commands explicitly.
@@ -907,3 +910,25 @@ it does not prove a wire-decoded CASE report reached `receive_report()` inside
 that separate daemon process. Keep that joined process-level case open. The
 initial sandbox run failed at the local socket bind prerequisite; the same test
 passed when rerun with local networking permission.
+
+## Interrupted catalog recovery through CASE — 2026-10-05
+
+Rust commit `d141586` includes `recovery_required` nodes in the bounded device
+discovery scheduler. A node moves to `complete` only after authenticated
+PartsList/ServerList discovery succeeds and the private catalog commit
+succeeds. Failed discovery leaves the original node ID in `recovery_required`
+and follows the existing capped retry schedule; operation authorization still
+rejects it until promotion. The transition is idempotent and persists across
+store reopen.
+
+The encrypted synthetic accessory test rewrites only its private fixture
+catalog to emulate interruption after NOC installation, then performs real
+CASE descriptor discovery and requires the persisted catalog to return to
+`complete`. `python3 scripts/test-openthread-matter-transport.py
+--commissioning --ble --service-owner --service-discovery --sensor-reports`
+passes, including the existing commissioning, subscription, OnOff/Level and
+five-sensor-report checks. Controller-service library tests pass 74/74. The
+production static MIPS-I service cross-build passes at 2,109,120 bytes; its
+SHA-256 is recorded in `ziggurat-compilation/docs/matter-service-runtime.md`.
+This does not test recovery on the physical gateway; the private device profile
+has no real CASE peer and the production Zigbee/RCP owner remains untouched.

@@ -31,9 +31,9 @@ pass. Interrupted replacement, allocator rollback, and failed-restore
 preservation remain open.
 
 Consistent backup/staged restore procedures are documented in
-[the recovery runbook](../matter-backup-recovery.md). Next deliverable: exercise
-incomplete, corrupt and interrupted restores on synthetic state, including
-the plan 07 catalog.
+[the recovery runbook](../matter-backup-recovery.md). Next deliverable: validate
+power-loss durability on the target filesystem in excluded plan 08 and finish
+legacy no-catalog migration without reusing allocated IDs.
 
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.
@@ -209,8 +209,10 @@ loss; actual filesystem durability and target validation remain open in plan
 
 No credentials or gateway state were read/exported/restored. The shell template
 and relative links were checked locally. Archive preflight/staging automation,
-offline service validation, synthetic failed/interrupted restore tests and node
-catalog recovery remain open. Target filesystem/physical acceptance stays in
+offline service validation, synthetic failed/interrupted restore tests and
+legacy no-catalog migration remain open. CASE-gated recovery of persisted
+`recovery_required` nodes is now verified by Rust commit `d141586` in plan 07.
+Target filesystem/physical acceptance stays in
 plan 08. The Garage failed-GATT-confirmation fix is separately uncommitted;
 its required Android build/TCP checks were not executed because automatic
 approval review reported exhausted workspace credits, not an unsafe action.
