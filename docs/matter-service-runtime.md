@@ -5,7 +5,9 @@ OpenThread, the Matter UDP transport, the private store, and a bounded Unix IPC
 listener. It creates/restores a private controller authority and fabric;
 Thread create/import/restore and commissioning/relay dispatch are implemented.
 Production operational SRP/DNS-SD is wired and host-tested; remote catalog
-recovery and device reports remain pending. The optional native worker now
+recovery and the installed daemon's process-level report path remain pending.
+The production Manager and IPC report path are composed with a live CASE
+accessory fixture and native gateway process on the host. The optional native worker now
 supplies protected coordinator observations and caches status for HTTP.
 
 Build with `bash scripts/build-rs-matter-transport.sh host service` or
@@ -103,6 +105,60 @@ reopen, with the simulated phone detached. The allocator then returns a value
 above the commissioned node. Timings were 217/264 ms on the development host;
 the updated factory fixture builds but has not been executed on the gateway.
 This does not yet wire the commissioner into the service's IPC job dispatch.
+
+## Live CASE reports into native gateway state — 2026-10-05
+
+The extended commissioning fixture now connects the actual native Matter
+worker to the production Manager and `IpcServer` while the synthetic accessory
+has active CASE subscriptions. It drives snapshot pagination through
+`POST /api/matter/devices/snapshot`, then sends temperature, humidity, Air
+Quality, CO2 and PM2.5 reports into the native common device state. The
+end-to-end host command is:
+
+```sh
+python3 scripts/test-openthread-matter-transport.py --native-bridge \
+  --sensor-reports --service-discovery --service-owner --ble --commissioning
+```
+
+All five expected values, units and measured-quality labels are asserted in
+`/api/status`. This joins the live accessory's CASE `ReportData`, the
+production Rust Manager report queue/IPC publisher, the native IPC worker and
+the common gateway device model. It uses only a synthetic RCP and accessory;
+it does not start the installed `thread-matter` service process or use hardware.
+That daemon-process variant and physical accessory acceptance remain open.
+
+## Gateway MIPS CASE sensor-report profile — 2026-10-05
+
+The updated MIPS commissioning fixture was run on gateway `192.168.178.62`
+with its production Ziggurat service left online. Command:
+
+```sh
+python3 scripts/test-openthread-matter-device.py --host 192.168.178.62 \
+  --password-file ../ssh_password.txt --commissioning --ble \
+  --service-owner --sensor-reports
+```
+
+The fixture used a synthetic RCP and accessory, never opened `/dev/ttyS1`, and
+cleaned its isolated state and staged files. Production reported
+`online=true`, `network_formed=true`, and backend `ziggurat` both before and
+after. The 2,580,192-byte MIPS-I probe (SHA-256
+`8fb69bd91ba9a7a550407f5a248ee507513b08408e0072dd2256b7a1f2caa138`) completed
+encrypted PASE/CASE, production Manager discovery/reads/commands, seven
+subscriptions and all five sensor reports in 10.94 seconds. Sampled peak RSS
+was 2,204 KiB; minimum raw MemFree was 10,080 KiB; minimum free plus clean
+inactive file cache was 19,216 KiB. Sampled process CPU was about 4.41 seconds
+over 11.75 seconds of wall time (37.5% of one core on average). The run stayed
+below its 3,072 KiB RSS limit and 4,096 KiB effective-free floor. Gateway uptime
+advanced throughout; no reset occurred during this test.
+
+An earlier run also enabled `--service-discovery` and stopped at the fixture's
+45-second synthetic SRP-registration deadline. The simulated RCP does not
+advertise/respond as an SRP registrar on the target. It peaked at 1,772 KiB RSS
+and kept production online; no report-work conclusions are drawn from that
+incomplete run. Host SRP/DNS-SD integration remains covered by the synthetic
+host fixture. These target results cover the MIPS commissioning/Manager report
+procedure, not the installed `thread-matter` daemon, native worker on target,
+real accessories, or combined live Zigbee/Thread radio traffic.
 
 ## Guarded Thread lifecycle — 2026-10-04
 

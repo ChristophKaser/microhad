@@ -3,8 +3,10 @@
 import argparse
 import importlib.util
 import json
+import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import time
 
@@ -21,11 +23,14 @@ def main():
     parser.add_argument('--service-owner', action='store_true', help='Exercise the production owned commissioner with synthetic BLE')
     parser.add_argument('--service-discovery', action='store_true', help='Register accessory through SRP and use production DNS resolver')
     parser.add_argument('--sensor-reports', action='store_true', help='Run notifier-backed multi-cluster sensor report fixture')
+    parser.add_argument('--native-bridge', action='store_true', help='Deliver live CASE sensor reports through a native gateway process and verify shared device state')
     args = parser.parse_args()
     if args.service_discovery and not args.service_owner:
         parser.error('--service-discovery requires --service-owner')
     if args.sensor_reports and not args.service_owner:
         parser.error('--sensor-reports requires --service-owner')
+    if args.native_bridge and not (args.service_owner and args.service_discovery and args.sensor_reports):
+        parser.error('--native-bridge requires --service-owner --service-discovery --sensor-reports')
     if args.service_owner and not args.ble:
         parser.error('--service-owner requires --ble')
     if args.ble and not args.commissioning:
@@ -46,8 +51,17 @@ def main():
                     raise RuntimeError('Synthetic relay startup failed')
                 time.sleep(0.02)
             binary = ROOT / 'build/rs-matter/target/release' / name
-            result = subprocess.run([str(binary), 'spinel+hdlc+unix://' + str(socket) + '?no-reset'] + (['--ble'] if args.ble else []) + (['--service-owner'] if args.service_owner else []) + (['--service-discovery'] if args.service_discovery else []) + (['--sensor-reports'] if args.sensor_reports else []),
-                                    cwd=directory, capture_output=True, text=True, timeout=timeout)
+            command = [str(binary), 'spinel+hdlc+unix://' + str(socket) + '?no-reset']
+            command.extend(flag for enabled, flag in (
+                (args.ble, '--ble'), (args.service_owner, '--service-owner'),
+                (args.service_discovery, '--service-discovery'),
+                (args.sensor_reports, '--sensor-reports')) if enabled)
+            if args.native_bridge:
+                result, native_status = run_native_bridge(command, directory, timeout)
+                print('PASS live CASE sensor reports reached the native gateway shared device model')
+            else:
+                result = subprocess.run(command, cwd=directory, capture_output=True, text=True, timeout=timeout)
+                native_status = None
             if args.service_discovery and 'PASS synthetic accessory SRP registration' not in result.stdout:
                 raise RuntimeError('SRP/DNS fixture registration did not complete: ' + result.stdout + result.stderr)
             if args.service_discovery and 'PASS DNS cancelled callback isolation' not in result.stdout:
@@ -76,6 +90,8 @@ def main():
                       'encrypted_commissioning_tested': args.commissioning, 'production_owned_commissioner_tested': args.service_owner, 'synthetic_phone_gatt_tested': args.ble,
                       'production_dns_resolver_tested': args.service_discovery,
                       'production_sensor_reports_tested': args.sensor_reports,
+                      'native_gateway_case_reports_tested': args.native_bridge,
+                      'native_gateway_sensor_values': native_status,
                       'signed_srp_registration_tested': args.service_discovery,
                       'operational_descriptor_discovery_tested': args.commissioning,
                       'fixture_address_injection': args.commissioning and not args.service_discovery,
@@ -94,6 +110,168 @@ def main():
                 relay.kill()
                 relay.wait()
         radio.close()
+
+
+def run_native_bridge(command, working_directory, timeout):
+    """Run the production native host bridge beside the live CASE accessory fixture."""
+    native_root = ROOT.parent / 'microhad-zigbee-native'
+    native_binary = native_root / 'build/host-ziggurat-matter/microhad-zigbee-native'
+    if not native_binary.is_file():
+        raise RuntimeError('Build the MATTER host gateway first: ' + str(native_binary))
+    sys.path.insert(0, str(native_root / 'scripts'))
+    from test_ziggurat_native_peer import NativeTests
+    from test_ziggurat_service import wait_for
+
+    matter_socket = Path('/tmp/microhad-matter.sock')
+    if matter_socket.exists() or matter_socket.is_symlink():
+        raise RuntimeError('Native CASE report fixture requires an unused /tmp/microhad-matter.sock')
+
+    class MatterNativeFixture(NativeTests):
+        def launch(self):
+            self.process = subprocess.Popen(
+                [str(native_binary), '--config', str(self.config)],
+                stdout=self.log,
+                stderr=self.log,
+            )
+            wait_for(lambda: self.status()['online'])
+
+    native = MatterNativeFixture()
+    probe = None
+    fixture_socket_bound = False
+    try:
+        native.setUp()
+        ready = Path(working_directory) / 'native-ipc-ready'
+        release = Path(working_directory) / 'native-ipc-release'
+        environment = os.environ.copy()
+        environment.update({
+            'MICROHAD_MATTER_TEST_STATE_DIR': str(Path(working_directory) / 'state'),
+            'MICROHAD_MATTER_TEST_IPC_SOCKET': str(matter_socket),
+            'MICROHAD_MATTER_TEST_NATIVE_READY_FILE': str(ready),
+            'MICROHAD_MATTER_TEST_NATIVE_RELEASE_FILE': str(release),
+        })
+        probe = subprocess.Popen(
+            command + ['--native-ipc'], cwd=working_directory, env=environment,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+        )
+        deadline = time.monotonic() + timeout
+        while not ready.exists():
+            if probe.poll() is not None:
+                output, _ = probe.communicate()
+                raise RuntimeError('CASE fixture exited before native IPC readiness:\n' + output)
+            if time.monotonic() >= deadline:
+                raise TimeoutError('Native IPC CASE fixture did not reach its ready gate')
+            time.sleep(0.05)
+        fixture_socket_bound = matter_socket.exists()
+        if not fixture_socket_bound:
+            raise RuntimeError('CASE fixture announced readiness without binding its IPC socket')
+
+        def matter_connected():
+            try:
+                return native.request('/api/matter/status').get('state') == 'running'
+            except Exception:
+                return False
+        wait_for(matter_connected, timeout=10)
+
+        snapshot = native.request(
+            '/api/matter/devices/snapshot',
+            json.dumps({'schema': 1, 'action': 'snapshot'}).encode(),
+        )
+        if not snapshot.get('ok') or not isinstance(snapshot.get('job'), int):
+            raise RuntimeError('Native gateway rejected the Matter device snapshot: ' + json.dumps(snapshot))
+        snapshot_job = snapshot['job']
+        snapshot_result = wait_for(
+            lambda: (job if (job := native.request('/api/matter/jobs/' + str(snapshot_job))).get('state') == 'complete' else None),
+            timeout=15,
+        )
+        snapshot_page = snapshot_result.get('response', {}).get('result', {})
+        while snapshot_page.get('next_cursor') is not None:
+            snapshot_request = {
+                'schema': 1,
+                'action': 'snapshot',
+                'cursor': snapshot_page['next_cursor'],
+                'revision': snapshot_page['revision'],
+            }
+            accepted = native.request(
+                '/api/matter/devices/snapshot', json.dumps(snapshot_request).encode())
+            if not accepted.get('ok') or not isinstance(accepted.get('job'), int):
+                raise RuntimeError('Native gateway rejected a Matter snapshot page: ' + json.dumps(accepted))
+            snapshot_result = wait_for(
+                lambda: (job if (job := native.request('/api/matter/jobs/' + str(accepted['job'])))
+                         .get('state') == 'complete' else None),
+                timeout=15,
+            )
+            snapshot_page = snapshot_result.get('response', {}).get('result', {})
+
+        def endpoint_registered():
+            try:
+                status = native.status()
+                return any(device.get('source') == 'matter' and
+                           device.get('matter_node') == '0000000000000002' and
+                           device.get('matter_endpoint') == 1 for device in status.get('devices', []))
+            except Exception:
+                return False
+        try:
+            wait_for(endpoint_registered, timeout=10)
+        except TimeoutError as error:
+            try:
+                status = native.status()
+            except Exception as status_error:
+                status = {'error': str(status_error)}
+            try:
+                matter_status = native.request('/api/matter/status')
+            except Exception as matter_error:
+                matter_status = {'error': str(matter_error)}
+            native.log.seek(0)
+            log_tail = native.log.read().decode(errors='replace')[-4000:]
+            raise RuntimeError(
+                'Native gateway did not reconcile the CASE endpoint; status=' +
+                json.dumps(status) + '; matter=' + json.dumps(matter_status) +
+                '; snapshot=' + json.dumps(snapshot_result) +
+                '; native log=' + log_tail
+            ) from error
+        release.write_text('continue')
+
+        expected = {
+            'temperature': (-5.25, '°C'),
+            'humidity': (64.0, '%'),
+            'air_quality': ('moderate', ''),
+            'co2': (800.0, 'ppm'),
+            'pm25': (25.5, 'ug/m3'),
+        }
+        observed = {}
+        def reports_applied():
+            nonlocal observed
+            for device in native.status().get('devices', []):
+                if (device.get('source') == 'matter' and
+                        device.get('matter_node') == '0000000000000002' and
+                        device.get('matter_endpoint') == 1):
+                    observed = device.get('sensor_values', {})
+                    break
+            return all(observed.get(key, {}).get('value') == value and
+                       observed.get(key, {}).get('unit') == unit and
+                       observed.get(key, {}).get('quality') == 'measured'
+                       for key, (value, unit) in expected.items())
+        wait_for(reports_applied, timeout=15)
+
+        output, _ = probe.communicate(timeout=max(1, deadline - time.monotonic()))
+        if probe.returncode != 0:
+            raise RuntimeError('CASE report fixture failed:\n' + output)
+        if 'PASS production manager sensor reports reach IPC from subscribed CASE reports' not in output:
+            raise RuntimeError('Production manager did not publish live CASE reports:\n' + output)
+        return subprocess.CompletedProcess(command, 0, stdout=output, stderr=''), observed
+    finally:
+        if probe is not None and probe.poll() is None:
+            probe.terminate()
+            try:
+                probe.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                probe.kill()
+                probe.wait()
+        try:
+            native.tearDown()
+        finally:
+            if fixture_socket_bound and matter_socket.exists():
+                matter_socket.unlink()
 
 
 if __name__ == '__main__':

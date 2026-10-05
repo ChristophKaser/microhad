@@ -57,6 +57,29 @@ commissioning variants, `scripts/test-matter-service.py`, and
 --service-discovery`; native compatibility uses
 `microhad-zigbee-native/scripts/test_matter_native_worker.py --real-service`.
 
+## Live CASE reports in the native gateway — 2026-10-05
+
+The extended synthetic integration command
+`python3 scripts/test-openthread-matter-transport.py --native-bridge
+--sensor-reports --service-discovery --service-owner --ble --commissioning`
+starts the Matter-enabled native host gateway and the encrypted accessory
+fixture together. It requests snapshot pages through the native HTTP API,
+polls each bounded job and carries the revision/cursor until endpoint 1 is
+registered. While CASE sensor subscriptions remain active, the fixture then
+publishes all five real notifier-backed report values through the production
+Rust `Manager` and `IpcServer`; the native worker applies them to its shared
+device model. The check verifies `/api/status` values and units for temperature
+(-5.25 °C), humidity (64%), air quality (`moderate`), CO2 (800 ppm), and PM2.5
+(25.5 ug/m3), each with measured quality. The validation JSON records these
+observed native values.
+
+The run passed on the development host using a synthetic RCP/accessory. It
+does not use gateway radio or UART, and it is not the installed
+`thread-matter` service process. The daemon's own active report loop remains a
+separate process-level verification item. Native API snapshot pagination is
+required before checking the shared device catalog; the initial page in this
+fixture contains the root endpoint and advertises another cursor.
+
 Stripped MIPS artifacts (not deployed):
 
 | Artifact | Bytes | SHA-256 |
