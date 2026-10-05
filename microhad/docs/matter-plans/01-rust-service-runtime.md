@@ -4,19 +4,19 @@
 
 Host service/native round trips, the generic paired supervisor failure matrix,
 and attached-daemon-to-native report delivery pass. The daemon report fixture
-seeds decoded reports; the daemon's live CASE subscription path and supervisor
-restart after the specific Spinel failure remain open.
+seeds decoded reports; its live CASE subscription path remains open. The real
+Rust service has also been exercised through the paired supervisor after a
+wire-level Spinel error.
 Current factory MIPS builds for both binaries pass. Target runtime/resource
 evidence is partial: the service started on the gateway, but raw free RAM fell
 below the deployment gate and a reboot followed in the next status interval;
 the cause is unresolved. No further target workload is planned until reset
 investigation permits it.
 
-Next deliverable: Verify the paired supervisor restarts the real service after
-the wire-level Spinel failure; then close the daemon live-report path from a
-wire-decoded CASE report through native state/history. Keep gateway reset
-investigation ahead of any further target workload. Full physical paired launch
-remains in excluded plan 08.
+Next deliverable: Close the daemon live-report path from a wire-decoded CASE
+report through native state/history. Keep gateway reset investigation ahead of
+any further target workload. Full physical paired launch remains in excluded
+plan 08.
 
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.
@@ -106,8 +106,10 @@ network access. No gateway connection or launcher activation was performed.
    awaiting a coordinator, attaching, attached, disconnected and restarting.
    The guarded lifecycle synthetic service test now passes; native observation
    delivery and integrated radio-loss behavior remain pending.
-2. Exercise service failure, radio loss and supervisor retry exhaustion together;
-   confirm bounded IPC latency and that Zigbee/native supervision continues.
+2. The real service's wire-level Spinel apply failure now restarts under the
+   paired supervisor on host while native/Zigbee stay running and the persisted
+   dataset restores. Add radio-loss and retry-exhaustion composition and confirm
+   bounded IPC latency.
 3. Verify a native HTTP-to-service status round trip with valid, malformed,
    absent and stalled service peers. Record the current factory binary hash,
    size and ELF checks rather than reusing earlier build measurements.

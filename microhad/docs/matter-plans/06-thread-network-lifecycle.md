@@ -18,12 +18,15 @@ status from the synthetic RCP now exercises the production OpenThread adapter;
 that service process exits, preserves its committed dataset, and restores it
 after a fresh process receives a matching coordinator observation. The native
 API and dashboard expose a bounded retry action for recoverable in-process
-failures. Physical RCP error behavior and target RF remain open.
+failures. A host composition now confirms the paired supervisor restarts the
+real Matter service after the wire-level Spinel apply error, preserves the
+dataset across service restart, and leaves the native/Zigbee pair running.
+Physical RCP error behavior and target RF remain open.
 
-Next deliverable: Verify the paired supervisor relaunches after the wire-level
-Spinel failure and reports recovery to the native worker. Do not repeat target
-workloads until plan 01's reboot risk is understood. Keep physical coexistence
-and RF acceptance in plan 08.
+Next deliverable: Verify native-worker recovery against the restarted service,
+including Thread reattachment and restored device operations. Do not repeat
+target workloads until plan 01's reboot risk is understood. Keep physical
+coexistence and RF acceptance in plan 08.
 
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.
@@ -81,7 +84,7 @@ production activation and target runtime verification remain pending.
 | 3 | Complete | Typed private online/channel observations expire after five monotonic seconds; native protected observation/status worker implemented with coordinator liveness expiry; host round trips verified. |
 | 4 | Complete | Required/duplicate/truncated TLVs, channel/mask, prefix and PAN checks before mutation; malformed/mismatch synthetic and unit checks pass. |
 | 5 | Complete | OS-random create, bounded persisted import/restore, no implicit replacement; recoverable in-process apply failures require explicit retry, while wire-level RCP status errors exit and restore the persisted dataset after service restart. |
-| 6 | Partial | Redacted lifecycle states, deferred boot, expiry detach, cached-channel guard, bounded stored-dataset retry and host radio-loss/restart reconciliation implemented. A failed Spinel dataset property transaction now proves process exit and persisted-dataset restore through the synthetic RCP; paired-supervisor composition and physical RCP behavior remain open. |
+| 6 | Partial | Redacted lifecycle states, deferred boot, expiry detach, cached-channel guard, bounded stored-dataset retry and host radio-loss/restart reconciliation implemented. A failed Spinel dataset property transaction proves process exit and dataset restore; `scripts/test_matter_spinel_supervisor.py` composes that failure with the real service and paired supervisor and confirms native/Zigbee stay up. Native-worker reattachment/operation recovery and physical RCP behavior remain open. |
 | 7 | Partial | Rust library and host process tests pass, including wire-level synthetic-RCP apply rejection/restart. Physical coexistence/reception and target resource gates remain unverified. |
 
 The process test changes a persisted cached active channel to 20 while the
@@ -439,3 +442,12 @@ credential rewrite. The complete `python3 scripts/test-matter-service.py` suite
 passes. This validates wire-level error handling and process recovery on a
 synthetic RCP; it does not prove physical-RCP behavior or that the paired
 launcher restarts this specific failure.
+
+Native test `scripts/test_matter_spinel_supervisor.py` now composes this
+wire-level failure with the actual paired supervisor and host `thread-matter`
+service. It verifies the dataset is persisted before failure, the supervisor
+relaunches the service, a fresh matching coordinator observation restores the
+dataset without rewriting credentials, and native/Zigbee each remain at one
+start. `python3 scripts/test_matter_spinel_supervisor.py` passes against the
+synthetic RCP. This leaves physical RCP behavior and native-worker recovery
+through reattachment open.
