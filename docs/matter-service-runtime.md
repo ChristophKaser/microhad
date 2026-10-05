@@ -160,6 +160,53 @@ host fixture. These target results cover the MIPS commissioning/Manager report
 procedure, not the installed `thread-matter` daemon, native worker on target,
 real accessories, or combined live Zigbee/Thread radio traffic.
 
+## Installed MIPS service with synthetic Thread activity — 2026-10-05
+
+The device harness can now drive the installed MIPS `thread-matter` process
+through its private IPC socket while a test-only relay connects it to a
+synthetic Spinel RCP. It sends the same coordinator observation the native
+worker uses, requests Thread dataset creation, checks the resulting lifecycle
+status, and samples the service process. The command is:
+
+```sh
+python3 scripts/test-matter-service-device.py --host 192.168.178.62 \
+  --password-file ../ssh_password.txt --seconds 8 --active-thread-simulation
+```
+
+The service started in 0.05 seconds after IPC socket creation. Its IPC replies
+confirmed a persisted channel-15 dataset and `state=attaching`; it remained
+`attached=false`, as expected from a synthetic RCP with no peer mesh. Peak RSS
+was 1,468 KiB, the active test/sample interval consumed one process CPU tick,
+minimum raw MemFree was 11,516 KiB and minimum MemFree plus clean inactive file
+cache was 19,756 KiB. Production Ziggurat was online/formed before and after,
+the MIPS process stopped cleanly, and all private paths were removed. This is
+the first gateway execution of the installed daemon's IPC observation/create
+path. It does not validate physical RF attachment or the daemon's CASE report
+loop.
+
+Three separate active synthetic runs completed with the gateway's production
+status unchanged at cleanup; a fresh invocation shortly afterward found
+production offline and a lower `/proc/uptime` value each time. After each
+reboot, filtered current-boot `dmesg` checks found no watchdog, panic, OOM or
+reset-cause message. The paired supervisor restored
+Ziggurat online/formed roughly 20 seconds after one reboot and about 138
+seconds after another. These events create a repeated timing association with
+the active test, but do not prove it caused the resets; measured Matter process
+load was low, and the simulator never opened the production UART. Read-only
+checks found no `/dev/watchdog`, watchdog sysfs device, feeder process, or
+watchdog references in the active init/paired-launcher scripts. The
+`/proc/watchdog_reboot` entry was left unread because an earlier read blocked
+SSH. There is no identified Tuya watchdog feeder or safe disable control.
+
+The latest reboot was followed by a two-minute idle observation: uptime
+advanced from 37.75 to 160.65 seconds without another reset, and Ziggurat
+returned online/formed between 138 and 149 seconds. Reset cause and cadence
+remain unknown; the uptime windows are discontinuous and cannot establish a
+reset rate. Detailed observations are in
+`docs/openthread-resource-profile.md`. The user authorized continued guarded
+gateway tests after the earlier stop recommendation; this authorization does
+not establish that Matter triggered the resets.
+
 ## Guarded Thread lifecycle — 2026-10-04
 
 Opcode 9 accepts status/create/import and private coordinator `observe` bodies.

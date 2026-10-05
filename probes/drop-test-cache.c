@@ -17,7 +17,8 @@ int main(int argc, char **argv)
     suffix = argv[1] + sizeof(prefix) - 1;
     if (strspn(suffix, "0123456789abcdef") != 32) return 2;
     suffix += 32;
-    if (strcmp(suffix, "/probe") != 0 && strcmp(suffix, "/relay") != 0) return 2;
+    if (strcmp(suffix, "/probe") != 0 && strcmp(suffix, "/relay") != 0 &&
+        strcmp(suffix, "/thread-matter") != 0) return 2;
     fd = open(argv[1], O_RDONLY | O_NOFOLLOW);
     if (fd < 0) { perror("cache helper open"); return 1; }
     if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) || st.st_uid != geteuid()) { close(fd); return 2; }

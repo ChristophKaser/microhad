@@ -315,3 +315,39 @@ Its final vendor messages read and write `0xb8000038`; no evidence ties that
 register to the documented watchdog register at `0xb800311c` or to resets.
 This short check confirms no reset during its interval and does not change the
 unknown reset-source assessment.
+
+## Active MIPS service and follow-up reset observations — 2026-10-05
+
+The user later authorized guarded device tests despite the earlier stop
+recommendation. The installed `thread-matter-mips` was started three times with
+private IPC/state paths and a synthetic RCP relay. Each run sent a private
+coordinator observation, created a channel-15 Thread dataset through opcode 9,
+and stopped the service cleanly. The final captured IPC replies reported
+`configured=true`, `dataset_channel=15`, `state=attaching`, and `attached=false`.
+Production Zigbee never shared its UART or socket with the test and reported
+online/formed at each profile's before/after check. The latest run measured
+1,468 KiB peak service RSS, one CPU tick during sampling, 11,516 KiB minimum
+MemFree and 19,756 KiB minimum MemFree plus clean inactive file cache. The
+synthetic RCP does not prove attachment to a real Thread mesh.
+
+After each of the three active runs, a subsequent status/preflight observation
+found a lower device uptime and production temporarily offline. In the latest
+case, the service profile ended at uptime 206.05 seconds; the first valid SSH
+sample afterward saw uptime 37.75 seconds. This bounds a reboot to that gap and
+is a repeated temporal association, but does not establish causation. Each
+profile's own before/after uptime check was monotonic and production was online
+at cleanup. No Matter process was running during the later idle monitor. Uptime
+then advanced from 37.75 to 160.65 seconds without another reset; Ziggurat
+returned online/formed between samples at 138.30 and 149.47 seconds. A later
+read-only check saw uptime 230.57 seconds with no watchdog/panic/OOM kernel-log
+matches.
+
+Read-only inspection found no `/dev/watchdog`, `/dev/watchdog0`, watchdog
+sysfs class, watchdog-feeding process, or watchdog reference in the active
+paired startup or init scripts. `/proc/watchdog_reboot` exists, but remains
+unread because a previous read blocked SSH. The current boot ring buffer
+contains normal initialization only and cannot identify the previous reset.
+No Tuya watchdog feeder or safe disable control has been identified, so no
+watchdog was changed. The repeated association warrants investigation, but
+three bounded runs and discontinuous idle windows do not establish a reset
+rate, periodic cadence, or hardware/software cause.

@@ -7,6 +7,7 @@ The production gateway services remain running throughout the check.
 """
 import argparse
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 import re
@@ -18,6 +19,22 @@ import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
 SERVICE = ROOT / 'build/rs-matter/thread-matter-mips'
+SIM_SPEC = importlib.util.spec_from_file_location(
+    'matter_service_sim', ROOT / 'scripts/test-openthread-device.py')
+sim = importlib.util.module_from_spec(SIM_SPEC)
+SIM_SPEC.loader.exec_module(sim)
+
+
+def build_ipc_client():
+    rsdk = ROOT.parent / 'rsdk-4.4.7-4181-EB-2.6.30-0.9.30-m32u-140129'
+    compiler = rsdk / 'bin/mips-linux-gcc'
+    output = ROOT / 'build/rs-matter/matter-ipc-client-mips'
+    source = ROOT / 'probes/matter-ipc-client.c'
+    output.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run([str(compiler), '-std=gnu99', '-Wall', '-Wextra', '-Werror',
+                    '-Os', '-static', '-msoft-float', str(source), '-o', str(output)], check=True)
+    subprocess.run([str(rsdk / 'bin/mips-linux-strip'), str(output)], check=True)
+    return output
 
 
 def memory_values(meminfo):
@@ -35,6 +52,8 @@ def main():
     parser.add_argument('--host', required=True)
     parser.add_argument('--password-file', type=Path, required=True)
     parser.add_argument('--seconds', type=int, default=15)
+    parser.add_argument('--active-thread-simulation', action='store_true',
+                        help='supply private coordinator observation and create Thread over synthetic RCP')
     parser.add_argument('--report', type=Path, default=ROOT / 'logs/matter-service-device-profile.json')
     args = parser.parse_args()
     if not 5 <= args.seconds <= 30:
@@ -44,8 +63,8 @@ def main():
     payload = SERVICE.read_bytes()
     digest = hashlib.sha256(payload).hexdigest()
     token = uuid.uuid4().hex
-    stage = '/tuya/native-test/matter-startup-' + token
-    runtime = '/tmp/matter-startup-' + token
+    stage = '/tuya/native-test/ot-matter-' + token
+    runtime = '/tmp/ot-sim-matter-' + token
     ssh = ['sshpass', '-f', str(args.password_file), 'ssh', '-o', 'ConnectTimeout=8',
            '-o', 'StrictHostKeyChecking=yes', '-o', 'HostKeyAlgorithms=+ssh-rsa',
            '-o', 'PubkeyAcceptedAlgorithms=+ssh-rsa', '-o', 'PreferredAuthentications=password',
@@ -81,6 +100,17 @@ def main():
     if int(storage[3]) * 1024 < len(payload) + 512 * 1024:
         raise RuntimeError('Insufficient isolated staging space')
 
+    if args.active_thread_simulation:
+        subprocess.run(['bash', str(ROOT / 'scripts/build-openthread-relay.sh'), 'mips'], check=True)
+    relay_binary = ROOT / 'build/openthread-unix/sim-relay-mips'
+    cache_binary = ROOT / 'build/openthread-unix/drop-test-cache-mips'
+    ipc_client = build_ipc_client() if args.active_thread_simulation else None
+    radio = sim.ThreadRcp(args.host, tcp_nodelay=True) if args.active_thread_simulation else None
+    if args.active_thread_simulation and not relay_binary.is_file():
+        raise RuntimeError('Missing MIPS synthetic RCP relay: ' + str(relay_binary))
+    if args.active_thread_simulation and not cache_binary.is_file():
+        raise RuntimeError('Missing MIPS test-cache helper: ' + str(cache_binary))
+
     report = {'target': args.host, 'binary_bytes': len(payload), 'binary_sha256': digest,
               'profile_seconds': args.seconds, 'radio_access': False,
               'production_before': before,
@@ -99,16 +129,45 @@ def main():
     try:
         remote(f'umask 077; mkdir -p /tuya/native-test; mkdir {stage}; mkdir {runtime}')
         remote(f'set -C; cat > {stage}/thread-matter && chmod 700 {stage}/thread-matter', payload)
+        if args.active_thread_simulation:
+            for destination, contents in ((runtime + '/relay', relay_binary.read_bytes()),
+                                          (runtime + '/cache-helper', cache_binary.read_bytes()),
+                                          (runtime + '/ipc-client', ipc_client.read_bytes())):
+                remote(f'set -C; cat > {destination} && chmod 700 {destination}', contents)
+            remote(f'{runtime}/cache-helper {stage}/thread-matter')
         # The private URL cannot reach /dev/ttyS1. Without a coordinator
         # observation, production lifecycle deliberately waits before OT init.
+        active_setup = ''
+        active_checks = ''
+        if args.active_thread_simulation:
+            active_setup = (f'{runtime}/relay {runtime}/radio.sock {radio.address} {radio.port} '
+                            f'{args.seconds + 30} &\nrelay=$!\ntries=0\n'
+                            f'while [ ! -S {runtime}/radio.sock ]; do\n'
+                            ' tries=$((tries + 1)); [ "$tries" -le 10 ] || { echo RELAY_SOCKET_TIMEOUT; exit 1; }\n'
+                            ' kill -0 "$relay" 2>/dev/null || { echo RELAY_EXITED; exit 1; }\n'
+                            ' sleep 1\ndone\n')
+            observe = shlex.quote('{"schema":1,"action":"observe","zigbee_channel":15,"zigbee_online":true}')
+            create = shlex.quote('{"schema":1,"action":"create","zigbee_channel":15}')
+            thread_status = shlex.quote('{"schema":1,"action":"status"}')
+            active_checks = (f'sleep 1\n{runtime}/ipc-client {runtime}/ipc.sock 9 {observe} > {runtime}/observe.json || exit 1\n'
+                             f'cat {runtime}/observe.json\ngrep \'"ok":true\' {runtime}/observe.json >/dev/null || exit 1\n'
+                             'echo THREAD_OBSERVE_OK\n'
+                             f'{runtime}/ipc-client {runtime}/ipc.sock 9 {create} > {runtime}/create.json || {{ echo THREAD_CREATE_FAILED; cat {runtime}/create.json; exit 1; }}\n'
+                             f'cat {runtime}/create.json\ngrep \'"ok":true\' {runtime}/create.json >/dev/null || {{ echo THREAD_CREATE_REJECTED; exit 1; }}\n'
+                             'echo THREAD_CREATE_OK\n'
+                             f'{runtime}/ipc-client {runtime}/ipc.sock 9 {thread_status} > {runtime}/thread-status.json || exit 1\n'
+                             f'cat {runtime}/thread-status.json\n')
         command = f'''umask 077
 ulimit -c 0
 cd {runtime} || exit 1
 {stage}/thread-matter --socket {runtime}/ipc.sock --state-dir {runtime}/state \\
  --radio-url 'spinel+hdlc+unix://{runtime}/radio.sock?no-reset' > {runtime}/service.log 2>&1 &
 child=$!
-cleanup() {{ kill "$child" 2>/dev/null; wait "$child" 2>/dev/null; }}
-trap cleanup EXIT HUP INT TERM
+cleanup() {{ [ -z "$child" ] || {{ kill "$child" 2>/dev/null; wait "$child" 2>/dev/null; }}; }}
+cleanup_all() {{ cleanup; [ -z "$relay" ] || {{ kill "$relay" 2>/dev/null; wait "$relay" 2>/dev/null; }}; }}
+relay=
+trap cleanup_all EXIT HUP INT TERM
+{active_setup}
 tries=0
 while [ ! -S {runtime}/ipc.sock ]; do
  tries=$((tries + 1)); [ "$tries" -le 10 ] || {{ echo IPC_SOCKET_TIMEOUT; cat {runtime}/service.log; exit 1; }}
@@ -125,6 +184,7 @@ while ! grep 'Matter controller service started' {runtime}/service.log >/dev/nul
 done
 startup_ready=$(awk '{{print $1}}' /proc/uptime)
 awk -v start="$startup_started" -v ready="$startup_ready" 'BEGIN {{printf "STARTUP after_socket_s=%.2f\\n", ready-start}}'
+{active_checks}
 count=0
 while [ "$count" -lt {args.seconds} ]; do
  count=$((count + 1))
@@ -164,6 +224,17 @@ exit "$result"
         report['startup_after_ipc_socket_seconds'] = float(startup_match.group(1)) if startup_match else None
         report['service_log'] = [line for line in output.splitlines()
                                   if line.startswith('Matter controller service ')]
+        report['active_thread_simulation_tested'] = args.active_thread_simulation
+        if args.active_thread_simulation:
+            report['thread_observe_ok'] = 'THREAD_OBSERVE_OK' in output
+            report['thread_create_ok'] = 'THREAD_CREATE_OK' in output
+            response_lines = [line for line in output.splitlines()
+                              if line.startswith('{') and '"schema":1' in line]
+            report['thread_ipc_responses'] = [json.loads(line) for line in response_lines]
+            status_line = next((line for line in reversed(response_lines)
+                                if 'configured' in line), None)
+            if status_line:
+                report['thread_status'] = json.loads(status_line)
         if exit_code != 0:
             report['profile_failure_markers'] = [line for line in output.splitlines()
                                                  if line.isupper() and ' ' not in line]
@@ -184,6 +255,9 @@ exit "$result"
             raise RuntimeError(f'Insufficient service samples: {len(samples)}')
         elif 'Matter controller service started' not in output or 'Matter controller service stopped' not in output:
             raise RuntimeError('Service did not start and stop cleanly: ' + output[-1200:])
+        if args.active_thread_simulation and ('THREAD_OBSERVE_OK' not in output or
+                                                 'THREAD_CREATE_OK' not in output):
+            raise RuntimeError('Active synthetic Thread attach/create failed: ' + output[-2000:])
         if not samples:
             raise RuntimeError('No resource samples captured')
         report['rss_max_kib'] = max(row['rss_kib'] for row in samples)
@@ -191,11 +265,15 @@ exit "$result"
         report['effective_free_min_kib'] = min(row['effective_free_kib'] for row in samples)
         report['cpu_ticks_delta'] = samples[-1]['cpu_ticks'] - samples[0]['cpu_ticks']
         if not guard_aborted:
-            report['result'] = 'PASS startup awaiting coordinator; orderly SIGTERM shutdown'
+            report['result'] = ('PASS synthetic coordinator observation and Thread dataset create; '
+                                'orderly SIGTERM shutdown' if args.active_thread_simulation else
+                                'PASS startup awaiting coordinator; orderly SIGTERM shutdown')
     except Exception as error:
         profile_error = f'{type(error).__name__}: {error}'
         report['error'] = profile_error
     finally:
+        if radio is not None:
+            radio.close()
         try:
             remote(f'rm -rf {runtime} {stage}; test ! -e {runtime} && test ! -e {stage}')
             report['cleanup_verified'] = True
