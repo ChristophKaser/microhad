@@ -1883,8 +1883,33 @@ async fn test_commission<C: Crypto>(
 }
 
 fn main() {
-    let url = std::env::args()
-        .nth(1)
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.iter().any(|arg| arg == "--icd-lookup-profile") {
+        let directory = std::env::var_os("MICROHAD_MATTER_TEST_STATE_DIR")
+            .map(std::path::PathBuf::from)
+            .expect("Set a unique disposable MICROHAD_MATTER_TEST_STATE_DIR");
+        assert!(!directory.exists(), "ICD profile state path already exists");
+        let crypto = default_crypto(
+            lexra_rs_matter_probe::entropy::OsEntropy::open().expect("OS entropy"),
+            CryptoSensitiveRef::new(&[0x61; 32]),
+        );
+        let trials = 16;
+        let elapsed = lexra_rs_matter_probe::icd::profile_unknown_identity_lookup(
+            &crypto, &directory, trials,
+        )
+        .expect("64-key unknown-identity ICD profile");
+        println!(
+            "PASS ICD unknown-identity lookup clients={} trials={} checks={} elapsed_us={} per_packet_us={}",
+            lexra_rs_matter_probe::icd::MAX_ICD_CLIENTS,
+            trials,
+            lexra_rs_matter_probe::icd::MAX_ICD_CLIENTS * trials,
+            elapsed.as_micros(),
+            elapsed.as_micros() / trials as u128,
+        );
+        return;
+    }
+    let url = args
+        .first()
         .expect("Pass an isolated synthetic Unix radio URL");
     // Real UART URLs and missing reset guard must be rejected before initialization.
     assert!(OpenThread::init("spinel+hdlc+uart:///dev/ttyS1?no-reset").is_err());

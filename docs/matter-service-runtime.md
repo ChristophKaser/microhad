@@ -499,6 +499,26 @@ registered key; worst-case matching against all 64 registrations remains
 unmeasured. The installed daemon's active CASE reports into native state and
 history remain an open joined-process validation checkpoint.
 
+## Bounded worst-case ICD key-scan fixture — 2026-10-05
+
+The commissioning-only `--icd-lookup-profile` path fills a disposable private
+store with 64 distinct ICD keys, creates an unknown-identity Check-In encrypted
+under an unregistered key, and repeats the failed 64-key lookup 16 times. It
+does not initialize OpenThread or touch the production service. The optimized
+host fixture passed 1,024 key checks in 2,069 μs total (129 μs per packet).
+This is host timing only; it does not establish MIPS timing or radio-loop
+deadlines. Rust formatting and the MIPS-I/o32 cross-build passed; the stripped
+MIPS fixture is 2,678,504 bytes. The project MIPS wrapper still encounters the
+known sandbox `SIGSYS` while linking its unused `ot-cli`; the direct Rust
+cross-link passed with escalation.
+
+The target profile remains pending. On the latest read-only gateway samples,
+`/tuya` had 2,236 KiB free and `MemFree` varied from 2,860 to 3,116 KiB. The
+fixture cannot be atomically staged on flash with the 512 KiB reserve, and
+placing its 2.68 MB executable in temporary RAM would consume nearly all
+currently free memory. The running paired service was left untouched. Repeat
+the target timing profile only when there is adequate flash or RAM headroom.
+
 ## Filtered ICD responder and CASE report regression — 2026-10-05
 
 The composed report integration exposed that the generic rs-matter `Responder`

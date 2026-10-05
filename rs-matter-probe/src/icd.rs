@@ -19,6 +19,56 @@ const RECORD_BYTES: usize = 35;
 const MAX_STORE_BYTES: usize = 8 + 1 + MAX_ICD_CLIENTS * RECORD_BYTES;
 const REFRESH_OFFSET: u32 = 1 << 31;
 
+/// Exercise the worst-case sessionless key scan in a disposable fixture store.
+/// This is included only in the synthetic commissioning probe, never service.
+#[cfg(feature = "controller-probe")]
+pub fn profile_unknown_identity_lookup<C: Crypto>(
+    crypto: &C,
+    directory: &std::path::Path,
+    trials: usize,
+) -> Result<std::time::Duration, Error> {
+    use rs_matter::crypto::CanonAeadKeyRef;
+    use std::num::NonZeroU8;
+    use std::time::Instant;
+
+    if trials == 0 || trials > 64 {
+        return Err(invalid());
+    }
+    let store = PrivateStore::open(directory).map_err(storage)?;
+    let mut registry = ClientRegistry::open(store.clone())?;
+    for index in 0..MAX_ICD_CLIENTS {
+        let mut key = [0; 16];
+        key[..8].copy_from_slice(&(index as u64 + 1).to_le_bytes());
+        registry.install(
+            NonZeroU8::new(1).ok_or_else(invalid)?,
+            index as u64 + 1,
+            0,
+            key,
+            0,
+        )?;
+    }
+
+    let unknown_key = [0xee; 16];
+    let check_in = CheckIn::new(CanonAeadKeyRef::new(&unknown_key));
+    let mut payload = vec![0; CheckIn::payload_len(2)];
+    check_in
+        .generate(crypto, 1, &250u16.to_le_bytes(), &mut payload)
+        .map_err(|_| invalid())?;
+    let message = IcdCheckIn::from_received(0, 0, &payload)?;
+    let started = Instant::now();
+    for _ in 0..trials {
+        match std::hint::black_box(registry.accept(crypto, &message)) {
+            Err(error) if error.code() == ErrorCode::NotFound => (),
+            _ => return Err(invalid()),
+        }
+    }
+    let elapsed = started.elapsed();
+    drop(registry);
+    drop(store);
+    std::fs::remove_dir_all(directory).map_err(storage)?;
+    Ok(elapsed)
+}
+
 fn invalid() -> Error {
     ErrorCode::InvalidData.into()
 }
