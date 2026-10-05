@@ -79,7 +79,21 @@ shared device settings dialog presents the reported concentration units.
 Recovery-required catalog entries now retry authenticated CASE descriptor
 discovery after service restart and become complete only after both discovery
 and the durable catalog update succeed. Legacy no-catalog migration remains
-open. Verification passed:
+open.
+
+Sleepy-device support is an implementation gap, not only a missing test. The
+service currently uses ordinary CASE subscriptions (1–3600 second negotiated
+intervals), 30-second operation/discovery deadlines, and a generic retry
+backoff capped at 320 seconds. In the pinned `rs-matter` source, Secure Channel
+has an `AsyncScHandler` hook for incoming ICD Check-In messages, but the
+default responder constructs `SecureChannel::new` with the no-op handler and
+the gateway service does not install an ICD client. Supporting sleepy devices
+requires wiring Check-In reception into the active responder and implementing
+the client registration/identity and wake-triggered operation flow. Until
+then, the product behavior for intermittently connected endpoints remains
+best-effort and can time out while a device sleeps.
+
+Verification passed:
 `make ZIGGURAT=1 MATTER=1 host test` and
 `make ZIGGURAT=1 MATTER=1 mips` (the MIPS toolchain prints its existing
 LOAD-USE warnings). Native commit `e35abb7` routes Shelly history into the
