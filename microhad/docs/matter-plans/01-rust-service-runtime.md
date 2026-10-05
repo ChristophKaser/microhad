@@ -373,3 +373,13 @@ hardware watchdog or another reset source; the current boot has no persistent
 prior-boot log, so attribution remains open. The production supervisor restored
 Zigbee after a reset and the API reported online/formed. Keep the service up and
 do not run more Matter load profiles until the reset source is diagnosed.
+
+The RTL8196E datasheet documents a hardware watchdog reset indicator at
+`WDTCNR` (`0xB800311C`), independent of whether Linux exposes `/dev/watchdog`.
+The target has no `/dev/mem` or `devmem` utility, and `/proc/watchdog_reboot`
+reads blocked SSH, so the reset indicator could not be inspected safely. A
+later read-only observation found 2,222 seconds uptime and healthy Zigbee; this
+does not resolve the earlier repeated resets. There is no known safe way to
+disable the hardware watchdog from the current image. See the [resource-profile
+record](../../ziggurat-compilation/docs/openthread-resource-profile.md) for the
+observation and datasheet reference.
