@@ -354,6 +354,43 @@ mod tests {
         assert!(store.get(1, &mut [0; 1]).is_err());
     }
     #[test]
+    fn orphaned_synced_stage_before_rename_preserves_committed_envelope() {
+        let dir = Fixture::new();
+        let store = PrivateStore::open(&dir.0).unwrap();
+        store.set(1, Some(b"committed identity")).unwrap();
+        drop(store);
+
+        let mut candidate = BTreeMap::new();
+        candidate.insert(1, b"replacement identity".to_vec());
+        candidate.insert(2, b"new node counter".to_vec());
+        let staged_path = dir
+            .0
+            .join(format!(".credentials-{}-99", std::process::id()));
+        let mut staged = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(staged_path)
+            .unwrap();
+        staged.write_all(&encode(&candidate).unwrap()).unwrap();
+        staged.sync_all().unwrap();
+        drop(staged);
+
+        let reopened = PrivateStore::open(&dir.0).unwrap();
+        let mut bytes = [0; 64];
+        let length = reopened.get(1, &mut bytes).unwrap().unwrap();
+        assert_eq!(&bytes[..length], b"committed identity");
+        assert!(reopened.get(2, &mut bytes).unwrap().is_none());
+        reopened.set(2, Some(b"next committed counter")).unwrap();
+        drop(reopened);
+
+        let restarted = PrivateStore::open(&dir.0).unwrap();
+        let length = restarted.get(1, &mut bytes).unwrap().unwrap();
+        assert_eq!(&bytes[..length], b"committed identity");
+        let length = restarted.get(2, &mut bytes).unwrap().unwrap();
+        assert_eq!(&bytes[..length], b"next committed counter");
+    }
+    #[test]
     fn read_only_open_refuses_live_owner_and_never_creates_paths() {
         let dir = Fixture::new();
         let store = PrivateStore::open(&dir.0).unwrap();
