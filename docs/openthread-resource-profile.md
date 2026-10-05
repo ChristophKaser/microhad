@@ -128,9 +128,20 @@ further on-device Matter load should run until the cause is understood. A later
 read-only check found uptime had reset again between observations without a
 Matter workload running. It found no `/dev/watchdog*`, `/sys/class/watchdog`,
 watchdog process, module, or init feeder; the current boot log contains no
-watchdog initialization or reset reason. `/proc/watchdog_reboot` exists, but
-reading it blocked SSH, so it was not retried. No watchdog has been identified
-that can safely be disabled.
+watchdog initialization or reset reason. `/proc/watchdog_reboot` exists as a
+read-only, zero-length proc entry, but reading it blocked SSH, so its contents
+were not retried. No watchdog has been identified that can safely be disabled.
+
+Read-only monitoring then caught repeated uptime resets. Uptime read 722.42
+seconds, then 252.93 seconds about a minute later. It read 285.50 seconds
+shortly after that and 411.18 seconds about another minute later, indicating a
+further intervening reboot. Production process IDs changed after the first
+reset; the supervisor had restored the Zigbee processes and `/api/status` was
+online/formed. This confirms recurring instability during idle observation,
+not an isolated Matter-profile event. The conventional Linux watchdog interface
+and userspace feeder remain absent, so a Tuya/board-level reset source is still
+possible but unproven. No further gateway workloads should run until the reset
+source is identified.
 
 The guarded 15-second repeat service profile did not reset the gateway, but its
 first attempt exited before collecting samples and emitted no service log. A
