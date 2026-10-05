@@ -521,3 +521,7 @@ Matter tests caused the reboots or establish their rate. Detailed evidence is
 in `ziggurat-compilation/docs/openthread-resource-profile.md`. The user
 explicitly authorized continued guarded tests after an earlier recommendation
 to pause.
+
+A later two-minute read-only window advanced uptime from 403.33 to 525.97
+seconds over 12 samples while production remained online/formed. No reset
+occurred in that window; it is too short to rule out the earlier behavior.
