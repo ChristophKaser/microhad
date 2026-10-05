@@ -22,7 +22,8 @@ new stalled-peer regression test proves the native Matter IPC exchange returns
 at its deadline without waiting for a peer that accepted but never answered
 (`750c4c9`); the native worker now also proves that a stalled status reply
 clears cached readiness and returns HTTP 503 before recovering on a fresh
-connection. A
+connection, and an invalid IPC frame version follows the same recovery path
+(`7618e0b`). A
 bounded unit-aware history journal now stores confirmed
 Matter measurements under stable source IDs and is exposed by the common
 history API/dashboard. Keep only joining/commissioning and Matter/Thread-
@@ -227,9 +228,10 @@ open. Verification passed:
    pressure, cancellation, socket-loss and secret-redaction gates. Native IPC
    deadline behavior has a stalled-peer test (`750c4c9`), and malformed reply
    body, wrong reply ID, event invalidation and event-queue overflow/reconnect
-   now have integration gates. The combined worker/HTTP fixture now also covers
-   a withheld status reply, cache invalidation, 503 and fresh-channel recovery
-   (`1f8ebac`). Malformed frame headers and the wider matrix remain open.
+   now have integration gates. The combined worker/HTTP fixture also covers a
+   withheld status reply and invalid frame version, cache invalidation, 503 and
+   fresh-channel recovery (`1f8ebac`, `7618e0b`). Other malformed header fields
+   and the wider matrix remain open.
 4. Inspect rendered browser interactions in addition to the host client and
    TypeScript/build evidence. Physical pairing remains exclusively in plan 08.
 
@@ -382,6 +384,19 @@ behavior while Zigbee/native remain available.
 This closes the synthetic combined stalled-status/HTTP recovery gate, not the
 real device or real-RCP timing gate. Malformed frame headers, broader failure
 coverage and plan 08 acceptance remain open.
+
+## Malformed Matter IPC frame header recovery — 2026-10-05
+
+Native commit `7618e0b` makes the test peer send a response header with an
+unsupported protocol version. The Matter worker rejects the frame, clears its
+cached status, returns HTTP 503 during recovery, and resumes status reads over
+a fresh IPC connection. This complements the malformed-body, wrong-ID,
+stalled-status, malformed-event and event-overflow cases.
+
+`python3 -m py_compile scripts/test_matter_native_worker.py` and
+`python3 scripts/test_matter_native_worker.py` pass with local sockets enabled.
+This verifies one invalid-header case; bad reserved bytes, impossible lengths,
+and the wider failure matrix remain open.
 
 ## Native Matter job queue pressure checkpoint — 2026-10-04
 
