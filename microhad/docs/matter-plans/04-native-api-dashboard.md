@@ -35,7 +35,8 @@ event, and an overflow of nine valid events into the eight-event channel queue.
 Each verifies that the worker clears cached Matter status, returns HTTP 503
 during recovery, reconnects, and resumes serving status. The tested invalid
 headers cover protocol version, reserved byte, and a declared length above the
-frame limit; other malformed headers and the wider failure matrix remain open.
+frame limit. Malformed response kind, opcode and zero correlation ID are now
+also exercised; the wider failure matrix remains open.
 
 The shared-device requirement includes external HTTP integrations such as
 Shelly as first-class sources, not just a visual reuse of cards. The common
@@ -379,6 +380,19 @@ availability and unmount. No device deployment or plan 08 acceptance occurred.
 
 Plan item 5 remains open for sensor measurement rendering and controls for
 additional clusters; item 6's broader API and failure matrix also remains open.
+
+## Matter IPC response-header recovery — 2026-10-05
+
+`python3 scripts/test_matter_native_worker.py` passes with six invalid response
+header cases: unsupported version, nonzero reserved byte, oversized declared
+length, wrong frame kind, wrong opcode and zero correlation ID. Each case
+invalidates the persistent channel, clears cached Matter readiness (HTTP 503),
+and recovers over a new connection. The same run also verifies bounded Matter
+job admission (16 retained jobs, eight queued, eight capacity rejections) and
+drain after peer recovery. `python3 -m py_compile
+scripts/test_matter_native_worker.py` and `git diff --check` pass. Secret
+redaction, broader cross-language vectors and the remaining disconnect and
+WebSocket failure matrix stay open; no gateway or plan 08 action occurred.
 
 ## Stalled service status recovery — 2026-10-05
 

@@ -218,9 +218,20 @@ class MatterPeer:
                                 reserved = 1
                             elif mode == 'oversized':
                                 length = 2049
+                            elif mode == 'kind':
+                                kind = 0
+                            elif mode == 'opcode':
+                                malformed_opcode = opcode + 1
+                            elif mode == 'zero-id':
+                                ident = 0
                             else:
                                 raise AssertionError(f'unknown malformed frame mode: {mode}')
-                            malformed = struct.pack('<HBBBBI', length, version, 1, opcode, reserved, ident)
+                            if mode != 'opcode':
+                                malformed_opcode = opcode
+                            if mode != 'kind':
+                                kind = 1
+                            malformed = struct.pack('<HBBBBI', length, version, kind,
+                                                    malformed_opcode, reserved, ident)
                             self.send(peer, malformed)
                             break
                         payload = json.dumps(result).encode()
@@ -752,7 +763,8 @@ def main():
             wait_for(matter_unavailable, timeout=6)
             wait_for(lambda: fixture.request('/api/matter/status')['state'] == 'running')
             # A structurally invalid frame header must also clear readiness.
-            for malformed_header in ('version', 'reserved', 'oversized'):
+            for malformed_header in ('version', 'reserved', 'oversized',
+                                     'kind', 'opcode', 'zero-id'):
                 matter.malformed_next_header = malformed_header
                 wait_for(matter_unavailable)
                 wait_for(lambda: fixture.request('/api/matter/status')['state'] == 'running')
