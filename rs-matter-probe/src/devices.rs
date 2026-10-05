@@ -1084,6 +1084,94 @@ mod tests {
     }
 
     #[test]
+    fn manager_report_queue_filters_duplicates_and_evicts_oldest_at_capacity() {
+        use rs_matter::{
+            crypto::{default_crypto, CryptoSensitiveRef},
+            dm::devices::test::{TEST_DEV_ATT, TEST_DEV_COMM, TEST_DEV_DET},
+            utils::init::InitMaybeUninit,
+        };
+        use std::os::unix::fs::PermissionsExt;
+
+        fn report(value: f32) -> crate::subscriptions::ReceivedReport {
+            crate::subscriptions::ReceivedReport {
+                fabric: 1,
+                node: 2,
+                subscription_id: 77,
+                values: vec![crate::operations::ResultValue {
+                    node: crate::control::Id(2),
+                    endpoint: 1,
+                    cluster: 1026,
+                    attribute: 0,
+                    value: crate::operations::Value::Measurement(
+                        crate::operations::MeasurementValue {
+                            value: Some(value),
+                            unit: "celsius",
+                            quality: "measured",
+                        },
+                    ),
+                }],
+            }
+        }
+
+        let directory = std::env::temp_dir().join(format!(
+            "matter-report-bound-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir(&directory).unwrap();
+        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let store = crate::store::PrivateStore::open(&directory).unwrap();
+        let catalog = Catalog::open(store, 1, 2).unwrap();
+        let crypto = crate::entropy::OsEntropy::open().unwrap();
+        let crypto = default_crypto(crypto, CryptoSensitiveRef::new(&[9; 32]));
+        let mut memory = Box::new(std::mem::MaybeUninit::uninit());
+        let matter = memory.init_with(Matter::init(
+            &TEST_DEV_DET,
+            TEST_DEV_COMM,
+            &TEST_DEV_ATT,
+            5540,
+        ));
+        let mut manager =
+            Manager::new(matter, &crypto, NonZeroU8::new(1).unwrap(), catalog).unwrap();
+        manager.subscriptions.push(SubscriptionState {
+            key: SubscriptionKey {
+                node: 2,
+                endpoint: 1,
+                cluster: 1026,
+                attribute: 0,
+            },
+            id: Some(77),
+            next_retry: Instant::now(),
+            failures: 0,
+            unit: None,
+            last_report: None,
+        });
+
+        manager.record_report(report(-5.25));
+        manager.record_report(report(-5.25));
+        assert_eq!(manager.reports.len(), 1);
+
+        for value in 0..MAX_QUEUED_REPORT_VALUES {
+            manager.record_report(report(value as f32));
+        }
+        assert_eq!(manager.reports.len(), MAX_QUEUED_REPORT_VALUES);
+        assert!(matches!(
+            manager.reports.front().map(|report| &report.value),
+            Some(crate::operations::Value::Measurement(measurement))
+                if measurement.value == Some(0.0)
+        ));
+        assert!(matches!(
+            manager.reports.back().map(|report| &report.value),
+            Some(crate::operations::Value::Measurement(measurement))
+                if measurement.value == Some((MAX_QUEUED_REPORT_VALUES - 1) as f32)
+        ));
+        manager.record_report(report((MAX_QUEUED_REPORT_VALUES - 1) as f32));
+        assert_eq!(manager.reports.len(), MAX_QUEUED_REPORT_VALUES);
+
+        drop(manager);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
     fn subscription_candidates_follow_advertised_clusters_and_stay_bounded() {
         let now = Instant::now();
         let snapshot = Snapshot {

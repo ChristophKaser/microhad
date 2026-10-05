@@ -4,11 +4,21 @@ The `thread-matter` executable is a single-threaded controller process. It owns
 OpenThread, the Matter UDP transport, the private store, and a bounded Unix IPC
 listener. It creates/restores a private controller authority and fabric;
 Thread create/import/restore and commissioning/relay dispatch are implemented.
-Production operational SRP/DNS-SD is wired and host-tested; remote catalog
-recovery and the installed daemon's process-level report path remain pending.
+Production operational SRP/DNS-SD and remote catalog recovery are wired and
+host-tested; the installed daemon's wire-decoded CASE report path remains
+pending.
 The production Manager and IPC report path are composed with a live CASE
 accessory fixture and native gateway process on the host. The optional native worker now
 supplies protected coordinator observations and caches status for HTTP.
+
+The Manager's telemetry queue is bounded at 512 values, suppresses byte-
+identical consecutive values per subscription, and evicts the oldest queued
+value at capacity. The controller-probe library regression
+`manager_report_queue_filters_duplicates_and_evicts_oldest_at_capacity`
+verifies duplicate suppression, queue size, and oldest-entry eviction. The
+full controller-probe library suite passes 77/77 tests. This covers queue
+pressure and memory bounds; it does not replace the outstanding daemon
+wire-decoded CASE receive test.
 
 Build with `bash scripts/build-rs-matter-transport.sh host service` or
 `bash scripts/build-rs-matter-transport.sh mips service`. The stripped target
