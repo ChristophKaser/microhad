@@ -9,8 +9,8 @@ Matter-enabled gateway worker now reconnects to a supervisor-restarted Rust
 service after a wire-level Spinel error and sees the restored dataset.
 Current factory MIPS builds for both binaries pass. Target runtime/resource
 evidence is partial: a prior isolated service profile was followed by a reboot.
-Later idle observations caught repeated uptime resets, including two within
-roughly two minutes, without a target workload running. A bounded repeat profile
+Later idle observations caught another uptime reset, without a target workload
+running. A bounded repeat profile
 and a five-second retry did not reboot the gateway; the retry passed with 788
 KiB RSS, zero sampled CPU ticks, and orderly shutdown. The repeated reset still
 needs investigation; no more target Matter load is planned until its cause is
@@ -348,11 +348,12 @@ does not close the live CASE-report path or the gateway reset investigation.
 ## Repeated reset and watchdog investigation — 2026-10-05
 
 After a prior read-only observation of about 3,247 seconds uptime, a later
-pre-profile check found only 390.26 seconds. Subsequent idle monitoring caught
-more resets: uptime read 722.42 seconds, then 252.93 seconds about a minute
-later; after reaching 285.50 seconds, it advanced to 411.18 seconds across
-roughly another minute, indicating another intervening reset. These occurred
-when no target Matter workload was running. During the
+pre-profile check found only 390.26 seconds. Subsequent idle monitoring found
+one more confirmed backward uptime step: 722.42 seconds, then 252.93 seconds
+about a minute later. This occurred when no target Matter workload was running.
+Other readings of 285.50 and 411.18 seconds were separated by uncertain elapsed
+time and do not establish another reset. A later 10-second device sleep
+increased uptime by 10.04 seconds, calibrating the counter. During the
 bounded repeat profile uptime advanced from 390.26 to 410.11 seconds over
 17.75 seconds of host time, `/api/status` stayed online/formed, and no reset
 occurred during that run. The profile itself exited before its first resource
@@ -378,8 +379,9 @@ The RTL8196E datasheet documents a hardware watchdog reset indicator at
 `WDTCNR` (`0xB800311C`), independent of whether Linux exposes `/dev/watchdog`.
 The target has no `/dev/mem` or `devmem` utility, and `/proc/watchdog_reboot`
 reads blocked SSH, so the reset indicator could not be inspected safely. A
-later read-only observation found 2,222 seconds uptime and healthy Zigbee; this
-does not resolve the earlier repeated resets. There is no known safe way to
+later read-only observation found 2,222 seconds uptime and healthy Zigbee; a
+later ten-second sleep advanced uptime by 10.04 seconds. These healthy checks do
+not resolve the earlier resets. There is no known safe way to
 disable the hardware watchdog from the current image. See the [resource-profile
 record](../../ziggurat-compilation/docs/openthread-resource-profile.md) for the
 observation and datasheet reference.
