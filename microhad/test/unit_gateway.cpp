@@ -114,6 +114,9 @@ public:
         assert(gateway.statusJson().find("\"co2\":{\"value\":null,\"unit\":\"ppb\",\"quality\":\"unknown\"}") !=
                std::string::npos);
         assert(gateway.devices_[endpoint.id].online && gateway.devices_[endpoint.id].lastSeen > 0);
+        gateway.devices_[endpoint.id].lastSeen = 1;
+        assert(gateway.reconcileMatterDevices(staleEndpoints, &error));
+        assert(!gateway.devices_[endpoint.id].online && gateway.devices_[endpoint.id].lastSeen == 0);
         DeviceValueAlert temperatureAlert;
         temperatureAlert.hasHigh = true;
         temperatureAlert.high = 25;

@@ -966,9 +966,10 @@ reconciliation then registers the endpoint and all five readings reach shared
 status and history, with `online=true`. The native worker now retains unmatched
 report values in a 128-entry queue, coalescing by node, endpoint and cluster;
 successful snapshot reconciliation flushes the queue. A report received in the
-last 60 seconds also keeps its online state and timestamp when an older offline
-snapshot reconciles. A focused Gateway unit regression covers that liveness
-rule. `make ZIGGURAT=1 MATTER=1 unit-test`, `make ZIGGURAT=1 MATTER=1 mips`,
+last 60 seconds keeps its online state and timestamp when an older offline
+snapshot reconciles; older reports expire and allow the offline snapshot to
+take effect. A focused Gateway unit regression covers both sides of that
+liveness window. `make ZIGGURAT=1 MATTER=1 unit-test`, `make ZIGGURAT=1 MATTER=1 mips`,
 `make ZIGGURAT=1 MATTER=1 host`, and
 `python3 scripts/test_matter_native_report_integration.py` pass. The MIPS
 build emits the toolchain's existing LOAD-USE assembler warnings. This is host
