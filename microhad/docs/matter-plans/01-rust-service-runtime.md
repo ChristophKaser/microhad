@@ -18,6 +18,13 @@ service are available locally. A prior read-only ordered-upload preflight for
 staging. No files were uploaded or changed, and no process was stopped or
 restarted.
 
+A second read-only check at 20:15 CEST found the paired supervisor, Ziggurat and
+native gateway still running. Uptime had advanced to 1 hour 3 minutes, so no
+reset occurred during that interval. Matter and the private Thread socket
+remained absent. `/tuya` had 3,496 KiB free, 20 KiB less than the earlier
+sample; the same 3,280 KiB staging estimate leaves 216 KiB beyond the reserve.
+No deployment or workload was run. Recheck flash directly before staging.
+
 The installed `/tuya/tuya_start.sh` also lacks the `MATTER_BIN` opt-in present
 in the candidate `ziggurat_start.sh`, and `/tuya/tuya_start.sh.lowjs-backup` is
 not present. The current supervisor therefore cannot be opted into Matter by
