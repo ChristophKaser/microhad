@@ -153,6 +153,20 @@ replacement atomically with mode `0600`, and removes the consumed marker. On a
 first boot, or if restore fails, Ziggurat retains its existing readiness wait;
 the helper does not bypass it. The seed contains no gateway identity or Zigbee
 state.
+
+Build and stage the helper plus its supervisor integration without replacing
+the native daemon or web UI:
+
+```sh
+make rng-seed
+./deploy.sh --password-file ../ssh_password.txt --target /tuya/native \
+  --rng-seed-only --rng-seed-helper build/rng-seed
+```
+
+The supervisor writes seed-helper diagnostics to `/tmp/ziggurat-rng-seed.log`
+and Ziggurat startup tracing to `/tmp/ziggurat.log`. Both are RAM-backed. A
+deployment does not restart the active supervisor; the restore and delayed save
+take effect on its next start.
 Stale control directories are refused and require PID inspection before cleanup.
 SIGTERM to the supervisor is bounded emergency shutdown, not an orderly rollback.
 

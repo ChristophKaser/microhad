@@ -78,6 +78,14 @@ Use `/api/status` for backend/network readiness and `/api/logs` for the bounded
 RAM log. Wait for `online` and `network_formed` before pairing. Existing-network
 migration requires radio security state in addition to the application inventory.
 
+The paired supervisor restores a one-use kernel RNG seed from
+`/tuya/native/ziggurat-rng.seed` before starting Ziggurat, then saves a refreshed
+seed after 180 seconds once the kernel RNG is ready. This removes the usual cold
+boot entropy wait after the first successful seed save while retaining the
+readiness check. The seed is 44 bytes, mode `0600`, on the `/tuya` JFFS2 volume;
+it adds one small persistent write per boot. See
+[RNG seed deployment and recovery](RECOVERY_TOOLING.md#paired-startup-and-maintenance-control).
+
 ## Current state — 2026-10-03
 
 The development gateway runs native + Ziggurat. Startup/reboot recovery and
