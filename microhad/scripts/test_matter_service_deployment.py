@@ -13,8 +13,13 @@ ROOT = Path(__file__).resolve().parents[1]
 FAKE_SSH = '''#!/usr/bin/env python3
 import json, os, sys
 data = sys.stdin.buffer.read()
+command = sys.argv[-1]
 with open(os.environ['STAGING_CALLS'], 'a') as output:
-    output.write(json.dumps({'command':sys.argv[-1], 'bytes':len(data)})+'\\n')
+    output.write(json.dumps({'command':command, 'bytes':len(data)})+'\\n')
+if 'df -k /tuya' in command:
+    print(os.environ.get('FLASH_AVAILABLE_KIB', '1000000'))
+elif 'for file in' in command and 'wc -c' in command:
+    print(os.environ.get('REMOTE_SIZES', '0 0 0 0 0'))
 '''
 
 
@@ -85,6 +90,74 @@ class Staging(unittest.TestCase):
                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
             self.assertNotEqual(result.returncode, 0)
             self.assertFalse(calls.exists())
+
+    def test_matter_flash_preflight_refuses_before_any_staging(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake = root / 'sshpass';fake.write_text(FAKE_SSH);fake.chmod(0o700)
+            binary = root / 'native';binary.write_bytes(b'fake native');binary.chmod(0o700)
+            Path(str(binary) + '.matter-manifest').write_text(matter_manifest(binary))
+            service = root / 'thread-matter';service.write_bytes(b'fake service');service.chmod(0o700)
+            password = root / 'password';password.touch()
+            calls = root / 'calls'
+            env = dict(os.environ, PATH=str(root)+os.pathsep+os.environ['PATH'],
+                       STAGING_CALLS=str(calls), FLASH_AVAILABLE_KIB='1',
+                       REMOTE_SIZES='0 0 0 0 0')
+            args = ['sh', str(ROOT / 'deploy.sh'), '--password-file', str(password),
+                    '--binary-only', '--binary', str(binary), '--matter-service', str(service),
+                    '--target', '/tuya/native-test']
+            result = subprocess.run(args, env=env, stdin=subprocess.DEVNULL, capture_output=True,
+                                    text=True, check=False, timeout=10)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('Insufficient /tuya flash for Matter staging', result.stderr)
+            rows = [json.loads(line) for line in calls.read_text().splitlines()]
+            self.assertEqual(len(rows), 2)
+            self.assertIn('for file in', rows[0]['command'])
+            self.assertIn('df -k /tuya', rows[1]['command'])
+            self.assertTrue(all(row['bytes'] == 0 for row in rows))
+
+    def test_matter_flash_preflight_counts_replaced_in_place_artifacts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake = root / 'sshpass';fake.write_text(FAKE_SSH);fake.chmod(0o700)
+            binary = root / 'native';binary.write_bytes(b'n' * 1741444);binary.chmod(0o700)
+            Path(str(binary) + '.matter-manifest').write_text(matter_manifest(binary))
+            service = root / 'thread-matter';service.write_bytes(b's' * 2158276);service.chmod(0o700)
+            password = root / 'password';password.touch()
+            calls = root / 'calls'
+            env = dict(os.environ, PATH=str(root)+os.pathsep+os.environ['PATH'],
+                       STAGING_CALLS=str(calls), FLASH_AVAILABLE_KIB='3532',
+                       REMOTE_SIZES='1504596 0 0 0 7417')
+            args = ['sh', str(ROOT / 'deploy.sh'), '--password-file', str(password),
+                    '--binary-only', '--binary', str(binary), '--matter-service', str(service),
+                    '--target', '/tuya/native']
+            result = subprocess.run(args, env=env, stdin=subprocess.DEVNULL, capture_output=True,
+                                    text=True, check=False, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('Matter flash preflight passed', result.stdout)
+
+    def test_matter_test_target_is_refused_at_observed_flash_headroom(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake = root / 'sshpass';fake.write_text(FAKE_SSH);fake.chmod(0o700)
+            binary = root / 'native';binary.write_bytes(b'n' * 1741444);binary.chmod(0o700)
+            Path(str(binary) + '.matter-manifest').write_text(matter_manifest(binary))
+            service = root / 'thread-matter';service.write_bytes(b's' * 2158276);service.chmod(0o700)
+            password = root / 'password';password.touch()
+            calls = root / 'calls'
+            env = dict(os.environ, PATH=str(root)+os.pathsep+os.environ['PATH'],
+                       STAGING_CALLS=str(calls), FLASH_AVAILABLE_KIB='3532',
+                       REMOTE_SIZES='0 0 0 0 0')
+            args = ['sh', str(ROOT / 'deploy.sh'), '--password-file', str(password),
+                    '--binary-only', '--binary', str(binary), '--matter-service', str(service),
+                    '--target', '/tuya/native-test']
+            result = subprocess.run(args, env=env, stdin=subprocess.DEVNULL, capture_output=True,
+                                    text=True, check=False, timeout=10)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('Insufficient /tuya flash for Matter staging', result.stderr)
+            rows = [json.loads(line) for line in calls.read_text().splitlines()]
+            self.assertEqual(len(rows), 2)
+            self.assertTrue(all(row['bytes'] == 0 for row in rows))
 
     def test_explicit_paired_activation_installs_matter_aware_launcher(self):
         with tempfile.TemporaryDirectory() as directory:

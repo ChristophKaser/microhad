@@ -23,6 +23,7 @@ private_key=""
 ca_bundle=""
 matter_service=""
 rng_seed_helper=""
+flash_reserve_kib=${DEPLOY_FLASH_RESERVE_KIB:-512}
 
 usage() {
     echo "usage: $0 --password-file PATH [--binary-only | --webui-only | --both | --rng-seed-only] [--rng-seed-helper PATH] [--config PATH] [--host HOST] [--user USER] [--target DIR] [--binary PATH] [--matter-service PATH] [--tls-certificate PATH --tls-private-key PATH] [--ca-bundle PATH] [--activate | --activate-paired] [--restart]" >&2
@@ -82,6 +83,9 @@ done
 [ -z "$private_key" ] || [ -f "$private_key" ] || usage
 [ -z "$ca_bundle" ] || [ -f "$ca_bundle" ] || usage
 [ -z "$certificate" ] && [ -z "$private_key" ] || { [ -n "$certificate" ] && [ -n "$private_key" ] || usage; }
+[ "$flash_reserve_kib" -ge 0 ] 2>/dev/null || {
+    echo "DEPLOY_FLASH_RESERVE_KIB must be a non-negative integer" >&2; exit 2;
+}
 command -v sshpass >/dev/null 2>&1 || { echo "sshpass is required for password authentication" >&2; exit 1; }
 
 # Quote paths defensively: deployment targets are deliberately restricted to
@@ -107,6 +111,78 @@ ssh_command() {
             return "$status"
         }
 }
+
+matter_flash_preflight() {
+    [ -z "$matter_service" ] && return 0
+
+    old_sizes=$(ssh_command "for file in \"$target/tuya-zigbee-native\" \"$target/config.json\" \"$target/tuya-zigbee-native.matter-manifest\" \"$target/thread-matter\" \"$target/paired_start.sh\"; do if [ -f \"\$file\" ]; then wc -c < \"\$file\"; else echo 0; fi; done") || return $?
+    set -- $old_sizes
+    old_native=${1:-0}
+    old_config=${2:-0}
+    old_manifest=${3:-0}
+    old_service=${4:-0}
+    old_supervisor=${5:-0}
+    for old_size in "$old_native" "$old_config" "$old_manifest" "$old_service" "$old_supervisor"; do
+        case "$old_size" in ''|*[!0-9]*) echo "Unable to read existing Matter deployment file sizes" >&2; return 1 ;; esac
+    done
+
+    committed_delta=0
+    flash_peak_bytes=0
+    stage_flash_group() {
+        stage_bytes=$1
+        replaced_bytes=$2
+        peak_candidate=$((committed_delta + stage_bytes))
+        [ "$peak_candidate" -le "$flash_peak_bytes" ] || flash_peak_bytes=$peak_candidate
+        committed_delta=$((committed_delta + stage_bytes - replaced_bytes))
+    }
+
+    binary_size=$(wc -c < "$binary")
+    config_size=0
+    replaced_native_and_config=$old_native
+    if [ -n "$config" ]; then
+        config_size=$(wc -c < "$config")
+        replaced_native_and_config=$((old_native + old_config))
+    fi
+    stage_flash_group "$((binary_size + config_size))" "$replaced_native_and_config"
+    manifest_size=$(wc -c < "$binary.matter-manifest")
+    stage_flash_group "$manifest_size" "$old_manifest"
+    service_size=$(wc -c < "$matter_service")
+    stage_flash_group "$service_size" "$old_service"
+    supervisor_size=$(wc -c < "$project_dir/paired_start.sh")
+    stage_flash_group "$supervisor_size" "$old_supervisor"
+
+    if [ "$deploy_webui" = true ]; then
+        set -- $(find "$project_dir/webui/dist" -type f -exec wc -c {} + |
+            awk '$2 == "total" { next } { sum += $1 } END { print sum + 0 }')
+        stage_flash_group "${1:-0}" 0
+    fi
+    if [ -n "$certificate" ]; then
+        cert_size=$(wc -c < "$certificate")
+        key_size=$(wc -c < "$private_key")
+        stage_flash_group "$((cert_size + key_size))" 0
+    fi
+    [ -z "$ca_bundle" ] || stage_flash_group "$(wc -c < "$ca_bundle")" 0
+    if [ "$activate_paired" = true ]; then
+        stage_flash_group "$(wc -c < "$project_dir/ziggurat_start.sh")" 0
+    elif [ "$activate" = true ]; then
+        stage_flash_group "$(wc -c < "$project_dir/native_start.sh")" 0
+    fi
+    [ "$flash_peak_bytes" -ge 0 ] || flash_peak_bytes=0
+    required_kib=$(((flash_peak_bytes + 1023) / 1024 + flash_reserve_kib))
+    available_kib=$(ssh_command "df -k /tuya | awk 'END {print \$4}'") || return $?
+    case "$available_kib" in
+        ''|*[!0-9]*) echo "Unable to read available /tuya flash space from df" >&2; return 1 ;;
+    esac
+    if [ "$available_kib" -lt "$required_kib" ]; then
+        printf 'Insufficient /tuya flash for Matter staging: need at least %s KiB (uploads plus %s KiB reserve), have %s KiB\n' \
+            "$required_kib" "$flash_reserve_kib" "$available_kib" >&2
+        return 1
+    fi
+    printf 'Matter flash preflight passed: need at least %s KiB, have %s KiB available\n' \
+        "$required_kib" "$available_kib"
+}
+
+matter_flash_preflight
 
 prune_web_bundles() {
     assets_dir="$target/webui/assets"

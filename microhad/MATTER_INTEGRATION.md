@@ -15,7 +15,13 @@ stages the service and paired supervisor without changing the active launcher.
 `--activate-paired` is a separate next-boot launcher selection for an already
 prepared Ziggurat/native pair. The paired launcher enables Matter only when
 `/tuya/native/thread-matter` is executable. Neither option restarts live
-processes, and no deployment was performed for this implementation checkpoint.
+processes. Before the first Matter upload, the deployer reads `/tuya` free
+space and existing destination sizes, simulates its atomic replacement order,
+and requires a 512 KiB free-space reserve by default. Set
+`DEPLOY_FLASH_RESERVE_KIB` to choose another non-negative reserve. An
+insufficient-space result stops before staging or changing files. This is a
+snapshot preflight, not a reservation; recheck immediately before deployment.
+No Matter deployment was performed for this implementation checkpoint.
 
 The remaining work is broken into eight sequenced implementation plans in
 [`docs/matter-plans/README.md`](docs/matter-plans/README.md).
@@ -395,11 +401,12 @@ have already been verified. Existing `--activate` remains native-only. No
 target execution, launcher activation, credentials transfer or process restart
 was performed here; physical acceptance remains in plan 08.
 
-Validation for the deployment-path checkpoint: five mocked service/launcher
-deployment tests, the Matter build-flag/manifest test, shell syntax checks, ten paired
-supervisor tests and the Rust service-feature library suite pass. No physical
-radio, target CPU/RSS sample or device configuration was touched; startup
-latency and sustained resource feasibility remain for plan 08. See
+Validation for the deployment path: eight mocked service/launcher deployment
+tests, including insufficient-flash refusal and in-place replacement sizing;
+the Matter build-flag/manifest test, shell syntax checks, ten paired supervisor
+tests and the Rust service-feature library suite pass. No physical radio, target
+CPU/RSS sample or device configuration was touched; startup latency and
+sustained resource feasibility remain open. See
 [`docs/matter-plans/01-rust-service-runtime.md`](docs/matter-plans/01-rust-service-runtime.md)
 for remaining acceptance gaps.
 

@@ -12,6 +12,22 @@ requires atomic temporary files. Check available space again immediately before
 any staging; the current snapshot is not a reservation. No CPU/RSS or runtime
 deadline measurement was made.
 
+## Atomic Matter staging preflight — 2026-10-05
+
+The Matter deploy path now checks flash before any remote mutation. It reads
+`df -k /tuya` and existing native/config/manifest/service/supervisor sizes,
+models the atomic replacement sequence (including selected Web UI/TLS/launcher
+artifacts), and requires a configurable reserve (512 KiB by default). Eight
+fake-SSH deployment tests pass, including refusal of a full `/tuya/native-test`
+copy at the earlier 3,532 KiB headroom and an in-place replacement estimate
+using the measured native binary size.
+
+The latest read-only gateway sample is 3,520 KiB free (71% used). `/tuya/native`
+contains the 1,504,596-byte native binary and no Matter service or manifest.
+The preflight prevents predictable partial uploads but cannot reserve blocks
+against concurrent writes. No device upload, CPU/RSS profile, or runtime test
+was performed; production Zigbee remained untouched.
+
 ## Composed daemon-to-native report rerun — 2026-10-05
 
 `python3 scripts/test_matter_native_report_integration.py` passed outside the
