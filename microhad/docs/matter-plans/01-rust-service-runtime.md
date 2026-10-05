@@ -4,12 +4,14 @@
 
 Host service/native round trips and the paired supervisor failure matrix pass.
 Current factory MIPS builds for both binaries pass. Target runtime/resource
-evidence and report delivery from the installed daemon to a registered native
-device remain open.
+evidence is partial: the service started on the gateway, but raw free RAM fell
+below the deployment gate and a reboot followed in the next status interval;
+the cause is unresolved. Report delivery from the installed daemon to a
+registered native device remains open.
 
-Next deliverable: Verify the complete paired launch on the gateway under plan 08,
-including CPU, memory, startup/IPC deadlines, and Matter reports from a real
-commissioned device. Continue host coverage for production-daemon report delivery.
+Next deliverable: Investigate the gateway reset and improve raw free-RAM headroom
+before any further target workload. Continue host coverage for production-daemon
+report delivery. Full paired launch remains in excluded plan 08.
 
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.
@@ -278,6 +280,29 @@ CASE, a real radio, or combined Zigbee/Matter load. The 8 KiB sampled margin
 over the free-memory guard is narrow, and one-second sampling may miss peaks.
 Full Matter-service CPU/RSS/deadline feasibility remains unverified; see the
 [profile record](../../ziggurat-compilation/docs/openthread-resource-profile.md).
+
+## Guarded MIPS service startup — 2026-10-05
+
+Rust commit `f809024` adds a bounded startup sampler. Using unique volatile
+state/IPC paths and a private radio URL, the factory MIPS service logged startup
+and shutdown and remained alive for 15 seconds waiting for coordinator
+observation; it did not initialize OpenThread, commission a device, or access
+the production UART. Sampled service RSS was 788 KiB and CPU ticks did not
+increase during the sampling window. Raw `MemFree` was 928–944 KiB; clean
+inactive file cache was 10,484 KiB, yielding 11,412–11,428 KiB effective free.
+The test-only raw-free abort floor was 512 KiB, while the effective-free floor
+was 1,536 KiB. The deployment gate still requires at least 1 MiB raw `MemFree`,
+so the profile fails that gate despite the reclaimable cache.
+
+The legacy SSH channel closed after the service's orderly stop marker, and the
+initial harness did not save a JSON report; its error path now retains samples.
+At the next gateway check, uptime had reset, service PIDs had changed, and
+status was temporarily offline/unformed. The existing supervisor returned it
+to online/formed within the next four-second poll. The post-reset kernel log
+does not retain the prior boot's cause, so this may be related to the profile
+but cannot be attributed to it or classified as OOM. No further target workload
+should run until the reset risk and memory headroom are addressed. The existing
+service was never intentionally stopped; all unique test files were removed.
 
 ## Gateway memory accounting update — 2026-10-05
 

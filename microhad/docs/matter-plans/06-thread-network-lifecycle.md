@@ -414,3 +414,11 @@ inactive file cache for effective-availability checks, while preserving a
 separate 1 MiB raw-`MemFree` floor (`ziggurat-compilation` commit `eb04f96`).
 The 2026-10-05 measurements above predate this accounting update and retain
 their original raw-`MemFree` interpretation. No Matter-service workload was run.
+
+The later isolated MIPS service startup sampled 788 KiB RSS while waiting for a
+coordinator, without initializing OpenThread or touching the radio. Raw
+`MemFree` fell to 928–944 KiB, below the 1 MiB deployment gate. A device reboot
+was observed in the following status interval, followed by supervisor recovery;
+its cause is unknown. This is not Thread attach or coexistence evidence. Suspend
+further target profiles pending the runtime-plan reset investigation; details
+are recorded in [plan 01](01-rust-service-runtime.md).
