@@ -27,7 +27,14 @@ Zigbee/Matter/Shelly device catalog before product UI acceptance.
 
 ## Verification
 
-`cargo +nightly-2026-10-02 test -p lexra-rs-matter-probe --features controller-service --lib`
+From the `ziggurat-compilation` directory, run:
+
+```sh
+CARGO_INCREMENTAL=0 CARGO_TARGET_DIR="$PWD/build/rs-matter/target" \
+  cargo +nightly-2026-10-02 test \
+  --locked --manifest-path rs-matter-probe/Cargo.toml \
+  --features controller-service --lib
+```
 checks request capability gating and exact typed JSON, including signed Celsius
 and null values. The encrypted fixture is run with:
 

@@ -39,7 +39,8 @@ def main():
     shutil.copyfile(ROOT / 'rs-matter-probe/controller-tests.lock', WORKTREE / 'Cargo.lock')
     env = dict(os.environ)
     env.update(CARGO_HOME=str(ROOT / 'tools/cargo'), RUSTUP_HOME=str(ROOT / 'tools/rustup'),
-               CARGO_TARGET_DIR=str(ROOT / 'build/rs-matter/controller-target'), RUST_LOG='warn')
+               CARGO_TARGET_DIR=str(ROOT / 'build/rs-matter/controller-target'), RUST_LOG='warn',
+               CARGO_INCREMENTAL='0')
     env.pop('RUSTFLAGS', None)
     env['PATH'] = str(ROOT / 'tools/cargo/bin') + os.pathsep + env['PATH']
     cargo = ['cargo', '+nightly-2026-10-02', 'test', '--locked', '--release', '--manifest-path',
