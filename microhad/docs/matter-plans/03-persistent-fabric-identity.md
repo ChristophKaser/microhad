@@ -32,9 +32,10 @@ preservation remain open.
 
 Consistent backup/staged restore procedures are documented in
 [the recovery runbook](../matter-backup-recovery.md). Legacy no-catalog
-migration is implemented for up to 64 previous allocations. Remaining work is
-the synthetic interrupted-replacement matrix and target filesystem durability
-in excluded plan 08.
+migration now waits for Thread, browses operational Matter services and
+persists only matching current-fabric IDs below allocator high-water (`8bf8dc2`).
+Remaining work is the synthetic interrupted-replacement matrix and target
+filesystem durability in excluded plan 08.
 
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.
@@ -93,8 +94,8 @@ defined. The authority is now implemented and connected to service startup.
 | 2 | Partial | PrivateStore reused with private ownership, atomic replacement, symlink/corruption and owner-exclusion host tests; current authority has not been exercised on the target filesystem. |
 | 3 | Complete | Secure OS entropy generates all authority materials; full record committed before fabric installation; abandoned-stage and interrupted-install host checks pass. |
 | 4 | Complete | Restore verifies the certificate chain, all three key pairs, fabric/node/vendor metadata, counter and exact upstream fabric materials. Missing authority with a fabric or an unloaded corrupt fabric is rejected. Real host service process restart passes without rewriting state. |
-| 5 | Complete | Counter committed before an ID is returned; reload continues above prior IDs, failed writes return no ID, exhaustion is persisted and never wraps. A missing legacy catalog migrates allocated IDs as `RecoveryRequired`; histories above 64 IDs fail closed without a partial write (`9e0922e`). |
-| 6 | Partial | Offline candidate validation refuses active owners, does not create paths or write records, and checks authority/vendor, installed fabric, catalog, Thread dataset and settings framing (`1ec79fd`). Controller-service library tests pass 76/76; synthetic service integration passes valid/incomplete/unsafe cases. Catalog migration tests verify reopen persistence and the >64 no-write bound. Archive preflight/extract/validate passes end to end; corrupt credentials fail validation without changing the candidate or source (`0e133b4`). Catalog high-water refusal, interrupted commissioning reservation recovery, pre-rename orphan-stage recovery, and post-rename owner poisoning/reload are covered. Actual power-loss behavior remains untested. The encrypted host fixture reloads authority and establishes fresh CASE over synthetic BTP and UDP. Target filesystem validation remains in plan 08. |
+| 5 | Complete | Counter committed before an ID is returned; reload continues above prior IDs, failed writes return no ID, exhaustion is persisted and never wraps. Missing legacy catalogs remain pending until bounded operational DNS-SD Browse reconciles sparse live IDs (`8bf8dc2`). |
+| 6 | Partial | Offline candidate validation refuses active owners, does not create paths or write records, and checks authority/vendor, installed fabric, catalog, Thread dataset and settings framing (`1ec79fd`). Controller-service library tests pass 76/76; synthetic service integration passes valid/incomplete/unsafe cases. Catalog migration tests verify sparse high-water reconciliation and persistence. Archive preflight/extract/validate passes end to end; corrupt credentials fail validation without changing the candidate or source (`0e133b4`). Interrupted commissioning reservation recovery, pre-rename orphan-stage recovery, and post-rename owner poisoning/reload are covered. Actual power-loss behavior remains untested. The encrypted host fixture reloads authority and establishes fresh CASE over synthetic BTP and UDP. Target filesystem validation remains in plan 08. |
 | 7 | Partial | Schema and operational backup/restore policy are documented; the recovery runbook invokes the matching binary's `--validate-state-dir` command. Both rename-boundary error paths are host-tested; actual power-loss and target filesystem durability evidence remain. |
 
 The service now reports `fabric_ready:true`/`running` after initialization,
@@ -129,15 +130,18 @@ it has not yet been executed on the gateway in this checkpoint.
 
 ## Legacy catalog migration checkpoint — 2026-10-05
 
-Rust commit `9e0922e` now migrates an existing authority with no catalog by
-persisting every previously allocated ID below the monotonic next-node counter
-as `RecoveryRequired`. The production device scheduler must still resolve the
-operational DNS-SD instance and complete authenticated CASE descriptor reads
-before any node becomes usable. This preserves interrupted and completed IDs
-without assuming remote state. The migration is bounded to 64 allocations;
-larger legacy histories fail closed without writing a partial catalog. The
-controller-service suite passes 76/76 tests and the production MIPS service
-cross-build passes. No gateway workload or plan 08 filesystem test was run.
+Rust commit `8bf8dc2` replaces the allocation-count bound with bounded
+operational DNS-SD Browse after Thread attaches. It filters live Matter service
+labels by compressed fabric and allocator high-water, then persists only those
+sparse IDs as `RecoveryRequired`; authenticated CASE descriptor discovery must
+still succeed before use. DNS errors keep the catalog absent and retry with
+capped backoff. New commissioning is refused while migration is pending. The
+fixed result ABI is capped at the catalog's 64-device capacity and reports
+overflow rather than committing a partial list. Host tests cover high-water
+100,003, sparse IDs, restart persistence and the OpenThread Browse callback
+against a synthetic SRP service. The controller-service suite passes 76/76;
+the production MIPS service cross-build is 2,129,600 bytes. No gateway workload
+or plan 08 filesystem test was run.
 5. Record fresh CASE recovery with the same authority and a persisted node;
    keep synthetic fixture, target fixture and real-accessory evidence distinct.
 

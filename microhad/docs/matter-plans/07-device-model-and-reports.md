@@ -3,10 +3,11 @@
 ## Current open work — 2026-10-05
 
 Bounded production operational SRP/DNS discovery and persistent local node catalog
-states are implemented and host-tested. Rust commit `9e0922e` migrates an absent
-legacy catalog from the monotonic authority allocator, preserving up to 64 prior
-IDs as `RecoveryRequired` until DNS-SD and authenticated CASE succeed; larger
-legacy histories fail closed without a partial write. Rust commit `e59c3dc` drives encrypted
+states are implemented and host-tested. Rust commit `8bf8dc2` migrates an absent
+legacy catalog by browsing operational services and retaining sparse IDs on the
+current fabric below allocator high-water. `RecoveryRequired` entries still
+need authenticated CASE before use; the bounded 64-live-device catalog reports
+overflow without persisting a partial list. Rust commit `e59c3dc` drives encrypted
 CASE/CommissioningComplete and fresh CASE through the resolver in the synthetic
 accessory fixture without injected rendezvous.
 
@@ -451,9 +452,10 @@ are historical; the latest status/evidence section above takes precedence.
    ID after interrupted completion; reconcile incomplete entries on restart.
    Local catalog/state persistence is verified (`5002f88`); CASE-gated recovery
    now reconciles incomplete entries and preserves allocated IDs. Rust commit
-   `9e0922e` migrates absent legacy catalogs for up to 64 previously allocated
-   IDs; over-bound stores fail closed without writes. Larger sparse histories
-   and administrative pruning of unreachable allocated IDs remain limitations.
+   `8bf8dc2` browses the current operational fabric and migrates only live sparse
+   IDs, even when allocator history is large. Migration stays pending across DNS
+   failures and refuses commissioning until durable commit. More than 64 live
+   services exceeds the bounded catalog; administrative pruning remains open.
 3. [ ] Complete production CASE/CommissioningComplete through the resolver,
    then discover descriptors, endpoints and advertised clusters. Test restart
    against the same catalog and authority without the phone.
