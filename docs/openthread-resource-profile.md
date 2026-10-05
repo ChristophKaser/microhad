@@ -150,9 +150,10 @@ The RTL8196E datasheet documents an on-chip watchdog reset indicator in
 or a Linux watchdog driver. The target has no `/dev/mem` or `devmem` utility, and
 reading `/proc/watchdog_reboot` blocked SSH, so the hardware reset indicator
 could not be inspected safely. There is no known safe disable control. A later
-read-only check observed uptime at 2,222 seconds with `/api/status` online and
-formed; a later ten-second device sleep advanced uptime by 10.04 seconds. These
-healthy observations do not show the reset issue is resolved. The register
+latest read-only check observed uptime at 3,173 seconds with `/api/status`
+online and formed. A ten-second device-side interval advanced uptime from
+3,198.43 to 3,208.47 seconds, with no reset during that check. These healthy
+observations do not show the earlier reset issue is resolved. The register
 semantics are described in the [RTL8196E datasheet](https://www.elinfor.com/pdf/Realtek/RTL8196E-CG-Realtek.pdf),
 section 8.2.9.
 
