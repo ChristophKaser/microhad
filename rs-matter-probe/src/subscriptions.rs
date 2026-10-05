@@ -15,12 +15,45 @@ use rs_matter::{
 pub const MIN_REPORT_INTERVAL_SECONDS: u16 = 1;
 pub const MAX_REPORT_INTERVAL_SECONDS: u16 = 3600;
 pub const MAX_REPORT_VALUES: usize = 128;
+pub const MAX_ICD_CHECK_IN_BYTES: usize = 128;
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum InboundRoute {
+    ReportData,
+    IcdCheckIn,
+    Unsupported,
+}
+
+pub fn route_inbound(proto_id: u16, proto_opcode: u8) -> InboundRoute {
+    if proto_id == rs_matter::im::PROTO_ID_INTERACTION_MODEL
+        && proto_opcode == rs_matter::im::OpCode::ReportData as u8
+    {
+        InboundRoute::ReportData
+    } else if proto_id == rs_matter::sc::PROTO_ID_SECURE_CHANNEL
+        && proto_opcode == rs_matter::sc::OpCode::CheckIn as u8
+    {
+        InboundRoute::IcdCheckIn
+    } else {
+        InboundRoute::Unsupported
+    }
+}
+
+fn copy_bounded_check_in(payload: &[u8]) -> Result<Vec<u8>, Error> {
+    if payload.len() > MAX_ICD_CHECK_IN_BYTES {
+        return Err(ErrorCode::InvalidData.into());
+    }
+    Ok(payload.to_vec())
+}
 
 pub struct ReceivedReport {
     pub fabric: u8,
     pub node: u64,
     pub subscription_id: u32,
     pub values: Vec<crate::operations::ResultValue>,
+}
+pub enum IncomingMessage {
+    Report(ReceivedReport),
+    IcdCheckIn(Vec<u8>),
 }
 pub struct DeviceSubscription {
     pub established: SubscribeEstablished,
@@ -94,7 +127,30 @@ pub async fn establish_device_attribute<C: Crypto>(
 /// Chunked reports are combined under a strict value bound, and the authenticated
 /// fabric/node and subscription ID are retained for manager-side correlation.
 pub async fn receive_report(matter: &Matter<'_>) -> Result<ReceivedReport, Error> {
+    receive_report_exchange(Exchange::accept(matter).await?).await
+}
+
+pub async fn receive_incoming(matter: &Matter<'_>) -> Result<IncomingMessage, Error> {
     let mut exchange = Exchange::accept(matter).await?;
+    let route = {
+        let rx = exchange.recv_fetch().await?;
+        route_inbound(rx.meta().proto_id, rx.meta().proto_opcode)
+    };
+    match route {
+        InboundRoute::ReportData => receive_report_exchange(exchange)
+            .await
+            .map(IncomingMessage::Report),
+        InboundRoute::IcdCheckIn => {
+            let payload = exchange.rx()?.payload();
+            copy_bounded_check_in(payload).map(IncomingMessage::IcdCheckIn)
+        }
+        InboundRoute::Unsupported => Err(ErrorCode::InvalidOpcode.into()),
+    }
+}
+
+async fn receive_report_exchange(
+    mut exchange: Exchange<'_>,
+) -> Result<ReceivedReport, Error> {
     let (fabric, node) = exchange
         .peer_identity()?
         .ok_or(ErrorCode::InvalidData)?;
@@ -145,4 +201,37 @@ pub async fn receive_report(matter: &Matter<'_>) -> Result<ReceivedReport, Error
         subscription_id: subscription_id.ok_or(ErrorCode::InvalidData)?,
         values,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{copy_bounded_check_in, route_inbound, InboundRoute, MAX_ICD_CHECK_IN_BYTES};
+
+    #[test]
+    fn inbound_dispatch_recognizes_reports_and_icd_check_ins() {
+        assert_eq!(
+            route_inbound(
+                rs_matter::im::PROTO_ID_INTERACTION_MODEL,
+                rs_matter::im::OpCode::ReportData as u8,
+            ),
+            InboundRoute::ReportData,
+        );
+        assert_eq!(
+            route_inbound(
+                rs_matter::sc::PROTO_ID_SECURE_CHANNEL,
+                rs_matter::sc::OpCode::CheckIn as u8,
+            ),
+            InboundRoute::IcdCheckIn,
+        );
+        let maximum = vec![7; MAX_ICD_CHECK_IN_BYTES];
+        assert_eq!(copy_bounded_check_in(&maximum).unwrap(), maximum);
+        assert!(copy_bounded_check_in(&[7; MAX_ICD_CHECK_IN_BYTES + 1]).is_err());
+        assert_eq!(
+            route_inbound(
+                rs_matter::im::PROTO_ID_INTERACTION_MODEL,
+                rs_matter::im::OpCode::InvokeRequest as u8,
+            ),
+            InboundRoute::Unsupported,
+        );
+    }
 }

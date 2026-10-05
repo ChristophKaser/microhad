@@ -24,6 +24,14 @@ pub const MAX_OPERATION_JOBS: usize = 8;
 pub const MAX_DEVICE_SUBSCRIPTIONS: usize = MAX_ENDPOINTS * 7;
 const MAX_RETAINED_JOBS: usize = 16;
 const MAX_QUEUED_REPORT_VALUES: usize = 512;
+const MAX_PENDING_ICD_CHECK_INS: usize = 8;
+
+fn queue_icd_check_in(queue: &mut VecDeque<Vec<u8>>, payload: Vec<u8>) {
+    if queue.len() == MAX_PENDING_ICD_CHECK_INS {
+        queue.pop_front();
+    }
+    queue.push_back(payload);
+}
 
 #[derive(Serialize)]
 pub struct Device {
@@ -99,7 +107,7 @@ type SubscriptionWork<'a> = Pin<
     >,
 >;
 type ReportWork<'a> = Pin<
-    Box<dyn Future<Output = Result<crate::subscriptions::ReceivedReport, Error>> + 'a>,
+    Box<dyn Future<Output = Result<crate::subscriptions::IncomingMessage, Error>> + 'a>,
 >;
 #[derive(Debug, Serialize)]
 pub struct JobAccepted {
@@ -153,6 +161,7 @@ pub struct Manager<'a, C: Crypto> {
     subscriptions: Vec<SubscriptionState>,
     subscription_work: Option<(SubscriptionKey, Instant, SubscriptionWork<'a>)>,
     report_work: Option<ReportWork<'a>>,
+    icd_check_ins: VecDeque<Vec<u8>>,
     #[cfg(feature = "controller-service-test-hooks")]
     host_test_reports: VecDeque<crate::subscriptions::ReceivedReport>,
     reports: VecDeque<crate::operations::ResultValue>,
@@ -206,6 +215,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             subscriptions: Vec::new(),
             subscription_work: None,
             report_work: None,
+            icd_check_ins: VecDeque::new(),
             #[cfg(feature = "controller-service-test-hooks")]
             host_test_reports: VecDeque::new(),
             reports: VecDeque::new(),
@@ -236,6 +246,11 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
     }
     pub fn pop_report(&mut self) -> Option<crate::operations::ResultValue> {
         self.reports.pop_front()
+    }
+    /// Take the next bounded, still-encrypted ICD Check-In payload for client
+    /// registration/key validation by the controller layer.
+    pub fn pop_icd_check_in(&mut self) -> Option<Vec<u8>> {
+        self.icd_check_ins.pop_front()
     }
 
     /// Deliver queued production Manager reports to connected IPC clients.
@@ -620,18 +635,27 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         if self.report_work.is_none() {
             #[cfg(feature = "controller-service-test-hooks")]
             if let Some(report) = self.host_test_reports.pop_front() {
-                self.report_work = Some(Box::pin(async move { Ok(report) }));
+                self.report_work = Some(Box::pin(async move {
+                    Ok(crate::subscriptions::IncomingMessage::Report(report))
+                }));
             }
             if self.report_work.is_none() {
-                self.report_work =
-                    Some(Box::pin(crate::subscriptions::receive_report(self.matter)));
+                self.report_work = Some(Box::pin(
+                    crate::subscriptions::receive_incoming(self.matter),
+                ));
             }
         }
         if let Some(work) = &mut self.report_work {
             if let Poll::Ready(result) = work.as_mut().poll(context) {
                 self.report_work = None;
-                if let Ok(report) = result {
-                    self.record_report(report);
+                match result {
+                    Ok(crate::subscriptions::IncomingMessage::Report(report)) => {
+                        self.record_report(report);
+                    }
+                    Ok(crate::subscriptions::IncomingMessage::IcdCheckIn(payload)) => {
+                        queue_icd_check_in(&mut self.icd_check_ins, payload);
+                    }
+                    Err(_) => {}
                 }
             }
         }
@@ -988,6 +1012,17 @@ pub async fn discover<C: Crypto>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn pending_icd_check_in_queue_is_bounded_and_keeps_newest_messages() {
+        let mut queue = VecDeque::new();
+        for value in 0..=MAX_PENDING_ICD_CHECK_INS {
+            queue_icd_check_in(&mut queue, vec![value as u8]);
+        }
+        assert_eq!(queue.len(), MAX_PENDING_ICD_CHECK_INS);
+        assert_eq!(queue.front().unwrap(), &[1]);
+        assert_eq!(queue.back().unwrap(), &[MAX_PENDING_ICD_CHECK_INS as u8]);
+    }
+
     #[test]
     fn manager_report_queue_drains_only_after_ipc_delivery() {
         use rs_matter::{
