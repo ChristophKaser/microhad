@@ -829,16 +829,21 @@ crossing behavior remain open. No deployment or plan 08 device test occurred.
 ## Actual service-process report handoff checkpoint — 2026-10-05
 
 Rust commit `99b3635` adds a `controller-service-test-hooks` Manager seed to the
-test feature introduced by `f04d043`; the follow-up fixture routes each
-synthetic `ReceivedReport` through the production `record_report()` path. This
-native integration extends the composed CASE report test:
+test feature introduced by `f04d043`; follow-up Rust commit `a0dbf1d` queues
+synthetic `ReceivedReport` values for the daemon's production `Manager::poll()`
+loop. This native integration extends the composed CASE report test:
 after the commissioning probe sends its five notifier-backed reports and exits,
 the test starts the actual `thread-matter` binary against the same persistent
-fabric/catalog state and a fresh synthetic RCP relay. The test-only Manager
-fixture seeds a registered endpoint snapshot and correlates five synthetic
-`ReceivedReport` values against daemon subscription state. The production
-`record_report()` path performs fabric/node/subscription matching and applies
-its normal filtering, deduplication, and bounded-queue behavior. Its production
+fabric/catalog state and a fresh synthetic RCP relay. The native coordinator
+observation is delivered and the test waits until the daemon reports Thread
+`attached` before checking its report path. The test-only Manager fixture seeds
+a registered endpoint snapshot and queues five synthetic `ReceivedReport`
+values. Pre-attach readiness polls clear active subscription IDs as they do in
+production, so the hook restores matching synthetic subscription state once
+the daemon becomes ready. The production `Manager::poll()` consumes each
+completed report and calls `record_report()`, which performs
+fabric/node/subscription matching and applies its normal filtering,
+deduplication, and bounded-queue behavior. Its production
 `publish_reports`/IPC path updates the existing native `Gateway::Device`; all
 five values appear in `/api/status`. Shared history records the air-quality
 transition immediately. Numeric sensor history is intentionally limited to
@@ -849,11 +854,11 @@ Verification passed with
 `source scripts/rust-env.sh && CARGO_TARGET_DIR="$PWD/build/rs-matter/target"
 cargo +nightly-2026-10-02 build --offline --manifest-path
 rs-matter-probe/Cargo.toml --features controller-service-test-hooks --bin
-thread-matter --locked`, the corresponding `cargo check`, then
+thread-matter --locked`, the corresponding `cargo check`, a production-feature
+release build, then a final test-hook build and
 `python3 scripts/test_matter_native_report_integration.py` (host synthetic
 RCP/accessory). The service terminates cleanly after publishing. This closes
-the actual daemon-process-to-native IPC/device/history handoff gate. The daemon
-receiving wire-decoded CASE reports itself through its live subscription task
-into native state/history/alerts remains open: the fixture starts after report
-decoding and tests correlation onward. Remote recovery and plan 08 acceptance
-also remain open.
+the attached-daemon `Manager::poll()`-to-native IPC/device/history handoff gate.
+The fixture injects reports after wire decoding; reports received by the actual
+daemon subscription exchange through native state/history/alerts remain open.
+Remote recovery and plan 08 acceptance also remain open.

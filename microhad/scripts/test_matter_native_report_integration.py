@@ -157,6 +157,28 @@ def main():
                                        f'stdout={daemon_out!r}, stderr={daemon_err!r}')
                 raise RuntimeError('thread-matter did not report running before the report batch')
 
+            # Give the service a Thread dataset and wait for the simulated RCP
+            # to attach. Device report polling is intentionally gated on this
+            # production lifecycle state.
+            thread_status = fixture.request('/api/thread/status')
+            if not thread_status['configured']:
+                thread_request = urllib.request.Request(
+                    'http://127.0.0.1:%d/api/thread/create' % fixture.port,
+                    data=json.dumps({'schema': 1}).encode(),
+                    headers={'Content-Type': 'application/json'})
+                with urllib.request.urlopen(thread_request, timeout=2) as response:
+                    assert response.status == 202
+                    thread_job = json.load(response)['job']
+
+                def thread_create_complete():
+                    result = fixture.request('/api/matter/jobs/' + str(thread_job))
+                    assert result['state'] != 'failed', result
+                    return result if result['state'] == 'complete' else None
+
+                thread_result = wait_for(thread_create_complete, timeout=10)['response']
+                assert thread_result['ok'] and thread_result['result']['configured'], thread_result
+            wait_for(lambda: fixture.request('/api/thread/status')['state'] == 'attached', timeout=30)
+
             def daemon_reports_visible():
                 for item in fixture.status()['devices']:
                     if item.get('external_id') != device['external_id']:
@@ -171,10 +193,19 @@ def main():
                 return None
 
             try:
-                daemon_device = wait_for(daemon_reports_visible, timeout=20)
+                # The service accepts at most one ReportData exchange per
+                # radio poll, whose production interval is five seconds.
+                daemon_device = wait_for(daemon_reports_visible, timeout=35)
             except TimeoutError:
+                thread_status = fixture.request('/api/thread/status')
+                service_status = fixture.request('/api/matter/status')
+                daemon.terminate()
+                daemon_out, daemon_err = daemon.communicate(timeout=5)
                 raise RuntimeError('Real thread-matter process reports did not update the common device: ' +
-                                   json.dumps(fixture.status()['devices']))
+                                   json.dumps({'thread': thread_status, 'service': service_status,
+                                               'devices': fixture.status()['devices'],
+                                               'stdout': daemon_out.decode(errors='replace'),
+                                               'stderr': daemon_err.decode(errors='replace')}))
             daemon_history = fixture.request('/api/devices/' + external_id + '/history')
             # Analog history is intentionally capped to one sample per metric
             # per minute; air-quality transitions are recorded immediately.
