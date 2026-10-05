@@ -38,6 +38,15 @@ sample, but does not explain earlier reboots or establish a longer-term reset
 rate. The gateway process list had no `thread-matter` process during this
 observation, so it is not evidence of a live Matter service workload.
 
+The same read-only inspection confirmed the gateway is not running the Matter
+service: `/tuya/native/thread-matter` is absent, and the deployed
+`/tuya/native/paired_start.sh` has no `MATTER_BIN` handling. The checked-in
+`ziggurat_start.sh` opts in only when that executable exists, and the current
+source supervisor then starts it when the Thread socket is ready. Thus host
+and MIPS implementation evidence does not describe the gateway's active
+deployment; Matter use requires a separately reviewed staging/launcher update
+and service start. No files were changed on the gateway.
+
 Next deliverable: run the installed `thread-matter` daemon through attached
 Thread startup and its own active CASE report loop into native state/history,
 then measure those target deadlines/resource use. Continue bounded
