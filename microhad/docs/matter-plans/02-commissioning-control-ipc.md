@@ -10,15 +10,23 @@ immediately when IPC is available. This prevents a transient service-channel
 failure from leaving the Rust commissioner busy until the original session
 deadline.
 
+Companion Rust commit `fc204f2` closes the lost-start-response case: the
+commissioner tracks the IPC peer that owns session events and cancels the active
+session when that peer disconnects, even when the native worker never received
+the session ID. A later relay uses a fresh session and BLE generation.
+
 `python3 scripts/test_matter_native_worker.py` passes. Its synthetic IPC peer
 injects an invalid event while a BLE relay is bound, checks Matter readiness
 drop and recovery, and verifies that the original session becomes cancelled.
 `make ZIGGURAT=1 MATTER=1 mips` passes; the MIPS native binary is 1,741,544
-bytes. The sandbox denied the fixture's Unix socket and the first cross-build
-attempt with `EPERM`/`SIGSYS`; both commands passed outside the sandbox. This
-small bounded state change does not warrant another long gateway profile. The
-broader IPC failure matrix and the installed daemon's live CASE report path
-remain open. No gateway files or processes were changed.
+bytes. Companion `python3 scripts/test-matter-service.py` passes against the
+real host service process, including disconnect before the session ID is
+retained; host and MIPS Rust service builds pass at 2,158,276 bytes. The
+sandbox denied local sockets and a cross-link with `EPERM`/`SIGSYS`; commands
+passed outside the sandbox. These bounded cancellation paths do not warrant
+another long gateway profile. The broader IPC failure matrix and the installed
+daemon's live CASE report path remain open. No gateway files or processes were
+changed.
 
 ## Current open work — 2026-10-05
 
@@ -28,9 +36,9 @@ HTTP admission and worker-side operation polling carry jobs through confirmed
 readback. Rust also dispatches Level Control and advertised sensor reads with
 typed readbacks. Native validators accept OnOff, Level and sensor-typed replies;
 sensor UI/model projection and initial Matter report-event consumption now exist;
-transient IPC recovery now cancels abandoned commissioning sessions without
-replaying BLE or Thread mutations; broader recovery and complete cross-language
-vectors remain open.
+transient IPC recovery cancels abandoned commissioning sessions on both the
+native and Rust sides, without replaying BLE or Thread mutations; broader
+recovery and complete cross-language vectors remain open.
 Snapshot API remains verified (`237d110`).
 
 The cross-boundary live report path is now composed in compiler commit
@@ -367,10 +375,15 @@ are historical; the latest status/evidence section above takes precedence.
 2. [x] Add strict native validators for session replies, progress, BLE writes
    and callback acknowledgements. Bound hex payloads, counters and event queues;
    reject unknown fields, stale correlations and malformed service data.
-3. [ ] Add a bounded mutation queue and reconnect policy. Discard interrupted
-   calls explicitly and resubscribe retained sessions without replaying
-   commissioning start, dataset mutations or GATT writes blindly.
-4. [ ] Test cross-language body/event vectors, fragmented/coalesced frames,
+3. [x] Add a bounded mutation queue and reconnect policy. The native worker
+   fails interrupted queued/running jobs as `transport` and never replays
+   commissioning starts, dataset mutations or GATT writes. A live phone relay
+   is closed when its IPC service connection fails; when its session ID is
+   known, the worker cancels that session after service recovery instead of
+   trying to resume a dead GATT stream. Commit `47a7f09` and the focused
+   `test_matter_native_worker.py` integration cover active-session cancellation
+   across IPC loss and recovery.
+4. [ ] Test the remaining cross-language body/event vectors, fragmented/coalesced frames,
    interleaved events, wrong IDs, queue pressure, disconnects and stale BLE
    callbacks against both fake peers and the actual Rust service.
 5. [x] Once plan 07 supplies discovery/catalog operations, finish typed device
