@@ -347,7 +347,11 @@ Host and stripped MIPS service builds compile with the production feature set.
 The MIPS-I/o32 artifact is 2,162,372 bytes (SHA-256
 `5d7d9d0a236ee853ed3cf3f926ec23c0162bc5c3a4933c7190371309781133f4`); the
 test-only report hook is absent. No gateway service restart or target workload
-was run for this bounded resolver change. Automated behavior coverage and the
+was run for this bounded resolver change. A read-only SSH check confirms the
+installed service and IPC socket remain present, with 2,260 KiB free on `/tuya`.
+The configured 512 KiB deployment reserve requires at least 2,624 KiB to stage
+this service binary, so this build has not been deployed. No files were removed
+and the reserve was not reduced. Automated behavior coverage and the
 installed-daemon live CASE report-to-native path remain open.
 
 ## Remaining checkpoints
