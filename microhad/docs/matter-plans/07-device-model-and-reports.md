@@ -1087,3 +1087,27 @@ oldest queued value while retaining the newest. The full controller-probe
 library suite passes 77/77 tests. This verifies bounded in-memory telemetry
 and duplicate filtering; service-process wire-decoded CASE reception and
 explicit sleepy-device behavior remain open.
+
+## ICD responder no longer consumes CASE reports — 2026-10-05
+
+Rust commit `d3092ac` fixes an exchange-ownership defect in the ICD Check-In
+responder. rs-matter's generic responder accepted any incoming exchange; the
+ICD handler discarded exchanges whose opcode was not Check-In. A CASE
+`ReportData` exchange could therefore be removed before the production device
+subscription manager received it. The dedicated responder now uses
+`Exchange::accept_matching()` for Secure Channel Check-In and leaves all other
+exchanges queued for their owner.
+
+`python3 scripts/test_matter_native_report_integration.py` now passes end to
+end with the synthetic CASE accessory: the production Manager receives the
+wire-decoded subscribed reports and the native process exposes all five sensor
+values and history. Its second leg runs `thread-matter` and confirms its IPC
+report events reach that same device/history, but those daemon events are
+test-hook-seeded `ReceivedReport` values rather than reports received by its
+own CASE subscription exchange. The controller-service suite passes 81/81,
+and the static MIPS-I service cross-build passes. A guarded MIPS service
+profile on the gateway completed Thread dataset creation and clean shutdown
+while production remained online/formed; it did not attach to a peer mesh.
+Thus report exchange ownership is fixed, while the joined installed-daemon
+CASE-to-native report proof, remote node recovery and plan 08 acceptance remain
+open.

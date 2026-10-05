@@ -624,3 +624,25 @@ reboot-cause message. Since the ring buffer contains only the current boot, it
 does not reveal why earlier resets occurred. No reset occurred during this
 brief check; the cause remains unknown. See the detailed
 [resource-profile record](../../ziggurat-compilation/docs/openthread-resource-profile.md).
+
+## Check-In responder filtering and debugger availability — 2026-10-05
+
+Rust commit `d3092ac` changes the ICD responder to accept only Secure Channel
+Check-In exchanges. The generic responder had accepted unrelated exchanges
+and the handler then discarded them, which could consume CASE `ReportData`
+before the subscription manager. The composed report integration now passes
+with the filtered acceptor. The controller-service suite passes 81/81 and the
+static MIPS-I service build passes at 2,158,276 bytes.
+
+The updated service also passed a guarded 10-second gateway profile with a
+private synthetic RCP, state and IPC. It created the private Thread dataset
+and stopped cleanly; peak RSS was 1,508 KiB, sampled CPU ticks did not change,
+minimum MemFree was 9,272 KiB and minimum MemFree plus clean inactive file cache
+was 18,116 KiB. Uptime advanced 46.85 seconds, production stayed online/formed,
+and no reboot was detected. The gateway has no `gdb` or `gdbserver`. The host
+toolchain's Realtek MIPS GDB 7.6.2 is available, and the target core pattern is
+`core`; a core could help with a userspace crash if process limits permit, but
+it cannot explain an abrupt hardware reset. See the detailed runtime and
+[resource-profile record](../../ziggurat-compilation/docs/openthread-resource-profile.md).
+The live CASE report loop within the installed daemon remains a separate joined
+process validation gate.
