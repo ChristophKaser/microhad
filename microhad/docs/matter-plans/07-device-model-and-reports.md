@@ -64,8 +64,11 @@ and history afterward. The native worker buffers unmatched values in a
 128-reading bounded queue, coalescing by node/endpoint/cluster. A recent report
 also keeps online presence and its timestamp across a stale offline snapshot
 for up to 60 seconds. The joined test confirms the endpoint is online after
-reconciliation. These changes do not close the installed daemon's active
-wire-level CASE receive path. Native commit `e81af44` routes Matter
+reconciliation. Rust Manager report storage is bounded to 512 values per
+process, suppresses duplicate consecutive values per subscription, and evicts
+the oldest value at capacity; Rust commit `ba55531` tests these properties.
+These changes do not close the installed daemon's active wire-level CASE
+receive path. Native commit `e81af44` routes Matter
 temperature, humidity and brightness readings through the common value-alert
 engine and preserves alert configuration/state across snapshot refresh. Matter
 alert settings are restored across gateway restart and Matter snapshot
@@ -976,3 +979,13 @@ build emits the toolchain's existing LOAD-USE assembler warnings. This is host
 integration evidence using synthetic RCP/accessory traffic; no gateway binary
 was deployed. The separate daemon leg still injects test-only already-decoded
 `ReceivedReport` values; wire-decoded reports inside that daemon remain open.
+
+## Rust report queue bounds and duplicate filtering — 2026-10-05
+
+Rust commit `ba55531` adds a controller-probe Manager regression proving
+byte-identical consecutive reports for a subscription are suppressed, the
+queued report value count never exceeds 512, and reaching capacity drops the
+oldest queued value while retaining the newest. The full controller-probe
+library suite passes 77/77 tests. This verifies bounded in-memory telemetry
+and duplicate filtering; service-process wire-decoded CASE reception and
+explicit sleepy-device behavior remain open.
