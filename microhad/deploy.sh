@@ -199,7 +199,7 @@ paired_launcher_preflight() {
     expected_manifest_md5=$(md5sum "$binary.matter-manifest" | awk '{print $1}')
     expected_service_md5=$(md5sum "$matter_service" | awk '{print $1}')
     expected_supervisor_md5=$(md5sum "$project_dir/paired_start.sh" | awk '{print $1}')
-    actual_matter_md5s=$(ssh_command "md5sum \"$target/tuya-zigbee-native\" \"$target/tuya-zigbee-native.matter-manifest\" \"$target/thread-matter\" \"$target/paired_start.sh\"") || return $?
+    actual_matter_md5s=$(ssh_command "md5sum \"$target/tuya-zigbee-native\" \"$target/tuya-zigbee-native.matter-manifest\" \"$target/thread-matter\" \"$target/paired_start.sh\" | awk '{print \$1}'") || return $?
     set -- $actual_matter_md5s
     [ "${1:-}" = "$expected_native_md5" ] &&
         [ "${2:-}" = "$expected_manifest_md5" ] &&

@@ -74,6 +74,12 @@ anchored patterns supported by that utility. Preflight failed before changing
 the launcher; retry this same staged-artifact activation after committing the
 compatibility fix.
 
+The retry passed remote manifest validation and confirmed the staged files are
+executable. Its artifact check then found that BusyBox `md5sum` includes the
+filename column, so comparing whitespace-separated fields directly rejects
+matching files. The preflight now extracts only column one with BusyBox `awk`;
+no remote files were changed by either failed preflight.
+
 ## Gateway flash headroom observation — 2026-10-05
 
 A read-only `df -k /tuya` check reported 12,160 KiB total, 8,628 KiB used,
