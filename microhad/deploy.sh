@@ -130,6 +130,24 @@ matter_flash_preflight() {
         case "$old_size" in ''|*[!0-9]*) echo "Unable to read existing Matter deployment file sizes" >&2; return 1 ;; esac
     done
 
+    running_images=$(ssh_command "[ -d /proc/1 ] || exit 1; for image in \"$target/tuya-zigbee-native\" \"$target/thread-matter\"; do active=0; deleted=0; seen=0; for proc in /proc/[0-9]*/exe; do link=\$(ls -l \"\$proc\" 2>/dev/null) || continue; seen=1; case \"\$link\" in *\" -> \$image (deleted)\") deleted=1 ;; *\" -> \$image\") active=1 ;; esac; done; [ \"\$seen\" -eq 1 ] || exit 1; echo \"\$active:\$deleted\"; done") || {
+        echo "Unable to inspect running executable references under /proc" >&2
+        return 1
+    }
+    set -- $running_images
+    native_image_state=${1:-}
+    service_image_state=${2:-}
+    case "$native_image_state" in 0:0|1:0) ;; *)
+        echo "Cannot safely estimate flash: native executable is already running from a deleted file" >&2
+        return 1
+    esac
+    case "$service_image_state" in 0:0|1:0) ;; *)
+        echo "Cannot safely estimate flash: Matter service is already running from a deleted file" >&2
+        return 1
+    esac
+    native_running=${native_image_state%%:*}
+    service_running=${service_image_state%%:*}
+
     committed_delta=0
     flash_peak_bytes=0
     stage_flash_group() {
@@ -147,11 +165,14 @@ matter_flash_preflight() {
         config_size=$(wc -c < "$config")
         replaced_native_and_config=$((old_native + old_config))
     fi
+    [ "$native_running" = 0 ] || replaced_native_and_config=0
     stage_flash_group "$((binary_size + config_size))" "$replaced_native_and_config"
     manifest_size=$(wc -c < "$binary.matter-manifest")
     stage_flash_group "$manifest_size" "$old_manifest"
     service_size=$(wc -c < "$matter_service")
-    stage_flash_group "$service_size" "$old_service"
+    replaced_service=$old_service
+    [ "$service_running" = 0 ] || replaced_service=0
+    stage_flash_group "$service_size" "$replaced_service"
     supervisor_size=$(wc -c < "$project_dir/paired_start.sh")
     stage_flash_group "$supervisor_size" "$old_supervisor"
 

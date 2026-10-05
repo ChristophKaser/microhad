@@ -25,6 +25,12 @@ order, and requires a 512 KiB free-space reserve by default. Set
 `DEPLOY_FLASH_RESERVE_KIB` to choose another non-negative reserve. An
 insufficient-space result stops before staging or changing files. This is a
 snapshot preflight, not a reservation; recheck immediately before deployment.
+For Matter packages, preflight also inspects `/proc/*/exe`: when native or
+`thread-matter` is still running from the old path, it counts that executable
+inode as retained after atomic replacement. An executable already running from
+a `(deleted)` path makes the estimate ambiguous, so preflight refuses until
+that service is restarted. Keep the existing 512 KiB reserve during routine
+updates.
 After launcher activation, gracefully stop the paired supervisor by its PID in
 `/tmp/ziggurat-supervisor/supervisor.pid`, wait for cleanup, then launch
 `/tuya/tuya_start.sh`. The native-only `--restart` switch does not restart

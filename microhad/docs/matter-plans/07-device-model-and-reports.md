@@ -349,10 +349,11 @@ The MIPS-I/o32 artifact is 2,162,372 bytes (SHA-256
 test-only report hook is absent. No gateway service restart or target workload
 was run for this bounded resolver change. A read-only SSH check confirms the
 installed service and IPC socket remain present, with 2,260 KiB free on `/tuya`.
-The configured 512 KiB deployment reserve requires at least 2,624 KiB to stage
-this service binary, so this build has not been deployed. No files were removed
-and the reserve was not reduced. Automated behavior coverage and the
-installed-daemon live CASE report-to-native path remain open.
+The executable-aware full-package preflight requires 4,332 KiB while the native
+and Matter service processes still hold their old executable inodes, including
+the configured 512 KiB reserve, so this build has not been deployed. No files
+were removed and the reserve was not reduced. Automated behavior coverage and
+the installed-daemon live CASE report-to-native path remain open.
 
 ## Remaining checkpoints
 

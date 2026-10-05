@@ -58,6 +58,15 @@ verify the staged Matter files and switch the launcher without re-uploading
 them. Both activation modes require `/tuya/native` and only affect the next
 stack start.
 
+The Matter flash preflight checks `/proc/*/exe` before atomically replacing the
+native or Rust service executable. It keeps the old executable size in the
+staging peak while that process is running, because the kernel retains the old
+inode until process exit. If a process already runs an executable marked
+`(deleted)`, preflight fails closed; restart the owning service before another
+update. Keep the configured 512 KiB reserve unless an explicit maintenance
+decision changes it. Never remove application backups or network state just to
+make preflight pass.
+
 For an update to an already paired installation, `--restart` signals only the
 native daemon; its current supervisor restarts it. It does not reload the
 launcher or restart Ziggurat. To apply a changed paired launcher or Matter

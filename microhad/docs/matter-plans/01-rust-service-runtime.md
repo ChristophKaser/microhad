@@ -403,8 +403,24 @@ network access. No gateway connection or launcher activation was performed.
    absent and stalled service peers. Record the current factory binary hash,
    size and ELF checks rather than reusing earlier build measurements.
 4. Keep physical startup/resource measurements and launcher activation in plan
-   08; distinguish synthetic evidence from target evidence. Before that gate,
-   the deployment package and explicit paired-launcher path are host-verified.
+   08; distinguish synthetic evidence from target evidence. The paired package
+   is active on the gateway; keep any further update blocked until the live
+   executable-aware flash preflight passes.
+
+## Active executable flash accounting — 2026-10-05
+
+The Matter deploy preflight now checks `/proc/*/exe` and counts the native and
+Rust service executable inodes as retained when their processes are still
+running during atomic replacement. It fails closed if a process already points
+to a `(deleted)` executable whose size cannot be safely derived. This avoids
+overstating reclaimed space during a live update.
+
+The gateway currently has 2,260 KiB free on `/tuya`; the complete Matter
+package update, while both existing executables are running, requires 4,332 KiB
+including the configured 512 KiB reserve. No update was staged, no files were
+removed, and neither process was stopped. The active Matter service and Zigbee
+gateway remain available. Wait for additional safe flash headroom or a planned
+maintenance window before updating the binaries.
 
 ## Dependencies
 
