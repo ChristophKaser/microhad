@@ -130,6 +130,9 @@ pub enum ThreadRequest {
         zigbee_channel: u8,
         dataset: HexBytes<254>,
     },
+    Retry {
+        schema: Schema,
+    },
 }
 #[derive(Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
@@ -249,7 +252,7 @@ impl Request {
             9 => {
                 let body: ThreadRequest = parse(bytes)?;
                 let channel = match &body {
-                    ThreadRequest::Status { .. } => None,
+                    ThreadRequest::Status { .. } | ThreadRequest::Retry { .. } => None,
                     ThreadRequest::Observe {
                         zigbee_channel,
                         zigbee_online,
@@ -308,6 +311,8 @@ mod tests {
         );
         valid(9, r#"{"schema":1,"action":"status","subscribe":true}"#);
         valid(9, r#"{"schema":1,"action":"status","subscribe":false}"#);
+        valid(9, r#"{"schema":1,"action":"retry"}"#);
+        invalid(9, r#"{"schema":1,"action":"retry","zigbee_channel":15}"#);
         invalid(9, r#"{"schema":1,"action":"status","subscribe":1}"#);
         invalid(9, r#"{"schema":1,"action":"status","subscribe":"true"}"#);
         invalid(

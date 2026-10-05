@@ -173,6 +173,10 @@ fn dispatch<C: Crypto>(
                     Some(radio) => lifecycle.import(dataset.bytes(), zigbee_channel, radio, now),
                     None => Err(Failure::NotReady),
                 },
+                ThreadRequest::Retry { .. } => match radio {
+                    Some(radio) => lifecycle.retry(radio, now),
+                    None => Err(Failure::NotReady),
+                },
             };
             String::from_utf8(lexra_rs_matter_probe::responses::reply(result)?).ok()?
         },

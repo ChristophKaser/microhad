@@ -747,9 +747,8 @@ def failed_apply_retry_gate():
             time.sleep(0.1)
             assert len(radio.requests) == request_count
             assert credentials.read_bytes() == failed_envelope
-            explicit = status(ipc_path, 9, 807, json.dumps({
-                "schema": 1, "action": "import", "zigbee_channel": 15,
-                "dataset": dataset.hex()}).encode())
+            explicit = status(ipc_path, 9, 807,
+                b'{"schema":1,"action":"retry"}')
             assert explicit["ok"], explicit
             assert status(ipc_path, 2, 808)["configured"]
             assert credentials.read_bytes() == failed_envelope

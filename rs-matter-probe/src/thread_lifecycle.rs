@@ -267,6 +267,28 @@ impl Lifecycle {
         self.activate(radio, now)?;
         Ok(self.snapshot())
     }
+    /// Explicitly retry applying the retained dataset after a failed radio apply.
+    /// The caller must provide a fresh matching coordinator observation first.
+    pub fn retry(&mut self, radio: &dyn Radio, now: Instant) -> Result<Snapshot, Failure> {
+        if self.fatal {
+            return Err(Failure::Transport);
+        }
+        let channel = self.dataset_channel.ok_or(Failure::NotReady)?;
+        if self.channel != Some(channel) || !self.fresh(now) {
+            return Err(Failure::NotReady);
+        }
+        if !self.apply_failed {
+            return if self.active {
+                Ok(self.snapshot())
+            } else {
+                Err(Failure::Busy)
+            };
+        }
+        self.state = State::Detached;
+        self.apply_failed = false;
+        self.activate(radio, now)?;
+        Ok(self.snapshot())
+    }
     pub fn create<R: TryRng + TryCryptoRng>(
         &mut self,
         channel: u8,
@@ -512,12 +534,17 @@ mod tests {
         let later = now + Duration::from_secs(6);
         lifecycle.tick(Some(&radio), later).unwrap();
         assert!(matches!(
+            lifecycle.retry(&radio, later),
+            Err(Failure::NotReady)
+        ));
+        assert_eq!(radio.applies.get(), 1);
+        assert!(matches!(
             lifecycle.observe(15, true, Some(&radio), later),
             Err(Failure::Transport)
         ));
         assert_eq!(radio.applies.get(), 1);
         radio.fail.set(false);
-        lifecycle.import(&bytes, 15, &radio, later).unwrap();
+        lifecycle.retry(&radio, later).unwrap();
         assert_eq!(radio.applies.get(), 2);
     }
     #[test]
