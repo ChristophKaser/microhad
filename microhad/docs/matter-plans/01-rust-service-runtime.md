@@ -391,3 +391,12 @@ resets. There is no known safe way to
 disable the hardware watchdog from the current image. See the [resource-profile
 record](../../ziggurat-compilation/docs/openthread-resource-profile.md) for the
 observation and datasheet reference.
+
+A read-only live check at 2026-10-05 10:03 UTC found uptime advancing from
+1,990.12 to 2,001.07 seconds during the SSH checks, with the paired supervisor,
+Ziggurat and native daemon still running. The current `dmesg` ring buffer shows
+kernel and board initialization messages but no reset reason or watchdog
+initialization. Its final vendor messages read and write `0xb8000038`; that is
+not the documented watchdog control register, and this observation does not
+identify it as related to resets. This confirms only that no reset occurred
+during this brief read-only check; the reset cause remains undetermined.
