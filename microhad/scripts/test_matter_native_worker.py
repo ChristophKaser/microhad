@@ -825,11 +825,16 @@ def main():
             wait_for(lambda: fixture.request('/api/thread/status')['state'] == 'awaiting_coordinator')
             reconnect_coordinator(expected)
             try:
-                wait_for(lambda: fixture.request('/api/thread/status')['state'] == 'attached')
+                wait_for(lambda: fixture.request('/api/thread/status')['state'] == 'attached', timeout=15)
             except TimeoutError:
                 sys.stderr.write(f'Thread recovery status: {fixture.request("/api/thread/status")}\n')
                 sys.stderr.write(f'Matter radio writes: {matter.radio.channel_writes}\n')
                 raise
+            renewal_channel_writes = len(matter.radio.channel_writes)
+            time.sleep(6)
+            renewed = fixture.request('/api/thread/status')
+            assert renewed['state'] == 'attached' and renewed['zigbee_channel'] == expected, renewed
+            assert len(matter.radio.channel_writes) == renewal_channel_writes
             assert fixture.process.poll() is None
         else:
             fixture.peer.close()
