@@ -12,6 +12,19 @@ history. The second leg uses a host-only test-seeded queue; live CASE receive
 inside the separate daemon remains open. See the runtime plan for scope and
 limitations. No MIPS or physical gateway workload was run.
 
+## Maximum-client ICD lookup feasibility — 2026-10-05
+
+Rust commit `6224433` adds a disposable synthetic fixture that installs the
+maximum 64 distinct client keys, then measures failed sessionless Check-In
+authentication for an unknown identity. The optimized host run performed
+1,024 key checks in 2,069 μs (129 μs per packet). The stripped MIPS fixture
+cross-builds at 2,678,504 bytes, but no target timing claim is made: the latest
+gateway sample had 2,236 KiB free on `/tuya` and 3,116 KiB `MemFree`, so neither
+flash staging with reserve nor loading the fixture into temporary RAM is safe.
+The production service and Thread/Zigbee stack remained running. Repeat the
+target profile when safe headroom is available; first-device ICD deadline
+behavior at maximum registered-client count remains unverified.
+
 ## Sessionless LIT Check-In and wake dispatch — 2026-10-05
 
 Rust commit `6a5c430` implements the pinned-source transport handoff and key

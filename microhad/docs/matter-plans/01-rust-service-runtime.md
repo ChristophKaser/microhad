@@ -425,6 +425,13 @@ stopped. Retained application backups, configuration, and network/runtime state
 are not safe cleanup targets. Wait for additional safe flash headroom or a
 planned maintenance window before updating the binaries.
 
+The 64-client ICD unknown-identity lookup fixture (`6224433`, Rust) cross-builds
+to a 2,678,504-byte MIPS binary; host release timing was 129 μs per packet over
+16 packets. The target run remains deferred: read-only samples showed only
+2,236 KiB flash free and `MemFree` between 2,860 and 3,116 KiB. The fixture does
+not fit in flash while preserving reserve and would consume nearly all free RAM
+if copied to temporary storage. The running service remains untouched.
+
 ## Dependencies
 
 The existing bounded Rust/C++ frame format and status opcode assignments. The
