@@ -892,3 +892,18 @@ passes with the synthetic RCP/accessory. This confirms that report receipt
 keeps common controls eligible while the device responds. The daemon half still
 uses test-only queued `ReceivedReport` values; reports received by the daemon's
 own active subscription exchange remain open.
+
+## Composed report-path revalidation — 2026-10-05
+
+`python3 scripts/test_matter_native_report_integration.py` passes after running
+its local OpenThread socket prerequisite with host networking permission. Its
+first leg establishes real CASE subscriptions in the synthetic accessory
+fixture, receives wire-decoded `ReportData` in the production `Manager::poll()`
+path, and verifies five sensor values in the registered native device and
+history. Its second leg runs the actual `thread-matter` process and verifies
+its IPC report events update that same native device/history. The daemon test
+still seeds already-decoded `ReceivedReport` values through a test-only hook;
+it does not prove a wire-decoded CASE report reached `receive_report()` inside
+that separate daemon process. Keep that joined process-level case open. The
+initial sandbox run failed at the local socket bind prerequisite; the same test
+passed when rerun with local networking permission.
