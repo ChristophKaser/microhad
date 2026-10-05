@@ -1,5 +1,32 @@
 # Plan: Rust Matter service runtime
 
+## Read-only first-device readiness check — 2026-10-05
+
+The live gateway already runs `/tuya/native/paired_start.sh`, Ziggurat and the
+native gateway, so the paired native deployment is active. `/tuya/native`
+contains its Zigbee configuration and state. The Matter service executable,
+Matter build manifest and `/tmp/ziggurat/thread.sock` are absent; consequently
+the running Ziggurat instance does not expose the private Thread endpoint that
+the Matter service needs. The current process can keep serving Zigbee, but it
+cannot start a Matter controller or accept the first accessory.
+
+A read-only check at 2026-10-05 19:52 CEST reported 3,516 KiB free on `/tuya`
+and 40 minutes of uptime. The current Matter-enabled native binary and Rust
+service are available locally. A prior read-only ordered-upload preflight for
+`/tuya/native` estimated 3,280 KiB including the 512 KiB reserve, leaving only
+236 KiB at the observed free-space level; recheck immediately before any
+staging. No files were uploaded or changed, and no process was stopped or
+restarted.
+
+The first-device runtime gate is now concrete: stage the matching Matter
+artifacts and start the paired supervisor with the Matter service selected so
+Ziggurat opens its private Thread socket. That requires restarting the current
+UART owner and native bridge; keep this gate open while the instruction to keep
+the existing service running remains in force. After the restart, verify
+`/tmp/ziggurat/thread.sock`, service readiness, Zigbee health and bounded idle
+resource use before attempting phone/accessory commissioning. Live accessory
+commissioning remains outside this plan's host/runtime evidence.
+
 ## Gateway flash headroom observation — 2026-10-05
 
 A read-only `df -k /tuya` check reported 12,160 KiB total, 8,628 KiB used,
