@@ -23,7 +23,9 @@ at its deadline without waiting for a peer that accepted but never answered
 (`750c4c9`); the native worker now also proves that a stalled status reply
 clears cached readiness and returns HTTP 503 before recovering on a fresh
 connection, and invalid IPC frame version, reserved-byte, and declared-length
-headers follow the same recovery path (`7618e0b`, `df7ae8e`). A
+headers follow the same recovery path (`7618e0b`, `df7ae8e`). Truncated IPC
+response headers and bodies also invalidate readiness and recover on a fresh
+connection. A
 bounded unit-aware history journal now stores confirmed
 Matter measurements under stable source IDs and is exposed by the common
 history API/dashboard. Keep only joining/commissioning and Matter/Thread-
@@ -36,7 +38,8 @@ Each verifies that the worker clears cached Matter status, returns HTTP 503
 during recovery, reconnects, and resumes serving status. The tested invalid
 headers cover protocol version, reserved byte, and a declared length above the
 frame limit. Malformed response kind, opcode and zero correlation ID are now
-also exercised; the wider failure matrix remains open.
+also exercised. Partial response headers and truncated response payloads are
+also covered; the wider failure matrix remains open.
 
 The shared-device requirement includes external HTTP integrations such as
 Shelly as first-class sources, not just a visual reuse of cards. The common
@@ -497,6 +500,18 @@ discards the unmatched response, clears cached Matter readiness, returns HTTP
 `python3 scripts/test_matter_native_worker.py` pass. This is a host synthetic
 peer gate. Malformed frame headers, absent/stalled service combinations,
 cancellation/socket-loss and the wider failure matrix remain open.
+
+## Truncated Matter IPC reply recovery — 2026-10-05
+
+The native Matter worker test peer now closes the persistent IPC connection
+after sending either half of a response header or a complete header with a
+payload shorter than its declared length. In both cases the worker clears
+cached readiness, returns HTTP 503 while reconnecting, and resumes `running`
+status on the new channel. `python3 -m py_compile
+scripts/test_matter_native_worker.py`, `python3 scripts/test_matter_native_worker.py`,
+and `python3 scripts/test_matter_native_worker.py --real-service` pass. The
+truncated-frame cases use the synthetic peer; the real-service run confirms
+normal IPC/Thread/relay behavior still passes. MIPS binaries are unchanged.
 
 ## Persistent worker and queued-call checkpoint — 2026-10-04
 

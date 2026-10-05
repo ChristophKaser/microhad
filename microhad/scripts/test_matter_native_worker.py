@@ -43,6 +43,7 @@ class MatterPeer:
         self.wrong_next_reply_id = False
         self.stall_next_status = False
         self.malformed_next_header = None
+        self.truncate_next_reply = None
         self.saturate_next_event_queue = False
         self.onoff = False
         self.level = 0
@@ -235,6 +236,20 @@ class MatterPeer:
                             self.send(peer, malformed)
                             break
                         payload = json.dumps(result).encode()
+                        if self.truncate_next_reply:
+                            mode = self.truncate_next_reply
+                            self.truncate_next_reply = None
+                            if mode == 'header':
+                                self.send(peer, struct.pack('<HBBBBI', len(payload), 1, 1,
+                                                            opcode, 0, ident)[:4])
+                            elif mode == 'payload':
+                                header = struct.pack('<HBBBBI', len(payload) + 1, 1, 1,
+                                                     opcode, 0, ident)
+                                self.send(peer, header + payload)
+                            else:
+                                raise AssertionError(f'unknown truncated reply mode: {mode}')
+                            peer.shutdown(socket.SHUT_WR)
+                            break
                         if self.malformed_next_reply:
                             self.malformed_next_reply = False
                             malformed = b'{'
@@ -762,6 +777,12 @@ def main():
             matter.stall_next_status = True
             wait_for(matter_unavailable, timeout=6)
             wait_for(lambda: fixture.request('/api/matter/status')['state'] == 'running')
+            # Partial response headers and bodies must close the channel and
+            # recover without exposing stale cached status.
+            for truncated_reply in ('header', 'payload'):
+                matter.truncate_next_reply = truncated_reply
+                wait_for(matter_unavailable)
+                wait_for(lambda: fixture.request('/api/matter/status')['state'] == 'running')
             # A structurally invalid frame header must also clear readiness.
             for malformed_header in ('version', 'reserved', 'oversized',
                                      'kind', 'opcode', 'zero-id'):
