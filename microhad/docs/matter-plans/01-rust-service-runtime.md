@@ -2,13 +2,13 @@
 
 ## Read-only first-device readiness check — 2026-10-05
 
-The live gateway already runs `/tuya/native/paired_start.sh`, Ziggurat and the
-native gateway, so the paired native deployment is active. `/tuya/native`
-contains its Zigbee configuration and state. The Matter service executable,
-Matter build manifest and `/tmp/ziggurat/thread.sock` are absent; consequently
-the running Ziggurat instance does not expose the private Thread endpoint that
-the Matter service needs. The current process can keep serving Zigbee, but it
-cannot start a Matter controller or accept the first accessory.
+At the initial read-only check, the live gateway ran
+`/tuya/native/paired_start.sh`, Ziggurat and the native gateway, and
+`/tuya/native` held its Zigbee configuration and state. The Matter service
+executable, Matter build manifest and `/tmp/ziggurat/thread.sock` were absent;
+the running Ziggurat instance did not expose the private Thread endpoint the
+Matter service needs. The current process could keep serving Zigbee, but could
+not start a Matter controller or accept the first accessory.
 
 A read-only check at 2026-10-05 19:52 CEST reported 3,516 KiB free on `/tuya`
 and 40 minutes of uptime. The current Matter-enabled native binary and Rust
@@ -25,19 +25,39 @@ remained absent. `/tuya` had 3,496 KiB free, 20 KiB less than the earlier
 sample; the same 3,280 KiB staging estimate leaves 216 KiB beyond the reserve.
 No deployment or workload was run. Recheck flash directly before staging.
 
-The installed `/tuya/tuya_start.sh` also lacks the `MATTER_BIN` opt-in present
-in the candidate `ziggurat_start.sh`, and `/tuya/tuya_start.sh.lowjs-backup` is
-not present. The current supervisor therefore cannot be opted into Matter by
-placing the service binary alone. Preparing the first-device startup requires
-staging the matching Matter artifacts and installing the Matter-aware paired
-launcher, which preserves the current launcher as a backup. The new launcher
-only takes effect at the next start; Ziggurat and the native bridge must then
-restart so the UART owner opens `/tmp/ziggurat/thread.sock`. Keep this gate open
-while the instruction to keep the existing service running remains in force.
-After an authorized restart, verify the backup, Thread socket, service
-readiness, Zigbee health and bounded idle resource use before attempting
-phone/accessory commissioning. Live accessory commissioning remains outside
-this plan's host/runtime evidence.
+The installed `/tuya/tuya_start.sh` lacks the `MATTER_BIN` opt-in present in
+the staged `/tuya/native/ziggurat_start.sh`, and
+`/tuya/tuya_start.sh.lowjs-backup` is absent. The installed supervisor therefore
+cannot start Matter yet. The matching Matter artifacts and Matter-aware paired
+launcher are now staged; activation must preserve the current launcher as a
+backup. The new launcher only takes effect at the next start; Ziggurat and the
+native bridge must then restart so the UART owner opens
+`/tmp/ziggurat/thread.sock`. Keep this gate open while the instruction to keep
+the existing service running remains in force. After an authorized restart,
+verify the backup, Thread socket, service readiness, Zigbee health and bounded
+idle resource use before attempting phone/accessory commissioning. Live
+accessory commissioning remains outside this plan's host/runtime evidence.
+
+## Matter package staged without activation — 2026-10-05
+
+After preserving the currently installed native executable at
+`/tmp/microhad-native-before-matter` (1,504,596 bytes, MD5
+`380cbcebf06f18f64f403957e8f504aae81bc8dac1228c39acd7f24e4181c255`),
+`deploy.sh` staged the Matter-enabled native executable, build manifest,
+`thread-matter` service and Matter-aware `paired_start.sh` into
+`/tuya/native`. The deployer's preflight required 2,859 KiB including its
+512 KiB reserve and measured 3,492 KiB available. Remote MD5 values matched
+all four local artifacts. `/tuya` had 1,472 KiB available after staging.
+
+No launcher activation or process restart was requested or performed. The
+paired launcher at `/tuya/tuya_start.sh` remains unchanged, its low.js backup
+is absent, and the active paired supervisor, Ziggurat and native gateway
+processes remained present with uptime advancing from 4,202 to 4,477 seconds.
+The Thread socket and Matter process remain absent. The rollback copy is local;
+the already-running native process still uses its pre-staging executable image.
+The Matter binaries are now staged, but the first-device gate remains launcher
+activation plus a supervised restart, followed by service/Thread readiness and
+resource checks. No Matter workload or upload-script tests were run.
 
 ## Gateway flash headroom observation — 2026-10-05
 
