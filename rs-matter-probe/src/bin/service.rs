@@ -198,14 +198,14 @@ fn dispatch<C: Crypto>(
             ))?).ok()?,
         Ok(Request::Command(body @ (lexra_rs_matter_probe::control::CommandRequest::On { .. } |
             lexra_rs_matter_probe::control::CommandRequest::Off { .. } |
-            lexra_rs_matter_probe::control::CommandRequest::Toggle { .. }))) =>
+            lexra_rs_matter_probe::control::CommandRequest::Toggle { .. } |
+            lexra_rs_matter_probe::control::CommandRequest::MoveToLevel { .. }))) =>
             String::from_utf8(lexra_rs_matter_probe::responses::reply(devices.submit(
                 Request::Command(body), lifecycle.snapshot().attached && thread.is_some(),
                 controller.commissioning(Instant::now()), Instant::now(),
             ))?).ok()?,
         Ok(Request::Device(lexra_rs_matter_probe::control::DeviceRequest::Job { job, .. })) =>
             String::from_utf8(lexra_rs_matter_probe::responses::reply(devices.job(job))?).ok()?,
-        Ok(_) => "{\"schema\":1,\"ok\":false,\"error\":\"unsupported\"}".into(),
         Err(_) if request.opcode == OP_MATTER_STATUS || request.opcode == OP_THREAD_STATUS => return None,
         Err(_) => "{\"schema\":1,\"ok\":false,\"error\":\"malformed\"}".into(),
     };

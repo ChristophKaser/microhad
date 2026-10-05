@@ -44,9 +44,15 @@ Verification on 2026-10-04:
 - `scripts/test-openthread-matter-transport.py --commissioning --ble
   --service-owner --service-discovery` requires the operational executor marker.
 
-The Rust service IPC now routes asynchronous OnOff and Level jobs. Native typed
-job validation, HTTP Level read/control routes and dashboard Level controls
-remain pending. Sensor decoding, subscriptions, and richer cancellation and
-restart recovery remain separate open work. Job interruption after invocation
-is never replayed: callers must reconcile through a later read.
+The Rust service IPC routes asynchronous OnOff and Level jobs. A dispatcher gap
+left MoveToLevel implemented in the manager but unmatched by the production
+service binary; service commit `PENDING` adds that final command variant. The
+composed native HTTP-to-real-service fixture verifies that MoveToLevel reaches
+the manager and receives the expected `not_ready` result when no Thread
+accessory is attached, rather than `unsupported`. Native typed validation,
+HTTP Level routes and shared dashboard controls are already implemented and
+host-tested. Sensor decoding, live subscription reports from a commissioned
+accessory, and richer cancellation/restart recovery remain open. Job
+interruption after invocation is never replayed; callers must reconcile by a
+later read.
 No physical gateway/accessory test or plan 08 acceptance was performed.
