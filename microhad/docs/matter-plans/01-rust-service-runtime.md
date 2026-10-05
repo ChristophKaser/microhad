@@ -415,12 +415,15 @@ running during atomic replacement. It fails closed if a process already points
 to a `(deleted)` executable whose size cannot be safely derived. This avoids
 overstating reclaimed space during a live update.
 
-The gateway currently has 2,260 KiB free on `/tuya`; the complete Matter
-package update, while both existing executables are running, requires 4,332 KiB
-including the configured 512 KiB reserve. No update was staged, no files were
-removed, and neither process was stopped. The active Matter service and Zigbee
-gateway remain available. Wait for additional safe flash headroom or a planned
-maintenance window before updating the binaries.
+The latest read-only SSH check found 2,244 KiB free on `/tuya`; the complete
+Matter package update, while both existing executables are running, requires
+4,332 KiB including the configured 512 KiB reserve. The active native and Rust
+service executables remain 1,741,544 and 2,158,276 bytes, and both test staging
+directories are empty. The paired supervisor, Ziggurat, native gateway and
+Matter service remain running. No target files were changed and no process was
+stopped. Retained application backups, configuration, and network/runtime state
+are not safe cleanup targets. Wait for additional safe flash headroom or a
+planned maintenance window before updating the binaries.
 
 ## Dependencies
 
