@@ -1,5 +1,20 @@
 # Plan: Native Matter API and dashboard
 
+## Commissioning setup-code redaction gate — 2026-10-05
+
+The native worker integration now checks that the commissioning PIN does not
+appear in the HTTP job-acceptance response, completed job response, gateway
+`/api/status`, `/api/logs`, or native process output. The test sends the PIN
+through the actual HTTP-to-worker path and runs the other queued commissioning,
+relay, and recovery cases in the same fixture. `python3
+scripts/test_matter_native_worker.py` passes; its local IPC peer required running
+outside the sandbox because Unix socket creation returned `EPERM` inside it.
+
+This closes the setup-code response/status/log redaction check for the tested
+native HTTP path. It does not claim redaction for every cross-language failure
+or WebSocket path; cancellation/socket-loss and remaining failure gates stay
+open. No C++ or dashboard source changed, so no MIPS or Web UI build was needed.
+
 ## Current open work — 2026-10-05
 
 Queued commissioning/Thread APIs, the owned WebSocket relay and a feature-aware

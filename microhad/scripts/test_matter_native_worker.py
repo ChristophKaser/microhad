@@ -523,13 +523,17 @@ class RelaySocket:
 
 
 def relay_http_call(fixture, action, body):
+    pin = '20202021'
     accepted = fixture.request('/api/matter/commissioning/'+action, json.dumps(body).encode())
+    assert pin not in json.dumps(accepted), accepted
     def done():
         result = fixture.request('/api/matter/jobs/'+str(accepted['job']))
         assert result['state'] != 'failed'
         return result if result['state'] == 'complete' else None
     wait_for(done)
-    return done()['response']
+    response = done()['response']
+    assert pin not in json.dumps(response), response
+    return response
 
 
 def relay_tests(fixture):
@@ -605,6 +609,9 @@ def relay_tests(fixture):
     wait_for(lambda: cancelled(session))
     fixture.log.seek(0)
     assert b'20202021' not in fixture.log.read()
+    assert '20202021' not in json.dumps(fixture.status())
+    logs = fixture.request('/api/logs')
+    assert '20202021' not in json.dumps(logs), logs
 
 
 
