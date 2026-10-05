@@ -1022,7 +1022,7 @@ mod tests {
             5540,
         ));
         let mut manager =
-            Manager::new(matter, &crypto, NonZeroU8::new(1).unwrap(), catalog).unwrap();
+            Manager::new(matter, &crypto, NonZeroU8::new(1).unwrap(), catalog.clone()).unwrap();
         manager.subscriptions.push(SubscriptionState {
             key: SubscriptionKey {
                 node: 2,
@@ -1172,7 +1172,7 @@ mod tests {
             5540,
         ));
         let mut manager =
-            Manager::new(matter, &crypto, NonZeroU8::new(1).unwrap(), catalog).unwrap();
+            Manager::new(matter, &crypto, NonZeroU8::new(1).unwrap(), catalog.clone()).unwrap();
         manager.snapshots.push(Snapshot {
             node: 2,
             endpoints: vec![Endpoint {
@@ -1235,6 +1235,7 @@ mod tests {
             utils::init::InitMaybeUninit,
         };
         let directory = std::env::temp_dir().join(format!("matter-devices-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&directory);
         let store = PrivateStore::open(&directory).unwrap();
         let catalog = Catalog::open(store, 1, 5).unwrap();
         for node in [2, 3] {
@@ -1257,7 +1258,7 @@ mod tests {
             5540,
         ));
         let mut manager =
-            Manager::new(matter, &crypto, NonZeroU8::new(1).unwrap(), catalog).unwrap();
+            Manager::new(matter, &crypto, NonZeroU8::new(1).unwrap(), catalog.clone()).unwrap();
         let now = Instant::now();
         let mut context = Context::from_waker(std::task::Waker::noop());
         let first = manager.page(0, None).unwrap();
@@ -1342,6 +1343,28 @@ mod tests {
         manager.changed();
         manager.changed();
         assert!(matches!(manager.page(0, None), Err(PageError::Capacity)));
+        let recovery_now = now + Duration::from_secs(1_000);
+        manager.snapshots[0].next = recovery_now + Duration::from_secs(60);
+        manager.snapshots[1].next = recovery_now + Duration::from_secs(60);
+        manager.snapshots[2].next = recovery_now;
+        manager.poll(true, false, recovery_now, &mut context);
+        assert_eq!(manager.work.as_ref().unwrap().0, 4);
+        manager.work = Some((
+            4,
+            recovery_now + Duration::from_secs(30),
+            Box::pin(std::future::pending()),
+        ));
+        manager.poll(
+            true,
+            false,
+            recovery_now + Duration::from_secs(30),
+            &mut context,
+        );
+        assert!(!manager.snapshots[2].online);
+        assert!(catalog
+            .nodes()
+            .iter()
+            .any(|entry| entry.id == 4 && entry.phase == Phase::RecoveryRequired));
         assert_eq!(
             std::fs::read(directory.join("credentials.bin")).unwrap(),
             before
