@@ -23,7 +23,8 @@ for patch_file in \
     "$project_root/patches/rs-matter-probe-spake2p.patch" \
     "$project_root/patches/rs-matter-probe-peer-identity.patch" \
     "$project_root/patches/rs-matter-probe-attribute-notify.patch" \
-    "$project_root/patches/rs-matter-probe-icd-capture.patch"; do
+    "$project_root/patches/rs-matter-probe-icd-capture.patch" \
+    "$project_root/patches/rs-matter-probe-sessionless-icd.patch"; do
     if ! git -C "$probe_dir" apply --reverse --check "$patch_file" 2>/dev/null; then
         git -C "$probe_dir" apply --check "$patch_file"
         git -C "$probe_dir" apply "$patch_file"

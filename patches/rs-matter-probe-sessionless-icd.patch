@@ -1,0 +1,103 @@
+diff --git a/rs-matter/src/lib.rs b/rs-matter/src/lib.rs
+index 7358b63..c092ddb 100644
+--- a/rs-matter/src/lib.rs
++++ b/rs-matter/src/lib.rs
+@@ -140,9 +140,8 @@ pub const MATTER_PORT: u16 = 5540;
+ pub const MAX_ICD_CHECK_IN_BYTES: usize = 128;
+ const MAX_PENDING_ICD_CHECK_INS: usize = 8;
+ 
+-/// Authenticated peer identity and encrypted Check-In payload copied from the
+-/// Secure Channel responder. The application-level MIC is verified later by
+-/// the ICD client manager.
++/// Peer identity and encrypted Check-In payload. Sessionless Check-Ins carry
++/// no stable peer identity; the ICD client manager identifies those by key MIC.
+ #[derive(Clone)]
+ pub struct IcdCheckIn {
+     pub fabric: u8,
+@@ -152,6 +151,22 @@ pub struct IcdCheckIn {
+ }
+ 
+ impl IcdCheckIn {
++    /// Build a bounded captured message. Sessionless callers use fabric/node 0
++    /// until the application MIC identifies the registered client.
++    pub fn from_received(fabric: u8, node: u64, payload: &[u8]) -> Result<Self, Error> {
++        if payload.len() > MAX_ICD_CHECK_IN_BYTES {
++            return Err(ErrorCode::InvalidData.into());
++        }
++        let mut message = Self {
++            fabric,
++            node,
++            payload: [0; MAX_ICD_CHECK_IN_BYTES],
++            len: payload.len(),
++        };
++        message.payload[..payload.len()].copy_from_slice(payload);
++        Ok(message)
++    }
++
+     pub fn payload(&self) -> &[u8] {
+         &self.payload[..self.len]
+     }
+@@ -200,8 +215,8 @@ pub struct Matter<'a> {
+ }
+ 
+ impl<'a> Matter<'a> {
+-    /// Remove the oldest authenticated, encrypted ICD Check-In received by the
+-    /// normal Secure Channel responder.
++    /// Remove the oldest bounded ICD Check-In captured by the transport or
++    /// Secure Channel responder. Sessionless identity is untrusted until MIC validation.
+     pub fn pop_icd_check_in(&self) -> Option<IcdCheckIn> {
+         self.icd_check_ins.lock(|queue| queue.borrow_mut().pop_front())
+     }
+@@ -216,6 +231,12 @@ impl<'a> Matter<'a> {
+         });
+     }
+ 
++    /// Queue a sessionless Check-In with no trusted fabric or node identity.
++    pub fn queue_sessionless_icd_check_in(&self, payload: &[u8]) -> Result<(), Error> {
++        self.queue_icd_check_in(IcdCheckIn::from_received(0, 0, payload)?);
++        Ok(())
++    }
++
+     /// Create a new Matter object.
+     ///
+     /// # Parameters
+@@ -1140,16 +1161,7 @@ impl crate::sc::AsyncScHandler for Matter<'_> {
+             .peer_identity()?
+             .ok_or(ErrorCode::InvalidData)?;
+         let payload = exchange.rx()?.payload();
+-        if payload.len() > MAX_ICD_CHECK_IN_BYTES {
+-            return Err(ErrorCode::InvalidData.into());
+-        }
+-        let mut check_in = IcdCheckIn {
+-            fabric,
+-            node,
+-            payload: [0; MAX_ICD_CHECK_IN_BYTES],
+-            len: payload.len(),
+-        };
+-        check_in.payload[..payload.len()].copy_from_slice(payload);
++        let check_in = IcdCheckIn::from_received(fabric, node, payload)?;
+         self.queue_icd_check_in(check_in);
+         Ok(())
+     }
+diff --git a/rs-matter/src/transport.rs b/rs-matter/src/transport.rs
+index fe7dc99..39e74ce 100644
+--- a/rs-matter/src/transport.rs
++++ b/rs-matter/src/transport.rs
+@@ -2098,6 +2098,17 @@ impl<'a, C: Crypto> TransportRunner<'a, C> {
+                     return session.post_recv(&packet.header);
+                 }
+ 
++                let meta = MessageMeta::from(&packet.header.proto);
++                if meta.proto_id == PROTO_ID_SECURE_CHANNEL
++                    && meta.proto_opcode == OpCode::CheckIn as u8
++                {
++                    self.matter.queue_sessionless_icd_check_in(
++                        &packet.buf[packet.payload_start..],
++                    )?;
++                    // Sessionless Check-In expects no response and has no Matter exchange.
++                    return Err(ErrorCode::NoExchange.into());
++                }
++
+                 // A `SessionNotFound` is the peer telling us that a session *we*
+                 // still hold is dead on its side (e.g. it rebooted). Drop it, so the
+                 // exchange waiting on it fails at once with `NoSession` instead of

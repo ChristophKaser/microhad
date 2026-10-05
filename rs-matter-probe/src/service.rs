@@ -1,5 +1,10 @@
 //! Single-owner, nonblocking, bounded Unix IPC listener. Payloads have no logging path.
 use crate::ipc::{Decoder, Frame, MAX_CHUNK, MAX_PAYLOAD};
+use rs_matter::error::Error;
+use rs_matter::respond::ExchangeHandler;
+use rs_matter::sc::{AsyncScHandler, OpCode, PROTO_ID_SECURE_CHANNEL};
+use rs_matter::transport::exchange::Exchange;
+use rs_matter::Matter;
 use std::collections::VecDeque;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
@@ -13,6 +18,36 @@ use std::time::{Duration, Instant};
 pub const MAX_CLIENTS: usize = 4;
 const MAX_RESPONSES: usize = 8;
 const REQUEST_DEADLINE: Duration = Duration::from_secs(2);
+
+/// Exchange handler for ICD Check-Ins that arrive through an established
+/// exchange. The transport separately captures sessionless Check-Ins, which
+/// have no authenticated Matter peer identity. Unrelated exchanges are
+/// dropped because the gateway is a controller, not an accessory.
+pub struct IcdCheckInResponder<'a> {
+    matter: &'a Matter<'a>,
+}
+
+impl<'a> IcdCheckInResponder<'a> {
+    pub const fn new(matter: &'a Matter<'a>) -> Self {
+        Self { matter }
+    }
+}
+
+impl ExchangeHandler for IcdCheckInResponder<'_> {
+    async fn handle(&self, mut exchange: Exchange<'_>) -> Result<(), Error> {
+        let (proto_id, proto_opcode) = {
+            let rx = exchange.recv_fetch().await?;
+            let meta = rx.meta();
+            (meta.proto_id, meta.proto_opcode)
+        };
+
+        if proto_id == PROTO_ID_SECURE_CHANNEL && proto_opcode == OpCode::CheckIn as u8 {
+            <Matter<'_> as AsyncScHandler>::check_in(self.matter, exchange).await
+        } else {
+            Ok(())
+        }
+    }
+}
 
 fn stale_socket(path: &Path) -> io::Result<bool> {
     // A blocking connect can hang on a live listener with a full backlog.

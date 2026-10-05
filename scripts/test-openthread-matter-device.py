@@ -30,6 +30,8 @@ def main():
                         help='Exercise production SRP registration and DNS-SD discovery')
     parser.add_argument('--sensor-reports', action='store_true',
                         help='Subscribe to and publish all synthetic CASE sensor reports')
+    parser.add_argument('--icd', action='store_true',
+                        help='Exercise LIT registration, authenticated Check-In and wake-window dispatch')
     args = parser.parse_args()
     if args.ble and not args.commissioning:
         parser.error('--ble requires --commissioning')
@@ -39,12 +41,14 @@ def main():
         parser.error('--service-discovery requires --service-owner')
     if args.sensor_reports and not args.service_owner:
         parser.error('--sensor-reports requires --service-owner')
+    if args.icd and not args.service_owner:
+        parser.error('--icd requires --service-owner')
     if args.report is None:
         args.report = ROOT / 'build/rs-matter' / ('openthread-ble-commissioning-device-validation.json' if args.ble else
                                                'openthread-commissioning-device-validation.json'
                                                if args.commissioning else 'openthread-device-validation.json')
     rss_limit = 3072 if args.commissioning else 1536
-    limit = 100 if args.commissioning else 22
+    limit = 160 if args.icd else 100 if args.commissioning else 22
     marker = 'PASS commissioning complete' if args.commissioning else 'PASS transport complete'
     ssh = ['sshpass', '-f', str(args.password_file), 'ssh', '-o', 'ConnectTimeout=8',
            '-o', 'StrictHostKeyChecking=yes', '-o', 'HostKeyAlgorithms=+ssh-rsa',
@@ -88,7 +92,8 @@ def main():
         remote(ram + '/cache-helper ' + stage + '/probe')
         fixture_flags = ' '.join(flag for enabled, flag in (
             (args.ble, '--ble'), (args.service_owner, '--service-owner'),
-            (args.service_discovery, '--service-discovery'), (args.sensor_reports, '--sensor-reports')) if enabled)
+            (args.service_discovery, '--service-discovery'), (args.sensor_reports, '--sensor-reports'),
+            (args.icd, '--icd')) if enabled)
         script = f'''
 ulimit -c 0
 cd {ram} || exit 1
@@ -164,7 +169,7 @@ exit "$result"
     elapsed_match = re.search(r'PASS commissioning complete elapsed_ms=(\d+)', output)
     commissioning_elapsed_ms = int(elapsed_match.group(1)) if elapsed_match else None
     required_markers = []
-    if args.service_owner:
+    if args.service_owner and not args.icd:
         required_markers.append('PASS production device scheduler catalog restore and radio detach refresh over CASE')
     if args.service_discovery:
         required_markers.extend(('PASS production owned commissioning PASE, provisioning and CASE completion',
@@ -172,6 +177,10 @@ exit "$result"
                                  'PASS DNS cancelled callback isolation'))
     if args.sensor_reports:
         required_markers.append('PASS production manager sensor reports reach IPC from subscribed CASE reports')
+    if args.icd:
+        required_markers.extend(('PASS production device manager online snapshot with ICD Management cluster',
+                                 'PASS production ICD registration and authenticated Check-In counter acceptance',
+                                 'PASS queued CASE read completed during the Check-In active window'))
     report = {'target': args.host, 'radio': 'synthetic RCP', 'real_radio_access': False,
               'linux_ipv6_or_tun': False,
               'encrypted_commissioning_tested': args.commissioning,
@@ -179,6 +188,7 @@ exit "$result"
               'production_owned_commissioner_tested': args.service_owner,
               'production_dns_resolver_tested': args.service_discovery,
               'production_sensor_reports_tested': args.sensor_reports,
+              'production_icd_checkin_and_wake_dispatch_tested': args.icd,
               'real_ble_access': False, 'binary_bytes': len(payload),
               'binary_sha256': hashlib.sha256(payload).hexdigest(),
               'memory_preflight_kib': free_ram,

@@ -431,3 +431,40 @@ generated intermediates were removed, recovering 12 GiB. Registration, Check-In
 MIC/counter validation, durable client keys/counters, and wake-triggered work
 remain unimplemented. This is deterministic message capture, not sleepy-device
 support.
+
+## Sessionless Check-In delivery and gateway profile — 2026-10-05
+
+The prior capture path could not receive real LIT Check-In traffic. rs-matter
+decoded the sessionless Secure Channel opcode, returned `NoSession`, and sent
+`SessionNotFound` before any exchange handler could see it. The pinned-source
+patch `rs-matter-probe-sessionless-icd.patch` now queues only the bounded
+Check-In payload and drops it without a reply. The packet source node is
+ephemeral, so fabric and node are not trusted or inferred from its header. The
+manager tries the bounded registered-client keys; a valid MIC identifies the
+registration, then the counter is checked and durably advanced before wake
+work is admitted. A regression test covers the same node ID registered on two
+fabrics and confirms that the MIC selects the correct client.
+
+The host synthetic fixture passes production RegisterClient, LIT readback,
+authenticated Check-In and a CASE read during the wake window. All 81
+controller-service library tests pass, and the production MIPS service
+cross-builds at 2,162,372 bytes (SHA-256
+`008581db1c45cec74e962a37e681f502b84cac9fdd42a49cd7604a730acc1370`).
+
+The guarded MIPS fixture also passed on the gateway with a synthetic RCP and
+direct fixture resolver. It completed commissioning in 12,530 ms, with a
+2,172 KiB sampled peak RSS, 4.14 CPU seconds, 31.2% sampled average CPU on one
+core, 9,792 KiB minimum `MemFree`, and 19,152 KiB minimum `MemFree` plus clean
+inactive file cache. Production remained online and formed before and after,
+and no reset occurred. The 2,666,212-byte fixture was limited to 3,072 KiB RSS,
+8 MiB virtual memory and 160 seconds. The separate SRP-discovery variant
+timed out before ICD work began, so these results use a direct fixture address
+and do not validate discovery or RF behavior. No service was deployed or
+restarted. `scripts/test-openthread-matter-device.py --commissioning --ble
+--service-owner --icd` retains the machine-readable profile at
+`build/rs-matter/openthread-ble-commissioning-device-validation.json`.
+
+This closes synthetic Check-In and wake dispatch only. The profile has one
+registered key; worst-case matching against all 64 registrations remains
+unmeasured. The installed daemon's active CASE reports into native state and
+history remain an open implementation/validation checkpoint.

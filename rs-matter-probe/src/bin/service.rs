@@ -9,6 +9,7 @@ use lexra_rs_matter_probe::{
     identity::Identity,
     ipc::{Frame, OP_MATTER_STATUS, OP_THREAD_STATUS},
     openthread::OpenThread,
+    service::IcdCheckInResponder,
     service::IpcServer,
     store::PrivateStore,
     thread_lifecycle::{Failure, Lifecycle, Radio},
@@ -17,6 +18,7 @@ use rs_matter::crypto::{
     default_crypto, CanonPkcPublicKeyRef, CanonPkcSecretKeyRef, Crypto, CryptoSensitiveRef, TryRng,
 };
 use rs_matter::dm::clusters::{basic_info::BasicInfoConfig, dev_att::DeviceAttestation};
+use rs_matter::respond::Responder;
 use rs_matter::sc::pase::{Spake2pVerifierPassword, Spake2pVerifierPasswordRef};
 use rs_matter::transport::network::{Address, ChainedNetwork, NoNetwork};
 use rs_matter::utils::{init::InitMaybeUninit, sync::DynBase};
@@ -405,12 +407,23 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let receive = send.clone();
     let transport = matter.run(&crypto, send, receive, NoNetwork);
     let mut transport = pin!(transport);
+    let responder = Responder::new(
+        "Matter ICD Check-In responder",
+        IcdCheckInResponder::new(matter),
+        matter,
+        0,
+    );
+    let mut responder = pin!(responder.run::<2>());
     let waker = std::task::Waker::from(std::sync::Arc::new(Wake));
     let mut context = std::task::Context::from_waker(&waker);
     while !STOP.load(Ordering::Relaxed) {
         if let std::task::Poll::Ready(result) = transport.as_mut().poll(&mut context) {
             result?;
             return Err("Matter transport ended".into());
+        }
+        if let std::task::Poll::Ready(result) = responder.as_mut().poll(&mut context) {
+            result?;
+            return Err("Matter ICD Check-In responder ended".into());
         }
         if let std::task::Poll::Ready(result) = discovery.as_mut().poll(&mut context) {
             result?;

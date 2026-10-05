@@ -220,32 +220,39 @@ impl ClientRegistry {
     /// Authenticate one Check-In, enforce the spec's strictly increasing
     /// offset rule, and durably save that offset before returning a wake.
     pub fn accept<C: Crypto>(&mut self, crypto: &C, message: &IcdCheckIn) -> Result<Wake, Error> {
-        let index = self
-            .registrations
-            .iter()
-            .position(|entry| entry.fabric.get() == message.fabric && entry.node == message.node)
-            .ok_or_else(|| Error::from(ErrorCode::NotFound))?;
-        let (fabric, key_bytes, starting_counter, previous_offset) = {
+        let payload_len = message.payload().len();
+        let mut authenticated = None;
+        for (index, registration) in self.registrations.iter().enumerate() {
+            if (message.fabric != 0 && registration.fabric.get() != message.fabric)
+                || (message.node != 0 && registration.node != message.node)
+            {
+                continue;
+            }
+            let mut payload = Zeroizing::new([0; rs_matter::MAX_ICD_CHECK_IN_BYTES]);
+            payload[..payload_len].copy_from_slice(message.payload());
+            if let Ok(parsed) = CheckIn::new(CanonAeadKeyRef::new(&registration.key))
+                .parse(crypto, &mut payload[..payload_len])
+            {
+                if parsed.app_data.len() != 2 {
+                    return Err(invalid());
+                }
+                authenticated = Some((
+                    index,
+                    parsed.counter,
+                    u16::from_le_bytes(parsed.app_data.try_into().unwrap()),
+                ));
+                break;
+            }
+        }
+        let (index, counter, active_mode_threshold_ms) =
+            authenticated.ok_or_else(|| Error::from(ErrorCode::NotFound))?;
+        let (fabric, node, starting_counter, previous_offset) = {
             let registration = &self.registrations[index];
             (
                 registration.fabric,
-                *registration.key,
+                registration.node,
                 registration.starting_counter,
                 registration.last_offset,
-            )
-        };
-        let payload_len = message.payload().len();
-        let mut payload = Zeroizing::new([0; rs_matter::MAX_ICD_CHECK_IN_BYTES]);
-        payload[..payload_len].copy_from_slice(message.payload());
-        let (counter, active_mode_threshold_ms) = {
-            let parsed = CheckIn::new(CanonAeadKeyRef::new(&key_bytes))
-                .parse(crypto, &mut payload[..payload_len])?;
-            if parsed.app_data.len() != 2 {
-                return Err(invalid());
-            }
-            (
-                parsed.counter,
-                u16::from_le_bytes(parsed.app_data.try_into().unwrap()),
             )
         };
         let offset = counter.wrapping_sub(starting_counter);
@@ -259,7 +266,7 @@ impl ClientRegistry {
         }
         Ok(Wake {
             fabric,
-            node: message.node,
+            node,
             counter,
             active_mode_threshold_ms,
             refresh_required: offset >= REFRESH_OFFSET,
@@ -387,6 +394,32 @@ mod tests {
     }
 
     #[test]
+    fn sessionless_check_in_uses_the_key_to_identify_its_registered_fabric_and_node() {
+        let directory = fixture_dir();
+        let store = PrivateStore::open(&directory).unwrap();
+        let mut registry = ClientRegistry::open(store).unwrap();
+        let first_key = [0x31; 16];
+        let second_key = [0x72; 16];
+        registry
+            .install(NonZeroU8::new(1).unwrap(), 0x1234, 0, first_key, 10)
+            .unwrap();
+        registry
+            .install(NonZeroU8::new(2).unwrap(), 0x1234, 0, second_key, 20)
+            .unwrap();
+        let crypto = default_crypto(
+            crate::entropy::OsEntropy::open().unwrap(),
+            CryptoSensitiveRef::new(&[0x61; 32]),
+        );
+        let payload = wire_check_in(&crypto, &second_key, 21);
+        let sessionless = IcdCheckIn::from_received(0, 0, &payload).unwrap();
+
+        let wake = registry.accept(&crypto, &sessionless).unwrap();
+        assert_eq!(wake.fabric.get(), 2);
+        assert_eq!(wake.node, 0x1234);
+        assert_eq!(wake.counter, 21);
+    }
+
+    #[test]
     fn bad_mic_and_unregistered_peers_never_produce_wakes() {
         let directory = fixture_dir();
         let store = PrivateStore::open(&directory).unwrap();
@@ -404,6 +437,10 @@ mod tests {
         assert!(registry
             .accept(&crypto, &incoming(0x2233, invalid_payload))
             .is_err());
+        let mut invalid_sessionless = wire_check_in(&crypto, &key, 11);
+        invalid_sessionless[13] ^= 1;
+        let unknown_identity = IcdCheckIn::from_received(0, 0, &invalid_sessionless).unwrap();
+        assert!(registry.accept(&crypto, &unknown_identity).is_err());
         assert!(registry
             .accept(&crypto, &incoming(0x9988, wire_check_in(&crypto, &key, 11)))
             .is_err());

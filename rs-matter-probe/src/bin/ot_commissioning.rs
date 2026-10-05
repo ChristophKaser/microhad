@@ -24,6 +24,7 @@ use core::pin::pin;
 use embassy_futures::select::{select, select3, select4, Either};
 use embassy_time::{Duration, Timer};
 use lexra_rs_matter_probe::identity::Identity;
+use lexra_rs_matter_probe::service::IcdCheckInResponder;
 use lexra_rs_matter_probe::store::PrivateStore;
 use lexra_rs_matter_probe::{
     ble::BleRelay, commissioning as gateway_commissioning, openthread::OpenThread,
@@ -49,7 +50,7 @@ use rs_matter::im::subscriptions::DEFAULT_MAX_SUBSCRIPTIONS;
 use rs_matter::im::{InteractionModel, InteractionModelState};
 use rs_matter::onboard::{CommissionResult, Commissioner};
 use rs_matter::persist::DummyKvBlobStore;
-use rs_matter::respond::DefaultResponder;
+use rs_matter::respond::{DefaultResponder, Responder};
 use rs_matter::sc::pase::MAX_COMM_WINDOW_TIMEOUT_SECS;
 use rs_matter::tlv::{Nullable, TLVTag, TLVWrite};
 use rs_matter::transport::exchange::{Exchange, MatterBuffers};
@@ -635,6 +636,12 @@ async fn run(
     let phone_connected = Cell::new(use_ble);
 
     let responder = DefaultResponder::new(&dm);
+    let controller_responder = Responder::new(
+        "Controller ICD Check-In responder",
+        IcdCheckInResponder::new(ctrl_matter),
+        ctrl_matter,
+        0,
+    );
     let ble = BleRelay::new();
     let generation = ble.connect(BtAddr([0xbb; 6]), 247)?;
     let relay_generation = Cell::new(if service_owner { 0 } else { generation });
@@ -1021,6 +1028,7 @@ async fn run(
                 ));
                 eprintln!("ICD fixture wake-window CASE read completed");
                 println!("PASS queued CASE read completed during the Check-In active window");
+                return Ok((fab, node, operational));
             }
             for (cluster, expected, unit) in [
                 (1026, 23.15, "celsius"),
@@ -1467,7 +1475,7 @@ async fn run(
             }
             println!("PASS production manager subscription and peer-correlated OnOff reports");
         }
-        if sensor_reports {
+        if sensor_reports || icd {
             return Ok((fab, node, operational));
         }
         let exchange = Exchange::initiate(ctrl_matter, ctrl_crypto, fab, node).await?;
@@ -1491,19 +1499,24 @@ async fn run(
         Ok::<_, Error>((fab, node, operational))
     };
     let controller = async {
-        let (fab, node, operational) = match select(
+        let (fab, node, operational) = match select3(
             ctrl_matter.run(ctrl_crypto, controller_send, controller_receive, NoNetwork),
+            controller_responder.run::<2>(),
             controller,
         )
         .await
         {
-            Either::First(result) => {
+            embassy_futures::select::Either3::First(result) => {
                 result?;
                 return Err(rs_matter::error::ErrorCode::InvalidState.into());
             }
-            Either::Second(result) => result?,
+            embassy_futures::select::Either3::Second(result) => {
+                result?;
+                return Err(rs_matter::error::ErrorCode::InvalidState.into());
+            }
+            embassy_futures::select::Either3::Third(result) => result?,
         };
-        if sensor_reports {
+        if sensor_reports || icd {
             return Ok(());
         }
         // Replace the controller stack, including all sessions, with a fresh instance.
@@ -1858,7 +1871,7 @@ fn main() {
     assert!(!service_discovery || service_owner);
     assert!(!sensor_reports || service_owner);
     assert!(!native_ipc || (sensor_reports && service_discovery));
-    assert!(!icd || (service_owner && service_discovery));
+    assert!(!icd || service_owner);
     let work = async {
         run(
             &thread,

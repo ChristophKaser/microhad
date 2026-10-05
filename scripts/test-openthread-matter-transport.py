@@ -30,8 +30,8 @@ def main():
         parser.error('--service-discovery requires --service-owner')
     if args.sensor_reports and not args.service_owner:
         parser.error('--sensor-reports requires --service-owner')
-    if args.icd and not (args.service_owner and args.service_discovery):
-        parser.error('--icd requires --service-owner --service-discovery')
+    if args.icd and not args.service_owner:
+        parser.error('--icd requires --service-owner')
     if args.native_bridge and not (args.service_owner and args.service_discovery and args.sensor_reports):
         parser.error('--native-bridge requires --service-owner --service-discovery --sensor-reports')
     if args.service_owner and not args.ble:
@@ -82,11 +82,11 @@ def main():
                 raise RuntimeError('Device scheduler did not complete: ' + result.stdout + result.stderr)
             if args.icd and 'PASS production device manager online snapshot with ICD Management cluster' not in result.stdout:
                 raise RuntimeError('Production manager did not retain the ICD accessory snapshot: ' + result.stdout + result.stderr)
-            if args.service_owner and 'PASS bounded revisioned device snapshot pages from encrypted CASE descriptors' not in result.stdout:
+            if args.service_owner and not args.icd and 'PASS bounded revisioned device snapshot pages from encrypted CASE descriptors' not in result.stdout:
                 raise RuntimeError('Device snapshot pagination did not complete: ' + result.stdout + result.stderr)
-            if args.service_owner and 'PASS capability-gated OnOff transactions and confirmed readback over CASE' not in result.stdout:
+            if args.service_owner and not args.icd and 'PASS capability-gated OnOff transactions and confirmed readback over CASE' not in result.stdout:
                 raise RuntimeError('Operational OnOff transaction did not complete: ' + result.stdout + result.stderr)
-            if args.service_owner and 'PASS production manager subscription and peer-correlated OnOff reports' not in result.stdout:
+            if args.service_owner and not args.icd and 'PASS production manager subscription and peer-correlated OnOff reports' not in result.stdout:
                 raise RuntimeError('Production subscription/report path did not complete: ' + result.stdout + result.stderr)
             if args.sensor_reports and 'PASS recovery-required catalog node reconciled after live CASE descriptor discovery' not in result.stdout:
                 raise RuntimeError('Interrupted node CASE recovery did not complete: ' + result.stdout + result.stderr)
