@@ -50,7 +50,7 @@ use rs_matter::im::subscriptions::DEFAULT_MAX_SUBSCRIPTIONS;
 use rs_matter::im::{InteractionModel, InteractionModelState};
 use rs_matter::onboard::{CommissionResult, Commissioner};
 use rs_matter::persist::DummyKvBlobStore;
-use rs_matter::respond::{DefaultResponder, Responder};
+use rs_matter::respond::DefaultResponder;
 use rs_matter::sc::pase::MAX_COMM_WINDOW_TIMEOUT_SECS;
 use rs_matter::tlv::{Nullable, TLVTag, TLVWrite};
 use rs_matter::transport::exchange::{Exchange, MatterBuffers};
@@ -504,7 +504,14 @@ async fn wait_manager_subscriptions<C: Crypto>(
         }),
     )
     .await
-    .map_err(|_| rs_matter::error::ErrorCode::RxTimeout.into())
+    .map_err(|_| {
+        let missing = clusters
+            .iter()
+            .filter(|cluster| manager.subscription_id(node, 1, **cluster, 0).is_none())
+            .collect::<Vec<_>>();
+        eprintln!("timed out waiting for CASE subscriptions; missing clusters: {missing:?}");
+        rs_matter::error::ErrorCode::RxTimeout.into()
+    })
 }
 
 async fn run(
@@ -636,12 +643,7 @@ async fn run(
     let phone_connected = Cell::new(use_ble);
 
     let responder = DefaultResponder::new(&dm);
-    let controller_responder = Responder::new(
-        "Controller ICD Check-In responder",
-        IcdCheckInResponder::new(ctrl_matter),
-        ctrl_matter,
-        0,
-    );
+    let controller_responder = IcdCheckInResponder::new(ctrl_matter);
     let ble = BleRelay::new();
     let generation = ble.connect(BtAddr([0xbb; 6]), 247)?;
     let relay_generation = Cell::new(if service_owner { 0 } else { generation });
@@ -1247,7 +1249,10 @@ async fn run(
                 }),
             )
             .await
-            .map_err(|_| rs_matter::error::ErrorCode::RxTimeout)?;
+            .map_err(|_| {
+                eprintln!("timed out waiting for the OnOff report subscription ID");
+                rs_matter::error::ErrorCode::RxTimeout
+            })?;
             assert!(subscription_id != 0);
             if sensor_reports {
                 wait_manager_subscriptions(&mut manager, node, &[6, 8, 91, 1026, 1029, 1037, 1066])
@@ -1273,7 +1278,15 @@ async fn run(
                 None
             };
             let exchange = Exchange::initiate(ctrl_matter, ctrl_crypto, fab, node).await?;
-            exchange.on_off().toggle(1).await?;
+            let toggle = exchange.on_off().toggle(1);
+            let report_pump = std::future::poll_fn(|context| {
+                manager.poll(true, false, std::time::Instant::now(), context);
+                std::task::Poll::<()>::Pending
+            });
+            match select(toggle, report_pump).await {
+                Either::First(result) => result?,
+                Either::Second(()) => unreachable!(),
+            }
             let reported_on = embassy_time::with_timeout(
                 Duration::from_secs(5),
                 std::future::poll_fn(|context| {
@@ -1287,7 +1300,10 @@ async fn run(
                 }),
             )
             .await
-            .map_err(|_| rs_matter::error::ErrorCode::RxTimeout)?;
+            .map_err(|_| {
+                eprintln!("timed out waiting for first OnOff subscription report");
+                rs_matter::error::ErrorCode::RxTimeout
+            })?;
             assert!(matches!(
                 reported_on,
                 lexra_rs_matter_probe::operations::ResultValue {
@@ -1299,7 +1315,15 @@ async fn run(
                 } if reported_node == node
             ));
             let exchange = Exchange::initiate(ctrl_matter, ctrl_crypto, fab, node).await?;
-            exchange.on_off().toggle(1).await?;
+            let toggle = exchange.on_off().toggle(1);
+            let report_pump = std::future::poll_fn(|context| {
+                manager.poll(true, false, std::time::Instant::now(), context);
+                std::task::Poll::<()>::Pending
+            });
+            match select(toggle, report_pump).await {
+                Either::First(result) => result?,
+                Either::Second(()) => unreachable!(),
+            }
             let reported_off = embassy_time::with_timeout(
                 Duration::from_secs(5),
                 std::future::poll_fn(|context| {
@@ -1313,7 +1337,10 @@ async fn run(
                 }),
             )
             .await
-            .map_err(|_| rs_matter::error::ErrorCode::RxTimeout)?;
+            .map_err(|_| {
+                eprintln!("timed out waiting for second OnOff subscription report");
+                rs_matter::error::ErrorCode::RxTimeout
+            })?;
             assert!(matches!(
                 reported_off,
                 lexra_rs_matter_probe::operations::ResultValue {
@@ -1429,7 +1456,12 @@ async fn run(
                         }),
                     )
                     .await
-                    .map_err(|_| rs_matter::error::ErrorCode::RxTimeout)?;
+                    .map_err(|_| {
+                        eprintln!(
+                            "timed out waiting for CASE ReportData on sensor cluster {cluster}"
+                        );
+                        rs_matter::error::ErrorCode::RxTimeout
+                    })?;
                     drop(report_peer);
                     let expected = match cluster {
                         1026 => br#"{"schema":1,"event":"matter_report","data":{"node":"0000000000000002","endpoint":1,"cluster":1026,"attribute":0,"value":{"type":"measurement","value":{"value":-5.25,"unit":"celsius","quality":"measured"}}}}"#.as_slice(),
@@ -1501,7 +1533,7 @@ async fn run(
     let controller = async {
         let (fab, node, operational) = match select3(
             ctrl_matter.run(ctrl_crypto, controller_send, controller_receive, NoNetwork),
-            controller_responder.run::<2>(),
+            controller_responder.run(),
             controller,
         )
         .await

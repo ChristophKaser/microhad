@@ -1,7 +1,6 @@
 //! Single-owner, nonblocking, bounded Unix IPC listener. Payloads have no logging path.
 use crate::ipc::{Decoder, Frame, MAX_CHUNK, MAX_PAYLOAD};
 use rs_matter::error::Error;
-use rs_matter::respond::ExchangeHandler;
 use rs_matter::sc::{AsyncScHandler, OpCode, PROTO_ID_SECURE_CHANNEL};
 use rs_matter::transport::exchange::Exchange;
 use rs_matter::Matter;
@@ -19,10 +18,10 @@ pub const MAX_CLIENTS: usize = 4;
 const MAX_RESPONSES: usize = 8;
 const REQUEST_DEADLINE: Duration = Duration::from_secs(2);
 
-/// Exchange handler for ICD Check-Ins that arrive through an established
-/// exchange. The transport separately captures sessionless Check-Ins, which
-/// have no authenticated Matter peer identity. Unrelated exchanges are
-/// dropped because the gateway is a controller, not an accessory.
+/// Accept only established-session ICD Check-Ins. Sessionless Check-Ins are
+/// captured by the transport because they have no authenticated peer identity.
+/// Matching at the transport layer leaves unsolicited Interaction Model
+/// reports available to the device subscription manager.
 pub struct IcdCheckInResponder<'a> {
     matter: &'a Matter<'a>,
 }
@@ -33,18 +32,18 @@ impl<'a> IcdCheckInResponder<'a> {
     }
 }
 
-impl ExchangeHandler for IcdCheckInResponder<'_> {
-    async fn handle(&self, mut exchange: Exchange<'_>) -> Result<(), Error> {
-        let (proto_id, proto_opcode) = {
-            let rx = exchange.recv_fetch().await?;
-            let meta = rx.meta();
-            (meta.proto_id, meta.proto_opcode)
-        };
-
-        if proto_id == PROTO_ID_SECURE_CHANNEL && proto_opcode == OpCode::CheckIn as u8 {
-            <Matter<'_> as AsyncScHandler>::check_in(self.matter, exchange).await
-        } else {
-            Ok(())
+impl IcdCheckInResponder<'_> {
+    pub async fn run(&self) -> Result<(), Error> {
+        loop {
+            let exchange = Exchange::accept_matching(
+                self.matter,
+                PROTO_ID_SECURE_CHANNEL,
+                OpCode::CheckIn as u8,
+            )
+            .await?;
+            // A malformed or unauthenticated packet must not terminate the
+            // long-running service task; the transport already logs failures.
+            let _ = <Matter<'_> as AsyncScHandler>::check_in(self.matter, exchange).await;
         }
     }
 }

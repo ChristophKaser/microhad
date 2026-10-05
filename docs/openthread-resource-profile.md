@@ -364,3 +364,21 @@ contains normal kernel/board startup output and vendor register messages at
 message. The ring buffer covers only the current boot and therefore cannot
 explain earlier uptime drops. No reset occurred during this short check; the
 cause of the previously observed resets remains undetermined.
+
+## Debugger availability and latest guarded service profile — 2026-10-05
+
+The gateway has no `gdb` or `gdbserver`; read-only inspection found
+`/proc/sys/kernel/core_pattern` set to `core`. The Realtek toolchain includes
+MIPS GDB 7.6.2 on the development host, but there is no target-side remote stub
+to attach to. GDB can help investigate a userspace process crash if core dumps
+are enabled for that process and storage remains available. It cannot recover
+state from an abrupt hardware reset without retained crash information or a
+hardware debug connection.
+
+The latest guarded synthetic-RCP service profile used the updated MIPS daemon
+with private state and IPC. It completed Thread dataset creation and orderly
+shutdown, with 1,508 KiB peak RSS, zero sampled CPU ticks, 9,272 KiB minimum
+MemFree, and 18,116 KiB minimum MemFree plus clean inactive file cache. Uptime
+advanced from 13,496.31 to 13,543.16 seconds, production remained online/formed,
+and no reboot was detected. This adds no evidence about the cause of earlier
+resets because the profile did not reproduce one.

@@ -467,4 +467,44 @@ restarted. `scripts/test-openthread-matter-device.py --commissioning --ble
 This closes synthetic Check-In and wake dispatch only. The profile has one
 registered key; worst-case matching against all 64 registrations remains
 unmeasured. The installed daemon's active CASE reports into native state and
-history remain an open implementation/validation checkpoint.
+history remain an open joined-process validation checkpoint.
+
+## Filtered ICD responder and CASE report regression — 2026-10-05
+
+The composed report integration exposed that the generic rs-matter `Responder`
+accepts every pending exchange before dispatching it to its handler. The ICD
+handler then discarded non-Check-In exchanges, which could consume unsolicited
+CASE `ReportData` before the device subscription manager saw it. This made the
+synthetic accessory's OnOff subscription report time out and would also block
+reports in the service process.
+
+`IcdCheckInResponder::run()` now uses `Exchange::accept_matching()` for the
+Secure Channel Check-In protocol/opcode, leaving unrelated exchanges in the
+transport for their owners. It ignores individual Check-In handling errors so
+one malformed exchange does not terminate the daemon task. Sessionless Check-In
+capture remains handled by the dedicated transport queue. The composed
+`python3 ../microhad-zigbee-native/scripts/test_matter_native_report_integration.py`
+passes: the production subscription manager receives CASE reports, and the
+native shared device state/history reflects all five sensor values in both
+fixture legs. The controller-service suite passes 81/81; the MIPS static
+service cross-build passes at 2,158,276 bytes (SHA-256
+`679df2cabf87df2e11183ad949bdd01ae7634d2b3245ffd7bd3d8ac4976a02e4`).
+
+The guarded gateway profile then ran this binary with a private synthetic RCP,
+private state and IPC, and no production UART access. Dataset creation and
+orderly shutdown passed. Peak RSS was 1,508 KiB, CPU tick delta was zero,
+minimum MemFree was 9,272 KiB, and minimum MemFree plus clean inactive file
+cache was 18,116 KiB. Gateway uptime advanced 46.85 seconds; production stayed
+online/formed and no reboot was detected. This exercises service startup and
+Thread lifecycle, not a live accessory's CASE reports inside the daemon; that
+joined service-process proof and physical acceptance remain open.
+
+## Debugger availability for reset investigation — 2026-10-05
+
+The gateway has neither `gdb` nor `gdbserver`. Its kernel `core_pattern` is
+`core`, so a userspace core could help if a process crashes and its core limit
+and storage permit it. The development toolchain has Realtek MIPS GDB 7.6.2,
+but there is no target-side GDB stub to attach to. A software debugger would not
+recover state from an abrupt hardware reset; that needs retained crash/reset
+information or a hardware debug connection. The guarded profile above did not
+reset the gateway.
