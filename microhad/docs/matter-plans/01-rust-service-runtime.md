@@ -66,7 +66,7 @@ native status routes report its actual state over `/tmp/microhad-matter.sock`.
 | 4 | Complete | Four clients, four accepts per turn, 4096-byte read/write budgets, eight queued replies, two-second idle expiry; malformed/overload/idle checks passed. |
 | 5 | Complete | Empty requests for opcodes 1/2 return bounded JSON; synthetic host reports `running` with its persistent fabric and Thread `detached`, without credentials. |
 | 6 | Partial | Matter/Thread/IPC pumps and SIGTERM/SIGINT shutdown implemented. Supervisor retries failures with backoff and stops/restarts Matter on coordinator loss; complete dataset/radio reconnection remains in plan 06. |
-| 7 | Partial | Current native/Rust factory builds are static big-endian MIPS-I ELF32 files: 1,736,548-byte native bridge and 2,109,120-byte Rust service. Host suites and process tests pass; target execution, peak runtime resources and full production-daemon report delivery remain unverified. |
+| 7 | Partial | Current native/Rust factory builds are static big-endian MIPS-I ELF32 files: 1,736,548-byte native bridge and 2,109,120-byte Rust service. Rust/OpenThread ABI flags are now aligned (`4c02d8a`); host suites and process tests pass. Target execution, peak runtime resources and full production-daemon report delivery remain unverified. |
 | 8 | Complete | Runtime invocation, ownership, bounds and state paths documented in `ziggurat-compilation/docs/matter-service-runtime.md`; optional supervisor configuration, failure markers, retry budget and staging documented in `MATTER_INTEGRATION.md`. |
 
 This checkpoint supplies a running transport/status service and persistent
@@ -215,10 +215,14 @@ static, 32-bit big-endian MIPS-I executables with no `PT_INTERP`: native
 combined executable payload is 3,845,668 bytes, excluding configuration,
 state, runtime files and concurrent-process overhead.
 
-The build emits the existing RSDK LOAD-USE warnings. The Rust link also reports
-mixed abicalls/non-abicalls inputs, despite producing the static artifact; this
-remains a target compatibility risk to verify. `file`, `readelf -h -l`, file
-sizes and hashes were checked. Cross-builds establish target code generation
-and package size only; they do not establish executable startup, CPU use, peak
-RSS, scheduling deadlines, coordinator coexistence or Matter accessory
-behavior. Those measurements remain in plan 08.
+The build emits existing RSDK LOAD-USE and experimental MIPS-I warnings. The
+Rust/OpenThread objects now use matching abicalls flags after `4c02d8a`; the
+mixed-ABI link warnings are gone. The old linker still reports its unsupported
+`-no-pie` option, while `readelf` confirms an ET_EXEC with no dynamic section
+or interpreter. Current Rust artifact SHA-256 is
+`1ff121679781bfaa59caa99486f54d6ce5c76e0b52f2671c88eddddb866d7a28` at the
+same 2,109,120-byte size. `file`, `readelf -h -l`, file sizes and hashes were
+checked. Cross-builds establish target code generation and package size only;
+they do not establish executable startup, CPU use, peak RSS, scheduling
+deadlines, coordinator coexistence or Matter accessory behavior. Those
+measurements remain in plan 08.
