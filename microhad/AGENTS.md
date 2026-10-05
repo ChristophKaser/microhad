@@ -26,17 +26,71 @@ changes, stage and commit only the files changed for the current task. Never
 commit device configuration, credentials, production TLS keys, persistent
 network state, or Zigbee keys.
 
-Deploy with `deploy.sh` and the password file explicitly. Deployment updates
-both the binary and web UI by default and preserves the device configuration;
-pass `--binary-only`, `--webui-only`, or `--both` to select assets, and pass
-`--config` only when intentionally replacing configuration. `--config`,
-`--activate`, and `--restart` require a binary deployment. The permanent device service is
-`/tuya/tuya_start.sh`; its executable and configuration live in `/tuya/native`.
-Never commit device configuration, credentials, production TLS keys,
-persistent network state, or Zigbee keys. The only exception is the
-non-production localhost key at `test/fixtures/tls/localhost.key`, which is
-used exclusively by host integration tests. It must never be installed,
-packaged, or referenced by deployment code.
+Deploy updates with `deploy.sh` and the password file by pathname. The default
+copies the selected binary and Web UI; `--binary-only`, `--webui-only`, and
+`--both` select those assets. Pass `--config` only when intentionally replacing
+the device configuration. Files are transferred through SSH stdin and each
+file is moved into place from a temporary file after transfer. A Matter package
+contains the native binary, its `.matter-manifest`, the Rust `thread-matter`
+service, and `paired_start.sh`:
+
+```sh
+# Native gateway, from this repository
+make ZIGGURAT=1 MATTER=1 mips
+
+# Rust service, from ../ziggurat-compilation
+bash scripts/build-rs-matter-transport.sh mips service
+
+# Stage the Matter package without changing the active launcher or processes
+cd ../microhad-zigbee-native
+./deploy.sh --host 192.168.178.62 --password-file ../ssh_password.txt \
+  --target /tuya/native --binary-only \
+  --binary build/mips-ziggurat-matter/microhad-zigbee-native \
+  --matter-service ../ziggurat-compilation/build/rs-matter/thread-matter-mips
+```
+
+Staging does not activate Matter or restart a process. To install the
+Matter-aware paired launcher together with a full package upload, add
+`--activate-paired`; the original `/tuya/tuya_start.sh` is kept at
+`/tuya/tuya_start.sh.lowjs-backup`. If the package is already staged and flash
+space cannot accommodate another binary copy, use `--activate-paired-only` to
+verify the staged Matter files and switch the launcher without re-uploading
+them. Both activation modes require `/tuya/native` and only affect the next
+stack start.
+
+For an update to an already paired installation, `--restart` signals only the
+native daemon; its current supervisor restarts it. It does not reload the
+launcher or restart Ziggurat. To apply a changed paired launcher or Matter
+service configuration, gracefully stop the current paired supervisor using
+the PID in `/tmp/ziggurat-supervisor/supervisor.pid`, wait for its cleanup to
+finish, and launch `/tuya/tuya_start.sh` so the configured stack starts with
+the selected launcher. Confirm Zigbee health, `/tmp/ziggurat/thread.sock`,
+Matter service readiness and resource use before commissioning. Preserve the
+device configuration and both protocols' network/identity state. Never commit
+device configuration, credentials, production TLS keys, persistent network
+state, or Zigbee keys. The non-production localhost key at
+`test/fixtures/tls/localhost.key` is only for host integration tests and must
+never be installed, packaged, or referenced by deployment code.
+
+When the Matter package is already staged but there is not enough flash to
+stage another binary copy, activate the paired launcher while checking the
+same local artifacts against the staged device files:
+
+```sh
+./deploy.sh --host 192.168.178.62 --password-file ../ssh_password.txt \
+  --target /tuya/native --activate-paired-only \
+  --binary build/mips-ziggurat-matter/microhad-zigbee-native \
+  --matter-service ../ziggurat-compilation/build/rs-matter/thread-matter-mips
+```
+
+`--activate-paired-only` uploads only the launcher after verifying the staged
+Matter manifest, executable files and their MD5 hashes; it requires the
+matching local native and service files as references. It preserves the old
+launcher before replacing `/tuya/tuya_start.sh`. The boot script starts the
+paired supervisor once, so restarting that supervisor does not trigger an init
+respawn. After it exits cleanly, invoke `/tuya/tuya_start.sh` over SSH to start
+the new paired stack. `--restart` remains for restarting only the native daemon
+under the existing supervisor.
 
 ## Device build, deployment, and checks
 

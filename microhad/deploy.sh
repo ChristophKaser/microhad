@@ -17,6 +17,7 @@ deploy_binary=true
 deploy_webui=true
 activate=false
 activate_paired=false
+activate_paired_only=false
 restart=false
 certificate=""
 private_key=""
@@ -26,7 +27,7 @@ rng_seed_helper=""
 flash_reserve_kib=${DEPLOY_FLASH_RESERVE_KIB:-512}
 
 usage() {
-    echo "usage: $0 --password-file PATH [--binary-only | --webui-only | --both | --rng-seed-only] [--rng-seed-helper PATH] [--config PATH] [--host HOST] [--user USER] [--target DIR] [--binary PATH] [--matter-service PATH] [--tls-certificate PATH --tls-private-key PATH] [--ca-bundle PATH] [--activate | --activate-paired] [--restart]" >&2
+    echo "usage: $0 --password-file PATH [--binary-only | --webui-only | --both | --rng-seed-only | --activate-paired-only] [--rng-seed-helper PATH] [--config PATH] [--host HOST] [--user USER] [--target DIR] [--binary PATH] [--matter-service PATH] [--tls-certificate PATH --tls-private-key PATH] [--ca-bundle PATH] [--activate | --activate-paired] [--restart]" >&2
     exit 2
 }
 
@@ -49,13 +50,14 @@ while [ "$#" -gt 0 ]; do
         --ca-bundle) ca_bundle=${2-}; shift 2 ;;
         --activate) activate=true; shift ;;
         --activate-paired) activate_paired=true; shift ;;
+        --activate-paired-only) activate_paired_only=true; deploy_binary=false; deploy_webui=false; shift ;;
         --restart) restart=true; shift ;;
         *) usage ;;
     esac
 done
 
 [ -n "$password_file" ] && [ -r "$password_file" ] || usage
-[ "$deploy_binary" = true ] || [ "$deploy_webui" = true ] || [ -n "$rng_seed_helper" ] || usage
+[ "$deploy_binary" = true ] || [ "$deploy_webui" = true ] || [ -n "$rng_seed_helper" ] || [ "$activate_paired_only" = true ] || usage
 [ -z "$matter_service" ] || [ "$binary_explicit" = true ] || {
     echo "--matter-service requires --binary from a ZIGGURAT=1 MATTER=1 build" >&2; exit 2;
 }
@@ -78,7 +80,7 @@ done
 [ -z "$rng_seed_helper" ] || [ "$target" = /tuya/native ] || { echo "RNG seed helper deployment requires --target /tuya/native" >&2; exit 2; }
 [ -z "$rng_seed_helper" ] || [ "$deploy_binary" = false ] || { echo "Use --rng-seed-only to deploy the RNG helper without replacing application assets" >&2; exit 2; }
 [ -z "$config" ] || { [ "$deploy_binary" = true ] && [ -f "$config" ]; } || usage
-[ -z "$matter_service" ] || { [ "$deploy_binary" = true ] && [ -x "$matter_service" ]; } || usage
+[ -z "$matter_service" ] || { { [ "$deploy_binary" = true ] || [ "$activate_paired_only" = true ]; } && [ -x "$matter_service" ]; } || usage
 [ -z "$certificate" ] || [ -f "$certificate" ] || usage
 [ -z "$private_key" ] || [ -f "$private_key" ] || usage
 [ -z "$ca_bundle" ] || [ -f "$ca_bundle" ] || usage
@@ -97,6 +99,7 @@ case "$target" in *[!A-Za-z0-9_./-]*) echo "target contains unsupported characte
 [ "$activate_paired" = false ] || [ "$restart" = false ] || { echo "--activate-paired cannot be combined with --restart" >&2; exit 2; }
 [ "$activate_paired" = false ] || [ "$target" = /tuya/native ] || { echo "--activate-paired requires --target /tuya/native" >&2; exit 2; }
 [ "$activate_paired" = false ] || [ -n "$matter_service" ] || { echo "--activate-paired requires --matter-service PATH" >&2; exit 2; }
+[ "$activate_paired_only" = false ] || { [ "$target" = /tuya/native ] && [ "$activate_paired" = false ] && [ "$activate" = false ] && [ "$restart" = false ] && [ -z "$config" ] && [ -n "$matter_service" ] && [ "$binary_explicit" = true ] && [ -z "$rng_seed_helper" ] && [ -z "$certificate" ] && [ -z "$private_key" ] && [ -z "$ca_bundle" ]; } || { echo "--activate-paired-only requires --target /tuya/native, --binary, and --matter-service; it cannot be combined with uploads or restart" >&2; exit 2; }
 [ "$restart" = false ] || [ "$target" = /tuya/native ] || { echo "--restart requires --target /tuya/native" >&2; exit 2; }
 [ "$deploy_binary" = true ] || { [ -z "$config" ] && [ "$activate" = false ] && [ "$activate_paired" = false ] && [ "$restart" = false ]; } || { echo "--config, launcher activation, and --restart require binary deployment" >&2; exit 2; }
 
@@ -113,6 +116,7 @@ ssh_command() {
 }
 
 matter_flash_preflight() {
+    [ "$activate_paired_only" = false ] || return 0
     [ -z "$matter_service" ] && return 0
 
     old_sizes=$(ssh_command "for file in \"$target/tuya-zigbee-native\" \"$target/config.json\" \"$target/tuya-zigbee-native.matter-manifest\" \"$target/thread-matter\" \"$target/paired_start.sh\"; do if [ -f \"\$file\" ]; then wc -c < \"\$file\"; else echo 0; fi; done") || return $?
@@ -184,6 +188,46 @@ matter_flash_preflight() {
 
 matter_flash_preflight
 
+paired_launcher_preflight() {
+    [ "$activate_paired_only" = true ] || return 0
+
+    ssh_command "test -x \"$target/tuya-zigbee-native\" && test -x \"$target/thread-matter\" && test -x \"$target/paired_start.sh\" && grep -qx 'format=microhad-native-build-v1' \"$target/tuya-zigbee-native.matter-manifest\" && grep -qx 'ziggurat=1' \"$target/tuya-zigbee-native.matter-manifest\" && grep -qx 'matter=1' \"$target/tuya-zigbee-native.matter-manifest\"" || {
+        echo "Staged Matter package is incomplete or not executable" >&2
+        return 1
+    }
+    expected_native_md5=$(md5sum "$binary" | awk '{print $1}')
+    expected_manifest_md5=$(md5sum "$binary.matter-manifest" | awk '{print $1}')
+    expected_service_md5=$(md5sum "$matter_service" | awk '{print $1}')
+    expected_supervisor_md5=$(md5sum "$project_dir/paired_start.sh" | awk '{print $1}')
+    actual_matter_md5s=$(ssh_command "md5sum \"$target/tuya-zigbee-native\" \"$target/tuya-zigbee-native.matter-manifest\" \"$target/thread-matter\" \"$target/paired_start.sh\"") || return $?
+    set -- $actual_matter_md5s
+    [ "${1:-}" = "$expected_native_md5" ] &&
+        [ "${2:-}" = "$expected_manifest_md5" ] &&
+        [ "${3:-}" = "$expected_service_md5" ] &&
+        [ "${4:-}" = "$expected_supervisor_md5" ] || {
+            echo "Staged Matter package hashes do not match the selected local artifacts" >&2
+            return 1
+        }
+    old_launcher_sizes=$(ssh_command "for file in /tuya/tuya_start.sh /tuya/tuya_start.sh.lowjs-backup; do if [ -f \"\$file\" ]; then wc -c < \"\$file\"; else echo 0; fi; done") || return $?
+    set -- $old_launcher_sizes
+    old_launcher=${1:-0}
+    old_backup=${2:-0}
+    case "$old_launcher:$old_backup" in *[!0-9:]*|:*|*::*) echo "Unable to read installed launcher sizes" >&2; return 1 ;; esac
+    new_launcher=$(wc -c < "$project_dir/ziggurat_start.sh")
+    backup_bytes=0
+    [ "$old_backup" -ne 0 ] || backup_bytes=$old_launcher
+    required_kib=$(((new_launcher + backup_bytes + 1023) / 1024 + flash_reserve_kib))
+    available_kib=$(ssh_command "df -k /tuya | awk 'END {print \$4}'") || return $?
+    case "$available_kib" in ''|*[!0-9]*) echo "Unable to read available /tuya flash space from df" >&2; return 1 ;; esac
+    if [ "$available_kib" -lt "$required_kib" ]; then
+        printf 'Insufficient /tuya flash for paired launcher activation: need at least %s KiB, have %s KiB\n' "$required_kib" "$available_kib" >&2
+        return 1
+    fi
+    printf 'Paired launcher preflight passed: need at least %s KiB, have %s KiB available\n' "$required_kib" "$available_kib"
+}
+
+paired_launcher_preflight
+
 prune_web_bundles() {
     assets_dir="$target/webui/assets"
     ssh_command "index=\$(cat \"$target/webui/index.html\" 2>/dev/null || true); for asset in \"$assets_dir\"/index-*.js \"$assets_dir\"/index-*.css; do [ -f \"\$asset\" ] || continue; name=\${asset##*/}; case \"\$index\" in *\"\$name\"*) ;; *) rm -f \"\$asset\" ;; esac; done; rm -f \"$assets_dir\"/index-*.js.new \"$assets_dir\"/index-*.css.new"
@@ -250,7 +294,7 @@ if [ "$activate" = true ]; then
     ssh_command "dd of=\"$target/.gateway_start.sh.new\"" < "$project_dir/native_start.sh"
     ssh_command "test -f /tuya/tuya_start.sh.lowjs-backup || cp /tuya/tuya_start.sh /tuya/tuya_start.sh.lowjs-backup; chmod 755 \"$target/.gateway_start.sh.new\"; mv \"$target/.gateway_start.sh.new\" /tuya/tuya_start.sh"
 fi
-if [ "$activate_paired" = true ]; then
+if [ "$activate_paired" = true ] || [ "$activate_paired_only" = true ]; then
     ssh_command "dd of=\"$target/.gateway_start.sh.new\"" < "$project_dir/ziggurat_start.sh"
     ssh_command "test -f /tuya/tuya_start.sh.lowjs-backup || cp /tuya/tuya_start.sh /tuya/tuya_start.sh.lowjs-backup; chmod 755 \"$target/.gateway_start.sh.new\"; mv \"$target/.gateway_start.sh.new\" /tuya/tuya_start.sh"
 fi
@@ -276,7 +320,7 @@ exit 1"
     echo "Selected assets uploaded and service restarted."
 elif [ "$activate" = true ]; then
     echo "Selected assets uploaded and activated for the next boot. Existing processes were not restarted."
-elif [ "$activate_paired" = true ]; then
+elif [ "$activate_paired" = true ] || [ "$activate_paired_only" = true ]; then
     echo "Paired Matter-capable launcher activated for the next boot. Existing processes were not restarted."
 else
     echo "Selected assets uploaded. Existing services were not changed."

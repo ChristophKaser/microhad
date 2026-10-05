@@ -59,6 +59,15 @@ The Matter binaries are now staged, but the first-device gate remains launcher
 activation plus a supervised restart, followed by service/Thread readiness and
 resource checks. No Matter workload or upload-script tests were run.
 
+The launcher activation path is constrained by low remaining flash after the
+package upload. `deploy.sh --activate-paired-only` now verifies the staged
+Matter manifest, executable artifacts and their MD5 values against the chosen
+local native binary, service and supervisor, then preflights only the launcher
+and backup space before switching `/tuya/tuya_start.sh`. It does not re-upload
+the package or restart the paired processes. No script test suite was added or
+run; the selected-option preflight and activation will be exercised by this
+deployment step.
+
 ## Gateway flash headroom observation — 2026-10-05
 
 A read-only `df -k /tuya` check reported 12,160 KiB total, 8,628 KiB used,
