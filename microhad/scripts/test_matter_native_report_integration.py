@@ -21,6 +21,14 @@ SIM_SPEC.loader.exec_module(sim_transport)
 
 
 def main():
+    test_service_build = subprocess.run(
+        ['bash', str(RUST_ROOT / 'scripts/build-rs-matter-test-service.sh')],
+        cwd=RUST_ROOT, check=False)
+    if test_service_build.returncode != 0:
+        raise RuntimeError('Host test-hook Matter service build failed')
+    test_service_binary = RUST_ROOT / 'build/rs-matter/service-test-target/release/thread-matter'
+    if not test_service_binary.is_file():
+        raise RuntimeError('Host test-hook Matter service binary is missing')
     radio = sim_transport.sim.ThreadRcp('127.0.0.1', tcp_nodelay=True)
     relay = probe = daemon = fixture = None
     try:
@@ -143,7 +151,7 @@ def main():
             daemon_env = env.copy()
             daemon_env['MICROHAD_MATTER_TEST_SEED_SENSOR_REPORT_NODE'] = '2'
             daemon = subprocess.Popen([
-                str(RUST_ROOT / 'build/rs-matter/target/release/thread-matter'),
+                str(test_service_binary),
                 '--socket', '/tmp/microhad-matter.sock', '--state-dir', str(state),
                 '--radio-url', 'spinel+hdlc+unix://' + str(daemon_radio_socket) + '?no-reset'],
                 cwd=directory, env=daemon_env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
