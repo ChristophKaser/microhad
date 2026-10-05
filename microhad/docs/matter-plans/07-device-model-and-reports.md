@@ -332,18 +332,39 @@ states. Operational SRP/DNS-SD is implemented; remote catalog reconciliation, en
 commands, subscriptions and native report integration remain pending. The new SRP/DNS encrypted fixture proves the production resolver path; the older
 explicit-rendezvous fixture alone does not establish operational discovery.
 
+## CASE address recovery — 2026-10-05
+
+The production Manager now invalidates the failed node's operational DNS-SD
+cache entry after CASE timeout/accessory failures from reads, commands,
+subscription timeouts, or descriptor discovery. Failed operational jobs mark the
+snapshot offline and schedule rediscovery immediately; the existing bounded
+backoff applies when rediscovery itself fails. The resolver refresh queue is
+bounded to the 64-node catalog and only evicts the matching fabric/node entry
+on that node's next CASE resolution request. Node identity and persisted fabric
+state are unchanged; no re-commissioning or flash write is introduced.
+
+Host and stripped MIPS service builds compile with the production feature set.
+The MIPS-I/o32 artifact is 2,162,372 bytes (SHA-256
+`5d7d9d0a236ee853ed3cf3f926ec23c0162bc5c3a4933c7190371309781133f4`); the
+test-only report hook is absent. No gateway service restart or target workload
+was run for this bounded resolver change. Automated behavior coverage and the
+installed-daemon live CASE report-to-native path remain open.
+
 ## Remaining checkpoints
 
 1. Local catalog persistence, stable identity and failed/interrupted state are
    implemented. Reconcile recovery-required remote nodes and legacy stores without
    catalog metadata without reusing allocated node IDs.
-2. Bounded operational SRP/DNS-SD, TTL/cache limits and query backoff are
-   implemented. Add proactive address invalidation/re-resolution on CASE failure
-   with the production device/recovery pipeline.
+2. Bounded operational SRP/DNS-SD, TTL/cache limits, query backoff, and
+   production CASE failure address invalidation/re-resolution are implemented
+   (`f32a9bc`, Rust). Add behavioral coverage for invalidation during
+   concurrent CASE work and confirm address changes recover the same persisted
+   node.
 3. Descriptor discovery and capability-gated OnOff/Level reads and commands
    have encrypted host evidence (`05053ec`, `6ec569a`) and native rendered
-   controls (`1ab6e91`, `7ea5a52`). Reconcile catalogued nodes after remote
-   CASE failure and integrate future reports into confirmed state.
+   controls (`1ab6e91`, `7ea5a52`). Failed operational CASE now marks the
+   existing snapshot offline and schedules discovery against a refreshed
+   address; verify address-change recovery on the production Manager fixture.
 4. A frontend adapter now projects Matter descriptors and cached values into
    the shared dashboard `Device` shape and `DeviceGroups` cards. Generic light
    controls dispatch through the Matter adapter; Zigbee and Shelly retain their
