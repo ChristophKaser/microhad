@@ -42,7 +42,7 @@ class MatterPeer:
         self.malformed_next_reply = False
         self.wrong_next_reply_id = False
         self.stall_next_status = False
-        self.malformed_next_header = False
+        self.malformed_next_header = None
         self.saturate_next_event_queue = False
         self.onoff = False
         self.level = 0
@@ -209,8 +209,18 @@ class MatterPeer:
                             time.sleep(2.5)
                             break
                         if self.malformed_next_header:
-                            self.malformed_next_header = False
-                            malformed = struct.pack('<HBBBBI', 0, 2, 1, opcode, 0, ident)
+                            mode = self.malformed_next_header
+                            self.malformed_next_header = None
+                            length, version, reserved = 0, 1, 0
+                            if mode == 'version':
+                                version = 2
+                            elif mode == 'reserved':
+                                reserved = 1
+                            elif mode == 'oversized':
+                                length = 2049
+                            else:
+                                raise AssertionError(f'unknown malformed frame mode: {mode}')
+                            malformed = struct.pack('<HBBBBI', length, version, 1, opcode, reserved, ident)
                             self.send(peer, malformed)
                             break
                         payload = json.dumps(result).encode()
@@ -728,9 +738,10 @@ def main():
             wait_for(matter_unavailable, timeout=6)
             wait_for(lambda: fixture.request('/api/matter/status')['state'] == 'running')
             # A structurally invalid frame header must also clear readiness.
-            matter.malformed_next_header = True
-            wait_for(matter_unavailable)
-            wait_for(lambda: fixture.request('/api/matter/status')['state'] == 'running')
+            for malformed_header in ('version', 'reserved', 'oversized'):
+                matter.malformed_next_header = malformed_header
+                wait_for(matter_unavailable)
+                wait_for(lambda: fixture.request('/api/matter/status')['state'] == 'running')
         device_snapshot_http(fixture, real)
         if not real:
             try:
