@@ -9,10 +9,11 @@ high-water. The real service fixture also verifies an allocated node is retained
 as `recovery_required` after active commissioning is interrupted by RCP loss.
 Archive preflight, private extraction and matching-service identity validation
 pass together on synthetic state, including failed candidate validation without
-changing the source tree. Rust commit `8db4897` now simulates a crash after the
-replacement envelope is fully written and synced but before atomic rename; the
-previous committed identity remains readable and writable after restart.
-Post-rename power-loss behavior and target filesystem verification remain open.
+changing the source tree. Rust commits `8db4897` and `980db77` cover both sides
+of atomic rename: an orphaned fully synced stage before rename preserves the
+prior identity, and a simulated directory-sync error after rename poisons the
+current owner while restart loads the complete replacement envelope. Actual
+power-loss behavior and target filesystem verification remain open.
 
 Native commit `7247c94` adds structural preflight for the plaintext tar produced
 after successful backup decryption. Commit `7f5ac3d` adds staged extraction that
@@ -92,8 +93,8 @@ defined. The authority is now implemented and connected to service startup.
 | 3 | Complete | Secure OS entropy generates all authority materials; full record committed before fabric installation; abandoned-stage and interrupted-install host checks pass. |
 | 4 | Complete | Restore verifies the certificate chain, all three key pairs, fabric/node/vendor metadata, counter and exact upstream fabric materials. Missing authority with a fabric or an unloaded corrupt fabric is rejected. Real host service process restart passes without rewriting state. |
 | 5 | Complete | Counter committed before an ID is returned; reload continues above prior IDs, failed writes return no ID, exhaustion is persisted and never wraps. |
-| 6 | Partial | Offline candidate validation refuses active owners, does not create paths or write records, and checks authority/vendor, installed fabric, catalog, Thread dataset and settings framing (`1ec79fd`). Controller-service library tests pass 72/72; synthetic service integration passes valid/incomplete/unsafe cases. Archive preflight/extract/validate passes end to end; corrupt credentials fail validation without changing the candidate or source (`0e133b4`). Catalog high-water refusal, interrupted commissioning reservation recovery, and a synced orphan-stage pre-rename crash simulation are covered. Post-rename power-loss behavior remains untested. The encrypted host fixture reloads authority and establishes fresh CASE over synthetic BTP and UDP. Target filesystem validation remains in plan 08. |
-| 7 | Partial | Schema and operational backup/restore policy are documented; the recovery runbook invokes the matching binary's `--validate-state-dir` command. Pre-rename crash recovery is host-tested; post-rename power-loss and target filesystem durability evidence remain. |
+| 6 | Partial | Offline candidate validation refuses active owners, does not create paths or write records, and checks authority/vendor, installed fabric, catalog, Thread dataset and settings framing (`1ec79fd`). Controller-service library tests pass 73/73; synthetic service integration passes valid/incomplete/unsafe cases. Archive preflight/extract/validate passes end to end; corrupt credentials fail validation without changing the candidate or source (`0e133b4`). Catalog high-water refusal, interrupted commissioning reservation recovery, pre-rename orphan-stage recovery, and post-rename owner poisoning/reload are covered. Actual power-loss behavior remains untested. The encrypted host fixture reloads authority and establishes fresh CASE over synthetic BTP and UDP. Target filesystem validation remains in plan 08. |
+| 7 | Partial | Schema and operational backup/restore policy are documented; the recovery runbook invokes the matching binary's `--validate-state-dir` command. Both rename-boundary error paths are host-tested; actual power-loss and target filesystem durability evidence remain. |
 
 The service now reports `fabric_ready:true`/`running` after initialization,
 with Thread still `detached` until plan 06. Administrator vendor metadata
@@ -157,7 +158,8 @@ are historical; the latest status/evidence section above takes precedence.
    separate wrong-mode/corrupt-store tests pass. Service-level validation
    rejects corrupt staged credentials without changing the source tree; a crash
    during atomic replacement is simulated before rename by Rust commit
-   `8db4897`; post-rename durability remains untested.
+   `8db4897`; post-rename sync failure poisons the owner and reloads the complete
+   envelope (`980db77`). Actual power-loss durability remains untested.
 4. [ ] After plan 07 persists the node catalog, include it in backup/recovery
    tests and prove restart reaches the same node through fresh CASE.
 5. [ ] Prepare target filesystem checks for atomic replacement, fsync,
@@ -186,11 +188,24 @@ process crash at that boundary. Reopening ignores the orphan stage and reads
 the prior committed identity; a later update and second restart preserve that
 identity while committing the new counter.
 
-The focused test and all 72 controller-service library tests pass with local
-Unix socket permission. This verifies pre-rename process-crash recovery on the
-host filesystem. It does not simulate power loss or prove the durability of a
-rename followed by directory `fsync`; those checks and target filesystem
-semantics remain open in plan 08.
+The focused pre-rename test and all 73 controller-service library tests pass
+with local Unix socket permission. This verifies process-crash recovery on the
+host filesystem. It does not simulate power loss or prove target filesystem
+durability.
+
+## Post-rename sync failure recovery — 2026-10-05
+
+Rust commit `980db77` adds a test-only fault point after rename and before the
+parent-directory sync completes. The simulated sync failure returns an error
+and poisons the live `PrivateStore`, preventing reads or writes from a possibly
+stale in-memory view. After restart, the store validates and loads the complete
+replacement envelope. The focused store tests pass 7/7 and the complete
+controller-service library suite passes 73/73.
+
+This verifies fail-closed owner behavior and recovery from a post-rename error
+on the host. It cannot establish which directory entry survives sudden power
+loss; actual filesystem durability and target validation remain open in plan
+08.
 
 No credentials or gateway state were read/exported/restored. The shell template
 and relative links were checked locally. Archive preflight/staging automation,
