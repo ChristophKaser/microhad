@@ -13,14 +13,17 @@ the synthetic RCP is lost during apply. The native worker now renews the
 coordinator observation past the five-second expiry while Thread remains
 attached, with no extra radio channel writes. The `apply_failed` suppression
 and explicit retry behavior has Rust FakeRadio and host process-level gates
-that inject at the OpenThread adapter boundary. The native API and dashboard
-now expose a bounded retry action that reapplies the retained dataset after a
-fresh matching coordinator observation, avoiding another credential import
-after a transient apply failure. Reliable real-RCP apply-failure injection
-and target RF behavior remain open.
+that inject at the OpenThread adapter boundary. A wire-level non-OK Spinel
+status from the synthetic RCP now exercises the production OpenThread adapter;
+that service process exits, preserves its committed dataset, and restores it
+after a fresh process receives a matching coordinator observation. The native
+API and dashboard expose a bounded retry action for recoverable in-process
+failures. Physical RCP error behavior and target RF remain open.
 
-Next deliverable: Find reliable real-RCP injection for an in-process failed
-apply. Keep physical coexistence and RF acceptance in plan 08.
+Next deliverable: Verify the paired supervisor relaunches after the wire-level
+Spinel failure and reports recovery to the native worker. Do not repeat target
+workloads until plan 01's reboot risk is understood. Keep physical coexistence
+and RF acceptance in plan 08.
 
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.
@@ -77,9 +80,9 @@ production activation and target runtime verification remain pending.
 | 1–2 | Complete | Private no-reset Unix transport and optional supervision; no direct UART owner or Linux IPv6/TUN requirement. |
 | 3 | Complete | Typed private online/channel observations expire after five monotonic seconds; native protected observation/status worker implemented with coordinator liveness expiry; host round trips verified. |
 | 4 | Complete | Required/duplicate/truncated TLVs, channel/mask, prefix and PAN checks before mutation; malformed/mismatch synthetic and unit checks pass. |
-| 5 | Complete | OS-random create, bounded persisted import/restore, no implicit replacement; persist-before-apply failure disables Thread and requires explicit retry. |
-| 6 | Partial | Redacted lifecycle states, deferred boot, expiry detach, cached-channel guard, bounded stored-dataset retry and host radio-loss/restart reconciliation implemented; reliable real-RCP apply-failure coverage remains open. |
-| 7 | Partial | 36 Rust library tests and real host process/synthetic-RCP lifecycle test pass; physical coexistence/reception remains unverified. |
+| 5 | Complete | OS-random create, bounded persisted import/restore, no implicit replacement; recoverable in-process apply failures require explicit retry, while wire-level RCP status errors exit and restore the persisted dataset after service restart. |
+| 6 | Partial | Redacted lifecycle states, deferred boot, expiry detach, cached-channel guard, bounded stored-dataset retry and host radio-loss/restart reconciliation implemented. A failed Spinel dataset property transaction now proves process exit and persisted-dataset restore through the synthetic RCP; paired-supervisor composition and physical RCP behavior remain open. |
+| 7 | Partial | Rust library and host process tests pass, including wire-level synthetic-RCP apply rejection/restart. Physical coexistence/reception and target resource gates remain unverified. |
 
 The process test changes a persisted cached active channel to 20 while the
 canonical dataset/channel is 15. Restart waits without radio traffic, rejects
@@ -422,3 +425,17 @@ was observed in the following status interval, followed by supervisor recovery;
 its cause is unknown. This is not Thread attach or coexistence evidence. Suspend
 further target profiles pending the runtime-plan reset investigation; details
 are recorded in [plan 01](01-rust-service-runtime.md).
+
+## Wire-level Spinel apply rejection and service recovery — 2026-10-05
+
+Rust commit `68d8e21` removes the service-adapter marker hook and injects a
+non-OK `LAST_STATUS` response from the synthetic RCP to an active-dataset
+property transaction. The production OpenThread/Spinel path causes the service
+process to exit before replying to that IPC request. The test verifies the
+validated dataset was persisted first, then starts a fresh service process on a
+new synthetic RCP connection, supplies a fresh matching channel observation,
+and confirms the retained dataset is restored without a radio reset or a
+credential rewrite. The complete `python3 scripts/test-matter-service.py` suite
+passes. This validates wire-level error handling and process recovery on a
+synthetic RCP; it does not prove physical-RCP behavior or that the paired
+launcher restarts this specific failure.
