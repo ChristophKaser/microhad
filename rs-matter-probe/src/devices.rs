@@ -153,6 +153,8 @@ pub struct Manager<'a, C: Crypto> {
     subscriptions: Vec<SubscriptionState>,
     subscription_work: Option<(SubscriptionKey, Instant, SubscriptionWork<'a>)>,
     report_work: Option<ReportWork<'a>>,
+    #[cfg(feature = "controller-service-test-hooks")]
+    host_test_reports: VecDeque<crate::subscriptions::ReceivedReport>,
     reports: VecDeque<crate::operations::ResultValue>,
 }
 impl<'a, C: Crypto + 'a> Manager<'a, C> {
@@ -204,6 +206,8 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             subscriptions: Vec::new(),
             subscription_work: None,
             report_work: None,
+            #[cfg(feature = "controller-service-test-hooks")]
+            host_test_reports: VecDeque::new(),
             reports: VecDeque::new(),
         })
     }
@@ -260,7 +264,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         self.reports.front()
     }
     #[cfg(feature = "controller-service-test-hooks")]
-    /// Exercise snapshot and report correlation in the daemon host fixture.
+    /// Exercise daemon polling and report correlation in the host fixture.
     pub fn seed_host_test_sensor_reports(&mut self, node: u64) -> Result<(), &'static str> {
         if !self
             .catalog
@@ -360,12 +364,13 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 unit: None,
                 last_report: None,
             });
-            self.record_report(crate::subscriptions::ReceivedReport {
-                fabric: self.fabric.get(),
-                node,
-                subscription_id,
-                values: vec![value],
-            });
+            self.host_test_reports
+                .push_back(crate::subscriptions::ReceivedReport {
+                    fabric: self.fabric.get(),
+                    node,
+                    subscription_id,
+                    values: vec![value],
+                });
         }
         Ok(())
     }
@@ -566,8 +571,61 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             }
             return;
         }
+        #[cfg(feature = "controller-service-test-hooks")]
+        {
+            let now = Instant::now();
+            let host_subscriptions: Vec<_> = self
+                .host_test_reports
+                .iter()
+                .flat_map(|report| {
+                    report.values.iter().map(move |value| {
+                        (
+                            report.node,
+                            value.endpoint,
+                            value.cluster,
+                            value.attribute,
+                            report.subscription_id,
+                        )
+                    })
+                })
+                .collect();
+            for (node, endpoint, cluster, attribute, id) in host_subscriptions {
+                if let Some(subscription) = self.subscriptions.iter_mut().find(|subscription| {
+                    subscription.key
+                        == SubscriptionKey {
+                            node,
+                            endpoint,
+                            cluster,
+                            attribute,
+                        }
+                }) {
+                    subscription.id = Some(id);
+                } else {
+                    self.subscriptions.push(SubscriptionState {
+                        key: SubscriptionKey {
+                            node,
+                            endpoint,
+                            cluster,
+                            attribute,
+                        },
+                        id: Some(id),
+                        next_retry: now + Duration::from_secs(3600),
+                        failures: 0,
+                        unit: None,
+                        last_report: None,
+                    });
+                }
+            }
+        }
         if self.report_work.is_none() {
-            self.report_work = Some(Box::pin(crate::subscriptions::receive_report(self.matter)));
+            #[cfg(feature = "controller-service-test-hooks")]
+            if let Some(report) = self.host_test_reports.pop_front() {
+                self.report_work = Some(Box::pin(async move { Ok(report) }));
+            }
+            if self.report_work.is_none() {
+                self.report_work =
+                    Some(Box::pin(crate::subscriptions::receive_report(self.matter)));
+            }
         }
         if let Some(work) = &mut self.report_work {
             if let Poll::Ready(result) = work.as_mut().poll(context) {
