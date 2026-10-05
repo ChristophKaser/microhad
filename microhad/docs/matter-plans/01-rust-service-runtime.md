@@ -422,3 +422,26 @@ initialization. Its final vendor messages read and write `0xb8000038`; that is
 not the documented watchdog control register, and this observation does not
 identify it as related to resets. This confirms only that no reset occurred
 during this brief read-only check; the reset cause remains undetermined.
+
+## Constrained synthetic-RCP repeat profile — 2026-10-05
+
+After the DNS-SD legacy migration MIPS cross-build, the authorized constrained
+profile ran an OpenThread CLI against a synthetic RCP over an isolated host
+relay. It did not open the production UART, restart any service, or issue radio
+reset commands. The production status API reported online/formed on Ziggurat
+before and after. The full 45-second run used 20 seconds disabled idle, five
+seconds of load, and 20 seconds enabled idle; it completed 98 cycles at 19.57/s.
+
+Sampled CLI RSS peaked at 808 KiB. Raw MemFree reached a minimum of 12,696 KiB
+and effective free memory (including clean inactive file cache) 19,608 KiB.
+Loaded CPU averaged about 10.8% of one core; p95 cycle latency was 54.20 ms
+and maximum was 76.60 ms. There were 39 resource samples. Uptime increased
+through the profile and to 5,109.76 seconds after it; current-boot `dmesg` had
+no watchdog, reset, panic or brownout matches. This did not reproduce a reset.
+
+This measures only the OpenThread CLI's synthetic RCP/UDP path; it does not
+measure the Rust Matter service, CASE, DNS Browse callback, real RCP or combined
+Zigbee/Thread load. The existing service remained healthy, and cleanup removed
+temporary binaries/settings/socket. See the detailed
+[resource profile](../../ziggurat-compilation/docs/openthread-resource-profile.md)
+and [machine-readable samples](../../ziggurat-compilation/docs/openthread-resource-profile.json).
