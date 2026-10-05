@@ -260,6 +260,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         self.reports.front()
     }
     #[cfg(feature = "controller-service-test-hooks")]
+    /// Exercise snapshot and report correlation in the daemon host fixture.
     pub fn seed_host_test_sensor_reports(&mut self, node: u64) -> Result<(), &'static str> {
         if !self
             .catalog
@@ -288,7 +289,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             });
         }
         self.changed();
-        self.reports.extend([
+        let reports = [
             crate::operations::ResultValue {
                 node: crate::control::Id(node),
                 endpoint: 1,
@@ -343,7 +344,29 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                     quality: "measured",
                 }),
             },
-        ]);
+        ];
+        for value in reports {
+            let subscription_id = value.cluster + 1000;
+            self.subscriptions.push(SubscriptionState {
+                key: SubscriptionKey {
+                    node,
+                    endpoint: 1,
+                    cluster: value.cluster,
+                    attribute: 0,
+                },
+                id: Some(subscription_id),
+                next_retry: now + Duration::from_secs(3600),
+                failures: 0,
+                unit: None,
+                last_report: None,
+            });
+            self.record_report(crate::subscriptions::ReceivedReport {
+                fabric: self.fabric.get(),
+                node,
+                subscription_id,
+                values: vec![value],
+            });
+        }
         Ok(())
     }
     pub fn operations_busy(&self) -> bool {
