@@ -84,22 +84,27 @@ open.
 Sleepy-device support remains implementation work. The service currently uses
 ordinary CASE subscriptions (1–3600 second negotiated intervals), 30-second
 operation/discovery deadlines, and a generic retry backoff capped at 320
-seconds. In the pinned `rs-matter` source, Secure Channel has an `AsyncScHandler`
-hook for incoming ICD Check-In messages, but the default responder uses a
-no-op handler and the gateway service does not install an ICD client.
+seconds. The default responder now installs the `AsyncScHandler` hook for
+Check-In capture, but no ICD client registration or wake-operation manager is
+installed.
 
-The concrete service gap was in `devices::Manager::poll`: its sole inbound
-exchange future called `subscriptions::receive_report`, which rejected every
-message whose opcode was not `ReportData`. Rust commit `02d631a` adds a
-dispatcher that preserves the report path, identifies Secure Channel
-`CheckIn`, bounds the encrypted payload to 128 bytes and retains up to eight
-messages for a controller layer, evicting the oldest on overflow. The 79-test
-controller-service library suite, composed native CASE report integration,
-and production MIPS service cross-build pass; the MIPS artifact remains
-2,129,600 bytes and excludes test hooks. Check-In messages are not yet
-authenticated or processed: client registration/identity and wake-triggered
-operations remain implementation work. No gateway workload was run because
-this bounded dispatch change adds no expensive procedure.
+The earlier Rust commit `02d631a` routed Check-In through the device manager's
+unrestricted exchange acceptor. Inspection showed that this raced rs-matter's
+normal Secure Channel responder, which used a no-op Check-In handler. Rust
+commit `fd6e304` replaces that unreliable route with the supported
+`AsyncScHandler`: the authenticated fabric/node and encrypted payload (maximum
+128 bytes) enter an eight-entry bounded queue owned by `Matter`. A protocol-
+and-opcode-filtered acceptor keeps the report reader from consuming Secure
+Channel traffic. `devices::Manager::pop_icd_check_in()` exposes queued messages
+to the upcoming client manager. The controller-service library suite passes
+77/77 and the production MIPS service cross-build passes at 2,125,504 bytes
+(SHA-256 `6c88de77169251af9d9115679a8f9bb7617e1f3298c474f06c72021d3df944cf`).
+No gateway workload was run because this adds only fixed-size queueing. A
+separate rs-matter test-profile build exhausted host disk space before
+producing its unit-test binary; generated files were removed. Registration,
+Check-In MIC/counter validation, durable client keys/counters, and
+wake-triggered operations remain unimplemented, so this does not establish
+sleepy-device support.
 
 Verification passed:
 `make ZIGGURAT=1 MATTER=1 host test` and
