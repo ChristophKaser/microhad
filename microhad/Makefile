@@ -168,8 +168,8 @@ test-backends:
 	$(MAKE) ZIGGURAT=0 MATTER=0 host test
 	$(MAKE) ZIGGURAT=1 MATTER=0 host test
 
-# Fail closed until the actual Matter controller/platform port is implemented.
-# These probes establish compiler prerequisites, not an available Matter backend.
+# The Matter native build is the gateway IPC/API bridge. The paired Rust
+# controller service is built separately in ziggurat-compilation.
 .PHONY: matter-platform-check matter-host-check matter-mips-check matter-build-flags-test
 matter-platform-check:
 	python3 "$(MATTER_PLATFORM_CHECK)" mips --sdk "$(MATTER_SDK_ROOT)" --rsdk "$(RSDK_ROOT)"
@@ -178,9 +178,9 @@ ifeq ($(MATTER),1)
 $(HOST_BIN) $(UNIT_TEST_BIN) $(INTEGRATION_TEST_BIN): | matter-host-check
 $(MIPS_BIN): | matter-mips-check
 matter-host-check:
-	@echo 'Matter IPC/status bridge enabled; controller daemon and control API remain unavailable. See MATTER_INTEGRATION.md.' >&2
+	@echo 'Matter native IPC, commissioning, Thread, and device-control APIs enabled; build the paired Rust controller service separately. See MATTER_INTEGRATION.md.'
 matter-mips-check:
-	@echo 'Matter IPC/status bridge enabled; controller daemon and control API remain unavailable. See MATTER_INTEGRATION.md.' >&2
+	@echo 'Matter native IPC, commissioning, Thread, and device-control APIs enabled; build the paired Rust controller service separately. See MATTER_INTEGRATION.md.'
 endif
 
 matter-build-flags-test:

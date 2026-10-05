@@ -36,7 +36,7 @@ provided by Ziggurat. Empty, unknown, and multi-value flags are rejected.
 | --- | --- | --- | --- |
 | `ZIGGURAT=0 MATTER=0` | `build/host` | `build/mips` | Existing EZSP backend |
 | `ZIGGURAT=1 MATTER=0` | `build/host-ziggurat` | `build/mips-ziggurat` | Existing Ziggurat backend |
-| `ZIGGURAT=1 MATTER=1` | `build/host-ziggurat-matter` | `build/mips-ziggurat-matter` | Native IPC/status bridge; Rust service is separate |
+| `ZIGGURAT=1 MATTER=1` | `build/host-ziggurat-matter` | `build/mips-ziggurat-matter` | Native IPC, commissioning/Thread and device-control APIs; Rust service is built separately |
 
 Matter-disabled builds do not fetch, compile, or link the Matter SDK. Switching
 the flag cannot reuse enabled and disabled native artifacts. Native binaries

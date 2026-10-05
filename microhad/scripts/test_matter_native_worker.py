@@ -639,6 +639,20 @@ def device_operations_http(fixture):
     assert operation('/api/matter/devices/read', dict(identity, cluster=8, attribute=0)) == {'value': 124}
 
 
+def device_dispatch_http(fixture):
+    identity = dict(node='0000000000000002', endpoint=1,
+                    command='move_to_level', level=124, transition_deciseconds=20)
+    accepted = fixture.request('/api/matter/devices/command', json.dumps(identity).encode())
+    assert accepted['ok'] and accepted['state'] == 'queued'
+
+    def finished():
+        job = fixture.request('/api/matter/jobs/' + str(accepted['job']))
+        return job if job['state'] == 'complete' else None
+
+    job = wait_for(finished)
+    assert job['response'] == {'schema': 1, 'ok': False, 'error': 'not_ready'}, job
+
+
 def device_queue_pressure_http(fixture, matter):
     matter.stall_jobs = True
     body = json.dumps(dict(node='0000000000000002', endpoint=1,
@@ -743,7 +757,9 @@ def main():
                 wait_for(matter_unavailable)
                 wait_for(lambda: fixture.request('/api/matter/status')['state'] == 'running')
         device_snapshot_http(fixture, real)
-        if not real:
+        if real:
+            device_dispatch_http(fixture)
+        else:
             try:
                 device_operations_http(fixture)
                 queue_counts = device_queue_pressure_http(fixture, matter)
