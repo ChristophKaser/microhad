@@ -68,6 +68,12 @@ the package or restart the paired processes. No script test suite was added or
 run; the selected-option preflight and activation will be exercised by this
 deployment step.
 
+The first activation preflight exposed a compatibility issue: the gateway's
+BusyBox `grep` does not implement `-x`. The remote manifest checks now use
+anchored patterns supported by that utility. Preflight failed before changing
+the launcher; retry this same staged-artifact activation after committing the
+compatibility fix.
+
 ## Gateway flash headroom observation — 2026-10-05
 
 A read-only `df -k /tuya` check reported 12,160 KiB total, 8,628 KiB used,

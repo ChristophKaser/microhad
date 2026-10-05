@@ -191,7 +191,7 @@ matter_flash_preflight
 paired_launcher_preflight() {
     [ "$activate_paired_only" = true ] || return 0
 
-    ssh_command "test -x \"$target/tuya-zigbee-native\" && test -x \"$target/thread-matter\" && test -x \"$target/paired_start.sh\" && grep -qx 'format=microhad-native-build-v1' \"$target/tuya-zigbee-native.matter-manifest\" && grep -qx 'ziggurat=1' \"$target/tuya-zigbee-native.matter-manifest\" && grep -qx 'matter=1' \"$target/tuya-zigbee-native.matter-manifest\"" || {
+    ssh_command "test -x \"$target/tuya-zigbee-native\" && test -x \"$target/thread-matter\" && test -x \"$target/paired_start.sh\" && grep -q '^format=microhad-native-build-v1\$' \"$target/tuya-zigbee-native.matter-manifest\" && grep -q '^ziggurat=1\$' \"$target/tuya-zigbee-native.matter-manifest\" && grep -q '^matter=1\$' \"$target/tuya-zigbee-native.matter-manifest\"" || {
         echo "Staged Matter package is incomplete or not executable" >&2
         return 1
     }
