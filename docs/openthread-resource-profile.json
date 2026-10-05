@@ -1233,5 +1233,73 @@
       "ot-cli-mips": "27a55270564874449e0bff93a4c941da01deded960c94e32139fde68e22ae08f",
       "sim-relay-mips": "75323c9a15d39aa94dec6c48621b997d38f6538e8c9d900a0640c04e6664b96e"
     }
+  },
+  "short_constrained_recheck": {
+    "observed_at_utc": "2026-10-05T10:54:04.111933+00:00",
+    "radio": "synthetic RCP over host relay; no production UART access",
+    "production_before": {
+      "online": true,
+      "network_formed": true,
+      "coordinator_backend": "ziggurat"
+    },
+    "production_after": {
+      "online": true,
+      "network_formed": true,
+      "coordinator_backend": "ziggurat"
+    },
+    "memory_preflight_memfree_kib": 14188,
+    "memory_preflight_clean_inactive_file_kib": 6044,
+    "memory_preflight_effective_free_kib": 20232,
+    "resource_summary": {
+      "disabled_idle": {
+        "sample_count": 18,
+        "sampled_rss_max_kib": 704.0,
+        "sampled_memfree_min_kib": 12704.0,
+        "sampled_effective_free_min_kib": 19620.0,
+        "cpu_mean_percent_one_core": 0.0,
+        "cpu_peak_interval_percent_one_core": 0.0
+      },
+      "loaded": {
+        "sample_count": 4,
+        "sampled_rss_max_kib": 784.0,
+        "sampled_memfree_min_kib": 12704.0,
+        "sampled_effective_free_min_kib": 19620.0,
+        "cpu_mean_percent_one_core": 10.77,
+        "cpu_peak_interval_percent_one_core": 11.29
+      },
+      "enabled_idle": {
+        "sample_count": 17,
+        "sampled_rss_max_kib": 808.0,
+        "sampled_memfree_min_kib": 12696.0,
+        "sampled_effective_free_min_kib": 19608.0,
+        "cpu_mean_percent_one_core": 0.0,
+        "cpu_peak_interval_percent_one_core": 0.0
+      }
+    },
+    "profile_workload": {
+      "loaded_seconds": 5.007115680957213,
+      "completed_cycles": 98,
+      "cycles_per_second": 19.57214617044064,
+      "udp_payload_bytes": 256,
+      "udp_payload_bytes_total": 25088,
+      "radio_get_calls": 196,
+      "cycle_latency_ms": {
+        "count": 98,
+        "min_ms": 18.844289996195585,
+        "mean_ms": 30.91002223426381,
+        "median_ms": 28.362404962535948,
+        "p95_ms": 54.201825987547636,
+        "p99_ms": 76.5995389665477,
+        "max_ms": 76.5995389665477
+      },
+      "description": "up to 20 cycles/s: ccathreshold GET, txpower GET, 256-byte internal UDP send/receive"
+    },
+    "profile_uptime_start_s": 4995.2,
+    "profile_uptime_end_s": 5039.65,
+    "followup_uptime_s": 5109.76,
+    "no_radio_reset_command": true,
+    "temporary_paths_removed": true,
+    "dmesg_matches": [],
+    "scope": "OpenThread CLI only; does not measure Rust Matter CASE or DNS Browse callback"
   }
 }

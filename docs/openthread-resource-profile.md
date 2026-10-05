@@ -29,6 +29,28 @@ cleanup, no radio reset command, and no simulator error. It never accessed
 does not measure the Rust Matter daemon, Matter CASE, or combined Zigbee/Matter
 load. The 1-second sampling can miss brief CPU or memory peaks.
 
+## Short constrained recheck — 2026-10-05
+
+A later five-second synthetic-RCP run, after the DNS-SD catalog migration
+cross-build, used the same on-device OpenThread CLI profile while the production
+service stayed online and formed. Preflight showed 14,188 KiB `MemFree` plus
+6,044 KiB clean inactive file cache (20,232 KiB effective free). Across 39
+samples, CLI RSS peaked at 808 KiB, raw free memory bottomed at 12,696 KiB, and
+effective free memory at 19,608 KiB. The 98 loaded cycles ran at 19.57/s with
+54.20 ms p95 and 76.60 ms maximum cycle latency. Sampled CLI CPU averaged
+about 10.8% of one core during the loaded interval; no CPU ticks accumulated in
+the two idle windows.
+
+The production API reported online/formed on Ziggurat before and after. The
+simulation issued no radio reset command, cleaned its temporary settings,
+binary and socket, and a follow-up uptime read advanced beyond the test window.
+Current-boot `dmesg` had no watchdog/reset/panic matches. This is still an
+OpenThread CLI/RCP simulation, not the Rust Matter controller or the new DNS
+Browse callback; it does not establish Matter CASE memory or CPU cost. Detailed
+machine-readable measurements are in
+[`openthread-resource-profile.json`](openthread-resource-profile.json); the
+raw test report remains in ignored `logs/`.
+
 ## Historical standard profile — 2026-10-03
 
 The earlier factory profile completed a 100-second OpenThread simulation:
