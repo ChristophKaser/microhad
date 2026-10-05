@@ -61,9 +61,24 @@ reported 5,432 KiB `MemFree` and 14,364 KiB `Inactive(file)` (19,796 KiB
 combined reclaimable estimate); it does not measure Matter daemon usage. CPU
 and runtime deadlines were not sampled because no target workload ran.
 
+Latest service-resource checkpoint (`bd1d79d`): the production MIPS-I service
+is 2,150,084 bytes (SHA-256
+`40b58a81b1d434d8ab9e1f40e997cb0578b843a20d4b6d887df0fb0dab32bea7`). Its
+isolated 15-second synthetic-RCP profile verified startup, Thread dataset
+creation, IPC status and orderly shutdown while production Zigbee/Ziggurat
+remained online. Startup after IPC socket creation was 1.09 seconds; peak RSS
+was 1,492 KiB, sampled CPU ticks did not increase, minimum MemFree was 2,564
+KiB, and minimum MemFree plus clean inactive-file cache was 18,968 KiB. Gateway
+uptime advanced by 47.58 seconds and no reset was detected. This profile had
+no commissioned Matter accessory and did not exercise ICD RegisterClient,
+Check-In cryptography or sleepy-node job dispatch; those costs still require a
+representative accessory workload.
+
 Next deliverable: run the installed `thread-matter` daemon through attached
 Thread startup and its own active CASE report loop into native state/history,
-then measure those target deadlines/resource use. Continue bounded
+then measure those target deadlines/resource use. Exercise the new ICD path with
+a synthetic commissioned LIT accessory, including registration and Check-In,
+before treating the resource profile as representative. Continue bounded
 reset-frequency observations as authorized, keeping production running. The
 one silent isolated-service launch failure did not recur on the bounded retry.
 Full physical paired launch remains in excluded plan 08.
@@ -123,7 +138,7 @@ native status routes report its actual state over `/tmp/microhad-matter.sock`.
 | 4 | Complete | Four clients, four accepts per turn, 4096-byte read/write budgets, eight queued replies, two-second idle expiry; malformed/overload/idle checks passed. |
 | 5 | Complete | Empty requests for opcodes 1/2 return bounded JSON; synthetic host reports `running` with its persistent fabric and Thread `detached`, without credentials. |
 | 6 | Partial | Matter/Thread/IPC pumps and SIGTERM/SIGINT shutdown implemented. Supervisor retries failures with backoff and stops/restarts Matter on coordinator loss; complete dataset/radio reconnection remains in plan 06. |
-| 7 | Partial | Current Matter-enabled native/Rust factory builds are static big-endian MIPS-I ELF32 files: 1,736,548-byte native bridge and 2,109,120-byte Rust service. Rust/OpenThread ABI flags are aligned (`4c02d8a`). Production host and MIPS artifacts are now checked to exclude the test-only report-injection hook; the dedicated host fixture artifact is checked to include it (`6e44f33`). Service regression and Spinel-restart tests pass. The real service process's attached `Manager::poll()` to native IPC/device/history path passes with post-decode seeded reports; the daemon live CASE subscription path is open. Target resource evidence is limited to isolated startup samples; full target runtime remains unverified. |
+| 7 | Partial | Current native/Rust production artifacts cross-build as static big-endian MIPS-I ELF32; the service is 2,150,084 bytes (`bd1d79d`). Rust/OpenThread ABI flags are aligned (`4c02d8a`), and production binaries exclude test-only report hooks. Service regression and Spinel-restart tests pass; the attached `Manager::poll()` to native IPC/device/history path passes with seeded report values. An isolated 15-second synthetic-RCP gateway profile passed startup, dataset creation and orderly shutdown at 1,492 KiB peak RSS, zero sampled CPU ticks, 2,564 KiB minimum MemFree and 18,968 KiB minimum MemFree plus clean inactive-file cache; production Zigbee remained online and uptime advanced without reset. It did not exercise CASE reports, LIT registration or Check-In. |
 | 8 | Complete | Runtime invocation, ownership, bounds and state paths documented in `ziggurat-compilation/docs/matter-service-runtime.md`; optional supervisor configuration, failure markers, retry budget and staging documented in `MATTER_INTEGRATION.md`. |
 
 This checkpoint supplies a running transport/status service and persistent

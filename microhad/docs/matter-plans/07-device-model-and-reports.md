@@ -90,18 +90,25 @@ registry: it sends permanent RegisterClient requests, stores each client's
 fabric/node/endpoint/key and starting counter in the private store, validates
 Check-In MIC and monotonic counter offsets, and persists the accepted offset
 before returning a wake record. The focused registry tests passed 2/2 and the
-controller-service library check passed. The production service does not yet
-open or call this registry, detect LIT devices, use wake records to dispatch
-queued operations, or refresh keys at the required threshold. Thus no sleepy
-device is usable yet.
+controller-service library check passed. Rust commit `bd1d79d` wires the
+registry into `devices::Manager`: endpoint descriptors identify ICD Management,
+the manager reads OperatingMode and registers LIT devices, authenticates and
+persists Check-In offsets, refreshes keys at the protocol threshold, and opens
+a bounded active window for queued operations. Registered sleepy nodes defer
+new operations, descriptor reads and subscriptions until an authenticated
+wake. The scheduler wake-window regression passes; all 80 controller-service
+library tests pass. The isolated MIPS service profile starts successfully and
+creates a Thread dataset, but has no commissioned LIT accessory and therefore
+does not exercise registration, Check-In or sleepy-device operations. End-to-end
+LIT accessory behavior remains unverified.
 
 Operational DNS-SD parsing now accepts and preserves the standard `ICD=0|1`
 TXT field while rejecting malformed, out-of-range and duplicate values
 (`497dfa5`). This makes advertised LIT mode available to rs-matter's resolver
 and prevents malformed mode metadata from entering its resolve cache. The
-parser fixture length was corrected in `93a1333`; the focused offline test now
-passes (1/1), with `git diff --check` clean. The service-side consumer that
-identifies and registers LIT devices remains open.
+parser fixture length was corrected in `93a1333`; the focused offline test
+passes (1/1), with `git diff --check` clean. The manager confirms LIT support
+through its authenticated OperatingMode read before issuing RegisterClient.
 
 The earlier Rust commit `02d631a` routed Check-In through the device manager's
 unrestricted exchange acceptor. Inspection showed that this raced rs-matter's
