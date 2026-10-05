@@ -64,7 +64,12 @@ def main():
             value = json.load(response)
         return {key: value.get(key) for key in ('online', 'network_formed', 'coordinator_backend')}
 
+    def uptime():
+        value = remote("awk '{print $1}' /proc/uptime").strip().splitlines()[-1]
+        return float(value)
+
     before = status()
+    uptime_before = uptime()
     if before.get('online') is not True or before.get('network_formed') is not True:
         raise RuntimeError('Production Zigbee service must be online and formed')
     meminfo = remote('cat /proc/meminfo')
@@ -79,6 +84,7 @@ def main():
     report = {'target': args.host, 'binary_bytes': len(payload), 'binary_sha256': digest,
               'profile_seconds': args.seconds, 'radio_access': False,
               'production_before': before,
+              'uptime_before_seconds': uptime_before,
               'guardrails': {'preflight_memfree_floor_kib': 512,
                              'preflight_effective_free_kib': 1536,
                              'runtime_memfree_floor_kib': 512,
@@ -89,6 +95,7 @@ def main():
                                    'effective_free_kib': effective}}
     guard_aborted = False
     profile_error = None
+    started_at = time.time()
     try:
         remote(f'umask 077; mkdir -p /tuya/native-test; mkdir {stage}; mkdir {runtime}')
         remote(f'set -C; cat > {stage}/thread-matter && chmod 700 {stage}/thread-matter', payload)
@@ -104,11 +111,11 @@ cleanup() {{ kill "$child" 2>/dev/null; wait "$child" 2>/dev/null; }}
 trap cleanup EXIT HUP INT TERM
 tries=0
 while [ ! -S {runtime}/ipc.sock ]; do
- tries=$((tries + 1)); [ "$tries" -le 10 ] || {{ cat {runtime}/service.log; exit 1; }}
- kill -0 "$child" 2>/dev/null || {{ cat {runtime}/service.log; exit 1; }}
+ tries=$((tries + 1)); [ "$tries" -le 10 ] || {{ echo IPC_SOCKET_TIMEOUT; cat {runtime}/service.log; exit 1; }}
+ kill -0 "$child" 2>/dev/null || {{ echo SERVICE_EXITED_BEFORE_IPC; cat {runtime}/service.log; exit 1; }}
  sleep 1
 done
-grep 'Matter controller service started' {runtime}/service.log >/dev/null || {{ cat {runtime}/service.log; exit 1; }}
+grep 'Matter controller service started' {runtime}/service.log >/dev/null || {{ echo SERVICE_START_MARKER_MISSING; cat {runtime}/service.log; exit 1; }}
 count=0
 while [ "$count" -lt {args.seconds} ]; do
  count=$((count + 1))
@@ -125,7 +132,7 @@ while [ "$count" -lt {args.seconds} ]; do
   echo TEST_LIMIT_REACHED
   exit 2
  fi
- kill -0 "$child" 2>/dev/null || {{ cat {runtime}/service.log; exit 1; }}
+ kill -0 "$child" 2>/dev/null || {{ echo SERVICE_EXITED_DURING_SAMPLE; cat {runtime}/service.log; exit 1; }}
  sleep 1
 done
 kill -TERM "$child" 2>/dev/null
@@ -145,7 +152,10 @@ exit "$result"
                                 re.findall(r'(\w+)=([0-9.]+)', line)})
         report['samples'] = samples
         report['service_log'] = [line for line in output.splitlines()
-                                 if line.startswith('Matter controller service ')]
+                                  if line.startswith('Matter controller service ')]
+        if exit_code != 0:
+            report['profile_failure_markers'] = [line for line in output.splitlines()
+                                                 if line.isupper() and ' ' not in line]
         if exit_code != 0 and 'TEST_LIMIT_REACHED' in output:
             guard_aborted = True
             report['result'] = 'ABORTED: runtime memory guard reached'
@@ -185,6 +195,17 @@ exit "$result"
             report['production_after'] = status()
         except Exception as error:
             report['production_after_error'] = f'{type(error).__name__}: {error}'
+        try:
+            uptime_after = uptime()
+            report['uptime_after_seconds'] = uptime_after
+            report['uptime_elapsed_seconds'] = round(uptime_after - uptime_before, 2)
+            report['host_elapsed_seconds'] = round(time.time() - started_at, 2)
+            report['gateway_reboot_detected'] = uptime_after < uptime_before
+            if uptime_after < uptime_before:
+                report['error'] = 'Gateway uptime reset during isolated service test'
+        except Exception as error:
+            report['uptime_after_error'] = f'{type(error).__name__}: {error}'
+            report['gateway_reboot_detected'] = None
         if 'production_after' in report and report['production_after'] != before:
             report['production_state_changed'] = True
             report['error'] = 'Production Zigbee state changed during isolated service test'

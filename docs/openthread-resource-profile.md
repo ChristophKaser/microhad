@@ -124,12 +124,24 @@ unformed. The running supervisor brought it back online and formed within the
 next four-second status poll. The post-reboot kernel ring buffer contains only
 the new boot, so the cause cannot be tied conclusively to this profile or
 classified as OOM. Treat the reboot as a possible test-related failure: no
-further on-device Matter workload should run until the cause is understood.
-The script's initial version did not persist the sample after the legacy SSH
-channel closed following the service's stop marker; its error-reporting path is
-fixed, but this result has not been repeated. The production service was never
-intentionally stopped, and no staging or temporary test paths remained after
-the gateway came back.
+further on-device Matter load should run until the cause is understood. A later
+read-only check found uptime had reset again between observations without a
+Matter workload running. It found no `/dev/watchdog*`, `/sys/class/watchdog`,
+watchdog process, module, or init feeder; the current boot log contains no
+watchdog initialization or reset reason. `/proc/watchdog_reboot` exists, but
+reading it blocked SSH, so it was not retried. No watchdog has been identified
+that can safely be disabled.
+
+The guarded 15-second repeat service profile did not reset the gateway, but its
+first attempt exited before collecting samples and emitted no service log. A
+five-second retry passed: service RSS was 788 KiB, CPU ticks did not increase,
+raw MemFree stayed between 11,508 and 11,536 KiB, and effective free stayed
+between 19,884 and 19,920 KiB. Uptime advanced 29.38 seconds across 27.29 host
+seconds; Zigbee remained online and formed. This startup-only test had no radio
+access and is not evidence of Matter operation or Thread attach. The initial
+silent launch failure did not reproduce. The production service was never
+intentionally stopped, and all unique staging and temporary test paths were
+removed.
 
 Use the [documented OpenThread build](openthread-feasibility.md) first if its
 executables are absent. Without `--host`, the runner checks local executables
