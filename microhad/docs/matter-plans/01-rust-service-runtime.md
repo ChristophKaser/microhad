@@ -4,9 +4,9 @@
 
 Host service/native round trips, the generic paired supervisor failure matrix,
 and attached-daemon-to-native report delivery pass. The daemon report fixture
-seeds decoded reports; its live CASE subscription path remains open. The real
-Rust service has also been exercised through the paired supervisor after a
-wire-level Spinel error.
+seeds decoded reports; its live CASE subscription path remains open. The actual
+Matter-enabled gateway worker now reconnects to a supervisor-restarted Rust
+service after a wire-level Spinel error and sees the restored dataset.
 Current factory MIPS builds for both binaries pass. Target runtime/resource
 evidence is partial: the service started on the gateway, but raw free RAM fell
 below the deployment gate and a reboot followed in the next status interval;

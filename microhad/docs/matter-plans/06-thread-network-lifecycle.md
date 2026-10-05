@@ -24,9 +24,11 @@ dataset across service restart, and leaves the native/Zigbee pair running.
 Physical RCP error behavior and target RF remain open.
 
 Next deliverable: Verify native-worker recovery against the restarted service,
-including Thread reattachment and restored device operations. Do not repeat
-target workloads until plan 01's reboot risk is understood. Keep physical
-coexistence and RF acceptance in plan 08.
+including Thread reattachment and restored device operations. The native worker
+now recovers the persisted dataset through the restarted daemon; the synthetic
+RCP reaches `attaching` but has no mesh peer to demonstrate attachment. Diagnose
+the gateway reset before further target profiles. Keep physical coexistence and
+RF acceptance in plan 08.
 
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.
@@ -84,7 +86,7 @@ production activation and target runtime verification remain pending.
 | 3 | Complete | Typed private online/channel observations expire after five monotonic seconds; native protected observation/status worker implemented with coordinator liveness expiry; host round trips verified. |
 | 4 | Complete | Required/duplicate/truncated TLVs, channel/mask, prefix and PAN checks before mutation; malformed/mismatch synthetic and unit checks pass. |
 | 5 | Complete | OS-random create, bounded persisted import/restore, no implicit replacement; recoverable in-process apply failures require explicit retry, while wire-level RCP status errors exit and restore the persisted dataset after service restart. |
-| 6 | Partial | Redacted lifecycle states, deferred boot, expiry detach, cached-channel guard, bounded stored-dataset retry and host radio-loss/restart reconciliation implemented. A failed Spinel dataset property transaction proves process exit and dataset restore; `scripts/test_matter_spinel_supervisor.py` composes that failure with the real service and paired supervisor and confirms native/Zigbee stay up. Native-worker reattachment/operation recovery and physical RCP behavior remain open. |
+| 6 | Partial | Redacted lifecycle states, deferred boot, expiry detach, cached-channel guard, bounded stored-dataset retry and host radio-loss/restart reconciliation implemented. A failed Spinel dataset property transaction proves process exit and dataset restore. `scripts/test_matter_spinel_supervisor.py --native-worker` composes the error with the real host gateway, Matter worker, service and paired supervisor; the worker re-observes the coordinator, sees the restored dataset and receives a protected `busy` response to duplicate create. Thread remains `attaching` without a synthetic mesh peer; physical RCP behavior remains open. |
 | 7 | Partial | Rust library and host process tests pass, including wire-level synthetic-RCP apply rejection/restart. Physical coexistence/reception and target resource gates remain unverified. |
 
 The process test changes a persisted cached active channel to 20 while the
@@ -449,5 +451,14 @@ service. It verifies the dataset is persisted before failure, the supervisor
 relaunches the service, a fresh matching coordinator observation restores the
 dataset without rewriting credentials, and native/Zigbee each remain at one
 start. `python3 scripts/test_matter_spinel_supervisor.py` passes against the
-synthetic RCP. This leaves physical RCP behavior and native-worker recovery
-through reattachment open.
+synthetic RCP. Physical RCP behavior and service-to-mesh attachment remain open.
+
+The same test's `--native-worker` mode starts the actual Matter-enabled native
+gateway under the paired supervisor and uses a synthetic Ziggurat peer. After
+the Spinel failure and service restart, the native worker reconnects, renews
+the coordinator observation, and sees Thread configured on the persisted
+channel. The restored service remains available through the Thread control API;
+a duplicate create returns `busy`. The simulated RCP reaches `attaching`, not
+`attached`, because the fixture has no Thread mesh peer. Both test modes pass;
+the actual worker reattachment path is verified, while mesh attachment and
+device operations after recovery remain unverified.
