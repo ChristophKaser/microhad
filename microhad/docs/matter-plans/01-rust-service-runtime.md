@@ -278,3 +278,20 @@ CASE, a real radio, or combined Zigbee/Matter load. The 8 KiB sampled margin
 over the free-memory guard is narrow, and one-second sampling may miss peaks.
 Full Matter-service CPU/RSS/deadline feasibility remains unverified; see the
 [profile record](../../ziggurat-compilation/docs/openthread-resource-profile.md).
+
+## Gateway memory accounting update — 2026-10-05
+
+Rust harness commit `eb04f96` now counts clean inactive file cache alongside
+`MemFree` for effective-availability preflight and runtime guards. It reports
+both separately, subtracts dirty/writeback/shared pages conservatively, and
+retains an independent 1 MiB raw-`MemFree` floor. The earlier 100-second
+OpenThread profile used the stricter raw-`MemFree` guard and remains valid as
+historical evidence; it has not been reclassified under the new formula.
+
+A later read-only sample showed 2,932 KiB `MemFree`, 8,768 KiB inactive file
+cache, no dirty/writeback/shared pages, and no swap. Process resident samples
+were 2,756 KiB for the native bridge and 2,044 KiB for Ziggurat; kernel slab was
+4,340 KiB, of which 3,980 KiB was unreclaimable. This explains why raw free RAM
+looks low while clean inactive cache remains reclaimable. It is one snapshot,
+not Matter-service headroom evidence; full Matter-service CPU, RSS and deadline
+measurements remain open.

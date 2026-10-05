@@ -408,3 +408,9 @@ limit. The test used internal Thread IPv6/UDP and did not exercise Matter,
 physical RF, or the shared coordinator. Its 8 KiB sampled margin is narrow;
 full Matter-service and combined Zigbee/Thread feasibility remain open. See
 the [resource profile](../../ziggurat-compilation/docs/openthread-resource-profile.md).
+
+The profile's harness now uses `MemFree` plus conservatively counted clean
+inactive file cache for effective-availability checks, while preserving a
+separate 1 MiB raw-`MemFree` floor (`ziggurat-compilation` commit `eb04f96`).
+The 2026-10-05 measurements above predate this accounting update and retain
+their original raw-`MemFree` interpretation. No Matter-service workload was run.
