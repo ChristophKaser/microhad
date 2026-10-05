@@ -81,22 +81,25 @@ discovery after service restart and become complete only after both discovery
 and the durable catalog update succeed. Legacy no-catalog migration remains
 open.
 
-Sleepy-device support is an implementation gap, not only a missing test. The
-service currently uses ordinary CASE subscriptions (1–3600 second negotiated
-intervals), 30-second operation/discovery deadlines, and a generic retry
-backoff capped at 320 seconds. In the pinned `rs-matter` source, Secure Channel
-has an `AsyncScHandler` hook for incoming ICD Check-In messages, but the
-default responder constructs `SecureChannel::new` with the no-op handler and
-the gateway service does not install an ICD client. Supporting sleepy devices
-requires wiring Check-In reception into the active responder and implementing
-the client registration/identity and wake-triggered operation flow. Until
-then, the product behavior for intermittently connected endpoints remains
-best-effort and can time out while a device sleeps. The concrete service gap
-is in `devices::Manager::poll`: its sole inbound exchange future calls
-`subscriptions::receive_report`, which rejects every first message whose
-Interaction Model opcode is not `ReportData`. Add an inbound exchange
-dispatcher there before implementing Check-In verification and pending-job
-wake handling; otherwise a Check-In could be consumed by the report reader.
+Sleepy-device support remains implementation work. The service currently uses
+ordinary CASE subscriptions (1–3600 second negotiated intervals), 30-second
+operation/discovery deadlines, and a generic retry backoff capped at 320
+seconds. In the pinned `rs-matter` source, Secure Channel has an `AsyncScHandler`
+hook for incoming ICD Check-In messages, but the default responder uses a
+no-op handler and the gateway service does not install an ICD client.
+
+The concrete service gap was in `devices::Manager::poll`: its sole inbound
+exchange future called `subscriptions::receive_report`, which rejected every
+message whose opcode was not `ReportData`. Rust commit `02d631a` adds a
+dispatcher that preserves the report path, identifies Secure Channel
+`CheckIn`, bounds the encrypted payload to 128 bytes and retains up to eight
+messages for a controller layer, evicting the oldest on overflow. The 79-test
+controller-service library suite, composed native CASE report integration,
+and production MIPS service cross-build pass; the MIPS artifact remains
+2,129,600 bytes and excludes test hooks. Check-In messages are not yet
+authenticated or processed: client registration/identity and wake-triggered
+operations remain implementation work. No gateway workload was run because
+this bounded dispatch change adds no expensive procedure.
 
 Verification passed:
 `make ZIGGURAT=1 MATTER=1 host test` and
