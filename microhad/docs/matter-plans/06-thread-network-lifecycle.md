@@ -29,6 +29,13 @@ not observed during the profile's uptime bracket; the reset source and cadence
 remain undetermined. The production service recovered to online/formed about
 135 seconds after boot. See [the resource profile](../../../ziggurat-compilation/docs/openthread-resource-profile.md).
 
+On 2026-10-05 a separate read-only check saw uptime advance from 3856.53 to
+3867.77 seconds. The current-boot kernel log had no watchdog, panic, OOM,
+reset, brownout, thermal, or killed-process messages. This short healthy
+interval cannot identify the cause or cadence of prior resets. No
+`thread-matter` process was present in the gateway process list during this
+check; production native/Zigbee processes remained present.
+
 Next deliverable: Verify native-worker recovery against the restarted service,
 including Thread reattachment and restored device operations. The native worker
 now recovers the persisted dataset through the restarted daemon; the synthetic

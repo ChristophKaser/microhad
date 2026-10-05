@@ -29,6 +29,15 @@ run of the actual `thread-matter` MIPS service. Startup-only idle evidence is
 796 KiB RSS with zero CPU-tick growth for 10 seconds; it never initialized OT
 because no coordinator observation was supplied.
 
+A fresh read-only gateway check on 2026-10-05 observed `/proc/uptime` advancing
+from 3856.53 to 3867.77 seconds across the check. The current `dmesg` contains
+the boot log only; targeted scans returned no watchdog, panic, OOM, reset,
+brownout, thermal, or killed-process lines. The production native bridge and
+Ziggurat processes were present. This confirms no reset during this short
+sample, but does not explain earlier reboots or establish a longer-term reset
+rate. The gateway process list had no `thread-matter` process during this
+observation, so it is not evidence of a live Matter service workload.
+
 Next deliverable: run the installed `thread-matter` daemon through attached
 Thread startup and its own active CASE report loop into native state/history,
 then measure those target deadlines/resource use. Continue bounded
