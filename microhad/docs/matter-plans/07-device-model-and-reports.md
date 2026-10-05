@@ -10,6 +10,13 @@ device-model gap for contact-only accessories. No physical Matter accessory is
 available, so CASE interoperability and vendor state polarity remain part of
 plan 08 acceptance.
 
+Native Matter-enabled gateway unit coverage (`runUnitTests`) passes when run
+without the unrelated socket-backed suites. The full native and Rust suites
+cannot complete in this sandbox because local Unix socket operations return
+`EPERM`; native C++ and Rust code still compile, and the Rust Boolean State
+focused tests pass. The Web UI build remains unverified because `npm ci` cannot
+launch esbuild here.
+
 ## Separate daemon report-process integration — 2026-10-05
 
 The composed native report integration was rerun successfully with
