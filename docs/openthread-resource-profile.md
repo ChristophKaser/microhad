@@ -93,6 +93,15 @@ using 2,560 KiB preflight, 1,024 KiB CLI RSS, and 1,536 KiB runtime MemFree
 limits. The 2026-10-05 run used that mode. Do not infer safety margin from a
 barely passing sample; retry with more free memory for stronger headroom.
 
+The gateway check now estimates effective free memory as `MemFree` plus clean
+`Inactive(file)` pages, subtracting `Dirty`, `Writeback`, and `Shmem` from the
+inactive-file amount conservatively. It reports raw MemFree, counted inactive
+file cache, and their sum separately. Preflight and runtime availability checks
+use that sum, while an independent raw-MemFree floor prevents cache from
+masking a low-free-RAM condition. The profile above predates this accounting;
+its recorded minimums and pass/fail result used the stricter raw-MemFree guard.
+New JSON reports include both memory figures and both guardrails.
+
 Use the [documented OpenThread build](openthread-feasibility.md) first if its
 executables are absent. Without `--host`, the runner checks local executables
 and sockets; it cannot provide target CPU/memory measurements.

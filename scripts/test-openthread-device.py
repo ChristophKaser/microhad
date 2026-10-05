@@ -94,6 +94,17 @@ def status(host):
     return {key: data[key] for key in ("online", "network_formed", "coordinator_backend", "state") if key in data}
 
 
+def memory_values(meminfo):
+    """Return MemFree and conservatively reclaimable inactive file cache."""
+    fields = {match.group(1): int(match.group(2)) for match in
+              re.finditer(r"^([^:]+):\s+(\d+)", meminfo, re.MULTILINE)}
+    free = fields["MemFree"]
+    inactive_file = fields.get("Inactive(file)", 0)
+    unclean = fields.get("Dirty", 0) + fields.get("Writeback", 0) + fields.get("Shmem", 0)
+    clean_inactive_file = max(0, inactive_file - unclean)
+    return free, clean_inactive_file, free + clean_inactive_file
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--host")
@@ -108,8 +119,10 @@ def main():
     if args.constrained_memory_profile and (not args.profile or not args.host):
         parser.error('--constrained-memory-profile requires --profile and --host')
     preflight_free_kib = 2560 if args.constrained_memory_profile else 3072
+    preflight_memfree_floor_kib = 1536
     process_rss_limit_kib = 1024 if args.constrained_memory_profile else 2048
     runtime_free_limit_kib = 1536 if args.constrained_memory_profile else 1024
+    runtime_memfree_floor_kib = 1024
     limit_seconds = (args.profile_load_seconds + 75) if args.profile else 35
     relay_seconds = limit_seconds + 10
     phase = 'startup'
@@ -119,9 +132,11 @@ def main():
     ram = f"/tmp/ot-sim-{token}"
     staged = f"/tuya/native-test/ot-sim-{token}"
     report = {"target": device, "radio": "host simulation only", "checks": [], "commands": [],
-              "guardrails": {"preflight_memfree_kib": preflight_free_kib,
+              "guardrails": {"preflight_effective_free_kib": preflight_free_kib,
+                             "preflight_memfree_floor_kib": preflight_memfree_floor_kib,
                              "process_rss_limit_kib": process_rss_limit_kib,
-                             "runtime_memfree_limit_kib": runtime_free_limit_kib,
+                             "runtime_effective_free_limit_kib": runtime_free_limit_kib,
+                             "runtime_memfree_floor_kib": runtime_memfree_floor_kib,
                              "virtual_memory_limit_kib": 4096}}
     radio = ThreadRcp(device, tcp_nodelay=True)
     process = relay = None
@@ -172,11 +187,16 @@ def main():
         if args.host:
             report["production_before"] = status(args.host)
             memory = remote("cat /proc/meminfo", stdout=subprocess.PIPE, text=True).stdout
-            free = int(re.search(r"MemFree:\s+(\d+)", memory).group(1))
-            report["memory_preflight_kib"] = free
+            free, clean_inactive_file, effective_free = memory_values(memory)
+            report["memory_preflight_memfree_kib"] = free
+            report["memory_preflight_clean_inactive_file_kib"] = clean_inactive_file
+            report["memory_preflight_effective_free_kib"] = effective_free
             # No large RAM-backed upload: only executable mappings and small state.
-            if free < preflight_free_kib:
-                raise RuntimeError(f"Need {preflight_free_kib} KiB genuinely free for bounded simulation; found {free}")
+            if effective_free < preflight_free_kib or free < preflight_memfree_floor_kib:
+                raise RuntimeError("Need at least " + str(preflight_free_kib) +
+                                   " KiB effective free and " + str(preflight_memfree_floor_kib) +
+                                   " KiB MemFree; found effective=" + str(effective_free) +
+                                   " KiB, MemFree=" + str(free) + " KiB")
             storage = remote("df -k /tuya", stdout=subprocess.PIPE, text=True).stdout
             available = int(storage.splitlines()[-1].split()[3])
             if available < 2048:
@@ -217,14 +237,20 @@ child=$!
  while kill -0 "$child" 2>/dev/null; do
   count=$((count + 1))
   rss=$(awk '/^VmRSS:/ {{print $2}}' /proc/$child/status)
-  free=$(awk '/^MemFree:/ {{print $2}}' /proc/meminfo)
+  memory=$(awk '/^MemFree:/ {{free=$2}} /^Inactive[(]file[)]:/ {{inactive=$2}}
+   /^Dirty:/ {{dirty=$2}} /^Writeback:/ {{writeback=$2}} /^Shmem:/ {{shmem=$2}}
+   END {{clean=inactive-dirty-writeback-shmem; if(clean<0)clean=0; print free, clean, free+clean}}' /proc/meminfo)
+  set -- $memory
+  free=$1
+  clean_inactive_file=$2
+  effective_free=$3
   ticks=$(awk '{{print $14 + $15}}' /proc/$child/stat)
   uptime=$(awk '{{print $1}}' /proc/uptime)
   threads=$(awk '/^Threads:/ {{print $2}}' /proc/$child/status)
   relay_rss=$(awk '/^VmRSS:/ {{print $2}}' /proc/$relay_pid/status)
   relay_ticks=$(awk '{{print $14 + $15}}' /proc/$relay_pid/stat)
-  echo "SAMPLE uptime_s=$uptime cpu_ticks=$ticks rss_kib=$rss free_kib=$free threads=$threads relay_rss_kib=$relay_rss relay_cpu_ticks=$relay_ticks"
-  if [ "$count" -ge {limit_seconds} ] || [ "${{rss:-0}}" -gt {process_rss_limit_kib} ] || [ "${{free:-0}}" -lt {runtime_free_limit_kib} ]; then
+  echo "SAMPLE uptime_s=$uptime cpu_ticks=$ticks rss_kib=$rss free_kib=$free inactive_clean_file_kib=$clean_inactive_file effective_free_kib=$effective_free threads=$threads relay_rss_kib=$relay_rss relay_cpu_ticks=$relay_ticks"
+  if [ "$count" -ge {limit_seconds} ] || [ "${{rss:-0}}" -gt {process_rss_limit_kib} ] || [ "${{free:-0}}" -lt {runtime_memfree_floor_kib} ] || [ "${{effective_free:-0}}" -lt {runtime_free_limit_kib} ]; then
    echo TEST_LIMIT_REACHED
    kill -9 "$child" 2>/dev/null
    exit 1
@@ -259,7 +285,7 @@ exit "$result"
                     line = line.rstrip()
                     # The watchdog and CLI share stdout; a sample may land between
                     # the CLI's response text and its terminating newline.
-                    sample = re.search(r'SAMPLE (?:\w+=[0-9.]+ ?){7}', line)
+                    sample = re.search(r'SAMPLE (?:\w+=[0-9.]+ ?){9}', line)
                     if sample:
                         fields = dict(re.findall(r'(\w+)=([0-9.]+)', sample.group()))
                         resource_samples.append({**{key: float(value) for key, value in fields.items()}, 'phase': phase})
@@ -416,6 +442,8 @@ exit "$result"
                     'sampled_rss_min_kib': min(point['rss_kib'] for point in points),
                     'sampled_rss_max_kib': max(point['rss_kib'] for point in points),
                     'sampled_free_min_kib': min(point['free_kib'] for point in points),
+                    'sampled_clean_inactive_file_min_kib': min(point['inactive_clean_file_kib'] for point in points),
+                    'sampled_effective_free_min_kib': min(point['effective_free_kib'] for point in points),
                     'max_threads': max(point['threads'] for point in points),
                     'measured_interval_seconds': elapsed,
                     'cpu_mean_percent_one_core': sum(item[1] for item in intervals) / hz / elapsed * 100 if elapsed else None,
