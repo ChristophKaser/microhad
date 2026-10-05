@@ -91,7 +91,12 @@ the gateway service does not install an ICD client. Supporting sleepy devices
 requires wiring Check-In reception into the active responder and implementing
 the client registration/identity and wake-triggered operation flow. Until
 then, the product behavior for intermittently connected endpoints remains
-best-effort and can time out while a device sleeps.
+best-effort and can time out while a device sleeps. The concrete service gap
+is in `devices::Manager::poll`: its sole inbound exchange future calls
+`subscriptions::receive_report`, which rejects every first message whose
+Interaction Model opcode is not `ReportData`. Add an inbound exchange
+dispatcher there before implementing Check-In verification and pending-job
+wake handling; otherwise a Check-In could be consumed by the report reader.
 
 Verification passed:
 `make ZIGGURAT=1 MATTER=1 host test` and
