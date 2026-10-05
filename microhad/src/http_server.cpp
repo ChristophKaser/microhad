@@ -711,9 +711,11 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
                request.find("POST /api/matter/devices/snapshot ") == 0 ||
                request.find("POST /api/matter/devices/read ") == 0 ||
                request.find("POST /api/matter/devices/command ") == 0 ||
-               request.find("POST /api/thread/create ") == 0 || request.find("POST /api/thread/import ") == 0) {
+               request.find("POST /api/thread/create ") == 0 || request.find("POST /api/thread/import ") == 0 ||
+               request.find("POST /api/thread/retry ") == 0) {
 #if MICROHAD_MATTER_ENABLED
-        const bool threadMutation = request.find("POST /api/thread/create ") == 0 || request.find("POST /api/thread/import ") == 0;
+        const bool threadMutation = request.find("POST /api/thread/create ") == 0 ||
+            request.find("POST /api/thread/import ") == 0 || request.find("POST /api/thread/retry ") == 0;
         const bool deviceRead = request.find("POST /api/matter/devices/read ") == 0;
         const bool deviceCommand = request.find("POST /api/matter/devices/command ") == 0;
         const unsigned char opcode = request.find("POST /api/matter/devices/snapshot ") == 0 || deviceRead ? 10 : deviceCommand ? 11 : threadMutation ? 9 : request.find("POST /api/matter/commissioning/start ") == 0 ? 3 :
@@ -724,7 +726,9 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
         bool valid = true;
         if (threadMutation) {
             std::string prepared;
-            valid = MatterChannel::threadMutation(request.find("POST /api/thread/import ") == 0, body, &prepared);
+            const std::string action = request.find("POST /api/thread/import ") == 0 ? "import" :
+                request.find("POST /api/thread/retry ") == 0 ? "retry" : "create";
+            valid = MatterChannel::threadMutation(action, body, &prepared);
             body.swap(prepared);
         } else if (deviceRead || deviceCommand) {
             std::string prepared;

@@ -32,8 +32,8 @@ function button(label: string): HTMLButtonElement {
   check(value, `missing button ${label}`)
   return value!
 }
-async function wait(test: () => boolean, message: string) {
-  for (let index = 0; index < 500; index++) { if (test()) return; await delay(20) }
+async function wait(test: () => boolean | Promise<boolean>, message: string) {
+  for (let index = 0; index < 500; index++) { if (await test()) return; await delay(20) }
   throw new Error(`timed out: ${message}`)
 }
 async function run() {
@@ -61,8 +61,14 @@ async function run() {
   await wait(() => document.body.textContent?.includes('CO₂ alerts (ppm)') && document.body.textContent?.includes('PM2.5 alerts (ug/m3)'),
     'shared settings show unit-aware Matter concentration thresholds')
   check(document.body.textContent?.includes('Device settings'), 'common device settings did not open')
+  await fetch('/fixture/mode', { method: 'POST', body: 'thread-error' })
+  button('Check gateway').click()
+  await wait(() => document.body.textContent?.includes('Thread radio apply failed'), 'Thread apply failure is actionable')
+  button('Retry stored Thread dataset').click()
+  await wait(async () => (await (await fetch('/fixture/retry-count')).json()).retryPosts === 1,
+    'retry stored Thread dataset is sent without dataset input')
   document.body.dataset.result = 'passed'
-  document.getElementById('result')!.textContent = 'PASS Matter endpoints render and operate through the shared device catalog, common controls and Matter join/settings area'
+  document.getElementById('result')!.textContent = 'PASS Matter endpoints render and operate through the shared device catalog, common controls, Matter join/settings and Thread dataset retry'
 }
 void run().catch(error => {
   document.body.dataset.result = 'failed'

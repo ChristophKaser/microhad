@@ -9,7 +9,7 @@ const esbuild = require('esbuild');
 async function main() {
   const build = await esbuild.build({ entryPoints: [path.join(__dirname, 'matter-devices-browser.tsx')],
     bundle: true, write: false, platform: 'browser', jsx: 'automatic', define: { 'process.env.NODE_ENV': '"production"' } });
-  let mode = 'normal', posts = 0, nextJob = 1, operationValue = false, operationLevel = 0;
+  let mode = 'normal', posts = 0, retryPosts = 0, nextJob = 1, operationValue = false, operationLevel = 0;
   const jobs = new Map();
   const server = http.createServer(async (request, response) => {
     let body = '';
@@ -21,8 +21,9 @@ async function main() {
       response.end('<!doctype html><html><body><div id="root"></div><pre id="result"></pre><script src="/bundle.js"></script></body></html>');
     } else if (request.url === '/bundle.js') {
       response.setHeader('Content-Type', 'application/javascript'); response.end(build.outputFiles[0].text);
-    } else if (request.url === '/fixture/mode') { mode = body; posts = 0; send({ ok: true }); }
+    } else if (request.url === '/fixture/mode') { mode = body; posts = 0; retryPosts = 0; send({ ok: true }); }
     else if (request.url === '/fixture/count') send({ posts });
+    else if (request.url === '/fixture/retry-count') send({ retryPosts });
     else if (request.url === '/api/matter/devices/snapshot') {
       posts++; const fields = JSON.parse(body), job = nextJob++;
       const endpoint = mode === 'duplicate' ? 0 : fields.cursor;
@@ -38,8 +39,13 @@ async function main() {
     } else if (request.url === '/api/matter/status') {
       send({ enabled: true, available: true, controller_initialized: true, fabric_ready: true, state: 'running' });
     } else if (request.url === '/api/thread/status') {
-      send({ enabled: true, available: true, configured: true, attached: true, linux_ipv6_or_tun: false,
-        state: 'attached', zigbee_channel: 15, dataset_channel: 15 });
+      send({ enabled: true, available: true, configured: true, attached: mode !== 'thread-error', linux_ipv6_or_tun: false,
+        state: mode === 'thread-error' ? 'error' : 'attached', zigbee_channel: 15, dataset_channel: 15 });
+    } else if (request.url === '/api/thread/retry') {
+      posts++; retryPosts++; const job = nextJob++;
+      jobs.set(job, { job, state: 'complete', response: { schema: 1, ok: true, result: {
+        enabled: true, available: true, configured: true, attached: true, state: 'attached' } } });
+      response.statusCode = 202; send({ schema: 1, ok: true, job, state: 'queued' });
     } else if (request.url === '/api/matter/devices/read' || request.url === '/api/matter/devices/command') {
       const fields = JSON.parse(body), job = nextJob++;
       if (request.url.endsWith('/command')) {

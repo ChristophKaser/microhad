@@ -98,6 +98,10 @@ class MatterPeer:
                                 assert observation['schema'] == 1
                                 self.observations.append(observation)
                                 result = dict(schema=1, ok=True, result=thread)
+                            elif action == 'retry':
+                                assert set(observation) == {'schema', 'action'} and self.configured
+                                assert self.observations and self.observations[-1]['zigbee_online']
+                                result = dict(schema=1, ok=True, result=thread)
                             else:
                                 assert action in ('create', 'import') and observation['schema'] == 1
                                 assert self.observations[-1]['zigbee_online']
@@ -742,6 +746,8 @@ def main():
         created = thread_http(fixture, 'create', dict(schema=1))
         assert created['ok'] and created['result']['configured']
         wait_for(lambda: fixture.request('/api/thread/status')['configured'])
+        retried = thread_http(fixture, 'retry', dict(schema=1))
+        assert retried['ok'] and retried['result']['configured'], retried
         assert thread_http(fixture, 'create', dict(schema=1))['error'] == 'busy'
         if real:
             assert fixture.request('/api/thread/status')['zigbee_channel'] == expected

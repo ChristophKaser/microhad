@@ -99,11 +99,12 @@ function pause(ms: number, signal: AbortSignal): Promise<void> {
   })
 }
 export async function matterCall(route: string, fields: Record<string, unknown>, signal: AbortSignal): Promise<unknown> {
-  if (!['/api/thread/create', '/api/thread/import', '/api/matter/commissioning/status', '/api/matter/commissioning/cancel',
+  if (!['/api/thread/create', '/api/thread/import', '/api/thread/retry', '/api/matter/commissioning/status', '/api/matter/commissioning/cancel',
     '/api/matter/devices/snapshot', '/api/matter/devices/read', '/api/matter/devices/command'].includes(route)) throw new MatterError('unsupported')
   const keys = Object.keys(fields)
   if (route.endsWith('/create') && keys.length !== 0) throw new MatterError('malformed')
   if (route.endsWith('/import') && (keys.length !== 1 || typeof fields.dataset !== 'string' || !validDataset(fields.dataset))) throw new MatterError('malformed')
+  if (route.endsWith('/retry') && keys.length !== 0) throw new MatterError('malformed')
   if (route.includes('/commissioning/') && (keys.length !== 1 || typeof fields.session !== 'string' || !validSession(fields.session))) throw new MatterError('malformed')
   if (route.endsWith('/snapshot') && (fields.action !== 'snapshot' || keys.some(key => !['action', 'cursor', 'revision'].includes(key)) ||
       (fields.cursor !== undefined && !integer(fields.cursor, 0, 2047)) ||

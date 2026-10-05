@@ -66,6 +66,16 @@ test('Thread import uses bounded transient JSON without channel overrides', asyn
   });
 });
 
+test('Thread retry reapplies stored credentials without requesting a dataset', async () => {
+  await peer(call => ({ body: call.method === 'POST' ? accepted : completed(thread) }), async calls => {
+    const result = await wire.matterCall('/api/thread/retry', {}, signal());
+    assert.deepEqual(result, thread);
+    assert.deepEqual(calls[0].body, { schema: 1 });
+    await assert.rejects(wire.matterCall('/api/thread/retry', { dataset: '01020b00' }, signal()), /malformed/);
+    assert.equal(calls.filter(call => call.method === 'POST').length, 1);
+  });
+});
+
 test('known-session cancellation returns terminal result and is sent once', async () => {
   await peer(call => ({ body: call.method === 'POST' ? accepted : completed({ ...session, state: 'cancelled', deadline_remaining_seconds: 0 }) }), async calls => {
     const value = wire.sessionResult(await wire.matterCall('/api/matter/commissioning/cancel', { session: id }, signal()));

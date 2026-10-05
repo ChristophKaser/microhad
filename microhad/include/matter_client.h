@@ -34,7 +34,7 @@ public:
     static bool operationStatus(const std::string& response, const std::string& job,
                                 bool* terminal, bool* failed, std::string* error);
     static std::string operationPollRequest(const std::string& job);
-    static bool threadMutation(bool importing, const std::string& input, std::string* body);
+    static bool threadMutation(const std::string& action, const std::string& input, std::string* body);
     static bool threadChannel(const std::string& input, unsigned char channel, std::string* body);
     static bool deviceReadRequest(const std::string& input, std::string* body);
     static bool deviceCommandRequest(const std::string& input, std::string* body);

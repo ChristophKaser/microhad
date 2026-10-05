@@ -90,12 +90,12 @@ export function MatterPanel() {
   if (availability && !availability.matter.enabled) return null
   const ready = availability?.matter.available && availability.matter.controller_initialized &&
     availability.matter.fabric_ready && availability.matter.state === 'running' && availability.thread.available &&
-    ['detached', 'attaching', 'attached'].includes(availability.thread.state ?? '')
+    ['detached', 'attaching', 'attached', 'error'].includes(availability.thread.state ?? '')
   const configured = availability?.thread.configured
   return <section className="panel matter-panel">
     <div className="section-heading"><div><p className="eyebrow">Matter over Thread</p><h2>Device setup</h2></div>
       <button className="button" disabled={pending} onClick={() => { setError(''); setRevision(value => value + 1) }}>Check gateway</button></div>
-    <p role="status" aria-live="polite">{!availability ? error ? 'Matter status unavailable. Check the gateway connection.' : 'Checking Matter service…' : !ready ? 'Matter service unavailable or reconnecting.' : !configured ? 'Thread network has not been configured.' : availability.thread.attached ? 'Thread network attached.' : 'Thread network configured; waiting for attachment.'}</p>
+    <p role="status" aria-live="polite">{!availability ? error ? 'Matter status unavailable. Check the gateway connection.' : 'Checking Matter service…' : !ready ? 'Matter service unavailable or reconnecting.' : availability.thread.state === 'error' ? 'Thread radio apply failed. Retry after the coordinator is online.' : !configured ? 'Thread network has not been configured.' : availability.thread.attached ? 'Thread network attached.' : 'Thread network configured; waiting for attachment.'}</p>
     {availability?.thread.zigbee_channel && <p className="muted small">Zigbee channel {availability.thread.zigbee_channel}{availability.thread.dataset_channel ? ` · Thread channel ${availability.thread.dataset_channel}` : ''}</p>}
     {error && <p className="error" role="alert">{error}</p>}
     {ready && configured === false && <div className="matter-network">
@@ -120,5 +120,6 @@ export function MatterPanel() {
       </div>}
     </>}
     {pending && <p role="status">Waiting for gateway reply…</p>}
+    {ready && configured && availability.thread.state === 'error' && <button className="button" disabled={pending || !availability.thread.zigbee_channel} onClick={() => void mutate('/api/thread/retry', {})}>Retry stored Thread dataset</button>}
   </section>
 }

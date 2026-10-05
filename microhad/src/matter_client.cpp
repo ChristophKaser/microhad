@@ -338,6 +338,7 @@ bool requestValid(unsigned char opcode, const std::string& text) {
     }
     if (opcode == 9) {
         if (fields["action"] == "\"create\"") return fields.size() == 2;
+        if (fields["action"] == "\"retry\"") return fields.size() == 2;
         return fields["action"] == "\"import\"" && fields.size() == 3 && hex(fields["dataset"], 2, 508);
     }
     if (opcode == 3) {
@@ -704,19 +705,24 @@ std::string MatterChannel::operationPollRequest(const std::string& job) {
     return "{\"schema\":1,\"action\":\"job\",\"job\":\"" + job + "\"}";
 }
 
-bool MatterChannel::threadMutation(bool importing, const std::string& input, std::string* body) {
+bool MatterChannel::threadMutation(const std::string& action, const std::string& input, std::string* body) {
     body->clear();
+    const bool importing = action == "import";
+    const bool retrying = action == "retry";
+    if (action != "create" && !importing && !retrying) return false;
     Fields fields;
     if (input.size() > MatterWire::MaxPayload || !StatusJson(input).parse(&fields) || fields["schema"] != "1" ||
         fields.size() != (importing ? 2U : 1U) || (importing && !hex(fields["dataset"], 2, 508))) return false;
     *body = importing ? "{\"schema\":1,\"action\":\"import\",\"dataset\":" + fields["dataset"] + '}' :
-                        "{\"schema\":1,\"action\":\"create\"}";
+        retrying ? "{\"schema\":1,\"action\":\"retry\"}" :
+                   "{\"schema\":1,\"action\":\"create\"}";
     return true;
 }
 bool MatterChannel::threadChannel(const std::string& input, unsigned char channel, std::string* body) {
     body->clear();
     if (channel < 11 || channel > 26 || !requestValid(9, input)) return false;
     Fields fields; if (!StatusJson(input).parse(&fields)) return false;
+    if (fields["action"] == "\"retry\"") { *body = input; return true; }
     std::ostringstream out;
     out << "{\"schema\":1,\"action\":" << fields["action"] << ",\"zigbee_channel\":"
         << static_cast<unsigned int>(channel);
