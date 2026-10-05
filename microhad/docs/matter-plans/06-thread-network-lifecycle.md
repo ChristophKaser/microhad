@@ -2,6 +2,16 @@
 
 ## Current open work — 2026-10-05
 
+The staged Matter service is now running on the development gateway alongside
+Ziggurat and the existing native Zigbee gateway. Using
+`POST /api/thread/create`, the service created a private dataset on the freshly
+observed Zigbee channel 11; the real shared-radio Thread instance transitioned
+from `attaching` to `attached`. The Zigbee network remained online and formed.
+This closes target service startup and initial dataset attachment only. No
+accessory is commissioned, and Thread mesh coexistence/RF behavior, physical
+device commissioning and failure recovery remain open; plan 08 remains
+excluded.
+
 Guarded datasets, fresh coordinator observations, and active commissioning
 cancellation on readiness loss are host-verified. The native gateway now
 reconnects through a Zigbee channel change while the Matter service refuses the

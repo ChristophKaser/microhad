@@ -1,5 +1,5 @@
 #!/bin/sh
-# Candidate permanent launcher; not installed or activated by this task.
+# Permanent launcher for the paired native/Ziggurat stack.
 export ZIGGURAT_BIN=/tuya/native/ziggurat
 export NATIVE_BIN=/tuya/native/tuya-zigbee-native
 export NATIVE_CONFIG=/tuya/native/config.json

@@ -46,10 +46,13 @@ make webui
 Matter is an optional build selection, `MATTER=0|1`, defaulting to `0`.
 `MATTER=1` requires `ZIGGURAT=1`; enabled builds currently fail the documented
 factory C++ runtime gate. The Rust Matter service and common device/report
-integration are implemented and synthetic-tested, but gateway CASE reports,
-physical Thread attachment and deployment acceptance remain open. See [Matter
-build flags, compiler findings, and remaining integration](MATTER_INTEGRATION.md)
-and the [open-point plans](docs/matter-plans/README.md).
+integration are implemented and synthetic-tested. The development gateway now
+runs the Matter service, has a persisted Thread dataset attached on the current
+Zigbee channel, and retains its existing Zigbee network. A first accessory has
+not yet been commissioned; active-daemon CASE sensor reports and physical
+device onboarding remain open. See [Matter build flags, compiler findings, and
+remaining integration](MATTER_INTEGRATION.md) and the [open-point
+plans](docs/matter-plans/README.md).
 
 Outputs are `build/mips/microhad-zigbee-native` (EZSP) and
 `build/mips-ziggurat/microhad-zigbee-native` (Ziggurat). Pass the chosen executable
@@ -86,13 +89,17 @@ readiness check. The seed is 44 bytes, mode `0600`, on the `/tuya` JFFS2 volume;
 it adds one small persistent write per boot. See
 [RNG seed deployment and recovery](RECOVERY_TOOLING.md#paired-startup-and-maintenance-control).
 
-## Current state — 2026-10-03
+## Current state — 2026-10-05
 
-The development gateway runs native + Ziggurat. Startup/reboot recovery and
-existing-light controls are verified. Thermometer profile, cached-rejoin,
-parent-announcement and fresh-join replay fixes are deployed, but sustained TH01
-reporting and live acceptance remain unresolved. One cold boot needed 121 seconds;
-broadcast verdicts can be intermittent. Thread/Matter is future work.
+The development gateway runs the native paired supervisor, Ziggurat, native
+gateway and Matter service. Its Thread dataset is attached on channel 11, while
+the Zigbee network remains online and formed. No Matter accessory is paired
+yet; the Garage BLE onboarding flow still needs a real accessory and setup
+code. Startup/reboot recovery and existing-light controls are verified.
+Thermometer profile, cached-rejoin, parent-announcement and fresh-join replay
+fixes are deployed, but sustained TH01 reporting and live acceptance remain
+unresolved. One cold boot needed 121 seconds; broadcast verdicts can be
+intermittent.
 
 - [Latest fix, tests and remaining acceptance](TH01_HERDSMAN_FIX.md)
 - [Thermometer investigation](THERMOMETER_RECOVERY.md)

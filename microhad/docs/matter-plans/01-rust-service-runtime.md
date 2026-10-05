@@ -88,6 +88,36 @@ service, launcher and paired processes remained intact. Available `/tuya` flash
 returned to 1,484 KiB. The launcher-only path now skips all artifact upload
 blocks; retry it before restarting the paired stack.
 
+## Matter service startup and first Thread attachment — 2026-10-05
+
+After confirming the package hashes, `deploy.sh --activate-paired-only`
+installed the Matter-aware boot launcher and preserved the original launcher
+at `/tuya/tuya_start.sh.lowjs-backup` (MD5
+`b3aedfd3aba19982fea9bdca4273433d`). The paired supervisor (PID 126) received
+TERM and completed its cleanup before `/tuya/tuya_start.sh` started the new
+stack. The Zigbee native socket, private Thread socket and Matter IPC socket
+appeared; the Matter process remained running and available. No device reboot
+or reset was observed during the checks.
+
+The Zigbee status endpoint reports `online:true`, `network_formed:true`, and
+channel 11. `POST /api/thread/create` completed successfully, using the fresh
+coordinator channel rather than caller input. Thread first reported
+`attaching`, then `attached:true` on dataset channel 11. Matter status reports
+`enabled:true`, `available:true`, `controller_initialized:true`,
+`fabric_ready:true`, and `state:"running"`. The private credentials store is
+mode 0600; its values were not read or logged. `/tuya` has 2,260 KiB free after
+startup and dataset creation.
+
+Target idle resource sample: `thread-matter` has 1,548 KiB RSS and a 1,548 KiB
+high-water mark. Over 29.27 seconds its CPU counters increased by one tick;
+RSS remained unchanged, `MemFree` moved from 3,052 to 3,044 KiB, and
+`Inactive(file)` remained 9,712 KiB. This is a short attached-idle sample, not
+commissioning or report-load evidence. Zigbee remained online/formed. No
+Matter accessory is commissioned yet. The next software gate is wire-decoded
+CASE reports received by the installed daemon's own subscription loop and
+delivered into native state; first real-device commissioning still needs a
+Matter accessory and its setup code in Garage.
+
 ## Gateway flash headroom observation — 2026-10-05
 
 A read-only `df -k /tuya` check reported 12,160 KiB total, 8,628 KiB used,
@@ -189,7 +219,7 @@ one registered client, not the maximum 64-key authentication scan or the
 installed daemon's ongoing CASE report loop. No deployment or production
 service restart was performed.
 
-## Current open work — 2026-10-05
+## Historical integrated runtime evidence before gateway activation — 2026-10-05
 
 Host service/native round trips, the generic paired supervisor failure matrix,
 and attached-daemon-to-native report delivery pass. A synthetic gateway MIPS
