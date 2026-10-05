@@ -22,7 +22,7 @@ SIM_SPEC.loader.exec_module(sim_transport)
 
 def main():
     radio = sim_transport.sim.ThreadRcp('127.0.0.1', tcp_nodelay=True)
-    relay = probe = fixture = None
+    relay = probe = daemon = fixture = None
     try:
         with tempfile.TemporaryDirectory(prefix='ot-sim-matter-native-') as temp:
             directory = Path(temp)
@@ -120,13 +120,78 @@ def main():
             output, _ = probe.communicate(timeout=15)
             assert probe.returncode == 0, output
             assert 'PASS production manager sensor reports reach IPC from subscribed CASE reports' in output
+
+            # The accessory/commissioner fixture above proves CASE report
+            # generation. Now run the actual thread-matter daemon with a
+            # test-only Manager queue seed and verify its IPC events traverse
+            # the same already-registered native device/history path.
+            wait_for(lambda: not Path('/tmp/microhad-matter.sock').exists(), timeout=5)
+            relay.wait(timeout=5)
+            assert relay.returncode == 0
+            radio.close()
+            radio = sim_transport.sim.ThreadRcp('127.0.0.1', tcp_nodelay=True)
+            daemon_radio_socket = directory / 'daemon-radio.sock'
+            relay = subprocess.Popen([str(RUST_ROOT / 'build/openthread-unix/sim-relay-host'),
+                                      str(daemon_radio_socket), radio.address, str(radio.port), '105'],
+                                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            wait_for(lambda: daemon_radio_socket.exists() or relay.poll() is not None, timeout=5)
+            if not daemon_radio_socket.exists():
+                raise RuntimeError('Daemon synthetic relay startup failed: ' + relay.stdout.read())
+            state_tmp = state / 'tmp'
+            state_tmp.mkdir(mode=0o700, exist_ok=True)
+            state_tmp.chmod(0o700)
+            daemon_env = env.copy()
+            daemon_env['MICROHAD_MATTER_TEST_SEED_SENSOR_REPORT_NODE'] = '2'
+            daemon = subprocess.Popen([
+                str(RUST_ROOT / 'build/rs-matter/target/release/thread-matter'),
+                '--socket', '/tmp/microhad-matter.sock', '--state-dir', str(state),
+                '--radio-url', 'spinel+hdlc+unix://' + str(daemon_radio_socket) + '?no-reset'],
+                cwd=directory, env=daemon_env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            try:
+                wait_for(lambda: fixture.request('/api/matter/status')['state'] == 'running', timeout=20)
+            except TimeoutError:
+                return_code = daemon.poll()
+                if return_code is not None:
+                    daemon_out, daemon_err = daemon.communicate(timeout=2)
+                    raise RuntimeError(f'thread-matter exited before reports: rc={return_code}, '
+                                       f'stdout={daemon_out!r}, stderr={daemon_err!r}')
+                raise RuntimeError('thread-matter did not report running before the report batch')
+
+            def daemon_reports_visible():
+                for item in fixture.status()['devices']:
+                    if item.get('external_id') != device['external_id']:
+                        continue
+                    values = item.get('sensor_values', {})
+                    if (values.get('temperature') == {'value': -4.25, 'unit': '°C', 'quality': 'measured'} and
+                            values.get('humidity') == {'value': 63, 'unit': '%', 'quality': 'measured'} and
+                            values.get('air_quality') == {'value': 'poor', 'unit': '', 'quality': 'measured'} and
+                            values.get('co2') == {'value': 850, 'unit': 'ppm', 'quality': 'measured'} and
+                            values.get('pm25') == {'value': 30.5, 'unit': 'ug/m3', 'quality': 'measured'}):
+                        return item
+                return None
+
+            try:
+                daemon_device = wait_for(daemon_reports_visible, timeout=20)
+            except TimeoutError:
+                raise RuntimeError('Real thread-matter process reports did not update the common device: ' +
+                                   json.dumps(fixture.status()['devices']))
+            daemon_history = fixture.request('/api/devices/' + external_id + '/history')
+            # Analog history is intentionally capped to one sample per metric
+            # per minute; air-quality transitions are recorded immediately.
+            assert any(sample[2] == 9 and sample[3] == 'poor'
+                       for sample in daemon_history['samples']), daemon_history
+            daemon.terminate()
+            daemon_out, daemon_err = daemon.communicate(timeout=5)
+            assert daemon.returncode == 0 and not daemon_out
+            assert daemon_err == b'Matter controller service started\nMatter controller service stopped\n'
             assert not radio.error, radio.error
             print(json.dumps({'native_device': device, 'history': history,
+                              'daemon_device': daemon_device, 'daemon_history': daemon_history,
                               'rust_probe': output.splitlines()}, indent=2))
     finally:
         if fixture is not None:
             fixture.tearDown()
-        for process in (probe, relay):
+        for process in (probe, daemon, relay):
             if process is not None and process.poll() is None:
                 process.terminate()
                 try:
