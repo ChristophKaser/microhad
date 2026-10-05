@@ -163,7 +163,8 @@ impl ClientRegistry {
             .await?;
         let starting_counter = handle.response()?.icd_counter()?;
         handle.complete().await?;
-        self.install(fabric, node, endpoint, *key, starting_counter)
+        self.install(fabric, node, endpoint, *key, starting_counter)?;
+        Ok(())
     }
 
     pub fn registration(&self, fabric: NonZeroU8, node: u64) -> Option<&Registration> {

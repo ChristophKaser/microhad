@@ -320,10 +320,7 @@ impl IpcServer {
         let now = Instant::now();
         let mut published = 0;
         self.clients.retain_mut(|client| {
-            if client.eof
-                || now >= client.deadline
-                || client.responses.len() >= MAX_RESPONSES
-            {
+            if client.eof || now >= client.deadline || client.responses.len() >= MAX_RESPONSES {
                 return false;
             }
             client.responses.push_back(encoded.clone());
@@ -595,7 +592,8 @@ mod tests {
             kind: 2,
             opcode: 12,
             id: 0,
-            payload: br#"{"schema":1,"event":"matter_report","data":{"node":"0000000000000002"}}"#.to_vec(),
+            payload: br#"{"schema":1,"event":"matter_report","data":{"node":"0000000000000002"}}"#
+                .to_vec(),
         };
         assert_eq!(server.publish_all(&event).unwrap(), 2);
         server.poll(respond).unwrap();

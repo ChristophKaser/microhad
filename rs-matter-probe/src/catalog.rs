@@ -137,7 +137,10 @@ impl Catalog {
                 return Err(invalid());
             }
             previous = *id;
-            nodes.push(Node { id: *id, phase: Phase::RecoveryRequired });
+            nodes.push(Node {
+                id: *id,
+                phase: Phase::RecoveryRequired,
+            });
         }
         self.commit(nodes)?;
         self.legacy_pending.set(false);
@@ -159,7 +162,10 @@ impl Catalog {
     /// answered authenticated operational CASE discovery.
     pub(crate) fn recover_complete(&self, id: u64) -> Result<(), Error> {
         let mut nodes = self.nodes.borrow().clone();
-        let node = nodes.iter_mut().find(|node| node.id == id).ok_or_else(invalid)?;
+        let node = nodes
+            .iter_mut()
+            .find(|node| node.id == id)
+            .ok_or_else(invalid)?;
         match node.phase {
             Phase::Complete => return Ok(()),
             Phase::RecoveryRequired => node.phase = Phase::Complete,
@@ -327,7 +333,9 @@ mod tests {
         catalog.migrate_legacy(&[2, 4], 5).unwrap();
         let nodes = catalog.nodes();
         assert_eq!(nodes.iter().map(|node| node.id).collect::<Vec<_>>(), [2, 4]);
-        assert!(nodes.iter().all(|node| node.phase == Phase::RecoveryRequired));
+        assert!(nodes
+            .iter()
+            .all(|node| node.phase == Phase::RecoveryRequired));
         drop(catalog);
         drop(store);
         let reopened = Catalog::open(directory.store(), 17, 5).unwrap();
@@ -344,7 +352,14 @@ mod tests {
         let catalog = Catalog::open(store.clone(), 17, 100_003).unwrap();
         assert!(catalog.legacy_pending());
         assert!(catalog.migrate_legacy(&[2, 400, 100_001], 100_003).is_ok());
-        assert_eq!(catalog.nodes().iter().map(|node| node.id).collect::<Vec<_>>(), [2, 400, 100_001]);
+        assert_eq!(
+            catalog
+                .nodes()
+                .iter()
+                .map(|node| node.id)
+                .collect::<Vec<_>>(),
+            [2, 400, 100_001]
+        );
         assert!(store.contains_in(CATALOG_KEY..CATALOG_KEY + 1).unwrap());
         let reopened = Catalog::open(store, 17, 100_003).unwrap();
         assert!(!reopened.legacy_pending());
@@ -365,7 +380,10 @@ mod tests {
         let readonly = PrivateStore::open_read_only(&directory.0).unwrap();
         Catalog::validate(&readonly, 17, 3).unwrap();
         assert!(Catalog::open(readonly.clone(), 17, 3).is_err());
-        assert_eq!(std::fs::read(directory.0.join("credentials.bin")).unwrap(), before);
+        assert_eq!(
+            std::fs::read(directory.0.join("credentials.bin")).unwrap(),
+            before
+        );
     }
     #[test]
     fn cancelled_or_crashed_commissioning_requires_explicit_recovery() {

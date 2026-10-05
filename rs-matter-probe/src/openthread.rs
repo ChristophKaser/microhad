@@ -131,7 +131,10 @@ impl OpenThread {
     ) -> Result<Vec<u64>, Error> {
         let mut token = 0;
         checked(unsafe { gatewayOtBrowseStart(fabric, next_node, &mut token) })?;
-        let _request = BrowseRequest { _owner: self, token };
+        let _request = BrowseRequest {
+            _owner: self,
+            token,
+        };
         let mut result = BrowseResult::empty();
         loop {
             match unsafe { gatewayOtBrowsePoll(token, &mut result) } {
@@ -303,7 +306,12 @@ struct BrowseResult {
 }
 impl BrowseResult {
     fn empty() -> Self {
-        Self { count: 0, overflow: false, reserved: 0, nodes: [0; 64] }
+        Self {
+            count: 0,
+            overflow: false,
+            reserved: 0,
+            nodes: [0; 64],
+        }
     }
 }
 struct DnsRequest<'a> {

@@ -60,9 +60,7 @@ impl<'a, C: Crypto + 'a> Controller<'a, C> {
         fabric: NonZeroU8,
     ) -> Result<Self, rs_matter::error::Error> {
         let compressed_fabric_id = matter.with_state(|state| {
-            Ok::<_, rs_matter::error::Error>(
-                state.fabrics.fabric(fabric)?.compressed_fabric_id(),
-            )
+            Ok::<_, rs_matter::error::Error>(state.fabrics.fabric(fabric)?.compressed_fabric_id())
         })?;
         let next_node = identity.next_node();
         let catalog = Catalog::open(store.clone(), identity.fabric_id(), identity.next_node())?;
@@ -191,12 +189,17 @@ impl<'a, C: Crypto + 'a> Controller<'a, C> {
     pub fn fatal(&self) -> bool {
         self.catalog.fatal()
     }
-    pub fn catalog(&self) -> Catalog { self.catalog.clone() }
+    pub fn catalog(&self) -> Catalog {
+        self.catalog.clone()
+    }
     pub fn discovery_identity(&self) -> (u64, u64) {
         (self.compressed_fabric_id, self.next_node)
     }
     pub fn commissioning(&mut self, now: Instant) -> bool {
-        self.sessions.current_snapshot(now).map(|s| s.state < Phase::Complete).unwrap_or(false)
+        self.sessions
+            .current_snapshot(now)
+            .map(|s| s.state < Phase::Complete)
+            .unwrap_or(false)
     }
     pub fn poll(&mut self, lifecycle: &Lifecycle, now: Instant, context: &mut Context<'_>) {
         self.sessions.tick(now);

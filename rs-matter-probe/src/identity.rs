@@ -404,9 +404,15 @@ mod tests {
         let before = std::fs::read(directory.0.join("credentials.bin")).unwrap();
         let readonly = PrivateStore::open_read_only(&directory.0).unwrap();
         let restored = Identity::validate_existing(&readonly, &crypto, 0xfff1).unwrap();
-        assert_eq!(restored.encode(restored.next_node()).as_slice(), original.as_slice());
+        assert_eq!(
+            restored.encode(restored.next_node()).as_slice(),
+            original.as_slice()
+        );
         assert!(Identity::validate_existing(&readonly, &crypto, 0xfff2).is_err());
-        assert_eq!(std::fs::read(directory.0.join("credentials.bin")).unwrap(), before);
+        assert_eq!(
+            std::fs::read(directory.0.join("credentials.bin")).unwrap(),
+            before
+        );
     }
 
     #[test]

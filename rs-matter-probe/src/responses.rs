@@ -98,8 +98,16 @@ fn matter_report_valid(reading: &crate::operations::ResultValue) -> bool {
                 1029 => value.unit == "percent",
                 1037 | 1066 => matches!(
                     value.unit,
-                    "ppm" | "ppb" | "ppt" | "mg/m3" | "ug/m3" | "ng/m3"
-                        | "particles/m3" | "Bq/m3" | "dB/m" | "particles/ft3"
+                    "ppm"
+                        | "ppb"
+                        | "ppt"
+                        | "mg/m3"
+                        | "ug/m3"
+                        | "ng/m3"
+                        | "particles/m3"
+                        | "Bq/m3"
+                        | "dB/m"
+                        | "particles/ft3"
                 ),
                 _ => false,
             };
@@ -202,33 +210,57 @@ mod tests {
 
         let readings = [
             ResultValue {
-                node: Id(2), endpoint: 1, cluster: 1026, attribute: 0,
+                node: Id(2),
+                endpoint: 1,
+                cluster: 1026,
+                attribute: 0,
                 value: Value::Measurement(MeasurementValue {
-                    value: Some(-5.25), unit: "celsius", quality: "measured",
+                    value: Some(-5.25),
+                    unit: "celsius",
+                    quality: "measured",
                 }),
             },
             ResultValue {
-                node: Id(2), endpoint: 1, cluster: 1029, attribute: 0,
+                node: Id(2),
+                endpoint: 1,
+                cluster: 1029,
+                attribute: 0,
                 value: Value::Measurement(MeasurementValue {
-                    value: None, unit: "percent", quality: "unknown",
+                    value: None,
+                    unit: "percent",
+                    quality: "unknown",
                 }),
             },
             ResultValue {
-                node: Id(2), endpoint: 1, cluster: 91, attribute: 0,
+                node: Id(2),
+                endpoint: 1,
+                cluster: 91,
+                attribute: 0,
                 value: Value::AirQuality(AirQualityValue {
-                    value: "moderate", quality: "measured",
+                    value: "moderate",
+                    quality: "measured",
                 }),
             },
             ResultValue {
-                node: Id(2), endpoint: 1, cluster: 1037, attribute: 0,
+                node: Id(2),
+                endpoint: 1,
+                cluster: 1037,
+                attribute: 0,
                 value: Value::Measurement(MeasurementValue {
-                    value: Some(758.5), unit: "ppm", quality: "measured",
+                    value: Some(758.5),
+                    unit: "ppm",
+                    quality: "measured",
                 }),
             },
             ResultValue {
-                node: Id(2), endpoint: 1, cluster: 1066, attribute: 0,
+                node: Id(2),
+                endpoint: 1,
+                cluster: 1066,
+                attribute: 0,
                 value: Value::Measurement(MeasurementValue {
-                    value: Some(12.75), unit: "ug/m3", quality: "measured",
+                    value: Some(12.75),
+                    unit: "ug/m3",
+                    quality: "measured",
                 }),
             },
         ];

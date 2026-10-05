@@ -11,16 +11,16 @@ pub mod identity;
 pub mod ipc;
 #[cfg(feature = "control-ipc")]
 pub mod sessions;
+pub mod store;
 #[cfg(feature = "controller-service")]
 pub mod subscriptions;
-pub mod store;
 
 #[cfg(feature = "controller-service")]
 pub mod controller;
 #[cfg(feature = "controller-service")]
-pub mod discovery;
-#[cfg(feature = "controller-service")]
 pub mod devices;
+#[cfg(feature = "controller-service")]
+pub mod discovery;
 #[cfg(feature = "controller-service")]
 pub mod icd;
 #[cfg(feature = "controller-service")]

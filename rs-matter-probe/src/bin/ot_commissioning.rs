@@ -21,7 +21,7 @@
 //! Adapted from the pinned upstream commissioning fixture; never production state.
 use core::cell::{Cell, RefCell};
 use core::pin::pin;
-use embassy_futures::select::{select, select3, Either};
+use embassy_futures::select::{select, select3, select4, Either};
 use embassy_time::{Duration, Timer};
 use lexra_rs_matter_probe::identity::Identity;
 use lexra_rs_matter_probe::store::PrivateStore;
@@ -37,6 +37,9 @@ use rs_matter::dm::clusters::app::on_off::{
 };
 use rs_matter::dm::clusters::decl::network_commissioning::{self, NetworkCommissioningStatusEnum};
 use rs_matter::dm::clusters::desc::{self, ClusterHandler as _};
+use rs_matter::dm::clusters::icd_mgmt::{
+    ClusterHandler as _, IcdManagementClient as _, IcdModeConfig, LitIcd, LitIcdMgmtHandler,
+};
 use rs_matter::dm::clusters::net_comm::DummyNetworks;
 use rs_matter::dm::devices::test::{TEST_DEV_ATT, TEST_DEV_COMM, TEST_DEV_DET};
 use rs_matter::dm::devices::DEV_TYPE_ON_OFF_LIGHT;
@@ -177,6 +180,7 @@ impl Handler for TestThreadNetwork {
     }
 }
 
+use rs_matter::dm::clusters::decl::globals::{MeasurementMediumEnum, MeasurementUnitEnum};
 use rs_matter::dm::clusters::decl::temperature_measurement::{
     self, ClusterHandler as _, TemperatureMeasurementClient,
 };
@@ -185,7 +189,6 @@ use rs_matter::dm::clusters::decl::{
     pm_25_concentration_measurement as pm25_measurement,
     relative_humidity_measurement as humidity_measurement,
 };
-use rs_matter::dm::clusters::decl::globals::{MeasurementMediumEnum, MeasurementUnitEnum};
 
 // Test-only sensor: exercise signed and unknown measurements over actual CASE exchanges.
 struct TestTemperature {
@@ -234,76 +237,146 @@ impl temperature_measurement::ClusterHandler for TestTemperature {
         Ok(Nullable::some(32767))
     }
 }
-struct TestHumidity { value: Cell<Option<u16>>, dataver: Cell<u32> }
+struct TestHumidity {
+    value: Cell<Option<u16>>,
+    dataver: Cell<u32>,
+}
 impl humidity_measurement::ClusterHandler for TestHumidity {
     const CLUSTER: rs_matter::dm::Cluster<'static> = humidity_measurement::FULL_CLUSTER;
-    fn dataver(&self) -> u32 { self.dataver.get() }
-    fn dataver_changed(&self) { self.dataver.set(self.dataver.get().wrapping_add(1)); }
-    fn measured_value(&self, _: impl rs_matter::dm::ReadContext) -> Result<Nullable<u16>, Error> {
-        Ok(self.value.get().map(Nullable::some).unwrap_or_else(Nullable::none))
+    fn dataver(&self) -> u32 {
+        self.dataver.get()
     }
-    fn min_measured_value(&self, _: impl rs_matter::dm::ReadContext) -> Result<Nullable<u16>, Error> {
+    fn dataver_changed(&self) {
+        self.dataver.set(self.dataver.get().wrapping_add(1));
+    }
+    fn measured_value(&self, _: impl rs_matter::dm::ReadContext) -> Result<Nullable<u16>, Error> {
+        Ok(self
+            .value
+            .get()
+            .map(Nullable::some)
+            .unwrap_or_else(Nullable::none))
+    }
+    fn min_measured_value(
+        &self,
+        _: impl rs_matter::dm::ReadContext,
+    ) -> Result<Nullable<u16>, Error> {
         Ok(Nullable::some(0))
     }
-    fn max_measured_value(&self, _: impl rs_matter::dm::ReadContext) -> Result<Nullable<u16>, Error> {
+    fn max_measured_value(
+        &self,
+        _: impl rs_matter::dm::ReadContext,
+    ) -> Result<Nullable<u16>, Error> {
         Ok(Nullable::some(10_000))
     }
 }
-struct TestConcentration { value: Cell<Option<f32>>, dataver: Cell<u32> }
+struct TestConcentration {
+    value: Cell<Option<f32>>,
+    dataver: Cell<u32>,
+}
 impl co2_measurement::ClusterHandler for TestConcentration {
     const CLUSTER: rs_matter::dm::Cluster<'static> = co2_measurement::FULL_CLUSTER;
-    fn dataver(&self) -> u32 { self.dataver.get() }
-    fn dataver_changed(&self) { self.dataver.set(self.dataver.get().wrapping_add(1)); }
-    fn measured_value(&self, _: impl rs_matter::dm::ReadContext) -> Result<Nullable<f32>, Error> {
-        Ok(self.value.get().map(Nullable::some).unwrap_or_else(Nullable::none))
+    fn dataver(&self) -> u32 {
+        self.dataver.get()
     }
-    fn measurement_unit(&self, _: impl rs_matter::dm::ReadContext) -> Result<MeasurementUnitEnum, Error> {
+    fn dataver_changed(&self) {
+        self.dataver.set(self.dataver.get().wrapping_add(1));
+    }
+    fn measured_value(&self, _: impl rs_matter::dm::ReadContext) -> Result<Nullable<f32>, Error> {
+        Ok(self
+            .value
+            .get()
+            .map(Nullable::some)
+            .unwrap_or_else(Nullable::none))
+    }
+    fn measurement_unit(
+        &self,
+        _: impl rs_matter::dm::ReadContext,
+    ) -> Result<MeasurementUnitEnum, Error> {
         Ok(MeasurementUnitEnum::PPM)
     }
-    fn measurement_medium(&self, _: impl rs_matter::dm::ReadContext) -> Result<MeasurementMediumEnum, Error> {
+    fn measurement_medium(
+        &self,
+        _: impl rs_matter::dm::ReadContext,
+    ) -> Result<MeasurementMediumEnum, Error> {
         Ok(MeasurementMediumEnum::Air)
     }
 }
 impl pm25_measurement::ClusterHandler for TestConcentration {
     const CLUSTER: rs_matter::dm::Cluster<'static> = pm25_measurement::FULL_CLUSTER;
-    fn dataver(&self) -> u32 { self.dataver.get() }
-    fn dataver_changed(&self) { self.dataver.set(self.dataver.get().wrapping_add(1)); }
-    fn measured_value(&self, _: impl rs_matter::dm::ReadContext) -> Result<Nullable<f32>, Error> {
-        Ok(self.value.get().map(Nullable::some).unwrap_or_else(Nullable::none))
+    fn dataver(&self) -> u32 {
+        self.dataver.get()
     }
-    fn measurement_unit(&self, _: impl rs_matter::dm::ReadContext) -> Result<MeasurementUnitEnum, Error> {
+    fn dataver_changed(&self) {
+        self.dataver.set(self.dataver.get().wrapping_add(1));
+    }
+    fn measured_value(&self, _: impl rs_matter::dm::ReadContext) -> Result<Nullable<f32>, Error> {
+        Ok(self
+            .value
+            .get()
+            .map(Nullable::some)
+            .unwrap_or_else(Nullable::none))
+    }
+    fn measurement_unit(
+        &self,
+        _: impl rs_matter::dm::ReadContext,
+    ) -> Result<MeasurementUnitEnum, Error> {
         Ok(MeasurementUnitEnum::UGM3)
     }
-    fn measurement_medium(&self, _: impl rs_matter::dm::ReadContext) -> Result<MeasurementMediumEnum, Error> {
+    fn measurement_medium(
+        &self,
+        _: impl rs_matter::dm::ReadContext,
+    ) -> Result<MeasurementMediumEnum, Error> {
         Ok(MeasurementMediumEnum::Air)
     }
 }
-struct TestAirQuality { dataver: Cell<u32> }
+struct TestAirQuality {
+    dataver: Cell<u32>,
+}
 impl air_quality::ClusterHandler for TestAirQuality {
     const CLUSTER: rs_matter::dm::Cluster<'static> = air_quality::FULL_CLUSTER;
-    fn dataver(&self) -> u32 { self.dataver.get() }
-    fn dataver_changed(&self) { self.dataver.set(self.dataver.get().wrapping_add(1)); }
-    fn air_quality(&self, _: impl rs_matter::dm::ReadContext) -> Result<air_quality::AirQualityEnum, Error> {
+    fn dataver(&self) -> u32 {
+        self.dataver.get()
+    }
+    fn dataver_changed(&self) {
+        self.dataver.set(self.dataver.get().wrapping_add(1));
+    }
+    fn air_quality(
+        &self,
+        _: impl rs_matter::dm::ReadContext,
+    ) -> Result<air_quality::AirQualityEnum, Error> {
         Ok(air_quality::AirQualityEnum::Moderate)
     }
 }
+const APP_ENDPOINT: Endpoint<'static> = Endpoint::new(
+    1,
+    devices!(DEV_TYPE_ON_OFF_LIGHT),
+    clusters!(
+        desc::DescHandler::CLUSTER,
+        TestOnOffDeviceLogic::CLUSTER,
+        TestLevelControl::CLUSTER,
+        TestTemperature::CLUSTER,
+        humidity_measurement::FULL_CLUSTER,
+        co2_measurement::FULL_CLUSTER,
+        pm25_measurement::FULL_CLUSTER,
+        air_quality::FULL_CLUSTER,
+    ),
+);
+
 const NODE: Node<'static> = Node {
+    endpoints: &[root_endpoint!(thread), APP_ENDPOINT],
+};
+
+const NODE_ICD: Node<'static> = Node {
     endpoints: &[
-        root_endpoint!(thread),
-        Endpoint::new(
-            1,
-            devices!(DEV_TYPE_ON_OFF_LIGHT),
-            clusters!(
-                desc::DescHandler::CLUSTER,
-                TestOnOffDeviceLogic::CLUSTER,
-                TestLevelControl::CLUSTER,
-                TestTemperature::CLUSTER,
-                humidity_measurement::FULL_CLUSTER,
-                co2_measurement::FULL_CLUSTER,
-                pm25_measurement::FULL_CLUSTER,
-                air_quality::FULL_CLUSTER,
-            ),
-        ),
+        Endpoint {
+            id: 0,
+            device_types: devices!(rs_matter::dm::devices::DEV_TYPE_ROOT_NODE),
+            clusters: clusters!(thread; LitIcdMgmtHandler::CLUSTER),
+            client_clusters: &[],
+            unique_id: None,
+            semantic_tags: &[],
+        },
+        APP_ENDPOINT,
     ],
 };
 
@@ -317,9 +390,11 @@ fn data_model<'a>(
     pm25: &'a TestConcentration,
     air_quality: &'a TestAirQuality,
     thread_network: &'a TestThreadNetwork,
+    lit: &'a LitIcd,
+    icd: bool,
 ) -> impl DataModel + 'a {
     (
-        NODE,
+        if icd { NODE_ICD } else { NODE },
         endpoints::EthSysHandlerBuilder::new()
             .build(rand)
             .chain(
@@ -338,15 +413,27 @@ fn data_model<'a>(
                 |e, c| e == 1 && c == TestTemperature::CLUSTER.id,
                 Async(temperature_measurement::HandlerAdaptor(temperature)),
             )
-            .chain(|e, c| e == 1 && c == humidity_measurement::FULL_CLUSTER.id,
-                Async(humidity_measurement::HandlerAdaptor(humidity)))
-            .chain(|e, c| e == 1 && c == co2_measurement::FULL_CLUSTER.id,
-                Async(co2_measurement::HandlerAdaptor(co2)))
-            .chain(|e, c| e == 1 && c == pm25_measurement::FULL_CLUSTER.id,
-                Async(pm25_measurement::HandlerAdaptor(pm25)))
-            .chain(|e, c| e == 1 && c == air_quality::FULL_CLUSTER.id,
-                Async(air_quality::HandlerAdaptor(air_quality)))
-            .chain(|e, c| e == 0 && c == 49, Async(thread_network)),
+            .chain(
+                |e, c| e == 1 && c == humidity_measurement::FULL_CLUSTER.id,
+                Async(humidity_measurement::HandlerAdaptor(humidity)),
+            )
+            .chain(
+                |e, c| e == 1 && c == co2_measurement::FULL_CLUSTER.id,
+                Async(co2_measurement::HandlerAdaptor(co2)),
+            )
+            .chain(
+                |e, c| e == 1 && c == pm25_measurement::FULL_CLUSTER.id,
+                Async(pm25_measurement::HandlerAdaptor(pm25)),
+            )
+            .chain(
+                |e, c| e == 1 && c == air_quality::FULL_CLUSTER.id,
+                Async(air_quality::HandlerAdaptor(air_quality)),
+            )
+            .chain(|e, c| e == 0 && c == 49, Async(thread_network))
+            .chain(
+                |e, c| e == 0 && c == LitIcdMgmtHandler::CLUSTER.id,
+                Async(LitIcdMgmtHandler::new(Dataver::new_rand(&mut rand), lit).adapt()),
+            ),
     )
 }
 
@@ -426,6 +513,7 @@ async fn run(
     service_discovery: bool,
     sensor_reports: bool,
     native_ipc: bool,
+    icd: bool,
 ) -> Result<(), Error> {
     let mut entropy =
         OsEntropy(std::fs::File::open("/dev/urandom").expect("OS entropy unavailable"));
@@ -462,11 +550,33 @@ async fn run(
         value: Cell::new(Some(2315)),
         dataver: Cell::new(1),
     };
-    let humidity = TestHumidity { value: Cell::new(Some(5234)), dataver: Cell::new(1) };
-    let co2 = TestConcentration { value: Cell::new(Some(758.5)), dataver: Cell::new(1) };
-    let pm25 = TestConcentration { value: Cell::new(Some(12.75)), dataver: Cell::new(1) };
-    let air_quality = TestAirQuality { dataver: Cell::new(1) };
+    let humidity = TestHumidity {
+        value: Cell::new(Some(5234)),
+        dataver: Cell::new(1),
+    };
+    let co2 = TestConcentration {
+        value: Cell::new(Some(758.5)),
+        dataver: Cell::new(1),
+    };
+    let pm25 = TestConcentration {
+        value: Cell::new(Some(12.75)),
+        dataver: Cell::new(1),
+    };
+    let air_quality = TestAirQuality {
+        dataver: Cell::new(1),
+    };
     let thread_network = TestThreadNetwork::new();
+    let lit = LitIcd::new(
+        4,
+        IcdModeConfig {
+            idle_mode_duration_s: 2,
+            active_mode_duration_ms: 1_500,
+            active_mode_threshold_ms: 1_000,
+            user_active_mode_trigger_hint: 0,
+            user_active_mode_trigger_instruction: "",
+        },
+        500,
+    );
     let device_kv = device_matter.kv(DummyKvBlobStore);
 
     let dm = InteractionModel::new(
@@ -483,10 +593,14 @@ async fn run(
             &pm25,
             &air_quality,
             &thread_network,
+            &lit,
+            icd,
         ),
         &device_kv,
         device_state,
     );
+    device_matter.startup(&device_kv)?;
+    dm.startup().await?;
 
     // Open commissioning window before starting the mDNS responder so the
     // `wait_mdns` signal is already set when the broadcast loop first runs.
@@ -494,6 +608,10 @@ async fn run(
 
     let device_net = thread.bind(5540)?;
     let ctrl_net = thread.bind(5541)?;
+    let controller_operational = thread.own_address(5541)?;
+    let Address::Udp(SocketAddr::V6(controller_operational)) = controller_operational else {
+        unreachable!()
+    };
 
     let ctrl_matter = CTRL_MATTER.uninit().init_with(Matter::init(
         &TEST_DEV_DET,
@@ -548,10 +666,20 @@ async fn run(
         Ok::<_, Error>(())
     };
     let device = async {
-        select3(
+        let resolve_controller = async {
+            if icd {
+                // The ICD Check-In is sessionless and the device resolves the
+                // registered controller node independently of the CASE path.
+                resolve_fixture(device_matter, 0, controller_operational).await;
+            } else {
+                core::future::pending().await
+            }
+        };
+        select4(
             device_matter.run(device_crypto, device_send, device_receive, NoNetwork),
             responder.run::<4, 4>(),
             dm.run(),
+            resolve_controller,
         )
         .coalesce()
         .await
@@ -592,6 +720,10 @@ async fn run(
             )
             .await?
         };
+        if icd && device_matter.comm_window_state().is_open() {
+            let closed = dm.close_comm_window()?;
+            eprintln!("ICD fixture closed commissioning window: {closed}");
+        }
         println!(
             "PASS PASE and Thread provisioning over {}; CASE and completion over OpenThread",
             if use_ble {
@@ -609,9 +741,15 @@ async fn run(
                 .collect::<Vec<_>>(),
             vec![0, 1]
         );
+        if icd {
+            assert!(endpoints[0].servers.contains(&0x0046));
+        }
         assert!(endpoints[1].servers.contains(&6));
         for cluster in [8, 91, 1026, 1029, 1037, 1066] {
-            assert!(endpoints[1].servers.contains(&cluster), "synthetic endpoint missing sensor cluster {cluster}");
+            assert!(
+                endpoints[1].servers.contains(&cluster),
+                "synthetic endpoint missing sensor cluster {cluster}"
+            );
         }
         println!("PASS bounded operational descriptor endpoint and cluster discovery over CASE");
         if service_owner {
@@ -644,7 +782,10 @@ async fn run(
                 record[phase_offset] =
                     lexra_rs_matter_probe::catalog::Phase::RecoveryRequired as u8;
                 active_store
-                    .set(lexra_rs_matter_probe::catalog::CATALOG_KEY, Some(&record[..size]))
+                    .set(
+                        lexra_rs_matter_probe::catalog::CATALOG_KEY,
+                        Some(&record[..size]),
+                    )
                     .map_err(|_| rs_matter::error::ErrorCode::Failure)?;
             }
             let catalog = lexra_rs_matter_probe::catalog::Catalog::open(
@@ -657,35 +798,69 @@ async fn run(
                 &ctrl_crypto,
                 fab,
                 catalog.clone(),
-                if sensor_reports { 7 } else { 1 },
+                if icd {
+                    0
+                } else if sensor_reports {
+                    7
+                } else {
+                    1
+                },
             )
             .map_err(|_| rs_matter::error::ErrorCode::Failure)?;
-            for attempt in 0..2 {
-                std::future::poll_fn(|context| {
+            if icd {
+                let mode = embassy_time::with_timeout(
+                    Duration::from_secs(5),
+                    Exchange::initiate(ctrl_matter, ctrl_crypto, fab, node)
+                        .await?
+                        .icd_management()
+                        .operating_mode_read(0),
+                )
+                .await
+                .map_err(|_| rs_matter::error::ErrorCode::RxTimeout)??;
+                println!("PASS ICD Management root OperatingMode read over CASE: {mode:?}");
+                let features = embassy_time::with_timeout(
+                    Duration::from_secs(5),
+                    Exchange::initiate(ctrl_matter, ctrl_crypto, fab, node)
+                        .await?
+                        .icd_management()
+                        .feature_map_read(0),
+                )
+                .await
+                .map_err(|_| rs_matter::error::ErrorCode::RxTimeout)??;
+                println!("PASS ICD Management FeatureMap read over CASE: {features:#x}");
+            }
+            let attempts = if icd { 1 } else { 2 };
+            for attempt in 0..attempts {
+                let snapshot_deadline =
+                    std::time::Instant::now() + std::time::Duration::from_secs(30);
+                let online = std::future::poll_fn(|context| {
                     manager.poll(true, false, std::time::Instant::now(), context);
                     if manager
                         .snapshots()
                         .iter()
                         .any(|s| s.node == node && s.online)
                     {
-                        std::task::Poll::Ready(())
+                        std::task::Poll::Ready(true)
+                    } else if std::time::Instant::now() >= snapshot_deadline {
+                        std::task::Poll::Ready(false)
                     } else {
                         std::task::Poll::Pending
                     }
                 })
                 .await;
+                if !online {
+                    eprintln!("ICD fixture did not make its CASE descriptor snapshot online");
+                    return Err(rs_matter::error::ErrorCode::RxTimeout.into());
+                }
                 assert_eq!(manager.snapshots()[0].endpoints, endpoints);
                 if sensor_reports && attempt == 0 {
-                    assert!(catalog
-                        .nodes()
-                        .iter()
-                        .any(|entry| entry.id == node
-                            && entry.phase == lexra_rs_matter_probe::catalog::Phase::Complete));
+                    assert!(catalog.nodes().iter().any(|entry| entry.id == node
+                        && entry.phase == lexra_rs_matter_probe::catalog::Phase::Complete));
                     println!(
                         "PASS recovery-required catalog node reconciled after live CASE descriptor discovery"
                     );
                 }
-                if attempt == 0 {
+                if attempt == 0 && !icd {
                     let waker = std::task::Waker::noop();
                     let mut context = std::task::Context::from_waker(waker);
                     manager.poll(false, false, std::time::Instant::now(), &mut context);
@@ -700,7 +875,153 @@ async fn run(
                     ));
                 }
             }
-            println!("PASS production device scheduler catalog restore and radio detach refresh over CASE");
+            if icd {
+                println!(
+                    "PASS production device manager online snapshot with ICD Management cluster"
+                );
+            } else {
+                println!("PASS production device scheduler catalog restore and radio detach refresh over CASE");
+            }
+            if icd {
+                let registry_store = catalog.store();
+                let registration_deadline =
+                    std::time::Instant::now() + std::time::Duration::from_secs(12);
+                let mut next_registration_check = std::time::Instant::now();
+                let registered = std::future::poll_fn(|context| {
+                    manager.poll(true, false, std::time::Instant::now(), context);
+                    if std::time::Instant::now() >= next_registration_check {
+                        let registered = lexra_rs_matter_probe::icd::ClientRegistry::open(
+                            registry_store.clone(),
+                        )
+                        .ok()
+                        .is_some_and(|registry| registry.registration(fab, node).is_some());
+                        if registered {
+                            return std::task::Poll::Ready(true);
+                        }
+                        next_registration_check =
+                            std::time::Instant::now() + std::time::Duration::from_millis(100);
+                    }
+                    if std::time::Instant::now() >= registration_deadline {
+                        std::task::Poll::Ready(false)
+                    } else {
+                        context.waker().wake_by_ref();
+                        std::task::Poll::Pending
+                    }
+                })
+                .await;
+                if !registered {
+                    eprintln!("ICD fixture production manager did not persist RegisterClient");
+                    return Err(rs_matter::error::ErrorCode::RxTimeout.into());
+                }
+                let mode = Exchange::initiate(ctrl_matter, ctrl_crypto, fab, node)
+                    .await?
+                    .icd_management()
+                    .operating_mode_read(0)
+                    .await?;
+                let registrations = Exchange::initiate(ctrl_matter, ctrl_crypto, fab, node)
+                    .await?
+                    .icd_management()
+                    .registered_clients_read_with(0, |clients| {
+                        clients.map(|clients| clients.iter().count())
+                    })
+                    .await??;
+                eprintln!("ICD fixture accessory mode after RegisterClient response: {mode:?}, registrations={registrations}");
+                if mode != rs_matter::dm::clusters::icd_mgmt::OperatingModeEnum::LIT
+                    || registrations == 0
+                {
+                    eprintln!(
+                        "ICD fixture accessory did not retain the manager's RegisterClient request"
+                    );
+                    return Err(rs_matter::error::ErrorCode::InvalidData.into());
+                }
+                let icd_deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+                let mut next_registry_check = std::time::Instant::now();
+                let mut next_icd_diagnostic =
+                    std::time::Instant::now() + std::time::Duration::from_secs(5);
+                let mut check_in_accepted = false;
+                let check_in_accepted = std::future::poll_fn(|context| {
+                    manager.poll(true, false, std::time::Instant::now(), context);
+                    if std::time::Instant::now() >= next_registry_check {
+                        check_in_accepted = lexra_rs_matter_probe::icd::ClientRegistry::open(
+                            registry_store.clone(),
+                        )
+                        .ok()
+                        .and_then(|registry| {
+                            registry
+                                .registration(fab, node)
+                                .map(|entry| entry.last_offset > 0)
+                        })
+                        .unwrap_or(false);
+                        next_registry_check = std::time::Instant::now()
+                            + std::time::Duration::from_millis(100);
+                    }
+                    if check_in_accepted {
+                        std::task::Poll::Ready(true)
+                    } else if std::time::Instant::now() >= icd_deadline {
+                        std::task::Poll::Ready(false)
+                    } else {
+                        if std::time::Instant::now() >= next_icd_diagnostic {
+                            let offset = lexra_rs_matter_probe::icd::ClientRegistry::open(
+                                registry_store.clone(),
+                            )
+                            .ok()
+                            .and_then(|registry| {
+                                registry
+                                    .registration(fab, node)
+                                    .map(|entry| entry.last_offset)
+                            });
+                            eprintln!("ICD fixture awaiting authenticated Check-In; accepted counter offset={offset:?}");
+                            next_icd_diagnostic += std::time::Duration::from_secs(5);
+                        }
+                        context.waker().wake_by_ref();
+                        std::task::Poll::Pending
+                    }
+                })
+                .await;
+                if !check_in_accepted {
+                    eprintln!("ICD fixture did not accept a Check-In within 25 seconds");
+                    return Err(rs_matter::error::ErrorCode::RxTimeout.into());
+                }
+                eprintln!("ICD fixture authenticated Check-In accepted; dispatching a CASE read");
+                println!("PASS production ICD registration and authenticated Check-In counter acceptance");
+
+                let body = format!(
+                    "{{\"schema\":1,\"action\":\"read\",\"node\":\"{node:016x}\",\"endpoint\":1,\"cluster\":6,\"attribute\":0}}"
+                );
+                let accepted = manager
+                    .submit(
+                        lexra_rs_matter_probe::control::Request::decode(10, body.as_bytes())
+                            .map_err(|_| rs_matter::error::ErrorCode::InvalidData)?,
+                        true,
+                        false,
+                        std::time::Instant::now(),
+                    )
+                    .map_err(|_| rs_matter::error::ErrorCode::InvalidData)?;
+                let read_deadline =
+                    std::time::Instant::now() + std::time::Duration::from_millis(900);
+                let outcome = std::future::poll_fn(|context| {
+                    manager.poll(true, false, std::time::Instant::now(), context);
+                    match manager.job(accepted.job) {
+                        Ok(
+                            state @ (lexra_rs_matter_probe::devices::JobState::Complete { .. }
+                            | lexra_rs_matter_probe::devices::JobState::Failed { .. }),
+                        ) => std::task::Poll::Ready(Some(state)),
+                        Ok(_) if std::time::Instant::now() < read_deadline => {
+                            context.waker().wake_by_ref();
+                            std::task::Poll::Pending
+                        }
+                        Ok(state) => std::task::Poll::Ready(Some(state)),
+                        Err(_) => panic!("ICD wake-window job status lookup failed"),
+                    }
+                })
+                .await;
+                assert!(matches!(
+                    outcome,
+                    Some(lexra_rs_matter_probe::devices::JobState::Complete { .. })
+                ));
+                eprintln!("ICD fixture wake-window CASE read completed");
+                println!("PASS queued CASE read completed during the Check-In active window");
+            }
             for (cluster, expected, unit) in [
                 (1026, 23.15, "celsius"),
                 (1029, 52.34, "percent"),
@@ -708,50 +1029,74 @@ async fn run(
                 (1066, 12.75, "ug/m3"),
             ] {
                 let body = format!("{{\"schema\":1,\"action\":\"read\",\"node\":\"{node:016x}\",\"endpoint\":1,\"cluster\":{cluster},\"attribute\":0}}");
-                let accepted = manager.submit(
-                    lexra_rs_matter_probe::control::Request::decode(10, body.as_bytes())
-                        .map_err(|_| rs_matter::error::ErrorCode::InvalidData)?,
-                    true, false, std::time::Instant::now(),
-                ).map_err(|_| rs_matter::error::ErrorCode::InvalidData)?;
+                let accepted = manager
+                    .submit(
+                        lexra_rs_matter_probe::control::Request::decode(10, body.as_bytes())
+                            .map_err(|_| rs_matter::error::ErrorCode::InvalidData)?,
+                        true,
+                        false,
+                        std::time::Instant::now(),
+                    )
+                    .map_err(|_| rs_matter::error::ErrorCode::InvalidData)?;
                 let outcome = std::future::poll_fn(|context| {
                     manager.poll(true, false, std::time::Instant::now(), context);
                     match manager.job(accepted.job) {
-                        Ok(state @ (lexra_rs_matter_probe::devices::JobState::Complete { .. }
-                            | lexra_rs_matter_probe::devices::JobState::Failed { .. })) => std::task::Poll::Ready(state),
-                        Ok(_) => { context.waker().wake_by_ref(); std::task::Poll::Pending }
+                        Ok(
+                            state @ (lexra_rs_matter_probe::devices::JobState::Complete { .. }
+                            | lexra_rs_matter_probe::devices::JobState::Failed { .. }),
+                        ) => std::task::Poll::Ready(state),
+                        Ok(_) => {
+                            context.waker().wake_by_ref();
+                            std::task::Poll::Pending
+                        }
                         Err(_) => panic!("sensor job status lookup failed"),
                     }
-                }).await;
+                })
+                .await;
                 match outcome {
-                    lexra_rs_matter_probe::devices::JobState::Complete { result, .. } => match result.value {
-                        lexra_rs_matter_probe::operations::Value::Measurement(value) => {
-                            assert_eq!(result.cluster, cluster);
-                            assert_eq!(result.attribute, 0);
-                            assert_eq!(value.unit, unit);
-                            assert_eq!(value.quality, "measured");
-                            assert!((value.value.unwrap() - expected).abs() < 0.001);
+                    lexra_rs_matter_probe::devices::JobState::Complete { result, .. } => {
+                        match result.value {
+                            lexra_rs_matter_probe::operations::Value::Measurement(value) => {
+                                assert_eq!(result.cluster, cluster);
+                                assert_eq!(result.attribute, 0);
+                                assert_eq!(value.unit, unit);
+                                assert_eq!(value.quality, "measured");
+                                assert!((value.value.unwrap() - expected).abs() < 0.001);
+                            }
+                            _ => panic!("sensor cluster {cluster} returned the wrong value type"),
                         }
-                        _ => panic!("sensor cluster {cluster} returned the wrong value type"),
-                    },
-                    lexra_rs_matter_probe::devices::JobState::Failed { error, .. } => panic!("sensor job failed: {error:?}"),
+                    }
+                    lexra_rs_matter_probe::devices::JobState::Failed { error, .. } => {
+                        panic!("sensor job failed: {error:?}")
+                    }
                     _ => unreachable!(),
                 }
             }
             let body = format!("{{\"schema\":1,\"action\":\"read\",\"node\":\"{node:016x}\",\"endpoint\":1,\"cluster\":91,\"attribute\":0}}");
-            let accepted = manager.submit(
-                lexra_rs_matter_probe::control::Request::decode(10, body.as_bytes())
-                    .map_err(|_| rs_matter::error::ErrorCode::InvalidData)?,
-                true, false, std::time::Instant::now(),
-            ).map_err(|_| rs_matter::error::ErrorCode::InvalidData)?;
+            let accepted = manager
+                .submit(
+                    lexra_rs_matter_probe::control::Request::decode(10, body.as_bytes())
+                        .map_err(|_| rs_matter::error::ErrorCode::InvalidData)?,
+                    true,
+                    false,
+                    std::time::Instant::now(),
+                )
+                .map_err(|_| rs_matter::error::ErrorCode::InvalidData)?;
             let outcome = std::future::poll_fn(|context| {
                 manager.poll(true, false, std::time::Instant::now(), context);
                 match manager.job(accepted.job) {
-                    Ok(state @ (lexra_rs_matter_probe::devices::JobState::Complete { .. }
-                        | lexra_rs_matter_probe::devices::JobState::Failed { .. })) => std::task::Poll::Ready(state),
-                    Ok(_) => { context.waker().wake_by_ref(); std::task::Poll::Pending }
+                    Ok(
+                        state @ (lexra_rs_matter_probe::devices::JobState::Complete { .. }
+                        | lexra_rs_matter_probe::devices::JobState::Failed { .. }),
+                    ) => std::task::Poll::Ready(state),
+                    Ok(_) => {
+                        context.waker().wake_by_ref();
+                        std::task::Poll::Pending
+                    }
                     Err(_) => panic!("air quality job status lookup failed"),
                 }
-            }).await;
+            })
+            .await;
             assert!(matches!(outcome,
                 lexra_rs_matter_probe::devices::JobState::Complete { result, .. }
                     if result.cluster == 91 && result.attribute == 0 &&
@@ -897,12 +1242,8 @@ async fn run(
             .map_err(|_| rs_matter::error::ErrorCode::RxTimeout)?;
             assert!(subscription_id != 0);
             if sensor_reports {
-                wait_manager_subscriptions(
-                    &mut manager,
-                    node,
-                    &[6, 8, 91, 1026, 1029, 1037, 1066],
-                )
-                .await?;
+                wait_manager_subscriptions(&mut manager, node, &[6, 8, 91, 1026, 1029, 1037, 1066])
+                    .await?;
             }
             let mut report_ipc = if sensor_reports {
                 let directory = if state_directory.is_absolute() {
@@ -1045,15 +1386,15 @@ async fn run(
                                     }
                                 }
                             } else if let (Some((ipc, _)), Some(peer)) =
-                                (&mut report_ipc, &mut report_peer) {
+                                (&mut report_ipc, &mut report_peer)
+                            {
                                 if manager.front_report().is_some() {
                                     if manager.publish_reports(ipc).unwrap() != 0 {
                                         ipc.poll(|_| None).unwrap();
                                         let mut header = [0; 10];
                                         peer.read_exact(&mut header).unwrap();
-                                        let length = usize::from(u16::from_le_bytes([
-                                            header[0], header[1],
-                                        ]));
+                                        let length =
+                                            usize::from(u16::from_le_bytes([header[0], header[1]]));
                                         let mut bytes = header.to_vec();
                                         bytes.resize(10 + length, 0);
                                         peer.read_exact(&mut bytes[10..]).unwrap();
@@ -1061,7 +1402,10 @@ async fn run(
                                             lexra_rs_matter_probe::ipc::Decoder::default();
                                         decoder.feed(&bytes).unwrap();
                                         let event = decoder.pop().unwrap();
-                                        assert_eq!((event.kind, event.opcode, event.id), (2, 12, 0));
+                                        assert_eq!(
+                                            (event.kind, event.opcode, event.id),
+                                            (2, 12, 0)
+                                        );
                                         return std::task::Poll::Ready(event.payload);
                                     }
                                 }
@@ -1097,11 +1441,14 @@ async fn run(
                     "PASS production manager sensor reports reach IPC from subscribed CASE reports"
                 );
                 if native_ipc {
-                    if let Some(path) = std::env::var_os("MICROHAD_MATTER_TEST_NATIVE_REPORTS_SENT_FILE") {
+                    if let Some(path) =
+                        std::env::var_os("MICROHAD_MATTER_TEST_NATIVE_REPORTS_SENT_FILE")
+                    {
                         std::fs::write(path, b"five CASE reports published")
                             .map_err(|_| rs_matter::error::ErrorCode::Failure)?;
                     }
-                    if let Some(path) = std::env::var_os("MICROHAD_MATTER_TEST_NATIVE_REPORTS_ACK_FILE") {
+                    if let Some(path) = std::env::var_os("MICROHAD_MATTER_TEST_NATIVE_REPORTS_ACK_FILE")
+                    {
                         let (ipc, _) = report_ipc.as_mut().unwrap();
                         while !std::path::Path::new(&path).exists() {
                             std::future::poll_fn(|context| {
@@ -1506,10 +1853,12 @@ fn main() {
     let service_discovery = std::env::args().any(|arg| arg == "--service-discovery");
     let sensor_reports = std::env::args().any(|arg| arg == "--sensor-reports");
     let native_ipc = std::env::args().any(|arg| arg == "--native-ipc");
+    let icd = std::env::args().any(|arg| arg == "--icd");
     assert!(!service_owner || use_ble);
     assert!(!service_discovery || service_owner);
     assert!(!sensor_reports || service_owner);
     assert!(!native_ipc || (sensor_reports && service_discovery));
+    assert!(!icd || (service_owner && service_discovery));
     let work = async {
         run(
             &thread,
@@ -1518,6 +1867,7 @@ fn main() {
             service_discovery,
             sensor_reports,
             native_ipc,
+            icd,
         )
         .await
         .expect("encrypted Matter fixture");
@@ -1543,7 +1893,7 @@ fn main() {
         }
         let _ = pump.as_mut().poll(&mut context);
         assert!(
-            started.elapsed().as_secs() < 90,
+            started.elapsed().as_secs() < if icd { 150 } else { 90 },
             "transport smoke test timeout"
         );
         std::thread::sleep(std::time::Duration::from_millis(1));

@@ -1,5 +1,8 @@
 //! Operational DNS-SD over OpenThread's userspace SRP/DNS path.
-use crate::{catalog::Catalog, openthread::{DnsAnswer, OpenThread}};
+use crate::{
+    catalog::Catalog,
+    openthread::{DnsAnswer, OpenThread},
+};
 use embassy_time::{with_timeout, Duration as AsyncDuration, Timer};
 use rs_matter::{
     error::{Error, ErrorCode},

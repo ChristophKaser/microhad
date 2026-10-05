@@ -7,8 +7,8 @@ use rs_matter::{
         client::{ImClient, SubscribeEstablished, SubscribeOutcome},
         AttrPath,
     },
-    transport::exchange::Exchange,
     tlv::FromTLV,
+    transport::exchange::Exchange,
     Matter,
 };
 
@@ -80,15 +80,16 @@ pub async fn establish_device_attribute<C: Crypto>(
     attribute: u32,
 ) -> Result<DeviceSubscription, Error> {
     let unit = match cluster {
-        1037 | 1066 => Some(crate::operations::read_measurement_unit(
-            matter, crypto, fabric, node, endpoint, cluster,
-        ).await?),
+        1037 | 1066 => Some(
+            crate::operations::read_measurement_unit(
+                matter, crypto, fabric, node, endpoint, cluster,
+            )
+            .await?,
+        ),
         _ => None,
     };
-    let established = establish_attribute(
-        matter, crypto, fabric, node, endpoint, cluster, attribute,
-    )
-    .await?;
+    let established =
+        establish_attribute(matter, crypto, fabric, node, endpoint, cluster, attribute).await?;
     Ok(DeviceSubscription { established, unit })
 }
 
@@ -119,12 +120,8 @@ pub async fn receive_incoming(matter: &Matter<'_>) -> Result<IncomingMessage, Er
         .map(IncomingMessage::Report)
 }
 
-async fn receive_report_exchange(
-    mut exchange: Exchange<'_>,
-) -> Result<ReceivedReport, Error> {
-    let (fabric, node) = exchange
-        .peer_identity()?
-        .ok_or(ErrorCode::InvalidData)?;
+async fn receive_report_exchange(mut exchange: Exchange<'_>) -> Result<ReceivedReport, Error> {
+    let (fabric, node) = exchange.peer_identity()?.ok_or(ErrorCode::InvalidData)?;
     let mut subscription_id = None;
     let mut values = Vec::new();
     loop {
@@ -154,10 +151,7 @@ async fn receive_report_exchange(
         if !suppress_response {
             exchange
                 .send_with(|_, writer| {
-                    rs_matter::im::StatusResp::write(
-                        writer,
-                        rs_matter::im::IMStatusCode::Success,
-                    )?;
+                    rs_matter::im::StatusResp::write(writer, rs_matter::im::IMStatusCode::Success)?;
                     Ok(Some(rs_matter::im::OpCode::StatusResponse.into()))
                 })
                 .await?;

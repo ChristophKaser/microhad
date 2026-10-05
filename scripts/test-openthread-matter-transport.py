@@ -23,19 +23,22 @@ def main():
     parser.add_argument('--service-owner', action='store_true', help='Exercise the production owned commissioner with synthetic BLE')
     parser.add_argument('--service-discovery', action='store_true', help='Register accessory through SRP and use production DNS resolver')
     parser.add_argument('--sensor-reports', action='store_true', help='Run notifier-backed multi-cluster sensor report fixture')
+    parser.add_argument('--icd', action='store_true', help='Exercise LIT RegisterClient, authenticated Check-In and wake-window dispatch')
     parser.add_argument('--native-bridge', action='store_true', help='Deliver live CASE sensor reports through a native gateway process and verify shared device state')
     args = parser.parse_args()
     if args.service_discovery and not args.service_owner:
         parser.error('--service-discovery requires --service-owner')
     if args.sensor_reports and not args.service_owner:
         parser.error('--sensor-reports requires --service-owner')
+    if args.icd and not (args.service_owner and args.service_discovery):
+        parser.error('--icd requires --service-owner --service-discovery')
     if args.native_bridge and not (args.service_owner and args.service_discovery and args.sensor_reports):
         parser.error('--native-bridge requires --service-owner --service-discovery --sensor-reports')
     if args.service_owner and not args.ble:
         parser.error('--service-owner requires --ble')
     if args.ble and not args.commissioning:
         parser.error('--ble requires --commissioning')
-    timeout = 100 if args.commissioning else 22
+    timeout = 160 if args.icd else 100 if args.commissioning else 22
     name = 'ot-matter-commissioning-probe' if args.commissioning else 'ot-matter-transport-probe'
     marker = 'PASS commissioning complete' if args.commissioning else 'PASS transport complete'
     radio = sim.ThreadRcp('127.0.0.1', tcp_nodelay=True)
@@ -55,21 +58,30 @@ def main():
             command.extend(flag for enabled, flag in (
                 (args.ble, '--ble'), (args.service_owner, '--service-owner'),
                 (args.service_discovery, '--service-discovery'),
-                (args.sensor_reports, '--sensor-reports')) if enabled)
+                (args.sensor_reports, '--sensor-reports'), (args.icd, '--icd')) if enabled)
             if args.native_bridge:
                 result, native_status = run_native_bridge(command, directory, timeout)
                 print('PASS live CASE sensor reports reached the native gateway shared device model')
             else:
-                result = subprocess.run(command, cwd=directory, capture_output=True, text=True, timeout=timeout)
+                try:
+                    result = subprocess.run(command, cwd=directory, capture_output=True, text=True, timeout=timeout)
+                except subprocess.TimeoutExpired as error:
+                    partial_out = error.stdout.decode(errors='replace') if isinstance(error.stdout, bytes) else (error.stdout or '')
+                    partial_err = error.stderr.decode(errors='replace') if isinstance(error.stderr, bytes) else (error.stderr or '')
+                    raise RuntimeError('Commissioning fixture timed out; partial output:\n' + partial_out + partial_err) from error
                 native_status = None
+            if result.returncode or marker not in result.stdout:
+                raise RuntimeError('Transport failed: ' + result.stdout + result.stderr + '\nRCP error: ' + str(radio.error))
             if args.service_discovery and 'PASS synthetic accessory SRP registration' not in result.stdout:
                 raise RuntimeError('SRP/DNS fixture registration did not complete: ' + result.stdout + result.stderr)
             if args.service_discovery and 'PASS DNS cancelled callback isolation' not in result.stdout:
                 raise RuntimeError('DNS cancellation/error isolation did not complete: ' + result.stdout + result.stderr)
             if args.commissioning and 'PASS bounded operational descriptor endpoint and cluster discovery over CASE' not in result.stdout:
                 raise RuntimeError('Operational descriptor discovery did not complete: ' + result.stdout + result.stderr)
-            if args.service_owner and 'PASS production device scheduler catalog restore and radio detach refresh over CASE' not in result.stdout:
+            if args.service_owner and not args.icd and 'PASS production device scheduler catalog restore and radio detach refresh over CASE' not in result.stdout:
                 raise RuntimeError('Device scheduler did not complete: ' + result.stdout + result.stderr)
+            if args.icd and 'PASS production device manager online snapshot with ICD Management cluster' not in result.stdout:
+                raise RuntimeError('Production manager did not retain the ICD accessory snapshot: ' + result.stdout + result.stderr)
             if args.service_owner and 'PASS bounded revisioned device snapshot pages from encrypted CASE descriptors' not in result.stdout:
                 raise RuntimeError('Device snapshot pagination did not complete: ' + result.stdout + result.stderr)
             if args.service_owner and 'PASS capability-gated OnOff transactions and confirmed readback over CASE' not in result.stdout:
@@ -80,8 +92,10 @@ def main():
                 raise RuntimeError('Interrupted node CASE recovery did not complete: ' + result.stdout + result.stderr)
             if args.sensor_reports and 'PASS production manager sensor reports reach IPC from subscribed CASE reports' not in result.stdout:
                 raise RuntimeError('Production sensor report-to-IPC path did not complete: ' + result.stdout + result.stderr)
-            if result.returncode or marker not in result.stdout:
-                raise RuntimeError('Transport failed: ' + result.stdout + result.stderr + '\nRCP error: ' + str(radio.error))
+            if args.icd and 'PASS queued CASE read completed during the Check-In active window' not in result.stdout:
+                raise RuntimeError('ICD Check-In wake-window dispatch did not complete: ' + result.stdout + result.stderr)
+            if args.icd and 'PASS production ICD registration and authenticated Check-In counter acceptance' not in result.stdout:
+                raise RuntimeError('ICD registration or authenticated Check-In was not accepted: ' + result.stdout + result.stderr)
             if radio.error:
                 raise RuntimeError('Synthetic RCP failed: ' + radio.error)
             report = {'platform': 'development host', 'radio': 'synthetic RCP',
@@ -90,6 +104,7 @@ def main():
                       'encrypted_commissioning_tested': args.commissioning, 'production_owned_commissioner_tested': args.service_owner, 'synthetic_phone_gatt_tested': args.ble,
                       'production_dns_resolver_tested': args.service_discovery,
                       'production_sensor_reports_tested': args.sensor_reports,
+                      'production_icd_checkin_and_wake_dispatch_tested': args.icd,
                       'native_gateway_case_reports_tested': args.native_bridge,
                       'native_gateway_sensor_values': native_status,
                       'signed_srp_registration_tested': args.service_discovery,

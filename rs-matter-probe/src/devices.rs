@@ -153,9 +153,10 @@ pub struct Manager<'a, C: Crypto> {
     icd_registry: Option<crate::icd::ClientRegistry>,
     local_node: u64,
     icd_entropy: Option<crate::entropy::OsEntropy>,
-    icd_work: Option<(u64, u16, IcdWork<'a>)>,
+    icd_work: Option<(u64, u16, Instant, IcdWork<'a>)>,
     registered_nodes: Vec<u64>,
     icd_checked: Vec<(u64, u16)>,
+    icd_retry_after: Vec<((u64, u16), Instant)>,
     awake_until: Vec<(u64, Instant)>,
     snapshots: Vec<Snapshot>,
     work: Option<(u64, Instant, Work<'a>)>,
@@ -216,6 +217,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             icd_work: None,
             registered_nodes,
             icd_checked: Vec::new(),
+            icd_retry_after: Vec::new(),
             awake_until: Vec::new(),
             snapshots: Vec::new(),
             work: None,
@@ -679,7 +681,9 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 }
             }
         }
-        self.poll_icd(now, context);
+        if self.poll_icd(now, context) {
+            return;
+        }
         if commissioning {
             self.work = None;
             return;
@@ -900,7 +904,8 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             ));
         }
     }
-    fn poll_icd(&mut self, now: Instant, context: &mut Context<'_>) {
+    fn poll_icd(&mut self, now: Instant, context: &mut Context<'_>) -> bool {
+        let mut progressed = false;
         // Check-In capture is bounded inside Matter. Drain at most one message
         // per service turn so authentication and private-store sync cannot
         // starve Thread, IPC, or the Matter transport pump.
@@ -909,8 +914,15 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 let accepted = self
                     .icd_registry
                     .as_mut()
-                    .and_then(|registry| registry.accept(self.crypto, &message).ok());
-                if let Some(wake) = accepted {
+                    .map(|registry| registry.accept(self.crypto, &message));
+                if let Some(Err(error)) = accepted.as_ref() {
+                    eprintln!(
+                        "Matter ICD Check-In rejected for {:016x}/fabric {}: {:?}",
+                        message.node, message.fabric, error
+                    );
+                }
+                if let Some(Ok(wake)) = accepted {
+                    progressed = true;
                     let until = now
                         + Duration::from_millis(u64::from(wake.active_mode_threshold_ms).max(1));
                     if let Some((_, awake_until)) = self
@@ -932,11 +944,11 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                             let matter = self.matter;
                             let crypto = self.crypto;
                             let Some(mut registry) = self.icd_registry.take() else {
-                                return;
+                                return progressed;
                             };
                             let Some(mut entropy) = self.icd_entropy.take() else {
                                 self.icd_registry = Some(registry);
-                                return;
+                                return progressed;
                             };
                             let fabric = wake.fabric;
                             let node = wake.node;
@@ -944,6 +956,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                             self.icd_work = Some((
                                 node,
                                 endpoint,
+                                now + Duration::from_secs(10),
                                 Box::pin(async move {
                                     let result = registry
                                         .register(
@@ -961,6 +974,11 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                             ));
                         }
                     }
+                } else if self.icd_registry.is_none() {
+                    eprintln!(
+                        "Matter ICD Check-In received without a client registry for {:016x}/fabric {}",
+                        message.node, message.fabric
+                    );
                 }
             }
         }
@@ -971,35 +989,47 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                         snapshot.endpoints.iter().find_map(|endpoint| {
                             (endpoint.servers.contains(&ICD_MANAGEMENT_CLUSTER)
                                 && !self.icd_checked.contains(&(snapshot.node, endpoint.id))
-                                && !self.registered_nodes.contains(&snapshot.node))
+                                && !self.registered_nodes.contains(&snapshot.node)
+                                && !self.icd_retry_after.iter().any(|(key, until)| {
+                                    *key == (snapshot.node, endpoint.id) && *until > now
+                                }))
                             .then_some((snapshot.node, endpoint.id))
                         })
                     })
                 })
                 .flatten();
             if let Some((node, endpoint)) = candidate {
+                eprintln!(
+                    "Matter ICD Management found at {:016x}/{}; probing features",
+                    node, endpoint
+                );
                 let matter = self.matter;
                 let crypto = self.crypto;
                 let Some(mut registry) = self.icd_registry.take() else {
-                    return;
+                    return progressed;
                 };
                 let Some(mut entropy) = self.icd_entropy.take() else {
                     self.icd_registry = Some(registry);
-                    return;
+                    return progressed;
                 };
                 let fabric = self.fabric;
                 let local_node = self.local_node;
                 self.icd_work = Some((
                     node,
                     endpoint,
+                    now + Duration::from_secs(10),
                     Box::pin(async move {
                         let result = async {
-                            let mode = Exchange::initiate(matter, crypto, fabric, node)
+                            let features = Exchange::initiate(matter, crypto, fabric, node)
                                 .await?
                                 .icd_management()
-                                .operating_mode_read(endpoint)
+                                .feature_map_read(endpoint)
                                 .await?;
-                            if mode == rs_matter::dm::clusters::icd_mgmt::OperatingModeEnum::LIT {
+                            let lit_features = rs_matter::dm::clusters::icd_mgmt::Feature::CHECK_IN_PROTOCOL_SUPPORT
+                                | rs_matter::dm::clusters::icd_mgmt::Feature::LONG_IDLE_TIME_SUPPORT;
+                            if rs_matter::dm::clusters::icd_mgmt::Feature::from_bits_truncate(features)
+                                .contains(lit_features)
+                            {
                                 registry
                                     .register(
                                         matter,
@@ -1020,8 +1050,34 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 ));
             }
         }
-        if let Some((node, endpoint, work)) = &mut self.icd_work {
+        let timed_out = self
+            .icd_work
+            .as_ref()
+            .filter(|(_, _, deadline, _)| now >= *deadline)
+            .map(|(node, endpoint, _, _)| (*node, *endpoint));
+        if let Some(key) = timed_out {
+            self.icd_work = None;
+            self.icd_registry = crate::icd::ClientRegistry::open(self.catalog.store()).ok();
+            self.icd_entropy = crate::entropy::OsEntropy::open().ok();
+            eprintln!(
+                "Matter ICD Management probe timed out for {:016x}/{}",
+                key.0, key.1
+            );
+            let retry_at = now + Duration::from_secs(5);
+            if let Some((_, until)) = self
+                .icd_retry_after
+                .iter_mut()
+                .find(|(retry_key, _)| *retry_key == key)
+            {
+                *until = retry_at;
+            } else if self.icd_retry_after.len() < MAX_ICD_CANDIDATES {
+                self.icd_retry_after.push((key, retry_at));
+            }
+            return true;
+        }
+        if let Some((node, endpoint, _, work)) = &mut self.icd_work {
             if let Poll::Ready((registry, entropy, result)) = work.as_mut().poll(context) {
+                progressed = true;
                 let key = (*node, *endpoint);
                 let node_registered = registry.is_registered(self.fabric, key.0);
                 self.icd_work = None;
@@ -1030,12 +1086,33 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 if node_registered && !self.registered_nodes.contains(&key.0) {
                     self.registered_nodes.push(key.0);
                 }
-                if !self.icd_checked.contains(&key) && self.icd_checked.len() < MAX_ICD_CANDIDATES {
-                    self.icd_checked.push(key);
+                if result.is_ok() {
+                    self.icd_retry_after
+                        .retain(|(retry_key, _)| *retry_key != key);
+                    if !self.icd_checked.contains(&key)
+                        && self.icd_checked.len() < MAX_ICD_CANDIDATES
+                    {
+                        self.icd_checked.push(key);
+                    }
+                } else {
+                    eprintln!(
+                        "Matter ICD management probe failed for {:016x}/{}: {:?}",
+                        key.0, key.1, result
+                    );
+                    let retry_at = now + Duration::from_secs(5);
+                    if let Some((_, until)) = self
+                        .icd_retry_after
+                        .iter_mut()
+                        .find(|(retry_key, _)| *retry_key == key)
+                    {
+                        *until = retry_at;
+                    } else if self.icd_retry_after.len() < MAX_ICD_CANDIDATES {
+                        self.icd_retry_after.push((key, retry_at));
+                    }
                 }
-                let _ = result;
             }
         }
+        progressed
     }
     fn sync_subscriptions(&mut self, now: Instant) {
         let desired = subscription_keys(&self.snapshots, self.subscription_limit);
