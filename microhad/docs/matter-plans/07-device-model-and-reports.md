@@ -81,12 +81,19 @@ discovery after service restart and become complete only after both discovery
 and the durable catalog update succeed. Legacy no-catalog migration remains
 open.
 
-Sleepy-device support remains implementation work. The service currently uses
-ordinary CASE subscriptions (1–3600 second negotiated intervals), 30-second
+Sleepy-device support remains incomplete. The service currently uses ordinary
+CASE subscriptions (1–3600 second negotiated intervals), 30-second
 operation/discovery deadlines, and a generic retry backoff capped at 320
-seconds. The default responder now installs the `AsyncScHandler` hook for
-Check-In capture, but no ICD client registration or wake-operation manager is
-installed.
+seconds. The default responder installs the `AsyncScHandler` hook for
+Check-In capture. Rust commit `db6d93b` adds a bounded durable ICD client
+registry: it sends permanent RegisterClient requests, stores each client's
+fabric/node/endpoint/key and starting counter in the private store, validates
+Check-In MIC and monotonic counter offsets, and persists the accepted offset
+before returning a wake record. The focused registry tests passed 2/2 and the
+controller-service library check passed. The production service does not yet
+open or call this registry, detect LIT devices, use wake records to dispatch
+queued operations, or refresh keys at the required threshold. Thus no sleepy
+device is usable yet.
 
 The earlier Rust commit `02d631a` routed Check-In through the device manager's
 unrestricted exchange acceptor. Inspection showed that this raced rs-matter's
