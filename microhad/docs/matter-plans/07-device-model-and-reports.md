@@ -345,15 +345,20 @@ state are unchanged; no re-commissioning or flash write is introduced.
 
 Host and stripped MIPS service builds compile with the production feature set.
 The MIPS-I/o32 artifact is 2,162,372 bytes (SHA-256
-`5d7d9d0a236ee853ed3cf3f926ec23c0162bc5c3a4933c7190371309781133f4`); the
-test-only report hook is absent. No gateway service restart or target workload
-was run for this bounded resolver change. A read-only SSH check confirms the
+`08a55e0506de730bbe66f6cc906a422e3760dfd5bf06dbad48cb4f097ed6255f`); the
+test-only report hook is absent. Rust commit `2876c02` adds focused host
+coverage proving the Manager marks an unreachable node offline and queues one
+refresh; the resolver evicts only the matching fabric/node cache entry, uses a
+new DNS answer, and bounds/deduplicates requests. All three focused tests pass.
+No gateway service restart or target workload was run for this bounded resolver
+change. A read-only SSH check confirms the
 installed service and IPC socket remain present, with 2,260 KiB free on `/tuya`.
 The executable-aware full-package preflight requires 4,332 KiB while the native
 and Matter service processes still hold their old executable inodes, including
 the configured 512 KiB reserve, so this build has not been deployed. No files
-were removed and the reserve was not reduced. Automated behavior coverage and
-the installed-daemon live CASE report-to-native path remain open.
+were removed and the reserve was not reduced. Live CASE address-change recovery
+through a Thread mesh and the installed-daemon live CASE report-to-native path
+remain open.
 
 ## Remaining checkpoints
 
@@ -362,9 +367,9 @@ the installed-daemon live CASE report-to-native path remain open.
    catalog metadata without reusing allocated node IDs.
 2. Bounded operational SRP/DNS-SD, TTL/cache limits, query backoff, and
    production CASE failure address invalidation/re-resolution are implemented
-   (`f32a9bc`, Rust). Add behavioral coverage for invalidation during
-   concurrent CASE work and confirm address changes recover the same persisted
-   node.
+   (`f32a9bc`, Rust); focused manager/cache behavior coverage passes
+   (`2876c02`). Confirm an address change over a live CASE/Thread fixture
+   recovers the same persisted node.
 3. Descriptor discovery and capability-gated OnOff/Level reads and commands
    have encrypted host evidence (`05053ec`, `6ec569a`) and native rendered
    controls (`1ab6e91`, `7ea5a52`). Failed operational CASE now marks the
