@@ -1,13 +1,44 @@
 # OpenThread resource profile on the factory MIPS gateway
 
-The factory gateway completed a 100-second OpenThread simulation on 2026-10-03:
+## Latest constrained profile — 2026-10-05
+
+The gateway completed the 100-second OpenThread CLI simulation while the
+production service remained online and formed. The constrained profile began
+with 3,004 KiB MemFree and used stricter limits than the standard profile:
+1,024 KiB sampled CLI RSS maximum and 1,536 KiB MemFree abort threshold. The
+lowest sampled system MemFree was 1,544 KiB, only 8 KiB above the guard; this
+passes the harness but is too close to treat as broad resource headroom.
+
+| Phase | Samples | CLI mean CPU | Peak interval CPU | CLI sampled RSS | Minimum system MemFree |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Disabled idle | 18 | 0.00% | 0.00% | 476–704 KiB | 1,568 KiB |
+| Loaded | 49 | 11.80% | 17.65% | 748–808 KiB | 1,556 KiB |
+| Enabled idle | 17 | 0.00% | 0.00% | 808 KiB | 1,544 KiB |
+
+The separate simulator relay reached 56 KiB sampled RSS and averaged 3.27%
+CPU during load. The constrained workload completed 1,166 cycles in 60.046
+seconds (19.42 cycles/s), including 2,332 radio GETs and 298,496 bytes of
+256-byte internal UDP payloads. Cycle latency was 25.58 ms median, 30.19 ms
+mean, 52.42 ms p95, 86.71 ms p99, and 168.75 ms maximum. These timings include
+SSH and synthetic-host relay delivery, not RF or Matter scheduling.
+
+Production status was `online=true`, `network_formed=true`, and
+`coordinator_backend=ziggurat` both before and after. The harness verified
+cleanup, no radio reset command, and no simulator error. It never accessed
+`/dev/ttyS1` or stopped the service. This measures the OpenThread CLI only; it
+does not measure the Rust Matter daemon, Matter CASE, or combined Zigbee/Matter
+load. The 1-second sampling can miss brief CPU or memory peaks.
+
+## Historical standard profile — 2026-10-03
+
+The earlier factory profile completed a 100-second OpenThread simulation:
 20 seconds disabled idle, 60 seconds of repeated calls, and 20 seconds enabled
 idle. Under this workload, OpenThread averaged **11.02% of one CPU core** and
 reached **764 KiB sampled RSS**. This supports continuing the integration
 experiment; it does not establish production capacity for a real Thread mesh or
 a Matter controller.
 
-## Results
+### Results
 
 | Phase | Samples | Measured CPU interval | OpenThread mean CPU | Highest interval CPU | Sampled RSS range |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -55,6 +86,12 @@ bash scripts/build-openthread-relay.sh mips
 python3 scripts/test-openthread-device.py --host 192.168.178.62 \
   --password-file ../ssh_password.txt --profile
 ```
+
+When MemFree is below the standard 3,072 KiB preflight, the explicit
+`--constrained-memory-profile` keeps the normal profile's guard unchanged while
+using 2,560 KiB preflight, 1,024 KiB CLI RSS, and 1,536 KiB runtime MemFree
+limits. The 2026-10-05 run used that mode. Do not infer safety margin from a
+barely passing sample; retry with more free memory for stronger headroom.
 
 Use the [documented OpenThread build](openthread-feasibility.md) first if its
 executables are absent. Without `--host`, the runner checks local executables
@@ -113,21 +150,21 @@ Production reported `online=true`, `network_formed=true`, and
 `coordinator_backend=ziggurat` before and after. Those status checks establish
 continued service availability, not a measurement of Zigbee traffic latency.
 
-## Repeat-profile preflight — 2026-10-05
+## Initial repeat-profile refusal — 2026-10-05
 
 An authorized repeat profile checked production status and found 2,980 KiB
 MemFree, below the harness's existing 3,072 KiB minimum. The test therefore
 did not upload or launch the CLI/relay workload. It cleaned its unique paths
 and confirmed production stayed online, formed, and on Ziggurat. A later
 read-only sample reported 2,960 KiB. The existing gate remains unchanged; no
-CPU, RSS, timing, or radio-load result was produced by this attempt. Retry the
-profile only after the preflight threshold is met, while preserving the active
-service.
+No workload ran in this first attempt. The later constrained profile above
+passed its stricter runtime checks while preserving the active service.
 
 Tracked evidence is [openthread-resource-profile.json](openthread-resource-profile.json).
 Detailed local evidence remains ignored under `logs/`:
 
 - Passing target profile: `openthread-device-1791047991681340297.json` and `.log`.
+- Passing constrained target profile: `openthread-device-1791183372177187582.json` and `.log`.
 - Passing local smoke test: `openthread-device-1791048064555120346.json` and `.log`.
 - Earlier harness failures: `openthread-device-1791047674148556342` and
   `openthread-device-1791047860145656013` reports/logs.

@@ -100,9 +100,16 @@ def main():
     parser.add_argument("--password-file", type=Path, default=ROOT.parent / "ssh_password.txt")
     parser.add_argument('--profile', action='store_true', help='20s disabled idle, 60s loaded UDP/RCP calls, 20s enabled idle')
     parser.add_argument('--profile-load-seconds', type=int, default=60)
+    parser.add_argument('--constrained-memory-profile', action='store_true',
+                        help='use 2560 KiB preflight, 1024 KiB process RSS and 1536 KiB MemFree limits')
     args = parser.parse_args()
     if not 5 <= args.profile_load_seconds <= 120:
         parser.error('--profile-load-seconds must be between 5 and 120')
+    if args.constrained_memory_profile and (not args.profile or not args.host):
+        parser.error('--constrained-memory-profile requires --profile and --host')
+    preflight_free_kib = 2560 if args.constrained_memory_profile else 3072
+    process_rss_limit_kib = 1024 if args.constrained_memory_profile else 2048
+    runtime_free_limit_kib = 1536 if args.constrained_memory_profile else 1024
     limit_seconds = (args.profile_load_seconds + 75) if args.profile else 35
     relay_seconds = limit_seconds + 10
     phase = 'startup'
@@ -111,7 +118,11 @@ def main():
     token = str(time.time_ns())
     ram = f"/tmp/ot-sim-{token}"
     staged = f"/tuya/native-test/ot-sim-{token}"
-    report = {"target": device, "radio": "host simulation only", "checks": [], "commands": []}
+    report = {"target": device, "radio": "host simulation only", "checks": [], "commands": [],
+              "guardrails": {"preflight_memfree_kib": preflight_free_kib,
+                             "process_rss_limit_kib": process_rss_limit_kib,
+                             "runtime_memfree_limit_kib": runtime_free_limit_kib,
+                             "virtual_memory_limit_kib": 4096}}
     radio = ThreadRcp(device, tcp_nodelay=True)
     process = relay = None
     ssh = sim.ssh_args(args) if args.host else []
@@ -164,8 +175,8 @@ def main():
             free = int(re.search(r"MemFree:\s+(\d+)", memory).group(1))
             report["memory_preflight_kib"] = free
             # No large RAM-backed upload: only executable mappings and small state.
-            if free < 3072:
-                raise RuntimeError(f"Need 3072 KiB genuinely free for bounded simulation; found {free}")
+            if free < preflight_free_kib:
+                raise RuntimeError(f"Need {preflight_free_kib} KiB genuinely free for bounded simulation; found {free}")
             storage = remote("df -k /tuya", stdout=subprocess.PIPE, text=True).stdout
             available = int(storage.splitlines()[-1].split()[3])
             if available < 2048:
@@ -213,7 +224,7 @@ child=$!
   relay_rss=$(awk '/^VmRSS:/ {{print $2}}' /proc/$relay_pid/status)
   relay_ticks=$(awk '{{print $14 + $15}}' /proc/$relay_pid/stat)
   echo "SAMPLE uptime_s=$uptime cpu_ticks=$ticks rss_kib=$rss free_kib=$free threads=$threads relay_rss_kib=$relay_rss relay_cpu_ticks=$relay_ticks"
-  if [ "$count" -ge {limit_seconds} ] || [ "${{rss:-0}}" -gt 2048 ] || [ "${{free:-0}}" -lt 1024 ]; then
+  if [ "$count" -ge {limit_seconds} ] || [ "${{rss:-0}}" -gt {process_rss_limit_kib} ] || [ "${{free:-0}}" -lt {runtime_free_limit_kib} ]; then
    echo TEST_LIMIT_REACHED
    kill -9 "$child" 2>/dev/null
    exit 1
