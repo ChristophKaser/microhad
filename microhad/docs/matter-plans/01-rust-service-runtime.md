@@ -23,16 +23,18 @@ retry passed with 788 KiB RSS, zero sampled CPU ticks, and orderly shutdown.
 The production service came back online and formed about 135 seconds after the
 reset. `dmesg` contained no watchdog/reset reason, and no conventional Linux
 watchdog feeder was found. The reset source and long-term cadence remain
-unknown. The new bounded target profile had no reset and preserved production
-Ziggurat, but measures the MIPS commissioning fixture rather than the installed
-Matter daemon.
+unknown. Two bounded target profiles preserved production Ziggurat and had no
+reset: the commissioning/Manager procedure test and an isolated startup-only
+run of the actual `thread-matter` MIPS service. Startup-only idle evidence is
+796 KiB RSS with zero CPU-tick growth for 10 seconds; it never initialized OT
+because no coordinator observation was supplied.
 
-Next deliverable: exercise the installed `thread-matter` daemon's active CASE
-subscription/report path into native state/history and measure its target
-resource use. Continue bounded reset-frequency observations as authorized,
-keeping the production service running. The one silent isolated-service launch
-failure did not recur on the bounded retry. Full physical paired launch remains
-in excluded plan 08.
+Next deliverable: run the installed `thread-matter` daemon through attached
+Thread startup and its own active CASE report loop into native state/history,
+then measure those target deadlines/resource use. Continue bounded
+reset-frequency observations as authorized, keeping production running. The
+one silent isolated-service launch failure did not recur on the bounded retry.
+Full physical paired launch remains in excluded plan 08.
 
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.
@@ -472,3 +474,21 @@ online; no sensor-report results are inferred from it. Host SRP/DNS-SD
 integration passes separately. The successful MIPS run does not include the
 installed `thread-matter` daemon, native worker on target, physical radio, or a
 real accessory.
+
+## Installed service startup-only gateway profile — 2026-10-05
+
+The actual 2,129,600-byte `thread-matter-mips` executable ran with unique
+private state, IPC and an unused radio socket while Ziggurat remained
+online/formed. The harness waited for a coordinator observation, so the service
+did not initialize OpenThread or touch a radio. It created the IPC socket and
+logged `Matter controller service started` 1.07 seconds later, then handled
+SIGTERM with the clean stop marker. Peak RSS was 796 KiB, CPU ticks stayed flat
+over 10 seconds, minimum raw MemFree was 10,896 KiB and minimum effective free
+was 19,620 KiB. Gateway uptime advanced 34.89 seconds over transfer/profile;
+production status was unchanged and all isolated paths were removed. The
+machine report is
+`ziggurat-compilation/logs/matter-service-device-profile.json`.
+
+This verifies MIPS process startup and shutdown only. Active coordinator attach,
+CASE subscriptions inside the installed daemon, native-worker coexistence on
+the gateway, radio deadlines and real device interaction remain unverified.
