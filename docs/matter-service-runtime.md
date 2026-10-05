@@ -225,10 +225,10 @@ physical performance test occurred. See [resolver details and evidence](matter-o
 ## Current Matter service MIPS artifact — 2026-10-05
 
 `bash scripts/build-rs-matter-transport.sh mips service` succeeds for Rust
-source commit `7ae47f8`. The stripped output
+source commit `1b7ae98`. The stripped output
 `build/rs-matter/thread-matter-mips` is a static ELF32 big-endian MIPS-I
 executable with no `PT_INTERP`, 2,109,120 bytes, SHA-256
-`b62766415e3a44c160b5d1cdc317a28fe2922a54e6d6bd795d7bb7d1e281368b`.
+`dcd10f1687d5cae0a1633fe9a04398bb0326d28feb0a2d5d3a19a5458c63c675`.
 
 Commit `4c02d8a` compiles OpenThread's C/C++ archives with abicalls enabled,
 matching Rust and the final `cpic`, o32 executable; the mixed-ABI warnings no

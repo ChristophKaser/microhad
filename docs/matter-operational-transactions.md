@@ -46,7 +46,7 @@ Verification on 2026-10-04:
 
 The Rust service IPC routes asynchronous OnOff and Level jobs. A dispatcher gap
 left MoveToLevel implemented in the manager but unmatched by the production
-service binary; service commit `PENDING` adds that final command variant. The
+service binary; service commit `1b7ae98` adds that final command variant. The
 composed native HTTP-to-real-service fixture verifies that MoveToLevel reaches
 the manager and receives the expected `not_ready` result when no Thread
 accessory is attached, rather than `unsupported`. Native typed validation,
