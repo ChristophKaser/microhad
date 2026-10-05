@@ -22,8 +22,8 @@ new stalled-peer regression test proves the native Matter IPC exchange returns
 at its deadline without waiting for a peer that accepted but never answered
 (`750c4c9`); the native worker now also proves that a stalled status reply
 clears cached readiness and returns HTTP 503 before recovering on a fresh
-connection, and an invalid IPC frame version follows the same recovery path
-(`7618e0b`). A
+connection, and invalid IPC frame version, reserved-byte, and declared-length
+headers follow the same recovery path (`7618e0b`, `df7ae8e`). A
 bounded unit-aware history journal now stores confirmed
 Matter measurements under stable source IDs and is exposed by the common
 history API/dashboard. Keep only joining/commissioning and Matter/Thread-
@@ -32,10 +32,10 @@ specific settings in the Matter area.
 The native IPC failure gates inject a malformed reply body, a valid response
 with the wrong request ID, a withheld status reply, one malformed unsolicited
 event, and an overflow of nine valid events into the eight-event channel queue.
-Each verifies that the
-worker clears cached Matter status, returns HTTP 503 during recovery,
-reconnects, and resumes serving status. Wrong frame headers and the wider
-failure matrix remain open.
+Each verifies that the worker clears cached Matter status, returns HTTP 503
+during recovery, reconnects, and resumes serving status. The tested invalid
+headers cover protocol version, reserved byte, and a declared length above the
+frame limit; other malformed headers and the wider failure matrix remain open.
 
 The shared-device requirement includes external HTTP integrations such as
 Shelly as first-class sources, not just a visual reuse of cards. The common
@@ -230,8 +230,9 @@ open. Verification passed:
    body, wrong reply ID, event invalidation and event-queue overflow/reconnect
    now have integration gates. The combined worker/HTTP fixture also covers a
    withheld status reply and invalid frame version, cache invalidation, 503 and
-   fresh-channel recovery (`1f8ebac`, `7618e0b`). Other malformed header fields
-   and the wider matrix remain open.
+   fresh-channel recovery (`1f8ebac`, `7618e0b`, `df7ae8e`). Protocol version,
+   reserved byte, and oversized declared-length header cases are covered;
+   remaining malformed-header variants and the wider matrix remain open.
 4. Inspect rendered browser interactions in addition to the host client and
    TypeScript/build evidence. Physical pairing remains exclusively in plan 08.
 
@@ -395,8 +396,10 @@ stalled-status, malformed-event and event-overflow cases.
 
 `python3 -m py_compile scripts/test_matter_native_worker.py` and
 `python3 scripts/test_matter_native_worker.py` pass with local sockets enabled.
-This verifies one invalid-header case; bad reserved bytes, impossible lengths,
-and the wider failure matrix remain open.
+The synthetic peer tests unsupported protocol version, nonzero reserved byte,
+and a declared frame length above the supported limit; each clears readiness,
+returns 503 while recovering, and succeeds after reconnecting. This does not
+close the broader failure matrix or establish target runtime behavior.
 
 ## Native Matter job queue pressure checkpoint — 2026-10-04
 
