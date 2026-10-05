@@ -257,6 +257,20 @@ def commissioning_calls(path, credentials):
         assert late_write.get("error") in ("cancelled", "stale_generation", "stale_session"), late_write
         assert client.call(9, heartbeat)["ok"]
 
+        # If the IPC peer disappears before the native side receives or can
+        # cancel the session, the Rust owner retires it instead of staying busy.
+        orphaned = client.call(3, start)["result"]["session"]
+        client.close()
+        client = SessionPeer(path)
+        deadline = time.monotonic() + 3
+        while True:
+            state = client.call(4, dict(schema=1, session=orphaned))
+            if state["result"]["state"] == "cancelled":
+                break
+            assert time.monotonic() < deadline, state
+            time.sleep(.01)
+        assert state["result"]["error"] == "cancelled"
+
         # Abandoned waiting-BLE jobs expire without status/heartbeat extending the deadline.
         client.call(9, heartbeat)
         expired_session = client.call(3, start)["result"]["session"]

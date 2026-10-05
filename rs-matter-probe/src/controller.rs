@@ -209,9 +209,19 @@ impl<'a, C: Crypto + 'a> Controller<'a, C> {
         self.sessions.poll(now, context);
     }
     pub fn publish(&mut self, ipc: &mut IpcServer, now: Instant) -> std::io::Result<()> {
-        let Some(peer) = self.peer.filter(|peer| ipc.has_peer(*peer)) else {
+        let Some(peer) = self.peer else {
             return Ok(());
         };
+        if !ipc.has_peer(peer) {
+            if let Some(snapshot) = self.sessions.current_snapshot(now) {
+                if snapshot.state < Phase::Complete {
+                    let _ = self.sessions.cancel(snapshot.session, now);
+                }
+            }
+            self.peer = None;
+            self.last_snapshot.clear();
+            return Ok(());
+        }
         if let Some(snapshot) = self.sessions.current_snapshot(now) {
             let event =
                 responses::event(Event::Commissioning(&snapshot)).ok_or_else(event_error)?;

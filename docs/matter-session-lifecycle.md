@@ -1,5 +1,22 @@
 # Commissioning session lifetime
 
+## Cancel when the IPC peer disconnects — 2026-10-05
+
+The controller now checks the selected commissioning event peer on every
+publish turn. When that IPC connection closes, it cancels the active session
+and drops its commissioner task immediately. This also covers a lost start
+response where the native worker never learned the session ID; the worker's
+cancel-on-reconnect path handles sessions whose IDs it already received.
+Reconnection starts a fresh attempt with a new BLE generation; old requests
+remain stale and mutations are never replayed.
+
+`python3 scripts/test-matter-service.py` passes with a real `thread-matter`
+host process and synthetic RCP. The test drops the IPC peer while a waiting-BLE
+session is active and observes its `cancelled` state over a replacement peer.
+`bash scripts/build-rs-matter-transport.sh host service` and
+`bash scripts/build-rs-matter-transport.sh mips service` pass; the stripped MIPS
+service is 2,158,276 bytes. No gateway process or radio was used.
+
 `sessions::Sessions` is a single-owner manager for one active job and one
 retained terminal snapshot. It owns the pinned commissioning future and borrows
 the stable gateway BTP relay. The production `controller::Controller` now
@@ -60,8 +77,9 @@ and zeroizing passcodes before invalidating callbacks.
 Start/attach select the persistent IPC event peer. Valid status with optional
 `subscribe:true` can select a new peer; status without it does not retarget.
 Commissioning snapshots and opaque C1 writes use the targeted bounded event
-queue. Missing IPC peers do not cancel jobs; write/session deadlines bound them.
-Reconnection must attach a new BLE generation when a pending write was lost.
+queue. Missing IPC peers now cancel their active commissioning session;
+write/session deadlines remain additional bounds. Reconnection must attach a
+new BLE generation when a pending write was lost.
 Native persistent event consumption remains to be implemented.
 
 Evidence: 42 service-feature tests, including production-owner readiness/no-write
