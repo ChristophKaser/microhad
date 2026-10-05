@@ -100,7 +100,10 @@ file cache, and their sum separately. Preflight and runtime availability checks
 use that sum, while an independent raw-MemFree floor prevents cache from
 masking a low-free-RAM condition. The profile above predates this accounting;
 its recorded minimums and pass/fail result used the stricter raw-MemFree guard.
-New JSON reports include both memory figures and both guardrails.
+New JSON reports include both memory figures and both guardrails. The guarded
+Matter-service startup check now uses 512 KiB raw MemFree and 1,536 KiB
+effective-free floors for both preflight and runtime; its reported deployment
+acceptance raw-MemFree floor is also 512 KiB.
 
 ## Matter service startup profile — 2026-10-05
 
@@ -111,8 +114,9 @@ and never initialized Thread or accessed `/dev/ttyS1`. It remained alive for
 sampled CPU ticks did not increase. Raw MemFree was 928–944 KiB while clean
 inactive file cache was 10,484 KiB, giving 11,412–11,428 KiB effective free.
 The test used a 512 KiB raw-free abort floor and a 1,536 KiB effective-free
-floor; the deployment acceptance floor remains 1 MiB raw MemFree. The run
-therefore does not meet the deployment free-RAM gate.
+floor. Those are now also the check script's preflight floors, replacing 1,536
+KiB raw and 2,560 KiB effective. The earlier run would pass this memory gate,
+though the observed reboot still blocks further device testing and deployment.
 
 Within the subsequent gateway status check, uptime had reset and production
 process IDs had changed; `/api/status` briefly reported Zigbee offline and

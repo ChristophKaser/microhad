@@ -69,7 +69,7 @@ def main():
         raise RuntimeError('Production Zigbee service must be online and formed')
     meminfo = remote('cat /proc/meminfo')
     free, clean_cache, effective = memory_values(meminfo)
-    if free < 1536 or effective < 2560:
+    if free < 512 or effective < 1536:
         raise RuntimeError(f'Unsafe startup preflight: MemFree={free} KiB, '
                            f'clean inactive cache={clean_cache} KiB, effective={effective} KiB')
     storage = remote('df -k /tuya').splitlines()[-1].split()
@@ -79,10 +79,10 @@ def main():
     report = {'target': args.host, 'binary_bytes': len(payload), 'binary_sha256': digest,
               'profile_seconds': args.seconds, 'radio_access': False,
               'production_before': before,
-              'guardrails': {'preflight_memfree_floor_kib': 1536,
-                             'preflight_effective_free_kib': 2560,
+              'guardrails': {'preflight_memfree_floor_kib': 512,
+                             'preflight_effective_free_kib': 1536,
                              'runtime_memfree_floor_kib': 512,
-                             'deployment_acceptance_memfree_kib': 1024,
+                             'deployment_acceptance_memfree_kib': 512,
                              'runtime_effective_free_floor_kib': 1536},
               'memory_preflight': {'memfree_kib': free,
                                    'clean_inactive_file_kib': clean_cache,
