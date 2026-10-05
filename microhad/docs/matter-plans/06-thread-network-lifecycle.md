@@ -396,3 +396,15 @@ recovery. Failure injection at the real RCP boundary and all target acceptance
 remain open; CPU, peak memory, startup/scheduling deadlines and RF behavior
 have not been measured on the gateway. No deployment or plan 08 test was
 performed.
+
+## Constrained synthetic-radio gateway profile — 2026-10-05
+
+The Rust harness in `ziggurat-compilation` commit `1a75661` ran the MIPS
+OpenThread CLI for 100 seconds against a synthetic RCP while the installed
+service remained online and formed. It completed 1,166 radio-query/UDP cycles
+at 19.42/s; loaded CLI CPU averaged 11.80% of one core, sampled RSS peaked at
+808 KiB, and system MemFree bottomed at 1,544 KiB against a 1,536 KiB abort
+limit. The test used internal Thread IPv6/UDP and did not exercise Matter,
+physical RF, or the shared coordinator. Its 8 KiB sampled margin is narrow;
+full Matter-service and combined Zigbee/Thread feasibility remain open. See
+the [resource profile](../../ziggurat-compilation/docs/openthread-resource-profile.md).

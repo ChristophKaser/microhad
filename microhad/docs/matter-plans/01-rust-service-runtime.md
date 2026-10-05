@@ -257,5 +257,24 @@ stage or launch its test workload because MemFree was 2,980 KiB, below its
 3,072 KiB preflight requirement. It removed its unique temporary paths and
 confirmed production remained `online=true`, `network_formed=true`, and on the
 Ziggurat backend. A later read-only sample showed 2,960 KiB free. No CPU/RSS or
-deadline measurements were taken in this attempt; retry only when the existing
-preflight passes, without stopping the production service.
+deadline measurements were taken in this attempt. The later retry used the
+separate constrained-profile guardrails below and kept the production service
+running.
+
+## Constrained gateway OpenThread profile — 2026-10-05
+
+Rust harness commit `1a75661` adds an explicit constrained mode without
+changing the standard profile guard. The retry used that mode after MemFree
+reached 3,004 KiB. The MIPS OpenThread CLI ran for 100 seconds against the
+synthetic RCP while the existing production service remained online and formed.
+It completed 1,166
+cycles (19.42/s); loaded CPU averaged 11.80% of one core, sampled CLI RSS was
+748–808 KiB, and sampled system MemFree bottomed at 1,544 KiB against a
+1,536 KiB abort guard. Median/p95/p99/max cycle latency was
+25.58/52.42/86.71/168.75 ms. Cleanup and before/after production status passed.
+
+This is OpenThread CLI plus synthetic UDP/RCP traffic, not the Matter service,
+CASE, a real radio, or combined Zigbee/Matter load. The 8 KiB sampled margin
+over the free-memory guard is narrow, and one-second sampling may miss peaks.
+Full Matter-service CPU/RSS/deadline feasibility remains unverified; see the
+[profile record](../../ziggurat-compilation/docs/openthread-resource-profile.md).
