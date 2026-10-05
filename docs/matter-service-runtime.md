@@ -12,6 +12,12 @@ Build with `bash scripts/build-rs-matter-transport.sh host service` or
 `bash scripts/build-rs-matter-transport.sh mips service`. The stripped target
 artifact is `build/rs-matter/thread-matter-mips`. No build deploys or starts it.
 
+The native report-integration test uses the host-only
+`scripts/build-rs-matter-test-service.sh` command. It enables the
+`controller-service-test-hooks` feature in the isolated
+`build/rs-matter/service-test-target` directory, leaving the production host
+and MIPS service outputs untouched. Never deploy this test-hook executable.
+
 Example invocation, once the coordinator provides a private Thread endpoint:
 
 ```sh
