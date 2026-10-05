@@ -66,7 +66,7 @@ native status routes report its actual state over `/tmp/microhad-matter.sock`.
 | 4 | Complete | Four clients, four accepts per turn, 4096-byte read/write budgets, eight queued replies, two-second idle expiry; malformed/overload/idle checks passed. |
 | 5 | Complete | Empty requests for opcodes 1/2 return bounded JSON; synthetic host reports `running` with its persistent fabric and Thread `detached`, without credentials. |
 | 6 | Partial | Matter/Thread/IPC pumps and SIGTERM/SIGINT shutdown implemented. Supervisor retries failures with backoff and stops/restarts Matter on coordinator loss; complete dataset/radio reconnection remains in plan 06. |
-| 7 | Partial | Current native/Rust factory builds are static big-endian MIPS-I ELF32 files: 1,504,596-byte native bridge and 2,109,120-byte Rust service. Rust/OpenThread ABI flags are aligned (`4c02d8a`); host suites and process tests pass. Target execution, peak runtime resources and full production-daemon report delivery remain unverified. |
+| 7 | Partial | Current Matter-enabled native/Rust factory builds are static big-endian MIPS-I ELF32 files: 1,736,548-byte native bridge and 2,109,120-byte Rust service. Rust/OpenThread ABI flags are aligned (`4c02d8a`); host suites and process tests pass. Target execution, peak runtime resources and full production-daemon report delivery remain unverified. |
 | 8 | Complete | Runtime invocation, ownership, bounds and state paths documented in `ziggurat-compilation/docs/matter-service-runtime.md`; optional supervisor configuration, failure markers, retry budget and staging documented in `MATTER_INTEGRATION.md`. |
 
 This checkpoint supplies a running transport/status service and persistent
@@ -229,17 +229,21 @@ measurements remain in plan 08.
 
 ## Rebuilt MIPS deployment candidates — 2026-10-05
 
-Rebuilt the native bridge from `847c886` using `make ZIGGURAT=1 MATTER=1
-mips`; the output is `build/mips-ziggurat/microhad-zigbee-native`, 1,504,596
+Verified the Matter-enabled native bridge using `make ZIGGURAT=1 MATTER=1
+mips`; the output is `build/mips-ziggurat-matter/microhad-zigbee-native`, 1,736,548
 bytes, SHA-256
-`d273c7fb6427d33efea66929c01d3a0bb659a70fb7929a282ce3eee044c260b9`.
-Rebuilt the Rust service from `7ae47f8` using
+`1f15345fc12125e2c173f9cc82c4a9a9df6fecd7ad3f5ff50bb20b2009184b47`.
+Rebuilt the Rust service from `1b7ae98` using
 `bash scripts/build-rs-matter-transport.sh mips service`; the output is
 `build/rs-matter/thread-matter-mips`, 2,109,120 bytes, SHA-256
-`b62766415e3a44c160b5d1cdc317a28fe2922a54e6d6bd795d7bb7d1e281368b`.
+`dcd10f1687d5cae0a1633fe9a04398bb0326d28feb0a2d5d3a19a5458c63c675`.
 Both are static ELF32 big-endian MIPS-I/o32 executables. `readelf` reports no
 interpreter or dynamic section for the Rust service. This updates the older
 artifact record above; hashes identify these exact local candidates and are
-not a claim that either has run on the gateway. Staging is possible after
-packaging these exact files. Matter use and service cutover still require the
-device startup/resource gate and completed production report delivery.
+not a claim that either has run on the gateway. The earlier 1,504,596-byte
+artifact was the Matter-disabled Ziggurat binary and is not suitable for this
+paired deployment. Staging requires packaging these exact Matter-enabled files.
+Matter use and service cutover still require the device startup/resource gate
+and completed production report delivery. The service dispatcher now accepts
+MoveToLevel through the manager; the composed test verifies bounded
+not-ready handling when the fixture has no attached accessory.

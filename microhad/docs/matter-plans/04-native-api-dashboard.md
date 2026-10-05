@@ -266,6 +266,16 @@ returned value. It also retains the existing pagination/revision and availabilit
 checks. Sensors, other cluster controls, broad failure gates and physical
 accessory behavior remain open; plan 08 was not performed.
 
+## Production Level-command dispatch verification — 2026-10-05
+
+Rust service commit `1b7ae98` now dispatches MoveToLevel jobs into the
+production device manager; native commit `9f8e562` verifies the complete HTTP
+request, native queue/poll path, and real Rust service response. The fixture
+has no attached Thread accessory, so the expected terminal result is
+`not_ready`. This confirms production dispatch and readiness checks, while
+successful accessory readback remains dependent on a real commissioned device.
+The native host suites and synthetic fake-peer confirmed-value checks pass.
+
 ## Dependencies
 
 [Commissioning and control IPC](02-commissioning-control-ipc.md) and

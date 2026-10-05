@@ -254,9 +254,27 @@ event consumption; Thread subscription does not replace that work.
 | 2 | Partial | Strict requests, session/Thread replies, device job requests/replies, typed commissioning/BLE/Thread events, and typed Matter report events implemented; broader report vectors remain. |
 | 3 | Complete | Production owner uses the bounded session manager and pinned real commissioner future with cancellation/reconnect cleanup. |
 | 4 | Partial | Status, Thread lifecycle, commissioning/relay and native/Rust OnOff job path verified through confirmed readback. Broader failure/recovery gates remain. |
-| 5 | Partial | Native observer/status worker consumes Matter report events into shared device state; queued commissioning/control requests remain pending. |
+| 5 | Partial | Native observer consumes Matter reports and HTTP jobs carry OnOff/Level commands through worker polling; production MoveToLevel dispatch is fixed in Rust commit `1b7ae98` and composed coverage passes in native commit `9f8e562`. Live accessory reports and broader recovery remain open. |
 | 6 | Partial | Rust body vectors, callback/reconnect/timeout, Matter broadcast, and native report parser tests pass; full native cross-language body/event vectors remain pending. |
 | 7 | Current | Contract and implementation evidence updated at this checkpoint. |
+
+## Production Level-command dispatch — 2026-10-05
+
+Rust service commit `1b7ae98` adds `MoveToLevel` to the production IPC
+dispatcher. The manager and IPC schema already supported the operation, but
+the service's final command match handled only On/Off/Toggle and returned
+`unsupported` for Level commands. Native commit `9f8e562` adds a composed
+HTTP-to-native-worker-to-real-service regression: a valid MoveToLevel job is
+accepted, dispatched, and receives the expected manager `not_ready` response
+when the simulated service has no attached Thread accessory. This proves
+dispatch and readiness gating, not physical command/readback behavior.
+
+`python3 scripts/test-matter-service.py`,
+`python3 scripts/test_matter_native_worker.py --real-service`,
+`python3 scripts/test_matter_native_worker.py`, and
+`make ZIGGURAT=1 MATTER=1 host test` pass. Both Matter-enabled MIPS artifacts
+also rebuild. Real accessory operation, live service-originated reports,
+target startup/resources/deadlines, and plan 08 acceptance remain open.
 
 The running service accepts start only with an active canonical dataset and a
 fresh matching native channel observation. Start/status do not write credentials.
