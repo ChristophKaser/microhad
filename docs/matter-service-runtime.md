@@ -207,6 +207,10 @@ reset rate. Detailed observations are in
 gateway tests after the earlier stop recommendation; this authorization does
 not establish that Matter triggered the resets.
 
+A second read-only idle window advanced gateway uptime from 403.33 to 525.97
+seconds across 12 samples. Production stayed online/formed and no reboot was
+detected during that two-minute interval.
+
 ## Guarded Thread lifecycle — 2026-10-04
 
 Opcode 9 accepts status/create/import and private coordinator `observe` bodies.

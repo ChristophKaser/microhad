@@ -351,3 +351,7 @@ No Tuya watchdog feeder or safe disable control has been identified, so no
 watchdog was changed. The repeated association warrants investigation, but
 three bounded runs and discontinuous idle windows do not establish a reset
 rate, periodic cadence, or hardware/software cause.
+
+A second two-minute, read-only idle window sampled gateway uptime from 403.33
+to 525.97 seconds. All 12 SSH samples advanced monotonically and production
+remained online/formed; no reset was detected during this interval.
