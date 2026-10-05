@@ -9,15 +9,17 @@ incompatible Thread dataset and resumes after the original channel returns.
 The actual service process also passes its five-second coordinator-observation
 expiry gate while preserving the configured dataset and making no additional
 radio channel writes. It also recovers a dataset committed immediately before
-the synthetic RCP is lost during apply. Stale-observation renewal, real-RCP
-in-process apply-failure injection, target RF behavior and operator recovery
-remain open. The `apply_failed` suppression and explicit retry behavior now has
+the synthetic RCP is lost during apply. The native worker now renews the
+coordinator observation past the five-second expiry while Thread remains
+attached, with no extra radio channel writes. Real-RCP in-process apply-failure
+injection, target RF behavior and operator recovery remain open. The
+`apply_failed` suppression and explicit retry behavior now has
 a Rust FakeRadio unit gate and a host process-level gate that injects at the
 OpenThread adapter boundary.
 
-Next deliverable: Extend integrated coverage for stale-observation renewal and
-bounded operator recovery, and find a reliable real-RCP injection point for an
-in-process failed apply. Keep physical coexistence and RF acceptance in plan 08.
+Next deliverable: Define and verify bounded operator recovery, and find a
+reliable real-RCP injection point for an in-process failed apply. Keep physical
+coexistence and RF acceptance in plan 08.
 
 Follow the ordered steps and execution checklist below. Record verification
 commands, results and the owning repository commit after each completed step.
@@ -351,3 +353,20 @@ targeted lifecycle unit test with `controller-service-test-hooks` (1/1). The
 full service script also passes its existing commissioning, timeout, mismatch,
 expiry, and restart gates. This does not test the OpenThread C API or a failure
 reported by the real RCP; reliable real-RCP injection remains open.
+
+## Native observation renewal while attached — 2026-10-05
+
+Native commit `dc811fe` extends the actual `thread-matter`/native worker
+synthetic-RCP integration. After coordinator recovery returns Thread to
+`attached`, the test holds the system online for six seconds, longer than the
+five-second observation TTL. The native worker's periodic online/channel
+observations keep the service attached on the same Zigbee channel, with no
+additional radio channel writes. The existing loss, mismatched-channel and
+same-channel recovery gates still pass in the same run.
+
+Verification passed with `python3 scripts/test_matter_native_worker.py
+--real-service` using the host synthetic RCP, plus
+`python3 -m py_compile scripts/test_matter_native_worker.py`. This verifies
+host liveness renewal and bounded channel behavior; target scheduling, RF
+coexistence and real-RCP failed-apply injection remain open. No deployment or
+plan 08 test was performed.
