@@ -95,6 +95,14 @@ open or call this registry, detect LIT devices, use wake records to dispatch
 queued operations, or refresh keys at the required threshold. Thus no sleepy
 device is usable yet.
 
+Operational DNS-SD parsing now accepts and preserves the standard `ICD=0|1`
+TXT field while rejecting malformed, out-of-range and duplicate values
+(`497dfa5`). This makes advertised LIT mode available to rs-matter's resolver
+and prevents malformed mode metadata from entering its resolve cache. The new
+parser test is committed but could not be rerun in this environment because
+`cargo` is unavailable; `git diff --check` passed. The service-side consumer
+that identifies and registers LIT devices remains open.
+
 The earlier Rust commit `02d631a` routed Check-In through the device manager's
 unrestricted exchange acceptor. Inspection showed that this raced rs-matter's
 normal Secure Channel responder, which used a no-op Check-In handler. Rust
