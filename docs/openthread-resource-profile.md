@@ -102,6 +102,31 @@ masking a low-free-RAM condition. The profile above predates this accounting;
 its recorded minimums and pass/fail result used the stricter raw-MemFree guard.
 New JSON reports include both memory figures and both guardrails.
 
+## Matter service startup profile — 2026-10-05
+
+The MIPS service started with unique `/tmp` state and IPC paths and an
+unavailable synthetic radio socket, so it waited for coordinator observation
+and never initialized Thread or accessed `/dev/ttyS1`. It remained alive for
+15 seconds and logged orderly start/stop. The observed service RSS was 788 KiB;
+sampled CPU ticks did not increase. Raw MemFree was 928–944 KiB while clean
+inactive file cache was 10,484 KiB, giving 11,412–11,428 KiB effective free.
+The test used a 512 KiB raw-free abort floor and a 1,536 KiB effective-free
+floor; the deployment acceptance floor remains 1 MiB raw MemFree. The run
+therefore does not meet the deployment free-RAM gate.
+
+Within the subsequent gateway status check, uptime had reset and production
+process IDs had changed; `/api/status` briefly reported Zigbee offline and
+unformed. The running supervisor brought it back online and formed within the
+next four-second status poll. The post-reboot kernel ring buffer contains only
+the new boot, so the cause cannot be tied conclusively to this profile or
+classified as OOM. Treat the reboot as a possible test-related failure: no
+further on-device Matter workload should run until the cause is understood.
+The script's initial version did not persist the sample after the legacy SSH
+channel closed following the service's stop marker; its error-reporting path is
+fixed, but this result has not been repeated. The production service was never
+intentionally stopped, and no staging or temporary test paths remained after
+the gateway came back.
+
 Use the [documented OpenThread build](openthread-feasibility.md) first if its
 executables are absent. Without `--host`, the runner checks local executables
 and sockets; it cannot provide target CPU/memory measurements.
