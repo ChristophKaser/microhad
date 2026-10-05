@@ -18,14 +18,19 @@ service are available locally. A prior read-only ordered-upload preflight for
 staging. No files were uploaded or changed, and no process was stopped or
 restarted.
 
-The first-device runtime gate is now concrete: stage the matching Matter
-artifacts and start the paired supervisor with the Matter service selected so
-Ziggurat opens its private Thread socket. That requires restarting the current
-UART owner and native bridge; keep this gate open while the instruction to keep
-the existing service running remains in force. After the restart, verify
-`/tmp/ziggurat/thread.sock`, service readiness, Zigbee health and bounded idle
-resource use before attempting phone/accessory commissioning. Live accessory
-commissioning remains outside this plan's host/runtime evidence.
+The installed `/tuya/tuya_start.sh` also lacks the `MATTER_BIN` opt-in present
+in the candidate `ziggurat_start.sh`, and `/tuya/tuya_start.sh.lowjs-backup` is
+not present. The current supervisor therefore cannot be opted into Matter by
+placing the service binary alone. Preparing the first-device startup requires
+staging the matching Matter artifacts and installing the Matter-aware paired
+launcher, which preserves the current launcher as a backup. The new launcher
+only takes effect at the next start; Ziggurat and the native bridge must then
+restart so the UART owner opens `/tmp/ziggurat/thread.sock`. Keep this gate open
+while the instruction to keep the existing service running remains in force.
+After an authorized restart, verify the backup, Thread socket, service
+readiness, Zigbee health and bounded idle resource use before attempting
+phone/accessory commissioning. Live accessory commissioning remains outside
+this plan's host/runtime evidence.
 
 ## Gateway flash headroom observation — 2026-10-05
 
