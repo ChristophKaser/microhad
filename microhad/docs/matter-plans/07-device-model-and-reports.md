@@ -1,5 +1,49 @@
 # Plan: Matter device model and reports
 
+## Sessionless LIT Check-In and wake dispatch — 2026-10-05
+
+Rust commit `6a5c430` implements the pinned-source transport handoff and key
+identification path described here.
+
+The Check-In delivery blocker is resolved in the synthetic commissioning
+fixture. The pinned rs-matter transport now recognizes unsecured Secure Channel
+Check-In packets when no Matter session exists, queues their bounded encrypted
+payload, and sends no `SessionNotFound` response. Check-In senders use an
+ephemeral node ID, so the received fabric/node fields are deliberately marked
+unknown. `ClientRegistry` tests registered client keys until the application
+MIC authenticates one; that registration supplies the durable fabric/node
+identity. Counter monotonicity is checked and persisted before a wake is
+returned. No sessionless source ID is trusted.
+
+The fixture now passes production-owned registration, authenticated Check-In,
+counter acceptance, and a queued CASE read during the active wake window.
+Validation passed on the host and on the gateway's MIPS-I binary against a
+synthetic RCP; the gateway run used direct fixture address injection and did
+not validate radio discovery. Peak RSS was 2,172 KiB under the 3,072 KiB cap,
+average sampled CPU was 31.2% of one core over the active run, and minimum
+`MemFree` was 9,792 KiB. Production status remained online/formed before and
+after, and no reset was observed. The controller-service library suite passes
+81/81; the production MIPS service cross-build succeeds. The gateway did not
+run the fixture's synthetic SRP registration path, which timed out before ICD
+work began; actual service discovery remains a separate validation item.
+
+Reproduce host behavior with:
+
+```sh
+cargo +nightly-2026-10-02 test --locked --release \
+  --manifest-path rs-matter-probe/Cargo.toml \
+  --features controller-service --lib
+python3 scripts/test-openthread-matter-transport.py \
+  --commissioning --ble --service-owner --icd
+```
+
+The gateway profile command and retained JSON report are documented in
+`ziggurat-compilation/docs/matter-service-runtime.md`. This closes the
+sessionless Check-In/wake fixture gate, not real-device acceptance or the
+installed daemon's active CASE report path. The Check-In manager performs up
+to 64 bounded MIC checks per packet; the recorded one-client profile does not
+measure that worst-case lookup cost.
+
 ## Current open work — 2026-10-05
 
 Bounded production operational SRP/DNS discovery and persistent local node catalog
@@ -94,19 +138,16 @@ before returning a wake record. Rust commit `8f69c39` wires the registry into
 Check-In Protocol and Long Idle Time bits, gives ICD exchanges a 10-second
 deadline, retries failures/timeouts after 5 seconds, and yields the poll turn
 after ICD progress. It defers operations, descriptor reads and subscriptions
-until an authenticated wake and refreshes keys at the protocol threshold. All
-80 controller-service library tests pass.
+until an authenticated wake and refreshes keys at the protocol threshold. The
+latest controller-service library suite passes 81/81.
 
-The synthetic commissioned ICD fixture proves that the production manager
-registers a client and that the accessory retains it (`OperatingMode=LIT`, one
-RegisteredClients entry). It still fails the next acceptance gate: no
-authenticated Check-In reaches the controller queue, so counter persistence
-and wake-window command dispatch are not verified. The fixture supplies the
-controller operational address to the accessory resolver, but the device
-still does not deliver an accepted Check-In. Diagnose sessionless UDP
-delivery/receiver behavior before trying this procedure on the gateway. The
-isolated MIPS profile has no commissioned ICD peer and gives no CPU, memory or
-timing evidence for registration or Check-In traffic.
+The original synthetic commissioned ICD fixture proved RegisterClient and LIT
+readback but did not deliver a Check-In. The sessionless dispatch and wake gate
+are now covered by the 2026-10-05 checkpoint above; it supersedes this earlier
+blocker. The gateway profile uses direct fixture address injection, while the
+synthetic SRP-registration variant still times out before ICD traffic. The
+installed daemon's active report loop and maximum-size client-key scan remain
+open.
 
 Operational DNS-SD parsing now accepts and preserves the standard `ICD=0|1`
 TXT field while rejecting malformed, out-of-range and duplicate values
@@ -115,8 +156,8 @@ and prevents malformed mode metadata from entering its resolve cache. The
 parser fixture length was corrected in `93a1333`; the focused offline test
 passes (1/1), with `git diff --check` clean. The manager confirms LIT support
 through the authenticated FeatureMap read before issuing RegisterClient. The
-fixture verifies the RegisterClient response and accessory readback; Check-In
-delivery remains open.
+fixture verifies the RegisterClient response and accessory readback; the
+subsequent sessionless Check-In path is now covered by the checkpoint above.
 
 The earlier Rust commit `02d631a` routed Check-In through the device manager's
 unrestricted exchange acceptor. Inspection showed that this raced rs-matter's

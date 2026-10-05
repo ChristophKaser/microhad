@@ -1,5 +1,44 @@
 # Plan: Rust Matter service runtime
 
+## Synthetic ICD gateway resource profile — 2026-10-05
+
+Rust commit `6a5c430` implements the receive path measured below.
+
+The sessionless LIT Check-In path is now exercised end to end by the guarded
+MIPS commissioning fixture. The gateway reached the synthetic accessory over
+OpenThread, registered an ICD client, authenticated a Check-In and completed a
+CASE read within the wake window. This profile uses a direct fixture resolver;
+it does not test real Thread radio access or gateway SRP discovery.
+
+The 2,666,212-byte MIPS fixture (SHA-256
+`e6515d61d398c45a50c35195cc12d117bb3bac28f56d55a4808a0dfe79ad041f`)
+completed commissioning in 12,530 ms. Its sampled peak RSS was 2,172 KiB
+against a 3,072 KiB cap; sampled CPU averaged 31.2% of one core during the active
+run. Minimum `MemFree` was 9,792 KiB and minimum `MemFree` plus clean inactive
+file cache was 19,152 KiB. The production gateway stayed online and formed
+before and after the run; uptime advanced and no reset was observed. The
+production MIPS service independently cross-builds to 2,162,372 bytes
+(`008581db1c45cec74e962a37e681f502b84cac9fdd42a49cd7604a730acc1370`), and
+81/81 controller-service library tests pass.
+
+Reproduce the bounded target profile from `ziggurat-compilation`:
+
+```sh
+bash scripts/build-rs-matter-transport.sh mips commissioning
+python3 scripts/test-openthread-matter-device.py \
+  --host 192.168.178.62 --password-file ../ssh_password.txt \
+  --commissioning --ble --service-owner --icd
+```
+
+The test drops cache only for its uniquely staged fixture files, enforces an
+8 MiB virtual-memory limit, 3 MiB RSS ceiling and 160-second wall deadline,
+and checks production status before and after. A separate attempt including
+synthetic SRP discovery timed out before ICD registration; the passing profile
+therefore uses direct fixture address injection. These measurements represent
+one registered client, not the maximum 64-key authentication scan or the
+installed daemon's ongoing CASE report loop. No deployment or production
+service restart was performed.
+
 ## Current open work — 2026-10-05
 
 Host service/native round trips, the generic paired supervisor failure matrix,
