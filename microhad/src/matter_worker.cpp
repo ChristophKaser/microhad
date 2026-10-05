@@ -319,6 +319,12 @@ void MatterWorker::run() {
             std::string response, error, matter, thread;
             bool valid = client_.call(9, body.str(), &response, &error);
             if (!running()) break;
+            if (valid && !abandonedSession_.empty()) {
+                const std::string abandoned = abandonedSession_;
+                const std::string cancel = "{\"schema\":1,\"session\":\"" + abandoned + "\"}";
+                valid = client_.call(5, cancel, &response, &error);
+                if (valid) abandonedSession_.clear();
+            }
             if (valid) valid = client_.call(1, "", &matter, &error);
             if (!running()) break;
             if (valid) valid = client_.call(2, "", &thread, &error);
@@ -381,9 +387,13 @@ void MatterWorker::dropPhone(bool cancel, unsigned int code) {
     if (phonePendingFd_ >= 0) { close(phonePendingFd_); phonePendingFd_ = -1; }
     phoneHandshake_.clear(); phoneActive_ = false;
     pthread_mutex_unlock(&mutex_);
+    if (!session.empty() && !cancel) abandonedSession_ = session;
     if (cancel && !session.empty()) {
         std::string response, error;
-        if (!client_.call(5, "{\"schema\":1,\"session\":\"" + session + "\"}", &response, &error)) unavailable();
+        if (!client_.call(5, "{\"schema\":1,\"session\":\"" + session + "\"}", &response, &error)) {
+            abandonedSession_ = session;
+            unavailable();
+        } else if (abandonedSession_ == session) abandonedSession_.clear();
     }
 }
 void MatterWorker::phonePump() {

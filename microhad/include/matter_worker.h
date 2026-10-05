@@ -37,6 +37,7 @@ private:
     uint32_t phoneLastId_;
     uint32_t phoneGeneration_;
     std::string phoneSession_;
+    std::string abandonedSession_;
     bool phoneQueue(unsigned char opcode, const std::string& payload);
     void phonePump();
     void dropPhone(bool cancel, unsigned int code);

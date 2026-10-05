@@ -536,7 +536,7 @@ def relay_http_call(fixture, action, body):
     return response
 
 
-def relay_tests(fixture):
+def relay_tests(fixture, matter):
     def start():
         result = relay_http_call(fixture, 'start', dict(schema=1, discriminator=3840, pin=20202021, timeout_seconds=30))
         assert result['ok']
@@ -607,6 +607,25 @@ def relay_tests(fixture):
     finally:
         relay.close()
     wait_for(lambda: cancelled(session))
+    if hasattr(matter, 'malformed_next_event'):
+        # If the persistent IPC channel breaks with a bound relay session,
+        # cancel that exact session after reconnect; never replay BLE writes.
+        session = start()
+        relay = RelaySocket(fixture)
+        assert relay.call(4, dict(schema=1, session=session))['ok']
+        matter.malformed_next_event = True
+        try:
+            def unavailable():
+                try:
+                    fixture.request('/api/matter/status')
+                except urllib.error.HTTPError as error:
+                    return error.code == 503
+                return False
+            wait_for(unavailable, timeout=6)
+            wait_for(lambda: fixture.request('/api/matter/status')['state'] == 'running')
+            wait_for(lambda: cancelled(session))
+        finally:
+            relay.close()
     fixture.log.seek(0)
     assert b'20202021' not in fixture.log.read()
     assert '20202021' not in json.dumps(fixture.status())
@@ -878,7 +897,7 @@ def main():
         else:
             assert matter.mutations and all(c == expected for _, c in matter.mutations)
         commissioning_http(fixture)
-        relay_tests(fixture)
+        relay_tests(fixture, matter)
         # Coordinator loss and a live channel change must not strand the native
         # worker or permit Thread radio writes on an incompatible channel.
         if real:

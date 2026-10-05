@@ -1,5 +1,25 @@
 # Plan: Commissioning and device-control IPC
 
+## Cancel an abandoned relay session after IPC recovery — 2026-10-05
+
+The native Matter worker now retains the active commissioning session ID when
+its persistent service channel fails, then sends only a cancellation after the
+service connection is healthy again. It does not replay commissioning start,
+Thread dataset mutations, or BLE writes. Normal phone disconnect still cancels
+immediately when IPC is available. This prevents a transient service-channel
+failure from leaving the Rust commissioner busy until the original session
+deadline.
+
+`python3 scripts/test_matter_native_worker.py` passes. Its synthetic IPC peer
+injects an invalid event while a BLE relay is bound, checks Matter readiness
+drop and recovery, and verifies that the original session becomes cancelled.
+`make ZIGGURAT=1 MATTER=1 mips` passes; the MIPS native binary is 1,741,544
+bytes. The sandbox denied the fixture's Unix socket and the first cross-build
+attempt with `EPERM`/`SIGSYS`; both commands passed outside the sandbox. This
+small bounded state change does not warrant another long gateway profile. The
+broader IPC failure matrix and the installed daemon's live CASE report path
+remain open. No gateway files or processes were changed.
+
 ## Current open work — 2026-10-05
 
 Native commissioning/relay dispatch and bounded jobs exist. Rust now dispatches
@@ -8,7 +28,9 @@ HTTP admission and worker-side operation polling carry jobs through confirmed
 readback. Rust also dispatches Level Control and advertised sensor reads with
 typed readbacks. Native validators accept OnOff, Level and sensor-typed replies;
 sensor UI/model projection and initial Matter report-event consumption now exist;
-broader recovery and complete cross-language vectors remain open.
+transient IPC recovery now cancels abandoned commissioning sessions without
+replaying BLE or Thread mutations; broader recovery and complete cross-language
+vectors remain open.
 Snapshot API remains verified (`237d110`).
 
 The cross-boundary live report path is now composed in compiler commit
