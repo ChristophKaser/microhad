@@ -1,4 +1,4 @@
-import type { HistoryMetric, HistorySample } from './api'
+import type { Device, HistoryMetric, HistorySample } from './api'
 
 const names: Record<HistoryMetric, string> = {
   1: 'Temperature', 2: 'Humidity', 3: 'Contact', 4: 'Power', 5: 'Occupancy', 6: 'Battery',
@@ -8,6 +8,12 @@ const defaultUnits: Record<HistoryMetric, string> = {
   1: '°C', 2: '%', 3: '', 4: 'W', 5: '', 6: '%', 7: 'ppm', 8: 'ug/m3', 9: '', 10: '', 11: '%',
 }
 const quality = ['good', 'fair', 'moderate', 'poor', 'very_poor', 'extremely_poor']
+
+export const historyDeviceId = (device: Device): string => device.source === 'shelly'
+  ? `shelly:${device.external_id}:${device.component}`
+  : device.source === 'matter' ? device.external_id
+    : device.source === 'fritz_box' ? `fritz:${device.external_id}:${device.component}`
+      : `zigbee:${device.ieee_address}`
 
 export const historyName = (metric: HistoryMetric): string => names[metric]
 export const historyDiscrete = (metric: HistoryMetric): boolean => [3, 5, 9, 10].includes(metric)

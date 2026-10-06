@@ -120,7 +120,7 @@ void runExternalHttpDeviceWorkerUnitTests() {
         assert(secondContactOpen);
         assert(gateway.removeShelly("1234567890abcdef", &error));
         assert(gateway.devices().size() == 9);
-        assert(unlink(history.c_str()) == 0);
+        assert(access(history.c_str(), F_OK) != 0);
         assert(unlink((history + ".values").c_str()) == 0);
     }
     std::string controllerState = std::string(directory) + "/devices.json";

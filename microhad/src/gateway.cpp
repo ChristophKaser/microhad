@@ -400,7 +400,6 @@ bool Gateway::registerShelly(const std::string& id, const std::string& name, con
             existingComponent += ":0";
         if ((it->second.source == "shelly" || it->second.source == "fritz_box") && it->second.externalId == id &&
             std::find(components.begin(), components.end(), existingComponent) == components.end()) {
-            history_.setDevicePresent(it->first, false);
             contactOpenedAt_.erase(it->first); nextContactAlertAt_.erase(it->first); nextContactTriggerAt_.erase(it->first);
             devices_.erase(it++); changed = true;
         } else ++it;
@@ -410,7 +409,6 @@ bool Gateway::registerShelly(const std::string& id, const std::string& name, con
         std::string type = colon == std::string::npos ? components[i] : components[i].substr(0, colon);
         int channel = colon == std::string::npos ? 0 : atoi(components[i].c_str() + colon + 1);
         const std::string address = shellyAddress(id, type, channel);
-        history_.setDevicePresent(address, true);
         std::map<std::string, Device>::iterator existing = devices_.find(address);
         if (existing == devices_.end()) {
             Device d;
@@ -446,7 +444,6 @@ bool Gateway::removeShelly(const std::string& id, std::string* error) {
     bool changed = false;
     for (std::map<std::string, Device>::iterator it = devices_.begin(); it != devices_.end();) {
         if ((it->second.source == "shelly" || it->second.source == "fritz_box") && it->second.externalId == id) {
-            history_.setDevicePresent(it->first, false);
             contactOpenedAt_.erase(it->first); nextContactAlertAt_.erase(it->first); nextContactTriggerAt_.erase(it->first);
             devices_.erase(it++); changed = true;
         } else ++it;
@@ -462,7 +459,6 @@ bool Gateway::reconcileShelly(const std::vector<std::string>& ids, std::string* 
     for (std::map<std::string, Device>::iterator it = devices_.begin(); it != devices_.end();) {
         if (it->second.source == "shelly" &&
             std::find(ids.begin(), ids.end(), it->second.externalId) == ids.end()) {
-            history_.setDevicePresent(it->first, false);
             contactOpenedAt_.erase(it->first); nextContactAlertAt_.erase(it->first); nextContactTriggerAt_.erase(it->first);
             devices_.erase(it++); changed = true;
         } else ++it;
@@ -714,7 +710,6 @@ bool Gateway::reconcileFritzClients(const std::vector<std::string>& ids, std::st
     bool changed = false;
     for (std::map<std::string, Device>::iterator it = devices_.begin(); it != devices_.end();) {
         if (it->second.source == "fritz_box" && std::find(ids.begin(), ids.end(), it->second.externalId) == ids.end()) {
-            history_.setDevicePresent(it->first, false);
             devices_.erase(it++); changed = true;
         } else ++it;
     }
@@ -866,10 +861,6 @@ bool Gateway::start(std::string* error) {
     loadState();
     std::string historyError;
     if (!history_.initialize(&historyError)) addLog(std::string("Sensor history unavailable: ") + historyError);
-    std::vector<std::string> activeHistoryDevices;
-    for (std::map<std::string, Device>::const_iterator it = devices_.begin(); it != devices_.end(); ++it)
-        activeHistoryDevices.push_back(it->first);
-    history_.setActiveDevices(activeHistoryDevices);
     {
         std::ostringstream build;
         build << "Build: " << __DATE__ << " " << __TIME__ << " revision=" << MICROHAD_BUILD_REVISION;

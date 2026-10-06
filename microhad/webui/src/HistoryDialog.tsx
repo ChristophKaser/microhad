@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Chart as ChartJS, LineController, LineElement, LinearScale, PointElement, Tooltip } from 'chart.js'
 import type { Device, HistoryMetric, HistoryPage, HistorySample } from './api'
 import { errorMessage, jsonRequest } from './api'
-import { historyDiscrete, historyLabel, historyName, historyTick, historyUnit, historyY } from './history'
+import { historyDeviceId, historyDiscrete, historyLabel, historyName, historyTick, historyUnit, historyY } from './history'
 
 type Range = 'day' | 'week' | 'all'
 const rangeSeconds: Record<Range, number> = { day: 86400, week: 604800, all: Infinity }
@@ -102,11 +102,7 @@ export function HistoryDialog({ device, onClose }: { device: Device; onClose: ()
     ...(device.has_light || device.has_actor ? [10 as const] : []),
     ...(device.has_brightness ? [11 as const] : []),
   ]
-  const historyId = device.source === 'shelly'
-    ? `shelly:${device.external_id}:${device.component}`
-    : device.source === 'matter' ? device.external_id
-      : device.source === 'fritz_box' ? `fritz:${device.external_id}:${device.component}`
-        : `zigbee:${device.ieee_address}`
+  const historyId = historyDeviceId(device)
   const series = metrics.flatMap((metric) => {
     const units = [...new Set(samples.filter((sample) => sample[2] === metric).map((sample) => historyUnit(metric, sample)))]
     return (units.length ? units : [historyUnit(metric)]).map((unit) => ({ metric, unit }))

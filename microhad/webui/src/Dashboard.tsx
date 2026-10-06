@@ -4,7 +4,7 @@ import { Chart as ChartJS, LineController, LineElement, LinearScale, PointElemen
 import type { Device, HistoryMetric, HistoryPage, HistorySample, SceneGroupSummary, Status } from './api'
 import { errorMessage, jsonRequest } from './api'
 import { DeviceGroups } from './devices'
-import { historyDiscrete, historyLabel, historyTick, historyUnit, historyY } from './history'
+import { historyDeviceId, historyDiscrete, historyLabel, historyTick, historyUnit, historyY } from './history'
 
 export type DashboardWidget = {
   id: string
@@ -37,6 +37,7 @@ function SensorChart({ device, metricId, range }: { device: Device | undefined; 
   const [error, setError] = useState('')
   const [now, setNow] = useState(() => Math.floor(Date.now() / 1000))
   const metric = sensorMetrics.find(item => item.id === metricId)
+  const historyId = device ? historyDeviceId(device) : ''
   useEffect(() => {
     if (!device) return
     let active = true
@@ -46,7 +47,7 @@ function SensorChart({ device, metricId, range }: { device: Device | undefined; 
         let before = 0
         const loaded: HistorySample[] = []
         do {
-          const page = await jsonRequest<HistoryPage>(`/api/devices/${encodeURIComponent(device.id)}/history${before ? `?before=${before}` : ''}`)
+          const page = await jsonRequest<HistoryPage>(`/api/devices/${encodeURIComponent(historyId)}/history${before ? `?before=${before}` : ''}`)
           loaded.push(...page.samples)
           before = initial ? page.next_before : 0
         } while (initial && before && loaded.length < 10000)
@@ -64,7 +65,7 @@ function SensorChart({ device, metricId, range }: { device: Device | undefined; 
     void load(true)
     timer = window.setInterval(() => { void load(false) }, 30000)
     return () => { active = false; window.clearInterval(timer) }
-  }, [device?.id])
+  }, [historyId])
   const points = useMemo(() => samples.filter(sample => sample[2] === metricId).sort((a,b) => a[1]-b[1]), [samples, metricId])
   const start = range === 'all' ? (points[0]?.[1] ?? now) : now - rangeSeconds[range]
   const latest = points[points.length - 1]
