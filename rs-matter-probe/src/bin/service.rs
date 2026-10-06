@@ -197,6 +197,11 @@ fn dispatch<C: Crypto>(
                 Request::Device(body), lifecycle.snapshot().attached && thread.is_some(),
                 controller.commissioning(Instant::now()), Instant::now(),
             ))?).ok()?,
+        Ok(Request::Device(body @ lexra_rs_matter_probe::control::DeviceRequest::Bind { .. })) =>
+            String::from_utf8(lexra_rs_matter_probe::responses::reply(devices.submit(
+                Request::Device(body), lifecycle.snapshot().attached && thread.is_some(),
+                controller.commissioning(Instant::now()), Instant::now(),
+            ))?).ok()?,
         Ok(Request::Command(body @ (lexra_rs_matter_probe::control::CommandRequest::On { .. } |
             lexra_rs_matter_probe::control::CommandRequest::Off { .. } |
             lexra_rs_matter_probe::control::CommandRequest::Toggle { .. } |

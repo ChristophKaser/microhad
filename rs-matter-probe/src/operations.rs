@@ -1,6 +1,6 @@
 //! Capability-gated operational OnOff/Level/sensor transactions. No automatic mutation replay.
 use crate::{
-    control::{CommandRequest, DeviceRequest, Id, Request},
+    control::{BindingMember, BindingTarget, CommandRequest, DeviceRequest, Id, Request},
     devices::Snapshot,
 };
 use core::num::NonZeroU8;
@@ -25,7 +25,7 @@ use rs_matter::{
 };
 use serde::Serialize;
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub enum Action {
     Read,
     ReadLevel,
@@ -39,8 +39,9 @@ pub enum Action {
         level: u8,
         transition_deciseconds: u16,
     },
+    Bind { targets: Vec<BindingTarget> },
 }
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct Operation {
     pub node: u64,
     pub endpoint: u16,
@@ -85,6 +86,72 @@ pub struct ResultValue {
     pub cluster: u32,
     pub attribute: u32,
     pub value: Value,
+}
+
+async fn provision_group_member<C: Crypto>(
+    matter: &Matter<'_>, crypto: &C, fabric: NonZeroU8, member: BindingMember,
+    group: u16, key: &[u8],
+) -> Result<(), Error> {
+    use rs_matter::dm::clusters::decl::group_key_management::{
+        GroupKeyManagementClient, GroupKeyMapStructArrayBuilder,
+        GroupKeyMulticastPolicyEnum, GroupKeySecurityPolicyEnum,
+    };
+    use rs_matter::dm::clusters::decl::groups::GroupsClient;
+    use rs_matter::tlv::OctetStr;
+
+    let exchange = Exchange::initiate(matter, crypto, fabric, member.node.0).await?;
+    let mut key_map = exchange.group_key_management().group_key_map_read_with(0, |entries| {
+        let entries = entries?;
+        entries.iter().map(|entry| {
+            let entry = entry?;
+            Ok((entry.group_id()?, entry.group_key_set_id()?))
+        }).collect::<Result<Vec<_>, Error>>()
+    }).await??;
+    if key_map.iter().any(|(mapped_group, key_id)|
+        (*key_id == group && *mapped_group != group) || (*mapped_group == group && *key_id != group)) {
+        return Err(ErrorCode::ConstraintError.into());
+    }
+    key_map.retain(|(mapped_group, _)| *mapped_group != group);
+    key_map.push((group, group));
+
+    Exchange::initiate(matter, crypto, fabric, member.node.0).await?
+        .group_key_management().key_set_write(0, |request| {
+            request.group_key_set()?.group_key_set_id(group)?
+                .group_key_security_policy(GroupKeySecurityPolicyEnum::TrustFirst)?
+                .epoch_key_0(Nullable::some(OctetStr::new(key)))?
+                .epoch_start_time_0(Nullable::some(0))?
+                .epoch_key_1(Nullable::none())?.epoch_start_time_1(Nullable::none())?
+                .epoch_key_2(Nullable::none())?.epoch_start_time_2(Nullable::none())?
+                .group_key_multicast_policy(GroupKeyMulticastPolicyEnum::PerGroupID)?.end()?.end()
+        }).await?;
+
+    let response = Exchange::initiate(matter, crypto, fabric, member.node.0).await?
+        .write_with(None, |builder| {
+            let mut data = builder.write_requests()?.push()?.path(0, 63, 0)?
+                .data_builder::<GroupKeyMapStructArrayBuilder<_>>()?;
+            for (mapped_group, key_id) in &key_map {
+                data = data.push()?.group_id(*mapped_group)?.group_key_set_id(*key_id)?
+                    .fabric_index(Some(fabric.get()))?.end()?;
+            }
+            data.end()?.end()?.end()?.end()
+        }).await?;
+    let mut map_written = false;
+    for (endpoint, status) in response.response()?.statuses(63, 0) {
+        status?;
+        if endpoint != 0 || map_written { return Err(ErrorCode::InvalidData.into()); }
+        map_written = true;
+    }
+    if !map_written { return Err(ErrorCode::InvalidData.into()); }
+
+    let handle = Exchange::initiate(matter, crypto, fabric, member.node.0).await?
+        .groups().add_group(member.endpoint, |request| {
+            request.group_id(group)?.group_name("Gateway Matter group")?.end()
+        }).await?;
+    let response = handle.response()?;
+    if response.group_id()? != group || response.status()? > 1 {
+        return Err(ErrorCode::Failure.into());
+    }
+    handle.complete().await
 }
 
 /// Decode supported attribute paths from an unsolicited Matter ReportData
@@ -200,6 +267,27 @@ pub fn report_values(
 impl Operation {
     pub fn decode(request: Request) -> Result<Self, Failure> {
         let (node, endpoint, action) = match request {
+            Request::Device(DeviceRequest::Bind { node, endpoint, targets, .. }) => {
+                if targets.is_empty() || targets.len() > 32 || targets.iter().any(|target| {
+                    !matches!(target.cluster, 6 | 8) ||
+                    (target.group.is_some() == (target.node.is_some() || target.endpoint.is_some())) ||
+                    target.endpoint.is_some() != target.node.is_some() ||
+                    target.node.is_some_and(|node| node.0 < 2) || target.endpoint == Some(u16::MAX) ||
+                    target.group == Some(0) || target.members.len() > 32 ||
+                    (target.group.is_some() && target.members.is_empty()) ||
+                    (target.group.is_none() && !target.members.is_empty()) ||
+                    target.members.iter().any(|member| member.node.0 < 2 || member.endpoint == u16::MAX ||
+                        target.members.iter().filter(|candidate| candidate.node == member.node &&
+                            candidate.endpoint == member.endpoint).count() != 1)
+                }) { return Err(Failure::Malformed); }
+                for (index, target) in targets.iter().enumerate() {
+                    if target.group.is_some() && targets[..index].iter().any(|previous|
+                        previous.group == target.group && previous.members != target.members) {
+                        return Err(Failure::Malformed);
+                    }
+                }
+                (node, endpoint, Action::Bind { targets })
+            }
             Request::Device(DeviceRequest::Read {
                 node,
                 endpoint,
@@ -270,13 +358,37 @@ impl Operation {
             .iter()
             .find(|e| e.id == self.endpoint)
             .ok_or(Failure::NotFound)?;
-        let required_cluster = match self.action {
+        let required_cluster = match &self.action {
             Action::Read | Action::On | Action::Off | Action::Toggle => 6,
             Action::ReadLevel | Action::MoveToLevel { .. } => 8,
-            Action::ReadSensor { cluster } => cluster,
+            Action::ReadSensor { cluster } => *cluster,
+            Action::Bind { .. } => 59,
         };
-        if !endpoint.servers.contains(&required_cluster) {
+        if !endpoint.servers.contains(&required_cluster) ||
+            (matches!(self.action, Action::Bind { .. }) && !endpoint.servers.contains(&30)) {
             return Err(Failure::Unsupported);
+        }
+        if let Action::Bind { targets } = &self.action {
+            for target in targets {
+                if let (Some(node), Some(endpoint)) = (target.node, target.endpoint) {
+                    let target_endpoint = snapshots.iter().find(|candidate| candidate.node == node.0 && candidate.online)
+                        .and_then(|candidate| candidate.endpoints.iter().find(|item| item.id == endpoint))
+                        .ok_or(Failure::NotFound)?;
+                    if !target_endpoint.servers.contains(&target.cluster) { return Err(Failure::Unsupported); }
+                }
+                if target.group.is_some() {
+                    for member in &target.members {
+                        let snapshot = snapshots.iter().find(|candidate| candidate.node == member.node.0 && candidate.online)
+                            .ok_or(Failure::NotFound)?;
+                        let group_endpoint = snapshot.endpoints.iter().find(|item| item.id == member.endpoint)
+                            .ok_or(Failure::NotFound)?;
+                        if !group_endpoint.servers.contains(&4) { return Err(Failure::Unsupported); }
+                        let key_management = snapshot.endpoints.iter().find(|item| item.id == 0)
+                            .ok_or(Failure::Unsupported)?;
+                        if !key_management.servers.contains(&63) { return Err(Failure::Unsupported); }
+                    }
+                }
+            }
         }
         Ok(())
     }
@@ -304,6 +416,60 @@ impl Operation {
         timeout: embassy_time::Duration,
     ) -> Result<ResultValue, Failure> {
         let transaction = async {
+            if let Action::Bind { targets } = &self.action {
+                use rs_matter::dm::clusters::decl::binding::{BindingClient, TargetStructArrayBuilder};
+                let mut provisioned_groups = Vec::new();
+                for target in targets.iter().filter(|target| target.group.is_some()) {
+                    let group = target.group.ok_or(ErrorCode::InvalidData)?;
+                    if provisioned_groups.contains(&group) { continue; }
+                    let mut key = zeroize::Zeroizing::new([0u8; 16]);
+                    use rs_matter::crypto::Rng;
+                    crypto.rand()?.fill_bytes(&mut *key);
+                    for member in &target.members {
+                        provision_group_member(matter, &crypto, fabric, *member, group, &key[..]).await?;
+                    }
+                    provisioned_groups.push(group);
+                }
+                let read_exchange = Exchange::initiate(matter, &crypto, fabric, self.node).await?;
+                let mut merged = read_exchange.binding().binding_read_with(self.endpoint, |read| {
+                    let entries = read?;
+                    entries.iter().map(|entry| {
+                        let entry = entry?;
+                        Ok(BindingTarget {
+                            node: entry.node()?.map(Id), endpoint: entry.endpoint()?,
+                            group: entry.group()?, members: vec![], cluster: entry.cluster()?.ok_or(ErrorCode::InvalidData)?,
+                        })
+                    }).collect::<Result<Vec<_>, Error>>()
+                }).await??;
+                for target in targets.iter() {
+                    let duplicate = merged.iter().any(|entry| entry.node.map(|id| id.0) == target.node.map(|id| id.0) &&
+                        entry.endpoint == target.endpoint && entry.group == target.group && entry.cluster == target.cluster);
+                    if !duplicate { merged.push(target.clone()); }
+                }
+                if merged.len() > 128 { return Err(ErrorCode::ResourceExhausted.into()); }
+                let exchange = Exchange::initiate(matter, &crypto, fabric, self.node).await?;
+                let response = exchange.write_with(None, |builder| {
+                    let mut data = builder.write_requests()?.push()?.path(self.endpoint, 30, 0)?
+                        .data_builder::<TargetStructArrayBuilder<_>>()?;
+                    for target in &merged {
+                        data = data.push()?.node(target.node.map(|node| node.0))?
+                            .group(target.group)?.endpoint(target.endpoint)?
+                            .cluster(Some(target.cluster))?.fabric_index(Some(fabric.get()))?.end()?;
+                    }
+                    data.end()?.end()?.end()?.end()
+                }).await?;
+                let mut found = false;
+                for (endpoint, result) in response.response()?.statuses(30, 0) {
+                    result?;
+                    if endpoint != self.endpoint || found { return Err(ErrorCode::InvalidData.into()); }
+                    found = true;
+                }
+                if !found { return Err(ErrorCode::InvalidData.into()); }
+                return Ok(ResultValue {
+                    node: Id(self.node), endpoint: self.endpoint, cluster: 30, attribute: 0,
+                    value: Value::Bool(true),
+                });
+            }
             if !matches!(
                 self.action,
                 Action::Read | Action::ReadLevel | Action::ReadSensor { .. }
@@ -329,6 +495,7 @@ impl Operation {
                             })
                             .await?
                     }
+                    Action::Bind { .. } => unreachable!(),
                     Action::Read | Action::ReadLevel | Action::ReadSensor { .. } => unreachable!(),
                 }
             }
@@ -544,6 +711,18 @@ pub async fn read_measurement_unit<C: Crypto>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn binding_requests_require_supported_targets_and_complete_group_membership() {
+        let decode = |body: &str| {
+            let request = Request::decode(10, body.as_bytes()).unwrap();
+            Operation::decode(request)
+        };
+        assert!(decode(r#"{"schema":1,"action":"bind","node":"123456789abcdef0","endpoint":1,"targets":[{"node":"223456789abcdef0","endpoint":2,"cluster":6}]}"#).is_ok());
+        assert!(decode(r#"{"schema":1,"action":"bind","node":"123456789abcdef0","endpoint":1,"targets":[{"group":7,"members":[{"node":"223456789abcdef0","endpoint":2}],"cluster":6}]}"#).is_ok());
+        assert!(decode(r#"{"schema":1,"action":"bind","node":"123456789abcdef0","endpoint":1,"targets":[{"group":7,"cluster":6}]}"#).is_err());
+        assert!(decode(r#"{"schema":1,"action":"bind","node":"123456789abcdef0","endpoint":1,"targets":[{"group":7,"members":[{"node":"223456789abcdef0","endpoint":2}],"cluster":42}]}"#).is_err());
+    }
     use rs_matter::{
         im::{AttrData, AttrPath, AttrResp, ReportDataResp},
         tlv::{FromTLV, TLVElement, TLVTag, TLVWrite, ToTLV},

@@ -25,6 +25,7 @@ pub const MAX_OPERATION_JOBS: usize = 8;
 pub const MAX_DEVICE_SUBSCRIPTIONS: usize = MAX_ENDPOINTS * 12;
 const MAX_RETAINED_JOBS: usize = 16;
 const MAX_QUEUED_REPORT_VALUES: usize = 512;
+const SWITCH_EVENT_ATTRIBUTE: u32 = u32::MAX;
 const ICD_MANAGEMENT_CLUSTER: u32 = 0x0046;
 const MAX_ICD_CANDIDATES: usize = crate::icd::MAX_ICD_CLIENTS * MAX_ENDPOINTS;
 
@@ -36,6 +37,7 @@ pub struct Device {
     pub id: Option<String>,
     pub endpoint: Option<u16>,
     pub servers: Vec<u32>,
+    pub clients: Vec<u32>,
 }
 #[derive(Serialize)]
 pub struct Page {
@@ -55,6 +57,7 @@ pub enum PageError {
 pub struct Endpoint {
     pub id: u16,
     pub servers: Vec<u32>,
+    pub clients: Vec<u32>,
 }
 
 pub struct Snapshot {
@@ -177,6 +180,7 @@ pub struct Manager<'a, C: Crypto> {
     #[cfg(feature = "controller-service-test-hooks")]
     host_test_reports: VecDeque<crate::subscriptions::ReceivedReport>,
     reports: VecDeque<crate::operations::ResultValue>,
+    button_events: VecDeque<crate::subscriptions::MatterButtonEvent>,
 }
 impl<'a, C: Crypto + 'a> Manager<'a, C> {
     pub fn new(
@@ -259,6 +263,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             #[cfg(feature = "controller-service-test-hooks")]
             host_test_reports: VecDeque::new(),
             reports: VecDeque::new(),
+            button_events: VecDeque::new(),
         })
     }
     pub fn snapshots(&self) -> &[Snapshot] {
@@ -308,6 +313,13 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         ipc: &mut crate::service::IpcServer,
     ) -> std::io::Result<usize> {
         let mut published = 0;
+        while let Some(button) = self.button_events.front() {
+            let event = crate::responses::event(crate::responses::Event::MatterButton(button))
+                .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid Matter button event"))?;
+            if ipc.publish_all(&event)? == 0 { break; }
+            self.button_events.pop_front();
+            published += 1;
+        }
         while let Some(reading) = self.front_report() {
             let event = crate::responses::event(crate::responses::Event::MatterReport(reading))
                 .ok_or_else(|| {
@@ -343,6 +355,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         let endpoints = vec![Endpoint {
             id: 1,
             servers: vec![6, 8, 69, 91, 1026, 1029, 1037, 1066],
+            clients: vec![],
         }];
         if let Some(snapshot) = self.snapshots.iter_mut().find(|entry| entry.node == node) {
             snapshot.endpoints = endpoints;
@@ -442,7 +455,8 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                     node,
                     subscription_id,
                     values: vec![value],
-                });
+                    buttons: vec![],
+            });
         }
         Ok(())
     }
@@ -608,6 +622,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                         id: endpoint.map(|e| self.catalog.endpoint_id(node.id, e.id).unwrap()),
                         endpoint: endpoint.map(|e| e.id),
                         servers: endpoint.map(|e| e.servers.clone()).unwrap_or_default(),
+                        clients: endpoint.map(|e| e.clients.clone()).unwrap_or_default(),
                     });
                 }
                 offset += 1;
@@ -786,6 +801,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         if let Some(index) = ready_job {
             let queued = self.queued.remove(index).unwrap();
             let id = queued.id;
+            let operation_node = queued.operation.node;
             let authorization = self
                 .catalog
                 .nodes()
@@ -806,7 +822,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 .run_for(self.matter, self.crypto, self.fabric, timeout);
             self.active = Some(ActiveOperation {
                 id,
-                node: queued.operation.node,
+                node: operation_node,
                 deadline: queued.deadline,
                 work: Box::pin(work),
             });
@@ -959,18 +975,17 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             .min_by_key(|subscription| subscription.next_retry)
         {
             let key = subscription.key;
+            let work: SubscriptionWork<'a> = if key.cluster == 59 && key.attribute == SWITCH_EVENT_ATTRIBUTE {
+                Box::pin(crate::subscriptions::establish_switch_events(
+                    self.matter, self.crypto, self.fabric, key.node, key.endpoint))
+            } else {
+                Box::pin(crate::subscriptions::establish_device_attribute(
+                    self.matter, self.crypto, self.fabric, key.node, key.endpoint, key.cluster, key.attribute))
+            };
             self.subscription_work = Some((
                 key,
                 now + Duration::from_secs(30),
-                Box::pin(crate::subscriptions::establish_device_attribute(
-                    self.matter,
-                    self.crypto,
-                    self.fabric,
-                    key.node,
-                    key.endpoint,
-                    key.cluster,
-                    key.attribute,
-                )),
+                work,
             ));
         }
     }
@@ -1214,6 +1229,14 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         }) else {
             return;
         };
+        if subscription.key.cluster == 59 && subscription.key.attribute == SWITCH_EVENT_ATTRIBUTE {
+            for button in report.buttons {
+                if button.node.0 != subscription.key.node || button.endpoint != subscription.key.endpoint { continue; }
+                if self.button_events.len() == MAX_QUEUED_REPORT_VALUES { self.button_events.pop_front(); }
+                self.button_events.push_back(button);
+            }
+            return;
+        }
         for mut value in report.values {
             if value.node.0 != subscription.key.node
                 || value.endpoint != subscription.key.endpoint
@@ -1253,24 +1276,21 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
     }
 }
 fn subscription_keys(snapshots: &[Snapshot], maximum: usize) -> Vec<SubscriptionKey> {
-    snapshots
-        .iter()
-        .filter(|snapshot| snapshot.online)
-        .flat_map(|snapshot| {
-            snapshot.endpoints.iter().flat_map(move |endpoint| {
-                [6, 8, 69, 91, 1026, 1029, 1037, 1066]
-                    .into_iter()
-                    .filter(move |cluster| endpoint.servers.contains(cluster))
-                    .map(move |cluster| SubscriptionKey {
-                        node: snapshot.node,
-                        endpoint: endpoint.id,
-                        cluster,
-                        attribute: 0,
-                    })
-            })
-        })
-        .take(maximum)
-        .collect()
+    let mut keys = Vec::new();
+    for snapshot in snapshots.iter().filter(|snapshot| snapshot.online) {
+        for endpoint in &snapshot.endpoints {
+            for cluster in [6, 8, 69, 91, 1026, 1029, 1037, 1066] {
+                if endpoint.servers.contains(&cluster) {
+                    keys.push(SubscriptionKey { node: snapshot.node, endpoint: endpoint.id, cluster, attribute: 0 });
+                }
+            }
+            if endpoint.servers.contains(&59) {
+                keys.push(SubscriptionKey { node: snapshot.node, endpoint: endpoint.id, cluster: 59, attribute: SWITCH_EVENT_ATTRIBUTE });
+            }
+        }
+    }
+    keys.truncate(maximum);
+    keys
 }
 fn retry_delay(failures: u8) -> Duration {
     Duration::from_secs(5u64 << failures.saturating_sub(1).min(6))
@@ -1319,10 +1339,15 @@ pub async fn discover<C: Crypto>(
             .descriptor()
             .server_list_read_with(id, |value| bounded(value?.iter(), MAX_CLUSTERS))
             .await??;
+        let exchange = Exchange::initiate(matter, &crypto, fabric, node).await?;
+        let clients = exchange
+            .descriptor()
+            .client_list_read_with(id, |value| bounded(value?.iter(), MAX_CLUSTERS))
+            .await??;
         if !servers.contains(&0x1d) {
             return Err(ErrorCode::InvalidData.into());
         }
-        endpoints.push(Endpoint { id, servers });
+        endpoints.push(Endpoint { id, servers, clients });
     }
     Ok(endpoints)
 }
@@ -1380,6 +1405,7 @@ mod tests {
             fabric: 1,
             node: 2,
             subscription_id: 77,
+            buttons: vec![],
             values: vec![crate::operations::ResultValue {
                 node: crate::control::Id(2),
                 endpoint: 1,
@@ -1392,28 +1418,34 @@ mod tests {
                 }),
             }],
         });
+        manager.button_events.push_back(crate::subscriptions::MatterButtonEvent {
+            node: crate::control::Id(2), endpoint: 2, event: 0,
+            position: Some(1), press_count: Some(1),
+        });
         assert_eq!(manager.publish_reports(&mut ipc).unwrap(), 0);
         assert!(manager.front_report().is_some());
 
         let mut peer = UnixStream::connect(&socket).unwrap();
         peer.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
         ipc.poll(|_| None).unwrap();
-        assert_eq!(manager.publish_reports(&mut ipc).unwrap(), 1);
+        assert_eq!(manager.publish_reports(&mut ipc).unwrap(), 2);
         ipc.poll(|_| None).unwrap();
-        let mut header = [0; 10];
-        peer.read_exact(&mut header).unwrap();
-        let length = usize::from(u16::from_le_bytes([header[0], header[1]]));
-        let mut bytes = header.to_vec();
-        bytes.resize(10 + length, 0);
-        peer.read_exact(&mut bytes[10..]).unwrap();
-        let mut decoder = crate::ipc::Decoder::default();
-        decoder.feed(&bytes).unwrap();
-        let event = decoder.pop().unwrap();
-        assert_eq!((event.kind, event.opcode, event.id), (2, 12, 0));
-        assert_eq!(
-            event.payload,
-            br#"{"schema":1,"event":"matter_report","data":{"node":"0000000000000002","endpoint":1,"cluster":1026,"attribute":0,"value":{"type":"measurement","value":{"value":-5.25,"unit":"celsius","quality":"measured"}}}}"#
-        );
+        let mut events = Vec::new();
+        for _ in 0..2 {
+            let mut header = [0; 10];
+            peer.read_exact(&mut header).unwrap();
+            let length = usize::from(u16::from_le_bytes([header[0], header[1]]));
+            let mut bytes = header.to_vec();
+            bytes.resize(10 + length, 0);
+            peer.read_exact(&mut bytes[10..]).unwrap();
+            let mut decoder = crate::ipc::Decoder::default();
+            decoder.feed(&bytes).unwrap();
+            let event = decoder.pop().unwrap();
+            assert_eq!((event.kind, event.opcode, event.id), (2, 12, 0));
+            events.push(event.payload);
+        }
+        assert_eq!(events[0], br#"{"schema":1,"event":"matter_button","data":{"node":"0000000000000002","endpoint":2,"event":0,"position":1,"press_count":1}}"#);
+        assert_eq!(events[1], br#"{"schema":1,"event":"matter_report","data":{"node":"0000000000000002","endpoint":1,"cluster":1026,"attribute":0,"value":{"type":"measurement","value":{"value":-5.25,"unit":"celsius","quality":"measured"}}}}"#);
         assert!(manager.front_report().is_none());
         drop(manager);
         drop(ipc);
@@ -1435,6 +1467,7 @@ mod tests {
                 fabric: 1,
                 node: 2,
                 subscription_id: 77,
+                buttons: vec![],
                 values: vec![crate::operations::ResultValue {
                     node: crate::control::Id(2),
                     endpoint: 1,
@@ -1516,10 +1549,12 @@ mod tests {
                 Endpoint {
                     id: 1,
                     servers: vec![6, 69, 1026, 0x1d],
+                    clients: vec![59],
                 },
                 Endpoint {
                     id: 2,
                     servers: vec![8, 91, 1029, 1037, 1066, 0x1d],
+                    clients: vec![],
                 },
             ],
             online: true,
@@ -1534,6 +1569,7 @@ mod tests {
                 .map(|endpoint| Endpoint {
                     id: endpoint.id,
                     servers: endpoint.servers.clone(),
+                    clients: endpoint.clients.clone(),
                 })
                 .collect(),
             online: false,
@@ -1567,6 +1603,7 @@ mod tests {
                 .map(|id| Endpoint {
                     id,
                     servers: vec![6, 8, 69, 91, 1026, 1029, 1037, 1066],
+                    clients: vec![],
                 })
                 .collect(),
             online: true,
@@ -1619,6 +1656,7 @@ mod tests {
             endpoints: vec![Endpoint {
                 id: 1,
                 servers: vec![6],
+                clients: vec![],
             }],
             online: true,
             next: Instant::now() + Duration::from_secs(300),
@@ -1746,6 +1784,7 @@ mod tests {
                 Ok(vec![Endpoint {
                     id: 0,
                     servers: vec![0x1d],
+                    clients: vec![],
                 }])
             }),
         ));
@@ -1776,6 +1815,7 @@ mod tests {
             .map(|id| Endpoint {
                 id: id as u16,
                 servers: (u32::MAX - MAX_CLUSTERS as u32 + 1..=u32::MAX).collect(),
+                clients: vec![],
             })
             .collect();
         manager.changed();
@@ -1872,6 +1912,7 @@ mod tests {
             endpoints: vec![Endpoint {
                 id: 1,
                 servers: vec![6],
+                clients: vec![],
             }],
             online: true,
             next,

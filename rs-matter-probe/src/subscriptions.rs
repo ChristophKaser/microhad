@@ -5,7 +5,7 @@ use rs_matter::{
     error::{Error, ErrorCode},
     im::{
         client::{ImClient, SubscribeEstablished, SubscribeOutcome},
-        AttrPath,
+        AttrPath, EventPath,
     },
     tlv::FromTLV,
     transport::exchange::Exchange,
@@ -20,6 +20,15 @@ pub struct ReceivedReport {
     pub node: u64,
     pub subscription_id: u32,
     pub values: Vec<crate::operations::ResultValue>,
+    pub buttons: Vec<MatterButtonEvent>,
+}
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct MatterButtonEvent {
+    pub node: crate::control::Id,
+    pub endpoint: u16,
+    pub event: u8,
+    pub position: Option<u8>,
+    pub press_count: Option<u8>,
 }
 pub enum IncomingMessage {
     Report(ReceivedReport),
@@ -93,6 +102,27 @@ pub async fn establish_device_attribute<C: Crypto>(
     Ok(DeviceSubscription { established, unit })
 }
 
+pub async fn establish_switch_events<C: Crypto>(
+    matter: &Matter<'_>, crypto: &C, fabric: NonZeroU8, node: u64, endpoint: u16,
+) -> Result<DeviceSubscription, Error> {
+    let path = EventPath { endpoint: Some(endpoint), cluster: Some(59), event: None, ..EventPath::default() };
+    let chunk = Exchange::initiate(matter, crypto, fabric, node).await?.subscribe_with(|builder| {
+        builder.keep_subs(true)?
+            .min_int_floor(MIN_REPORT_INTERVAL_SECONDS)?
+            .max_int_ceil(MAX_REPORT_INTERVAL_SECONDS)?
+            .event_requests_from(core::slice::from_ref(&path))?
+            .fabric_filtered(true)?
+            .end()
+    }).await?;
+    let mut chunk = chunk;
+    loop {
+        match chunk.complete().await? {
+            SubscribeOutcome::NextChunk(next) => chunk = next,
+            SubscribeOutcome::Established(established) => return Ok(DeviceSubscription { established, unit: None }),
+        }
+    }
+}
+
 /// Accept and acknowledge one active server-initiated ReportData exchange.
 /// Chunked reports are combined under a strict value bound, and the authenticated
 /// fabric/node and subscription ID are retained for manager-side correlation.
@@ -124,8 +154,9 @@ async fn receive_report_exchange(mut exchange: Exchange<'_>) -> Result<ReceivedR
     let (fabric, node) = exchange.peer_identity()?.ok_or(ErrorCode::InvalidData)?;
     let mut subscription_id = None;
     let mut values = Vec::new();
+    let mut buttons = Vec::new();
     loop {
-        let (received_id, more_chunks, suppress_response, mut chunk_values) = {
+        let (received_id, more_chunks, suppress_response, mut chunk_values, mut chunk_buttons) = {
             let rx = exchange.recv_fetch().await?;
             if rx.meta().proto_opcode != rs_matter::im::OpCode::ReportData as u8 {
                 return Err(ErrorCode::InvalidOpcode.into());
@@ -133,21 +164,41 @@ async fn receive_report_exchange(mut exchange: Exchange<'_>) -> Result<ReceivedR
             let report = rs_matter::im::ReportDataResp::from_tlv(
                 &rs_matter::tlv::TLVElement::new(rx.payload()),
             )?;
+            let values = crate::operations::report_values(node, &report)?;
+            let mut chunk_buttons = Vec::new();
+            if let Some(events) = report.event_reports.as_ref() {
+                for event in events.iter() {
+                    let rs_matter::im::EventResp::Data(event) = event? else { continue };
+                    if event.path.cluster != Some(59) || event.path.event.is_none() || event.path.endpoint.is_none() { continue; }
+                    let event_id = event.path.event.unwrap();
+                    if event_id > 5 { continue; }
+                    let data = event.data.structure()?;
+                    let position = data.ctx(0).ok().and_then(|value| value.u8().ok());
+                    let press_count = data.ctx(1).ok().and_then(|value| value.u8().ok());
+                    chunk_buttons.push(MatterButtonEvent {
+                        node: crate::control::Id(node), endpoint: event.path.endpoint.unwrap(),
+                        event: event_id as u8, position, press_count,
+                    });
+                }
+            }
             (
                 report.subscription_id.ok_or(ErrorCode::InvalidData)?,
                 report.more_chunks.unwrap_or(false),
                 report.suppress_response.unwrap_or(false),
-                crate::operations::report_values(node, &report)?,
+                values,
+                chunk_buttons,
             )
         };
         if subscription_id.is_some_and(|id| id != received_id)
             || values.len().saturating_add(chunk_values.len()) > MAX_REPORT_VALUES
+            || buttons.len().saturating_add(chunk_buttons.len()) > MAX_REPORT_VALUES
             || (more_chunks && suppress_response)
         {
             return Err(ErrorCode::InvalidData.into());
         }
         subscription_id = Some(received_id);
         values.append(&mut chunk_values);
+        buttons.append(&mut chunk_buttons);
         if !suppress_response {
             exchange
                 .send_with(|_, writer| {
@@ -165,5 +216,6 @@ async fn receive_report_exchange(mut exchange: Exchange<'_>) -> Result<ReceivedR
         node,
         subscription_id: subscription_id.ok_or(ErrorCode::InvalidData)?,
         values,
+        buttons,
     })
 }

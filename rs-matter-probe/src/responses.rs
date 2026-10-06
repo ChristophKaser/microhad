@@ -42,6 +42,8 @@ pub enum Event<'a> {
     BleWrite(&'a crate::sessions::Write),
     MatterReport(&'a crate::operations::ResultValue),
     #[cfg(feature = "controller-service")]
+    MatterButton(&'a crate::subscriptions::MatterButtonEvent),
+    #[cfg(feature = "controller-service")]
     Thread(&'a crate::thread_lifecycle::Snapshot),
 }
 #[derive(Serialize)]
@@ -66,6 +68,12 @@ pub fn event(event: Event<'_>) -> Option<Frame> {
         if !matter_report_valid(reading) {
             return None;
         }
+    }
+    #[cfg(feature = "controller-service")]
+    if let Event::MatterButton(button) = &event {
+        if button.node.0 < 2 || button.endpoint == u16::MAX || button.event > 5 ||
+            button.position.is_some_and(|value| value > 254) ||
+            button.press_count.is_some_and(|value| value > 32) { return None; }
     }
     let payload = serde_json::to_vec(&Envelope { schema: 1, event }).ok()?;
     (payload.len() <= MAX_PAYLOAD).then_some(Frame {

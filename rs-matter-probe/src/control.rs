@@ -151,10 +151,32 @@ pub enum DeviceRequest {
         cluster: u32,
         attribute: u32,
     },
+    Bind {
+        schema: Schema,
+        node: Id,
+        endpoint: u16,
+        targets: Vec<BindingTarget>,
+    },
     Job {
         schema: Schema,
         job: Id,
     },
+}
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BindingTarget {
+    pub node: Option<Id>,
+    pub endpoint: Option<u16>,
+    pub group: Option<u16>,
+    #[serde(default)]
+    pub members: Vec<BindingMember>,
+    pub cluster: u32,
+}
+#[derive(Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct BindingMember {
+    pub node: Id,
+    pub endpoint: u16,
 }
 #[derive(Deserialize)]
 #[serde(tag = "command", rename_all = "snake_case", deny_unknown_fields)]
@@ -350,6 +372,8 @@ mod tests {
             r#"{"schema":1,"action":"import","zigbee_channel":11,"dataset":"01"}"#,
         );
         valid(10, r#"{"schema":1,"action":"snapshot"}"#);
+        valid(10, r#"{"schema":1,"action":"bind","node":"123456789abcdef0","endpoint":1,"targets":[{"node":"223456789abcdef0","endpoint":2,"cluster":6}] }"#);
+        valid(10, r#"{"schema":1,"action":"bind","node":"123456789abcdef0","endpoint":1,"targets":[{"group":7,"members":[{"node":"223456789abcdef0","endpoint":2}],"cluster":6}] }"#);
         valid(
             10,
             r#"{"schema":1,"action":"read","node":"123456789abcdef0","endpoint":1,"cluster":6,"attribute":0}"#,
