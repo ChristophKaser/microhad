@@ -16,5 +16,8 @@ firebase-service-account-file.json
 # Raw hardware captures may include Zigbee security material. Keep them local.
 diagnostics/
 
+# Host-side UDP syslog collector output.
+livelogs/
+
 # Standalone Garage Android Studio project, including its own Git repository.
 garage-app/
