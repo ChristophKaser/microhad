@@ -1,5 +1,27 @@
 # Plan: Matter device model and reports
 
+## Boolean State CASE and native history integration — 2026-10-06
+
+Rust commit `40b6ee9` adds Boolean State reads/reports; follow-up `bc47fb0`
+raises the bounded subscription capacity to include the eighth supported
+reportable cluster. This checkpoint extends the synthetic CASE accessory
+through the native report API. The fixture
+proved an encrypted CASE Boolean State report is delivered to native contact
+state and history. A separate host `thread-matter` process also publishes a
+Boolean State value through its test-seeded Manager queue and daemon IPC path;
+native state and history reflect that contact as open. The probe had exposed a
+production Manager cap of seven subscriptions per endpoint, which omitted the
+eighth supported cluster; the synthetic CASE Manager uses the matching limit.
+The eight-per-endpoint candidate limit
+test and `python3 scripts/test_matter_native_report_integration.py` pass.
+
+This is host synthetic evidence only. The daemon leg seeds the Manager queue
+instead of receiving a CASE report inside the separate service process. There
+is no physical Matter accessory for interoperability or state-polarity checks,
+and the live gateway was not updated or restarted. Safe package staging remains
+blocked by flash headroom; installed-daemon report delivery and target resource
+validation remain open.
+
 ## Boolean State contact sensor model — 2026-10-06
 
 Matter endpoints advertising Boolean State (cluster 69) are retained as

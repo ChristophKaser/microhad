@@ -117,7 +117,8 @@ def main():
                             device.get('matter_node') == '0000000000000002' and
                             device.get('matter_endpoint') == 1):
                         values = device.get('sensor_values', {})
-                        if (values.get('temperature') == {'value': -5.25, 'unit': '°C', 'quality': 'measured'} and
+                        if (device.get('has_contact') and device.get('contact_known') and device.get('contact_open') and
+                                values.get('temperature') == {'value': -5.25, 'unit': '°C', 'quality': 'measured'} and
                                 values.get('humidity') == {'value': 64, 'unit': '%', 'quality': 'measured'} and
                                 values.get('air_quality') == {'value': 'moderate', 'unit': '', 'quality': 'measured'} and
                                 values.get('co2') == {'value': 800, 'unit': 'ppm', 'quality': 'measured'} and
@@ -137,7 +138,7 @@ def main():
             assert len(history['samples']) >= 5, history
             output, _ = probe.communicate(timeout=15)
             assert probe.returncode == 0, output
-            assert 'PASS production manager sensor reports reach IPC from subscribed CASE reports' in output
+            assert 'PASS production manager sensor and contact reports reach IPC from subscribed CASE reports' in output
 
             # The accessory/commissioner fixture above proves CASE report
             # generation. Now run the actual thread-matter daemon with a
@@ -202,7 +203,8 @@ def main():
                     if item.get('external_id') != device['external_id']:
                         continue
                     values = item.get('sensor_values', {})
-                    if (values.get('temperature') == {'value': -4.25, 'unit': '°C', 'quality': 'measured'} and
+                    if (item.get('contact_known') and item.get('contact_open') and
+                            values.get('temperature') == {'value': -4.25, 'unit': '°C', 'quality': 'measured'} and
                             values.get('humidity') == {'value': 63, 'unit': '%', 'quality': 'measured'} and
                             values.get('air_quality') == {'value': 'poor', 'unit': '', 'quality': 'measured'} and
                             values.get('co2') == {'value': 850, 'unit': 'ppm', 'quality': 'measured'} and
@@ -229,6 +231,8 @@ def main():
             # Analog history is intentionally capped to one sample per metric
             # per minute; air-quality transitions are recorded immediately.
             assert any(sample[2] == 9 and sample[3] == 'poor'
+                       for sample in daemon_history['samples']), daemon_history
+            assert any(sample[2] == 3 and sample[3] == 1
                        for sample in daemon_history['samples']), daemon_history
             daemon.terminate()
             daemon_out, daemon_err = daemon.communicate(timeout=5)

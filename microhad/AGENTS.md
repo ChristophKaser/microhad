@@ -11,6 +11,14 @@ make mips
 `make mips` builds the vendored Mbed TLS dependency and produces the static,
 big-endian MIPS binary at `build/mips/microhad-zigbee-native`.
 
+The host Matter CASE fixture uses the commissioning probe at
+`../ziggurat-compilation/build/rs-matter/target/release/ot-matter-commissioning-probe`.
+Rebuild it from `ziggurat-compilation/` with
+`bash scripts/build-rs-matter-transport.sh host commissioning`. Do not use a
+plain Cargo build for this fixture: without the repository target directory it
+writes under `rs-matter-probe/target/`, leaving the integration harness on an
+older binary. This host command does not deploy or access the gateway radio.
+
 ## Mandatory verification and commits
 
 After every change to a C++ source or header (`.cpp` or `.h`), run both
