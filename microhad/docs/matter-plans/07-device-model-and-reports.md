@@ -2,24 +2,28 @@
 
 ## Boolean State CASE and native history integration — 2026-10-06
 
-Rust commit `40b6ee9` adds Boolean State reads/reports; follow-up `bc47fb0`
-raises the bounded subscription capacity to include the eighth supported
-reportable cluster. This checkpoint extends the synthetic CASE accessory
-through the native report API. The fixture
-proved an encrypted CASE Boolean State report is delivered to native contact
-state and history. A separate host `thread-matter` process also publishes a
-Boolean State value through its test-seeded Manager queue and daemon IPC path;
-native state and history reflect that contact as open. The probe had exposed a
-production Manager cap of seven subscriptions per endpoint, which omitted the
-eighth supported cluster; the synthetic CASE Manager uses the matching limit.
-The eight-per-endpoint candidate limit
-test and `python3 scripts/test_matter_native_report_integration.py` pass.
+Rust commit `40b6ee9` adds Boolean State reads/reports; `bc47fb0` extends the
+synthetic CASE accessory through the native report API, and `ae7ecbf` raises
+the production subscription ceiling to 12 values per endpoint (384 total for
+32 endpoints). The current supported candidate list uses eight values per
+endpoint, leaving four slots for future report clusters. The earlier cap of
+seven had omitted PM2.5 from the eight-cluster fixture. The encrypted CASE
+Boolean State report reaches native contact state and history. A separate host
+`thread-matter` process also publishes a Boolean State value through its
+test-seeded Manager queue and daemon IPC path; native state and history reflect
+that contact as open. The bounded-candidate test and
+`python3 scripts/test_matter_native_report_integration.py` pass. The host
+fixture's synthetic commissioning elapsed time was 13,010 ms; this is not a
+gateway timing measurement.
 
 This is host synthetic evidence only. The daemon leg seeds the Manager queue
 instead of receiving a CASE report inside the separate service process. There
-is no physical Matter accessory for interoperability or state-polarity checks,
-and the live gateway was not updated or restarted. Safe package staging remains
-blocked by flash headroom; installed-daemon report delivery and target resource
+is no physical Matter accessory for interoperability or state-polarity checks.
+The Rust service and native Matter MIPS builds succeeded at 2,166,468 and
+1,745,672 bytes. Deployment was attempted through `deploy.sh`; its executable-
+aware preflight refused before upload because `/tuya` had 2,256 KiB free and
+staging needs 4,340 KiB including the 512 KiB reserve. No device files or
+processes changed. Installed-daemon report delivery and target resource
 validation remain open.
 
 ## Boolean State contact sensor model — 2026-10-06

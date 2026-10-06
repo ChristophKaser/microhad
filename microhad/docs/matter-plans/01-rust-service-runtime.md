@@ -443,6 +443,17 @@ No files or processes were changed. This does not meet the 4,332 KiB
 executable-aware full-update requirement; keep staging and target profiling
 deferred until a planned maintenance window or additional safe flash headroom.
 
+## Guarded Matter redeploy attempt — 2026-10-06
+
+After the subscription-capacity update, the Rust service and native Matter MIPS
+artifacts built successfully at 2,166,468 and 1,745,672 bytes. The documented
+`deploy.sh --binary-only` flow ran its executable-aware preflight and refused
+before uploading: `/tuya` had 2,256 KiB free; staging the current package needs
+4,340 KiB including the 512 KiB reserve. The paired stack was not stopped or
+restarted, and no device files or processes were changed. The updated binaries
+are not active on the gateway. Preserve the existing stack and retry only when
+safe flash headroom is available.
+
 ## Dependencies
 
 The existing bounded Rust/C++ frame format and status opcode assignments. The
