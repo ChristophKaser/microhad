@@ -186,7 +186,7 @@ use rs_matter::dm::clusters::decl::temperature_measurement::{
     self, ClusterHandler as _, TemperatureMeasurementClient,
 };
 use rs_matter::dm::clusters::decl::{
-    air_quality, carbon_dioxide_concentration_measurement as co2_measurement,
+    air_quality, boolean_state, carbon_dioxide_concentration_measurement as co2_measurement,
     pm_25_concentration_measurement as pm25_measurement,
     relative_humidity_measurement as humidity_measurement,
 };
@@ -333,6 +333,22 @@ impl pm25_measurement::ClusterHandler for TestConcentration {
 struct TestAirQuality {
     dataver: Cell<u32>,
 }
+struct TestBooleanState {
+    value: Cell<bool>,
+    dataver: Cell<u32>,
+}
+impl boolean_state::ClusterHandler for TestBooleanState {
+    const CLUSTER: rs_matter::dm::Cluster<'static> = boolean_state::FULL_CLUSTER;
+    fn dataver(&self) -> u32 {
+        self.dataver.get()
+    }
+    fn dataver_changed(&self) {
+        self.dataver.set(self.dataver.get().wrapping_add(1));
+    }
+    fn state_value(&self, _: impl rs_matter::dm::ReadContext) -> Result<bool, Error> {
+        Ok(self.value.get())
+    }
+}
 impl air_quality::ClusterHandler for TestAirQuality {
     const CLUSTER: rs_matter::dm::Cluster<'static> = air_quality::FULL_CLUSTER;
     fn dataver(&self) -> u32 {
@@ -360,6 +376,7 @@ const APP_ENDPOINT: Endpoint<'static> = Endpoint::new(
         co2_measurement::FULL_CLUSTER,
         pm25_measurement::FULL_CLUSTER,
         air_quality::FULL_CLUSTER,
+        boolean_state::FULL_CLUSTER,
     ),
 );
 
@@ -390,6 +407,7 @@ fn data_model<'a>(
     co2: &'a TestConcentration,
     pm25: &'a TestConcentration,
     air_quality: &'a TestAirQuality,
+    boolean_state: &'a TestBooleanState,
     thread_network: &'a TestThreadNetwork,
     lit: &'a LitIcd,
     icd: bool,
@@ -429,6 +447,10 @@ fn data_model<'a>(
             .chain(
                 |e, c| e == 1 && c == air_quality::FULL_CLUSTER.id,
                 Async(air_quality::HandlerAdaptor(air_quality)),
+            )
+            .chain(
+                |e, c| e == 1 && c == boolean_state::FULL_CLUSTER.id,
+                Async(boolean_state::HandlerAdaptor(boolean_state)),
             )
             .chain(|e, c| e == 0 && c == 49, Async(thread_network))
             .chain(
@@ -573,6 +595,10 @@ async fn run(
     let air_quality = TestAirQuality {
         dataver: Cell::new(1),
     };
+    let boolean_state = TestBooleanState {
+        value: Cell::new(false),
+        dataver: Cell::new(1),
+    };
     let thread_network = TestThreadNetwork::new();
     let lit = LitIcd::new(
         4,
@@ -600,6 +626,7 @@ async fn run(
             &co2,
             &pm25,
             &air_quality,
+            &boolean_state,
             &thread_network,
             &lit,
             icd,
@@ -810,7 +837,7 @@ async fn run(
                 if icd {
                     0
                 } else if sensor_reports {
-                    7
+                    8
                 } else {
                     1
                 },
@@ -1255,8 +1282,12 @@ async fn run(
             })?;
             assert!(subscription_id != 0);
             if sensor_reports {
-                wait_manager_subscriptions(&mut manager, node, &[6, 8, 91, 1026, 1029, 1037, 1066])
-                    .await?;
+                wait_manager_subscriptions(
+                    &mut manager,
+                    node,
+                    &[6, 8, 69, 91, 1026, 1029, 1037, 1066],
+                )
+                .await?;
             }
             let mut report_ipc = if sensor_reports {
                 let directory = if state_directory.is_absolute() {
@@ -1375,8 +1406,12 @@ async fn run(
                         Timer::after_millis(5).await;
                     }
                 }
-                for cluster in [1026, 1029, 91, 1037, 1066] {
+                for cluster in [1026, 1029, 91, 1037, 1066, 69] {
                     match cluster {
+                        69 => {
+                            boolean_state.value.set(true);
+                            boolean_state::ClusterHandler::dataver_changed(&boolean_state);
+                        }
                         1026 => temperature.value.set(Some(-525)),
                         1029 => humidity.value.set(Some(6400)),
                         91 => air_quality::ClusterHandler::dataver_changed(&air_quality),
@@ -1469,6 +1504,7 @@ async fn run(
                         91 => br#"{"schema":1,"event":"matter_report","data":{"node":"0000000000000002","endpoint":1,"cluster":91,"attribute":0,"value":{"type":"air_quality","value":{"value":"moderate","quality":"measured"}}}}"#.as_slice(),
                         1037 => br#"{"schema":1,"event":"matter_report","data":{"node":"0000000000000002","endpoint":1,"cluster":1037,"attribute":0,"value":{"type":"measurement","value":{"value":800.0,"unit":"ppm","quality":"measured"}}}}"#.as_slice(),
                         1066 => br#"{"schema":1,"event":"matter_report","data":{"node":"0000000000000002","endpoint":1,"cluster":1066,"attribute":0,"value":{"type":"measurement","value":{"value":25.5,"unit":"ug/m3","quality":"measured"}}}}"#.as_slice(),
+                        69 => br#"{"schema":1,"event":"matter_report","data":{"node":"0000000000000002","endpoint":1,"cluster":69,"attribute":0,"value":{"type":"bool","value":true}}}"#.as_slice(),
                         _ => unreachable!(),
                     };
                     if native_ipc {
@@ -1478,13 +1514,13 @@ async fn run(
                     }
                 }
                 println!(
-                    "PASS production manager sensor reports reach IPC from subscribed CASE reports"
+                    "PASS production manager sensor and contact reports reach IPC from subscribed CASE reports"
                 );
                 if native_ipc {
                     if let Some(path) =
                         std::env::var_os("MICROHAD_MATTER_TEST_NATIVE_REPORTS_SENT_FILE")
                     {
-                        std::fs::write(path, b"five CASE reports published")
+                        std::fs::write(path, b"six CASE reports published")
                             .map_err(|_| rs_matter::error::ErrorCode::Failure)?;
                     }
                     if let Some(path) = std::env::var_os("MICROHAD_MATTER_TEST_NATIVE_REPORTS_ACK_FILE")

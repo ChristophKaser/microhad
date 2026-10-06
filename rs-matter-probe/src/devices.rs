@@ -20,8 +20,8 @@ use std::{
 pub const MAX_ENDPOINTS: usize = 32;
 pub const MAX_CLUSTERS: usize = 64;
 pub const MAX_OPERATION_JOBS: usize = 8;
-// Seven standard reportable values across at most 32 discovered endpoints.
-pub const MAX_DEVICE_SUBSCRIPTIONS: usize = MAX_ENDPOINTS * 7;
+// Eight standard reportable values across at most 32 discovered endpoints.
+pub const MAX_DEVICE_SUBSCRIPTIONS: usize = MAX_ENDPOINTS * 8;
 const MAX_RETAINED_JOBS: usize = 16;
 const MAX_QUEUED_REPORT_VALUES: usize = 512;
 const ICD_MANAGEMENT_CLUSTER: u32 = 0x0046;
@@ -341,7 +341,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         let now = Instant::now();
         let endpoints = vec![Endpoint {
             id: 1,
-            servers: vec![6, 8, 91, 1026, 1029, 1037, 1066],
+            servers: vec![6, 8, 69, 91, 1026, 1029, 1037, 1066],
         }];
         if let Some(snapshot) = self.snapshots.iter_mut().find(|entry| entry.node == node) {
             snapshot.endpoints = endpoints;
@@ -358,6 +358,13 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         }
         self.changed();
         let reports = [
+            crate::operations::ResultValue {
+                node: crate::control::Id(node),
+                endpoint: 1,
+                cluster: 69,
+                attribute: 0,
+                value: crate::operations::Value::Bool(true),
+            },
             crate::operations::ResultValue {
                 node: crate::control::Id(node),
                 endpoint: 1,
@@ -1558,7 +1565,7 @@ mod tests {
             endpoints: (1..=40)
                 .map(|id| Endpoint {
                     id,
-                    servers: vec![6, 8, 91, 1026, 1029, 1037, 1066],
+                    servers: vec![6, 8, 69, 91, 1026, 1029, 1037, 1066],
                 })
                 .collect(),
             online: true,

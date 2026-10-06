@@ -90,7 +90,7 @@ def main():
                 raise RuntimeError('Production subscription/report path did not complete: ' + result.stdout + result.stderr)
             if args.sensor_reports and 'PASS recovery-required catalog node reconciled after live CASE descriptor discovery' not in result.stdout:
                 raise RuntimeError('Interrupted node CASE recovery did not complete: ' + result.stdout + result.stderr)
-            if args.sensor_reports and 'PASS production manager sensor reports reach IPC from subscribed CASE reports' not in result.stdout:
+            if args.sensor_reports and 'PASS production manager sensor and contact reports reach IPC from subscribed CASE reports' not in result.stdout:
                 raise RuntimeError('Production sensor report-to-IPC path did not complete: ' + result.stdout + result.stderr)
             if args.icd and 'PASS queued CASE read completed during the Check-In active window' not in result.stdout:
                 raise RuntimeError('ICD Check-In wake-window dispatch did not complete: ' + result.stdout + result.stderr)
@@ -271,7 +271,7 @@ def run_native_bridge(command, working_directory, timeout):
         output, _ = probe.communicate(timeout=max(1, deadline - time.monotonic()))
         if probe.returncode != 0:
             raise RuntimeError('CASE report fixture failed:\n' + output)
-        if 'PASS production manager sensor reports reach IPC from subscribed CASE reports' not in output:
+        if 'PASS production manager sensor and contact reports reach IPC from subscribed CASE reports' not in output:
             raise RuntimeError('Production manager did not publish live CASE reports:\n' + output)
         return subprocess.CompletedProcess(command, 0, stdout=output, stderr=''), observed
     finally:
