@@ -234,8 +234,9 @@ serialized for sleepy battery devices.
 
 The paired launcher runs BusyBox `syslogd -C512 -L -R 192.168.178.51:7878`.
 Native gateway and Matter service messages use syslog directly; Ziggurat's
-tracing output is sent to syslog. The deployed BusyBox 1.13.4 `logread` helper
-reads the daemon's 512 KiB RAM ring for `/api/logs`.
+tracing output is sent to syslog. The deployed standalone BusyBox 1.13.4
+`logread` helper reads the daemon's 512 KiB RAM ring for `/api/logs`; it omits
+the `syslogd` applet because the stock firmware runs that daemon.
 Permanent radio captures belong under the
 ignored `diagnostics/` directory and must never be committed.
 

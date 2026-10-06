@@ -1,5 +1,5 @@
 #!/bin/sh
-# Build BusyBox 1.13.4's logread applet against the gateway toolchain.
+# Build a logread-only BusyBox 1.13.4 binary against the gateway toolchain.
 set -eu
 project_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 rsdk=${RSDK_ROOT:-"$project_dir/../rsdk-4.4.7-4181-EB-2.6.30-0.9.30-m32u-140129"}
@@ -18,6 +18,26 @@ if [ ! -f "$source_dir/Makefile" ]; then
     mkdir -p "$source_dir"
     tar -xjf "$archive" -C "$source_dir" --strip-components=1
 fi
+python3 - "$source_dir/sysklogd/Config.in" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text()
+block = '''config FEATURE_IPC_SYSLOG
+\tbool "Circular Buffer support"
+\tdefault n
+\tdepends on SYSLOGD
+'''
+replacement = '''config FEATURE_IPC_SYSLOG
+\tbool "Circular Buffer support"
+\tdefault n
+'''
+if block in text:
+    path.write_text(text.replace(block, replacement, 1))
+elif replacement not in text:
+    raise SystemExit("BusyBox FEATURE_IPC_SYSLOG Kconfig block changed")
+PY
 python3 - "$source_dir/Makefile" <<'PY'
 from pathlib import Path
 import sys
@@ -41,15 +61,15 @@ path = Path(sys.argv[1])
 values = {
     "CONFIG_STATIC": "y",
     "CONFIG_CROSS_COMPILER_PREFIX": sys.argv[2],
-    "CONFIG_SYSLOGD": "y",
-    "CONFIG_FEATURE_REMOTE_LOG": "y",
+    "CONFIG_SYSLOGD": None,
+    "CONFIG_FEATURE_REMOTE_LOG": None,
     "CONFIG_FEATURE_IPC_SYSLOG": "y",
     "CONFIG_FEATURE_IPC_SYSLOG_BUFFER_SIZE": "512",
     "CONFIG_LOGREAD": "y",
 }
 lines = path.read_text().splitlines()
 for key, value in values.items():
-    replacement = f"{key}={value}"
+    replacement = f"{key}={value}" if value is not None else f"# {key} is not set"
     for index, line in enumerate(lines):
         if line.startswith(key + "=") or line == f"# {key} is not set":
             lines[index] = replacement
