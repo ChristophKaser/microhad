@@ -26,31 +26,41 @@ function formatDuration(seconds: number | null) {
   return [days ? `${days}d` : '', hours || days ? `${hours}h` : '', minutes || hours || days ? `${minutes}m` : `${remainder}s`].filter(Boolean).join(' ')
 }
 
-function Donut({ title, free, total }: { title: string; free: number | null; total: number | null }) {
+function Donut({ title, free, total, reclaimable = null }: { title: string; free: number | null; total: number | null; reclaimable?: number | null }) {
   const canvas = useRef<HTMLCanvasElement>(null)
   const chartRef = useRef<ChartJS<'doughnut', number[], string> | null>(null)
   useEffect(() => {
     if (!canvas.current || free === null || total === null || total <= 0) return
     const safeFree = Math.min(total, Math.max(0, free))
+    const safeReclaimable = reclaimable === null ? 0 : Math.min(total - safeFree, Math.max(0, reclaimable))
+    const used = Math.max(0, total - safeFree - safeReclaimable)
+    const data = reclaimable === null ? [safeFree, total - safeFree] : [safeFree, safeReclaimable, used]
+    const labels = reclaimable === null ? ['Free', 'Used'] : ['Free', 'Reclaimable', 'Used']
+    const colors = reclaimable === null ? ['#48a77a', '#dce5ed'] : ['#48a77a', '#e8b653', '#dce5ed']
     if (chartRef.current) {
-      chartRef.current.data.datasets[0].data = [safeFree, Math.max(0, total - safeFree)]
+      chartRef.current.data.datasets[0].data = data
+      chartRef.current.data.labels = labels
+      chartRef.current.data.datasets[0].backgroundColor = colors
       chartRef.current.update('none')
     } else {
       chartRef.current = new ChartJS(canvas.current, {
         type: 'doughnut',
-        data: { labels: ['Free', 'Used'], datasets: [{ data: [safeFree, Math.max(0, total - safeFree)], backgroundColor: ['#48a77a', '#dce5ed'], borderWidth: 0 }] },
+        data: { labels, datasets: [{ data, backgroundColor: colors, borderWidth: 0 }] },
         options: { responsive: true, maintainAspectRatio: false, cutout: '72%', animation: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: context => `${context.label}: ${formatBytes(Number(context.raw))}` } } } },
       })
     }
-  }, [free, total])
+  }, [free, reclaimable, total])
   useEffect(() => () => { chartRef.current?.destroy(); chartRef.current = null }, [])
-  const percent = free !== null && total ? Math.round(Math.min(100, Math.max(0, free / total * 100))) : null
+  const shownFree = reclaimable === null || free === null || total === null ? free : Math.min(total, Math.max(0, free))
+  const percent = shownFree !== null && total ? Math.round(Math.min(100, Math.max(0, shownFree / total * 100))) : null
   return <article className="controller-donut panel">
     <h3>{title}</h3>
     {free !== null && total !== null && total > 0
-      ? <div className="controller-donut-chart"><canvas ref={canvas} role="img" aria-label={`${title}: ${formatBytes(free)} free of ${formatBytes(total)}`} /><strong>{percent}%<small>free</small></strong></div>
+      ? <div className="controller-donut-chart"><canvas ref={canvas} role="img" aria-label={reclaimable === null ? `${title}: ${formatBytes(free)} free of ${formatBytes(total)}` : `${title}: ${formatBytes(free)} free, ${formatBytes(reclaimable)} reclaimable, ${formatBytes(Math.max(0, total - (free ?? 0) - reclaimable))} used`} /><strong>{percent}%<small>free</small></strong></div>
       : <p className="muted">Unavailable</p>}
-    <p className="controller-donut-caption">{formatBytes(free)} free of {formatBytes(total)}</p>
+    {reclaimable === null
+      ? <p className="controller-donut-caption">{formatBytes(free)} free of {formatBytes(total)}</p>
+      : <p className="controller-donut-caption">{formatBytes(free)} free · {formatBytes(reclaimable)} reclaimable · {formatBytes(Math.max(0, total! - (free ?? 0) - reclaimable))} used</p>}
   </article>
 }
 
@@ -87,7 +97,7 @@ export function ControllerStats({ status, thread }: { status: Status | null; thr
       <article className="panel controller-cpu"><div className="controller-stat-heading"><div><h3>CPU usage</h3><strong>{cpu === null ? 'Waiting for sample' : `${cpu.toFixed(1)}%`}</strong></div><span className="muted small">Recent polling samples</span></div>
         <div className="controller-cpu-graph"><svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="CPU usage during the current visit"><line x1="0" y1="0" x2="100" y2="0" /><line x1="0" y1="50" x2="100" y2="50" /><line x1="0" y1="100" x2="100" y2="100" />{samples.length > 0 && <polyline points={points} />}</svg></div>
       </article>
-      <Donut title="Memory" free={stats?.memory_free_bytes ?? null} total={stats?.memory_total_bytes ?? null} />
+      <Donut title="Memory" free={stats?.memory_free_bytes ?? null} reclaimable={stats?.memory_reclaimable_bytes ?? null} total={stats?.memory_total_bytes ?? null} />
       <Donut title="Runtime storage" free={stats?.storage_free_bytes ?? null} total={stats?.storage_total_bytes ?? null} />
     </div>
     <div className="controller-detail-grid panel">

@@ -1301,7 +1301,6 @@ std::string HttpServer::controllerStatsJson() {
         hasReclaimable = hasCached || hasSlab;
         reclaimableKb = (hasCached ? cachedKb : 0) + (hasSlab ? slabReclaimableKb : 0);
     }
-    if (hasFree && hasReclaimable) memoryFree += reclaimableKb;
     bool hasZigguratMemory = readNamedProcessRss("ziggurat", &zigguratMemory);
     bool hasMatterMemory = readNamedProcessRss("thread-matter", &matterMemory);
     if (hasMemory) memoryTotal *= 1024;
