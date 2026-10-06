@@ -56,13 +56,18 @@ device onboarding remain open. See [Matter build flags, compiler findings, and
 remaining integration](MATTER_INTEGRATION.md) and the [open-point
 plans](docs/matter-plans/README.md).
 
-Outputs are `build/mips/microhad-zigbee-native` (EZSP) and
-`build/mips-ziggurat/microhad-zigbee-native` (Ziggurat). Pass the chosen executable
-explicitly: the deployment script defaults to the EZSP output.
+Builds default to `ZIGGURAT=1 MATTER=1`, matching the current gateway
+deployment. Set `ZIGGURAT=0` for the legacy EZSP build; that also defaults
+Matter off. `MATTER=1` requires `ZIGGURAT=1`.
+
+Outputs are `build/mips-ziggurat-matter/microhad-zigbee-native` by default,
+`build/mips-ziggurat/microhad-zigbee-native` for `ZIGGURAT=1 MATTER=0`, and
+`build/mips/microhad-zigbee-native` for `ZIGGURAT=0`. The deployment script
+defaults to the Matter-capable output; `--binary` selects another build.
 
 ```sh
 ./deploy.sh --host "$GATEWAY_IP" --password-file "$PASSWORD_FILE" \
-  --binary build/mips/microhad-zigbee-native \
+  --binary build/mips-ziggurat-matter/microhad-zigbee-native \
   --config "$CONFIG_FILE" --target /tuya/native
 ```
 

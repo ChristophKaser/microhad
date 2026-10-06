@@ -8,8 +8,11 @@ make host test
 make mips
 ```
 
+Builds default to Ziggurat and Matter, matching the current deployment.
 `make mips` builds the vendored Mbed TLS dependency and produces the static,
-big-endian MIPS binary at `build/mips/microhad-zigbee-native`.
+big-endian MIPS binary at `build/mips-ziggurat-matter/microhad-zigbee-native`.
+Use `make ZIGGURAT=0 mips` for the legacy EZSP binary or
+`make ZIGGURAT=1 MATTER=0 mips` for Ziggurat without Matter APIs.
 
 The host Matter CASE fixture uses the commissioning probe at
 `../ziggurat-compilation/build/rs-matter/target/release/ot-matter-commissioning-probe`.
@@ -44,7 +47,7 @@ service, and `paired_start.sh`:
 
 ```sh
 # Native gateway, from this repository
-make ZIGGURAT=1 MATTER=1 mips
+make mips
 
 # Rust service, from ../ziggurat-compilation
 bash scripts/build-rs-matter-transport.sh mips service

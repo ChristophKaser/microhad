@@ -9,7 +9,7 @@ project_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 host=192.168.178.62
 user=root
 target=/tuya/native-test
-binary="$project_dir/build/mips/microhad-zigbee-native"
+binary="$project_dir/build/mips-ziggurat-matter/microhad-zigbee-native"
 binary_explicit=false
 password_file=""
 config=""

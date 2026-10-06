@@ -46,8 +46,11 @@ not establish real-device compatibility or a deployed production controller.
 
 ## Build contract
 
-`MATTER` accepts exactly `0` or `1`, defaults to `0`, and defines
-`MICROHAD_MATTER_ENABLED` for native host and target C++ compilation.
+`MATTER` accepts exactly `0` or `1` and defines `MICROHAD_MATTER_ENABLED` for
+native host and target C++ compilation. By default both `ZIGGURAT` and
+`MATTER` are enabled to match the current gateway deployment. Setting
+`ZIGGURAT=0` automatically defaults `MATTER` to `0`; either flag can be
+overridden explicitly.
 `MATTER=1` requires `ZIGGURAT=1`, because the planned Thread radio endpoint is
 provided by Ziggurat. Empty, unknown, and multi-value flags are rejected.
 
@@ -60,8 +63,8 @@ provided by Ziggurat. Empty, unknown, and multi-value flags are rejected.
 Matter-disabled builds do not fetch, compile, or link the Matter SDK. Switching
 the flag cannot reuse enabled and disabled native artifacts. Native binaries
 and tests also depend on the Makefile so changes to feature definitions trigger
-recompilation. Existing deployment defaults continue to select the EZSP binary;
-no launcher or deployment behavior has been changed.
+recompilation. The deployer defaults to the Matter-capable output; use `--binary`
+to choose another build.
 
 ```sh
 make ZIGGURAT=0 MATTER=0 host test

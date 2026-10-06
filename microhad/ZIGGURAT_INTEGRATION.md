@@ -30,16 +30,19 @@ the native service retries its socket and never starts a second radio owner.
 The compile flag selects the production backend:
 
 ```sh
-make ZIGGURAT=0 host test   # existing EZSP/ASH (default)
-make ZIGGURAT=1 host test   # Ziggurat enabled; legacy unit/integration tests retained
+make ZIGGURAT=0 host test   # existing EZSP/ASH compatibility build
+make ZIGGURAT=1 MATTER=0 host test # Ziggurat without Matter APIs
+make host test              # current Matter-capable Ziggurat default
 make test-backends         # always runs both variants
 make ZIGGURAT=0 mips
 make ZIGGURAT=1 mips
 ```
 
-Disabled outputs remain `build/host` and `build/mips`. Enabled outputs live in
-`build/host-ziggurat` and `build/mips-ziggurat`. No executable is deployed by make.
-The native project requires its stock RSDK and C++03. The production gateway runs `build/mips-ziggurat/microhad-zigbee-native`.
+Legacy outputs remain `build/host` and `build/mips`; Ziggurat without Matter
+uses `build/host-ziggurat` and `build/mips-ziggurat`. Default Matter-capable
+outputs use `build/host-ziggurat-matter` and `build/mips-ziggurat-matter`. No
+executable is deployed by make. The native project requires its stock RSDK and
+C++03. The production gateway runs the Matter-capable Ziggurat build.
 
 ## Local API and configuration
 
@@ -251,9 +254,8 @@ The incoming NWK replay-counter map is absent from the current protocol/state;
 incoming APS counters can lag after a crash. Real radio ACKs, sleepy-child behavior,
 hardware restoration and recovery from an unresponsive RCP remain unverified.
 The Thread endpoint transports Spinel; it does not supply an OTBR or Matter stack.
-`deploy.sh` defaults to the EZSP binary. A future Ziggurat deployment would need
-explicit `--binary build/mips-ziggurat/microhad-zigbee-native`; no such deployment was
-performed or authorized for this test.
+`deploy.sh` defaults to `build/mips-ziggurat-matter/microhad-zigbee-native`;
+pass `--binary` to select another build.
 
 ## Troubleshooting
 

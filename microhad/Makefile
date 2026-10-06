@@ -12,14 +12,14 @@ HOST_READELF ?= readelf
 CMAKE ?= cmake
 BUILD_REVISION := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 
-ZIGGURAT ?= 0
+ZIGGURAT ?= 1
 ifneq ($(words $(ZIGGURAT)),1)
 $(error ZIGGURAT must be 0 or 1)
 endif
 ifneq ($(filter 0 1,$(ZIGGURAT)),$(ZIGGURAT))
 $(error ZIGGURAT must be 0 or 1)
 endif
-MATTER ?= 0
+MATTER ?= $(if $(filter 0,$(ZIGGURAT)),0,1)
 ifneq ($(words $(MATTER)),1)
 $(error MATTER must be 0 or 1)
 endif

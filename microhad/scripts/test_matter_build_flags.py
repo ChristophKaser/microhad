@@ -22,14 +22,15 @@ print-matter-selection:
 
 def main():
     for args, host, mips in (
-        ([], 'build/host', 'build/mips'),
+        ([], 'build/host-ziggurat-matter', 'build/mips-ziggurat-matter'),
+        (['ZIGGURAT=0'], 'build/host', 'build/mips'),
         (['ZIGGURAT=0', 'MATTER=0'], 'build/host', 'build/mips'),
         (['ZIGGURAT=1', 'MATTER=0'], 'build/host-ziggurat', 'build/mips-ziggurat'),
         (['ZIGGURAT=1', 'MATTER=1'], 'build/host-ziggurat-matter', 'build/mips-ziggurat-matter'),
     ):
         result = selected(args)
         assert result.returncode == 0, result.stderr
-        value = '1' if 'MATTER=1' in args else '0'
+        value = '0' if 'ZIGGURAT=0' in args and 'MATTER=1' not in args else '1'
         assert result.stdout.splitlines()[0] == f'{value} {host} {mips}', result.stdout
         assert f'-DMICROHAD_MATTER_ENABLED={value}' in result.stdout
     for args, message in (
@@ -66,7 +67,7 @@ def main():
         assert manifest.read_text().splitlines() == [
             'format=microhad-native-build-v1', 'ziggurat=1', 'matter=1',
             f'binary_sha256={hashlib.sha256(binary.read_bytes()).hexdigest()}']
-    print('PASS disabled defaults, isolated enabled outputs, feature macros/manifest, invalid flags, and build gate')
+    print('PASS Matter defaults, legacy overrides, isolated outputs, feature macros/manifest, invalid flags, and build gate')
 
 
 if __name__ == '__main__':
