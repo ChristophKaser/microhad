@@ -8,7 +8,7 @@
 #include "notification_worker.h"
 #include "matter_client.h"
 #include "matter_worker.h"
-#include "log_ring.h"
+#include "syslog_log_reader.h"
 #include "thread_name.h"
 
 #include <cerrno>
@@ -1006,14 +1006,26 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
         unsigned long limit = 0, before = 0;
         bool validPage = !hasLimit || (parseLogTimestamp(limitText, &limit) && limit > 0 && limit <= 500);
         validPage = validPage && (!hasBefore || (hasLimit && parseLogTimestamp(beforeText, &before) && before > 0 && before <= 0xffffffffUL));
+#ifdef MICROHAD_TESTING
+        if (!validSince || !validPage) {
+            writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"invalid log request\"}");
+        } else if (hasSince && since > static_cast<unsigned long>(time(0))) {
+            writeResponse(clientFd, 200, "application/json", "{\"lines\":[]}");
+        } else {
+            body = gateway_->logsJson();
+            if (hasLimit) body.insert(body.size() - 1, ",\"next_before\":0,\"has_more\":false");
+            writeResponse(clientFd, 200, "application/json", body);
+        }
+#else
         if (!validSince || !validPage) writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"invalid log request\"}");
         else if (hasLimit) {
-            if (LogRing::readPage(LogRing::defaultPath(), limit, before, &body))
+            if (SyslogLogReader::readPage(limit, before, &body))
                 writeResponse(clientFd, 200, "application/json", body);
             else writeResponse(clientFd, 503, "application/json", "{\"ok\":false,\"error\":\"log is unavailable\"}");
-        } else if ((hasSince ? LogRing::readJson(LogRing::defaultPath(), since, &body) : LogRing::readJson(LogRing::defaultPath(), &body)))
+        } else if ((hasSince ? SyslogLogReader::readJson(since, &body) : SyslogLogReader::readJson(&body)))
             writeResponse(clientFd, 200, "application/json", body);
         else writeResponse(clientFd, 503, "application/json", "{\"ok\":false,\"error\":\"log is unavailable\"}");
+#endif
     } else if (request.find("POST /api/debug/event-loop ") == 0) {
         std::string::size_type bodyAt = request.find("\r\n\r\n");
         std::string enabledValue;
@@ -1463,7 +1475,7 @@ std::string HttpServer::controllerStatsJson() {
     json << ",\"process_memory_bytes\":"; if (hasProcessMemory && pageSize > 0) json << processPages; else json << "null";
     json << ",\"ziggurat_memory_bytes\":"; if (hasZigguratMemory) json << zigguratMemory; else json << "null";
     json << ",\"matter_memory_bytes\":"; if (hasMatterMemory) json << matterMemory; else json << "null";
-    json << ",\"log_file_bytes\":" << fileBytes("/tmp/microhad-zigbee-native.log")
+    json << ",\"syslog_ring_bytes\":" << 512 * 1024
          << ",\"values_file_bytes\":" << fileBytes(gateway_->historyPath())
          << ",\"storage_total_bytes\":"; if (hasFilesystem) json << storageTotal; else json << "null";
     json << ",\"storage_free_bytes\":"; if (hasFilesystem) json << storageFree; else json << "null";

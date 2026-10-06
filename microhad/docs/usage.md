@@ -95,13 +95,11 @@ have another reachable Zigbee parent, such as a powered bulb or router.
 ## Live diagnostics
 
 The dashboard includes a live coordinator log, refreshed every two seconds from
-`/api/logs`. The on-device log is a circular binary file at
-`/tmp/microhad-zigbee-native.log`; on this gateway `/tmp` resolves below the
-RAM-backed `/var` mount, not the `/tuya` flash volume. Its total size is at
-most 1,000,000 bytes. The coordinator writes one record at a time, and HTTP
-workers read the ring directly without locking or waiting for the coordinator.
-Use `/api/logs` to read the log as text. Diagnostics do not create flash write
-cycles or consume unbounded memory.
+`/api/logs`. BusyBox `syslogd` keeps a 512 KiB ring in shared memory, also
+forwards messages to `192.168.178.51:7878`, and receives native gateway,
+Ziggurat, and Matter service messages. The REST endpoint reads that ring with
+the deployed BusyBox `logread` helper. The ring lives in RAM and does not create
+flash write cycles.
 
 ### Event-loop diagnostics
 

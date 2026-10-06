@@ -6,6 +6,7 @@
 #include "json_util.h"
 #include "notification_worker.h"
 #include "storage.h"
+#include "syslog_log_reader.h"
 #include "zcl.h"
 #include "fcm.h"
 #include "web_push.h"
@@ -25,6 +26,7 @@
 #include <fstream>
 #include <termios.h>
 #include <unistd.h>
+#include <syslog.h>
 
 #ifndef MICROHAD_BUILD_REVISION
 #define MICROHAD_BUILD_REVISION "unknown"
@@ -346,7 +348,7 @@ Gateway::Gateway(const std::string& serialDevice, int serialBaud, const std::str
     online_(false), joinUntil_(0), joinPermitRenewAt_(0), joinPermitClosePending_(false), joinPermitCloseDeadline_(0), pendingJoinSeconds_(0), joinPreparationStep_(0), joinPreparationDeadline_(0), ashSendSequence_(0), ashReceiveSequence_(0), ezspSequence_(0),
     ashAckDeadline_(0), ashRetries_(0), ashPendingSensitive_(false), networkBackupQuery_(0, std::vector<unsigned char>()), networkBackupSequence_(0), networkBackupDeadline_(0), networkBackupStarted_(0), ezspVersion_(4), zdoSequence_(0), zclTransactionSequence_(0), ezspVersionNegotiated_(false), stackTokenWritingRequested_(false), networkInitRequested_(false), tradfriBindGroupConfigured_(false), coordinatorInitializationStep_(0), coordinatorInitializationDeadline_(0), resetDeadline_(0), serialReconnectFailures_(0), zigbeeDownAlertQueued_(false), nextHeartbeatAt_(0), serialRxBytes_(0), ashRxFrames_(0), networkForming_(false), networkFormationStep_(0), networkFormationDeadline_(0), networkFormed_(false), networkPanId_(0),
     networkChannel_(0), observedNetworkChannel_(0), interviewRequestInFlight_(false), interviewSendAccepted_(false), interviewEzspSequence_(0), interviewNode_(0xffff),
-    interviewDeadline_(0), nextMessageTag_(1), coordinatorIeeeAddressRequested_(false), logRing_(LogRing::defaultPath()), logBytes_(0), viewDirty_(true) {
+    interviewDeadline_(0), nextMessageTag_(1), coordinatorIeeeAddressRequested_(false), viewDirty_(true) {
 #if MICROHAD_ZIGGURAT_ENABLED
     ziggurat_ = 0;
 #endif
@@ -916,7 +918,6 @@ bool Gateway::start(std::string* error) {
     if (!ensureDirectory(runtimeDirectory_, error)) {
         return false;
     }
-    loadLogs();
     loadState();
     std::string historyError;
     if (!history_.initialize(&historyError)) addLog(std::string("Sensor history unavailable: ") + historyError);
@@ -2798,6 +2799,19 @@ GatewayView::GatewayView() : online(false), networkForming(false), networkFormed
     serialOpenedAt(0), joiningUntil(0), joiningPreparing(false), notificationsEnabled(false) {
 }
 
+#ifdef MICROHAD_TESTING
+std::string GatewayView::logsJson() const {
+    std::ostringstream json;
+    json << "{\"lines\":[";
+    for (unsigned long i = 0; i < logs.size(); ++i) {
+        if (i) json << ',';
+        json << '"' << jsonEscape(logs[i]) << '"';
+    }
+    json << "]}";
+    return json.str();
+}
+#endif
+
 std::string GatewayView::statusJson() const {
     std::ostringstream json;
     json << "{\"coordinator_backend\":\"" << (coordinatorBackend.empty() ? "ezsp" : coordinatorBackend) << "\",\"online\":" << (online ? "true" : "false") << ",\"network_forming\":"
@@ -3040,18 +3054,6 @@ std::string GatewayView::statusJson() const {
     return json.str();
 }
 
-std::string GatewayView::logsJson() const {
-    std::ostringstream json;
-    unsigned long i;
-    json << "{\"lines\":[";
-    for (i = 0; i < logs.size(); ++i) {
-        if (i != 0) json << ',';
-        json << "\"" << jsonEscape(logs[i]) << "\"";
-    }
-    json << "]}";
-    return json.str();
-}
-
 GatewayView Gateway::captureView(bool includeLogs) const {
     GatewayView view;
     view.coordinatorBackend = "ezsp";
@@ -3077,7 +3079,11 @@ GatewayView Gateway::captureView(bool includeLogs) const {
     for (std::map<std::string, DeviceConfigurationStatus>::const_iterator it = deviceConfigurations_.begin();
          it != deviceConfigurations_.end(); ++it)
         view.deviceConfigurations.push_back(it->second);
+#ifdef MICROHAD_TESTING
     if (includeLogs) view.logs.assign(logs_.begin(), logs_.end());
+#else
+    (void)includeLogs;
+#endif
     return view;
 }
 
@@ -3085,6 +3091,7 @@ bool Gateway::takeViewDirty() { bool dirty = viewDirty_; viewDirty_ = false; ret
 void Gateway::markViewDirty() { viewDirty_ = true; }
 std::string Gateway::statusJson() const { return captureView(false).statusJson(); }
 std::string Gateway::logsJson() const {
+#ifdef MICROHAD_TESTING
     std::ostringstream json;
     json << "{\"lines\":[";
     for (std::deque<std::string>::const_iterator it = logs_.begin(); it != logs_.end(); ++it) {
@@ -3093,15 +3100,11 @@ std::string Gateway::logsJson() const {
     }
     json << "]}";
     return json.str();
-}
-
-void Gateway::loadLogs() {
-    std::vector<std::string> lines;
-    if (!logRing_.initialize() || !LogRing::readLines(LogRing::defaultPath(), &lines)) return;
-    logs_.assign(lines.begin(), lines.end());
-    logBytes_ = 0;
-    for (std::deque<std::string>::const_iterator it = logs_.begin(); it != logs_.end(); ++it)
-        logBytes_ += static_cast<unsigned long>(it->size() + 1);
+#else
+    std::string json;
+    if (SyslogLogReader::readJson(&json)) return json;
+    return "{\"lines\":[]}";
+#endif
 }
 
 void Gateway::addLog(const std::string& message) {
@@ -3109,14 +3112,20 @@ void Gateway::addLog(const std::string& message) {
     std::string rendered = message.substr(0, 768);
     line << time(0) << " " << rendered;
     const std::string entry = line.str();
+#ifdef MICROHAD_TESTING
     logs_.push_back(entry);
-    logBytes_ += static_cast<unsigned long>(entry.size() + 1);
-    while (logBytes_ > LogRing::MaximumBytes && !logs_.empty()) {
-        logBytes_ -= static_cast<unsigned long>(logs_.front().size() + 1);
+    unsigned long testLogBytes = 0;
+    for (std::deque<std::string>::const_iterator it = logs_.begin(); it != logs_.end(); ++it)
+        testLogBytes += static_cast<unsigned long>(it->size() + 1);
+    while (testLogBytes > 512 * 1024 && !logs_.empty()) {
+        testLogBytes -= static_cast<unsigned long>(logs_.front().size() + 1);
         logs_.pop_front();
     }
+#endif
+#ifdef MICROHAD_TESTING
     markViewDirty();
-    logRing_.append(entry);
+#endif
+    syslog(LOG_INFO, "%s", entry.c_str());
 }
 
 std::string Gateway::deviceLogLabel(unsigned short node) const {

@@ -19,6 +19,9 @@ public:
     public:
         ~ViewLease();
         std::string statusJson() const;
+#ifdef MICROHAD_TESTING
+        std::string logsJson() const;
+#endif
         long serialOpenedAt() const;
         bool coordinatorOnline() const;
         unsigned char coordinatorChannel() const;
@@ -39,6 +42,9 @@ public:
     void coordinatorObservation(unsigned char* channel, bool* online);
     std::string runtimeDirectory() const;
     std::string historyPath() const;
+#ifdef MICROHAD_TESTING
+    std::string logsJson() const;
+#endif
     bool readHistoryJson(const std::string& address, unsigned long before,
                          std::string* json, std::string* error) const;
     bool registerShelly(const std::string& id, const std::string& name, const std::string& oldName,

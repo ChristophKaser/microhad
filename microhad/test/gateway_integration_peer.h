@@ -256,12 +256,11 @@ public:
     }
     static void clearLogs(Gateway* gateway) {
         gateway->logs_.clear();
-        gateway->logBytes_ = 0;
     }
     static void logBoundedUnknownFrame(Gateway* gateway) {
         std::vector<unsigned char> message(512, 0xa5);
         message[0] = 0x11; message[1] = 0x2a; message[2] = 0xfe;
-        gateway->logs_.clear(); gateway->logBytes_ = 0;
+        gateway->logs_.clear();
         gateway->addFrameLog("RX", 0x1234, 0x0104, 0x1234, 1, 1, 0, 0, 0, 0, 90, -40, message);
     }
     static void prepareHttpDevice(Gateway* gateway) {

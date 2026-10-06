@@ -153,7 +153,11 @@ void GatewayRunner::run() {
 
 void GatewayRunner::publishView(bool force) {
     if (!force && !gateway_->takeViewDirty()) return;
+#ifdef MICROHAD_TESTING
+    GatewayView* view = new GatewayView(gateway_->captureView());
+#else
     GatewayView* view = new GatewayView(gateway_->captureView(false));
+#endif
     if (force) gateway_->takeViewDirty();
     pthread_mutex_lock(&mutex_);
     ViewData* previous = currentView_;
@@ -338,6 +342,9 @@ void GatewayRunner::waitForWork(LoopDebugStats* stats, bool debugEnabled) {
 GatewayRunner::ViewLease::ViewLease(GatewayRunner* owner, ViewData* data) : data_(data), owner_(owner) {}
 GatewayRunner::ViewLease::~ViewLease() { owner_->releaseView(data_); }
 std::string GatewayRunner::ViewLease::statusJson() const { return data_->view->statusJson(); }
+#ifdef MICROHAD_TESTING
+std::string GatewayRunner::ViewLease::logsJson() const { return data_->view->logsJson(); }
+#endif
 long GatewayRunner::ViewLease::serialOpenedAt() const { return data_->view->serialOpenedAt; }
 bool GatewayRunner::ViewLease::coordinatorOnline() const {
     return data_->view->online && data_->view->networkFormed &&
@@ -381,6 +388,15 @@ void GatewayRunner::releaseView(ViewData* data) {
 }
 std::string GatewayRunner::runtimeDirectory() const { return runtimeDirectory_; }
 std::string GatewayRunner::historyPath() const { return historyPath_; }
+#ifdef MICROHAD_TESTING
+std::string GatewayRunner::logsJson() const {
+    ViewLease* view = const_cast<GatewayRunner*>(this)->acquireView();
+    if (view == 0) return "{\"lines\":[]}";
+    std::string json = view->logsJson();
+    delete view;
+    return json;
+}
+#endif
 bool GatewayRunner::readHistoryJson(const std::string& address, unsigned long before,
                                     std::string* json, std::string* error) const {
     return historyStore_ != 0 && historyStore_->readForDevice(address, before, json, error);

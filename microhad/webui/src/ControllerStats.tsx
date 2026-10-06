@@ -112,7 +112,7 @@ export function ControllerStats({ status, thread }: { status: Status | null; thr
       <div><span>Native resident memory (RSS)</span><strong>{formatBytes(stats?.process_memory_bytes ?? null)}</strong></div>
       <div><span>Ziggurat resident memory (RSS)</span><strong>{formatBytes(stats?.ziggurat_memory_bytes ?? null)}</strong></div>
       <div><span>Matter resident memory (RSS)</span><strong>{formatBytes(stats?.matter_memory_bytes ?? null)}</strong></div>
-      <div><span>Log file</span><strong>{formatBytes(stats?.log_file_bytes ?? null)}</strong></div>
+      <div><span>Syslog ring</span><strong>{formatBytes(stats?.syslog_ring_bytes ?? null)}</strong></div>
       <div><span>Values history file</span><strong>{formatBytes(stats?.values_file_bytes ?? null)}</strong></div>
       <div><span>Load average · 1 min</span><strong>{stats?.cpu_load_1?.toFixed(2) ?? 'Unavailable'}</strong></div>
       <div><span>Load average · 5 min</span><strong>{stats?.cpu_load_5?.toFixed(2) ?? 'Unavailable'}</strong></div>

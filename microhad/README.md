@@ -84,8 +84,8 @@ Shelly/Fritz!Box devices. HTTPS enables Browser Push; Android/FCM notifications
 need separate credentials. These are optional for basic local Zigbee operation.
 See [dashboard and application usage](docs/usage.md).
 
-Use `/api/status` for backend/network readiness and `/api/logs` for the bounded
-RAM log. Wait for `online` and `network_formed` before pairing. Existing-network
+Use `/api/status` for backend/network readiness and `/api/logs` for the BusyBox
+syslogd RAM ring. Wait for `online` and `network_formed` before pairing. Existing-network
 migration requires radio security state in addition to the application inventory.
 
 The paired supervisor restores a one-use kernel RNG seed from

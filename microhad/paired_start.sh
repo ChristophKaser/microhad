@@ -9,7 +9,7 @@ control=${RUNTIME_CONTROL:-/tmp/ziggurat-supervisor}
 socket_path=${ZIGGURAT_SOCKET:-/tmp/ziggurat/native.sock}
 device=${ZIGGURAT_DEVICE:-/dev/ttyS1}
 zig_log=${ZIGGURAT_LOG:-/dev/null}
-zig_log_level=${ZIGGURAT_LOG_LEVEL:-error}
+zig_log_level=${ZIGGURAT_LOG_LEVEL:-info}
 seed_helper=${RNG_SEED_HELPER:-/tuya/native/rng-seed}
 seed_file=${RNG_SEED_FILE:-/tuya/native/ziggurat-rng.seed}
 seed_log=${RNG_SEED_LOG:-/tmp/ziggurat-rng-seed.log}
@@ -22,6 +22,7 @@ matter_state=${MATTER_STATE_DIR:-/tuya/native/matter}
 matter_socket=${MATTER_SOCKET:-/tmp/microhad-matter.sock}
 thread_socket=${THREAD_SOCKET:-/tmp/ziggurat/thread.sock}
 matter_limit=${MATTER_RESTART_LIMIT:-5}
+syslogd=${SYSLOGD_BIN:-/bin/busybox}
 case "$limit:$startup_limit:$stop_limit:$backoff:$matter_limit" in *[!0-9:]*|:*|*::*) exit 2;; esac
 for path in "$ZIGGURAT_BIN" "$NATIVE_BIN" "$NATIVE_CONFIG" "$MAINTENANCE_BIN" "$control" "$socket_path" "$device" "$zig_log" "$seed_helper" "$seed_file" "$seed_log"; do
     case "$path" in /*) ;; *) echo 'Absolute paths required' >&2;exit 2;; esac
@@ -37,8 +38,23 @@ fi
 # Atomic directory claim refuses stale/duplicate supervisors; operator inspects it.
 mkdir "$control" || exit 2
 printf '%s\n' "$$" > "$control/supervisor.pid"
-: > "$zig_log"
+: > "$zig_log" 2>/dev/null || true
 : > "$seed_log"
+# Stock firmware's BusyBox syslogd owns the 512 KiB IPC ring and forwards to
+# the configured collector. Replace its prior instance to apply these flags.
+[ -x "$syslogd" ] || { echo 'BusyBox syslogd executable missing' >&2; exit 2; }
+for old_syslog_pid in $($syslogd ps 2>/dev/null | awk '$5 == "busybox" && $6 == "syslogd" {print $1}'); do
+    kill "$old_syslog_pid" 2>/dev/null || true
+done
+sleep 1
+$syslogd syslogd -C512 -L -R 192.168.178.51:7878 -m 0
+sleep 1
+$syslogd ps 2>/dev/null | awk '$5 == "busybox" && $6 == "syslogd" && $7 == "-C512" && $8 == "-L" && $9 == "-R" && $10 == "192.168.178.51:7878" {found=1} END {exit !found}' || {
+    echo 'BusyBox syslogd did not start with the required ring and remote logging options' >&2
+    rm -f "$control/supervisor.pid"
+    rmdir "$control" 2>/dev/null || true
+    exit 2
+}
 if [ -x "$seed_helper" ]; then
     "$seed_helper" restore "$seed_file" >>"$seed_log" 2>&1 || true
     (
@@ -87,7 +103,7 @@ start_zig() {
         set -- --thread-socket "$thread_socket"
     fi
     "$ZIGGURAT_BIN" --device "$device" --baudrate 460800 --flow-control hardware \
-        --spinel-iid 1 --api cobs-unix --listen "unix:$socket_path" --log-level "$zig_log_level" "$@" >>"$zig_log" 2>&1 &
+        --spinel-iid 1 --api cobs-unix --listen "unix:$socket_path" --log-level "$zig_log_level" "$@" 2>&1 &
     zig_pid=$!;printf '%s\n' "$zig_pid" > "$control/ziggurat.pid"
     deadline=$(($(date +%s)+startup_limit))
     while [ "$(date +%s)" -lt "$deadline" ]; do
@@ -121,7 +137,7 @@ poll_matter() {
     # A missing Thread endpoint must not prevent the native bridge from running.
     [ -S "$thread_socket" ] || return 0
     "$matter_bin" --socket "$matter_socket" --state-dir "$matter_state" \
-        --radio-url "spinel+hdlc+unix://$thread_socket?no-reset" >/dev/null 2>&1 &
+        --radio-url "spinel+hdlc+unix://$thread_socket?no-reset" 2>&1 &
     matter_pid=$!;matter_retries=$((matter_retries+1))
     printf '%s\n' "$matter_pid" > "$control/matter.pid"
 }

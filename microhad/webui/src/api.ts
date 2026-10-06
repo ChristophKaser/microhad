@@ -144,7 +144,7 @@ export interface ControllerStats {
   process_memory_bytes: number | null
   ziggurat_memory_bytes: number | null
   matter_memory_bytes: number | null
-  log_file_bytes: number
+  syslog_ring_bytes: number
   values_file_bytes: number
   storage_total_bytes: number | null
   storage_free_bytes: number | null

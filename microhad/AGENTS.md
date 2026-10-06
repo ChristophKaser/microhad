@@ -98,6 +98,7 @@ configuration or network/identity state.
 # Native controller and Matter manifest, from this repository
 make ZIGGURAT=1 MATTER=1 mips
 make webui
+bash scripts/build-logread.sh
 
 # Ziggurat and radio maintenance helper, from ../ziggurat-compilation
 ZIGGURAT_MULTIPAN=1 bash scripts/build-ziggurat.sh
@@ -112,7 +113,8 @@ bash scripts/build-rs-matter-transport.sh mips service
   --binary build/mips-ziggurat-matter/microhad-zigbee-native \
   --ziggurat ../ziggurat-compilation/build/ziggurat-hdlc/lexra-stock-uclibc/release/ziggurat \
   --matter-service ../ziggurat-compilation/build/rs-matter/thread-matter-mips \
-  --maintenance-helper ../ziggurat-compilation/build/gateway-maintenance
+  --maintenance-helper ../ziggurat-compilation/build/gateway-maintenance \
+  --logread build/logread-mips
 ```
 
 The script prints the local backup directory and retains it after success.
@@ -230,8 +232,10 @@ minute interval or `0` to disable fallback polling. The coordinator then
 refreshes attributes after the device responds. This is intentionally
 serialized for sleepy battery devices.
 
-Coordinator logs are intentionally kept in `/tmp/microhad-zigbee-native.log`, a
-bounded 512 KiB binary ring in RAM. Read them through `/api/logs`.
+The paired launcher runs BusyBox `syslogd -C512 -L -R 192.168.178.51:7878`.
+Native gateway and Matter service messages use syslog directly; Ziggurat's
+tracing output is sent to syslog. The deployed BusyBox 1.13.4 `logread` helper
+reads the daemon's 512 KiB RAM ring for `/api/logs`.
 Permanent radio captures belong under the
 ignored `diagnostics/` directory and must never be committed.
 

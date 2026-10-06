@@ -1715,16 +1715,9 @@ void testRuntimeDirectoryBoundaries() {
 void testTransientLogRestartAndWriteFailure() {
     char directoryName[] = "/tmp/microhad-zigbee-log-runtime-XXXXXX";
     char* temporary = mkdtemp(directoryName);
-    const std::string logPath = "/tmp/microhad-zigbee-native.log";
-    std::ostringstream backupName;
-    std::string backup;
     std::string error;
     int serial[2];
-    bool hadPreviousLog;
     assert(temporary != 0);
-    backupName << logPath << ".test-backup-" << static_cast<long>(getpid());
-    backup = backupName.str();
-    hadPreviousLog = rename(logPath.c_str(), backup.c_str()) == 0;
     assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
     {
         Gateway gateway("/dev/null", 115200, temporary, "", "", "");
@@ -1734,31 +1727,6 @@ void testTransientLogRestartAndWriteFailure() {
         gateway.stop();
     }
     close(serial[1]);
-    assert(access(logPath.c_str(), F_OK) == 0);
-    assert(access((std::string(temporary) + "/microhad-zigbee-native.log").c_str(), F_OK) != 0);
-    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
-    {
-        Gateway gateway("/dev/null", 115200, temporary, "", "", "");
-        GatewayIntegrationTestPeer::attachSerial(&gateway, serial[0]);
-        assert(gateway.start(&error));
-        assert(gateway.logsJson().find("Gateway starting on /dev/null") != std::string::npos);
-        gateway.stop();
-    }
-    close(serial[1]);
-    assert(unlink(logPath.c_str()) == 0);
-    assert(mkdir(logPath.c_str(), 0700) == 0);
-    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
-    {
-        Gateway gateway("/dev/null", 115200, temporary, "", "", "");
-        GatewayIntegrationTestPeer::attachSerial(&gateway, serial[0]);
-        assert(gateway.start(&error));
-        assert(gateway.logsJson().find("Gateway starting on /dev/null") != std::string::npos);
-        gateway.stop();
-    }
-    close(serial[1]);
-    assert(rmdir(logPath.c_str()) == 0);
-    if (hadPreviousLog) assert(rename(backup.c_str(), logPath.c_str()) == 0);
-    else assert(access(logPath.c_str(), F_OK) != 0);
     assert(rmdir(temporary) == 0);
 }
 
@@ -1858,15 +1826,15 @@ void testGatewayRunnerLifecycle() {
 void testGatewayRunnerCommandDispatch() {
     char directoryName[] = "/tmp/microhad-zigbee-runner-commands-XXXXXX";
     char* directory = mkdtemp(directoryName);
-    const char* transientPaths[] = { "/tmp/microhad-zigbee-native-values.json", "/tmp/microhad-zigbee-scenes-runtime", "/tmp/microhad-zigbee-native.log" };
-    std::string backups[3];
-    bool preserved[3];
+    const char* transientPaths[] = { "/tmp/microhad-zigbee-native-values.json", "/tmp/microhad-zigbee-scenes-runtime" };
+    std::string backups[2];
+    bool preserved[2];
     int serial[2];
     std::string error;
     const std::string scenes = "G\t42\tKitchen\nM\t42\trunner-light\nS\t42\t7\tDinner\nT\t42\t7\trunner-light\t1\t50\n";
     assert(directory != 0 && socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
     unsigned int pathIndex;
-    for (pathIndex = 0; pathIndex < 3; ++pathIndex) {
+    for (pathIndex = 0; pathIndex < 2; ++pathIndex) {
         std::ostringstream backup;
         backup << transientPaths[pathIndex] << ".runner-test-" << static_cast<long>(getpid());
         backups[pathIndex] = backup.str();
@@ -1960,7 +1928,7 @@ void testGatewayRunnerCommandDispatch() {
     unlink((std::string(directory) + "/notifications.json").c_str());
     unlink((std::string(directory) + "/history.bin").c_str());
     unlink((std::string(directory) + "/history.bin.values").c_str());
-    for (pathIndex = 0; pathIndex < 3; ++pathIndex) {
+    for (pathIndex = 0; pathIndex < 2; ++pathIndex) {
         unlink(transientPaths[pathIndex]);
         if (preserved[pathIndex]) assert(rename(backups[pathIndex].c_str(), transientPaths[pathIndex]) == 0);
     }
@@ -1995,16 +1963,16 @@ void* concurrentRunnerMutation(void* opaque) {
 void testGatewayRunnerConcurrentSnapshotsAndWakeFailure() {
     char directoryName[] = "/tmp/microhad-zigbee-runner-race-XXXXXX";
     char* directory = mkdtemp(directoryName);
-    const char* transientPaths[] = { "/tmp/microhad-zigbee-native-values.json", "/tmp/microhad-zigbee-native.log" };
-    std::string backups[2];
-    bool preserved[2];
+    const char* transientPaths[] = { "/tmp/microhad-zigbee-native-values.json" };
+    std::string backups[1];
+    bool preserved[1];
     int serial[2];
     std::string error;
     pthread_t threads[4];
     ConcurrentRunnerContext contexts[4];
     unsigned int i;
     assert(directory != 0 && socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
-    for (i = 0; i < 2; ++i) {
+    for (i = 0; i < 1; ++i) {
         std::ostringstream backup;
         backup << transientPaths[i] << ".runner-race-" << static_cast<long>(getpid());
         backups[i] = backup.str();
@@ -2041,7 +2009,7 @@ void testGatewayRunnerConcurrentSnapshotsAndWakeFailure() {
     close(serial[1]);
     unlink((std::string(directory) + "/devices.json").c_str());
     rmdir(directory);
-    for (i = 0; i < 2; ++i) {
+    for (i = 0; i < 1; ++i) {
         unlink(transientPaths[i]);
         if (preserved[i]) assert(rename(backups[i].c_str(), transientPaths[i]) == 0);
     }

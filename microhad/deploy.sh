@@ -25,6 +25,7 @@ ca_bundle=""
 matter_service=""
 ziggurat=""
 maintenance_helper=""
+logread=""
 webui_dir="$project_dir/webui/dist"
 maintenance_deploy=false
 rollback_dir=""
@@ -32,7 +33,7 @@ rng_seed_helper=""
 flash_reserve_kib=${DEPLOY_FLASH_RESERVE_KIB:-512}
 
 usage() {
-    echo "usage: $0 --password-file PATH --maintenance-deploy --binary PATH --ziggurat PATH --matter-service PATH --maintenance-helper PATH [--webui-dir DIR] [--rollback-dir DIR] [--host HOST] [--target /tuya/native]" >&2
+    echo "usage: $0 --password-file PATH --maintenance-deploy --binary PATH --ziggurat PATH --matter-service PATH --maintenance-helper PATH --logread PATH [--webui-dir DIR] [--rollback-dir DIR] [--host HOST] [--target /tuya/native]" >&2
     echo "       $0 --password-file PATH [existing deployment options]" >&2
     exit 2
 }
@@ -53,6 +54,7 @@ while [ "$#" -gt 0 ]; do
         --matter-service) matter_service=${2-}; shift 2 ;;
         --ziggurat) ziggurat=${2-}; shift 2 ;;
         --maintenance-helper) maintenance_helper=${2-}; shift 2 ;;
+        --logread) logread=${2-}; shift 2 ;;
         --webui-dir) webui_dir=${2-}; shift 2 ;;
         --maintenance-deploy) maintenance_deploy=true; shift ;;
         --rollback-dir) rollback_dir=${2-}; shift 2 ;;
@@ -71,6 +73,7 @@ done
 [ "$maintenance_deploy" = false ] || {
     [ -n "$binary" ] && [ -n "$ziggurat" ] && [ -n "$matter_service" ] &&
         [ -n "$maintenance_helper" ] && [ "$target" = /tuya/native ] &&
+        [ -n "$logread" ] && [ "$target" = /tuya/native ] &&
         [ "$binary_explicit" = true ] || usage
 }
 [ "$maintenance_deploy" = false ] || {
@@ -106,7 +109,7 @@ done
 [ -z "$rng_seed_helper" ] || [ "$deploy_binary" = false ] || { echo "Use --rng-seed-only to deploy the RNG helper without replacing application assets" >&2; exit 2; }
 [ -z "$config" ] || { [ "$deploy_binary" = true ] && [ -f "$config" ]; } || usage
 [ -z "$matter_service" ] || { { [ "$deploy_binary" = true ] || [ "$activate_paired_only" = true ]; } && [ -x "$matter_service" ]; } || usage
-[ "$maintenance_deploy" = false ] || { [ -x "$ziggurat" ] && [ -x "$maintenance_helper" ]; } || { echo "Ziggurat or gateway-maintenance artifact missing or not executable" >&2; exit 1; }
+[ "$maintenance_deploy" = false ] || { [ -x "$ziggurat" ] && [ -x "$maintenance_helper" ] && [ -x "$logread" ]; } || { echo "Ziggurat, gateway-maintenance, or logread artifact missing or not executable" >&2; exit 1; }
 [ "$maintenance_deploy" = false ] || { [ -d "$webui_dir" ] && [ -f "$webui_dir/index.html" ] && [ -f "$webui_dir/sw.js" ]; } || usage
 [ -z "$certificate" ] || [ -f "$certificate" ] || usage
 [ -z "$private_key" ] || [ -f "$private_key" ] || usage
@@ -191,7 +194,7 @@ maintenance_deploy_run() {
     command -v curl >/dev/null 2>&1 || { echo "curl is required to verify the deployed Web UI and API" >&2; return 1; }
     target_readelf="$project_dir/../rsdk-4.4.7-4181-EB-2.6.30-0.9.30-m32u-140129/bin/mips-linux-readelf"
     [ -x "$target_readelf" ] || { echo "MIPS readelf is missing: $target_readelf" >&2; return 1; }
-    for artifact in "$binary" "$ziggurat" "$matter_service" "$maintenance_helper"; do
+    for artifact in "$binary" "$ziggurat" "$matter_service" "$maintenance_helper" "$logread"; do
         elf_header=$("$target_readelf" -h "$artifact") || return 1
         printf '%s\n' "$elf_header" | grep -q 'Class:.*ELF32' &&
             printf '%s\n' "$elf_header" | grep -q 'Data:.*big endian' &&
@@ -218,7 +221,7 @@ maintenance_deploy_run() {
 
     # Backup only application artifacts. Runtime configuration, Matter identity,
     # Zigbee state, TLS material and network backups are intentionally excluded.
-    for name in microhad-zigbee-native microhad-zigbee-native.matter-manifest thread-matter ziggurat gateway-maintenance paired_start.sh; do
+    for name in microhad-zigbee-native microhad-zigbee-native.matter-manifest thread-matter ziggurat gateway-maintenance logread paired_start.sh; do
         remote="$target/$name"
         if ssh_command "test -f \"$remote\"" >/dev/null 2>&1; then
             ssh_command "cat \"$remote\"" > "$rollback_dir/$name" || return 1
@@ -256,7 +259,7 @@ maintenance_deploy_run() {
         orphaned_images=$(ssh_command "for image in \"$target/tuya-zigbee-native\" \"$target/thread-matter\" \"$target/ziggurat\"; do for p in /proc/[0-9]*/exe; do x=\$(ls -l \"\$p\" 2>/dev/null) || continue; case \"\$x\" in *\" -> \$image\"|*\" -> \$image (deleted)\") echo \"\$x\" ;; esac; done; done") || return 1
         [ -z "$orphaned_images" ] || { echo "Application executable is still active without its paired supervisor: $orphaned_images" >&2; return 1; }
     fi
-    deleted_images=$(ssh_command "for image in \"$target/tuya-zigbee-native\" \"$target/thread-matter\" \"$target/ziggurat\" \"$target/gateway-maintenance\"; do for p in /proc/[0-9]*/exe; do x=\$(ls -l \"\$p\" 2>/dev/null) || continue; case \"\$x\" in *\" -> \$image (deleted)\") echo \"\$x\" ;; esac; done; done") || return 1
+    deleted_images=$(ssh_command "for image in \"$target/tuya-zigbee-native\" \"$target/thread-matter\" \"$target/ziggurat\" \"$target/gateway-maintenance\" \"$target/logread\"; do for p in /proc/[0-9]*/exe; do x=\$(ls -l \"\$p\" 2>/dev/null) || continue; case \"\$x\" in *\" -> \$image (deleted)\") echo \"\$x\" ;; esac; done; done") || return 1
     [ -z "$deleted_images" ] || { echo "Found a running deleted executable; refusing maintenance deployment" >&2; return 1; }
 
     if [ -n "$supervisor_pid" ]; then
@@ -273,7 +276,7 @@ maintenance_deploy_run() {
     else
         echo "Paired services are already stopped"
     fi
-    ssh_command "for image in \"$target/tuya-zigbee-native\" \"$target/thread-matter\" \"$target/ziggurat\" \"$target/gateway-maintenance\"; do for p in /proc/[0-9]*/exe; do x=\$(ls -l \"\$p\" 2>/dev/null) || continue; case \"\$x\" in *\" -> \$image\"|*\" -> \$image (deleted)\") echo \"Executable still active: \$x\" >&2; exit 1 ;; esac; done; done" || {
+    ssh_command "for image in \"$target/tuya-zigbee-native\" \"$target/thread-matter\" \"$target/ziggurat\" \"$target/gateway-maintenance\" \"$target/logread\"; do for p in /proc/[0-9]*/exe; do x=\$(ls -l \"\$p\" 2>/dev/null) || continue; case \"\$x\" in *\" -> \$image\"|*\" -> \$image (deleted)\") echo \"Executable still active: \$x\" >&2; exit 1 ;; esac; done; done" || {
         echo "A deployment executable is still active after supervisor shutdown; refusing replacement" >&2
         return 1
     }
@@ -289,6 +292,7 @@ maintenance_deploy_run() {
     webui_bytes=$(find "$webui_dir" -type f -exec wc -c {} + | awk '$2 != "total" { total += $1 } END { print total + 0 }')
     binary_bytes=$(wc -c < "$binary"); ziggurat_bytes=$(wc -c < "$ziggurat")
     service_bytes=$(wc -c < "$matter_service"); helper_bytes=$(wc -c < "$maintenance_helper")
+    logread_bytes=$(wc -c < "$logread")
     manifest_bytes=$(wc -c < "$binary.matter-manifest")
     support_bytes=$(wc -c < "$project_dir/paired_start.sh")
     launcher_bytes=$(wc -c < "$project_dir/ziggurat_start.sh")
@@ -296,7 +300,7 @@ maintenance_deploy_run() {
     webui_largest=$(find "$webui_dir" -type f -exec wc -c {} + |
         awk '$2 != "total" && $1 > largest { largest = $1 } END { print largest + 0 }')
     largest_artifact=$binary_bytes
-    for artifact_size in "$ziggurat_bytes" "$service_bytes" "$helper_bytes" "$manifest_bytes" "$support_bytes" "$launcher_bytes" "$launcher_backup_bytes" "$webui_largest"; do
+    for artifact_size in "$ziggurat_bytes" "$service_bytes" "$helper_bytes" "$logread_bytes" "$manifest_bytes" "$support_bytes" "$launcher_bytes" "$launcher_backup_bytes" "$webui_largest"; do
         [ "$artifact_size" -le "$largest_artifact" ] || largest_artifact=$artifact_size
     done
     # JFFS2 compresses writes, so a raw whole-release sum is too pessimistic.
@@ -355,6 +359,7 @@ maintenance_deploy_run() {
         ! upload_atomic "$binary.matter-manifest" "$target/tuya-zigbee-native.matter-manifest" 600 ||
         ! upload_atomic "$ziggurat" "$target/ziggurat" 700 ||
         ! upload_atomic "$maintenance_helper" "$target/gateway-maintenance" 700 ||
+        ! upload_atomic "$logread" "$target/logread" 700 ||
         ! upload_atomic "$matter_service" "$target/thread-matter" 700 ||
         ! upload_atomic "$project_dir/paired_start.sh" "$target/paired_start.sh" 700; then
         echo "Deployment incomplete; services remain stopped. Previous application files are preserved at $rollback_dir for manual recovery." >&2
@@ -377,7 +382,8 @@ maintenance_deploy_run() {
         return 1
     }
     curl --noproxy '*' --connect-timeout 5 --max-time 8 -fsS "http://$host/" >/dev/null &&
-        curl --noproxy '*' --connect-timeout 5 --max-time 8 -fsS "http://$host/api/status" >/dev/null || {
+        curl --noproxy '*' --connect-timeout 5 --max-time 8 -fsS "http://$host/api/status" >/dev/null &&
+        curl --noproxy '*' --connect-timeout 5 --max-time 8 -fsS "http://$host/api/logs" | grep -q '"lines"' || {
             echo "Web UI or status API did not respond" >&2
             echo "HTTP verification failed. No automatic rollback was attempted. Use the preserved backup at $rollback_dir for manual recovery." >&2
             return 1

@@ -5,7 +5,6 @@
 #include <string>
 #include <vector>
 #include <deque>
-#include "log_ring.h"
 
 #include "ash.h"
 #include "network_backup.h"
@@ -221,11 +220,15 @@ public:
     std::vector<NativeRemoteBinding> nativeBindings;
     std::vector<NativeBindingStatus> nativeBindingStatuses;
     std::vector<DeviceConfigurationStatus> deviceConfigurations;
+#ifdef MICROHAD_TESTING
     std::vector<std::string> logs;
+#endif
 
     GatewayView();
     std::string statusJson() const;
+#ifdef MICROHAD_TESTING
     std::string logsJson() const;
+#endif
 };
 
 class Gateway {
@@ -515,9 +518,9 @@ private:
     std::map<unsigned short, SceneRetry> sceneRetries_;
     std::map<unsigned short, unsigned char> selectedScenes_; /* RAM only */
     std::map<unsigned short, bool> sceneGroupOff_;
-    LogRing logRing_;
+#ifdef MICROHAD_TESTING
     std::deque<std::string> logs_;
-    unsigned long logBytes_;
+#endif
     bool viewDirty_;
     bool configureSerial(std::string* error);
     bool writeBytes(const std::vector<unsigned char>& bytes, bool sensitive = false);
@@ -629,7 +632,6 @@ private:
     void addLog(const std::string& message);
     void markViewDirty();
     void addHexLog(const std::string& direction, const unsigned char* bytes, unsigned long length);
-    void loadLogs();
     void loadState();
     void saveState() const;
     void savePersistentState() const;

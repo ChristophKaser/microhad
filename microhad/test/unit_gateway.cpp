@@ -969,7 +969,7 @@ public:
         Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
         std::vector<unsigned char> request;
         std::vector<unsigned char> incoming(24, 0);
-        gateway.logs_.clear(); gateway.logBytes_ = 0;
+        gateway.logs_.clear();
         gateway.nodeAddresses_[node] = ieee;
         gateway.devices_[ieee].ieeeAddress = ieee;
         gateway.devices_[ieee].name = "Kitchen sensor";
@@ -1000,7 +1000,7 @@ public:
         gateway.devices_[ieee].ieeeAddress = ieee;
         gateway.devices_[ieee].endpoints.push_back(endpoint);
         gateway.classifyDevice(&gateway.devices_[ieee]);
-        gateway.logs_.clear(); gateway.logBytes_ = 0;
+        gateway.logs_.clear();
         gateway.logRemoteKeyEvent(node, 0x0006, 1, 0, 0x01, std::vector<unsigned char>());
         gateway.logRemoteKeyEvent(node, 0x0008, 1, 0, 0x05, move);
         return gateway.logsJson().find("Remote key event") != std::string::npos &&
@@ -1018,7 +1018,7 @@ public:
         const char* versions[] = {"2.2.010", "2.3.074", "2.3.075", "24.4.6"};
         for (unsigned int i = 0; i < 4; ++i) {
             device.softwareBuildId = versions[i];
-            gateway.logs_.clear(); gateway.logBytes_ = 0;
+            gateway.logs_.clear();
             gateway.sendZdoBindRequest(0xd938, 1, 6, ieee, 42, 1);
             const std::string expected = i < 2 ? "payload=2a7b8275feff08ac70010600018503" :
                 "payload=2a7b8275feff08ac7001060003111111111111111101";
@@ -1031,7 +1031,7 @@ public:
         const unsigned char query[] = {1, 14, 1, 1, 0x7c, 0x11, 0xc5, 0x11, 0x31, 6, 1, 0x22, 1, 0};
         incoming[18] = sizeof(query);
         incoming.insert(incoming.end(), query, query + sizeof(query));
-        gateway.logs_.clear(); gateway.logBytes_ = 0;
+        gateway.logs_.clear();
         gateway.handleIncomingMessage(incoming);
         assert(gateway.logsJson().find("payload=190e0298") != std::string::npos);
         EndpointDescriptor endpoint;
@@ -2343,7 +2343,6 @@ static void testInterviewRetryDeadline() {
 
 static void testGatewayViewIsImmutable() {
     GatewayTestPeer::observedChannelSnapshot();
-    unlink("/tmp/microhad-zigbee-native.log");
     Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
     GatewayTestPeer::completeViewSchema(&gateway);
     GatewayView first = gateway.captureView();
@@ -2363,40 +2362,31 @@ static void testGatewayViewIsImmutable() {
     assert(second.statusJson().find("0x00124b00000000fe") != std::string::npos);
     assert(gateway.takeViewDirty());
     assert(!gateway.takeViewDirty());
-    unlink("/tmp/microhad-zigbee-native.log");
 }
 
 static void testRamLog() {
     std::string error;
-    unlink("/tmp/microhad-zigbee-native.log");
     Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
     assert(!gateway.setJoining(300, &error));
     assert(error == "Zigbee coordinator is offline");
     assert(gateway.logsJson().find("Pairing request rejected: coordinator offline") != std::string::npos);
     GatewayTestPeer::logRingAndSerialization();
-    unlink("/tmp/microhad-zigbee-native.log");
 }
 
 static void testFrameLogs() {
-    unlink("/tmp/microhad-zigbee-native.log");
     assert(GatewayTestPeer::frameLogsContainDecodedDetails());
-    unlink("/tmp/microhad-zigbee-native.log");
 }
 
 static void testRemoteKeyEvents() {
-    unlink("/tmp/microhad-zigbee-native.log");
     assert(GatewayTestPeer::remoteKeyEventsAreLogged());
     GatewayTestPeer::tradfriFirmwareBindingAndOta();
     assert(GatewayTestPeer::nativeRemoteBindingFlow());
     assert(GatewayTestPeer::nativeIkeaFirmwareModes());
-    unlink("/tmp/microhad-zigbee-native.log");
 }
 
 static void testStyrbarArrowEvents() {
-    unlink("/tmp/microhad-zigbee-native.log");
     assert(GatewayTestPeer::styrbarArrowEventsAreLogged());
     assert(GatewayTestPeer::remoteBindingsAndIgnoredEvents());
-    unlink("/tmp/microhad-zigbee-native.log");
 }
 
 static void testSceneConfigurationRejectsDuplicateStates() {
