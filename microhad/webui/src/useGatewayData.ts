@@ -14,6 +14,7 @@ export function useGatewayData(diagnosticsActive: boolean) {
   const [statusError, setStatusError] = useState('')
   const [logs, setLogs] = useState<string[]>([])
   const [logsError, setLogsError] = useState('')
+  const [logsHasMore, setLogsHasMore] = useState(false)
   const statusRequest = useRef(0)
   const logsRequest = useRef(0)
   const statusPending = useRef(false)
@@ -21,6 +22,7 @@ export function useGatewayData(diagnosticsActive: boolean) {
   const logsLoaded = useRef(false)
   const logsActivated = useRef(false)
   const latestLogTimestamp = useRef<number | null>(null)
+  const olderCursor = useRef<number | null>(null)
   const active = useRef(true)
 
   const refreshStatus = useCallback(async (force = true) => {
@@ -46,12 +48,15 @@ export function useGatewayData(diagnosticsActive: boolean) {
     logsPending.current = true
     try {
       const since = latestLogTimestamp.current
-      const url = logsLoaded.current ? `/api/logs?since=${since ?? 0}` : '/api/logs'
-      const response = await jsonRequest<{ lines: string[] }>(url)
+      const response = await jsonRequest<{ lines: string[]; next_before?: number; has_more?: boolean }>(
+        logsLoaded.current ? `/api/logs?since=${since ?? 0}` : '/api/logs?limit=200',
+      )
       if (active.current && request === logsRequest.current) {
         if (!logsLoaded.current) {
           setLogs(response.lines)
           logsLoaded.current = true
+          olderCursor.current = response.next_before ?? null
+          setLogsHasMore(response.has_more ?? false)
         } else {
           const boundary = since ?? 0
           setLogs(current => {
@@ -88,6 +93,28 @@ export function useGatewayData(diagnosticsActive: boolean) {
     }
   }, [])
 
+  const loadOlderLogs = useCallback(async () => {
+    if (!logsHasMore || olderCursor.current === null || logsPending.current) return false
+    logsPending.current = true
+    try {
+      const response = await jsonRequest<{ lines: string[]; next_before: number; has_more: boolean }>(
+        `/api/logs?limit=500&before=${olderCursor.current}`,
+      )
+      if (active.current) {
+        setLogs(current => [...response.lines, ...current])
+        olderCursor.current = response.next_before || null
+        setLogsHasMore(response.has_more)
+        setLogsError('')
+        return true
+      }
+    } catch (error) {
+      if (active.current) setLogsError(errorMessage(error))
+    } finally {
+      logsPending.current = false
+    }
+    return false
+  }, [logsHasMore])
+
   useEffect(() => {
     active.current = true
     const refresh = () => {
@@ -103,5 +130,5 @@ export function useGatewayData(diagnosticsActive: boolean) {
     }
   }, [diagnosticsActive, refreshStatus, refreshLogs])
 
-  return { status, statusError, logs, logsError, refreshStatus }
+  return { status, statusError, logs, logsError, logsHasMore, loadOlderLogs, refreshStatus }
 }

@@ -1654,6 +1654,7 @@ void testSecurityDiagnosticsRedactAndBoundFallback() {
     Gateway gateway("/dev/null", 115200, directory, "", "", "");
     GatewayIntegrationTestPeer::attachSerial(&gateway, serial[0]);
     assert(gateway.start(&error));
+    GatewayIntegrationTestPeer::clearLogs(&gateway);
     GatewayIntegrationTestPeer::sendSensitiveSecurityState(&gateway);
     std::string logs = gateway.logsJson();
     assert(logs.find("SERIAL TX redacted sensitive frame bytes=") != std::string::npos);

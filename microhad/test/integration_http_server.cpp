@@ -467,6 +467,10 @@ void testServers() {
     response = plainRequest(http.boundPort(), "GET /api/logs HTTP/1.1\r\nHost: localhost\r\n\r\n");
     expectStatus("http logs", response, 200);
     assert(response.find("Content-Type: application/json\r\n") != std::string::npos && response.find("\"lines\":") != std::string::npos);
+    response = plainRequest(http.boundPort(), "GET /api/logs?limit=200 HTTP/1.1\r\nHost: localhost\r\n\r\n");
+    expectStatus("http latest log page", response, 200);
+    assert(response.find("\"next_before\":") != std::string::npos && response.find("\"has_more\":") != std::string::npos);
+    expectStatus("http reject oversized log page", plainRequest(http.boundPort(), "GET /api/logs?limit=501 HTTP/1.1\r\nHost: localhost\r\n\r\n"), 400);
     response = plainRequest(http.boundPort(), "GET /api/logs?since=9999999999 HTTP/1.1\r\nHost: localhost\r\n\r\n");
     expectStatus("http logs since", response, 200);
     assert(response.find("{\"lines\":[]}") != std::string::npos);

@@ -254,6 +254,10 @@ public:
         gateway->networkKey_.assign(16, 0xa5);
         gateway->continueNetworkFormation(0x00b1);
     }
+    static void clearLogs(Gateway* gateway) {
+        gateway->logs_.clear();
+        gateway->logBytes_ = 0;
+    }
     static void logBoundedUnknownFrame(Gateway* gateway) {
         std::vector<unsigned char> message(512, 0xa5);
         message[0] = 0x11; message[1] = 0x2a; message[2] = 0xfe;

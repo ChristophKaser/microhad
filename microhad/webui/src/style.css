@@ -544,7 +544,9 @@ button:disabled {
   display: inline-block;
 }
 .logs {
-  height: 280px;
+  height: calc(100dvh - 320px);
+  min-height: 280px;
+  max-height: calc(100dvh - 180px);
   overflow: auto;
   white-space: pre-wrap;
   background: #102235;
@@ -554,6 +556,10 @@ button:disabled {
   font-size: 0.75rem;
   line-height: 1.55;
   margin: 14px 0 0;
+}
+.log-load-more {
+  display: block;
+  margin: 0 auto 12px;
 }
 .log-line {
   display: block;

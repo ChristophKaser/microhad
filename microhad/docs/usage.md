@@ -122,7 +122,7 @@ five seconds to `/api/logs`. It reports loop counts, whether the loop skipped
 waiting for commands or immediate work, `select()` results and readiness, and
 the most recent poll deadline. For periodic reporting, the wait is capped at
 five seconds while diagnostics are enabled. Output remains in the existing
-1 MB RAM-backed log ring; it is never written beneath `/tuya`.
+512 KiB RAM-backed log ring; it is never written beneath `/tuya`.
 Disable diagnostics after collecting a few intervals to avoid extra wakeups
 and profiling overhead during normal operation.
 

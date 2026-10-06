@@ -9,7 +9,7 @@
    and never acquire a coordinator-owned lock. */
 class LogRing {
 public:
-    enum { MaximumBytes = 1000000 };
+    enum { MaximumBytes = 512 * 1024 };
     explicit LogRing(const std::string& path);
     ~LogRing();
     bool initialize();
@@ -17,6 +17,7 @@ public:
     static bool readLines(const std::string& path, std::vector<std::string>* lines);
     static bool readJson(const std::string& path, std::string* json);
     static bool readJson(const std::string& path, unsigned long since, std::string* json);
+    static bool readPage(const std::string& path, unsigned long limit, unsigned long before, std::string* json);
     static const char* defaultPath();
 
 private:

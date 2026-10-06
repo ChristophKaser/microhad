@@ -41,7 +41,7 @@ void testWrapAndRestart() {
             assert(ring.append(entry.str()));
         }
         assert(LogRing::readLines(path, &retained));
-        assert(retained.size() > 1000 && retained.size() < written.size());
+        assert(retained.size() > 500 && retained.size() < written.size());
         for (unsigned long i = 0; i < retained.size(); ++i)
             assert(retained[i] == written[written.size() - retained.size() + i]);
         struct stat info;
@@ -154,6 +154,26 @@ void testInclusiveSinceFilter() {
     assert(json == "{\"lines\":[\"20 same\",\"20 same\",\"21 later\"]}");
     unlink(path.c_str());
 }
+
+void testCursorPages() {
+    const std::string path = temporaryPath();
+    LogRing ring(path);
+    for (int i = 0; i < 700; ++i) {
+        std::ostringstream line;
+        line << "line-" << i;
+        assert(ring.append(line.str()));
+    }
+    std::string json;
+    assert(LogRing::readPage(path, 200, 0, &json));
+    assert(json.find("\"lines\":[\"line-500\"") != std::string::npos);
+    assert(json.find("\"line-699\"]") != std::string::npos);
+    assert(json.find("\"next_before\":501,\"has_more\":true") != std::string::npos);
+    assert(LogRing::readPage(path, 500, 501, &json));
+    assert(json.find("\"lines\":[\"line-0\"") != std::string::npos);
+    assert(json.find("\"line-499\"]") != std::string::npos);
+    assert(json.find("\"next_before\":1,\"has_more\":false") != std::string::npos);
+    unlink(path.c_str());
+}
 }
 
 void runLogRingUnitTests() {
@@ -161,5 +181,6 @@ void runLogRingUnitTests() {
     testLegacyMigrationAndInterruptedCommit();
     testConcurrentReads();
     testInclusiveSinceFilter();
+    testCursorPages();
     printf("unit: bounded circular log, migration, and recovery\n");
 }

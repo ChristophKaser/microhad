@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import type { Device } from './api'
 import { errorMessage, form, jsonRequest, post } from './api'
@@ -16,27 +16,25 @@ import { useGatewayData } from './useGatewayData'
 import './style.css'
 
 function LogLine({ line }: { line: string }) {
-  const match = line.match(/^(\d+)\s+(SERIAL|EZSP|APS|FRAME)\b\s*(.*)$/)
+  const match = line.match(/^(\d+)\s+(?:(SERIAL|EZSP|APS|FRAME)\b\s*)?(.*)$/)
   if (!match) return <span className="log-line">{line}</span>
   const [, epoch, tag, body] = match
   const time = new Date(Number(epoch) * 1000)
-  const timestamp =
-    time.toDateString() === new Date().toDateString()
-      ? time.toLocaleTimeString()
-      : time.toLocaleString()
+  if (Number.isNaN(time.getTime())) return <span className="log-line">{line}</span>
+  const timestamp = time.toLocaleString()
   const ieee = tag === 'FRAME' ? body.match(/ieee=(0x[0-9a-f]+)/i)?.[1] : undefined
   const hue = ieee
     ? [...ieee].reduce((hash, char) => (hash * 31 + char.charCodeAt(0)) >>> 0, 0) % 360
     : undefined
   return (
     <span
-      className={`log-line log-${tag.toLowerCase()}`}
+      className={`log-line${tag ? ` log-${tag.toLowerCase()}` : ''}`}
       style={hue === undefined ? undefined : { color: `hsl(${hue} 72% 72%)` }}
     >
       <span className="log-time" title={`Unix timestamp: ${epoch}`}>
         {timestamp}
       </span>{' '}
-      <b className="log-tag">{tag}</b> {body}
+      {tag && <><b className="log-tag">{tag}</b>{' '}</>}{body}
     </span>
   )
 }
@@ -66,7 +64,24 @@ function JoinButton({
 
 function App() {
   const [tab, setTab] = useState('Dashboard')
-  const { status, statusError, logs, logsError, refreshStatus } = useGatewayData(tab === 'Diagnostics')
+  const { status, statusError, logs, logsError, logsHasMore, loadOlderLogs, refreshStatus } = useGatewayData(tab === 'Diagnostics')
+  const logPane = useRef<HTMLPreElement>(null)
+  const followLogs = useRef(true)
+  const preserveLogPosition = useRef<{ height: number; top: number } | null>(null)
+  useLayoutEffect(() => {
+    const pane = logPane.current
+    if (!pane) return
+    const previous = preserveLogPosition.current
+    if (previous) {
+      pane.scrollTop = previous.top + pane.scrollHeight - previous.height
+      preserveLogPosition.current = null
+    } else if (followLogs.current) pane.scrollTop = pane.scrollHeight
+  }, [logs])
+  const loadMoreLogs = async () => {
+    const pane = logPane.current
+    if (pane) preserveLogPosition.current = { height: pane.scrollHeight, top: pane.scrollTop }
+    if (!await loadOlderLogs()) preserveLogPosition.current = null
+  }
   const matterController = useMatterDevices()
   const catalogStatus = status ? {
     ...status,
@@ -358,10 +373,14 @@ function App() {
             <span className="eyebrow">Diagnostics</span>
             <h2>Live coordinator log</h2>
           </summary>
-          <pre className="logs">
-            {logsError
-              ? `Unable to load logs: ${logsError}`
-              : logs.map((line, index) => <LogLine key={index} line={line} />)}
+          <pre className="logs" ref={logPane} onScroll={(event) => {
+            const pane = event.currentTarget
+            followLogs.current = pane.scrollHeight - pane.scrollTop - pane.clientHeight < 48
+          }}>
+            {logsError ? `Unable to load logs: ${logsError}` : <>
+              {logsHasMore && <button className="button log-load-more" onClick={loadMoreLogs}>Load 500 more</button>}
+              {logs.map((line, index) => <LogLine key={index} line={line} />)}
+            </>}
           </pre>
         </details>
       </section>

@@ -231,7 +231,7 @@ refreshes attributes after the device responds. This is intentionally
 serialized for sleepy battery devices.
 
 Coordinator logs are intentionally kept in `/tmp/microhad-zigbee-native.log`, a
-bounded 1,000,000-byte binary ring in RAM. Read them through `/api/logs`.
+bounded 512 KiB binary ring in RAM. Read them through `/api/logs`.
 Permanent radio captures belong under the
 ignored `diagnostics/` directory and must never be committed.
 

@@ -992,8 +992,18 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
         unsigned long since = 0;
         bool hasSince = query != std::string::npos && formValue(target.substr(query + 1), "since", &sinceText);
         bool validSince = !hasSince || parseLogTimestamp(sinceText, &since);
-        if (!validSince) writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"invalid log timestamp\"}");
-        else if ((hasSince ? LogRing::readJson(LogRing::defaultPath(), since, &body) : LogRing::readJson(LogRing::defaultPath(), &body)))
+        std::string limitText, beforeText;
+        bool hasLimit = query != std::string::npos && formValue(target.substr(query + 1), "limit", &limitText);
+        bool hasBefore = query != std::string::npos && formValue(target.substr(query + 1), "before", &beforeText);
+        unsigned long limit = 0, before = 0;
+        bool validPage = !hasLimit || (parseLogTimestamp(limitText, &limit) && limit > 0 && limit <= 500);
+        validPage = validPage && (!hasBefore || (hasLimit && parseLogTimestamp(beforeText, &before) && before > 0 && before <= 0xffffffffUL));
+        if (!validSince || !validPage) writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"invalid log request\"}");
+        else if (hasLimit) {
+            if (LogRing::readPage(LogRing::defaultPath(), limit, before, &body))
+                writeResponse(clientFd, 200, "application/json", body);
+            else writeResponse(clientFd, 503, "application/json", "{\"ok\":false,\"error\":\"log is unavailable\"}");
+        } else if ((hasSince ? LogRing::readJson(LogRing::defaultPath(), since, &body) : LogRing::readJson(LogRing::defaultPath(), &body)))
             writeResponse(clientFd, 200, "application/json", body);
         else writeResponse(clientFd, 503, "application/json", "{\"ok\":false,\"error\":\"log is unavailable\"}");
     } else if (request.find("POST /api/debug/event-loop ") == 0) {

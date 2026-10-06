@@ -119,7 +119,7 @@ inactive file pages, and 416 KiB reclaimable slab. Much file cache is reclaimabl
 RAM-backed files and anonymous memory are not. Do not equate `MemFree` alone with
 allocatable headroom or treat all cache as reclaimable. The stock kernel has no
 `MemAvailable` field. Diagnostic files totalled under 9 KiB at this checkpoint;
-the existing native log is a bounded 1 MB RAM ring. Executables reside on flash,
+the existing native log is a bounded 512 KiB RAM ring. Executables reside on flash,
 not on `/tmp` ramfs.
 
 Early second-frame `top` samples showed summed CPU ranges of native 0–13% and

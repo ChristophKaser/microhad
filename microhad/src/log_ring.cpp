@@ -413,3 +413,40 @@ bool LogRing::readJson(const std::string& path, unsigned long since, std::string
     close(fd);
     return ok;
 }
+
+bool LogRing::readPage(const std::string& path, unsigned long limit, unsigned long before, std::string* json) {
+    if (limit == 0 || limit > 500 || before > 0xffffffffUL) return false;
+    int fd = open(path.c_str(), O_RDONLY);
+    if (fd < 0) return false;
+    struct stat info;
+    DiskState state;
+    std::vector<std::string> lines;
+    bool ok = fstat(fd, &info) == 0 && info.st_size == MaximumBytes && readSnapshot(fd, &state, &lines);
+    close(fd);
+    if (!ok) return false;
+    unsigned long end = lines.size();
+    unsigned long start = 0;
+    if (before == 0) {
+        start = end > limit ? end - limit : 0;
+    } else {
+        /* `before` selects an exclusive sequence boundary, then return the
+           newest page before it. */
+        unsigned long eligibleEnd = 0;
+        for (unsigned long i = 0; i < end; ++i) {
+            unsigned long sequence = state.lastSequence - (end - i) + 1;
+            if (sequence < before) eligibleEnd = i + 1;
+        }
+        start = eligibleEnd > limit ? eligibleEnd - limit : 0;
+        end = eligibleEnd;
+    }
+    std::ostringstream output;
+    output << "{\"lines\":[";
+    for (unsigned long i = start; i < end; ++i) {
+        if (i != start) output << ',';
+        output << '\"' << jsonEscape(lines[i]) << '\"';
+    }
+    unsigned long nextBefore = start < end ? state.lastSequence - (lines.size() - start) + 1 : 0;
+    output << "],\"next_before\":" << nextBefore << ",\"has_more\":" << (start > 0 ? "true" : "false") << '}';
+    *json = output.str();
+    return true;
+}
