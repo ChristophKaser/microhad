@@ -43,16 +43,16 @@ printf '%s\n' "$$" > "$control/supervisor.pid"
 # Stock firmware's BusyBox syslogd owns the 512 KiB IPC ring and forwards to
 # the configured collector. Replace its prior instance to apply these flags.
 [ -x "$syslogd" ] || { echo 'BusyBox syslogd executable missing' >&2; exit 2; }
-for old_syslog_pid in $($syslogd ps 2>/dev/null | awk '$5 == "busybox" && $6 == "syslogd" {print $1}'); do
+for old_syslog_pid in $($syslogd ps 2>/dev/null | awk '$5 == "/bin/busybox" && $6 == "syslogd" {print $1}'); do
     kill "$old_syslog_pid" 2>/dev/null || true
 done
 sleep 1
 $syslogd syslogd -C512 -L -R 192.168.178.51:7878 -m 0
 sleep 1
-$syslogd ps 2>/dev/null | awk '$5 == "busybox" && $6 == "syslogd" && $7 == "-C512" && $8 == "-L" && $9 == "-R" && $10 == "192.168.178.51:7878" {found=1} END {exit !found}' || {
+$syslogd ps 2>/dev/null | awk '$5 == "/bin/busybox" && $6 == "syslogd" && $7 == "-C512" && $8 == "-L" && $9 == "-R" && $10 == "192.168.178.51:7878" {found=1} END {exit !found}' || {
     echo 'BusyBox syslogd did not start with the required ring and remote logging options' >&2
     rm -f "$control/supervisor.pid"
-    rmdir "$control" 2>/dev/null || true
+    rm -rf "$control"
     exit 2
 }
 if [ -x "$seed_helper" ]; then
