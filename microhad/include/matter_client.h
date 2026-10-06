@@ -38,10 +38,12 @@ public:
     static bool threadChannel(const std::string& input, unsigned char channel, std::string* body);
     static bool deviceReadRequest(const std::string& input, std::string* body);
     static bool deviceCommandRequest(const std::string& input, std::string* body);
+    static bool deviceBindingRequest(const std::string& input, std::string* body);
     static bool devicePage(const std::string& response, std::string* revision, long* nextCursor,
                            std::vector<MatterEndpoint>* endpoints);
     static bool deviceResult(const std::string& response, const std::string& job, MatterReading* reading);
     static bool deviceReportEvent(const std::string& event, MatterReading* reading);
+    static bool deviceButtonEvent(const std::string& event, MatterButtonEvent* button);
     static bool relayRequest(const std::string& input, uint32_t* id, unsigned char* opcode,
                              std::string* session, std::string* body);
     static std::string relayResponseSession(const std::string& response);

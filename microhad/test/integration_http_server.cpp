@@ -393,6 +393,36 @@ void testServers() {
 #else
     expectStatus("http Matter Level read disabled", response, 404);
 #endif
+    const std::string matterBindBody = "{\"node\":\"0000000000000002\",\"endpoint\":1,\"targets\":[{\"node\":\"0000000000000003\",\"endpoint\":2,\"cluster\":6}]}";
+    std::ostringstream matterBindRequest;
+    matterBindRequest << "POST /api/matter/devices/bind HTTP/1.1\r\nHost: localhost\r\nContent-Length: "
+        << matterBindBody.size() << "\r\n\r\n" << matterBindBody;
+    response = plainRequest(http.boundPort(), matterBindRequest.str());
+#if MICROHAD_MATTER_ENABLED
+    expectStatus("http routes Matter endpoint binding to the Matter service", response, 503);
+#else
+    expectStatus("http Matter binding disabled", response, 404);
+#endif
+    const std::string matterGroupBindBody = "{\"node\":\"0000000000000002\",\"endpoint\":1,\"targets\":[{\"group\":7,\"members\":[{\"node\":\"0000000000000003\",\"endpoint\":2}],\"cluster\":6}]}";
+    std::ostringstream matterGroupBindRequest;
+    matterGroupBindRequest << "POST /api/matter/devices/bind HTTP/1.1\r\nHost: localhost\r\nContent-Length: "
+        << matterGroupBindBody.size() << "\r\n\r\n" << matterGroupBindBody;
+    response = plainRequest(http.boundPort(), matterGroupBindRequest.str());
+#if MICROHAD_MATTER_ENABLED
+    expectStatus("http routes Matter group key and membership setup", response, 503);
+#else
+    expectStatus("http Matter group binding disabled", response, 404);
+#endif
+    const std::string badMatterBindBody = "{\"node\":\"0000000000000002\",\"endpoint\":1,\"targets\":[]}";
+    std::ostringstream badMatterBindRequest;
+    badMatterBindRequest << "POST /api/matter/devices/bind HTTP/1.1\r\nHost: localhost\r\nContent-Length: "
+        << badMatterBindBody.size() << "\r\n\r\n" << badMatterBindBody;
+    response = plainRequest(http.boundPort(), badMatterBindRequest.str());
+#if MICROHAD_MATTER_ENABLED
+    expectStatus("http rejects empty Matter binding target list", response, 400);
+#else
+    expectStatus("http Matter binding disabled", response, 404);
+#endif
     const std::string levelCommandBody = "{\"command\":\"move_to_level\",\"node\":\"0000000000000002\",\"endpoint\":1,\"level\":124,\"transition_deciseconds\":20}";
     std::ostringstream levelCommandRequest;
     levelCommandRequest << "POST /api/matter/devices/command HTTP/1.1\r\nHost: localhost\r\nContent-Length: "

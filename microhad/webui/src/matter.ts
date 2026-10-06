@@ -5,7 +5,7 @@ export type MatterStatus = { enabled: boolean; available: boolean; fabric_ready?
 export type ThreadStatus = { enabled: boolean; available: boolean; configured?: boolean; attached?: boolean; state?: string; zigbee_channel?: number; dataset_channel?: number }
 const states = ['waiting_ble', 'pase', 'provisioning', 'waiting_thread', 'case', 'completing', 'complete', 'cancelled', 'failed', 'timed_out']
 const errors = ['malformed', 'unsupported', 'not_ready', 'busy', 'stale_session', 'stale_generation', 'stale_revision', 'not_found', 'timeout', 'cancelled', 'transport', 'storage', 'capacity', 'accessory', 'protocol', 'disabled']
-export type MatterDevice = { node: string; state: 'complete' | 'recovery_required' | 'commissioning'; online: boolean; id: string | null; endpoint: number | null; servers: number[] }
+export type MatterDevice = { node: string; state: 'complete' | 'recovery_required' | 'commissioning'; online: boolean; id: string | null; endpoint: number | null; servers: number[]; clients: number[] }
 export type MatterDevicePage = { revision: string; devices: MatterDevice[]; next_cursor: number | null }
 export type MatterDeviceState = { power?: boolean; level?: number | null; contact?: boolean; measurements?: Record<string, MatterMeasurement | string> }
 export class MatterError extends Error { constructor(code: string) { super(errors.includes(code) ? code : 'protocol') } }
@@ -15,6 +15,10 @@ function object(value: unknown): Record<string, unknown> {
 }
 function integer(value: unknown, min: number, max: number): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value >= min && value <= max
+}
+function clusterList(value: unknown): value is number[] {
+  return Array.isArray(value) && value.length <= 64 && value.every((cluster, index) =>
+    integer(cluster, 0, 0xffffffff) && (index === 0 || cluster > value[index - 1]))
 }
 export function validSession(value: string): boolean { return /^[0-9a-f]{16}$/.test(value) && value !== '0000000000000000' }
 export function validDataset(value: string): boolean { return /^(?:[0-9a-f]{2}){1,254}$/.test(value) }
@@ -100,7 +104,7 @@ function pause(ms: number, signal: AbortSignal): Promise<void> {
 }
 export async function matterCall(route: string, fields: Record<string, unknown>, signal: AbortSignal): Promise<unknown> {
   if (!['/api/thread/create', '/api/thread/import', '/api/thread/retry', '/api/matter/commissioning/status', '/api/matter/commissioning/cancel',
-    '/api/matter/devices/snapshot', '/api/matter/devices/read', '/api/matter/devices/command'].includes(route)) throw new MatterError('unsupported')
+    '/api/matter/devices/snapshot', '/api/matter/devices/read', '/api/matter/devices/command', '/api/matter/devices/bind'].includes(route)) throw new MatterError('unsupported')
   const keys = Object.keys(fields)
   if (route.endsWith('/create') && keys.length !== 0) throw new MatterError('malformed')
   if (route.endsWith('/import') && (keys.length !== 1 || typeof fields.dataset !== 'string' || !validDataset(fields.dataset))) throw new MatterError('malformed')
@@ -119,11 +123,31 @@ export async function matterCall(route: string, fields: Record<string, unknown>,
       integer(fields.transition_deciseconds, 0, 65535)
     if (!identityValid || (!onOff && !level)) throw new MatterError('malformed')
   }
+  if (route.endsWith('/devices/bind')) {
+    const targets = fields.targets
+    const validTarget = (target: unknown): boolean => {
+      if (!target || typeof target !== 'object' || Array.isArray(target)) return false
+      const item = target as Record<string, unknown>
+      const endpoint = typeof item.node === 'string' && validSession(item.node) && integer(item.endpoint, 0, 65534) &&
+        item.group === undefined && item.members === undefined
+      const group = item.node === undefined && item.endpoint === undefined && integer(item.group, 1, 65535) &&
+        Array.isArray(item.members) && item.members.length > 0 && item.members.length <= 32 &&
+        item.members.every((member) => !!member && typeof member === 'object' && !Array.isArray(member) &&
+          typeof (member as Record<string, unknown>).node === 'string' && validSession((member as Record<string, unknown>).node as string) &&
+          integer((member as Record<string, unknown>).endpoint, 0, 65534) &&
+          Object.keys(member as Record<string, unknown>).every(key => ['node', 'endpoint'].includes(key)))
+      return (endpoint || group) && (item.cluster === 6 || item.cluster === 8) &&
+        Object.keys(item).every(key => ['node', 'endpoint', 'group', 'members', 'cluster'].includes(key))
+    }
+    if (keys.length !== 3 || typeof fields.node !== 'string' || !validSession(fields.node) ||
+        !integer(fields.endpoint, 0, 65534) || !Array.isArray(targets) || targets.length < 1 ||
+        targets.length > 32 || !targets.every(validTarget)) throw new MatterError('malformed')
+  }
   const controller = new AbortController()
   const abort = () => controller.abort()
   signal.addEventListener('abort', abort, { once: true })
   if (signal.aborted) abort()
-  const operationRoute = route === '/api/matter/devices/read' || route === '/api/matter/devices/command'
+  const operationRoute = route === '/api/matter/devices/read' || route === '/api/matter/devices/command' || route === '/api/matter/devices/bind'
   const timer = setTimeout(abort, operationRoute ? 35000 : 10000)
   try {
     const accepted = await request(route, { schema: 1, ...fields }, controller.signal)
@@ -156,17 +180,21 @@ export async function matterDevicePage(cursor: number, revision: string | undefi
       (data.devices.length === 0 && (cursor !== 0 || data.next_cursor !== null))) throw new MatterError('protocol')
   const devices = data.devices.map(value => {
     const device = object(value)
-    if (Object.keys(device).length !== 6 || typeof device.node !== 'string' || !validSession(device.node) || device.node <= '0000000000000001' ||
+    if ((Object.keys(device).length !== 6 && Object.keys(device).length !== 7) || typeof device.node !== 'string' || !validSession(device.node) || device.node <= '0000000000000001' ||
         !['complete', 'recovery_required', 'commissioning'].includes(String(device.state)) || typeof device.online !== 'boolean' ||
         (device.online && device.state !== 'complete') || !Array.isArray(device.servers) || device.servers.length > 64 ||
-        device.servers.some((cluster, index, clusters) => !integer(cluster, 0, 0xffffffff) || (index > 0 && cluster <= clusters[index - 1]))) throw new MatterError('protocol')
+        device.servers.some((cluster, index, clusters) => !integer(cluster, 0, 0xffffffff) || (index > 0 && cluster <= clusters[index - 1])) ||
+        !clusterList(device.servers) || (device.clients !== undefined && !clusterList(device.clients))) throw new MatterError('protocol')
+    if (!Array.isArray(device.clients)) device.clients = []
+    const servers = device.servers as number[]
+    const clients = device.clients as number[]
     if (device.endpoint === null) {
-      if (device.id !== null || device.online || device.servers.length !== 0) throw new MatterError('protocol')
+      if (device.id !== null || device.online || servers.length !== 0 || clients.length !== 0) throw new MatterError('protocol')
     } else {
       if (!integer(device.endpoint, 0, 65534) || typeof device.id !== 'string' ||
           !/^matter:[0-9a-f]{16}:[0-9a-f]{16}:[0-9a-f]{4}$/.test(device.id) ||
           device.id.slice(7, 23) === '0000000000000000' || device.id.slice(24, 40) !== device.node ||
-          parseInt(device.id.slice(41), 16) !== device.endpoint || !device.servers.includes(29)) throw new MatterError('protocol')
+          parseInt(device.id.slice(41), 16) !== device.endpoint || !servers.includes(29)) throw new MatterError('protocol')
     }
     return device as MatterDevice
   })
@@ -176,7 +204,9 @@ export async function matterDevicePage(cursor: number, revision: string | undefi
 export function matterDeviceModel(endpoint: MatterDevice, state: MatterDeviceState = {}, controllerAvailable = true): Device | null {
   if (endpoint.id === null || endpoint.endpoint === null) return null
   const servers = endpoint.servers
-  if (![6, 8, 69, 91, 1026, 1029, 1037, 1066].some(cluster => servers.includes(cluster))) return null
+  const clients = endpoint.clients
+  const hasRemote = servers.includes(59)
+  if (![6, 8, 69, 91, 1026, 1029, 1037, 1066, 59].some(cluster => servers.includes(cluster))) return null
   const measurements: Record<string, { value: number | string | null; unit: string; quality: 'measured' | 'unknown' }> = {}
   for (const [cluster, measurement] of Object.entries(state.measurements ?? {})) {
     measurements[cluster] = typeof measurement === 'string'
@@ -199,8 +229,8 @@ export function matterDeviceModel(endpoint: MatterDevice, state: MatterDeviceSta
   const suffix = `${endpoint.node.slice(-4)} · ${endpoint.endpoint}`
   return {
     id: endpoint.id, source: 'matter', component: 'endpoint', external_id: endpoint.id, ieee_address: '',
-    name: `${hasContact ? 'Matter contact sensor' : isLight ? 'Matter light' : hasActor ? 'Matter switch' : 'Matter device'} ${suffix}`,
-    kind: hasContact ? 'contact' : isLight ? 'light' : hasActor ? 'switch' : 'Matter device',
+    name: `${hasRemote ? 'Matter remote' : hasContact ? 'Matter contact sensor' : isLight ? 'Matter light' : hasActor ? 'Matter switch' : 'Matter device'} ${suffix}`,
+    kind: hasRemote ? 'remote control' : hasContact ? 'contact' : isLight ? 'light' : hasActor ? 'switch' : 'Matter device',
     has_contact: hasContact, contact_known: typeof state.contact === 'boolean', contact_open: state.contact ?? false,
     has_temperature: servers.includes(1026), temperature_known: temperature?.quality === 'measured' && typeof temperature.value === 'number',
     temperature_celsius: typeof temperature?.value === 'number' ? temperature.value : 0,
@@ -219,7 +249,7 @@ export function matterDeviceModel(endpoint: MatterDevice, state: MatterDeviceSta
     link_quality: 0, has_wifi_signal: false, wifi_signal_percent: 0,
     has_light: isLight, light_on: state.power ?? false, light_known: state.power !== undefined,
     has_brightness: isLight, brightness_percent: state.level === null || state.level === undefined ? 0 : Math.round(state.level * 100 / 254),
-    brightness_known: state.level !== undefined && state.level !== null, has_remote: false,
+    brightness_known: state.level !== undefined && state.level !== null, has_remote: hasRemote,
     has_actor: hasActor, actor_known: state.power !== undefined, actor_on: state.power ?? false,
     has_power: false, power_known: false, power_watts: 0,
     has_low_temperature_alert: false, low_temperature_alert: 0, has_high_temperature_alert: false, high_temperature_alert: 0,
@@ -227,7 +257,7 @@ export function matterDeviceModel(endpoint: MatterDevice, state: MatterDeviceSta
     contact_trigger_cooldown_seconds: 0, contact_trigger_active: false, sensor_refresh_interval_minutes: 0,
     value_alerts: {}, last_seen: 0, manufacturer_name: 'Matter', model_id: '', node_descriptor: null,
     endpoint_descriptors: [], online: endpoint.online, controller_available: controllerAvailable, matter_node: endpoint.node,
-    matter_endpoint: endpoint.endpoint, matter_servers: servers,
+    matter_endpoint: endpoint.endpoint, matter_servers: servers, matter_clients: clients,
     sensor_values: sensorValues,
   }
 }

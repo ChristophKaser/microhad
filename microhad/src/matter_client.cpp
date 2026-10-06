@@ -196,6 +196,9 @@ bool measurementValueValid(const std::string& text, uint32_t cluster) {
 }
 bool typedValueValid(const Fields& result, Fields value) {
     const std::string& clusterName = result.find("cluster")->second;
+    if (clusterName == "30")
+        return result.at("attribute") == "0" && value.size() == 2 &&
+            value["type"] == "\"bool\"" && booleanField(value, "value");
     if (clusterName == "6" || clusterName == "69")
         return value.size() == 2 && value["type"] == "\"bool\"" && booleanField(value, "value");
     if (clusterName == "8") return value.size() == 2 && value["type"] == "\"u8\"" &&
@@ -248,16 +251,18 @@ bool devicePageValid(Fields fields) {
         !StatusJson(fields["devices"]).parseArray(&devices) || devices.size() > 1) return false;
     if (devices.empty()) return fields["next_cursor"] == "null";
     Fields device;
-    if (!StatusJson(devices[0]).parse(&device) || device.size() != 6 ||
+    if (!StatusJson(devices[0]).parse(&device) ||
+        (device.size() != 6 && device.size() != 7) ||
         !hex(device["node"], 16, 16) || device["node"] <= "\"0000000000000001\"" ||
         !booleanField(device, "online")) return false;
     static const char* const states[] = {"\"complete\"", "\"recovery_required\"", "\"commissioning\""};
     if (!member(device["state"], states, 3) ||
         (device["online"] == "true" && device["state"] != "\"complete\"")) return false;
-    std::vector<std::string> clusters;
-    if (!StatusJson(device["servers"]).parseArray(&clusters)) return false;
+    std::vector<std::string> clusters, clients;
+    if (!StatusJson(device["servers"]).parseArray(&clusters) ||
+        (device.count("clients") && !StatusJson(device["clients"]).parseArray(&clients))) return false;
     if (device["endpoint"] == "null") return device["id"] == "null" &&
-        device["online"] == "false" && clusters.empty();
+        device["online"] == "false" && clusters.empty() && clients.empty();
     if (!number(device["endpoint"], 0, 65534)) return false;
     const std::string id = device["id"];
     if (id.size() != 47 || id.substr(0, 8) != "\"matter:" || id[24] != ':' || id[41] != ':' ||
@@ -276,6 +281,14 @@ bool devicePageValid(Fields fields) {
         for (unsigned long j = 0; j < clusters[i].size(); ++j) value = value * 10 + clusters[i][j] - '0';
         if (i != 0 && value <= previous) return false;
         previous = value; if (value == 29) descriptor = true;
+    }
+    previous = 0;
+    for (unsigned long i = 0; i < clients.size(); ++i) {
+        if (!number(clients[i], 0, 0xffffffffU)) return false;
+        uint64_t value = 0;
+        for (unsigned long j = 0; j < clients[i].size(); ++j) value = value * 10 + clients[i][j] - '0';
+        if (i != 0 && value <= previous) return false;
+        previous = value;
     }
     return descriptor;
 }
@@ -321,6 +334,10 @@ bool requestValid(unsigned char opcode, const std::string& text) {
             (fields["cluster"] == "6" || fields["cluster"] == "8" || fields["cluster"] == "69" || fields["cluster"] == "91" ||
              fields["cluster"] == "1026" || fields["cluster"] == "1029" ||
              fields["cluster"] == "1037" || fields["cluster"] == "1066") && fields["attribute"] == "0";
+    if (fields["action"] == "\"bind\"") return fields.size() == 5 &&
+            hex(fields["node"], 16, 16) && fields["node"] > "\"0000000000000001\"" &&
+            number(fields["endpoint"], 0, 65534) && fields["targets"].size() >= 3 &&
+            fields["targets"][0] == '[' && fields["targets"][fields["targets"].size() - 1] == ']';
         if (fields["action"] == "\"job\"") return fields.size() == 3 &&
             hex(fields["job"], 16, 16) && fields["job"] != "\"0000000000000000\"";
         if (fields["action"] != "\"snapshot\"" ||
@@ -431,6 +448,12 @@ bool eventValid(const std::string& text) {
     if (fields["event"] == "\"matter_report\"") {
         MatterReading reading;
         return matterReadingFromReport(data, &reading);
+    }
+    if (fields["event"] == "\"matter_button\"") {
+        return data.size() == 5 && hex(data["node"], 16, 16) && data["node"] > "\"0000000000000001\"" &&
+            number(data["endpoint"], 0, 65534) && number(data["event"], 0, 5) &&
+            (data["position"] == "null" || number(data["position"], 0, 254)) &&
+            (data["press_count"] == "null" || number(data["press_count"], 0, 32));
     }
     return fields["event"] == "\"ble_write\"" && data.size() == 4 && hex(data["session"], 16, 16) &&
         data["session"] != "\"0000000000000000\"" && number(data["generation"], 1, 0xffffffffU) &&
@@ -761,6 +784,17 @@ bool MatterChannel::deviceCommandRequest(const std::string& input, std::string* 
     *body += '}';
     return requestValid(11, *body);
 }
+bool MatterChannel::deviceBindingRequest(const std::string& input, std::string* body) {
+    body->clear();
+    Fields fields;
+    if (input.size() > MatterWire::MaxPayload || !StatusJson(input).parse(&fields) || fields.size() != 3 ||
+        !hex(fields["node"], 16, 16) || fields["node"] <= "\"0000000000000001\"" ||
+        !number(fields["endpoint"], 0, 65534) || fields["targets"].size() < 3 ||
+        fields["targets"][0] != '[' || fields["targets"][fields["targets"].size() - 1] != ']') return false;
+    *body = "{\"schema\":1,\"action\":\"bind\",\"node\":" + fields["node"] +
+        ",\"endpoint\":" + fields["endpoint"] + ",\"targets\":" + fields["targets"] + "}";
+    return requestValid(10, *body);
+}
 bool MatterChannel::devicePage(const std::string& response, std::string* revision, long* nextCursor,
                               std::vector<MatterEndpoint>* endpoints) {
     revision->clear(); *nextCursor = -1; endpoints->clear();
@@ -788,6 +822,12 @@ bool MatterChannel::devicePage(const std::string& response, std::string* revisio
         if (!StatusJson(row["servers"]).parseArray(&clusters)) return false;
         for (unsigned long cluster = 0; cluster < clusters.size(); ++cluster)
             endpoint.servers.push_back(static_cast<unsigned int>(strtoul(clusters[cluster].c_str(), 0, 10)));
+        clusters.clear();
+        if (row.count("clients")) {
+            if (!StatusJson(row["clients"]).parseArray(&clusters)) return false;
+            for (unsigned long cluster = 0; cluster < clusters.size(); ++cluster)
+                endpoint.clients.push_back(static_cast<unsigned int>(strtoul(clusters[cluster].c_str(), 0, 10)));
+        }
         endpoints->push_back(endpoint);
     }
     return true;
@@ -832,6 +872,21 @@ bool MatterChannel::deviceReportEvent(const std::string& input, MatterReading* r
     if (!StatusJson(input).parse(&envelope) ||
         !StatusJson(envelope["data"]).parse(&data)) return false;
     return matterReadingFromReport(data, reading);
+}
+
+bool MatterChannel::deviceButtonEvent(const std::string& input, MatterButtonEvent* button) {
+    if (!button || !eventValid(input)) return false;
+    Fields envelope, data;
+    if (!StatusJson(input).parse(&envelope) || envelope["event"] != "\"matter_button\"" ||
+        !StatusJson(envelope["data"]).parse(&data)) return false;
+    MatterButtonEvent parsed;
+    parsed.node = data["node"].substr(1, data["node"].size() - 2);
+    parsed.endpoint = static_cast<unsigned short>(strtoul(data["endpoint"].c_str(), 0, 10));
+    parsed.event = static_cast<unsigned char>(strtoul(data["event"].c_str(), 0, 10));
+    if (data["position"] != "null") parsed.position = static_cast<int>(strtol(data["position"].c_str(), 0, 10));
+    if (data["press_count"] != "null") parsed.pressCount = static_cast<int>(strtol(data["press_count"].c_str(), 0, 10));
+    *button = parsed;
+    return true;
 }
 
 bool MatterChannel::relayRequest(const std::string& input, uint32_t* id, unsigned char* opcode,

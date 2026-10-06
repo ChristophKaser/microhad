@@ -32,6 +32,7 @@ struct MatterEndpoint {
     unsigned short endpoint;
     bool online;
     std::vector<unsigned int> servers;
+    std::vector<unsigned int> clients;
     MatterEndpoint() : endpoint(0), online(false) {}
 };
 
@@ -45,6 +46,15 @@ struct MatterReading {
     std::string textValue;
     std::string unit;
     MatterReading() : endpoint(0), cluster(0), known(false), booleanValue(false), numberValue(0) {}
+};
+
+struct MatterButtonEvent {
+    std::string node;
+    unsigned short endpoint;
+    unsigned char event;
+    int position;
+    int pressCount;
+    MatterButtonEvent() : endpoint(0), event(0), position(-1), pressCount(-1) {}
 };
 
 struct DeviceValueAlert {
@@ -128,6 +138,7 @@ struct Device {
     int matterEndpoint;
     bool online;
     std::vector<unsigned int> matterServers;
+    std::vector<unsigned int> matterClients;
     std::vector<unsigned char> nodeDescriptor; /* raw 13-byte Zigbee Node Descriptor body */
     Device();
 };
@@ -245,6 +256,7 @@ public:
     bool reconcileShelly(const std::vector<std::string>& ids, std::string* error);
     bool reconcileMatterDevices(const std::vector<MatterEndpoint>& endpoints, std::string* error);
     bool applyMatterReading(const MatterReading& reading, std::string* error);
+    bool applyMatterButtonEvent(const MatterButtonEvent& event, std::string* error);
     bool reconcileFritzClients(const std::vector<std::string>& ids, std::string* error);
     bool applyShellyEvent(const std::string& id, int metric, int channelIndex, double value, std::string* error);
     bool applyFritzEvent(const std::string& id, bool connected, bool hasSignal, int signalPercent, std::string* error);
@@ -574,6 +586,7 @@ private:
                              unsigned char command, const std::vector<unsigned char>& arguments);
     bool logRemoteKeyEvent(unsigned short sender, unsigned short cluster, unsigned char endpoint,
                            unsigned short manufacturer, unsigned char command, const std::vector<unsigned char>& arguments);
+    bool logMatterButtonEvent(const MatterButtonEvent& event);
     bool sceneMemberNative(const Device& device, const Scene& scene, const SceneLightState& state) const;
     void queueSceneProvisioning();
     void pollSceneProvisioning();

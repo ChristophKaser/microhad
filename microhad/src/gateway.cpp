@@ -477,7 +477,7 @@ bool Gateway::reconcileMatterDevices(const std::vector<MatterEndpoint>& endpoint
             if (error) *error = "invalid Matter endpoint snapshot";
             return false;
         }
-        const unsigned int supported[] = {6, 8, 69, 91, 1026, 1029, 1037, 1066};
+        const unsigned int supported[] = {6, 8, 59, 69, 91, 1026, 1029, 1037, 1066};
         bool userFacing = false;
         for (unsigned int cluster = 0; cluster < sizeof(supported) / sizeof(supported[0]); ++cluster)
             userFacing = userFacing || std::find(endpoint.servers.begin(), endpoint.servers.end(), supported[cluster]) != endpoint.servers.end();
@@ -489,6 +489,7 @@ bool Gateway::reconcileMatterDevices(const std::vector<MatterEndpoint>& endpoint
         device.matterNode = endpoint.node;
         device.matterEndpoint = endpoint.endpoint;
         device.matterServers = endpoint.servers;
+        device.matterClients = endpoint.clients;
         device.online = endpoint.online;
         device.component = "endpoint";
         device.name = endpoint.servers.end() != std::find(endpoint.servers.begin(), endpoint.servers.end(), 8U)
@@ -499,9 +500,11 @@ bool Gateway::reconcileMatterDevices(const std::vector<MatterEndpoint>& endpoint
         device.hasBrightness = device.hasLight;
         device.hasActor = std::find(endpoint.servers.begin(), endpoint.servers.end(), 6U) != endpoint.servers.end() && !device.hasLight;
         device.hasContact = std::find(endpoint.servers.begin(), endpoint.servers.end(), 69U) != endpoint.servers.end();
+        device.hasRemote = std::find(endpoint.servers.begin(), endpoint.servers.end(), 59U) != endpoint.servers.end();
         if (device.hasLight) device.kind = "light";
         else if (device.hasActor) { device.kind = "switch"; device.name = "Matter switch"; }
-        if (device.hasContact) { device.kind = "contact"; device.name = "Matter contact sensor"; }
+        if (device.hasRemote) { device.kind = "remote control"; device.name = "Matter remote"; }
+        else if (device.hasContact) { device.kind = "contact"; device.name = "Matter contact sensor"; }
         device.hasTemperature = std::find(endpoint.servers.begin(), endpoint.servers.end(), 1026U) != endpoint.servers.end();
         device.hasHumidity = std::find(endpoint.servers.begin(), endpoint.servers.end(), 1029U) != endpoint.servers.end();
         device.hasAirQuality = std::find(endpoint.servers.begin(), endpoint.servers.end(), 91U) != endpoint.servers.end();
@@ -540,7 +543,8 @@ bool Gateway::reconcileMatterDevices(const std::vector<MatterEndpoint>& endpoint
             const bool recentlyReported = current.online && current.lastSeen > 0 &&
                 now >= current.lastSeen && now - current.lastSeen <= 60;
             if (current.matterNode != fresh.matterNode || current.matterEndpoint != fresh.matterEndpoint ||
-                current.matterServers != fresh.matterServers || current.kind != fresh.kind ||
+                current.matterServers != fresh.matterServers || current.matterClients != fresh.matterClients ||
+                current.kind != fresh.kind || current.hasRemote != fresh.hasRemote ||
                 current.name != fresh.name || current.hasLight != fresh.hasLight ||
                 current.hasBrightness != fresh.hasBrightness || current.hasActor != fresh.hasActor ||
                 current.hasContact != fresh.hasContact ||
@@ -577,7 +581,8 @@ bool Gateway::reconcileMatterDevices(const std::vector<MatterEndpoint>& endpoint
             }
             fresh.valueAlerts = current.valueAlerts;
             if (current.online != fresh.online || current.lastSeen != fresh.lastSeen ||
-                current.name != fresh.name || current.matterServers != fresh.matterServers) changed = true;
+                current.name != fresh.name || current.matterServers != fresh.matterServers ||
+                current.matterClients != fresh.matterClients) changed = true;
             current = fresh;
         }
     }
@@ -702,6 +707,60 @@ bool Gateway::applyMatterReading(const MatterReading& reading, std::string* erro
         before.pm25Known != device.pm25Known || before.pm25MicrogramsM3 != device.pm25MicrogramsM3 ||
         before.pm25Unit != device.pm25Unit;
     if (volatileChanged) saveState();
+    return true;
+}
+
+bool Gateway::applyMatterButtonEvent(const MatterButtonEvent& event, std::string* error) {
+    if (error) error->clear();
+    if (event.node.size() != 16 || event.endpoint == 0xffff || event.event > 5 ||
+        event.position < -1 || event.position > 254 || event.pressCount < -1 || event.pressCount > 32) {
+        if (error) *error = "invalid Matter button event";
+        return false;
+    }
+    for (std::map<std::string, Device>::iterator it = devices_.begin(); it != devices_.end(); ++it) {
+        if (it->second.source != "matter" || it->second.matterNode != event.node ||
+            it->second.matterEndpoint != static_cast<int>(event.endpoint) || !it->second.hasRemote) continue;
+        it->second.lastSeen = time(0);
+        it->second.online = true;
+        if (!logMatterButtonEvent(event)) {
+            if (error) *error = "Matter remote endpoint not found";
+            return false;
+        }
+        markViewDirty();
+        return true;
+    }
+    if (error) *error = "Matter remote endpoint not found";
+    return false;
+}
+
+bool Gateway::logMatterButtonEvent(const MatterButtonEvent& event) {
+    const char* name = 0;
+    const char* action = 0;
+    switch (event.event) {
+    case 0: name = "initial_press"; action = "matter_press"; break;
+    case 1: name = "long_press"; action = "matter_hold"; break;
+    case 2: name = "short_release"; action = "matter_release"; break;
+    case 3: name = "long_release"; action = "matter_release"; break;
+    case 4: name = "multi_press_ongoing"; break;
+    case 5: name = "multi_press_complete"; action = "matter_multi_press"; break;
+    default: return false;
+    }
+    std::map<std::string, Device>::const_iterator device = devices_.end();
+    for (std::map<std::string, Device>::const_iterator it = devices_.begin(); it != devices_.end(); ++it) {
+        if (it->second.source == "matter" && it->second.matterNode == event.node &&
+            it->second.matterEndpoint == static_cast<int>(event.endpoint) && it->second.hasRemote) {
+            device = it;
+            break;
+        }
+    }
+    if (device == devices_.end()) return false;
+    std::ostringstream line;
+    line << "Matter remote event: " << device->second.name << " endpoint=" << event.endpoint
+         << " event=" << name;
+    if (event.position >= 0) line << " position=" << event.position;
+    if (event.pressCount >= 0) line << " presses=" << event.pressCount;
+    addLog(line.str());
+    if (action != 0) dispatchRemoteSceneAction(device->second.ieeeAddress, action);
     return true;
 }
 
@@ -2353,7 +2412,9 @@ bool Gateway::setSceneConfiguration(const std::string& encoded, std::string* err
         }
         std::map<std::string, Device>::const_iterator remote = devices_.find(bindings[i].ieeeAddress);
         if (group==0 || remote == devices_.end() || !remote->second.hasRemote ||
-            (bindings[i].action!="on" && bindings[i].action!="off" && bindings[i].action!="arrow_left" && bindings[i].action!="arrow_right") ||
+            (bindings[i].action!="on" && bindings[i].action!="off" && bindings[i].action!="arrow_left" && bindings[i].action!="arrow_right" &&
+             bindings[i].action!="matter_press" && bindings[i].action!="matter_hold" && bindings[i].action!="matter_release" &&
+             bindings[i].action!="matter_multi_press") ||
             (!bindings[i].off && bindings[i].sceneIds.empty())) { *error="invalid remote binding"; return false; }
         if (!bindings[i].off) {
             for (unsigned long j = 0; j < bindings[i].sceneIds.size(); ++j) {
@@ -2861,6 +2922,11 @@ std::string GatewayView::statusJson() const {
             for (unsigned long cluster = 0; cluster < device.matterServers.size(); ++cluster) {
                 if (cluster) json << ',';
                 json << device.matterServers[cluster];
+            }
+            json << "],\"matter_clients\":[";
+            for (unsigned long cluster = 0; cluster < device.matterClients.size(); ++cluster) {
+                if (cluster != 0) json << ',';
+                json << device.matterClients[cluster];
             }
             json << ']';
         }

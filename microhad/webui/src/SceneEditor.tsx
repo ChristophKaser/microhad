@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { Device } from './api'
 import { errorMessage, post, textRequest } from './api'
+import { matterCall } from './matter'
 import { isDimmable, newState, nextId, parseScenes, serializeScenes } from './scenes'
 import type { SceneConfig, SceneState } from './scenes'
 
@@ -17,6 +18,10 @@ const actionLabels: Record<string, string> = {
   off: 'Power off',
   arrow_left: '← Arrow left',
   arrow_right: '→ Arrow right',
+  matter_press: 'Matter: press',
+  matter_hold: 'Matter: hold',
+  matter_release: 'Matter: release',
+  matter_multi_press: 'Matter: multi-press',
 }
 
 function AccordionToggle({
@@ -104,6 +109,10 @@ export function SceneEditor({ devices, nativeStatuses, mode, onClose, onSaved }:
   const [openGroupId, setOpenGroupId] = useState<number | null>(null)
   const [openSceneKey, setOpenSceneKey] = useState<string | null>(null)
   const [openBindingIndex, setOpenBindingIndex] = useState<number | null>(null)
+  const [matterTarget, setMatterTarget] = useState<Record<string, string>>({})
+  const [matterGroup, setMatterGroup] = useState<Record<string, string>>({})
+  const [matterMembers, setMatterMembers] = useState<Record<string, string[]>>({})
+  const [matterBindStatus, setMatterBindStatus] = useState<Record<string, string>>({})
   useEffect(() => {
     let active = true
     textRequest('/api/scenes/config')
@@ -130,6 +139,7 @@ export function SceneEditor({ devices, nativeStatuses, mode, onClose, onSaved }:
     })
   const lights = devices.filter((device) => device.has_light)
   const remotes = devices.filter((device) => device.has_remote)
+  const remoteId = (device: Device) => device.source === 'matter' ? device.external_id : device.ieee_address
   const addGroup = () => {
     if (!config) return
     const id = nextId(config.groups, 0xfff7)
@@ -390,7 +400,7 @@ export function SceneEditor({ devices, nativeStatuses, mode, onClose, onSaved }:
             {mode === 'remotes' && <section className="editor-card">
               <h3>Remote bindings</h3>
               <p className="muted">Choose native control for direct On/Off and dimming while the gateway is off. Gateway scene rules stay saved and resume when you choose Gateway scenes.</p>
-              {remotes.map((remote) => {
+              {remotes.filter((remote) => remote.source !== 'matter').map((remote) => {
                 const native = config.nativeBindings.find((binding) => binding.ieee === remote.ieee_address)
                 const provisioned = nativeStatuses.find((item) => item.ieee_address === remote.ieee_address)
                 return (
@@ -428,9 +438,80 @@ export function SceneEditor({ devices, nativeStatuses, mode, onClose, onSaved }:
                   </div>
                 )
               })}
+              {remotes.filter((remote) => remote.source === 'matter').map((remote) => {
+                const targets = devices.filter((device) => device.source === 'matter' && device.matter_node &&
+                  device.matter_endpoint !== undefined && device.matter_servers?.includes(6))
+                const members = devices.filter((device) => device.source === 'matter' && device.matter_node &&
+                  device.matter_endpoint !== undefined && device.matter_servers?.includes(4) && device.matter_servers.includes(6))
+                const selected = matterTarget[remote.id] ?? ''
+                const selectedMembers = matterMembers[remote.id] ?? []
+                return <div className="editor-row" key={remote.id}>
+                  <span className="grow">{remote.name}</span>
+                  <label className="field compact">Matter target
+                    <select value={selected} onChange={(event) => setMatterTarget((current) => ({ ...current, [remote.id]: event.target.value }))}>
+                      <option value="">Choose a Matter On/Off endpoint</option>
+                      {targets.map((target) => <option key={target.id} value={`${target.matter_node}/${target.matter_endpoint}`}>{target.name}</option>)}
+                    </select>
+                  </label>
+                  <button className="button" disabled={!selected} onClick={async () => {
+                    const [node, endpointText] = selected.split('/')
+                    const sourceNode = remote.matter_node
+                    const sourceEndpoint = remote.matter_endpoint
+                    if (!sourceNode || sourceEndpoint === undefined) return
+                    try {
+                      const controller = new AbortController()
+                      const targetsToBind: { node: string; endpoint: number; cluster: number }[] = [
+                        { node, endpoint: Number(endpointText), cluster: 6 },
+                      ]
+                      const selectedDevice = targets.find((item) => item.matter_node === node && item.matter_endpoint === Number(endpointText))
+                      if (selectedDevice?.matter_servers?.includes(8)) targetsToBind.push({ node, endpoint: Number(endpointText), cluster: 8 })
+                      await matterCall('/api/matter/devices/bind', { node: sourceNode, endpoint: sourceEndpoint, targets: targetsToBind }, controller.signal)
+                      setMatterBindStatus((current) => ({ ...current, [remote.id]: 'Binding saved on remote' }))
+                    } catch (cause) {
+                      setMatterBindStatus((current) => ({ ...current, [remote.id]: errorMessage(cause) }))
+                    }
+                  }}>Bind directly</button>
+                  {matterBindStatus[remote.id] && <span className="muted small">{matterBindStatus[remote.id]}</span>}
+                  <label className="field compact">Matter group ID
+                    <input type="number" min="1" max="65535" value={matterGroup[remote.id] ?? ''}
+                      onChange={(event) => setMatterGroup((current) => ({ ...current, [remote.id]: event.target.value }))} />
+                  </label>
+                  <label className="field compact">Group members (select every endpoint in this Matter group)
+                    <select multiple value={selectedMembers} onChange={(event) => setMatterMembers((current) => ({
+                      ...current, [remote.id]: Array.from(event.target.selectedOptions, (option) => option.value),
+                    }))}>
+                      {members.map((member) => <option key={member.id} value={`${member.matter_node}/${member.matter_endpoint}`}>{member.name}</option>)}
+                    </select>
+                  </label>
+                  <button className="button" disabled={!matterMembers[remote.id]?.length || !matterGroup[remote.id] || !/^\d+$/.test(matterGroup[remote.id]) ||
+                    Number(matterGroup[remote.id]) < 1 || Number(matterGroup[remote.id]) > 65535}
+                    onClick={async () => {
+                      if (!remote.matter_node || remote.matter_endpoint === undefined) return
+                      try {
+                        const controller = new AbortController()
+                        const groupMembers = selectedMembers.map((identity) => {
+                          const [node, endpoint] = identity.split('/')
+                          return { node, endpoint: Number(endpoint) }
+                        })
+                        await matterCall('/api/matter/devices/bind', {
+                          node: remote.matter_node, endpoint: remote.matter_endpoint,
+                          targets: [
+                            { group: Number(matterGroup[remote.id]), members: groupMembers, cluster: 6 },
+                            ...(groupMembers.length > 0 && groupMembers.every((member) => members.some((device) =>
+                              device.matter_node === member.node && device.matter_endpoint === member.endpoint && device.matter_servers?.includes(8)))
+                              ? [{ group: Number(matterGroup[remote.id]), members: groupMembers, cluster: 8 }] : []),
+                          ],
+                        }, controller.signal)
+                        setMatterBindStatus((current) => ({ ...current, [remote.id]: 'Group keys, membership, and remote binding configured' }))
+                      } catch (cause) {
+                        setMatterBindStatus((current) => ({ ...current, [remote.id]: errorMessage(cause) }))
+                      }
+                    }}>Bind existing group</button>
+                </div>
+              })}
               {config.bindings.map((binding, index) => {
                 const group = config.groups.find((item) => item.id === binding.groupId)
-                const remote = remotes.find((item) => item.ieee_address === binding.ieee)
+                const remote = remotes.find((item) => remoteId(item) === binding.ieee)
                 return (
                   <section className="scene-card" key={index}>
                     <AccordionToggle
@@ -457,7 +538,7 @@ export function SceneEditor({ devices, nativeStatuses, mode, onClose, onSaved }:
                             }
                           >
                             {remotes.map((remote) => (
-                              <option key={remote.ieee_address} value={remote.ieee_address}>
+                              <option key={remoteId(remote)} value={remoteId(remote)}>
                                 {remote.name}
                               </option>
                             ))}
@@ -473,10 +554,17 @@ export function SceneEditor({ devices, nativeStatuses, mode, onClose, onSaved }:
                               })
                             }
                           >
-                            <option value="on">Power on</option>
-                            <option value="off">Power off</option>
-                            <option value="arrow_left">← Arrow left</option>
-                            <option value="arrow_right">→ Arrow right</option>
+                            {remote?.source === 'matter' ? <>
+                              <option value="matter_press">Press</option>
+                              <option value="matter_hold">Hold</option>
+                              <option value="matter_release">Release</option>
+                              <option value="matter_multi_press">Multi-press</option>
+                            </> : <>
+                              <option value="on">Power on</option>
+                              <option value="off">Power off</option>
+                              <option value="arrow_left">← Arrow left</option>
+                              <option value="arrow_right">→ Arrow right</option>
+                            </>}
                           </select>
                         </label>
                         <label className="field">

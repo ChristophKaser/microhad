@@ -272,7 +272,8 @@ bool saveDevices(const std::string& filename, const std::vector<Device>& devices
         if (device.source == "matter") {
             output << ",\"matter_node\":\"" << jsonEscape(device.matterNode)
                    << "\",\"matter_endpoint\":" << device.matterEndpoint
-                   << ",\"matter_servers\":\"" << encodeMatterServers(device.matterServers) << '"';
+                   << ",\"matter_servers\":\"" << encodeMatterServers(device.matterServers)
+                   << "\",\"matter_clients\":\"" << encodeMatterServers(device.matterClients) << '"';
         }
         output << '}';
         output << (i + 1 == devices.size() ? "\n" : ",\n");
@@ -432,6 +433,12 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
                     *error = "invalid Matter endpoint state";
                     return false;
                 }
+                std::string encodedClients;
+                if (jsonStringField(line, "matter_clients", &encodedClients) &&
+                    !decodeMatterServers(encodedClients, &device.matterClients)) {
+                    *error = "invalid Matter endpoint client clusters";
+                    return false;
+                }
             }
             {
                 static const char* alertNames[] = {"temperature", "humidity", "battery", "link_quality", "wifi_signal", "brightness", "power", "co2", "pm25"};
@@ -548,7 +555,9 @@ bool parseSceneRecord(const std::vector<std::string>& fields, std::vector<SceneG
         if (fields.size() != 6 || !decimalField(fields[3], 0xfff7, &groupId) || groupId == 0 ||
             fields[1].empty() || (fields[4] != "0" && fields[4] != "1") ||
             (fields[2] != "on" && fields[2] != "off" && fields[2] != "arrow_left" &&
-             fields[2] != "arrow_right")) return false;
+             fields[2] != "arrow_right" && fields[2] != "matter_press" &&
+             fields[2] != "matter_hold" && fields[2] != "matter_release" &&
+             fields[2] != "matter_multi_press")) return false;
         RemoteSceneBinding binding;
         binding.ieeeAddress = fields[1];
         binding.action = fields[2];

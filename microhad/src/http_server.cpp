@@ -768,6 +768,7 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
                request.find("POST /api/matter/devices/snapshot ") == 0 ||
                request.find("POST /api/matter/devices/read ") == 0 ||
                request.find("POST /api/matter/devices/command ") == 0 ||
+               request.find("POST /api/matter/devices/bind ") == 0 ||
                request.find("POST /api/thread/create ") == 0 || request.find("POST /api/thread/import ") == 0 ||
                request.find("POST /api/thread/retry ") == 0) {
 #if MICROHAD_MATTER_ENABLED
@@ -775,7 +776,8 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
             request.find("POST /api/thread/import ") == 0 || request.find("POST /api/thread/retry ") == 0;
         const bool deviceRead = request.find("POST /api/matter/devices/read ") == 0;
         const bool deviceCommand = request.find("POST /api/matter/devices/command ") == 0;
-        const unsigned char opcode = request.find("POST /api/matter/devices/snapshot ") == 0 || deviceRead ? 10 : deviceCommand ? 11 : threadMutation ? 9 : request.find("POST /api/matter/commissioning/start ") == 0 ? 3 :
+        const bool deviceBind = request.find("POST /api/matter/devices/bind ") == 0;
+        const unsigned char opcode = request.find("POST /api/matter/devices/snapshot ") == 0 || deviceRead || deviceBind ? 10 : deviceCommand ? 11 : threadMutation ? 9 : request.find("POST /api/matter/commissioning/start ") == 0 ? 3 :
             request.find("POST /api/matter/commissioning/status ") == 0 ? 4 : 5;
         const std::string::size_type bodyAt = request.find("\r\n\r\n");
         std::string body = bodyAt == std::string::npos ? "" : request.substr(bodyAt + 4);
@@ -787,10 +789,10 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
                 request.find("POST /api/thread/retry ") == 0 ? "retry" : "create";
             valid = MatterChannel::threadMutation(action, body, &prepared);
             body.swap(prepared);
-        } else if (deviceRead || deviceCommand) {
+        } else if (deviceRead || deviceCommand || deviceBind) {
             std::string prepared;
-            valid = deviceRead ? MatterChannel::deviceReadRequest(body, &prepared) :
-                MatterChannel::deviceCommandRequest(body, &prepared);
+            valid = deviceRead ? MatterChannel::deviceReadRequest(body, &prepared) : deviceCommand ?
+                MatterChannel::deviceCommandRequest(body, &prepared) : MatterChannel::deviceBindingRequest(body, &prepared);
             body.swap(prepared);
         }
         if (!valid || !MatterChannel::validRequest(opcode, body)) error = "malformed";

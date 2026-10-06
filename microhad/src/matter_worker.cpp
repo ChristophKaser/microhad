@@ -158,6 +158,14 @@ bool MatterWorker::collectEvents() {
             applyOrDeferReading(reading);
             continue;
         }
+        MatterButtonEvent button;
+        if (MatterChannel::deviceButtonEvent(event, &button)) {
+            if (gateway_) {
+                std::string ignored;
+                gateway_->applyMatterButtonEvent(button, &ignored);
+            }
+            continue;
+        }
         pthread_mutex_lock(&mutex_);
         bool full = events_.size() >= 8;
         if (!full) events_.push_back(event);
