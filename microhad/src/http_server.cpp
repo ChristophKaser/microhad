@@ -442,16 +442,22 @@ bool readNamedProcessRss(const char* executable, uint64_t* bytes) {
     DIR* directory = opendir("/proc");
     if (directory == 0) return false;
     bool found = false;
-    uint64_t total = 0;
+    uint64_t largest = 0;
     struct dirent* entry;
     while ((entry = readdir(directory)) != 0) {
         uint64_t pid;
         if (!numericName(entry->d_name, &pid) || !processExecutable(pid, executable)) continue;
         uint64_t rss = 0;
-        if (readProcessRssBytes(pid, &rss)) { total += rss; found = true; }
+        // This gateway's LinuxThreads runtime exposes threads as separate PIDs.
+        // They share one address space and each status file repeats its RSS, so
+        // summing these entries counts the same resident pages multiple times.
+        if (readProcessRssBytes(pid, &rss)) {
+            if (!found || rss > largest) largest = rss;
+            found = true;
+        }
     }
     closedir(directory);
-    if (found) *bytes = total;
+    if (found) *bytes = largest;
     return found;
 }
 
