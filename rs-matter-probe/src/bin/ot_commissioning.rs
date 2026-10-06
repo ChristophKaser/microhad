@@ -837,7 +837,7 @@ async fn run(
                 if icd {
                     0
                 } else if sensor_reports {
-                    8
+                    lexra_rs_matter_probe::devices::MAX_DEVICE_SUBSCRIPTIONS
                 } else {
                     1
                 },

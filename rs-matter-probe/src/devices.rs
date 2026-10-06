@@ -20,8 +20,9 @@ use std::{
 pub const MAX_ENDPOINTS: usize = 32;
 pub const MAX_CLUSTERS: usize = 64;
 pub const MAX_OPERATION_JOBS: usize = 8;
-// Eight standard reportable values across at most 32 discovered endpoints.
-pub const MAX_DEVICE_SUBSCRIPTIONS: usize = MAX_ENDPOINTS * 8;
+// Reserve up to 12 reportable values per endpoint; the current candidate list
+// uses eight and leaves four slots for additional supported report clusters.
+pub const MAX_DEVICE_SUBSCRIPTIONS: usize = MAX_ENDPOINTS * 12;
 const MAX_RETAINED_JOBS: usize = 16;
 const MAX_QUEUED_REPORT_VALUES: usize = 512;
 const ICD_MANAGEMENT_CLUSTER: u32 = 0x0046;
@@ -1562,7 +1563,7 @@ mod tests {
         assert!(keys.iter().all(|key| key.node == 2));
         let oversized = Snapshot {
             node: 4,
-            endpoints: (1..=40)
+            endpoints: (1..=64)
                 .map(|id| Endpoint {
                     id,
                     servers: vec![6, 8, 69, 91, 1026, 1029, 1037, 1066],
