@@ -75,6 +75,50 @@ update. Keep the configured 512 KiB reserve unless an explicit maintenance
 decision changes it. Never remove application backups or network state just to
 make preflight pass.
 
+For a complete Matter release, build all target artifacts and use the explicit
+maintenance deployment mode. It saves installed application binaries,
+launcher and Web UI under a private local rollback directory, quiesces and
+stops the paired stack, reclaims the verified old Matter service, Ziggurat and
+Web UI only after saving them locally. Because JFFS2 compresses artifacts,
+it checks measured flash after each temporary upload and deletes that temporary
+file if it would consume the 512 KiB reserve. It then installs
+the controller, Ziggurat, Matter service, `gateway-maintenance` helper and Web
+UI, activates the paired launcher, starts the stack, and checks the
+supervisor, IPC sockets, Web UI, status API, and each JavaScript/CSS file linked
+by the deployed `index.html`. Detach SSH stdin from asset-list loops so SSH
+commands cannot consume later `find` results. It removes stale runtime socket
+pathnames only after checking their processes have stopped. It reports available flash and
+process RSS. The mode never copies or removes gateway
+configuration or network/identity state.
+
+```sh
+# Native controller and Matter manifest, from this repository
+make ZIGGURAT=1 MATTER=1 mips
+make webui
+
+# Ziggurat and radio maintenance helper, from ../ziggurat-compilation
+ZIGGURAT_MULTIPAN=1 bash scripts/build-ziggurat.sh
+bash scripts/build-maintenance.sh
+
+# Matter service, from ../ziggurat-compilation
+bash scripts/build-rs-matter-transport.sh mips service
+
+# Complete maintenance deployment, from this repository
+./deploy.sh --maintenance-deploy --host 192.168.178.62 \
+  --password-file ../ssh_password.txt --target /tuya/native \
+  --binary build/mips-ziggurat-matter/microhad-zigbee-native \
+  --ziggurat ../ziggurat-compilation/build/ziggurat-hdlc/lexra-stock-uclibc/release/ziggurat \
+  --matter-service ../ziggurat-compilation/build/rs-matter/thread-matter-mips \
+  --maintenance-helper ../ziggurat-compilation/build/gateway-maintenance
+```
+
+The script prints the local backup directory and retains it after success.
+On transfer or readiness failure it leaves the deployment as-is and does not
+restore files or start either release. If recovery is needed, stop the stack,
+restore the saved application files and Web UI from the printed directory, then
+start `/tuya/tuya_start.sh` manually. Review the backup directory before
+removing it.
+
 For an update to an already paired installation, `--restart` signals only the
 native daemon; its current supervisor restarts it. It does not reload the
 launcher or restart Ziggurat. To apply a changed paired launcher or Matter
