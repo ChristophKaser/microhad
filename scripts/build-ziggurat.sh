@@ -37,6 +37,11 @@ if ! git -C ${build_worktree} apply --reverse --check \
     git -C ${build_worktree} apply --check "$experiment_root/patches/ziggurat-stock-compat.patch"
     git -C ${build_worktree} apply "$experiment_root/patches/ziggurat-stock-compat.patch"
 fi
+if ! git -C ${build_worktree} apply --reverse --check \
+    "$experiment_root/patches/ziggurat-syslog.patch" 2>/dev/null; then
+    git -C ${build_worktree} apply --check "$experiment_root/patches/ziggurat-syslog.patch"
+    git -C ${build_worktree} apply "$experiment_root/patches/ziggurat-syslog.patch"
+fi
 if [[ $ZIGGURAT_MULTIPAN == 1 ]]; then
     if ! git -C "$build_worktree" apply --reverse --check "$experiment_root/patches/ziggurat-cobs-unix.patch" 2>/dev/null; then
         git -C "$build_worktree" apply --check "$experiment_root/patches/ziggurat-cobs-unix.patch"
