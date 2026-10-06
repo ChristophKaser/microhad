@@ -33,6 +33,10 @@
 #include <unistd.h>
 #include <vector>
 
+#ifndef MICROHAD_BUILD_REVISION
+#define MICROHAD_BUILD_REVISION "unknown"
+#endif
+
 #ifdef MICROHAD_MBEDTLS_ENABLED
 extern "C" int microhad_tls_server_create(const char* certificatePath, const char* privateKeyPath, void** server);
 extern "C" void microhad_tls_server_destroy(void* server);
@@ -406,6 +410,51 @@ bool readMemoryKb(const char* key, uint64_t* value) {
     return false;
 }
 
+bool numericName(const char* name, uint64_t* value);
+
+bool readProcessRssBytes(uint64_t pid, uint64_t* bytes) {
+    std::ostringstream path;
+    path << "/proc/" << pid << "/status";
+    std::ifstream input(path.str().c_str());
+    std::string line;
+    while (std::getline(input, line)) {
+        std::istringstream fields(line);
+        std::string key, unit;
+        uint64_t amount;
+        if (fields >> key >> amount >> unit && key == "VmRSS:") { *bytes = amount * 1024; return true; }
+    }
+    return false;
+}
+
+bool processExecutable(uint64_t pid, const char* expected) {
+    std::ostringstream path;
+    path << "/proc/" << pid << "/exe";
+    char target[512];
+    ssize_t length = readlink(path.str().c_str(), target, sizeof(target) - 1);
+    if (length <= 0) return false;
+    target[length] = 0;
+    std::string executable(target);
+    std::string::size_type slash = executable.rfind('/');
+    return executable.substr(slash == std::string::npos ? 0 : slash + 1) == expected;
+}
+
+bool readNamedProcessRss(const char* executable, uint64_t* bytes) {
+    DIR* directory = opendir("/proc");
+    if (directory == 0) return false;
+    bool found = false;
+    uint64_t total = 0;
+    struct dirent* entry;
+    while ((entry = readdir(directory)) != 0) {
+        uint64_t pid;
+        if (!numericName(entry->d_name, &pid) || !processExecutable(pid, executable)) continue;
+        uint64_t rss = 0;
+        if (readProcessRssBytes(pid, &rss)) { total += rss; found = true; }
+    }
+    closedir(directory);
+    if (found) *bytes = total;
+    return found;
+}
+
 bool readUptime(double* uptime) {
     std::ifstream input("/proc/uptime");
     double idle;
@@ -434,6 +483,7 @@ uint64_t fileBytes(const std::string& path) {
 
 struct ThreadCpuReading {
     uint64_t tid;
+    std::string process;
     uint64_t startTicks;
     uint64_t cpuTicks;
     double usage;
@@ -504,6 +554,7 @@ bool readProcessGroup(uint64_t pid, uint64_t* group) {
 }
 
 bool threadUsageOrder(const ThreadCpuReading& left, const ThreadCpuReading& right) {
+    if (left.process != right.process) return left.process < right.process;
     if (left.sampled != right.sampled) return left.sampled;
     if (left.sampled && left.usage != right.usage) return left.usage > right.usage;
     if (left.name != right.name) return left.name < right.name;
@@ -1208,7 +1259,8 @@ std::string HttpServer::controllerStatsJson() {
     double uptime = 0;
     double cpuUsage = -1;
     uint64_t totalTicks = 0, idleTicks = 0, startTicks = 0;
-    uint64_t memoryTotal = 0, memoryFree = 0, processPages = 0;
+    uint64_t memoryTotal = 0, memoryFree = 0, reclaimableKb = 0, cachedKb = 0, slabReclaimableKb = 0, processPages = 0;
+    uint64_t zigguratMemory = 0, matterMemory = 0;
     struct statvfs filesystem;
     uint64_t storageTotal = 0, storageFree = 0;
     double load1 = 0, load5 = 0, load15 = 0;
@@ -1225,10 +1277,20 @@ std::string HttpServer::controllerStatsJson() {
         pthread_mutex_unlock(&statsMutex_);
     }
     bool hasMemory = readMemoryKb("MemTotal:", &memoryTotal);
-    bool hasFree = readMemoryKb("MemAvailable:", &memoryFree);
-    if (!hasFree) hasFree = readMemoryKb("MemFree:", &memoryFree);
+    bool hasFree = readMemoryKb("MemFree:", &memoryFree);
+    bool hasReclaimable = readMemoryKb("MemReclaimable:", &reclaimableKb);
+    if (!hasReclaimable) {
+        bool hasCached = readMemoryKb("Cached:", &cachedKb);
+        bool hasSlab = readMemoryKb("SReclaimable:", &slabReclaimableKb);
+        hasReclaimable = hasCached || hasSlab;
+        reclaimableKb = (hasCached ? cachedKb : 0) + (hasSlab ? slabReclaimableKb : 0);
+    }
+    if (hasFree && hasReclaimable) memoryFree += reclaimableKb;
+    bool hasZigguratMemory = readNamedProcessRss("ziggurat", &zigguratMemory);
+    bool hasMatterMemory = readNamedProcessRss("thread-matter", &matterMemory);
     if (hasMemory) memoryTotal *= 1024;
     if (hasFree) memoryFree *= 1024;
+    if (hasMemory && hasFree && memoryFree > memoryTotal) memoryFree = memoryTotal;
     std::ifstream statm("/proc/self/statm");
     uint64_t virtualPages = 0;
     bool hasProcessMemory = static_cast<bool>(statm >> virtualPages >> processPages);
@@ -1258,7 +1320,7 @@ std::string HttpServer::controllerStatsJson() {
             std::string threadName;
             if (!numericName(entry->d_name, &tid) || !readTaskCpu(taskRoot, tid, &threadStart, &threadCpu, &threadName)) continue;
             ThreadCpuReading reading;
-            reading.tid = tid; reading.startTicks = threadStart; reading.cpuTicks = threadCpu;
+            reading.tid = tid; reading.process = "microhad-zigbee-native"; reading.startTicks = threadStart; reading.cpuTicks = threadCpu;
             reading.usage = 0; reading.sampled = false; reading.name = threadName;
             std::map<uint64_t, ThreadCpuSample>::const_iterator previous = previousThreadSamples_.find(tid);
             if (previous != previousThreadSamples_.end() && previous->second.startTicks == threadStart &&
@@ -1301,7 +1363,7 @@ std::string HttpServer::controllerStatsJson() {
                     std::string threadName;
                     if (!readTaskCpu("/proc", pid, &threadStart, &threadCpu, &threadName)) continue;
                     ThreadCpuReading reading;
-                    reading.tid = pid; reading.startTicks = threadStart; reading.cpuTicks = threadCpu;
+                    reading.tid = pid; reading.process = "microhad-zigbee-native"; reading.startTicks = threadStart; reading.cpuTicks = threadCpu;
                     reading.usage = 0; reading.sampled = false; reading.name = threadName;
                     std::map<uint64_t, ThreadCpuSample>::const_iterator previous = previousThreadSamples_.find(pid);
                     if (previous != previousThreadSamples_.end() && previous->second.startTicks == threadStart &&
@@ -1320,6 +1382,44 @@ std::string HttpServer::controllerStatsJson() {
             }
         }
     }
+    const char* processNames[] = { "ziggurat", "thread-matter" };
+    for (unsigned long processIndex = 0; processIndex < 2; ++processIndex) {
+        DIR* procDirectory = opendir("/proc");
+        if (procDirectory == 0) continue;
+        struct dirent* processEntry;
+        while ((processEntry = readdir(procDirectory)) != 0) {
+            uint64_t pid;
+            if (!numericName(processEntry->d_name, &pid) || pid == processId_ || !processExecutable(pid, processNames[processIndex])) continue;
+            std::ostringstream taskRootBuilder;
+            taskRootBuilder << "/proc/" << pid << "/task";
+            std::string taskRoot = taskRootBuilder.str();
+            DIR* taskDirectory = opendir(taskRoot.c_str());
+            if (taskDirectory == 0) continue;
+            struct dirent* taskEntry;
+            while ((taskEntry = readdir(taskDirectory)) != 0) {
+                uint64_t tid, threadStart = 0, threadCpu = 0;
+                std::string threadName;
+                if (!numericName(taskEntry->d_name, &tid) || !readTaskCpu(taskRoot, tid, &threadStart, &threadCpu, &threadName)) continue;
+                ThreadCpuReading reading;
+                reading.tid = tid; reading.process = processNames[processIndex]; reading.startTicks = threadStart; reading.cpuTicks = threadCpu;
+                reading.usage = 0; reading.sampled = false; reading.name = threadName;
+                std::map<uint64_t, ThreadCpuSample>::const_iterator previous = previousThreadSamples_.find(tid);
+                if (previous != previousThreadSamples_.end() && previous->second.startTicks == threadStart &&
+                    threadCpu >= previous->second.cpuTicks && hasUptime && previousThreadSampleUptime_ > 0 &&
+                    uptime > previousThreadSampleUptime_ && ticksPerSecond > 0) {
+                    double elapsedTicks = (uptime - previousThreadSampleUptime_) * ticksPerSecond;
+                    reading.usage = elapsedTicks > 0 ? 100.0 * (threadCpu - previous->second.cpuTicks) / elapsedTicks : 0;
+                    reading.sampled = true;
+                }
+                ThreadCpuSample sample;
+                sample.startTicks = threadStart; sample.cpuTicks = threadCpu;
+                currentSamples[tid] = sample;
+                threads.push_back(reading);
+            }
+            closedir(taskDirectory);
+        }
+        closedir(procDirectory);
+    }
     previousThreadSamples_.swap(currentSamples);
     if (hasUptime) previousThreadSampleUptime_ = uptime;
     pthread_mutex_unlock(&statsMutex_);
@@ -1328,7 +1428,8 @@ std::string HttpServer::controllerStatsJson() {
     GatewayRunner::ViewLease* view = gateway_->acquireView();
     if (view != 0) { serialOpenedAt = view->serialOpenedAt(); delete view; }
     std::ostringstream json;
-    json << std::setprecision(6) << "{\"device_uptime_seconds\":";
+    json << std::setprecision(6) << "{\"build_date\":\"" << __DATE__ << " " << __TIME__
+         << "\",\"build_commit\":\"" << MICROHAD_BUILD_REVISION << "\",\"device_uptime_seconds\":";
     if (hasUptime) json << static_cast<unsigned long>(uptime); else json << "null";
     json << ",\"service_uptime_seconds\":";
     if (serviceUptime >= 0) json << static_cast<unsigned long>(serviceUptime); else json << "null";
@@ -1341,7 +1442,10 @@ std::string HttpServer::controllerStatsJson() {
     json << ",\"cpu_load_15\":"; if (hasLoad) json << load15; else json << "null";
     json << ",\"memory_total_bytes\":"; if (hasMemory) json << memoryTotal; else json << "null";
     json << ",\"memory_free_bytes\":"; if (hasFree) json << memoryFree; else json << "null";
+    json << ",\"memory_reclaimable_bytes\":"; if (hasReclaimable) json << reclaimableKb * 1024; else json << "null";
     json << ",\"process_memory_bytes\":"; if (hasProcessMemory && pageSize > 0) json << processPages; else json << "null";
+    json << ",\"ziggurat_memory_bytes\":"; if (hasZigguratMemory) json << zigguratMemory; else json << "null";
+    json << ",\"matter_memory_bytes\":"; if (hasMatterMemory) json << matterMemory; else json << "null";
     json << ",\"log_file_bytes\":" << fileBytes("/tmp/microhad-zigbee-native.log")
          << ",\"values_file_bytes\":" << fileBytes(gateway_->historyPath())
          << ",\"storage_total_bytes\":"; if (hasFilesystem) json << storageTotal; else json << "null";
@@ -1350,7 +1454,8 @@ std::string HttpServer::controllerStatsJson() {
     json << ",\"threads\":[";
     for (unsigned long i = 0; i < threads.size(); ++i) {
         if (i) json << ',';
-        json << "{\"tid\":" << threads[i].tid << ",\"name\":\"" << jsonEscape(threads[i].name)
+        json << "{\"tid\":" << threads[i].tid << ",\"process\":\"" << jsonEscape(threads[i].process)
+             << "\",\"name\":\"" << jsonEscape(threads[i].name)
              << "\",\"cpu_usage_percent\":";
         if (threads[i].sampled) json << threads[i].usage; else json << "null";
         json << '}';

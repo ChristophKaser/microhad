@@ -441,10 +441,16 @@ void testServers() {
     expectStatus("http controller stats", response, 200);
     assert(response.find("\"cpu_usage_percent\":") != std::string::npos &&
            response.find("\"memory_free_bytes\":") != std::string::npos &&
+           response.find("\"memory_reclaimable_bytes\":") != std::string::npos &&
+           response.find("\"ziggurat_memory_bytes\":") != std::string::npos &&
+           response.find("\"matter_memory_bytes\":") != std::string::npos &&
+           response.find("\"build_date\":") != std::string::npos &&
+           response.find("\"build_commit\":") != std::string::npos &&
            response.find("\"values_file_bytes\":") != std::string::npos &&
            response.find("\"serial_uptime_seconds\":") != std::string::npos &&
            response.find("\"storage_total_bytes\":") != std::string::npos &&
            response.find("\"threads\":[{\"tid\":") != std::string::npos &&
+           response.find("\"process\":\"microhad-zigbee-native\"") != std::string::npos &&
            response.find("},{\"tid\":") != std::string::npos &&
            response.find("\"name\":") != std::string::npos &&
            response.find("\"name\":\"coordinator\"") != std::string::npos &&

@@ -125,6 +125,8 @@ export interface Status {
 }
 
 export interface ControllerStats {
+  build_date: string
+  build_commit: string
   device_uptime_seconds: number | null
   service_uptime_seconds: number | null
   serial_opened_at: number
@@ -135,13 +137,16 @@ export interface ControllerStats {
   cpu_load_15: number | null
   memory_total_bytes: number | null
   memory_free_bytes: number | null
+  memory_reclaimable_bytes: number | null
   process_memory_bytes: number | null
+  ziggurat_memory_bytes: number | null
+  matter_memory_bytes: number | null
   log_file_bytes: number
   values_file_bytes: number
   storage_total_bytes: number | null
   storage_free_bytes: number | null
   storage_used_bytes: number | null
-  threads: { tid: number; name: string; cpu_usage_percent: number | null }[]
+  threads: { tid: number; process: string; name: string; cpu_usage_percent: number | null }[]
 }
 
 export interface ExternalDevice {
