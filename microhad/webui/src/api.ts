@@ -110,6 +110,8 @@ export interface SceneGroupSummary {
   scenes: SceneSummary[]
 }
 export interface Status {
+  coordinator_backend?: 'ezsp' | 'ziggurat'
+  observed_network_channel?: number
   online: boolean
   network_forming: boolean
   network_formed: boolean

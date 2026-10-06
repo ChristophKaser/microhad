@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { Chart as ChartJS, ArcElement, DoughnutController, Tooltip } from 'chart.js'
 import { errorMessage, jsonRequest } from './api'
 import type { ControllerStats as ControllerStatsData } from './api'
+import type { Status } from './api'
+import type { ThreadStatus } from './matter'
 
 ChartJS.register(DoughnutController, ArcElement, Tooltip)
 
@@ -52,7 +54,7 @@ function Donut({ title, free, total }: { title: string; free: number | null; tot
   </article>
 }
 
-export function ControllerStats() {
+export function ControllerStats({ status, thread }: { status: Status | null; thread: ThreadStatus | null }) {
   const [stats, setStats] = useState<ControllerStatsData | null>(null)
   const [samples, setSamples] = useState<{ time: number; value: number }[]>([])
   const [error, setError] = useState('')
@@ -91,7 +93,9 @@ export function ControllerStats() {
     <div className="controller-detail-grid panel">
       <div><span>Device uptime</span><strong>{formatDuration(stats?.device_uptime_seconds ?? null)}</strong></div>
       <div><span>Service uptime</span><strong>{formatDuration(stats?.service_uptime_seconds ?? null)}</strong></div>
-      <div><span>Serial connection</span><strong>{formatDuration(stats?.serial_uptime_seconds ?? null)}</strong></div>
+      <div><span>Network channels</span><strong>Zigbee channel {thread?.zigbee_channel ?? status?.observed_network_channel ?? '—'} · Thread channel {thread?.dataset_channel ?? '—'}</strong></div>
+      <div><span>Serial connection</span><strong>{status?.coordinator_backend === 'ziggurat' ? 'Managed by Ziggurat' : formatDuration(stats?.serial_uptime_seconds ?? null)}</strong></div>
+      <div><span>Serial RX</span><strong>{status?.coordinator_backend === 'ziggurat' ? 'Managed by Ziggurat' : status ? `${status.serial_rx_bytes} bytes · ${status.ash_rx_frames} frames` : 'Unavailable'}</strong></div>
       <div><span>Build date</span><strong>{stats?.build_date ?? 'Unavailable'}</strong></div>
       <div><span>Build commit</span><strong>{stats?.build_commit ?? 'Unavailable'}</strong></div>
       <div><span>Reclaimable memory</span><strong>{formatBytes(stats?.memory_reclaimable_bytes ?? null)}</strong></div>

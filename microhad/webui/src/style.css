@@ -543,6 +543,7 @@ button:disabled {
 .panel summary h2 {
   display: inline-block;
 }
+.log-filter { max-width: 520px; margin-top: 8px; }
 .logs {
   height: calc(100dvh - 320px);
   min-height: 280px;

@@ -13,6 +13,7 @@ import { ControllerStats } from './ControllerStats'
 import { MatterPanel } from './MatterPanel'
 import { useMatterDevices } from './useMatterDevices'
 import { useGatewayData } from './useGatewayData'
+import { useGatewayOverview } from './useGatewayOverview'
 import './style.css'
 
 function LogLine({ line }: { line: string }) {
@@ -64,10 +65,19 @@ function JoinButton({
 
 function App() {
   const [tab, setTab] = useState('Dashboard')
+  const [logFilter, setLogFilter] = useState('')
   const { status, statusError, logs, logsError, logsHasMore, loadOlderLogs, refreshStatus } = useGatewayData(tab === 'Diagnostics')
+  const { thread, resources } = useGatewayOverview()
   const logPane = useRef<HTMLPreElement>(null)
   const followLogs = useRef(true)
   const preserveLogPosition = useRef<{ height: number; top: number } | null>(null)
+  const filterTerms = logFilter.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean)
+  const visibleLogs = filterTerms.length
+    ? logs.filter(line => {
+      const normalized = line.toLocaleLowerCase()
+      return filterTerms.every(term => normalized.includes(term))
+    })
+    : logs
   useLayoutEffect(() => {
     const pane = logPane.current
     if (!pane) return
@@ -206,11 +216,7 @@ function App() {
           <strong>MicroHAD</strong>
           <span
             className={statusError || !status?.online ? 'state-bad' : 'state-good'}
-            title={
-              status
-                ? `Serial RX: ${status.serial_rx_bytes} bytes · ${status.ash_rx_frames} frames`
-                : statusError
-            }
+            title={statusError}
           >
             {restarting
               ? '● Restarting'
@@ -237,12 +243,7 @@ function App() {
           <p className="hero-sub">Devices, scenes, and coordinator activity in one place.</p>
         </div>
         <div className="hero-actions"><div className="serial-state">
-          {restarting
-            ? 'Restarting service…'
-            : statusError ||
-              (status
-                ? `Serial RX: ${status.serial_rx_bytes} bytes · ${status.ash_rx_frames} frames`
-                : 'Connecting…')}
+          {restarting ? 'Restarting service…' : statusError ? 'Gateway status unavailable' : status?.online ? 'Coordinator online' : 'Coordinator offline'}
         </div></div>
       </header>
       <nav className="main-tabs" role="tablist" aria-label="Gateway views">
@@ -256,6 +257,8 @@ function App() {
         devices={catalogStatus?.devices ?? []}
         groups={status?.scene_groups ?? []}
         status={status}
+        thread={thread}
+        resources={resources}
         restarting={restarting}
         action={action}
         onConfig={setDashboardDraft}
@@ -288,6 +291,13 @@ function App() {
           <div>
             <span className="overview-label">Zigbee network</span>
             <strong>{networkState}</strong>
+          </div>
+        </div>
+        <div className={`overview-item ${thread?.attached ? 'good' : thread?.available && thread.configured ? 'warn' : ''}`}>
+          <span className="overview-icon">◉</span>
+          <div>
+            <span className="overview-label">Matter network</span>
+            <strong>{!thread ? 'Checking' : !thread.available ? 'Unavailable' : !thread.configured ? 'Not configured' : thread.attached ? 'Attached' : 'Waiting for attachment'}</strong>
           </div>
         </div>
         <div className="overview-item">
@@ -329,7 +339,7 @@ function App() {
         </div>
       </section>
       <MatterPanel />
-      <ControllerStats />
+      <ControllerStats status={status} thread={thread} />
       </>}
       {tab === 'Groups' && <section className="panel">
         <div className="section-heading">
@@ -373,13 +383,15 @@ function App() {
             <span className="eyebrow">Diagnostics</span>
             <h2>Live coordinator log</h2>
           </summary>
+          <label className="field log-filter"><span>Filter log lines</span><input type="search" value={logFilter} onChange={event => setLogFilter(event.target.value)} placeholder="Words separated by spaces (AND)" /></label>
           <pre className="logs" ref={logPane} onScroll={(event) => {
             const pane = event.currentTarget
             followLogs.current = pane.scrollHeight - pane.scrollTop - pane.clientHeight < 48
           }}>
             {logsError ? `Unable to load logs: ${logsError}` : <>
               {logsHasMore && <button className="button log-load-more" onClick={loadMoreLogs}>Load 500 more</button>}
-              {logs.map((line, index) => <LogLine key={index} line={line} />)}
+              {visibleLogs.map((line, index) => <LogLine key={`${index}-${line}`} line={line} />)}
+              {filterTerms.length > 0 && visibleLogs.length === 0 && <span className="muted">No log lines match these terms.</span>}
             </>}
           </pre>
         </details>

@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { Chart as ChartJS, LineController, LineElement, LinearScale, PointElement, Tooltip } from 'chart.js'
 import type { Device, HistoryMetric, HistoryPage, HistorySample, SceneGroupSummary, Status } from './api'
+import type { ControllerStats } from './api'
+import type { ThreadStatus } from './matter'
 import { errorMessage, jsonRequest } from './api'
 import { DeviceGroups } from './devices'
 import { historyDeviceId, historyDiscrete, historyLabel, historyTick, historyUnit, historyY } from './history'
@@ -86,11 +88,21 @@ function SensorChart({ device, metricId, range }: { device: Device | undefined; 
   return <article className="dashboard-widget dashboard-chart" style={{ '--sensor-color': metric?.color ?? '#71859a' } as CSSProperties}><div className="dashboard-widget-title"><div><h3>{device?.name ?? 'Unavailable device'}</h3><span>{metric?.name ?? 'Sensor'} · {value}</span></div></div>{error ? <p className="error">{error}</p> : points.length ? <div className="dashboard-chart-canvas"><canvas ref={canvas} role="img" aria-label={`${device?.name} ${metric?.name} chart`} /></div> : <p className="muted small">No retained samples for this value yet.</p>}</article>
 }
 
-function GatewayWidget({ status, deviceCount, restarting }: { status: Status | null; deviceCount: number; restarting: boolean }) {
+function formatBytes(value: number | null | undefined): string {
+  if (value === null || value === undefined) return '—'
+  const units = ['B', 'KiB', 'MiB', 'GiB']
+  let amount = value
+  let unit = 0
+  while (amount >= 1024 && unit < units.length - 1) { amount /= 1024; unit++ }
+  return `${amount.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`
+}
+
+function GatewayWidget({ status, deviceCount, restarting, thread, resources }: { status: Status | null; deviceCount: number; restarting: boolean; thread: ThreadStatus | null; resources: ControllerStats | null }) {
   const coordinator = restarting ? 'Restarting' : status ? status.online ? 'Online' : 'Offline' : 'Checking'
   const network = status?.network_formed ? 'Formed' : status?.network_forming ? 'Forming' : 'Not formed'
+  const threadNetwork = !thread ? 'Checking' : !thread.available ? 'Unavailable' : !thread.configured ? 'Not configured' : thread.attached ? 'Attached' : 'Waiting for attachment'
   const joining = status?.joining_preparing ? 'Preparing' : status?.joining_until && status.joining_until > Date.now() / 1000 ? 'Open' : 'Closed'
-  return <article className="dashboard-widget gateway-widget"><h3>Gateway state</h3><dl className="gateway-widget-state"><div><dt>Coordinator</dt><dd className={status?.online && !restarting ? 'state-good' : 'state-bad'}>{coordinator}</dd></div><div><dt>Zigbee network</dt><dd>{network}</dd></div><div><dt>Joining</dt><dd>{joining}</dd></div><div><dt>Devices</dt><dd>{deviceCount}</dd></div></dl></article>
+  return <article className="dashboard-widget gateway-widget"><h3>Gateway state</h3><dl className="gateway-widget-state"><div><dt>Coordinator</dt><dd className={status?.online && !restarting ? 'state-good' : 'state-bad'}>{coordinator}</dd></div><div><dt>Zigbee network</dt><dd>{network}</dd></div><div><dt>Matter network</dt><dd>{threadNetwork}</dd></div><div><dt>Joining</dt><dd>{joining}</dd></div><div><dt>Devices</dt><dd>{deviceCount}</dd></div><div><dt>Free memory</dt><dd>{formatBytes(resources?.memory_free_bytes)}</dd></div><div><dt>Free flash</dt><dd>{formatBytes(resources?.storage_free_bytes)}</dd></div></dl></article>
 }
 
 function GroupWidget({ group, devices, action }: { group: SceneGroupSummary | undefined; devices: Device[]; action: (url: string, body?: string) => void }) {
@@ -102,8 +114,8 @@ function DeviceListWidget({ title, devices, empty }: { title: string; devices: D
   return <article className="dashboard-widget"><div className="dashboard-widget-title"><div><h3>{title}</h3><span>{devices.length} device{devices.length === 1 ? '' : 's'}</span></div></div>{devices.length ? <ul className="dashboard-device-list">{devices.map(device => <li key={device.id}>{device.name}</li>)}</ul> : <p className="muted small">{empty}</p>}</article>
 }
 
-export function Dashboard({ config, editing, devices, groups, status, restarting, action, onConfig, onSettings, onDetails, onHistory, onConnection, onEdit, onCancel, onSave, saving, loaded, configError }: {
-  config: DashboardConfig; editing: boolean; devices: Device[]; groups: SceneGroupSummary[]; status: Status | null; restarting: boolean
+export function Dashboard({ config, editing, devices, groups, status, restarting, thread, resources, action, onConfig, onSettings, onDetails, onHistory, onConnection, onEdit, onCancel, onSave, saving, loaded, configError }: {
+  config: DashboardConfig; editing: boolean; devices: Device[]; groups: SceneGroupSummary[]; status: Status | null; restarting: boolean; thread: ThreadStatus | null; resources: ControllerStats | null
   action: (url: string, body?: string) => void; onConfig: (value: DashboardConfig) => void
   onSettings: (device: Device) => void; onDetails: (device: Device) => void; onHistory: (device: Device) => void; onConnection: (device: Device) => void
   onEdit: () => void; onCancel: () => void; onSave: () => void; saving: boolean; loaded: boolean; configError: string
@@ -127,7 +139,7 @@ export function Dashboard({ config, editing, devices, groups, status, restarting
       const move=(direction:number)=>{ const next=[...config.widgets]; const swap=index+direction; if(swap<0||swap>=next.length)return; [next[index],next[swap]]=[next[swap],next[index]]; updateWidgets(next) }
       const device=devices.find(d=>d.id===widget.target)
       const controls=editing?<div className="dashboard-widget-actions"><button className="icon-button" aria-label="Move widget up" onClick={()=>move(-1)}>↑</button><button className="icon-button" aria-label="Move widget down" onClick={()=>move(1)}>↓</button><button className="icon-button" aria-label="Remove widget" onClick={()=>updateWidgets(config.widgets.filter(item=>item.id!==widget.id))}>×</button></div>:null
-      if(widget.kind==='gateway')return <div className="dashboard-widget-shell" key={widget.id}>{controls}<GatewayWidget status={status} deviceCount={devices.length} restarting={restarting}/></div>
+      if(widget.kind==='gateway')return <div className="dashboard-widget-shell" key={widget.id}>{controls}<GatewayWidget status={status} deviceCount={devices.length} restarting={restarting} thread={thread} resources={resources}/></div>
       if(widget.kind==='open_contacts')return <div className="dashboard-widget-shell" key={widget.id}>{controls}<DeviceListWidget title="Open contact sensors" empty="No open contact sensors." devices={devices.filter(d=>d.has_contact&&!d.contact_trigger_mode&&d.contact_known&&d.contact_open)}/></div>
       if(widget.kind==='present_sensors')return <div className="dashboard-widget-shell" key={widget.id}>{controls}<DeviceListWidget title="Present presence sensors" empty="No present presence sensors." devices={devices.filter(d=>d.has_occupancy&&(d.kind==='presence'||d.kind==='occupancy')&&d.occupied)}/></div>
       if(widget.kind==='chart')return <div className="dashboard-widget-shell" key={widget.id}>{controls}<SensorChart device={device} metricId={widget.metric ?? 1} range={widget.range ?? 'day'}/>{editing&&<div className="dashboard-chart-settings"><label>Range <select value={widget.range??'day'} onChange={e=>updateWidgets(config.widgets.map(item=>item.id===widget.id?{...item,range:e.target.value as DashboardWidget['range']}:item))}><option value="day">24 hours</option><option value="week">7 days</option><option value="all">All retained</option></select></label><label>Value <select value={widget.metric??1} onChange={e=>updateWidgets(config.widgets.map(item=>item.id===widget.id?{...item,metric:Number(e.target.value)}:item))}>{sensorMetrics.filter(m=>device&&m.available(device)).map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select></label></div>}</div>

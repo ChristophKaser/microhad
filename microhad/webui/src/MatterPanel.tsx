@@ -96,7 +96,6 @@ export function MatterPanel() {
     <div className="section-heading"><div><p className="eyebrow">Matter over Thread</p><h2>Device setup</h2></div>
       <button className="button" disabled={pending} onClick={() => { setError(''); setRevision(value => value + 1) }}>Check gateway</button></div>
     <p role="status" aria-live="polite">{!availability ? error ? 'Matter status unavailable. Check the gateway connection.' : 'Checking Matter service…' : !ready ? 'Matter service unavailable or reconnecting.' : availability.thread.state === 'error' ? 'Thread radio apply failed. Retry after the coordinator is online.' : !configured ? 'Thread network has not been configured.' : availability.thread.attached ? 'Thread network attached.' : 'Thread network configured; waiting for attachment.'}</p>
-    {availability?.thread.zigbee_channel && <p className="muted small">Zigbee channel {availability.thread.zigbee_channel}{availability.thread.dataset_channel ? ` · Thread channel ${availability.thread.dataset_channel}` : ''}</p>}
     {error && <p className="error" role="alert">{error}</p>}
     {ready && configured === false && <div className="matter-network">
       <p>Create a Thread network, or import your existing network’s operational dataset. Keep the dataset private.</p>
