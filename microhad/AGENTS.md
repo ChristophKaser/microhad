@@ -143,7 +143,8 @@ running, use `/tuya/native/paired_control.sh log-level LEVEL`, where `LEVEL` is
 `off`, `error`, `warn`, `info`, `debug`, or `trace`. The helper writes the
 request into the supervisor's private `/tmp/ziggurat-supervisor` directory,
 then sends TERM to Ziggurat. The supervisor restarts only Ziggurat for this
-request; the native gateway reconnects, and the Matter child is restarted by
+request and sets `NO_COLOR=1` for its process so syslog output has no ANSI
+color escapes; the native gateway reconnects, and the Matter child is restarted by
 its monitor if its radio connection causes it to exit. Unexpected Ziggurat
 failures still use full paired recovery. The requested level lasts for the
 current supervisor lifetime and resets to `ZIGGURAT_LOG_LEVEL` (normally

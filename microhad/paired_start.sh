@@ -103,7 +103,7 @@ start_zig() {
         if [ ! -d "$parent" ]; then mkdir "$parent" || return 1;chmod 700 "$parent";fi
         set -- --thread-socket "$thread_socket"
     fi
-    "$ZIGGURAT_BIN" --device "$device" --baudrate 460800 --flow-control hardware \
+    NO_COLOR=1 "$ZIGGURAT_BIN" --device "$device" --baudrate 460800 --flow-control hardware \
         --spinel-iid 1 --api cobs-unix --listen "unix:$socket_path" --log-level "$zig_log_level" "$@" 2>&1 &
     zig_pid=$!;printf '%s\n' "$zig_pid" > "$control/ziggurat.pid"
     deadline=$(($(date +%s)+startup_limit))

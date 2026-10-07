@@ -23,6 +23,7 @@ signal.signal(signal.SIGTERM,stop)
 if role=='zig':
  level=sys.argv[sys.argv.index('--log-level')+1]
  with open(os.environ['TEST_EVENTS'],'a') as f:f.write('zig level '+level+'\\n')
+ with open(os.environ['TEST_EVENTS'],'a') as f:f.write('zig no-color '+os.environ.get('NO_COLOR','unset')+'\\n')
  path=sys.argv[sys.argv.index('--listen')+1][5:]
  Path(path).unlink(missing_ok=True)
  s=socket.socket(socket.AF_UNIX);s.bind(path);os.chmod(path,0o600);s.listen();s.settimeout(.1)
@@ -126,6 +127,7 @@ class Paired(unittest.TestCase):
         self.assertIn('restarting Ziggurat',result.stdout)
         wait(lambda:int((self.control/'ziggurat.pid').read_text())!=zig_pid)
         wait(lambda:'zig level trace' in self.events.read_text())
+        wait(lambda:'zig no-color 1' in self.events.read_text())
         wait(lambda:(self.control/'active-log-level').read_text().strip()=='trace')
         self.assertEqual(int((self.control/'native.pid').read_text()),native_pid)
         self.assertNotIn('native stop',self.events.read_text())

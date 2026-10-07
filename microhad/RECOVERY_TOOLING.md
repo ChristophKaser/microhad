@@ -124,9 +124,10 @@ Do not use unchanged `deploy.sh --activate` to install this two-process launcher
 
 For a temporary Ziggurat verbosity change while the paired supervisor is active,
 run `/tuya/native/paired_control.sh log-level trace` (or `off`, `error`, `warn`,
-`info`, or `debug`). It signals only Ziggurat; the native gateway reconnects to
-the replacement process, and Matter is restarted by its child monitor if its
-radio connection exits. The setting lives in the supervisor's private `/tmp`
+`info`, or `debug`). It signals only Ziggurat and sets `NO_COLOR=1` for the
+Ziggurat process so its syslog output has no ANSI color escapes. The native
+gateway reconnects to the replacement process, and Matter is restarted by its
+child monitor if its radio connection exits. The setting lives in the supervisor's private `/tmp`
 control directory, so a fresh supervisor launch returns to its configured level
 (normally `info`).
 
