@@ -60,6 +60,7 @@ if [[ $ZIGGURAT_MULTIPAN == 1 ]]; then
         git -C "$build_worktree" apply "$experiment_root/patches/ziggurat-fresh-join-replay.patch"
     fi
 fi
+python3 scripts/check-ziggurat-patches.py "$build_worktree" "$source_revision" "$ZIGGURAT_MULTIPAN"
 bash scripts/make-llvm-target.sh
 export CARGO_TARGET_DIR="$experiment_root/${build_output}"
 export CARGO_NET_GIT_FETCH_WITH_CLI=true
