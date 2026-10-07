@@ -17,6 +17,9 @@ export function DeviceDetailsDialog({ device, configuration, onClose }: {
   const [querying, setQuerying] = useState(false)
   const [queryError, setQueryError] = useState('')
   const [queryResult, setQueryResult] = useState('')
+  const [reconfiguring, setReconfiguring] = useState(false)
+  const [reconfigureResult, setReconfigureResult] = useState('')
+  const [reconfigureError, setReconfigureError] = useState('')
   const canIdentify = device.endpoint_descriptors.some((endpoint) => endpoint.input_clusters.includes(0x0003))
   const identify = async () => {
     if (identifying) return
@@ -46,6 +49,22 @@ export function DeviceDetailsDialog({ device, configuration, onClose }: {
       setQueryError(errorMessage(cause))
     } finally {
       setQuerying(false)
+    }
+  }
+  const reconfigure = async () => {
+    if (reconfiguring) return
+    setReconfiguring(true)
+    setReconfigureResult('')
+    setReconfigureError('')
+    try {
+      const result = await post<{ message: string }>(
+        `/api/devices/${encodeURIComponent(device.id)}/reconfigure`,
+      )
+      setReconfigureResult(`${result.message} Battery devices may need to wake to finish setup.`)
+    } catch (cause) {
+      setReconfigureError(errorMessage(cause))
+    } finally {
+      setReconfiguring(false)
     }
   }
   const details = [
@@ -152,6 +171,16 @@ export function DeviceDetailsDialog({ device, configuration, onClose }: {
             {querying ? 'Querying…' : 'Read device configuration'}
           </button>
         </div>
+        {device.source === 'zigbee' && (
+          <div className="editor-card">
+            <p>Reconfigure reporting and bindings after a reset or when device setup needs repair.</p>
+            {reconfigureError && <p className="error" role="alert">{reconfigureError}</p>}
+            {reconfigureResult && <p role="status">{reconfigureResult}</p>}
+            <button className="button" disabled={reconfiguring} onClick={reconfigure}>
+              {reconfiguring ? 'Queuing…' : 'Reconfigure device'}
+            </button>
+          </div>
+        )}
         {identifyError && <p className="error" role="alert">{identifyError}</p>}
         {identifyResult && <p role="status">{identifyResult}</p>}
         <div className="dialog-actions">

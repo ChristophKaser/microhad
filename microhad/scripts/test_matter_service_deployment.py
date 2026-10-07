@@ -94,6 +94,35 @@ class Staging(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertFalse(calls.exists())
 
+    def test_supervisor_stages_without_reuploading_matter_service(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake = root / 'sshpass';fake.write_text(FAKE_SSH);fake.chmod(0o700)
+            binary = root / 'native';binary.write_bytes(b'fake native');binary.chmod(0o700)
+            Path(str(binary) + '.matter-manifest').write_text(matter_manifest(binary))
+            password = root / 'password';password.touch()
+            calls = root / 'calls'
+            env = dict(os.environ, PATH=str(root)+os.pathsep+os.environ['PATH'], STAGING_CALLS=str(calls))
+            args = ['sh', str(ROOT / 'deploy.sh'), '--password-file', str(password),
+                    '--binary-only', '--supervisor', '--binary', str(binary), '--target', '/tuya/native']
+            result = subprocess.run(args, env=env, stdin=subprocess.DEVNULL, capture_output=True,
+                                    text=True, check=True, timeout=10)
+            self.assertIn('Matter flash preflight passed', result.stdout)
+            rows = [json.loads(line) for line in calls.read_text().splitlines()]
+            uploads = [row for row in rows if row['bytes']]
+            self.assertEqual(len(uploads), 4)
+            self.assertTrue(any('/.paired_start.sh.new' in row['command'] for row in uploads))
+            self.assertTrue(any('/.paired_control.sh.new' in row['command'] for row in uploads))
+            self.assertTrue(any('/.microhad-zigbee-native.matter-manifest.new' in row['command'] for row in uploads))
+            self.assertFalse(any('/.thread-matter.new' in row['command'] for row in rows))
+            calls.unlink()
+            env['FLASH_AVAILABLE_KIB'] = '1'
+            result = subprocess.run(args, env=env, stdin=subprocess.DEVNULL, capture_output=True,
+                                    text=True, timeout=10)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('Insufficient /tuya flash', result.stderr)
+            self.assertFalse(any(row['bytes'] for row in map(json.loads, calls.read_text().splitlines())))
+
     def test_matter_flash_preflight_refuses_before_any_staging(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

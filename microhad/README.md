@@ -225,3 +225,11 @@ an online Zigbee network and an active device address. The existing `/refresh`
 request retains its attribute-refresh behavior (and explicit setup for remotes).
 When changing reporting policy in the implementation, increment the signature
 version so previously configured devices receive the new settings.
+
+To stage the controller, Web UI, and current supervisor without replacing the
+installed Matter service, use `deploy.sh --both --supervisor --binary PATH
+--password-file PATH --target /tuya/native`. This validates the Matter manifest,
+checks staging flash space with the 512 KiB reserve, and uploads the manifest and
+both supervisor/control scripts. Restart the paired supervisor separately to load
+the new script. Starting the boot launcher with `ZIGGURAT_LOG_LEVEL=trace` changes
+only that running supervisor; a reboot uses the default `info` level again.

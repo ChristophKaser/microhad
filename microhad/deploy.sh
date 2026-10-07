@@ -15,6 +15,7 @@ password_file=""
 config=""
 deploy_binary=true
 deploy_webui=true
+deploy_supervisor=false
 activate=false
 activate_paired=false
 activate_paired_only=false
@@ -34,7 +35,7 @@ flash_reserve_kib=${DEPLOY_FLASH_RESERVE_KIB:-512}
 
 usage() {
     echo "usage: $0 --password-file PATH --maintenance-deploy --binary PATH --ziggurat PATH --matter-service PATH --maintenance-helper PATH --logread PATH [--webui-dir DIR] [--rollback-dir DIR] [--host HOST] [--target /tuya/native]" >&2
-    echo "       $0 --password-file PATH [existing deployment options]" >&2
+    echo "       $0 --password-file PATH [--both --supervisor --binary PATH --target /tuya/native] [existing deployment options]" >&2
     exit 2
 }
 
@@ -45,6 +46,7 @@ while [ "$#" -gt 0 ]; do
         --binary-only) deploy_binary=true; deploy_webui=false; shift ;;
         --webui-only) deploy_binary=false; deploy_webui=true; shift ;;
         --both) deploy_binary=true; deploy_webui=true; shift ;;
+        --supervisor) deploy_supervisor=true; shift ;;
         --host) host=${2-}; shift 2 ;;
         --user) user=${2-}; shift 2 ;;
         --target) target=${2-}; shift 2 ;;
@@ -89,7 +91,8 @@ done
 [ -z "$matter_service" ] || [ "$binary_explicit" = true ] || {
     echo "--matter-service requires --binary from a ZIGGURAT=1 MATTER=1 build" >&2; exit 2;
 }
-[ -z "$matter_service" ] || {
+[ "$deploy_supervisor" = false ] || { [ "$deploy_binary" = true ] && [ "$binary_explicit" = true ] && [ "$target" = /tuya/native ] && [ "$activate_paired_only" = false ]; } || { echo "--supervisor requires --binary and binary deployment to /tuya/native" >&2; exit 2; }
+{ [ -z "$matter_service" ] && [ "$deploy_supervisor" = false ]; } || {
     manifest="$binary.matter-manifest"
     [ -f "$manifest" ] || { echo "Matter build manifest missing: $manifest" >&2; exit 2; }
     grep -qx 'format=microhad-native-build-v1' "$manifest" &&
@@ -403,7 +406,7 @@ if [ "$maintenance_deploy" = true ]; then exit 0; fi
 
 matter_flash_preflight() {
     [ "$activate_paired_only" = false ] || return 0
-    [ -z "$matter_service" ] && return 0
+    [ -z "$matter_service" ] && [ "$deploy_supervisor" = false ] && return 0
 
     old_sizes=$(ssh_command "for file in \"$target/tuya-zigbee-native\" \"$target/config.json\" \"$target/tuya-zigbee-native.matter-manifest\" \"$target/thread-matter\" \"$target/paired_start.sh\" \"$target/paired_control.sh\"; do if [ -f \"\$file\" ]; then wc -c < \"\$file\"; else echo 0; fi; done") || return $?
     set -- $old_sizes
@@ -456,10 +459,12 @@ matter_flash_preflight() {
     stage_flash_group "$((binary_size + config_size))" "$replaced_native_and_config"
     manifest_size=$(wc -c < "$binary.matter-manifest")
     stage_flash_group "$manifest_size" "$old_manifest"
-    service_size=$(wc -c < "$matter_service")
-    replaced_service=$old_service
-    [ "$service_running" = 0 ] || replaced_service=0
-    stage_flash_group "$service_size" "$replaced_service"
+    if [ -n "$matter_service" ]; then
+        service_size=$(wc -c < "$matter_service")
+        replaced_service=$old_service
+        [ "$service_running" = 0 ] || replaced_service=0
+        stage_flash_group "$service_size" "$replaced_service"
+    fi
     supervisor_size=$(wc -c < "$project_dir/paired_start.sh")
     stage_flash_group "$supervisor_size" "$old_supervisor"
     control_size=$(wc -c < "$project_dir/scripts/paired_control.sh")
@@ -569,13 +574,15 @@ if [ -n "$rng_seed_helper" ]; then
     ssh_command "dd of=\"$target/.paired_control.sh.new\"" < "$project_dir/scripts/paired_control.sh"
     ssh_command "chmod 700 \"$target/.rng-seed.new\" \"$target/.paired_start.sh.new\" \"$target/.paired_control.sh.new\"; mv \"$target/.rng-seed.new\" \"$target/rng-seed\"; mv \"$target/.paired_start.sh.new\" \"$target/paired_start.sh\"; mv \"$target/.paired_control.sh.new\" \"$target/paired_control.sh\"; ls -l \"$target/rng-seed\" \"$target/paired_start.sh\" \"$target/paired_control.sh\""
 fi
-if [ -n "$matter_service" ] && [ "$activate_paired_only" = false ]; then
-    # Stage the optional service and supervisor only. No launcher activation,
+if { [ -n "$matter_service" ] || [ "$deploy_supervisor" = true ]; } && [ "$activate_paired_only" = false ]; then
+    # Stage the selected manifest and supervisor; the service is optional. No launcher activation,
     # credential state transfer, UART ownership change or process restart here.
     ssh_command "dd of=\"$target/.microhad-zigbee-native.matter-manifest.new\"" < "$binary.matter-manifest"
     ssh_command "chmod 600 \"$target/.microhad-zigbee-native.matter-manifest.new\"; mv \"$target/.microhad-zigbee-native.matter-manifest.new\" \"$target/tuya-zigbee-native.matter-manifest\""
-    ssh_command "dd of=\"$target/.thread-matter.new\"" < "$matter_service"
-    ssh_command "chmod 700 \"$target/.thread-matter.new\"; mv \"$target/.thread-matter.new\" \"$target/thread-matter\""
+    if [ -n "$matter_service" ]; then
+        ssh_command "dd of=\"$target/.thread-matter.new\"" < "$matter_service"
+        ssh_command "chmod 700 \"$target/.thread-matter.new\"; mv \"$target/.thread-matter.new\" \"$target/thread-matter\""
+    fi
     ssh_command "dd of=\"$target/.paired_start.sh.new\"" < "$project_dir/paired_start.sh"
     ssh_command "dd of=\"$target/.paired_control.sh.new\"" < "$project_dir/scripts/paired_control.sh"
     ssh_command "chmod 700 \"$target/.paired_start.sh.new\" \"$target/.paired_control.sh.new\"; mv \"$target/.paired_start.sh.new\" \"$target/paired_start.sh\"; mv \"$target/.paired_control.sh.new\" \"$target/paired_control.sh\""
