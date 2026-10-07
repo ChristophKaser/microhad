@@ -187,6 +187,7 @@ void GatewayRunner::execute(Command* command) {
                                                                                       command->contactTriggerCooldownSeconds);
     else if (command->type == DeviceValueAlerts) result = gateway_->setDeviceValueAlerts(command->address, command->valueAlerts, &error);
     else if (command->type == DeviceRefresh) result = gateway_->refreshDevice(command->address, &error);
+    else if (command->type == DeviceReconfigure) result = gateway_->reconfigureDevice(command->address, &error);
     else if (command->type == DeviceIdentify) result = gateway_->identifyDevice(command->address, &error);
     else if (command->type == NetworkBackup) result = gateway_->exportNetworkBackup(command->address, &error);
     else if (command->type == DeviceConfiguration) result = gateway_->queryDeviceConfiguration(command->address, &error);
@@ -483,6 +484,12 @@ bool GatewayRunner::setDeviceValueAlerts(const std::string& address,
 bool GatewayRunner::refreshDevice(const std::string& address, std::string* error) {
     Command command;
     command.type = DeviceRefresh;
+    command.address = address;
+    return invoke(&command, error);
+}
+bool GatewayRunner::reconfigureDevice(const std::string& address, std::string* error) {
+    Command command;
+    command.type = DeviceReconfigure;
     command.address = address;
     return invoke(&command, error);
 }

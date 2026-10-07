@@ -203,3 +203,25 @@ intermittent.
 Original backups remain private. The restart counter margin is not an
 unconditional guarantee after arbitrary crashes; reverse NCP restoration has
 not been exercised live.
+
+## Device reporting configuration
+
+Successful Zigbee reporting and coordinator bindings are recorded in
+`devices.json`. Ordinary device announcements and short-address changes keep
+those bindings. A gateway restart also keeps completed light configuration.
+Setup runs for new devices, changed endpoint/binding inputs, or after an explicit
+leave announcement with `rejoin=false`. Router-reported departures and keepalive
+expiry do not invalidate configuration. Ziggurat's current join notification does
+not distinguish a factory reset from a connectivity rejoin; a reset without a
+preceding leave can therefore require an explicit reconfiguration request.
+
+Existing device records without a success marker receive configuration once;
+rejected binding/reporting responses are not recorded as successful. Configuration
+completion writes persistent state only when the recorded configuration changes.
+
+Use `POST /api/devices/<ieee-address>/reconfigure` to force endpoint discovery,
+binding and reporting setup. It uses the coordinator command queue and requires
+an online Zigbee network and an active device address. The existing `/refresh`
+request retains its attribute-refresh behavior (and explicit setup for remotes).
+When changing reporting policy in the implementation, increment the signature
+version so previously configured devices receive the new settings.

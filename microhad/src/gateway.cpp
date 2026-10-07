@@ -87,6 +87,7 @@ Gateway::InterviewOperation::InterviewOperation() : type(InterviewActiveEndpoint
 }
 
 Gateway::InterviewState::InterviewState() : operationIndex(0), refreshOnly(false), configurationPending(false),
+                                          forceConfiguration(false), configurationFailed(false),
                                           paused(false), persistentDirty(false) {
 }
 
@@ -1140,7 +1141,14 @@ void Gateway::pollZiggurat() {
         } else if (event.type==ZigguratClient::Event::Left && b.size()==22) {
             unsigned short node=static_cast<unsigned short>(b[0] | (static_cast<unsigned short>(b[1])<<8));
             std::map<unsigned short,std::string>::iterator known=nodeAddresses_.find(node);
-            if (known!=nodeAddresses_.end()) { devices_[known->second].networkAddress=0xffff; nodeAddresses_.erase(known); }
+            if (known!=nodeAddresses_.end()) {
+                Device& device = devices_[known->second];
+                // LSB-first flags: bit 1 is rejoin; reason 0 is an explicit NWK announcement.
+                // Router reports and keepalive expiry do not establish loss of configuration.
+                if (b[11] == 0 && (b[2] & 2) == 0) device.configuredSignature.clear();
+                device.networkAddress=0xffff;
+                nodeAddresses_.erase(known);
+            }
             interviews_.erase(node); nextSensorRefreshAt_.erase(node); savePersistentState(); markViewDirty();
         } else if (event.type==ZigguratClient::Event::ReceivedAps && b.size()>=17) {
             unsigned int length=b[15] | (static_cast<unsigned int>(b[16])<<8);
@@ -1288,8 +1296,11 @@ void Gateway::poll() {
         unsigned short node = pending->first;
         lightSetupPending_.erase(pending);
         if (nodeAddresses_.find(node) != nodeAddresses_.end()) {
-            startInterview(node, false, true);
-            addLog("Queued light reporting setup for existing device");
+            const Device& device = devices_[nodeAddresses_[node]];
+            if (device.configuredSignature != deviceConfigurationSignature(device)) {
+                startInterview(node, false);
+                addLog("Queued missing or changed light reporting setup");
+            }
         }
     }
     resetInactiveDeadlines(); /* Serial callbacks may have changed timer owners. */
@@ -1813,7 +1824,7 @@ bool Gateway::refreshDevice(const std::string& ieeeAddress, std::string* error) 
     /* A remote needs a full interview so its output command clusters are
        bound to the coordinator.  Measurement devices only need their
        persisted endpoints refreshed. */
-    startInterview(device->second.networkAddress, !device->second.hasRemote, true);
+    startInterview(device->second.networkAddress, !device->second.hasRemote, true, device->second.hasRemote);
     if (!sensorRefreshEligible(device->second.networkAddress)) nextSensorRefreshAt_.erase(device->second.networkAddress);
     else nextSensorRefreshAt_[device->second.networkAddress] =
         sensorRefreshDeadline(time(0), device->second.sensorRefreshIntervalMinutes);
@@ -3348,6 +3359,9 @@ void Gateway::loadState() {
         for (i = 0; i < volatileValues.size(); ++i) {
             if (devices_.find(volatileValues[i].ieeeAddress) != devices_.end()) {
                 Device& persistent = devices_[volatileValues[i].ieeeAddress];
+                // Successful configuration is authoritative in the persistent store, even if
+                // the RAM snapshot predates completion or a leave invalidation.
+                volatileValues[i].configuredSignature = persistent.configuredSignature;
                 if (volatileValues[i].manufacturerName.empty()) volatileValues[i].manufacturerName = persistent.manufacturerName;
                 if (volatileValues[i].modelId.empty()) volatileValues[i].modelId = persistent.modelId;
                 if (volatileValues[i].endpoints.empty()) volatileValues[i].endpoints = persistent.endpoints;
@@ -4584,22 +4598,71 @@ void Gateway::sendIasEnrollResponse(unsigned short destination, unsigned char so
     sendApsUnicast(destination, 0x0104, 0x0500, sourceEndpoint, destinationEndpoint, response);
 }
 
-void Gateway::startInterview(unsigned short destination, bool refreshOnly, bool forceEndpointDiscovery) {
+bool Gateway::reconfigureDevice(const std::string& ieeeAddress, std::string* error) {
+    std::map<std::string, Device>::iterator device = devices_.find(ieeeAddress);
+    if (device == devices_.end() || device->second.source != "zigbee") {
+        *error = "device is not a known Zigbee device"; return false;
+    }
+    if (!online_ || !networkFormed_ || coordinatorInitializationStep_ != 0) {
+        *error = "Zigbee network is not ready"; return false;
+    }
+    unsigned short node = device->second.networkAddress;
+    if (node == 0xffff) { *error = "device has no active network address"; return false; }
+    if (interviewRequestInFlight_ && interviewNode_ == node) {
+        *error = "device interview is already in progress"; return false;
+    }
+    interviews_.erase(node);
+    startInterview(node, false, true, true);
+    addLog("Manual device reconfiguration queued: " + ieeeAddress);
+    return true;
+}
+
+std::string Gateway::deviceConfigurationSignature(const Device& device) const {
+    // Bump this version when reporting intervals or configuration policy change.
+    // Include endpoint and binding inputs; an address change alone needs no rebind.
+    std::ostringstream signature;
+    signature << "reporting-v1:" << std::hex;
+    for (unsigned long i = 0; i < coordinatorIeeeAddress_.size(); ++i)
+        signature << std::setw(2) << std::setfill('0') << static_cast<unsigned int>(coordinatorIeeeAddress_[i]);
+    signature << ':' << device.manufacturerName.size() << ':' << device.manufacturerName
+              << ':' << device.modelId.size() << ':' << device.modelId
+              << ':' << device.softwareBuildId.size() << ':' << device.softwareBuildId
+              << ':' << nativeBindingEnabled(device.ieeeAddress);
+    for (unsigned long i = 0; i < device.endpoints.size(); ++i) {
+        const EndpointDescriptor& endpoint = device.endpoints[i];
+        signature << ':' << static_cast<unsigned int>(endpoint.endpoint) << ':' << endpoint.profileId
+                  << ':' << endpoint.deviceId << ':' << static_cast<unsigned int>(endpoint.deviceVersion) << ":in";
+        for (unsigned long c = 0; c < endpoint.inputClusters.size(); ++c) signature << ':' << endpoint.inputClusters[c];
+        signature << ":out";
+        for (unsigned long c = 0; c < endpoint.outputClusters.size(); ++c) signature << ':' << endpoint.outputClusters[c];
+    }
+    return signature.str();
+}
+
+void Gateway::startInterview(unsigned short destination, bool refreshOnly, bool forceEndpointDiscovery,
+                             bool forceConfiguration) {
     std::map<unsigned short, std::string>::const_iterator address = nodeAddresses_.find(destination);
     if (address == nodeAddresses_.end()) return;
+    const Device& device = devices_[address->second];
+    if (!refreshOnly && !forceConfiguration && !device.endpoints.empty() &&
+        device.configuredSignature == deviceConfigurationSignature(device)) {
+        addLog("Device reporting configuration unchanged; keeping existing bindings: " + address->second);
+        return;
+    }
     std::map<unsigned short, InterviewState>::iterator existing = interviews_.find(destination);
     if (existing != interviews_.end()) {
-        /* A rejoin must configure reporting even if a scheduled refresh is
-           already running. Preserve its outstanding transaction until reply. */
+        /* Missing or changed configuration takes precedence over a scheduled
+           refresh. Preserve its outstanding transaction until reply. */
         if (!refreshOnly && existing->second.refreshOnly) existing->second.configurationPending = true;
+        existing->second.forceConfiguration = existing->second.forceConfiguration || forceConfiguration;
         existing->second.paused = false;
         return;
     }
     InterviewState state;
     state.ieeeAddress = address->second;
     state.refreshOnly = refreshOnly;
+    state.forceConfiguration = forceConfiguration;
     interviews_[destination] = state;
-    const Device& device = devices_[address->second];
     if (refreshOnly && !forceEndpointDiscovery && !device.endpoints.empty()) {
         buildRefreshOperations(destination);
         return;
@@ -4686,6 +4749,13 @@ void Gateway::buildConfigurationOperations(unsigned short destination) {
     if (state.configurationPending) state.refreshOnly = false;
     state.configurationPending = false;
     Device& device = devices_[state.ieeeAddress];
+    state.configurationSignature = deviceConfigurationSignature(device);
+    state.configurationFailed = false;
+    if (!state.forceConfiguration && device.configuredSignature == state.configurationSignature) {
+        if (state.refreshOnly) buildRefreshOperations(destination);
+        else interviews_.erase(destination);
+        return;
+    }
     const bool herdsmanTh01 = device.manufacturerName == "eWeLink" && device.modelId == "TH01";
     state.operations.clear();
     state.operationIndex = 0;
@@ -4958,6 +5028,13 @@ void Gateway::completeInterviewOperation(unsigned short destination) {
     } else if (state.configurationPending) {
         buildConfigurationOperations(destination);
     } else {
+        if (!state.refreshOnly && !state.configurationFailed && !state.configurationSignature.empty() &&
+            state.configurationSignature == deviceConfigurationSignature(device) &&
+            device.configuredSignature != state.configurationSignature) {
+            device.configuredSignature = state.configurationSignature;
+            savePersistentState();
+            saveState();
+        }
         addLog(state.refreshOnly ? "Sensor attribute refresh completed" : "Sensor interview completed");
         interviews_.erase(destination);
     }
@@ -5337,7 +5414,10 @@ void Gateway::handleApsMessage(unsigned short sender, unsigned short profile, un
             interview->second.operationIndex < interview->second.operations.size() &&
             interview->second.operations[interview->second.operationIndex].transactionSequenceAssigned) {
             InterviewOperation& operation = interview->second.operations[interview->second.operationIndex];
-            if (operation.type == InterviewBind && operation.transactionSequence == message[0]) completeInterviewOperation(sender);
+            if (operation.type == InterviewBind && operation.transactionSequence == message[0]) {
+                if (message[1] != 0) interview->second.configurationFailed = true;
+                completeInterviewOperation(sender);
+            }
         }
         return;
     }
@@ -5476,8 +5556,10 @@ void Gateway::handleApsMessage(unsigned short sender, unsigned short profile, un
         }
     } else if ((frameControl & 0x03) == 0 && command == 0x07) {
         unsigned long responseOffset = zclOffset;
+        bool configurationAccepted = responseOffset < message.size();
         while (responseOffset < message.size()) {
             unsigned char status = message[responseOffset];
+            if (status != 0) configurationAccepted = false;
             std::ostringstream response;
             response << "Configure reporting response from " << address->second << ": cluster 0x" << std::hex
                      << cluster << " status 0x" << static_cast<unsigned int>(status);
@@ -5496,7 +5578,10 @@ void Gateway::handleApsMessage(unsigned short sender, unsigned short profile, un
             interview->second.operations[interview->second.operationIndex].transactionSequenceAssigned) {
             InterviewOperation& operation = interview->second.operations[interview->second.operationIndex];
             if (operation.type == InterviewConfigureReporting && operation.transactionSequence == transactionSequence &&
-                operation.cluster == cluster && operation.endpoint == sourceEndpoint) completeInterviewOperation(sender);
+                operation.cluster == cluster && operation.endpoint == sourceEndpoint) {
+                if (!configurationAccepted) interview->second.configurationFailed = true;
+                completeInterviewOperation(sender);
+            }
         }
     }
 }

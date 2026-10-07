@@ -74,6 +74,7 @@ public:
     bool setDeviceValueAlerts(const std::string& address, const std::map<std::string, DeviceValueAlert>& alerts,
                               std::string* error);
     bool refreshDevice(const std::string& ieeeAddress, std::string* error);
+    bool reconfigureDevice(const std::string& ieeeAddress, std::string* error);
     bool identifyDevice(const std::string& ieeeAddress, std::string* error);
     bool queryDeviceConfiguration(const std::string& ieeeAddress, std::string* error);
     bool setLightState(const std::string& ieeeAddress, const std::string& state, int brightnessPercent,
@@ -87,7 +88,7 @@ public:
     bool setBroadcastQuorum(unsigned int value, std::string* error);
 
 private:
-    enum CommandType { GatewaySettings, NetworkBackup, Join, CreateNetwork, DeviceSettings, DeviceValueAlerts, DeviceRefresh, DeviceIdentify, DeviceConfiguration, LightState, SceneConfiguration, SceneActivate, SceneOff, TestNotification, NotificationSetting, EventLoopDebug, ShellyRegister, ShellyRemove, ShellyReconcile, MatterReconcile, MatterValue, MatterButton, ShellyEvent, FritzEvent, FritzReconcile, ActorState };
+    enum CommandType { GatewaySettings, NetworkBackup, Join, CreateNetwork, DeviceSettings, DeviceValueAlerts, DeviceRefresh, DeviceReconfigure, DeviceIdentify, DeviceConfiguration, LightState, SceneConfiguration, SceneActivate, SceneOff, TestNotification, NotificationSetting, EventLoopDebug, ShellyRegister, ShellyRemove, ShellyReconcile, MatterReconcile, MatterValue, MatterButton, ShellyEvent, FritzEvent, FritzReconcile, ActorState };
     struct Command {
         CommandType type;
         unsigned int seconds;

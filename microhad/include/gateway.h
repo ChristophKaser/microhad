@@ -133,6 +133,7 @@ struct Device {
     std::string manufacturerName;
     std::string modelId;
     std::string softwareBuildId; /* read during interview; persisted for remote binding compatibility */
+    std::string configuredSignature; /* last successfully applied reporting/binding configuration */
     std::vector<EndpointDescriptor> endpoints;
     std::string matterNode;
     int matterEndpoint;
@@ -287,6 +288,7 @@ public:
     bool setDeviceValueAlerts(const std::string& ieeeAddress, const std::map<std::string, DeviceValueAlert>& alerts,
                               std::string* error);
     bool refreshDevice(const std::string& ieeeAddress, std::string* error);
+    bool reconfigureDevice(const std::string& ieeeAddress, std::string* error);
     bool identifyDevice(const std::string& ieeeAddress, std::string* error);
     bool queryDeviceConfiguration(const std::string& ieeeAddress, std::string* error);
     bool setLightState(const std::string& ieeeAddress, const std::string& state, int brightnessPercent,
@@ -441,6 +443,9 @@ private:
         std::vector<EndpointDescriptor> discoveredEndpoints;
         bool refreshOnly;
         bool configurationPending;
+        bool forceConfiguration;
+        bool configurationFailed;
+        std::string configurationSignature;
         bool paused;
         bool persistentDirty;
         InterviewState();
@@ -564,7 +569,9 @@ private:
     void sendIasEnrollResponse(unsigned short destination, unsigned char sourceEndpoint,
                                unsigned char destinationEndpoint, unsigned char transactionSequence,
                                unsigned char zoneId);
-    void startInterview(unsigned short destination, bool refreshOnly, bool forceEndpointDiscovery = false);
+    void startInterview(unsigned short destination, bool refreshOnly, bool forceEndpointDiscovery = false,
+                        bool forceConfiguration = false);
+    std::string deviceConfigurationSignature(const Device& device) const;
     void queueInterviewOperation(unsigned short destination, InterviewOperationType type, unsigned char endpoint,
                                  unsigned short cluster = 0, unsigned short attribute = 0,
                                  unsigned char dataType = 0, unsigned short reportableChange = 0,

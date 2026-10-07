@@ -1180,6 +1180,7 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
         const std::string prefix = "POST /api/devices/";
         std::string::size_type settingsAt = request.find("/settings ", prefix.size());
         std::string::size_type refreshAt = request.find("/refresh ", prefix.size());
+        std::string::size_type reconfigureAt = request.find("/reconfigure ", prefix.size());
         std::string::size_type identifyAt = request.find("/identify ", prefix.size());
         std::string::size_type configurationAt = request.find("/configuration ", prefix.size());
         std::string::size_type lightAt = request.find("/light ", prefix.size());
@@ -1208,6 +1209,12 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
             std::string error;
             if (gateway_->identifyDevice(ieeeAddress, &error))
                 writeResponse(clientFd, 200, "application/json", "{\"ok\":true,\"message\":\"Identify command queued for five seconds. A sleepy device may respond later.\"}");
+            else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + jsonEscape(error) + "\"}");
+        } else if (reconfigureAt != std::string::npos) {
+            std::string ieeeAddress = decodeComponent(request.substr(prefix.size(), reconfigureAt - prefix.size()));
+            std::string error;
+            if (gateway_->reconfigureDevice(ieeeAddress, &error))
+                writeResponse(clientFd, 200, "application/json", "{\"ok\":true,\"message\":\"Device reconfiguration queued.\"}");
             else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + jsonEscape(error) + "\"}");
         } else if (refreshAt != std::string::npos) {
             std::string ieeeAddress = decodeComponent(request.substr(prefix.size(), refreshAt - prefix.size()));

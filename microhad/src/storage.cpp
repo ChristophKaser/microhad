@@ -267,6 +267,7 @@ bool saveDevices(const std::string& filename, const std::vector<Device>& devices
         output << ",\"manufacturer_name\":\""
                << jsonEscape(device.manufacturerName) << "\",\"model_id\":\"" << jsonEscape(device.modelId)
                << "\",\"software_build_id\":\"" << jsonEscape(device.softwareBuildId)
+               << "\",\"configured_signature\":\"" << jsonEscape(device.configuredSignature)
                << "\",\"endpoint_descriptors\":\"" << encodeEndpointDescriptors(device.endpoints)
                << "\",\"node_descriptor\":\"" << hexEncode(device.nodeDescriptor) << '"';
         if (device.source == "matter") {
@@ -350,6 +351,7 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
             for (index = 0; index < 5; ++index) {
                 jsonStringField(line, fields[index], destinations[index]);
             }
+            jsonStringField(line, "configured_signature", &device.configuredSignature);
             device.contactOpen = line.find("\"contact_open\":true") != std::string::npos;
             device.hasContact = line.find("\"has_contact\":true") != std::string::npos;
             device.contactKnown = line.find("\"contact_known\":true") != std::string::npos;

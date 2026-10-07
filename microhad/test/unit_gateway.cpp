@@ -27,6 +27,86 @@
 
 class GatewayTestPeer {
 public:
+    static void reportingConfigurationPersistence() {
+        char directory[] = "/tmp/microhad-reporting-config-XXXXXX";
+        assert(mkdtemp(directory));
+        const std::string values = "/tmp/microhad-zigbee-native-values.json";
+        const std::string backup = std::string(directory) + "/values-backup.json";
+        bool hadValues = rename(values.c_str(), backup.c_str()) == 0;
+        Gateway gateway("/dev/null", 115200, directory, "", "", "");
+        const std::string ieee = "0xb43a31fffe930f98";
+        const unsigned short node = 0xb70f;
+        const unsigned char eui[] = {0x98, 0x0f, 0x93, 0xfe, 0xff, 0x31, 0x3a, 0xb4};
+        Device& device = gateway.devices_[ieee];
+        device.ieeeAddress = ieee; device.networkAddress = node;
+        EndpointDescriptor endpoint;
+        endpoint.endpoint = 1; endpoint.profileId = 0x0104;
+        endpoint.inputClusters.push_back(6); endpoint.inputClusters.push_back(8);
+        device.endpoints.push_back(endpoint);
+        gateway.nodeAddresses_[node] = ieee;
+        gateway.coordinatorIeeeAddress_.assign(8, 1);
+        gateway.startInterview(node, false);
+        assert(gateway.interviews_.count(node));
+        assert(device.configuredSignature.empty());
+        while (gateway.interviews_.count(node)) gateway.completeInterviewOperation(node);
+        assert(device.configuredSignature == gateway.deviceConfigurationSignature(device));
+        std::vector<Device> saved;
+        std::string error;
+        assert(loadDevices(std::string(directory) + "/devices.json", &saved, &error));
+        assert(saved.size() == 1 && saved[0].configuredSignature == device.configuredSignature);
+        // Ordinary announcements and short-address migrations retain completed bindings.
+        gateway.registerNode(node, eui);
+        assert(gateway.interviews_.empty());
+        gateway.registerNode(0xb710, eui);
+        assert(gateway.interviews_.empty());
+        // Restarts load the successful marker; RAM cannot override its persistent value.
+        Gateway restarted("/dev/null", 115200, directory, "", "", "");
+        restarted.loadState(); restarted.coordinatorIeeeAddress_.assign(8, 1);
+        assert(restarted.devices_[ieee].configuredSignature == device.configuredSignature);
+        restarted.startInterview(0xb710, false);
+        assert(restarted.interviews_.empty());
+        // Changed endpoint configuration must be applied again.
+        device.endpoints[0].inputClusters.push_back(0x0402);
+        gateway.startInterview(0xb710, false);
+        assert(gateway.interviews_.count(0xb710));
+        gateway.interviews_.erase(0xb710);
+        device.endpoints[0].inputClusters.pop_back();
+        // An explicit request forces discovery/configuration even with a matching marker.
+        gateway.online_ = true; gateway.networkFormed_ = true; gateway.coordinatorInitializationStep_ = 0;
+        assert(gateway.reconfigureDevice(ieee, &error));
+        assert(gateway.interviews_[0xb710].forceConfiguration);
+        assert(gateway.interviews_[0xb710].operations[0].type == Gateway::InterviewActiveEndpoints);
+        gateway.interviews_.erase(0xb710);
+        device.configuredSignature.clear();
+        // Rejected binding responses must not create a successful marker.
+        gateway.startInterview(0xb710, false);
+        Gateway::InterviewOperation& bind = gateway.interviews_[0xb710].operations[0];
+        bind.transactionSequenceAssigned = true; bind.transactionSequence = 7;
+        std::vector<unsigned char> rejectedBind(2, 0);
+        rejectedBind[0] = 7; rejectedBind[1] = 0x84;
+        gateway.handleApsMessage(0xb710, 0, 0x8021, 0, 0, 0, 0, 0, 0, 200, -50, rejectedBind);
+        assert(gateway.interviews_[0xb710].configurationFailed);
+        while (gateway.interviews_.count(0xb710)) gateway.completeInterviewOperation(0xb710);
+        assert(device.configuredSignature.empty());
+        // Nor may rejected or empty Configure Reporting responses create a marker.
+        for (unsigned int empty = 0; empty < 2; ++empty) {
+            gateway.startInterview(0xb710, false);
+            while (gateway.interviews_[0xb710].operations[gateway.interviews_[0xb710].operationIndex].type !=
+                   Gateway::InterviewConfigureReporting) gateway.completeInterviewOperation(0xb710);
+            Gateway::InterviewOperation& reporting = gateway.interviews_[0xb710].operations[gateway.interviews_[0xb710].operationIndex];
+            reporting.transactionSequenceAssigned = true; reporting.transactionSequence = 8;
+            const unsigned char bytes[] = {0x18, 8, 7, 0x86, 0, 0, 0};
+            std::vector<unsigned char> response(bytes, bytes + (empty ? 3 : sizeof(bytes)));
+            gateway.handleApsMessage(0xb710, 0x0104, reporting.cluster, 1, 1, 0, 0, 0, 0, 200, -50, response);
+            assert(gateway.interviews_[0xb710].configurationFailed);
+            while (gateway.interviews_.count(0xb710)) gateway.completeInterviewOperation(0xb710);
+            assert(device.configuredSignature.empty());
+        }
+        unlink((std::string(directory) + "/devices.json").c_str());
+        unlink(values.c_str());
+        if (hadValues) assert(rename(backup.c_str(), values.c_str()) == 0);
+        assert(rmdir(directory) == 0);
+    }
     static void gatewaySettings() {
         char directory[]="/tmp/microhad-quorum-test-XXXXXX"; assert(mkdtemp(directory));
         Gateway gateway("/dev/null",115200,directory,"","","");
@@ -3000,6 +3080,7 @@ static void testSharedJsonUtilities() {
 }
 
 void runUnitTests() {
+    GatewayTestPeer::reportingConfigurationPersistence();
     GatewayTestPeer::gatewaySettings();
     GatewayTestPeer::emptyDeadlineIsUnscheduled();
     GatewayTestPeer::inactiveDeadlinesAreResetBeforeSelection();
