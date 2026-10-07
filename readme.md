@@ -41,6 +41,30 @@ sharing the radio through HDLC without cpcd. The native build remains C++03;
 Ziggurat is Rust. The radio firmware is rebuildable from SDK source plus
 precompiled Silicon Labs RAIL libraries.
 
+## Gateway trace logging and promiscuous reception
+
+The stock BusyBox syslog daemon reads at most 255 bytes per datagram. Ziggurat's
+`ziggurat-syslog-fragments.patch` keeps each body at most 180 bytes, reserving
+space for the pinned uClibc header and terminating NUL. Long entries use
+`[entry/part+]` markers (eight hexadecimal digits per field), with `=` on the
+last fragment. Concatenate the bodies in part order for the same process and
+entry ID. Short entries keep their existing format. The writer buffers at most
+180 bytes and removes the previous 4096-byte truncation. No syslog daemon
+rebuild or radio firmware change is required.
+
+The existing libc/syslog queues can still drop records during bursts. Check
+for consecutive part numbers and the final `=` marker before treating a
+reconstructed entry as complete; splitting does not guarantee delivery.
+
+Concurrent promiscuous capture remains disabled. The SDK maps both Spinel
+`NETWORK` and `FULL` promiscuous modes to the same EFR32 radio setting;
+[Silicon Labs AN1365, section 4.6.1](https://www.silabs.com/documents/public/application-notes/an1365-15-4-over-rail.pdf)
+states that this disables automatic acknowledgments. Enabling it on the shared
+radio would interfere with normal Zigbee and Thread operation. Trace logging
+records the traffic delivered by the current radio filters; it cannot show
+every frame on the channel. Concurrent capture requires a radio implementation
+that preserves acknowledgments, or a separate sniffer.
+
 ## Reference
 
 - [Installation, first pairing and rollback](docs/installation.md)

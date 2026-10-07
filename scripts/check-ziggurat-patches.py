@@ -81,6 +81,7 @@ def main() -> int:
             names.extend(PATCHES["multipan_common"] if args.multipan == "1" else PATCHES["stock_common"])
             if args.multipan == "1":
                 names.extend(PATCHES["multipan_after_common"])
+            names.append("ziggurat-syslog-fragments.patch")
             for name in names:
                 run(["git", "-C", str(expected), "am", str(root / "patches" / name)])
 

@@ -33,6 +33,7 @@ if [[ $ZIGGURAT_MULTIPAN == 1 ]]; then
 else
     mailboxes+=(patches/ziggurat-stock-compat.patch patches/ziggurat-syslog.patch)
 fi
+mailboxes+=(patches/ziggurat-syslog-fragments.patch)
 mailbox_paths=()
 for mailbox in "${mailboxes[@]}"; do mailbox_paths+=("$experiment_root/$mailbox"); done
 python3 scripts/apply-mailbox-series.py "$build_worktree" "$source_revision" "${mailbox_paths[@]}"

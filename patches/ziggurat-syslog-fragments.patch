@@ -1,0 +1,338 @@
+From 15f46e996cca3b68e1280cbd2579efbe84f6bb36 Mon Sep 17 00:00:00 2001
+From: Christoph Kaser <christoph@caser.de>
+Date: Wed, 7 Oct 2026 21:44:13 +0200
+Subject: [PATCH] ziggurat: fragment syslog entries for stock gateway limits
+
+---
+ crates/ziggurat-server/src/main.rs   |  48 +-----
+ crates/ziggurat-server/src/syslog.rs | 245 +++++++++++++++++++++++++++
+ 2 files changed, 249 insertions(+), 44 deletions(-)
+ create mode 100644 crates/ziggurat-server/src/syslog.rs
+
+diff --git a/crates/ziggurat-server/src/main.rs b/crates/ziggurat-server/src/main.rs
+index 6ff8502..bd6117e 100644
+--- a/crates/ziggurat-server/src/main.rs
++++ b/crates/ziggurat-server/src/main.rs
+@@ -1,5 +1,4 @@
+-use std::ffi::{c_char, c_int, CString};
+-use std::io::{self, Write};
++use std::ffi::{c_char, c_int};
+ use std::sync::atomic::{AtomicBool, Ordering};
+ use std::sync::{Arc, Mutex};
+ use std::time::Duration;
+@@ -28,58 +27,19 @@ use ziggurat_spinel::client::{RcpTransport, SpinelClient};
+ 
+ unsafe extern "C" {
+     fn openlog(ident: *const c_char, option: c_int, facility: c_int);
+-    fn syslog(priority: c_int, format: *const c_char, ...);
+ }
+ 
+-const LOG_INFO: c_int = 6;
+ const LOG_DAEMON: c_int = 3 << 3;
+ const LOG_PID: c_int = 1;
+ 
+-struct SyslogWriter(Vec<u8>);
+-
+-impl SyslogWriter {
+-    fn emit(&mut self) {
+-        if self.0.is_empty() {
+-            return;
+-        }
+-        let line = String::from_utf8_lossy(&self.0).replace('\0', "?");
+-        if let Ok(message) = CString::new(line) {
+-            unsafe {
+-                syslog(LOG_DAEMON | LOG_INFO, b"%s\0".as_ptr() as *const _, message.as_ptr());
+-            }
+-        }
+-        self.0.clear();
+-    }
+-}
+-
+-impl Write for SyslogWriter {
+-    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+-        for byte in bytes {
+-            if *byte == b'\n' {
+-                self.emit();
+-            } else if self.0.len() < 4096 {
+-                self.0.push(*byte);
+-            }
+-        }
+-        Ok(bytes.len())
+-    }
+-    fn flush(&mut self) -> io::Result<()> {
+-        self.emit();
+-        Ok(())
+-    }
+-}
+-
+-impl Drop for SyslogWriter {
+-    fn drop(&mut self) {
+-        self.emit();
+-    }
+-}
++mod syslog;
++use syslog::SyslogWriter;
+ 
+ struct SyslogMakeWriter;
+ impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for SyslogMakeWriter {
+     type Writer = SyslogWriter;
+     fn make_writer(&'a self) -> Self::Writer {
+-        SyslogWriter(Vec::new())
++        SyslogWriter::new()
+     }
+ }
+ 
+diff --git a/crates/ziggurat-server/src/syslog.rs b/crates/ziggurat-server/src/syslog.rs
+new file mode 100644
+index 0000000..65b6f8f
+--- /dev/null
++++ b/crates/ziggurat-server/src/syslog.rs
+@@ -0,0 +1,245 @@
++//! Bounded log fragments for the gateway's 255-byte syslog receive limit.
++
++use std::io::{self, Write};
++use std::sync::atomic::{AtomicU32, Ordering};
++
++// The pinned uClibc reserves at most 64 bytes plus the tag for its header.
++// 180 + 64 + "ziggurat".len() + terminating NUL = 253, below MAX_READ - 1.
++const BODY_BYTES: usize = 180;
++const FRAGMENT_BYTES: usize = 156;
++static NEXT_ENTRY: AtomicU32 = AtomicU32::new(1);
++
++pub(crate) struct SyslogWriter {
++    buffer: Vec<u8>,
++    entry: Option<u32>,
++    part: u32,
++    #[cfg(test)]
++    messages: Vec<String>,
++}
++
++impl SyslogWriter {
++    pub(crate) fn new() -> Self {
++        Self {
++            buffer: Vec::with_capacity(BODY_BYTES),
++            entry: None,
++            part: 0,
++            #[cfg(test)]
++            messages: Vec::new(),
++        }
++    }
++
++    fn send(&mut self, message: &str) {
++        debug_assert!(message.len() <= BODY_BYTES);
++        #[cfg(test)]
++        self.messages.push(message.to_owned());
++        #[cfg(not(test))]
++        {
++            use std::ffi::{CString, c_char, c_int};
++            unsafe extern "C" {
++                fn syslog(priority: c_int, format: *const c_char, ...);
++            }
++            // NULs were sanitized before splitting, so conversion cannot fail.
++            let message = CString::new(message).expect("Sanitized syslog message");
++            unsafe {
++                syslog(30, b"%s\0".as_ptr().cast(), message.as_ptr());
++            }
++        }
++    }
++
++    fn prefix_length(bytes: &[u8], limit: usize) -> usize {
++        let mut end = bytes.len().min(limit);
++        // Keep a UTF-8 character's continuation bytes with its leading byte.
++        while end > 0 && end < bytes.len() && bytes[end] & 0xc0 == 0x80 {
++            end -= 1;
++        }
++        if end == 0 {
++            bytes.len().min(limit)
++        } else {
++            end
++        }
++    }
++
++    fn fragment(&mut self, bytes: &[u8], final_part: bool) {
++        let entry = *self
++            .entry
++            .get_or_insert_with(|| NEXT_ENTRY.fetch_add(1, Ordering::Relaxed));
++        let text = String::from_utf8_lossy(bytes).replace('\0', "?");
++        let mut rest = text.as_str();
++        while !rest.is_empty() {
++            let end = Self::prefix_length(rest.as_bytes(), FRAGMENT_BYTES);
++            let marker = if final_part && end == rest.len() {
++                '='
++            } else {
++                '+'
++            };
++            self.send(&format!(
++                "[{entry:08x}/{:08x}{marker}] {}",
++                self.part,
++                &rest[..end]
++            ));
++            self.part = self.part.wrapping_add(1);
++            rest = &rest[end..];
++        }
++    }
++
++    fn continue_entry(&mut self) {
++        let end = Self::prefix_length(&self.buffer, FRAGMENT_BYTES);
++        let bytes: Vec<u8> = self.buffer.drain(..end).collect();
++        self.fragment(&bytes, false);
++    }
++
++    fn finish_entry(&mut self) {
++        if !self.buffer.is_empty() {
++            let bytes = std::mem::take(&mut self.buffer);
++            let text = String::from_utf8_lossy(&bytes).replace('\0', "?");
++            if self.entry.is_none() && text.len() <= BODY_BYTES {
++                self.send(&text);
++            } else {
++                self.fragment(&bytes, true);
++            }
++            self.buffer = Vec::with_capacity(BODY_BYTES);
++        }
++        self.entry = None;
++        self.part = 0;
++    }
++}
++
++impl Write for SyslogWriter {
++    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
++        for &byte in bytes {
++            if byte == b'\n' {
++                self.finish_entry();
++            } else {
++                if self.buffer.len() == BODY_BYTES {
++                    self.continue_entry();
++                }
++                self.buffer.push(byte);
++            }
++        }
++        Ok(bytes.len())
++    }
++
++    fn flush(&mut self) -> io::Result<()> {
++        self.finish_entry();
++        Ok(())
++    }
++}
++
++impl Drop for SyslogWriter {
++    fn drop(&mut self) {
++        self.finish_entry();
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    fn reconstructed(messages: &[String]) -> String {
++        messages
++            .iter()
++            .map(|message| {
++                if message.starts_with('[') {
++                    &message[21..]
++                } else {
++                    message.as_str()
++                }
++            })
++            .collect()
++    }
++
++    #[test]
++    fn short_entries_keep_their_format() {
++        let mut writer = SyslogWriter::new();
++        writer.write_all(b"ready\n\nnext\0entry\n").unwrap();
++        assert_eq!(writer.messages, ["ready", "next?entry"]);
++    }
++
++    #[test]
++    fn byte_limits_and_long_entries_preserve_every_byte() {
++        for length in [179, 180, 181, 255, 1024, 4096, 8192, 65536] {
++            let text = "x".repeat(length);
++            let mut writer = SyslogWriter::new();
++            writer.write_all(text.as_bytes()).unwrap();
++            writer.flush().unwrap();
++            assert_eq!(reconstructed(&writer.messages), text);
++            assert!(
++                writer
++                    .messages
++                    .iter()
++                    .all(|message| message.len() <= BODY_BYTES)
++            );
++            assert!(
++                writer
++                    .messages
++                    .iter()
++                    .all(|message| message.len() + 64 + 8 + 1 <= 255)
++            );
++            if length > BODY_BYTES {
++                let entry = &writer.messages[0][1..9];
++                for (index, message) in writer.messages.iter().enumerate() {
++                    assert_eq!(&message[1..9], entry);
++                    assert_eq!(&message[10..18], format!("{index:08x}"));
++                    assert_eq!(
++                        &message[18..19],
++                        if index + 1 == writer.messages.len() {
++                            "="
++                        } else {
++                            "+"
++                        }
++                    );
++                }
++            }
++        }
++    }
++
++    #[test]
++    fn utf8_survives_every_write_boundary() {
++        let text = "aé€🦀".repeat(1000);
++        for size in [1, 2, 3, 7, 155, 156, 179, 180, 181] {
++            let mut writer = SyslogWriter::new();
++            for bytes in text.as_bytes().chunks(size) {
++                writer.write_all(bytes).unwrap();
++                assert!(writer.buffer.len() <= BODY_BYTES);
++            }
++            writer.flush().unwrap();
++            assert_eq!(reconstructed(&writer.messages), text);
++            assert!(
++                writer
++                    .messages
++                    .iter()
++                    .all(|message| message.len() <= BODY_BYTES)
++            );
++        }
++    }
++
++    #[test]
++    fn invalid_utf8_stays_bounded_and_is_sanitized() {
++        let mut writer = SyslogWriter::new();
++        writer.write_all(&[0xff; 1000]).unwrap();
++        writer.flush().unwrap();
++        assert_eq!(reconstructed(&writer.messages), "�".repeat(1000));
++        assert!(
++            writer
++                .messages
++                .iter()
++                .all(|message| message.len() <= BODY_BYTES)
++        );
++    }
++
++    #[test]
++    fn entry_ids_distinguish_interleaved_writers_and_flush_is_idempotent() {
++        let mut first = SyslogWriter::new();
++        let mut second = SyslogWriter::new();
++        first.write_all(&[b'a'; 181]).unwrap();
++        second.write_all(&[b'b'; 181]).unwrap();
++        first.flush().unwrap();
++        second.flush().unwrap();
++        assert_ne!(&first.messages[0][1..9], &second.messages[0][1..9]);
++        let count = first.messages.len();
++        first.flush().unwrap();
++        assert_eq!(first.messages.len(), count);
++        first.write_all(b"short\n").unwrap();
++        assert_eq!(first.messages.last().unwrap(), "short");
++    }
++}
+-- 
+2.43.0
+

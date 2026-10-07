@@ -16,7 +16,7 @@ ZIGGURAT = ROOT / "ziggurat"
 RS_MATTER = ROOT / "dependencies/rs-matter"
 CPC = ROOT / "cpc-daemon"
 
-ZIGGURAT_COMMON = ["ziggurat-stock-compat.patch", "ziggurat-syslog.patch"]
+ZIGGURAT_COMMON = ["ziggurat-stock-compat.patch", "ziggurat-syslog.patch", "ziggurat-syslog-fragments.patch"]
 ZIGGURAT_MULTI_COMMON = [
     "ziggurat-multipan-stock-compat.patch",
     "ziggurat-multipan-syslog.patch",
@@ -29,6 +29,7 @@ ZIGGURAT_MULTI = [
     "ziggurat-poll-diagnostics.patch",
     "ziggurat-parent-announcement.patch",
     "ziggurat-fresh-join-replay.patch",
+    "ziggurat-syslog-fragments.patch",
 ]
 RS_MATTER_PROBE = [
     "rs-matter-probe-spake2p.patch",
