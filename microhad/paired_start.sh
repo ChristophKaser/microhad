@@ -24,6 +24,7 @@ thread_socket=${THREAD_SOCKET:-/tmp/ziggurat/thread.sock}
 matter_limit=${MATTER_RESTART_LIMIT:-5}
 syslogd=${SYSLOGD_BIN:-/bin/busybox}
 case "$limit:$startup_limit:$stop_limit:$backoff:$matter_limit" in *[!0-9:]*|:*|*::*) exit 2;; esac
+case "$zig_log_level" in off|error|warn|info|debug|trace) ;; *) echo 'Invalid ZIGGURAT_LOG_LEVEL' >&2;exit 2;; esac
 for path in "$ZIGGURAT_BIN" "$NATIVE_BIN" "$NATIVE_CONFIG" "$MAINTENANCE_BIN" "$control" "$socket_path" "$device" "$zig_log" "$seed_helper" "$seed_file" "$seed_log"; do
     case "$path" in /*) ;; *) echo 'Absolute paths required' >&2;exit 2;; esac
 done
@@ -85,7 +86,7 @@ cleanup() {
     stop_child "$matter_pid";matter_pid=
     stop_child "$native_pid";native_pid=
     stop_child "$zig_pid";zig_pid=
-    rm -f "$control/matter.pid" "$control/matter.failed" "$control/native.pid" "$control/ziggurat.pid" "$control/supervisor.pid" "$control/quiesce" "$control/quiesced" "$control/stop"
+    rm -f "$control/matter.pid" "$control/matter.failed" "$control/native.pid" "$control/ziggurat.pid" "$control/supervisor.pid" "$control/quiesce" "$control/quiesced" "$control/stop" "$control/active-log-level" "$control/requested-log-level" "$control/requested-log-level."*
     # Device lacks rmdir. Only remove this invocation's known control directory.
     rm -rf "$control"
 }
@@ -109,7 +110,10 @@ start_zig() {
     while [ "$(date +%s)" -lt "$deadline" ]; do
         [ ! -e "$control/stop" ] || return 1
         kill -0 "$zig_pid" 2>/dev/null || return 1
-        if "$MAINTENANCE_BIN" cobs-hello "$socket_path" >/dev/null 2>&1; then return 0;fi
+        if "$MAINTENANCE_BIN" cobs-hello "$socket_path" >/dev/null 2>&1; then
+            printf '%s\n' "$zig_log_level" > "$control/active-log-level"
+            return 0
+        fi
         sleep 1
     done
     echo 'API readiness deadline exceeded' >&2;return 1
@@ -157,16 +161,39 @@ while :; do
         exit 1
     fi
     if [ -z "$zig_pid" ] || ! kill -0 "$zig_pid" 2>/dev/null; then
-        stop_child "$matter_pid";matter_pid=
-        rm -f "$control/matter.pid"
-        stop_child "$native_pid";native_pid=
-        stop_child "$zig_pid";zig_pid=
-        if [ "$retries" -ge "$limit" ]; then echo 'Restart budget exhausted' >&2;exit 1;fi
-        retries=$((retries+1))
-        if ! start_zig; then stop_child "$zig_pid";zig_pid=;sleep "$backoff";continue;fi
-        # A concurrent maintenance request must prevent client startup.
-        [ ! -e "$control/quiesce" ] && [ ! -e "$control/stop" ] || continue
-        start_native
+        requested_level=
+        if [ -f "$control/requested-log-level" ]; then
+            IFS= read -r requested_level < "$control/requested-log-level" || requested_level=
+        fi
+        case "$requested_level" in off|error|warn|info|debug|trace) ;; *) requested_level= ;; esac
+        level_change=false
+        if [ -n "$requested_level" ] && [ "$requested_level" != "$zig_log_level" ]; then
+            zig_log_level=$requested_level
+            level_change=true
+        fi
+        if [ "$level_change" = true ] && [ -n "$native_pid" ] && kill -0 "$native_pid" 2>/dev/null; then
+            # A requested level change deliberately recycles only Ziggurat.
+            zig_pid=
+            if ! start_zig; then
+                stop_child "$zig_pid";zig_pid=
+                rm -f "$control/requested-log-level"
+                sleep "$backoff";continue
+            fi
+            rm -f "$control/requested-log-level"
+        else
+            # Unexpected radio failures retain the existing pair recovery order.
+            stop_child "$matter_pid";matter_pid=
+            rm -f "$control/matter.pid"
+            stop_child "$native_pid";native_pid=
+            stop_child "$zig_pid";zig_pid=
+            rm -f "$control/requested-log-level"
+            if [ "$retries" -ge "$limit" ]; then echo 'Restart budget exhausted' >&2;exit 1;fi
+            retries=$((retries+1))
+            if ! start_zig; then stop_child "$zig_pid";zig_pid=;sleep "$backoff";continue;fi
+            # A concurrent maintenance request must prevent client startup.
+            [ ! -e "$control/quiesce" ] && [ ! -e "$control/stop" ] || continue
+            start_native
+        fi
     elif [ -z "$native_pid" ] || ! kill -0 "$native_pid" 2>/dev/null; then
         stop_child "$native_pid";native_pid=
         if [ "$retries" -ge "$limit" ]; then echo 'Restart budget exhausted' >&2;exit 1;fi

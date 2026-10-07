@@ -138,6 +138,18 @@ state, or Zigbee keys. The non-production localhost key at
 `test/fixtures/tls/localhost.key` is only for host integration tests and must
 never be installed, packaged, or referenced by deployment code.
 
+For a temporary Ziggurat log-level change while the paired supervisor is
+running, use `/tuya/native/paired_control.sh log-level LEVEL`, where `LEVEL` is
+`off`, `error`, `warn`, `info`, `debug`, or `trace`. The helper writes the
+request into the supervisor's private `/tmp/ziggurat-supervisor` directory,
+then sends TERM to Ziggurat. The supervisor restarts only Ziggurat for this
+request; the native gateway reconnects, and the Matter child is restarted by
+its monitor if its radio connection causes it to exit. Unexpected Ziggurat
+failures still use full paired recovery. The requested level lasts for the
+current supervisor lifetime and resets to `ZIGGURAT_LOG_LEVEL` (normally
+`info`) after a fresh supervisor launch or reboot. Paired deployment stages
+`paired_control.sh` with the supervisor.
+
 When the Matter package is already staged but there is not enough flash to
 stage another binary copy, activate the paired launcher while checking the
 same local artifacts against the staged device files:

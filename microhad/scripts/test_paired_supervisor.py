@@ -21,6 +21,8 @@ def stop(*args):
  raise SystemExit(0)
 signal.signal(signal.SIGTERM,stop)
 if role=='zig':
+ level=sys.argv[sys.argv.index('--log-level')+1]
+ with open(os.environ['TEST_EVENTS'],'a') as f:f.write('zig level '+level+'\\n')
  path=sys.argv[sys.argv.index('--listen')+1][5:]
  Path(path).unlink(missing_ok=True)
  s=socket.socket(socket.AF_UNIX);s.bind(path);os.chmod(path,0o600);s.listen();s.settimeout(.1)
@@ -52,9 +54,15 @@ class Paired(unittest.TestCase):
         self.tmp=tempfile.TemporaryDirectory();self.root=Path(self.tmp.name)
         for name in ('zig','native','matter'):
             p=self.root/name;p.write_text(FAKE);p.chmod(0o700)
+        syslogd=self.root/'syslogd';syslog_state=self.root/'syslogd.running'
+        syslogd.write_text('#!/bin/sh\nif [ "$1" = ps ]; then [ ! -f "'+str(syslog_state)+'" ] || '
+                           'echo "999999 root 1 S /bin/busybox syslogd -C512 -L -R 192.168.178.51:7878"\n'
+                           'elif [ "$1" = syslogd ]; then : > "'+str(syslog_state)+'"; fi\n')
+        syslogd.chmod(0o700)
         self.control=self.root/'control';self.events=self.root/'events';self.events.touch()
         self.env=dict(os.environ,ZIGGURAT_BIN=str(self.root/'zig'),NATIVE_BIN=str(self.root/'native'),
                       NATIVE_CONFIG=str(self.root/'config.json'),MAINTENANCE_BIN=str(ROOT.parent/'ziggurat-compilation/build/gateway-maintenance-host'),
+                      SYSLOGD_BIN=str(syslogd),
                       RUNTIME_CONTROL=str(self.control),ZIGGURAT_SOCKET=str(self.root/'api.sock'),
                       ZIGGURAT_DEVICE='/dev/forbidden-physical-radio',RESTART_LIMIT='3',RESTART_BACKOFF='1',
                       STARTUP_LIMIT='2',STOP_LIMIT='2',TEST_EVENTS=str(self.events))
@@ -73,6 +81,9 @@ class Paired(unittest.TestCase):
     def stop(self):
         subprocess.run(['sh',str(ROOT/'scripts/paired_control.sh'),'stop','--frozen-snapshot-saved'],env=self.env,check=True)
         self.process.wait(timeout=10)
+    def run_control(self,*args,check=True):
+        return subprocess.run(['sh',str(ROOT/'scripts/paired_control.sh'),*args],env=self.env,
+                              check=check,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,timeout=10)
     def tearDown(self):
         if self.process and self.process.poll() is None:
             self.process.terminate()
@@ -106,6 +117,31 @@ class Paired(unittest.TestCase):
         self.start();self.ready();zig=int((self.control/'ziggurat.pid').read_text());os.kill(zig,signal.SIGKILL)
         wait(lambda:self.events.read_text().count('native start')==2)
         events=self.events.read_text();self.assertLess(events.index('native stop'),events.rindex('zig start'))
+        self.quiesce();self.stop()
+    def test_log_level_control_restarts_only_ziggurat(self):
+        self.enable_matter();self.start();self.ready()
+        native_pid=int((self.control/'native.pid').read_text())
+        zig_pid=int((self.control/'ziggurat.pid').read_text())
+        result=self.run_control('log-level','trace')
+        self.assertIn('restarting Ziggurat',result.stdout)
+        wait(lambda:int((self.control/'ziggurat.pid').read_text())!=zig_pid)
+        wait(lambda:'zig level trace' in self.events.read_text())
+        wait(lambda:(self.control/'active-log-level').read_text().strip()=='trace')
+        self.assertEqual(int((self.control/'native.pid').read_text()),native_pid)
+        self.assertNotIn('native stop',self.events.read_text())
+        matter_pid=int((self.control/'matter.pid').read_text())
+        os.kill(matter_pid,signal.SIGTERM)
+        wait(lambda:self.events.read_text().count('matter start')==2)
+        self.assertEqual(int((self.control/'native.pid').read_text()),native_pid)
+        self.quiesce();self.stop()
+    def test_log_level_control_validation_and_same_level_noop(self):
+        self.start();self.ready()
+        zig_pid=int((self.control/'ziggurat.pid').read_text())
+        self.assertNotEqual(self.run_control('log-level','verbose',check=False).returncode,0)
+        self.assertFalse((self.control/'requested-log-level').exists())
+        self.assertEqual(int((self.control/'ziggurat.pid').read_text()),zig_pid)
+        self.assertIn('already using info',self.run_control('log-level','info').stdout)
+        self.assertEqual(int((self.control/'ziggurat.pid').read_text()),zig_pid)
         self.quiesce();self.stop()
     def test_native_crash_restarts_without_second_radio_owner_and_budget_bounds(self):
         self.env['TEST_EXIT']='1';self.start();self.process.wait(timeout=12)

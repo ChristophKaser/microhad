@@ -122,11 +122,20 @@ candidate boot launcher. Both are prepared but **not installed**. The launcher
 expects binaries, configuration, helper and paired supervisor in `/tuya/native`.
 Do not use unchanged `deploy.sh --activate` to install this two-process launcher.
 
+For a temporary Ziggurat verbosity change while the paired supervisor is active,
+run `/tuya/native/paired_control.sh log-level trace` (or `off`, `error`, `warn`,
+`info`, or `debug`). It signals only Ziggurat; the native gateway reconnects to
+the replacement process, and Matter is restarted by its child monitor if its
+radio connection exits. The setting lives in the supervisor's private `/tmp`
+control directory, so a fresh supervisor launch returns to its configured level
+(normally `info`).
+
 The supervisor atomically claims a private control directory, checks UART is free,
 starts Ziggurat, verifies its Hello, then starts native. Restarts have backoff and
 a finite budget (default five attempts across both children). Native failure
-restarts native against the existing stack; Ziggurat failure stops native before
-restarting the pair. Startup deadline is 15 seconds plus at most the five-second
+restarts native against the existing stack; unexpected Ziggurat failure stops
+native before restarting the pair. A requested log-level change restarts only
+Ziggurat. Startup deadline is 15 seconds plus at most the five-second
 probe in progress. Shutdown bounds each child to eight seconds and reports forced
 termination; this does not certify freeze. Marker files use POSIX shell redirection because the device has no `touch`.
 Child console output is discarded;

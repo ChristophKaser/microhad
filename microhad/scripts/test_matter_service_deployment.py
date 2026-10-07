@@ -18,6 +18,8 @@ with open(os.environ['STAGING_CALLS'], 'a') as output:
     output.write(json.dumps({'command':command, 'bytes':len(data)})+'\\n')
 if 'df -k /tuya' in command:
     print(os.environ.get('FLASH_AVAILABLE_KIB', '1000000'))
+elif 'for image in' in command:
+    print(os.environ.get('REMOTE_RUNNING_IMAGES', '0:0\\n0:0'))
 elif 'for file in' in command and 'wc -c' in command:
     print(os.environ.get('REMOTE_SIZES', '0 0 0 0 0'))
 '''
@@ -76,10 +78,11 @@ class Staging(unittest.TestCase):
                            check=True, timeout=10)
             rows = [json.loads(line) for line in calls.read_text().splitlines()]
             uploads = [row for row in rows if row['bytes']]
-            self.assertEqual(len(uploads), 4)
+            self.assertEqual(len(uploads), 5)
             self.assertEqual(uploads[1]['bytes'], len(Path(str(binary) + '.matter-manifest').read_bytes()))
             self.assertEqual(uploads[2]['bytes'], service.stat().st_size)
             self.assertEqual(uploads[3]['bytes'], (ROOT / 'paired_start.sh').stat().st_size)
+            self.assertEqual(uploads[4]['bytes'], (ROOT / 'scripts/paired_control.sh').stat().st_size)
             commands = '\n'.join(row['command'] for row in rows)
             self.assertIn('/tuya/native-test/.thread-matter.new', commands)
             self.assertIn('chmod 700', commands)
@@ -111,9 +114,10 @@ class Staging(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn('Insufficient /tuya flash for Matter staging', result.stderr)
             rows = [json.loads(line) for line in calls.read_text().splitlines()]
-            self.assertEqual(len(rows), 2)
+            self.assertEqual(len(rows), 3)
             self.assertIn('for file in', rows[0]['command'])
-            self.assertIn('df -k /tuya', rows[1]['command'])
+            self.assertIn('for image in', rows[1]['command'])
+            self.assertIn('df -k /tuya', rows[2]['command'])
             self.assertTrue(all(row['bytes'] == 0 for row in rows))
 
     def test_matter_flash_preflight_counts_replaced_in_place_artifacts(self):
@@ -156,7 +160,7 @@ class Staging(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn('Insufficient /tuya flash for Matter staging', result.stderr)
             rows = [json.loads(line) for line in calls.read_text().splitlines()]
-            self.assertEqual(len(rows), 2)
+            self.assertEqual(len(rows), 3)
             self.assertTrue(all(row['bytes'] == 0 for row in rows))
 
     def test_explicit_paired_activation_installs_matter_aware_launcher(self):
@@ -179,7 +183,9 @@ class Staging(unittest.TestCase):
             uploads = [row for row in rows if row['bytes']]
             self.assertEqual([row['bytes'] for row in uploads], [binary.stat().st_size,
                 len(Path(str(binary) + '.matter-manifest').read_bytes()), service.stat().st_size,
-                (ROOT / 'paired_start.sh').stat().st_size, (ROOT / 'ziggurat_start.sh').stat().st_size])
+                (ROOT / 'paired_start.sh').stat().st_size,
+                (ROOT / 'scripts/paired_control.sh').stat().st_size,
+                (ROOT / 'ziggurat_start.sh').stat().st_size])
             commands = '\n'.join(row['command'] for row in rows)
             self.assertIn('cp /tuya/tuya_start.sh /tuya/tuya_start.sh.lowjs-backup', commands)
             self.assertIn('mv "/tuya/native/.gateway_start.sh.new" /tuya/tuya_start.sh', commands)

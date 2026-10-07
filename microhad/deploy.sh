@@ -221,7 +221,7 @@ maintenance_deploy_run() {
 
     # Backup only application artifacts. Runtime configuration, Matter identity,
     # Zigbee state, TLS material and network backups are intentionally excluded.
-    for name in microhad-zigbee-native microhad-zigbee-native.matter-manifest thread-matter ziggurat gateway-maintenance logread paired_start.sh; do
+    for name in microhad-zigbee-native microhad-zigbee-native.matter-manifest thread-matter ziggurat gateway-maintenance logread paired_start.sh paired_control.sh; do
         remote="$target/$name"
         if ssh_command "test -f \"$remote\"" >/dev/null 2>&1; then
             ssh_command "cat \"$remote\"" > "$rollback_dir/$name" || return 1
@@ -294,7 +294,7 @@ maintenance_deploy_run() {
     service_bytes=$(wc -c < "$matter_service"); helper_bytes=$(wc -c < "$maintenance_helper")
     logread_bytes=$(wc -c < "$logread")
     manifest_bytes=$(wc -c < "$binary.matter-manifest")
-    support_bytes=$(wc -c < "$project_dir/paired_start.sh")
+    support_bytes=$(($(wc -c < "$project_dir/paired_start.sh") + $(wc -c < "$project_dir/scripts/paired_control.sh")))
     launcher_bytes=$(wc -c < "$project_dir/ziggurat_start.sh")
     launcher_backup_bytes=$(ssh_command "if [ -e /tuya/tuya_start.sh.lowjs-backup ]; then echo 0; elif [ -f /tuya/tuya_start.sh ]; then wc -c < /tuya/tuya_start.sh | awk '{print \$1}'; else echo 0; fi") || return 1
     webui_largest=$(find "$webui_dir" -type f -exec wc -c {} + |
@@ -361,7 +361,8 @@ maintenance_deploy_run() {
         ! upload_atomic "$maintenance_helper" "$target/gateway-maintenance" 700 ||
         ! upload_atomic "$logread" "$target/logread" 700 ||
         ! upload_atomic "$matter_service" "$target/thread-matter" 700 ||
-        ! upload_atomic "$project_dir/paired_start.sh" "$target/paired_start.sh" 700; then
+        ! upload_atomic "$project_dir/paired_start.sh" "$target/paired_start.sh" 700 ||
+        ! upload_atomic "$project_dir/scripts/paired_control.sh" "$target/paired_control.sh" 700; then
         echo "Deployment incomplete; services remain stopped. Previous application files are preserved at $rollback_dir for manual recovery." >&2
         return 1
     fi
@@ -404,14 +405,15 @@ matter_flash_preflight() {
     [ "$activate_paired_only" = false ] || return 0
     [ -z "$matter_service" ] && return 0
 
-    old_sizes=$(ssh_command "for file in \"$target/tuya-zigbee-native\" \"$target/config.json\" \"$target/tuya-zigbee-native.matter-manifest\" \"$target/thread-matter\" \"$target/paired_start.sh\"; do if [ -f \"\$file\" ]; then wc -c < \"\$file\"; else echo 0; fi; done") || return $?
+    old_sizes=$(ssh_command "for file in \"$target/tuya-zigbee-native\" \"$target/config.json\" \"$target/tuya-zigbee-native.matter-manifest\" \"$target/thread-matter\" \"$target/paired_start.sh\" \"$target/paired_control.sh\"; do if [ -f \"\$file\" ]; then wc -c < \"\$file\"; else echo 0; fi; done") || return $?
     set -- $old_sizes
     old_native=${1:-0}
     old_config=${2:-0}
     old_manifest=${3:-0}
     old_service=${4:-0}
     old_supervisor=${5:-0}
-    for old_size in "$old_native" "$old_config" "$old_manifest" "$old_service" "$old_supervisor"; do
+    old_control=${6:-0}
+    for old_size in "$old_native" "$old_config" "$old_manifest" "$old_service" "$old_supervisor" "$old_control"; do
         case "$old_size" in ''|*[!0-9]*) echo "Unable to read existing Matter deployment file sizes" >&2; return 1 ;; esac
     done
 
@@ -460,6 +462,8 @@ matter_flash_preflight() {
     stage_flash_group "$service_size" "$replaced_service"
     supervisor_size=$(wc -c < "$project_dir/paired_start.sh")
     stage_flash_group "$supervisor_size" "$old_supervisor"
+    control_size=$(wc -c < "$project_dir/scripts/paired_control.sh")
+    stage_flash_group "$control_size" "$old_control"
 
     if [ "$deploy_webui" = true ]; then
         set -- $(find "$project_dir/webui/dist" -type f -exec wc -c {} + |
@@ -497,7 +501,27 @@ matter_flash_preflight
 paired_launcher_preflight() {
     [ "$activate_paired_only" = true ] || return 0
 
-    ssh_command "test -x \"$target/tuya-zigbee-native\" && test -x \"$target/thread-matter\" && test -x \"$target/paired_start.sh\" && grep -q '^format=microhad-native-build-v1\$' \"$target/tuya-zigbee-native.matter-manifest\" && grep -q '^ziggurat=1\$' \"$target/tuya-zigbee-native.matter-manifest\" && grep -q '^matter=1\$' \"$target/tuya-zigbee-native.matter-manifest\"" || {
+    old_launcher_sizes=$(ssh_command "for file in /tuya/tuya_start.sh /tuya/tuya_start.sh.lowjs-backup; do if [ -f \"\$file\" ]; then wc -c < \"\$file\"; else echo 0; fi; done") || return $?
+    set -- $old_launcher_sizes
+    old_launcher=${1:-0}
+    old_backup=${2:-0}
+    case "$old_launcher:$old_backup" in *[!0-9:]*) echo "Unable to read installed launcher sizes" >&2; return 1 ;; esac
+    new_launcher=$(wc -c < "$project_dir/ziggurat_start.sh")
+    backup_bytes=0
+    [ "$old_backup" -ne 0 ] || backup_bytes=$old_launcher
+
+    new_control_size=$(wc -c < "$project_dir/scripts/paired_control.sh")
+    required_kib=$(((new_launcher + new_control_size + backup_bytes + 1023) / 1024 + flash_reserve_kib))
+    available_kib=$(ssh_command "df -k /tuya | awk 'END {print \$4}'") || return $?
+    case "$available_kib" in ''|*[!0-9]*) echo "Unable to read available /tuya flash space" >&2; return 1 ;; esac
+    if [ "$available_kib" -lt "$required_kib" ]; then
+        printf 'Insufficient flash for paired launcher and control helper: need %s KiB, have %s KiB\n' "$required_kib" "$available_kib" >&2
+        return 1
+    fi
+    ssh_command "dd of=\"$target/.paired_control.sh.new\"" < "$project_dir/scripts/paired_control.sh"
+    ssh_command "chmod 700 \"$target/.paired_control.sh.new\"; mv \"$target/.paired_control.sh.new\" \"$target/paired_control.sh\""
+
+    ssh_command "test -x \"$target/tuya-zigbee-native\" && test -x \"$target/thread-matter\" && test -x \"$target/paired_start.sh\" && test -x \"$target/paired_control.sh\" && grep -q '^format=microhad-native-build-v1\$' \"$target/tuya-zigbee-native.matter-manifest\" && grep -q '^ziggurat=1\$' \"$target/tuya-zigbee-native.matter-manifest\" && grep -q '^matter=1\$' \"$target/tuya-zigbee-native.matter-manifest\"" || {
         echo "Staged Matter package is incomplete or not executable" >&2
         return 1
     }
@@ -505,30 +529,17 @@ paired_launcher_preflight() {
     expected_manifest_md5=$(md5sum "$binary.matter-manifest" | awk '{print $1}')
     expected_service_md5=$(md5sum "$matter_service" | awk '{print $1}')
     expected_supervisor_md5=$(md5sum "$project_dir/paired_start.sh" | awk '{print $1}')
-    actual_matter_md5s=$(ssh_command "md5sum \"$target/tuya-zigbee-native\" \"$target/tuya-zigbee-native.matter-manifest\" \"$target/thread-matter\" \"$target/paired_start.sh\" | awk '{print \$1}'") || return $?
+    expected_control_md5=$(md5sum "$project_dir/scripts/paired_control.sh" | awk '{print $1}')
+    actual_matter_md5s=$(ssh_command "md5sum \"$target/tuya-zigbee-native\" \"$target/tuya-zigbee-native.matter-manifest\" \"$target/thread-matter\" \"$target/paired_start.sh\" \"$target/paired_control.sh\" | awk '{print \$1}'") || return $?
     set -- $actual_matter_md5s
     [ "${1:-}" = "$expected_native_md5" ] &&
         [ "${2:-}" = "$expected_manifest_md5" ] &&
         [ "${3:-}" = "$expected_service_md5" ] &&
-        [ "${4:-}" = "$expected_supervisor_md5" ] || {
+        [ "${4:-}" = "$expected_supervisor_md5" ] &&
+        [ "${5:-}" = "$expected_control_md5" ] || {
             echo "Staged Matter package hashes do not match the selected local artifacts" >&2
             return 1
         }
-    old_launcher_sizes=$(ssh_command "for file in /tuya/tuya_start.sh /tuya/tuya_start.sh.lowjs-backup; do if [ -f \"\$file\" ]; then wc -c < \"\$file\"; else echo 0; fi; done") || return $?
-    set -- $old_launcher_sizes
-    old_launcher=${1:-0}
-    old_backup=${2:-0}
-    case "$old_launcher:$old_backup" in *[!0-9:]*|:*|*::*) echo "Unable to read installed launcher sizes" >&2; return 1 ;; esac
-    new_launcher=$(wc -c < "$project_dir/ziggurat_start.sh")
-    backup_bytes=0
-    [ "$old_backup" -ne 0 ] || backup_bytes=$old_launcher
-    required_kib=$(((new_launcher + backup_bytes + 1023) / 1024 + flash_reserve_kib))
-    available_kib=$(ssh_command "df -k /tuya | awk 'END {print \$4}'") || return $?
-    case "$available_kib" in ''|*[!0-9]*) echo "Unable to read available /tuya flash space from df" >&2; return 1 ;; esac
-    if [ "$available_kib" -lt "$required_kib" ]; then
-        printf 'Insufficient /tuya flash for paired launcher activation: need at least %s KiB, have %s KiB\n' "$required_kib" "$available_kib" >&2
-        return 1
-    fi
     printf 'Paired launcher preflight passed: need at least %s KiB, have %s KiB available\n' "$required_kib" "$available_kib"
 }
 
@@ -555,7 +566,8 @@ if [ -n "$rng_seed_helper" ]; then
     ssh_command "mkdir -p \"$target\"; [ ! -x \"$target/rng-seed\" ] || cp \"$target/rng-seed\" /tmp/rng-seed.pre-codex; [ ! -f \"$target/paired_start.sh\" ] || cp \"$target/paired_start.sh\" /tmp/paired_start.sh.pre-rng-seed"
     ssh_command "dd of=\"$target/.rng-seed.new\"" < "$rng_seed_helper"
     ssh_command "dd of=\"$target/.paired_start.sh.new\"" < "$project_dir/paired_start.sh"
-    ssh_command "chmod 700 \"$target/.rng-seed.new\" \"$target/.paired_start.sh.new\"; mv \"$target/.rng-seed.new\" \"$target/rng-seed\"; mv \"$target/.paired_start.sh.new\" \"$target/paired_start.sh\"; ls -l \"$target/rng-seed\" \"$target/paired_start.sh\""
+    ssh_command "dd of=\"$target/.paired_control.sh.new\"" < "$project_dir/scripts/paired_control.sh"
+    ssh_command "chmod 700 \"$target/.rng-seed.new\" \"$target/.paired_start.sh.new\" \"$target/.paired_control.sh.new\"; mv \"$target/.rng-seed.new\" \"$target/rng-seed\"; mv \"$target/.paired_start.sh.new\" \"$target/paired_start.sh\"; mv \"$target/.paired_control.sh.new\" \"$target/paired_control.sh\"; ls -l \"$target/rng-seed\" \"$target/paired_start.sh\" \"$target/paired_control.sh\""
 fi
 if [ -n "$matter_service" ] && [ "$activate_paired_only" = false ]; then
     # Stage the optional service and supervisor only. No launcher activation,
@@ -565,7 +577,8 @@ if [ -n "$matter_service" ] && [ "$activate_paired_only" = false ]; then
     ssh_command "dd of=\"$target/.thread-matter.new\"" < "$matter_service"
     ssh_command "chmod 700 \"$target/.thread-matter.new\"; mv \"$target/.thread-matter.new\" \"$target/thread-matter\""
     ssh_command "dd of=\"$target/.paired_start.sh.new\"" < "$project_dir/paired_start.sh"
-    ssh_command "chmod 700 \"$target/.paired_start.sh.new\"; mv \"$target/.paired_start.sh.new\" \"$target/paired_start.sh\""
+    ssh_command "dd of=\"$target/.paired_control.sh.new\"" < "$project_dir/scripts/paired_control.sh"
+    ssh_command "chmod 700 \"$target/.paired_start.sh.new\" \"$target/.paired_control.sh.new\"; mv \"$target/.paired_start.sh.new\" \"$target/paired_start.sh\"; mv \"$target/.paired_control.sh.new\" \"$target/paired_control.sh\""
 fi
 if [ "$deploy_webui" = true ]; then
     printf 'Uploading web UI to %s:%s/webui\n' "$host" "$target"
