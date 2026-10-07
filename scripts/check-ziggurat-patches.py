@@ -45,22 +45,26 @@ def tree_files(root: Path) -> dict[str, tuple[bytes, int] | str]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("build_worktree", type=Path)
-    parser.add_argument("source_revision")
-    parser.add_argument("multipan", choices=("0", "1"))
+    parser.add_argument("--build-worktree", type=Path)
+    parser.add_argument("--source-revision")
+    parser.add_argument("--multipan", choices=("0", "1"), required=True)
     args = parser.parse_args()
 
     root = Path(__file__).resolve().parents[1]
     repository = root / "ziggurat"
-    worktree = (root / args.build_worktree).resolve()
-    actual_revision = subprocess.check_output(
-        ["git", "-C", str(worktree), "rev-parse", "HEAD"], text=True
+    worktree = (root / args.build_worktree).resolve() if args.build_worktree else None
+    source_revision = args.source_revision or subprocess.check_output(
+        ["git", "-C", str(repository), "rev-parse", "HEAD"], text=True
     ).strip()
-    if actual_revision != args.source_revision:
-        raise SystemExit(
-            f"Build worktree HEAD {actual_revision} differs from pinned revision "
-            f"{args.source_revision}"
-        )
+    if worktree is not None:
+        actual_revision = subprocess.check_output(
+            ["git", "-C", str(worktree), "rev-parse", "HEAD"], text=True
+        ).strip()
+        if actual_revision != source_revision:
+            raise SystemExit(
+                f"Build worktree HEAD {actual_revision} differs from pinned revision "
+                f"{source_revision}"
+            )
 
     with tempfile.TemporaryDirectory(prefix="ziggurat-patch-check-") as temporary:
         expected = Path(temporary) / "source"
@@ -73,7 +77,7 @@ def main() -> int:
                 "add",
                 "--detach",
                 str(expected),
-                args.source_revision,
+                source_revision,
             ]
         )
         try:
@@ -85,6 +89,13 @@ def main() -> int:
                 names.extend(PATCHES["multipan_after_common"])
             for name in names:
                 run(["git", "-C", str(expected), "apply", str(root / "patches" / name)])
+
+            if worktree is None:
+                print(
+                    f"Ziggurat patch series applies cleanly for revision {source_revision} "
+                    f"(multipan={args.multipan})"
+                )
+                return 0
 
             expected_files = tree_files(expected)
             actual_files = tree_files(worktree)
@@ -106,7 +117,7 @@ def main() -> int:
             )
             if problems:
                 raise SystemExit("Ziggurat patch coverage failed:\n  " + "\n  ".join(problems))
-            print(f"Ziggurat patch coverage verified for revision {args.source_revision}")
+            print(f"Ziggurat patch coverage verified for revision {source_revision}")
         finally:
             subprocess.run(
                 ["git", "-C", str(repository), "worktree", "remove", "--force", str(expected)],

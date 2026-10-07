@@ -120,6 +120,17 @@ Zigbee fixes in an ignored worktree. It produces:
 - `build/ziggurat-hdlc/lexra-stock-uclibc/release/ziggurat.stripped`
 - `build/gateway-maintenance`
 
+Enable the repository's pre-commit patch coverage check once per clone:
+
+```sh
+git config core.hooksPath .githooks
+```
+
+The hook validates the stock and multipan Ziggurat series, both rs-matter
+series, CPC, OpenThread, and the three Cargo compatibility patches. When their
+build worktrees exist, it also checks that their tracked changes match the
+patch series.
+
 Use the multi-PAN build for IID 1, even if Thread is disabled. The helper provides
 UART ownership checks and bootloader/COBS maintenance, not a daily extra daemon.
 
