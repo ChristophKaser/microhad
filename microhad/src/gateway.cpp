@@ -3256,11 +3256,11 @@ std::string Gateway::logsJson() const {
 }
 
 void Gateway::addLog(const std::string& message) {
-    std::ostringstream line;
     std::string rendered = message.substr(0, 768);
+#ifdef MICROHAD_TESTING
+    std::ostringstream line;
     line << time(0) << " " << rendered;
     const std::string entry = line.str();
-#ifdef MICROHAD_TESTING
     logs_.push_back(entry);
     unsigned long testLogBytes = 0;
     for (std::deque<std::string>::const_iterator it = logs_.begin(); it != logs_.end(); ++it)
@@ -3273,7 +3273,7 @@ void Gateway::addLog(const std::string& message) {
 #ifdef MICROHAD_TESTING
     markViewDirty();
 #endif
-    syslog(LOG_INFO, "%s", entry.c_str());
+    syslog(LOG_INFO, "%s", rendered.c_str());
 }
 
 std::string Gateway::deviceLogLabel(unsigned short node) const {

@@ -18,12 +18,18 @@ import { GatewaySettingsDialog } from './GatewaySettingsDialog'
 import './style.css'
 
 function LogLine({ line }: { line: string }) {
-  const match = line.match(/^(\d+)\s+(?:(SERIAL|EZSP|APS|FRAME)\b\s*)?(.*)$/)
+  const match = line.match(/^(\d+)\s+(.*)$/)
   if (!match) return <span className="log-line">{line}</span>
-  const [, epoch, tag, body] = match
+  const [, epoch, rawBody] = match
   const time = new Date(Number(epoch) * 1000)
   if (Number.isNaN(time.getTime())) return <span className="log-line">{line}</span>
   const timestamp = time.toLocaleString()
+  const syslog = rawBody.match(/^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+(\S+\s+\S+\s+[^:]+:\s*)(.*)$/)
+  const prefix = syslog?.[1] ?? ''
+  const message = syslog?.[2] ?? rawBody
+  const tagged = message.match(/^(SERIAL|EZSP|APS|FRAME)\b\s*(.*)$/)
+  const tag = tagged?.[1]
+  const body = tagged?.[2] ?? message
   const ieee = tag === 'FRAME' ? body.match(/ieee=(0x[0-9a-f]+)/i)?.[1] : undefined
   const hue = ieee
     ? [...ieee].reduce((hash, char) => (hash * 31 + char.charCodeAt(0)) >>> 0, 0) % 360
@@ -36,7 +42,7 @@ function LogLine({ line }: { line: string }) {
       <span className="log-time" title={`Unix timestamp: ${epoch}`}>
         {timestamp}
       </span>{' '}
-      {tag && <><b className="log-tag">{tag}</b>{' '}</>}{body}
+      {prefix}{tag && <><b className="log-tag">{tag}</b>{' '}</>}{body}
     </span>
   )
 }

@@ -13,6 +13,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <syslog.h>
 #include <unistd.h>
 
 namespace {
@@ -25,6 +26,7 @@ void stopHandler(int) {
 }
 
 int main(int argc, char** argv) {
+    openlog("gateway", 0, LOG_USER);
     setCurrentThreadName("gateway-main");
     std::string configPath;
     std::string error;
