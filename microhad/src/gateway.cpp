@@ -1049,10 +1049,24 @@ void Gateway::zigguratSendResult(unsigned char sequence, bool unicast, unsigned 
         if (!retry.inFlight || retry.ezspSequence!=sequence || retry.unicast!=unicast) continue;
         bool stale=retry.sentOff!=retry.off || (!retry.off && retry.sentSceneId!=retry.sceneId);
         retry.inFlight=false;
-        if (stale) { retry.unicast=false; retry.memberIndex=0; retry.retryRequested=false; retry.retryAt=time(0); }
+        if (stale) {
+            if (status && !unicast) {
+                retry.unicast=true;
+                addLog("Ziggurat scene multicast failed; latest target falling back to serialized unicast");
+            }
+            retry.memberIndex=0; retry.attempts=0; retry.retryRequested=false; retry.retryAt=time(0);
+        }
         else if (!status && unicast) { ++retry.memberIndex; retry.attempts=0; retry.retryRequested=false; retry.retryAt=time(0); }
         else if (!status) { completeSceneRetry(it->first,&retry); retry.retryRequested=false; retry.retryAt=LONG_MAX; }
-        else { retry.retryRequested=false; scheduleSceneRetry(&retry,time(0)); addLog("Ziggurat scene delivery failed; bounded retry scheduled"); }
+        else if (!unicast) {
+            retry.unicast=true; retry.memberIndex=0; retry.attempts=0;
+            retry.retryRequested=false; retry.retryAt=time(0);
+            addLog("Ziggurat scene multicast failed; falling back to serialized unicast");
+        } else {
+            retry.retryRequested=false;
+            addLog(scheduleSceneRetry(&retry,time(0)) ? "Scene unicast failed; bounded retry scheduled" :
+                   "Scene unicast failed; giving up");
+        }
         return;
     }
     if (unicast && status && interviewRequestInFlight_ && sequence==interviewEzspSequence_)
@@ -2075,8 +2089,14 @@ bool Gateway::activateScene(unsigned short groupId, unsigned char sceneId, std::
     if (!found) { *error = "scene not found"; return false; }
     if (!online_ || !networkFormed_ || coordinatorInitializationStep_ != 0) { *error = "Zigbee network is not ready"; return false; }
     SceneRetry& retry = sceneRetries_[groupId];
+    bool pending = retry.inFlight || (retry.retryAt != LONG_MAX && (retry.off || retry.sceneId != 0));
+    bool changed = retry.off || retry.sceneId != sceneId;
     retry.off = false; retry.sceneId = sceneId; retry.attempts = 0; retry.retryRequested = false; retry.retryAt = time(0);
-    if (!retry.inFlight) { retry.unicast = false; retry.memberIndex = 0; }
+    if (!retry.inFlight) {
+        if (!pending) retry.unicast = false;
+        if (!pending || changed) retry.memberIndex = 0;
+    }
+    if (pending && changed) addLog("Scene selection pending; latest target updated");
     if (!retry.inFlight) pollSceneRetries();
     return true;
 }
@@ -2087,8 +2107,13 @@ bool Gateway::turnOffSceneGroup(unsigned short groupId, std::string* error) {
     if (group->members.empty()) { *error = "scene group is empty"; return false; }
     if (!online_ || !networkFormed_ || coordinatorInitializationStep_ != 0) { *error = "Zigbee network is not ready"; return false; }
     SceneRetry& retry = sceneRetries_[groupId];
+    bool pending = retry.inFlight || (retry.retryAt != LONG_MAX && (retry.off || retry.sceneId != 0));
+    bool changed = !retry.off;
     retry.off = true; retry.sceneId = 0; retry.attempts = 0; retry.retryRequested = false; retry.retryAt = time(0);
-    if (!retry.inFlight) { retry.unicast = false; retry.memberIndex = 0; }
+    if (!retry.inFlight) {
+        if (!pending) retry.unicast = false;
+        if (!pending || changed) retry.memberIndex = 0;
+    }
     if (!retry.inFlight) pollSceneRetries();
     return true;
 }
@@ -2231,17 +2256,22 @@ void Gateway::pollSceneRetries() {
         SceneRetry& retry = it->second;
         if (retry.inFlight && now >= retry.sentAt + 2) {
             retry.inFlight = false;
-            if (retry.sentOff != retry.off || (!retry.off && retry.sentSceneId != retry.sceneId)) {
-                retry.unicast = false;
+            bool stale = retry.sentOff != retry.off || (!retry.off && retry.sentSceneId != retry.sceneId);
+            if (stale) {
                 retry.memberIndex = 0;
+                retry.attempts = 0;
                 retry.retryRequested = true;
             }
-            if (retry.retryRequested) {
+            if (!retry.unicast) {
+                retry.unicast = true; retry.memberIndex = 0; retry.attempts = 0;
+                retry.retryRequested = false; retry.retryAt = now;
+                addLog("Scene multicast response timed out; falling back to serialized unicast");
+            } else if (retry.retryRequested) {
                 retry.retryRequested = false;
                 retry.retryAt = now;
-                addLog("Scene multicast response timed out; retry requested, retrying immediately");
-            } else if (scheduleSceneRetry(&retry, now)) addLog("Scene multicast response timed out; retrying");
-            else addLog("Scene multicast response timed out; giving up");
+                addLog("Scene unicast response timed out; latest target queued");
+            } else if (scheduleSceneRetry(&retry, now)) addLog("Scene unicast response timed out; retrying");
+            else addLog("Scene unicast response timed out; giving up");
         }
         if (!retry.inFlight && retry.retryAt <= now && !sendSceneRetry(it->first, &retry))
             retry.retryAt = now + 5;
@@ -2263,25 +2293,13 @@ void Gateway::dispatchRemoteSceneAction(const std::string& ieeeAddress, const st
         unsigned char wanted = binding.sceneIds[0];
         unsigned char current = 0;
         std::map<unsigned short, SceneRetry>::iterator retry = sceneRetries_.find(binding.groupId);
-        if (retry != sceneRetries_.end() &&
-            (retry->second.inFlight || retry->second.retryAt != LONG_MAX)) {
-            if (retry->second.inFlight) {
-                retry->second.retryRequested = true;
-                addLog("Scene selection pending; immediate retry requested");
-            } else {
-                retry->second.retryAt = time(0);
-                retry->second.retryRequested = false;
-                addLog("Scene selection pending; retrying immediately");
-                pollSceneRetries();
-            }
-            return;
-        }
+        bool off = retry != sceneRetries_.end() ? retry->second.off : sceneGroupOff_[binding.groupId];
         if (retry != sceneRetries_.end() && !retry->second.off) current = retry->second.sceneId;
         else if (selectedScenes_.count(binding.groupId)) current = selectedScenes_[binding.groupId];
         if (current != 0) {
             for (unsigned long j = 0; j < binding.sceneIds.size(); ++j) {
                 if (binding.sceneIds[j] != current) continue;
-                if (sceneGroupOff_[binding.groupId] && (retry == sceneRetries_.end() || retry->second.off))
+                if (off)
                     wanted = current;
                 else
                     wanted = binding.sceneIds[(j + 1) % binding.sceneIds.size()];
@@ -2582,7 +2600,8 @@ void Gateway::classifyDevice(Device* device) const {
 }
 
 bool Gateway::logRemoteKeyEvent(unsigned short sender, unsigned short cluster, unsigned char endpoint,
-                                unsigned short manufacturer, unsigned char command, const std::vector<unsigned char>& arguments) {
+                                unsigned short manufacturer, unsigned char command, const std::vector<unsigned char>& arguments,
+                                int transaction) {
     std::map<unsigned short, std::string>::const_iterator address = nodeAddresses_.find(sender);
     if (address == nodeAddresses_.end()) return false;
     std::map<std::string, Device>::const_iterator device = devices_.find(address->second);
@@ -2601,6 +2620,26 @@ bool Gateway::logRemoteKeyEvent(unsigned short sender, unsigned short cluster, u
         ((command == 0x07 && arguments.size() >= 4) ||
          (command == 0x08 && arguments.size() >= 3) || command == 0x09);
     if (!advertisesCluster && !styrbarSceneCommand) return false;
+    RemoteCommand received;
+    struct timespec now;
+    bool cacheCommand = transaction >= 0 && clock_gettime(CLOCK_MONOTONIC, &now) == 0;
+    if (cacheCommand) {
+        received.receivedAt = static_cast<int64_t>(now.tv_sec) * 1000 + now.tv_nsec / 1000000;
+        received.signature.push_back(endpoint);
+        appendLittleEndian16(&received.signature, cluster);
+        appendLittleEndian16(&received.signature, manufacturer);
+        received.signature.push_back(static_cast<unsigned char>(transaction));
+        received.signature.push_back(command);
+        received.signature.insert(received.signature.end(), arguments.begin(), arguments.end());
+        std::deque<RemoteCommand>& recent = remoteCommands_[address->second];
+        while (!recent.empty() && received.receivedAt - recent.front().receivedAt >= 2000) recent.pop_front();
+        for (unsigned long i = 0; i < recent.size(); ++i) {
+            if (recent[i].signature == received.signature) {
+                addLog("Duplicate remote command suppressed: " + deviceLogLabel(sender));
+                return true; /* A repeated unicast still receives its default response. */
+            }
+        }
+    }
     const char* action = 0;
     std::string releaseAction;
     unsigned short sceneGroup = 0;
@@ -2638,6 +2677,11 @@ bool Gateway::logRemoteKeyEvent(unsigned short sender, unsigned short cluster, u
         }
     }
     if (action == 0) return false;
+    if (cacheCommand) {
+        std::deque<RemoteCommand>& recent = remoteCommands_[address->second];
+        if (recent.size() == 16) recent.pop_front();
+        recent.push_back(received);
+    }
     std::ostringstream event;
     event << "Remote key event: " << deviceLogLabel(sender) << " endpoint=" << static_cast<unsigned int>(endpoint)
           << " action=" << action << " cluster=0x" << std::hex << cluster << " command=0x"
@@ -4201,7 +4245,7 @@ void Gateway::handleEzspFrame(const std::vector<unsigned char>& frame) {
             bool stale=retry.sentOff!=retry.off || (!retry.off && retry.sentSceneId!=retry.sceneId);
             retry.inFlight=false;
             if (stale) {
-                retry.unicast=false; retry.memberIndex=0;
+                retry.memberIndex=0; retry.attempts=0;
                 retry.retryRequested=false;
                 retry.retryAt=time(0);
             } else if (status == 0 && retry.unicast) {
@@ -5380,7 +5424,7 @@ void Gateway::handleApsMessage(unsigned short sender, unsigned short profile, un
         /* Only unicast commands receive default responses. Group/broadcast
            commands may use destination endpoint 255, which is not a valid
            source endpoint for a reply. Still dispatch their key events. */
-        if (logRemoteKeyEvent(sender, cluster, sourceEndpoint, manufacturer, command, arguments) &&
+        if (logRemoteKeyEvent(sender, cluster, sourceEndpoint, manufacturer, command, arguments, transactionSequence) &&
             (frameControl & 0x10) == 0 && messageType <= 1 && destinationEndpoint != 255)
             sendZclDefaultResponse(sender, destinationEndpoint, sourceEndpoint, cluster, transactionSequence, command);
     }

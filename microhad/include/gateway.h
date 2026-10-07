@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 #include <deque>
+#include <stdint.h>
 
 #include "ash.h"
 #include "network_backup.h"
@@ -456,6 +457,11 @@ private:
     std::map<unsigned short, long> nextSensorRefreshAt_;
     std::map<unsigned short, bool> lightSetupPending_;
     std::map<unsigned short, std::string> remoteSceneHolds_;
+    struct RemoteCommand {
+        std::vector<unsigned char> signature;
+        int64_t receivedAt;
+    };
+    std::map<std::string, std::deque<RemoteCommand> > remoteCommands_;
     std::map<unsigned short, long> lastActiveEndpointRequestAt_;
     std::map<std::string, long> contactOpenedAt_;
     std::map<std::string, long> nextContactAlertAt_;
@@ -600,7 +606,8 @@ private:
     void sendZclLightCommand(unsigned short destination, unsigned char endpoint, unsigned short cluster,
                              unsigned char command, const std::vector<unsigned char>& arguments);
     bool logRemoteKeyEvent(unsigned short sender, unsigned short cluster, unsigned char endpoint,
-                           unsigned short manufacturer, unsigned char command, const std::vector<unsigned char>& arguments);
+                           unsigned short manufacturer, unsigned char command, const std::vector<unsigned char>& arguments,
+                           int transaction = -1);
     bool logMatterButtonEvent(const MatterButtonEvent& event);
     bool sceneMemberNative(const Device& device, const Scene& scene, const SceneLightState& state) const;
     void queueSceneProvisioning();

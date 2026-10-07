@@ -1126,7 +1126,8 @@ public:
             incoming[6] = type < 2 ? 1 : 255;
             gateway.logs_.clear();
             gateway.handleIncomingMessage(incoming);
-            assert(gateway.logsJson().find("action=on") != std::string::npos);
+            assert((gateway.logsJson().find("action=on") != std::string::npos) == (type == 0));
+            assert((gateway.logsJson().find("Duplicate remote command suppressed") != std::string::npos) == (type != 0));
             assert((gateway.logsJson().find("payload=182a0b0100") != std::string::npos) == (type < 2));
         }
     }
@@ -1285,7 +1286,7 @@ public:
         if (!gateway.logRemoteKeyEvent(node, 0x0005, 1, 0x117c, 0x07, leftClick) ||
             gateway.sceneRetries_.find(10) == gateway.sceneRetries_.end() || gateway.sceneRetries_[10].sceneId != 1) return false;
         if (!gateway.logRemoteKeyEvent(node, 0x0005, 1, 0x117c, 0x07, leftClick) ||
-            !gateway.sceneRetries_[10].retryRequested || gateway.selectedScenes_.count(10) != 0) return false;
+            gateway.sceneRetries_[10].retryRequested || gateway.selectedScenes_.count(10) != 0) return false;
         std::vector<unsigned char> unknownGroup; unknownGroup.push_back(0x02); unknownGroup.push_back(0); unknownGroup.push_back(13); unknownGroup.push_back(0);
         if (gateway.logRemoteKeyEvent(node, 0x0005, 1, 0x117c, 0x07, unknownGroup)) return false;
         std::vector<unsigned char> hold; hold.push_back(1); hold.push_back(0); hold.push_back(0);
@@ -1293,7 +1294,7 @@ public:
             !gateway.logRemoteKeyEvent(node, 0x0005, 1, 0x117c, 0x09, std::vector<unsigned char>()) ||
             gateway.logRemoteKeyEvent(node, 0x0005, 1, 0x117c, 0x09, std::vector<unsigned char>())) return false;
         if (gateway.logRemoteKeyEvent(0x9999, 0x0006, 1, 0, 0x01, std::vector<unsigned char>())) return false;
-        return gateway.sceneRetries_[10].sceneId == 1 && gateway.sceneRetries_[10].retryRequested &&
+        return gateway.sceneRetries_[10].sceneId == 1 && !gateway.sceneRetries_[10].retryRequested &&
                gateway.selectedScenes_.count(10) == 0;
     }
     static bool rejectsDuplicateSceneStates() {
@@ -1553,30 +1554,154 @@ public:
         assert(gateway.activateScene(1, 2, &error));
         retry.sentAt = time(0) - 3;
         gateway.pollSceneRetries();
-        assert(!retry.unicast && retry.memberIndex == 0 && retry.inFlight && !retry.sentOff);
+        assert(retry.unicast && retry.memberIndex == 0 && retry.inFlight && !retry.sentOff);
     }
-    static bool pendingSceneIgnoresRemoteAction() {
-        Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
-        RemoteSceneBinding binding;
-        Gateway::SceneRetry& retry = gateway.sceneRetries_[1];
-        binding.ieeeAddress = "0xremote";
-        binding.action = "on";
-        binding.groupId = 1;
-        binding.sceneIds.push_back(1);
-        binding.sceneIds.push_back(2);
-        gateway.sceneBindings_.push_back(binding);
-        retry.sceneId = 1;
-        retry.inFlight = true;
-        gateway.dispatchRemoteSceneAction("0xremote", "on");
-        if (retry.sceneId != 1 || !retry.retryRequested ||
-            gateway.logsJson().find("Scene selection pending; immediate retry requested") == std::string::npos) return false;
+    static void sceneDeliveryFixture(Gateway& gateway) {
         gateway.ezspVersion_ = 8;
-        retry.ezspSequence = 42;
-        std::vector<unsigned char> reply(6, 0);
-        reply[0] = 42; reply[3] = 0x38; reply[4] = 0; reply[5] = 0xa1;
-        gateway.handleEzspFrame(reply);
-        return !retry.inFlight && !retry.retryRequested && retry.retryAt <= time(0);
+        gateway.online_ = true; gateway.networkFormed_ = true;
+        gateway.coordinatorInitializationStep_ = 0;
+        SceneGroup group; group.id = 1; group.name = "Room";
+        for (int i = 0; i < 3; ++i) {
+            std::ostringstream name; name << "light" << i;
+            Device& light = gateway.devices_[name.str()];
+            light.ieeeAddress = name.str(); light.networkAddress = 0x1234 + i;
+            EndpointDescriptor endpoint; endpoint.endpoint = 1;
+            endpoint.inputClusters.push_back(4); endpoint.inputClusters.push_back(5);
+            endpoint.inputClusters.push_back(6); light.endpoints.push_back(endpoint);
+            group.members.push_back(name.str());
+        }
+        for (int i = 1; i <= 3; ++i) {
+            Scene scene; scene.id = i; scene.name = "Scene";
+            for (unsigned long j = 0; j < group.members.size(); ++j) {
+                SceneLightState state; state.ieeeAddress = group.members[j];
+                state.on = true; state.brightnessPercent = -1; scene.states.push_back(state);
+            }
+            group.scenes.push_back(scene);
+        }
+        gateway.sceneGroups_.push_back(group);
+        Device& remote = gateway.devices_["remote"];
+        remote.ieeeAddress = "remote"; remote.hasRemote = true;
+        EndpointDescriptor endpoint; endpoint.endpoint = 1; endpoint.outputClusters.push_back(6);
+        remote.endpoints.push_back(endpoint); gateway.nodeAddresses_[0x4321] = "remote";
+        RemoteSceneBinding binding; binding.ieeeAddress = "remote"; binding.action = "on";
+        binding.groupId = 1;
+        binding.sceneIds.push_back(1); binding.sceneIds.push_back(2); binding.sceneIds.push_back(3);
+        gateway.sceneBindings_.push_back(binding);
+        binding.action = "off"; binding.off = true; gateway.sceneBindings_.push_back(binding);
     }
+    static bool pendingSceneKeepsLatestRemoteAction() {
+        Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+        sceneDeliveryFixture(gateway);
+        const std::vector<unsigned char> empty;
+        for (int transaction = 1; transaction <= 5; ++transaction) {
+            if (!gateway.logRemoteKeyEvent(0x4321, 6, 1, 0, 1, empty, transaction)) return false;
+            if (!gateway.logRemoteKeyEvent(0x4321, 6, 1, 0, 1, empty, transaction)) return false;
+        }
+        Gateway::SceneRetry& retry = gateway.sceneRetries_[1];
+        if (retry.sceneId != 2 || retry.sentSceneId != 1 || retry.retryRequested) return false;
+        std::vector<unsigned char> reply(6, 0);
+        reply[0] = retry.ezspSequence; reply[3] = 0x38;
+        gateway.handleEzspFrame(reply); // Old success must not commit scene 1.
+        if (!gateway.selectedScenes_.empty() || retry.inFlight) return false;
+        gateway.pollSceneRetries();
+        if (retry.sentSceneId != 2 || !retry.inFlight) return false;
+        reply[0] = retry.ezspSequence; gateway.handleEzspFrame(reply);
+        if (gateway.selectedScenes_[1] != 2) return false;
+        gateway.logRemoteKeyEvent(0x4321, 6, 1, 0, 0, empty, 6);
+        gateway.logRemoteKeyEvent(0x4321, 6, 1, 0, 1, empty, 7);
+        if (retry.off || retry.sceneId != 2) return false; // Restore pending off's current scene.
+        gateway.logRemoteKeyEvent(0x4321, 6, 1, 0, 1, empty, 8);
+        if (retry.sceneId != 3) return false;
+        reply[0] = retry.ezspSequence; reply[5] = 0xa1;
+        gateway.handleEzspFrame(reply); // Old off failure must not commit off.
+        return !retry.inFlight && !retry.off && !gateway.sceneGroupOff_[1] && gateway.selectedScenes_[1] == 2;
+    }
+    static void remoteCommandDeduplication() {
+        Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+        sceneDeliveryFixture(gateway);
+        std::vector<unsigned char> empty;
+        assert(gateway.logRemoteKeyEvent(0x4321, 6, 1, 0, 1, empty, 255));
+        int64_t first = gateway.remoteCommands_["remote"].front().receivedAt;
+        assert(gateway.logRemoteKeyEvent(0x4321, 6, 1, 0, 1, empty, 255));
+        assert(gateway.remoteCommands_["remote"].size() == 1 &&
+               gateway.remoteCommands_["remote"].front().receivedAt == first);
+        assert(gateway.logRemoteKeyEvent(0x4321, 6, 1, 0, 1, empty, 0));
+        assert(gateway.sceneRetries_[1].sceneId == 2); // Transaction wrap is a new press.
+        gateway.remoteCommands_["remote"].front().receivedAt -= 2001;
+        assert(gateway.logRemoteKeyEvent(0x4321, 6, 1, 0, 1, empty, 255));
+        assert(gateway.sceneRetries_[1].sceneId == 3);
+        gateway.devices_["other"] = gateway.devices_["remote"];
+        gateway.devices_["other"].ieeeAddress = "other"; gateway.nodeAddresses_[0x4322] = "other";
+        assert(gateway.logRemoteKeyEvent(0x4322, 6, 1, 0, 1, empty, 255));
+        assert(gateway.remoteCommands_["other"].size() == 1);
+        std::vector<unsigned char> hold(3, 0); hold[0] = 1;
+        assert(gateway.logRemoteKeyEvent(0x4321, 5, 1, 0x117c, 8, hold, 1));
+        assert(gateway.logRemoteKeyEvent(0x4321, 5, 1, 0x117c, 9, empty, 2));
+        assert(gateway.remoteSceneHolds_.empty());
+        assert(gateway.logRemoteKeyEvent(0x4321, 5, 1, 0x117c, 8, hold, 1));
+        assert(gateway.remoteSceneHolds_.empty()); // Duplicate hold must not resurrect released state.
+        assert(gateway.logRemoteKeyEvent(0x4321, 5, 1, 0x117c, 9, empty, 2));
+        for (int i = 10; i < 35; ++i) gateway.logRemoteKeyEvent(0x4321, 6, 1, 0, 1, empty, i);
+        assert(gateway.remoteCommands_["remote"].size() == 16);
+        Gateway protocol("/dev/null", 115200, "/tmp", "", "", "");
+        sceneDeliveryFixture(protocol);
+        std::vector<unsigned char> packet;
+        packet.push_back(1); packet.push_back(240); packet.push_back(1);
+        for (int i = 0; i < 2; ++i)
+            protocol.handleApsMessage(0x4321, 0x104, 6, 1, 1, 0, 0, 0, 0, 200, -70, packet);
+        unsigned int responses = 0, events = 0;
+        for (unsigned long i = 0; i < protocol.logs_.size(); ++i) {
+            if (protocol.logs_[i].find("payload=18f00b0100") != std::string::npos) ++responses;
+            if (protocol.logs_[i].find("Remote key event:") != std::string::npos) ++events;
+        }
+        assert(responses == 2 && events == 1 && protocol.sceneRetries_[1].sceneId == 1);
+    }
+#if MICROHAD_ZIGGURAT_ENABLED
+    static void zigguratSceneUnicastFallback() {
+        Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+        sceneDeliveryFixture(gateway);
+        std::string error;
+        assert(gateway.activateScene(1, 1, &error));
+        Gateway::SceneRetry& retry = gateway.sceneRetries_[1];
+        gateway.zigguratSendResult(retry.ezspSequence, false, 1);
+        assert(retry.unicast && !retry.inFlight && retry.memberIndex == 0);
+        gateway.pollSceneRetries();
+        assert(retry.inFlight && retry.unicast && gateway.selectedScenes_.empty());
+        gateway.zigguratSendResult(retry.ezspSequence, true, 0);
+        gateway.pollSceneRetries();
+        assert(retry.memberIndex == 1 && gateway.selectedScenes_.empty());
+        assert(gateway.activateScene(1, 2, &error));
+        gateway.zigguratSendResult(retry.ezspSequence, true, 0);
+        gateway.pollSceneRetries();
+        assert(retry.memberIndex == 0 && retry.unicast && retry.sentSceneId == 2);
+        gateway.zigguratSendResult(retry.ezspSequence, true, 1);
+        assert(!retry.inFlight && retry.memberIndex == 0 && gateway.selectedScenes_.empty());
+        retry.retryAt = time(0); gateway.pollSceneRetries();
+        for (int i = 0; i < 3; ++i) {
+            assert(retry.inFlight && retry.memberIndex == static_cast<unsigned long>(i));
+            assert(gateway.selectedScenes_.empty());
+            gateway.zigguratSendResult(retry.ezspSequence, true, 0); gateway.pollSceneRetries();
+        }
+        assert(gateway.selectedScenes_[1] == 2 && retry.retryAt == LONG_MAX);
+        assert(gateway.activateScene(1, 3, &error));
+        retry.sentAt = time(0) - 3; gateway.pollSceneRetries();
+        assert(retry.inFlight && retry.unicast && retry.memberIndex == 0);
+        for (int i = 0; i < 7; ++i) {
+            gateway.zigguratSendResult(retry.ezspSequence, true, 1);
+            if (i < 6) { retry.retryAt = time(0); gateway.pollSceneRetries(); }
+        }
+        assert(retry.retryAt == LONG_MAX && !retry.inFlight && gateway.selectedScenes_[1] == 2);
+        assert(gateway.turnOffSceneGroup(1, &error));
+        assert(!retry.unicast);
+        gateway.zigguratSendResult(retry.ezspSequence, false, 1); gateway.pollSceneRetries();
+        assert(retry.unicast && retry.sentOff);
+        for (int i = 0; i < 3; ++i) {
+            gateway.zigguratSendResult(retry.ezspSequence, true, 0); gateway.pollSceneRetries();
+        }
+        assert(gateway.sceneGroupOff_[1] && retry.retryAt == LONG_MAX);
+    }
+#endif
+
 };
 
 static void testAshRoundTrip() {
@@ -2487,8 +2612,12 @@ static void testSceneBusyDoesNotAdvanceSelection() {
     GatewayTestPeer::sceneBusyUnicastFallback();
 }
 
-static void testPendingSceneIgnoresRemoteAction() {
-    assert(GatewayTestPeer::pendingSceneIgnoresRemoteAction());
+static void testPendingSceneKeepsLatestRemoteAction() {
+    assert(GatewayTestPeer::pendingSceneKeepsLatestRemoteAction());
+    GatewayTestPeer::remoteCommandDeduplication();
+#if MICROHAD_ZIGGURAT_ENABLED
+    GatewayTestPeer::zigguratSceneUnicastFallback();
+#endif
 }
 
 static void testContactNotificationIsDeferred() {
@@ -2914,7 +3043,7 @@ void runUnitTests() {
     testSceneConfigurationRejectsInvalidReferences();
     testSaveTriggeredProvisioning();
     testSceneBusyDoesNotAdvanceSelection();
-    testPendingSceneIgnoresRemoteAction();
+    testPendingSceneKeepsLatestRemoteAction();
     testContactNotificationIsDeferred();
     testTemperatureThresholdAlerts();
     testContactAlertReminders();
