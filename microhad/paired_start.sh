@@ -92,9 +92,32 @@ cleanup() {
 }
 trap 'cleanup;exit 0' TERM INT HUP
 trap cleanup EXIT
+prepare_socket_path() {
+    path=$1
+    [ -e "$path" ] || [ -L "$path" ] || return 0
+    [ ! -L "$path" ] && [ -S "$path" ] || {
+        echo "IPC path exists but is not a socket; refusing to remove it: $path" >&2
+        return 1
+    }
+    [ -r /proc/net/unix ] || {
+        echo "Cannot inspect active Unix sockets; refusing to remove: $path" >&2
+        return 1
+    }
+    active=$(awk -v socket_path="$path" '$NF == socket_path {found=1} END {print found+0}' /proc/net/unix) || return 1
+    [ "$active" = 0 ] || {
+        echo "Unix socket is still registered in /proc/net/unix; refusing to remove: $path" >&2
+        return 1
+    }
+    rm -f "$path" || return 1
+}
 start_zig() {
     "$MAINTENANCE_BIN" check-free "$device" || { echo 'UART already owned or cannot be inspected' >&2;return 1; }
-    # Socket parent must be private; Ziggurat validates stale/live socket itself.
+    prepare_socket_path "$socket_path" || return 1
+    if [ -n "$matter_bin" ]; then
+        prepare_socket_path "$thread_socket" || return 1
+    fi
+    # Socket parent must be private; stale paths were removed only after the
+    # kernel socket table confirmed no process still owns them.
     parent=${socket_path%/*}
     if [ ! -d "$parent" ]; then mkdir "$parent" || return 1;chmod 700 "$parent";fi
     set --
@@ -140,6 +163,7 @@ poll_matter() {
     [ "$(date +%s)" -ge "$matter_next" ] || return 0
     # A missing Thread endpoint must not prevent the native bridge from running.
     [ -S "$thread_socket" ] || return 0
+    prepare_socket_path "$matter_socket" || { matter_next=$(($(date +%s)+backoff));return 0; }
     "$matter_bin" --socket "$matter_socket" --state-dir "$matter_state" \
         --radio-url "spinel+hdlc+unix://$thread_socket?no-reset" 2>&1 &
     matter_pid=$!;matter_retries=$((matter_retries+1))

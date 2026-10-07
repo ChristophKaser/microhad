@@ -37,6 +37,13 @@ changes, stage and commit only the files changed for the current task. Never
 commit device configuration, credentials, production TLS keys, persistent
 network state, or Zigbee keys.
 
+Before starting Ziggurat or the Matter service, `paired_start.sh` checks each
+configured Unix socket path. It removes a leftover socket pathname only when
+`/proc/net/unix` has no entry for that path. If the path is active, is not a
+socket, is a symlink, or the kernel socket table cannot be read, startup leaves
+it untouched and reports the problem. This handles socket files left after a
+crash without unlinking a live service's socket.
+
 Deploy updates with `deploy.sh` and the password file by pathname. The default
 copies the selected binary and Web UI; `--binary-only`, `--webui-only`, and
 `--both` select those assets. Pass `--config` only when intentionally replacing
