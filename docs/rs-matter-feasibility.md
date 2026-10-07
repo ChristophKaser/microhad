@@ -12,8 +12,8 @@ commissioning result. Native `MATTER=1` remains deliberately unavailable.
 Upstream: [project-chip/rs-matter](https://github.com/project-chip/rs-matter),
 version 0.4.1, pinned commit `1570356ecb938a9d19be032b93ca3bb487069e75`.
 The probe's tracked `Cargo.lock` fixes its dependency graph. The upstream
-checkout remains clean in ignored `build/rs-matter/source`; a separate worktree
-in `build/rs-matter/probe-source` applies
+checkout remains clean in the pinned `dependencies/rs-matter` submodule; a
+separate worktree in `build/rs-matter/probe-source` applies
 `patches/rs-matter-probe-spake2p.patch`. That patch only exposes the otherwise
 private SPAKE2+ module to the probe. It changes no cryptographic implementation
 and is not a proposed production API.

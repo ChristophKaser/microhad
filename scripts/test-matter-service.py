@@ -401,7 +401,8 @@ def main():
             assert apply_result and isinstance(apply_result[0], Exception), apply_result
             assert service.wait(timeout=5) != 0
             service_output, service_error = service.communicate(timeout=2)
-            assert not service_output and service_error.startswith(b"Matter controller service started\n")
+            # Lifecycle messages go to syslog; the host service has no stderr logger.
+            assert not service_output and not service_error
             assert credentials.read_bytes() == interrupted_envelope
             assert thread_dataset(credentials) == interrupted_dataset
 
@@ -469,7 +470,7 @@ def main():
             relay.wait(timeout=2)
             stdout, stderr = service.communicate(timeout=5)
             assert service.returncode != 0 and not stdout, (service.returncode, stdout, stderr)
-            assert stderr.startswith(b"Matter controller service started\n"), stderr
+            assert not stderr, stderr
             # Low-level OpenThread failure may bypass Rust destructors; startup
             # must reclaim the stale socket before answering below.
             assert ipc_path.exists() and thread_dataset(credentials) == previous_dataset
@@ -552,7 +553,7 @@ def main():
             assert service.returncode == 0
             assert not ipc_path.exists()
             assert not stdout
-            assert stderr == b"Matter controller service started\nMatter controller service stopped\n"
+            assert not stderr, stderr
             assert not radio.error
             assert radio.counts.get("command_1", 0) == 0
             assert radio.channel_writes and all(channel == 15 for channel in radio.channel_writes)
@@ -596,8 +597,7 @@ def main():
             rejected = subprocess.run([str(ROOT / "build/rs-matter/target/release/thread-matter"),
                 "--validate-state-dir", str(corrupt_staged)], capture_output=True, timeout=5)
             assert rejected.returncode == 1 and not rejected.stdout
-            assert rejected.stderr == (b"Matter state validation failed (private store)\n"
-                                       b"Matter controller service failed\n")
+            assert rejected.stderr == b"Matter state validation failed (private store)\n"
             assert state_image(corrupt_staged) == corrupt_image
 
             checked = subprocess.run([str(ROOT / "build/rs-matter/target/release/thread-matter"),
@@ -612,8 +612,7 @@ def main():
             rejected = subprocess.run([str(ROOT / "build/rs-matter/target/release/thread-matter"),
                 "--validate-state-dir", str(incomplete)], capture_output=True, timeout=5)
             assert rejected.returncode == 1 and not rejected.stdout
-            assert rejected.stderr == (b"Matter state validation failed (private store)\n"
-                                       b"Matter controller service failed\n")
+            assert rejected.stderr == b"Matter state validation failed (private store)\n"
             assert state_image(incomplete) == incomplete_image
             unsafe = private / "unsafe-state"
             shutil.copytree(private / "state", unsafe)
@@ -622,8 +621,7 @@ def main():
             rejected = subprocess.run([str(ROOT / "build/rs-matter/target/release/thread-matter"),
                 "--validate-state-dir", str(unsafe)], capture_output=True, timeout=5)
             assert rejected.returncode == 1 and not rejected.stdout
-            assert rejected.stderr == (b"Matter state validation failed (Thread settings)\n"
-                                       b"Matter controller service failed\n")
+            assert rejected.stderr == b"Matter state validation failed (Thread settings)\n"
             assert state_image(unsafe) == unsafe_image
             # Corrupt only the cached active channel (valid POSIX record envelope).
             # Guarded OT startup must ignore it and apply the authoritative dataset.
@@ -682,17 +680,17 @@ def main():
             stdout, stderr = service.communicate(timeout=2)
             assert service.returncode == 0
             assert not stdout
-            assert stderr == b"Matter controller service started\nMatter controller service stopped\n"
+            assert not stderr, stderr
             wrong_vendor = subprocess.run(args + ["--administrator-vendor-id", "65522"], capture_output=True, timeout=2)
             assert wrong_vendor.returncode == 1
-            assert wrong_vendor.stderr == b"Matter controller service failed\n"
+            assert not wrong_vendor.stderr
             assert credentials.read_bytes() == committed
             assert not ipc_path.exists()
             # Simulate a corrupt committed envelope only in isolated temporary state.
             credentials.write_bytes(committed[:8])
             corrupt = subprocess.run(args, capture_output=True, timeout=2)
             assert corrupt.returncode == 1
-            assert corrupt.stderr == b"Matter controller service failed\n"
+            assert not corrupt.stderr
             assert credentials.read_bytes() == committed[:8]
             assert not ipc_path.exists()
             assert not radio.error
@@ -771,7 +769,7 @@ def failed_apply_retry_gate():
             failed_code = service.wait(timeout=5)
             _, failed_stderr = service.communicate(timeout=2)
             assert failed_code == 1, (failed_code, failed_stderr)
-            assert failed_stderr.startswith(b"Matter controller service started\n"), failed_stderr
+            assert not failed_stderr, failed_stderr
             failed_envelope = credentials.read_bytes()
             dataset = thread_dataset(credentials)
             assert dataset and failed_envelope != before
@@ -804,7 +802,7 @@ def failed_apply_retry_gate():
             service.terminate()
             stdout, stderr = service.communicate(timeout=3)
             assert service.returncode == 0 and not stdout
-            assert stderr == b"Matter controller service started\nMatter controller service stopped\n"
+            assert not stderr, stderr
             relay.wait(timeout=3)
             print("PASS Spinel apply rejection preserves the dataset and recovers after service restart")
     finally:

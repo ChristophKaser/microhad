@@ -13,6 +13,7 @@ case "$probe" in
     *) exit 2 ;;
 esac
 bash scripts/build-openthread-transport.sh "$mode"
+bash scripts/fetch-rs-matter.sh
 source scripts/rust-env.sh
 export CARGO_TARGET_DIR="$project_root/build/rs-matter/target"
 args=(--locked --release --manifest-path rs-matter-probe/Cargo.toml --features "$feature" --bin "$binary")

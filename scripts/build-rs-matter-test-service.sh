@@ -5,6 +5,7 @@ project_root=$(cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$project_root"
 
 bash scripts/build-openthread-transport.sh host
+bash scripts/fetch-rs-matter.sh
 source scripts/rust-env.sh
 export CARGO_TARGET_DIR="$project_root/build/rs-matter/service-test-target"
 cargo +nightly-2026-10-02 build --locked --release \

@@ -30,10 +30,14 @@ git clone https://github.com/ChristophKaser/microhad-zigbee-native.git
 git clone https://github.com/banksy-git/lidl-gateway-freedom.git
 ```
 
-Access to the private repositories is required. The experiment's submodules
-pin Ziggurat, rtl8196e-gateway and cpc-daemon; **cpc-daemon is not built or run**
-for these HDLC modes. Use the standalone native repository checkout, rather than
-applying its archived patch over an unrelated revision.
+Access to the upstream repositories is required. The experiment's submodules
+pin Ziggurat, rtl8196e-gateway, cpc-daemon, rs-matter, connectedhomeip, the
+Silicon Labs Gecko SDK and the Silicon Labs CLI. `--recurse-submodules` checks
+out all seven at the exact commits recorded by this repository. The SDK and
+Matter source scripts retain sparse checkouts where only part of a repository
+is needed. **cpc-daemon is not built or run** for these HDLC modes. Use the
+standalone native repository checkout, rather than applying its archived patch
+over an unrelated revision.
 
 ## Stock MIPS toolchain
 
@@ -151,11 +155,11 @@ Host commands:
 ```sh
 cd "$WORKSPACE/ziggurat-compilation"
 bash scripts/install-silabs.sh
-git -C tools/silabs/gecko_sdk lfs install --local
+git -C dependencies/gecko-sdk lfs install --local
 sdk_lfs_libraries='platform/emdrv/nvm3/lib/libnvm3_CM4_gcc.a'
 sdk_lfs_libraries+=',protocol/openthread/libs/libsl_openthread_efr32mg1x_gcc.a'
 sdk_lfs_libraries+=',platform/radio/rail_lib/autogen/librail_release/librail_efr32xg1_gcc_release.a'
-git -C tools/silabs/gecko_sdk lfs pull --include="$sdk_lfs_libraries" --exclude=''
+git -C dependencies/gecko-sdk lfs pull --include="$sdk_lfs_libraries" --exclude=''
 BUILD_JOBS=4 bash scripts/build-hdlc-firmware.sh
 bash scripts/install-commander.sh
 bash scripts/package-hdlc-gbl.sh

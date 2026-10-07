@@ -4,7 +4,7 @@ set -euo pipefail
 experiment_root=$(cd -- "$(dirname -- "$0")/.." && pwd)
 mode=${1:-mips}
 case "$mode" in host|mips) ;; *) echo 'Usage: build-openthread.sh [host|mips]' >&2; exit 2 ;; esac
-sdk="$experiment_root/tools/silabs/gecko_sdk"
+sdk="$experiment_root/dependencies/gecko-sdk"
 expected_sdk=90fc93e1f95a10c981f0e49ca6787192e82fd8f2
 [[ $(git -C "$sdk" rev-parse HEAD) == "$expected_sdk" ]] || {
     echo 'Expected the project-pinned GSDK 4.5.0 checkout; run install-silabs.sh.' >&2; exit 1;

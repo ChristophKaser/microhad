@@ -24,7 +24,7 @@ def run(command):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('mode', choices=('host', 'mips'))
-    parser.add_argument('--sdk', type=Path, default=ROOT / 'build/matter-sdk/source')
+    parser.add_argument('--sdk', type=Path, default=ROOT / 'dependencies/connectedhomeip')
     parser.add_argument('--rsdk', type=Path,
                         default=ROOT.parent / 'rsdk-4.4.7-4181-EB-2.6.30-0.9.30-m32u-140129')
     parser.add_argument('--output', type=Path)

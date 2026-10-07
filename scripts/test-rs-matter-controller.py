@@ -9,7 +9,7 @@ import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
 REVISION = '1570356ecb938a9d19be032b93ca3bb487069e75'
-SOURCE = ROOT / 'build/rs-matter/source'
+SOURCE = ROOT / 'dependencies/rs-matter'
 WORKTREE = ROOT / 'build/rs-matter/controller-source'
 PATCH = ROOT / 'patches/rs-matter-commissioning-probe.patch'
 

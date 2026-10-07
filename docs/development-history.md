@@ -39,11 +39,11 @@ git submodule update --init --recursive
 bash scripts/install-silabs.sh
 
 # Ensure SDK binary libraries are downloaded, rather than LFS pointer files.
-git -C tools/silabs/gecko_sdk lfs install --local
+git -C dependencies/gecko-sdk lfs install --local
 sdk_lfs_libraries='platform/emdrv/nvm3/lib/libnvm3_CM4_gcc.a'
 sdk_lfs_libraries+=',protocol/openthread/libs/libsl_openthread_efr32mg1x_gcc.a'
 sdk_lfs_libraries+=',platform/radio/rail_lib/autogen/librail_release/librail_efr32xg1_gcc_release.a'
-git -C tools/silabs/gecko_sdk lfs pull --include="$sdk_lfs_libraries" --exclude=''
+git -C dependencies/gecko-sdk lfs pull --include="$sdk_lfs_libraries" --exclude=''
 
 BUILD_JOBS=4 bash scripts/build-hdlc-firmware.sh
 ```
