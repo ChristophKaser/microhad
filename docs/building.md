@@ -176,7 +176,9 @@ bash scripts/install-commander.sh
 bash scripts/package-hdlc-gbl.sh
 ```
 
-The installer pins GSDK 4.5.0, SLC 5.6.3 and ARM GCC 12.2.rel1. Java 17 is selected
+The installer pins GSDK 4.5.0, SLC 5.6.3 and ARM GCC 12.2.rel1. SLC runs from
+the ignored linked worktree `build/slc-cli`, keeping its generated state out of
+the pinned `dependencies/slc-cli` submodule. Java 17 is selected
 at `/usr/lib/jvm/java-17-openjdk-amd64/bin`; adjust `scripts/silabs-env.sh` for
 another distribution. SDK binary libraries must be downloaded, not LFS pointers.
 
