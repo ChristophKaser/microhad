@@ -55,7 +55,7 @@ export function GatewaySettingsDialog({ onClose }: { onClose: () => void }) {
 
   const unsupported = settings?.application_state === 'unsupported'
   return <div className="modal">
-    <form className="dialog" onSubmit={event => void save(event)} aria-labelledby="gateway-settings-title">
+    <form className="dialog" onSubmit={event => void save(event)} role="dialog" aria-modal="true" aria-labelledby="gateway-settings-title">
       <div className="dialog-heading">
         <h2 id="gateway-settings-title">Gateway settings</h2>
         <button type="button" className="icon-button" onClick={onClose} aria-label="Close">✕</button>
@@ -79,8 +79,8 @@ export function GatewaySettingsDialog({ onClose }: { onClose: () => void }) {
         </>}
       </div>
       <div className="dialog-actions">
-        <button type="button" className="secondary" onClick={onClose}>Cancel</button>
-        <button type="submit" disabled={!settings || saving || unsupported}>{saving ? 'Saving…' : 'Save settings'}</button>
+        <button type="button" className="button" onClick={onClose}>Cancel</button>
+        <button type="submit" className="button primary" disabled={!settings || saving || unsupported}>{saving ? 'Saving…' : 'Save settings'}</button>
       </div>
     </form>
   </div>

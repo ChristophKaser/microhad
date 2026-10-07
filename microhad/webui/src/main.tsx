@@ -250,7 +250,7 @@ function App() {
           <h1>MicroHAD</h1>
           <p className="hero-sub">Devices, scenes, and coordinator activity in one place.</p>
         </div>
-        <div className="hero-actions"><button onClick={() => setGatewaySettingsOpen(true)}>Gateway settings</button><div className="serial-state">
+        <div className="hero-actions"><div className="serial-state">
           {restarting ? 'Restarting service…' : statusError ? 'Gateway status unavailable' : status?.online ? 'Coordinator online' : 'Coordinator offline'}
         </div></div>
       </header>
@@ -344,6 +344,7 @@ function App() {
           </button>
           <button className="button" onClick={() => setExternalDeviceId('')}>Add external device</button>
           <button className="button" onClick={() => setDialog('push')}>Push clients</button>
+          <button className="button" onClick={() => setGatewaySettingsOpen(true)}>Gateway settings</button>
           <button className="button" disabled={!status?.notifications_enabled} onClick={() => void action('/api/notifications/test')}>Test alert</button>
         </div>
       </section>
