@@ -1,4 +1,11 @@
+From fa19a303e1fef04bf2a31a68d48c2c88a0974c86 Mon Sep 17 00:00:00 2001
+From: Christoph Kaser <christoph@caser.de>
+Date: Wed, 7 Oct 2026 16:04:51 +0200
+Subject: [PATCH] rs-matter: expose SPAKE2+ for commissioning probe
+
+
 diff --git a/rs-matter/src/sc/pase.rs b/rs-matter/src/sc/pase.rs
+index 83e295e..7315458 100644
 --- a/rs-matter/src/sc/pase.rs
 +++ b/rs-matter/src/sc/pase.rs
 @@ -48,7 +48,7 @@ pub use spake2p::{
@@ -10,3 +17,6 @@ diff --git a/rs-matter/src/sc/pase.rs b/rs-matter/src/sc/pase.rs
  
  /// Minimal commissioning window timeout in seconds, as per the Matter Core Spec
  pub const MIN_COMM_WINDOW_TIMEOUT_SECS: u16 = 3 * 60;
+-- 
+2.43.0
+

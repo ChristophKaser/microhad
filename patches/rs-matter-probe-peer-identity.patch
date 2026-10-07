@@ -1,4 +1,11 @@
+From bdc29335fdfcb366216537f69e2a4d739016467f Mon Sep 17 00:00:00 2001
+From: Christoph Kaser <christoph@caser.de>
+Date: Wed, 7 Oct 2026 16:04:51 +0200
+Subject: [PATCH] rs-matter: expose authenticated exchange peer identity
+
+
 diff --git a/rs-matter/src/transport/exchange.rs b/rs-matter/src/transport/exchange.rs
+index f09931e..24093ff 100644
 --- a/rs-matter/src/transport/exchange.rs
 +++ b/rs-matter/src/transport/exchange.rs
 @@ -1628,6 +1628,19 @@ impl<'a> Exchange<'a> {
@@ -21,3 +28,6 @@ diff --git a/rs-matter/src/transport/exchange.rs b/rs-matter/src/transport/excha
      pub(crate) fn with_state<F, T>(&self, f: F) -> Result<T, Error>
      where
          F: FnOnce(&mut MatterState) -> Result<T, Error>,
+-- 
+2.43.0
+

@@ -1,6 +1,14 @@
+From 2c1c79c4b0c441293709a3ab9a0b762ab99eebcc Mon Sep 17 00:00:00 2001
+From: Christoph Kaser <christoph@caser.de>
+Date: Wed, 7 Oct 2026 16:04:53 +0200
+Subject: [PATCH] radium: detect atomics for custom target names
+
+
+diff --git a/build.rs b/build.rs
+index 884ec99..769e170 100644
 --- a/build.rs
 +++ b/build.rs
-@@ -98,6 +98,16 @@
+@@ -98,6 +98,16 @@ fn main() -> Result<(), Box<dyn Error>> {
          _ => {}
      }
  
@@ -17,3 +25,6 @@
      if atomics.has_8 {
          println!("cargo:rustc-cfg=radium_atomic_8");
      }
+-- 
+2.43.0
+

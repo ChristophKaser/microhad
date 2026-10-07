@@ -6,8 +6,8 @@ mkdir -p build patches
 cargo fetch --manifest-path dependency-probe/Cargo.toml
 python3 scripts/prepare-crate-patches.py getrandom-0.4.3 nix-0.26.4
 probe_patches=(
-    --config "patch.crates-io.getrandom.path=\"$experiment_root/build/patched-crates/getrandom-0.4.3\""
-    --config "patch.crates-io.nix.path=\"$experiment_root/build/patched-crates/nix-0.26.4\""
+    --config "patch.crates-io.getrandom.path=\"$experiment_root/build/patched-crates-mailbox/getrandom-0.4.3\""
+    --config "patch.crates-io.nix.path=\"$experiment_root/build/patched-crates-mailbox/nix-0.26.4\""
 )
 case "${1:-host}" in
     host) cargo run --release --manifest-path dependency-probe/Cargo.toml "${probe_patches[@]}" ;;

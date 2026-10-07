@@ -1,6 +1,14 @@
+From e93f28127f4a8d3466bb772a28930c6e5b86d466 Mon Sep 17 00:00:00 2001
+From: Christoph Kaser <christoph@caser.de>
+Date: Wed, 7 Oct 2026 16:04:51 +0200
+Subject: [PATCH] ziggurat: add network migration protocol
+
+
+diff --git a/crates/ziggurat-protocol/src/wire.rs b/crates/ziggurat-protocol/src/wire.rs
+index e09e506..e859298 100644
 --- a/crates/ziggurat-protocol/src/wire.rs
 +++ b/crates/ziggurat-protocol/src/wire.rs
-@@ -55,6 +55,8 @@
+@@ -55,6 +55,8 @@ pub enum RequestCommand {
      GetFirmwareInfo = 0x01,
      GetHwAddress = 0x02,
      Shutdown = 0x03,
@@ -9,7 +17,7 @@
      // Phased bring-up: configure, load state into the stopped stack, start.
      Configure = 0x10,
      LoadKeyTable = 0x11,
-@@ -785,6 +787,7 @@
+@@ -785,6 +787,7 @@ pub enum Request {
      GetFirmwareInfo,
      GetHwAddress,
      Shutdown,
@@ -17,7 +25,7 @@
      Configure(ConfigurePayload),
      LoadKeyTable(LoadKeyTablePayload),
      LoadChildren(LoadChildrenPayload),
-@@ -819,6 +822,7 @@
+@@ -819,6 +822,7 @@ impl Request {
              RequestCommand::GetFirmwareInfo => Self::GetFirmwareInfo,
              RequestCommand::GetHwAddress => Self::GetHwAddress,
              RequestCommand::Shutdown => Self::Shutdown,
@@ -25,9 +33,11 @@
              RequestCommand::Configure => Self::Configure(require(payload)?),
              RequestCommand::LoadKeyTable => Self::LoadKeyTable(require(payload)?),
              RequestCommand::LoadChildren => Self::LoadChildren(require(payload)?),
+diff --git a/crates/ziggurat-server/src/main.rs b/crates/ziggurat-server/src/main.rs
+index 8713353..db1aca6 100644
 --- a/crates/ziggurat-server/src/main.rs
 +++ b/crates/ziggurat-server/src/main.rs
-@@ -6,7 +6,7 @@
+@@ -6,7 +6,7 @@ use clap::{Parser, ValueEnum};
  use futures_util::{SinkExt, StreamExt};
  use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
  use tokio::net::{TcpListener, TcpStream, UnixListener};
@@ -36,7 +46,7 @@
  use tokio::task::JoinHandle;
  use tokio_serial::{FlowControl, SerialPortBuilderExt};
  use tokio_tungstenite::tungstenite::Message;
-@@ -78,6 +78,8 @@
+@@ -78,6 +78,8 @@ pub struct ZigguratServer {
      phy: AsyncMutex<Option<Arc<SpinelPhy>>>,
      stack: Mutex<Option<Arc<ZigbeeStack<SpinelPhy>>>>,
      started: AtomicBool,
@@ -45,7 +55,7 @@
      notification_tx: broadcast::Sender<ZigbeeNotification>,
      notification_forwarder: Mutex<Option<JoinHandle<()>>>,
  }
-@@ -93,6 +95,8 @@
+@@ -93,6 +95,8 @@ impl ZigguratServer {
              phy: AsyncMutex::new(None),
              stack: Mutex::new(None),
              started: AtomicBool::new(false),
@@ -54,7 +64,7 @@
              notification_tx,
              notification_forwarder: Mutex::new(None),
          }
-@@ -501,6 +505,9 @@
+@@ -501,6 +505,9 @@ impl ZigguratServer {
  
      /// The stack, if it is in the load window (configured but not started).
      fn loadable(&self) -> Result<Arc<ZigbeeStack<SpinelPhy>>, proto::Error> {
@@ -64,7 +74,7 @@
          match self.current_stack() {
              Some(_) if self.started.load(Ordering::SeqCst) => {
                  Err(proto::Status::AlreadyStarted.into())
-@@ -529,6 +536,40 @@
+@@ -529,6 +536,40 @@ impl ZigguratServer {
          sends: &Sends,
      ) -> Result<proto::Response, proto::Error> {
          use proto::Request as R;
@@ -105,7 +115,7 @@
          match request {
              R::Reset(payload) => self.handle_reset(payload).await,
              R::GetFirmwareInfo => Ok(proto::Response::FirmwareInfo(proto::FirmwareInfoPayload {
-@@ -539,6 +580,7 @@
+@@ -539,6 +580,7 @@ impl ZigguratServer {
              })),
              R::GetHwAddress => self.handle_get_hw_address().await,
              R::Shutdown => self.handle_shutdown().await,
@@ -113,12 +123,10 @@
              R::Configure(payload) => self.handle_configure(payload).await,
              R::LoadKeyTable(payload) => {
                  proto::apply_key_table(&*self.loadable()?, payload);
-@@ -675,6 +717,20 @@
-         let phy = self.phy().await.map_err(radio_error)?;
-         let ieee = phy.hw_address().await.map_err(radio_error)?;
+@@ -677,6 +719,20 @@ impl ZigguratServer {
          Ok(proto::Response::HwAddress(proto::HwAddressPayload { ieee }))
-+    }
-+
+     }
+ 
 +    /// Stop processing traffic without discarding final counters, keys or tables.
 +    /// Configure is required to run again; shutdown releases this retained snapshot.
 +    async fn handle_freeze_network(&self) -> Result<proto::Response, proto::Error> {
@@ -131,10 +139,12 @@
 +        self.started.store(false, Ordering::SeqCst);
 +        self.frozen.store(true, Ordering::SeqCst);
 +        Ok(proto::Response::Empty)
-     }
- 
++    }
++
      /// Tear the stack fully down and clear the source-match table.
-@@ -775,6 +831,7 @@
+     async fn handle_shutdown(&self) -> Result<proto::Response, proto::Error> {
+         self.teardown_stack().await;
+@@ -775,6 +831,7 @@ impl ZigguratServer {
          }
  
          self.started.store(false, Ordering::SeqCst);
@@ -142,3 +152,6 @@
      }
  
      /// Stream a table scan's events, then respond with the count.
+-- 
+2.43.0
+

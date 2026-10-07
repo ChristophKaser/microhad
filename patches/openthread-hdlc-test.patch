@@ -1,0 +1,23 @@
+From c0fb5c9d2f2fd84197ec65ea1faeaccc573f2a5c Mon Sep 17 00:00:00 2001
+From: Christoph Kaser <christoph@caser.de>
+Date: Wed, 7 Oct 2026 16:08:23 +0200
+Subject: [PATCH] openthread: add local HDLC adapter test target
+
+
+diff --git a/src/posix/CMakeLists.txt b/src/posix/CMakeLists.txt
+index d8081d6..5bc0987 100644
+--- a/src/posix/CMakeLists.txt
++++ b/src/posix/CMakeLists.txt
+@@ -104,3 +104,9 @@ if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
+     set(CPACK_PACKAGE_CONTACT "OpenThread Authors (https://github.com/openthread/openthread)")
+     include(CPack)
+ endif()
++
++if(OT_UNIX_ADAPTER_TEST_SOURCE)
++    add_executable(ot-unix-adapter-test "${OT_UNIX_ADAPTER_TEST_SOURCE}")
++    target_include_directories(ot-unix-adapter-test PRIVATE ${PROJECT_SOURCE_DIR}/src ${PROJECT_SOURCE_DIR}/src/core ${PROJECT_SOURCE_DIR}/src/posix/platform)
++    target_link_libraries(ot-unix-adapter-test PRIVATE openthread-posix openthread-ftd openthread-posix)
++endif()
+-- 
+2.43.0
+

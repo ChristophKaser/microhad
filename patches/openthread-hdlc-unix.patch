@@ -1,3 +1,58 @@
+From 0b484174d4a05677023e0feed58a946e05088e4b Mon Sep 17 00:00:00 2001
+From: Christoph Kaser <christoph@caser.de>
+Date: Wed, 7 Oct 2026 16:04:53 +0200
+Subject: [PATCH] openthread: add Unix socket HDLC transport
+
+
+diff --git a/src/lib/spinel/spinel_driver.cpp b/src/lib/spinel/spinel_driver.cpp
+index 9ef7e87..d2981dd 100644
+--- a/src/lib/spinel/spinel_driver.cpp
++++ b/src/lib/spinel/spinel_driver.cpp
+@@ -66,7 +66,8 @@ SpinelDriver::SpinelDriver(void)
+ CoprocessorType SpinelDriver::Init(SpinelInterface    &aSpinelInterface,
+                                    bool                aSoftwareReset,
+                                    const spinel_iid_t *aIidList,
+-                                   uint8_t             aIidListLength)
++                                   uint8_t             aIidListLength,
++                                   bool                aAttachToRunningRcp)
+ {
+     CoprocessorType coprocessorType;
+ 
+@@ -83,7 +84,17 @@ CoprocessorType SpinelDriver::Init(SpinelInterface    &aSpinelInterface,
+     }
+     mIid = aIidList[0];
+ 
+-    ResetCoprocessor(aSoftwareReset);
++    if (aAttachToRunningRcp)
++    {
++        // An already-running shared RCP will not replay its boot notification.
++        // Verify readiness through the following protocol/version/capability queries.
++        VerifyOrDie(!aSoftwareReset, OT_EXIT_INVALID_ARGUMENTS);
++        mIsCoprocessorReady = true;
++    }
++    else
++    {
++        ResetCoprocessor(aSoftwareReset);
++    }
+     SuccessOrDie(CheckSpinelVersion());
+     SuccessOrDie(GetCoprocessorVersion());
+     SuccessOrDie(GetCoprocessorCaps());
+diff --git a/src/lib/spinel/spinel_driver.hpp b/src/lib/spinel/spinel_driver.hpp
+index 8f34c70..55cf08a 100644
+--- a/src/lib/spinel/spinel_driver.hpp
++++ b/src/lib/spinel/spinel_driver.hpp
+@@ -83,7 +83,8 @@ public:
+     CoprocessorType Init(SpinelInterface    &aSpinelInterface,
+                          bool                aSoftwareReset,
+                          const spinel_iid_t *aIidList,
+-                         uint8_t             aIidListLength);
++                         uint8_t             aIidListLength,
++                         bool                aAttachToRunningRcp = false);
+ 
+     /**
+      * Deinitialize this SpinelDriver Instance.
+diff --git a/src/posix/platform/hdlc_interface.cpp b/src/posix/platform/hdlc_interface.cpp
+index 8bf4043..f69277a 100644
 --- a/src/posix/platform/hdlc_interface.cpp
 +++ b/src/posix/platform/hdlc_interface.cpp
 @@ -52,6 +52,8 @@
@@ -9,7 +64,7 @@
  #include <sys/time.h>
  #include <sys/wait.h>
  #include <syslog.h>
-@@ -152,7 +154,30 @@
+@@ -152,7 +154,30 @@ otError HdlcInterface::Init(ReceiveFrameCallback aCallback, void *aCallbackConte
  
      VerifyOrDie(stat(mRadioUrl.GetPath(), &st) == 0, OT_EXIT_ERROR_ERRNO);
  
@@ -41,7 +96,7 @@
      {
          mSockFd = OpenFile(mRadioUrl);
          VerifyOrExit(mSockFd != -1, error = OT_ERROR_FAILED);
-@@ -215,6 +240,9 @@
+@@ -215,6 +240,9 @@ otError HdlcInterface::SendFrame(const uint8_t *aFrame, uint16_t aLength)
      Spinel::FrameBuffer<kMaxFrameSize> encoderBuffer;
      Hdlc::Encoder                      hdlcEncoder(encoderBuffer);
  
@@ -51,7 +106,7 @@
      SuccessOrExit(error = hdlcEncoder.BeginFrame());
      SuccessOrExit(error = hdlcEncoder.Encode(aFrame, aLength));
      SuccessOrExit(error = hdlcEncoder.EndFrame());
-@@ -239,7 +267,9 @@
+@@ -239,7 +267,9 @@ otError HdlcInterface::Write(const uint8_t *aFrame, uint16_t aLength)
  #else
      while (aLength)
      {
@@ -62,7 +117,7 @@
  
          if (rval == aLength)
          {
-@@ -649,7 +679,10 @@
+@@ -649,7 +679,10 @@ void HdlcInterface::CloseFile(void)
      VerifyOrExit(mSockFd != -1);
  
      VerifyOrExit(0 == close(mSockFd), perror("close RCP"));
@@ -74,9 +129,11 @@
  
      mSockFd = -1;
  
+diff --git a/src/posix/platform/radio_url.cpp b/src/posix/platform/radio_url.cpp
+index aef8f5b..4a63e2f 100644
 --- a/src/posix/platform/radio_url.cpp
 +++ b/src/posix/platform/radio_url.cpp
-@@ -84,6 +84,7 @@
+@@ -84,6 +84,7 @@ const char *otSysGetRadioUrlHelpString(void)
      "    uart-baudrate[=baudrate]       Uart baud rate, default is 460800.\n"                        \
      "    uart-flow-control              Enable flow control, disabled by default.\n"                 \
      "    uart-init-deassert             Deassert lines on init when flow control is disabled.\n"     \
@@ -84,9 +141,11 @@
      "    uart-reset                     Reset connection after hard resetting RCP(USB CDC ACM).\n"   \
      "\n"
  #else
+diff --git a/src/posix/platform/spinel_manager.cpp b/src/posix/platform/spinel_manager.cpp
+index 761b8fb..252f777 100644
 --- a/src/posix/platform/spinel_manager.cpp
 +++ b/src/posix/platform/spinel_manager.cpp
-@@ -78,7 +78,8 @@
+@@ -78,7 +78,8 @@ CoprocessorType SpinelManager::Init(const char *aUrl)
  
      swReset = !mUrl.HasParam("no-reset");
  
@@ -96,46 +155,6 @@
  
      otLogDebgPlat("instance init:%p - iid = %d", (void *)&mSpinelDriver, iidList[0]);
  
---- a/src/lib/spinel/spinel_driver.cpp
-+++ b/src/lib/spinel/spinel_driver.cpp
-@@ -66,7 +66,8 @@
- CoprocessorType SpinelDriver::Init(SpinelInterface    &aSpinelInterface,
-                                    bool                aSoftwareReset,
-                                    const spinel_iid_t *aIidList,
--                                   uint8_t             aIidListLength)
-+                                   uint8_t             aIidListLength,
-+                                   bool                aAttachToRunningRcp)
- {
-     CoprocessorType coprocessorType;
- 
-@@ -83,7 +84,17 @@
-     }
-     mIid = aIidList[0];
- 
--    ResetCoprocessor(aSoftwareReset);
-+    if (aAttachToRunningRcp)
-+    {
-+        // An already-running shared RCP will not replay its boot notification.
-+        // Verify readiness through the following protocol/version/capability queries.
-+        VerifyOrDie(!aSoftwareReset, OT_EXIT_INVALID_ARGUMENTS);
-+        mIsCoprocessorReady = true;
-+    }
-+    else
-+    {
-+        ResetCoprocessor(aSoftwareReset);
-+    }
-     SuccessOrDie(CheckSpinelVersion());
-     SuccessOrDie(GetCoprocessorVersion());
-     SuccessOrDie(GetCoprocessorCaps());
---- a/src/lib/spinel/spinel_driver.hpp
-+++ b/src/lib/spinel/spinel_driver.hpp
-@@ -83,7 +83,8 @@
-     CoprocessorType Init(SpinelInterface    &aSpinelInterface,
-                          bool                aSoftwareReset,
-                          const spinel_iid_t *aIidList,
--                         uint8_t             aIidListLength);
-+                         uint8_t             aIidListLength,
-+                         bool                aAttachToRunningRcp = false);
- 
-     /**
-      * Deinitialize this SpinelDriver Instance.
+-- 
+2.43.0
+

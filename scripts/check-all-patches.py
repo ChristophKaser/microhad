@@ -17,10 +17,14 @@ RS_MATTER = ROOT / "dependencies/rs-matter"
 CPC = ROOT / "cpc-daemon"
 
 ZIGGURAT_COMMON = ["ziggurat-stock-compat.patch", "ziggurat-syslog.patch"]
+ZIGGURAT_MULTI_COMMON = [
+    "ziggurat-multipan-stock-compat.patch",
+    "ziggurat-multipan-syslog.patch",
+]
 ZIGGURAT_MULTI = [
     "ziggurat-hdlc-multipan.patch",
     "ziggurat-network-migration.patch",
-    *ZIGGURAT_COMMON,
+    *ZIGGURAT_MULTI_COMMON,
     "ziggurat-cobs-unix.patch",
     "ziggurat-poll-diagnostics.patch",
     "ziggurat-parent-announcement.patch",
@@ -47,8 +51,7 @@ def run(command: list[str], *, cwd: Path | None = None, capture: bool = False) -
 
 def apply_series(repo: Path, patches: list[Path]) -> None:
     for patch in patches:
-        run(["git", "-C", str(repo), "apply", "--check", str(patch)])
-        run(["git", "-C", str(repo), "apply", str(patch)])
+        run(["git", "-C", str(repo), "am", "--quiet", str(patch)])
 
 
 def temporary_worktree(source: Path, revision: str, path: Path) -> None:
@@ -76,14 +79,39 @@ def verify_git_series(source: Path, patches: list[Path], label: str) -> None:
     print(f"PASS {label} ({len(patches)} patches)")
 
 
+def snapshot_repository(source: Path, destination: Path) -> None:
+    shutil.copytree(source, destination, symlinks=True)
+    run(["git", "init", "--quiet", "-b", "mailbox-base"], cwd=destination)
+    run(["git", "-c", "user.name=Mailbox Validation", "-c", "user.email=patches@localhost",
+         "add", "-A"], cwd=destination)
+    run(["git", "-c", "user.name=Mailbox Validation", "-c", "user.email=patches@localhost",
+         "commit", "--quiet", "-m", "Import pinned source snapshot"], cwd=destination)
+
+
+def verify_snapshot_series(source: Path, patches: list[Path], label: str) -> None:
+    with tempfile.TemporaryDirectory(prefix="patch-snapshot-check-", dir=ROOT / "build") as temporary:
+        repository = Path(temporary) / "source"
+        snapshot_repository(source, repository)
+        apply_series(repository, patches)
+    print(f"PASS {label} ({len(patches)} mailboxes)")
+
+
+def check_snapshot_worktree_matches(
+    source: Path, worktree: Path, patches: list[Path], label: str
+) -> None:
+    with tempfile.TemporaryDirectory(prefix="patch-snapshot-coverage-", dir=ROOT / "build") as temporary:
+        expected = Path(temporary) / "source"
+        snapshot_repository(source, expected)
+        apply_series(expected, patches)
+        if tree_files(expected) != tree_files(worktree):
+            raise SystemExit(f"{label} differs from its mailbox series")
+    print(f"PASS {label} matches its mailbox series")
+
+
 def check_worktree_matches(source: Path, worktree: Path, patches: list[Path], label: str) -> None:
     if not worktree.is_dir():
         return
     revision = run(["git", "-C", str(source), "rev-parse", "HEAD"], capture=True).strip()
-    actual_revision = run(["git", "-C", str(worktree), "rev-parse", "HEAD"], capture=True).strip()
-    if actual_revision != revision:
-        print(f"SKIP {label} build worktree is based on {actual_revision}, current pin is {revision}")
-        return
     with tempfile.TemporaryDirectory(prefix="patch-worktree-coverage-") as temporary:
         expected = Path(temporary) / "source"
         temporary_worktree(source, revision, expected)
@@ -91,8 +119,18 @@ def check_worktree_matches(source: Path, worktree: Path, patches: list[Path], la
             apply_series(expected, patches)
             expected_files = tree_files(expected)
             actual_files = tree_files(worktree)
+            expected_subjects = run(
+                ["git", "-C", str(expected), "log", "--reverse", "--format=%s", f"{revision}..HEAD"],
+                capture=True,
+            ).splitlines()
         finally:
             remove_worktree(source, expected)
+    actual_subjects = run(
+        ["git", "-C", str(worktree), "log", "--reverse", "--format=%s", f"{revision}..HEAD"],
+        capture=True,
+    ).splitlines()
+    if actual_subjects and actual_subjects != expected_subjects:
+        raise SystemExit(f"{label} build worktree commit sequence differs from its mailboxes")
     if expected_files != actual_files:
         expected_names = set(expected_files)
         actual_names = set(actual_files)
@@ -123,10 +161,14 @@ def tree_files(root: Path) -> dict[str, tuple[bytes, int] | str]:
 def main() -> int:
     expected = {
         *ZIGGURAT_MULTI,
+        *ZIGGURAT_COMMON,
         "rs-matter-commissioning-probe.patch",
         *RS_MATTER_PROBE,
         "cpc-stock.patch",
+        "cpc-tcp-bus.patch",
         "openthread-hdlc-unix.patch",
+        "openthread-hdlc-test.patch",
+        "openthread-thread-transport.patch",
         *(f"{crate}.patch" for crate in CRATE_PATCHES),
     }
     actual = {path.name for path in PATCH_DIR.glob("*.patch")}
@@ -168,52 +210,33 @@ def main() -> int:
         "rs-matter commissioning fixture",
     )
 
-    gateway_patch = ROOT / (
-        "rtl8196e-gateway/2-Zigbee-Radio-Silabs-EFR32/25-RCP-UART-HW/cpcd/tcp-bus.patch"
-    )
-    cpc_series = [gateway_patch, PATCH_DIR / "cpc-stock.patch"]
+    cpc_series = [PATCH_DIR / "cpc-tcp-bus.patch", PATCH_DIR / "cpc-stock.patch"]
     verify_git_series(CPC, cpc_series, "CPC daemon")
     check_worktree_matches(CPC, ROOT / "worktrees/cpc-daemon", cpc_series, "CPC daemon")
 
     openthread = ROOT / "dependencies/gecko-sdk/util/third_party/openthread"
-    openthread_patch = PATCH_DIR / "openthread-hdlc-unix.patch"
-    run(["git", "apply", "--check", str(openthread_patch)], cwd=openthread)
-    print("PASS Gecko SDK OpenThread adapter")
-    openthread_build = ROOT / "build/openthread-unix/source"
+    openthread_patches = [
+        PATCH_DIR / "openthread-hdlc-unix.patch",
+        PATCH_DIR / "openthread-hdlc-test.patch",
+        PATCH_DIR / "openthread-thread-transport.patch",
+    ]
+    verify_snapshot_series(openthread, openthread_patches, "Gecko SDK OpenThread adapter")
+    openthread_build = ROOT / "build/openthread-unix/source-mailbox"
     if openthread_build.is_dir():
-        changed_paths = [
-            line.removeprefix("+++ b/")
-            for line in openthread_patch.read_text().splitlines()
-            if line.startswith("+++ b/")
-        ]
-        with tempfile.TemporaryDirectory(prefix="openthread-patch-coverage-") as temporary:
-            expected = Path(temporary)
-            for relative in changed_paths:
-                (expected / relative).parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(openthread / relative, expected / relative)
-            run(["git", "apply", str(openthread_patch)], cwd=expected)
-            mismatches = [
-                relative
-                for relative in changed_paths
-                if (expected / relative).read_bytes() != (openthread_build / relative).read_bytes()
-            ]
-        if mismatches:
-            raise SystemExit("OpenThread patch coverage failed for: " + ", ".join(mismatches))
-        print("PASS OpenThread build copy matches patched source files")
+        check_snapshot_worktree_matches(openthread, openthread_build, openthread_patches,
+                                        "OpenThread build copy")
 
     cargo_roots = sorted((ROOT / "tools/cargo/registry/src").glob("*/"))
     for crate in CRATE_PATCHES:
         patch = PATCH_DIR / f"{crate}.patch"
         sources = [path / crate for path in cargo_roots if (path / crate).is_dir()]
-        if sources:
-            for source in sources:
-                run(["git", "apply", "--check", str(patch)], cwd=source)
-        else:
-            patched = ROOT / "build/patched-crates" / crate
-            if not patched.is_dir():
-                raise SystemExit(f"Cannot validate {patch.name}: fetch the pinned Cargo crate source first")
-            run(["git", "apply", "--reverse", "--check", str(patch)], cwd=patched)
-        print(f"PASS Cargo crate {crate}")
+        if not sources:
+            raise SystemExit(f"Cannot validate {patch.name}: fetch the pinned Cargo crate source first")
+        for source in sources:
+            verify_snapshot_series(source, [patch], f"Cargo crate {crate}")
+        patched = ROOT / "build/patched-crates-mailbox" / crate
+        if patched.is_dir():
+            check_snapshot_worktree_matches(source, patched, [patch], f"Cargo crate {crate} build copy")
 
     return 0
 

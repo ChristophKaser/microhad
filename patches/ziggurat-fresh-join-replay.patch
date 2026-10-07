@@ -1,21 +1,14 @@
---- a/crates/ziggurat-zigbee/src/nwk/security.rs
-+++ b/crates/ziggurat-zigbee/src/nwk/security.rs
-@@ -151,4 +151,12 @@
-             .incoming_frame_counter_set
-             .insert(sender, frame_counter)
-     }
-+
-+    /// Forget only this device's old incoming baseline after an authorized fresh
-+    /// join. A factory-new device can restart its counter under the same key.
-+    /// Never call this for an ordinary secured rejoin or a received data frame.
-+    /// Other relayers, the network key and our outgoing nonce counter are retained.
-+    pub fn reset_incoming_counter_for_fresh_join(&mut self, sender: Eui64) {
-+        self.primary.incoming_frame_counter_set.remove(&sender);
-+    }
- }
+From 13094464a4e77e119a61258f2b49082fb8a27b63 Mon Sep 17 00:00:00 2001
+From: Christoph Kaser <christoph@caser.de>
+Date: Wed, 7 Oct 2026 16:04:51 +0200
+Subject: [PATCH] ziggurat: reset replay baseline for authorized fresh joins
+
+
+diff --git a/crates/ziggurat-driver/src/zigbee_stack/joining.rs b/crates/ziggurat-driver/src/zigbee_stack/joining.rs
+index 0446456..5ef39ad 100644
 --- a/crates/ziggurat-driver/src/zigbee_stack/joining.rs
 +++ b/crates/ziggurat-driver/src/zigbee_stack/joining.rs
-@@ -483,7 +483,14 @@
+@@ -483,7 +483,14 @@ impl<P: RadioPhy, R: Runtime> ZigbeeStack<P, R> {
      /// Reset a joining device's link key state. The provisional key kept in effect,
      /// if any, is sent to the client so the device survives a stack restart.
      fn begin_join(&self, ieee: Eui64) {
@@ -31,3 +24,23 @@
  
          if let Some(key) = provisional_key {
              tracing::info!("Device {ieee:?} is joining with its provisional link key");
+diff --git a/crates/ziggurat-zigbee/src/nwk/security.rs b/crates/ziggurat-zigbee/src/nwk/security.rs
+index 338a68b..0080471 100644
+--- a/crates/ziggurat-zigbee/src/nwk/security.rs
++++ b/crates/ziggurat-zigbee/src/nwk/security.rs
+@@ -151,4 +151,12 @@ impl NwkSecurity {
+             .incoming_frame_counter_set
+             .insert(sender, frame_counter)
+     }
++
++    /// Forget only this device's old incoming baseline after an authorized fresh
++    /// join. A factory-new device can restart its counter under the same key.
++    /// Never call this for an ordinary secured rejoin or a received data frame.
++    /// Other relayers, the network key and our outgoing nonce counter are retained.
++    pub fn reset_incoming_counter_for_fresh_join(&mut self, sender: Eui64) {
++        self.primary.incoming_frame_counter_set.remove(&sender);
++    }
+ }
+-- 
+2.43.0
+

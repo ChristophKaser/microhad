@@ -1,3 +1,9 @@
+From 9f56c1c7e0c257b30b184b014d0bc7f4a4092762 Mon Sep 17 00:00:00 2001
+From: Christoph Kaser <christoph@caser.de>
+Date: Wed, 7 Oct 2026 16:04:51 +0200
+Subject: [PATCH] rs-matter: expose ICD check-in capture
+
+
 diff --git a/rs-matter/src/lib.rs b/rs-matter/src/lib.rs
 index d9c1285..7358b63 100644
 --- a/rs-matter/src/lib.rs
@@ -192,7 +198,7 @@ index 2351d9b..0b5d265 100644
      > {
          &self.responder
 diff --git a/rs-matter/src/transport/exchange.rs b/rs-matter/src/transport/exchange.rs
-index f09931e..d90ed2a 100644
+index 24093ff..d90ed2a 100644
 --- a/rs-matter/src/transport/exchange.rs
 +++ b/rs-matter/src/transport/exchange.rs
 @@ -1315,6 +1315,23 @@ impl<'a> Exchange<'a> {
@@ -219,3 +225,6 @@ index f09931e..d90ed2a 100644
      /// Accepts a new responder exchange pending on the provided Matter stack, but only if the
      /// pending exchange was pending for longer than `received_timeout_ms`.
      ///
+-- 
+2.43.0
+

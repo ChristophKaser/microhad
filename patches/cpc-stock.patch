@@ -1,6 +1,14 @@
+From cfb6880b1932659303daa7be8a01c5fca487c138 Mon Sep 17 00:00:00 2001
+From: Christoph Kaser <christoph@caser.de>
+Date: Wed, 7 Oct 2026 16:04:52 +0200
+Subject: [PATCH] cpcd: adapt daemon for stock gateway toolchain
+
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 6bba88c..1c44ad6 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -67,7 +67,7 @@
+@@ -67,7 +67,7 @@ endif()
  
  ###
  
@@ -9,7 +17,7 @@
  if(TARGET LTTng::UST)
    link_libraries(LTTng::UST)
  endif()
-@@ -77,6 +77,8 @@
+@@ -77,6 +77,8 @@ if(TARGET backtrace)
  endif()
  
  get_git_head_revision(GIT_REFSPEC GIT_SHA1 ALLOW_LOOKING_ABOVE_CMAKE_SOURCE_DIR)
@@ -18,7 +26,7 @@
  configure_file("./misc/config.h.in" "config.h" @ONLY)
  configure_file("./libcpc.pc.in" "libcpc.pc" @ONLY)
  
-@@ -176,3 +178,10 @@
+@@ -176,3 +178,10 @@ install(
  install(TARGETS cpcd
    RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
  install(FILES "./cpcd.conf" DESTINATION "${CMAKE_INSTALL_FULL_SYSCONFDIR}")
@@ -29,3 +37,6 @@
 +target_compile_options(cpcd PRIVATE -include "${PROJECT_SOURCE_DIR}/../../cpc/include/stock_compat.h")
 +target_sources(cpcd PRIVATE "${PROJECT_SOURCE_DIR}/../../cpc/stack_guard.c")
 +set_source_files_properties("${PROJECT_SOURCE_DIR}/../../cpc/stack_guard.c" PROPERTIES COMPILE_FLAGS "-fno-stack-protector")
+-- 
+2.43.0
+

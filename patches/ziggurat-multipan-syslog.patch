@@ -1,0 +1,114 @@
+From 3eea397bdbb2bebb2d5872ba5b9aa7e010e6579b Mon Sep 17 00:00:00 2001
+From: Christoph Kaser <christoph@caser.de>
+Date: Wed, 7 Oct 2026 16:04:51 +0200
+Subject: [PATCH] ziggurat: send tracing output to syslog
+
+
+diff --git a/crates/ziggurat-server/src/main.rs b/crates/ziggurat-server/src/main.rs
+index 6d3d327..254f929 100644
+--- a/crates/ziggurat-server/src/main.rs
++++ b/crates/ziggurat-server/src/main.rs
+@@ -1,3 +1,5 @@
++use std::ffi::{c_char, c_int, CString};
++use std::io::{self, Write};
+ use std::sync::atomic::{AtomicBool, Ordering};
+ use std::sync::{Arc, Mutex};
+ use std::time::Duration;
+@@ -24,6 +26,63 @@ use ziggurat_phy_spinel::SpinelPhy;
+ use ziggurat_protocol::{self as proto};
+ use ziggurat_spinel::client::{RcpTransport, SpinelClient};
+ 
++unsafe extern "C" {
++    fn openlog(ident: *const c_char, option: c_int, facility: c_int);
++    fn syslog(priority: c_int, format: *const c_char, ...);
++}
++
++const LOG_INFO: c_int = 6;
++const LOG_DAEMON: c_int = 3 << 3;
++const LOG_PID: c_int = 1;
++
++struct SyslogWriter(Vec<u8>);
++
++impl SyslogWriter {
++    fn emit(&mut self) {
++        if self.0.is_empty() {
++            return;
++        }
++        let line = String::from_utf8_lossy(&self.0).replace('\0', "?");
++        if let Ok(message) = CString::new(line) {
++            unsafe {
++                syslog(LOG_DAEMON | LOG_INFO, b"%s\0".as_ptr() as *const _, message.as_ptr());
++            }
++        }
++        self.0.clear();
++    }
++}
++
++impl Write for SyslogWriter {
++    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
++        for byte in bytes {
++            if *byte == b'\n' {
++                self.emit();
++            } else if self.0.len() < 4096 {
++                self.0.push(*byte);
++            }
++        }
++        Ok(bytes.len())
++    }
++    fn flush(&mut self) -> io::Result<()> {
++        self.emit();
++        Ok(())
++    }
++}
++
++impl Drop for SyslogWriter {
++    fn drop(&mut self) {
++        self.emit();
++    }
++}
++
++struct SyslogMakeWriter;
++impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for SyslogMakeWriter {
++    type Writer = SyslogWriter;
++    fn make_writer(&'a self) -> Self::Writer {
++        SyslogWriter(Vec::new())
++    }
++}
++
+ /// Outbound frames a connection can queue before it is considered too slow and
+ /// disconnected. Received frames dominate the traffic; a client that cannot keep up
+ /// with them is broken.
+@@ -1113,6 +1172,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
+ 
+     let rt = tokio::runtime::Runtime::new()?;
+     rt.block_on(async {
++        unsafe {
++            openlog(b"ziggurat\0".as_ptr() as *const _, LOG_PID, LOG_DAEMON);
++        }
+         let filter = EnvFilter::try_from_default_env()
+             .unwrap_or_else(|_| EnvFilter::new(args.log_level.to_string()));
+ 
+@@ -1124,13 +1186,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
+                 .with(
+                     fmt::layer()
+                         .with_timer(timer)
+-                        .with_writer(std::io::stderr)
++                        .with_writer(SyslogMakeWriter)
+                         .with_filter(filter),
+                 )
+                 .init();
+         } else {
+             tracing_subscriber::registry()
+-                .with(fmt::layer().with_timer(timer).with_filter(filter))
++                .with(
++                    fmt::layer()
++                        .with_timer(timer)
++                        .with_writer(SyslogMakeWriter)
++                        .with_filter(filter),
++                )
+                 .init();
+         }
+ 
+-- 
+2.43.0
+

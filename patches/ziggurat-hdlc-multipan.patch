@@ -1,5 +1,11 @@
+From 3921530fed38b8aeee99094aef165a686014a136 Mon Sep 17 00:00:00 2001
+From: Christoph Kaser <christoph@caser.de>
+Date: Wed, 7 Oct 2026 16:04:51 +0200
+Subject: [PATCH] ziggurat: add multipan Spinel support
+
+
 diff --git a/crates/ziggurat-server/src/main.rs b/crates/ziggurat-server/src/main.rs
-index e5933a0..94c71a3 100644
+index e5933a0..8713353 100644
 --- a/crates/ziggurat-server/src/main.rs
 +++ b/crates/ziggurat-server/src/main.rs
 @@ -162,7 +162,33 @@ impl ZigguratServer {
@@ -61,8 +67,7 @@ index e5933a0..94c71a3 100644
      /// WebSocket listen address: `host:port` for TCP, `unix:/path/to.sock` for a
      /// UNIX socket
      #[arg(long, default_value = "0.0.0.0:9999")]
-@@ -1011,7 +1047,10 @@ struct Args {
- }
+@@ -1012,6 +1048,9 @@ struct Args {
  
  fn main() -> Result<(), Box<dyn std::error::Error>> {
      let args = Args::parse();
@@ -72,7 +77,7 @@ index e5933a0..94c71a3 100644
  
      let rt = tokio::runtime::Runtime::new()?;
      rt.block_on(async {
-@@ -1040,8 +1081,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
+@@ -1040,8 +1079,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
              device: args.device,
              baudrate: args.baudrate,
              flow_control: args.flow_control,
@@ -860,3 +865,6 @@ index 0000000..c36a86d
 +    assert_eq!(local.read().await.payload, vec![0, 114]);
 +    task.abort();
 +}
+-- 
+2.43.0
+

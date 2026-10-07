@@ -1,3 +1,9 @@
+From 7232876acbede3ed6c1f3980b5727ff4d4d2c7db Mon Sep 17 00:00:00 2001
+From: Christoph Kaser <christoph@caser.de>
+Date: Wed, 7 Oct 2026 16:04:51 +0200
+Subject: [PATCH] ziggurat: preserve children on relayed parent announcements
+
+
 diff --git a/crates/ziggurat-driver/src/zigbee_stack/zdp.rs b/crates/ziggurat-driver/src/zigbee_stack/zdp.rs
 index c3e4955..1770595 100644
 --- a/crates/ziggurat-driver/src/zigbee_stack/zdp.rs
@@ -30,3 +36,6 @@ index c3e4955..1770595 100644
          let (_tsn, response) = match ParentAnnceRsp::deserialize(&aps_frame.asdu) {
              Ok(parsed) => parsed,
              Err(err) => {
+-- 
+2.43.0
+

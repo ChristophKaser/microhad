@@ -1,3 +1,9 @@
+From e854e58c3abb45f52e019aa3f04e1e293018f313 Mon Sep 17 00:00:00 2001
+From: Christoph Kaser <christoph@caser.de>
+Date: Wed, 7 Oct 2026 16:04:52 +0200
+Subject: [PATCH] rs-matter: add synthetic commissioning controller fixture
+
+
 diff --git a/rs-matter/tests/commissioning.rs b/rs-matter/tests/commissioning.rs
 index 607570c..3b6ba6b 100644
 --- a/rs-matter/tests/commissioning.rs
@@ -541,3 +547,6 @@ index 607570c..3b6ba6b 100644
 -
 -    Ok((ip, ipv6_available, if_index))
 -}
+-- 
+2.43.0
+

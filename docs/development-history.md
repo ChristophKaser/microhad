@@ -303,14 +303,19 @@ The dependency probe pins Tokio 1.53.1, tokio-serial 5.5.0, getrandom 0.4.3,
 rand 0.10.3 and parking_lot 0.12.5, matching the main dependencies investigated
 in Ziggurat. Its lockfile records the probe's transitive dependencies.
 
-`build-ziggurat.sh` creates an ignored detached Git worktree at
+`build-ziggurat.sh` creates or reuses an ignored detached Git worktree at
 `worktrees/ziggurat/`, matching the pinned submodule revision. The primary
-source submodules stay clean. It applies the recorded server patch there and
-builds the `ziggurat-server` package, whose executable is named `ziggurat`.
+source submodules stay clean. It applies the ordered mailbox commits with
+`git am` and builds the `ziggurat-server` package, whose executable is named
+`ziggurat`. The build worktree HEAD contains those local commits; its parent
+submodule gitlink remains pinned to upstream.
 
-The scripts make disposable crate copies in `build/patched-crates/` and use
-Cargo path overrides. Registry sources are not edited. Reviewable diffs are
-recorded under `patches/`:
+The scripts make disposable crate copies in
+`build/patched-crates-mailbox/`, initialize a local baseline commit, then apply
+mailboxes with `git am` before using Cargo path overrides. Registry sources are
+not edited. Tracked patch files are standard `git format-patch` mailboxes, and
+`scripts/check-all-patches.py` validates every series and generated worktree.
+Reviewable changes under `patches/` include:
 
 - `getrandom`: enable its existing old-Linux file fallback on uClibc and bypass
   dynamic symbol lookup for this static target. The first dependency-device

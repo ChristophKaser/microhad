@@ -1,3 +1,9 @@
+From e8423e0e85e76b8fdbd24857409164e660c37e4d Mon Sep 17 00:00:00 2001
+From: Christoph Kaser <christoph@caser.de>
+Date: Wed, 7 Oct 2026 16:04:51 +0200
+Subject: [PATCH] rs-matter: expose subscription attribute notifications
+
+
 diff --git a/rs-matter/src/im.rs b/rs-matter/src/im.rs
 index e0343b9..d52923a 100644
 --- a/rs-matter/src/im.rs
@@ -20,3 +26,6 @@ index e0343b9..d52923a 100644
      /// Create the data model with an explicit network controller `net_ctl` and a
      /// [`ReportDataHandler`] `report_handler` — the controller / subscriber role.
      ///
+-- 
+2.43.0
+

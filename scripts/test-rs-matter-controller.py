@@ -22,18 +22,7 @@ def main():
     run(['bash', str(ROOT / 'scripts/fetch-rs-matter.sh')])
     if not WORKTREE.exists():
         run(['git', '-C', str(SOURCE), 'worktree', 'add', '--detach', str(WORKTREE), REVISION])
-    actual = subprocess.check_output(['git', '-C', str(WORKTREE), 'rev-parse', 'HEAD'], text=True).strip()
-    if actual != REVISION:
-        raise RuntimeError('Unexpected controller source revision')
-    reverse = subprocess.run(['git', '-C', str(WORKTREE), 'apply', '--reverse', '--check', str(PATCH)],
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    if reverse.returncode:
-        run(['git', '-C', str(WORKTREE), 'apply', '--check', str(PATCH)])
-        run(['git', '-C', str(WORKTREE), 'apply', str(PATCH)])
-    # Refuse any additional tracked modifications beyond the exact test patch.
-    difference = subprocess.check_output(['git', '-C', str(WORKTREE), 'diff', '--no-ext-diff'], text=True)
-    if difference != PATCH.read_text():
-        raise RuntimeError('Controller worktree differs from the tracked test patch')
+    run(['python3', str(ROOT / 'scripts/apply-mailbox-series.py'), str(WORKTREE), REVISION, str(PATCH)])
     if subprocess.check_output(['git', '-C', str(WORKTREE), 'ls-files', '--others', '--exclude-standard']):
         raise RuntimeError('Unexpected untracked controller source files')
     shutil.copyfile(ROOT / 'rs-matter-probe/controller-tests.lock', WORKTREE / 'Cargo.lock')

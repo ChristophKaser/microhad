@@ -1,3 +1,9 @@
+From 6dae94c9b3bd6ce1546057ce87bccea06016adc0 Mon Sep 17 00:00:00 2001
+From: Christoph Kaser <christoph@caser.de>
+Date: Wed, 7 Oct 2026 16:04:52 +0200
+Subject: [PATCH] rs-matter: support sessionless ICD check-ins
+
+
 diff --git a/rs-matter/src/lib.rs b/rs-matter/src/lib.rs
 index 7358b63..c092ddb 100644
 --- a/rs-matter/src/lib.rs
@@ -101,3 +107,6 @@ index fe7dc99..39e74ce 100644
                  // A `SessionNotFound` is the peer telling us that a session *we*
                  // still hold is dead on its side (e.g. it rebooted). Drop it, so the
                  // exchange waiting on it fails at once with `NoSession` instead of
+-- 
+2.43.0
+

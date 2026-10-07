@@ -52,10 +52,11 @@ The radio implementation still links the precompiled MG1 RAIL archive. See
 
 ## Build the host and MIPS transport changes
 
-`patches/ziggurat-hdlc-multipan.patch` records changes against the pinned
-Ziggurat revision. It leaves the upstream checkout untouched. The stock-libc
-shim remains a separate patch; its reduced context allows both patches to
-apply together.
+`patches/ziggurat-hdlc-multipan.patch` begins an ordered mailbox series against
+the pinned Ziggurat revision. The build script applies each mailbox with
+`git am` in `worktrees/ziggurat-hdlc`; it leaves the upstream checkout untouched.
+Stock and multipan builds use separate compatibility and syslog mailboxes where
+their source context differs.
 
 ```sh
 ZIGGURAT_MULTIPAN=1 bash scripts/build-ziggurat.sh

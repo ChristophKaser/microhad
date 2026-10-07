@@ -1,6 +1,14 @@
+From 0100f9fc1256c0c5679dfdfe2f842a7377cf8078 Mon Sep 17 00:00:00 2001
+From: Christoph Kaser <christoph@caser.de>
+Date: Wed, 7 Oct 2026 16:04:53 +0200
+Subject: [PATCH] getrandom: support stock MIPS uClibc targets
+
+
+diff --git a/src/backends.rs b/src/backends.rs
+index 86ffd75..663f6a5 100644
 --- a/src/backends.rs
 +++ b/src/backends.rs
-@@ -58,6 +58,8 @@
+@@ -58,6 +58,8 @@ cfg_if! {
          mod getentropy;
          pub use getentropy::*;
      } else if #[cfg(any(
@@ -9,9 +17,11 @@
          // Rust supports Android API level 19 (KitKat) [0] and the next upgrade targets
          // level 21 (Lollipop) [1], while `getrandom(2)` was added only in
          // level 23 (Marshmallow). Note that it applies only to the "old" `target_arch`es,
+diff --git a/src/backends/linux_android_with_fallback.rs b/src/backends/linux_android_with_fallback.rs
+index c32baee..f7c138d 100644
 --- a/src/backends/linux_android_with_fallback.rs
 +++ b/src/backends/linux_android_with_fallback.rs
-@@ -20,8 +20,11 @@
+@@ -20,8 +20,11 @@ const NOT_AVAILABLE: NonNull<c_void> = unsafe { NonNull::new_unchecked(usize::MA
  #[inline(never)]
  fn init() -> NonNull<c_void> {
      // Use static linking to `libc::getrandom` on MUSL targets and `dlsym` everywhere else
@@ -24,3 +34,6 @@
      #[cfg(target_env = "musl")]
      let raw_ptr = {
          let fptr: GetRandomFn = libc::getrandom;
+-- 
+2.43.0
+

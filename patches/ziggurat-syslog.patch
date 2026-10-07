@@ -1,5 +1,11 @@
+From 000731a1297949169fc19b871b30faeb9f221211 Mon Sep 17 00:00:00 2001
+From: Christoph Kaser <christoph@caser.de>
+Date: Wed, 7 Oct 2026 16:04:51 +0200
+Subject: [PATCH] ziggurat: send tracing output to syslog
+
+
 diff --git a/crates/ziggurat-server/src/main.rs b/crates/ziggurat-server/src/main.rs
-index e5933a0..204ce65 100644
+index 706e0ef..4f18f6b 100644
 --- a/crates/ziggurat-server/src/main.rs
 +++ b/crates/ziggurat-server/src/main.rs
 @@ -1,3 +1,5 @@
@@ -72,7 +78,7 @@ index e5933a0..204ce65 100644
  /// Outbound frames a connection can queue before it is considered too slow and
  /// disconnected. Received frames dominate the traffic; a client that cannot keep up
  /// with them is broken.
-@@ -1015,6 +1074,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
+@@ -1017,6 +1076,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
  
      let rt = tokio::runtime::Runtime::new()?;
      rt.block_on(async {
@@ -82,7 +88,7 @@ index e5933a0..204ce65 100644
          let filter = EnvFilter::try_from_default_env()
              .unwrap_or_else(|_| EnvFilter::new(args.log_level.to_string()));
  
-@@ -1026,13 +1088,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
+@@ -1028,13 +1090,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                  .with(
                      fmt::layer()
                          .with_timer(timer)
@@ -103,3 +109,6 @@ index e5933a0..204ce65 100644
                  .init();
          }
  
+-- 
+2.43.0
+

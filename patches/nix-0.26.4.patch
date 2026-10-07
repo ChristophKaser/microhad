@@ -1,6 +1,14 @@
+From 3c5d40bba40c2784456ef20fe2babe3b336aaf90 Mon Sep 17 00:00:00 2001
+From: Christoph Kaser <christoph@caser.de>
+Date: Wed, 7 Oct 2026 16:04:53 +0200
+Subject: [PATCH] nix: fix MIPS uClibc signal flags
+
+
+diff --git a/src/sys/signal.rs b/src/sys/signal.rs
+index d3746e6..bd5f084 100644
 --- a/src/sys/signal.rs
 +++ b/src/sys/signal.rs
-@@ -421,7 +421,7 @@
+@@ -421,7 +421,7 @@ libc_bitflags! {
          SA_NOCLDSTOP;
          /// When catching a [`Signal::SIGCHLD`] signal, the system will not
          /// create zombie processes when children of the calling process exit.
@@ -9,7 +17,7 @@
          /// Further occurrences of the delivered signal are not masked during
          /// the execution of the handler.
          SA_NODEFER;
-@@ -1069,7 +1069,7 @@
+@@ -1069,7 +1069,7 @@ mod sigevent {
                  SigevNotify::SigevThreadId{..} => libc::SIGEV_THREAD_ID,
                  #[cfg(all(target_os = "linux", target_env = "uclibc"))]
                  SigevNotify::SigevThreadId{..} => libc::SIGEV_THREAD_ID,
@@ -18,3 +26,6 @@
                  SigevNotify::SigevThreadId{..} => 4  // No SIGEV_THREAD_ID defined
              };
              sev.sigev_signo = match sigev_notify {
+-- 
+2.43.0
+

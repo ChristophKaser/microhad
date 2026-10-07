@@ -15,7 +15,11 @@ PATCHES = {
         "ziggurat-hdlc-multipan.patch",
         "ziggurat-network-migration.patch",
     ],
-    "common": ["ziggurat-stock-compat.patch", "ziggurat-syslog.patch"],
+    "stock_common": ["ziggurat-stock-compat.patch", "ziggurat-syslog.patch"],
+    "multipan_common": [
+        "ziggurat-multipan-stock-compat.patch",
+        "ziggurat-multipan-syslog.patch",
+    ],
     "multipan_after_common": [
         "ziggurat-cobs-unix.patch",
         "ziggurat-poll-diagnostics.patch",
@@ -56,16 +60,6 @@ def main() -> int:
     source_revision = args.source_revision or subprocess.check_output(
         ["git", "-C", str(repository), "rev-parse", "HEAD"], text=True
     ).strip()
-    if worktree is not None:
-        actual_revision = subprocess.check_output(
-            ["git", "-C", str(worktree), "rev-parse", "HEAD"], text=True
-        ).strip()
-        if actual_revision != source_revision:
-            raise SystemExit(
-                f"Build worktree HEAD {actual_revision} differs from pinned revision "
-                f"{source_revision}"
-            )
-
     with tempfile.TemporaryDirectory(prefix="ziggurat-patch-check-") as temporary:
         expected = Path(temporary) / "source"
         run(
@@ -84,11 +78,11 @@ def main() -> int:
             names = []
             if args.multipan == "1":
                 names.extend(PATCHES["multipan"])
-            names.extend(PATCHES["common"])
+            names.extend(PATCHES["multipan_common"] if args.multipan == "1" else PATCHES["stock_common"])
             if args.multipan == "1":
                 names.extend(PATCHES["multipan_after_common"])
             for name in names:
-                run(["git", "-C", str(expected), "apply", str(root / "patches" / name)])
+                run(["git", "-C", str(expected), "am", str(root / "patches" / name)])
 
             if worktree is None:
                 print(
@@ -96,6 +90,19 @@ def main() -> int:
                     f"(multipan={args.multipan})"
                 )
                 return 0
+
+            actual_subjects = subprocess.check_output(
+                ["git", "-C", str(worktree), "log", "--reverse", "--format=%s",
+                 f"{source_revision}..HEAD"],
+                text=True,
+            ).splitlines()
+            expected_subjects = subprocess.check_output(
+                ["git", "-C", str(expected), "log", "--reverse", "--format=%s",
+                 f"{source_revision}..HEAD"],
+                text=True,
+            ).splitlines()
+            if actual_subjects and actual_subjects != expected_subjects:
+                raise SystemExit("Build worktree commit sequence differs from mailbox series")
 
             expected_files = tree_files(expected)
             actual_files = tree_files(worktree)

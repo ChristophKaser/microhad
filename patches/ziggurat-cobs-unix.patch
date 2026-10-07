@@ -1,11 +1,17 @@
+From b701eaa1a8f3cdc56edb1b7c18b722890e0d5337 Mon Sep 17 00:00:00 2001
+From: Christoph Kaser <christoph@caser.de>
+Date: Wed, 7 Oct 2026 16:04:51 +0200
+Subject: [PATCH] ziggurat: add COBS Unix socket transport
+
+
+diff --git a/crates/ziggurat-server/src/main.rs b/crates/ziggurat-server/src/main.rs
+index 254f929..6ff8502 100644
 --- a/crates/ziggurat-server/src/main.rs
 +++ b/crates/ziggurat-server/src/main.rs
-@@ -107,6 +107,74 @@
-             Some(path) => self.run_unix(path).await,
-             None => self.run_tcp(listen_addr).await,
+@@ -168,6 +168,74 @@ impl ZigguratServer {
          }
-+    }
-+
+     }
+ 
 +    async fn run_cobs_unix(self: Arc<Self>, address: &str) -> std::io::Result<()> {
 +        use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
 +        let path = address.strip_prefix("unix:").ok_or_else(|| {
@@ -72,10 +78,12 @@
 +            });
 +        }
 +        unreachable!()
-     }
- 
++    }
++
      async fn run_tcp(self: Arc<Self>, listen_addr: &str) -> std::io::Result<()> {
-@@ -379,14 +447,30 @@
+         let listener = TcpListener::bind(listen_addr).await?;
+         tracing::info!("Listening for WebSocket clients on {listen_addr}");
+@@ -438,14 +506,30 @@ impl ZigguratServer {
          let mut reader = reader;
          let mut buffer = [0u8; 1024];
          let mut accumulator: Vec<u8> = Vec::new();
@@ -108,7 +116,7 @@
                      continue;
                  }
                  if accumulator.is_empty() {
-@@ -410,6 +494,7 @@
+@@ -469,6 +553,7 @@ impl ZigguratServer {
          notification_forwarder.abort();
          send_sweeper.abort();
          drop(outbound_tx);
@@ -116,7 +124,7 @@
          let _ = writer_task.await;
  
          Ok(())
-@@ -1056,6 +1141,8 @@
+@@ -1115,6 +1200,8 @@ async fn open_transport(serial: &SerialConfig) -> std::io::Result<Box<dyn RcpTra
  enum ApiMode {
      /// Binary protocol over WebSocket on `--listen`
      Ws,
@@ -125,7 +133,7 @@
      /// COBS-framed binary protocol over stdin/stdout (logs go to stderr)
      Stdio,
  }
-@@ -1148,6 +1235,7 @@
+@@ -1215,6 +1302,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
          match args.api {
              ApiMode::Ws => server.run(&args.listen).await?,
              ApiMode::Stdio => server.run_stdio().await?,
@@ -133,3 +141,6 @@
          }
  
          Ok(())
+-- 
+2.43.0
+
