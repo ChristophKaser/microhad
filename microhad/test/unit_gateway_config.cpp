@@ -58,6 +58,7 @@ void runGatewayConfigUnitTests() {
     GatewayConfig defaults;
     assert(defaults.serialDevice == "/dev/ttyS1" && defaults.serialBaud == 115200);
     assert(defaults.runtimeDirectory == "/tuya/native" && defaults.httpPort == 80 && defaults.httpsPort == 443);
+    assert(defaults.broadcastPassiveAckQuorum == 8);
     assert(defaults.firebaseTopic == "zigbee_alerts" && defaults.firebaseServiceAccount.empty());
 
     char filename[] = "/tmp/microhad-zigbee-config-valid-XXXXXX";
@@ -73,6 +74,19 @@ void runGatewayConfigUnitTests() {
     assert(selected.serialDevice == "/dev/test-radio" && selected.httpPort == 8088);
     assert(selected.runtimeDirectory == "/tmp/test-runtime");
     assert(selected.serialBaud == 115200 && selected.httpsPort == 443);
+    assert(selected.broadcastPassiveAckQuorum == 8);
+    const char* quorumDocuments[] = {
+        "{\"broadcast_passive_ack_quorum\":1}", "{\"broadcast_passive_ack_quorum\":255}",
+        "{\"broadcast_passive_ack_quorum\":0}", "{\"broadcast_passive_ack_quorum\":256}",
+        "{\"broadcast_passive_ack_quorum\":-1}", "{\"broadcast_passive_ack_quorum\":3.5}",
+        "{\"broadcast_passive_ack_quorum\":\"3\"}", "{\"broadcast_passive_ack_quorum\":true}"
+    };
+    for (unsigned long i=0; i<sizeof(quorumDocuments)/sizeof(quorumDocuments[0]); ++i) {
+        replaceFileContents(filename,quorumDocuments[i]); GatewayConfig quorum;
+        assert(loadGatewayConfig(filename,&quorum,&error)==(i<2));
+        if (i<2) assert(quorum.broadcastPassiveAckQuorum==(i==0 ? 1 : 255));
+    }
+    replaceFileContents(filename,document);
     assert(selected.firebaseTopic == "zigbee_alerts" && selected.firebaseServiceAccount.empty());
     fprintf(stderr, "unit: CLI config selection and defaults\n");
 

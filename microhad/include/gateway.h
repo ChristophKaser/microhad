@@ -204,6 +204,7 @@ struct DeviceConfigurationStatus {
 class GatewayView {
 public:
     std::string coordinatorBackend;
+    std::string settingsJson;
     bool online;
     bool networkForming;
     bool networkFormed;
@@ -241,6 +242,8 @@ public:
 #if MICROHAD_ZIGGURAT_ENABLED
     void useZiggurat(const std::string& socketPath);
 #endif
+    void configureBroadcastQuorum(unsigned int value);
+    bool setBroadcastQuorum(unsigned int value, std::string* error);
     bool start(std::string* error);
     void stop();
     void poll();
@@ -322,6 +325,15 @@ private:
     std::string serialDevice_;
     int serialBaud_;
     std::string runtimeDirectory_;
+    unsigned int broadcastQuorum_;
+    unsigned int appliedBroadcastQuorum_;
+    unsigned int broadcastQuorumRequest_;
+    unsigned int sentBroadcastQuorum_;
+    std::string broadcastQuorumState_;
+    std::string broadcastQuorumError_;
+    bool loadGatewaySettings(std::string* error);
+    void applyBroadcastQuorum();
+    std::string gatewaySettingsJson() const;
     std::string networkRandomSource_;
     std::string firebaseServiceAccount_;
     std::string firebaseTopic_;

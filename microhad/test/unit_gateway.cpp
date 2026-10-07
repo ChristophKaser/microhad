@@ -1,5 +1,9 @@
 #include "ash.h"
 #include "gateway.h"
+#if MICROHAD_ZIGGURAT_ENABLED
+#include "ziggurat_client.h"
+#endif
+#include <sys/socket.h>
 #include "storage.h"
 #include "zcl.h"
 #include "fcm.h"
@@ -23,6 +27,81 @@
 
 class GatewayTestPeer {
 public:
+    static void gatewaySettings() {
+        char directory[]="/tmp/microhad-quorum-test-XXXXXX"; assert(mkdtemp(directory));
+        Gateway gateway("/dev/null",115200,directory,"","","");
+        gateway.configureBroadcastQuorum(6);
+        std::string error;
+        assert(gateway.loadGatewaySettings(&error) && gateway.broadcastQuorum_==6);
+        assert(!gateway.setBroadcastQuorum(0,&error));
+        assert(!gateway.setBroadcastQuorum(256,&error));
+#if MICROHAD_ZIGGURAT_ENABLED
+        gateway.useZiggurat("/tmp/test-quorum.sock");
+        ZigguratClient& client=*gateway.ziggurat_;
+        int sockets[2]; assert(socketpair(AF_UNIX,SOCK_STREAM,0,sockets)==0);
+        assert(fcntl(sockets[0],F_SETFL,O_NONBLOCK)==0);
+        client.lockFd_=open("/dev/null",O_RDONLY); assert(client.lockFd_>=0);
+        client.fd_=sockets[0]; client.hello_=true; client.ready_=true; client.checkpointAt_=LONG_MAX;
+        assert(gateway.setBroadcastQuorum(3,&error));
+        unsigned int first=gateway.broadcastQuorumRequest_; assert(first);
+        ZigguratWire::Bytes wire=client.output_; assert(!wire.empty()); wire.pop_back();
+        ZigguratWire::Bytes packet; assert(ZigguratWire::decode(wire,&packet));
+        const std::string name="broadcast_passive_ack_quorum";
+        assert(packet[0]==0x38 && packet[3]==name.size());
+        assert(std::string(packet.begin()+4,packet.begin()+4+name.size())==name);
+        assert(packet.size()==4+name.size()+8 && packet[4+name.size()]==3);
+        for (unsigned long i=5+name.size();i<packet.size();++i) assert(packet[i]==0);
+        assert(gateway.setBroadcastQuorum(4,&error));
+        assert(gateway.broadcastQuorumRequest_==first && gateway.sentBroadcastQuorum_==3);
+        tunableReply(client,first,0); gateway.pollZiggurat();
+        assert(gateway.appliedBroadcastQuorum_==3 && gateway.sentBroadcastQuorum_==4);
+        assert(gateway.broadcastQuorumState_=="pending" && gateway.broadcastQuorumRequest_);
+        tunableReply(client,gateway.broadcastQuorumRequest_,0); gateway.pollZiggurat();
+        assert(gateway.appliedBroadcastQuorum_==4 && gateway.broadcastQuorumState_=="applied");
+        std::string path=std::string(directory)+"/gateway-settings.json";
+        struct stat before,after; assert(stat(path.c_str(),&before)==0);
+        assert(gateway.setBroadcastQuorum(4,&error)); assert(stat(path.c_str(),&after)==0);
+        assert(before.st_ino==after.st_ino); // An unchanged value must not rewrite flash.
+        tunableReply(client,gateway.broadcastQuorumRequest_,2); gateway.pollZiggurat();
+        assert(gateway.broadcastQuorumState_=="unsupported" && gateway.appliedBroadcastQuorum_==4);
+        assert(gateway.setBroadcastQuorum(5,&error));
+        tunableReply(client,gateway.broadcastQuorumRequest_,3); gateway.pollZiggurat();
+        assert(gateway.broadcastQuorumState_=="error" && gateway.appliedBroadcastQuorum_==4);
+        assert(gateway.setBroadcastQuorum(6,&error));
+        client.pending_[gateway.broadcastQuorumRequest_].expires=1;
+        gateway.pollZiggurat(); assert(gateway.broadcastQuorumState_=="error");
+        client.disconnect("test disconnect"); gateway.pollZiggurat();
+        assert(gateway.appliedBroadcastQuorum_==0 && gateway.broadcastQuorumState_=="pending");
+        close(sockets[1]);
+        assert(socketpair(AF_UNIX,SOCK_STREAM,0,sockets)==0);
+        assert(fcntl(sockets[0],F_SETFL,O_NONBLOCK)==0);
+        client.fd_=sockets[0]; client.hello_=true; client.ready_=true; client.checkpointAt_=LONG_MAX;
+        client.state_.network=ZigguratWire::Bytes(82,0);
+        client.events_.push_back(ZigguratClient::Event(ZigguratClient::Event::Ready));
+        gateway.pollZiggurat(); assert(gateway.sentBroadcastQuorum_==6 && gateway.broadcastQuorumRequest_);
+        tunableReply(client,gateway.broadcastQuorumRequest_,0); gateway.pollZiggurat();
+        assert(gateway.captureView().settingsJson.find("\"applied_value\":6")!=std::string::npos);
+        client.disconnect("test cleanup"); close(sockets[1]);
+        Gateway restored("/dev/null",115200,directory,"","","");
+        restored.configureBroadcastQuorum(8);
+        assert(restored.loadGatewaySettings(&error) && restored.broadcastQuorum_==6);
+        assert(unlink(path.c_str())==0); assert(mkdir(path.c_str(),0700)==0);
+        assert(!gateway.setBroadcastQuorum(7,&error) && gateway.broadcastQuorum_==6);
+        assert(rmdir(path.c_str())==0);
+        std::ofstream invalid(path.c_str()); invalid << "{\"broadcast_passive_ack_quorum\":0}"; invalid.close();
+        assert(!restored.loadGatewaySettings(&error)); assert(unlink(path.c_str())==0);
+#else
+        assert(gateway.captureView().settingsJson.find("unsupported")!=std::string::npos);
+        assert(!gateway.setBroadcastQuorum(3,&error));
+#endif
+        assert(rmdir(directory)==0);
+    }
+#if MICROHAD_ZIGGURAT_ENABLED
+    static void tunableReply(ZigguratClient& client,unsigned int id,unsigned char status) {
+        ZigguratWire::Bytes reply(1,0x38); ZigguratWire::put16(&reply,(id<<2)|1); reply.push_back(status);
+        client.frame(reply);
+    }
+#endif
     static void restoreState(Gateway& gateway) { gateway.loadState(); }
     static void observedChannelSnapshot() {
         char valueHistory[] = "/tmp/microhad-matter-values-test-XXXXXX";
@@ -2792,6 +2871,7 @@ static void testSharedJsonUtilities() {
 }
 
 void runUnitTests() {
+    GatewayTestPeer::gatewaySettings();
     GatewayTestPeer::emptyDeadlineIsUnscheduled();
     GatewayTestPeer::inactiveDeadlinesAreResetBeforeSelection();
     GatewayTestPeer::deadlineSelectionMatchesHandlerOrdering();

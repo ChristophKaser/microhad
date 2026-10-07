@@ -947,6 +947,29 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
         else if (!saveDashboardConfig(gateway_->runtimeDirectory() + "/dashboard.json", body))
             writeResponse(clientFd, 500, "application/json", "{\"ok\":false,\"error\":\"cannot save dashboard configuration\"}");
         else writeResponse(clientFd, 200, "application/json", "{\"ok\":true}");
+    } else if (request.find("GET /api/settings ") == 0) {
+        GatewayRunner::ViewLease* view=gateway_->acquireView();
+        if (!view) writeResponse(clientFd,503,"application/json","{\"ok\":false,\"error\":\"gateway unavailable\"}");
+        else { std::string body=view->settingsJson(); delete view; writeResponse(clientFd,200,"application/json",body); }
+    } else if (request.find("POST /api/settings ") == 0) {
+        std::string::size_type bodyAt=request.find("\r\n\r\n");
+        std::string value,error;
+        bool valid=bodyAt!=std::string::npos &&
+            formValue(request.substr(bodyAt+4),"broadcast_passive_ack_quorum",&value) && !value.empty() && value.size()<=3;
+        unsigned int number=0;
+        for (unsigned long i=0; valid && i<value.size(); ++i) {
+            if (value[i]<'0' || value[i]>'9') valid=false;
+            else number=number*10+static_cast<unsigned int>(value[i]-'0');
+        }
+        if (!valid || number<1 || number>255)
+            writeResponse(clientFd,400,"application/json","{\"ok\":false,\"error\":\"threshold must be an integer between 1 and 255\"}");
+        else if (!gateway_->setBroadcastQuorum(number,&error))
+            writeResponse(clientFd,400,"application/json","{\"ok\":false,\"error\":\""+jsonEscape(error)+"\"}");
+        else {
+            GatewayRunner::ViewLease* view=gateway_->acquireView();
+            if (!view) writeResponse(clientFd,503,"application/json","{\"ok\":false,\"error\":\"gateway unavailable\"}");
+            else { std::string body=view->settingsJson(); delete view; writeResponse(clientFd,200,"application/json",body); }
+        }
     } else if (request.find("GET /api/status ") == 0) {
         GatewayRunner::ViewLease* view = gateway_->acquireView();
         if (view == 0) writeResponse(clientFd, 503, "application/json", "{\"ok\":false,\"error\":\"coordinator is unavailable\"}");

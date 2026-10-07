@@ -213,6 +213,7 @@ void GatewayRunner::execute(Command* command) {
                                                                                command->enabled, command->metric, &error);
     else if (command->type == FritzReconcile) result = gateway_->reconcileFritzClients(command->ids, &error);
     else if (command->type == ActorState) result = gateway_->setActorState(command->address, command->on, &error);
+    else if (command->type == GatewaySettings) result = gateway_->setBroadcastQuorum(command->seconds, &error);
     else if (command->type == EventLoopDebug) {
         if (eventLoopDebug_ != command->enabled) {
             eventLoopDebug_ = command->enabled;
@@ -341,6 +342,7 @@ void GatewayRunner::waitForWork(LoopDebugStats* stats, bool debugEnabled) {
 
 GatewayRunner::ViewLease::ViewLease(GatewayRunner* owner, ViewData* data) : data_(data), owner_(owner) {}
 GatewayRunner::ViewLease::~ViewLease() { owner_->releaseView(data_); }
+std::string GatewayRunner::ViewLease::settingsJson() const { return data_->view->settingsJson; }
 std::string GatewayRunner::ViewLease::statusJson() const { return data_->view->statusJson(); }
 #ifdef MICROHAD_TESTING
 std::string GatewayRunner::ViewLease::logsJson() const { return data_->view->logsJson(); }
@@ -516,6 +518,9 @@ bool GatewayRunner::turnOffSceneGroup(unsigned short groupId, std::string* error
 }
 bool GatewayRunner::sendTestNotification(std::string* error) { Command command; command.type = TestNotification; return invoke(&command, error); }
 bool GatewayRunner::setNotificationsEnabled(bool enabled, std::string* error) { Command command; command.type = NotificationSetting; command.hasLow = enabled; return invoke(&command, error); }
+bool GatewayRunner::setBroadcastQuorum(unsigned int value, std::string* error) {
+    Command command; command.type=GatewaySettings; command.seconds=value; return invoke(&command,error);
+}
 bool GatewayRunner::setEventLoopDebug(bool enabled, std::string* error) {
     Command command;
     command.type = EventLoopDebug;

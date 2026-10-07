@@ -7,6 +7,7 @@ struct GatewayConfig {
     std::string zigguratSocket;
     std::string serialDevice;
     long serialBaud;
+    long broadcastPassiveAckQuorum;
     std::string runtimeDirectory;
     long httpPort;
     long httpsPort;

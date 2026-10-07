@@ -351,6 +351,22 @@ void testServers() {
     expectStatus("http missing asset", plainRequest(http.boundPort(), "GET /assets/missing.js HTTP/1.1\r\nHost: localhost\r\n\r\n"), 404);
     expectStatus("http traversal", plainRequest(http.boundPort(), "GET /assets/../index.html HTTP/1.1\r\nHost: localhost\r\n\r\n"), 404);
     expectStatus("http encoded traversal", plainRequest(http.boundPort(), "GET /assets/%2e%2e/index.html HTTP/1.1\r\nHost: localhost\r\n\r\n"), 404);
+    response = plainRequest(http.boundPort(), "GET /api/settings HTTP/1.1\r\nHost: localhost\r\n\r\n");
+    expectStatus("gateway settings snapshot",response,200);
+    assert(response.find("\"broadcast_passive_ack_quorum\":8")!=std::string::npos);
+    assert(response.find("\"application_state\":\"unsupported\"")!=std::string::npos);
+    response = plainRequest(http.boundPort(),
+        "POST /api/settings HTTP/1.1\r\nHost: localhost\r\nContent-Length: 30\r\n\r\nbroadcast_passive_ack_quorum=3");
+    expectStatus("unsupported gateway threshold",response,400);
+    assert(response.find("requires Ziggurat")!=std::string::npos);
+    const char* invalidThresholds[]={"0","256","-1","3.5","abc","1e2","99999999999999999999"};
+    for (unsigned long i=0;i<sizeof(invalidThresholds)/sizeof(invalidThresholds[0]);++i) {
+        std::string body=std::string("broadcast_passive_ack_quorum=")+invalidThresholds[i];
+        std::ostringstream request;
+        request << "POST /api/settings HTTP/1.1\r\nHost: localhost\r\nContent-Length: " << body.size()
+                << "\r\n\r\n" << body;
+        expectStatus("invalid gateway threshold",plainRequest(http.boundPort(),request.str()),400);
+    }
     response = plainRequest(http.boundPort(), "GET /api/status HTTP/1.1\r\nHost: localhost\r\n\r\n");
     expectStatus("http status", response, 200);
     assert(response.find("Content-Type: application/json\r\n") != std::string::npos && response.find("\"online\":") != std::string::npos && response.find("\"devices\":") != std::string::npos);

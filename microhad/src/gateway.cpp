@@ -1,4 +1,5 @@
 #include "gateway.h"
+#include "gateway_config.h"
 #if MICROHAD_ZIGGURAT_ENABLED
 #include "ziggurat_client.h"
 #endif
@@ -352,6 +353,7 @@ Gateway::Gateway(const std::string& serialDevice, int serialBaud, const std::str
 #if MICROHAD_ZIGGURAT_ENABLED
     ziggurat_ = 0;
 #endif
+    configureBroadcastQuorum(8);
     lastSecurityDiagnosticsAt_ = 0;
     unsupportedSecurityValues_ = 0;
     lastNetworkKeySequence_ = -1;
@@ -914,10 +916,93 @@ bool Gateway::configureSerial(std::string* error) {
     return true;
 }
 
+void Gateway::configureBroadcastQuorum(unsigned int value) {
+    broadcastQuorum_=value; appliedBroadcastQuorum_=0; broadcastQuorumRequest_=0; sentBroadcastQuorum_=0;
+    broadcastQuorumState_="pending"; broadcastQuorumError_.clear();
+}
+
+bool Gateway::loadGatewaySettings(std::string* error) {
+    const std::string path=runtimeDirectory_+"/gateway-settings.json";
+    if (access(path.c_str(), F_OK)!=0) {
+        if (errno==ENOENT) return true;
+        *error="cannot access gateway settings"; return false;
+    }
+    std::string document;
+    long value=0;
+    if (!readTextFile(path,&document) || !jsonLongField(document,"broadcast_passive_ack_quorum",&value)) {
+        *error="gateway settings are missing broadcast_passive_ack_quorum"; return false;
+    }
+    GatewayConfig settings;
+    if (!loadGatewayConfig(path, &settings, error)) return false;
+    broadcastQuorum_=static_cast<unsigned int>(settings.broadcastPassiveAckQuorum);
+    return true;
+}
+
+std::string Gateway::gatewaySettingsJson() const {
+    std::string state="unsupported";
+#if MICROHAD_ZIGGURAT_ENABLED
+    if (ziggurat_!=0) state=broadcastQuorumState_;
+#endif
+    std::ostringstream json;
+    json << "{\"broadcast_passive_ack_quorum\":" << broadcastQuorum_ << ",\"applied_value\":";
+    if (appliedBroadcastQuorum_) json << appliedBroadcastQuorum_; else json << "null";
+    json << ",\"application_state\":\"" << state << "\",\"application_error\":\""
+         << jsonEscape(broadcastQuorumError_) << "\"}";
+    return json.str();
+}
+
+void Gateway::applyBroadcastQuorum() {
+#if MICROHAD_ZIGGURAT_ENABLED
+    if (ziggurat_==0 || !ziggurat_->ready() || broadcastQuorumRequest_) return;
+    const std::string name="broadcast_passive_ack_quorum";
+    ZigguratWire::Bytes payload(1, static_cast<unsigned char>(name.size()));
+    payload.insert(payload.end(), name.begin(), name.end());
+    payload.push_back(static_cast<unsigned char>(broadcastQuorum_));
+    payload.insert(payload.end(), 7, 0); // SetTunable's little-endian u64 value.
+    sentBroadcastQuorum_=broadcastQuorum_;
+    broadcastQuorumRequest_=ziggurat_->request(0x38, payload);
+    broadcastQuorumState_=broadcastQuorumRequest_ ? "pending" : "error";
+    broadcastQuorumError_=broadcastQuorumRequest_ ? "" : "cannot queue Ziggurat threshold setting";
+    markViewDirty();
+#endif
+}
+
+bool Gateway::setBroadcastQuorum(unsigned int value, std::string* error) {
+    if (value<1 || value>255) { *error="threshold must be an integer between 1 and 255"; return false; }
+#if MICROHAD_ZIGGURAT_ENABLED
+    if (ziggurat_==0) { *error="broadcast threshold requires Ziggurat"; return false; }
+#else
+    *error="broadcast threshold requires Ziggurat"; return false;
+#endif
+    if (value!=broadcastQuorum_) {
+        std::ostringstream json; json << "{\"broadcast_passive_ack_quorum\":" << value << "}\n";
+        std::string temporary=runtimeDirectory_+"/gateway-settings.json.XXXXXX";
+        std::vector<char> filename(temporary.begin(), temporary.end()); filename.push_back(0);
+        int fd=mkstemp(&filename[0]);
+        if (fd<0) { *error="cannot save gateway settings"; return false; }
+        const std::string text=json.str(); unsigned long at=0;
+        while (at<text.size()) {
+            ssize_t n=write(fd,text.data()+at,text.size()-at);
+            if (n<0 && errno==EINTR) continue;
+            if (n<=0) break;
+            at+=static_cast<unsigned long>(n);
+        }
+        bool saved=at==text.size() && fsync(fd)==0;
+        if (close(fd)!=0) saved=false;
+        if (!saved || rename(&filename[0],(runtimeDirectory_+"/gateway-settings.json").c_str())!=0) {
+            unlink(&filename[0]); *error="cannot atomically save gateway settings"; return false;
+        }
+        broadcastQuorum_=value;
+    }
+    broadcastQuorumState_="pending"; broadcastQuorumError_.clear();
+    applyBroadcastQuorum(); markViewDirty(); return true;
+}
+
 bool Gateway::start(std::string* error) {
     if (!ensureDirectory(runtimeDirectory_, error)) {
         return false;
     }
+    if (!loadGatewaySettings(error)) return false;
     loadState();
     std::string historyError;
     if (!history_.initialize(&historyError)) addLog(std::string("Sensor history unavailable: ") + historyError);
@@ -983,6 +1068,8 @@ void Gateway::pollZiggurat() {
     ZigguratClient::Event event(ZigguratClient::Event::Diagnostic);
     while (ziggurat_->pop(&event)) {
         if (event.type==ZigguratClient::Event::Down) {
+            appliedBroadcastQuorum_=0; broadcastQuorumRequest_=0;
+            broadcastQuorumState_="pending"; broadcastQuorumError_.clear();
             observedNetworkChannel_=0;
             online_=false; networkFormed_=false; zigguratSends_.clear();
             interviewRequestInFlight_=false; interviewDeadline_=0;
@@ -998,6 +1085,7 @@ void Gateway::pollZiggurat() {
             observedNetworkChannel_=n[0];
             networkExtendedPan_.assign(n.begin()+4,n.begin()+12); networkKey_.assign(n.begin()+22,n.begin()+38);
             preconfiguredKey_.assign(n.begin()+43,n.begin()+59);
+            applyBroadcastQuorum();
             addLog("Ziggurat network ready; native state reconciled"); markViewDirty(); continue;
         }
         if (event.type==ZigguratClient::Event::Admission || event.type==ZigguratClient::Event::Confirmation) {
@@ -1011,6 +1099,21 @@ void Gateway::pollZiggurat() {
                 zigguratSendResult(send->second.sequence,send->second.unicast,event.status); zigguratSends_.erase(send);
             }
             continue;
+        }
+        if (event.type==ZigguratClient::Event::TunableReply) {
+            if (event.id!=broadcastQuorumRequest_) continue;
+            broadcastQuorumRequest_=0;
+            if (!event.status) {
+                appliedBroadcastQuorum_=sentBroadcastQuorum_;
+                broadcastQuorumState_="applied"; broadcastQuorumError_.clear();
+            } else {
+                broadcastQuorumState_=event.status==0x02 ? "unsupported" : "error";
+                std::ostringstream message;
+                message << "Ziggurat threshold setting failed (status " << static_cast<unsigned int>(event.status) << ")";
+                broadcastQuorumError_=message.str(); addLog(broadcastQuorumError_);
+            }
+            if (sentBroadcastQuorum_!=broadcastQuorum_) applyBroadcastQuorum();
+            markViewDirty(); continue;
         }
         if (event.type==ZigguratClient::Event::JoinReply) {
             if (event.status) { joinUntil_=0; addLog("Ziggurat permit-joining request failed"); }
@@ -3065,6 +3168,7 @@ GatewayView Gateway::captureView(bool includeLogs) const {
     view.serialRxBytes = serialRxBytes_; view.ashRxFrames = ashRxFrames_; view.joiningUntil = joinUntil_;
     view.serialOpenedAt = serialOpenedAt_;
     view.joiningPreparing = joinPreparationStep_ != 0; view.notificationsEnabled = notificationsEnabled();
+    view.settingsJson = gatewaySettingsJson();
     view.devices = devices();
     for (unsigned long i = 0; i < view.devices.size(); ++i) {
         std::map<std::string, long>::const_iterator trigger = nextContactTriggerAt_.find(view.devices[i].ieeeAddress);

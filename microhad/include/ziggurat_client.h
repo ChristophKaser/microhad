@@ -31,7 +31,7 @@ class ZigguratClient {
 public:
     typedef ZigguratWire::Bytes Bytes;
     struct Event {
-        enum Type { Ready, Down, ReceivedAps, Joined, Left, Admission, Confirmation, JoinReply, Diagnostic } type;
+        enum Type { Ready, Down, ReceivedAps, Joined, Left, Admission, Confirmation, JoinReply, TunableReply, Diagnostic } type;
         unsigned int id;
         unsigned char command;
         unsigned char status;
@@ -52,6 +52,9 @@ public:
     unsigned int request(unsigned char command, const Bytes& payload);
     const ZigguratState& state() const { return state_; }
 private:
+#ifdef MICROHAD_TESTING
+    friend class GatewayTestPeer;
+#endif
     struct Pending { unsigned char command; long expires; bool admitted; bool apsAck; Pending() : command(0), expires(0), admitted(false), apsAck(false) {} };
     int fd_;
     int lockFd_;

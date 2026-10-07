@@ -136,6 +136,32 @@ deployment includes it. Configurations and network state must stay outside Git.
 launcher. It neither stops existing processes nor installs the Ziggurat pair.
 Follow the backend's installation procedure before activation or restart.
 
+## Broadcast confirmation setting
+
+Set `broadcast_passive_ack_quorum` in native `config.json` to an integer from
+1 to 255 (default: 8). Ziggurat considers a broadcast confirmed when it hears
+rebroadcasts from that many eligible neighbor routers, or from all eligible
+neighbors if fewer are present. These confirmations measure mesh propagation;
+they do not confirm that each target bulb applied a scene.
+
+The dashboard's **Gateway settings** dialog saves changes atomically in
+`runtime_dir/gateway-settings.json`. That saved value overrides `config.json`;
+remove the override file while the service is stopped to restore the config
+value. Unchanged saves do not rewrite the file. Changes apply immediately using
+Ziggurat's `SetTunable` command and are reapplied after reconnects and restarts.
+The dialog shows saved and confirmed applied values separately, including
+pending, rejected and unsupported states. The setting is unavailable with EZSP.
+A corrupt settings override prevents startup and must be corrected.
+
+`GET /api/settings` returns `broadcast_passive_ack_quorum`, `applied_value`
+(`null` until confirmed for the current connection), `application_state`, and
+`application_error`. Form-encoded `POST /api/settings` accepts
+`broadcast_passive_ack_quorum` and returns the same snapshot after saving;
+successful persistence can still be pending application to Ziggurat.
+
+Verify the dialog with `node webui/test/gateway-settings-browser.cjs` after
+installing its dependencies; this uses headless Chromium and simulated replies.
+
 ## Use the gateway
 
 The dashboard handles joining, sensors, lights, scenes, remotes and local

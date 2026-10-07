@@ -14,6 +14,7 @@ import { MatterPanel } from './MatterPanel'
 import { useMatterDevices } from './useMatterDevices'
 import { useGatewayData } from './useGatewayData'
 import { useGatewayOverview } from './useGatewayOverview'
+import { GatewaySettingsDialog } from './GatewaySettingsDialog'
 import './style.css'
 
 function LogLine({ line }: { line: string }) {
@@ -65,6 +66,7 @@ function JoinButton({
 
 function App() {
   const [tab, setTab] = useState('Dashboard')
+  const [gatewaySettingsOpen, setGatewaySettingsOpen] = useState(false)
   const [logFilter, setLogFilter] = useState('')
   const { status, statusError, logs, logsError, logsHasMore, loadOlderLogs, refreshStatus } = useGatewayData(tab === 'Diagnostics')
   const { thread, resources } = useGatewayOverview()
@@ -242,10 +244,11 @@ function App() {
           <h1>MicroHAD</h1>
           <p className="hero-sub">Devices, scenes, and coordinator activity in one place.</p>
         </div>
-        <div className="hero-actions"><div className="serial-state">
+        <div className="hero-actions"><button onClick={() => setGatewaySettingsOpen(true)}>Gateway settings</button><div className="serial-state">
           {restarting ? 'Restarting service…' : statusError ? 'Gateway status unavailable' : status?.online ? 'Coordinator online' : 'Coordinator offline'}
         </div></div>
       </header>
+      {gatewaySettingsOpen && <GatewaySettingsDialog onClose={() => setGatewaySettingsOpen(false)} />}
       <nav className="main-tabs" role="tablist" aria-label="Gateway views">
         {['Dashboard', 'Controls', 'Groups', ...visibleDeviceTypes.map(type => type.name), 'Diagnostics'].map(name => (
           <button key={name} role="tab" aria-selected={tab === name} className={`main-tab ${tab === name ? 'active' : ''}`} onClick={() => setTab(name)}>{name}</button>

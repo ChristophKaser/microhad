@@ -73,6 +73,7 @@ int main(int argc, char** argv) {
 #if MICROHAD_ZIGGURAT_ENABLED
     gateway->useZiggurat(config.zigguratSocket);
 #endif
+    gateway->configureBroadcastQuorum(static_cast<unsigned int>(config.broadcastPassiveAckQuorum));
     gatewayRunner = new GatewayRunner(gateway);
     MatterWorker matterWorker(gatewayRunner);
     shellyIntegration = new ExternalHttpDeviceWorker(runtimeDirectory, gatewayRunner);

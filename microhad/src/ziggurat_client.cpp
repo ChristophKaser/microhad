@@ -336,7 +336,7 @@ void ZigguratClient::frame(const Bytes& raw) {
             controlReply(command,status,body); return;
         }
         bool sendCommand=command>=0x30 && command<=0x32;
-        Event event(sendCommand ? Event::Admission : Event::JoinReply); event.id=id; event.command=command; event.status=status;
+        Event event(sendCommand ? Event::Admission : command==0x38 ? Event::TunableReply : Event::JoinReply); event.id=id; event.command=command; event.status=status;
         events_.push_back(event);
         if (sendCommand && !status) { found->second.admitted=true; found->second.expires=time(0)+30; }
         else pending_.erase(found);
@@ -419,7 +419,8 @@ void ZigguratClient::poll() {
     for (std::map<unsigned int,Pending>::iterator i=pending_.begin();i!=pending_.end();) {
         if (time(0)<i->second.expires) { ++i; continue; }
         if (i->first==controlId_) { disconnect("Ziggurat lifecycle timed out"); return; }
-        Event event(i->second.command>=0x30 && i->second.command<=0x32 ? Event::Confirmation : Event::JoinReply);
+        Event event(i->second.command>=0x30 && i->second.command<=0x32 ? Event::Confirmation :
+                    i->second.command==0x38 ? Event::TunableReply : Event::JoinReply);
         event.id=i->first; event.command=i->second.command; event.status=0xff; events_.push_back(event);
         pending_.erase(i++);
     }

@@ -1,6 +1,7 @@
 {
   "serial_device": "/dev/ttyS1",
   "serial_baud": 115200,
+  "broadcast_passive_ack_quorum": 8,
   "http_port": 80,
   "https_port": 443,
   "runtime_dir": "/tuya/native",
