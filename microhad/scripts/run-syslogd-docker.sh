@@ -13,6 +13,12 @@ command -v docker >/dev/null 2>&1 || {
     exit 1
 }
 mkdir -p "$log_dir"
+chmod 0755 "$log_dir"
+for logfile in "$log_dir"/gateway.log*; do
+    if [ -f "$logfile" ]; then
+        chmod 0644 "$logfile"
+    fi
+done
 
 # Recreate the named container so changes to the mounted config take effect.
 if docker container inspect "$container_name" >/dev/null 2>&1; then
