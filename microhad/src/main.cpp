@@ -76,6 +76,7 @@ int main(int argc, char** argv) {
     gateway->useZiggurat(config.zigguratSocket);
 #endif
     gateway->configureBroadcastQuorum(static_cast<unsigned int>(config.broadcastPassiveAckQuorum));
+    gateway->configureMatterCommissioningRegion(config.matterCountryCode, config.matterRegulatoryLocation);
     gatewayRunner = new GatewayRunner(gateway);
     MatterWorker matterWorker(gatewayRunner);
     shellyIntegration = new ExternalHttpDeviceWorker(runtimeDirectory, gatewayRunner);

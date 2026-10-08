@@ -247,6 +247,7 @@ public:
     void useZiggurat(const std::string& socketPath);
 #endif
     void configureBroadcastQuorum(unsigned int value);
+    void configureMatterCommissioningRegion(const std::string& countryCode, const std::string& location);
     bool setBroadcastQuorum(unsigned int value, std::string* error);
     bool setMatterCommissioningRegion(const std::string& countryCode, const std::string& location,
                                       std::string* error);

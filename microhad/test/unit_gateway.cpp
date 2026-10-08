@@ -111,8 +111,20 @@ public:
         char directory[]="/tmp/microhad-quorum-test-XXXXXX"; assert(mkdtemp(directory));
         Gateway gateway("/dev/null",115200,directory,"","","");
         gateway.configureBroadcastQuorum(6);
+        gateway.configureMatterCommissioningRegion("GB", "outdoor");
         std::string error;
         assert(gateway.loadGatewaySettings(&error) && gateway.broadcastQuorum_==6);
+        assert(gateway.captureView().matterCountryCode == "GB");
+        assert(gateway.captureView().matterRegulatoryLocation == "outdoor");
+        const std::string legacyPath = std::string(directory) + "/gateway-settings.json";
+        FILE* legacy = fopen(legacyPath.c_str(), "w");
+        assert(legacy && fputs("{\"broadcast_passive_ack_quorum\":7}", legacy) >= 0);
+        assert(fclose(legacy) == 0);
+        assert(gateway.loadGatewaySettings(&error) && gateway.broadcastQuorum_ == 7);
+        assert(gateway.captureView().matterCountryCode == "GB");
+        assert(gateway.captureView().matterRegulatoryLocation == "outdoor");
+        assert(unlink(legacyPath.c_str()) == 0);
+        gateway.configureBroadcastQuorum(6);
         assert(!gateway.setBroadcastQuorum(0,&error));
         assert(!gateway.setBroadcastQuorum(256,&error));
 #if MICROHAD_ZIGGURAT_ENABLED
@@ -167,6 +179,7 @@ public:
         assert(gateway.captureView().matterCountryCode == "US" && gateway.captureView().matterRegulatoryLocation == "outdoor");
         client.disconnect("test cleanup"); close(sockets[1]);
         Gateway restored("/dev/null",115200,directory,"","","");
+        restored.configureMatterCommissioningRegion("JP", "indoor");
         restored.configureBroadcastQuorum(8);
         assert(restored.loadGatewaySettings(&error) && restored.broadcastQuorum_==6);
         assert(restored.captureView().matterCountryCode == "US" && restored.captureView().matterRegulatoryLocation == "outdoor");

@@ -931,11 +931,20 @@ bool Gateway::loadGatewaySettings(std::string* error) {
         *error="cannot access gateway settings"; return false;
     }
     GatewayConfig settings;
+    settings.broadcastPassiveAckQuorum = broadcastQuorum_;
+    settings.matterCountryCode = matterCountryCode_;
+    settings.matterRegulatoryLocation = matterRegulatoryLocation_;
     if (!loadGatewayConfig(path, &settings, error)) return false;
     broadcastQuorum_=static_cast<unsigned int>(settings.broadcastPassiveAckQuorum);
     matterCountryCode_=settings.matterCountryCode;
     matterRegulatoryLocation_=settings.matterRegulatoryLocation;
     return true;
+}
+
+void Gateway::configureMatterCommissioningRegion(const std::string& countryCode, const std::string& location) {
+    // Startup defaults from the validated main configuration; saved UI settings take precedence.
+    matterCountryCode_ = countryCode;
+    matterRegulatoryLocation_ = location;
 }
 
 std::string Gateway::gatewaySettingsJson() const {
