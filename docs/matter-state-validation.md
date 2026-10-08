@@ -21,7 +21,7 @@ The store is opened read-only and retains the owner lock for the duration of
 the check. Validation does not recover transitional catalog phases or write
 records. The synthetic service test snapshots file contents, modes, inodes,
 timestamps, and sizes to verify valid and rejected candidates are unchanged. It
-also uses the adjacent `microhad-zigbee-native/scripts/matter_archive.py` helper to
+also uses the adjacent `microhad/scripts/matter_archive.py` helper to
 preflight and extract a synthetic service archive, validates the extracted
 candidate, and confirms a structurally valid archive with a corrupt credential
 envelope is rejected without modifying the extracted tree.

@@ -1,6 +1,8 @@
-# Silvercrest gateway: native Zigbee or Home Assistant
+# Silvercrest gateway: MicroHAD, Ziggurat, or Home Assistant
 
 Run a Lidl/Silvercrest RTL8196E gateway locally, retaining its factory Linux.
+The **Micro Home Automation Daemon (MicroHAD)**, Ziggurat, and the Rust Matter
+service are maintained together in this repository.
 Choose a standalone native dashboard or use the gateway as a radio for Home
 Assistant ZHA. Either can use the radio's EZSP stack or our MIPS Ziggurat build.
 
@@ -36,8 +38,8 @@ alternative coordinator clients, not services to enable together.
 | Zigbee delivery | Broadcast responses observed with intermittent relay-quorum/CCA failure verdicts. Sleepy-device behavior needs further acceptance testing. |
 | Thread/Matter | [OpenThread MIPS CLI and Unix adapter pass a bounded device simulation with internal IPv6/UDP](docs/openthread-feasibility.md). Linux border routing lacks IPv6/TUN; production IID 2 remains unused. No real Thread mesh or Matter deployment is claimed. |
 
-The ultimate goal is standalone Zigbee and Matter-over-Thread on this device,
-sharing the radio through HDLC without cpcd. The native build remains C++03;
+The goal is standalone Zigbee and Matter-over-Thread on this device, sharing
+the radio through HDLC without cpcd. MicroHAD remains a C++03 service;
 Ziggurat is Rust. The radio firmware is rebuildable from SDK source plus
 precompiled Silicon Labs RAIL libraries.
 
@@ -70,7 +72,7 @@ that preserves acknowledgments, or a separate sniffer.
 - [Installation, first pairing and rollback](docs/installation.md)
 - [Build prerequisites and commands](docs/building.md)
 - [Native dashboard and application usage](docs/native-usage.md)
-- [Native application](https://github.com/ChristophKaser/microhad-zigbee-native)
+- [MicroHAD (native application)](microhad/README.md)
 - [Native protocol and durable state](docs/native-ziggurat-integration.md)
 - [Existing-network migration and rollback](docs/ziggurat-deployment-plan.md)
 - [Real-radio findings](docs/real-radio-migration.md)

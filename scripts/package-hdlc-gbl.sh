@@ -10,5 +10,5 @@ expected=0d1a2136a824c2f3e9953573502cb80ff459647f41df04d17a30e42140432f8a
 "$commander" --version | rg '1v16p4b1564'
 output="$experiment_root/build/firmware-hdlc/build/debug/ot-rcp-multipan.gbl"
 "$commander" gbl create "$output" --app "$experiment_root/build/firmware-hdlc/build/debug/ot-rcp-multipan.out"
-"$experiment_root/tools/network-migration-venv/bin/python" "$experiment_root/../microhad-zigbee-native/scripts/ezsp_preflight.py" image "$output"
+"$experiment_root/tools/network-migration-venv/bin/python" "$experiment_root/microhad/scripts/ezsp_preflight.py" image "$output"
 sha256sum "$output"

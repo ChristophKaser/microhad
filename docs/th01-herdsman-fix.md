@@ -84,20 +84,20 @@ table. Do not suppress such changes to make a restored-child count look stable.
 All passed:
 
 ```sh
-cd microhad-zigbee-native
+cd microhad
 make host test
 make mips
 make ZIGGURAT=1 host test
 make ZIGGURAT=1 mips
 
-cd ../ziggurat-compilation
+cd ..
 source scripts/rust-env.sh
 CARGO_TARGET_DIR="$PWD/build/host" cargo +nightly-2026-10-02 build \
   --manifest-path worktrees/ziggurat-hdlc/Cargo.toml -p ziggurat-server
 python3 scripts/test-fresh-join-replay.py
 python3 scripts/test-hdlc-multipan.py
 python3 scripts/test-cobs-unix.py
-python3 ../microhad-zigbee-native/scripts/test_ziggurat_service.py
+python3 ../microhad/scripts/test_ziggurat_service.py
 ZIGGURAT_MULTIPAN=1 bash scripts/build-ziggurat.sh
 ```
 
@@ -134,7 +134,7 @@ Native-only transfer uses:
 
 ```sh
 ./deploy.sh --host 192.168.178.62 --password-file ../ssh_password.txt \
-  --target /tuya/native --binary build/mips-ziggurat/microhad-zigbee-native --binary-only
+  --target /tuya/native --binary build/mips-ziggurat/microhad --binary-only
 ```
 
 Ziggurat transfer uses SSH stdin to a new /tuya/native/ziggurat.new, chmod 700,

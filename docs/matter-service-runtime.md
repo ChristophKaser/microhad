@@ -88,7 +88,7 @@ Stderr contains only static start/stop/failure messages. Request payloads,
 CLI inputs, datasets and store contents have no logging path. A missing radio,
 transport failure, or corrupt state exits the service. The native project's
 optional paired supervisor implements independent bounded retries and backoff;
-see `microhad-zigbee-native/MATTER_INTEGRATION.md`. It is not activated in production.
+see `microhad/MATTER_INTEGRATION.md`. It is not activated in production.
 
 Validation: 36 Rust library tests pass, including six listener checks, three
 strict-body groups, five session lifetime checks and four authority recovery checks.
@@ -288,13 +288,13 @@ restart, conflicting cached channel and unchanged credentials on status/reload.
 All recorded synthetic channel writes are 15 and no reset is issued. This does
 not prove physical RF attachment, coexistence or target runtime resource use.
 
-The native worker checkpoint (`microhad-zigbee-native` implementation documented in
+The native worker checkpoint (`microhad` implementation documented in
 plan 04) passes an actual native-to-Rust IPC/HTTP host round trip with synthetic
 Ziggurat and Thread RCP peers. Native observations authorize dataset create;
 all recorded writes match the confirmed Zigbee channel. Coordinator loss moves
 Thread to `awaiting_coordinator`, and service shutdown produces cached HTTP
 503 without stopping native. Commands: `python3
-../microhad-zigbee-native/scripts/test_matter_native_worker.py --real-service` from
+../microhad/scripts/test_matter_native_worker.py --real-service` from
 this project (requires both host builds). This is synthetic host evidence only.
 
 ## Targeted IPC events — 2026-10-04
@@ -533,7 +533,7 @@ Secure Channel Check-In protocol/opcode, leaving unrelated exchanges in the
 transport for their owners. It ignores individual Check-In handling errors so
 one malformed exchange does not terminate the daemon task. Sessionless Check-In
 capture remains handled by the dedicated transport queue. The composed
-`python3 ../microhad-zigbee-native/scripts/test_matter_native_report_integration.py`
+`python3 ../microhad/scripts/test_matter_native_report_integration.py`
 passes: the production subscription manager receives CASE reports, and the
 native shared device state/history reflects all five sensor values in both
 fixture legs. The controller-service suite passes 81/81; the MIPS static

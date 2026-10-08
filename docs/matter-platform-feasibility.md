@@ -49,7 +49,7 @@ when selected, defines `MICROHAD_MATTER_ENABLED`, separates outputs, and rejects
 enabled builds until these prerequisites and actual integration exist. The
 full remaining implementation contract, including the trusted-LAN Garage BLE
 relay and factory-new ALPSTUGA acceptance, is in
-[native MATTER_INTEGRATION.md](https://github.com/ChristophKaser/microhad-zigbee-native/blob/main/MATTER_INTEGRATION.md).
+[native MATTER_INTEGRATION.md](https://github.com/ChristophKaser/microhad/blob/main/MATTER_INTEGRATION.md).
 
 No production service, UART, radio firmware, dataset, certificate, or Garage
 app was changed during this gate. All checks were performed on the development

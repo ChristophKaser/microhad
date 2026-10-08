@@ -11,7 +11,7 @@ import time
 from cryptography.hazmat.primitives.ciphers.aead import AESCCM
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT.parent / 'microhad-zigbee-native/scripts'))
+sys.path.insert(0, str(ROOT / 'microhad/scripts'))
 from test_network_migration import fixture
 from ziggurat_migration import import_commands
 from ziggurat_cobs import Client

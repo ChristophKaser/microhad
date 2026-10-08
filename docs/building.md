@@ -26,7 +26,6 @@ mkdir -p "$HOME/silvercrest-work"
 cd "$HOME/silvercrest-work"
 export WORKSPACE="$PWD"
 git clone --recurse-submodules https://github.com/ChristophKaser/ziggurat-compilation.git
-git clone https://github.com/ChristophKaser/microhad-zigbee-native.git
 git clone https://github.com/banksy-git/lidl-gateway-freedom.git
 ```
 
@@ -41,10 +40,10 @@ over an unrelated revision.
 
 ## Stock MIPS toolchain
 
-Use exactly `rsdk-4.4.7-4181-EB-2.6.30-0.9.30-m32u-140129` beside the two project
-checkouts. Ziggurat's linker and maintenance build derive this sibling location.
-The native Makefile has a developer-machine default; override it with
-`RSDK_ROOT="$RSDK"` on every target build.
+Use exactly `rsdk-4.4.7-4181-EB-2.6.30-0.9.30-m32u-140129` beside the
+`ziggurat-compilation` checkout. Shared defaults in `config/toolchains.mk`
+point MicroHAD and Ziggurat at this toolchain. Set `RSDK_ROOT="$RSDK"` when
+the toolchain is elsewhere.
 
 The RSDK archive is **not included or downloaded by these repositories**.
 Obtain the legacy archive from your existing toolchain distribution or the
@@ -87,7 +86,7 @@ existing tested builds; they do not imply RSDK-free compilation of Ziggurat.
 Host commands:
 
 ```sh
-cd "$WORKSPACE/microhad-zigbee-native"
+cd "$WORKSPACE/microhad"
 make RSDK_ROOT="$RSDK" ZIGGURAT=0 host test
 make RSDK_ROOT="$RSDK" ZIGGURAT=0 mips
 make RSDK_ROOT="$RSDK" ZIGGURAT=1 host test
@@ -199,7 +198,7 @@ tools/network-migration-venv/bin/pip install \
 export MIGRATION_PYTHON="$WORKSPACE/ziggurat-compilation/tools/network-migration-venv/bin/python"
 export NCP_IMAGE="$WORKSPACE/ziggurat-compilation/rtl8196e-gateway/2-Zigbee-Radio-Silabs-EFR32/24-NCP-UART-HW/firmware/ncp-uart-hw-7.5.1-115200-hw.gbl"
 export RCP_IMAGE="$WORKSPACE/ziggurat-compilation/build/firmware-hdlc/build/debug/ot-rcp-multipan.gbl"
-cd "$WORKSPACE/microhad-zigbee-native"
+cd "$WORKSPACE/microhad"
 "$MIGRATION_PYTHON" scripts/ezsp_preflight.py image "$NCP_IMAGE"
 # After the HDLC build:
 "$MIGRATION_PYTHON" scripts/ezsp_preflight.py image "$RCP_IMAGE"

@@ -8,7 +8,7 @@ bash scripts/build-openthread-transport.sh host
 bash scripts/fetch-rs-matter.sh
 source scripts/rust-env.sh
 export CARGO_TARGET_DIR="$project_root/build/rs-matter/service-test-target"
-cargo +nightly-2026-10-02 build --locked --release \
+cargo +$RUST_TOOLCHAIN build --locked --release \
     --manifest-path rs-matter-probe/Cargo.toml \
     --features controller-service-test-hooks --bin thread-matter
 python3 scripts/check-matter-service-test-hooks.py \

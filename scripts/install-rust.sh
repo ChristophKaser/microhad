@@ -7,4 +7,4 @@ curl --fail --location --connect-timeout 10 --max-time 120 \
     --output "$experiment_root/tools/rustup-init"
 chmod +x "$experiment_root/tools/rustup-init"
 "$experiment_root/tools/rustup-init" -y --no-modify-path --profile minimal \
-    --default-toolchain nightly-2026-10-02 --component rust-src --component rustfmt
+    --default-toolchain "$RUST_TOOLCHAIN" --component rust-src --component rustfmt

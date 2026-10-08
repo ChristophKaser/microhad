@@ -248,7 +248,7 @@ On the **gateway console**, while factory services and other clients are stopped
 On the **host**:
 
 ```sh
-cd "$WORKSPACE/microhad-zigbee-native"
+cd "$WORKSPACE/microhad"
 "$MIGRATION_PYTHON" scripts/ezsp_preflight.py radio \
   --host "$GATEWAY_IP" --exclusive-radio
 ```
@@ -291,9 +291,9 @@ Keep TCP:8888 on a trusted LAN; the bridge has no authentication.
    }
    JSON
    chmod 600 "$CONFIG_FILE"
-   cd "$WORKSPACE/microhad-zigbee-native"
+   cd "$WORKSPACE/microhad"
    ./deploy.sh --host "$GATEWAY_IP" --password-file "$PASSWORD_FILE" \
-     --binary build/mips/microhad-zigbee-native --config "$CONFIG_FILE" \
+     --binary build/mips/microhad --config "$CONFIG_FILE" \
      --target /tuya/native --activate
    ```
 
@@ -347,7 +347,7 @@ cat "$WORKSPACE/ziggurat-compilation/build/gateway-maintenance" | \
   gateway_ssh 'cat > /tuya/ziggurat-stage/gateway-maintenance.new && chmod 700 /tuya/ziggurat-stage/gateway-maintenance.new && mv /tuya/ziggurat-stage/gateway-maintenance.new /tuya/ziggurat-stage/gateway-maintenance'
 cat "$WORKSPACE/ziggurat-compilation/build/ziggurat-hdlc/lexra-stock-uclibc/release/ziggurat.stripped" | \
   gateway_ssh 'cat > /tuya/ziggurat-stage/ziggurat.new && chmod 700 /tuya/ziggurat-stage/ziggurat.new && mv /tuya/ziggurat-stage/ziggurat.new /tuya/ziggurat-stage/ziggurat'
-cd "$WORKSPACE/microhad-zigbee-native"
+cd "$WORKSPACE/microhad"
 "$MIGRATION_PYTHON" scripts/network_backup.py collect \
   --host "$GATEWAY_IP" --password-file "$PASSWORD_FILE" \
   --output "$PRIVATE_DIR/empty-running-export.json"
@@ -430,9 +430,9 @@ x = json.loads(p.read_text())
 x['ziggurat_socket'] = '/tmp/ziggurat/native.sock'
 p.write_text(json.dumps(x, indent=2) + '\n')
 PY
-cd "$WORKSPACE/microhad-zigbee-native"
+cd "$WORKSPACE/microhad"
 ./deploy.sh --host "$GATEWAY_IP" --password-file "$PASSWORD_FILE" \
-  --binary build/mips-ziggurat/microhad-zigbee-native \
+  --binary build/mips-ziggurat/microhad \
   --config "$CONFIG_FILE" --target /tuya/native
 cat "$PRIVATE_DIR/native-ziggurat-state.json" | \
   gateway_ssh 'umask 077; cat > /tuya/native/ziggurat-state.json.new && chmod 600 /tuya/native/ziggurat-state.json.new && mv /tuya/native/ziggurat-state.json.new /tuya/native/ziggurat-state.json'
@@ -526,7 +526,7 @@ Ziggurat radio type. See [upstream setup](https://github.com/zigpy/ziggurat#setu
    owning UART, enter the bootloader on the **host**:
 
    ```sh
-   cd "$WORKSPACE/microhad-zigbee-native"
+   cd "$WORKSPACE/microhad"
    "$MIGRATION_PYTHON" scripts/ezsp_preflight.py bootloader-roundtrip \
      --host "$GATEWAY_IP" --exclusive-radio
    ```
@@ -601,7 +601,7 @@ gateway_ssh '/tuya/ziggurat/gateway-maintenance check-free /dev/ttyS1'
 gateway_ssh '/tuya/ziggurat/gateway-maintenance bootloader-enter /dev/ttyS1 --exclusive-radio'
 gateway_ssh '/tuya/serialgateway -f -p 8888 -b 115200 >/dev/null 2>&1 & echo $! > /tmp/silvercrest-bridge.pid'
 BRIDGE_PID=$(gateway_ssh 'cat /tmp/silvercrest-bridge.pid')
-cd "$WORKSPACE/microhad-zigbee-native"
+cd "$WORKSPACE/microhad"
 "$MIGRATION_PYTHON" scripts/ezsp_flash.py --image "$NCP_IMAGE" \
   --sha256 05c66bcc7895bc7db0b9648c12c40e387a1145eabe792413a2762d3d0ada262d \
   --host "$GATEWAY_IP" --exclusive-radio --already-in-bootloader --flash

@@ -1,20 +1,58 @@
-# Ziggurat Matter Service
+# Ziggurat and MicroHAD
 
-## Host commissioning fixture
+This repository contains the complete gateway software stack. `microhad/` is
+the native C++03 daemon and Web UI; the repository root contains Ziggurat,
+Matter/OpenThread build scripts, firmware tools, and shared toolchain settings.
+See [microhad/AGENTS.md](microhad/AGENTS.md) for native daemon, deployment, and
+device-state requirements. Its C++ and Web UI verification rules apply to all
+changes in that component.
 
-Build the synthetic CASE commissioning probe with:
+## Shared toolchains and builds
+
+Compiler defaults are maintained once in `config/toolchains.mk`. Shell build
+helpers source `scripts/toolchains.sh`; Python checks use
+`scripts/toolchain_config.py`; MicroHAD's Makefile includes the same settings.
+`RSDK_ROOT` can be set in the environment or on a Make command line to select
+another compatible toolchain.
+
+From the repository root, build MicroHAD with:
 
 ```sh
-bash scripts/build-rs-matter-transport.sh host commissioning
+make -C microhad host test
+make -C microhad mips
 ```
 
-This writes `build/rs-matter/target/release/ot-matter-commissioning-probe`,
-which the native integration fixture executes. A plain Cargo build without the
-repository's `CARGO_TARGET_DIR` writes under `rs-matter-probe/target/` and leaves
-the native fixture using its previous binary. The host build uses a synthetic
-RCP/accessory and does not deploy or access the Tuya gateway.
+Build the synthetic CASE probe with
+`bash scripts/build-rs-matter-transport.sh host commissioning`. This writes
+`build/rs-matter/target/release/ot-matter-commissioning-probe`; do not run a
+plain Cargo build because it would leave the integration fixture using an old
+binary. The fixture uses synthetic radio/accessory traffic and does not access
+the gateway.
 
-The production MIPS service uses the separate command
-`bash scripts/build-rs-matter-transport.sh mips service`. That cross-build is a
-preparation step only; deploy only through the native repository's documented
-deployment flow after its flash preflight and required backup checks.
+Build the target Ziggurat and Matter service with:
+
+```sh
+ZIGGURAT_MULTIPAN=1 bash scripts/build-ziggurat.sh
+bash scripts/build-rs-matter-transport.sh mips service
+```
+
+For MicroHAD updates, use `microhad/deploy.sh` after building the required
+artifacts. Ordinary deployment stages files; launcher activation and service
+restart are separate operations. A Matter release must use the documented
+maintenance deployment flow in [microhad/AGENTS.md](microhad/AGENTS.md).
+Never deploy to a device unless explicitly requested.
+
+## Repository and device state
+
+Generated artifacts under `build/`, Rust targets, tools, logs, target
+specifications, and worktrees are ignored. `microhad/garage-app/` is also
+intentionally ignored; it is a separate Android project with local credentials
+and its own Git metadata. Do not stage or commit its contents. Never commit
+device configuration, credentials, production TLS keys, Matter identity,
+persistent network state, or Zigbee keys.
+
+Keep transient gateway output under `/tmp`, not `/tuya` flash. Preserve gateway
+configuration, Matter identity, Zigbee network state, and existing backups.
+Deployment and activation must follow the safeguards documented in
+`microhad/AGENTS.md`; do not run deployment scripts against a device without an
+explicit request.

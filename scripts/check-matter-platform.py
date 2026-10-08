@@ -12,6 +12,7 @@ import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
 REVISION = '3bcdd56ba54fb88b2afb4bfef575014671df7aa7'
+from toolchain_config import settings
 
 
 def run(command):
@@ -25,8 +26,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('mode', choices=('host', 'mips'))
     parser.add_argument('--sdk', type=Path, default=ROOT / 'dependencies/connectedhomeip')
-    parser.add_argument('--rsdk', type=Path,
-                        default=ROOT.parent / 'rsdk-4.4.7-4181-EB-2.6.30-0.9.30-m32u-140129')
+    parser.add_argument('--rsdk', type=Path, default=settings()['RSDK_ROOT'])
     parser.add_argument('--output', type=Path)
     args = parser.parse_args()
     args.sdk = args.sdk.resolve()
@@ -48,12 +48,12 @@ def main():
         if '#include <optional>' not in setup or 'std::optional<' not in setup:
             raise RuntimeError('Pinned SDK optional-library assumption changed')
         if args.mode == 'host':
-            compilers = [('host-cxx', [shutil.which('g++') or 'g++', '-std=c++17'])]
+            compilers = [('host-cxx', [settings()['HOST_CXX'], '-std=c++17'])]
         else:
             cxx = args.rsdk / 'include/c++/4.4.7'
             compilers = [
-                ('stock-rsdk', [args.rsdk / 'bin/mips-linux-g++', '-std=c++17', '-msoft-float']),
-                ('clang-stock-rsdk', [shutil.which('clang++-18') or 'clang++-18',
+                ('stock-rsdk', [settings()['TARGET_CXX'], '-std=c++17', '-msoft-float']),
+                ('clang-stock-rsdk', [settings()['CLANGXX'],
                     '--target=mips-linux-gnu', '-std=c++17', '-march=mips1', '-mabi=32',
                     '-msoft-float', '-fno-pic', '-mno-abicalls', '-G0',
                     '-mllvm', '-mno-check-zero-division', '--sysroot=' + str(args.rsdk),
@@ -69,7 +69,7 @@ def main():
                 if result['exit_code'] == 0:
                     binary = output / f'{compiler}-{name}'
                     binary.unlink(missing_ok=True)
-                    linker = ([flags[0]] if args.mode == 'host' else [args.rsdk / 'bin/mips-linux-g++', '-msoft-float', '-static'])
+                    linker = ([flags[0]] if args.mode == 'host' else [settings()['TARGET_CXX'], '-msoft-float', '-static'])
                     linked = run(linker + [obj, '-o', binary])
                     linked.update({'compiler': compiler, 'probe': name + '-link'})
                     report['probes'].append(linked)

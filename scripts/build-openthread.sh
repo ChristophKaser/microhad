@@ -2,6 +2,7 @@
 # SDK-matched OpenThread POSIX proof build; never contacts the gateway.
 set -euo pipefail
 experiment_root=$(cd -- "$(dirname -- "$0")/.." && pwd)
+source "$experiment_root/scripts/toolchains.sh"
 mode=${1:-mips}
 case "$mode" in host|mips) ;; *) echo 'Usage: build-openthread.sh [host|mips]' >&2; exit 2 ;; esac
 sdk="$experiment_root/dependencies/gecko-sdk"
@@ -28,11 +29,12 @@ python3 scripts/apply-mailbox-series.py "$source_copy" "$base_revision" \
     "$experiment_root/patches/openthread-hdlc-test.patch" \
     "$experiment_root/patches/openthread-thread-transport.patch"
 python3 - "$experiment_root" <<'PY'
+import os
 from pathlib import Path
 import sys
 root = Path(sys.argv[1])
 out = root / 'build/openthread-unix'
-rd = root.parent / 'rsdk-4.4.7-4181-EB-2.6.30-0.9.30-m32u-140129'
+rd = Path(os.environ['RSDK_ROOT'])
 cxx = rd / 'include/c++/4.4.7'
 # GCC 4.4 exception_ptr.h assumes an earlier type_info declaration.
 (out / 'stock-cxx-compat.hpp').write_text('namespace std { class type_info; }\n')
@@ -46,16 +48,16 @@ cppflags = (f'{flags} -nostdinc++ -isystem {cxx} -isystem {cxx}/mips-linux-uclib
             '-D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS')
 (out / 'toolchain.cmake').write_text(f'''set(CMAKE_SYSTEM_NAME Linux)
 set(CMAKE_SYSTEM_PROCESSOR mips)
-set(CMAKE_C_COMPILER /usr/bin/clang-18)
-set(CMAKE_CXX_COMPILER /usr/bin/clang++-18)
+set(CMAKE_C_COMPILER {os.environ['CLANG']})
+set(CMAKE_CXX_COMPILER {os.environ['CLANGXX']})
 set(CMAKE_C_FLAGS_INIT "{flags}")
 set(CMAKE_CXX_FLAGS_INIT "{cppflags}")
 set(CMAKE_C_FLAGS "${{CMAKE_C_FLAGS_INIT}}" CACHE STRING "" FORCE)
 set(CMAKE_CXX_FLAGS "${{CMAKE_CXX_FLAGS_INIT}}" CACHE STRING "" FORCE)
-set(CMAKE_AR /usr/bin/llvm-ar-18)
+set(CMAKE_AR {os.environ['LLVM_AR']})
 set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
-set(CMAKE_C_LINK_EXECUTABLE "{rd}/bin/mips-linux-gcc <LINK_FLAGS> <OBJECTS> -o <TARGET> -static -Wl,--gc-sections -Wl,--start-group <LINK_LIBRARIES> -Wl,--end-group")
-set(CMAKE_CXX_LINK_EXECUTABLE "{rd}/bin/mips-linux-g++ <LINK_FLAGS> <OBJECTS> -o <TARGET> -static -Wl,--gc-sections -Wl,--start-group <LINK_LIBRARIES> -Wl,--end-group")
+set(CMAKE_C_LINK_EXECUTABLE "{os.environ['TARGET_CC']} <LINK_FLAGS> <OBJECTS> -o <TARGET> -static -Wl,--gc-sections -Wl,--start-group <LINK_LIBRARIES> -Wl,--end-group")
+set(CMAKE_CXX_LINK_EXECUTABLE "{os.environ['TARGET_CXX']} <LINK_FLAGS> <OBJECTS> -o <TARGET> -static -Wl,--gc-sections -Wl,--start-group <LINK_LIBRARIES> -Wl,--end-group")
 ''')
 PY
 options=(-DOT_PLATFORM=posix -DOT_POSIX_RCP_HDLC_BUS=ON -DOT_APP_NCP=OFF
@@ -77,7 +79,7 @@ if [[ "$mode" == host ]]; then
     cmake --build "$build_dir" --target ot-unix-adapter-test --parallel "${BUILD_JOBS:-4}"
     "$build_dir/src/posix/ot-unix-adapter-test"
 else
-    llvm-strip-18 --keep-section=.gnu.attributes -o "$output/ot-cli-mips" "$build_dir/src/posix/ot-cli"
+    "$LLVM_STRIP" --keep-section=.gnu.attributes -o "$output/ot-cli-mips" "$build_dir/src/posix/ot-cli"
     python3 - "$output/ot-cli-mips" <<'PYVERIFY'
 import subprocess
 import sys

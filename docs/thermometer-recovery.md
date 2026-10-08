@@ -192,7 +192,7 @@ in a directory with mode 0700; the tool creates new files with mode 0600 and
 refuses overwrite. Never commit raw captures, device state, or credentials.
 
 ```sh
-cd microhad-zigbee-native
+cd microhad
 python3 scripts/test_diagnose_ziggurat_reporting.py
 mkdir -m 700 /tmp/thermometer-diagnostic
 
@@ -232,7 +232,7 @@ For rollback evidence and deployment, the existing tracked tools were used:
 mkdir -m 700 /tmp/thermometer-maintenance
 # SSH calls use network_backup.ssh_args and the password-file pathname, never
 # a password literal. Quiesce with /tuya/native/paired_control.sh quiesce.
-../ziggurat-compilation/tools/network-migration-venv/bin/python \
+../tools/network-migration-venv/bin/python \
   scripts/ziggurat_freeze.py --template /private/final-normalized-state.json \
   --host 192.168.178.62 --password-file ../ssh_password.txt \
   --bridge /tuya/native/gateway-maintenance --quiesced --execute \
@@ -240,7 +240,7 @@ mkdir -m 700 /tmp/thermometer-maintenance
 # After snapshot success, stop with paired_control.sh stop
 # --frozen-snapshot-saved and wait for gateway-maintenance check-free /dev/ttyS1.
 ./deploy.sh --host 192.168.178.62 --password-file ../ssh_password.txt \
-  --target /tuya/native --binary build/mips-ziggurat/microhad-zigbee-native --binary-only
+  --target /tuya/native --binary build/mips-ziggurat/microhad --binary-only
 # Start /tuya/tuya_start.sh through SSH; verify /api/status readiness and
 # inventory. The previous executable is archived on the host, not copied
 # again into scarce device flash. The existing final-state rollback procedure

@@ -55,12 +55,12 @@ are the existing `scripts/build-rs-matter-transport.sh` host/mips service and
 commissioning variants, `scripts/test-matter-service.py`, and
 `scripts/test-openthread-matter-transport.py --commissioning --ble --service-owner
 --service-discovery`; native compatibility uses
-`microhad-zigbee-native/scripts/test_matter_native_worker.py --real-service`.
+`microhad/scripts/test_matter_native_worker.py --real-service`.
 
 ## Live CASE reports in the native gateway — 2026-10-05
 
 The composed synthetic integration command
-`python3 ../microhad-zigbee-native/scripts/test_matter_native_report_integration.py`
+`python3 ../microhad/scripts/test_matter_native_report_integration.py`
 starts the Matter-enabled native host gateway and encrypted accessory fixture
 together. A test-only reports-sent/acknowledgement handshake holds the Rust
 probe's IPC session open after it publishes all five reports. The integration

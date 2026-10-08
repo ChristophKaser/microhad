@@ -1,0 +1,128 @@
+# This project is intentionally allowed to interact with its development gateway
+# gateway. Do not add credentials or device configuration to this file.
+
+# Dashboard API requests may use any endpoint or method. This also permits curl
+# requests to non-gateway destinations because the rules engine cannot match a URL
+# host after arbitrary curl options.
+prefix_rule(
+    pattern = ["curl"],
+    decision = "allow",
+    justification = "Permit dashboard and API access for the gateway development gateway.",
+    match = [
+        "curl --connect-timeout 5 --max-time 8 -sS http://192.168.178.62/api/status",
+        "curl --connect-timeout 5 --max-time 8 -sS -X POST http://192.168.178.62/api/service/restart",
+    ],
+)
+
+prefix_rule(
+    pattern = ["git"],
+    decision = "allow",
+    justification = "do stuff with git",
+    match = [
+        "git add stuff",
+        "git commit",
+    ],
+)
+
+prefix_rule(
+    pattern = ["rg"],
+    decision = "allow",
+    justification = "do stuff with rg",
+    match = [
+        "rg add stuff",
+        "rg commit",
+    ],
+)
+
+prefix_rule(
+    pattern = ["jq"],
+    decision = "allow",
+    justification = "Permit local JSON inspection for gateway status and logs.",
+    match = [
+        "jq '{online,network_formed}'",
+        "jq -r '.lines[]'",
+    ],
+)
+
+prefix_rule(
+    pattern = ["tail"],
+    decision = "allow",
+    justification = "Permit local inspection of gateway log and command output endings.",
+    match = [
+        "tail -n 150 /tmp/microhad.log",
+    ],
+)
+
+prefix_rule(
+    pattern = ["head"],
+    decision = "allow",
+    justification = "Permit local inspection of gateway log and command output beginnings.",
+    match = [
+        "head -n 150 /tmp/microhad.log",
+    ],
+)
+
+prefix_rule(
+    pattern = ["make"],
+    decision = "allow",
+    justification = "Permit project builds and tests.",
+    match = [
+        "make host test",
+        "make mips",
+    ],
+)
+
+prefix_rule(
+    pattern = ["test"],
+    decision = "allow",
+    justification = "Permit project test checks.",
+    match = [
+        "test -f Makefile",
+    ],
+)
+
+
+# Permit arbitrary remote commands only after the established password-based
+# SSH transport has selected the development gateway itself.
+prefix_rule(
+    pattern = [
+        "sshpass", "-f",
+        ["../ssh_password.txt"],
+        "ssh",
+        "-o", "ConnectTimeout=8",
+        "-o", "StrictHostKeyChecking=yes",
+        "-o", "HostKeyAlgorithms=+ssh-rsa",
+        "-o", "PubkeyAcceptedAlgorithms=+ssh-rsa",
+        "-o", "PreferredAuthentications=password",
+        "-o", "PubkeyAuthentication=no",
+        "root@192.168.178.62",
+    ],
+    decision = "allow",
+    justification = "Permit maintenance commands on the gateway development gateway.",
+    match = [
+        "sshpass -f ../ssh_password.txt ssh -o ConnectTimeout=8 -o StrictHostKeyChecking=yes -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa -o PreferredAuthentications=password -o PubkeyAuthentication=no root@192.168.178.62 ps w",
+        "sshpass -f ../ssh_password.txt ssh -o ConnectTimeout=8 -o StrictHostKeyChecking=yes -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa -o PreferredAuthentications=password -o PubkeyAuthentication=no root@192.168.178.62 tail -n 150 /tmp/microhad.log",
+    ],
+    not_match = [
+        "sshpass -f ../ssh_password.txt ssh -o ConnectTimeout=8 -o StrictHostKeyChecking=yes -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa -o PreferredAuthentications=password -o PubkeyAuthentication=no root@192.168.178.63 ps w",
+    ],
+)
+
+# Deployments must explicitly identify the development gateway before arbitrary
+# remaining deployment options are accepted.
+prefix_rule(
+    pattern = [
+        ["./deploy.sh"],
+        "--host", "192.168.178.62",
+        "--password-file",
+        ["../ssh_password.txt"],
+    ],
+    decision = "allow",
+    justification = "Permit deployment to the gateway development gateway.",
+    match = [
+        "./deploy.sh --host 192.168.178.62 --password-file ../ssh_password.txt --target /tuya/native --restart",
+    ],
+    not_match = [
+        "./deploy.sh --host 192.168.178.63 --password-file ../ssh_password.txt --target /tuya/native",
+    ],
+)

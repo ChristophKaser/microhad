@@ -1,7 +1,8 @@
 # Preserve the Zigbee network when moving to Ziggurat
 
-Mirrored from `microhad-zigbee-native` commit `03c828bce9a7ab0b07a9da31c4c89b827905f071`.
-Host commands run from that sibling checkout unless a block changes directory.
+Originally developed in the native gateway project and retained here with
+MicroHAD. Unless a block changes directory, host commands run from the
+`microhad/` subdirectory.
 
 
 ## Current state — 2026-10-03
@@ -44,8 +45,8 @@ No live NCP restoration or bootloader entry was performed in this work.
 3. Establish recovery if an RCP stops responding. A working RCP has a compiled
    Spinel bootloader-entry path; the current setup has no verified SWD recovery
    procedure or full radio flash dump. A valid image does not guarantee recovery.
-4. Continue standalone Thread/OTBR and Matter integration in the sibling
-   `ziggurat-compilation` project. This work does not provide a Thread stack.
+4. Continue standalone Thread/OTBR and Matter integration in this repository.
+   This work does not provide a Thread stack.
 
 ## Findings from the actual NCP
 
@@ -100,11 +101,11 @@ files below are examples, not permission to reuse an old backup for cutover.
 The installed daemon must be online on EZSP v13 with joining closed.
 
 ```sh
-cd ../microhad-zigbee-native
+cd ./microhad
 umask 077
 mkdir -p diagnostics/network-migration
 chmod 700 diagnostics/network-migration
-migration_python=../ziggurat-compilation/tools/network-migration-venv/bin/python
+migration_python=../tools/network-migration-venv/bin/python
 
 "$migration_python" scripts/network_backup.py collect \
   --host 192.168.178.62 --password-file ../ssh_password.txt \
@@ -149,7 +150,7 @@ export. A prepared snapshot becomes stale while the original coordinator runs.
   --backup diagnostics/network-migration/new-coordinator-backup.json
 "$migration_python" scripts/inspect_network_recovery.py \
   --ncp-image diagnostics/ezsp-upgrade-recovery/ncp-uart-hw-7.5.1-115200-hw.gbl \
-  --rcp-map ../ziggurat-compilation/build/firmware-hdlc/build/debug/ot-rcp-multipan.map
+  --rcp-map ../build/firmware-hdlc/build/debug/ot-rcp-multipan.map
 ```
 
 Evidence: 13 Python migration/restore tests pass; actual-server stopped imports

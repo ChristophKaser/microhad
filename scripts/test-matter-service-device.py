@@ -18,6 +18,8 @@ import urllib.request
 import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
+from toolchain_config import settings
+
 SERVICE = ROOT / 'build/rs-matter/thread-matter-mips'
 SIM_SPEC = importlib.util.spec_from_file_location(
     'matter_service_sim', ROOT / 'scripts/test-openthread-device.py')
@@ -26,14 +28,14 @@ SIM_SPEC.loader.exec_module(sim)
 
 
 def build_ipc_client():
-    rsdk = ROOT.parent / 'rsdk-4.4.7-4181-EB-2.6.30-0.9.30-m32u-140129'
-    compiler = rsdk / 'bin/mips-linux-gcc'
+    toolchain = settings()
+    compiler = toolchain['TARGET_CC']
     output = ROOT / 'build/rs-matter/matter-ipc-client-mips'
     source = ROOT / 'probes/matter-ipc-client.c'
     output.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run([str(compiler), '-std=gnu99', '-Wall', '-Wextra', '-Werror',
                     '-Os', '-static', '-msoft-float', str(source), '-o', str(output)], check=True)
-    subprocess.run([str(rsdk / 'bin/mips-linux-strip'), str(output)], check=True)
+    subprocess.run([str(toolchain['TARGET_STRIP']), str(output)], check=True)
     return output
 
 

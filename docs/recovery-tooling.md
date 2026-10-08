@@ -15,7 +15,7 @@ with `/tuya/tuya_start.sh`; do not merely remove the quiesce marker.
 
 ## Artifacts and offline packaging
 
-From `../ziggurat-compilation`:
+From `..`:
 
 ```sh
 bash scripts/install-commander.sh
@@ -43,7 +43,7 @@ and [official release asset](https://github.com/SiliconLabs/arduino/releases/dow
 
 ## Device helper — commands for later maintenance only
 
-Stage `../ziggurat-compilation/build/gateway-maintenance` in
+Stage `../build/gateway-maintenance` in
 `/tuya/ziggurat-stage` during step 3. Commands below run on the gateway:
 
 ```sh
@@ -77,7 +77,7 @@ Both require a same-user, mode-0600 Unix socket. Neither opens UART.
 Host command, only after step 5 suspends the original supervisor and stops native:
 
 ```sh
-migration_python=../ziggurat-compilation/tools/network-migration-venv/bin/python
+migration_python=../tools/network-migration-venv/bin/python
 "$migration_python" scripts/ezsp_final_capture.py \
   --compare PRIVATE_RUNNING_EXPORT.json --output PRIVATE_FINAL_EXPORT.json \
   --host 192.168.178.62 --password-file ../ssh_password.txt \
@@ -153,7 +153,7 @@ pass. HDLC firmware and MIPS Ziggurat rebuild successfully. Additional checks:
 
 | Test | Result |
 | --- | --- |
-| `python3 ../ziggurat-compilation/scripts/test-maintenance.py` | 4 PTY cases: guards, ownership, reset CRC, baud/flow switch, menu-only run |
+| `python3 ../scripts/test-maintenance.py` | 4 PTY cases: guards, ownership, reset CRC, baud/flow switch, menu-only run |
 | venv Python `scripts/test_deployment_tools.py` | 6 capture/freeze/permission/Hello cases |
 | `python3 scripts/test_paired_supervisor.py` | 6 fake-process cases: order, quiesce, duplicates, busy UART, restart budget, readiness/stale endpoint |
 | `python3 scripts/test_ziggurat_service.py` | 8 actual-stack host cases, including recovery CLI after native freeze and live/stale socket handling |

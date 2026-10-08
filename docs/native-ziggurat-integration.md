@@ -42,7 +42,7 @@ make ZIGGURAT=1 mips
 
 Disabled outputs remain `build/host` and `build/mips`. Enabled outputs live in
 `build/host-ziggurat` and `build/mips-ziggurat`. No executable is deployed by make.
-The native project requires its stock RSDK and C++03. The production gateway runs `build/mips-ziggurat/microhad-zigbee-native`.
+The native project requires its stock RSDK and C++03. The production gateway runs `build/mips-ziggurat/microhad`.
 
 ## Local API and configuration
 
@@ -152,7 +152,7 @@ remains stopped-only. The preparation margin of 10000 is separate from the 1000
 native restart margin; converting an already prepared state does not advance again.
 
 ```sh
-migration_python=../ziggurat-compilation/tools/network-migration-venv/bin/python
+migration_python=../tools/network-migration-venv/bin/python
 "$migration_python" scripts/ziggurat_migration.py prepare-import \
   --state PRIVATE_CAPTURED_STATE.json --output PRIVATE_IMPORT_BUNDLE.json
 "$migration_python" scripts/ziggurat_migration.py prepare-native \
@@ -192,15 +192,15 @@ Build the patched server in the sibling experiment checkout using its documented
 Rust and stock-RSDK prerequisites:
 
 ```sh
-cd ../ziggurat-compilation
+cd ..
 ZIGGURAT_MULTIPAN=1 bash scripts/build-ziggurat.sh
 source scripts/rust-env.sh
 CARGO_TARGET_DIR="$PWD/build/host" cargo +nightly-2026-10-02 build \
   --manifest-path worktrees/ziggurat-hdlc/Cargo.toml -p ziggurat-server
 python3 scripts/test-cobs-unix.py
-cd ../microhad-zigbee-native
+cd microhad
 python3 scripts/test_ziggurat_service.py
-../ziggurat-compilation/tools/network-migration-venv/bin/python \
+../tools/network-migration-venv/bin/python \
   scripts/test_network_migration.py
 ```
 
@@ -212,7 +212,7 @@ staged executables in an isolated `/tuya/ziggurat-simulation-*` flash directory,
 with logs/socket in RAM, then removed both. No native state or launcher was changed.
 
 ```sh
-cd ../ziggurat-compilation
+cd ..
 bash scripts/build-hdlc-probe.sh
 python3 scripts/test-cobs-unix.py --host 192.168.178.62 \
   --password-file ../ssh_password.txt --upload-storage flash
@@ -255,7 +255,7 @@ incoming APS counters can lag after a crash. Real radio ACKs, sleepy-child behav
 hardware restoration and recovery from an unresponsive RCP remain unverified.
 The Thread endpoint transports Spinel; it does not supply an OTBR or Matter stack.
 `deploy.sh` defaults to the EZSP binary. A future Ziggurat deployment would need
-explicit `--binary build/mips-ziggurat/microhad-zigbee-native`; no such deployment was
+explicit `--binary build/mips-ziggurat/microhad`; no such deployment was
 performed or authorized for this test.
 
 ## Troubleshooting

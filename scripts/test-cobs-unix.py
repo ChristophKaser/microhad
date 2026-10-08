@@ -49,7 +49,7 @@ def main():
         with tempfile.TemporaryDirectory(prefix="cobs-unix-host-") as tmp, tempfile.TemporaryFile() as log:
             if args.host:
                 report["production_before"]=status();assert report["production_before"]["online"] and report["production_before"]["network_formed"]
-                report["production_binary_before"]=remote("md5sum /tuya/native/tuya-zigbee-native").split()[0]
+                report["production_binary_before"]=remote("md5sum /tuya/native/microhad").split()[0]
                 binary=args.binary or ROOT/"build/ziggurat-hdlc/lexra-stock-uclibc/release/ziggurat.stripped"
                 probe=ROOT/"build/hdlc-unix-probe"
                 memory=remote("cat /proc/meminfo")
@@ -156,7 +156,7 @@ done
                 report["top_samples"]=sim.top_samples(output)
                 report["memory_samples"]=[line for line in output if line.startswith(("VmRSS:","VmSize:","MemFree:"))]
                 report["production_after"]=status()
-                report["production_binary_after"]=remote("md5sum /tuya/native/tuya-zigbee-native").split()[0]
+                report["production_binary_after"]=remote("md5sum /tuya/native/microhad").split()[0]
                 assert report["production_binary_before"]==report["production_binary_after"]
                 assert report["production_after"]["online"] and report["production_after"]["network_formed"]
                 assert remote(f"test ! -e {remote_dir} && test ! -e {socket_dir} && echo CLEAN").strip()=="CLEAN"

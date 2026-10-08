@@ -83,7 +83,7 @@ application nor bootloader is reachable, stop software retries and diagnose
 physical recovery on this gateway. Do not erase the chip or replace its bootloader.
 
 Unless a block says it runs on the gateway, commands run on the host from
-`../microhad-zigbee-native`. SSH commands can use this host helper:
+`./microhad`. SSH commands can use this host helper:
 
 ```sh
 gateway_ssh() {
@@ -101,11 +101,11 @@ Record exact native/experiment commits, build flags, firmware and executable
 SHA256 hashes in a private deployment record. Rebuild and verify sequentially:
 
 ```sh
-cd ../microhad-zigbee-native
+cd ./microhad
 make test-backends
 make ZIGGURAT=0 mips
 make ZIGGURAT=1 mips
-cd ../ziggurat-compilation
+cd ..
 BUILD_JOBS=4 bash scripts/build-hdlc-firmware.sh
 ZIGGURAT_MULTIPAN=1 bash scripts/build-ziggurat.sh
 ```
@@ -233,9 +233,9 @@ with explicit cleanup when needed.
 Stage the enabled native executable in `/tuya/ziggurat-stage`, without activation:
 
 ```sh
-cd ../microhad-zigbee-native
+cd ./microhad
 ./deploy.sh --host 192.168.178.62 --password-file ../ssh_password.txt \
-  --binary-only --binary build/mips-ziggurat/microhad-zigbee-native \
+  --binary-only --binary build/mips-ziggurat/microhad \
   --target /tuya/ziggurat-stage
 ```
 
@@ -245,7 +245,7 @@ Do not start the staged native service yet. Repeat the existing Ziggurat-only
 host-RCP test with synthetic state:
 
 ```sh
-cd ../ziggurat-compilation
+cd ..
 python3 scripts/test-cobs-unix.py --host 192.168.178.62 \
   --password-file ../ssh_password.txt --upload-storage flash
 ```
@@ -272,8 +272,8 @@ Collect/convert a preliminary fresh export using the commands in
 [NETWORK_MIGRATION.md](NETWORK_MIGRATION.md), then:
 
 ```sh
-cd ../microhad-zigbee-native
-migration_python=../ziggurat-compilation/tools/network-migration-venv/bin/python
+cd ./microhad
+migration_python=../tools/network-migration-venv/bin/python
 "$migration_python" scripts/ziggurat_migration.py prepare-native \
   --state PRIVATE_IMPORT_BUNDLE.json --output PRIVATE_NATIVE_STATE.json
 "$migration_python" scripts/test_ziggurat_import.py --state PRIVATE_STATE.json
@@ -369,7 +369,7 @@ Use the validated RCP GBL and its recorded SHA256. With the confirmed bootloader
 menu, correct 115200/no-flow-control bridge and exclusive ownership:
 
 ```sh
-"$migration_python" scripts/ezsp_flash.py --image ../ziggurat-compilation/build/firmware-hdlc/build/debug/ot-rcp-multipan.gbl \
+"$migration_python" scripts/ezsp_flash.py --image ../build/firmware-hdlc/build/debug/ot-rcp-multipan.gbl \
   --sha256 5e835cf429dbc25ded9e6217f620d0d2243c11c98935de0e29e387657063bb48 --host 192.168.178.62 \
   --exclusive-radio --already-in-bootloader --flash
 ```

@@ -1,0 +1,243 @@
+#include "fcm.h"
+#include "json_util.h"
+#include "https_client.h"
+
+#include <cstdio>
+#include <cstdlib>
+#include <ctime>
+#include <fstream>
+
+#ifdef MICROHAD_MBEDTLS_ENABLED
+extern "C" int microhad_fcm_sign(const char* pem, const unsigned char* input, size_t inputLength,
+                              unsigned char* signature, size_t* signatureLength);
+#endif
+
+namespace {
+std::string cachedToken;
+std::string cachedTokenSource;
+long cachedTokenExpiresAt = 0;
+
+}
+
+bool parseFirebaseServiceAccount(const std::string& json, FirebaseServiceAccount* account, std::string* error) {
+    if (!jsonStringField(json, "project_id", &account->projectId) ||
+        !jsonStringField(json, "client_email", &account->clientEmail) ||
+        !jsonStringField(json, "private_key", &account->privateKeyPem) ||
+        account->projectId.empty() || account->clientEmail.empty() ||
+        account->privateKeyPem.find("-----BEGIN PRIVATE KEY-----") != 0 ||
+        account->privateKeyPem.find("-----END PRIVATE KEY-----") == std::string::npos) {
+        *error = "Firebase service account is missing project_id, client_email, or private_key";
+        return false;
+    }
+    return true;
+}
+
+bool loadFirebaseServiceAccount(const std::string& path, FirebaseServiceAccount* account, std::string* error) {
+    std::ifstream file(path.c_str());
+    std::string contents;
+    if (!file) { *error = "cannot read Firebase service account"; return false; }
+    contents.assign((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    return parseFirebaseServiceAccount(contents, account, error);
+}
+
+std::string base64UrlEncode(const std::string& data) {
+    static const char alphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    std::string output;
+    unsigned long i;
+    for (i = 0; i < data.size(); i += 3) {
+        unsigned int bits = static_cast<unsigned char>(data[i]) << 16;
+        unsigned int remaining = static_cast<unsigned int>(data.size() - i);
+        if (remaining > 1) bits |= static_cast<unsigned char>(data[i + 1]) << 8;
+        if (remaining > 2) bits |= static_cast<unsigned char>(data[i + 2]);
+        output += alphabet[(bits >> 18) & 63];
+        output += alphabet[(bits >> 12) & 63];
+        if (remaining > 1) output += alphabet[(bits >> 6) & 63];
+        if (remaining > 2) output += alphabet[bits & 63];
+    }
+    return output;
+}
+
+bool base64UrlDecode(const std::string& value, std::string* decoded) {
+    unsigned int bits = 0;
+    int available = 0;
+    unsigned long i;
+    decoded->clear();
+    for (i = 0; i < value.size(); ++i) {
+        unsigned char c = value[i];
+        int digit = c >= 'A' && c <= 'Z' ? c - 'A' : c >= 'a' && c <= 'z' ? c - 'a' + 26 :
+                    c >= '0' && c <= '9' ? c - '0' + 52 : c == '-' ? 62 : c == '_' ? 63 : -1;
+        if (digit < 0) return false;
+        bits = (bits << 6) | static_cast<unsigned int>(digit);
+        available += 6;
+        if (available >= 8) {
+            available -= 8;
+            decoded->push_back(static_cast<char>((bits >> available) & 0xff));
+        }
+    }
+    return available == 0 || available == 2 || available == 4;
+}
+
+std::string makeFcmMessage(const std::string& topic, const std::string& title, const std::string& body) {
+    return std::string("{\"message\":{\"topic\":\"") + jsonEscape(topic) + "\",\"notification\":{\"title\":\"" +
+           jsonEscape(title) + "\",\"body\":\"" + jsonEscape(body) + "\"},\"android\":{\"priority\":\"high\"}}}";
+}
+std::string makeFcmTokenMessage(const std::string& token, const std::string& title, const std::string& body,
+                                const std::string& androidChannelId) {
+    std::string message = std::string("{\"message\":{\"token\":\"") + jsonEscape(token) + "\",\"notification\":{\"title\":\"" +
+                         jsonEscape(title) + "\",\"body\":\"" + jsonEscape(body) + "\"},\"android\":{\"priority\":\"high\"";
+    if (!androidChannelId.empty())
+        message += ",\"notification\":{\"channel_id\":\"" + jsonEscape(androidChannelId) + "\"}";
+    return message + "}}}";
+}
+std::string makeFcmTokenStateMessage(const std::string& token, const std::string& action,
+                                    const std::string& key, const std::string& title,
+                                    const std::string& body, const std::string& androidChannelId) {
+    std::string message = std::string("{\"message\":{\"token\":\"") + jsonEscape(token) +
+        "\",\"data\":{\"action\":\"" + jsonEscape(action) + "\",\"key\":\"" + jsonEscape(key) +
+        "\",\"title\":\"" + jsonEscape(title) + "\",\"body\":\"" + jsonEscape(body) +
+        "\",\"channel_id\":\"" + jsonEscape(androidChannelId) + "\"},\"android\":{\"priority\":\"HIGH\"}}}";
+    return message;
+}
+
+std::string makeGoogleAccessTokenJwt(const FirebaseServiceAccount& account, long issuedAt, std::string* error) {
+#ifdef MICROHAD_MBEDTLS_ENABLED
+    std::string header = base64UrlEncode("{\"alg\":\"RS256\",\"typ\":\"JWT\"}");
+    std::string claims = std::string("{\"iss\":\"") + jsonEscape(account.clientEmail) +
+        "\",\"scope\":\"https://www.googleapis.com/auth/firebase.messaging\",\"aud\":\"https://oauth2.googleapis.com/token\",\"iat\":";
+    char numeric[32];
+    snprintf(numeric, sizeof(numeric), "%ld", issuedAt);
+    claims += numeric;
+    claims += ",\"exp\":";
+    snprintf(numeric, sizeof(numeric), "%ld", issuedAt + 3600);
+    claims += numeric;
+    claims += "}";
+    std::string signingInput = header + "." + base64UrlEncode(claims);
+    unsigned char signature[512]; /* supports service-account RSA keys up to 4096 bits */
+    size_t signatureLength = 0;
+    if (microhad_fcm_sign(account.privateKeyPem.c_str(), reinterpret_cast<const unsigned char*>(signingInput.data()),
+                      signingInput.size(), signature, &signatureLength) != 0) {
+        *error = "cannot sign Firebase OAuth JWT";
+        return std::string();
+    }
+    return signingInput + "." + base64UrlEncode(std::string(reinterpret_cast<char*>(signature), signatureLength));
+#else
+    (void)account; (void)issuedAt;
+    *error = "JWT signing is available only in the RSDK MIPS build";
+    return std::string();
+#endif
+}
+
+static bool sendFcmTarget(const FirebaseServiceAccount& account, const std::string& serviceAccountPath,
+                          const std::string& caBundle,
+                          const std::string& target, bool direct, const std::string& title,
+                          const std::string& body, std::string* error, const std::string& androidChannelId,
+                          const std::string& stateKey, const std::string& stateAction,
+                          HttpsSession* session) {
+    std::string tokenResponse;
+    std::string response;
+    std::string jwt;
+    std::string token;
+    std::string oauthBody;
+    HttpsSession temporarySession;
+    HttpsSession* fcmSession = session == 0 ? &temporarySession : session;
+    std::string::size_type oauthBodyAt;
+    long now = time(0);
+    if (cachedTokenSource == serviceAccountPath + "\n" + caBundle && cachedTokenExpiresAt > now + 60) {
+        token = cachedToken;
+    } else {
+        jwt = makeGoogleAccessTokenJwt(account, now, error);
+        if (jwt.empty()) return false;
+        if (!httpsPost("oauth2.googleapis.com", "/token", "Content-Type: application/x-www-form-urlencoded\r\n",
+                       "grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=" + jwt, caBundle,
+                       &tokenResponse, error)) return false;
+        oauthBodyAt = tokenResponse.find("\r\n\r\n");
+        if (oauthBodyAt == std::string::npos) { *error = "OAuth response is malformed"; return false; }
+        oauthBody = tokenResponse.substr(oauthBodyAt + 4);
+        if (!jsonStringField(oauthBody, "access_token", &token) || token.empty()) {
+            std::string oauthError;
+            std::string oauthDescription;
+            std::string status = tokenResponse.substr(0, tokenResponse.find("\r\n"));
+            *error = "OAuth response did not contain an access token (" + status;
+            if (jsonStringField(oauthBody, "error", &oauthError)) *error += ", " + oauthError;
+            if (jsonStringField(oauthBody, "error_description", &oauthDescription))
+                *error += ": " + oauthDescription;
+            *error += ")";
+            return false;
+        }
+        long expiresIn = 0;
+        if (!jsonLongField(oauthBody, "expires_in", &expiresIn) || expiresIn <= 60) {
+            *error = "OAuth response has invalid token expiry"; return false;
+        }
+        cachedToken = token;
+        cachedTokenSource = serviceAccountPath + "\n" + caBundle;
+        cachedTokenExpiresAt = now + expiresIn;
+    }
+    if (!fcmSession->post("fcm.googleapis.com", "/v1/projects/" + account.projectId + "/messages:send",
+                   "Content-Type: application/json\r\nAuthorization: Bearer " + token + "\r\n",
+                   direct ? (stateKey.empty() ? makeFcmTokenMessage(target, title, body, androidChannelId) :
+                             makeFcmTokenStateMessage(target, stateAction, stateKey, title, body, androidChannelId)) :
+                            makeFcmMessage(target, title, body),
+                   caBundle, &response, error)) return false;
+    if (response.find("HTTP/1.1 200") != 0) { *error = "FCM rejected the notification"; return false; }
+    std::string::size_type bodyAt = response.find("\r\n\r\n");
+    std::string messageName;
+    if (bodyAt == std::string::npos || !jsonStringField(response.substr(bodyAt + 4), "name", &messageName) ||
+        messageName.empty()) {
+        *error = "FCM response was malformed";
+        return false;
+    }
+    return true;
+}
+bool sendFcmNotification(const std::string& serviceAccountPath, const std::string& caBundle,
+                         const std::string& topic, const std::string& title, const std::string& body,
+                         std::string* error, HttpsSession* session) {
+    FirebaseServiceAccount account;
+    if (!loadFirebaseServiceAccount(serviceAccountPath, &account, error)) return false;
+    return sendFcmNotification(account, serviceAccountPath, caBundle, topic, title, body, error, session);
+}
+bool sendFcmNotification(const FirebaseServiceAccount& account, const std::string& serviceAccountPath,
+                         const std::string& caBundle, const std::string& topic, const std::string& title,
+                         const std::string& body, std::string* error, HttpsSession* session) {
+    return sendFcmTarget(account, serviceAccountPath, caBundle, topic, false, title, body, error,
+                         "", "", "", session);
+}
+bool sendFcmTokenNotification(const std::string& serviceAccountPath, const std::string& caBundle,
+                              const std::string& token, const std::string& title, const std::string& body,
+                              std::string* error, const std::string& androidChannelId, HttpsSession* session) {
+    FirebaseServiceAccount account;
+    if (!loadFirebaseServiceAccount(serviceAccountPath, &account, error)) return false;
+    return sendFcmTokenNotification(account, serviceAccountPath, caBundle, token, title, body,
+                                    error, androidChannelId, session);
+}
+bool sendFcmTokenNotification(const FirebaseServiceAccount& account, const std::string& serviceAccountPath,
+                              const std::string& caBundle, const std::string& token,
+                              const std::string& title, const std::string& body, std::string* error,
+                              const std::string& androidChannelId, HttpsSession* session) {
+    return sendFcmTarget(account, serviceAccountPath, caBundle, token, true, title, body, error,
+                         androidChannelId, "", "", session);
+}
+bool sendFcmTokenStateMessage(const std::string& serviceAccountPath, const std::string& caBundle,
+                              const std::string& token, const std::string& action, const std::string& key,
+                              const std::string& title, const std::string& body, std::string* error,
+                              const std::string& androidChannelId, HttpsSession* session) {
+    FirebaseServiceAccount account;
+    if ((action != "show" && action != "clear") || key.empty()) {
+        *error = "invalid Android notification state message";
+        return false;
+    }
+    if (!loadFirebaseServiceAccount(serviceAccountPath, &account, error)) return false;
+    return sendFcmTokenStateMessage(account, serviceAccountPath, caBundle, token, action, key,
+                                    title, body, error, androidChannelId, session);
+}
+bool sendFcmTokenStateMessage(const FirebaseServiceAccount& account, const std::string& serviceAccountPath,
+                              const std::string& caBundle, const std::string& token,
+                              const std::string& action, const std::string& key, const std::string& title,
+                              const std::string& body, std::string* error,
+                              const std::string& androidChannelId, HttpsSession* session) {
+    if ((action != "show" && action != "clear") || key.empty()) {
+        *error = "invalid Android notification state message";
+        return false;
+    }
+    return sendFcmTarget(account, serviceAccountPath, caBundle, token, true, title, body, error,
+                         androidChannelId, key, action, session);
+}

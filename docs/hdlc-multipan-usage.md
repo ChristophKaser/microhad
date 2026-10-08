@@ -2,7 +2,7 @@
 
 This implementation shares one HDLC transport in the Ziggurat process, with
 Zigbee on RCP IID 1 and a local Thread consumer on IID 2. It adds no cpcd.
-`microhad-zigbee-native`, local Thread border routing and Matter remain the
+`microhad`, local Thread border routing and Matter remain the
 standalone product goal; the latter integrations are not implemented here.
 
 ## Reproduce the firmware build

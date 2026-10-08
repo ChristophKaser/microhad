@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Shared compiler and toolchain settings for Ziggurat and MicroHAD.
+toolchain_script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+ZIGGURAT_ROOT=$(cd -- "$toolchain_script_dir/.." && pwd)
+source "$ZIGGURAT_ROOT/config/toolchains.mk"
+RSDK_ROOT=${RSDK_ROOT:-"$ZIGGURAT_ROOT/$RSDK_RELATIVE"}
+RSDK_ROOT=$(cd -- "$RSDK_ROOT" && pwd)
+TARGET_CC=${TARGET_CC:-"$RSDK_ROOT/bin/${TARGET_PREFIX}gcc"}
+TARGET_CXX=${TARGET_CXX:-"$RSDK_ROOT/bin/${TARGET_PREFIX}g++"}
+TARGET_AR=${TARGET_AR:-"$RSDK_ROOT/bin/${TARGET_PREFIX}ar"}
+TARGET_STRIP=${TARGET_STRIP:-"$RSDK_ROOT/bin/${TARGET_PREFIX}strip"}
+TARGET_READELF=${TARGET_READELF:-"$RSDK_ROOT/bin/${TARGET_PREFIX}readelf"}
+export ZIGGURAT_ROOT RSDK_ROOT HOST_CC HOST_CXX HOST_READELF CMAKE
+export RUST_TOOLCHAIN LLVM_STRIP LLVM_AR CLANG CLANGXX TARGET_PREFIX TARGET_CC TARGET_CXX TARGET_AR
+export TARGET_STRIP TARGET_READELF

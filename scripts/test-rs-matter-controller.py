@@ -33,7 +33,9 @@ def main():
                CARGO_INCREMENTAL='0')
     env.pop('RUSTFLAGS', None)
     env['PATH'] = str(ROOT / 'tools/cargo/bin') + os.pathsep + env['PATH']
-    cargo = ['cargo', '+nightly-2026-10-02', 'test', '--locked', '--release', '--manifest-path',
+    from toolchain_config import settings
+    toolchain = settings()
+    cargo = ['cargo', '+' + toolchain['RUST_TOOLCHAIN'], 'test', '--locked', '--release', '--manifest-path',
              str(WORKTREE / 'Cargo.toml'), '-p', 'rs-matter', '--no-default-features',
              '--features', 'os rustcrypto']
     suites = [
@@ -42,7 +44,7 @@ def main():
         ('case', ['--test', 'case']),
         ('attestation_components', ['--lib', 'attest::']),
     ]
-    report = {'source_revision': REVISION, 'rust_toolchain': 'nightly-2026-10-02',
+    report = {'source_revision': REVISION, 'rust_toolchain': toolchain['RUST_TOOLCHAIN'],
               'platform': 'development host', 'device_attestation_verified': False,
               'discovery': 'stub resolver; no mDNS network discovery',
               'real_thread_or_ble': False, 'thread_dataset_provisioning_tested': False,

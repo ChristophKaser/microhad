@@ -15,7 +15,7 @@ import threading
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
-ARCHIVE_HELPER = ROOT.parent / "microhad-zigbee-native/scripts/matter_archive.py"
+ARCHIVE_HELPER = ROOT / "microhad/scripts/matter_archive.py"
 spec = importlib.util.spec_from_file_location("ot_sim", ROOT / "scripts/test-openthread-device.py")
 sim = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(sim)

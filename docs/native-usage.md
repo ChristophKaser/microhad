@@ -98,7 +98,7 @@ have another reachable Zigbee parent, such as a powered bulb or router.
 
 The dashboard includes a live coordinator log, refreshed every two seconds from
 `/api/logs`. The on-device log is a circular binary file at
-`/tmp/microhad-zigbee-native.log`; on this gateway `/tmp` resolves below the
+`/tmp/microhad.log`; on this gateway `/tmp` resolves below the
 RAM-backed `/var` mount, not the `/tuya` flash volume. Its total size is at
 most 1,000,000 bytes. The coordinator writes one record at a time, and HTTP
 workers read the ring directly without locking or waiting for the coordinator.
@@ -135,7 +135,7 @@ without restarting the gateway. Build it with the same MIPS toolchain used for
 the gateway:
 
 ```sh
-export RSDK_ROOT=../rsdk-4.4.7-4181-EB-2.6.30-0.9.30-m32u-140129
+source ../scripts/toolchains.sh
 "$RSDK_ROOT/bin/mips-linux-gcc" -O2 -static \
   -o /tmp/gateway_cpu_sampler tools/gateway_cpu_sampler.c
 ```
@@ -170,13 +170,13 @@ the result to be reliable. Do not deploy the unstripped binary as the service.
 
 Sensor cards offer a History dialog for temperature, humidity, and contact
 state. The coordinator writes fixed-size binary records to
-`/tmp/microhad-zigbee-native-history.bin`. V2 stores 128 samples per
+`/tmp/microhad-history.bin`. V2 stores 128 samples per
 device/metric page in an initially 2 MiB page pool; it can grow in the
 exceptional case where every page is a protected device/metric's only page.
 History is returned in pages of up to 2,000 samples. Temperature and humidity
 are sampled at most once per metric per minute, while each contact transition
 is retained. The RAM-backed history survives a service restart but is cleared
-by a device reboot. See [Sensor history format](https://github.com/ChristophKaser/microhad-zigbee-native/blob/main/SENSOR_HISTORY_FORMAT.md) for
+by a device reboot. See [Sensor history format](https://github.com/ChristophKaser/microhad/blob/main/SENSOR_HISTORY_FORMAT.md) for
 the V2 binary layout and retention rules.
 
 ## Web UI development

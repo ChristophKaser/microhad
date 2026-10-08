@@ -97,14 +97,14 @@ big-endian Lexra CPU. The aim is a standalone host stack using OpenThread RCP
 firmware on its EFR32MG1 radio, without Silicon Labs' precompiled host Zigbee
 stack libraries.
 
-The intended production client is **`microhad-zigbee-native`**, running on the
+The intended production client is **`microhad`**, running on the
 gateway and talking to Ziggurat's protocol-v2 API. Its optional COBS/Unix socket adapter is now host-tested. The Python client in
 this experiment exercises the API without deploying the native service.
 Direct Zigbee2MQTT integration is not the immediate client plan.
 
 The ultimate goal is **dual-mode Zigbee and Matter-over-Thread**, aiming to
 share the gateway's existing EFR32 radio while retaining Zigbee support through
-Ziggurat and `microhad-zigbee-native`. Matter requires Thread connectivity and a
+Ziggurat and `microhad`. Matter requires Thread connectivity and a
 Matter controller/application layer; Ziggurat supplies the Zigbee stack.
 The production goal is **fully standalone on the Tuya**: the Zigbee client,
 Ziggurat, Thread border-router functionality and required Matter application
@@ -392,7 +392,7 @@ test client reaches Ziggurat's localhost-only API through SSH forwarding:
 Host test client -- WebSocket through SSH --> Tuya Ziggurat
 Host simulated RCP <-- Spinel/HDLC over LAN TCP -- Tuya Ziggurat
 
-Planned client: microhad-zigbee-native --> Ziggurat --> physical RCP
+Planned client: microhad --> Ziggurat --> physical RCP
 ```
 
 No radio UART is opened. The simulator implements the subset needed for address

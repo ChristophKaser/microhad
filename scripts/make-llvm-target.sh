@@ -8,6 +8,7 @@ rustc -Z unstable-options --print target-spec-json --target mips-unknown-linux-u
     > "$experiment_root/targets/mips-uclibc-default.json"
 python3 - "$experiment_root/targets" <<'PY'
 import json
+import os
 import pathlib
 import sys
 
@@ -32,8 +33,6 @@ stock["metadata"] = spec["metadata"]
 stock["has-thread-local"] = False
 # LLVM otherwise emits TEQ for division checks, which the Lexra kernel rejects.
 stock["llvm-args"] = ["-mno-check-zero-division"]
-stock["linker"] = str(targets.parent.parent / (
-    "rsdk-4.4.7-4181-EB-2.6.30-0.9.30-m32u-140129/bin/mips-linux-gcc"
-))
+stock["linker"] = os.environ["TARGET_CC"]
 (targets / "lexra-stock-uclibc.json").write_text(json.dumps(stock, indent=2) + "\n")
 PY

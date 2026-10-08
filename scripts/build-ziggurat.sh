@@ -42,10 +42,10 @@ python3 scripts/check-ziggurat-patches.py --build-worktree "$build_worktree" \
 bash scripts/make-llvm-target.sh
 export CARGO_TARGET_DIR="$experiment_root/${build_output}"
 export CARGO_NET_GIT_FETCH_WITH_CLI=true
-cargo +nightly-2026-10-02 fetch --manifest-path ${build_worktree}/Cargo.toml
+cargo +$RUST_TOOLCHAIN fetch --manifest-path ${build_worktree}/Cargo.toml
 python3 scripts/prepare-crate-patches.py getrandom-0.4.3 nix-0.26.4 radium-0.7.0
 export RUSTFLAGS='-C target-feature=+crt-static -C relocation-model=static'
-cargo +nightly-2026-10-02 build --release \
+cargo +$RUST_TOOLCHAIN build --release \
     --manifest-path ${build_worktree}/Cargo.toml -p ziggurat-server \
     --target targets/lexra-stock-uclibc.json \
     -Z json-target-spec -Z build-std=std,panic_abort \
@@ -54,6 +54,6 @@ cargo +nightly-2026-10-02 build --release \
     --config "patch.crates-io.radium.path=\"$experiment_root/build/patched-crates-mailbox/radium-0.7.0\""
 if [[ $ZIGGURAT_MULTIPAN == 1 ]]; then
     target_binary="$experiment_root/$build_output/lexra-stock-uclibc/release/ziggurat"
-    "$experiment_root/../rsdk-4.4.7-4181-EB-2.6.30-0.9.30-m32u-140129/bin/mips-linux-strip" \
+    "$TARGET_STRIP" \
         -o "$target_binary.stripped" "$target_binary"
 fi

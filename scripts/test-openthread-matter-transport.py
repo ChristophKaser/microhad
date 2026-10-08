@@ -131,8 +131,8 @@ def main():
 
 def run_native_bridge(command, working_directory, timeout):
     """Run the production native host bridge beside the live CASE accessory fixture."""
-    native_root = ROOT.parent / 'microhad-zigbee-native'
-    native_binary = native_root / 'build/host-ziggurat-matter/microhad-zigbee-native'
+    native_root = ROOT / 'microhad'
+    native_binary = native_root / 'build/host-ziggurat-matter/microhad'
     if not native_binary.is_file():
         raise RuntimeError('Build the MATTER host gateway first: ' + str(native_binary))
     sys.path.insert(0, str(native_root / 'scripts'))

@@ -14,11 +14,11 @@
   "commander_version": "1v16p4b1564",
   "commander_archive_sha256": "0d1a2136a824c2f3e9953573502cb80ff459647f41df04d17a30e42140432f8a",
   "artifacts": {
-    "microhad-zigbee-native/build/mips/microhad-zigbee-native": {
+    "microhad/build/mips/microhad": {
       "size_bytes": 1446544,
       "sha256": "730df6cd7dcff556fd1d164fbc70327f84d3949141f1788a75f16df7f53b450c"
     },
-    "microhad-zigbee-native/build/mips-ziggurat/microhad-zigbee-native": {
+    "microhad/build/mips-ziggurat/microhad": {
       "size_bytes": 1503604,
       "sha256": "be9937847d07fb3b6589b0242ae652bf39f80f36256316231f032483df2bb099"
     },
@@ -34,7 +34,7 @@
       "size_bytes": 47804,
       "sha256": "561d0daaac3418b3d5ff45dd88d53a6749bdd5600925601fdef6488dd3aaf410"
     },
-    "microhad-zigbee-native/diagnostics/ezsp-upgrade-recovery/ncp-uart-hw-7.5.1-115200-hw.gbl": {
+    "microhad/diagnostics/ezsp-upgrade-recovery/ncp-uart-hw-7.5.1-115200-hw.gbl": {
       "size_bytes": 208036,
       "sha256": "05c66bcc7895bc7db0b9648c12c40e387a1145eabe792413a2762d3d0ada262d"
     }

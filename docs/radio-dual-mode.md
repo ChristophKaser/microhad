@@ -16,7 +16,7 @@ is to enable those existing facilities in the gateway's HDLC RCP image and
 share its UART inside a gateway process. This is a source-supported proposal,
 not a working firmware/host combination yet.
 
-The fixed product goal is a standalone Tuya gateway: `microhad-zigbee-native` as
+The fixed product goal is a standalone Tuya gateway: `microhad` as
 Ziggurat's Zigbee client, local Thread border-router functionality and local
 Matter application functionality. An external computer is only for development.
 Avoiding cpcd saves one service, but does not remove the Thread stack, IP border
@@ -173,7 +173,7 @@ licensing. Replacing every radio-layer component would be a separate project.
 2. Extend the simulator to two IIDs and exercise isolation, resets, broadcasts
    and transactions before modifying production radio ownership.
 3. Implement the shared host transport and benchmark the local Thread stack
-   together with Ziggurat and `microhad-zigbee-native` on the Tuya.
+   together with Ziggurat and `microhad` on the Tuya.
 4. Hardware validation requires a backed-up, explicitly authorized firmware
    test: both PANs' unicast ACKs, sleepy-child polls, address collisions,
    commissioning/scans, sustained traffic and recovery.

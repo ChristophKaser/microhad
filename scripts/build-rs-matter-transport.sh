@@ -21,9 +21,9 @@ if [ "$mode" = mips ]; then
     export RUSTFLAGS='-C target-feature=+crt-static -C relocation-model=static --cfg sha2_backend_soft="compact" --cfg aes_backend_soft="compact"'
     args+=(--target targets/lexra-stock-uclibc.json -Z json-target-spec -Z build-std=std,panic_abort)
 fi
-cargo +nightly-2026-10-02 build "${args[@]}"
+cargo +$RUST_TOOLCHAIN build "${args[@]}"
 if [ "$mode" = mips ]; then
-    llvm-strip-18 --keep-section=.gnu.attributes -o "build/rs-matter/$output" \
+    "$LLVM_STRIP" --keep-section=.gnu.attributes -o "build/rs-matter/$output" \
         "build/rs-matter/target/lexra-stock-uclibc/release/$binary"
     artifact="build/rs-matter/$output"
 else

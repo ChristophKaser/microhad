@@ -1,0 +1,23 @@
+# Target and host outputs
+build/
+webui/dist/
+webui/node_modules/
+microhad
+*.o
+__pycache__/
+
+# Runtime state and secrets
+runtime/
+config.json
+*.pem
+*.key
+firebase-service-account-file.json
+
+# Raw hardware captures may include Zigbee security material. Keep them local.
+diagnostics/
+
+# Host-side UDP syslog collector output.
+livelogs/
+
+# Standalone Garage Android Studio project, including its own Git repository.
+garage-app/

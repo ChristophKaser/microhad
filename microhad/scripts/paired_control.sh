@@ -1,0 +1,46 @@
+#!/bin/sh
+# Local gateway control. quiesce keeps Ziggurat alive for host freeze/export.
+# stop requires operator confirmation of a saved frozen snapshot. No broad kills.
+set -u
+control=${RUNTIME_CONTROL:-/tmp/ziggurat-supervisor}
+case "${1:-}" in
+ log-level)
+    level=${2:-}
+    case "$level" in off|error|warn|info|debug|trace) ;; *) echo 'usage: paired_control.sh log-level off|error|warn|info|debug|trace' >&2;exit 2;; esac
+    [ -d "$control" ] && [ -f "$control/supervisor.pid" ] &&
+        [ -f "$control/ziggurat.pid" ] && [ -f "$control/active-log-level" ] &&
+        [ ! -e "$control/quiesce" ] && [ ! -e "$control/stop" ] || {
+        echo 'Paired supervisor or Ziggurat is not running' >&2;exit 1;
+    }
+    supervisor_pid=$(cat "$control/supervisor.pid") || exit 1
+    ziggurat_pid=$(cat "$control/ziggurat.pid") || exit 1
+    case "$supervisor_pid:$ziggurat_pid" in *[!0-9:]*|:*|*::*) echo 'Invalid supervisor process state' >&2;exit 1;; esac
+    [ "$supervisor_pid" -gt 1 ] && [ "$ziggurat_pid" -gt 1 ] || { echo 'Invalid supervisor process state' >&2;exit 1; }
+    kill -0 "$supervisor_pid" 2>/dev/null && kill -0 "$ziggurat_pid" 2>/dev/null || {
+        echo 'Paired supervisor or Ziggurat is not running' >&2;exit 1;
+    }
+    current=$(cat "$control/active-log-level") || exit 1
+    if [ "$current" = "$level" ]; then echo "Ziggurat is already using $level";exit 0;fi
+    umask 077
+    staged="$control/requested-log-level.$$"
+    trap 'rm -f "$staged"' EXIT HUP INT TERM
+    printf '%s\n' "$level" > "$staged" || exit 1
+    mv "$staged" "$control/requested-log-level" || exit 1
+    kill -TERM "$ziggurat_pid" 2>/dev/null || {
+        rm -f "$control/requested-log-level"
+        echo 'Could not signal Ziggurat' >&2;exit 1;
+    }
+    trap - EXIT HUP INT TERM
+    echo "Requested Ziggurat log level $level; restarting Ziggurat" ;;
+ quiesce)
+    [ -f "$control/supervisor.pid" ] || exit 1
+    : > "$control/quiesce"
+    deadline=0
+    while [ ! -f "$control/quiesced" ] && [ "$deadline" -lt 15 ]; do sleep 1;deadline=$((deadline+1));done
+    [ -f "$control/quiesced" ] || exit 1
+    echo 'Native quiesced; Ziggurat retained. Freeze/export before stop.' ;;
+ stop)
+    [ "${2:-}" = --frozen-snapshot-saved ] && [ -f "$control/quiesced" ] || { echo 'Quiesce and save frozen snapshot first' >&2;exit 2; }
+    : > "$control/stop" ;;
+ *) echo 'usage: paired_control.sh log-level LEVEL | quiesce | stop --frozen-snapshot-saved' >&2;exit 2;;
+esac
