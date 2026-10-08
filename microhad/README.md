@@ -60,64 +60,9 @@ device onboarding remain open. See [Matter build flags, compiler findings, and
 remaining integration](MATTER_INTEGRATION.md) and the [open-point
 plans](docs/matter-plans/README.md).
 
-### Processes and protocol paths
-
-The paired supervisor manages three gateway processes. Zigbee and Matter share
-the EFR32 radio through separate Spinel instances; the native process owns the
-common device model and HTTP API, while the Rust service owns Thread and Matter
-controller state.
-
-```mermaid
-flowchart LR
-    browser["Dashboard browser"]
-    garage["Garage Android app"]
-    zigbeeDevices[("Zigbee devices")]
-    matterDevice[("Matter accessory")]
-    httpDevices[("Shelly / Fritz!Box devices")]
-
-    subgraph gateway["Tuya gateway"]
-        supervisor["paired_start.sh\nprocess supervisor"]
-        subgraph native["microhad · C++03 process"]
-            http["HttpServer\nREST API + Web UI"]
-            model["GatewayRunner / Gateway\nshared device model, controls, history"]
-            matterWorker["MatterWorker"]
-            httpWorker["ExternalHttpDeviceWorker"]
-            http <--> model
-            matterWorker <--> model
-            httpWorker <--> model
-        end
-        ziggurat["Ziggurat process\nSpinel multiplexer"]
-        matter["thread-matter · Rust process\nOpenThread + rs-matter\nIPv6 / UDP in userspace"]
-        radio[("EFR32MG1B232\nHDLC RCP")]
-    end
-
-    supervisor -. "starts, monitors, restarts" .-> ziggurat
-    supervisor -. "starts, monitors, restarts" .-> native
-    supervisor -. "starts, monitors, restarts" .-> matter
-
-    browser <-- "HTTP / optional HTTPS: REST + Web UI" --> http
-    garage <-- "plain WebSocket: /api/matter/relay" --> http
-    garage <-- "BLE GATT: Matter BTP commissioning traffic" --> matterDevice
-    matterWorker <-- "version-1 framed IPC over Unix socket\n/tmp/microhad-matter.sock" --> matter
-
-    model <-- "COBS-framed Ziggurat API v2\nover Unix socket\n/tmp/ziggurat/native.sock" --> ziggurat
-    matter <-- "HDLC-encoded Spinel over Unix socket\nclient IID 0 mapped to radio IID 2" --> ziggurat
-    ziggurat <-- "UART 460800 baud, RTS/CTS\nHDLC + Spinel, IIDs 1 and 2" --> radio
-    radio <-- "IEEE 802.15.4 / Zigbee" --> zigbeeDevices
-    radio <-- "IEEE 802.15.4 / Thread mesh" --> matterDevice
-    matter <-- "Matter Interaction Model\nCASE over IPv6/UDP" --> matterDevice
-
-    model <-- "HTTP(S) device APIs / polling" --> httpWorker
-    httpWorker <-- "HTTP(S)" --> httpDevices
-```
-
-`paired_start.sh` supervises process lifetimes; application data flows over the
-socket and radio links shown above. OpenThread supplies IPv6/UDP inside
-`thread-matter`, so Matter does not need a Linux Thread interface or TUN. During
-commissioning, the phone performs GATT I/O and relays BTP packets to the native
-WebSocket; `thread-matter` owns BTP, PASE and Thread provisioning. Normal Matter
-control and reports use CASE over Thread. Zigbee, Matter and external HTTP
-providers feed the same native device model and dashboard.
+See the [gateway processes and protocol paths](../readme.md#processes-and-protocol-paths)
+for the service architecture, shared radio transport and Android commissioning
+relay.
 
 Builds default to `ZIGGURAT=1 MATTER=1`, matching the current gateway
 deployment. Set `ZIGGURAT=0` for the legacy EZSP build; that also defaults

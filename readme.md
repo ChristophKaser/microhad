@@ -5,7 +5,7 @@ RTL8196E CPU and EFR32MG1B232 radio. It runs on factory MIPS/uClibc Linux and
 provides a local dashboard, device control, sensor history, notifications, and
 HTTP device integrations without requiring Home Assistant or a cloud service.
 
-The default stack runs three supervised processes:
+The stack has three gateway services and a radio firmware component:
 
 | Component | Purpose |
 | --- | --- |
@@ -14,15 +14,99 @@ The default stack runs three supervised processes:
 | [Thread/Matter](thread-matter/README.md) | Rust Matter controller using rs-matter and userspace OpenThread; owns commissioning, fabrics, sessions and Thread state. |
 | [Firmware](firmware/README.md) | Rebuildable two-instance HDLC radio firmware, packaging and radio maintenance tools. |
 
-MicroHAD talks to Ziggurat and the Matter service over private Unix sockets.
-Ziggurat owns the radio UART and multiplexes Zigbee and Thread over separate
-Spinel instances. OpenThread provides IPv6/UDP inside the Matter process; this
-path does not need Linux IPv6 or TUN and does not make the gateway an OTBR.
-`microhad/paired_start.sh` starts, monitors and recovers the three processes.
+## Processes and protocol paths
 
-The independent Android Garage app can relay Bluetooth commissioning traffic
-between an accessory and the gateway. Its local checkout lives in `garage-app/`,
-is ignored here, and retains its own Git repository and credentials.
+The default `ZIGGURAT=1 MATTER=1` stack runs MicroHAD, Ziggurat and
+`thread-matter` as separate processes.
+[paired_start.sh](microhad/paired_start.sh) starts, monitors and recovers all
+three. MicroHAD owns the common device model, controls, history, alerts and
+HTTP API. Ziggurat runs the Zigbee stack and is the sole owner of the radio
+UART. The Matter service owns commissioning, fabrics, sessions, subscriptions
+and Thread state, using rs-matter and OpenThread.
+
+The diagram shows application data paths in the default paired stack. The
+dotted supervisor link represents process management.
+
+```mermaid
+flowchart TB
+    browser["Dashboard browser"]
+    httpDevices["Shelly / Fritz!Box devices"]
+
+    subgraph gateway["Silvercrest gateway · factory MIPS Linux"]
+        supervisor["paired_start.sh<br/>Supervisor"]
+        subgraph services["Three supervised services"]
+            native["MicroHAD · C++03<br/>Web UI / REST API<br/>Common device model"]
+            matter["thread-matter · Rust<br/>Matter controller<br/>OpenThread IPv6 / UDP"]
+            ziggurat["Ziggurat · Rust<br/>Zigbee stack<br/>Spinel multiplexer"]
+            native <-->|"Matter IPC · Unix socket"| matter
+            native <-->|"Ziggurat API · COBS / Unix socket"| ziggurat
+            matter <-->|"Thread Spinel · HDLC / Unix socket"| ziggurat
+        end
+        radio["EFR32MG1B232 radio<br/>Two-instance HDLC RCP firmware"]
+        supervisor -.-> services
+        ziggurat <-->|"UART · HDLC / Spinel"| radio
+    end
+
+    zigbeeDevices["Zigbee devices"]
+    matterDevices["Matter-over-Thread accessories"]
+    browser <-->|"HTTP / HTTPS"| native
+    native <-->|"HTTP(S) APIs / polling"| httpDevices
+    radio <-->|"IEEE 802.15.4 · Zigbee"| zigbeeDevices
+    radio <-->|"IEEE 802.15.4 · Thread<br/>Matter CASE / IPv6 / UDP"| matterDevices
+
+    classDef service fill:#e8f0fe,stroke:#476a9e,color:#172b4d
+    classDef hardware fill:#fff3dc,stroke:#a97928,color:#513b15
+    classDef endpoint fill:#f1f5f9,stroke:#64748b,color:#1e293b
+    classDef manager fill:#f3e8ff,stroke:#8655a3,color:#462661
+    class native,matter,ziggurat service
+    class radio hardware
+    class browser,httpDevices,zigbeeDevices,matterDevices endpoint
+    class supervisor manager
+    style gateway fill:#f8fafc,stroke:#94a3b8,color:#1e293b
+    style services fill:#ffffff,stroke:#94a3b8,color:#1e293b
+```
+
+The private socket paths below are launcher defaults and can be overridden.
+
+| Link | Default socket | Protocol |
+| --- | --- | --- |
+| MicroHAD ↔ Ziggurat | `/tmp/ziggurat/native.sock` | COBS-framed Ziggurat API v2 |
+| MicroHAD ↔ Matter service | `/tmp/microhad-matter.sock` | Version-1 bounded, framed IPC |
+| OpenThread ↔ Ziggurat | `/tmp/ziggurat/thread.sock` | HDLC-encoded Spinel; client IID 0 is mapped to radio IID 2 |
+
+The radio UART runs at 460800 baud with hardware RTS/CTS flow control. Zigbee
+uses radio IID 1; Thread uses IID 2. Matter control and subscription
+reports travel through OpenThread, the Thread socket, Ziggurat and the shared
+radio. OpenThread supplies IPv6/UDP inside `thread-matter`; this path does not
+need Linux IPv6 or TUN and does not make the gateway an OTBR. Zigbee, Matter and
+external HTTP integrations all feed MicroHAD's common device model.
+
+During BLE commissioning, the Garage Android app supplies the phone's GATT
+connection to the accessory. MicroHAD relays its packets over the Matter IPC
+socket; the Matter service owns BTP, PASE and Thread provisioning. This relay
+uses the plain WebSocket endpoint `/api/matter/relay` on MicroHAD's HTTP
+listener; it is not served by the HTTPS listener.
+
+```mermaid
+sequenceDiagram
+    participant accessory as Matter accessory
+    participant phone as Garage Android app
+    participant native as MicroHAD
+    participant matter as thread-matter
+    Note over accessory,matter: BLE commissioning · bidirectional packet relay
+    matter->>native: Outgoing BTP packet (Matter IPC)
+    native->>phone: WebSocket relay message
+    phone->>accessory: BLE GATT write
+    accessory->>phone: BLE GATT indication
+    phone->>native: WebSocket relay message
+    native->>matter: Incoming BTP packet (Matter IPC)
+    Note over accessory,matter: After provisioning: CASE control and reports use the Thread path above
+```
+
+The Garage app's local checkout lives in `garage-app/`, is ignored here, and
+retains its own Git repository and credentials. The commissioning flow is
+implemented and covered by synthetic fixtures; physical accessory acceptance
+remains open as described under [validation and current limits](#validation-and-current-limits).
 
 ## Build
 
