@@ -262,6 +262,9 @@ public:
         contact.known = true;
         contact.booleanValue = true;
         assert(gateway.applyMatterReading(contact, &error));
+        assert(gateway.statusJson().find("\"contact_known\":true,\"contact_open\":false") != std::string::npos);
+        contact.booleanValue = false;
+        assert(gateway.applyMatterReading(contact, &error));
         assert(gateway.statusJson().find("\"contact_known\":true,\"contact_open\":true") != std::string::npos);
         MatterReading co2;
         co2.node = endpoint.node;

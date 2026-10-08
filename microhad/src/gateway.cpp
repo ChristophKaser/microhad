@@ -633,7 +633,8 @@ bool Gateway::applyMatterReading(const MatterReading& reading, std::string* erro
         if (device.hasLight) { device.lightOn = reading.booleanValue; device.lightKnown = true; }
         if (device.hasActor) { device.actorOn = reading.booleanValue; device.actorKnown = true; }
     } else if (reading.cluster == 69 && device.hasContact) {
-        device.contactOpen = reading.booleanValue;
+        // Matter Boolean State defines true as contact made (closed).
+        device.contactOpen = !reading.booleanValue;
         device.contactKnown = reading.known;
     } else if (reading.cluster == 8 && device.hasBrightness) {
         if (reading.known) {
