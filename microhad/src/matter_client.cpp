@@ -362,9 +362,14 @@ bool requestValid(unsigned char opcode, const std::string& text) {
     if (opcode == 3) {
         static const char* const excluded[] = {"11111111", "22222222", "33333333", "44444444", "55555555",
             "66666666", "77777777", "88888888", "12345678", "87654321"};
-        return fields.size() == 4 && number(fields["discriminator"], 0, 4095) &&
+        return fields.size() == 6 && number(fields["discriminator"], 0, 4095) &&
             number(fields["pin"], 1, 99999998) && !member(fields["pin"], excluded, 10) &&
-            number(fields["timeout_seconds"], 30, 900);
+            number(fields["timeout_seconds"], 30, 900) &&
+            fields["country_code"].size() == 4 && fields["country_code"][0] == '"' &&
+            fields["country_code"][3] == '"' && fields["country_code"][1] >= 'A' &&
+            fields["country_code"][1] <= 'Z' && fields["country_code"][2] >= 'A' &&
+            fields["country_code"][2] <= 'Z' &&
+            (fields["regulatory_location"] == "\"indoor\"" || fields["regulatory_location"] == "\"outdoor\"");
     }
     if (opcode < 4 || opcode > 8 || !hex(fields["session"], 16, 16) ||
         fields["session"] == "\"0000000000000000\"") return false;
@@ -541,6 +546,24 @@ int connectPrivate(const std::string& socketPath, int64_t deadline, std::string*
     return fd;
 }
 
+}
+
+bool MatterChannel::commissioningStartRequest(const std::string& input, const std::string& countryCode,
+                                               const std::string& location, std::string* body) {
+    Fields fields;
+    if (!body || countryCode.size() != 2 || countryCode[0] < 'A' || countryCode[0] > 'Z' ||
+        countryCode[1] < 'A' || countryCode[1] > 'Z' ||
+        (location != "indoor" && location != "outdoor") ||
+        !StatusJson(input).parse(&fields) || fields.size() != 4 || fields["schema"] != "1" ||
+        !number(fields["discriminator"], 0, 4095) || !number(fields["pin"], 1, 99999998) ||
+        !number(fields["timeout_seconds"], 30, 900)) return false;
+    std::ostringstream prepared;
+    prepared << "{\"schema\":1,\"discriminator\":" << fields["discriminator"]
+             << ",\"pin\":" << fields["pin"] << ",\"timeout_seconds\":" << fields["timeout_seconds"]
+             << ",\"country_code\":\"" << countryCode << "\",\"regulatory_location\":\""
+             << location << "\"}";
+    *body = prepared.str();
+    return validRequest(3, *body);
 }
 
 MatterClient::MatterClient(const std::string& socketPath) : socketPath_(socketPath) {

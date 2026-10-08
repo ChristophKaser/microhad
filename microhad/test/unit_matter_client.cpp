@@ -140,6 +140,16 @@ void* serveWorker(void* opaque) {
 }
 
 void runMatterClientUnitTests() {
+    std::string commissioningBody;
+    const std::string bareCommissioning="{\"schema\":1,\"discriminator\":3840,\"pin\":20202021,\"timeout_seconds\":120}";
+    assert(MatterChannel::commissioningStartRequest(bareCommissioning,"DE","indoor",&commissioningBody));
+    assert(MatterChannel::validRequest(3,commissioningBody));
+    assert(commissioningBody.find("\"country_code\":\"DE\"")!=std::string::npos);
+    assert(commissioningBody.find("\"regulatory_location\":\"indoor\"")!=std::string::npos);
+    assert(MatterChannel::commissioningStartRequest(bareCommissioning,"US","outdoor",&commissioningBody));
+    assert(commissioningBody.find("\"country_code\":\"US\"")!=std::string::npos);
+    assert(!MatterChannel::commissioningStartRequest(bareCommissioning,"de","indoor",&commissioningBody));
+    assert(!MatterChannel::commissioningStartRequest(bareCommissioning,"DE","outside",&commissioningBody));
     assert(MatterChannel::deviceSnapshotRequest("{\"schema\":1,\"action\":\"snapshot\"}"));
     assert(MatterChannel::deviceSnapshotRequest("{ \"action\" : \"snapshot\", \"schema\" : 1 }"));
     assert(!MatterChannel::deviceSnapshotRequest("{\"schema\":1,\"action\":\"job\",\"job\":\"0000000000000001\"}"));

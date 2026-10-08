@@ -207,6 +207,8 @@ class GatewayView {
 public:
     std::string coordinatorBackend;
     std::string settingsJson;
+    std::string matterCountryCode;
+    std::string matterRegulatoryLocation;
     bool online;
     bool networkForming;
     bool networkFormed;
@@ -246,6 +248,8 @@ public:
 #endif
     void configureBroadcastQuorum(unsigned int value);
     bool setBroadcastQuorum(unsigned int value, std::string* error);
+    bool setMatterCommissioningRegion(const std::string& countryCode, const std::string& location,
+                                      std::string* error);
     bool start(std::string* error);
     void stop();
     void poll();
@@ -329,6 +333,8 @@ private:
     int serialBaud_;
     std::string runtimeDirectory_;
     unsigned int broadcastQuorum_;
+    std::string matterCountryCode_;
+    std::string matterRegulatoryLocation_;
     unsigned int appliedBroadcastQuorum_;
     unsigned int broadcastQuorumRequest_;
     unsigned int sentBroadcastQuorum_;

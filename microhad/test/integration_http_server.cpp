@@ -354,7 +354,22 @@ void testServers() {
     response = plainRequest(http.boundPort(), "GET /api/settings HTTP/1.1\r\nHost: localhost\r\n\r\n");
     expectStatus("gateway settings snapshot",response,200);
     assert(response.find("\"broadcast_passive_ack_quorum\":8")!=std::string::npos);
+    assert(response.find("\"matter_country_code\":\"DE\"")!=std::string::npos);
+    assert(response.find("\"matter_regulatory_location\":\"indoor\"")!=std::string::npos);
     assert(response.find("\"application_state\":\"unsupported\"")!=std::string::npos);
+    const std::string regionBody="matter_country_code=US&matter_regulatory_location=outdoor";
+    std::ostringstream regionRequest;
+    regionRequest << "POST /api/settings HTTP/1.1\r\nHost: localhost\r\nContent-Length: " << regionBody.size()
+                  << "\r\n\r\n" << regionBody;
+    response=plainRequest(http.boundPort(),regionRequest.str());
+    expectStatus("save Matter country and location",response,200);
+    assert(response.find("\"matter_country_code\":\"US\"")!=std::string::npos);
+    assert(response.find("\"matter_regulatory_location\":\"outdoor\"")!=std::string::npos);
+    const std::string invalidRegionBody="matter_country_code=us&matter_regulatory_location=outdoor";
+    std::ostringstream invalidRegionRequest;
+    invalidRegionRequest << "POST /api/settings HTTP/1.1\r\nHost: localhost\r\nContent-Length: " << invalidRegionBody.size()
+                         << "\r\n\r\n" << invalidRegionBody;
+    expectStatus("reject invalid Matter country",plainRequest(http.boundPort(),invalidRegionRequest.str()),400);
     response = plainRequest(http.boundPort(),
         "POST /api/settings HTTP/1.1\r\nHost: localhost\r\nContent-Length: 30\r\n\r\nbroadcast_passive_ack_quorum=3");
     expectStatus("unsupported gateway threshold",response,400);

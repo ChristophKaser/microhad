@@ -59,6 +59,7 @@ void runGatewayConfigUnitTests() {
     assert(defaults.serialDevice == "/dev/ttyS1" && defaults.serialBaud == 115200);
     assert(defaults.runtimeDirectory == "/tuya/native" && defaults.httpPort == 80 && defaults.httpsPort == 443);
     assert(defaults.broadcastPassiveAckQuorum == 8);
+    assert(defaults.matterCountryCode == "DE" && defaults.matterRegulatoryLocation == "indoor");
     assert(defaults.firebaseTopic == "zigbee_alerts" && defaults.firebaseServiceAccount.empty());
 
     char filename[] = "/tmp/microhad-zigbee-config-valid-XXXXXX";
@@ -75,6 +76,19 @@ void runGatewayConfigUnitTests() {
     assert(selected.runtimeDirectory == "/tmp/test-runtime");
     assert(selected.serialBaud == 115200 && selected.httpsPort == 443);
     assert(selected.broadcastPassiveAckQuorum == 8);
+    assert(selected.matterCountryCode == "DE" && selected.matterRegulatoryLocation == "indoor");
+    replaceFileContents(filename, "{\"matter_country_code\":\"US\",\"matter_regulatory_location\":\"outdoor\"}");
+    assert(loadGatewayConfig(filename, &selected, &error));
+    assert(selected.matterCountryCode == "US" && selected.matterRegulatoryLocation == "outdoor");
+    const char* invalidRegions[] = {
+        "{\"matter_country_code\":\"de\"}", "{\"matter_country_code\":\"USA\"}",
+        "{\"matter_country_code\":\"1A\"}", "{\"matter_regulatory_location\":\"outside\"}"
+    };
+    for (unsigned long regionIndex=0; regionIndex<sizeof(invalidRegions)/sizeof(invalidRegions[0]); ++regionIndex) {
+        replaceFileContents(filename, invalidRegions[regionIndex]);
+        GatewayConfig invalid;
+        assert(!loadGatewayConfig(filename, &invalid, &error));
+    }
     const char* quorumDocuments[] = {
         "{\"broadcast_passive_ack_quorum\":1}", "{\"broadcast_passive_ack_quorum\":255}",
         "{\"broadcast_passive_ack_quorum\":0}", "{\"broadcast_passive_ack_quorum\":256}",

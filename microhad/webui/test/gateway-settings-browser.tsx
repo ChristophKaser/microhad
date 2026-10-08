@@ -1,15 +1,21 @@
 import { createRoot } from 'react-dom/client'
 import { GatewaySettingsDialog } from '../src/GatewaySettingsDialog'
 
-let state = { broadcast_passive_ack_quorum: 8, applied_value: 8 as number | null,
+let state = { broadcast_passive_ack_quorum: 8, matter_country_code: 'DE', matter_regulatory_location: 'indoor', applied_value: 8 as number | null,
   application_state: 'applied', application_error: '' }
 let rejectSave = false
 let savedValue = 0
+let savedCountry = ''
+let savedLocation = ''
 window.fetch = async (_url, options) => {
   if (options?.method === 'POST') {
     if (rejectSave) return new Response(JSON.stringify({ ok: false, error: 'Cannot save settings' }), { status: 400 })
-    savedValue = Number(new URLSearchParams(String(options.body)).get('broadcast_passive_ack_quorum'))
-    state = { ...state, broadcast_passive_ack_quorum: savedValue, application_state: 'pending' }
+    const fields = new URLSearchParams(String(options.body))
+    if (fields.has('broadcast_passive_ack_quorum')) savedValue = Number(fields.get('broadcast_passive_ack_quorum'))
+    savedCountry = fields.get('matter_country_code') || ''
+    savedLocation = fields.get('matter_regulatory_location') || ''
+    state = { ...state, broadcast_passive_ack_quorum: savedValue || state.broadcast_passive_ack_quorum,
+      matter_country_code: savedCountry, matter_regulatory_location: savedLocation, application_state: 'pending' }
   }
   return new Response(JSON.stringify(state), { status: 200 })
 }
@@ -28,6 +34,8 @@ function input(value: string) {
 function submit() { document.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })) }
 async function run() {
   await until(() => document.querySelector('input')?.value === '8')
+  const selects = document.querySelectorAll('select')
+  if (selects[0].value !== 'DE' || selects[1].value !== 'indoor') throw new Error('Germany/indoor defaults were not loaded')
   input('0'); await pause(); submit()
   await until(() => document.body.textContent!.includes('Enter an integer'))
   if (savedValue) throw new Error('Invalid value was saved')
@@ -42,10 +50,14 @@ async function run() {
   rejectSave = false
   state = { ...state, application_state: 'unsupported' }
   await until(() => document.querySelector('input')!.disabled)
-  if (!(document.querySelector('button[type="submit"]') as HTMLButtonElement).disabled) throw new Error('Unsupported save enabled')
+  if ((document.querySelector('button[type="submit"]') as HTMLButtonElement).disabled) throw new Error('Region save disabled')
+  selects[0].value = 'US'; selects[0].dispatchEvent(new Event('change', { bubbles: true }))
+  selects[1].value = 'outdoor'; selects[1].dispatchEvent(new Event('change', { bubbles: true }))
+  submit()
+  await until(() => savedCountry === 'US' && savedLocation === 'outdoor')
   ;(document.querySelector('button[aria-label="Close"]') as HTMLButtonElement).click()
   await until(() => document.body.textContent!.includes('Closed'))
   const result = document.getElementById('result')!
-  result.dataset.result = 'passed'; result.textContent = 'PASS gateway settings loading, validation, save, polling, errors, unsupported and close'
+  result.dataset.result = 'passed'; result.textContent = 'PASS gateway region defaults, save, threshold validation, polling, errors, unsupported and close'
 }
 void run().catch(error => { document.getElementById('result')!.textContent = String(error) })

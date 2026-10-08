@@ -20,6 +20,8 @@ public:
         ~ViewLease();
         std::string statusJson() const;
         std::string settingsJson() const;
+        std::string matterCountryCode() const;
+        std::string matterRegulatoryLocation() const;
 #ifdef MICROHAD_TESTING
         std::string logsJson() const;
 #endif
@@ -86,9 +88,11 @@ public:
     bool setNotificationsEnabled(bool enabled, std::string* error);
     bool setEventLoopDebug(bool enabled, std::string* error);
     bool setBroadcastQuorum(unsigned int value, std::string* error);
+    bool setMatterCommissioningRegion(const std::string& countryCode, const std::string& location,
+                                     std::string* error);
 
 private:
-    enum CommandType { GatewaySettings, NetworkBackup, Join, CreateNetwork, DeviceSettings, DeviceValueAlerts, DeviceRefresh, DeviceReconfigure, DeviceIdentify, DeviceConfiguration, LightState, SceneConfiguration, SceneActivate, SceneOff, TestNotification, NotificationSetting, EventLoopDebug, ShellyRegister, ShellyRemove, ShellyReconcile, MatterReconcile, MatterValue, MatterButton, ShellyEvent, FritzEvent, FritzReconcile, ActorState };
+    enum CommandType { GatewaySettings, MatterRegionSettings, NetworkBackup, Join, CreateNetwork, DeviceSettings, DeviceValueAlerts, DeviceRefresh, DeviceReconfigure, DeviceIdentify, DeviceConfiguration, LightState, SceneConfiguration, SceneActivate, SceneOff, TestNotification, NotificationSetting, EventLoopDebug, ShellyRegister, ShellyRemove, ShellyReconcile, MatterReconcile, MatterValue, MatterButton, ShellyEvent, FritzEvent, FritzReconcile, ActorState };
     struct Command {
         CommandType type;
         unsigned int seconds;

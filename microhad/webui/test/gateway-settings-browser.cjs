@@ -26,7 +26,7 @@ async function main() {
     try { code = await new Promise((resolve, reject) => { child.on('close', resolve); child.on('error', reject); }); }
     finally { clearTimeout(timer); }
     if (code !== 0 || !output.includes('data-result="passed"')) throw new Error(output + errors);
-    console.log(output.match(/PASS gateway settings[^<]+/)[0]);
+    console.log(output.match(/PASS gateway [^<]+/)[0]);
   } finally {
     if (child && child.exitCode === null) child.kill('SIGKILL');
     server.closeAllConnections(); await new Promise(resolve => server.close(resolve));

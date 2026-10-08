@@ -161,10 +161,15 @@ public:
         gateway.pollZiggurat(); assert(gateway.sentBroadcastQuorum_==6 && gateway.broadcastQuorumRequest_);
         tunableReply(client,gateway.broadcastQuorumRequest_,0); gateway.pollZiggurat();
         assert(gateway.captureView().settingsJson.find("\"applied_value\":6")!=std::string::npos);
+        assert(gateway.setMatterCommissioningRegion("US", "outdoor", &error));
+        assert(!gateway.setMatterCommissioningRegion("us", "outdoor", &error));
+        assert(!gateway.setMatterCommissioningRegion("US", "outside", &error));
+        assert(gateway.captureView().matterCountryCode == "US" && gateway.captureView().matterRegulatoryLocation == "outdoor");
         client.disconnect("test cleanup"); close(sockets[1]);
         Gateway restored("/dev/null",115200,directory,"","","");
         restored.configureBroadcastQuorum(8);
         assert(restored.loadGatewaySettings(&error) && restored.broadcastQuorum_==6);
+        assert(restored.captureView().matterCountryCode == "US" && restored.captureView().matterRegulatoryLocation == "outdoor");
         assert(unlink(path.c_str())==0); assert(mkdir(path.c_str(),0700)==0);
         assert(!gateway.setBroadcastQuorum(7,&error) && gateway.broadcastQuorum_==6);
         assert(rmdir(path.c_str())==0);

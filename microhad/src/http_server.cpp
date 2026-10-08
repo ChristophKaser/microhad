@@ -794,6 +794,13 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
             valid = deviceRead ? MatterChannel::deviceReadRequest(body, &prepared) : deviceCommand ?
                 MatterChannel::deviceCommandRequest(body, &prepared) : MatterChannel::deviceBindingRequest(body, &prepared);
             body.swap(prepared);
+        } else if (opcode == 3) {
+            GatewayRunner::ViewLease* view = gateway_->acquireView();
+            std::string prepared;
+            valid = view && MatterChannel::commissioningStartRequest(
+                body, view->matterCountryCode(), view->matterRegulatoryLocation(), &prepared);
+            delete view;
+            if (valid) body.swap(prepared);
         }
         if (!valid || !MatterChannel::validRequest(opcode, body)) error = "malformed";
         else if (!matterWorker_) error = "not_ready";
@@ -953,17 +960,26 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
         else { std::string body=view->settingsJson(); delete view; writeResponse(clientFd,200,"application/json",body); }
     } else if (request.find("POST /api/settings ") == 0) {
         std::string::size_type bodyAt=request.find("\r\n\r\n");
-        std::string value,error;
-        bool valid=bodyAt!=std::string::npos &&
-            formValue(request.substr(bodyAt+4),"broadcast_passive_ack_quorum",&value) && !value.empty() && value.size()<=3;
+        std::string value,error,country,location;
+        const std::string form=bodyAt==std::string::npos ? "" : request.substr(bodyAt+4);
+        const bool hasQuorum=formValue(form,"broadcast_passive_ack_quorum",&value);
+        const bool hasCountry=formValue(form,"matter_country_code",&country);
+        const bool hasLocation=formValue(form,"matter_regulatory_location",&location);
+        bool valid=bodyAt!=std::string::npos && (hasQuorum || (hasCountry && hasLocation));
+        if (hasCountry != hasLocation) valid=false;
         unsigned int number=0;
-        for (unsigned long i=0; valid && i<value.size(); ++i) {
+        for (unsigned long i=0; valid && hasQuorum && i<value.size(); ++i) {
             if (value[i]<'0' || value[i]>'9') valid=false;
             else number=number*10+static_cast<unsigned int>(value[i]-'0');
         }
-        if (!valid || number<1 || number>255)
-            writeResponse(clientFd,400,"application/json","{\"ok\":false,\"error\":\"threshold must be an integer between 1 and 255\"}");
-        else if (!gateway_->setBroadcastQuorum(number,&error))
+        if (valid && hasQuorum && (value.empty() || value.size()>3 || number<1 || number>255)) valid=false;
+        if (valid && hasCountry && (country.size()!=2 || country[0]<'A' || country[0]>'Z' ||
+            country[1]<'A' || country[1]>'Z' || (location!="indoor" && location!="outdoor"))) valid=false;
+        if (!valid)
+            writeResponse(clientFd,400,"application/json","{\"ok\":false,\"error\":\"invalid gateway settings\"}");
+        else if (hasCountry && !gateway_->setMatterCommissioningRegion(country,location,&error))
+            writeResponse(clientFd,400,"application/json","{\"ok\":false,\"error\":\""+jsonEscape(error)+"\"}");
+        else if (hasQuorum && !gateway_->setBroadcastQuorum(number,&error))
             writeResponse(clientFd,400,"application/json","{\"ok\":false,\"error\":\""+jsonEscape(error)+"\"}");
         else {
             GatewayRunner::ViewLease* view=gateway_->acquireView();

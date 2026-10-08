@@ -119,7 +119,7 @@ bool numberSetting(const std::map<std::string, std::string>& strings,
 }
 }
 
-GatewayConfig::GatewayConfig() : zigguratSocket("/tmp/ziggurat/native.sock"), serialDevice("/dev/ttyS1"), serialBaud(115200), broadcastPassiveAckQuorum(8), runtimeDirectory("/tuya/native"),
+GatewayConfig::GatewayConfig() : zigguratSocket("/tmp/ziggurat/native.sock"), serialDevice("/dev/ttyS1"), serialBaud(115200), broadcastPassiveAckQuorum(8), matterCountryCode("DE"), matterRegulatoryLocation("indoor"), runtimeDirectory("/tuya/native"),
     httpPort(80), httpsPort(443), firebaseTopic("zigbee_alerts") {}
 
 bool selectGatewayConfigPath(int argc, const char* const argv[], std::string* path, std::string* error) {
@@ -141,6 +141,8 @@ bool loadGatewayConfig(const std::string& path, GatewayConfig* config, std::stri
         !stringSetting(strings, numbers, "serial_device", &config->serialDevice, error) ||
         !numberSetting(strings, numbers, "serial_baud", &config->serialBaud, error) ||
         !numberSetting(strings, numbers, "broadcast_passive_ack_quorum", &config->broadcastPassiveAckQuorum, error) ||
+        !stringSetting(strings, numbers, "matter_country_code", &config->matterCountryCode, error) ||
+        !stringSetting(strings, numbers, "matter_regulatory_location", &config->matterRegulatoryLocation, error) ||
         !stringSetting(strings, numbers, "runtime_dir", &config->runtimeDirectory, error) ||
         !numberSetting(strings, numbers, "http_port", &config->httpPort, error) ||
         !numberSetting(strings, numbers, "https_port", &config->httpsPort, error) ||
@@ -151,6 +153,14 @@ bool loadGatewayConfig(const std::string& path, GatewayConfig* config, std::stri
         !stringSetting(strings, numbers, "tls_private_key", &config->tlsPrivateKey, error)) return false;
     if (config->broadcastPassiveAckQuorum < 1 || config->broadcastPassiveAckQuorum > 255) {
         *error = "broadcast_passive_ack_quorum must be an integer between 1 and 255"; return false;
+    }
+    if (config->matterCountryCode.size() != 2 || config->matterCountryCode[0] < 'A' ||
+        config->matterCountryCode[0] > 'Z' || config->matterCountryCode[1] < 'A' ||
+        config->matterCountryCode[1] > 'Z') {
+        *error = "matter_country_code must be a two-letter uppercase country code"; return false;
+    }
+    if (config->matterRegulatoryLocation != "indoor" && config->matterRegulatoryLocation != "outdoor") {
+        *error = "matter_regulatory_location must be indoor or outdoor"; return false;
     }
     if (config->zigguratSocket.empty() || config->zigguratSocket[0] != '/' || config->zigguratSocket.size() >= 108) {
         *error = "ziggurat_socket must be an absolute Unix socket path shorter than 108 bytes"; return false;

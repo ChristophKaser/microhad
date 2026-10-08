@@ -8,6 +8,8 @@ struct GatewayConfig {
     std::string serialDevice;
     long serialBaud;
     long broadcastPassiveAckQuorum;
+    std::string matterCountryCode;
+    std::string matterRegulatoryLocation;
     std::string runtimeDirectory;
     long httpPort;
     long httpsPort;
