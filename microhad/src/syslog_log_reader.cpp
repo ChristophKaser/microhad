@@ -58,9 +58,19 @@ bool acquireSnapshot(int semaphore) {
     return false;
 }
 
-bool collectSyslogLines(long key, std::vector<std::string>* lines) {
-    if (lines == 0) return false;
-    lines->clear();
+struct LineRange {
+    unsigned long offset, length;
+    LineRange(unsigned long start, unsigned long bytes) : offset(start), length(bytes) {}
+};
+
+#ifdef MICROHAD_TESTING
+typedef SyslogReadStats ReadStats;
+#else
+struct ReadStats {};
+#endif
+
+bool readSnapshot(long key, std::vector<char>* snapshot) {
+    if (snapshot == 0) return false;
     int segment = shmget(static_cast<key_t>(key), 0, 0);
     int semaphore = semget(static_cast<key_t>(key), 2, 0);
     struct shmid_ds segmentInfo;
@@ -71,7 +81,7 @@ bool collectSyslogLines(long key, std::vector<std::string>* lines) {
         semctl(semaphore, 0, IPC_STAT, argument) != 0 || semaphoreInfo.sem_nsems != 2 ||
         segmentInfo.shm_segsz <= HeaderBytes + 1 || segmentInfo.shm_segsz > MaximumSegmentBytes) return false;
     // Allocate before locking so the writer is excluded only during the copy.
-    std::vector<char> snapshot(segmentInfo.shm_segsz - HeaderBytes);
+    snapshot->resize(segmentInfo.shm_segsz - HeaderBytes);
     void* mapping = shmat(segment, 0, SHM_RDONLY);
     if (mapping == reinterpret_cast<void*>(-1)) return false;
     if (!acquireSnapshot(semaphore)) { shmdt(mapping); return false; }
@@ -79,126 +89,182 @@ bool collectSyslogLines(long key, std::vector<std::string>* lines) {
     const char* bytes = static_cast<const char*>(mapping);
     memcpy(&capacity, bytes, sizeof(capacity));
     memcpy(&cursor, bytes + sizeof(capacity), sizeof(cursor));
-    bool valid = capacity > 0 && static_cast<unsigned long>(capacity) == snapshot.size() - 1 &&
+    bool valid = capacity > 0 && static_cast<unsigned long>(capacity) == snapshot->size() - 1 &&
         cursor >= 0 && cursor < capacity && bytes[HeaderBytes + capacity] == '\0' &&
         shmget(static_cast<key_t>(key), 0, 0) == segment &&
         semget(static_cast<key_t>(key), 2, 0) == semaphore;
-    if (valid) memcpy(&snapshot[0], bytes + HeaderBytes, snapshot.size());
+    if (valid) {
+        // Copy in chronological order, starting at the write cursor. These two
+        // copies also make a physically wrapped record contiguous for parsing.
+        unsigned long first = static_cast<unsigned long>(capacity - cursor);
+        memcpy(&(*snapshot)[0], bytes + HeaderBytes + cursor, first);
+        if (cursor != 0) memcpy(&(*snapshot)[first], bytes + HeaderBytes, cursor);
+        (*snapshot)[capacity] = '\0';
+    }
     bool released = changeReaderCount(semaphore, -1);
     shmdt(mapping);
     if (!valid || !released) return false;
-    unsigned long newestEnd = cursor == 0 ? static_cast<unsigned long>(capacity - 1) :
-        static_cast<unsigned long>(cursor - 1);
-    if (snapshot[newestEnd] != '\0') return false;
-    // Walk one revolution in chronological order. The cursor may cut through
-    // the oldest overwritten record: discard that fragment through its NUL.
-    bool boundary = false;
-    std::string record;
-    unsigned long position = static_cast<unsigned long>(cursor);
-    for (unsigned long visited = 0; visited < static_cast<unsigned long>(capacity); ++visited) {
-        char character = snapshot[position];
-        if (character == '\0') {
-            if (boundary && !record.empty()) {
-                // syslog messages normally end with LF; retain the API's line
-                // representation even when an IPC record contains several lines.
-                std::string::size_type begin = 0;
-                while (begin < record.size()) {
-                    std::string::size_type end = record.find('\n', begin);
-                    if (end == std::string::npos) end = record.size();
-                    if (end > begin) lines->push_back(record.substr(begin, end - begin));
-                    begin = end + 1;
-                }
-            }
-            boundary = true;
-            record.clear();
-        } else if (boundary) record += character;
-        if (++position == static_cast<unsigned long>(capacity)) position = 0;
-    }
-    if (!record.empty()) { lines->clear(); return false; }
+    if ((*snapshot)[capacity - 1] != '\0') return false;
     return true;
 }
 
-long timestampOf(const std::string& line) {
+bool indexLines(const std::vector<char>& snapshot, std::vector<LineRange>* lines, ReadStats* stats) {
+#ifndef MICROHAD_TESTING
+    (void)stats;
+#endif
+    lines->clear();
+    unsigned long capacity = static_cast<unsigned long>(snapshot.size() - 1);
+    const char* bytes = &snapshot[0];
+    // Discard the possibly overwritten oldest fragment, through its first NUL.
+    const char* boundary = static_cast<const char*>(memchr(bytes, '\0', capacity));
+    if (boundary == 0) return false;
+    unsigned long position = static_cast<unsigned long>(boundary - bytes) + 1;
+    static const char zeros[64] = {0};
+    while (position < capacity) {
+        // A partially filled ring can contain hundreds of KiB of zero padding.
+        // Skip that padding in blocks instead of creating empty record objects.
+        while (capacity - position >= sizeof(zeros) &&
+               memcmp(bytes + position, zeros, sizeof(zeros)) == 0) {
+            position += sizeof(zeros);
+#ifdef MICROHAD_TESTING
+            if (stats != 0) ++stats->zeroBlocksSkipped;
+#endif
+        }
+        while (position < capacity && bytes[position] == '\0') ++position;
+        if (position == capacity) break;
+        const char* terminator = static_cast<const char*>(memchr(bytes + position, '\0', capacity - position));
+        if (terminator == 0) return false;
+        unsigned long end = static_cast<unsigned long>(terminator - bytes);
+        while (position < end) {
+            const char* newline = static_cast<const char*>(memchr(bytes + position, '\n', end - position));
+            unsigned long lineEnd = newline == 0 ? end : static_cast<unsigned long>(newline - bytes);
+            if (lineEnd > position) {
+                lines->push_back(LineRange(position, lineEnd - position));
+#ifdef MICROHAD_TESTING
+                if (stats != 0) ++stats->indexedLines;
+#endif
+            }
+            position = lineEnd + 1;
+        }
+        position = end + 1;
+    }
+    return true;
+}
+
+struct TimestampContext {
+    time_t now;
+    struct tm current;
+    bool valid;
+    explicit TimestampContext(time_t observedAt) : now(observedAt), valid(localtime_r(&now, &current) != 0) {}
+};
+
+
+long rangeTimestamp(const std::vector<char>& snapshot, const LineRange& range,
+                    const TimestampContext& context, ReadStats* stats) {
+#ifndef MICROHAD_TESTING
+    (void)stats;
+#else
+    if (stats != 0) ++stats->timestampConversions;
+#endif
+    // Normal syslog headers fit on the stack. Preserve the old sscanf behavior
+    // for unusual long whitespace/header fields with a bounded fallback copy.
+    char prefix[64];
+    unsigned long length = range.length < sizeof(prefix) - 1 ? range.length : sizeof(prefix) - 1;
+    memcpy(prefix, &snapshot[range.offset], length);
+    prefix[length] = '\0';
     char month[4] = {0, 0, 0, 0};
-    int day = 0, hour = 0, minute = 0, second = 0;
-    if (sscanf(line.c_str(), "%3s %d %d:%d:%d", month, &day, &hour, &minute, &second) != 5) return 0;
+    int day = 0, hour = 0, minute = 0, second = 0, consumed = 0;
+    int matched = sscanf(prefix, "%3s %d %d:%d:%d%n", month, &day, &hour, &minute, &second, &consumed);
+    if (range.length > length && (matched != 5 || consumed >= static_cast<int>(length))) {
+        std::string header(&snapshot[range.offset], range.length);
+        matched = sscanf(header.c_str(), "%3s %d %d:%d:%d", month, &day, &hour, &minute, &second);
+    }
+    if (matched != 5) return 0;
     static const char* months[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
     int monthIndex = -1;
     for (int i = 0; i < 12; ++i) if (strcmp(month, months[i]) == 0) monthIndex = i;
     if (monthIndex < 0 || day < 1 || day > 31 || hour > 23 || minute > 59 || second > 60) return 0;
-    time_t now = time(0);
-    struct tm current;
-    if (localtime_r(&now, &current) == 0) return 0;
-    struct tm parsed = current;
+    if (!context.valid) return 0;
+    struct tm parsed = context.current;
     parsed.tm_mon = monthIndex; parsed.tm_mday = day;
     parsed.tm_hour = hour; parsed.tm_min = minute; parsed.tm_sec = second; parsed.tm_isdst = -1;
     time_t result = mktime(&parsed);
-    if (result > now + 86400) { parsed.tm_year -= 1; result = mktime(&parsed); }
+    if (result > context.now + 86400) { parsed.tm_year -= 1; result = mktime(&parsed); }
     return static_cast<long>(result);
 }
 
-std::string apiLine(const std::string& line) {
-    long timestamp = timestampOf(line);
+void appendLine(std::ostringstream* json, const std::vector<char>& snapshot, const LineRange& range,
+                long timestamp, bool* first, ReadStats* stats) {
+#ifndef MICROHAD_TESTING
+    (void)stats;
+#else
+    if (stats != 0) ++stats->materializedLines;
+#endif
+    if (!*first) *json << ',';
+    *first = false;
     char prefix[32];
     snprintf(prefix, sizeof(prefix), "%ld ", timestamp);
-    return std::string(prefix) + line;
+    std::string line(prefix);
+    line.append(&snapshot[range.offset], range.length);
+    *json << '\"' << jsonEscape(line) << '\"';
 }
 
-std::string linesJson(const std::vector<std::string>& lines, unsigned long begin, unsigned long end) {
-    std::ostringstream json;
-    json << "{\"lines\":[";
+bool readRequest(long key, bool hasSince, unsigned long since, unsigned long limit, unsigned long before,
+                 time_t now, std::string* json, ReadStats* stats) {
+    if (json == 0 || limit > 500) return false;
+#ifdef MICROHAD_TESTING
+    if (stats != 0) *stats = SyslogReadStats();
+#endif
+    std::vector<char> snapshot;
+    std::vector<LineRange> lines;
+    if (!readSnapshot(key, &snapshot) || !indexLines(snapshot, &lines, stats)) return false;
+    unsigned long count = static_cast<unsigned long>(lines.size());
+    unsigned long end = limit == 0 || before == 0 || before > count ? count : before;
+    unsigned long begin = limit == 0 || end <= limit ? 0 : end - limit;
+    TimestampContext context(now);
+    std::ostringstream result;
+    result << "{\"lines\":[";
+    bool first = true;
     for (unsigned long i = begin; i < end; ++i) {
-        if (i != begin) json << ',';
-        json << '\"' << jsonEscape(apiLine(lines[i])) << '\"';
+        long timestamp = rangeTimestamp(snapshot, lines[i], context, stats);
+        if (limit == 0 && hasSince && static_cast<unsigned long>(timestamp) < since) continue;
+        appendLine(&result, snapshot, lines[i], timestamp, &first, stats);
     }
-    json << "]}";
-    return json.str();
+    result << ']';
+    if (limit != 0) result << ",\"next_before\":" << begin << ",\"has_more\":" << (begin == 0 ? "false" : "true");
+    result << '}';
+    *json = result.str();
+    return true;
 }
 }
 
 bool SyslogLogReader::readJson(std::string* json) {
-    std::vector<std::string> lines;
-    if (json == 0 || !collectSyslogLines(SyslogIpcKey, &lines)) return false;
-    *json = linesJson(lines, 0, static_cast<unsigned long>(lines.size()));
-    return true;
+    return readRequest(SyslogIpcKey, false, 0, 0, 0, time(0), json, 0);
 }
 
 bool SyslogLogReader::readJson(unsigned long since, std::string* json) {
-    std::vector<std::string> lines;
-    if (json == 0 || !collectSyslogLines(SyslogIpcKey, &lines)) return false;
-    std::ostringstream result;
-    result << "{\"lines\":[";
-    bool first = true;
-    for (unsigned long i = 0; i < lines.size(); ++i) {
-        if (static_cast<unsigned long>(timestampOf(lines[i])) < since) continue;
-        if (!first) result << ',';
-        first = false;
-        result << '\"' << jsonEscape(apiLine(lines[i])) << '\"';
-    }
-    result << "]}";
-    *json = result.str();
-    return true;
+    return readRequest(SyslogIpcKey, true, since, 0, 0, time(0), json, 0);
 }
 
 bool SyslogLogReader::readPage(unsigned long limit, unsigned long before, std::string* json) {
-    std::vector<std::string> lines;
-    if (json == 0 || limit == 0 || limit > 500 || !collectSyslogLines(SyslogIpcKey, &lines)) return false;
-    unsigned long count = static_cast<unsigned long>(lines.size());
-    unsigned long end = before == 0 || before > count ? count : before;
-    unsigned long begin = end > limit ? end - limit : 0;
-    *json = linesJson(lines, begin, end);
-    if (begin == 0) {
-        json->insert(json->size() - 1, ",\"next_before\":0,\"has_more\":false");
-    } else {
-        std::ostringstream fields;
-        fields << ",\"next_before\":" << begin << ",\"has_more\":true";
-        json->insert(json->size() - 1, fields.str());
-    }
-    return true;
+    return limit != 0 && readRequest(SyslogIpcKey, false, 0, limit, before, time(0), json, 0);
 }
 
 #ifdef MICROHAD_TESTING
 bool SyslogLogReader::readLinesForTest(long key, std::vector<std::string>* lines) {
-    return collectSyslogLines(key, lines);
+    if (lines == 0) return false;
+    lines->clear();
+    std::vector<char> snapshot;
+    std::vector<LineRange> ranges;
+    if (!readSnapshot(key, &snapshot) || !indexLines(snapshot, &ranges, 0)) return false;
+    for (unsigned long i = 0; i < ranges.size(); ++i)
+        lines->push_back(std::string(&snapshot[ranges[i].offset], ranges[i].length));
+    return true;
+}
+
+bool SyslogLogReader::readRequestForTest(long key, bool hasSince, unsigned long since,
+                                       unsigned long limit, unsigned long before, long now,
+                                       std::string* json, SyslogReadStats* stats) {
+    return readRequest(key, hasSince, since, limit, before, static_cast<time_t>(now), json, stats);
 }
 #endif

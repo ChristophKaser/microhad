@@ -48,3 +48,29 @@ lock produce HTTP 503 from `/api/logs`. There is no child-process fallback.
 
 This requires BusyBox `FEATURE_IPC_SYSLOG` and a running `syslogd -C` instance.
 It does not apply to file-only logging, journald, or unrelated syslog daemons.
+
+## Filtered and paginated reads
+
+Each request still copies the complete ring while holding the reader semaphore.
+The copy is arranged in chronological order using at most two bulk copies, so
+wrapped records can be scanned as contiguous bytes after the lock is released.
+Record and line boundaries are indexed as byte ranges; zero padding is skipped
+in blocks. No shared cache or additional persistent state is used.
+
+Pagination counts the indexed lines and materializes and converts timestamps
+only for the requested page. `before` remains an exclusive positional index;
+zero or a position beyond the current line count selects the latest page.
+`next_before` and `has_more` retain their existing behavior, including the
+possibility of positions changing when the ring overwrites older messages.
+
+`since` checks every candidate timestamp once, includes equal timestamps, and
+reuses that timestamp when formatting selected lines. It does not stop at an
+older timestamp: syslog messages can arrive out of timestamp order. One date
+and timezone context is captured for the request. Unusual long timestamp
+headers retain the previous parser behavior through a bounded fallback copy.
+
+Unit tests compare the optimized output with the original byte-walk and
+filter/page semantics, including physical wraparound, multiline records,
+empty and sparse rings, timestamp equality, out-of-order timestamps and year
+rollover. Test-only counters verify that pagination converts timestamps only
+for returned lines and filtering converts each candidate at most once.
