@@ -297,7 +297,7 @@ maintenance_deploy_run() {
     # Matter service, Ziggurat and Web UI are backed up before reclaiming space.
     old_service_size=$(ssh_command "if [ -f \"$target/thread-matter\" ]; then wc -c < \"$target/thread-matter\" | awk '{print \$1}'; else echo 0; fi") || return 1
     old_ziggurat_size=$(ssh_command "if [ -f \"$target/ziggurat\" ]; then wc -c < \"$target/ziggurat\" | awk '{print \$1}'; else echo 0; fi") || return 1
-    old_legacy_size=$(ssh_command "if [ -f \"$target/tuya-zigbee-native\" ]; then wc -c < \"$target/tuya-zigbee-native\" | tr -d ' '; else echo 0; fi") || return 1
+    old_legacy_size=$(ssh_command "if [ -f \"$target/tuya-zigbee-native\" ]; then wc -c < \"$target/tuya-zigbee-native\" | awk '{print \$1}'; else echo 0; fi") || return 1
     if [ -f "$rollback_dir/webui.tar" ]; then
         old_webui_size=$(tar -tvf "$rollback_dir/webui.tar" | awk '$3 ~ /^[0-9]+$/ { total += $3 } END { print total + 0 }')
     else
