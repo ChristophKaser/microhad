@@ -10,6 +10,7 @@ void runWebPushUnitTests();
 void runGatewayConfigUnitTests();
 void runSensorHistoryUnitTests();
 void runLogRingUnitTests();
+void runSyslogLogReaderUnitTests();
 void runExternalHttpDeviceWorkerUnitTests();
 
 #if MICROHAD_ZIGGURAT_ENABLED
@@ -30,6 +31,7 @@ int main() {
     runGatewayConfigUnitTests();
     runSensorHistoryUnitTests();
     runLogRingUnitTests();
+    runSyslogLogReaderUnitTests();
     runExternalHttpDeviceWorkerUnitTests();
     printf("unit tests passed\n");
     return 0;

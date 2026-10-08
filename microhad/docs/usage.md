@@ -98,7 +98,8 @@ The dashboard includes a live coordinator log, refreshed every two seconds from
 `/api/logs`. BusyBox `syslogd` keeps a 512 KiB ring in shared memory, also
 forwards messages to `192.168.178.51:7878`, and receives native gateway,
 Ziggurat, and Matter service messages. The REST endpoint reads that ring with
-the deployed BusyBox `logread` helper. The ring lives in RAM and does not create
+an independent, bounded shared-memory reader; no helper process is started.
+See [syslog IPC compatibility](syslog-ipc.md). The ring lives in RAM and does not create
 flash write cycles.
 
 ### Event-loop diagnostics

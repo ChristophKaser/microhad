@@ -10,53 +10,111 @@
 #include <string>
 #include <vector>
 #include <sys/types.h>
-#include <sys/wait.h>
+#include <stdint.h>
+#include <sys/ipc.h>
+#include <sys/sem.h>
+#include <sys/shm.h>
 #include <unistd.h>
 
 namespace {
-const unsigned long RingBytes = 512UL * 1024UL;
+// Independently implemented from the IPC format documented in
+// docs/syslog-ipc.md. No BusyBox implementation code is included here.
+const long SyslogIpcKey = 0x414e4547L;
+const unsigned long MaximumSegmentBytes = 16UL * 1024UL * 1024UL;
+const unsigned long HeaderBytes = 8;
 
-bool collectSyslogLines(std::vector<std::string>* lines) {
-    int descriptors[2];
-    if (pipe(descriptors) != 0) return false;
-    pid_t child = fork();
-    if (child < 0) {
-        close(descriptors[0]); close(descriptors[1]); return false;
-    }
-    if (child == 0) {
-        close(descriptors[0]);
-        if (dup2(descriptors[1], STDOUT_FILENO) < 0) _exit(126);
-        close(descriptors[1]);
-        const char* executable = getenv("MICROHAD_LOGREAD_PATH");
-        if (executable == 0 || *executable == '\0') executable = "/tuya/native/logread";
-        execl(executable, "logread", static_cast<char*>(0));
-        _exit(127);
-    }
-    close(descriptors[1]);
-    std::string output;
-    char chunk[2048];
-    bool valid = true;
-    for (;;) {
-        ssize_t count = read(descriptors[0], chunk, sizeof(chunk));
-        if (count < 0 && errno == EINTR) continue;
-        if (count < 0) { valid = false; break; }
-        if (count == 0) break;
-        output.append(chunk, static_cast<std::string::size_type>(count));
-        if (output.size() > RingBytes + 4096UL) { valid = false; break; }
-    }
-    close(descriptors[0]);
-    int status = 0;
-    while (waitpid(child, &status, 0) < 0) {
+union SemaphoreArgument {
+    int value;
+    struct semid_ds* metadata;
+    unsigned short* values;
+};
+
+bool changeReaderCount(int semaphore, short change) {
+    struct sembuf operation;
+    operation.sem_num = 0;
+    operation.sem_op = change;
+    operation.sem_flg = IPC_NOWAIT | SEM_UNDO;
+    for (unsigned int attempt = 0; attempt < 20; ++attempt) {
+        if (semop(semaphore, &operation, 1) == 0) return true;
         if (errno != EINTR) return false;
     }
-    if (!valid || !WIFEXITED(status) || WEXITSTATUS(status) != 0) return false;
-    std::string::size_type begin = 0;
-    while (begin < output.size()) {
-        std::string::size_type end = output.find('\n', begin);
-        if (end == std::string::npos) end = output.size();
-        if (end > begin) lines->push_back(output.substr(begin, end - begin));
-        begin = end + 1;
+    return false;
+}
+
+bool acquireSnapshot(int semaphore) {
+    struct sembuf operations[2];
+    operations[0].sem_num = 1;
+    operations[0].sem_op = 0;
+    operations[0].sem_flg = IPC_NOWAIT;
+    operations[1].sem_num = 0;
+    operations[1].sem_op = 1;
+    operations[1].sem_flg = IPC_NOWAIT | SEM_UNDO;
+    // Every syscall is nonblocking; retries allow at most 100 ms of sleeping.
+    for (unsigned int attempt = 0; attempt < 20; ++attempt) {
+        if (semop(semaphore, operations, 2) == 0) return true;
+        if (errno != EAGAIN && errno != EINTR) return false;
+        usleep(5000);
     }
+    return false;
+}
+
+bool collectSyslogLines(long key, std::vector<std::string>* lines) {
+    if (lines == 0) return false;
+    lines->clear();
+    int segment = shmget(static_cast<key_t>(key), 0, 0);
+    int semaphore = semget(static_cast<key_t>(key), 2, 0);
+    struct shmid_ds segmentInfo;
+    struct semid_ds semaphoreInfo;
+    SemaphoreArgument argument;
+    argument.metadata = &semaphoreInfo;
+    if (segment < 0 || semaphore < 0 || shmctl(segment, IPC_STAT, &segmentInfo) != 0 ||
+        semctl(semaphore, 0, IPC_STAT, argument) != 0 || semaphoreInfo.sem_nsems != 2 ||
+        segmentInfo.shm_segsz <= HeaderBytes + 1 || segmentInfo.shm_segsz > MaximumSegmentBytes) return false;
+    // Allocate before locking so the writer is excluded only during the copy.
+    std::vector<char> snapshot(segmentInfo.shm_segsz - HeaderBytes);
+    void* mapping = shmat(segment, 0, SHM_RDONLY);
+    if (mapping == reinterpret_cast<void*>(-1)) return false;
+    if (!acquireSnapshot(semaphore)) { shmdt(mapping); return false; }
+    int32_t capacity = 0, cursor = 0;
+    const char* bytes = static_cast<const char*>(mapping);
+    memcpy(&capacity, bytes, sizeof(capacity));
+    memcpy(&cursor, bytes + sizeof(capacity), sizeof(cursor));
+    bool valid = capacity > 0 && static_cast<unsigned long>(capacity) == snapshot.size() - 1 &&
+        cursor >= 0 && cursor < capacity && bytes[HeaderBytes + capacity] == '\0' &&
+        shmget(static_cast<key_t>(key), 0, 0) == segment &&
+        semget(static_cast<key_t>(key), 2, 0) == semaphore;
+    if (valid) memcpy(&snapshot[0], bytes + HeaderBytes, snapshot.size());
+    bool released = changeReaderCount(semaphore, -1);
+    shmdt(mapping);
+    if (!valid || !released) return false;
+    unsigned long newestEnd = cursor == 0 ? static_cast<unsigned long>(capacity - 1) :
+        static_cast<unsigned long>(cursor - 1);
+    if (snapshot[newestEnd] != '\0') return false;
+    // Walk one revolution in chronological order. The cursor may cut through
+    // the oldest overwritten record: discard that fragment through its NUL.
+    bool boundary = false;
+    std::string record;
+    unsigned long position = static_cast<unsigned long>(cursor);
+    for (unsigned long visited = 0; visited < static_cast<unsigned long>(capacity); ++visited) {
+        char character = snapshot[position];
+        if (character == '\0') {
+            if (boundary && !record.empty()) {
+                // syslog messages normally end with LF; retain the API's line
+                // representation even when an IPC record contains several lines.
+                std::string::size_type begin = 0;
+                while (begin < record.size()) {
+                    std::string::size_type end = record.find('\n', begin);
+                    if (end == std::string::npos) end = record.size();
+                    if (end > begin) lines->push_back(record.substr(begin, end - begin));
+                    begin = end + 1;
+                }
+            }
+            boundary = true;
+            record.clear();
+        } else if (boundary) record += character;
+        if (++position == static_cast<unsigned long>(capacity)) position = 0;
+    }
+    if (!record.empty()) { lines->clear(); return false; }
     return true;
 }
 
@@ -100,14 +158,14 @@ std::string linesJson(const std::vector<std::string>& lines, unsigned long begin
 
 bool SyslogLogReader::readJson(std::string* json) {
     std::vector<std::string> lines;
-    if (json == 0 || !collectSyslogLines(&lines)) return false;
+    if (json == 0 || !collectSyslogLines(SyslogIpcKey, &lines)) return false;
     *json = linesJson(lines, 0, static_cast<unsigned long>(lines.size()));
     return true;
 }
 
 bool SyslogLogReader::readJson(unsigned long since, std::string* json) {
     std::vector<std::string> lines;
-    if (json == 0 || !collectSyslogLines(&lines)) return false;
+    if (json == 0 || !collectSyslogLines(SyslogIpcKey, &lines)) return false;
     std::ostringstream result;
     result << "{\"lines\":[";
     bool first = true;
@@ -124,7 +182,7 @@ bool SyslogLogReader::readJson(unsigned long since, std::string* json) {
 
 bool SyslogLogReader::readPage(unsigned long limit, unsigned long before, std::string* json) {
     std::vector<std::string> lines;
-    if (json == 0 || limit == 0 || limit > 500 || !collectSyslogLines(&lines)) return false;
+    if (json == 0 || limit == 0 || limit > 500 || !collectSyslogLines(SyslogIpcKey, &lines)) return false;
     unsigned long count = static_cast<unsigned long>(lines.size());
     unsigned long end = before == 0 || before > count ? count : before;
     unsigned long begin = end > limit ? end - limit : 0;
@@ -138,3 +196,9 @@ bool SyslogLogReader::readPage(unsigned long limit, unsigned long before, std::s
     }
     return true;
 }
+
+#ifdef MICROHAD_TESTING
+bool SyslogLogReader::readLinesForTest(long key, std::vector<std::string>* lines) {
+    return collectSyslogLines(key, lines);
+}
+#endif

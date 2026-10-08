@@ -233,7 +233,8 @@ The dashboard serves HTTP on port 80 and HTTPS on port 443. The coordinator
 thread is the sole owner of the NCP serial connection and `Gateway` state.
 Each HTTP listener has an acceptor plus two request workers; all mutations use
 the coordinator command queue. Status reads use protected snapshots; log reads
-validate the RAM-backed circular file directly without locking the coordinator.
+copy the syslog shared-memory ring with bounded semaphore acquisition, without
+locking the coordinator.
 The single notification worker owns outbound FCM/browser-push calls and keeps
 at most 32 pending jobs in RAM. Do not call `Gateway` directly from a web or
 notification thread.
@@ -264,9 +265,11 @@ serialized for sleepy battery devices.
 
 The paired launcher runs BusyBox `syslogd -C512 -L -R 192.168.178.51:7878`.
 Native gateway and Matter service messages use syslog directly; Ziggurat's
-tracing output is sent to syslog. The deployed standalone BusyBox 1.13.4
-`logread` helper reads the daemon's 512 KiB RAM ring for `/api/logs`; it omits
-the `syslogd` applet because the stock firmware runs that daemon.
+tracing output is sent to syslog. The `/api/logs` reader attaches directly to the daemon's 512 KiB RAM ring and
+uses bounded, nonblocking semaphore acquisition. It never forks a helper.
+The separately deployed BusyBox 1.13.4 `logread` remains a diagnostic tool; it
+omits the `syslogd` applet because the stock firmware runs that daemon. See
+[syslog IPC compatibility](docs/syslog-ipc.md) for supported layouts and bounds.
 Permanent radio captures belong under the
 ignored `diagnostics/` directory and must never be committed.
 
