@@ -1,3 +1,5 @@
+<img src="webui/public/microhad-icon.svg" width="96" height="96" alt="MicroHAD microchip-house icon" />
+
 # MicroHAD — Micro Home Automation Daemon
 
 A standalone local Zigbee dashboard and automation service for the

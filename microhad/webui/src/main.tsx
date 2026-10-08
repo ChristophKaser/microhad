@@ -221,7 +221,7 @@ function App() {
     <main className="shell">
       <section className="mobile-top" aria-label="Gateway status">
         <div className="mobile-state">
-          <strong>MicroHAD</strong>
+          <strong className="mobile-brand"><img src="/microhad-icon.svg" width="24" height="24" alt="" />MicroHAD</strong>
           <span
             className={statusError || !status?.online ? 'state-bad' : 'state-good'}
             title={statusError}
@@ -247,7 +247,7 @@ function App() {
       <header className="hero">
         <div>
           <p className="eyebrow">Smart home / Gateway</p>
-          <h1>MicroHAD</h1>
+          <h1 className="hero-brand"><img src="/microhad-icon.svg" width="56" height="56" alt="" />MicroHAD</h1>
           <p className="hero-sub">Devices, scenes, and coordinator activity in one place.</p>
         </div>
         <div className="hero-actions"><div className="serial-state">

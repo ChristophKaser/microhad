@@ -55,6 +55,19 @@ button:disabled {
   color: #5f7183;
   margin: 11px 0 0;
 }
+.hero-brand,
+.mobile-brand {
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+}
+.hero-brand { gap: 14px; }
+.mobile-brand { gap: 7px; flex-shrink: 0; }
+.hero-brand img,
+.mobile-brand img {
+  display: block;
+  flex-shrink: 0;
+}
 .serial-state {
   font-size: 0.84rem;
   color: #61768a;
