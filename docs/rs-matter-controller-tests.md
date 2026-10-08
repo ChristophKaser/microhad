@@ -14,18 +14,18 @@ BLE/OpenThread integration and device acceptance remain pending.
 From `ziggurat-compilation` on the development host:
 
 ```sh
-python3 scripts/test-rs-matter-controller.py
+python3 thread-matter/scripts/test-rs-matter-controller.py
 ```
 
 The runner pins rs-matter commit
 `1570356ecb938a9d19be032b93ca3bb487069e75`, Rust `nightly-2026-10-02`, and the
-tracked workspace dependency lock `rs-matter-probe/controller-tests.lock`.
-It creates a separate ignored `build/rs-matter/controller-source` worktree,
-applies only `patches/rs-matter-commissioning-probe.patch`, verifies the exact
+tracked workspace dependency lock `thread-matter/controller-tests.lock`.
+It creates a separate ignored `build/thread-matter/commissioning-source` worktree,
+applies only `thread-matter/patches/rs-matter-commissioning-probe.patch`, verifies the exact
 tracked diff, rejects unexpected files, and uses `cargo test --locked` with
 `--no-default-features --features 'os rustcrypto'`. It runs suites sequentially,
 requires a nonzero number of passing tests, and writes a filtered JSON report.
-Compiler/test logs stay in ignored `build/rs-matter/`; the tracked shareable
+Compiler/test logs stay in ignored `build/thread-matter/`; the tracked shareable
 record is [rs-matter-controller-validation.json](rs-matter-controller-validation.json).
 
 The commissioning fixture binds device and controller sockets to IPv6
@@ -81,7 +81,7 @@ In this revision, `Commissioner::verify_device_attestation` in
 `rs-matter/src/onboard.rs` does not request or verify device evidence. It
 returns success only when `allow_test_attestation=true`; otherwise it returns
 `ErrorCode::Failure`. The test patch confirms default rejection before the
-explicit development-fixture bypass. `rs-matter-probe/src/commissioning.rs` now supplies an explicit application
+explicit development-fixture bypass. `thread-matter/src/commissioning.rs` now supplies an explicit application
 policy: `verify_manufacturer_attestation=false` by default for this gateway,
 as requested by its owner. Setting it true selects upstream's fail-closed
 behavior; a verifier remains unimplemented. The fixture uses this same policy

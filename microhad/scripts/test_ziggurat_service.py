@@ -39,7 +39,7 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--experiment",type=Path,default=ROOT.parent)
     args=parser.parse_args()
-    spec=importlib.util.spec_from_file_location("sim",args.experiment/"scripts/simulate-rcp.py")
+    spec=importlib.util.spec_from_file_location("sim",args.experiment/"ziggurat/scripts/simulate-rcp.py")
     sim=importlib.util.module_from_spec(spec);spec.loader.exec_module(sim)
     radio=sim.Rcp("127.0.0.1",iid=1)
     native=ROOT/"build/host-ziggurat/microhad"

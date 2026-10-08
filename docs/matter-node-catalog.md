@@ -96,15 +96,15 @@ Verified commands — 2026-10-04:
 
 ```sh
 source scripts/rust-env.sh
-CARGO_TARGET_DIR="$PWD/build/rs-matter/target" cargo +nightly-2026-10-02 test \
-  --locked --release --manifest-path rs-matter-probe/Cargo.toml \
+CARGO_TARGET_DIR="$PWD/build/thread-matter/target" cargo +nightly-2026-10-02 test \
+  --locked --release --manifest-path thread-matter/Cargo.toml \
   --features controller-service --lib
-bash scripts/build-rs-matter-transport.sh host service
-bash scripts/build-rs-matter-transport.sh host commissioning
-python3 scripts/test-openthread-matter-transport.py --commissioning --ble --service-owner
-python3 scripts/test-matter-service.py
-bash scripts/build-rs-matter-transport.sh mips service
-bash scripts/build-rs-matter-transport.sh mips commissioning
+bash thread-matter/scripts/build.sh host service
+bash thread-matter/scripts/build.sh host commissioning
+python3 thread-matter/scripts/test-openthread-matter-transport.py --commissioning --ble --service-owner
+python3 thread-matter/scripts/test-matter-service.py
+bash thread-matter/scripts/build.sh mips service
+bash thread-matter/scripts/build.sh mips commissioning
 ```
 
 All 48 service-feature tests pass. A separate `controller-identity` feature-only

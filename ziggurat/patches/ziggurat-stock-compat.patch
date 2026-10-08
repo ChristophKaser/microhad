@@ -1,0 +1,33 @@
+From 21dbf28a54e28e4b63d92bba31a38ef39f82575e Mon Sep 17 00:00:00 2001
+From: Christoph Kaser <christoph@caser.de>
+Date: Wed, 7 Oct 2026 16:04:50 +0200
+Subject: [PATCH] ziggurat: add stock uClibc compatibility
+
+
+diff --git a/crates/ziggurat-server/Cargo.toml b/crates/ziggurat-server/Cargo.toml
+index bcf586c..edd076c 100644
+--- a/crates/ziggurat-server/Cargo.toml
++++ b/crates/ziggurat-server/Cargo.toml
+@@ -29,3 +29,6 @@ tokio-tungstenite = { version = "0.30", default-features = false, features = ["h
+ name = "ziggurat"
+ path = "src/main.rs"
+ doc = false
++
++[target.'cfg(target_env = "uclibc")'.dependencies]
++ziggurat-stock-uclibc-compat = { path = "../../../../ziggurat/stock-uclibc-compat" }
+diff --git a/crates/ziggurat-server/src/main.rs b/crates/ziggurat-server/src/main.rs
+index e5933a0..706e0ef 100644
+--- a/crates/ziggurat-server/src/main.rs
++++ b/crates/ziggurat-server/src/main.rs
+@@ -1011,6 +1011,8 @@ struct Args {
+ }
+ 
+ fn main() -> Result<(), Box<dyn std::error::Error>> {
++    #[cfg(target_env = "uclibc")]
++    ziggurat_stock_uclibc_compat::link();
+     let args = Args::parse();
+ 
+     let rt = tokio::runtime::Runtime::new()?;
+-- 
+2.43.0
+

@@ -25,8 +25,10 @@ instead of creating a fresh network or following the destructive reset steps.
 Choose A for standalone operation with the simplest stack, or C if you already
 use Home Assistant. B and D require replacing the radio application. None of
 these modes runs Home Assistant itself on the small gateway. ZHA and native are
-alternative coordinator clients: do not start both. Thread/Matter is future work;
-the HDLC image alone does not provide a Thread border router or Matter controller.
+alternative coordinator clients: do not start both. The default build also supports a Rust Thread/Matter service; this guide
+covers the Zigbee modes. See [Matter runtime](matter-service-runtime.md) and
+[maintenance deployment](../microhad/AGENTS.md) for the paired stack. The HDLC
+image alone does not provide a Thread border router or Matter controller.
 
 ## 1. Equipment, sources and host variables
 
@@ -58,7 +60,7 @@ export PASSWORD_FILE="$PRIVATE_DIR/ssh-password.txt"
 export CONFIG_FILE="$PRIVATE_DIR/native-config.json"
 ```
 
-`WORKSPACE`, `RSDK`, `MIGRATION_PYTHON`, `NCP_IMAGE` and `RCP_IMAGE` come from
+`WORKSPACE`, `PROJECT_ROOT`, `RSDK`, `MIGRATION_PYTHON`, `NCP_IMAGE` and `RCP_IMAGE` come from
 [build setup](building.md). Only Ziggurat modes need `RCP_IMAGE` built.
 Store all credentials and backups outside Git. The address above is an example;
 this guide does not use the development gateway's address.
@@ -248,7 +250,7 @@ On the **gateway console**, while factory services and other clients are stopped
 On the **host**:
 
 ```sh
-cd "$WORKSPACE/microhad"
+cd "$PROJECT_ROOT/microhad"
 "$MIGRATION_PYTHON" scripts/ezsp_preflight.py radio \
   --host "$GATEWAY_IP" --exclusive-radio
 ```
@@ -291,8 +293,8 @@ Keep TCP:8888 on a trusted LAN; the bridge has no authentication.
    }
    JSON
    chmod 600 "$CONFIG_FILE"
-   cd "$WORKSPACE/microhad"
-   ./deploy.sh --host "$GATEWAY_IP" --password-file "$PASSWORD_FILE" \
+   cd "$PROJECT_ROOT/microhad"
+   ../deploy.sh --host "$GATEWAY_IP" --password-file "$PASSWORD_FILE" \
      --binary build/mips/microhad --config "$CONFIG_FILE" \
      --target /tuya/native --activate
    ```
@@ -343,11 +345,11 @@ space first. The helper is reused by final capture and ownership checks:
 
 ```sh
 gateway_ssh 'mkdir -p /tuya/ziggurat-stage; chmod 700 /tuya/ziggurat-stage; df -k /tuya'
-cat "$WORKSPACE/ziggurat-compilation/build/gateway-maintenance" | \
+cat "$PROJECT_ROOT/build/gateway-maintenance" | \
   gateway_ssh 'cat > /tuya/ziggurat-stage/gateway-maintenance.new && chmod 700 /tuya/ziggurat-stage/gateway-maintenance.new && mv /tuya/ziggurat-stage/gateway-maintenance.new /tuya/ziggurat-stage/gateway-maintenance'
-cat "$WORKSPACE/ziggurat-compilation/build/ziggurat-hdlc/lexra-stock-uclibc/release/ziggurat.stripped" | \
+cat "$PROJECT_ROOT/build/ziggurat-hdlc/lexra-stock-uclibc/release/ziggurat.stripped" | \
   gateway_ssh 'cat > /tuya/ziggurat-stage/ziggurat.new && chmod 700 /tuya/ziggurat-stage/ziggurat.new && mv /tuya/ziggurat-stage/ziggurat.new /tuya/ziggurat-stage/ziggurat'
-cd "$WORKSPACE/microhad"
+cd "$PROJECT_ROOT/microhad"
 "$MIGRATION_PYTHON" scripts/network_backup.py collect \
   --host "$GATEWAY_IP" --password-file "$PASSWORD_FILE" \
   --output "$PRIVATE_DIR/empty-running-export.json"
@@ -430,8 +432,8 @@ x = json.loads(p.read_text())
 x['ziggurat_socket'] = '/tmp/ziggurat/native.sock'
 p.write_text(json.dumps(x, indent=2) + '\n')
 PY
-cd "$WORKSPACE/microhad"
-./deploy.sh --host "$GATEWAY_IP" --password-file "$PASSWORD_FILE" \
+cd "$PROJECT_ROOT/microhad"
+../deploy.sh --host "$GATEWAY_IP" --password-file "$PASSWORD_FILE" \
   --binary build/mips-ziggurat/microhad \
   --config "$CONFIG_FILE" --target /tuya/native
 cat "$PRIVATE_DIR/native-ziggurat-state.json" | \
@@ -526,7 +528,7 @@ Ziggurat radio type. See [upstream setup](https://github.com/zigpy/ziggurat#setu
    owning UART, enter the bootloader on the **host**:
 
    ```sh
-   cd "$WORKSPACE/microhad"
+   cd "$PROJECT_ROOT/microhad"
    "$MIGRATION_PYTHON" scripts/ezsp_preflight.py bootloader-roundtrip \
      --host "$GATEWAY_IP" --exclusive-radio
    ```
@@ -550,9 +552,9 @@ Ziggurat radio type. See [upstream setup](https://github.com/zigpy/ziggurat#setu
 
    ```sh
    gateway_ssh 'mkdir -p /tuya/ziggurat; chmod 700 /tuya/ziggurat'
-   cat "$WORKSPACE/ziggurat-compilation/build/gateway-maintenance" | \
+   cat "$PROJECT_ROOT/build/gateway-maintenance" | \
      gateway_ssh 'cat > /tuya/ziggurat/gateway-maintenance.new && chmod 700 /tuya/ziggurat/gateway-maintenance.new && mv /tuya/ziggurat/gateway-maintenance.new /tuya/ziggurat/gateway-maintenance'
-   cat "$WORKSPACE/ziggurat-compilation/build/ziggurat-hdlc/lexra-stock-uclibc/release/ziggurat.stripped" | \
+   cat "$PROJECT_ROOT/build/ziggurat-hdlc/lexra-stock-uclibc/release/ziggurat.stripped" | \
      gateway_ssh 'cat > /tuya/ziggurat/ziggurat.new && chmod 700 /tuya/ziggurat/ziggurat.new && mv /tuya/ziggurat/ziggurat.new /tuya/ziggurat/ziggurat'
    gateway_ssh 'cat > /tuya/tuya_start.sh.new' <<'SH'
    #!/bin/sh
@@ -601,7 +603,7 @@ gateway_ssh '/tuya/ziggurat/gateway-maintenance check-free /dev/ttyS1'
 gateway_ssh '/tuya/ziggurat/gateway-maintenance bootloader-enter /dev/ttyS1 --exclusive-radio'
 gateway_ssh '/tuya/serialgateway -f -p 8888 -b 115200 >/dev/null 2>&1 & echo $! > /tmp/silvercrest-bridge.pid'
 BRIDGE_PID=$(gateway_ssh 'cat /tmp/silvercrest-bridge.pid')
-cd "$WORKSPACE/microhad"
+cd "$PROJECT_ROOT/microhad"
 "$MIGRATION_PYTHON" scripts/ezsp_flash.py --image "$NCP_IMAGE" \
   --sha256 05c66bcc7895bc7db0b9648c12c40e387a1145eabe792413a2762d3d0ada262d \
   --host "$GATEWAY_IP" --exclusive-radio --already-in-bootloader --flash

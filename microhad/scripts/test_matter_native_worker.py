@@ -322,7 +322,7 @@ class RealService:
         self.path = Path('/tmp/microhad-matter.sock')
         if self.path.exists() or self.path.is_symlink():
             raise RuntimeError('Synthetic test requires an unused default Matter socket')
-        spec = importlib.util.spec_from_file_location('matter_runtime_test', compilation/'scripts/test-matter-service.py')
+        spec = importlib.util.spec_from_file_location('matter_runtime_test', compilation/'thread-matter/scripts/test-matter-service.py')
         runtime = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(runtime)
         self.runtime = runtime
@@ -334,7 +334,7 @@ class RealService:
             str(radio_path), self.radio.address, str(self.radio.port), '60'],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         wait_for(lambda: radio_path.exists())
-        self.process = subprocess.Popen([str(compilation/'build/rs-matter/target/release/thread-matter'),
+        self.process = subprocess.Popen([str(compilation/'build/thread-matter/target/release/thread-matter'),
             '--socket', str(self.path), '--state-dir', str(private/'state'),
             '--radio-url', f'spinel+hdlc+unix://{radio_path}?no-reset'],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE)

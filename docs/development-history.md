@@ -1,5 +1,8 @@
 # Build reference and experiment history
 
+> Historical experiment record. Superseded probes and dependencies have been
+> removed; use [building.md](building.md) for current commands.
+
 This is the archived build reference and chronological investigation log.
 Statements such as “not flashed” describe their historical checkpoint, not
 today’s deployment. For installation use the [fresh-device guide](installation.md);

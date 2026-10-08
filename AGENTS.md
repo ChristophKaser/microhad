@@ -1,8 +1,9 @@
-# Ziggurat and MicroHAD
+# Embedded home automation
 
 This repository contains the complete gateway software stack. `microhad/` is
-the native C++03 daemon and Web UI; the repository root contains Ziggurat,
-Matter/OpenThread build scripts, firmware tools, and shared toolchain settings.
+the native C++03 daemon and Web UI; `ziggurat/`, `thread-matter/` and
+`firmware/` own their respective source, scripts, patches and dependencies.
+Gecko SDK is shared under `shared/dependencies/`; toolchains remain at the root.
 See [microhad/AGENTS.md](microhad/AGENTS.md) for native daemon, deployment, and
 device-state requirements. Its C++ and Web UI verification rules apply to all
 changes in that component.
@@ -23,8 +24,8 @@ make -C microhad mips
 ```
 
 Build the synthetic CASE probe with
-`bash scripts/build-rs-matter-transport.sh host commissioning`. This writes
-`build/rs-matter/target/release/ot-matter-commissioning-probe`; do not run a
+`bash thread-matter/scripts/build.sh host commissioning`. This writes
+`build/thread-matter/target/release/ot-matter-commissioning-probe`; do not run a
 plain Cargo build because it would leave the integration fixture using an old
 binary. The fixture uses synthetic radio/accessory traffic and does not access
 the gateway.
@@ -32,11 +33,11 @@ the gateway.
 Build the target Ziggurat and Matter service with:
 
 ```sh
-ZIGGURAT_MULTIPAN=1 bash scripts/build-ziggurat.sh
-bash scripts/build-rs-matter-transport.sh mips service
+ZIGGURAT_MULTIPAN=1 bash ziggurat/scripts/build.sh
+bash thread-matter/scripts/build.sh mips service
 ```
 
-For MicroHAD updates, use `microhad/deploy.sh` after building the required
+For MicroHAD updates, use `./deploy.sh` after building the required
 artifacts. Ordinary deployment stages files; launcher activation and service
 restart are separate operations. A Matter release must use the documented
 maintenance deployment flow in [microhad/AGENTS.md](microhad/AGENTS.md).
@@ -45,7 +46,7 @@ Never deploy to a device unless explicitly requested.
 ## Repository and device state
 
 Generated artifacts under `build/`, Rust targets, tools, logs, target
-specifications, and worktrees are ignored. `microhad/garage-app/` is also
+specifications, and worktrees are ignored. `garage-app/` is also
 intentionally ignored; it is a separate Android project with local credentials
 and its own Git metadata. Do not stage or commit its contents. Never commit
 device configuration, credentials, production TLS keys, Matter identity,

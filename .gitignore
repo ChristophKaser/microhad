@@ -1,9 +1,9 @@
 /tools/
 /logs/
 /targets/
-/prototype/target/
-/dependency-probe/target/
-/rs-matter-probe/target/
+/thread-matter/target/
+/ziggurat/stock-uclibc-compat/target/
+/garage-app/
 /worktrees/
 /build/
 *.core

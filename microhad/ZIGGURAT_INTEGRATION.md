@@ -193,11 +193,11 @@ Rust and stock-RSDK prerequisites:
 
 ```sh
 cd ..
-ZIGGURAT_MULTIPAN=1 bash scripts/build-ziggurat.sh
+ZIGGURAT_MULTIPAN=1 bash ziggurat/scripts/build.sh
 source scripts/rust-env.sh
 CARGO_TARGET_DIR="$PWD/build/host" cargo +nightly-2026-10-02 build \
   --manifest-path worktrees/ziggurat-hdlc/Cargo.toml -p ziggurat-server
-python3 scripts/test-cobs-unix.py
+python3 ziggurat/scripts/test-cobs-unix.py
 cd microhad
 python3 scripts/test_ziggurat_service.py
 ../tools/network-migration-venv/bin/python \
@@ -213,8 +213,8 @@ with logs/socket in RAM, then removed both. No native state or launcher was chan
 
 ```sh
 cd ..
-bash scripts/build-hdlc-probe.sh
-python3 scripts/test-cobs-unix.py --host 192.168.178.62 \
+bash ziggurat/scripts/build-hdlc-probe.sh
+python3 ziggurat/scripts/test-cobs-unix.py --host 192.168.178.62 \
   --password-file ../ssh_password.txt --upload-storage flash
 ```
 

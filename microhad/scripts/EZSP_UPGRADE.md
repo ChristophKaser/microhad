@@ -56,7 +56,7 @@ SHA256: `b1ecf15caad2407e404954defbf88153337ccaa78f7d9e3c856f971e782db735`.
 Its image CRC is valid. A matching version is not proof that it is byte-identical
 to the running firmware. Returning to it after a storage migration is unverified.
 
-The 7.5.1 candidate is pinned to jnilo1/rtl8196e-gateway revision
+The 7.5.1 candidate is pinned to jnilo1/firmware/dependencies/rtl8196e-gateway revision
 `2cd6f3714c34adcdd503c8740a872c19ff24ce83`, path
 `2-Zigbee-Radio-Silabs-EFR32/24-NCP-UART-HW/firmware/ncp-uart-hw-7.5.1-115200-hw.gbl`.
 It has a valid CRC and no bootloader-update tag. Both application images start

@@ -11,10 +11,15 @@ import tempfile
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PATCH_DIR = ROOT / "patches"
-ZIGGURAT = ROOT / "ziggurat"
-RS_MATTER = ROOT / "dependencies/rs-matter"
-CPC = ROOT / "cpc-daemon"
+PATCH_DIRS = [ROOT / "patches", ROOT / "ziggurat/patches", ROOT / "thread-matter/patches"]
+
+def patch_path(name: str) -> Path:
+    directory = "ziggurat/patches" if name.startswith("ziggurat-") else (
+        "thread-matter/patches" if name.startswith(("rs-matter-", "openthread-")) else "patches")
+    return ROOT / directory / name
+
+ZIGGURAT = ROOT / "ziggurat/dependencies/ziggurat"
+RS_MATTER = ROOT / "thread-matter/dependencies/rs-matter"
 
 ZIGGURAT_COMMON = ["ziggurat-stock-compat.patch", "ziggurat-syslog.patch", "ziggurat-syslog-fragments.patch"]
 ZIGGURAT_MULTI_COMMON = [
@@ -31,13 +36,13 @@ ZIGGURAT_MULTI = [
     "ziggurat-fresh-join-replay.patch",
     "ziggurat-syslog-fragments.patch",
 ]
-RS_MATTER_PROBE = [
-    "rs-matter-probe-spake2p.patch",
-    "rs-matter-probe-peer-identity.patch",
-    "rs-matter-probe-attribute-notify.patch",
-    "rs-matter-probe-icd-capture.patch",
-    "rs-matter-probe-sessionless-icd.patch",
-    "rs-matter-probe-commissioning-region.patch",
+RS_MATTER_SERVICE = [
+    "rs-matter-spake2p.patch",
+    "rs-matter-peer-identity.patch",
+    "rs-matter-attribute-notify.patch",
+    "rs-matter-icd-capture.patch",
+    "rs-matter-sessionless-icd.patch",
+    "rs-matter-commissioning-region.patch",
 ]
 CRATE_PATCHES = ["getrandom-0.4.3", "nix-0.26.4", "radium-0.7.0"]
 def run(command: list[str], *, cwd: Path | None = None, capture: bool = False) -> str:
@@ -165,15 +170,13 @@ def main() -> int:
         *ZIGGURAT_MULTI,
         *ZIGGURAT_COMMON,
         "rs-matter-commissioning-probe.patch",
-        *RS_MATTER_PROBE,
-        "cpc-stock.patch",
-        "cpc-tcp-bus.patch",
+        *RS_MATTER_SERVICE,
         "openthread-hdlc-unix.patch",
         "openthread-hdlc-test.patch",
         "openthread-thread-transport.patch",
         *(f"{crate}.patch" for crate in CRATE_PATCHES),
     }
-    actual = {path.name for path in PATCH_DIR.glob("*.patch")}
+    actual = {path.name for directory in PATCH_DIRS for path in directory.glob("*.patch")}
     if actual != expected:
         missing = sorted(expected - actual)
         unclassified = sorted(actual - expected)
@@ -181,9 +184,9 @@ def main() -> int:
 
     revision = run(["git", "-C", str(ZIGGURAT), "rev-parse", "HEAD"], capture=True).strip()
     for multipan, names in (("0", ZIGGURAT_COMMON), ("1", ZIGGURAT_MULTI)):
-        command = ["python3", str(ROOT / "scripts/check-ziggurat-patches.py"),
+        command = ["python3", str(ROOT / "ziggurat/scripts/check-ziggurat-patches.py"),
                    "--source-revision", revision, "--multipan", multipan]
-        build_worktree = ROOT / ("worktrees/ziggurat-hdlc" if multipan == "1" else "worktrees/ziggurat")
+        build_worktree = ROOT / ("worktrees/ziggurat-multipan" if multipan == "1" else "worktrees/ziggurat-stock")
         if build_worktree.is_dir():
             command.extend(["--build-worktree", str(build_worktree.relative_to(ROOT))])
         subprocess.run(command, cwd=ROOT, check=True)
@@ -191,38 +194,34 @@ def main() -> int:
 
     verify_git_series(
         RS_MATTER,
-        [PATCH_DIR / name for name in RS_MATTER_PROBE],
-        "rs-matter probe series",
+        [patch_path(name) for name in RS_MATTER_SERVICE],
+        "rs-matter service series",
     )
     verify_git_series(
         RS_MATTER,
-        [PATCH_DIR / "rs-matter-commissioning-probe.patch",
-         PATCH_DIR / "rs-matter-probe-commissioning-region.patch"],
+        [patch_path("rs-matter-commissioning-probe.patch"),
+         patch_path("rs-matter-commissioning-region.patch")],
         "rs-matter commissioning fixture",
     )
     check_worktree_matches(
         RS_MATTER,
-        ROOT / "build/rs-matter/probe-source",
-        [PATCH_DIR / name for name in RS_MATTER_PROBE],
-        "rs-matter probe series",
+        ROOT / "build/thread-matter/service-source",
+        [patch_path(name) for name in RS_MATTER_SERVICE],
+        "rs-matter service series",
     )
     check_worktree_matches(
         RS_MATTER,
-        ROOT / "build/rs-matter/controller-source",
-        [PATCH_DIR / "rs-matter-commissioning-probe.patch",
-         PATCH_DIR / "rs-matter-probe-commissioning-region.patch"],
+        ROOT / "build/thread-matter/commissioning-source",
+        [patch_path("rs-matter-commissioning-probe.patch"),
+         patch_path("rs-matter-commissioning-region.patch")],
         "rs-matter commissioning fixture",
     )
 
-    cpc_series = [PATCH_DIR / "cpc-tcp-bus.patch", PATCH_DIR / "cpc-stock.patch"]
-    verify_git_series(CPC, cpc_series, "CPC daemon")
-    check_worktree_matches(CPC, ROOT / "worktrees/cpc-daemon", cpc_series, "CPC daemon")
-
-    openthread = ROOT / "dependencies/gecko-sdk/util/third_party/openthread"
+    openthread = ROOT / "shared/dependencies/gecko-sdk/util/third_party/openthread"
     openthread_patches = [
-        PATCH_DIR / "openthread-hdlc-unix.patch",
-        PATCH_DIR / "openthread-hdlc-test.patch",
-        PATCH_DIR / "openthread-thread-transport.patch",
+        patch_path("openthread-hdlc-unix.patch"),
+        patch_path("openthread-hdlc-test.patch"),
+        patch_path("openthread-thread-transport.patch"),
     ]
     verify_snapshot_series(openthread, openthread_patches, "Gecko SDK OpenThread adapter")
     openthread_build = ROOT / "build/openthread-unix/source-mailbox"
@@ -232,7 +231,7 @@ def main() -> int:
 
     cargo_roots = sorted((ROOT / "tools/cargo/registry/src").glob("*/"))
     for crate in CRATE_PATCHES:
-        patch = PATCH_DIR / f"{crate}.patch"
+        patch = patch_path(f"{crate}.patch")
         sources = [path / crate for path in cargo_roots if (path / crate).is_dir()]
         if not sources:
             raise SystemExit(f"Cannot validate {patch.name}: fetch the pinned Cargo crate source first")

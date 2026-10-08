@@ -168,13 +168,13 @@ acceptance remains excluded in plan 08.
 
 Compilation repository commit `48a5dbc` disables Cargo incremental artifacts
 for the pinned Rust project and directs its default target directory to ignored
-`build/rs-matter/target/`. The service-library test command is now explicit in
+`build/thread-matter/target/`. The service-library test command is now explicit in
 `ziggurat-compilation/docs/matter-sensors.md`. This addresses host disk growth
 during the controller-service test workflow; it changes no service runtime or
 deployment behavior.
 
 Validation passed with `cargo +nightly-2026-10-02 test --locked
---manifest-path rs-matter-probe/Cargo.toml --features controller-service
+--manifest-path thread-matter/Cargo.toml --features controller-service
 --lib`: 81/81 tests. The sandbox attempt could not create Unix sockets
 (`EPERM`); the same command passed outside the sandbox. Step 7 remains partial:
 the installed daemon's own active CASE report path and device/target acceptance
@@ -204,8 +204,8 @@ production MIPS service independently cross-builds to 2,162,372 bytes
 Reproduce the bounded target profile from `ziggurat-compilation`:
 
 ```sh
-bash scripts/build-rs-matter-transport.sh mips commissioning
-python3 scripts/test-openthread-matter-device.py \
+bash thread-matter/scripts/build.sh mips commissioning
+python3 thread-matter/scripts/test-openthread-matter-device.py \
   --host 192.168.178.62 --password-file ../ssh_password.txt \
   --commissioning --ble --service-owner --icd
 ```
@@ -549,7 +549,7 @@ Rust commit `f33d47c` additionally exercises the actual service binary across
 synthetic RCP socket death and restart. It verifies stale IPC socket reclamation,
 unchanged credentials, startup waiting without radio traffic, wrong-channel
 rejection before radio use, and recovery after a fresh matching observation.
-`python3 scripts/test-matter-service.py` passes. This closes the host service/
+`python3 thread-matter/scripts/test-matter-service.py` passes. This closes the host service/
 RCP restart checkpoint; active commissioning during RCP death, target startup
 and resource deadlines, and physical acceptance remain open.
 
@@ -570,8 +570,8 @@ memory, deadlines, startup and reset-source acceptance remain open.
 
 The Matter-enabled native bridge builds with
 `make ZIGGURAT=1 MATTER=1 mips`; the Rust service builds with
-`source scripts/rust-env.sh && CARGO_TARGET_DIR="$PWD/build/rs-matter/target"
-bash scripts/build-rs-matter-transport.sh mips service`. The native source was
+`source scripts/rust-env.sh && CARGO_TARGET_DIR="$PWD/build/thread-matter/target"
+bash thread-matter/scripts/build.sh mips service`. The native source was
 at `eb451f8`; the Rust source was at `980db77`. Both artifacts are stripped,
 static, 32-bit big-endian MIPS-I executables with no `PT_INTERP`: native
 1,736,548 bytes (SHA-256
@@ -600,8 +600,8 @@ mips`; the output is `build/mips-ziggurat-matter/microhad`, 1,736,548
 bytes, SHA-256
 `1f15345fc12125e2c173f9cc82c4a9a9df6fecd7ad3f5ff50bb20b2009184b47`.
 Rebuilt the Rust service from `1b7ae98` using
-`bash scripts/build-rs-matter-transport.sh mips service`; the output is
-`build/rs-matter/thread-matter-mips`, 2,109,120 bytes, SHA-256
+`bash thread-matter/scripts/build.sh mips service`; the output is
+`build/thread-matter/thread-matter-mips`, 2,109,120 bytes, SHA-256
 `dcd10f1687d5cae0a1633fe9a04398bb0326d28feb0a2d5d3a19a5458c63c675`.
 Both are static ELF32 big-endian MIPS-I/o32 executables. `readelf` reports no
 interpreter or dynamic section for the Rust service. This updates the older
@@ -616,7 +616,7 @@ not-ready handling when the fixture has no attached accessory.
 
 ## Authorized gateway simulation preflight — 2026-10-05
 
-The host attempted `python3 scripts/test-openthread-device.py --host
+The host attempted `python3 thread-matter/scripts/test-openthread-device.py --host
 192.168.178.62 --password-file ../ssh_password.txt --profile
 --profile-load-seconds 60` using the synthetic RCP path. The harness refused to
 stage or launch its test workload because MemFree was 2,980 KiB, below its
@@ -643,7 +643,7 @@ This is OpenThread CLI plus synthetic UDP/RCP traffic, not the Matter service,
 CASE, a real radio, or combined Zigbee/Matter load. The 8 KiB sampled margin
 over the free-memory guard is narrow, and one-second sampling may miss peaks.
 Full Matter-service CPU/RSS/deadline feasibility remains unverified; see the
-[profile record](../../docs/openthread-resource-profile.md).
+[profile record](../../../docs/openthread-resource-profile.md).
 
 ## Guarded MIPS service startup — 2026-10-05
 
@@ -692,7 +692,7 @@ Rust commit `6e44f33` adds a build-time binary-marker check for the
 test-service build must contain the marker; host production and stripped MIPS
 production builds must not. All three artifact checks passed. The dedicated
 test-service build passed, both production service build paths passed, and
-`python3 scripts/test-matter-service.py` passed its commissioner, Thread
+`python3 thread-matter/scripts/test-matter-service.py` passed its commissioner, Thread
 lifecycle, and Spinel-failure recovery checks. The current MIPS service remains
 2,109,120 bytes. This closes the test-fixture/production artifact boundary; it
 does not close the live CASE-report path or the gateway reset investigation.
@@ -736,7 +736,7 @@ later ten-second interval advanced uptime from 3,198.43 to 3,208.47 seconds.
 This rules out a reset during that check but does not resolve the earlier
 resets. There is no known safe way to
 disable the hardware watchdog from the current image. See the [resource-profile
-record](../../docs/openthread-resource-profile.md) for the
+record](../../../docs/openthread-resource-profile.md) for the
 observation and datasheet reference.
 
 A read-only live check at 2026-10-05 10:03 UTC found uptime advancing from
@@ -768,8 +768,8 @@ This measures only the OpenThread CLI's synthetic RCP/UDP path; it does not
 measure the Rust Matter service, CASE, DNS Browse callback, real RCP or combined
 Zigbee/Thread load. The existing service remained healthy, and cleanup removed
 temporary binaries/settings/socket. See the detailed
-[resource profile](../../docs/openthread-resource-profile.md)
-and [machine-readable samples](../../docs/openthread-resource-profile.json).
+[resource profile](../../../docs/openthread-resource-profile.md)
+and [machine-readable samples](../../../docs/openthread-resource-profile.json).
 
 ## MIPS CASE sensor-report workload — 2026-10-05
 
@@ -784,7 +784,7 @@ MemFree was 10,080 KiB, and minimum free plus clean inactive file cache was
 11.75-second sampled interval. It stayed within the 3,072 KiB RSS, 512 KiB raw
 MemFree and 4,096 KiB effective-free limits, cleaned temporary artifacts and
 did not reset the gateway. The machine-readable report is
-`ziggurat-compilation/build/rs-matter/openthread-ble-commissioning-device-validation.json`.
+`ziggurat-compilation/build/thread-matter/openthread-ble-commissioning-device-validation.json`.
 
 The attempted `--service-discovery` variant timed out at its 45-second synthetic
 SRP-registration deadline because the device-side RCP simulator does not
@@ -851,7 +851,7 @@ showed normal initialization and no watchdog, reset, panic, OOM, brownout, or
 reboot-cause message. Since the ring buffer contains only the current boot, it
 does not reveal why earlier resets occurred. No reset occurred during this
 brief check; the cause remains unknown. See the detailed
-[resource-profile record](../../docs/openthread-resource-profile.md).
+[resource-profile record](../../../docs/openthread-resource-profile.md).
 
 ## Check-In responder filtering and debugger availability — 2026-10-05
 
@@ -871,6 +871,6 @@ and no reboot was detected. The gateway has no `gdb` or `gdbserver`. The host
 toolchain's Realtek MIPS GDB 7.6.2 is available, and the target core pattern is
 `core`; a core could help with a userspace crash if process limits permit, but
 it cannot explain an abrupt hardware reset. See the detailed runtime and
-[resource-profile record](../../docs/openthread-resource-profile.md).
+[resource-profile record](../../../docs/openthread-resource-profile.md).
 The live CASE report loop within the installed daemon remains a separate joined
 process validation gate.

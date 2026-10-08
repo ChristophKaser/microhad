@@ -51,9 +51,9 @@ suites and both MIPS builds pass. No credential or setup-code fields are present
 Verified 2026-10-04: 57 service-feature library tests, host/MIPS service and
 commissioning-probe builds, real service IPC, encrypted descriptor/snapshot
 fixture, and native real-service HTTP/WebSocket regression all pass. Commands
-are the existing `scripts/build-rs-matter-transport.sh` host/mips service and
-commissioning variants, `scripts/test-matter-service.py`, and
-`scripts/test-openthread-matter-transport.py --commissioning --ble --service-owner
+are the existing `thread-matter/scripts/build.sh` host/mips service and
+commissioning variants, `thread-matter/scripts/test-matter-service.py`, and
+`thread-matter/scripts/test-openthread-matter-transport.py --commissioning --ble --service-owner
 --service-discovery`; native compatibility uses
 `microhad/scripts/test_matter_native_worker.py --real-service`.
 

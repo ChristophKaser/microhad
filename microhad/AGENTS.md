@@ -16,11 +16,11 @@ Use `make ZIGGURAT=0 mips` for the legacy EZSP binary or
 `make ZIGGURAT=1 MATTER=0 mips` for Ziggurat without Matter APIs.
 
 The host Matter CASE fixture uses the commissioning probe at
-`build/rs-matter/target/release/ot-matter-commissioning-probe`.
+`build/thread-matter/target/release/ot-matter-commissioning-probe`.
 Rebuild it from the repository root with
-`bash scripts/build-rs-matter-transport.sh host commissioning`. Do not use a
+`bash thread-matter/scripts/build.sh host commissioning`. Do not use a
 plain Cargo build for this fixture: without the repository target directory it
-writes under `rs-matter-probe/target/`, leaving the integration harness on an
+writes under `thread-matter/target/`, leaving the integration harness on an
 older binary. This host command does not deploy or access the gateway radio.
 
 ## Mandatory verification and commits
@@ -46,7 +46,7 @@ socket, is a symlink, or the kernel socket table cannot be read, startup leaves
 it untouched and reports the problem. This handles socket files left after a
 crash without unlinking a live service's socket.
 
-From the repository root, deploy updates with `microhad/deploy.sh` and the password file by pathname. The default
+From the repository root, deploy updates with `./deploy.sh` and the password file by pathname. The default
 copies the selected binary and Web UI; `--binary-only`, `--webui-only`, and
 `--both` select those assets. Pass `--config` only when intentionally replacing
 the device configuration. Files are transferred through SSH stdin and each
@@ -58,14 +58,14 @@ service, and `paired_start.sh`:
 # Native gateway, from the repository root
 make -C microhad mips
 
-# Rust service, from ..
-bash scripts/build-rs-matter-transport.sh mips service
+# Rust service, from the repository root
+bash thread-matter/scripts/build.sh mips service
 
 # Stage the Matter package without changing the active launcher or processes
-microhad/deploy.sh --host 192.168.178.62 --password-file ../ssh_password.txt \
+./deploy.sh --host 192.168.178.62 --password-file ../ssh_password.txt \
   --target /tuya/native --binary-only \
   --binary microhad/build/mips-ziggurat-matter/microhad \
-  --matter-service build/rs-matter/thread-matter-mips
+  --matter-service build/thread-matter/thread-matter-mips
 ```
 
 Staging does not activate Matter or restart a process. To install the
@@ -117,19 +117,19 @@ make -C microhad ZIGGURAT=1 MATTER=1 mips
 make -C microhad webui
 bash microhad/scripts/build-logread.sh
 
-# Ziggurat and radio maintenance helper, from ..
-ZIGGURAT_MULTIPAN=1 bash scripts/build-ziggurat.sh
-bash scripts/build-maintenance.sh
+# Ziggurat and radio maintenance helper, from the repository root
+ZIGGURAT_MULTIPAN=1 bash ziggurat/scripts/build.sh
+bash firmware/scripts/build-maintenance.sh
 
-# Matter service, from ..
-bash scripts/build-rs-matter-transport.sh mips service
+# Matter service, from the repository root
+bash thread-matter/scripts/build.sh mips service
 
-# Complete maintenance deployment, from this repository
-microhad/deploy.sh --maintenance-deploy --verify-https --host 192.168.178.62 \
+# Complete maintenance deployment, from the repository root
+./deploy.sh --maintenance-deploy --verify-https --host 192.168.178.62 \
   --password-file ../ssh_password.txt --target /tuya/native \
   --binary microhad/build/mips-ziggurat-matter/microhad \
   --ziggurat build/ziggurat-hdlc/lexra-stock-uclibc/release/ziggurat \
-  --matter-service build/rs-matter/thread-matter-mips \
+  --matter-service build/thread-matter/thread-matter-mips \
   --maintenance-helper build/gateway-maintenance \
   --logread microhad/build/logread-mips
 ```
@@ -173,10 +173,10 @@ stage another binary copy, activate the paired launcher while checking the
 same local artifacts against the staged device files:
 
 ```sh
-microhad/deploy.sh --host 192.168.178.62 --password-file ../ssh_password.txt \
+./deploy.sh --host 192.168.178.62 --password-file ../ssh_password.txt \
   --target /tuya/native --activate-paired-only \
   --binary microhad/build/mips-ziggurat-matter/microhad \
-  --matter-service build/rs-matter/thread-matter-mips
+  --matter-service build/thread-matter/thread-matter-mips
 ```
 
 `--activate-paired-only` uploads only the launcher after verifying the staged
@@ -190,13 +190,13 @@ under the existing supervisor.
 
 ## Device build, deployment, and checks
 
-The development gateway is `192.168.178.62`. From this directory, use the
+The development gateway is `192.168.178.62`. From the repository root, use the
 untracked password file only by pathname:
 
 ```sh
-make host test
-make mips
-microhad/deploy.sh --host 192.168.178.62 --password-file ../ssh_password.txt \
+make -C microhad host test
+make -C microhad mips
+./deploy.sh --host 192.168.178.62 --password-file ../ssh_password.txt \
   --target /tuya/native --restart
 ```
 
@@ -279,7 +279,7 @@ and verify new runtime behavior does not introduce flash write cycles.
 
 ## Garage Android app
 
-`garage-app/` is a separate Git repository copied into this workspace and
+`../garage-app/` is a separate Git repository copied into this workspace and
 ignored by the parent repository. Commit changes to the Garage app in
-`garage-app/` separately from changes to this repository. Do not stage or
+`../garage-app/` separately from changes to this repository. Do not stage or
 commit Garage app files in the parent repository.

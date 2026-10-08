@@ -25,23 +25,29 @@ Choose a workspace directory; the example uses `$HOME/silvercrest-work`:
 mkdir -p "$HOME/silvercrest-work"
 cd "$HOME/silvercrest-work"
 export WORKSPACE="$PWD"
-git clone --recurse-submodules https://github.com/ChristophKaser/ziggurat-compilation.git
+git clone --recurse-submodules https://github.com/ChristophKaser/ziggurat-compilation.git embedded-home-automation
+export PROJECT_ROOT="$WORKSPACE/embedded-home-automation"
 git clone https://github.com/banksy-git/lidl-gateway-freedom.git
 ```
 
-Access to the upstream repositories is required. The experiment's submodules
-pin Ziggurat, rtl8196e-gateway, cpc-daemon, rs-matter, connectedhomeip, the
-Silicon Labs Gecko SDK and the Silicon Labs CLI. `--recurse-submodules` checks
-out all seven at the exact commits recorded by this repository. The SDK and
-Matter source scripts retain sparse checkouts where only part of a repository
-is needed. **cpc-daemon is not built or run** for these HDLC modes. Use the
-standalone native repository checkout, rather than applying its archived patch
-over an unrelated revision.
+The five retained submodules pin upstream Ziggurat, rs-matter,
+rtl8196e-gateway, Gecko SDK and SLC CLI. Each component owns its dependencies;
+Gecko SDK is shared by firmware and the Matter OpenThread adapter.
+MicroHAD is included in this checkout; no separate native repository is needed.
+
+After updating an existing checkout, synchronize its moved submodules and
+rebuild using the component entrypoints:
+
+```sh
+cd "$PROJECT_ROOT"
+git submodule sync --recursive
+git submodule update --init --recursive
+```
 
 ## Stock MIPS toolchain
 
 Use exactly `rsdk-4.4.7-4181-EB-2.6.30-0.9.30-m32u-140129` beside the
-`ziggurat-compilation` checkout. Shared defaults in `config/toolchains.mk`
+`embedded-home-automation` checkout. Shared defaults in `config/toolchains.mk`
 point MicroHAD and Ziggurat at this toolchain. Set `RSDK_ROOT="$RSDK"` when
 the toolchain is elsewhere.
 
@@ -77,7 +83,7 @@ still uses that RSDK's GCC driver as linker and its uClibc runtime/sysroot; see
 Using Clang/LLVM for native C++ may be possible, but needs a separate verified
 build configuration with compatible C++ headers/libraries, ABI, atomics and
 Lexra instruction generation. That path has not been implemented or tested.
-The newer rtl8196e-gateway toolchain targets another Linux environment and is
+The newer upstream rtl8196e-gateway toolchain targets another Linux environment and is
 also not a verified drop-in replacement. The commands here reproduce the
 existing tested builds; they do not imply RSDK-free compilation of Ziggurat.
 
@@ -86,11 +92,11 @@ existing tested builds; they do not imply RSDK-free compilation of Ziggurat.
 Host commands:
 
 ```sh
-cd "$WORKSPACE/microhad"
+cd "$PROJECT_ROOT/microhad"
 make RSDK_ROOT="$RSDK" ZIGGURAT=0 host test
 make RSDK_ROOT="$RSDK" ZIGGURAT=0 mips
-make RSDK_ROOT="$RSDK" ZIGGURAT=1 host test
-make RSDK_ROOT="$RSDK" ZIGGURAT=1 mips
+make RSDK_ROOT="$RSDK" ZIGGURAT=1 MATTER=0 host test
+make RSDK_ROOT="$RSDK" ZIGGURAT=1 MATTER=0 mips
 make webui
 
 cd "$WORKSPACE/lidl-gateway-freedom/gateway"
@@ -106,10 +112,10 @@ Bridge output is `lidl-gateway-freedom/gateway/serialgateway`. The bridge's
 Host commands:
 
 ```sh
-cd "$WORKSPACE/ziggurat-compilation"
+cd "$PROJECT_ROOT"
 bash scripts/install-rust.sh
-ZIGGURAT_MULTIPAN=1 bash scripts/build-ziggurat.sh
-bash scripts/build-maintenance.sh
+ZIGGURAT_MULTIPAN=1 bash ziggurat/scripts/build.sh
+bash firmware/scripts/build-maintenance.sh
 ```
 
 Rust is pinned to `nightly-2026-10-02`, with local Cargo/rustup homes. The build
@@ -126,7 +132,7 @@ git config core.hooksPath .githooks
 ```
 
 The hook validates the stock and multipan Ziggurat series, both rs-matter
-series, CPC, OpenThread, and the three Cargo compatibility patches. When their
+series, OpenThread, and the three Cargo compatibility patches. When their
 build worktrees exist, it also checks that their tracked changes match the
 patch series.
 
@@ -140,9 +146,9 @@ uClibc libraries. It reuses the installed GSDK source and applies the Unix HDLC
 adapter in an ignored copy; it does not alter the SDK or deploy to the gateway.
 
 ```sh
-cd "$WORKSPACE/ziggurat-compilation"
-bash scripts/build-openthread.sh host
-bash scripts/build-openthread.sh mips
+cd "$PROJECT_ROOT"
+bash thread-matter/scripts/build-openthread.sh host
+bash thread-matter/scripts/build-openthread.sh mips
 ```
 
 The host command builds the CLI and runs the real HDLC adapter against a local
@@ -156,29 +162,29 @@ The running factory kernel lacks IPv6/TUN for the Linux interface/border-router
 path. The binary passed a bounded device simulation using a host-simulated
 RCP and internal UDP self delivery; it is not installed as a service.
 See [compiler fixes, relay build/test commands, artifact hash and limits](openthread-feasibility.md)
-for the complete evidence and procedure. OTBR and Matter are still separate work.
+for the complete evidence and procedure. OTBR is outside this project; the separate Matter service uses this userspace stack.
 
 ## Two-instance HDLC RCP firmware
 
 Host commands:
 
 ```sh
-cd "$WORKSPACE/ziggurat-compilation"
-bash scripts/install-silabs.sh
-git -C dependencies/gecko-sdk lfs install --local
+cd "$PROJECT_ROOT"
+bash firmware/scripts/install-silabs.sh
+git -C shared/dependencies/gecko-sdk lfs install --local
 sdk_lfs_libraries='platform/emdrv/nvm3/lib/libnvm3_CM4_gcc.a'
 sdk_lfs_libraries+=',protocol/openthread/libs/libsl_openthread_efr32mg1x_gcc.a'
 sdk_lfs_libraries+=',platform/radio/rail_lib/autogen/librail_release/librail_efr32xg1_gcc_release.a'
-git -C dependencies/gecko-sdk lfs pull --include="$sdk_lfs_libraries" --exclude=''
-BUILD_JOBS=4 bash scripts/build-hdlc-firmware.sh
-bash scripts/install-commander.sh
-bash scripts/package-hdlc-gbl.sh
+git -C shared/dependencies/gecko-sdk lfs pull --include="$sdk_lfs_libraries" --exclude=''
+BUILD_JOBS=4 bash firmware/scripts/build-hdlc-firmware.sh
+bash firmware/scripts/install-commander.sh
+bash firmware/scripts/package-hdlc-gbl.sh
 ```
 
 The installer pins GSDK 4.5.0, SLC 5.6.3 and ARM GCC 12.2.rel1. SLC runs from
 the ignored linked worktree `build/slc-cli`, keeping its generated state out of
-the pinned `dependencies/slc-cli` submodule. Java 17 is selected
-at `/usr/lib/jvm/java-17-openjdk-amd64/bin`; adjust `scripts/silabs-env.sh` for
+the pinned `firmware/dependencies/slc-cli` submodule. Java 17 is selected
+at `/usr/lib/jvm/java-17-openjdk-amd64/bin`; adjust `firmware/scripts/silabs-env.sh` for
 another distribution. SDK binary libraries must be downloaded, not LFS pointers.
 
 Outputs are under `build/firmware-hdlc/build/debug/`: `.out`, `.bin`, `.map` and
@@ -191,14 +197,14 @@ Packaging/build commands do not contact or flash a device.
 Host commands:
 
 ```sh
-cd "$WORKSPACE/ziggurat-compilation"
+cd "$PROJECT_ROOT"
 python3 -m venv tools/network-migration-venv
 tools/network-migration-venv/bin/pip install \
   bellows==1.0.2 zigpy==2.2.0 universal-silabs-flasher==1.1.0
-export MIGRATION_PYTHON="$WORKSPACE/ziggurat-compilation/tools/network-migration-venv/bin/python"
-export NCP_IMAGE="$WORKSPACE/ziggurat-compilation/rtl8196e-gateway/2-Zigbee-Radio-Silabs-EFR32/24-NCP-UART-HW/firmware/ncp-uart-hw-7.5.1-115200-hw.gbl"
-export RCP_IMAGE="$WORKSPACE/ziggurat-compilation/build/firmware-hdlc/build/debug/ot-rcp-multipan.gbl"
-cd "$WORKSPACE/microhad"
+export MIGRATION_PYTHON="$PROJECT_ROOT/tools/network-migration-venv/bin/python"
+export NCP_IMAGE="$PROJECT_ROOT/firmware/dependencies/rtl8196e-gateway/2-Zigbee-Radio-Silabs-EFR32/24-NCP-UART-HW/firmware/ncp-uart-hw-7.5.1-115200-hw.gbl"
+export RCP_IMAGE="$PROJECT_ROOT/build/firmware-hdlc/build/debug/ot-rcp-multipan.gbl"
+cd "$PROJECT_ROOT/microhad"
 "$MIGRATION_PYTHON" scripts/ezsp_preflight.py image "$NCP_IMAGE"
 # After the HDLC build:
 "$MIGRATION_PYTHON" scripts/ezsp_preflight.py image "$RCP_IMAGE"

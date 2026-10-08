@@ -99,9 +99,9 @@ Reproduce host behavior with:
 
 ```sh
 cargo +nightly-2026-10-02 test --locked --release \
-  --manifest-path rs-matter-probe/Cargo.toml \
+  --manifest-path thread-matter/Cargo.toml \
   --features controller-service --lib
-python3 scripts/test-openthread-matter-transport.py \
+python3 thread-matter/scripts/test-openthread-matter-transport.py \
   --commissioning --ble --service-owner --icd
 ```
 
@@ -498,7 +498,7 @@ an exchange, while group or unauthenticated sessions have no peer identity.
 This provides the key needed to correlate later server-initiated reports
 without treating a device-chosen subscription ID as globally unique. The patch
 applies to the clean pinned source and is applied idempotently by
-`scripts/fetch-rs-matter.sh`; Rust controller-identity tests pass 25/25.
+`thread-matter/scripts/fetch-rs-matter.sh`; Rust controller-identity tests pass 25/25.
 Active report intake, managed subscription lifecycle, native IPC event delivery
 and report lifecycle tests remain open.
 
@@ -510,7 +510,7 @@ report interval, acknowledges every priming chunk, and returns the negotiated
 subscription ID and maximum interval. The production-owned synthetic accessory
 fixture establishes an OnOff subscription after commissioned CASE discovery.
 Verified with the release build and
-`python3 scripts/test-openthread-matter-transport.py --commissioning --ble
+`python3 thread-matter/scripts/test-openthread-matter-transport.py --commissioning --ble
 --service-owner --service-discovery`; the fixture passed commissioning,
 catalog restore, descriptor discovery, read/control, and subscription
 establishment over its synthetic RCP.
@@ -528,7 +528,7 @@ the authenticated fabric/node, negotiated subscription ID, endpoint, cluster,
 and value. It returns `StatusResponse(Success)`, changes OnOff back, and
 receives/acknowledges the second report so the remaining fixture starts from
 the original device state. Verified with the release commissioning-probe build
-and `python3 scripts/test-openthread-matter-transport.py --commissioning --ble
+and `python3 thread-matter/scripts/test-openthread-matter-transport.py --commissioning --ble
 --service-owner --service-discovery` against the synthetic RCP; all commissioning,
 catalog, CASE control, two report transitions, and restart checks passed.
 The listener must use immediate `Exchange::accept()`; delaying acceptance for
@@ -548,7 +548,7 @@ open.
 
 Verification passed: focused Rust operations unit test, release commissioning
 probe build, and
-`python3 scripts/test-openthread-matter-transport.py --commissioning --ble
+`python3 thread-matter/scripts/test-openthread-matter-transport.py --commissioning --ble
 --service-owner --service-discovery` against the synthetic RCP. The broader
 Rust library suite passed all 62 tests when run with Unix-domain socket access.
 
@@ -564,7 +564,7 @@ the peer, subscription, typed value, and continued accessory operation.
 
 Verification passed: release commissioning probe build, all 62 Rust library
 tests with Unix-domain socket access, and
-`python3 scripts/test-openthread-matter-transport.py --commissioning --ble
+`python3 thread-matter/scripts/test-openthread-matter-transport.py --commissioning --ble
 --service-owner --service-discovery` against the synthetic RCP. The production
 Manager at this earlier checkpoint did not schedule subscriptions or poll this
 receiver, and the
@@ -589,7 +589,7 @@ and reads both peer-correlated values from the manager queue. The harness now
 requires that exact success marker. Verification passed: all 63 service-feature
 library tests, release builds of the controller service and commissioning
 probes, and
-`python3 scripts/test-openthread-matter-transport.py --commissioning --ble
+`python3 thread-matter/scripts/test-openthread-matter-transport.py --commissioning --ble
 --service-owner --service-discovery` against the synthetic RCP.
 
 At that checkpoint, the queue was not yet published through Matter IPC or
@@ -955,10 +955,10 @@ negative, or non-finite concentration values are rejected.
 
 The new TLV decoder test verifies signed and unknown temperature, humidity,
 air-quality enum mapping, and raw CO2/PM2.5 decoding. Verification passed:
-`cargo +nightly-2026-10-02 test --manifest-path rs-matter-probe/Cargo.toml
+`cargo +nightly-2026-10-02 test --manifest-path thread-matter/Cargo.toml
 --features controller-probe --lib` (66/66), the release
 `thread-matter` service build, and
-`python3 scripts/test-openthread-matter-transport.py --commissioning --ble
+`python3 thread-matter/scripts/test-openthread-matter-transport.py --commissioning --ble
 --service-owner --service-discovery` (existing production-manager OnOff report
 path). A sensor report was not claimed from that fixture: changing its external
 test sensor cells does not notify the accessory's Matter subscription
@@ -971,7 +971,7 @@ Rust commit `62d7fd4` adds a reproducible probe-only patch to the pinned
 `rs-matter` worktree exposing the interaction model's attribute-change
 notifier. The synthetic accessory now uses it when its sensor values change,
 so the fixture exercises actual server-initiated `ReportData` rather than
-priming reads. `scripts/fetch-rs-matter.sh` applies the patch idempotently.
+priming reads. `thread-matter/scripts/fetch-rs-matter.sh` applies the patch idempotently.
 The production `Manager` establishes subscriptions for all seven advertised
 paths, receives OnOff changes and five sensor clusters, correlates fabric/node/
 subscription/path, converts measurement units, and returns normalized values.
@@ -979,7 +979,7 @@ The isolated `--sensor-reports` mode exits before the separate controller-stack
 restart scenario; multi-subscription behavior across restart is still open.
 
 Verified with
-`python3 scripts/test-openthread-matter-transport.py --commissioning --ble
+`python3 thread-matter/scripts/test-openthread-matter-transport.py --commissioning --ble
 --service-owner --service-discovery --sensor-reports`, which passes the
 notifier-backed temperature, humidity, air-quality, CO2, PM2.5, and OnOff
 reports over the synthetic RCP. The normal production-owner fixture without
@@ -992,7 +992,7 @@ and plan 08 acceptance remain open.
 ## Production sensor and native service fixture revalidation — 2026-10-04
 
 Re-ran the notifier-backed production-manager fixture with
-`python3 scripts/test-openthread-matter-transport.py --commissioning --ble
+`python3 thread-matter/scripts/test-openthread-matter-transport.py --commissioning --ble
 --service-owner --service-discovery --sensor-reports`. It passes encrypted
 commissioning, operational DNS resolution and descriptors, typed sensor reads,
 all five normalized sensor report types, and OnOff reports through the
@@ -1076,9 +1076,9 @@ one sample per metric per minute, so the prior CASE samples remain the latest
 numeric history records during this same-minute process check.
 
 Verification passed with
-`source scripts/rust-env.sh && CARGO_TARGET_DIR="$PWD/build/rs-matter/target"
+`source scripts/rust-env.sh && CARGO_TARGET_DIR="$PWD/build/thread-matter/target"
 cargo +nightly-2026-10-02 build --offline --manifest-path
-rs-matter-probe/Cargo.toml --features controller-service-test-hooks --bin
+thread-matter/Cargo.toml --features controller-service-test-hooks --bin
 thread-matter --locked`, the corresponding `cargo check`, a production-feature
 release build, then a final test-hook build and
 `python3 scripts/test_matter_native_report_integration.py` (host synthetic
@@ -1146,7 +1146,7 @@ store reopen.
 The encrypted synthetic accessory test rewrites only its private fixture
 catalog to emulate interruption after NOC installation, then performs real
 CASE descriptor discovery and requires the persisted catalog to return to
-`complete`. `python3 scripts/test-openthread-matter-transport.py
+`complete`. `python3 thread-matter/scripts/test-openthread-matter-transport.py
 --commissioning --ble --service-owner --service-discovery --sensor-reports`
 passes, including the existing commissioning, subscription, OnOff/Level and
 five-sensor-report checks. Controller-service library tests pass 74/74. The

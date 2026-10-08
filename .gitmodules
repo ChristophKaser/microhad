@@ -1,21 +1,15 @@
 [submodule "ziggurat"]
-	path = ziggurat
+	path = ziggurat/dependencies/ziggurat
 	url = https://github.com/zigpy/ziggurat.git
 [submodule "rtl8196e-gateway"]
-	path = rtl8196e-gateway
+	path = firmware/dependencies/rtl8196e-gateway
 	url = https://github.com/jnilo1/rtl8196e-gateway.git
-[submodule "cpc-daemon"]
-	path = cpc-daemon
-	url = https://github.com/SiliconLabs/cpc-daemon.git
 [submodule "gecko-sdk"]
-	path = dependencies/gecko-sdk
+	path = shared/dependencies/gecko-sdk
 	url = https://github.com/SiliconLabs/gecko_sdk.git
 [submodule "dependencies/rs-matter"]
-	path = dependencies/rs-matter
+	path = thread-matter/dependencies/rs-matter
 	url = https://github.com/project-chip/rs-matter.git
-[submodule "dependencies/connectedhomeip"]
-	path = dependencies/connectedhomeip
-	url = https://github.com/project-chip/connectedhomeip.git
 [submodule "dependencies/slc-cli"]
-	path = dependencies/slc-cli
+	path = firmware/dependencies/slc-cli
 	url = https://github.com/SiliconLabsSoftware/circuitpython_slc_cli_linux.git

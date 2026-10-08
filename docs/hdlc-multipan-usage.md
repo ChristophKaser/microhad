@@ -8,8 +8,8 @@ standalone product goal; the latter integrations are not implemented here.
 ## Reproduce the firmware build
 
 ```sh
-bash scripts/install-silabs.sh
-bash scripts/build-hdlc-firmware.sh
+bash firmware/scripts/install-silabs.sh
+bash firmware/scripts/build-hdlc-firmware.sh
 ```
 
 The installer keeps tools under ignored `tools/silabs/`. It uses GSDK v4.5.0
@@ -52,15 +52,15 @@ The radio implementation still links the precompiled MG1 RAIL archive. See
 
 ## Build the host and MIPS transport changes
 
-`patches/ziggurat-hdlc-multipan.patch` begins an ordered mailbox series against
+`ziggurat/patches/ziggurat-hdlc-multipan.patch` begins an ordered mailbox series against
 the pinned Ziggurat revision. The build script applies each mailbox with
 `git am` in `worktrees/ziggurat-hdlc`; it leaves the upstream checkout untouched.
 Stock and multipan builds use separate compatibility and syslog mailboxes where
 their source context differs.
 
 ```sh
-ZIGGURAT_MULTIPAN=1 bash scripts/build-ziggurat.sh
-bash scripts/build-hdlc-probe.sh
+ZIGGURAT_MULTIPAN=1 bash ziggurat/scripts/build.sh
+bash ziggurat/scripts/build-hdlc-probe.sh
 ```
 
 The MIPS output is `build/ziggurat-hdlc/lexra-stock-uclibc/release/ziggurat`;
@@ -76,8 +76,8 @@ CARGO_TARGET_DIR="$experiment_root/build/host" cargo test --offline \
   --manifest-path worktrees/ziggurat-hdlc/Cargo.toml -p ziggurat-spinel
 CARGO_TARGET_DIR="$experiment_root/build/host" cargo build --offline \
   --manifest-path worktrees/ziggurat-hdlc/Cargo.toml -p ziggurat-server
-python3 scripts/test-simulate-rcp.py
-python3 scripts/test-hdlc-multipan.py
+python3 ziggurat/scripts/test-simulate-rcp.py
+python3 ziggurat/scripts/test-hdlc-multipan.py
 ```
 
 Host networking must be permitted for the final socket integration test.
@@ -151,7 +151,7 @@ described in the audit still require real sleepy-child/address-collision tests.
 
 ## Device test safeguards and current evidence
 
-`scripts/test-hdlc-multipan.py --host 192.168.178.62` uploads only experiment
+`ziggurat/scripts/test-hdlc-multipan.py --host 192.168.178.62` uploads only experiment
 binaries to unique `/tmp/ziggurat-hdlc-*` paths and uses host-simulated RCP
 traffic. It never opens the physical UART or reads production state.
 The harness now checks available memory before RAM-backed uploads, leaves an

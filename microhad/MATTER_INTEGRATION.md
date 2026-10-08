@@ -80,22 +80,11 @@ failure during validation; isolated verification is recorded below.
 
 ## Historical C++ platform gate
 
-The companion `ziggurat-compilation` repository holds the probes and SDK pin:
-Matter SDK `v1.6.1.0`, commit
-`3bcdd56ba54fb88b2afb4bfef575014671df7aa7`. Its sparse checkout lives in ignored
-build storage. Probe execution never contacts the gateway.
+These archived checks used Matter SDK `v1.6.1.0`, commit
+`3bcdd56ba54fb88b2afb4bfef575014671df7aa7`. The superseded C++ SDK
+submodule, probe programs and Make target have been removed.
 
-```sh
-cd ..
-bash scripts/fetch-matter-sdk.sh
-python3 scripts/check-matter-platform.py host
-python3 scripts/check-matter-platform.py mips
-cd microhad
-make matter-platform-check
-make ZIGGURAT=1 MATTER=1 mips
-```
-
-The host probe compiles, links, and executes an actual Matter `TypeTraits.h`
+The host probe compiled, links, and executes an actual Matter `TypeTraits.h`
 consumer and a small program using the controller's standard-library
 requirements. The target probe tests both stock RSDK GCC and Clang 18 using
 the factory headers and MIPS-I/o32/big-endian/soft-float flags.
@@ -115,8 +104,7 @@ library/ABI runtime for factory uClibc, followed by full SDK linking and target
 execution. The selected Rust controller avoids that library requirement. It must retain the gateway's instruction and soft-float
 constraints rather than selecting a modern MIPS ISA by accident.
 
-The native Makefile keeps `MATTER_PLATFORM_CHECK`, `MATTER_SDK_ROOT`, and
-`RSDK_ROOT` for reproducing the historical C++ SDK probes. `MATTER=1` builds
+`MATTER=1` builds
 the small C++03 IPC/status bridge directly; the separate Rust controller has
 its own build and platform checks.
 
@@ -399,10 +387,10 @@ binary:
 ```sh
 make ZIGGURAT=1 MATTER=1 mips
 cd ..
-bash scripts/build-rs-matter-transport.sh mips service
+bash thread-matter/scripts/build.sh mips service
 cd microhad
-./deploy.sh --binary-only --binary build/mips-ziggurat-matter/microhad \
-  --matter-service ../build/rs-matter/thread-matter-mips \
+../deploy.sh --binary-only --binary build/mips-ziggurat-matter/microhad \
+  --matter-service ../build/thread-matter/thread-matter-mips \
   --target /tuya/native-test --password-file ../ssh_password.txt
 ```
 

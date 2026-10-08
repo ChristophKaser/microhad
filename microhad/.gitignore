@@ -18,6 +18,3 @@ diagnostics/
 
 # Host-side UDP syslog collector output.
 livelogs/
-
-# Standalone Garage Android Studio project, including its own Git repository.
-garage-app/

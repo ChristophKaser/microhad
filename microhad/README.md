@@ -43,7 +43,7 @@ make webui
 ```
 
 Build the paired Rust Matter service from the repository root with
-`bash scripts/build-rs-matter-transport.sh mips service`; it uses the shared
+`bash thread-matter/scripts/build.sh mips service`; it uses the shared
 Rust and MIPS toolchain settings.
 
 Matter is an optional build selection, `MATTER=0|1`, defaulting to `1` when
@@ -130,7 +130,7 @@ defaults to the Matter-capable output; `--binary` selects another build. It
 installs the executable at `/tuya/native/microhad` and updates the launcher.
 
 ```sh
-./deploy.sh --host "$GATEWAY_IP" --password-file "$PASSWORD_FILE" \
+../deploy.sh --host "$GATEWAY_IP" --password-file "$PASSWORD_FILE" \
   --binary build/mips-ziggurat-matter/microhad \
   --config "$CONFIG_FILE" --target /tuya/native
 ```
@@ -235,7 +235,7 @@ When changing reporting policy in the implementation, increment the signature
 version so previously configured devices receive the new settings.
 
 To stage the controller, Web UI, and current supervisor without replacing the
-installed Matter service, use `deploy.sh --both --supervisor --binary PATH
+installed Matter service, use `../deploy.sh --both --supervisor --binary PATH
 --password-file PATH --target /tuya/native`. This validates the Matter manifest,
 checks staging flash space with the 512 KiB reserve, and uploads the manifest and
 both supervisor/control scripts. Restart the paired supervisor separately to load

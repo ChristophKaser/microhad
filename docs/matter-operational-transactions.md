@@ -35,13 +35,13 @@ Verification on 2026-10-04:
   radio-loss failure, strict path/identity rejection and a golden tagged-value
   reply. The IPC tests require local Unix socket permission.
 - Host and MIPS commissioning-probe/service builds pass using
-  `scripts/build-rs-matter-transport.sh`; existing MIPS linker warnings remain.
+  `thread-matter/scripts/build.sh`; existing MIPS linker warnings remain.
 - The encrypted synthetic accessory fixture uses the production manager for
   OnOff and Level reads/commands, checking confirmed values after each. It rejects
   root endpoints that do not advertise the requested cluster and rejects
   operations while offline. Existing discovery, catalog, snapshot, temperature
   and fresh CASE checks pass.
-- `scripts/test-openthread-matter-transport.py --commissioning --ble
+- `thread-matter/scripts/test-openthread-matter-transport.py --commissioning --ble
   --service-owner --service-discovery` requires the operational executor marker.
 
 The Rust service IPC routes asynchronous OnOff and Level jobs. A dispatcher gap

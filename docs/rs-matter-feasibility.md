@@ -1,5 +1,8 @@
 # Rust Matter controller feasibility experiment
 
+> Historical experiment record. Superseded probes and dependencies have been
+> removed; use [building.md](building.md) for current commands.
+
 The Rust alternative bypasses the factory C++ standard-library blocker: the
 actual rs-matter library builds with RustCrypto on both the development host
 and the custom factory-uClibc MIPS target. The expanded probe passes its
@@ -12,9 +15,9 @@ commissioning result. Native `MATTER=1` remains deliberately unavailable.
 Upstream: [project-chip/rs-matter](https://github.com/project-chip/rs-matter),
 version 0.4.1, pinned commit `1570356ecb938a9d19be032b93ca3bb487069e75`.
 The probe's tracked `Cargo.lock` fixes its dependency graph. The upstream
-checkout remains clean in the pinned `dependencies/rs-matter` submodule; a
-separate worktree in `build/rs-matter/probe-source` applies
-`patches/rs-matter-probe-spake2p.patch`. That patch only exposes the otherwise
+checkout remains clean in the pinned `thread-matter/dependencies/rs-matter` submodule; a
+separate worktree in `build/thread-matter/service-source` applies
+`thread-matter/patches/rs-matter-spake2p.patch`. That patch only exposes the otherwise
 private SPAKE2+ module to the probe. It changes no cryptographic implementation
 and is not a proposed production API.
 
@@ -39,15 +42,15 @@ Use the existing local Rust installation from `scripts/rust-env.sh`, pinned
 [building.md](building.md). Commands below run on the development computer:
 
 ```sh
-bash scripts/build-rs-matter-probe.sh host
-build/rs-matter/target/release/lexra-rs-matter-probe
-bash scripts/build-rs-matter-probe.sh mips
+bash scripts/build-thread-matter.sh host
+build/thread-matter/target/release/thread-matter
+bash scripts/build-thread-matter.sh mips
 llvm-strip-18 --strip-all --keep-section=.gnu.attributes \
-  -o build/rs-matter/probe-mips \
-  build/rs-matter/target/lexra-stock-uclibc/release/lexra-rs-matter-probe
-file build/rs-matter/probe-mips
-llvm-readelf-18 -h build/rs-matter/probe-mips
-llvm-size-18 build/rs-matter/probe-mips
+  -o build/thread-matter/probe-mips \
+  build/thread-matter/target/lexra-stock-uclibc/release/thread-matter
+file build/thread-matter/probe-mips
+llvm-readelf-18 -h build/thread-matter/probe-mips
+llvm-size-18 build/thread-matter/probe-mips
 ```
 
 The build script regenerates the custom target: big-endian MIPS-I, o32,
@@ -108,7 +111,7 @@ python3 scripts/test-rs-matter-device.py --host 192.168.178.62 \
   --password-file ../ssh_password.txt
 ```
 
-The test's generated report is under ignored `build/rs-matter/`; the shareable
+The test's generated report is under ignored `build/thread-matter/`; the shareable
 record is [rs-matter-validation.json](rs-matter-validation.json). One-second
 RSS sampling can miss short peaks. The runner measures a short crypto-only
 process, not sustained controller CPU utilization.

@@ -133,7 +133,7 @@ sudo apt-get install git git-lfs curl ca-certificates tar xz-utils \
   python3 make ripgrep openjdk-17-jre-headless
 ```
 
-`scripts/silabs-env.sh` selects `/usr/lib/jvm/java-17-openjdk-amd64/bin`.
+`firmware/scripts/silabs-env.sh` selects `/usr/lib/jvm/java-17-openjdk-amd64/bin`.
 Adjust that path on a different distribution. Rust and the MIPS RSDK are
 needed for Ziggurat builds, but are not required for this ARM firmware build.
 The installer supplies pinned **GSDK 4.5.0**, **SLC 5.6.3** and
@@ -146,16 +146,16 @@ Run from the experiment repository, **not** its parent `../`:
 ```sh
 cd .
 git submodule update --init --recursive
-bash scripts/install-silabs.sh
+bash firmware/scripts/install-silabs.sh
 
 # Ensure SDK binary libraries are downloaded, rather than LFS pointer files.
-git -C dependencies/gecko-sdk lfs install --local
+git -C shared/dependencies/gecko-sdk lfs install --local
 sdk_lfs_libraries='platform/emdrv/nvm3/lib/libnvm3_CM4_gcc.a'
 sdk_lfs_libraries+=',protocol/openthread/libs/libsl_openthread_efr32mg1x_gcc.a'
 sdk_lfs_libraries+=',platform/radio/rail_lib/autogen/librail_release/librail_efr32xg1_gcc_release.a'
-git -C dependencies/gecko-sdk lfs pull --include="$sdk_lfs_libraries" --exclude=''
+git -C shared/dependencies/gecko-sdk lfs pull --include="$sdk_lfs_libraries" --exclude=''
 
-BUILD_JOBS=4 bash scripts/build-hdlc-firmware.sh
+BUILD_JOBS=4 bash firmware/scripts/build-hdlc-firmware.sh
 ```
 
 Use Bash for this sequence (`+=` appends to the LFS path list). On another
@@ -177,7 +177,7 @@ the raw binary is not a complete chip image. Firmware remains unflashed.
 To inspect the output independently:
 
 ```sh
-source scripts/silabs-env.sh
+source firmware/scripts/silabs-env.sh
 arm-none-eabi-size build/firmware-hdlc/build/debug/ot-rcp-multipan.out
 arm-none-eabi-nm build/firmware-hdlc/build/debug/ot-rcp-multipan.out \
   | rg 'otAppNcpInitMulti|otNcpHdlcInitMulti'

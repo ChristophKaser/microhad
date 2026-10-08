@@ -18,9 +18,9 @@ with `/tuya/tuya_start.sh`; do not merely remove the quiesce marker.
 From `..`:
 
 ```sh
-bash scripts/install-commander.sh
-bash scripts/package-hdlc-gbl.sh
-bash scripts/build-maintenance.sh
+bash firmware/scripts/install-commander.sh
+bash firmware/scripts/package-hdlc-gbl.sh
+bash firmware/scripts/build-maintenance.sh
 ```
 
 Commander is pinned to official Silicon Labs Arduino release `2.0.0`, package
@@ -153,13 +153,13 @@ pass. HDLC firmware and MIPS Ziggurat rebuild successfully. Additional checks:
 
 | Test | Result |
 | --- | --- |
-| `python3 ../scripts/test-maintenance.py` | 4 PTY cases: guards, ownership, reset CRC, baud/flow switch, menu-only run |
+| `python3 ../firmware/scripts/test-maintenance.py` | 4 PTY cases: guards, ownership, reset CRC, baud/flow switch, menu-only run |
 | venv Python `scripts/test_deployment_tools.py` | 6 capture/freeze/permission/Hello cases |
 | `python3 scripts/test_paired_supervisor.py` | 6 fake-process cases: order, quiesce, duplicates, busy UART, restart budget, readiness/stale endpoint |
 | `python3 scripts/test_ziggurat_service.py` | 8 actual-stack host cases, including recovery CLI after native freeze and live/stale socket handling |
 | venv Python `scripts/test_network_migration.py` | 15 migration/restore cases |
 | venv Python `scripts/test_ziggurat_import.py --freeze-running` | Synthetic freeze/rollback regression passes |
-| experiment `python3 scripts/test-cobs-unix.py` | 7 actual-server host COBS checks |
+| experiment `python3 ziggurat/scripts/test-cobs-unix.py` | 7 actual-server host COBS checks |
 
 The supervisor fake-process stale endpoint test checks lifecycle ordering;
 actual socket reclamation is also tested against the patched real server. All

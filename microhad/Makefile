@@ -30,8 +30,6 @@ ifneq ($(ZIGGURAT),1)
 $(error MATTER=1 requires ZIGGURAT=1 for the shared Thread radio)
 endif
 endif
-MATTER_PLATFORM_CHECK ?= $(ZIGGURAT_ROOT)/scripts/check-matter-platform.py
-MATTER_SDK_ROOT ?= $(ZIGGURAT_ROOT)/build/matter-sdk/source
 ZIGGURAT_SOURCES :=
 ZIGGURAT_TEST_SOURCES :=
 ifeq ($(ZIGGURAT),1)
@@ -181,11 +179,8 @@ test-backends:
 	$(MAKE) ZIGGURAT=1 MATTER=0 host test
 
 # The Matter native build is the gateway IPC/API bridge. The paired Rust
-# controller service is built separately in ziggurat-compilation.
-.PHONY: matter-platform-check matter-host-check matter-mips-check matter-build-flags-test
-matter-platform-check:
-	python3 "$(MATTER_PLATFORM_CHECK)" mips --sdk "$(MATTER_SDK_ROOT)" --rsdk "$(RSDK_ROOT)"
-
+# controller service is built separately in thread-matter/.
+.PHONY: matter-host-check matter-mips-check matter-build-flags-test
 ifeq ($(MATTER),1)
 $(HOST_BIN) $(UNIT_TEST_BIN) $(INTEGRATION_TEST_BIN): | matter-host-check
 $(MIPS_BIN): | matter-mips-check

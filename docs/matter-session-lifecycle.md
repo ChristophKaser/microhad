@@ -10,11 +10,11 @@ cancel-on-reconnect path handles sessions whose IDs it already received.
 Reconnection starts a fresh attempt with a new BLE generation; old requests
 remain stale and mutations are never replayed.
 
-`python3 scripts/test-matter-service.py` passes with a real `thread-matter`
+`python3 thread-matter/scripts/test-matter-service.py` passes with a real `thread-matter`
 host process and synthetic RCP. The test drops the IPC peer while a waiting-BLE
 session is active and observes its `cancelled` state over a replacement peer.
-`bash scripts/build-rs-matter-transport.sh host service` and
-`bash scripts/build-rs-matter-transport.sh mips service` pass; the stripped MIPS
+`bash thread-matter/scripts/build.sh host service` and
+`bash thread-matter/scripts/build.sh mips service` pass; the stripped MIPS
 service is 2,158,276 bytes. No gateway process or radio was used.
 
 `sessions::Sessions` is a single-owner manager for one active job and one

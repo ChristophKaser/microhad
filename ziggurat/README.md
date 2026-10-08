@@ -1,0 +1,32 @@
+# Ziggurat gateway service
+
+The gateway's Zigbee stack and radio multiplexer. The pinned upstream source is
+in `dependencies/ziggurat/`; local patches and synthetic tooling live here.
+`stock-uclibc-compat/` supplies syscall wrappers missing from factory uClibc
+and an early illegal-instruction reporter. It is production compatibility code.
+
+From the repository root:
+
+```sh
+ZIGGURAT_MULTIPAN=1 bash ziggurat/scripts/build.sh
+ZIGGURAT_MULTIPAN=0 bash ziggurat/scripts/build.sh
+```
+
+The default multipan build writes
+`build/ziggurat-hdlc/lexra-stock-uclibc/release/ziggurat.stripped`.
+The alternate stock transport build writes under `build/ziggurat/`.
+Both apply their patch series to ignored worktrees, preserving upstream source.
+
+Synthetic host tests use `build/host/debug/ziggurat`. Build that fixture with:
+
+```sh
+bash -c 'source scripts/rust-env.sh; CARGO_TARGET_DIR="$PWD/build/host" cargo +"$RUST_TOOLCHAIN" build --manifest-path worktrees/ziggurat-multipan/Cargo.toml -p ziggurat-server'
+python3 ziggurat/scripts/test-simulate-rcp.py
+python3 ziggurat/scripts/test-cobs-unix.py
+python3 ziggurat/scripts/test-hdlc-multipan.py
+python3 ziggurat/scripts/test-fresh-join-replay.py
+```
+
+Run the multipan build first to prepare its worktree. Tests default to synthetic
+host traffic; device options require a separately authorized hardware test.
+See [building](../docs/building.md) and [integration](../docs/native-ziggurat-integration.md).

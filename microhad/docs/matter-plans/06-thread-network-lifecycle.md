@@ -124,8 +124,8 @@ core dumps are disabled before loading credentials.
 Implementation checkpoint: `ziggurat-compilation` commit `089a830`.
 
 Validation: `cargo +nightly-2026-10-02 test --locked --manifest-path
-rs-matter-probe/Cargo.toml --features controller-service --lib` (36 passed),
-`python3 scripts/test-matter-service.py`, host encrypted commissioning fixtures
+thread-matter/Cargo.toml --features controller-service --lib` (36 passed),
+`python3 thread-matter/scripts/test-matter-service.py`, host encrypted commissioning fixtures
 with/without `--ble` (209/253 ms), and factory service build. The stripped static
 big-endian MIPS-I artifact is 1,552,028 bytes; it has not been run on the gateway.
 No physical radio test, deployment or plan 08 action occurred.
@@ -238,7 +238,7 @@ with `not_ready`, and completion of the old BLE write is rejected with
 `stale_session`. A fresh matching observation is then restored before the
 remaining expiry, fabric persistence, and restart checks continue.
 
-`python3 scripts/test-matter-service.py` passes with the new case, including
+`python3 thread-matter/scripts/test-matter-service.py` passes with the new case, including
 the commissioning timeout and guarded cached-dataset restart fixture. This
 verifies session cancellation and stale callback isolation when readiness is
 lost. RCP process death/reconnect while the session is active, repeated channel
@@ -257,7 +257,7 @@ the service to `running`. The test compares credential bytes, inode and mtime
 before and after the failure/restart, and verifies the synthetic RCP receives no
 reset command and writes only the permitted channel.
 
-`python3 scripts/test-matter-service.py` passes with this scenario, including
+`python3 thread-matter/scripts/test-matter-service.py` passes with this scenario, including
 the active BLE-session cancellation-on-offline case, bounded commissioning
 timeout, state validation and final restart checks. This proves host process
 recovery and credential/channel guards against the synthetic RCP. Repeated
@@ -274,7 +274,7 @@ session's BLE write completion returns `stale_session`. Startup emits no radio
 traffic before observation, rejects a wrong channel without radio mutation,
 then resumes on the matching channel.
 
-`python3 scripts/test-matter-service.py` passes with this case, including the
+`python3 thread-matter/scripts/test-matter-service.py` passes with this case, including the
 existing 30-second commissioning timeout and subsequent fabric/state checks.
 This verifies active-session/RCP failure recovery on the host synthetic RCP.
 Repeated channel changes and target RF/recovery acceptance remain open; plan
@@ -288,7 +288,7 @@ channels 20 and 11 against the stored channel 15, reports `channel_mismatch`,
 keeps credentials unchanged, and records no off-channel radio writes. A fresh
 channel-15 observation returns the service to `running`.
 
-`python3 scripts/test-matter-service.py` passes with the 30-second commissioning
+`python3 thread-matter/scripts/test-matter-service.py` passes with the 30-second commissioning
 timeout, active-session RCP-loss recovery, repeated mismatch checks and final
 state validation. This covers changing/offline coordinator reports while the
 service is alive; actual Zigbee channel migration and RF coexistence remain
@@ -332,7 +332,7 @@ observation permits OpenThread restoration. The restored status reports the
 dataset configured on channel 15, and every simulated radio channel write uses
 that permitted channel.
 
-`python3 scripts/test-matter-service.py` passes with this scenario and the
+`python3 thread-matter/scripts/test-matter-service.py` passes with this scenario and the
 existing commissioning, RCP restart, mismatch and expiry checks. This covers
 process recovery from RCP loss during apply. It does not exercise the separate
 in-process `apply_failed` heartbeat suppression and explicit retry path against
@@ -346,7 +346,7 @@ to `awaiting_coordinator`, is detached, omits the expired Zigbee channel while
 retaining the configured dataset channel, leaves the credential envelope
 unchanged, and performs no additional radio channel write.
 
-`python3 scripts/test-matter-service.py` passes with this process scenario and
+`python3 thread-matter/scripts/test-matter-service.py` passes with this process scenario and
 the existing commissioning, RCP restart and mismatch recovery checks. This
 closes the host process expiry checkpoint; stale-observation renewal semantics,
 failed dataset apply at the process/RCP boundary and physical acceptance remain
@@ -362,7 +362,7 @@ and succeeds after the radio recovers.
 
 Verification passed with the project-local toolchain and cache:
 `source scripts/rust-env.sh && cargo +nightly-2026-10-02 test --offline
---manifest-path rs-matter-probe/Cargo.toml --features controller-service
+--manifest-path thread-matter/Cargo.toml --features controller-service
 thread_lifecycle::tests::failed_apply_is_stopped_and_heartbeats_do_not_retry_or_rewrite
 --lib --locked`. This is a FakeRadio unit gate; reliable real-RCP injection for
 the same in-process failure path remains open.
@@ -378,10 +378,10 @@ envelope, and accepts an explicit import retry after the one-shot failure is
 consumed. The normal `controller-service` build excludes the hook.
 
 Verification passed:
-`source scripts/rust-env.sh && CARGO_TARGET_DIR="$PWD/build/rs-matter/target"
+`source scripts/rust-env.sh && CARGO_TARGET_DIR="$PWD/build/thread-matter/target"
 cargo +nightly-2026-10-02 build --offline --manifest-path
-rs-matter-probe/Cargo.toml --features controller-service-test-hooks --bin
-thread-matter --locked`, `python3 scripts/test-matter-service.py`, and the
+thread-matter/Cargo.toml --features controller-service-test-hooks --bin
+thread-matter --locked`, `python3 thread-matter/scripts/test-matter-service.py`, and the
 targeted lifecycle unit test with `controller-service-test-hooks` (1/1). The
 full service script also passes its existing commissioning, timeout, mismatch,
 expiry, and restart gates. This does not test the OpenThread C API or a failure
@@ -417,7 +417,7 @@ control for the configured `error` state, so operators can recover without
 re-entering or exposing the dataset.
 
 Verification passed: the targeted Rust lifecycle test (1/1),
-`python3 scripts/test-matter-service.py` including adapter-boundary injected
+`python3 thread-matter/scripts/test-matter-service.py` including adapter-boundary injected
 apply failure and explicit retry, Matter-enabled `make ZIGGURAT=1 MATTER=1
 host test` including 13 native peer checks, `npm run build`, the Chromium
 dashboard fixture including the retry button, `python3 scripts/test_matter_webui.py`
@@ -438,7 +438,7 @@ at 19.42/s; loaded CLI CPU averaged 11.80% of one core, sampled RSS peaked at
 limit. The test used internal Thread IPv6/UDP and did not exercise Matter,
 physical RF, or the shared coordinator. Its 8 KiB sampled margin is narrow;
 full Matter-service and combined Zigbee/Thread feasibility remain open. See
-the [resource profile](../../docs/openthread-resource-profile.md).
+the [resource profile](../../../docs/openthread-resource-profile.md).
 
 The profile's harness now uses `MemFree` plus conservatively counted clean
 inactive file cache for effective-availability checks, while preserving a
@@ -468,7 +468,7 @@ process to exit before replying to that IPC request. The test verifies the
 validated dataset was persisted first, then starts a fresh service process on a
 new synthetic RCP connection, supplies a fresh matching channel observation,
 and confirms the retained dataset is restored without a radio reset or a
-credential rewrite. The complete `python3 scripts/test-matter-service.py` suite
+credential rewrite. The complete `python3 thread-matter/scripts/test-matter-service.py` suite
 passes. This validates wire-level error handling and process recovery on a
 synthetic RCP; it does not prove physical-RCP behavior or that the paired
 launcher restarts this specific failure.

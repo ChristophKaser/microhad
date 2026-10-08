@@ -21,7 +21,7 @@ def main():
     parser.add_argument("--freeze-running",action="store_true",help="Synthetic-only start/freeze/rollback scenario")
     args=parser.parse_args()
     if args.freeze_running and args.state:parser.error("running scenario only accepts synthetic state")
-    spec=importlib.util.spec_from_file_location("sim",args.experiment/"scripts/simulate-rcp.py")
+    spec=importlib.util.spec_from_file_location("sim",args.experiment/"ziggurat/scripts/simulate-rcp.py")
     sim=importlib.util.module_from_spec(spec);spec.loader.exec_module(sim)
     binary=args.binary or args.experiment/"build/host/debug/ziggurat"
     source=json.loads(args.state.read_text()) if args.state else fixture()

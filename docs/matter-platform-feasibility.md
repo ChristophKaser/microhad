@@ -1,5 +1,8 @@
 # Matter controller platform gate on the factory MIPS gateway
 
+> Historical experiment record. Superseded probes and dependencies have been
+> removed; use [building.md](building.md) for current commands.
+
 The optional native build contract is added, but the first Matter prerequisite
 gate is **blocked by the factory C++ standard library**. No Matter controller
 binary or real-device test was produced. This does not invalidate the earlier

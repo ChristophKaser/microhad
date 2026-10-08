@@ -86,8 +86,8 @@ tools/network-migration-venv/bin/pip install \
 
 The real-server tests additionally need the patched host Ziggurat and its
 simulator from the experiment checkout. The experiment's
-`patches/ziggurat-network-migration.patch` applies after its HDLC transport patch;
-`ZIGGURAT_MULTIPAN=1 bash scripts/build-ziggurat.sh` builds the MIPS version.
+`ziggurat/patches/ziggurat-network-migration.patch` applies after its HDLC transport patch;
+`ZIGGURAT_MULTIPAN=1 bash ziggurat/scripts/build.sh` builds the MIPS version.
 
 ## Fresh export, conversion and offline import
 

@@ -15,18 +15,18 @@ from test_ziggurat_service import wait_for
 
 RUST_ROOT = ROOT.parent
 SIM_SPEC = importlib.util.spec_from_file_location(
-    'matter_integration_transport', RUST_ROOT / 'scripts/test-openthread-matter-transport.py')
+    'matter_integration_transport', RUST_ROOT / 'thread-matter/scripts/test-openthread-matter-transport.py')
 sim_transport = importlib.util.module_from_spec(SIM_SPEC)
 SIM_SPEC.loader.exec_module(sim_transport)
 
 
 def main():
     test_service_build = subprocess.run(
-        ['bash', str(RUST_ROOT / 'scripts/build-rs-matter-test-service.sh')],
+        ['bash', str(RUST_ROOT / 'thread-matter/scripts/build-test-service.sh')],
         cwd=RUST_ROOT, check=False)
     if test_service_build.returncode != 0:
         raise RuntimeError('Host test-hook Matter service build failed')
-    test_service_binary = RUST_ROOT / 'build/rs-matter/service-test-target/release/thread-matter'
+    test_service_binary = RUST_ROOT / 'build/thread-matter/service-test-target/release/thread-matter'
     if not test_service_binary.is_file():
         raise RuntimeError('Host test-hook Matter service binary is missing')
     radio = sim_transport.sim.ThreadRcp('127.0.0.1', tcp_nodelay=True)
@@ -57,7 +57,7 @@ def main():
                        MICROHAD_MATTER_TEST_NATIVE_REPORTS_ACK_FILE=str(reports_ack),
                        MICROHAD_MATTER_TEST_IPC_SOCKET='/tmp/microhad-matter.sock')
             probe = subprocess.Popen([
-                str(RUST_ROOT / 'build/rs-matter/target/release/ot-matter-commissioning-probe'),
+                str(RUST_ROOT / 'build/thread-matter/target/release/ot-matter-commissioning-probe'),
                 'spinel+hdlc+unix://' + str(radio_socket) + '?no-reset', '--ble', '--service-owner',
                 '--service-discovery', '--sensor-reports', '--native-ipc'],
                 cwd=directory, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
@@ -109,18 +109,18 @@ def main():
                 snapshot = wait_for(next_snapshot_complete)['response']
                 assert snapshot['ok'], snapshot
             assert any(item['endpoint'] == 1 for item in snapshot['result']['devices']), snapshot
-            reports_ack.touch()
 
+            # The fixture reports Boolean State true: contact made (closed).
             def reported_device():
                 for device in fixture.status()['devices']:
                     if (device.get('source') == 'matter' and
                             device.get('matter_node') == '0000000000000002' and
                             device.get('matter_endpoint') == 1):
                         values = device.get('sensor_values', {})
-                        if (device.get('has_contact') and device.get('contact_known') and device.get('contact_open') and
+                        if (device.get('has_contact') and device.get('contact_known') and not device.get('contact_open') and
                                 values.get('temperature') == {'value': -5.25, 'unit': '°C', 'quality': 'measured'} and
                                 values.get('humidity') == {'value': 64, 'unit': '%', 'quality': 'measured'} and
-                                values.get('air_quality') == {'value': 'moderate', 'unit': '', 'quality': 'measured'} and
+                                values.get('air_quality') == {'value': 'fair', 'unit': '', 'quality': 'measured'} and
                                 values.get('co2') == {'value': 800, 'unit': 'ppm', 'quality': 'measured'} and
                                 values.get('pm25') == {'value': 25.5, 'unit': 'ug/m3', 'quality': 'measured'}):
                             return device
@@ -136,6 +136,9 @@ def main():
             external_id = urllib.parse.quote(device['external_id'], safe='')
             history = fixture.request('/api/devices/' + external_id + '/history')
             assert len(history['samples']) >= 5, history
+            # Keep the fixture's reported contact state stable until native
+            # has consumed the reports and persisted their history.
+            reports_ack.touch()
             output, _ = probe.communicate(timeout=15)
             assert probe.returncode == 0, output
             assert 'PASS production manager sensor and contact reports reach IPC from subscribed CASE reports' in output
@@ -203,7 +206,7 @@ def main():
                     if item.get('external_id') != device['external_id']:
                         continue
                     values = item.get('sensor_values', {})
-                    if (item.get('contact_known') and item.get('contact_open') and
+                    if (item.get('contact_known') and not item.get('contact_open') and
                             values.get('temperature') == {'value': -4.25, 'unit': '°C', 'quality': 'measured'} and
                             values.get('humidity') == {'value': 63, 'unit': '%', 'quality': 'measured'} and
                             values.get('air_quality') == {'value': 'poor', 'unit': '', 'quality': 'measured'} and
@@ -237,7 +240,7 @@ def main():
             daemon.terminate()
             daemon_out, daemon_err = daemon.communicate(timeout=5)
             assert daemon.returncode == 0 and not daemon_out
-            assert daemon_err == b'Matter controller service started\nMatter controller service stopped\n'
+            assert not daemon_err, daemon_err
             assert not radio.error, radio.error
             print(json.dumps({'native_device': device, 'history': history,
                               'daemon_device': daemon_device, 'daemon_history': daemon_history,

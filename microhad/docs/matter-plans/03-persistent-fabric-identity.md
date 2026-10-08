@@ -273,7 +273,7 @@ commissioning session callback. This confirms that an interrupted attempt
 does not recycle its operational node ID or overwrite the active Thread
 credentials.
 
-`python3 scripts/test-matter-service.py` passes this scenario. It is host
+`python3 thread-matter/scripts/test-matter-service.py` passes this scenario. It is host
 synthetic-RCP evidence, not crash-at-every-write filesystem acceptance.
 Interrupted archive replacement, corrupt/incomplete failed-restore preservation,
 and target filesystem behavior remain open; plan 08 was not run.

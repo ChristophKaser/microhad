@@ -32,6 +32,114 @@ def matter_manifest(binary, matter=1):
 
 
 class Staging(unittest.TestCase):
+    def test_root_entrypoint_resolves_default_assets_from_any_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            checkout = root / 'checkout'
+            component = checkout / 'microhad'
+            build = component / 'build/mips-ziggurat-matter'
+            build.mkdir(parents=True)
+            binary = build / 'microhad'
+            binary.write_bytes(b'default native executable')
+            binary.chmod(0o700)
+            webui = component / 'webui/dist'
+            webui.mkdir(parents=True)
+            (webui / 'index.html').write_text('<script src="/app.js"></script>')
+            (webui / 'app.js').write_text('default dashboard script')
+            (webui / 'sw.js').write_text('default service worker')
+            script = checkout / 'deploy.sh'
+            script.write_bytes((ROOT.parent / 'deploy.sh').read_bytes())
+            fake = root / 'sshpass'
+            fake.write_text(FAKE_SSH)
+            fake.chmod(0o700)
+            curl = root / 'curl'
+            curl.write_text('#!/bin/sh\nexit 0\n')
+            curl.chmod(0o700)
+            password = root / 'password'
+            password.touch()
+            for cwd in (checkout, component, root):
+                with self.subTest(cwd=cwd):
+                    calls = root / 'calls'
+                    calls.write_text('')
+                    env = dict(os.environ, PATH=str(root)+os.pathsep+os.environ['PATH'],
+                               STAGING_CALLS=str(calls))
+                    subprocess.run(['sh', str(script), '--password-file', str(password)],
+                                   cwd=cwd, env=env, stdin=subprocess.DEVNULL,
+                                   stdout=subprocess.DEVNULL, check=True, timeout=10)
+                    rows = [json.loads(line) for line in calls.read_text().splitlines()]
+                    uploads = [row for row in rows if row['command'].startswith('dd of=')]
+                    self.assertEqual(uploads[0]['bytes'], binary.stat().st_size)
+                    self.assertEqual(uploads[-1]['bytes'], (webui / 'index.html').stat().st_size)
+                    self.assertEqual(sorted(row['bytes'] for row in uploads[1:-1]),
+                                     sorted([(webui / 'sw.js').stat().st_size,
+                                             (webui / 'app.js').stat().st_size]))
+                    self.assertFalse(any('kill ' in row['command'] for row in rows))
+
+    def test_maintenance_upload_failure_retains_local_rollback_and_stops(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            installed = b'previous application fixture'
+            fake = root / 'sshpass'
+            fake.write_text(FAKE_SSH.split("if 'df -k /tuya'")[0] + """
+if data:
+    sys.exit(1)
+if command.startswith('cat ') and 'supervisor.pid' not in command:
+    sys.stdout.buffer.write(b'previous application fixture')
+elif command.startswith('md5sum '):
+    import hashlib
+    print(hashlib.md5(b'previous application fixture').hexdigest())
+elif command.startswith('test -d '):
+    sys.exit(1)
+elif 'df -k /tuya' in command:
+    print('1000000')
+elif 'wc -c' in command or 'du -sk' in command:
+    print('0')
+""")
+            fake.chmod(0o700)
+            readelf = root / 'readelf'
+            readelf.write_text("#!/bin/sh\nprintf '%s\\n' 'Class: ELF32' 'Data: big endian' 'Machine: MIPS'\n")
+            readelf.chmod(0o700)
+            webui = root / 'webui'
+            webui.mkdir()
+            (webui / 'index.html').write_text('<script src="/app.js"></script>')
+            for name in ('sw.js', 'app.js'):
+                (webui / name).write_text('fixture')
+            artifacts = {}
+            for name in ('microhad', 'ziggurat', 'thread-matter', 'gateway-maintenance', 'logread'):
+                artifact = root / name
+                artifact.write_bytes(b'--thread-socket requires --spinel-iid 1\ncobs-unix requires unix:/absolute/path\n')
+                artifact.chmod(0o700)
+                artifacts[name] = artifact
+            Path(str(artifacts['microhad']) + '.matter-manifest').write_text(
+                matter_manifest(artifacts['microhad']))
+            password = root / 'password'
+            password.touch()
+            calls = root / 'calls'
+            rollback = root / 'rollback'
+            env = dict(os.environ, PATH=str(root)+os.pathsep+os.environ['PATH'],
+                       TARGET_READELF=str(readelf), STAGING_CALLS=str(calls))
+            result = subprocess.run([
+                'sh', str(ROOT.parent / 'deploy.sh'), '--maintenance-deploy',
+                '--password-file', str(password), '--target', '/tuya/native',
+                '--binary', str(artifacts['microhad']),
+                '--ziggurat', str(artifacts['ziggurat']),
+                '--matter-service', str(artifacts['thread-matter']),
+                '--maintenance-helper', str(artifacts['gateway-maintenance']),
+                '--logread', str(artifacts['logread']), '--webui-dir', str(webui),
+                '--rollback-dir', str(rollback)],
+                cwd=root, env=env, stdin=subprocess.DEVNULL, capture_output=True,
+                text=True, timeout=15)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('services remain stopped', result.stderr)
+            self.assertEqual((rollback / 'microhad').read_bytes(), installed)
+            self.assertEqual((rollback / 'gateway_start.sh').read_bytes(), installed)
+            rows = [json.loads(line) for line in calls.read_text().splitlines()]
+            self.assertEqual(len([row for row in rows if row['bytes']]), 1)
+            self.assertFalse(any('nohup /tuya/tuya_start.sh' in row['command'] for row in rows))
+            for row in rows:
+                self.assertNotIn('config.json', row['command'])
+                self.assertNotIn('ziggurat-state.json', row['command'])
+
     def test_webui_verification_uses_selected_protocol_and_directory(self):
         for https in (False, True):
             with self.subTest(https=https), tempfile.TemporaryDirectory() as directory:
@@ -52,7 +160,7 @@ with open(os.environ['VERIFY_CALLS'], 'a') as output:
                 calls = root / 'verify-calls'
                 env = dict(os.environ, PATH=str(root)+os.pathsep+os.environ['PATH'],
                            STAGING_CALLS=str(root / 'staging-calls'), VERIFY_CALLS=str(calls))
-                args = ['sh', str(ROOT / 'deploy.sh'), '--password-file', str(password),
+                args = ['sh', str(ROOT.parent / 'deploy.sh'), '--password-file', str(password),
                         '--webui-only', '--webui-dir', str(webui)]
                 if https:
                     args.append('--verify-https')
@@ -103,7 +211,7 @@ with open(os.environ['VERIFY_CALLS'], 'a') as output:
             password = root / 'password';password.touch()
             calls = root / 'calls'
             env = dict(os.environ,PATH=str(root)+os.pathsep+os.environ['PATH'],STAGING_CALLS=str(calls))
-            args = ['sh', str(ROOT / 'deploy.sh'), '--password-file', str(password),
+            args = ['sh', str(ROOT.parent / 'deploy.sh'), '--password-file', str(password),
                     '--binary-only', '--binary', str(binary), '--matter-service', str(service),
                     '--target', '/tuya/native-test']
             subprocess.run(args, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
@@ -135,7 +243,7 @@ with open(os.environ['VERIFY_CALLS'], 'a') as output:
             password = root / 'password';password.touch()
             calls = root / 'calls'
             env = dict(os.environ, PATH=str(root)+os.pathsep+os.environ['PATH'], STAGING_CALLS=str(calls))
-            args = ['sh', str(ROOT / 'deploy.sh'), '--password-file', str(password),
+            args = ['sh', str(ROOT.parent / 'deploy.sh'), '--password-file', str(password),
                     '--binary-only', '--supervisor', '--binary', str(binary), '--target', '/tuya/native']
             result = subprocess.run(args, env=env, stdin=subprocess.DEVNULL, capture_output=True,
                                     text=True, check=True, timeout=10)
@@ -167,7 +275,7 @@ with open(os.environ['VERIFY_CALLS'], 'a') as output:
             env = dict(os.environ, PATH=str(root)+os.pathsep+os.environ['PATH'],
                        STAGING_CALLS=str(calls), FLASH_AVAILABLE_KIB='1',
                        REMOTE_SIZES='0 0 0 0 0')
-            args = ['sh', str(ROOT / 'deploy.sh'), '--password-file', str(password),
+            args = ['sh', str(ROOT.parent / 'deploy.sh'), '--password-file', str(password),
                     '--binary-only', '--binary', str(binary), '--matter-service', str(service),
                     '--target', '/tuya/native-test']
             result = subprocess.run(args, env=env, stdin=subprocess.DEVNULL, capture_output=True,
@@ -193,7 +301,7 @@ with open(os.environ['VERIFY_CALLS'], 'a') as output:
             env = dict(os.environ, PATH=str(root)+os.pathsep+os.environ['PATH'],
                        STAGING_CALLS=str(calls), FLASH_AVAILABLE_KIB='3532',
                        REMOTE_SIZES='1504596 0 0 0 7417')
-            args = ['sh', str(ROOT / 'deploy.sh'), '--password-file', str(password),
+            args = ['sh', str(ROOT.parent / 'deploy.sh'), '--password-file', str(password),
                     '--binary-only', '--binary', str(binary), '--matter-service', str(service),
                     '--target', '/tuya/native']
             result = subprocess.run(args, env=env, stdin=subprocess.DEVNULL, capture_output=True,
@@ -213,7 +321,7 @@ with open(os.environ['VERIFY_CALLS'], 'a') as output:
             env = dict(os.environ, PATH=str(root)+os.pathsep+os.environ['PATH'],
                        STAGING_CALLS=str(calls), FLASH_AVAILABLE_KIB='3532',
                        REMOTE_SIZES='0 0 0 0 0')
-            args = ['sh', str(ROOT / 'deploy.sh'), '--password-file', str(password),
+            args = ['sh', str(ROOT.parent / 'deploy.sh'), '--password-file', str(password),
                     '--binary-only', '--binary', str(binary), '--matter-service', str(service),
                     '--target', '/tuya/native-test']
             result = subprocess.run(args, env=env, stdin=subprocess.DEVNULL, capture_output=True,
@@ -234,7 +342,7 @@ with open(os.environ['VERIFY_CALLS'], 'a') as output:
             password = root / 'password';password.touch()
             calls = root / 'calls'
             env = dict(os.environ,PATH=str(root)+os.pathsep+os.environ['PATH'],STAGING_CALLS=str(calls))
-            args = ['sh', str(ROOT / 'deploy.sh'), '--password-file', str(password),
+            args = ['sh', str(ROOT.parent / 'deploy.sh'), '--password-file', str(password),
                     '--binary-only', '--binary', str(binary), '--matter-service', str(service),
                     '--target', '/tuya/native', '--activate-paired']
             result = subprocess.run(args, env=env, stdin=subprocess.DEVNULL, capture_output=True,
@@ -264,7 +372,7 @@ with open(os.environ['VERIFY_CALLS'], 'a') as output:
             password = root / 'password';password.touch()
             calls = root / 'calls'
             env = dict(os.environ,PATH=str(root)+os.pathsep+os.environ['PATH'],STAGING_CALLS=str(calls))
-            base = ['sh', str(ROOT / 'deploy.sh'), '--password-file', str(password),
+            base = ['sh', str(ROOT.parent / 'deploy.sh'), '--password-file', str(password),
                     '--binary-only', '--binary', str(binary), '--activate-paired']
             result = subprocess.run(base, env=env, stdin=subprocess.DEVNULL, capture_output=True,
                                     text=True, check=False, timeout=10)
@@ -276,7 +384,7 @@ with open(os.environ['VERIFY_CALLS'], 'a') as output:
                                     text=True, check=False, timeout=10)
             self.assertNotEqual(result.returncode, 0)
             self.assertFalse(calls.exists())
-            staging = ['sh', str(ROOT / 'deploy.sh'), '--password-file', str(password),
+            staging = ['sh', str(ROOT.parent / 'deploy.sh'), '--password-file', str(password),
                        '--binary-only', '--matter-service', str(service), '--target', '/tuya/native-test']
             result = subprocess.run(staging, env=env, stdin=subprocess.DEVNULL, capture_output=True,
                                     text=True, check=False, timeout=10)
@@ -293,7 +401,7 @@ with open(os.environ['VERIFY_CALLS'], 'a') as output:
             password = root / 'password';password.touch()
             calls = root / 'calls'
             env = dict(os.environ,PATH=str(root)+os.pathsep+os.environ['PATH'],STAGING_CALLS=str(calls))
-            args = ['sh', str(ROOT / 'deploy.sh'), '--password-file', str(password),
+            args = ['sh', str(ROOT.parent / 'deploy.sh'), '--password-file', str(password),
                     '--binary-only', '--binary', str(binary), '--matter-service', str(service),
                     '--target', '/tuya/native-test']
             manifest = Path(str(binary) + '.matter-manifest')

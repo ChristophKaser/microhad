@@ -8,7 +8,7 @@ accessory, discover an external mesh peer, or enable native `MATTER=1`.
 
 ## Ownership and limits
 
-`openthread-transport/adapter.cpp` owns one OpenThread instance and two internal
+`thread-matter/openthread-transport/adapter.cpp` owns one OpenThread instance and two internal
 UDP sockets, reserved in the probe for Matter 5540 and mDNS 5353. Initialization
 accepts only absolute `spinel+hdlc+unix:///...?...` URLs with exactly `?no-reset`.
 It rejects UART URLs; Ziggurat remains the physical UART/reset owner. The
@@ -55,15 +55,15 @@ instead of requiring an Embassy executor-specific waker layout.
 ## Reproduce
 
 Prepare the pinned rs-matter probe source and custom target with the existing
-`scripts/build-rs-matter-probe.sh` workflow first, then:
+`scripts/build-thread-matter.sh` workflow first, then:
 
 ```sh
-bash scripts/build-rs-matter-transport.sh host
-bash scripts/build-openthread-relay.sh host
-python3 scripts/test-openthread-matter-transport.py
-bash scripts/build-rs-matter-transport.sh mips
-bash scripts/build-openthread-relay.sh mips
-python3 scripts/test-openthread-matter-device.py \
+bash thread-matter/scripts/build.sh host
+bash thread-matter/scripts/build-openthread-relay.sh host
+python3 thread-matter/scripts/test-openthread-matter-transport.py
+bash thread-matter/scripts/build.sh mips
+bash thread-matter/scripts/build-openthread-relay.sh mips
+python3 thread-matter/scripts/test-openthread-matter-device.py \
   --host 192.168.178.62 --password-file ../ssh_password.txt
 ```
 

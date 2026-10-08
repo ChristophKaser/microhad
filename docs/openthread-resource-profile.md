@@ -103,9 +103,9 @@ IPv4 TCP to a synthetic RCP on the development host. The production Ziggurat
 multiplexer and physical coordinator were outside this test path.
 
 ```sh
-bash scripts/build-openthread-relay.sh host
-bash scripts/build-openthread-relay.sh mips
-python3 scripts/test-openthread-device.py --host 192.168.178.62 \
+bash thread-matter/scripts/build-openthread-relay.sh host
+bash thread-matter/scripts/build-openthread-relay.sh mips
+python3 thread-matter/scripts/test-openthread-device.py --host 192.168.178.62 \
   --password-file ../ssh_password.txt --profile
 ```
 

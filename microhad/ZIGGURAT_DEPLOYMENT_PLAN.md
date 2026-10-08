@@ -98,8 +98,8 @@ make test-backends
 make ZIGGURAT=0 mips
 make ZIGGURAT=1 mips
 cd ..
-BUILD_JOBS=4 bash scripts/build-hdlc-firmware.sh
-ZIGGURAT_MULTIPAN=1 bash scripts/build-ziggurat.sh
+BUILD_JOBS=4 bash firmware/scripts/build-hdlc-firmware.sh
+ZIGGURAT_MULTIPAN=1 bash ziggurat/scripts/build.sh
 ```
 
 The experiment README lists the pinned Rust, RSDK, GSDK, ARM compiler and SLC
@@ -124,9 +124,9 @@ Completed recovery components:
 Reproduce packaging and helper builds from the experiment checkout:
 
 ```sh
-bash scripts/install-commander.sh
-bash scripts/package-hdlc-gbl.sh
-bash scripts/build-maintenance.sh
+bash firmware/scripts/install-commander.sh
+bash firmware/scripts/package-hdlc-gbl.sh
+bash firmware/scripts/build-maintenance.sh
 ```
 
 See [tool commands, prerequisites and verified results](RECOVERY_TOOLING.md).
@@ -238,7 +238,7 @@ host-RCP test with synthetic state:
 
 ```sh
 cd ..
-python3 scripts/test-cobs-unix.py --host 192.168.178.62 \
+python3 ziggurat/scripts/test-cobs-unix.py --host 192.168.178.62 \
   --password-file ../ssh_password.txt --upload-storage flash
 ```
 

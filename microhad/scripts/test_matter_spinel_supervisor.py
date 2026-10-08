@@ -20,13 +20,13 @@ import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
 RUST_ROOT = ROOT.parent
-SERVICE = RUST_ROOT / 'build/rs-matter/target/release/thread-matter'
+SERVICE = RUST_ROOT / 'build/thread-matter/target/release/thread-matter'
 NATIVE_GATEWAY = ROOT / 'build/host-ziggurat-matter/microhad'
 RELAY = RUST_ROOT / 'build/openthread-unix/sim-relay-host'
 PAIR = ROOT / 'paired_start.sh'
 MAINTENANCE = RUST_ROOT / 'build/gateway-maintenance-host'
 SPEC = importlib.util.spec_from_file_location(
-    'matter_service_test', RUST_ROOT / 'scripts/test-matter-service.py')
+    'matter_service_test', RUST_ROOT / 'thread-matter/scripts/test-matter-service.py')
 service_test = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(service_test)
 NATIVE_SPEC = importlib.util.spec_from_file_location(

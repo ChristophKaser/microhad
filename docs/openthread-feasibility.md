@@ -50,8 +50,8 @@ binaries and generated test state; all test files were removed afterward.
 From the experiment repository:
 
 ```sh
-bash scripts/build-openthread.sh host
-bash scripts/build-openthread.sh mips
+bash thread-matter/scripts/build-openthread.sh host
+bash thread-matter/scripts/build-openthread.sh mips
 ```
 
 Prerequisites: the already-pinned Silicon Labs SDK, CMake, Python 3, host C++,
@@ -107,7 +107,7 @@ coverage, and real radio load need further measurements before production deploy
 
 ## Unix adapter
 
-Patch: `patches/openthread-hdlc-unix.patch`.
+Patch: `thread-matter/patches/openthread-hdlc-unix.patch`.
 
 The adapter extends OpenThread's existing HDLC interface with:
 
@@ -136,7 +136,7 @@ Thread IID 2 and restores the consumer's identifiers on replies/notifications.
 OpenThread must not open `/dev/ttyS1`; Ziggurat remains the UART/reset owner.
 The existing Zigbee COBS socket has a different protocol and cannot be used.
 
-`tests/openthread-unix.cpp` exercises the actual patched OpenThread transport:
+`thread-matter/tests/openthread-unix.cpp` exercises the actual patched OpenThread transport:
 missing no-reset rejection, reset suppression, escaped bytes, fragmented frame
 reassembly, exact decoded round trip, and closing without waiting for an
 unrelated child. Both the host CLI and the MIPS CLI compile with the adapter.
@@ -174,8 +174,8 @@ Matter implementation is included or claimed by these builds and simulations.
 The successful reproducibility checks were:
 
 ```sh
-bash scripts/build-openthread.sh host > build/openthread-unix/host-validation.log 2>&1
-bash scripts/build-openthread.sh mips > build/openthread-unix/mips-validation.log 2>&1
+bash thread-matter/scripts/build-openthread.sh host > build/openthread-unix/host-validation.log 2>&1
+bash thread-matter/scripts/build-openthread.sh mips > build/openthread-unix/mips-validation.log 2>&1
 ```
 
 The host log ends with `Unix HDLC adapter: reset guard, escaped/fragmented round
@@ -214,12 +214,12 @@ The production Ziggurat socket and `/dev/ttyS1` were never opened by the test.
 Reproduce only for an explicitly authorized device test:
 
 ```sh
-bash scripts/build-openthread.sh host
-bash scripts/build-openthread.sh mips
-bash scripts/build-openthread-relay.sh host
-bash scripts/build-openthread-relay.sh mips
-python3 scripts/test-openthread-device.py
-python3 scripts/test-openthread-device.py --host 192.168.178.62 \
+bash thread-matter/scripts/build-openthread.sh host
+bash thread-matter/scripts/build-openthread.sh mips
+bash thread-matter/scripts/build-openthread-relay.sh host
+bash thread-matter/scripts/build-openthread-relay.sh mips
+python3 thread-matter/scripts/test-openthread-device.py
+python3 thread-matter/scripts/test-openthread-device.py --host 192.168.178.62 \
   --password-file ../ssh_password.txt
 ```
 

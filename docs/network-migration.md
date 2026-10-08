@@ -91,8 +91,8 @@ tools/network-migration-venv/bin/pip install \
 
 The real-server tests additionally need the patched host Ziggurat and its
 simulator from the experiment checkout. The experiment's
-`patches/ziggurat-network-migration.patch` applies after its HDLC transport patch;
-`ZIGGURAT_MULTIPAN=1 bash scripts/build-ziggurat.sh` builds the MIPS version.
+`ziggurat/patches/ziggurat-network-migration.patch` applies after its HDLC transport patch;
+`ZIGGURAT_MULTIPAN=1 bash ziggurat/scripts/build.sh` builds the MIPS version.
 
 ## Fresh export, conversion and offline import
 
@@ -221,7 +221,7 @@ The native persistence layer now implements ZHA-style checkpoints and a 1000-fra
 restart margin; this is not a durable reservation of every future counter.
 See the integration guide for notification-loss and incoming replay-counter limits.
 
-Sources: the retained [EZSP upgrade record](scripts/EZSP_UPGRADE.md), the
+Sources: the retained [EZSP upgrade record](../microhad/scripts/EZSP_UPGRADE.md), the
 [Silicon Labs NCP-to-host migration note](https://docs.silabs.com/zigbee/9.0.0/multiprotocol-solution-linux/host-ncp-rcp-migration),
 and the pinned local GSDK `misc.c`, `ncp_base.cpp`, `btl_interface.c` and linker
 map. Silicon Labs' token-based migration requires a token interface that this

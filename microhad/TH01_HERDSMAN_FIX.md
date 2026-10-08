@@ -63,7 +63,7 @@ all unrelated device baselines remain intact. Network key, key sequence and
 coordinator outgoing frame counter are retained. Failed authentication does
 not install a new incoming baseline.
 
-scripts/test-fresh-join-replay.py uses only synthetic keys and a localhost RCP
+ziggurat/scripts/test-fresh-join-replay.py uses only synthetic keys and a localhost RCP
 with the actual server. A valid processing-fence frame ensures negative cases
 were processed before assertions. It verifies initial acceptance, stale-frame
 rejection, secured rejoin and trust-center rejoin preserving counters, denied
@@ -94,14 +94,14 @@ cd ..
 source scripts/rust-env.sh
 CARGO_TARGET_DIR="$PWD/build/host" cargo +nightly-2026-10-02 build \
   --manifest-path worktrees/ziggurat-hdlc/Cargo.toml -p ziggurat-server
-python3 scripts/test-fresh-join-replay.py
-python3 scripts/test-hdlc-multipan.py
-python3 scripts/test-cobs-unix.py
+python3 ziggurat/scripts/test-fresh-join-replay.py
+python3 ziggurat/scripts/test-hdlc-multipan.py
+python3 ziggurat/scripts/test-cobs-unix.py
 python3 ../microhad/scripts/test_ziggurat_service.py
-ZIGGURAT_MULTIPAN=1 bash scripts/build-ziggurat.sh
+ZIGGURAT_MULTIPAN=1 bash ziggurat/scripts/build.sh
 ```
 
-The build script applies patches/ziggurat-fresh-join-replay.patch reproducibly
+The build script applies ziggurat/patches/ziggurat-fresh-join-replay.patch reproducibly
 alongside existing multipan, migration, stock compatibility and diagnostic
 patches. The pristine source checkout remains unchanged.
 
