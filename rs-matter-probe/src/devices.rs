@@ -28,6 +28,9 @@ const MAX_QUEUED_REPORT_VALUES: usize = 512;
 const SWITCH_EVENT_ATTRIBUTE: u32 = u32::MAX;
 const ICD_MANAGEMENT_CLUSTER: u32 = 0x0046;
 const MAX_ICD_CANDIDATES: usize = crate::icd::MAX_ICD_CLIENTS * MAX_ENDPOINTS;
+// Allow a short transport/scheduler delay after the publisher's negotiated
+// maximum interval before treating a healthy subscription as lost.
+const SUBSCRIPTION_REPORT_GRACE: Duration = Duration::from_secs(10);
 
 #[derive(Serialize)]
 pub struct Device {
@@ -96,6 +99,7 @@ struct SubscriptionState {
     key: SubscriptionKey,
     id: Option<u32>,
     next_retry: Instant,
+    max_interval: u16,
     failures: u8,
     unit: Option<&'static str>,
     last_report: Option<Vec<u8>>,
@@ -445,6 +449,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 },
                 id: Some(subscription_id),
                 next_retry: now + Duration::from_secs(3600),
+                max_interval: 3600,
                 failures: 0,
                 unit: None,
                 last_report: None,
@@ -715,6 +720,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                         },
                         id: Some(id),
                         next_retry: now + Duration::from_secs(3600),
+                        max_interval: 3600,
                         failures: 0,
                         unit: None,
                         last_report: None,
@@ -845,6 +851,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                     .as_ref()
                     .err()
                     .is_some_and(|error| error.code() == ErrorCode::RxTimeout);
+                let mut priming_report = None;
                 if let Some(subscription) = self
                     .subscriptions
                     .iter_mut()
@@ -852,13 +859,21 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 {
                     match result {
                         Ok(established) => {
-                            subscription.id = Some(established.established.subscription_id);
+                            let subscription_id = established.established.subscription_id;
+                            subscription.id = Some(subscription_id);
                             subscription.failures = 0;
+                            subscription.max_interval = established.established.max_int.max(1);
                             subscription.next_retry = now
-                                + Duration::from_secs(
-                                    u64::from(established.established.max_int).max(1),
-                                );
+                                + Duration::from_secs(u64::from(subscription.max_interval))
+                                + SUBSCRIPTION_REPORT_GRACE;
                             subscription.unit = established.unit;
+                            priming_report = Some(crate::subscriptions::ReceivedReport {
+                                fabric: self.fabric.get(),
+                                node: key.node,
+                                subscription_id,
+                                values: established.priming_values,
+                                buttons: Vec::new(),
+                            });
                         }
                         Err(_) => {
                             subscription.id = None;
@@ -866,6 +881,9 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                             subscription.next_retry = now + retry_delay(subscription.failures);
                         }
                     }
+                }
+                if let Some(report) = priming_report {
+                    self.record_report(report);
                 }
                 if failed {
                     self.mark_node_unreachable(key.node, now);
@@ -1213,6 +1231,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                     key,
                     id: None,
                     next_retry: now,
+                    max_interval: crate::subscriptions::MAX_REPORT_INTERVAL_SECONDS,
                     failures: 0,
                     unit: None,
                     last_report: None,
@@ -1229,6 +1248,12 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         }) else {
             return;
         };
+        // max_int is the publisher's report/keepalive cadence, not a lease
+        // that requires periodic re-subscription. Only re-establish after
+        // reports actually stop arriving.
+        subscription.next_retry = Instant::now()
+            + Duration::from_secs(u64::from(subscription.max_interval.max(1)))
+            + SUBSCRIPTION_REPORT_GRACE;
         if subscription.key.cluster == 59 && subscription.key.attribute == SWITCH_EVENT_ATTRIBUTE {
             for button in report.buttons {
                 if button.node.0 != subscription.key.node || button.endpoint != subscription.key.endpoint { continue; }
@@ -1397,6 +1422,7 @@ mod tests {
             },
             id: Some(77),
             next_retry: Instant::now(),
+            max_interval: 60,
             failures: 0,
             unit: None,
             last_report: None,
@@ -1510,6 +1536,7 @@ mod tests {
             },
             id: Some(77),
             next_retry: Instant::now(),
+            max_interval: 60,
             failures: 0,
             unit: None,
             last_report: None,
@@ -1518,6 +1545,18 @@ mod tests {
         manager.record_report(report(-5.25));
         manager.record_report(report(-5.25));
         assert_eq!(manager.reports.len(), 1);
+
+        // An empty Matter ReportData is a liveness keepalive even when it
+        // contains no changed attribute values.
+        manager.subscriptions[0].next_retry = Instant::now() - Duration::from_secs(1);
+        manager.record_report(crate::subscriptions::ReceivedReport {
+            fabric: 1,
+            node: 2,
+            subscription_id: 77,
+            values: Vec::new(),
+            buttons: Vec::new(),
+        });
+        assert!(manager.subscriptions[0].next_retry > Instant::now() + Duration::from_secs(60));
 
         for value in 0..MAX_QUEUED_REPORT_VALUES {
             manager.record_report(report(value as f32));

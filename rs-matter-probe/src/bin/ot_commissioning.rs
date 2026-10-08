@@ -331,6 +331,7 @@ impl pm25_measurement::ClusterHandler for TestConcentration {
     }
 }
 struct TestAirQuality {
+    value: Cell<air_quality::AirQualityEnum>,
     dataver: Cell<u32>,
 }
 struct TestBooleanState {
@@ -361,7 +362,7 @@ impl air_quality::ClusterHandler for TestAirQuality {
         &self,
         _: impl rs_matter::dm::ReadContext,
     ) -> Result<air_quality::AirQualityEnum, Error> {
-        Ok(air_quality::AirQualityEnum::Moderate)
+        Ok(self.value.get())
     }
 }
 const APP_ENDPOINT: Endpoint<'static> = Endpoint::new(
@@ -593,6 +594,7 @@ async fn run(
         dataver: Cell::new(1),
     };
     let air_quality = TestAirQuality {
+        value: Cell::new(air_quality::AirQualityEnum::Moderate),
         dataver: Cell::new(1),
     };
     let boolean_state = TestBooleanState {
@@ -1288,6 +1290,41 @@ async fn run(
                     &[6, 8, 69, 91, 1026, 1029, 1037, 1066],
                 )
                 .await?;
+                let priming_values: Vec<_> =
+                    std::iter::from_fn(|| manager.pop_report()).collect();
+                assert!(priming_values.iter().any(|value| matches!(
+                    value,
+                    lexra_rs_matter_probe::operations::ResultValue {
+                        node: lexra_rs_matter_probe::control::Id(reported_node),
+                        endpoint: 1,
+                        cluster: 6,
+                        attribute: 0,
+                        value: lexra_rs_matter_probe::operations::Value::Bool(false),
+                    } if *reported_node == node
+                )));
+                assert!(priming_values.iter().any(|value| matches!(
+                    value,
+                    lexra_rs_matter_probe::operations::ResultValue {
+                        node: lexra_rs_matter_probe::control::Id(reported_node),
+                        endpoint: 1,
+                        cluster: 69,
+                        attribute: 0,
+                        value: lexra_rs_matter_probe::operations::Value::Bool(false),
+                    } if *reported_node == node
+                )));
+                for (cluster, expected) in [(1026, 23.15), (1029, 52.34)] {
+                    assert!(priming_values.iter().any(|value| {
+                        value.node.0 == node
+                            && value.endpoint == 1
+                            && value.cluster == cluster
+                            && matches!(
+                                &value.value,
+                                lexra_rs_matter_probe::operations::Value::Measurement(measurement)
+                                    if measurement.value.is_some_and(|value| (value - expected).abs() < 0.001)
+                            )
+                    }), "missing initial sensor value for cluster {cluster}");
+                }
+                println!("PASS initial sensor and contact values delivered from subscription priming reports");
             }
             let mut report_ipc = if sensor_reports {
                 let directory = if state_directory.is_absolute() {
@@ -1414,7 +1451,10 @@ async fn run(
                         }
                         1026 => temperature.value.set(Some(-525)),
                         1029 => humidity.value.set(Some(6400)),
-                        91 => air_quality::ClusterHandler::dataver_changed(&air_quality),
+                        91 => {
+                            air_quality.value.set(air_quality::AirQualityEnum::Fair);
+                            air_quality::ClusterHandler::dataver_changed(&air_quality);
+                        }
                         1037 => co2.value.set(Some(800.0)),
                         1066 => pm25.value.set(Some(25.5)),
                         _ => unreachable!(),
@@ -1501,7 +1541,7 @@ async fn run(
                     let expected = match cluster {
                         1026 => br#"{"schema":1,"event":"matter_report","data":{"node":"0000000000000002","endpoint":1,"cluster":1026,"attribute":0,"value":{"type":"measurement","value":{"value":-5.25,"unit":"celsius","quality":"measured"}}}}"#.as_slice(),
                         1029 => br#"{"schema":1,"event":"matter_report","data":{"node":"0000000000000002","endpoint":1,"cluster":1029,"attribute":0,"value":{"type":"measurement","value":{"value":64.0,"unit":"percent","quality":"measured"}}}}"#.as_slice(),
-                        91 => br#"{"schema":1,"event":"matter_report","data":{"node":"0000000000000002","endpoint":1,"cluster":91,"attribute":0,"value":{"type":"air_quality","value":{"value":"moderate","quality":"measured"}}}}"#.as_slice(),
+                        91 => br#"{"schema":1,"event":"matter_report","data":{"node":"0000000000000002","endpoint":1,"cluster":91,"attribute":0,"value":{"type":"air_quality","value":{"value":"fair","quality":"measured"}}}}"#.as_slice(),
                         1037 => br#"{"schema":1,"event":"matter_report","data":{"node":"0000000000000002","endpoint":1,"cluster":1037,"attribute":0,"value":{"type":"measurement","value":{"value":800.0,"unit":"ppm","quality":"measured"}}}}"#.as_slice(),
                         1066 => br#"{"schema":1,"event":"matter_report","data":{"node":"0000000000000002","endpoint":1,"cluster":1066,"attribute":0,"value":{"type":"measurement","value":{"value":25.5,"unit":"ug/m3","quality":"measured"}}}}"#.as_slice(),
                         69 => br#"{"schema":1,"event":"matter_report","data":{"node":"0000000000000002","endpoint":1,"cluster":69,"attribute":0,"value":{"type":"bool","value":true}}}"#.as_slice(),

@@ -36,6 +36,7 @@ pub enum IncomingMessage {
 pub struct DeviceSubscription {
     pub established: SubscribeEstablished,
     pub unit: Option<&'static str>,
+    pub priming_values: Vec<crate::operations::ResultValue>,
 }
 
 /// Establish one bounded attribute subscription and drain every priming chunk.
@@ -97,9 +98,42 @@ pub async fn establish_device_attribute<C: Crypto>(
         ),
         _ => None,
     };
-    let established =
-        establish_attribute(matter, crypto, fabric, node, endpoint, cluster, attribute).await?;
-    Ok(DeviceSubscription { established, unit })
+    let path = AttrPath {
+        endpoint: Some(endpoint),
+        cluster: Some(cluster),
+        attr: Some(attribute),
+        ..AttrPath::default()
+    };
+    let mut chunk = Exchange::initiate(matter, crypto, fabric, node)
+        .await?
+        .subscribe_with(|builder| {
+            builder
+                .keep_subs(true)?
+                .min_int_floor(MIN_REPORT_INTERVAL_SECONDS)?
+                .max_int_ceil(MAX_REPORT_INTERVAL_SECONDS)?
+                .attr_requests_from(core::slice::from_ref(&path))?
+                .fabric_filtered(true)?
+                .end()
+        })
+        .await?;
+    let mut priming_values = Vec::new();
+    let established = loop {
+        let report = chunk.response()?;
+        let mut values = crate::operations::report_values(node, &report)?;
+        if priming_values.len().saturating_add(values.len()) > MAX_REPORT_VALUES {
+            return Err(ErrorCode::NoSpace.into());
+        }
+        priming_values.append(&mut values);
+        match chunk.complete().await? {
+            SubscribeOutcome::NextChunk(next) => chunk = next,
+            SubscribeOutcome::Established(established) => break established,
+        }
+    };
+    Ok(DeviceSubscription {
+        established,
+        unit,
+        priming_values,
+    })
 }
 
 pub async fn establish_switch_events<C: Crypto>(
@@ -118,7 +152,13 @@ pub async fn establish_switch_events<C: Crypto>(
     loop {
         match chunk.complete().await? {
             SubscribeOutcome::NextChunk(next) => chunk = next,
-            SubscribeOutcome::Established(established) => return Ok(DeviceSubscription { established, unit: None }),
+            SubscribeOutcome::Established(established) => {
+                return Ok(DeviceSubscription {
+                    established,
+                    unit: None,
+                    priming_values: Vec::new(),
+                })
+            }
         }
     }
 }
