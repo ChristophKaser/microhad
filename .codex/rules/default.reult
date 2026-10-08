@@ -1,4 +1,4 @@
-# This project is intentionally allowed to interact with its development gateway
+# This project is intentionally allowed to interact with its development
 # gateway. Do not add credentials or device configuration to this file.
 
 # Dashboard API requests may use any endpoint or method. This also permits curl
@@ -7,7 +7,7 @@
 prefix_rule(
     pattern = ["curl"],
     decision = "allow",
-    justification = "Permit dashboard and API access for the gateway development gateway.",
+    justification = "Permit dashboard and API access for the development gateway.",
     match = [
         "curl --connect-timeout 5 --max-time 8 -sS http://192.168.178.62/api/status",
         "curl --connect-timeout 5 --max-time 8 -sS -X POST http://192.168.178.62/api/service/restart",
@@ -98,7 +98,7 @@ prefix_rule(
         "root@192.168.178.62",
     ],
     decision = "allow",
-    justification = "Permit maintenance commands on the gateway development gateway.",
+    justification = "Permit maintenance commands on the development gateway.",
     match = [
         "sshpass -f ../ssh_password.txt ssh -o ConnectTimeout=8 -o StrictHostKeyChecking=yes -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa -o PreferredAuthentications=password -o PubkeyAuthentication=no root@192.168.178.62 ps w",
         "sshpass -f ../ssh_password.txt ssh -o ConnectTimeout=8 -o StrictHostKeyChecking=yes -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa -o PreferredAuthentications=password -o PubkeyAuthentication=no root@192.168.178.62 tail -n 150 /tmp/microhad.log",
@@ -118,7 +118,7 @@ prefix_rule(
         ["../ssh_password.txt"],
     ],
     decision = "allow",
-    justification = "Permit deployment to the gateway development gateway.",
+    justification = "Permit deployment to the development gateway.",
     match = [
         "./deploy.sh --host 192.168.178.62 --password-file ../ssh_password.txt --target /tuya/native --restart",
     ],

@@ -85,7 +85,7 @@ deployment includes it. Configurations and network state must stay outside Git.
 `--activate` installs the **EZSP MicroHAD launcher only**, preserving the
 previous launcher. Existing processes continue until the normal supervised
 restart or reboot. On its next start, the launcher removes the old
-`microhad-zigbee-native` executable after confirming no process still uses it.
+`/tuya/native/tuya-zigbee-native` executable after confirming no process still uses it.
 Follow the backend's installation procedure before activation or restart.
 
 ## Broadcast confirmation setting
