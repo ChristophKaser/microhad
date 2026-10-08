@@ -56,6 +56,7 @@ SOURCES := src/main.cpp src/matter_websocket.cpp src/matter_protocol.cpp src/mat
 HOST_BUILD := build/host$(BACKEND_SUFFIX)
 MIPS_BUILD := build/mips$(BACKEND_SUFFIX)
 HOST_BIN := $(HOST_BUILD)/microhad
+HOST_TEST_BIN := $(HOST_BUILD)/microhad-test
 MIPS_BIN := $(MIPS_BUILD)/microhad
 MIPS_MATTER_MANIFEST := $(MIPS_BIN).matter-manifest
 HOST_CXXFLAGS += -DMICROHAD_TEST_BINARY=\"$(HOST_BIN)\"
@@ -84,6 +85,10 @@ webui:
 $(HOST_BIN): $(SOURCES) $(HOST_C_OBJECTS) $(HOST_MBEDTLS_LIBS) $(wildcard include/*.h)
 	@mkdir -p $(HOST_BUILD)
 	$(HOST_CXX) $(HOST_CXXFLAGS) $(SOURCES) $(HOST_C_OBJECTS) -o $@ $(HOST_MBEDTLS_LIBS) $(LDFLAGS)
+
+$(HOST_TEST_BIN): $(SOURCES) $(HOST_C_OBJECTS) $(HOST_MBEDTLS_LIBS) $(wildcard include/*.h)
+	@mkdir -p $(HOST_BUILD)
+	$(HOST_CXX) $(HOST_CXXFLAGS) -DMICROHAD_TESTING=1 $(SOURCES) $(HOST_C_OBJECTS) -o $@ $(HOST_MBEDTLS_LIBS) $(LDFLAGS)
 
 mips: mbedtls-mips $(MIPS_BIN) verify-target
 
@@ -152,10 +157,10 @@ $(INTEGRATION_TEST_BIN): $(INTEGRATION_TEST_SOURCES) src/gateway_config.cpp src/
 unit-test: mbedtls-host $(HOST_BIN) $(UNIT_TEST_BIN)
 	$(UNIT_TEST_BIN)
 
-integration-test: mbedtls-host $(HOST_BIN) $(INTEGRATION_TEST_BIN)
+integration-test: mbedtls-host $(HOST_BIN) $(INTEGRATION_TEST_BIN) $(if $(filter 1,$(ZIGGURAT)),$(HOST_TEST_BIN))
 	$(INTEGRATION_TEST_BIN)
 ifeq ($(ZIGGURAT),1)
-	python3 scripts/test_ziggurat_native_peer.py
+	MICROHAD_TEST_BINARY=$(abspath $(HOST_TEST_BIN)) python3 scripts/test_ziggurat_native_peer.py
 endif
 
 target-verifier-test: $(UNIT_TEST_BIN)

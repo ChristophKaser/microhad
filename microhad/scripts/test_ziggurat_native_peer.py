@@ -3,6 +3,7 @@
 from collections import deque
 import copy
 import json
+import os
 from pathlib import Path
 import socket
 import struct
@@ -20,6 +21,7 @@ from ziggurat_cobs import encode, decode
 from test_ziggurat_service import free_port, wait_for
 
 ROOT=Path(__file__).resolve().parents[1]
+NATIVE_BINARY=Path(os.environ.get("MICROHAD_TEST_BINARY", ROOT/"build/host-ziggurat/microhad"))
 
 
 class Peer:
@@ -126,7 +128,7 @@ class NativeTests(unittest.TestCase):
         self.launch()
 
     def launch(self):
-        self.process=subprocess.Popen([str(ROOT/"build/host-ziggurat/microhad"),"--config",str(self.config)],stdout=self.log,stderr=self.log)
+        self.process=subprocess.Popen([str(NATIVE_BINARY),"--config",str(self.config)],stdout=self.log,stderr=self.log)
         wait_for(lambda:self.status()["online"])
 
     def request(self,path,data=None):
@@ -209,6 +211,7 @@ class NativeTests(unittest.TestCase):
         ieee=bytes.fromhex(fixture()["keys"][0]["ieee"])
         self.peer.reject_send=True
         self.peer.notify(0x20,b"\x34\x12"+ieee+b"\x00\x00\x04")
+        wait_for(lambda:any(command==0x30 for command,_ in self.peer.commands))
         wait_for(lambda:any("Ziggurat send failed" in line for line in self.request("/api/logs")["lines"]))
         self.assertTrue(self.status()["online"])
 
@@ -243,7 +246,7 @@ class NativeTests(unittest.TestCase):
         self.process.kill();self.process.wait();self.process=None
         self.peer.configured=False;self.peer.started=False;self.peer.drop_commands.add(0x10)
         first=int.from_bytes(bytes.fromhex(self.saved()["network"])[39:43],"little")
-        self.process=subprocess.Popen([str(ROOT/"build/host-ziggurat/microhad"),"--config",str(self.config)],stdout=self.log,stderr=self.log)
+        self.process=subprocess.Popen([str(NATIVE_BINARY),"--config",str(self.config)],stdout=self.log,stderr=self.log)
         wait_for(lambda:int.from_bytes(bytes.fromhex(self.saved()["network"])[39:43],"little")>first)
         committed=self.saved()
         self.process.kill();self.process.wait();self.process=None;self.peer.drop_commands.clear()
@@ -255,7 +258,7 @@ class NativeTests(unittest.TestCase):
     def test_corrupt_state_blocks_startup(self):
         self.process.kill();self.process.wait();self.process=None
         self.state_path.write_text("{}");self.state_path.chmod(0o600)
-        process=subprocess.Popen([str(ROOT/"build/host-ziggurat/microhad"),"--config",str(self.config)],stdout=self.log,stderr=self.log)
+        process=subprocess.Popen([str(NATIVE_BINARY),"--config",str(self.config)],stdout=self.log,stderr=self.log)
         self.assertEqual(process.wait(timeout=5),1)
 
 

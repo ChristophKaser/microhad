@@ -182,7 +182,11 @@ void runMatterClientUnitTests() {
         int64_t deadline = static_cast<int64_t>(now.tv_sec) * 1000 + now.tv_nsec / 1000000 + 1000;
         json = "old";
         bool valid = client.exchange(sockets[0], peer.opcode, peer.body, deadline, &json, &error);
-        assert(valid == (i == 0 || i == 7 || i == 9 || i == 10));
+        const bool expectedValid = i == 0 || i == 7 || i == 9 || i == 10;
+        if (valid != expectedValid)
+            fprintf(stderr, "Matter response fixture %lu: expected valid=%d, got %d (%s)\n",
+                    i, expectedValid, valid, error.c_str());
+        assert(valid == expectedValid);
         if (valid) assert(json == peer.reply && error.empty());
         else assert(json.empty() && error == "Matter service response invalid");
         assert(pthread_join(server, 0) == 0);

@@ -4595,6 +4595,7 @@ void Gateway::registerNode(unsigned short nodeId, const unsigned char* eui64) {
     }
     saveState();
     if (persistentChanged) savePersistentState();
+    markViewDirty();
     std::ostringstream message;
     message << "Device announced: " << address.str() << " (0x" << std::hex << nodeId << ")";
     addLog(message.str());

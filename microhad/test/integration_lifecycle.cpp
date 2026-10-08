@@ -10,6 +10,13 @@
 #include <sys/wait.h>
 #include <netinet/in.h>
 #include <unistd.h>
+#if MICROHAD_ZIGGURAT_ENABLED
+#include "ziggurat_client.h"
+#endif
+
+#ifndef MICROHAD_TEST_BINARY
+#define MICROHAD_TEST_BINARY "build/host/microhad"
+#endif
 
 namespace {
 int unusedPort() {
@@ -32,18 +39,47 @@ void writeConfig(const std::string& filename, const std::string& serialPath,
     int fd = open(filename.c_str(), O_WRONLY | O_TRUNC);
     char buffer[512];
     int length = snprintf(buffer, sizeof(buffer),
-        "{\"serial_device\":\"%s\",\"runtime_dir\":\"%s\",\"http_port\":%d}",
-        serialPath.c_str(), runtimePath.c_str(), port);
+        "{\"serial_device\":\"%s\",\"runtime_dir\":\"%s\",\"http_port\":%d,\"ziggurat_socket\":\"%s/ziggurat.sock\"}",
+        serialPath.c_str(), runtimePath.c_str(), port, runtimePath.c_str());
     assert(fd >= 0 && length > 0 && static_cast<size_t>(length) < sizeof(buffer));
     assert(write(fd, buffer, static_cast<size_t>(length)) == length);
     close(fd);
+}
+
+void writePrivateZigguratState(const std::string& runtimePath) {
+#if MICROHAD_ZIGGURAT_ENABLED
+    ZigguratState state;
+    state.network.assign(82, 0);
+    state.network[0] = 15;
+    state.network[2] = 1;
+    state.network[4] = 2;
+    state.network[14] = 2;
+    state.network[22] = 2;
+    state.network[43] = 2;
+    state.keys.assign(2, 0);
+    state.children.assign(2, 0);
+    state.addresses.assign(2, 0);
+    std::string error;
+    assert(state.save(runtimePath + "/ziggurat-state.json", &error));
+#else
+    (void)runtimePath;
+#endif
+}
+
+void removePrivateZigguratState(const std::string& runtimePath) {
+#if MICROHAD_ZIGGURAT_ENABLED
+    unlink((runtimePath + "/ziggurat-state.json").c_str());
+    unlink((runtimePath + "/ziggurat-state.json.lock").c_str());
+#else
+    (void)runtimePath;
+#endif
 }
 
 pid_t startGateway(const std::string& config) {
     pid_t child = fork();
     assert(child >= 0);
     if (child == 0) {
-        execl("build/host/microhad", "microhad", "--config", config.c_str(), static_cast<char*>(0));
+        execl(MICROHAD_TEST_BINARY, "microhad", "--config", config.c_str(), static_cast<char*>(0));
         _exit(127);
     }
     return child;
@@ -90,6 +126,7 @@ void verifyDaemonSignals(int signalNumber, bool exerciseBrokenPipe) {
     assert(directory != 0 && master >= 0);
     assert(grantpt(master) == 0 && unlockpt(master) == 0 && ptsname(master) != 0);
     serialPath = ptsname(master);
+    writePrivateZigguratState(directory);
     snprintf(configName, sizeof(configName), "%s/config.json", directory);
     {
         int fd = open(configName, O_WRONLY | O_CREAT | O_TRUNC, 0600);
@@ -131,6 +168,7 @@ void verifyDaemonSignals(int signalNumber, bool exerciseBrokenPipe) {
     waitForExit(child);
     close(master);
     unlink(configName);
+    removePrivateZigguratState(directory);
     rmdir(directory);
 }
 
@@ -150,6 +188,7 @@ void verifyServiceRestartResponse() {
     ssize_t count;
     assert(directory != 0 && master >= 0);
     assert(grantpt(master) == 0 && unlockpt(master) == 0 && ptsname(master) != 0);
+    writePrivateZigguratState(directory);
     snprintf(configName, sizeof(configName), "%s/config.json", directory);
     {
         int fd = open(configName, O_WRONLY | O_CREAT | O_TRUNC, 0600);
@@ -186,6 +225,7 @@ void verifyServiceRestartResponse() {
     waitForExit(child);
     close(master);
     unlink(configName);
+    removePrivateZigguratState(directory);
     rmdir(directory);
 }
 }
