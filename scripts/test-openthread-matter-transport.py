@@ -88,6 +88,8 @@ def main():
                 raise RuntimeError('Operational OnOff transaction did not complete: ' + result.stdout + result.stderr)
             if args.service_owner and not args.icd and 'PASS production manager subscription and peer-correlated OnOff reports' not in result.stdout:
                 raise RuntimeError('Production subscription/report path did not complete: ' + result.stdout + result.stderr)
+            if args.service_owner and not args.icd and 'PASS obsolete subscription rejected with INVALID_SUBSCRIPTION over CASE' not in result.stdout:
+                raise RuntimeError('Obsolete subscription rejection did not complete: ' + result.stdout + result.stderr)
             if args.sensor_reports and 'PASS recovery-required catalog node reconciled after live CASE descriptor discovery' not in result.stdout:
                 raise RuntimeError('Interrupted node CASE recovery did not complete: ' + result.stdout + result.stderr)
             if args.sensor_reports and 'PASS production manager sensor and contact reports reach IPC from subscribed CASE reports' not in result.stdout:
@@ -249,7 +251,7 @@ def run_native_bridge(command, working_directory, timeout):
         expected = {
             'temperature': (-5.25, '°C'),
             'humidity': (64.0, '%'),
-            'air_quality': ('moderate', ''),
+            'air_quality': ('fair', ''),
             'co2': (800.0, 'ppm'),
             'pm25': (25.5, 'ug/m3'),
         }

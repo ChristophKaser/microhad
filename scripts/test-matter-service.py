@@ -177,7 +177,8 @@ def archive_state(source, archive_path):
 def commissioning_calls(path, credentials):
     client = SessionPeer(path)
     try:
-        start = dict(schema=1, discriminator=3840, pin=20202021, timeout_seconds=30)
+        start = dict(schema=1, discriminator=3840, pin=20202021, timeout_seconds=30,
+                     country_code="DE", regulatory_location="indoor")
         heartbeat = dict(schema=1, action="observe", zigbee_channel=15, zigbee_online=True)
         assert client.call(9, heartbeat)["ok"]
         before = credentials.read_bytes()
@@ -453,7 +454,8 @@ def main():
             previous_dataset = thread_dataset(credentials)
             relay_client = SessionPeer(ipc_path)
             active_session = relay_client.call(3, dict(
-                schema=1, discriminator=3840, pin=20202021, timeout_seconds=30))["result"]["session"]
+                schema=1, discriminator=3840, pin=20202021, timeout_seconds=30,
+                country_code="DE", regulatory_location="indoor"))["result"]["session"]
             generation = relay_client.call(6, dict(schema=1, session=active_session,
                 address="bbbbbbbbbbbb", mtu=247))["result"]["generation"]
             pending_write = relay_client.event("ble_write", generation)

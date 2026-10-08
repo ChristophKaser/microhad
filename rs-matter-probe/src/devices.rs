@@ -179,6 +179,7 @@ pub struct Manager<'a, C: Crypto> {
     jobs: VecDeque<JobRecord>,
     subscription_limit: usize,
     subscriptions: Vec<SubscriptionState>,
+    report_subscriptions: crate::subscriptions::ReportSubscriptions,
     subscription_work: Option<(SubscriptionKey, Instant, SubscriptionWork<'a>)>,
     report_work: Option<ReportWork<'a>>,
     #[cfg(feature = "controller-service-test-hooks")]
@@ -262,6 +263,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             jobs: VecDeque::new(),
             subscription_limit,
             subscriptions: Vec::new(),
+            report_subscriptions: crate::subscriptions::ReportSubscriptions::default(),
             subscription_work: None,
             report_work: None,
             #[cfg(feature = "controller-service-test-hooks")]
@@ -676,6 +678,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 subscription.id = None;
                 subscription.next_retry = now;
             }
+            self.sync_report_subscriptions();
             if changed {
                 self.changed();
             }
@@ -738,6 +741,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             if self.report_work.is_none() {
                 self.report_work = Some(Box::pin(crate::subscriptions::receive_incoming(
                     self.matter,
+                    self.report_subscriptions.clone(),
                 )));
             }
         }
@@ -883,6 +887,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                     }
                 }
                 if let Some(report) = priming_report {
+                    self.sync_report_subscriptions();
                     self.record_report(report);
                 }
                 if failed {
@@ -993,6 +998,12 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             .min_by_key(|subscription| subscription.next_retry)
         {
             let key = subscription.key;
+            // Stop acknowledging this ID before asking for its replacement.
+            // KeepSubscriptions must stay true to preserve other attributes.
+            if let Some(subscription) = self.subscriptions.iter_mut().find(|entry| entry.key == key) {
+                subscription.id = None;
+            }
+            self.sync_report_subscriptions();
             let work: SubscriptionWork<'a> = if key.cluster == 59 && key.attribute == SWITCH_EVENT_ATTRIBUTE {
                 Box::pin(crate::subscriptions::establish_switch_events(
                     self.matter, self.crypto, self.fabric, key.node, key.endpoint))
@@ -1238,6 +1249,15 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 });
             }
         }
+        self.sync_report_subscriptions();
+    }
+    fn sync_report_subscriptions(&self) {
+        self.report_subscriptions.replace(
+            self.fabric.get(),
+            self.subscriptions.iter().filter_map(|subscription| {
+                subscription.id.map(|id| (subscription.key.node, id))
+            }),
+        );
     }
     fn record_report(&mut self, report: crate::subscriptions::ReceivedReport) {
         if report.fabric != self.fabric.get() {

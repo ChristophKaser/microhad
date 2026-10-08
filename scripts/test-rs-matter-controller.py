@@ -22,7 +22,8 @@ def main():
     run(['bash', str(ROOT / 'scripts/fetch-rs-matter.sh')])
     if not WORKTREE.exists():
         run(['git', '-C', str(SOURCE), 'worktree', 'add', '--detach', str(WORKTREE), REVISION])
-    run(['python3', str(ROOT / 'scripts/apply-mailbox-series.py'), str(WORKTREE), REVISION, str(PATCH)])
+    run(['python3', str(ROOT / 'scripts/apply-mailbox-series.py'), str(WORKTREE), REVISION,
+         str(PATCH), str(ROOT / 'patches/rs-matter-probe-commissioning-region.patch')])
     if subprocess.check_output(['git', '-C', str(WORKTREE), 'ls-files', '--others', '--exclude-standard']):
         raise RuntimeError('Unexpected untracked controller source files')
     shutil.copyfile(ROOT / 'rs-matter-probe/controller-tests.lock', WORKTREE / 'Cargo.lock')

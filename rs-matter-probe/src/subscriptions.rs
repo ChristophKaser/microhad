@@ -1,5 +1,6 @@
 //! Bounded Interaction Model subscription establishment for operational endpoints.
 use core::num::NonZeroU8;
+use std::{cell::RefCell, rc::Rc};
 use rs_matter::{
     crypto::Crypto,
     error::{Error, ErrorCode},
@@ -15,6 +16,23 @@ use rs_matter::{
 pub const MIN_REPORT_INTERVAL_SECONDS: u16 = 1;
 pub const MAX_REPORT_INTERVAL_SECONDS: u16 = 3600;
 pub const MAX_REPORT_VALUES: usize = 128;
+
+/// Shared with the report receiver so retired IDs are rejected before ACKing
+/// any chunk. Keys include the authenticated fabric and peer, not just the ID.
+#[derive(Clone, Default)]
+pub struct ReportSubscriptions(Rc<RefCell<Vec<(u8, u64, u32)>>>);
+
+impl ReportSubscriptions {
+    pub fn replace(&self, fabric: u8, identities: impl Iterator<Item = (u64, u32)>) {
+        let mut active = self.0.borrow_mut();
+        active.clear();
+        active.extend(identities.map(|(node, id)| (fabric, node, id)));
+    }
+
+    fn accepts(&self, fabric: u8, node: u64, id: u32) -> bool {
+        self.0.borrow().contains(&(fabric, node, id))
+    }
+}
 pub struct ReceivedReport {
     pub fabric: u8,
     pub node: u64,
@@ -166,31 +184,37 @@ pub async fn establish_switch_events<C: Crypto>(
 /// Accept and acknowledge one active server-initiated ReportData exchange.
 /// Chunked reports are combined under a strict value bound, and the authenticated
 /// fabric/node and subscription ID are retained for manager-side correlation.
-pub async fn receive_report(matter: &Matter<'_>) -> Result<ReceivedReport, Error> {
+pub async fn receive_report(
+    matter: &Matter<'_>, active: ReportSubscriptions,
+) -> Result<ReceivedReport, Error> {
     receive_report_exchange(
         Exchange::accept_matching(
             matter,
             rs_matter::im::PROTO_ID_INTERACTION_MODEL,
             rs_matter::im::OpCode::ReportData as u8,
         )
-        .await?,
+        .await?, active,
     )
     .await
 }
 
-pub async fn receive_incoming(matter: &Matter<'_>) -> Result<IncomingMessage, Error> {
+pub async fn receive_incoming(
+    matter: &Matter<'_>, active: ReportSubscriptions,
+) -> Result<IncomingMessage, Error> {
     let exchange = Exchange::accept_matching(
         matter,
         rs_matter::im::PROTO_ID_INTERACTION_MODEL,
         rs_matter::im::OpCode::ReportData as u8,
     )
     .await?;
-    receive_report_exchange(exchange)
+    receive_report_exchange(exchange, active)
         .await
         .map(IncomingMessage::Report)
 }
 
-async fn receive_report_exchange(mut exchange: Exchange<'_>) -> Result<ReceivedReport, Error> {
+async fn receive_report_exchange(
+    mut exchange: Exchange<'_>, active: ReportSubscriptions,
+) -> Result<ReceivedReport, Error> {
     let (fabric, node) = exchange.peer_identity()?.ok_or(ErrorCode::InvalidData)?;
     let mut subscription_id = None;
     let mut values = Vec::new();
@@ -236,6 +260,13 @@ async fn receive_report_exchange(mut exchange: Exchange<'_>) -> Result<ReceivedR
         {
             return Err(ErrorCode::InvalidData.into());
         }
+        if !active.accepts(fabric, node, received_id) {
+            exchange.send_with(|_, writer| {
+                rs_matter::im::StatusResp::write(writer, rs_matter::im::IMStatusCode::InvalidSubscription)?;
+                Ok(Some(rs_matter::im::OpCode::StatusResponse.into()))
+            }).await?;
+            return Err(ErrorCode::InvalidData.into());
+        }
         subscription_id = Some(received_id);
         values.append(&mut chunk_values);
         buttons.append(&mut chunk_buttons);
@@ -258,4 +289,26 @@ async fn receive_report_exchange(mut exchange: Exchange<'_>) -> Result<ReceivedR
         values,
         buttons,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn retired_ids_and_wrong_peers_are_rejected_by_the_running_receiver() {
+        let active = ReportSubscriptions::default();
+        let receiver = active.clone();
+        active.replace(1, [(2, 77), (3, 77), (2, 78)].into_iter());
+        assert!(receiver.accepts(1, 2, 77));
+        assert!(receiver.accepts(1, 3, 77));
+        assert!(!receiver.accepts(2, 2, 77));
+        assert!(!receiver.accepts(1, 4, 77));
+        active.replace(1, [(2, 79), (3, 77), (2, 78)].into_iter());
+        assert!(!receiver.accepts(1, 2, 77));
+        assert!(receiver.accepts(1, 2, 79));
+        assert!(receiver.accepts(1, 2, 78));
+        active.replace(1, core::iter::empty());
+        assert!(!receiver.accepts(1, 2, 79));
+    }
 }

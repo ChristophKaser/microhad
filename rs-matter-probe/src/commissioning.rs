@@ -1,8 +1,5 @@
 //! Gateway commissioning policy and Thread provisioning over an authenticated PASE exchange.
 use rs_matter::crypto::Crypto;
-use rs_matter::dm::clusters::gen_comm::{
-    CommissioningErrorEnum, GeneralCommissioningClient, RegulatoryLocationTypeEnum,
-};
 use rs_matter::dm::clusters::decl::network_commissioning::{
     NetworkCommissioningClient, NetworkCommissioningStatusEnum,
 };
@@ -12,39 +9,6 @@ use rs_matter::tlv::OctetStr;
 use rs_matter::transport::exchange::Exchange;
 use rs_matter::transport::network::Address;
 use rs_matter::Matter;
-
-/// Select the commissioning country and location before the accessory joins
-/// the gateway's Thread network.
-pub async fn configure_regulatory_region<C: Crypto>(
-    matter: &Matter<'_>,
-    crypto: &C,
-    peer: Address,
-    passcode: u32,
-    country_code: &str,
-    location: crate::control::RegulatoryLocation,
-) -> Result<(), Error> {
-    let location = match location {
-        crate::control::RegulatoryLocation::Indoor => RegulatoryLocationTypeEnum::Indoor,
-        crate::control::RegulatoryLocation::Outdoor => RegulatoryLocationTypeEnum::Outdoor,
-    };
-    let response = Exchange::initiate_pase(matter, crypto, peer, passcode)
-        .await?
-        .general_commissioning()
-        .set_regulatory_config(0, |request| {
-            request
-                .new_regulatory_config(location)?
-                .country_code(country_code)?
-                .breadcrumb(0)?
-                .end()
-        })
-        .await?;
-    let status = response.response()?.error_code()?;
-    response.complete().await?;
-    if status != CommissioningErrorEnum::OK {
-        return Err(ErrorCode::Failure.into());
-    }
-    Ok(())
-}
 
 /// Application policy explicitly selected by the gateway owner.
 /// This does not change upstream defaults or bypass PASE/CASE authentication.

@@ -37,6 +37,7 @@ RS_MATTER_PROBE = [
     "rs-matter-probe-attribute-notify.patch",
     "rs-matter-probe-icd-capture.patch",
     "rs-matter-probe-sessionless-icd.patch",
+    "rs-matter-probe-commissioning-region.patch",
 ]
 CRATE_PATCHES = ["getrandom-0.4.3", "nix-0.26.4", "radium-0.7.0"]
 def run(command: list[str], *, cwd: Path | None = None, capture: bool = False) -> str:
@@ -195,7 +196,8 @@ def main() -> int:
     )
     verify_git_series(
         RS_MATTER,
-        [PATCH_DIR / "rs-matter-commissioning-probe.patch"],
+        [PATCH_DIR / "rs-matter-commissioning-probe.patch",
+         PATCH_DIR / "rs-matter-probe-commissioning-region.patch"],
         "rs-matter commissioning fixture",
     )
     check_worktree_matches(
@@ -207,7 +209,8 @@ def main() -> int:
     check_worktree_matches(
         RS_MATTER,
         ROOT / "build/rs-matter/controller-source",
-        [PATCH_DIR / "rs-matter-commissioning-probe.patch"],
+        [PATCH_DIR / "rs-matter-commissioning-probe.patch",
+         PATCH_DIR / "rs-matter-probe-commissioning-region.patch"],
         "rs-matter commissioning fixture",
     )
 

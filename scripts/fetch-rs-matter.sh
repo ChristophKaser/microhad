@@ -20,5 +20,6 @@ python3 scripts/apply-mailbox-series.py "$probe_dir" "$revision" \
     "$project_root/patches/rs-matter-probe-peer-identity.patch" \
     "$project_root/patches/rs-matter-probe-attribute-notify.patch" \
     "$project_root/patches/rs-matter-probe-icd-capture.patch" \
-    "$project_root/patches/rs-matter-probe-sessionless-icd.patch"
+    "$project_root/patches/rs-matter-probe-sessionless-icd.patch" \
+    "$project_root/patches/rs-matter-probe-commissioning-region.patch"
 echo "Pinned rs-matter $revision; probe mailbox series applied"

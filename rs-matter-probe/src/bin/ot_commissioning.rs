@@ -399,6 +399,59 @@ const NODE_ICD: Node<'static> = Node {
     ],
 };
 
+fn active_store_identity_node(matter: &Matter<'_>, fabric: core::num::NonZeroU8) -> Result<u64, Error> {
+    matter.with_state(|state| Ok(state.fabrics.fabric(fabric)?.node_id()))
+}
+
+/// Synthetic accessory guard: reject credential installation before the
+/// commissioner has armed its fail-safe and configured the selected region.
+struct CommissioningOrder<H> {
+    inner: H,
+    enforce: bool,
+    armed: Cell<bool>,
+    configured: Cell<bool>,
+}
+impl<H: rs_matter::dm::AsyncHandler> rs_matter::dm::AsyncHandler for CommissioningOrder<H> {
+    async fn read(&self, ctx: impl rs_matter::dm::ReadContext, reply: impl rs_matter::dm::ReadReply) -> Result<(), Error> {
+        self.inner.read(ctx, reply).await
+    }
+    async fn write(&self, ctx: impl rs_matter::dm::WriteContext) -> Result<(), Error> {
+        self.inner.write(ctx).await
+    }
+    fn bump_dataver(&self, ctx: impl rs_matter::dm::MatchContext) {
+        self.inner.bump_dataver(ctx);
+    }
+    fn lifecycle(&self, ctx: impl rs_matter::dm::HandlerContext, op: rs_matter::dm::LifecycleOp) -> Result<(), Error> {
+        self.inner.lifecycle(ctx, op)
+    }
+    async fn run(&self, ctx: impl rs_matter::dm::HandlerContext) -> Result<(), Error> {
+        self.inner.run(ctx).await
+    }
+    async fn invoke(&self, ctx: impl rs_matter::dm::InvokeContext, reply: impl rs_matter::dm::InvokeReply) -> Result<(), Error> {
+        let path = (ctx.cmd().cluster_id, ctx.cmd().cmd_id);
+        if self.enforce {
+            if path == (48, 2) {
+                assert!(self.armed.get(), "regulatory configuration precedes ArmFailSafe");
+                let request = rs_matter::dm::clusters::gen_comm::SetRegulatoryConfigRequest::new(ctx.data().clone());
+                assert_eq!(request.country_code()?, "DE");
+                assert_eq!(request.new_regulatory_config()?,
+                    rs_matter::dm::clusters::gen_comm::RegulatoryLocationTypeEnum::Indoor);
+            }
+            if path.0 == 62 && matches!(path.1, 4 | 6 | 11) {
+                assert!(self.configured.get(), "credentials precede regulatory configuration");
+            }
+        }
+        self.inner.invoke(ctx, reply).await?;
+        if path == (48, 0) {
+            self.armed.set(true);
+            self.configured.set(false);
+        } else if path == (48, 2) {
+            self.configured.set(true);
+        }
+        Ok(())
+    }
+}
+
 fn data_model<'a>(
     mut rand: impl Rng + Copy,
     on_off: &'a on_off::OnOffHandler<'a, TestOnOffDeviceLogic, on_off::NoLevelControl>,
@@ -412,11 +465,12 @@ fn data_model<'a>(
     thread_network: &'a TestThreadNetwork,
     lit: &'a LitIcd,
     icd: bool,
+    enforce_region_order: bool,
 ) -> impl DataModel + 'a {
     (
         if icd { NODE_ICD } else { NODE },
-        endpoints::EthSysHandlerBuilder::new()
-            .build(rand)
+        CommissioningOrder {
+            inner: endpoints::EthSysHandlerBuilder::new().build(rand)
             .chain(
                 |e, c| e == 1 && c == desc::DescHandler::CLUSTER.id,
                 Async(desc::DescHandler::new(Dataver::new_rand(&mut rand)).adapt()),
@@ -458,6 +512,10 @@ fn data_model<'a>(
                 |e, c| e == 0 && c == LitIcdMgmtHandler::CLUSTER.id,
                 Async(LitIcdMgmtHandler::new(Dataver::new_rand(&mut rand), lit).adapt()),
             ),
+            enforce: enforce_region_order,
+            armed: Cell::new(false),
+            configured: Cell::new(false),
+        },
     )
 }
 
@@ -632,6 +690,7 @@ async fn run(
             &thread_network,
             &lit,
             icd,
+            service_owner,
         ),
         &device_kv,
         device_state,
@@ -1283,6 +1342,37 @@ async fn run(
                 rs_matter::error::ErrorCode::RxTimeout
             })?;
             assert!(subscription_id != 0);
+            // An obsolete subscription must be rejected on the wire, even
+            // when its ReportData contains no changed attribute values.
+            let invalid_report = async {
+                use rs_matter::tlv::FromTLV;
+                let mut exchange = Exchange::initiate(
+                    device_matter, device_crypto, fab, active_store_identity_node(ctrl_matter, fab)?,
+                ).await?;
+                exchange.send_with(|_, writer| {
+                    writer.start_struct(&TLVTag::Anonymous)?;
+                    writer.u32(&TLVTag::Context(0), subscription_id.wrapping_add(0x80000000))?;
+                    writer.u8(&TLVTag::Context(rs_matter::im::IM_REVISION_TAG), rs_matter::im::IM_REVISION)?;
+                    writer.end_container()?;
+                    Ok(Some(rs_matter::im::OpCode::ReportData.into()))
+                }).await?;
+                let rx = exchange.recv_fetch().await?;
+                let response = rs_matter::im::StatusResp::from_tlv(
+                    &rs_matter::tlv::TLVElement::new(rx.payload()),
+                )?;
+                assert_eq!(response.status, rs_matter::im::IMStatusCode::InvalidSubscription);
+                Ok::<_, Error>(())
+            };
+            let report_pump = std::future::poll_fn(|context| {
+                manager.poll(true, false, std::time::Instant::now(), context);
+                std::task::Poll::<()>::Pending
+            });
+            match embassy_time::with_timeout(Duration::from_secs(5), select(invalid_report, report_pump)).await
+                .map_err(|_| rs_matter::error::ErrorCode::RxTimeout)? {
+                Either::First(result) => result?,
+                Either::Second(()) => unreachable!(),
+            }
+            println!("PASS obsolete subscription rejected with INVALID_SUBSCRIPTION over CASE");
             if sensor_reports {
                 wait_manager_subscriptions(
                     &mut manager,

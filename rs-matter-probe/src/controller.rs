@@ -2,9 +2,7 @@
 use crate::{
     ble::BleRelay,
     catalog::Catalog,
-    commissioning::{
-        configure_regulatory_region, provision_thread, CommissioningPolicy, ThreadDataset,
-    },
+    commissioning::{provision_thread, CommissioningPolicy, ThreadDataset},
     control::{Id, Request},
     entropy::OsEntropy,
     identity::Identity,
@@ -18,7 +16,7 @@ use rs_matter::{
     cert::{gen::VALID_FOREVER, MAX_CERT_TLV_AND_ASN1_LEN, MAX_CERT_TLV_LEN},
     crypto::Crypto,
     error::ErrorCode,
-    onboard::Commissioner,
+    onboard::{Commissioner, RegulatoryConfig},
     transport::network::{Address, BtAddr},
     Matter,
 };
@@ -287,6 +285,16 @@ async fn commission<C: Crypto>(
     let peer = Address::Btp(address);
     let mut commissioning_options = CommissioningPolicy::default().options();
     commissioning_options.fail_safe_secs = attempt.timeout_seconds;
+    commissioning_options.regulatory_config = Some(RegulatoryConfig {
+        country_code: attempt.country_code.as_bytes().try_into()
+            .map_err(|_| SessionError::Malformed)?,
+        location: match attempt.regulatory_location {
+            crate::control::RegulatoryLocation::Indoor =>
+                rs_matter::dm::clusters::gen_comm::RegulatoryLocationTypeEnum::Indoor,
+            crate::control::RegulatoryLocation::Outdoor =>
+                rs_matter::dm::clusters::gen_comm::RegulatoryLocationTypeEnum::Outdoor,
+        },
+    });
     let result = commissioner
         .commission(
             peer,
@@ -300,16 +308,6 @@ async fn commission<C: Crypto>(
     if result.device_node_id != node {
         return Err(SessionError::Accessory);
     }
-    configure_regulatory_region(
-        matter,
-        crypto,
-        peer,
-        *attempt.pin,
-        &attempt.country_code,
-        attempt.regulatory_location,
-    )
-        .await
-        .map_err(accessory_error)?;
     reservation
         .fabric_installed()
         .map_err(|_| SessionError::Storage)?;
