@@ -2,7 +2,9 @@
 use crate::{
     ble::BleRelay,
     catalog::Catalog,
-    commissioning::{provision_thread, CommissioningPolicy, ThreadDataset},
+    commissioning::{
+        configure_regulatory_region, provision_thread, CommissioningPolicy, ThreadDataset,
+    },
     control::{Id, Request},
     entropy::OsEntropy,
     identity::Identity,
@@ -283,11 +285,13 @@ async fn commission<C: Crypto>(
     let mut cert_buffer = [0; MAX_CERT_TLV_LEN];
     let mut commissioner = Commissioner::new(matter, crypto, fabric, &mut signer, &mut cert_buffer);
     let peer = Address::Btp(address);
+    let mut commissioning_options = CommissioningPolicy::default().options();
+    commissioning_options.fail_safe_secs = attempt.timeout_seconds;
     let result = commissioner
         .commission(
             peer,
             *attempt.pin,
-            &CommissioningPolicy::default().options(),
+            &commissioning_options,
             node,
             VALID_FOREVER,
         )
@@ -296,6 +300,16 @@ async fn commission<C: Crypto>(
     if result.device_node_id != node {
         return Err(SessionError::Accessory);
     }
+    configure_regulatory_region(
+        matter,
+        crypto,
+        peer,
+        *attempt.pin,
+        &attempt.country_code,
+        attempt.regulatory_location,
+    )
+        .await
+        .map_err(accessory_error)?;
     reservation
         .fabric_installed()
         .map_err(|_| SessionError::Storage)?;
@@ -383,7 +397,7 @@ mod tests {
         let mut lifecycle = Lifecycle::load(store.clone()).unwrap();
         let mut entropy = OsEntropy::open().unwrap();
         let now = Instant::now();
-        let start = br#"{"schema":1,"discriminator":3840,"pin":20202021,"timeout_seconds":30}"#;
+        let start = br#"{"schema":1,"discriminator":3840,"pin":20202021,"timeout_seconds":30,"country_code":"DE","regulatory_location":"indoor"}"#;
         let before = std::fs::read(directory.0.join("credentials.bin")).unwrap();
         let body = owner
             .handle(

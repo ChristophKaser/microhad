@@ -1836,7 +1836,7 @@ async fn commission_owned<C: Crypto>(
     let mut entropy = OsEntropy::open().map_err(|_| rs_matter::error::ErrorCode::InvalidState)?;
     let start = Request::decode(
         3,
-        br#"{"schema":1,"discriminator":3840,"pin":20202021,"timeout_seconds":120}"#,
+        br#"{"schema":1,"discriminator":3840,"pin":20202021,"timeout_seconds":120,"country_code":"DE","regulatory_location":"indoor"}"#,
     )
     .unwrap();
     let reply = owner

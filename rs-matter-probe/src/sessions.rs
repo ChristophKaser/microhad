@@ -73,6 +73,9 @@ pub struct Snapshot {
 pub struct Attempt {
     pub ticket: Ticket,
     pub pin: Zeroizing<u32>,
+    pub timeout_seconds: u16,
+    pub country_code: String,
+    pub regulatory_location: crate::control::RegulatoryLocation,
     pub progress: Progress,
 }
 #[derive(Serialize)]
@@ -87,6 +90,8 @@ struct Session {
     id: Id,
     pin: Option<Zeroizing<u32>>,
     deadline: Instant,
+    country_code: String,
+    regulatory_location: crate::control::RegulatoryLocation,
     phase: Phase,
     progress: Progress,
     generation: Option<u32>,
@@ -186,6 +191,8 @@ impl<'a> Sessions<'a> {
             id,
             pin: Some(Zeroizing::new(request.pin)),
             deadline: now + Duration::from_secs(u64::from(request.timeout_seconds)),
+            country_code: request.country_code,
+            regulatory_location: request.regulatory_location,
             phase: Phase::WaitingBle,
             progress: Progress(Rc::new(Cell::new(Phase::WaitingBle))),
             generation: None,
@@ -306,6 +313,11 @@ impl<'a> Sessions<'a> {
         Ok(Attempt {
             ticket,
             pin,
+            timeout_seconds: session.deadline.saturating_duration_since(now)
+                .as_secs()
+                .clamp(30, 900) as u16,
+            country_code: session.country_code.clone(),
+            regulatory_location: session.regulatory_location,
             progress: session.progress.clone(),
         })
     }
@@ -456,6 +468,8 @@ mod tests {
             discriminator: 3840,
             pin: 20202021,
             timeout_seconds: 30,
+            country_code: "DE".to_owned(),
+            regulatory_location: crate::control::RegulatoryLocation::Indoor,
         };
         sessions
             .start(request, &mut OsEntropy::open().unwrap(), now)
@@ -482,7 +496,7 @@ mod tests {
         let id = start(&mut sessions, now);
         let Request::CommissionStart(request) = Request::decode(
             3,
-            br#"{"schema":1,"discriminator":1,"pin":20202021,"timeout_seconds":30}"#,
+            br#"{"schema":1,"discriminator":1,"pin":20202021,"timeout_seconds":30,"country_code":"DE","regulatory_location":"indoor"}"#,
         )
         .unwrap() else {
             unreachable!()

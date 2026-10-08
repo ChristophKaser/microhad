@@ -67,6 +67,14 @@ pub struct CommissionStart {
     pub discriminator: u16,
     pub pin: u32,
     pub timeout_seconds: u16,
+    pub country_code: String,
+    pub regulatory_location: RegulatoryLocation,
+}
+#[derive(Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum RegulatoryLocation {
+    Indoor,
+    Outdoor,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -255,6 +263,8 @@ impl Request {
                 if body.discriminator > 4095
                     || !valid_pin(body.pin)
                     || !(30..=900).contains(&body.timeout_seconds)
+                    || body.country_code.len() != 2
+                    || !body.country_code.bytes().all(|byte| byte.is_ascii_uppercase())
                 {
                     return Err(BodyError::Malformed);
                 }
@@ -348,7 +358,7 @@ mod tests {
         valid(2, "");
         valid(
             3,
-            r#"{"schema":1,"discriminator":3840,"pin":20202021,"timeout_seconds":120}"#,
+            r#"{"schema":1,"discriminator":3840,"pin":20202021,"timeout_seconds":120,"country_code":"DE","regulatory_location":"indoor"}"#,
         );
         for op in [4, 5] {
             valid(op, r#"{"schema":1,"session":"123456789abcdef0"}"#);
@@ -429,9 +439,11 @@ mod tests {
         for pin in [0, 99_999_999, 11_111_111, 12_345_678, 87_654_321] {
             invalid(
                 3,
-                &format!(r#"{{"schema":1,"discriminator":1,"pin":{pin},"timeout_seconds":120}}"#),
+                &format!(r#"{{"schema":1,"discriminator":1,"pin":{pin},"timeout_seconds":120,"country_code":"DE","regulatory_location":"indoor"}}"#),
             );
         }
+        invalid(3, r#"{"schema":1,"discriminator":1,"pin":20202021,"timeout_seconds":120,"country_code":"de","regulatory_location":"indoor"}"#);
+        invalid(3, r#"{"schema":1,"discriminator":1,"pin":20202021,"timeout_seconds":120,"country_code":"DE","regulatory_location":"outside"}"#);
         invalid(9, r#"{"schema":1,"action":"create","zigbee_channel":10}"#);
         invalid(
             7,
