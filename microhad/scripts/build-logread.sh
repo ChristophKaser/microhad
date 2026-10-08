@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env bash
 # Build a logread-only BusyBox 1.13.4 binary against the gateway toolchain.
 set -eu
 project_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
@@ -48,10 +48,8 @@ text = text.replace("config %config:", "config:\n%config:")
 text = text.replace("/ %/: prepare scripts FORCE", "/: prepare scripts FORCE\n%/: prepare scripts FORCE")
 path.write_text(text)
 PY
-make -s -C "$source_dir" scripts_basic
-make -s -C "$source_dir" scripts/kconfig/conf
 if [ ! -f "$source_dir/.config" ]; then
-    (cd "$source_dir" && yes "" | scripts/kconfig/conf -n Config.in) >/dev/null 2>&1 || true
+    make -s -C "$source_dir" allnoconfig
 fi
 python3 - "$source_dir/.config" "$compiler_prefix" <<'PY'
 from pathlib import Path

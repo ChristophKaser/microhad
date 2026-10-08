@@ -30,11 +30,12 @@ logread=""
 webui_dir="$project_dir/webui/dist"
 maintenance_deploy=false
 rollback_dir=""
+verify_https=false
 rng_seed_helper=""
 flash_reserve_kib=${DEPLOY_FLASH_RESERVE_KIB:-512}
 
 usage() {
-    echo "usage: $0 --password-file PATH --maintenance-deploy --binary PATH --ziggurat PATH --matter-service PATH --maintenance-helper PATH --logread PATH [--webui-dir DIR] [--rollback-dir DIR] [--host HOST] [--target /tuya/native]" >&2
+    echo "usage: $0 --password-file PATH --maintenance-deploy --binary PATH --ziggurat PATH --matter-service PATH --maintenance-helper PATH --logread PATH [--webui-dir DIR] [--rollback-dir DIR] [--verify-https] [--host HOST] [--target /tuya/native]" >&2
     echo "       $0 --password-file PATH [--both --supervisor --binary PATH --target /tuya/native] [existing deployment options]" >&2
     exit 2
 }
@@ -60,6 +61,7 @@ while [ "$#" -gt 0 ]; do
         --webui-dir) webui_dir=${2-}; shift 2 ;;
         --maintenance-deploy) maintenance_deploy=true; shift ;;
         --rollback-dir) rollback_dir=${2-}; shift 2 ;;
+        --verify-https) verify_https=true; shift ;;
         --tls-certificate) certificate=${2-}; shift 2 ;;
         --tls-private-key) private_key=${2-}; shift 2 ;;
         --ca-bundle) ca_bundle=${2-}; shift 2 ;;
@@ -157,6 +159,14 @@ start_remote_launcher() {
     ssh_command "( /tuya/tuya_start.sh </dev/null >/dev/null 2>&1 ) </dev/null >/dev/null 2>&1 &"
 }
 
+verification_get() {
+    if [ "$verify_https" = true ]; then
+        curl --noproxy '*' --connect-timeout 5 --max-time 10 -kfsS "https://$host$1"
+    else
+        curl --noproxy '*' --connect-timeout 5 --max-time 10 -fsS "http://$host$1"
+    fi
+}
+
 verify_webui_assets() {
     index_file=$1
     asset_urls=$(sed -n \
@@ -164,7 +174,7 @@ verify_webui_assets() {
         -e 's/.*href="\([^"]*\.css\)".*/\1/p' "$index_file")
     [ -n "$asset_urls" ] || { echo "No JavaScript or CSS assets found in $index_file" >&2; return 1; }
     for asset_url in $asset_urls; do
-        curl --noproxy '*' --connect-timeout 5 --max-time 10 -fsS "http://$host$asset_url" >/dev/null || {
+        verification_get "$asset_url" >/dev/null || {
             echo "Web UI asset is not served: $asset_url" >&2; return 1;
         }
     done
@@ -387,11 +397,11 @@ maintenance_deploy_run() {
         echo "New services did not become ready. No automatic rollback was attempted. Use the preserved backup at $rollback_dir for manual recovery." >&2
         return 1
     }
-    curl --noproxy '*' --connect-timeout 5 --max-time 8 -fsS "http://$host/" >/dev/null &&
-        curl --noproxy '*' --connect-timeout 5 --max-time 8 -fsS "http://$host/api/status" >/dev/null &&
-        curl --noproxy '*' --connect-timeout 5 --max-time 8 -fsS "http://$host/api/logs" | grep -q '"lines"' || {
+    verification_get / >/dev/null &&
+        verification_get /api/status >/dev/null &&
+        verification_get /api/logs | grep -q '"lines"' || {
             echo "Web UI or status API did not respond" >&2
-            echo "HTTP verification failed. No automatic rollback was attempted. Use the preserved backup at $rollback_dir for manual recovery." >&2
+            echo "Dashboard verification failed. No automatic rollback was attempted. Use the preserved backup at $rollback_dir for manual recovery." >&2
             return 1
         }
     verify_webui_assets "$webui_dir/index.html" || {
@@ -473,7 +483,7 @@ matter_flash_preflight() {
     stage_flash_group "$control_size" "$old_control"
 
     if [ "$deploy_webui" = true ]; then
-        set -- $(find "$project_dir/webui/dist" -type f -exec wc -c {} + |
+        set -- $(find "$webui_dir" -type f -exec wc -c {} + |
             awk '$2 == "total" { next } { sum += $1 } END { print sum + 0 }')
         stage_flash_group "${1:-0}" 0
     fi
@@ -591,7 +601,7 @@ if { [ -n "$matter_service" ] || [ "$deploy_supervisor" = true ]; } && [ "$activ
 fi
 if [ "$deploy_webui" = true ]; then
     printf 'Uploading web UI to %s:%s/webui\n' "$host" "$target"
-    webui_dist="$project_dir/webui/dist"
+    webui_dist="$webui_dir"
     # Free flash before copying new assets while the active index and its
     # referenced bundles remain available if the transfer is interrupted.
     prune_web_bundles

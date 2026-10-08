@@ -32,6 +32,38 @@ def matter_manifest(binary, matter=1):
 
 
 class Staging(unittest.TestCase):
+    def test_webui_verification_uses_selected_protocol_and_directory(self):
+        for https in (False, True):
+            with self.subTest(https=https), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                fake = root / 'sshpass';fake.write_text(FAKE_SSH);fake.chmod(0o700)
+                curl = root / 'curl'
+                curl.write_text('''#!/usr/bin/env python3
+import json, os, sys
+with open(os.environ['VERIFY_CALLS'], 'a') as output:
+    output.write(json.dumps(sys.argv[1:]) + '\\n')
+''')
+                curl.chmod(0o700)
+                webui = root / 'webui';webui.mkdir()
+                (webui / 'index.html').write_text('<script src="/app.js"></script>\n<link href="/app.css">\n')
+                for name in ('sw.js', 'app.js', 'app.css'):
+                    (webui / name).write_text('fixture')
+                password = root / 'password';password.touch()
+                calls = root / 'verify-calls'
+                env = dict(os.environ, PATH=str(root)+os.pathsep+os.environ['PATH'],
+                           STAGING_CALLS=str(root / 'staging-calls'), VERIFY_CALLS=str(calls))
+                args = ['sh', str(ROOT / 'deploy.sh'), '--password-file', str(password),
+                        '--webui-only', '--webui-dir', str(webui)]
+                if https:
+                    args.append('--verify-https')
+                subprocess.run(args, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                               check=True, timeout=10)
+                rows = [json.loads(line) for line in calls.read_text().splitlines()]
+                scheme = 'https' if https else 'http'
+                self.assertEqual([row[-1] for row in rows],
+                                 [f'{scheme}://192.168.178.62/app.js', f'{scheme}://192.168.178.62/app.css'])
+                self.assertEqual(all('-kfsS' in row for row in rows), https)
+
     def test_paired_launcher_enables_matter_only_for_staged_executable(self):
         for staged in (False, True):
             with self.subTest(staged=staged), tempfile.TemporaryDirectory() as directory:

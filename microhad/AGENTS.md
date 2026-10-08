@@ -103,7 +103,9 @@ file if it would consume the 512 KiB reserve. It then installs
 the controller, Ziggurat, Matter service, `gateway-maintenance` helper and Web
 UI, activates the paired launcher, starts the stack, and checks the
 supervisor, IPC sockets, Web UI, status API, and each JavaScript/CSS file linked
-by the deployed `index.html`. Detach SSH stdin from asset-list loops so SSH
+by the deployed `index.html`. Use `--verify-https` when HTTPS is the available
+dashboard listener; verification then accepts the gateway's self-signed TLS
+certificate. Detach SSH stdin from asset-list loops so SSH
 commands cannot consume later `find` results. It removes stale runtime socket
 pathnames only after checking their processes have stopped. It reports available flash and
 process RSS. The mode never copies or removes gateway
@@ -123,7 +125,7 @@ bash scripts/build-maintenance.sh
 bash scripts/build-rs-matter-transport.sh mips service
 
 # Complete maintenance deployment, from this repository
-microhad/deploy.sh --maintenance-deploy --host 192.168.178.62 \
+microhad/deploy.sh --maintenance-deploy --verify-https --host 192.168.178.62 \
   --password-file ../ssh_password.txt --target /tuya/native \
   --binary microhad/build/mips-ziggurat-matter/microhad \
   --ziggurat build/ziggurat-hdlc/lexra-stock-uclibc/release/ziggurat \
