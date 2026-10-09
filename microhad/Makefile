@@ -37,12 +37,13 @@ BACKEND_SUFFIX := $(BACKEND_SUFFIX)-matter
 endif
 
 WARNINGS := -Wall -Wextra -Werror -pedantic
+TARGET_OPTIMIZATION ?= $(if $(filter crosstool-ng,$(TOOLCHAIN)),-Os,-O2)
 # Both target compilers support the C++98 dialect used by this C++03 daemon.
 HOST_CXXFLAGS := -std=gnu++03 $(WARNINGS) -Iinclude -Ithird_party/mbedtls/include -O2 -DMICROHAD_ZIGGURAT_ENABLED=$(ZIGGURAT) -DMICROHAD_MBEDTLS_ENABLED=1 -DMICROHAD_BUILD_REVISION=\"$(BUILD_REVISION)\"
-TARGET_CXXFLAGS := -std=gnu++98 $(WARNINGS) -Iinclude -Ithird_party/mbedtls/include -O2 -ffunction-sections -fdata-sections -DMICROHAD_MIPS_TARGET=1 -DMICROHAD_ZIGGURAT_ENABLED=$(ZIGGURAT) -DMICROHAD_MBEDTLS_ENABLED=1 -DMICROHAD_BUILD_REVISION=\"$(BUILD_REVISION)\"
+TARGET_CXXFLAGS := -std=gnu++98 $(WARNINGS) -Iinclude -Ithird_party/mbedtls/include $(TARGET_OPTIMIZATION) -ffunction-sections -fdata-sections -DMICROHAD_MIPS_TARGET=1 -DMICROHAD_ZIGGURAT_ENABLED=$(ZIGGURAT) -DMICROHAD_MBEDTLS_ENABLED=1 -DMICROHAD_BUILD_REVISION=\"$(BUILD_REVISION)\"
 HOST_CXXFLAGS += -DMICROHAD_MATTER_ENABLED=$(MATTER)
 TARGET_CXXFLAGS += -DMICROHAD_MATTER_ENABLED=$(MATTER)
-TARGET_CFLAGS := $(WARNINGS) -O2 -ffunction-sections -fdata-sections
+TARGET_CFLAGS := $(WARNINGS) $(TARGET_OPTIMIZATION) -ffunction-sections -fdata-sections
 LDFLAGS := -lpthread -lrt
 SOURCES := src/main.cpp src/matter_websocket.cpp src/matter_protocol.cpp src/matter_cbor.cpp src/matter_client.cpp src/matter_worker.cpp src/gateway_config.cpp src/ash.cpp src/json_util.cpp src/storage.cpp src/network_backup.cpp $(ZIGGURAT_SOURCES) src/http_server.cpp src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/sensor_history.cpp src/syslog_log_reader.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp src/external_http_device.cpp src/device_shelly.cpp src/device_fritz_box.cpp
 HOST_BUILD := build/host$(BACKEND_SUFFIX)
@@ -111,7 +112,7 @@ mbedtls-mips: $(MIPS_MBEDTLS_LIBS)
 
 $(MIPS_MBEDTLS_LIBS): $(MBEDTLS_DIR)/CMakeLists.txt $(MBEDTLS_DIR)/include/mbedtls/config.h $(MBEDTLS_DIR)/include/mbedtls/microhad_config.h
 	@test -x $(TARGET_CC) || (echo "Selected target compiler not found: $(TARGET_CC)"; exit 1)
-	$(CMAKE) -S $(MBEDTLS_DIR) -B $(MIPS_MBEDTLS_BUILD) -DCMAKE_C_COMPILER=$(TARGET_CC) -DCMAKE_AR=$(TARGET_AR) -DCMAKE_C_FLAGS='-O2 -std=gnu99 -ffunction-sections -fdata-sections' -DENABLE_PROGRAMS=OFF -DENABLE_TESTING=OFF -DUSE_SHARED_MBEDTLS_LIBRARY=OFF -DMBEDTLS_FATAL_WARNINGS=OFF
+	$(CMAKE) -S $(MBEDTLS_DIR) -B $(MIPS_MBEDTLS_BUILD) -DCMAKE_C_COMPILER=$(TARGET_CC) -DCMAKE_AR=$(TARGET_AR) -DCMAKE_C_FLAGS='$(TARGET_OPTIMIZATION) -std=gnu99 -ffunction-sections -fdata-sections' -DENABLE_PROGRAMS=OFF -DENABLE_TESTING=OFF -DUSE_SHARED_MBEDTLS_LIBRARY=OFF -DMBEDTLS_FATAL_WARNINGS=OFF
 	$(CMAKE) --build $(MIPS_MBEDTLS_BUILD) --target mbedtls mbedx509 mbedcrypto
 
 $(HOST_BUILD)/%.o: src/%.c $(HOST_MBEDTLS_LIBS)
@@ -199,7 +200,7 @@ $(HOST_BUILD)/tinycbor-%.o: $(CBOR_DIR)/%.c $(wildcard $(CBOR_DIR)/*.h) $(CBOR_P
 	$(HOST_CC) -std=gnu99 -O2 -include $(CBOR_PLATFORM) -I$(CBOR_DIR) -c $< -o $@
 $(MIPS_BUILD)/tinycbor-%.o: $(CBOR_DIR)/%.c $(wildcard $(CBOR_DIR)/*.h) $(CBOR_PLATFORM)
 	@mkdir -p $(MIPS_BUILD)
-	$(TARGET_CC) -std=gnu99 -O2 -ffunction-sections -fdata-sections -include $(CBOR_PLATFORM) -I$(CBOR_DIR) -c $< -o $@
+	$(TARGET_CC) -std=gnu99 $(TARGET_OPTIMIZATION) -ffunction-sections -fdata-sections -include $(CBOR_PLATFORM) -I$(CBOR_DIR) -c $< -o $@
 $(HOST_BIN) $(HOST_TEST_BIN) $(UNIT_TEST_BIN) $(INTEGRATION_TEST_BIN): $(addprefix $(HOST_BUILD)/tinycbor-,$(addsuffix .o,$(CBOR_NAMES)))
 $(MIPS_BIN): $(addprefix $(MIPS_BUILD)/tinycbor-,$(addsuffix .o,$(CBOR_NAMES)))
 
@@ -213,4 +214,6 @@ toolchain-force:
 $(MIPS_BUILD)/.toolchain: toolchain-force
 	@python3 $(ZIGGURAT_ROOT)/scripts/toolchain-build.py "$(MICROHAD_ROOT)/$(MIPS_BUILD)"
 $(MIPS_BIN) $(MIPS_C_OBJECTS) $(MIPS_MBEDTLS_LIBS) build/$(TARGET_BUILD_SUBDIR)rng-seed: $(MIPS_BUILD)/.toolchain
+# Apply target optimization changes to cached C objects and vendored TLS libraries.
+$(MIPS_C_OBJECTS) $(MIPS_MBEDTLS_LIBS): Makefile
 endif

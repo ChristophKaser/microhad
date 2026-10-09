@@ -41,6 +41,9 @@ overrides remain overrides when switching `TOOLCHAIN` in a sourced shell.
 
 ## Artifacts and verification
 
+MicroHAD uses `-Os` for candidate C/C++ code, TinyCBOR and Mbed TLS; RSDK
+and host builds retain `-O2`.
+
 RSDK paths and host fixture paths remain unchanged. Candidate paths insert
 `crosstool-ng/` immediately below `build/`:
 
@@ -94,7 +97,8 @@ verifier tests, MicroHAD host tests with the rebuilt synthetic CASE fixture, and
 offline patch checks passed. Switching back to RSDK completed without cleaning and retained the candidate
 artifacts and host commissioning fixture. No application was deployed.
 
-Stripped artifact sizes in bytes:
+Stripped artifact sizes in bytes from the initial `-O2` MicroHAD comparison
+(the candidate now defaults to `-Os`):
 
 | Artifact | RSDK | crosstool-NG |
 | --- | ---: | ---: |
@@ -102,3 +106,7 @@ Stripped artifact sizes in bytes:
 | Ziggurat multipan | 3,557,192 | 3,630,816 |
 | Matter service | 2,403,924 | 2,394,796 |
 | logread | 48,576 | 117,016 |
+
+With `-Os` applied to candidate MicroHAD C/C++, TinyCBOR and Mbed TLS, the
+stripped default-feature binary is 1,861,244 bytes and passes target ELF/instruction
+verification.
