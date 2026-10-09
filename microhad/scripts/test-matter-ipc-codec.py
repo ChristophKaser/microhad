@@ -28,18 +28,30 @@ def main():
     with tempfile.TemporaryDirectory(prefix='matter-ipc-codec-') as directory:
         directory = Path(directory)
         driver = directory / 'driver.cpp'
-        driver.write_text('#include <cstdio>\nvoid runMatterProtocolUnitTests();\n'
-                          'int main() { runMatterProtocolUnitTests(); puts("PASS Matter IPC codec"); return 0; }\n')
-        sources = [str(driver), str(ROOT / 'src/matter_protocol.cpp'), str(ROOT / 'test/unit_matter_protocol.cpp')]
+        driver.write_text('#include <cstdio>\n#include <fstream>\n#include <string>\nvoid runMatterProtocolUnitTests();\n'
+                          'int main() { runMatterProtocolUnitTests(); puts("PASS Matter IPC codec"); '
+                          'std::ifstream status("/proc/self/status"); std::string line; '
+                          'while (std::getline(status, line)) if (line.compare(0, 6, "VmHWM:")==0) puts(line.c_str()); return 0; }\n')
+        sources = [str(driver), str(ROOT / 'src/matter_protocol.cpp'), str(ROOT / 'src/matter_cbor.cpp'), str(ROOT / 'src/json_util.cpp'), str(ROOT / 'test/unit_matter_protocol.cpp')]
+        cbor_names = ['cborencoder', 'cborparser', 'cborparser_float', 'cborencoder_float']
+        def cbor_objects(compiler, suffix):
+            objects=[]
+            for name in cbor_names:
+                output=directory/(name+suffix+'.o')
+                subprocess.run([compiler, '-std=gnu99', '-O2', '-I'+str(ROOT/'dependencies/tinycbor/src'), '-c', str(ROOT/'dependencies/tinycbor/src'/ (name+'.c')), '-o', str(output)], check=True)
+                objects.append(str(output))
+            return objects
+        host_objects = cbor_objects(TOOLCHAIN['HOST_CC'], '-host')
         host = directory / 'host'
         subprocess.run(['g++', '-std=gnu++03', '-Wall', '-Wextra', '-Werror', '-pedantic', '-O2',
-                        '-I' + str(ROOT / 'include'), *sources, '-o', str(host)], check=True)
+                        '-I' + str(ROOT / 'include'), *sources, *host_objects, '-o', str(host)], check=True)
         subprocess.run([str(host)], check=True)
         report['host'] = True
         if args.host:
+            target_objects = cbor_objects(str(TOOLCHAIN['TARGET_CC']), '-mips')
             target = directory / 'mips'
             subprocess.run([str(TOOLCHAIN['TARGET_CXX']), '-Wall', '-Wextra', '-Werror', '-pedantic',
-                            '-Os', '-msoft-float', '-static', '-I' + str(ROOT / 'include'), *sources,
+                            '-Os', '-msoft-float', '-static', '-I' + str(ROOT / 'include'), *sources, *target_objects,
                             '-o', str(target)], check=True)
             subprocess.run([str(TOOLCHAIN['TARGET_STRIP']), str(target)], check=True)
             ssh = ['sshpass', '-f', str(args.password_file), 'ssh', '-o', 'ConnectTimeout=8',

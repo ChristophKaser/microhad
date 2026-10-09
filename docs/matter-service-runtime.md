@@ -20,18 +20,18 @@ full controller-probe library suite passes 77/77 tests. This covers queue
 pressure and memory bounds; it does not replace the outstanding daemon
 wire-decoded CASE receive test.
 
-Build with `bash thread-matter/scripts/build.sh host service` or
-`bash thread-matter/scripts/build.sh mips service`. The stripped target
-artifact is `build/thread-matter/thread-matter-mips`. No build deploys or starts it.
+Build with `bash micro-thread-matter-daemon/scripts/build.sh host service` or
+`bash micro-thread-matter-daemon/scripts/build.sh mips service`. The stripped target
+artifact is `build/micro-thread-matter-daemon/mthread-matter-mips`. No build deploys or starts it.
 
 The native report-integration test uses the host-only
-`thread-matter/scripts/build-test-service.sh` command. It enables the
+`micro-thread-matter-daemon/scripts/build-test-service.sh` command. It enables the
 `controller-service-test-hooks` feature in the isolated
-`build/thread-matter/service-test-target` directory, leaving the production host
+`build/micro-thread-matter-daemon/service-test-target` directory, leaving the production host
 and MIPS service outputs untouched. Both build commands enforce this boundary:
 the test artifact must contain its fixture environment marker, while host
 production and stripped MIPS artifacts must not. The checks use
-`thread-matter/scripts/check-matter-service-test-hooks.py`. Never deploy this test-hook
+`micro-thread-matter-daemon/scripts/check-matter-service-test-hooks.py`. Never deploy this test-hook
 executable.
 
 Example invocation, once the coordinator provides a private Thread endpoint:
@@ -92,7 +92,7 @@ see `microhad/MATTER_INTEGRATION.md`. It is not activated in production.
 
 Validation: 36 Rust library tests pass, including six listener checks, three
 strict-body groups, five session lifetime checks and four authority recovery checks.
-`python3 thread-matter/scripts/test-matter-service.py`
+`python3 micro-thread-matter-daemon/scripts/test-matter-service.py`
 starts the real host service against the synthetic RCP and verifies both JSON
 statuses, typed-body rejection, duplicate exclusion, 20 timely calls, socket permissions,
 clean SIGTERM, fabric restoration in a second process, unchanged credential file
@@ -126,7 +126,7 @@ Quality, CO2 and PM2.5 reports into the native common device state. The
 end-to-end host command is:
 
 ```sh
-python3 thread-matter/scripts/test-openthread-matter-transport.py --native-bridge \
+python3 micro-thread-matter-daemon/scripts/test-openthread-matter-transport.py --native-bridge \
   --sensor-reports --service-discovery --service-owner --ble --commissioning
 ```
 
@@ -156,9 +156,9 @@ the requested fabric/node cache entry before its next lookup, the new DNS
 answer is used, and the refresh queue is bounded and deduplicated. Run them with:
 
 ```sh
-cargo +nightly-2026-10-02 test --locked --manifest-path thread-matter/Cargo.toml \
+cargo +nightly-2026-10-02 test --locked --manifest-path micro-thread-matter-daemon/Cargo.toml \
   --features controller-service --lib address_refresh
-cargo +nightly-2026-10-02 test --locked --manifest-path thread-matter/Cargo.toml \
+cargo +nightly-2026-10-02 test --locked --manifest-path micro-thread-matter-daemon/Cargo.toml \
   --features controller-service --lib case_refresh
 ```
 
@@ -173,7 +173,7 @@ The updated MIPS commissioning fixture was run on gateway `192.168.178.62`
 with its production Ziggurat service left online. Command:
 
 ```sh
-python3 thread-matter/scripts/test-openthread-matter-device.py --host 192.168.178.62 \
+python3 micro-thread-matter-daemon/scripts/test-openthread-matter-device.py --host 192.168.178.62 \
   --password-file ../ssh_password.txt --commissioning --ble \
   --service-owner --sensor-reports
 ```
@@ -209,7 +209,7 @@ worker uses, requests Thread dataset creation, checks the resulting lifecycle
 status, and samples the service process. The command is:
 
 ```sh
-python3 thread-matter/scripts/test-matter-service-device.py --host 192.168.178.62 \
+python3 micro-thread-matter-daemon/scripts/test-matter-service-device.py --host 192.168.178.62 \
   --password-file ../ssh_password.txt --seconds 8 --active-thread-simulation
 ```
 
@@ -388,9 +388,9 @@ physical performance test occurred. See [resolver details and evidence](matter-o
 
 ## Current Matter service MIPS artifact — 2026-10-05
 
-`bash thread-matter/scripts/build.sh mips service` succeeds for Rust
+`bash micro-thread-matter-daemon/scripts/build.sh mips service` succeeds for Rust
 source commit `d141586`. The stripped output
-`build/thread-matter/thread-matter-mips` is a static ELF32 big-endian MIPS-I
+`build/micro-thread-matter-daemon/mthread-matter-mips` is a static ELF32 big-endian MIPS-I
 executable with no `PT_INTERP`, 2,109,120 bytes, SHA-256
 `6ba2fb6cf7629fdcd40c50bffeaac968e774e1e877055abff810c7c7d9762c93`.
 
@@ -419,9 +419,9 @@ browse migration; no physical acceptance or deployment occurred.
 
 ## Actual MIPS service startup profile — 2026-10-05
 
-`python3 thread-matter/scripts/test-matter-service-device.py --host 192.168.178.62
+`python3 micro-thread-matter-daemon/scripts/test-matter-service-device.py --host 192.168.178.62
 --password-file ../ssh_password.txt --seconds 10` ran the current
-2,129,600-byte `thread-matter-mips` on the gateway with unique private state,
+2,129,600-byte `mthread-matter-mips` on the gateway with unique private state,
 IPC and radio paths. It waited for coordinator observation, so it did not open
 the RCP or production UART. Production stayed online/formed on Ziggurat. The
 service created its private socket, reached `Matter controller service started`
@@ -490,9 +490,9 @@ and no reset occurred. The 2,666,212-byte fixture was limited to 3,072 KiB RSS,
 8 MiB virtual memory and 160 seconds. The separate SRP-discovery variant
 timed out before ICD work began, so these results use a direct fixture address
 and do not validate discovery or RF behavior. No service was deployed or
-restarted. `thread-matter/scripts/test-openthread-matter-device.py --commissioning --ble
+restarted. `micro-thread-matter-daemon/scripts/test-openthread-matter-device.py --commissioning --ble
 --service-owner --icd` retains the machine-readable profile at
-`build/thread-matter/openthread-ble-commissioning-device-validation.json`.
+`build/micro-thread-matter-daemon/openthread-ble-commissioning-device-validation.json`.
 
 This closes synthetic Check-In and wake dispatch only. The profile has one
 registered key; worst-case matching against all 64 registrations remains

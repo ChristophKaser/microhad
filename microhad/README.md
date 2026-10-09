@@ -45,7 +45,7 @@ make webui
 ```
 
 Build the paired Rust Matter service from the repository root with
-`bash thread-matter/scripts/build.sh mips service`; it uses the shared
+`bash micro-thread-matter-daemon/scripts/build.sh mips service`; it uses the shared
 Rust and MIPS toolchain settings.
 
 Matter is an optional build selection, `MATTER=0|1`, defaulting to `1` when

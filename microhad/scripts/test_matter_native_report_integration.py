@@ -15,18 +15,18 @@ from test_ziggurat_service import wait_for
 
 RUST_ROOT = ROOT.parent
 SIM_SPEC = importlib.util.spec_from_file_location(
-    'matter_integration_transport', RUST_ROOT / 'thread-matter/scripts/test-openthread-matter-transport.py')
+    'matter_integration_transport', RUST_ROOT / 'micro-thread-matter-daemon/scripts/test-openthread-matter-transport.py')
 sim_transport = importlib.util.module_from_spec(SIM_SPEC)
 SIM_SPEC.loader.exec_module(sim_transport)
 
 
 def main():
     test_service_build = subprocess.run(
-        ['bash', str(RUST_ROOT / 'thread-matter/scripts/build-test-service.sh')],
+        ['bash', str(RUST_ROOT / 'micro-thread-matter-daemon/scripts/build-test-service.sh')],
         cwd=RUST_ROOT, check=False)
     if test_service_build.returncode != 0:
         raise RuntimeError('Host test-hook Matter service build failed')
-    test_service_binary = RUST_ROOT / 'build/thread-matter/service-test-target/release/thread-matter'
+    test_service_binary = RUST_ROOT / 'build/micro-thread-matter-daemon/service-test-target/release/mthread-matter'
     if not test_service_binary.is_file():
         raise RuntimeError('Host test-hook Matter service binary is missing')
     radio = sim_transport.sim.ThreadRcp('127.0.0.1', tcp_nodelay=True)
@@ -57,7 +57,7 @@ def main():
                        MICROHAD_MATTER_TEST_NATIVE_REPORTS_ACK_FILE=str(reports_ack),
                        MICROHAD_MATTER_TEST_IPC_SOCKET='/tmp/microhad-matter.sock')
             probe = subprocess.Popen([
-                str(RUST_ROOT / 'build/thread-matter/target/release/ot-matter-commissioning-probe'),
+                str(RUST_ROOT / 'build/micro-thread-matter-daemon/target/release/ot-matter-commissioning-probe'),
                 'spinel+hdlc+unix://' + str(radio_socket) + '?no-reset', '--ble', '--service-owner',
                 '--service-discovery', '--sensor-reports', '--native-ipc'],
                 cwd=directory, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)

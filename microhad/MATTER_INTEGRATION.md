@@ -18,7 +18,7 @@ stages the service and paired supervisor without changing the active launcher.
 `--activate-paired` installs the paired launcher with the package;
 `--activate-paired-only` checks local hashes against an already staged package
 and switches the launcher without copying the large artifacts again. The paired
-launcher enables Matter only when `/tuya/native/thread-matter` is executable.
+launcher enables Matter only when `/tuya/native/mthread-matter` is executable.
 Neither activation mode restarts live processes. The deployer reads `/tuya`
 free space and existing destination sizes, simulates the atomic replacement
 order, and requires a 512 KiB free-space reserve by default. Set
@@ -26,7 +26,7 @@ order, and requires a 512 KiB free-space reserve by default. Set
 insufficient-space result stops before staging or changing files. This is a
 snapshot preflight, not a reservation; recheck immediately before deployment.
 For Matter packages, preflight also inspects `/proc/*/exe`: when native or
-`thread-matter` is still running from the old path, it counts that executable
+`mthread-matter` is still running from the old path, it counts that executable
 inode as retained after atomic replacement. An executable already running from
 a `(deleted)` path makes the estimate ambiguous, so preflight refuses until
 that service is restarted. Keep the existing 512 KiB reserve during routine
@@ -152,7 +152,7 @@ Reproduction, dependency lock and measured test counts are in the companion
 
 After a controller implementation passes its complete platform gate:
 
-1. Build a local `thread-matter` daemon containing OpenThread and the Matter
+1. Build a local `mthread-matter` daemon containing OpenThread and the Matter
    controller. Keep the native bridge on its RSDK C++03 build and use private
    Unix-socket IPC. Implement the userspace networking/discovery, timers,
    entropy, crypto, and atomic credential storage platform. Prove controller
@@ -335,7 +335,7 @@ compiled for both native backends; Matter-disabled runtime behavior is unchanged
 
 ## Service runtime and optional supervision — 2026-10-04
 
-The companion `thread-matter` service now runs Matter/OpenThread/storage and
+The companion `mthread-matter` service now runs Matter/OpenThread/storage and
 the Unix listener on one event-loop thread. Both status opcodes pass a real
 host process test against the synthetic RCP. It reports `awaiting_fabric` and
 `detached` until the pending fabric and network lifecycle work is implemented.
@@ -387,10 +387,10 @@ binary:
 ```sh
 make ZIGGURAT=1 MATTER=1 mips
 cd ..
-bash thread-matter/scripts/build.sh mips service
+bash micro-thread-matter-daemon/scripts/build.sh mips service
 cd microhad
 ../deploy.sh --binary-only --binary build/mips-ziggurat-matter/microhad \
-  --matter-service ../build/thread-matter/thread-matter-mips \
+  --matter-service ../build/micro-thread-matter-daemon/mthread-matter-mips \
   --target /tuya/native-test --password-file ../ssh_password.txt
 ```
 
@@ -419,7 +419,7 @@ action in Rust and returns fixed `malformed`/`unsupported` replies without echoi
 input. It does not yet accept commissioning or control jobs. All 22 Rust library
 checks and the extended synthetic service test pass. The current factory stripped
 binary is 1,343,120 bytes (114,708 more than the status-only runtime above).
-The full assigned contract is in [`docs/matter-ipc-v1.md`](docs/matter-ipc-v1.md).
+The full assigned contract is in [`docs/matter-ipc-v2.md`](docs/matter-ipc-v2.md).
 
 The current service also creates/restores its gateway-owned authority and fabric.
 It now reports `running`/`fabric_ready:true` with Thread still `detached`. Complete

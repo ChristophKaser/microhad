@@ -1,3 +1,0 @@
-[build]
-incremental = false
-target-dir = "../build/thread-matter/target"

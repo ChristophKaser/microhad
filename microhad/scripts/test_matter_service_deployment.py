@@ -105,7 +105,7 @@ elif 'wc -c' in command or 'du -sk' in command:
             for name in ('sw.js', 'app.js'):
                 (webui / name).write_text('fixture')
             artifacts = {}
-            for name in ('microhad', 'ziggurat', 'thread-matter', 'gateway-maintenance', 'logread'):
+            for name in ('microhad', 'ziggurat', 'mthread-matter', 'gateway-maintenance', 'logread'):
                 artifact = root / name
                 artifact.write_bytes(b'--thread-socket requires --spinel-iid 1\ncobs-unix requires unix:/absolute/path\n')
                 artifact.chmod(0o700)
@@ -123,7 +123,7 @@ elif 'wc -c' in command or 'du -sk' in command:
                 '--password-file', str(password), '--target', '/tuya/native',
                 '--binary', str(artifacts['microhad']),
                 '--ziggurat', str(artifacts['ziggurat']),
-                '--matter-service', str(artifacts['thread-matter']),
+                '--matter-service', str(artifacts['mthread-matter']),
                 '--maintenance-helper', str(artifacts['gateway-maintenance']),
                 '--logread', str(artifacts['logread']), '--webui-dir', str(webui),
                 '--rollback-dir', str(rollback)],
@@ -231,7 +231,7 @@ if failures < 0 or count <= failures:
                 root = Path(directory)
                 native = root / 'native';native.mkdir()
                 if staged:
-                    service = native / 'thread-matter';service.write_text('#!/bin/sh\nexit 0\n')
+                    service = native / 'mthread-matter';service.write_text('#!/bin/sh\nexit 0\n')
                     service.chmod(0o700)
                 capture = root / 'matter-bin'
                 paired = native / 'paired_start.sh'
@@ -251,7 +251,7 @@ if failures < 0 or count <= failures:
                         break
                     time.sleep(0.01)
                 self.assertTrue(capture.exists())
-                expected = str(native / 'thread-matter') if staged else ''
+                expected = str(native / 'mthread-matter') if staged else ''
                 self.assertEqual(capture.read_text(), expected)
 
     def test_service_stages_without_start_or_state_upload(self):
@@ -260,7 +260,7 @@ if failures < 0 or count <= failures:
             fake = root / 'sshpass';fake.write_text(FAKE_SSH);fake.chmod(0o700)
             binary = root / 'native';binary.write_bytes(b'fake native');binary.chmod(0o700)
             Path(str(binary) + '.matter-manifest').write_text(matter_manifest(binary))
-            service = root / 'thread-matter';service.write_bytes(b'fake service');service.chmod(0o700)
+            service = root / 'mthread-matter';service.write_bytes(b'fake service');service.chmod(0o700)
             password = root / 'password';password.touch()
             calls = root / 'calls'
             env = dict(os.environ,PATH=str(root)+os.pathsep+os.environ['PATH'],STAGING_CALLS=str(calls))
@@ -277,7 +277,7 @@ if failures < 0 or count <= failures:
             self.assertEqual(uploads[3]['bytes'], (ROOT / 'paired_start.sh').stat().st_size)
             self.assertEqual(uploads[4]['bytes'], (ROOT / 'scripts/paired_control.sh').stat().st_size)
             commands = '\n'.join(row['command'] for row in rows)
-            self.assertIn('/tuya/native-test/.thread-matter.new', commands)
+            self.assertIn('/tuya/native-test/.mthread-matter.new', commands)
             self.assertIn('chmod 700', commands)
             for forbidden in ('killall', '/tuya/tuya_start.sh', 'creds.bin', '/dev/ttyS1'):
                 self.assertNotIn(forbidden, commands)
@@ -307,7 +307,7 @@ if failures < 0 or count <= failures:
             self.assertTrue(any('/.paired_start.sh.new' in row['command'] for row in uploads))
             self.assertTrue(any('/.paired_control.sh.new' in row['command'] for row in uploads))
             self.assertTrue(any('/.microhad.matter-manifest.new' in row['command'] for row in uploads))
-            self.assertFalse(any('/.thread-matter.new' in row['command'] for row in rows))
+            self.assertFalse(any('/.mthread-matter.new' in row['command'] for row in rows))
             calls.unlink()
             env['FLASH_AVAILABLE_KIB'] = '1'
             result = subprocess.run(args, env=env, stdin=subprocess.DEVNULL, capture_output=True,
@@ -322,7 +322,7 @@ if failures < 0 or count <= failures:
             fake = root / 'sshpass';fake.write_text(FAKE_SSH);fake.chmod(0o700)
             binary = root / 'native';binary.write_bytes(b'fake native');binary.chmod(0o700)
             Path(str(binary) + '.matter-manifest').write_text(matter_manifest(binary))
-            service = root / 'thread-matter';service.write_bytes(b'fake service');service.chmod(0o700)
+            service = root / 'mthread-matter';service.write_bytes(b'fake service');service.chmod(0o700)
             password = root / 'password';password.touch()
             calls = root / 'calls'
             env = dict(os.environ, PATH=str(root)+os.pathsep+os.environ['PATH'],
@@ -348,7 +348,7 @@ if failures < 0 or count <= failures:
             fake = root / 'sshpass';fake.write_text(FAKE_SSH);fake.chmod(0o700)
             binary = root / 'native';binary.write_bytes(b'n' * 1741444);binary.chmod(0o700)
             Path(str(binary) + '.matter-manifest').write_text(matter_manifest(binary))
-            service = root / 'thread-matter';service.write_bytes(b's' * 2158276);service.chmod(0o700)
+            service = root / 'mthread-matter';service.write_bytes(b's' * 2158276);service.chmod(0o700)
             password = root / 'password';password.touch()
             calls = root / 'calls'
             env = dict(os.environ, PATH=str(root)+os.pathsep+os.environ['PATH'],
@@ -368,7 +368,7 @@ if failures < 0 or count <= failures:
             fake = root / 'sshpass';fake.write_text(FAKE_SSH);fake.chmod(0o700)
             binary = root / 'native';binary.write_bytes(b'n' * 1741444);binary.chmod(0o700)
             Path(str(binary) + '.matter-manifest').write_text(matter_manifest(binary))
-            service = root / 'thread-matter';service.write_bytes(b's' * 2158276);service.chmod(0o700)
+            service = root / 'mthread-matter';service.write_bytes(b's' * 2158276);service.chmod(0o700)
             password = root / 'password';password.touch()
             calls = root / 'calls'
             env = dict(os.environ, PATH=str(root)+os.pathsep+os.environ['PATH'],
@@ -391,7 +391,7 @@ if failures < 0 or count <= failures:
             fake = root / 'sshpass';fake.write_text(FAKE_SSH);fake.chmod(0o700)
             binary = root / 'native';binary.write_bytes(b'fake native');binary.chmod(0o700)
             Path(str(binary) + '.matter-manifest').write_text(matter_manifest(binary))
-            service = root / 'thread-matter';service.write_bytes(b'fake service');service.chmod(0o700)
+            service = root / 'mthread-matter';service.write_bytes(b'fake service');service.chmod(0o700)
             password = root / 'password';password.touch()
             calls = root / 'calls'
             env = dict(os.environ,PATH=str(root)+os.pathsep+os.environ['PATH'],STAGING_CALLS=str(calls))
@@ -411,7 +411,7 @@ if failures < 0 or count <= failures:
             commands = '\n'.join(row['command'] for row in rows)
             self.assertIn('cp /tuya/tuya_start.sh /tuya/tuya_start.sh.lowjs-backup', commands)
             self.assertIn('mv "/tuya/native/.gateway_start.sh.new" /tuya/tuya_start.sh', commands)
-            self.assertIn('export MATTER_BIN=/tuya/native/thread-matter',
+            self.assertIn('export MATTER_BIN=/tuya/native/mthread-matter',
                           (ROOT / 'ziggurat_start.sh').read_text())
             self.assertNotIn('killall', commands)
             self.assertIn('Existing processes were not restarted', result.stdout)
@@ -431,7 +431,7 @@ if failures < 0 or count <= failures:
                                     text=True, check=False, timeout=10)
             self.assertNotEqual(result.returncode, 0)
             self.assertFalse(calls.exists())
-            service = root / 'thread-matter';service.write_bytes(b'fake service');service.chmod(0o700)
+            service = root / 'mthread-matter';service.write_bytes(b'fake service');service.chmod(0o700)
             result = subprocess.run(base + ['--matter-service', str(service), '--target', '/tuya/native-test'],
                                     env=env, stdin=subprocess.DEVNULL, capture_output=True,
                                     text=True, check=False, timeout=10)
@@ -450,7 +450,7 @@ if failures < 0 or count <= failures:
             root = Path(directory)
             fake = root / 'sshpass';fake.write_text(FAKE_SSH);fake.chmod(0o700)
             binary = root / 'native';binary.write_bytes(b'fake native');binary.chmod(0o700)
-            service = root / 'thread-matter';service.write_bytes(b'fake service');service.chmod(0o700)
+            service = root / 'mthread-matter';service.write_bytes(b'fake service');service.chmod(0o700)
             password = root / 'password';password.touch()
             calls = root / 'calls'
             env = dict(os.environ,PATH=str(root)+os.pathsep+os.environ['PATH'],STAGING_CALLS=str(calls))

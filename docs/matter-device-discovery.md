@@ -1,6 +1,6 @@
 # Operational descriptor discovery checkpoint
 
-`thread-matter/src/devices.rs` reads root Descriptor PartsList over operational
+`micro-thread-matter-daemon/src/devices.rs` reads root Descriptor PartsList over operational
 CASE, then reads Descriptor ServerList for endpoint zero and every advertised
 endpoint. It copies response data before the SDK releases its response buffer.
 The result contains only advertised endpoint and server-cluster IDs; no device
@@ -16,10 +16,10 @@ Verification on 2026-10-04:
 
 - Service-feature library tests: 55 passed. The new list test checks unsorted
   values, duplicates, capacity, decode errors and empty lists.
-- `bash thread-matter/scripts/build.sh host commissioning` passed.
-- `bash thread-matter/scripts/build.sh mips commissioning` passed; existing
+- `bash micro-thread-matter-daemon/scripts/build.sh host commissioning` passed.
+- `bash micro-thread-matter-daemon/scripts/build.sh mips commissioning` passed; existing
   MIPS abicalls linker warnings remain.
-- `python3 thread-matter/scripts/test-openthread-matter-transport.py --commissioning --ble
+- `python3 micro-thread-matter-daemon/scripts/test-openthread-matter-transport.py --commissioning --ble
   --service-owner --service-discovery` passed. The production helper discovered
   endpoints zero and one and endpoint one's OnOff server over actual encrypted
   CASE, with production SRP/DNS discovery. The harness requires the descriptor
@@ -51,7 +51,7 @@ fixture now exercises the production manager with a reopened catalog, then
 detach and refresh, comparing both snapshots to the descriptor helper's result.
 The harness requires the scheduler success marker. Host service/probe and MIPS
 service/probe builds pass; existing MIPS linker warnings remain.
-`python3 thread-matter/scripts/test-matter-service.py` passes real service IPC/lifetime,
+`python3 micro-thread-matter-daemon/scripts/test-matter-service.py` passes real service IPC/lifetime,
 fabric and guarded Thread restore checks. The native repository's
 `python3 scripts/test_matter_native_worker.py --real-service` passes persistent
 heartbeat, queued mutations, owned relay callbacks, cancellation, radio loss

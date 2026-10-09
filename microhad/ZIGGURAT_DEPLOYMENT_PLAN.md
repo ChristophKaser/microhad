@@ -519,7 +519,7 @@ supervises the native daemon: it is **not sufficient** for the two-process backe
 Do not use `deploy.sh --activate` unchanged for this cutover. For a later
 Matter-enabled paired installation, `deploy.sh --activate-paired` selects
 `ziggurat_start.sh`, which opts into Matter only when the explicitly staged
-`/tuya/native/thread-matter` executable is present. This option assumes the
+`/tuya/native/mthread-matter` executable is present. This option assumes the
 paired Ziggurat/native artifacts, config and maintenance binary are already
 installed and verified; it does not perform first-time paired-backend setup.
 The deployer also verifies a build-generated SHA-256 feature manifest proving

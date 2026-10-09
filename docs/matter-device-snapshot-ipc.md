@@ -51,9 +51,9 @@ suites and both MIPS builds pass. No credential or setup-code fields are present
 Verified 2026-10-04: 57 service-feature library tests, host/MIPS service and
 commissioning-probe builds, real service IPC, encrypted descriptor/snapshot
 fixture, and native real-service HTTP/WebSocket regression all pass. Commands
-are the existing `thread-matter/scripts/build.sh` host/mips service and
-commissioning variants, `thread-matter/scripts/test-matter-service.py`, and
-`thread-matter/scripts/test-openthread-matter-transport.py --commissioning --ble --service-owner
+are the existing `micro-thread-matter-daemon/scripts/build.sh` host/mips service and
+commissioning variants, `micro-thread-matter-daemon/scripts/test-matter-service.py`, and
+`micro-thread-matter-daemon/scripts/test-openthread-matter-transport.py --commissioning --ble --service-owner
 --service-discovery`; native compatibility uses
 `microhad/scripts/test_matter_native_worker.py --real-service`.
 
@@ -87,5 +87,5 @@ Stripped MIPS artifacts (not deployed):
 
 | Artifact | Bytes | SHA-256 |
 | --- | ---: | --- |
-| `thread-matter-mips` | 1,969,848 | `7ecc50492c6a9dce68c50f3c8324faa67ee21ca68fbe0b052dc063a35261b97b` |
+| `mthread-matter-mips` | 1,969,848 | `7ecc50492c6a9dce68c50f3c8324faa67ee21ca68fbe0b052dc063a35261b97b` |
 | `ot-commissioning-mips` | 2,309,840 | `d8f6dfa4940857e82173a82ff48eedb650fd839ecb196e5c49457880e0817e58` |

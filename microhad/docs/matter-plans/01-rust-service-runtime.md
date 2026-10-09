@@ -168,13 +168,13 @@ acceptance remains excluded in plan 08.
 
 Compilation repository commit `48a5dbc` disables Cargo incremental artifacts
 for the pinned Rust project and directs its default target directory to ignored
-`build/thread-matter/target/`. The service-library test command is now explicit in
+`build/micro-thread-matter-daemon/target/`. The service-library test command is now explicit in
 `ziggurat-compilation/docs/matter-sensors.md`. This addresses host disk growth
 during the controller-service test workflow; it changes no service runtime or
 deployment behavior.
 
 Validation passed with `cargo +nightly-2026-10-02 test --locked
---manifest-path thread-matter/Cargo.toml --features controller-service
+--manifest-path micro-thread-matter-daemon/Cargo.toml --features controller-service
 --lib`: 81/81 tests. The sandbox attempt could not create Unix sockets
 (`EPERM`); the same command passed outside the sandbox. Step 7 remains partial:
 the installed daemon's own active CASE report path and device/target acceptance
@@ -204,8 +204,8 @@ production MIPS service independently cross-builds to 2,162,372 bytes
 Reproduce the bounded target profile from `ziggurat-compilation`:
 
 ```sh
-bash thread-matter/scripts/build.sh mips commissioning
-python3 thread-matter/scripts/test-openthread-matter-device.py \
+bash micro-thread-matter-daemon/scripts/build.sh mips commissioning
+python3 micro-thread-matter-daemon/scripts/test-openthread-matter-device.py \
   --host 192.168.178.62 --password-file ../ssh_password.txt \
   --commissioning --ble --service-owner --icd
 ```
@@ -258,7 +258,7 @@ rate. The gateway process list had no `thread-matter` process during this
 observation, so it is not evidence of a live Matter service workload.
 
 The same read-only inspection confirmed the gateway is not running the Matter
-service: `/tuya/native/thread-matter` is absent, and the deployed
+service: `/tuya/native/mthread-matter` is absent, and the deployed
 `/tuya/native/paired_start.sh` has no `MATTER_BIN` handling. The checked-in
 `ziggurat_start.sh` opts in only when that executable exists, and the current
 source supervisor then starts it when the Thread socket is ready. Thus host
@@ -549,7 +549,7 @@ Rust commit `f33d47c` additionally exercises the actual service binary across
 synthetic RCP socket death and restart. It verifies stale IPC socket reclamation,
 unchanged credentials, startup waiting without radio traffic, wrong-channel
 rejection before radio use, and recovery after a fresh matching observation.
-`python3 thread-matter/scripts/test-matter-service.py` passes. This closes the host service/
+`python3 micro-thread-matter-daemon/scripts/test-matter-service.py` passes. This closes the host service/
 RCP restart checkpoint; active commissioning during RCP death, target startup
 and resource deadlines, and physical acceptance remain open.
 
@@ -570,8 +570,8 @@ memory, deadlines, startup and reset-source acceptance remain open.
 
 The Matter-enabled native bridge builds with
 `make ZIGGURAT=1 MATTER=1 mips`; the Rust service builds with
-`source scripts/rust-env.sh && CARGO_TARGET_DIR="$PWD/build/thread-matter/target"
-bash thread-matter/scripts/build.sh mips service`. The native source was
+`source scripts/rust-env.sh && CARGO_TARGET_DIR="$PWD/build/micro-thread-matter-daemon/target"
+bash micro-thread-matter-daemon/scripts/build.sh mips service`. The native source was
 at `eb451f8`; the Rust source was at `980db77`. Both artifacts are stripped,
 static, 32-bit big-endian MIPS-I executables with no `PT_INTERP`: native
 1,736,548 bytes (SHA-256
@@ -600,8 +600,8 @@ mips`; the output is `build/mips-ziggurat-matter/microhad`, 1,736,548
 bytes, SHA-256
 `1f15345fc12125e2c173f9cc82c4a9a9df6fecd7ad3f5ff50bb20b2009184b47`.
 Rebuilt the Rust service from `1b7ae98` using
-`bash thread-matter/scripts/build.sh mips service`; the output is
-`build/thread-matter/thread-matter-mips`, 2,109,120 bytes, SHA-256
+`bash micro-thread-matter-daemon/scripts/build.sh mips service`; the output is
+`build/micro-thread-matter-daemon/mthread-matter-mips`, 2,109,120 bytes, SHA-256
 `dcd10f1687d5cae0a1633fe9a04398bb0326d28feb0a2d5d3a19a5458c63c675`.
 Both are static ELF32 big-endian MIPS-I/o32 executables. `readelf` reports no
 interpreter or dynamic section for the Rust service. This updates the older
@@ -616,7 +616,7 @@ not-ready handling when the fixture has no attached accessory.
 
 ## Authorized gateway simulation preflight — 2026-10-05
 
-The host attempted `python3 thread-matter/scripts/test-openthread-device.py --host
+The host attempted `python3 micro-thread-matter-daemon/scripts/test-openthread-device.py --host
 192.168.178.62 --password-file ../ssh_password.txt --profile
 --profile-load-seconds 60` using the synthetic RCP path. The harness refused to
 stage or launch its test workload because MemFree was 2,980 KiB, below its
@@ -692,7 +692,7 @@ Rust commit `6e44f33` adds a build-time binary-marker check for the
 test-service build must contain the marker; host production and stripped MIPS
 production builds must not. All three artifact checks passed. The dedicated
 test-service build passed, both production service build paths passed, and
-`python3 thread-matter/scripts/test-matter-service.py` passed its commissioner, Thread
+`python3 micro-thread-matter-daemon/scripts/test-matter-service.py` passed its commissioner, Thread
 lifecycle, and Spinel-failure recovery checks. The current MIPS service remains
 2,109,120 bytes. This closes the test-fixture/production artifact boundary; it
 does not close the live CASE-report path or the gateway reset investigation.
@@ -784,7 +784,7 @@ MemFree was 10,080 KiB, and minimum free plus clean inactive file cache was
 11.75-second sampled interval. It stayed within the 3,072 KiB RSS, 512 KiB raw
 MemFree and 4,096 KiB effective-free limits, cleaned temporary artifacts and
 did not reset the gateway. The machine-readable report is
-`ziggurat-compilation/build/thread-matter/openthread-ble-commissioning-device-validation.json`.
+`ziggurat-compilation/build/micro-thread-matter-daemon/openthread-ble-commissioning-device-validation.json`.
 
 The attempted `--service-discovery` variant timed out at its 45-second synthetic
 SRP-registration deadline because the device-side RCP simulator does not
@@ -796,7 +796,7 @@ real accessory.
 
 ## Installed service startup-only gateway profile — 2026-10-05
 
-The actual 2,129,600-byte `thread-matter-mips` executable ran with unique
+The actual 2,129,600-byte `mthread-matter-mips` executable ran with unique
 private state, IPC and an unused radio socket while Ziggurat remained
 online/formed. The harness waited for a coordinator observation, so the service
 did not initialize OpenThread or touch a radio. It created the IPC socket and

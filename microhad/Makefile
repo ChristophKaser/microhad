@@ -50,7 +50,7 @@ HOST_CXXFLAGS += -DMICROHAD_MATTER_ENABLED=$(MATTER)
 TARGET_CXXFLAGS += -DMICROHAD_MATTER_ENABLED=$(MATTER)
 TARGET_CFLAGS := $(WARNINGS) -O2 -ffunction-sections -fdata-sections
 LDFLAGS := -lpthread -lrt
-SOURCES := src/main.cpp src/matter_websocket.cpp src/matter_protocol.cpp src/matter_client.cpp src/matter_worker.cpp src/gateway_config.cpp src/ash.cpp src/json_util.cpp src/storage.cpp src/network_backup.cpp $(ZIGGURAT_SOURCES) src/http_server.cpp src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/sensor_history.cpp src/syslog_log_reader.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp src/external_http_device.cpp src/device_shelly.cpp src/device_fritz_box.cpp
+SOURCES := src/main.cpp src/matter_websocket.cpp src/matter_protocol.cpp src/matter_cbor.cpp src/matter_client.cpp src/matter_worker.cpp src/gateway_config.cpp src/ash.cpp src/json_util.cpp src/storage.cpp src/network_backup.cpp $(ZIGGURAT_SOURCES) src/http_server.cpp src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/sensor_history.cpp src/syslog_log_reader.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp src/external_http_device.cpp src/device_shelly.cpp src/device_fritz_box.cpp
 HOST_BUILD := build/host$(BACKEND_SUFFIX)
 MIPS_BUILD := build/mips$(BACKEND_SUFFIX)
 HOST_BIN := $(HOST_BUILD)/microhad
@@ -144,13 +144,13 @@ endef
 verify-target: $(MIPS_BIN)
 	@$(call verify_elf,$(TARGET_READELF),$(MIPS_BIN))
 
-$(UNIT_TEST_BIN): $(UNIT_TEST_SOURCES) src/matter_websocket.cpp src/matter_protocol.cpp src/matter_client.cpp src/matter_worker.cpp src/gateway_config.cpp src/ash.cpp src/json_util.cpp src/storage.cpp src/network_backup.cpp $(ZIGGURAT_SOURCES) src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/sensor_history.cpp src/log_ring.cpp src/syslog_log_reader.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp src/external_http_device.cpp src/device_shelly.cpp src/device_fritz_box.cpp $(HOST_C_OBJECTS) $(HOST_MBEDTLS_LIBS) $(wildcard include/*.h)
+$(UNIT_TEST_BIN): $(UNIT_TEST_SOURCES) src/matter_websocket.cpp src/matter_protocol.cpp src/matter_cbor.cpp src/matter_client.cpp src/matter_worker.cpp src/gateway_config.cpp src/ash.cpp src/json_util.cpp src/storage.cpp src/network_backup.cpp $(ZIGGURAT_SOURCES) src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/sensor_history.cpp src/log_ring.cpp src/syslog_log_reader.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp src/external_http_device.cpp src/device_shelly.cpp src/device_fritz_box.cpp $(HOST_C_OBJECTS) $(HOST_MBEDTLS_LIBS) $(wildcard include/*.h)
 	@mkdir -p $(HOST_BUILD)
-	$(HOST_CXX) $(HOST_CXXFLAGS) -DMICROHAD_TESTING=1 $(UNIT_TEST_SOURCES) src/matter_websocket.cpp src/matter_protocol.cpp src/matter_client.cpp src/matter_worker.cpp src/gateway_config.cpp src/ash.cpp src/json_util.cpp src/storage.cpp src/network_backup.cpp $(ZIGGURAT_SOURCES) src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/sensor_history.cpp src/log_ring.cpp src/syslog_log_reader.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp src/external_http_device.cpp src/device_shelly.cpp src/device_fritz_box.cpp $(HOST_C_OBJECTS) -o $@ $(HOST_MBEDTLS_LIBS) $(LDFLAGS)
+	$(HOST_CXX) $(HOST_CXXFLAGS) -DMICROHAD_TESTING=1 $(UNIT_TEST_SOURCES) src/matter_websocket.cpp src/matter_protocol.cpp src/matter_cbor.cpp src/matter_client.cpp src/matter_worker.cpp src/gateway_config.cpp src/ash.cpp src/json_util.cpp src/storage.cpp src/network_backup.cpp $(ZIGGURAT_SOURCES) src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/sensor_history.cpp src/log_ring.cpp src/syslog_log_reader.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp src/external_http_device.cpp src/device_shelly.cpp src/device_fritz_box.cpp $(HOST_C_OBJECTS) -o $@ $(HOST_MBEDTLS_LIBS) $(LDFLAGS)
 
-$(INTEGRATION_TEST_BIN): $(INTEGRATION_TEST_SOURCES) src/gateway_config.cpp src/matter_websocket.cpp src/matter_protocol.cpp src/matter_client.cpp src/matter_worker.cpp src/ash.cpp src/json_util.cpp src/storage.cpp src/network_backup.cpp $(ZIGGURAT_SOURCES) src/http_server.cpp src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/sensor_history.cpp src/log_ring.cpp src/syslog_log_reader.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp src/external_http_device.cpp src/device_shelly.cpp src/device_fritz_box.cpp $(HOST_C_OBJECTS) $(HOST_MBEDTLS_LIBS) $(wildcard include/*.h)
+$(INTEGRATION_TEST_BIN): $(INTEGRATION_TEST_SOURCES) src/gateway_config.cpp src/matter_websocket.cpp src/matter_protocol.cpp src/matter_cbor.cpp src/matter_client.cpp src/matter_worker.cpp src/ash.cpp src/json_util.cpp src/storage.cpp src/network_backup.cpp $(ZIGGURAT_SOURCES) src/http_server.cpp src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/sensor_history.cpp src/log_ring.cpp src/syslog_log_reader.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp src/external_http_device.cpp src/device_shelly.cpp src/device_fritz_box.cpp $(HOST_C_OBJECTS) $(HOST_MBEDTLS_LIBS) $(wildcard include/*.h)
 	@mkdir -p $(HOST_BUILD)
-	$(HOST_CXX) $(HOST_CXXFLAGS) -DMICROHAD_TESTING=1 $(INTEGRATION_TEST_SOURCES) src/gateway_config.cpp src/matter_websocket.cpp src/matter_protocol.cpp src/matter_client.cpp src/matter_worker.cpp src/ash.cpp src/json_util.cpp src/storage.cpp src/network_backup.cpp $(ZIGGURAT_SOURCES) src/http_server.cpp src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/sensor_history.cpp src/log_ring.cpp src/syslog_log_reader.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp src/external_http_device.cpp src/device_shelly.cpp src/device_fritz_box.cpp $(HOST_C_OBJECTS) -o $@ $(HOST_MBEDTLS_LIBS) $(LDFLAGS)
+	$(HOST_CXX) $(HOST_CXXFLAGS) -DMICROHAD_TESTING=1 $(INTEGRATION_TEST_SOURCES) src/gateway_config.cpp src/matter_websocket.cpp src/matter_protocol.cpp src/matter_cbor.cpp src/matter_client.cpp src/matter_worker.cpp src/ash.cpp src/json_util.cpp src/storage.cpp src/network_backup.cpp $(ZIGGURAT_SOURCES) src/http_server.cpp src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/sensor_history.cpp src/log_ring.cpp src/syslog_log_reader.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp src/external_http_device.cpp src/device_shelly.cpp src/device_fritz_box.cpp $(HOST_C_OBJECTS) -o $@ $(HOST_MBEDTLS_LIBS) $(LDFLAGS)
 
 unit-test: mbedtls-host $(HOST_BIN) $(UNIT_TEST_BIN)
 	$(UNIT_TEST_BIN)
@@ -179,7 +179,7 @@ test-backends:
 	$(MAKE) ZIGGURAT=1 MATTER=0 host test
 
 # The Matter native build is the gateway IPC/API bridge. The paired Rust
-# controller service is built separately in thread-matter/.
+# controller service is built separately in micro-thread-matter-daemon/.
 .PHONY: matter-host-check matter-mips-check matter-build-flags-test
 ifeq ($(MATTER),1)
 $(HOST_BIN) $(UNIT_TEST_BIN) $(INTEGRATION_TEST_BIN): | matter-host-check
@@ -192,3 +192,20 @@ endif
 
 matter-build-flags-test:
 	python3 scripts/test_matter_build_flags.py
+
+# Pinned TinyCBOR submodule, built as C99 with the legacy target compiler.
+CBOR_DIR := dependencies/tinycbor/src
+CBOR_NAMES := cborencoder cborparser cborparser_float cborencoder_float
+HOST_C_OBJECTS += $(addprefix $(HOST_BUILD)/tinycbor-,$(addsuffix .o,$(CBOR_NAMES)))
+MIPS_C_OBJECTS += $(addprefix $(MIPS_BUILD)/tinycbor-,$(addsuffix .o,$(CBOR_NAMES)))
+$(HOST_BUILD)/tinycbor-%.o: $(CBOR_DIR)/%.c $(wildcard $(CBOR_DIR)/*.h)
+	@mkdir -p $(HOST_BUILD)
+	$(HOST_CC) -std=gnu99 -O2 -I$(CBOR_DIR) -c $< -o $@
+$(MIPS_BUILD)/tinycbor-%.o: $(CBOR_DIR)/%.c $(wildcard $(CBOR_DIR)/*.h)
+	@mkdir -p $(MIPS_BUILD)
+	$(TARGET_CC) -std=gnu99 -O2 -ffunction-sections -fdata-sections -I$(CBOR_DIR) -c $< -o $@
+$(HOST_BIN) $(HOST_TEST_BIN) $(UNIT_TEST_BIN) $(INTEGRATION_TEST_BIN): $(addprefix $(HOST_BUILD)/tinycbor-,$(addsuffix .o,$(CBOR_NAMES)))
+$(MIPS_BIN): $(addprefix $(MIPS_BUILD)/tinycbor-,$(addsuffix .o,$(CBOR_NAMES)))
+
+$(HOST_BIN) $(HOST_TEST_BIN) $(UNIT_TEST_BIN) $(INTEGRATION_TEST_BIN) $(MIPS_BIN): include/matter_wire_shapes.inc
+$(UNIT_TEST_BIN): include/matter_wire_vectors.inc

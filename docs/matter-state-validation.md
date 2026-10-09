@@ -5,7 +5,7 @@ considered for activation. It does not start the service, bind the IPC socket,
 open an OpenThread radio, or create missing state:
 
 ```sh
-thread-matter --validate-state-dir /absolute/private/staging/path
+mthread-matter --validate-state-dir /absolute/private/staging/path
 ```
 
 Pass `--administrator-vendor-id` when the staged authority was created with a

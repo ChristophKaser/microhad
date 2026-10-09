@@ -4,7 +4,7 @@
 #include <deque>
 #include <vector>
 
-// Private Unix-stream IPC, version 1. No packet contents are logged here.
+// Private Unix-stream IPC, CBOR version 2. No packet contents are logged here.
 namespace MatterWire {
 typedef std::vector<unsigned char> Bytes;
 const unsigned int MaxPayload = 2048;

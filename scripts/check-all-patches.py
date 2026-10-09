@@ -11,15 +11,15 @@ import tempfile
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PATCH_DIRS = [ROOT / "patches", ROOT / "ziggurat/patches", ROOT / "thread-matter/patches"]
+PATCH_DIRS = [ROOT / "patches", ROOT / "ziggurat/patches", ROOT / "micro-thread-matter-daemon/patches"]
 
 def patch_path(name: str) -> Path:
     directory = "ziggurat/patches" if name.startswith("ziggurat-") else (
-        "thread-matter/patches" if name.startswith(("rs-matter-", "openthread-")) else "patches")
+        "micro-thread-matter-daemon/patches" if name.startswith(("rs-matter-", "openthread-")) else "patches")
     return ROOT / directory / name
 
 ZIGGURAT = ROOT / "ziggurat/dependencies/ziggurat"
-RS_MATTER = ROOT / "thread-matter/dependencies/rs-matter"
+RS_MATTER = ROOT / "micro-thread-matter-daemon/dependencies/rs-matter"
 
 ZIGGURAT_COMMON = ["ziggurat-stock-compat.patch", "ziggurat-syslog.patch", "ziggurat-syslog-fragments.patch"]
 ZIGGURAT_MULTI_COMMON = [
@@ -220,25 +220,25 @@ def main() -> int:
     )
     check_worktree_matches(
         RS_MATTER,
-        ROOT / "build/thread-matter/service-source",
+        ROOT / "build/micro-thread-matter-daemon/service-source",
         [patch_path(name) for name in RS_MATTER_SERVICE],
         "rs-matter service series",
     )
     check_worktree_matches(
         RS_MATTER,
-        ROOT / "build/thread-matter/commissioning-source",
+        ROOT / "build/micro-thread-matter-daemon/commissioning-source",
         [patch_path("rs-matter-commissioning-probe.patch"),
          patch_path("rs-matter-commissioning-region.patch")],
         "rs-matter commissioning fixture",
     )
 
-    openthread = ROOT / "thread-matter/dependencies/openthread"
+    openthread = ROOT / "micro-thread-matter-daemon/dependencies/openthread"
     openthread_patches = [
         patch_path("openthread-hdlc-unix.patch"),
         patch_path("openthread-hdlc-test.patch"),
         patch_path("openthread-thread-transport.patch"),
     ]
-    revision = (ROOT / "thread-matter/dependencies/openthread.revision").read_text().strip()
+    revision = (ROOT / "micro-thread-matter-daemon/dependencies/openthread.revision").read_text().strip()
     if run(["git", "-C", str(openthread), "rev-parse", "HEAD"], capture=True).strip() != revision:
         raise SystemExit("OpenThread checkout differs from its pinned release")
     check_pinned_submodules(openthread)

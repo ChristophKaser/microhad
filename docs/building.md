@@ -148,8 +148,8 @@ require the firmware SDK installer or deploy to the gateway.
 
 ```sh
 cd "$PROJECT_ROOT"
-bash thread-matter/scripts/build-openthread.sh host
-bash thread-matter/scripts/build-openthread.sh mips
+bash micro-thread-matter-daemon/scripts/build-openthread.sh host
+bash micro-thread-matter-daemon/scripts/build-openthread.sh mips
 ```
 
 The host command builds the CLI and runs the real HDLC adapter against a local

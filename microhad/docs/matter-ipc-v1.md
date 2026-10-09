@@ -1,4 +1,7 @@
-# Matter IPC version 1
+# Matter IPC version 1 (historical)
+
+The active private protocol is [CBOR IPC v2](matter-ipc-v2.md). This document
+records the previous JSON wire format and lifecycle history.
 
 This fixes the contract for the remaining implementation. The service dispatches
 status opcodes 1/2, commissioning/relay opcodes 3–8 and Thread lifecycle opcode 9.

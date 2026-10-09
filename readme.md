@@ -11,13 +11,13 @@ The stack has three gateway services and a radio firmware component:
 | --- | --- |
 | [MicroHAD](microhad/README.md) | C++03 daemon, Web UI and REST API; owns the common device model, history, alerts and integrations with Shelly and Fritz!Box devices. |
 | [Ziggurat](ziggurat/README.md) | Rust Zigbee stack and Spinel multiplexer; connects MicroHAD and Thread to the shared radio. |
-| [Thread/Matter](thread-matter/README.md) | Rust Matter controller using rs-matter and userspace OpenThread; owns commissioning, fabrics, sessions and Thread state. |
+| [Thread/Matter](micro-thread-matter-daemon/README.md) | Rust Matter controller using rs-matter and userspace OpenThread; owns commissioning, fabrics, sessions and Thread state. |
 | [Firmware](firmware/README.md) | Rebuildable two-instance HDLC radio firmware, packaging and radio maintenance tools. |
 
 ## Processes and protocol paths
 
 The default `ZIGGURAT=1 MATTER=1` stack runs MicroHAD, Ziggurat and
-`thread-matter` as separate processes.
+`mthread-matter` as separate processes.
 [paired_start.sh](microhad/paired_start.sh) starts, monitors and recovers all
 three. MicroHAD owns the common device model, controls, history, alerts and
 HTTP API. Ziggurat runs the Zigbee stack and is the sole owner of the radio
@@ -36,7 +36,7 @@ flowchart TB
         supervisor["paired_start.sh<br/>Supervisor"]
         subgraph services["Three supervised services"]
             native["MicroHAD · C++03<br/>Web UI / REST API<br/>Common device model"]
-            matter["thread-matter · Rust<br/>Matter controller<br/>OpenThread IPv6 / UDP"]
+            matter["mthread-matter · Rust<br/>Matter controller<br/>OpenThread IPv6 / UDP"]
             ziggurat["Ziggurat · Rust<br/>Zigbee stack<br/>Spinel multiplexer"]
             native <-->|"Matter IPC · Unix socket"| matter
             native <-->|"Ziggurat API · COBS / Unix socket"| ziggurat
@@ -77,7 +77,7 @@ The private socket paths below are launcher defaults and can be overridden.
 The radio UART runs at 460800 baud with hardware RTS/CTS flow control. Zigbee
 uses radio IID 1; Thread uses IID 2. Matter control and subscription
 reports travel through OpenThread, the Thread socket, Ziggurat and the shared
-radio. OpenThread supplies IPv6/UDP inside `thread-matter`; this path does not
+radio. OpenThread supplies IPv6/UDP inside `mthread-matter`; this path does not
 need Linux IPv6 or TUN and does not make the gateway an OTBR. Zigbee, Matter and
 external HTTP integrations all feed MicroHAD's common device model.
 
@@ -92,7 +92,7 @@ sequenceDiagram
     participant accessory as Matter accessory
     participant phone as Garage Android app
     participant native as MicroHAD
-    participant matter as thread-matter
+    participant matter as mthread-matter
     Note over accessory,matter: BLE commissioning · bidirectional packet relay
     matter->>native: Outgoing BTP packet (Matter IPC)
     native->>phone: WebSocket relay message
@@ -120,7 +120,7 @@ make -C microhad host test
 make -C microhad mips
 make -C microhad webui
 ZIGGURAT_MULTIPAN=1 bash ziggurat/scripts/build.sh
-bash thread-matter/scripts/build.sh mips service
+bash micro-thread-matter-daemon/scripts/build.sh mips service
 bash firmware/scripts/build-maintenance.sh
 bash microhad/scripts/build-logread.sh
 ```
@@ -134,10 +134,10 @@ Ziggurat WebSocket connection. Those setups use ZHA as the coordinator client.
 
 Each component owns its source, scripts, patches, tests and dependencies.
 Upstream Ziggurat is pinned under `ziggurat/dependencies/ziggurat`; rs-matter
-under `thread-matter/dependencies/rs-matter`; the firmware dependencies under
+under `micro-thread-matter-daemon/dependencies/rs-matter`; the firmware dependencies under
 `firmware/dependencies/`. Gecko SDK lives in `firmware/dependencies/gecko-sdk`
 for radio firmware. Thread/Matter owns upstream OpenThread v2026.10.0 under
-`thread-matter/dependencies/openthread`, including its pinned Mbed TLS dependency.
+`micro-thread-matter-daemon/dependencies/openthread`, including its pinned Mbed TLS dependency.
 MicroHAD keeps its configured Mbed TLS copy under `microhad/third_party/`.
 
 Root `scripts/`, `config/` and `patches/` contain shared build infrastructure,

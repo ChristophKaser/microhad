@@ -16,11 +16,11 @@ Use `make ZIGGURAT=0 mips` for the legacy EZSP binary or
 `make ZIGGURAT=1 MATTER=0 mips` for Ziggurat without Matter APIs.
 
 The host Matter CASE fixture uses the commissioning probe at
-`build/thread-matter/target/release/ot-matter-commissioning-probe`.
+`build/micro-thread-matter-daemon/target/release/ot-matter-commissioning-probe`.
 Rebuild it from the repository root with
-`bash thread-matter/scripts/build.sh host commissioning`. Do not use a
+`bash micro-thread-matter-daemon/scripts/build.sh host commissioning`. Do not use a
 plain Cargo build for this fixture: without the repository target directory it
-writes under `thread-matter/target/`, leaving the integration harness on an
+writes under `micro-thread-matter-daemon/target/`, leaving the integration harness on an
 older binary. This host command does not deploy or access the gateway radio.
 
 ## Mandatory verification and commits
@@ -51,7 +51,7 @@ copies the selected binary and Web UI; `--binary-only`, `--webui-only`, and
 `--both` select those assets. Pass `--config` only when intentionally replacing
 the device configuration. Files are transferred through SSH stdin and each
 file is moved into place from a temporary file after transfer. A Matter package
-contains the native binary, its `.matter-manifest`, the Rust `thread-matter`
+contains the native binary, its `.matter-manifest`, the Rust `mthread-matter`
 service, and `paired_start.sh`:
 
 ```sh
@@ -59,13 +59,13 @@ service, and `paired_start.sh`:
 make -C microhad mips
 
 # Rust service, from the repository root
-bash thread-matter/scripts/build.sh mips service
+bash micro-thread-matter-daemon/scripts/build.sh mips service
 
 # Stage the Matter package without changing the active launcher or processes
 ./deploy.sh --host 192.168.178.62 --password-file ../ssh_password.txt \
   --target /tuya/native --binary-only \
   --binary microhad/build/mips-ziggurat-matter/microhad \
-  --matter-service build/thread-matter/thread-matter-mips
+  --matter-service build/micro-thread-matter-daemon/mthread-matter-mips
 ```
 
 Staging does not activate Matter or restart a process. To install the
@@ -123,14 +123,14 @@ ZIGGURAT_MULTIPAN=1 bash ziggurat/scripts/build.sh
 bash firmware/scripts/build-maintenance.sh
 
 # Matter service, from the repository root
-bash thread-matter/scripts/build.sh mips service
+bash micro-thread-matter-daemon/scripts/build.sh mips service
 
 # Complete maintenance deployment, from the repository root
 ./deploy.sh --maintenance-deploy --host 192.168.178.62 \
   --password-file ../ssh_password.txt --target /tuya/native \
   --binary microhad/build/mips-ziggurat-matter/microhad \
   --ziggurat build/ziggurat-hdlc/lexra-stock-uclibc/release/ziggurat \
-  --matter-service build/thread-matter/thread-matter-mips \
+  --matter-service build/micro-thread-matter-daemon/mthread-matter-mips \
   --maintenance-helper build/gateway-maintenance \
   --logread microhad/build/logread-mips
 ```
@@ -177,7 +177,7 @@ same local artifacts against the staged device files:
 ./deploy.sh --host 192.168.178.62 --password-file ../ssh_password.txt \
   --target /tuya/native --activate-paired-only \
   --binary microhad/build/mips-ziggurat-matter/microhad \
-  --matter-service build/thread-matter/thread-matter-mips
+  --matter-service build/micro-thread-matter-daemon/mthread-matter-mips
 ```
 
 `--activate-paired-only` uploads only the launcher after verifying the staged

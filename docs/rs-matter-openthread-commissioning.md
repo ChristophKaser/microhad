@@ -15,7 +15,7 @@ acceptance remain pending. Native `MATTER=1` still rejects an incomplete backend
 
 ## Implementation and reproduction
 
-`thread-matter/src/bin/ot_commissioning.rs` adapts the pinned upstream
+`micro-thread-matter-daemon/src/bin/ot_commissioning.rs` adapts the pinned upstream
 commissioning fixture, preserving its Apache license. The device uses public
 upstream development attestation fixtures; all generated CA, operational and
 session keys use `/dev/urandom`. The owner-selected manufacturer-attestation
@@ -38,15 +38,15 @@ tests exercise old callbacks, failed writes and expiration. The phone app and
 HTTP/WebSocket relay have not yet been wired to this module.
 
 ```sh
-bash thread-matter/scripts/build.sh host commissioning
-bash thread-matter/scripts/build-openthread-relay.sh host
-python3 thread-matter/scripts/test-openthread-matter-transport.py --commissioning
-python3 thread-matter/scripts/test-openthread-matter-transport.py --commissioning --ble
-bash thread-matter/scripts/build.sh mips commissioning
-bash thread-matter/scripts/build-openthread-relay.sh mips
-python3 thread-matter/scripts/test-openthread-matter-device.py --commissioning --ble \
+bash micro-thread-matter-daemon/scripts/build.sh host commissioning
+bash micro-thread-matter-daemon/scripts/build-openthread-relay.sh host
+python3 micro-thread-matter-daemon/scripts/test-openthread-matter-transport.py --commissioning
+python3 micro-thread-matter-daemon/scripts/test-openthread-matter-transport.py --commissioning --ble
+bash micro-thread-matter-daemon/scripts/build.sh mips commissioning
+bash micro-thread-matter-daemon/scripts/build-openthread-relay.sh mips
+python3 micro-thread-matter-daemon/scripts/test-openthread-matter-device.py --commissioning --ble \
   --host 192.168.178.62 --password-file ../ssh_password.txt
-python3 thread-matter/scripts/test-openthread-matter-device.py --commissioning \
+python3 micro-thread-matter-daemon/scripts/test-openthread-matter-device.py --commissioning \
   --host 192.168.178.62 --password-file ../ssh_password.txt
 ```
 
@@ -92,7 +92,7 @@ the UDP smoke probe retains 1536 KiB. Both have an 8 MiB virtual-memory limit.
 Commissioning is killed after 100 seconds. Preflight still requires 3000 KiB
 actually free RAM and at least 1 MiB free flash after binary staging.
 
-`thread-matter/tests/helpers/drop-test-cache.c` fsyncs and advises `DONTNEED` only on `/probe` or
+`micro-thread-matter-daemon/tests/helpers/drop-test-cache.c` fsyncs and advises `DONTNEED` only on `/probe` or
 `/relay` under an exact `/tuya/native-test/ot-matter-<32 hex digits>` directory.
 It checks regular-file ownership and refuses a symlink at the final component.
 It never opens the UART or drops global caches. Production services and network
@@ -161,8 +161,8 @@ status or device control is available yet.
 The probe now has `--service-owner` (requires `--ble`). Build and run:
 
 ```sh
-bash thread-matter/scripts/build.sh host commissioning
-python3 thread-matter/scripts/test-openthread-matter-transport.py --commissioning --ble --service-owner
+bash micro-thread-matter-daemon/scripts/build.sh host commissioning
+python3 micro-thread-matter-daemon/scripts/test-openthread-matter-transport.py --commissioning --ble --service-owner
 ```
 
 This mode drives `controller::Controller`, the same owner and pinned future

@@ -19,7 +19,7 @@ the session ID. A later relay uses a fresh session and BLE generation.
 injects an invalid event while a BLE relay is bound, checks Matter readiness
 drop and recovery, and verifies that the original session becomes cancelled.
 `make ZIGGURAT=1 MATTER=1 mips` passes; the MIPS native binary is 1,741,544
-bytes. Companion `python3 thread-matter/scripts/test-matter-service.py` passes against the
+bytes. Companion `python3 micro-thread-matter-daemon/scripts/test-matter-service.py` passes against the
 real host service process, including disconnect before the session ID is
 retained; host and MIPS Rust service builds pass at 2,158,276 bytes. The
 sandbox denied local sockets and a cross-link with `EPERM`/`SIGSYS`; commands
@@ -102,11 +102,11 @@ cross-language vectors remain open. No gateway or physical radio was used.
 
 Verification: `python3 scripts/test_matter_native_report_integration.py`
 (host-only; local UDP and Unix sockets required) passed; the underlying
-`python3 thread-matter/scripts/test-openthread-matter-transport.py --commissioning --ble
+`python3 micro-thread-matter-daemon/scripts/test-openthread-matter-transport.py --commissioning --ble
 --service-owner --service-discovery --sensor-reports` fixture also passed.
 
 The joined host test is
-`python3 thread-matter/scripts/test-openthread-matter-transport.py --native-bridge
+`python3 micro-thread-matter-daemon/scripts/test-openthread-matter-transport.py --native-bridge
 --sensor-reports --service-discovery --service-owner --ble --commissioning`.
 It uses synthetic RCP/accessory traffic and does not use the gateway radio.
 Next deliverable: exercise the installed `thread-matter` service process
@@ -122,7 +122,7 @@ the delayed write completion. The service rejects it as `stale_session`.
 The fixture restores a fresh matching coordinator observation and completes its
 existing timeout, credentials, and restart checks.
 
-`python3 thread-matter/scripts/test-matter-service.py` passes. This covers a real service
+`python3 micro-thread-matter-daemon/scripts/test-matter-service.py` passes. This covers a real service
 session/lifecycle race over production IPC. Installed-daemon reports reaching
 a registered native device, process restart during active commissioning, and
 the broader malformed/backpressure matrix remain open.
@@ -136,7 +136,7 @@ is preserved as `recovery_required`, and the Thread dataset is unchanged.
 The restarted service refuses radio initialization until a fresh matching
 coordinator observation is received.
 
-`python3 thread-matter/scripts/test-matter-service.py` passes this service-process scenario.
+`python3 micro-thread-matter-daemon/scripts/test-matter-service.py` passes this service-process scenario.
 This closes the active-session/RCP-restart host checkpoint. Installed-daemon
 sensor reports reaching a registered native device and the broader malformed,
 backpressure, and cross-language failure matrix remain open.
@@ -291,7 +291,7 @@ The real synthetic service test receives the initial awaiting-coordinator event
 and the subsequent observed-channel event. Native-to-real-Rust synthetic
 observation/HTTP regression also passes; no gateway deployment is involved.
 
-Factory service build passes: `bash thread-matter/scripts/build.sh mips
+Factory service build passes: `bash micro-thread-matter-daemon/scripts/build.sh mips
 service`; stripped artifact is static big-endian MIPS-I/o32, 1,556,124 bytes.
 It was not deployed or executed on the gateway. This checkpoint supplies the
 event-delivery prerequisite for commissioning, not a commissioned accessory.
@@ -324,7 +324,7 @@ accepted, dispatched, and receives the expected manager `not_ready` response
 when the simulated service has no attached Thread accessory. This proves
 dispatch and readiness gating, not physical command/readback behavior.
 
-`python3 thread-matter/scripts/test-matter-service.py`,
+`python3 micro-thread-matter-daemon/scripts/test-matter-service.py`,
 `python3 scripts/test_matter_native_worker.py --real-service`,
 `python3 scripts/test_matter_native_worker.py`, and
 `make ZIGGURAT=1 MATTER=1 host test` pass. Both Matter-enabled MIPS artifacts
@@ -345,7 +345,7 @@ harness proves waiting-BLE/busy/status, BTP write generation, PASE reconnect,
 stale callbacks, cancel/idempotence, failed write, a real 30-second timeout and
 no status/heartbeat store writes. The native-to-real-Rust HTTP regression passes.
 
-`python3 thread-matter/scripts/test-openthread-matter-transport.py --commissioning --ble
+`python3 micro-thread-matter-daemon/scripts/test-openthread-matter-transport.py --commissioning --ble
 --service-owner` uses this production owner/future with the encrypted synthetic
 accessory; it passes PASE, Thread provisioning, CASE completion/controls and fresh
 CASE after committed authority/fabric reopen with the phone detached. It retains
@@ -665,7 +665,7 @@ success. Typed results retain cluster/attribute identity and return a tagged
 
 Verification passed: 59 Rust service-feature library tests; host service and
 commissioning-probe builds; MIPS service and commissioning-probe builds; and
-`python3 thread-matter/scripts/test-openthread-matter-transport.py --commissioning --ble
+`python3 micro-thread-matter-daemon/scripts/test-openthread-matter-transport.py --commissioning --ble
 --service-owner --service-discovery`. The encrypted synthetic accessory confirms
 CurrentLevel read, MoveToLevel to 124, readback 124, and rejection of a root
 endpoint without cluster 8. The command marker is emitted only after those checks.
@@ -753,7 +753,7 @@ temperature, humidity unknown/null, air quality, CO2 and PM2.5. Matching native
 client vectors parse the same payloads and assert the shared typed values,
 units and quality. Verification passed with 70/70 Rust library tests using
 `source scripts/rust-env.sh && cargo +nightly-2026-10-02 test
---manifest-path thread-matter/Cargo.toml --features controller-probe --lib`
+--manifest-path micro-thread-matter-daemon/Cargo.toml --features controller-probe --lib`
 and `make ZIGGURAT=1 MATTER=1 host test` (including all native unit,
 integration and Ziggurat peer tests). This closes the report wire-vector gap;
 it does not replace the still-open live Rust-service-to-native-process fixture.
@@ -762,7 +762,7 @@ it does not replace the still-open live Rust-service-to-native-process fixture.
 
 The host-only `python3 scripts/test_matter_native_worker.py --real-service`
 fixture passes with the real Rust service process and native worker. Separately,
-`python3 thread-matter/scripts/test-openthread-matter-transport.py --commissioning --ble
+`python3 micro-thread-matter-daemon/scripts/test-openthread-matter-transport.py --commissioning --ble
 --service-owner --service-discovery --sensor-reports` passes against the
 synthetic RCP/accessory and production-owned Manager, including normalized
 subscribed sensor reports over CASE. These are adjacent but separate fixtures:
@@ -801,8 +801,8 @@ the production Manager, is correlated by fabric/node/subscription/path, passes
 through `Manager::publish_reports` and the production `IpcServer`, and is read
 from a connected Unix socket client. The fixture checks the full typed event
 payload for each measurement. Verification passed with
-`bash thread-matter/scripts/build.sh host commissioning` followed by
-`python3 thread-matter/scripts/test-openthread-matter-transport.py --commissioning --ble
+`bash micro-thread-matter-daemon/scripts/build.sh host commissioning` followed by
+`python3 micro-thread-matter-daemon/scripts/test-openthread-matter-transport.py --commissioning --ble
 --service-owner --service-discovery --sensor-reports`. This composes accessory,
 Manager and IPC delivery in one host fixture. It still does not start the
 `thread-matter` daemon or a native gateway process; delivery into registered

@@ -15,6 +15,8 @@ import urllib.request
 import zlib
 from test_ziggurat_native_peer import NativeTests, Peer, ROOT
 from test_ziggurat_service import wait_for
+sys.path.insert(0, str(ROOT.parent / "scripts"))
+import matter_wire
 
 
 class MatterPeer:
@@ -82,14 +84,13 @@ class MatterPeer:
                     peer.settimeout(.1)
                     while not self.stop.is_set():
                         try:
-                            header = self.exact(peer, 10)
+                            kind, opcode, ident, decoded_body = matter_wire.receive(peer, self.exact)
                         except socket.timeout:
                             continue
                         except (RuntimeError, ConnectionResetError):
                             break
-                        size, version, kind, opcode, reserved, ident = struct.unpack('<HBBBBI', header)
-                        assert version == 1 and kind == 0 and reserved == 0 and ident != 0 and size <= 2048
-                        body = self.exact(peer, size)
+                        assert kind == 0 and ident != 0
+                        body = json.dumps(decoded_body).encode() if decoded_body else b''
                         thread = dict(enabled=True, available=True, configured=self.configured, attached=False,
                                       state='attaching' if self.configured else 'detached', linux_ipv6_or_tun=False)
                         event = None
@@ -212,60 +213,48 @@ class MatterPeer:
                         if self.malformed_next_header:
                             mode = self.malformed_next_header
                             self.malformed_next_header = None
-                            length, version, reserved = 0, 1, 0
+                            message = matter_wire.frame(opcode, 1, ident, result)
                             if mode == 'version':
-                                version = 2
-                            elif mode == 'reserved':
-                                reserved = 1
+                                message = matter_wire.frame(opcode, 1, ident, result, version=1)
                             elif mode == 'oversized':
-                                length = 2049
+                                message = struct.pack('<H', 2049)
                             elif mode == 'kind':
-                                kind = 0
+                                message = matter_wire.frame(opcode, 0, ident, result)
                             elif mode == 'opcode':
-                                malformed_opcode = opcode + 1
+                                message = matter_wire.frame(opcode+1, 1, ident, result)
                             elif mode == 'zero-id':
-                                ident = 0
+                                message = matter_wire.frame(opcode, 1, 0, result)
                             else:
-                                raise AssertionError(f'unknown malformed frame mode: {mode}')
-                            if mode != 'opcode':
-                                malformed_opcode = opcode
-                            if mode != 'kind':
-                                kind = 1
-                            malformed = struct.pack('<HBBBBI', length, version, kind,
-                                                    malformed_opcode, reserved, ident)
-                            self.send(peer, malformed)
+                                raise AssertionError('unknown malformed frame mode')
+                            self.send(peer, message)
                             break
                         payload = json.dumps(result).encode()
                         if self.truncate_next_reply:
                             mode = self.truncate_next_reply
                             self.truncate_next_reply = None
                             if mode == 'header':
-                                self.send(peer, struct.pack('<HBBBBI', len(payload), 1, 1,
-                                                            opcode, 0, ident)[:4])
+                                self.send(peer, matter_wire.frame(opcode, 1, ident, payload)[:1])
                             elif mode == 'payload':
-                                header = struct.pack('<HBBBBI', len(payload) + 1, 1, 1,
-                                                     opcode, 0, ident)
-                                self.send(peer, header + payload)
+                                message = matter_wire.frame(opcode, 1, ident, payload)
+                                self.send(peer, message[:-1])
                             else:
                                 raise AssertionError(f'unknown truncated reply mode: {mode}')
                             peer.shutdown(socket.SHUT_WR)
                             break
                         if self.malformed_next_reply:
                             self.malformed_next_reply = False
-                            malformed = b'{'
-                            frame = struct.pack('<HBBBBI', len(malformed), 1, 1, opcode, 0, ident)
-                            if not self.send(peer, frame + malformed):
+                            if not self.send(peer, struct.pack('<H', 1) + b'\xff'):
                                 break
                             continue
                         response_id = ident
                         if self.wrong_next_reply_id:
                             self.wrong_next_reply_id = False
                             response_id = ident + 1
-                        wire = bytearray(struct.pack('<HBBBBI', len(payload), 1, 1, opcode, 0, response_id)+payload)
+                        wire = bytearray(matter_wire.frame(opcode, 1, response_id, payload))
                         if self.malformed_next_event:
                             self.malformed_next_event = False
                             malformed = b'{"schema":1,"event":"matter_report","data":{}}'
-                            wire.extend(struct.pack('<HBBBBI', len(malformed), 1, 2, 12, 0, 0)+malformed)
+                            wire.extend(matter_wire.frame(12, 2, 0, malformed))
                         if self.saturate_next_event_queue:
                             self.saturate_next_event_queue = False
                             overflow_report = dict(schema=1, event='matter_report', data=dict(
@@ -273,14 +262,14 @@ class MatterPeer:
                                 value=dict(type='measurement', value=dict(
                                     value=21.5, unit='celsius', quality='measured'))))
                             overflow_payload = json.dumps(overflow_report).encode()
-                            overflow_frame = struct.pack('<HBBBBI', len(overflow_payload), 1, 2, 12, 0, 0)
+                            overflow_frame = matter_wire.frame(12, 2, 0, overflow_payload)
                             for _ in range(9):
-                                wire.extend(overflow_frame + overflow_payload)
+                                wire.extend(overflow_frame)
                         if not self.send(peer, wire):
                             break
                         if event:
                             payload = json.dumps(event).encode()
-                            if not self.send(peer, struct.pack('<HBBBBI', len(payload), 1, 2, 12, 0, 0)+payload):
+                            if not self.send(peer, matter_wire.frame(12, 2, 0, payload)):
                                 break
                         if (opcode == 10 and decoded.get('action') == 'job' and not self.report_sent and
                                 self.operation_jobs[decoded['job']].get('cluster') == 8 and
@@ -292,14 +281,14 @@ class MatterPeer:
                                 node='0000000000000002', endpoint=1, cluster=6, attribute=0,
                                 value=dict(type='bool', value=True)))
                             payload = json.dumps(report).encode()
-                            if not self.send(peer, struct.pack('<HBBBBI', len(payload), 1, 2, 12, 0, 0)+payload):
+                            if not self.send(peer, matter_wire.frame(12, 2, 0, payload)):
                                 break
                             sensor_report = dict(schema=1, event='matter_report', data=dict(
                                 node='0000000000000002', endpoint=1, cluster=1026, attribute=0,
                                 value=dict(type='measurement', value=dict(
                                     value=21.5, unit='celsius', quality='measured'))))
                             payload = json.dumps(sensor_report).encode()
-                            if not self.send(peer, struct.pack('<HBBBBI', len(payload), 1, 2, 12, 0, 0)+payload):
+                            if not self.send(peer, matter_wire.frame(12, 2, 0, payload)):
                                 break
         except Exception as error:
             if not self.stop.is_set():
@@ -322,7 +311,7 @@ class RealService:
         self.path = Path('/tmp/microhad-matter.sock')
         if self.path.exists() or self.path.is_symlink():
             raise RuntimeError('Synthetic test requires an unused default Matter socket')
-        spec = importlib.util.spec_from_file_location('matter_runtime_test', compilation/'thread-matter/scripts/test-matter-service.py')
+        spec = importlib.util.spec_from_file_location('matter_runtime_test', compilation/'micro-thread-matter-daemon/scripts/test-matter-service.py')
         runtime = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(runtime)
         self.runtime = runtime
@@ -334,7 +323,7 @@ class RealService:
             str(radio_path), self.radio.address, str(self.radio.port), '60'],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         wait_for(lambda: radio_path.exists())
-        self.process = subprocess.Popen([str(compilation/'build/thread-matter/target/release/thread-matter'),
+        self.process = subprocess.Popen([str(compilation/'build/micro-thread-matter-daemon/target/release/mthread-matter'),
             '--socket', str(self.path), '--state-dir', str(private/'state'),
             '--radio-url', f'spinel+hdlc+unix://{radio_path}?no-reset'],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -349,7 +338,7 @@ class RealService:
         self.process.terminate()
         stdout, stderr = self.process.communicate(timeout=3)
         assert self.process.returncode == 0 and not stdout
-        assert stderr == b'Matter controller service started\nMatter controller service stopped\n'
+        assert not stderr
         assert not self.radio.error and not self.radio.counts.get('command_1', 0)
         self.relay.wait(timeout=3)
         self.radio.close()
@@ -629,7 +618,13 @@ def relay_tests(fixture, matter):
     fixture.log.seek(0)
     assert b'20202021' not in fixture.log.read()
     assert '20202021' not in json.dumps(fixture.status())
-    logs = fixture.request('/api/logs')
+    try:
+        logs = fixture.request('/api/logs')
+    except urllib.error.HTTPError as error:
+        # Host production binaries have no BusyBox syslog shared-memory ring.
+        assert error.code == 503
+        logs = json.load(error)
+        assert logs == {'ok': False, 'error': 'log is unavailable'}
     assert '20202021' not in json.dumps(logs), logs
 
 
@@ -810,7 +805,7 @@ def main():
                 wait_for(matter_unavailable)
                 wait_for(lambda: fixture.request('/api/matter/status')['state'] == 'running')
             # A structurally invalid frame header must also clear readiness.
-            for malformed_header in ('version', 'reserved', 'oversized',
+            for malformed_header in ('version', 'oversized',
                                      'kind', 'opcode', 'zero-id'):
                 matter.malformed_next_header = malformed_header
                 wait_for(matter_unavailable)

@@ -37,29 +37,36 @@ bool readExact(int fd, unsigned char* bytes, unsigned int size) {
     return true;
 }
 
+bool readFrame(int fd, MatterWire::Frame* frame) {
+    unsigned char header[2];if(!readExact(fd,header,2))return false;
+    unsigned int size=header[0]|(static_cast<unsigned int>(header[1])<<8);
+    MatterWire::Bytes bytes(header,header+2);bytes.resize(2+size);
+    if(!size||!readExact(fd,&bytes[2],size))return false;
+    MatterWire::Decoder decoder;return decoder.feed(bytes)&&decoder.pop(frame);
+}
 void* serveStatus(void* opaque) {
     Peer* peer = static_cast<Peer*>(opaque);
     int client = peer->fd;
-    unsigned char header[10];
-    assert(readExact(client, header, sizeof(header)));
-    MatterWire::Bytes bytes(header, header + sizeof(header));
-    const unsigned int payloadSize = header[0] | (static_cast<unsigned int>(header[1]) << 8);
-    bytes.resize(sizeof(header) + payloadSize);
-    if (payloadSize != 0) assert(readExact(client, &bytes[sizeof(header)], payloadSize));
-    MatterWire::Decoder decoder;
-    assert(decoder.feed(bytes));
+    MatterWire::Bytes bytes;
     MatterWire::Frame request;
-    assert(decoder.pop(&request));
+    assert(readFrame(client, &request));
     assert(request.kind == MatterWire::Frame::Request);
     assert(request.opcode == peer->opcode);
     assert(request.id == peer->id);
-    assert(std::string(request.payload.begin(), request.payload.end()) == peer->body);
+    MatterWire::Frame expected=request; expected.payload.assign(peer->body.begin(),peer->body.end());
+    MatterWire::Bytes expectedBytes; assert(MatterWire::encode(expected,&expectedBytes));
+    MatterWire::Decoder expectedDecoder; assert(expectedDecoder.feed(expectedBytes));
+    MatterWire::Frame normalized; assert(expectedDecoder.pop(&normalized));
+    assert(request.payload == normalized.payload);
     MatterWire::Frame response;
     response.kind = MatterWire::Frame::Response;
     response.opcode = request.opcode;
     response.id = request.id;
     response.payload.assign(peer->reply.begin(), peer->reply.end());
-    assert(MatterWire::encode(response, &bytes));
+    if (!MatterWire::encode(response, &bytes)) {
+        response.payload.assign(2, 0); response.payload[0]='{';response.payload[1]='}';
+        assert(MatterWire::encode(response, &bytes));
+    }
     for (unsigned int i = 0; i < bytes.size(); ++i) assert(write(client, &bytes[i], 1) == 1);
     if (!peer->keep) close(client);
     return 0;
@@ -69,8 +76,8 @@ struct ChannelPeer { int fd; std::string event; bool wrongId; };
 void* serveChannel(void* opaque) {
     ChannelPeer* peer = static_cast<ChannelPeer*>(opaque);
     for (unsigned int i = 1; i <= (peer->wrongId ? 1U : 2U); ++i) {
-        unsigned char header[10]; assert(readExact(peer->fd, header, 10));
-        assert(header[0] == 0 && header[1] == 0 && header[6] == i);
+        MatterWire::Frame request; assert(readFrame(peer->fd, &request));
+        assert(request.payload.empty() && request.id == i);
         MatterWire::Frame frame;
         frame.kind = MatterWire::Frame::Event; frame.opcode = 12;
         frame.payload.assign(peer->event.begin(), peer->event.end());
@@ -87,11 +94,7 @@ void* serveChannel(void* opaque) {
 struct StalledPeer { int fd; };
 void* serveStalledPeer(void* opaque) {
     StalledPeer* peer = static_cast<StalledPeer*>(opaque);
-    unsigned char header[10];
-    assert(readExact(peer->fd, header, sizeof(header)));
-    const unsigned int payloadSize = header[0] | (static_cast<unsigned int>(header[1]) << 8);
-    std::vector<unsigned char> body(payloadSize);
-    if (payloadSize != 0) assert(readExact(peer->fd, &body[0], payloadSize));
+    MatterWire::Frame request; assert(readFrame(peer->fd, &request));
     usleep(150000);
     close(peer->fd);
     return 0;
@@ -121,10 +124,7 @@ void* serveWorker(void* opaque) {
             usleep(200000); // Queued submission/status reads must not wait for this reply.
         }
         if (i == 3 && worker->fail) {
-            unsigned char header[10]; assert(readExact(fd, header, 10));
-            assert(header[4] == 5);
-            std::vector<unsigned char> body(header[0] | (static_cast<unsigned int>(header[1]) << 8));
-            assert(!body.empty() && readExact(fd, &body[0], body.size()));
+            MatterWire::Frame request; assert(readFrame(fd, &request) && request.opcode == 5);
             usleep(200000); close(fd); return 0;
         }
         serveStatus(&peer);
@@ -182,12 +182,12 @@ void runMatterClientUnitTests() {
         int64_t deadline = static_cast<int64_t>(now.tv_sec) * 1000 + now.tv_nsec / 1000000 + 1000;
         json = "old";
         bool valid = client.exchange(sockets[0], peer.opcode, peer.body, deadline, &json, &error);
-        const bool expectedValid = i == 0 || i == 7 || i == 9 || i == 10;
+        const bool expectedValid = i == 0 || i == 3 || i == 7 || i == 9 || i == 10;
         if (valid != expectedValid)
             fprintf(stderr, "Matter response fixture %lu: expected valid=%d, got %d (%s)\n",
                     i, expectedValid, valid, error.c_str());
         assert(valid == expectedValid);
-        if (valid) assert(json == peer.reply && error.empty());
+        if (valid) assert((json == peer.reply || (i == 3 && json == thread)) && error.empty());
         else assert(json.empty() && error == "Matter service response invalid");
         assert(pthread_join(server, 0) == 0);
     }
@@ -412,17 +412,18 @@ void runMatterClientUnitTests() {
     }
 
     // Rust's exact cancelled-session vector and callback response bounds.
-    for (unsigned int i = 0; i < 4; ++i) {
+    for (unsigned int i = 0; i < 5; ++i) {
         Peer peer; int pair[2]; assert(socketpair(AF_UNIX, SOCK_STREAM, 0, pair) == 0);
         peer.fd = pair[1]; peer.opcode = i < 2 ? 5 : 6;
         peer.reply = i < 2 ? "{\"schema\":1,\"ok\":true,\"result\":{\"session\":\"0000000000abcdef\",\"state\":\"cancelled\",\"deadline_remaining_seconds\":0,\"error\":\"cancelled\"}}" :
             "{\"schema\":1,\"ok\":true,\"result\":{\"generation\":4294967295}}";
         if (i == 1) peer.reply.replace(peer.reply.find("\"cancelled\""), 11, "\"unknown\"");
         if (i == 3) peer.reply.replace(peer.reply.find("4294967295"), 10, "4294967296");
+        if (i == 4) peer.reply.replace(peer.reply.find("4294967295"), 10, "1.0");
         pthread_t server; assert(pthread_create(&server, 0, serveStatus, &peer) == 0);
         struct timespec now; assert(clock_gettime(CLOCK_MONOTONIC, &now) == 0);
         const int64_t deadline = static_cast<int64_t>(now.tv_sec) * 1000 + now.tv_nsec / 1000000 + 1000;
-        assert(client.exchange(pair[0], peer.opcode, "", deadline, &json, &error) == (i % 2 == 0));
+        assert(client.exchange(pair[0], peer.opcode, "", deadline, &json, &error) == (i == 0 || i == 2));
         assert(pthread_join(server, 0) == 0);
     }
     // Idle event ingestion and malformed/overflow rejection share the same validator.
@@ -438,8 +439,8 @@ void runMatterClientUnitTests() {
         frame.payload.assign(body.begin(), body.end()); MatterWire::Bytes bytes;
         assert(MatterWire::encode(frame, &bytes));
         assert(write(pair[1], &bytes[0], bytes.size()) == static_cast<ssize_t>(bytes.size()));
-        assert(channel.poll(&error) == (i == 0));
-        if (i == 0) assert(channel.popEvent(&json) && json == writeEvent);
+        assert(channel.poll(&error) == (i == 0 || i == 3));
+        if (i == 0 || i == 3) assert(channel.popEvent(&json) && json == writeEvent);
         else assert(channel.fd_ == -1 && !channel.popEvent(&json));
         close(pair[1]);
     }

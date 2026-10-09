@@ -611,7 +611,7 @@ bool MatterClient::exchange(int fd, unsigned char opcode, const std::string& bod
     if (!MatterWire::encode(request, &encoded) || !writeAll(fd, &encoded[0], encoded.size(), deadline)) {
         close(fd); *error = "Matter service request failed"; return false;
     }
-    unsigned char header[10];
+    unsigned char header[2];
     if (!readAll(fd, header, sizeof(header), deadline)) {
         close(fd); *error = "Matter service response timed out"; return false;
     }

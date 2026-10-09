@@ -1,7 +1,7 @@
 # Embedded home automation
 
 This repository contains the complete gateway software stack. `microhad/` is
-the native C++03 daemon and Web UI; `ziggurat/`, `thread-matter/` and
+the native C++03 daemon and Web UI; `ziggurat/`, `micro-thread-matter-daemon/` and
 `firmware/` own their respective source, scripts, patches and dependencies.
 Gecko SDK belongs to firmware under `firmware/dependencies/`; Thread/Matter
 owns its upstream OpenThread checkout. Toolchains remain at the root.
@@ -25,8 +25,8 @@ make -C microhad mips
 ```
 
 Build the synthetic CASE probe with
-`bash thread-matter/scripts/build.sh host commissioning`. This writes
-`build/thread-matter/target/release/ot-matter-commissioning-probe`; do not run a
+`bash micro-thread-matter-daemon/scripts/build.sh host commissioning`. This writes
+`build/micro-thread-matter-daemon/target/release/ot-matter-commissioning-probe`; do not run a
 plain Cargo build because it would leave the integration fixture using an old
 binary. The fixture uses synthetic radio/accessory traffic and does not access
 the gateway.
@@ -35,7 +35,7 @@ Build the target Ziggurat and Matter service with:
 
 ```sh
 ZIGGURAT_MULTIPAN=1 bash ziggurat/scripts/build.sh
-bash thread-matter/scripts/build.sh mips service
+bash micro-thread-matter-daemon/scripts/build.sh mips service
 ```
 
 For MicroHAD updates, use `./deploy.sh` after building the required

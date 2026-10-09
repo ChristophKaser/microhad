@@ -8,11 +8,14 @@
 	path = firmware/dependencies/gecko-sdk
 	url = https://github.com/SiliconLabs/gecko_sdk.git
 [submodule "dependencies/rs-matter"]
-	path = thread-matter/dependencies/rs-matter
+	path = micro-thread-matter-daemon/dependencies/rs-matter
 	url = https://github.com/project-chip/rs-matter.git
 [submodule "dependencies/slc-cli"]
 	path = firmware/dependencies/slc-cli
 	url = https://github.com/SiliconLabsSoftware/circuitpython_slc_cli_linux.git
 [submodule "thread-matter/dependencies/openthread"]
-	path = thread-matter/dependencies/openthread
+	path = micro-thread-matter-daemon/dependencies/openthread
 	url = https://github.com/openthread/openthread.git
+[submodule "microhad/dependencies/tinycbor"]
+	path = microhad/dependencies/tinycbor
+	url = https://github.com/intel/tinycbor.git

@@ -15,9 +15,9 @@ commissioning result. Native `MATTER=1` remains deliberately unavailable.
 Upstream: [project-chip/rs-matter](https://github.com/project-chip/rs-matter),
 version 0.4.1, pinned commit `1570356ecb938a9d19be032b93ca3bb487069e75`.
 The probe's tracked `Cargo.lock` fixes its dependency graph. The upstream
-checkout remains clean in the pinned `thread-matter/dependencies/rs-matter` submodule; a
-separate worktree in `build/thread-matter/service-source` applies
-`thread-matter/patches/rs-matter-spake2p.patch`. That patch only exposes the otherwise
+checkout remains clean in the pinned `micro-thread-matter-daemon/dependencies/rs-matter` submodule; a
+separate worktree in `build/micro-thread-matter-daemon/service-source` applies
+`micro-thread-matter-daemon/patches/rs-matter-spake2p.patch`. That patch only exposes the otherwise
 private SPAKE2+ module to the probe. It changes no cryptographic implementation
 and is not a proposed production API.
 
@@ -43,14 +43,14 @@ Use the existing local Rust installation from `scripts/rust-env.sh`, pinned
 
 ```sh
 bash scripts/build-thread-matter.sh host
-build/thread-matter/target/release/thread-matter
+build/micro-thread-matter-daemon/target/release/mthread-matter
 bash scripts/build-thread-matter.sh mips
 llvm-strip-18 --strip-all --keep-section=.gnu.attributes \
-  -o build/thread-matter/probe-mips \
-  build/thread-matter/target/lexra-stock-uclibc/release/thread-matter
-file build/thread-matter/probe-mips
-llvm-readelf-18 -h build/thread-matter/probe-mips
-llvm-size-18 build/thread-matter/probe-mips
+  -o build/micro-thread-matter-daemon/probe-mips \
+  build/micro-thread-matter-daemon/target/lexra-stock-uclibc/release/mthread-matter
+file build/micro-thread-matter-daemon/probe-mips
+llvm-readelf-18 -h build/micro-thread-matter-daemon/probe-mips
+llvm-size-18 build/micro-thread-matter-daemon/probe-mips
 ```
 
 The build script regenerates the custom target: big-endian MIPS-I, o32,
@@ -111,7 +111,7 @@ python3 scripts/test-rs-matter-device.py --host 192.168.178.62 \
   --password-file ../ssh_password.txt
 ```
 
-The test's generated report is under ignored `build/thread-matter/`; the shareable
+The test's generated report is under ignored `build/micro-thread-matter-daemon/`; the shareable
 record is [rs-matter-validation.json](rs-matter-validation.json). One-second
 RSS sampling can miss short peaks. The runner measures a short crypto-only
 process, not sustained controller CPU utilization.

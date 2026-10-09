@@ -103,9 +103,9 @@ IPv4 TCP to a synthetic RCP on the development host. The production Ziggurat
 multiplexer and physical coordinator were outside this test path.
 
 ```sh
-bash thread-matter/scripts/build-openthread-relay.sh host
-bash thread-matter/scripts/build-openthread-relay.sh mips
-python3 thread-matter/scripts/test-openthread-device.py --host 192.168.178.62 \
+bash micro-thread-matter-daemon/scripts/build-openthread-relay.sh host
+bash micro-thread-matter-daemon/scripts/build-openthread-relay.sh mips
+python3 micro-thread-matter-daemon/scripts/test-openthread-device.py --host 192.168.178.62 \
   --password-file ../ssh_password.txt --profile
 ```
 
@@ -319,7 +319,7 @@ unknown reset-source assessment.
 ## Active MIPS service and follow-up reset observations — 2026-10-05
 
 The user later authorized guarded device tests despite the earlier stop
-recommendation. The installed `thread-matter-mips` was started three times with
+recommendation. The installed `mthread-matter-mips` was started three times with
 private IPC/state paths and a synthetic RCP relay. Each run sent a private
 coordinator observation, created a channel-15 Thread dataset through opcode 9,
 and stopped the service cleanly. The final captured IPC replies reported

@@ -20,13 +20,13 @@ import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
 RUST_ROOT = ROOT.parent
-SERVICE = RUST_ROOT / 'build/thread-matter/target/release/thread-matter'
+SERVICE = RUST_ROOT / 'build/micro-thread-matter-daemon/target/release/mthread-matter'
 NATIVE_GATEWAY = ROOT / 'build/host-ziggurat-matter/microhad'
 RELAY = RUST_ROOT / 'build/openthread-unix/sim-relay-host'
 PAIR = ROOT / 'paired_start.sh'
 MAINTENANCE = RUST_ROOT / 'build/gateway-maintenance-host'
 SPEC = importlib.util.spec_from_file_location(
-    'matter_service_test', RUST_ROOT / 'thread-matter/scripts/test-matter-service.py')
+    'matter_service_test', RUST_ROOT / 'micro-thread-matter-daemon/scripts/test-matter-service.py')
 service_test = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(service_test)
 NATIVE_SPEC = importlib.util.spec_from_file_location(
@@ -104,22 +104,18 @@ def ipc(path, opcode, ident, body=b'', timeout=0.8):
     with socket.socket(socket.AF_UNIX) as peer:
         peer.settimeout(timeout)
         peer.connect(str(path))
-        peer.sendall(struct.pack('<HBBBBI', len(body), 1, 0, opcode, 0, ident) + body)
-        header = bytearray()
-        while len(header) < 10:
-            chunk = peer.recv(10-len(header))
-            if not chunk:
-                raise ConnectionError('Matter service exited before its IPC response')
-            header.extend(chunk)
-        length, version, kind, operation, reserved, response_id = struct.unpack('<HBBBBI', header)
-        assert (version, kind, operation, reserved, response_id) == (1, 1, opcode, 0, ident)
-        payload = bytearray()
-        while len(payload) < length:
-            chunk = peer.recv(length-len(payload))
-            if not chunk:
-                raise ConnectionError('Matter service closed a partial IPC response')
-            payload.extend(chunk)
-        return json.loads(payload)
+        peer.sendall(service_test.matter_wire.frame(opcode, 0, ident, body))
+        def exact(stream, size):
+            data = bytearray()
+            while len(data) < size:
+                part = stream.recv(size - len(data))
+                if not part:
+                    raise ConnectionError('Matter IPC connection closed')
+                data.extend(part)
+            return data
+        kind, operation, response_id, result = service_test.matter_wire.receive(peer, exact)
+        assert (kind, operation, response_id) == (1, opcode, ident)
+        return result
 
 
 def start_relay(radio):
@@ -151,6 +147,23 @@ def main():
             path = root / name
             path.write_text(content)
             path.chmod(0o700)
+        # Mock the launcher's syslog startup contract; never replace host /dev/log
+        # or forward synthetic test traffic to the gateway's remote collector.
+        syslog = root / 'syslog-fixture'
+        syslog.write_text("""#!/usr/bin/env python3
+import sys
+from pathlib import Path
+marker=Path(__file__).with_suffix('.started')
+if sys.argv[1:]==['syslogd','-C512','-L','-R','192.168.178.51:7878','-m','0']:
+ marker.touch()
+elif sys.argv[1:]==['ps']:
+ if marker.exists():
+  print('999999 root 0 S /bin/busybox syslogd -C512 -L -R 192.168.178.51:7878 -m 0')
+  marker.unlink()
+else:
+ raise SystemExit(2)
+""")
+        syslog.chmod(0o700)
         control = root / 'control'
         events = root / 'events'
         events.touch()
@@ -178,7 +191,7 @@ def main():
         else:
             config.write_text('{}')
         master, slave = pty.openpty()
-        env = dict(os.environ, ZIGGURAT_BIN=str(root/'zig'), NATIVE_BIN=str(root/'native'),
+        env = dict(os.environ, SYSLOGD_BIN=str(syslog), ZIGGURAT_BIN=str(root/'zig'), NATIVE_BIN=str(root/'native'),
                    NATIVE_CONFIG=str(config), MAINTENANCE_BIN=str(MAINTENANCE),
                    RUNTIME_CONTROL=str(control), ZIGGURAT_SOCKET=str(api_socket),
                    ZIGGURAT_DEVICE=os.ttyname(slave), RESTART_LIMIT='3', RESTART_BACKOFF='4',
@@ -201,9 +214,10 @@ def main():
         radio = None
         try:
             radio = service_test.ChannelRcp('127.0.0.1', tcp_nodelay=True)
-            relay = start_relay(type('RadioPath', (), {'path': thread_socket, 'rcp': radio})())
             supervisor = subprocess.Popen(['sh', str(PAIR)], env=env,
                                           stdout=output, stderr=output)
+            wait_for(lambda: 'zig start' in events.read_text())
+            relay = start_relay(type('RadioPath', (), {'path': thread_socket, 'rcp': radio})())
             try:
                 wait_for(lambda: 'native start' in events.read_text())
             except TimeoutError as error:

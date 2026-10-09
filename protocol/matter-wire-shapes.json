@@ -1,0 +1,258 @@
+{
+  "envelope": {
+    "version": "",
+    "kind": "",
+    "opcode": "",
+    "id": "",
+    "body": "body"
+  },
+  "request1": {},
+  "request2": {},
+  "request3": {
+    "schema": "",
+    "discriminator": "",
+    "pin": "",
+    "timeout_seconds": "",
+    "country_code": "",
+    "regulatory_location": ""
+  },
+  "request4": {
+    "schema": "",
+    "session": "@id",
+    "subscribe": ""
+  },
+  "request5": {
+    "schema": "",
+    "session": "@id"
+  },
+  "request6": {
+    "schema": "",
+    "session": "@id",
+    "address": "@bytes",
+    "mtu": ""
+  },
+  "request7": {
+    "schema": "",
+    "session": "@id",
+    "generation": "",
+    "sequence": "",
+    "data": "@bytes"
+  },
+  "request8": {
+    "schema": "",
+    "session": "@id",
+    "generation": "",
+    "write": "",
+    "success": ""
+  },
+  "request9": {
+    "schema": "",
+    "action": "",
+    "subscribe": "",
+    "zigbee_channel": "",
+    "zigbee_online": "",
+    "dataset": "@bytes"
+  },
+  "request10": {
+    "schema": "",
+    "action": "",
+    "cursor": "",
+    "revision": "@id",
+    "node": "@id",
+    "endpoint": "",
+    "cluster": "",
+    "attribute": "",
+    "job": "@id",
+    "targets": "target"
+  },
+  "request11": {
+    "schema": "",
+    "node": "@id",
+    "endpoint": "",
+    "command": "",
+    "level": "",
+    "transition_deciseconds": ""
+  },
+  "reply": {
+    "schema": "",
+    "ok": "",
+    "error": "",
+    "result": "result"
+  },
+  "event": {
+    "schema": "",
+    "event": "",
+    "data": "event-data"
+  },
+  "matter": {
+    "enabled": "",
+    "available": "",
+    "controller_initialized": "",
+    "fabric_ready": "",
+    "state": ""
+  },
+  "thread": {
+    "enabled": "",
+    "available": "",
+    "configured": "",
+    "attached": "",
+    "state": "",
+    "linux_ipv6_or_tun": "",
+    "zigbee_channel": "",
+    "dataset_channel": ""
+  },
+  "session": {
+    "session": "@id",
+    "state": "",
+    "deadline_remaining_seconds": "",
+    "error": "",
+    "node": "@id"
+  },
+  "ack6": {
+    "generation": ""
+  },
+  "ack7": {
+    "sequence": ""
+  },
+  "ack8": {
+    "write": ""
+  },
+  "page": {
+    "revision": "@id",
+    "devices": "device",
+    "next_cursor": ""
+  },
+  "device": {
+    "node": "@id",
+    "state": "",
+    "online": "",
+    "id": "",
+    "endpoint": "",
+    "servers": "",
+    "clients": ""
+  },
+  "job": {
+    "job": "@id",
+    "state": "",
+    "error": "",
+    "result": "reading"
+  },
+  "reading": {
+    "node": "@id",
+    "endpoint": "",
+    "cluster": "",
+    "attribute": "",
+    "value": "typed"
+  },
+  "typed": {
+    "type": "",
+    "value": "measurement"
+  },
+  "measurement": {
+    "value": "",
+    "unit": "",
+    "quality": ""
+  },
+  "ble-write": {
+    "session": "@id",
+    "generation": "",
+    "write": "",
+    "data": "@bytes"
+  },
+  "button": {
+    "node": "@id",
+    "endpoint": "",
+    "event": "",
+    "position": "",
+    "press_count": ""
+  },
+  "target": {
+    "node": "@id",
+    "endpoint": "",
+    "group": "",
+    "members": "member",
+    "cluster": ""
+  },
+  "member": {
+    "node": "@id",
+    "endpoint": ""
+  },
+  "request9:status": {
+    "schema": "",
+    "action": "",
+    "subscribe": ""
+  },
+  "request9:observe": {
+    "schema": "",
+    "action": "",
+    "zigbee_channel": "",
+    "zigbee_online": ""
+  },
+  "request9:create": {
+    "schema": "",
+    "action": "",
+    "zigbee_channel": ""
+  },
+  "request9:import": {
+    "schema": "",
+    "action": "",
+    "zigbee_channel": "",
+    "dataset": "@bytes"
+  },
+  "request9:retry": {
+    "schema": "",
+    "action": ""
+  },
+  "request10:snapshot": {
+    "schema": "",
+    "action": "",
+    "cursor": "",
+    "revision": "@id"
+  },
+  "request10:read": {
+    "schema": "",
+    "action": "",
+    "node": "@id",
+    "endpoint": "",
+    "cluster": "",
+    "attribute": ""
+  },
+  "request10:bind": {
+    "schema": "",
+    "action": "",
+    "node": "@id",
+    "endpoint": "",
+    "targets": "target"
+  },
+  "request10:job": {
+    "schema": "",
+    "action": "",
+    "job": "@id"
+  },
+  "request11:on": {
+    "schema": "",
+    "command": "",
+    "node": "@id",
+    "endpoint": ""
+  },
+  "request11:off": {
+    "schema": "",
+    "command": "",
+    "node": "@id",
+    "endpoint": ""
+  },
+  "request11:toggle": {
+    "schema": "",
+    "command": "",
+    "node": "@id",
+    "endpoint": ""
+  },
+  "request11:move_to_level": {
+    "schema": "",
+    "command": "",
+    "node": "@id",
+    "endpoint": "",
+    "level": "",
+    "transition_deciseconds": ""
+  }
+}

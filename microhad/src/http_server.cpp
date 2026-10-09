@@ -1362,7 +1362,7 @@ std::string HttpServer::controllerStatsJson() {
         reclaimableKb = (hasCached ? cachedKb : 0) + (hasSlab ? slabReclaimableKb : 0);
     }
     bool hasZigguratMemory = readNamedProcessRss("ziggurat", &zigguratMemory);
-    bool hasMatterMemory = readNamedProcessRss("thread-matter", &matterMemory);
+    bool hasMatterMemory = readNamedProcessRss("mthread-matter", &matterMemory);
     if (hasMemory) memoryTotal *= 1024;
     if (hasFree) memoryFree *= 1024;
     if (hasMemory && hasFree && memoryFree > memoryTotal) memoryFree = memoryTotal;
@@ -1457,7 +1457,7 @@ std::string HttpServer::controllerStatsJson() {
             }
         }
     }
-    const char* processNames[] = { "ziggurat", "thread-matter" };
+    const char* processNames[] = { "ziggurat", "mthread-matter" };
     for (unsigned long processIndex = 0; processIndex < 2; ++processIndex) {
         DIR* procDirectory = opendir("/proc");
         if (procDirectory == 0) continue;

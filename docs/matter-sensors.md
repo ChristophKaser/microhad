@@ -34,17 +34,17 @@ Zigbee/Matter/Shelly device catalog before product UI acceptance.
 From the `ziggurat-compilation` directory, run:
 
 ```sh
-CARGO_INCREMENTAL=0 CARGO_TARGET_DIR="$PWD/build/thread-matter/target" \
+CARGO_INCREMENTAL=0 CARGO_TARGET_DIR="$PWD/build/micro-thread-matter-daemon/target" \
   cargo +nightly-2026-10-02 test \
-  --locked --manifest-path thread-matter/Cargo.toml \
+  --locked --manifest-path micro-thread-matter-daemon/Cargo.toml \
   --features controller-service --lib
 ```
 checks request capability gating and exact typed JSON, including signed Celsius
 and null values. The encrypted fixture is run with:
 
 ```sh
-bash thread-matter/scripts/build.sh host commissioning
-python3 thread-matter/scripts/test-openthread-matter-transport.py --commissioning --ble --service-owner --service-discovery
+bash micro-thread-matter-daemon/scripts/build.sh host commissioning
+python3 micro-thread-matter-daemon/scripts/test-openthread-matter-transport.py --commissioning --ble --service-owner --service-discovery
 ```
 
 The fixture synthetic accessory advertises all five sensor clusters and verifies

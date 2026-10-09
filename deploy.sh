@@ -242,7 +242,7 @@ maintenance_deploy_run() {
 
     # Backup only application artifacts. Runtime configuration, Matter identity,
     # Zigbee state, TLS material and network backups are intentionally excluded.
-    for name in microhad microhad.matter-manifest thread-matter ziggurat gateway-maintenance logread paired_start.sh paired_control.sh; do
+    for name in microhad microhad.matter-manifest thread-matter mthread-matter ziggurat gateway-maintenance logread paired_start.sh paired_control.sh; do
         remote="$target/$name"
         if ssh_command "test -f \"$remote\"" >/dev/null 2>&1; then
             ssh_command "cat \"$remote\"" > "$rollback_dir/$name" || return 1
@@ -277,10 +277,10 @@ maintenance_deploy_run() {
         echo "Installed maintenance helper is not available" >&2; return 1;
     }
     if [ -z "$supervisor_pid" ]; then
-        orphaned_images=$(ssh_command "for image in \"$target/microhad\" \"$target/tuya-zigbee-native\" \"$target/thread-matter\" \"$target/ziggurat\"; do for p in /proc/[0-9]*/exe; do x=\$(ls -l \"\$p\" 2>/dev/null) || continue; case \"\$x\" in *\" -> \$image\"|*\" -> \$image (deleted)\") echo \"\$x\" ;; esac; done; done") || return 1
+        orphaned_images=$(ssh_command "for image in \"$target/microhad\" \"$target/tuya-zigbee-native\" \"$target/thread-matter\" \"$target/mthread-matter\" \"$target/ziggurat\"; do for p in /proc/[0-9]*/exe; do x=\$(ls -l \"\$p\" 2>/dev/null) || continue; case \"\$x\" in *\" -> \$image\"|*\" -> \$image (deleted)\") echo \"\$x\" ;; esac; done; done") || return 1
         [ -z "$orphaned_images" ] || { echo "Application executable is still active without its paired supervisor: $orphaned_images" >&2; return 1; }
     fi
-    deleted_images=$(ssh_command "for image in \"$target/microhad\" \"$target/tuya-zigbee-native\" \"$target/thread-matter\" \"$target/ziggurat\" \"$target/gateway-maintenance\" \"$target/logread\"; do for p in /proc/[0-9]*/exe; do x=\$(ls -l \"\$p\" 2>/dev/null) || continue; case \"\$x\" in *\" -> \$image (deleted)\") echo \"\$x\" ;; esac; done; done") || return 1
+    deleted_images=$(ssh_command "for image in \"$target/microhad\" \"$target/tuya-zigbee-native\" \"$target/thread-matter\" \"$target/mthread-matter\" \"$target/ziggurat\" \"$target/gateway-maintenance\" \"$target/logread\"; do for p in /proc/[0-9]*/exe; do x=\$(ls -l \"\$p\" 2>/dev/null) || continue; case \"\$x\" in *\" -> \$image (deleted)\") echo \"\$x\" ;; esac; done; done") || return 1
     [ -z "$deleted_images" ] || { echo "Found a running deleted executable; refusing maintenance deployment" >&2; return 1; }
 
     if [ -n "$supervisor_pid" ]; then
@@ -297,13 +297,13 @@ maintenance_deploy_run() {
     else
         echo "Paired services are already stopped"
     fi
-    ssh_command "for image in \"$target/microhad\" \"$target/tuya-zigbee-native\" \"$target/thread-matter\" \"$target/ziggurat\" \"$target/gateway-maintenance\" \"$target/logread\"; do for p in /proc/[0-9]*/exe; do x=\$(ls -l \"\$p\" 2>/dev/null) || continue; case \"\$x\" in *\" -> \$image\"|*\" -> \$image (deleted)\") echo \"Executable still active: \$x\" >&2; exit 1 ;; esac; done; done" || {
+    ssh_command "for image in \"$target/microhad\" \"$target/tuya-zigbee-native\" \"$target/thread-matter\" \"$target/mthread-matter\" \"$target/ziggurat\" \"$target/gateway-maintenance\" \"$target/logread\"; do for p in /proc/[0-9]*/exe; do x=\$(ls -l \"\$p\" 2>/dev/null) || continue; case \"\$x\" in *\" -> \$image\"|*\" -> \$image (deleted)\") echo \"Executable still active: \$x\" >&2; exit 1 ;; esac; done; done" || {
         echo "A deployment executable is still active after supervisor shutdown; refusing replacement" >&2
         return 1
     }
     # The legacy executable is discarded after stopping without a backup.
     # Matter service, Ziggurat and Web UI are backed up before reclaiming space.
-    old_service_size=$(ssh_command "if [ -f \"$target/thread-matter\" ]; then wc -c < \"$target/thread-matter\" | awk '{print \$1}'; else echo 0; fi") || return 1
+    old_service_size=$(ssh_command "for service in \"$target/thread-matter\" \"$target/mthread-matter\"; do if [ -f \"\$service\" ]; then wc -c < \"\$service\"; fi; done | awk '{total += \$1} END {print total + 0}'") || return 1
     old_ziggurat_size=$(ssh_command "if [ -f \"$target/ziggurat\" ]; then wc -c < \"$target/ziggurat\" | awk '{print \$1}'; else echo 0; fi") || return 1
     old_legacy_size=$(ssh_command "if [ -f \"$target/tuya-zigbee-native\" ]; then wc -c < \"$target/tuya-zigbee-native\" | awk '{print \$1}'; else echo 0; fi") || return 1
     if [ -f "$rollback_dir/webui.tar" ]; then
@@ -366,7 +366,7 @@ maintenance_deploy_run() {
         remote_hash=$(ssh_command "md5sum \"$destination\" | awk '{print \$1}'" </dev/null) || return 1
         [ "$local_hash" = "$remote_hash" ] || { echo "Hash verification failed for $destination" >&2; return 1; }
     }
-    ssh_command "rm -f \"$target/tuya-zigbee-native\" \"$target/tuya-zigbee-native.matter-manifest\" \"$target/thread-matter\" \"$target/ziggurat\"; rm -rf \"$target/webui\""
+    ssh_command "rm -f \"$target/tuya-zigbee-native\" \"$target/tuya-zigbee-native.matter-manifest\" \"$target/thread-matter\" \"$target/mthread-matter\" \"$target/ziggurat\"; rm -rf \"$target/webui\""
     available_kib=$(ssh_command "df -k /tuya | awk 'END {print \$4}'")
     case "$available_kib" in ''|*[!0-9]*) echo "Unable to reread available /tuya flash space" >&2; return 1 ;; esac
     if [ "$available_kib" -lt "$required_kib" ]; then
@@ -383,7 +383,7 @@ maintenance_deploy_run() {
         ! upload_atomic "$ziggurat" "$target/ziggurat" 700 ||
         ! upload_atomic "$maintenance_helper" "$target/gateway-maintenance" 700 ||
         ! upload_atomic "$logread" "$target/logread" 700 ||
-        ! upload_atomic "$matter_service" "$target/thread-matter" 700 ||
+        ! upload_atomic "$matter_service" "$target/mthread-matter" 700 ||
         ! upload_atomic "$project_dir/paired_start.sh" "$target/paired_start.sh" 700 ||
         ! upload_atomic "$project_dir/scripts/paired_control.sh" "$target/paired_control.sh" 700; then
         echo "Deployment incomplete; services remain stopped. Previous application files are preserved at $rollback_dir for manual recovery." >&2
@@ -401,7 +401,7 @@ maintenance_deploy_run() {
     upload_atomic "$project_dir/ziggurat_start.sh" /tuya/tuya_start.sh 755 || { echo "Deployment incomplete; services remain stopped. Previous application files are preserved at $rollback_dir for manual recovery." >&2; return 1; }
     start_remote_launcher || { echo "Deployment staged, but launcher start failed. Services remain stopped; previous application files are preserved at $rollback_dir for manual recovery." >&2; return 1; }
 
-    ssh_command "n=0; while [ \$n -lt 30 ]; do if [ -f /tmp/ziggurat-supervisor/supervisor.pid ] && [ -S /tmp/ziggurat/thread.sock ] && [ -S /tmp/microhad-matter.sock ] && kill -0 \$(cat /tmp/ziggurat-supervisor/supervisor.pid) 2>/dev/null; then native=0;zig=0;matter=0; for p in /proc/[0-9]*/exe; do x=\$(ls -l \"\$p\" 2>/dev/null) || continue; case \"\$x\" in *\" -> $target/microhad\") native=1 ;; *\" -> $target/ziggurat\") zig=1 ;; *\" -> $target/thread-matter\") matter=1 ;; esac; done; [ \$native -eq 1 ] && [ \$zig -eq 1 ] && [ \$matter -eq 1 ] && exit 0; fi; sleep 1; n=\$((n+1)); done; exit 1" || {
+    ssh_command "n=0; while [ \$n -lt 30 ]; do if [ -f /tmp/ziggurat-supervisor/supervisor.pid ] && [ -S /tmp/ziggurat/thread.sock ] && [ -S /tmp/microhad-matter.sock ] && kill -0 \$(cat /tmp/ziggurat-supervisor/supervisor.pid) 2>/dev/null; then native=0;zig=0;matter=0; for p in /proc/[0-9]*/exe; do x=\$(ls -l \"\$p\" 2>/dev/null) || continue; case \"\$x\" in *\" -> $target/microhad\") native=1 ;; *\" -> $target/ziggurat\") zig=1 ;; *\" -> $target/mthread-matter\") matter=1 ;; esac; done; [ \$native -eq 1 ] && [ \$zig -eq 1 ] && [ \$matter -eq 1 ] && exit 0; fi; sleep 1; n=\$((n+1)); done; exit 1" || {
         echo "New services did not become ready. No automatic rollback was attempted. Use the preserved backup at $rollback_dir for manual recovery." >&2
         return 1
     }
@@ -417,7 +417,7 @@ maintenance_deploy_run() {
         echo "Web UI bundle verification failed. Use the preserved backup at $rollback_dir for manual recovery." >&2
         return 1
     }
-    runtime_report=$(ssh_command "df -k /tuya | awk 'END {print \"microhad_available_kib=\" \$4}'; awk '/^(MemFree|MemAvailable):/ {print}' /proc/meminfo; for p in /proc/[0-9]*/exe; do x=\$(ls -l \"\$p\" 2>/dev/null) || continue; case \"\$x\" in *\" -> $target/microhad\"|*\" -> $target/ziggurat\"|*\" -> $target/thread-matter\") pid=\${p#/proc/}; pid=\${pid%/exe}; awk -v pid=\$pid '/^VmRSS:/ {print \"pid=\" pid, \$0}' /proc/\$pid/status 2>/dev/null ;; esac; done") || return 1
+    runtime_report=$(ssh_command "df -k /tuya | awk 'END {print \"microhad_available_kib=\" \$4}'; awk '/^(MemFree|MemAvailable):/ {print}' /proc/meminfo; for p in /proc/[0-9]*/exe; do x=\$(ls -l \"\$p\" 2>/dev/null) || continue; case \"\$x\" in *\" -> $target/microhad\"|*\" -> $target/ziggurat\"|*\" -> $target/mthread-matter\") pid=\${p#/proc/}; pid=\${pid%/exe}; awk -v pid=\$pid '/^VmRSS:/ {print \"pid=\" pid, \$0}' /proc/\$pid/status 2>/dev/null ;; esac; done") || return 1
     printf 'Full Matter deployment is running. Runtime report:\n%s\nRollback backup: %s\n' "$runtime_report" "$rollback_dir"
     return 0
 }
@@ -429,7 +429,8 @@ matter_flash_preflight() {
     [ "$activate_paired_only" = false ] || return 0
     [ -z "$matter_service" ] && [ "$deploy_supervisor" = false ] && return 0
 
-    old_sizes=$(ssh_command "for file in \"$target/microhad\" \"$target/config.json\" \"$target/microhad.matter-manifest\" \"$target/thread-matter\" \"$target/paired_start.sh\" \"$target/paired_control.sh\"; do if [ -f \"\$file\" ]; then wc -c < \"\$file\"; else echo 0; fi; done") || return $?
+
+    old_sizes=$(ssh_command "for file in \"$target/microhad\" \"$target/config.json\" \"$target/microhad.matter-manifest\" \"$target/mthread-matter\" \"$target/paired_start.sh\" \"$target/paired_control.sh\"; do if [ -f \"\$file\" ]; then wc -c < \"\$file\"; else echo 0; fi; done") || return $?
     set -- $old_sizes
     old_native=${1:-0}
     old_config=${2:-0}
@@ -441,7 +442,7 @@ matter_flash_preflight() {
         case "$old_size" in ''|*[!0-9]*) echo "Unable to read existing Matter deployment file sizes" >&2; return 1 ;; esac
     done
 
-    running_images=$(ssh_command "[ -d /proc/1 ] || exit 1; for image in \"$target/microhad\" \"$target/thread-matter\"; do active=0; deleted=0; seen=0; for proc in /proc/[0-9]*/exe; do link=\$(ls -l \"\$proc\" 2>/dev/null) || continue; seen=1; case \"\$link\" in *\" -> \$image (deleted)\") deleted=1 ;; *\" -> \$image\") active=1 ;; esac; done; [ \"\$seen\" -eq 1 ] || exit 1; echo \"\$active:\$deleted\"; done") || {
+    running_images=$(ssh_command "[ -d /proc/1 ] || exit 1; for proc in /proc/[0-9]*/exe; do link=\$(ls -l \"\$proc\" 2>/dev/null) || continue; case \"\$link\" in *\" -> $target/thread-matter (deleted)\") echo 'Legacy Matter executable is running from a deleted file; use maintenance deployment' >&2; exit 1 ;; esac; done; for image in \"$target/microhad\" \"$target/mthread-matter\"; do active=0; deleted=0; seen=0; for proc in /proc/[0-9]*/exe; do link=\$(ls -l \"\$proc\" 2>/dev/null) || continue; seen=1; case \"\$link\" in *\" -> \$image (deleted)\") deleted=1 ;; *\" -> \$image\") active=1 ;; esac; done; [ \"\$seen\" -eq 1 ] || exit 1; echo \"\$active:\$deleted\"; done") || {
         echo "Unable to inspect running executable references under /proc" >&2
         return 1
     }
@@ -547,7 +548,7 @@ paired_launcher_preflight() {
     ssh_command "dd of=\"$target/.paired_control.sh.new\"" < "$project_dir/scripts/paired_control.sh"
     ssh_command "chmod 700 \"$target/.paired_control.sh.new\"; mv \"$target/.paired_control.sh.new\" \"$target/paired_control.sh\""
 
-    ssh_command "test -x \"$target/microhad\" && test -x \"$target/thread-matter\" && test -x \"$target/paired_start.sh\" && test -x \"$target/paired_control.sh\" && grep -q '^format=microhad-build-v1\$' \"$target/microhad.matter-manifest\" && grep -q '^ziggurat=1\$' \"$target/microhad.matter-manifest\" && grep -q '^matter=1\$' \"$target/microhad.matter-manifest\"" || {
+    ssh_command "test -x \"$target/microhad\" && test -x \"$target/mthread-matter\" && test -x \"$target/paired_start.sh\" && test -x \"$target/paired_control.sh\" && grep -q '^format=microhad-build-v1\$' \"$target/microhad.matter-manifest\" && grep -q '^ziggurat=1\$' \"$target/microhad.matter-manifest\" && grep -q '^matter=1\$' \"$target/microhad.matter-manifest\"" || {
         echo "Staged Matter package is incomplete or not executable" >&2
         return 1
     }
@@ -556,7 +557,7 @@ paired_launcher_preflight() {
     expected_service_md5=$(md5sum "$matter_service" | awk '{print $1}')
     expected_supervisor_md5=$(md5sum "$project_dir/paired_start.sh" | awk '{print $1}')
     expected_control_md5=$(md5sum "$project_dir/scripts/paired_control.sh" | awk '{print $1}')
-    actual_matter_md5s=$(ssh_command "md5sum \"$target/microhad\" \"$target/microhad.matter-manifest\" \"$target/thread-matter\" \"$target/paired_start.sh\" \"$target/paired_control.sh\" | awk '{print \$1}'") || return $?
+    actual_matter_md5s=$(ssh_command "md5sum \"$target/microhad\" \"$target/microhad.matter-manifest\" \"$target/mthread-matter\" \"$target/paired_start.sh\" \"$target/paired_control.sh\" | awk '{print \$1}'") || return $?
     set -- $actual_matter_md5s
     [ "${1:-}" = "$expected_native_md5" ] &&
         [ "${2:-}" = "$expected_manifest_md5" ] &&
@@ -601,8 +602,8 @@ if { [ -n "$matter_service" ] || [ "$deploy_supervisor" = true ]; } && [ "$activ
     ssh_command "dd of=\"$target/.microhad.matter-manifest.new\"" < "$binary.matter-manifest"
     ssh_command "chmod 600 \"$target/.microhad.matter-manifest.new\"; mv \"$target/.microhad.matter-manifest.new\" \"$target/microhad.matter-manifest\""
     if [ -n "$matter_service" ]; then
-        ssh_command "dd of=\"$target/.thread-matter.new\"" < "$matter_service"
-        ssh_command "chmod 700 \"$target/.thread-matter.new\"; mv \"$target/.thread-matter.new\" \"$target/thread-matter\""
+        ssh_command "dd of=\"$target/.mthread-matter.new\"" < "$matter_service"
+        ssh_command "chmod 700 \"$target/.mthread-matter.new\"; mv \"$target/.mthread-matter.new\" \"$target/mthread-matter\""
     fi
     ssh_command "dd of=\"$target/.paired_start.sh.new\"" < "$project_dir/paired_start.sh"
     ssh_command "dd of=\"$target/.paired_control.sh.new\"" < "$project_dir/scripts/paired_control.sh"

@@ -1,0 +1,101 @@
+; CBOR v2 follows a u16 little-endian length prefix, maximum 2048 bytes.
+; Definite-length only; unique UTF-8 text keys; no tags/undefined/nonfinite values.
+; At most 16 nested containers (including envelope/body), 256 map pairs,
+; and 512 array entries. Unknown fields are skipped with a count-only warning.
+message = {
+  version: 2,
+  kind: 0 / 1 / 2,
+  opcode: 1..12,
+  id: uint .le 4294967295,
+  body: request-body / reply-body / event-body,
+  * tstr => profile-value
+}
+; Requests/responses require id > 0; events require kind=2, opcode=12, id=0.
+; Body selection follows kind/opcode and action/command/event discriminators.
+profile-value = uint / (nint .ge -9223372036854775808) / float / bool / null / tstr / bstr /
+                [* profile-value] / {* tstr => profile-value}
+id64 = uint .gt 0
+endpoint = uint .le 65534
+schema = (schema: 1)
+extensions = (* tstr => profile-value)
+request-body = empty / commission-start / session-request / ble-attach /
+               ble-indication / ble-complete / thread-request / device-request /
+               command-request
+empty = {extensions}
+commission-start = {
+  schema, discriminator: 0..4095, pin: 1..99999998,
+  timeout_seconds: 30..900, country_code: tstr .size 2,
+  regulatory_location: "indoor" / "outdoor", extensions
+}
+; Existing Matter PIN exclusions and uppercase country validation also apply.
+session-request = {schema, session: id64, ? subscribe: bool, extensions}
+ble-attach = {schema, session: id64, address: bstr .size 6, mtu: 23..517, extensions}
+ble-indication = {
+  schema, session: id64, generation: 1..4294967295,
+  sequence: 1..4294967295, data: bstr .size (1..244), extensions
+}
+ble-complete = {
+  schema, session: id64, generation: 1..4294967295,
+  write: 1..4294967295, success: bool, extensions
+}
+thread-request =
+  {schema, action: "status", ? subscribe: bool, extensions} /
+  {schema, action: "observe", zigbee_channel: 0..26, zigbee_online: bool, extensions} /
+  {schema, action: "create", zigbee_channel: 11..26, extensions} /
+  {schema, action: "import", zigbee_channel: 11..26, dataset: bstr .size (1..254), extensions} /
+  {schema, action: "retry", extensions}
+; Online coordinator observations require channel 11..26.
+device-request =
+  {schema, action: "snapshot", ? cursor: uint .le 2047, ? revision: id64, extensions} /
+  {schema, action: "read", node: id64, endpoint: endpoint,
+    cluster: uint .le 4294967295, attribute: uint .le 4294967295, extensions} /
+  {schema, action: "bind", node: id64, endpoint: endpoint, targets: [* binding-target], extensions} /
+  {schema, action: "job", job: id64, extensions}
+binding-target = {
+  ? node: id64 / null, ? endpoint: endpoint / null, ? group: uint .le 65535 / null,
+  ? members: [* {node: id64, endpoint: endpoint, extensions}],
+  cluster: uint .le 4294967295, extensions
+}
+command-request =
+  {schema, node: id64, endpoint: endpoint, command: "on" / "off" / "toggle", extensions} /
+  {schema, node: id64, endpoint: endpoint, command: "move_to_level",
+    level: 0..254, transition_deciseconds: 0..65535, extensions}
+reply-body = matter-status / thread-status /
+  {schema, ok: false, error: error-code, extensions} /
+  {schema, ok: true, result: session-snapshot / thread-status / device-page /
+    operation-job / {generation: 1..4294967295, extensions} /
+    {sequence: 1..4294967295, extensions} / {write: 1..4294967295, extensions}, extensions}
+matter-status = {enabled: bool, available: bool, controller_initialized: bool,
+                 fabric_ready: bool, state: "running" / "awaiting_coordinator", extensions}
+thread-status = {enabled: bool, available: bool, configured: bool, attached: bool,
+  state: "awaiting_coordinator" / "detached" / "attaching" / "attached" /
+         "channel_mismatch" / "error", linux_ipv6_or_tun: false,
+  ? zigbee_channel: 11..26, ? dataset_channel: 11..26, extensions}
+session-snapshot = {session: id64, state: "waiting_ble" / "pase" / "provisioning" /
+  "waiting_thread" / "case" / "completing" / "complete" / "cancelled" / "failed" / "timed_out",
+  deadline_remaining_seconds: 0..900, ? error: error-code, ? node: id64, extensions}
+device-page = {revision: id64, devices: [0*1 device], next_cursor: uint / null, extensions}
+device = {node: id64, state: "complete" / "recovery_required" / "commissioning",
+  online: bool, id: tstr / null, endpoint: endpoint / null,
+  servers: [0*64 uint], ? clients: [0*64 uint], extensions}
+operation-job = {job: id64, state: "queued" / "running" / "complete" / "failed",
+                 ? error: error-code, ? result: reading, extensions}
+reading = {node: id64, endpoint: endpoint, cluster: uint, attribute: uint,
+           value: typed-value, extensions}
+typed-value = {type: "bool", value: bool, extensions} /
+  {type: "u8", value: 0..254 / null, extensions} /
+  {type: "measurement", value: {value: float / int / null, unit: tstr,
+    quality: "measured" / "unknown", extensions}, extensions} /
+  {type: "air_quality", value: {value: tstr, quality: "measured" / "unknown", extensions}, extensions}
+event-body = {schema, event: "thread", data: thread-status, extensions} /
+  {schema, event: "commissioning", data: session-snapshot, extensions} /
+  {schema, event: "ble_write", data: {session: id64, generation: 1..4294967295,
+    write: 1..4294967295, data: bstr .size (1..244), extensions}, extensions} /
+  {schema, event: "matter_report", data: reading, extensions} /
+  {schema, event: "matter_button", data: {node: id64, endpoint: endpoint,
+    event: 0..5, ? position: 0..254, ? press_count: 0..32, extensions}, extensions}
+error-code = "malformed" / "unsupported" / "not_ready" / "busy" /
+  "stale_session" / "stale_generation" / "not_found" / "timeout" / "cancelled" /
+  "transport" / "storage" / "capacity" / "accessory" / "stale_revision"
+; Lifecycle, cluster support, binding capacities, sorted cluster IDs, catalog IDs,
+; job state/result consistency, and field-specific ranges remain application checks.
