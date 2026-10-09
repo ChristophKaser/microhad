@@ -1,0 +1,54 @@
+{
+  "binutils-2.45.1.tar.xz": {
+    "url": "https://ftp.gnu.org/gnu/binutils/binutils-2.45.1.tar.xz",
+    "sha256": "5fe101e6fe9d18fdec95962d81ed670fdee5f37e3f48f0bef87bddf862513aa5"
+  },
+  "gcc-15.2.0.tar.xz": {
+    "url": "https://ftp.gnu.org/gnu/gcc/gcc-15.2.0/gcc-15.2.0.tar.xz",
+    "sha256": "438fd996826b0c82485a29da03a72d71d6e3541a83ec702df4271f6fe025d24e"
+  },
+  "linux-3.10.90.tar.xz": {
+    "url": "https://cdn.kernel.org/pub/linux/kernel/v3.x/linux-3.10.90.tar.xz",
+    "sha256": "5a6725d4f425f1dc8b033bd29aaabae7402c82e0c527c3aed61c29a8f7b05ee3"
+  },
+  "help2man-1.49.3.tar.xz": {
+    "url": "https://ftp.gnu.org/gnu/help2man/help2man-1.49.3.tar.xz",
+    "sha256": "4d7e4fdef2eca6afe07a2682151cea78781e0a4e8f9622142d9f70c083a2fd4f"
+  },
+  "libtool-2.5.4.tar.xz": {
+    "url": "https://ftp.gnu.org/gnu/libtool/libtool-2.5.4.tar.xz",
+    "sha256": "f81f5860666b0bc7d84baddefa60d1cb9fa6fceb2398cc3baca6afaa60266675"
+  },
+  "crosstool-ng-1.28.0.tar.xz": {
+    "url": "https://github.com/crosstool-ng/crosstool-ng/releases/download/crosstool-ng-1.28.0/crosstool-ng-1.28.0.tar.xz",
+    "sha256": "5750e29a2bda5cd8d67900592576b1670a1987a4dcd5e4f6beae09138a1f5699"
+  },
+  "gmp-6.3.0.tar.xz": {
+    "url": "https://ftp.gnu.org/gnu/gmp/gmp-6.3.0.tar.xz",
+    "sha256": "a3c2b80201b89e68616f4ad30bc66aee4927c3ce50e33929ca819d5c43538898"
+  },
+  "mpfr-4.2.2.tar.xz": {
+    "url": "https://ftp.gnu.org/gnu/mpfr/mpfr-4.2.2.tar.xz",
+    "sha256": "b67ba0383ef7e8a8563734e2e889ef5ec3c3b898a01d00fa0a6869ad81c6ce01"
+  },
+  "isl-0.27.tar.xz": {
+    "url": "https://libisl.sourceforge.io/isl-0.27.tar.xz",
+    "sha256": "6d8babb59e7b672e8cb7870e874f3f7b813b6e00e6af3f8b04f7579965643d5c"
+  },
+  "mpc-1.3.1.tar.gz": {
+    "url": "https://ftp.gnu.org/gnu/mpc/mpc-1.3.1.tar.gz",
+    "sha256": "ab642492f5cf882b74aa0cb730cd410a81edcdbec895183ce930e706c1c759b8"
+  },
+  "uClibc-ng-1.0.54.tar.xz": {
+    "url": "https://downloads.uclibc-ng.org/releases/1.0.54/uClibc-ng-1.0.54.tar.xz",
+    "sha256": "d1ecf65cc2217dd4118a4dafc1abf27c585b5cb578f3bd7991fc640b79643ff2"
+  },
+  "zlib-1.3.1.tar.xz": {
+    "url": "https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.xz",
+    "sha256": "38ef96b8dfe510d42707d9c781877914792541133e1870841463bfa73f883e32"
+  },
+  "zstd-1.5.7.tar.gz": {
+    "url": "https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-1.5.7.tar.gz",
+    "sha256": "eb33e51f49a15e023950cd7825ca74a4a2b43db8354825ac24fc1b7ee09e6fa3"
+  }
+}
