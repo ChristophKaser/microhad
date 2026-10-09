@@ -19,7 +19,9 @@ python3 scripts/build-toolchain.py
 ```
 
 Sources, checksums and configurations are pinned under `config/crosstool-ng/`;
-the builder uses the pinned upstream Lexra patches. It installs
+the builder uses the pinned upstream Lexra patches from `jnilo1/rtl8196e-gateway`.
+See [configuration provenance and credits](crosstool-ng/README.md) for the source
+configuration, exact revision, patch links and local adaptations. It installs
 under `tools/lexra-proof`, uses local bootstrap tools, and requires approximately
 12 GiB free space. The Linux build host needs GCC/G++, make, autoconf, automake, libtoolize,
 flex, bison, gperf, makeinfo, rsync, patch, curl, tar, and Python 3.11 or later.
