@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build an isolated compiler; production compiler configuration is never read."""
+"""Build the pinned Lexra/uClibc-ng compiler for stock gateway applications."""
 import hashlib
 import json
 import os
@@ -7,8 +7,8 @@ from pathlib import Path
 import shutil
 import subprocess
 
-ROOT = Path(__file__).resolve().parents[2]
-HERE = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]
+HERE = ROOT / 'config/crosstool-ng'
 BUILD = ROOT / 'build/toolchain-proof'
 DOWNLOADS = BUILD / 'downloads'
 BOOTSTRAP = ROOT / 'tools/crosstool-ng-proof'
@@ -80,6 +80,7 @@ def main():
                                                    'rev-parse', 'HEAD'], text=True).strip(),
     }, indent=2) + '\n')
     config = (HERE / 'crosstool.config').read_text().replace('@ROOT@', str(ROOT)).replace('@BUILD@', str(BUILD))
+    previous = (BUILD / '.config').read_text() if (BUILD / '.config').exists() else None
     (BUILD / '.config').write_text(config)
     run([BOOTSTRAP / 'bin/ct-ng', 'olddefconfig'], env=env)
     resolved = (BUILD / '.config').read_text()
@@ -87,9 +88,21 @@ def main():
                      'CT_UCLIBC_NG_VERSION="1.0.54"', '# CT_CC_GCC_CONFIG_TLS is not set']:
         if required not in resolved:
             raise SystemExit('configuration lost required setting: ' + required)
-    fingerprint = hashlib.sha256((resolved + (HERE / 'uclibc.config').read_text() +
-                                  json.dumps(sources, sort_keys=True) + json.dumps(patch_records, sort_keys=True)).encode()).hexdigest()
+    def fingerprint_for(configuration):
+        return hashlib.sha256((configuration + (HERE / 'uclibc.config').read_text() +
+                               json.dumps(sources, sort_keys=True) + json.dumps(patch_records, sort_keys=True)).encode()).hexdigest()
+    fingerprint = fingerprint_for(resolved)
     complete = PREFIX / '.proof-complete'
+    # Relocating the config file does not change the installed compiler ABI.
+    # Validate the previous fingerprint and every other resolved setting before
+    # upgrading its completion marker; preserve source/config/patch checks.
+    def without_config_path(configuration):
+        return '\n'.join(line for line in configuration.splitlines()
+                         if not line.startswith('CT_LIBC_UCLIBC_CONFIG_FILE='))
+    if (previous is not None and complete.exists()
+            and complete.read_text().strip() == fingerprint_for(previous)
+            and without_config_path(previous) == without_config_path(resolved)):
+        complete.write_text(fingerprint + '\n')
     if complete.exists() and complete.read_text().strip() == fingerprint:
         print('Toolchain already built; configuration prepared but rebuild skipped.')
         return

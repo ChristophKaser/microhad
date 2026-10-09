@@ -15,12 +15,15 @@ legacy APIs required by OpenThread and BusyBox.
 Build the compiler explicitly before selecting it:
 
 ```sh
-python3 experiments/toolchain-proof/build-toolchain.py
+python3 scripts/build-toolchain.py
 ```
 
-Sources, checksums and Lexra patches are pinned by that builder. It installs
+Sources, checksums and configurations are pinned under `config/crosstool-ng/`;
+the builder uses the pinned upstream Lexra patches. It installs
 under `tools/lexra-proof`, uses local bootstrap tools, and requires approximately
-12 GiB free space. See the experiment README for host prerequisites. Application
+12 GiB free space. The Linux build host needs GCC/G++, make, autoconf, automake, libtoolize,
+flex, bison, gperf, makeinfo, rsync, patch, curl, tar, and Python 3.11 or later.
+The builder installs help2man, GNU libtool and crosstool-NG locally. Application
 builds never install a compiler automatically. A missing compiler fails the build.
 
 Run from the repository root:
