@@ -9,6 +9,8 @@ const rangeSeconds: Record<Range, number> = { day: 86400, week: 604800, all: Inf
 const metricColor: Record<HistoryMetric, string> = {
   1: '#d97543', 2: '#3384aa', 3: '#7554a4', 4: '#b77928', 5: '#4b956a', 6: '#71859a',
   7: '#9a5b99', 8: '#6d8293', 9: '#368578', 10: '#d2a635', 11: '#427fb0',
+  12: '#ad74a8', 13: '#865c91', 14: '#774c81', 15: '#674170', 16: '#8295a6',
+  17: '#667b91', 18: '#536981', 19: '#445a72',
 }
 
 ChartJS.register(LineController, LineElement, LinearScale, PointElement, Tooltip)
@@ -96,11 +98,13 @@ export function HistoryDialog({ device, onClose }: { device: Device; onClose: ()
     ...(device.has_power ? [4 as const] : []),
     ...(device.has_occupancy ? [5 as const] : []),
     ...(device.has_battery ? [6 as const] : []),
-    ...(device.has_co2 ? [7 as const] : []),
-    ...(device.has_pm25 ? [8 as const] : []),
+    ...(device.has_co2 && !samples.some((sample) => [7, 12, 13, 14, 15].includes(sample[2])) ? [7 as const] : []),
+    ...(device.has_pm25 && !samples.some((sample) => [8, 16, 17, 18, 19].includes(sample[2])) ? [8 as const] : []),
     ...(device.has_air_quality ? [9 as const] : []),
     ...(device.has_light || device.has_actor ? [10 as const] : []),
     ...(device.has_brightness ? [11 as const] : []),
+    ...([...new Set(samples.map((sample) => sample[2]).filter((metric) => metric >= 12))] as HistoryMetric[]),
+    ...([...new Set(samples.map((sample) => sample[2]).filter((metric) => metric === 7 || metric === 8))] as HistoryMetric[]),
   ]
   const historyId = historyDeviceId(device)
   const series = metrics.flatMap((metric) => {

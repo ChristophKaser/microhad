@@ -7,11 +7,14 @@
 #include <sys/types.h>
 #include <vector>
 
-/* One bounded source-neutral history journal in RAM-backed /tmp. */
+/* Bounded paged sensor history in RAM-backed /tmp. */
 class SensorHistory {
 public:
     enum { Temperature = 1, Humidity = 2, Contact = 3, Power = 4, Occupancy = 5, Battery = 6,
-           CarbonDioxide = 7, Pm25 = 8, AirQuality = 9, Light = 10, Brightness = 11 };
+           CarbonDioxide = 7, Pm25 = 8, AirQuality = 9, Light = 10, Brightness = 11,
+           CarbonDioxideMass = 12, CarbonDioxideParticles = 13, CarbonDioxideBecquerels = 14,
+           CarbonDioxideDecibels = 15, Pm25Ppm = 16, Pm25Particles = 17,
+           Pm25Becquerels = 18, Pm25Decibels = 19 };
     struct ReadStats {
         unsigned long pagesRead;
         unsigned long recordsChecked;
@@ -32,21 +35,40 @@ public:
                          unsigned long before, std::string* json, std::string* error,
                          ReadStats* stats = 0);
 
-private:
+public:
     struct ValueRecord {
         unsigned long sequence;
         off_t offset;
-        ValueRecord(unsigned long seq = 0, off_t at = 0) : sequence(seq), offset(at) {}
+        unsigned char metric;
+        ValueRecord(unsigned long seq = 0, off_t at = 0, unsigned char m = 0) : sequence(seq), offset(at), metric(m) {}
     };
+    struct Page {
+        bool allocated;
+        std::string id;
+        unsigned char metric;
+        unsigned long generation;
+        unsigned long newest;
+        unsigned long lastSequence;
+        unsigned long lastTimestamp;
+        float lastValue;
+        unsigned int recordCount;
+        Page() : allocated(false), metric(0), generation(0), newest(0), lastSequence(0), lastTimestamp(0), lastValue(0), recordCount(0) {}
+    };
+    struct LastValue {
+        unsigned long sequence;
+        unsigned long timestamp;
+        float value;
+        LastValue(unsigned long s = 0, unsigned long t = 0, float v = 0) : sequence(s), timestamp(t), value(v) {}
+    };
+private:
     struct ValueJournal {
         std::string path;
         unsigned long sequence;
-        unsigned long recordCount;
         bool initialized;
         mutable pthread_mutex_t mutex;
-        std::map<std::string, std::vector<ValueRecord> > records;
-        std::map<std::string, std::string> lastValues;
-        std::map<std::string, long> lastMinutes;
+        std::vector<Page> pages;
+        std::map<std::string, std::vector<unsigned int> > pairPages;
+        std::map<std::string, LastValue> lastValues;
         ValueJournal();
         ~ValueJournal();
     };

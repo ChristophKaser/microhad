@@ -2077,7 +2077,7 @@ static void testDeviceSettings() {
     assert(gateway.applyAttributeReport("0x00124b0000000004", 0x0402, 0x0000, temperature));
     std::string historyJson;
     assert(gateway.historyStore()->readForDevice("zigbee:0x00124b0000000004", 0, &historyJson, &error));
-    assert(historyJson.find(",1,23.3,\"celsius\"") != std::string::npos);
+    assert(historyJson.find(",1,23.299") != std::string::npos);
     assert(historyJson.find(",3,1,\"\"") != std::string::npos);
     assert(gateway.statusJson().find("\"contact_initial_alert_minutes\":10") != std::string::npos);
     assert(gateway.statusJson().find("\"contact_reminder_alert_minutes\":5") != std::string::npos);

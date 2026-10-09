@@ -1,114 +1,92 @@
 # Sensor history file format
 
-This document is the format and migration contract for
-`/tmp/microhad-history.bin`. The file is transient RAM-backed state:
-it survives a native-service restart and is cleared by a device reboot. It
-must remain under `/tmp`; it must never be moved to `/tuya` flash.
+Sensor history is a single-writer store under `/tmp`. It is transient RAM-backed
+state, survives a native-service restart, and is cleared by a device reboot. It
+must never be moved to `/tuya` flash.
 
-## Goals and ownership
+The coordinator owns appends, allocation, eviction, and the in-memory page
+catalog. HTTP workers read through that catalog under its mutex. The API keeps
+its existing response tuple `[sequence, timestamp, metric, value, unit]` and
+2,000-sample response pagination.
 
-History is a single-writer store. The coordinator thread owns appends, page
-allocation, eviction, and the in-memory page catalog. HTTP request workers
-read through a synchronized snapshot of that catalog and never call `Gateway`
-directly. A read copies the page IDs for one IEEE-address/metric pair while
-holding the catalog mutex, releases the mutex, then reads and validates those
-pages. An append that races with the read may cause a torn or reallocated
-sample to be skipped for that request; the record checksum rejects it and a
-later request can see the completed write.
+## V3 file and page layout
 
-The HTTP route and JSON response remain unchanged. A device query combines all
-metric pages for that address, sorts samples by global sequence, applies the
-`before` cursor, and returns the existing page of up to 2,000 samples.
-
-## V2 layout
-
-All multi-byte integers are unsigned big-endian on disk unless the value field
-is interpreted as signed for its metric. CRC is CRC-8/ATM: polynomial `0x07`,
-initial value zero, no reflection, and no final XOR.
-
-The 16-byte file header is:
+All multi-byte integers are unsigned big-endian unless stated otherwise. CRCs
+use CRC-8/ATM (polynomial `0x07`, initial value zero, no reflection or final
+XOR). The file header is 16 bytes:
 
 | Offset | Size | Meaning |
 | ---: | ---: | --- |
-| 0 | 4 | ASCII magic `TZH2` |
-| 4 | 1 | Format version, `2` |
+| 0 | 4 | ASCII magic `TZH3` |
+| 4 | 1 | Format version, `3` |
 | 5 | 1 | File-header size, `16` |
-| 6 | 1 | Page-header size, `16` |
-| 7 | 1 | Sample-record size, `11` |
-| 8 | 2 | Samples per page, `128` |
-| 10 | 2 | Baseline page-pool size, `1472` |
-| 12 | 3 | Reserved; zero |
-| 15 | 1 | CRC-8 over bytes 0 through 14 |
+| 6 | 1 | Page-header size, `85` |
+| 7 | 1 | Sample-record size, `13` |
+| 8 | 2 | Samples per page, `151` |
+| 10 | 2 | Maximum page pool, `1023` |
+| 12 | 3 | Reserved zero bytes |
+| 15 | 1 | CRC over bytes 0–14 |
 
-Each page is 1,424 bytes: a 16-byte header followed by 128 11-byte records.
-The header and every page start are 16-byte aligned; the record area is 1,408
-bytes, also divisible by 16. The initial pool therefore uses
-`16 + 1472 * 1424 = 2,096,144` bytes, within the nominal 2 MiB budget. The
-file grows as pages are allocated rather than preallocating unused pages.
-
-The 16-byte page header is:
+Each page is exactly 2,048 bytes: an 85-byte header followed by 151 records of
+13 bytes each. The page header is:
 
 | Offset | Size | Meaning |
 | ---: | ---: | --- |
-| 0 | 8 | IEEE device address |
-| 8 | 1 | Metric ID: temperature 1, humidity 2, contact 3, power 4, occupancy 5, battery 6 |
-| 9 | 1 | State: `1` allocated; all-zero header means unused |
-| 10 | 4 | Page-allocation generation |
-| 14 | 1 | CRC-8 over bytes 0 through 13 |
-| 15 | 1 | Reserved; zero |
+| 0 | 1 | Device-ID byte length, 1–64 |
+| 1 | 1 | Metric code |
+| 2 | 1 | State: `1` allocated; zero means unused |
+| 3 | 4 | Page allocation generation |
+| 7 | 64 | Device ID, zero-padded |
+| 71 | 13 | Reserved zero bytes, including the five bytes moved into the header |
+| 84 | 1 | CRC over bytes 0–83 |
 
-The 11-byte sample record is:
+The record is sequence (4 bytes), Unix timestamp (4 bytes), IEEE-754 binary32
+value (4 bytes), and CRC (1 byte). The record CRC covers the page identity,
+generation, and first 12 record bytes. Numeric values are stored as float32;
+contact, occupancy, and light use 0 or 1, while air-quality readings use codes
+0–5 for good through extremely poor.
 
-| Offset | Size | Meaning |
-| ---: | ---: | --- |
-| 0 | 4 | Global sample sequence |
-| 4 | 4 | Unix timestamp in seconds |
-| 8 | 2 | Metric value in the existing metric-specific scale |
-| 10 | 1 | CRC-8 over page address, page metric, page generation, and record bytes 0 through 9 |
+The maximum file size is `16 + 1023 * 2048 = 2,095,120` bytes, below 2 MiB.
+Pages are allocated on demand at fixed offsets. When the pool is full, the
+oldest page is evicted, except that an incoming metric’s only page is protected
+while another page can be reclaimed. Reallocated pages advance their generation
+so stale records cannot be attributed to the new owner. The final page has no
+footer: all 2,048 bytes belong to its header and records.
 
-Temperature and humidity use hundredths of a unit; power uses tenths of a
-watt; contact and occupancy are `0` or `1`; battery is a percentage. Signed
-metrics use 16-bit two's complement. The sample CRC deliberately includes
-address, metric, and generation, so changing page ownership or reusing a page
-cannot make its old samples appear to belong to the new owner. The page-header
-CRC separately detects damage to page metadata.
+## Metric codes and unit normalization
 
-The baseline pool contains 1,472 pages, or 188,416 sample slots before
-per-pair page slack. Pages are stored at fixed offsets after the file header.
-The file length determines how many page slots have been materialized;
-incomplete trailing pages are ignored and repaired before the next append.
-When all baseline pages are materialized, the file may grow by aligned pages
-to give a new active device/metric pair its required first page if no reusable
-or evictable page exists. There is no hard maximum in that exceptional case;
-allocation failure leaves existing pages intact and reports an append error.
+Metric codes 1–11 remain stable: temperature, humidity, contact, power,
+occupancy, battery, CO₂ ppm, PM2.5 µg/m³, air quality, light, and brightness.
+The unit is fixed by the metric code and returned by the API; no unit string or
+unit code is stored in a record.
 
-## Append, retention, and recovery
+| Code | Measurement and stored unit | Accepted compatible input units |
+| ---: | --- | --- |
+| 7 | CO₂, ppm | ppm, ppb, ppt (converted to ppm) |
+| 8 | PM2.5, µg/m³ | mg/m³, µg/m³, ng/m³ (converted to µg/m³) |
+| 12 | CO₂, µg/m³ | mg/m³, µg/m³, ng/m³ (converted to µg/m³) |
+| 13 | CO₂, particles/m³ | particles/m³, particles/ft³ (converted to particles/m³) |
+| 14 | CO₂, Bq/m³ | Bq/m³ |
+| 15 | CO₂, dB/m | dB/m |
+| 16 | PM2.5, ppm | ppm, ppb, ppt (converted to ppm) |
+| 17 | PM2.5, particles/m³ | particles/m³, particles/ft³ (converted to particles/m³) |
+| 18 | PM2.5, Bq/m³ | Bq/m³ |
+| 19 | PM2.5, dB/m | dB/m |
 
-A page belongs to exactly one address/metric pair. Pages are allocated on the
-first accepted sample for a pair, not for every possible metric a device might
-report. Existing value validation, duplicate-value suppression, once-per-
-minute sampling for non-contact metrics, and contact-transition retention
-remain unchanged.
+CO₂ and PM2.5 always have distinct metric codes even when their units match.
+Other sensor metrics retain their fixed existing units. Unsupported units are
+rejected rather than mixed into an incompatible series.
 
-Samples append into a page until it has 128 valid samples. A pair may own
-multiple pages. Active pairs keep at least one page: when another page is
-needed, use an unused slot or evict the globally oldest eligible page, chosen
-by its newest valid sequence. An active pair's only page is never a victim.
-If the incoming pair already has its only page and no eligible spare page is
-available, overwrite the oldest sample slot within that page. If the incoming
-pair has no page and every page is protected, extend the file by one page.
+## Recovery and retention
 
-Removing a device from the gateway unpins all of its pages, making them
-eligible for ordinary eviction; removal does not immediately erase history.
-If the device returns before its pages are reused, those pages become pinned
-again. A page reallocated to another pair is cleared, its generation advances,
-and its header is written only after the new page contents are ready. Readers
-validate both header and sample CRCs against their catalog snapshot.
+Startup scans page headers and contiguous valid records to rebuild the sequence
+and page catalog. Invalid headers and checksummed records are skipped; an
+incomplete record tail is ignored. V3 is written fresh without migration. A
+recognized former `TUV1` values journal is reset; unknown or damaged formats are
+preserved and initialization fails closed.
 
-On startup, scan materialized page headers and records to recover the global
-sequence, valid-sample counts, page fullness, per-pair page lists, last values,
-and minute-sampling state. Invalid headers and records are not returned. A
-corrupt page is never silently attributed to a different pair. The sequence
-is 32-bit, matching the existing API cursor. Sequence exhaustion resets
-history as the current implementation does. Only V2 files are recognized;
-an unknown or damaged file is preserved and initialization fails.
+Samples append until a page fills, then a new page is allocated for that
+device/metric pair. Duplicate values are suppressed; non-discrete metrics keep
+the existing once-per-minute sampling rule, while contact and other discrete
+transitions are retained. API reads sort by global sequence and apply the
+existing `before` cursor and 2,000-sample response limit.

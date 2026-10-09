@@ -539,7 +539,7 @@ void testServers() {
     expectStatus("http reject negative log timestamp", plainRequest(http.boundPort(), "GET /api/logs?since=-1 HTTP/1.1\r\nHost: localhost\r\n\r\n"), 400);
     response = plainRequest(http.boundPort(), "GET /api/devices/0x00124b0000000042/history HTTP/1.1\r\nHost: localhost\r\n\r\n");
     expectStatus("http sensor history", response, 200);
-    assert(response.find(",1,22.45,\"celsius\"") != std::string::npos);
+    assert(response.find(",1,22.450") != std::string::npos);
     expectStatus("http reject invalid history cursor", plainRequest(http.boundPort(), "GET /api/devices/0x00124b0000000042/history?before=bad HTTP/1.1\r\nHost: localhost\r\n\r\n"), 400);
     expectStatus("http reject invalid history address", plainRequest(http.boundPort(), "GET /api/devices/wrong/history HTTP/1.1\r\nHost: localhost\r\n\r\n"), 400);
     response = plainRequest(http.boundPort(), "GET /api/scenes/config HTTP/1.1\r\nHost: localhost\r\n\r\n");

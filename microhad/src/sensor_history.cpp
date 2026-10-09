@@ -3,30 +3,32 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
-#include <cstring>
 #include <cstdlib>
+#include <cstring>
 #include <fcntl.h>
+#include <iomanip>
 #include <sstream>
+#include <set>
 #include <stdint.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
 namespace {
-enum { valueHeaderBytes = 16, valueRecordBytes = 128, valueRecordLimit = 8192,
-       valueKeepAfterCompaction = 4096, valuePageLimit = 2000 };
-const unsigned char valueFileTemplate[valueHeaderBytes] = {
-    'T', 'U', 'V', '1', 1, valueHeaderBytes, valueRecordBytes, 0,
-    0, 0, 0, 0, 0, 0, 0, 0
+enum { fileHeaderBytes = 16, pageHeaderBytes = 85, recordBytes = 13, recordsPerPage = 151,
+       pageBytes = 2048, pageLimit = 1023, apiPageLimit = 2000, maximumMetric = 19,
+       maximumFileBytes = fileHeaderBytes + pageLimit * pageBytes };
+const unsigned char fileTemplate[fileHeaderBytes] = {
+    'T', 'Z', 'H', '3', 3, fileHeaderBytes, pageHeaderBytes, recordBytes,
+    0, recordsPerPage, 0x03, 0xff, 0, 0, 0, 0
 };
-void put32(unsigned char* bytes, uint32_t value) {
-    bytes[0] = static_cast<unsigned char>(value >> 24);
-    bytes[1] = static_cast<unsigned char>(value >> 16);
-    bytes[2] = static_cast<unsigned char>(value >> 8);
-    bytes[3] = static_cast<unsigned char>(value);
+
+void put32(unsigned char* b, uint32_t v) {
+    b[0] = static_cast<unsigned char>(v >> 24); b[1] = static_cast<unsigned char>(v >> 16);
+    b[2] = static_cast<unsigned char>(v >> 8); b[3] = static_cast<unsigned char>(v);
 }
-uint32_t get32(const unsigned char* bytes) {
-    return (static_cast<uint32_t>(bytes[0]) << 24) | (static_cast<uint32_t>(bytes[1]) << 16) |
-           (static_cast<uint32_t>(bytes[2]) << 8) | bytes[3];
+uint32_t get32(const unsigned char* b) {
+    return (static_cast<uint32_t>(b[0]) << 24) | (static_cast<uint32_t>(b[1]) << 16) |
+           (static_cast<uint32_t>(b[2]) << 8) | static_cast<uint32_t>(b[3]);
 }
 unsigned char crc8(const unsigned char* bytes, unsigned long length) {
     unsigned char crc = 0;
@@ -46,384 +48,361 @@ bool writeAllAt(int fd, const unsigned char* bytes, unsigned long length, off_t 
     }
     return true;
 }
-std::string valuePairKey(const std::string& deviceId, unsigned char metric) {
-    std::string key = deviceId;
-    key += '\0';
-    key += static_cast<char>(metric);
-    return key;
-}
-bool valueFileHeaderValid(const unsigned char* bytes) {
-    unsigned char expected[valueHeaderBytes];
-    memcpy(expected, valueFileTemplate, sizeof(expected));
-    expected[valueHeaderBytes - 1] = crc8(expected, valueHeaderBytes - 1);
-    return memcmp(bytes, expected, sizeof(expected)) == 0;
-}
-bool plainText(const std::string& value, unsigned long maximum, bool allowEmpty) {
-    if ((!allowEmpty && value.empty()) || value.size() > maximum) return false;
-    for (unsigned long i = 0; i < value.size(); ++i)
-        if (static_cast<unsigned char>(value[i]) < 0x20 || static_cast<unsigned char>(value[i]) > 0x7e) return false;
+bool plainText(const std::string& s, unsigned long maximum, bool allowEmpty) {
+    if ((!allowEmpty && s.empty()) || s.size() > maximum) return false;
+    for (unsigned long i = 0; i < s.size(); ++i)
+        if (static_cast<unsigned char>(s[i]) < 0x20 || static_cast<unsigned char>(s[i]) > 0x7e) return false;
     return true;
 }
-bool valueMetricValid(unsigned char metric, const std::string& value, const std::string& unit) {
-    if (!plainText(value, 24, false) || !plainText(unit, 16, true)) return false;
-    if (metric == SensorHistory::Contact || metric == SensorHistory::Occupancy)
-        return unit.empty() && (value == "0" || value == "1");
-    if (metric == SensorHistory::Battery) {
-        char* batteryEnd = 0;
-        const double battery = std::strtod(value.c_str(), &batteryEnd);
-        return unit == "percent" && batteryEnd == value.c_str() + value.size() &&
-               std::isfinite(battery) && battery >= 0 && battery <= 100;
-    }
-    if (metric == SensorHistory::AirQuality)
-        return unit.empty() && (value == "good" || value == "fair" || value == "moderate" || value == "poor" ||
-            value == "very_poor" || value == "extremely_poor");
-    if (metric == SensorHistory::Light) return unit.empty() && (value == "0" || value == "1");
-    if (metric < SensorHistory::Temperature || metric > SensorHistory::Brightness || metric == SensorHistory::Battery) return false;
-    char* end = 0;
-    const double numeric = std::strtod(value.c_str(), &end);
-    if (end != value.c_str() + value.size() || !std::isfinite(numeric)) return false;
-    if (metric == SensorHistory::Temperature) return unit == "celsius" && numeric >= -327.68 && numeric <= 327.67;
-    if (metric == SensorHistory::Humidity) return unit == "percent" && numeric >= 0 && numeric <= 100;
-    if (metric == SensorHistory::Power) return unit == "watts" && numeric >= 0 && numeric <= 6553.5;
-    if (metric == SensorHistory::CarbonDioxide) {
-        static const char* const units[] = {"ppm", "ppb", "ppt", "mg/m3", "ug/m3", "ng/m3",
-            "particles/m3", "Bq/m3", "dB/m", "particles/ft3"};
-        for (unsigned int i = 0; i < sizeof(units) / sizeof(units[0]); ++i)
-            if (unit == units[i]) return numeric >= 0;
-        return false;
-    }
-    if (metric == SensorHistory::Pm25) {
-        static const char* const units[] = {"ppm", "ppb", "ppt", "mg/m3", "ug/m3", "ng/m3",
-            "particles/m3", "Bq/m3", "dB/m", "particles/ft3"};
-        for (unsigned int i = 0; i < sizeof(units) / sizeof(units[0]); ++i)
-            if (unit == units[i]) return numeric >= 0;
-        return false;
-    }
-    if (metric == SensorHistory::Brightness) return unit == "percent" && numeric >= 0 && numeric <= 100;
-    return false;
-}
-bool parseValueRecord(const unsigned char* record, std::string* deviceId, unsigned char* metric,
-                      std::string* value, std::string* unit, unsigned long* sequence, long* timestamp) {
-    if (record[127] != crc8(record, 127) || record[4] < SensorHistory::Temperature ||
-        record[4] > SensorHistory::Brightness || record[5] == 0 || record[5] > 64 ||
-        record[6] > 16 || record[7] == 0 || record[7] > 24) return false;
-    *sequence = get32(record + 8);
-    *timestamp = static_cast<long>(get32(record + 12));
-    if (*sequence == 0 || *timestamp <= 0) return false;
-    deviceId->assign(reinterpret_cast<const char*>(record + 16), record[5]);
-    unit->assign(reinterpret_cast<const char*>(record + 80), record[6]);
-    value->assign(reinterpret_cast<const char*>(record + 96), record[7]);
-    *metric = record[4];
-    return plainText(*deviceId, 64, false) && valueMetricValid(*metric, *value, *unit);
-}
-void encodeValueRecord(unsigned char* record, const std::string& deviceId, unsigned char metric,
-                       const std::string& value, const std::string& unit,
-                       unsigned long sequence, long timestamp) {
-    memset(record, 0, valueRecordBytes);
-    record[4] = metric;
-    record[5] = static_cast<unsigned char>(deviceId.size());
-    record[6] = static_cast<unsigned char>(unit.size());
-    record[7] = static_cast<unsigned char>(value.size());
-    put32(record + 8, static_cast<uint32_t>(sequence));
-    put32(record + 12, static_cast<uint32_t>(timestamp));
-    memcpy(record + 16, deviceId.data(), deviceId.size());
-    memcpy(record + 80, unit.data(), unit.size());
-    memcpy(record + 96, value.data(), value.size());
-    record[127] = crc8(record, 127);
+std::string pairKey(const std::string& id, unsigned char metric) {
+    std::string result = id; result += '\0'; result += static_cast<char>(metric); return result;
 }
 std::string jsonString(const std::string& value) {
-    std::string output = "\"";
+    std::string result = "\"";
     for (unsigned long i = 0; i < value.size(); ++i) {
-        if (value[i] == '"' || value[i] == '\\') output += '\\';
-        output += value[i];
+        if (value[i] == '"' || value[i] == '\\') result += '\\';
+        result += value[i];
     }
-    output += '"';
-    return output;
+    result += '"'; return result;
 }
-struct ValueCompactRecord {
-    std::string key;
-    unsigned long sequence;
-    off_t offset;
-};
-bool olderValueRecord(const ValueCompactRecord& left, const ValueCompactRecord& right) {
-    return left.sequence < right.sequence;
+bool olderRecord(const SensorHistory::ValueRecord& a, const SensorHistory::ValueRecord& b) {
+    return a.sequence < b.sequence;
+}
+bool newerRecord(const SensorHistory::ValueRecord& a, const SensorHistory::ValueRecord& b) {
+    return a.sequence > b.sequence;
+}
+bool fileHeaderValid(const unsigned char* bytes) {
+    unsigned char expected[fileHeaderBytes]; memcpy(expected, fileTemplate, sizeof(expected));
+    expected[15] = crc8(expected, 15); return memcmp(bytes, expected, sizeof(expected)) == 0;
+}
+const char* unitForMetric(unsigned char metric) {
+    switch (metric) {
+    case SensorHistory::Temperature: return "celsius";
+    case SensorHistory::Humidity: case SensorHistory::Battery: case SensorHistory::Brightness: return "percent";
+    case SensorHistory::Power: return "watts";
+    case SensorHistory::CarbonDioxide: case SensorHistory::Pm25Ppm: return "ppm";
+    case SensorHistory::Pm25: return "ug/m3";
+    case SensorHistory::CarbonDioxideMass: return "ug/m3";
+    case SensorHistory::CarbonDioxideParticles: case SensorHistory::Pm25Particles: return "particles/m3";
+    case SensorHistory::CarbonDioxideBecquerels: case SensorHistory::Pm25Becquerels: return "Bq/m3";
+    case SensorHistory::CarbonDioxideDecibels: case SensorHistory::Pm25Decibels: return "dB/m";
+    default: return "";
+    }
+}
+bool metricDiscrete(unsigned char metric) {
+    return metric == SensorHistory::Contact || metric == SensorHistory::Occupancy ||
+           metric == SensorHistory::AirQuality || metric == SensorHistory::Light;
+}
+bool normalizeValue(unsigned char inputMetric, const std::string& value, const std::string& unit,
+                    unsigned char* metric, float* number, std::string* text) {
+    if (!plainText(value, 24, false) || !plainText(unit, 16, true)) return false;
+    if (inputMetric == SensorHistory::AirQuality) {
+        static const char* const qualities[] = {"good", "fair", "moderate", "poor", "very_poor", "extremely_poor"};
+        if (!unit.empty()) return false;
+        for (int i = 0; i < 6; ++i) if (value == qualities[i]) { *metric = inputMetric; *number = static_cast<float>(i); *text = value; return true; }
+        return false;
+    }
+    if (inputMetric == SensorHistory::Contact || inputMetric == SensorHistory::Occupancy || inputMetric == SensorHistory::Light) {
+        if (!unit.empty() || (value != "0" && value != "1")) return false;
+        *metric = inputMetric; *number = value == "1" ? 1.0f : 0.0f; text->clear(); return true;
+    }
+    char* end = 0; double v = std::strtod(value.c_str(), &end);
+    if (end != value.c_str() + value.size() || !std::isfinite(v)) return false;
+    unsigned char m = inputMetric;
+    double factor = 1.0;
+    if (inputMetric == SensorHistory::CarbonDioxide || inputMetric == SensorHistory::Pm25) {
+        const bool co2 = inputMetric == SensorHistory::CarbonDioxide;
+        if (unit == "ppm") { m = co2 ? SensorHistory::CarbonDioxide : SensorHistory::Pm25Ppm; }
+        else if (unit == "ppb") { m = co2 ? SensorHistory::CarbonDioxide : SensorHistory::Pm25Ppm; factor = 0.001; }
+        else if (unit == "ppt") { m = co2 ? SensorHistory::CarbonDioxide : SensorHistory::Pm25Ppm; factor = 0.000001; }
+        else if (unit == "mg/m3") { m = co2 ? SensorHistory::CarbonDioxideMass : SensorHistory::Pm25; factor = 1000.0; }
+        else if (unit == "ug/m3") { m = co2 ? SensorHistory::CarbonDioxideMass : SensorHistory::Pm25; }
+        else if (unit == "ng/m3") { m = co2 ? SensorHistory::CarbonDioxideMass : SensorHistory::Pm25; factor = 0.001; }
+        else if (unit == "particles/m3" || unit == "particles/ft3") {
+            m = co2 ? SensorHistory::CarbonDioxideParticles : SensorHistory::Pm25Particles;
+            if (unit == "particles/ft3") factor = 35.3146667215;
+        } else if (unit == "Bq/m3") m = co2 ? SensorHistory::CarbonDioxideBecquerels : SensorHistory::Pm25Becquerels;
+        else if (unit == "dB/m") m = co2 ? SensorHistory::CarbonDioxideDecibels : SensorHistory::Pm25Decibels;
+        else return false;
+        if (v < 0) return false;
+    } else {
+        if (inputMetric == SensorHistory::Temperature && (unit != "celsius" || v < -327.68 || v > 327.67)) return false;
+        if (inputMetric == SensorHistory::Humidity && (unit != "percent" || v < 0 || v > 100)) return false;
+        if (inputMetric == SensorHistory::Battery && (unit != "percent" || v < 0 || v > 100)) return false;
+        if (inputMetric == SensorHistory::Power && (unit != "watts" || v < 0 || v > 6553.5)) return false;
+        if (inputMetric == SensorHistory::Brightness && (unit != "percent" || v < 0 || v > 100)) return false;
+        if (inputMetric < SensorHistory::Temperature || inputMetric > SensorHistory::Brightness) return false;
+    }
+    v *= factor;
+    if (!std::isfinite(v) || std::fabs(v) > 3.402823466e38) return false;
+    *metric = m; *number = static_cast<float>(v); text->clear(); return true;
+}
+unsigned char recordCrc(const unsigned char* pageHeader, const unsigned char* record) {
+    unsigned char data[71 + 4 + 12];
+    memcpy(data, pageHeader, 71); memcpy(data + 71, pageHeader + 3, 4); memcpy(data + 75, record, 12);
+    return crc8(data, sizeof(data));
+}
+void encodeFloat(unsigned char* b, float value) {
+    uint32_t bits = 0; memcpy(&bits, &value, sizeof(bits)); put32(b, bits);
+}
+float decodeFloat(const unsigned char* b) {
+    uint32_t bits = get32(b); float value = 0; memcpy(&value, &bits, sizeof(value)); return value;
+}
+std::string numberText(float value) {
+    std::ostringstream out; out << std::setprecision(9) << value; return out.str();
+}
+std::string qualityText(float value) {
+    static const char* const qualities[] = {"good", "fair", "moderate", "poor", "very_poor", "extremely_poor"};
+    int index = static_cast<int>(value); return index >= 0 && index < 6 ? qualities[index] : "";
+}
+bool pageHeaderValid(const unsigned char* h, std::string* id, unsigned char* metric, uint32_t* generation) {
+    if (h[2] != 1 || h[0] == 0 || h[0] > 64 || h[1] < 1 || h[1] > maximumMetric || h[84] != crc8(h, 84)) return false;
+    for (int i = 71; i <= 83; ++i) if (h[i] != 0) return false;
+    id->assign(reinterpret_cast<const char*>(h + 7), h[0]);
+    *metric = h[1]; *generation = get32(h + 3);
+    return plainText(*id, 64, false) && *generation != 0;
+}
+void makePageHeader(unsigned char* h, const std::string& id, unsigned char metric, uint32_t generation) {
+    memset(h, 0, pageHeaderBytes); h[0] = static_cast<unsigned char>(id.size()); h[1] = metric; h[2] = 1;
+    put32(h + 3, generation); memcpy(h + 7, id.data(), id.size()); h[84] = crc8(h, 84);
 }
 }
 
-SensorHistory::ValueJournal::ValueJournal() : sequence(0), recordCount(0), initialized(false) {
-    pthread_mutex_init(&mutex, 0);
-}
+SensorHistory::ValueJournal::ValueJournal() : sequence(0), initialized(false) { pthread_mutex_init(&mutex, 0); }
 SensorHistory::ValueJournal::~ValueJournal() { pthread_mutex_destroy(&mutex); }
 SensorHistory::SensorHistory(const std::string& path) : obsoleteHistoryPath_(path) { values_.path = path + ".values"; }
 SensorHistory::~SensorHistory() {}
 const std::string& SensorHistory::path() const { return values_.path; }
 
 bool SensorHistory::initialize(std::string* error) {
-    if (error != 0) error->clear();
-    /* Drop the obsolete paged file; the source-neutral journal is the only store. */
+    if (error) error->clear();
     return initializeValues(error);
 }
-
 bool SensorHistory::initializeValues(std::string* error) {
     pthread_mutex_lock(&values_.mutex);
     if (values_.initialized) { pthread_mutex_unlock(&values_.mutex); return true; }
     unlink(obsoleteHistoryPath_.c_str());
     int fd = open(values_.path.c_str(), O_RDWR | O_CREAT, 0600);
-    if (fd < 0) {
-        if (error) *error = "cannot open source-neutral history";
-        pthread_mutex_unlock(&values_.mutex);
-        return false;
+    if (fd < 0) { if (error) *error = "cannot open paged history"; pthread_mutex_unlock(&values_.mutex); return false; }
+    struct stat st; bool ok = fstat(fd, &st) == 0;
+    unsigned char h[fileHeaderBytes];
+    if (ok && st.st_size == 0) {
+        memcpy(h, fileTemplate, sizeof(h)); h[15] = crc8(h, 15);
+        ok = writeAllAt(fd, h, sizeof(h), 0); st.st_size = fileHeaderBytes;
     }
-    struct stat info;
-    bool ok = fstat(fd, &info) == 0;
-    if (ok && info.st_size == 0) {
-        unsigned char header[valueHeaderBytes];
-        memcpy(header, valueFileTemplate, sizeof(header));
-        header[valueHeaderBytes - 1] = crc8(header, valueHeaderBytes - 1);
-        ok = writeAllAt(fd, header, sizeof(header), 0);
-        info.st_size = valueHeaderBytes;
+    if (ok && st.st_size >= 4 && pread(fd, h, sizeof(h), 0) == fileHeaderBytes &&
+        memcmp(h, "TUV1", 4) == 0) {
+        /* The former flat journal is intentionally reset; v3 does not migrate it. */
+        ok = ftruncate(fd, 0) == 0;
+        if (ok) {
+            memcpy(h, fileTemplate, sizeof(h)); h[15] = crc8(h, 15);
+            ok = writeAllAt(fd, h, sizeof(h), 0); st.st_size = fileHeaderBytes;
+        }
     }
-    unsigned char header[valueHeaderBytes];
-    if (ok) ok = pread(fd, header, sizeof(header), 0) == valueHeaderBytes && valueFileHeaderValid(header);
-    if (!ok) {
-        if (error) *error = "invalid source-neutral history header; file preserved";
-        close(fd);
-        pthread_mutex_unlock(&values_.mutex);
-        return false;
+    if (ok) ok = pread(fd, h, sizeof(h), 0) == fileHeaderBytes && fileHeaderValid(h);
+    if (ok && st.st_size > maximumFileBytes) ok = false;
+    if (!ok) { if (error) *error = "invalid paged history header; file preserved"; close(fd); pthread_mutex_unlock(&values_.mutex); return false; }
+
+    values_.pages.assign(pageLimit, Page()); values_.pairPages.clear(); values_.lastValues.clear(); values_.sequence = 0;
+    for (unsigned int i = 0; i < pageLimit; ++i) {
+        off_t base = fileHeaderBytes + static_cast<off_t>(i) * pageBytes;
+        if (base + pageHeaderBytes > st.st_size) break;
+        unsigned char ph[pageHeaderBytes];
+        if (pread(fd, ph, sizeof(ph), base) != static_cast<ssize_t>(sizeof(ph))) continue;
+        std::string id; unsigned char metric = 0; uint32_t generation = 0;
+        if (!pageHeaderValid(ph, &id, &metric, &generation)) continue;
+        Page& page = values_.pages[i]; page.allocated = true; page.id = id; page.metric = metric; page.generation = generation;
+        for (unsigned int r = 0; r < recordsPerPage; ++r) {
+            unsigned char rec[recordBytes]; off_t at = base + pageHeaderBytes + static_cast<off_t>(r) * recordBytes;
+            if (at + recordBytes > st.st_size || pread(fd, rec, sizeof(rec), at) != static_cast<ssize_t>(sizeof(rec))) break;
+            if (rec[12] != recordCrc(ph, rec)) break;
+            uint32_t seq = get32(rec), timestamp = get32(rec + 4); float v = decodeFloat(rec + 8);
+            if (seq == 0 || timestamp == 0 || !std::isfinite(v)) break;
+            std::string text = metric == AirQuality ? qualityText(v) : numberText(v);
+            if (text.empty()) break;
+            ++page.recordCount;
+            if (seq > page.newest) page.newest = seq;
+            if (seq > page.lastSequence) {
+                page.lastSequence = seq; page.lastValue = v; page.lastTimestamp = timestamp;
+            }
+            const std::string key = pairKey(id, metric);
+            std::map<std::string, LastValue>::iterator previous = values_.lastValues.find(key);
+            if (previous == values_.lastValues.end() || seq > previous->second.sequence)
+                values_.lastValues[key] = LastValue(seq, timestamp, v);
+            if (seq > values_.sequence) values_.sequence = seq;
+        }
+        if (page.recordCount != 0) {
+            const std::string key = pairKey(id, metric); values_.pairPages[key].push_back(i);
+        } else page.allocated = false;
     }
-    values_.records.clear();
-    values_.lastValues.clear();
-    values_.lastMinutes.clear();
-    values_.sequence = 0;
-    values_.recordCount = 0;
-    off_t completeEnd = valueHeaderBytes + ((info.st_size - valueHeaderBytes) / valueRecordBytes) * valueRecordBytes;
-    for (off_t offset = valueHeaderBytes; offset < completeEnd; offset += valueRecordBytes) {
-        unsigned char record[valueRecordBytes];
-        if (pread(fd, record, sizeof(record), offset) != static_cast<ssize_t>(sizeof(record))) continue;
-        std::string deviceId, value, unit;
-        unsigned char metric = 0;
-        unsigned long sequence = 0;
-        long timestamp = 0;
-        if (!parseValueRecord(record, &deviceId, &metric, &value, &unit, &sequence, &timestamp)) continue;
-        const std::string key = valuePairKey(deviceId, metric);
-        values_.records[key].push_back(ValueRecord(sequence, offset));
-        values_.lastValues[key] = value + '\0' + unit;
-        if (metric != Contact && metric != Occupancy && metric != AirQuality && metric != Light)
-            values_.lastMinutes[key] = timestamp / 60;
-        if (sequence > values_.sequence) values_.sequence = sequence;
-        ++values_.recordCount;
-    }
-    if (completeEnd != info.st_size && ftruncate(fd, completeEnd) != 0) {
-        if (error) *error = "cannot repair incomplete source-neutral history tail";
-        close(fd);
-        pthread_mutex_unlock(&values_.mutex);
-        return false;
-    }
-    close(fd);
-    values_.initialized = true;
-    pthread_mutex_unlock(&values_.mutex);
-    return true;
+    close(fd); values_.initialized = true; pthread_mutex_unlock(&values_.mutex); return true;
 }
 
 bool SensorHistory::appendValue(const std::string& deviceId, unsigned char metric, const std::string& value,
-                                const std::string& unit, long timestamp) {
+                               const std::string& unit, long timestamp) {
     if (!values_.initialized && !initializeValues(0)) return false;
     pthread_mutex_lock(&values_.mutex);
-    const bool result = appendValueLocked(deviceId, metric, value, unit, timestamp);
-    pthread_mutex_unlock(&values_.mutex);
-    return result;
+    bool result = appendValueLocked(deviceId, metric, value, unit, timestamp);
+    pthread_mutex_unlock(&values_.mutex); return result;
 }
-
-bool SensorHistory::appendValueLocked(const std::string& deviceId, unsigned char metric, const std::string& value,
-                                     const std::string& unit, long timestamp) {
-    if (!values_.initialized || !plainText(deviceId, 64, false) ||
-        !valueMetricValid(metric, value, unit) || timestamp <= 0 ||
+bool SensorHistory::appendValueLocked(const std::string& deviceId, unsigned char inputMetric, const std::string& value,
+                                      const std::string& unit, long timestamp) {
+    if (!values_.initialized || !plainText(deviceId, 64, false) || timestamp <= 0 ||
         static_cast<unsigned long>(timestamp) > 0xffffffffUL) return false;
-    const std::string key = valuePairKey(deviceId, metric);
-    std::map<std::string, std::string>::const_iterator previous = values_.lastValues.find(key);
-    if (previous != values_.lastValues.end() && previous->second == value + '\0' + unit) return true;
-    if (metric != Contact && metric != Occupancy && metric != AirQuality && metric != Light) {
-        std::map<std::string, long>::const_iterator minute = values_.lastMinutes.find(key);
-        if (minute != values_.lastMinutes.end() && timestamp / 60 <= minute->second) return true;
-    }
-
-    if (values_.recordCount >= valueRecordLimit) {
-        int source = open(values_.path.c_str(), O_RDONLY);
-        std::vector<ValueCompactRecord> candidates;
-        for (std::map<std::string, std::vector<ValueRecord> >::const_iterator pair = values_.records.begin();
-             pair != values_.records.end(); ++pair)
-            for (unsigned long i = 0; i < pair->second.size(); ++i) {
-                ValueCompactRecord current = {pair->first, pair->second[i].sequence, pair->second[i].offset};
-                candidates.push_back(current);
-            }
-        std::sort(candidates.begin(), candidates.end(), olderValueRecord);
-        std::map<std::string, unsigned int> retainedPerPair;
-        std::vector<ValueCompactRecord> retained;
-        for (unsigned long i = candidates.size(); i > 0 && retained.size() < valueKeepAfterCompaction; --i) {
-            ValueCompactRecord& candidate = candidates[i - 1];
-            if (retainedPerPair[candidate.key] >= 128) continue;
-            ++retainedPerPair[candidate.key];
-            retained.push_back(candidate);
-        }
-        std::sort(retained.begin(), retained.end(), olderValueRecord);
-        std::string temporaryPath = values_.path + ".tmp";
-        int destination = open(temporaryPath.c_str(), O_RDWR | O_CREAT | O_TRUNC, 0600);
-        unsigned char header[valueHeaderBytes];
-        memcpy(header, valueFileTemplate, sizeof(header));
-        header[valueHeaderBytes - 1] = crc8(header, valueHeaderBytes - 1);
-        bool compacted = source >= 0 && destination >= 0 && writeAllAt(destination, header, sizeof(header), 0);
-        unsigned char record[valueRecordBytes];
-        if (compacted) {
-            for (unsigned long i = 0; i < retained.size(); ++i) {
-                if (pread(source, record, sizeof(record), retained[i].offset) != static_cast<ssize_t>(sizeof(record)) ||
-                    !writeAllAt(destination, record, sizeof(record), valueHeaderBytes +
-                                static_cast<off_t>(i * valueRecordBytes))) { compacted = false; break; }
-            }
-        }
-        if (source >= 0) close(source);
-        if (destination >= 0) close(destination);
-        if (!compacted || rename(temporaryPath.c_str(), values_.path.c_str()) != 0) {
-            unlink(temporaryPath.c_str());
-            return false;
-        }
-        int compactedFile = open(values_.path.c_str(), O_RDONLY);
-        if (compactedFile < 0) { values_.initialized = false; return false; }
-        std::map<std::string, std::vector<ValueRecord> > compactedRecords;
-        std::map<std::string, std::string> compactedLastValues;
-        std::map<std::string, long> compactedLastMinutes;
-        for (unsigned long i = 0; i < retained.size(); ++i) {
-            unsigned char saved[valueRecordBytes];
-            if (pread(compactedFile, saved, sizeof(saved), valueHeaderBytes +
-                      static_cast<off_t>(i * valueRecordBytes)) != static_cast<ssize_t>(sizeof(saved))) continue;
-            std::string savedId, savedValue, savedUnit;
-            unsigned char savedMetric = 0;
-            unsigned long savedSequence = 0;
-            long savedTimestamp = 0;
-            if (!parseValueRecord(saved, &savedId, &savedMetric, &savedValue, &savedUnit,
-                                  &savedSequence, &savedTimestamp)) continue;
-            const std::string savedKey = valuePairKey(savedId, savedMetric);
-            compactedRecords[savedKey].push_back(ValueRecord(savedSequence, valueHeaderBytes +
-                static_cast<off_t>(i * valueRecordBytes)));
-            compactedLastValues[savedKey] = savedValue + '\0' + savedUnit;
-            if (savedMetric != Contact && savedMetric != Occupancy && savedMetric != AirQuality && savedMetric != Light)
-                compactedLastMinutes[savedKey] = savedTimestamp / 60;
-        }
-        close(compactedFile);
-        values_.records.swap(compactedRecords);
-        values_.lastValues.swap(compactedLastValues);
-        values_.lastMinutes.swap(compactedLastMinutes);
-        values_.recordCount = retained.size();
-    }
+    unsigned char metric = 0; float numeric = 0; std::string text;
+    if (!normalizeValue(inputMetric, value, unit, &metric, &numeric, &text)) return false;
     if (values_.sequence >= 0xffffffffUL) return false;
-    const unsigned long sequence = values_.sequence + 1;
-    unsigned char record[valueRecordBytes];
-    encodeValueRecord(record, deviceId, metric, value, unit, sequence, timestamp);
+    const std::string key = pairKey(deviceId, metric);
+    std::vector<unsigned int>& owned = values_.pairPages[key];
+    Page* page = owned.empty() ? 0 : &values_.pages[owned.back()];
+    std::map<std::string, LastValue>::const_iterator last = values_.lastValues.find(key);
+    if (last != values_.lastValues.end() && last->second.value == numeric) return true;
+    if (!metricDiscrete(metric) && last != values_.lastValues.end() &&
+        static_cast<unsigned long>(timestamp) / 60 <= last->second.timestamp / 60) return true;
+    if (page != 0 && page->recordCount >= recordsPerPage) page = 0;
+
     int fd = open(values_.path.c_str(), O_RDWR);
-    struct stat info;
-    bool ok = fd >= 0 && fstat(fd, &info) == 0 &&
-        info.st_size >= valueHeaderBytes && (info.st_size - valueHeaderBytes) % valueRecordBytes == 0;
-    off_t offset = ok ? info.st_size : 0;
-    if (ok) ok = writeAllAt(fd, record, sizeof(record), offset);
-    if (fd >= 0) close(fd);
-    if (!ok) return false;
-    values_.sequence = sequence;
-    ++values_.recordCount;
-    values_.records[key].push_back(ValueRecord(sequence, offset));
-    values_.lastValues[key] = value + '\0' + unit;
-    if (metric != Contact && metric != Occupancy && metric != AirQuality && metric != Light)
-        values_.lastMinutes[key] = timestamp / 60;
-    return true;
+    if (fd < 0) return false;
+    unsigned int pageIndex = 0;
+    unsigned long nextGeneration = 1;
+    if (page == 0) {
+        bool found = false;
+        for (unsigned int i = 0; i < values_.pages.size(); ++i) if (!values_.pages[i].allocated) { pageIndex = i; found = true; break; }
+        if (!found) {
+            unsigned long oldest = 0xffffffffUL; int victim = -1;
+            for (unsigned int i = 0; i < values_.pages.size(); ++i) {
+                Page& candidate = values_.pages[i];
+                std::string candidateKey = pairKey(candidate.id, candidate.metric);
+                std::vector<unsigned int>& siblings = values_.pairPages[candidateKey];
+                if (candidateKey == key && siblings.size() <= 1) continue;
+                if (candidate.newest < oldest) { oldest = candidate.newest; victim = static_cast<int>(i); }
+            }
+            if (victim < 0) { close(fd); return false; }
+            pageIndex = static_cast<unsigned int>(victim);
+            Page& evicted = values_.pages[pageIndex];
+            nextGeneration = evicted.generation >= 0xffffffffUL ? 1 : evicted.generation + 1;
+            std::vector<unsigned int>& siblings = values_.pairPages[pairKey(evicted.id, evicted.metric)];
+            siblings.erase(std::remove(siblings.begin(), siblings.end(), pageIndex), siblings.end());
+            if (siblings.empty()) {
+                values_.pairPages.erase(pairKey(evicted.id, evicted.metric));
+                values_.lastValues.erase(pairKey(evicted.id, evicted.metric));
+            } else {
+                unsigned long latest = 0;
+                LastValue newest;
+                for (unsigned long s = 0; s < siblings.size(); ++s) {
+                    const Page& remaining = values_.pages[siblings[s]];
+                    if (remaining.lastSequence > latest) {
+                        latest = remaining.lastSequence;
+                        newest = LastValue(remaining.lastSequence, remaining.lastTimestamp, remaining.lastValue);
+                    }
+                }
+                values_.lastValues[pairKey(evicted.id, evicted.metric)] = newest;
+            }
+            evicted = Page();
+        }
+        Page& allocated = values_.pages[pageIndex]; allocated.allocated = true; allocated.id = deviceId; allocated.metric = metric;
+        allocated.generation = nextGeneration;
+        unsigned char ph[pageHeaderBytes]; makePageHeader(ph, deviceId, metric, allocated.generation);
+        off_t base = fileHeaderBytes + static_cast<off_t>(pageIndex) * pageBytes;
+        struct stat fileInfo;
+        bool extended = fstat(fd, &fileInfo) == 0 &&
+            (fileInfo.st_size >= base + pageBytes || ftruncate(fd, base + pageBytes) == 0);
+        if (!extended || !writeAllAt(fd, ph, sizeof(ph), base)) { allocated = Page(); close(fd); return false; }
+        owned.push_back(pageIndex); page = &allocated;
+    } else pageIndex = static_cast<unsigned int>(page - &values_.pages[0]);
+
+    unsigned long sequence = values_.sequence + 1;
+    unsigned char rec[recordBytes]; put32(rec, static_cast<uint32_t>(sequence)); put32(rec + 4, static_cast<uint32_t>(timestamp));
+    encodeFloat(rec + 8, numeric);
+    unsigned char ph[pageHeaderBytes]; off_t base = fileHeaderBytes + static_cast<off_t>(pageIndex) * pageBytes;
+    if (pread(fd, ph, sizeof(ph), base) != static_cast<ssize_t>(sizeof(ph))) { close(fd); return false; }
+    rec[12] = recordCrc(ph, rec);
+    unsigned int slot = page->recordCount;
+    if (slot >= recordsPerPage) { close(fd); return false; }
+    off_t offset = base + pageHeaderBytes + static_cast<off_t>(slot) * recordBytes;
+    bool ok = writeAllAt(fd, rec, sizeof(rec), offset); close(fd); if (!ok) return false;
+    ++page->recordCount; page->lastValue = numeric;
+    page->lastTimestamp = static_cast<uint32_t>(timestamp); page->newest = sequence; page->lastSequence = sequence;
+    values_.lastValues[key] = LastValue(sequence, static_cast<unsigned long>(timestamp), numeric);
+    values_.sequence = sequence; return true;
 }
 
 bool SensorHistory::readValuesJson(const std::string& deviceId, unsigned long before,
                                    std::string* json, std::string* error, ReadStats* stats) const {
-    if (!plainText(deviceId, 64, false)) { *error = "invalid device ID"; return false; }
+    if (!plainText(deviceId, 64, false)) { if (error) *error = "invalid device ID"; return false; }
     if (!values_.initialized && !const_cast<SensorHistory*>(this)->initializeValues(error)) return false;
-    std::vector<ValueCompactRecord> selected;
     pthread_mutex_lock(&values_.mutex);
-    if (!values_.initialized) {
-        pthread_mutex_unlock(&values_.mutex);
-        *error = "source-neutral history catalog is unavailable";
-        return false;
-    }
-    for (unsigned char metric = Temperature; metric <= Brightness; ++metric) {
-        const std::string key = valuePairKey(deviceId, metric);
-        std::map<std::string, std::vector<ValueRecord> >::const_iterator found = values_.records.find(key);
-        if (found == values_.records.end()) continue;
-        for (unsigned long i = 0; i < found->second.size(); ++i) {
-            if (before != 0 && found->second[i].sequence >= before) continue;
-            ValueCompactRecord sample = {key, found->second[i].sequence, found->second[i].offset};
-            selected.push_back(sample);
-        }
-    }
-    std::sort(selected.begin(), selected.end(), olderValueRecord);
-    bool more = selected.size() > valuePageLimit;
-    if (more) selected.erase(selected.begin(), selected.end() - valuePageLimit);
+    if (!values_.initialized) { pthread_mutex_unlock(&values_.mutex); if (error) *error = "paged history catalog is unavailable"; return false; }
+    std::vector<ValueRecord> selected; std::set<unsigned int> selectedPages;
     int fd = open(values_.path.c_str(), O_RDONLY);
-    if (fd < 0) {
-        pthread_mutex_unlock(&values_.mutex);
-        *error = "cannot read source-neutral history";
-        return false;
-    }
-    unsigned char header[valueHeaderBytes];
-    struct stat info;
-    if (fstat(fd, &info) != 0 || pread(fd, header, sizeof(header), 0) != valueHeaderBytes ||
-        !valueFileHeaderValid(header)) {
-        close(fd);
-        pthread_mutex_unlock(&values_.mutex);
-        *error = "invalid source-neutral history file";
-        return false;
-    }
-    std::ostringstream output;
-    output << "{\"samples\":[";
-    bool first = true;
-    for (unsigned long i = 0; i < selected.size(); ++i) {
-        unsigned char record[valueRecordBytes];
-        if (pread(fd, record, sizeof(record), selected[i].offset) != static_cast<ssize_t>(sizeof(record))) continue;
-        std::string savedId, value, unit;
-        unsigned char metric = 0;
-        unsigned long sequence = 0;
-        long timestamp = 0;
-        if (!parseValueRecord(record, &savedId, &metric, &value, &unit, &sequence, &timestamp) ||
-            savedId != deviceId || sequence != selected[i].sequence) continue;
-        if (stats) { ++stats->recordsChecked; stats->bytesRead += valueRecordBytes; }
-        if (stats) ++stats->pagesRead;
-        if (!first) output << ',';
-        first = false;
-        output << '[' << sequence << ',' << timestamp << ',' << static_cast<unsigned int>(metric) << ',';
-        if (metric == AirQuality) output << jsonString(value); else output << value;
-        output << ',' << jsonString(unit) << ']';
-    }
-    output << "],\"next_before\":" << (more && !selected.empty() ? selected.front().sequence : 0) << '}';
-    *json = output.str();
-    close(fd);
-    pthread_mutex_unlock(&values_.mutex);
-    return true;
-}
-
-bool SensorHistory::readForDevice(const std::string& address, unsigned long before,
-        std::string* json, std::string* error, ReadStats* stats) const {
-    const std::string::size_type separator = address.find(':');
-    if (separator == std::string::npos) {
-        if (address.size() != 18 || address[0] != '0' || address[1] != 'x') {
-            if (error) *error = "invalid device address";
-            return false;
-        }
-        for (unsigned long i = 2; i < address.size(); ++i) {
-            const char value = address[i];
-            if (!((value >= '0' && value <= '9') || (value >= 'a' && value <= 'f') || (value >= 'A' && value <= 'F'))) {
-                if (error) *error = "invalid device address";
-                return false;
+    if (fd < 0) { pthread_mutex_unlock(&values_.mutex); if (error) *error = "cannot read paged history"; return false; }
+    for (unsigned char metric = 1; metric <= maximumMetric; ++metric) {
+        std::string key = pairKey(deviceId, metric);
+        std::map<std::string, std::vector<unsigned int> >::const_iterator found = values_.pairPages.find(key);
+        if (found == values_.pairPages.end()) continue;
+        for (unsigned long p = 0; p < found->second.size(); ++p) {
+            const unsigned int pageIndex = found->second[p]; selectedPages.insert(pageIndex);
+            const Page& page = values_.pages[pageIndex];
+            unsigned char pageData[pageBytes];
+            off_t base = fileHeaderBytes + static_cast<off_t>(pageIndex) * pageBytes;
+            if (pread(fd, pageData, sizeof(pageData), base) != static_cast<ssize_t>(sizeof(pageData))) continue;
+            std::string owner; unsigned char ownerMetric = 0; uint32_t generation = 0;
+            if (!pageHeaderValid(pageData, &owner, &ownerMetric, &generation) || owner != deviceId || ownerMetric != metric) continue;
+            for (unsigned int i = 0; i < page.recordCount; ++i) {
+                unsigned char* rec = pageData + pageHeaderBytes + i * recordBytes;
+                if (rec[12] != recordCrc(pageData, rec)) continue;
+                uint32_t seq = get32(rec); if (seq == 0 || (before != 0 && seq >= before)) continue;
+                ValueRecord sample(seq, base + pageHeaderBytes + static_cast<off_t>(i) * recordBytes, metric);
+                if (selected.size() < apiPageLimit + 1) {
+                    selected.push_back(sample);
+                    std::push_heap(selected.begin(), selected.end(), newerRecord);
+                } else if (seq > selected.front().sequence) {
+                    std::pop_heap(selected.begin(), selected.end(), newerRecord);
+                    selected.back() = sample;
+                    std::push_heap(selected.begin(), selected.end(), newerRecord);
+                }
             }
         }
     }
-    const std::string deviceId = separator == std::string::npos ? "zigbee:" + address : address;
-    return readValuesJson(deviceId, before, json, error, stats);
+    bool more = selected.size() > apiPageLimit;
+    if (more) {
+        std::pop_heap(selected.begin(), selected.end(), newerRecord);
+        selected.pop_back();
+    }
+    std::sort(selected.begin(), selected.end(), olderRecord);
+    std::ostringstream out; out << "{\"samples\":["; bool first = true;
+    for (unsigned long i = 0; i < selected.size(); ++i) {
+        unsigned char rec[recordBytes];
+        if (pread(fd, rec, sizeof(rec), selected[i].offset) != static_cast<ssize_t>(sizeof(rec))) continue;
+        uint32_t seq = get32(rec), timestamp = get32(rec + 4); float value = decodeFloat(rec + 8);
+        if (seq != selected[i].sequence || !std::isfinite(value)) continue;
+        std::string valueStr = selected[i].metric == AirQuality ? qualityText(value) : numberText(value);
+        if (valueStr.empty()) continue;
+        if (stats) { ++stats->recordsChecked; stats->bytesRead += recordBytes; }
+        if (!first) out << ',';
+        first = false;
+        out << '[' << seq << ',' << timestamp << ',' << static_cast<unsigned int>(selected[i].metric) << ',';
+        if (selected[i].metric == AirQuality) out << jsonString(valueStr); else out << valueStr;
+        out << ',' << jsonString(unitForMetric(selected[i].metric)) << ']';
+    }
+    out << "],\"next_before\":" << (more && !selected.empty() ? selected.front().sequence : 0) << '}';
+    *json = out.str(); close(fd);
+    if (stats) stats->pagesRead += selectedPages.size();
+    pthread_mutex_unlock(&values_.mutex); return true;
 }
 
-bool SensorHistory::readJson(const std::string& path, const std::string& address,
-        unsigned long before, std::string* json, std::string* error, ReadStats* stats) {
-    SensorHistory reader(path);
-    if (!reader.initialize(error)) return false;
-    return reader.readForDevice(address, before, json, error, stats);
+bool SensorHistory::readForDevice(const std::string& address, unsigned long before,
+                                  std::string* json, std::string* error, ReadStats* stats) const {
+    const std::string::size_type separator = address.find(':');
+    if (separator == std::string::npos) {
+        if (address.size() != 18 || address[0] != '0' || address[1] != 'x') { if (error) *error = "invalid device address"; return false; }
+        for (unsigned long i = 2; i < address.size(); ++i) {
+            char c = address[i]; if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) { if (error) *error = "invalid device address"; return false; }
+        }
+    }
+    return readValuesJson(separator == std::string::npos ? "zigbee:" + address : address, before, json, error, stats);
+}
+bool SensorHistory::readJson(const std::string& path, const std::string& address, unsigned long before,
+                             std::string* json, std::string* error, ReadStats* stats) {
+    SensorHistory reader(path); if (!reader.initialize(error)) return false; return reader.readForDevice(address, before, json, error, stats);
 }

@@ -29,6 +29,14 @@ export const sensorMetrics: SensorMetric[] = [
   { id: 9, name: 'Air quality', unit: '', scale: 1, color: '#368578', available: d => d.has_air_quality },
   { id: 10, name: 'Light', unit: '', scale: 1, color: '#d2a635', available: d => d.has_light || d.has_actor },
   { id: 11, name: 'Brightness', unit: '%', scale: 1, color: '#427fb0', available: d => d.has_brightness },
+  { id: 12, name: 'CO₂ mass concentration', unit: 'ug/m3', scale: 1, color: '#ad74a8', available: d => d.has_co2 },
+  { id: 13, name: 'CO₂ particle concentration', unit: 'particles/m3', scale: 1, color: '#865c91', available: d => d.has_co2 },
+  { id: 14, name: 'CO₂ activity concentration', unit: 'Bq/m3', scale: 1, color: '#774c81', available: d => d.has_co2 },
+  { id: 15, name: 'CO₂ attenuation', unit: 'dB/m', scale: 1, color: '#674170', available: d => d.has_co2 },
+  { id: 16, name: 'PM2.5 (ppm)', unit: 'ppm', scale: 1, color: '#8295a6', available: d => d.has_pm25 },
+  { id: 17, name: 'PM2.5 particle concentration', unit: 'particles/m3', scale: 1, color: '#667b91', available: d => d.has_pm25 },
+  { id: 18, name: 'PM2.5 activity concentration', unit: 'Bq/m3', scale: 1, color: '#536981', available: d => d.has_pm25 },
+  { id: 19, name: 'PM2.5 attenuation', unit: 'dB/m', scale: 1, color: '#445a72', available: d => d.has_pm25 },
 ]
 const rangeSeconds = { day: 86400, week: 604800, all: Infinity }
 ChartJS.register(LineController, LineElement, LinearScale, PointElement, Tooltip)

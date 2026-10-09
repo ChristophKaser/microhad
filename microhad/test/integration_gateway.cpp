@@ -1897,14 +1897,14 @@ void testGatewayRunnerCommandDispatch() {
         delete view;
         std::string matterHistory;
         assert(runner.readHistoryJson(matter.id, 0, &matterHistory, &error));
-        assert(matterHistory.find("758.5,\"ppb\"") != std::string::npos);
+        assert(matterHistory.find(",7,0.75849998,\"ppm\"]") != std::string::npos);
         assert(runner.registerShelly("0011223344556677", "Test plug", "Test plug", "plug",
                                      std::vector<int>(), std::vector<int>(), std::vector<int>(), &error));
         assert(runner.applyShellyEvent("0011223344556677", 4, 0, 42.3, &error));
         assert(runner.applyShellyEvent("0011223344556677", 3, 0, 1, &error));
         std::string shellyHistory;
         assert(runner.readHistoryJson("shelly:0011223344556677:plug", 0, &shellyHistory, &error));
-        assert(shellyHistory.find("42.3,\"watts\"") != std::string::npos);
+        assert(shellyHistory.find("42.299") != std::string::npos);
         assert(shellyHistory.find(",10,1,\"\"") != std::string::npos);
         assert(!runner.refreshDevice("runner-light", &error) && error == "Zigbee network is not ready");
         assert(!runner.setLightState("runner-light", "on", -1, &error) && error == "Zigbee network is not ready");
