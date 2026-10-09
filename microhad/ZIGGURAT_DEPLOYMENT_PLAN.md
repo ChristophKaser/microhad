@@ -102,8 +102,9 @@ BUILD_JOBS=4 bash firmware/scripts/build-hdlc-firmware.sh
 ZIGGURAT_MULTIPAN=1 bash ziggurat/scripts/build.sh
 ```
 
-The experiment README lists the pinned Rust, RSDK, GSDK, ARM compiler and SLC
-prerequisites. The migration venv pins Bellows, zigpy and the flasher as described
+The [build guide](../docs/building.md) lists the pinned Rust, GSDK, ARM compiler
+and SLC prerequisites. [Toolchain selection](../config/TOOLCHAINS.md) covers RSDK
+and experimental crosstool-NG; deployment examples here use default RSDK paths. The migration venv pins Bellows, zigpy and the flasher as described
 in [NETWORK_MIGRATION.md](NETWORK_MIGRATION.md).
 
 Completed recovery components:

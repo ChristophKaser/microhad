@@ -48,12 +48,42 @@ git submodule sync --recursive
 git submodule update --init --recursive
 ```
 
-## Stock MIPS toolchain
+## Choose the gateway toolchain
+
+Host builds need no MIPS SDK. Gateway builds accept `TOOLCHAIN=rsdk` (the
+production default) or `TOOLCHAIN=crosstool-ng` (experimental, built from source
+without RSDK). Shared defaults live in `config/toolchains.mk`; Make, shell and
+Python build entrypoints use the same selection.
+
+For source-built gateway applications, run from the repository root:
+
+```sh
+cd "$PROJECT_ROOT"
+python3 scripts/build-toolchain.py
+export TOOLCHAIN=crosstool-ng
+```
+
+The compiler builder needs approximately 12 GiB free space, Python 3.11 or later,
+GCC/G++, make, autoconf, automake, libtoolize, flex, bison, gperf, makeinfo,
+rsync, patch, curl and tar. It installs the pinned Lexra/uClibc-ng compiler under
+`tools/lexra-proof`; `CROSSTOOL_NG_ROOT` selects another compatible installation.
+Application builds do not install the compiler automatically.
+
+See [toolchain selection](../config/TOOLCHAINS.md) for prerequisites, isolated
+artifacts, verification and experimental runtime limits. The configuration and
+Lexra patches derive from `jnilo1/rtl8196e-gateway`; see
+[configuration provenance and credits](../config/crosstool-ng/README.md).
+The adapted uClibc-ng/LinuxThreads configuration differs from upstream's musl
+profile. RSDK remains the production default; candidate application compilation
+has been verified, but a complete candidate release has not been validated on
+the gateway. Silicon Labs radio firmware uses its separate ARM tools.
+
+### RSDK setup (default backend only)
 
 Use exactly `rsdk-4.4.7-4181-EB-2.6.30-0.9.30-m32u-140129` beside the
 `embedded-home-automation` checkout. Shared defaults in `config/toolchains.mk`
-point MicroHAD and Ziggurat at this toolchain. Set `RSDK_ROOT="$RSDK"` when
-the toolchain is elsewhere.
+point gateway builds at this toolchain. Set `TOOLCHAIN=rsdk` and
+`RSDK_ROOT="$RSDK"` when the toolchain is elsewhere.
 
 The RSDK archive is **not included or downloaded by these repositories**.
 Obtain the legacy archive from your existing toolchain distribution or the
@@ -70,6 +100,8 @@ echo '63af001fcbebbf32e6235a66efb117d8abd13e088c8161abece7d578b55b56d2  rsdk-4.4
 tar xjf rsdk-4.4.7-4181-EB-2.6.30-0.9.30-m32u-140129.tar.bz2
 export RSDK="$WORKSPACE/rsdk-4.4.7-4181-EB-2.6.30-0.9.30-m32u-140129"
 test -x "$RSDK/bin/mips-linux-g++"
+export TOOLCHAIN=rsdk
+export RSDK_ROOT="$RSDK"
 ```
 
 If an old compiler cannot execute on your host, install the host compatibility
@@ -78,18 +110,11 @@ silently replace it with a modern compiler.
 
 ### What “Lexra compiler” means here
 
-Both applications run on the same big-endian Lexra CPU. Their current build
-paths differ: Rust's LLVM backend generates Ziggurat code using our custom
-MIPS-I/soft-float target, while the stock RSDK compiles native C/C++. Ziggurat
-still uses that RSDK's GCC driver as linker and its uClibc runtime/sysroot; see
-[`make-llvm-target.sh`](../scripts/make-llvm-target.sh). Rust is not a C++ compiler.
-
-Using Clang/LLVM for native C++ may be possible, but needs a separate verified
-build configuration with compatible C++ headers/libraries, ABI, atomics and
-Lexra instruction generation. That path has not been implemented or tested.
-The newer upstream rtl8196e-gateway toolchain targets another Linux environment and is
-also not a verified drop-in replacement. The commands here reproduce the
-existing tested builds; they do not imply RSDK-free compilation of Ziggurat.
+Gateway applications run on the same big-endian Lexra CPU. Rust's LLVM backend
+emits MIPS-I/soft-float code; the selected GCC links it against that toolchain's
+uClibc runtime/sysroot. The selected GCC/G++ compiles native C/C++.
+OpenThread uses Clang 18 with the RSDK linker and headers for `TOOLCHAIN=rsdk`,
+and native GCC/G++ for `TOOLCHAIN=crosstool-ng`.
 
 ## Native service and serial bridge
 
@@ -97,17 +122,26 @@ Host commands:
 
 ```sh
 cd "$PROJECT_ROOT/microhad"
-make RSDK_ROOT="$RSDK" ZIGGURAT=0 host test
-make RSDK_ROOT="$RSDK" ZIGGURAT=0 mips
-make RSDK_ROOT="$RSDK" ZIGGURAT=1 MATTER=0 host test
-make RSDK_ROOT="$RSDK" ZIGGURAT=1 MATTER=0 mips
+make ZIGGURAT=0 host test
+make ZIGGURAT=0 mips
+make ZIGGURAT=1 MATTER=0 host test
+make ZIGGURAT=1 MATTER=0 mips
+make mips                  # default Ziggurat + Matter
 make webui
+```
 
+The optional external serial bridge uses its legacy RSDK recipe (its build
+has not been validated with the candidate compiler):
+
+```sh
 cd "$WORKSPACE/lidl-gateway-freedom/gateway"
 make CC="$RSDK/bin/mips-linux-gcc" build
 ```
 
-Only build the backend you intend to install; both are shown for contributors.
+The MicroHAD commands use the selected `TOOLCHAIN`; its candidate C/C++ builds
+default to `-Os`. Only build the backend you intend to install. RSDK outputs
+remain under `microhad/build/mips*`; candidate outputs are under
+`microhad/build/crosstool-ng/mips*`.
 Bridge output is `lidl-gateway-freedom/gateway/serialgateway`. The bridge's
 `make upload` target contains an old device address: do not use it.
 
@@ -124,10 +158,14 @@ bash firmware/scripts/build-maintenance.sh
 
 Rust is pinned to `nightly-2026-10-02`, with local Cargo/rustup homes. The build
 applies this repository's transport, COBS, migration, stock-Linux and subsequent
-Zigbee fixes in an ignored worktree. It produces:
+Zigbee fixes in an ignored worktree. With the default RSDK selection it produces:
 
 - `build/ziggurat-hdlc/lexra-stock-uclibc/release/ziggurat.stripped`
 - `build/gateway-maintenance`
+
+With `TOOLCHAIN=crosstool-ng`, these become
+`build/crosstool-ng/ziggurat-hdlc/lexra-crosstool-ng-uclibc/release/ziggurat.stripped`
+and `build/crosstool-ng/gateway-maintenance`. Host fixture paths stay unchanged.
 
 Enable the repository's pre-commit patch coverage check once per clone:
 
@@ -145,8 +183,10 @@ UART ownership checks and bootloader/COBS maintenance, not a daily extra daemon.
 
 ## OpenThread MIPS proof build
 
-OpenThread uses a separate Clang 18 C/C++ build with the stock RSDK linker and
-uClibc libraries. It initializes upstream OpenThread v2026.10.0 and its pinned
+OpenThread uses Clang 18 C/C++ with the RSDK linker and uClibc libraries for
+`TOOLCHAIN=rsdk`, or the candidate GCC/G++ and sysroot for
+`TOOLCHAIN=crosstool-ng`. Only the RSDK path needs the Clang/LLVM 18 tools.
+It initializes upstream OpenThread v2026.10.0 and its pinned
 Mbed TLS dependency, then applies the Unix HDLC adapter in an ignored build worktree. It does not
 require the firmware SDK installer or deploy to the gateway.
 
@@ -158,8 +198,10 @@ bash micro-thread-matter-daemon/scripts/build-openthread.sh mips
 
 The host command builds the CLI and runs the real HDLC adapter against a local
 Unix socket. The MIPS command creates `build/openthread-unix/ot-cli-mips` and
-checks ELF architecture, soft-float attributes and static linking. Both commands
-were verified on 2026-10-03. In restricted execution environments, host Unix
+checks ELF architecture, soft-float attributes and static linking. Candidate
+output is `build/crosstool-ng/openthread-unix/ot-cli-mips`. Both toolchain paths
+were compiled locally on 2026-10-09; earlier device proof results used RSDK.
+In restricted execution environments, host Unix
 socket tests and the legacy RSDK linker may require execution outside the sandbox.
 
 The CLI uses OpenThread's internal stack and does not require Linux TUN.
@@ -236,4 +278,6 @@ Build `mthread-matter` with the component scripts in
 for host/MIPS builds, pinned dependencies and synthetic tests, and the
 [integration guide](../microhad/MATTER_INTEGRATION.md) for the paired runtime.
 Native and Rust daemons must use [CBOR IPC v2](../microhad/docs/matter-ipc-v2.md)
-together. Builds do not deploy a release.
+together. `TOOLCHAIN=crosstool-ng` selects the candidate MIPS build and writes
+`build/crosstool-ng/micro-thread-matter-daemon/mthread-matter-mips`; host fixtures
+keep their existing paths. Builds do not deploy a release.

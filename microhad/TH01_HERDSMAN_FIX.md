@@ -93,7 +93,7 @@ make ZIGGURAT=1 mips
 cd ..
 source scripts/rust-env.sh
 CARGO_TARGET_DIR="$PWD/build/host" cargo +nightly-2026-10-02 build \
-  --manifest-path worktrees/ziggurat-hdlc/Cargo.toml -p ziggurat-server
+  --manifest-path worktrees/ziggurat-multipan/Cargo.toml -p ziggurat-server
 python3 ziggurat/scripts/test-fresh-join-replay.py
 python3 ziggurat/scripts/test-hdlc-multipan.py
 python3 ziggurat/scripts/test-cobs-unix.py

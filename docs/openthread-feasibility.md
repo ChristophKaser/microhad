@@ -2,7 +2,11 @@
 
 Current builds use upstream OpenThread v2026.10.0 from the Thread/Matter
 dependency checkout; the results below record the earlier GSDK-based build.
-See [building](building.md) for current commands.
+Current gateway builds support RSDK with Clang 18, or experimental crosstool-NG
+with native GCC/G++. See [building](building.md) and
+[toolchain selection](../config/TOOLCHAINS.md) for current commands and limits.
+The GSDK prerequisites, compiler workarounds and artifact hashes below describe
+the original RSDK proof, not current source setup.
 
 ## Result
 
@@ -58,7 +62,7 @@ bash micro-thread-matter-daemon/scripts/build-openthread.sh host
 bash micro-thread-matter-daemon/scripts/build-openthread.sh mips
 ```
 
-Prerequisites: the already-pinned Silicon Labs SDK, CMake, Python 3, host C++,
+Original proof prerequisites: the already-pinned Silicon Labs SDK, CMake, Python 3, host C++,
 Clang/LLVM 18 (`clang-18`, `clang++-18`, `llvm-ar-18`, `llvm-strip-18`), and the
 sibling stock RSDK. The script checks SDK commit
 `90fc93e1f95a10c981f0e49ca6787192e82fd8f2` and copies OpenThread into an ignored
@@ -227,7 +231,7 @@ python3 micro-thread-matter-daemon/scripts/test-openthread-device.py --host 192.
   --password-file ../ssh_password.txt
 ```
 
-The relay build uses the stock RSDK for MIPS. The test runner requires Python 3,
+The relay build uses the selected gateway compiler for MIPS (RSDK by default). The test runner requires Python 3,
 `sshpass`, the password file by pathname, and a reachable simulator host IPv4
 address. Without `--host` it tests only local executables/sockets. Neither mode
 reads production keys, device configuration or coordinator state.

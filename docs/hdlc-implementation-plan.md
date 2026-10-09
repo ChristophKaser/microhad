@@ -134,8 +134,10 @@ sudo apt-get install git git-lfs curl ca-certificates tar xz-utils \
 ```
 
 `firmware/scripts/silabs-env.sh` selects `/usr/lib/jvm/java-17-openjdk-amd64/bin`.
-Adjust that path on a different distribution. Rust and the MIPS RSDK are
-needed for Ziggurat builds, but are not required for this ARM firmware build.
+Adjust that path on a different distribution. Ziggurat needs Rust and a
+selected gateway toolchain (RSDK or experimental crosstool-NG); see
+[toolchain selection](../config/TOOLCHAINS.md). Neither is required for this ARM
+firmware build.
 The installer supplies pinned **GSDK 4.5.0**, **SLC 5.6.3** and
 **ARM GCC 12.2.rel1** under ignored `tools/silabs/`.
 

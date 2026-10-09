@@ -29,12 +29,18 @@ uses its WebSocket API. Both are covered in the shared guide.
 
 ## Build and deploy
 
-An x86_64 Linux host needs the stock RSDK MIPS toolchain, CMake and a C/C++
-compiler; building the dashboard also needs Node.js/npm. Shared compiler
+An x86_64 Linux host needs CMake and a host C/C++ compiler; building the
+dashboard also needs Node.js/npm. Gateway builds use RSDK (the production
+default) or experimental source-built crosstool-NG; host builds need neither SDK.
+Shared compiler
 settings are in `../config/toolchains.mk`; see [build setup](../docs/building.md).
 
 From this directory, the RSDK is discovered from the shared toolchain
-configuration. Set `RSDK_ROOT` to override it:
+configuration. Set `RSDK_ROOT` to override it. After building the candidate
+with `python3 scripts/build-toolchain.py` from the repository root, use
+`make TOOLCHAIN=crosstool-ng mips` instead. `CROSSTOOL_NG_ROOT` overrides its
+installation. See [toolchain selection](../config/TOOLCHAINS.md) for source
+credits and experimental limits. Candidate MicroHAD builds default to `-Os`.
 
 ```sh
 make ZIGGURAT=0 host test
@@ -78,7 +84,9 @@ Matter off. `MATTER=1` requires `ZIGGURAT=1`.
 
 Outputs are `build/mips-ziggurat-matter/microhad` by default,
 `build/mips-ziggurat/microhad` for `ZIGGURAT=1 MATTER=0`, and
-`build/mips/microhad` for `ZIGGURAT=0`. The deployment script
+`build/mips/microhad` for `ZIGGURAT=0`. Candidate builds insert `crosstool-ng/`
+below `build/`, such as `build/crosstool-ng/mips-ziggurat-matter/microhad`.
+The deployment script
 defaults to the Matter-capable output; `--binary` selects another build. It
 installs the executable at `/tuya/native/microhad` and updates the launcher.
 

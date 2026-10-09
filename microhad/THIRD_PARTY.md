@@ -4,6 +4,8 @@
 `bfe79030a92329ab68b0a1f1ad572cdf9a03216d` from the copy already supplied
 with this workspace. It is licensed under Apache-2.0.
 
-The project builds its libraries from source with the RSDK in `make mips`.
+The project builds its libraries from source with the selected gateway
+toolchain in `make mips`: RSDK by default, or experimental crosstool-NG via
+`TOOLCHAIN=crosstool-ng`. See [toolchain selection](../config/TOOLCHAINS.md).
 Generated objects and archives are ignored; no host-built cryptographic object
 is shipped or linked into the MIPS binary.

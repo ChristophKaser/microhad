@@ -129,11 +129,12 @@ and profiling overhead during normal operation.
 
 `tools/gateway_cpu_sampler.c` samples the program counter of one running task
 without restarting the gateway. Build it with the same MIPS toolchain used for
-the gateway:
+the gateway. Run from `microhad/`; set `TOOLCHAIN=crosstool-ng` before sourcing
+for the candidate compiler, or leave the default RSDK selection:
 
 ```sh
-export RSDK_ROOT=../rsdk-4.4.7-4181-EB-2.6.30-0.9.30-m32u-140129
-"$RSDK_ROOT/bin/mips-linux-gcc" -O2 -static \
+source ../scripts/toolchains.sh
+"$TARGET_CC" -Os -static \
   -o /tmp/gateway_cpu_sampler tools/gateway_cpu_sampler.c
 ```
 

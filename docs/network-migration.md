@@ -77,7 +77,8 @@ are never overwritten. Transient exports do not write the `/tuya` flash volume.
 
 ## Prerequisites
 
-The native C++03 implementation needs the prescribed RSDK, with mandatory
+The native C++03 implementation supports RSDK (default) and experimental
+crosstool-NG; see [toolchain selection](../config/TOOLCHAINS.md). Verification requires
 `make host test` and `make mips`. Host integration tests bind localhost sockets.
 Host backup/migration tools need Python 3, `sshpass`, SSH, Git, and these pinned
 Python dependencies in an isolated venv:

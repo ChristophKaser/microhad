@@ -41,8 +41,12 @@ make ZIGGURAT=1 mips
 Legacy outputs remain `build/host` and `build/mips`; Ziggurat without Matter
 uses `build/host-ziggurat` and `build/mips-ziggurat`. Default Matter-capable
 outputs use `build/host-ziggurat-matter` and `build/mips-ziggurat-matter`. No
-executable is deployed by make. The native project requires its stock RSDK and
-C++03. The production gateway runs the Matter-capable Ziggurat build.
+executable is deployed by make. The production gateway runs the Matter-capable
+Ziggurat build.
+
+Native C++03 builds support RSDK (default) and experimental crosstool-NG.
+`make TOOLCHAIN=crosstool-ng mips` writes under `build/crosstool-ng/`; see
+[toolchain selection](../config/TOOLCHAINS.md). Host builds need neither SDK.
 
 ## Local API and configuration
 
@@ -188,15 +192,15 @@ The peer asserts that Configure never precedes the durable state commit.
 Actual-stack scenarios cover cold load, joining, freeze/save, frozen restart,
 native SIGKILL with a running stack, and cold recovery after Ziggurat restarts.
 
-Build the patched server in the sibling experiment checkout using its documented
-Rust and stock-RSDK prerequisites:
+From `microhad/`, build the patched server using the documented
+Rust and selected MIPS toolchain prerequisites in [build setup](../docs/building.md):
 
 ```sh
 cd ..
 ZIGGURAT_MULTIPAN=1 bash ziggurat/scripts/build.sh
 source scripts/rust-env.sh
 CARGO_TARGET_DIR="$PWD/build/host" cargo +nightly-2026-10-02 build \
-  --manifest-path worktrees/ziggurat-hdlc/Cargo.toml -p ziggurat-server
+  --manifest-path worktrees/ziggurat-multipan/Cargo.toml -p ziggurat-server
 python3 ziggurat/scripts/test-cobs-unix.py
 cd microhad
 python3 scripts/test_ziggurat_service.py

@@ -115,8 +115,9 @@ remains open as described under [validation and current limits](#validation-and-
 
 ## Build
 
-Use an x86_64 Linux development host. The stock RSDK toolchain must be supplied
-separately; shared compiler defaults live in `config/toolchains.mk`.
+Use an x86_64 Linux development host. Gateway builds support RSDK (the
+production default) or experimental crosstool-NG built from source without RSDK;
+host builds need neither SDK. Shared defaults live in `config/toolchains.mk`.
 See [build setup](docs/building.md) for prerequisites and firmware tooling.
 From the repository root:
 
@@ -129,6 +130,13 @@ bash micro-thread-matter-daemon/scripts/build.sh mips service
 bash firmware/scripts/build-maintenance.sh
 bash microhad/scripts/build-logread.sh
 ```
+
+To build without RSDK, first run `python3 scripts/build-toolchain.py`, then
+select `TOOLCHAIN=crosstool-ng` for the target commands above (for example,
+`make -C microhad TOOLCHAIN=crosstool-ng mips`). Candidate artifacts use separate
+`build/crosstool-ng/` directories. See [toolchain selection](config/TOOLCHAINS.md)
+for commands, source credits and compatibility limits. Deployment defaults
+continue to select RSDK artifacts.
 
 MicroHAD defaults to `ZIGGURAT=1 MATTER=1`. An EZSP-only setup remains available
 with `ZIGGURAT=0`; `ZIGGURAT=1 MATTER=0` builds Zigbee without Matter.

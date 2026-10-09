@@ -1,7 +1,10 @@
 # Build reference and experiment history
 
 > Historical experiment record. Superseded probes and dependencies have been
-> removed; use [building.md](building.md) for current commands.
+> removed; use [building.md](building.md) for current commands. Gateway builds
+> now support RSDK and experimental source-built crosstool-NG; see
+> [toolchain selection](../config/TOOLCHAINS.md). RSDK requirements and future
+> compiler proposals below describe their historical checkpoint.
 
 This is the archived build reference and chronological investigation log.
 Statements such as “not flashed” describe their historical checkpoint, not
@@ -118,7 +121,7 @@ Sharing an OpenThread RCP firmware image between alternative Zigbee and Thread
 uses does not establish simultaneous operation. We must investigate multi-PAN
 firmware, multiplexed radio access, reset ownership, channel constraints and
 coexistence. The pinned gateway project's
-[radio-mode guide](../rtl8196e-gateway/docs/radio-options.md) describes experimental
+[radio-mode guide](../firmware/dependencies/rtl8196e-gateway/docs/radio-options.md) describes experimental
 same-channel Zigbee + Thread on this Series-1 radio through a separate CPC
 multi-PAN path. That path uses `zigbeed`; Ziggurat is not a drop-in replacement.
 The pinned upstream Ziggurat client uses interface ID 0. This experiment now
@@ -551,7 +554,7 @@ not maintain prompt beacon replies. Completion latencies include client SSH
 forwarding; beacon reply times run from host injection to observation of the
 outgoing beacon at the simulated RCP. Neither is an over-the-air measurement.
 
-The pinned driver's [beacon handler](../ziggurat/crates/ziggurat-driver/src/zigbee_stack/mac.rs)
+The pinned driver's [beacon handler](../ziggurat/dependencies/ziggurat/crates/ziggurat-driver/src/zigbee_stack/mac.rs)
 assigns background priority to beacon replies when joins are closed, as in
 this test. Its documented intent is to keep unexpected beacon requests from
 competing with normal traffic. That supports a reply-priority explanation for
@@ -599,7 +602,7 @@ No modern toolchain build or system-wide installation is required.
 Applied changes and build choices:
 
 - Apply the pinned gateway project's
-  [TCP transport patch](../rtl8196e-gateway/2-Zigbee-Radio-Silabs-EFR32/25-RCP-UART-HW/cpcd/tcp-bus.patch),
+  [TCP transport patch](../firmware/dependencies/rtl8196e-gateway/2-Zigbee-Radio-Silabs-EFR32/25-RCP-UART-HW/cpcd/tcp-bus.patch),
   allowing a host test peer instead of any physical UART or SPI device.
 - Disable CPC encryption for this test, matching that project's RCP security
   setting; encrypted CPC and MbedTLS cross-linking are not validated here.

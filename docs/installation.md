@@ -37,9 +37,12 @@ and a **3.3 V TTL USB-to-UART adapter**. Connect only GND, TX and RX. Do not
 connect the adapter's VCC, use 5 V logic or a PC RS-232 port. Keep serial-console
 access until SSH and your selected boot launcher work.
 
-Follow [build setup](building.md) to obtain the source checkouts, stock RSDK,
-serial bridge and the binaries needed for your chosen mode. The RSDK is a
-separately acquired artifact; neither repository supplies a verified download.
+Follow [build setup](building.md) to obtain the source checkouts and binaries
+needed for your chosen mode. Gateway application builds support separately
+acquired RSDK (the production default) or source-built experimental crosstool-NG.
+The external serial bridge still uses its documented RSDK recipe. Deployment
+examples below use RSDK artifact paths; candidate builds require explicit paths
+and the compatibility checks in [toolchain selection](../config/TOOLCHAINS.md).
 For UART tools on the host:
 
 ```sh
@@ -60,8 +63,9 @@ export PASSWORD_FILE="$PRIVATE_DIR/ssh-password.txt"
 export CONFIG_FILE="$PRIVATE_DIR/native-config.json"
 ```
 
-`WORKSPACE`, `PROJECT_ROOT`, `RSDK`, `MIGRATION_PYTHON`, `NCP_IMAGE` and `RCP_IMAGE` come from
-[build setup](building.md). Only Ziggurat modes need `RCP_IMAGE` built.
+`WORKSPACE`, `PROJECT_ROOT`, `MIGRATION_PYTHON`, `NCP_IMAGE` and `RCP_IMAGE` come from
+[build setup](building.md); `RSDK` is needed only for the RSDK setup/serial bridge.
+Only Ziggurat modes need `RCP_IMAGE` built.
 Store all credentials and backups outside Git. The address above is an example;
 this guide does not use the development gateway's address.
 

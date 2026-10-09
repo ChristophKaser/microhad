@@ -54,7 +54,7 @@ The radio implementation still links the precompiled MG1 RAIL archive. See
 
 `ziggurat/patches/ziggurat-hdlc-multipan.patch` begins an ordered mailbox series against
 the pinned Ziggurat revision. The build script applies each mailbox with
-`git am` in `worktrees/ziggurat-hdlc`; it leaves the upstream checkout untouched.
+`git am` in `worktrees/ziggurat-multipan`; it leaves the upstream checkout untouched.
 Stock and multipan builds use separate compatibility and syslog mailboxes where
 their source context differs.
 
@@ -63,19 +63,22 @@ ZIGGURAT_MULTIPAN=1 bash ziggurat/scripts/build.sh
 bash ziggurat/scripts/build-hdlc-probe.sh
 ```
 
-The MIPS output is `build/ziggurat-hdlc/lexra-stock-uclibc/release/ziggurat`;
+The default RSDK MIPS output is `build/ziggurat-hdlc/lexra-stock-uclibc/release/ziggurat`;
 the build also creates `ziggurat.stripped` for bounded device tests.
-The default build without `ZIGGURAT_MULTIPAN=1` retains the single-PAN baseline
-worktree/output. The HDLC build uses `worktrees/ziggurat-hdlc`.
+Multipan is the default. Set `ZIGGURAT_MULTIPAN=0` for the single-PAN baseline.
+The HDLC build uses `worktrees/ziggurat-multipan`. `TOOLCHAIN=crosstool-ng`
+selects the candidate and writes
+`build/crosstool-ng/ziggurat-hdlc/lexra-crosstool-ng-uclibc/release/ziggurat`; see
+[toolchain selection](../config/TOOLCHAINS.md).
 
 To run the tests on the build computer after the worktree has been prepared:
 
 ```sh
 source scripts/rust-env.sh
 CARGO_TARGET_DIR="$experiment_root/build/host" cargo test --offline \
-  --manifest-path worktrees/ziggurat-hdlc/Cargo.toml -p ziggurat-spinel
+  --manifest-path worktrees/ziggurat-multipan/Cargo.toml -p ziggurat-spinel
 CARGO_TARGET_DIR="$experiment_root/build/host" cargo build --offline \
-  --manifest-path worktrees/ziggurat-hdlc/Cargo.toml -p ziggurat-server
+  --manifest-path worktrees/ziggurat-multipan/Cargo.toml -p ziggurat-server
 python3 ziggurat/scripts/test-simulate-rcp.py
 python3 ziggurat/scripts/test-hdlc-multipan.py
 ```
