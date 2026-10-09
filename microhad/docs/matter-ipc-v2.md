@@ -53,6 +53,10 @@ MicroHAD builds TinyCBOR v0.6.0 as C99 from its pinned Git submodule at
 `microhad/dependencies/tinycbor`. Rust uses Ciborium 0.2.2, preceded by a bounded
 structural scan. Initialize dependencies with `git submodule update --init`.
 
+TinyCBOR C compilation includes `matter_cbor_platform.h`, which supplies endian
+macros from libc for the factory GCC 4.4 toolchain. This keeps multi-byte integers
+and floating-point values in CBOR network byte order on the big-endian target.
+
 `protocol/matter-wire-shapes.json` is the shared field/conversion table.
 `scripts/generate-matter-wire-shapes.py` generates the native and Rust lookups.
 `scripts/generate-matter-wire-vectors.py` generates shared interoperability and
@@ -94,11 +98,14 @@ worker fixtures, CASE/report integration, deployment mocks, and supervisor
 recovery with both a stand-in and the real native worker. Retry exhaustion was
 also checked. Production binaries exclude the test-only report hook.
 
-The stripped MIPS artifacts measured 1,788,728 bytes for MicroHAD and 2,403,924
+The stripped MIPS artifacts measured 1,788,088 bytes for MicroHAD and 2,403,924
 bytes for Matter.
-These are local build measurements; target runtime memory was not measured.
+These are local build measurements.
 The standalone host codec/vector probe reported a 4,244 KiB process high-water
 mark, including its runtime and test harness.
+The standalone factory MIPS codec probe passes the shared decode vectors and
+an exact encoded status-frame check. Its sampled process high-water mark is
+492 KiB; this does not measure the complete gateway/service workload.
 
 Representative complete frames, including their length prefix:
 
@@ -111,5 +118,4 @@ Representative complete frames, including their length prefix:
 | Correlated failure | 68 |
 | Measurement event | 192 |
 
-The shared vectors reproduce these CBOR sizes. No gateway was accessed or
-deployed during this validation.
+The shared vectors reproduce these CBOR sizes.

@@ -28,8 +28,14 @@ def main():
     with tempfile.TemporaryDirectory(prefix='matter-ipc-codec-') as directory:
         directory = Path(directory)
         driver = directory / 'driver.cpp'
-        driver.write_text('#include <cstdio>\n#include <fstream>\n#include <string>\nvoid runMatterProtocolUnitTests();\n'
-                          'int main() { runMatterProtocolUnitTests(); puts("PASS Matter IPC codec"); '
+        status_vector = json.loads((ROOT.parent/'protocol/matter-wire-vectors.json').read_text())[0]
+        status_bytes = ','.join(str(v) for v in bytes.fromhex(status_vector['wire']))
+        driver.write_text('#include <cstdio>\n#include <fstream>\n#include <string>\n#include <cassert>\n#include "matter_protocol.h"\nvoid runMatterProtocolUnitTests();\n'
+                          'void checkStatusEncoding() { MatterWire::Frame frame; frame.opcode=1; frame.id=1; '
+                          'MatterWire::Bytes bytes; assert(MatterWire::encode(frame, &bytes)); '
+                          'const unsigned char expected[]={' + status_bytes + '}; '
+                          'assert(bytes==MatterWire::Bytes(expected, expected+sizeof(expected))); }\n'
+                          'int main() { checkStatusEncoding(); runMatterProtocolUnitTests(); puts("PASS Matter IPC codec"); '
                           'std::ifstream status("/proc/self/status"); std::string line; '
                           'while (std::getline(status, line)) if (line.compare(0, 6, "VmHWM:")==0) puts(line.c_str()); return 0; }\n')
         sources = [str(driver), str(ROOT / 'src/matter_protocol.cpp'), str(ROOT / 'src/matter_cbor.cpp'), str(ROOT / 'src/json_util.cpp'), str(ROOT / 'test/unit_matter_protocol.cpp')]
@@ -38,7 +44,7 @@ def main():
             objects=[]
             for name in cbor_names:
                 output=directory/(name+suffix+'.o')
-                subprocess.run([compiler, '-std=gnu99', '-O2', '-I'+str(ROOT/'dependencies/tinycbor/src'), '-c', str(ROOT/'dependencies/tinycbor/src'/ (name+'.c')), '-o', str(output)], check=True)
+                subprocess.run([compiler, '-std=gnu99', '-O2', '-include', str(ROOT/'include/matter_cbor_platform.h'), '-I'+str(ROOT/'dependencies/tinycbor/src'), '-c', str(ROOT/'dependencies/tinycbor/src'/ (name+'.c')), '-o', str(output)], check=True)
                 objects.append(str(output))
             return objects
         host_objects = cbor_objects(TOOLCHAIN['HOST_CC'], '-host')
@@ -58,13 +64,13 @@ def main():
                    '-o', 'StrictHostKeyChecking=yes', '-o', 'HostKeyAlgorithms=+ssh-rsa',
                    '-o', 'PubkeyAcceptedAlgorithms=+ssh-rsa', '-o', 'PreferredAuthentications=password',
                    '-o', 'PubkeyAuthentication=no', 'root@' + args.host]
-            stage = '/tuya/native-test/matter-ipc-' + uuid.uuid4().hex
+            stage = '/tmp/matter-ipc-' + uuid.uuid4().hex
             def remote(command, payload=None):
                 return subprocess.run(ssh + [command], input=payload, stdout=subprocess.PIPE,
                                       stderr=subprocess.STDOUT, check=True, timeout=15).stdout.decode()
             try:
                 payload = target.read_bytes()
-                remote('umask 077; mkdir -p /tuya/native-test; (set -C; cat > ' + stage +
+                remote('umask 077; (set -C; cat > ' + stage +
                        ') && chmod 700 ' + stage, payload)
                 command = f'''ulimit -c 0; ulimit -v 4096
 {stage} &

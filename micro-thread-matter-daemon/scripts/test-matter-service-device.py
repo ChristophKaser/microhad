@@ -38,7 +38,7 @@ def build_ipc_client():
     objects=[]
     for name in ('cborencoder', 'cborparser', 'cborparser_float', 'cborencoder_float'):
         obj=output.parent/(name+'.o')
-        subprocess.run([str(toolchain['TARGET_CC']), '-std=gnu99', '-Os', '-I'+str(native/'dependencies/tinycbor/src'), '-c', str(native/'dependencies/tinycbor/src'/(name+'.c')), '-o', str(obj)], check=True)
+        subprocess.run([str(toolchain['TARGET_CC']), '-std=gnu99', '-Os', '-include', str(native/'include/matter_cbor_platform.h'), '-I'+str(native/'dependencies/tinycbor/src'), '-c', str(native/'dependencies/tinycbor/src'/(name+'.c')), '-o', str(obj)], check=True)
         objects.append(str(obj))
     subprocess.run([str(toolchain['TARGET_CXX']), '-Wall', '-Wextra', '-Werror', '-pedantic',
                     '-Os', '-static', '-I'+str(native/'include'), str(source),
