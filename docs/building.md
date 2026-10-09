@@ -30,9 +30,9 @@ export PROJECT_ROOT="$WORKSPACE/embedded-home-automation"
 git clone https://github.com/banksy-git/lidl-gateway-freedom.git
 ```
 
-The five retained submodules pin upstream Ziggurat, rs-matter,
-rtl8196e-gateway, Gecko SDK and SLC CLI. Each component owns its dependencies;
-Gecko SDK is shared by firmware and the Matter OpenThread adapter.
+The six submodules pin upstream Ziggurat, rs-matter, OpenThread,
+rtl8196e-gateway, Gecko SDK and SLC CLI. Each component owns its dependencies.
+Gecko SDK belongs to firmware; Thread/Matter owns its upstream OpenThread checkout.
 MicroHAD is included in this checkout; no separate native repository is needed.
 
 After updating an existing checkout, synchronize its moved submodules and
@@ -142,8 +142,9 @@ UART ownership checks and bootloader/COBS maintenance, not a daily extra daemon.
 ## OpenThread MIPS proof build
 
 OpenThread uses a separate Clang 18 C/C++ build with the stock RSDK linker and
-uClibc libraries. It reuses the installed GSDK source and applies the Unix HDLC
-adapter in an ignored copy; it does not alter the SDK or deploy to the gateway.
+uClibc libraries. It initializes upstream OpenThread v2026.10.0 and its pinned
+Mbed TLS dependency, then applies the Unix HDLC adapter in an ignored build worktree. It does not
+require the firmware SDK installer or deploy to the gateway.
 
 ```sh
 cd "$PROJECT_ROOT"
@@ -171,11 +172,11 @@ Host commands:
 ```sh
 cd "$PROJECT_ROOT"
 bash firmware/scripts/install-silabs.sh
-git -C shared/dependencies/gecko-sdk lfs install --local
+git -C firmware/dependencies/gecko-sdk lfs install --local
 sdk_lfs_libraries='platform/emdrv/nvm3/lib/libnvm3_CM4_gcc.a'
 sdk_lfs_libraries+=',protocol/openthread/libs/libsl_openthread_efr32mg1x_gcc.a'
 sdk_lfs_libraries+=',platform/radio/rail_lib/autogen/librail_release/librail_efr32xg1_gcc_release.a'
-git -C shared/dependencies/gecko-sdk lfs pull --include="$sdk_lfs_libraries" --exclude=''
+git -C firmware/dependencies/gecko-sdk lfs pull --include="$sdk_lfs_libraries" --exclude=''
 BUILD_JOBS=4 bash firmware/scripts/build-hdlc-firmware.sh
 bash firmware/scripts/install-commander.sh
 bash firmware/scripts/package-hdlc-gbl.sh

@@ -5,7 +5,7 @@ experiment_root=$(cd -- "$(dirname -- "$0")/../.." && pwd)
 tools_dir="$experiment_root/tools/silabs"
 mkdir -p "$tools_dir"
 sdk_revision=90fc93e1f95a10c981f0e49ca6787192e82fd8f2
-git -C "$experiment_root" submodule update --init firmware/dependencies/slc-cli shared/dependencies/gecko-sdk
+git -C "$experiment_root" submodule update --init firmware/dependencies/slc-cli firmware/dependencies/gecko-sdk
 slc_source="$experiment_root/firmware/dependencies/slc-cli"
 slc_worktree="$experiment_root/build/slc-cli"
 slc_revision=$(git -C "$slc_source" rev-parse HEAD)
@@ -27,7 +27,7 @@ if [[ ! -x "$tools_dir/arm-gnu-toolchain-12.2.rel1-x86_64-arm-none-eabi/bin/arm-
     echo "84be93d0f9e96a15addd490b6e237f588c641c8afdf90e7610a628007fc96867  $arm_archive" | sha256sum --check
     tar xf "$arm_archive" -C "$tools_dir"
 fi
-sdk="$experiment_root/shared/dependencies/gecko-sdk"
+sdk="$experiment_root/firmware/dependencies/gecko-sdk"
 [[ $(git -C "$sdk" rev-parse HEAD) == "$sdk_revision" ]]
 git -C "$sdk" sparse-checkout init --cone
 git -C "$sdk" sparse-checkout set protocol/openthread platform \

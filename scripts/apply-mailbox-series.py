@@ -27,9 +27,16 @@ def git(repo: Path, *args: str, capture: bool = False, check: bool = True) -> st
 
 def files(root: Path) -> dict[str, tuple[bytes, int] | str]:
     result: dict[str, tuple[bytes, int] | str] = {}
+    # Gitlinks pin nested checkouts; their files are validated by preparation.
+    entries = subprocess.check_output(
+        ["git", "-C", str(root), "ls-files", "--stage"], text=True
+    ).splitlines()
+    gitlinks = [Path(line.split("\t", 1)[1]) for line in entries if line.startswith("160000 ")]
     for path in root.rglob("*"):
         relative = path.relative_to(root)
-        if relative.parts[0] == ".git" or relative == Path("Cargo.lock"):
+        if ".git" in relative.parts or relative == Path("Cargo.lock") or any(
+            relative == link or link in relative.parents for link in gitlinks
+        ):
             continue
         if path.is_symlink():
             result[relative.as_posix()] = f"symlink:{os.readlink(path)}"

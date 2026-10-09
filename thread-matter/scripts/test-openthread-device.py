@@ -26,14 +26,15 @@ spec.loader.exec_module(sim)
 
 
 class ThreadRcp(sim.Rcp):
-    """Minimal SDK-matched RCP properties; unsupported requests fail explicitly."""
+    """Minimal firmware-compatible RCP properties; unsupported requests fail explicitly."""
     def reset_properties(self):
         super().reset_properties()
         for props in self.interfaces.values():
             props.update({
                 1: sim.packed(4) + sim.packed(3), 8: sim.EUI,
                 2: b"synthetic-openthread-rcp\0",
-                5: b"".join(sim.packed(cap) for cap in (34, 513)),
+                5: b"".join(sim.packed(cap) for cap in (34, 513, 64, 65)),
+                0xb0: sim.packed(11), 0xb1: sim.packed(4),
                 0x120b: sim.packed(109),
                 32: b"\0", 33: b"\x0b", 34: bytes(range(11, 27)),
                 36: struct.pack("b", -75), 37: b"\0", 38: struct.pack("b", -40),
@@ -48,6 +49,7 @@ class ThreadRcp(sim.Rcp):
         command, offset = sim.unpacked(data, 1)
         iid = data[0] >> 4 & 3
         if command == 1:
+            self.counts['command_1'] += 1
             raise RuntimeError("Unexpected reset in no-reset simulation")
         prop, offset = sim.unpacked(data, offset)
         self.requests.append({"command": command, "iid": iid, "property": prop})

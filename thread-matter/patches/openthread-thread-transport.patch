@@ -1,4 +1,4 @@
-From 496af315d700edcde817f607fb505bfd9ed27b87 Mon Sep 17 00:00:00 2001
+From 55a570025c2157f484324f56afcfe14a20309ff8 Mon Sep 17 00:00:00 2001
 From: Christoph Kaser <christoph@caser.de>
 Date: Wed, 7 Oct 2026 16:16:26 +0200
 Subject: [PATCH] openthread: expose the Thread transport library target
@@ -8,12 +8,12 @@ Subject: [PATCH] openthread: expose the Thread transport library target
  1 file changed, 14 insertions(+)
 
 diff --git a/src/posix/CMakeLists.txt b/src/posix/CMakeLists.txt
-index 5bc0987..a133267 100644
+index cbf1cf48c..a8b04bab8 100644
 --- a/src/posix/CMakeLists.txt
 +++ b/src/posix/CMakeLists.txt
 @@ -110,3 +110,17 @@ if(OT_UNIX_ADAPTER_TEST_SOURCE)
      target_include_directories(ot-unix-adapter-test PRIVATE ${PROJECT_SOURCE_DIR}/src ${PROJECT_SOURCE_DIR}/src/core ${PROJECT_SOURCE_DIR}/src/posix/platform)
-     target_link_libraries(ot-unix-adapter-test PRIVATE openthread-posix openthread-ftd openthread-posix)
+     target_link_libraries(ot-unix-adapter-test PRIVATE openthread-posix openthread-ftd openthread-posix ot-config ot-config-ftd)
  endif()
 +
 +if(GATEWAY_OT_TRANSPORT_SOURCE)

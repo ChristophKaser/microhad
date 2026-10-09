@@ -3,7 +3,8 @@
 This repository contains the complete gateway software stack. `microhad/` is
 the native C++03 daemon and Web UI; `ziggurat/`, `thread-matter/` and
 `firmware/` own their respective source, scripts, patches and dependencies.
-Gecko SDK is shared under `shared/dependencies/`; toolchains remain at the root.
+Gecko SDK belongs to firmware under `firmware/dependencies/`; Thread/Matter
+owns its upstream OpenThread checkout. Toolchains remain at the root.
 See [microhad/AGENTS.md](microhad/AGENTS.md) for native daemon, deployment, and
 device-state requirements. Its C++ and Web UI verification rules apply to all
 changes in that component.

@@ -152,11 +152,26 @@ def check_worktree_matches(source: Path, worktree: Path, patches: list[Path], la
     print(f"PASS {label} build worktree matches its patch series")
 
 
+def check_pinned_submodules(repo: Path) -> None:
+    status = run(["git", "-C", str(repo), "submodule", "status", "--recursive"], capture=True)
+    if any(line and line[0] != " " for line in status.splitlines()):
+        raise SystemExit(f"Uninitialized or mismatched nested dependency in {repo}")
+    if run(["git", "-C", str(repo), "status", "--porcelain", "--untracked-files=all"], capture=True).strip():
+        raise SystemExit(f"Modified OpenThread source or nested dependency in {repo}")
+
+
 def tree_files(root: Path) -> dict[str, tuple[bytes, int] | str]:
     result: dict[str, tuple[bytes, int] | str] = {}
+    # Gitlinks pin nested checkouts; their files are validated by preparation.
+    entries = subprocess.check_output(
+        ["git", "-C", str(root), "ls-files", "--stage"], text=True
+    ).splitlines()
+    gitlinks = [Path(line.split("\t", 1)[1]) for line in entries if line.startswith("160000 ")]
     for path in root.rglob("*"):
         relative = path.relative_to(root)
-        if relative.parts[0] == ".git" or relative == Path("Cargo.lock"):
+        if ".git" in relative.parts or relative == Path("Cargo.lock") or any(
+            relative == link or link in relative.parents for link in gitlinks
+        ):
             continue
         if path.is_symlink():
             result[relative.as_posix()] = f"symlink:{os.readlink(path)}"
@@ -217,17 +232,22 @@ def main() -> int:
         "rs-matter commissioning fixture",
     )
 
-    openthread = ROOT / "shared/dependencies/gecko-sdk/util/third_party/openthread"
+    openthread = ROOT / "thread-matter/dependencies/openthread"
     openthread_patches = [
         patch_path("openthread-hdlc-unix.patch"),
         patch_path("openthread-hdlc-test.patch"),
         patch_path("openthread-thread-transport.patch"),
     ]
-    verify_snapshot_series(openthread, openthread_patches, "Gecko SDK OpenThread adapter")
+    revision = (ROOT / "thread-matter/dependencies/openthread.revision").read_text().strip()
+    if run(["git", "-C", str(openthread), "rev-parse", "HEAD"], capture=True).strip() != revision:
+        raise SystemExit("OpenThread checkout differs from its pinned release")
+    check_pinned_submodules(openthread)
+    verify_git_series(openthread, openthread_patches, "Upstream OpenThread adapter")
     openthread_build = ROOT / "build/openthread-unix/source-mailbox"
     if openthread_build.is_dir():
-        check_snapshot_worktree_matches(openthread, openthread_build, openthread_patches,
-                                        "OpenThread build copy")
+        check_pinned_submodules(openthread_build)
+        check_worktree_matches(openthread, openthread_build, openthread_patches,
+                               "OpenThread build copy")
 
     cargo_roots = sorted((ROOT / "tools/cargo/registry/src").glob("*/"))
     for crate in CRATE_PATCHES:

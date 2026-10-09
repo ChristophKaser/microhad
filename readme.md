@@ -135,8 +135,9 @@ Ziggurat WebSocket connection. Those setups use ZHA as the coordinator client.
 Each component owns its source, scripts, patches, tests and dependencies.
 Upstream Ziggurat is pinned under `ziggurat/dependencies/ziggurat`; rs-matter
 under `thread-matter/dependencies/rs-matter`; the firmware dependencies under
-`firmware/dependencies/`. Gecko SDK lives in `shared/dependencies/gecko-sdk`
-because firmware and the Matter OpenThread adapter both consume it.
+`firmware/dependencies/`. Gecko SDK lives in `firmware/dependencies/gecko-sdk`
+for radio firmware. Thread/Matter owns upstream OpenThread v2026.10.0 under
+`thread-matter/dependencies/openthread`, including its pinned Mbed TLS dependency.
 MicroHAD keeps its configured Mbed TLS copy under `microhad/third_party/`.
 
 Root `scripts/`, `config/` and `patches/` contain shared build infrastructure,

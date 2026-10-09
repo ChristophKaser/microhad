@@ -5,7 +5,7 @@
 	path = firmware/dependencies/rtl8196e-gateway
 	url = https://github.com/jnilo1/rtl8196e-gateway.git
 [submodule "gecko-sdk"]
-	path = shared/dependencies/gecko-sdk
+	path = firmware/dependencies/gecko-sdk
 	url = https://github.com/SiliconLabs/gecko_sdk.git
 [submodule "dependencies/rs-matter"]
 	path = thread-matter/dependencies/rs-matter
@@ -13,3 +13,6 @@
 [submodule "dependencies/slc-cli"]
 	path = firmware/dependencies/slc-cli
 	url = https://github.com/SiliconLabsSoftware/circuitpython_slc_cli_linux.git
+[submodule "thread-matter/dependencies/openthread"]
+	path = thread-matter/dependencies/openthread
+	url = https://github.com/openthread/openthread.git

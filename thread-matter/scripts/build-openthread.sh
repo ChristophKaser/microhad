@@ -1,34 +1,14 @@
 #!/usr/bin/env bash
-# SDK-matched OpenThread POSIX proof build; never contacts the gateway.
+# Pinned upstream OpenThread POSIX build; never contacts the gateway.
 set -euo pipefail
 experiment_root=$(cd -- "$(dirname -- "$0")/../.." && pwd)
 cd "$experiment_root"
 source "$experiment_root/scripts/toolchains.sh"
 mode=${1:-mips}
 case "$mode" in host|mips) ;; *) echo 'Usage: build-openthread.sh [host|mips]' >&2; exit 2 ;; esac
-sdk="$experiment_root/shared/dependencies/gecko-sdk"
-expected_sdk=90fc93e1f95a10c981f0e49ca6787192e82fd8f2
-[[ $(git -C "$sdk" rev-parse HEAD) == "$expected_sdk" ]] || {
-    echo 'Expected the project-pinned GSDK 4.5.0 checkout; run install-silabs.sh.' >&2; exit 1;
-}
-source_original="$sdk/util/third_party/openthread"
 output="$experiment_root/build/openthread-unix"
 source_copy="$output/source-mailbox"
-mkdir -p "$output"
-if [[ ! -d "$source_copy" ]]; then
-    cp -a "$source_original/." "$source_copy/"
-    git -C "$source_copy" init --quiet -b mailbox-base
-    git -C "$source_copy" config user.name 'Pinned Gecko SDK source'
-    git -C "$source_copy" config user.email 'gecko-source@localhost'
-    git -C "$source_copy" add -A
-    git -C "$source_copy" commit --quiet -m 'Import pinned Gecko SDK OpenThread source'
-    git -C "$source_copy" tag mailbox-base
-fi
-base_revision=$(git -C "$source_copy" rev-parse refs/tags/mailbox-base)
-python3 scripts/apply-mailbox-series.py "$source_copy" "$base_revision" \
-    "$experiment_root/thread-matter/patches/openthread-hdlc-unix.patch" \
-    "$experiment_root/thread-matter/patches/openthread-hdlc-test.patch" \
-    "$experiment_root/thread-matter/patches/openthread-thread-transport.patch"
+python3 thread-matter/scripts/prepare-openthread.py
 python3 - "$experiment_root" <<'PY'
 import os
 from pathlib import Path

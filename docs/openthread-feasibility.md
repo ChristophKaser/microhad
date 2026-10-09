@@ -1,8 +1,12 @@
 # OpenThread on factory MIPS Linux — 2026-10-03
 
+Current builds use upstream OpenThread v2026.10.0 from the Thread/Matter
+dependency checkout; the results below record the earlier GSDK-based build.
+See [building](building.md) for current commands.
+
 ## Result
 
-The GSDK-matched OpenThread POSIX CLI builds for the gateway using Clang 18
+The original GSDK-matched OpenThread POSIX CLI built for the gateway using Clang 18
 for C/C++ and the existing RSDK 4.4.7 linker, headers and uClibc libraries.
 The Unix HDLC adapter passes host tests and a bounded MIPS device simulation
 including internal IPv6/UDP delivery. This establishes a cross-build and

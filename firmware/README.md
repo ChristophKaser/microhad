@@ -3,8 +3,8 @@
 Rebuild and package the EFR32MG1B232 two-instance HDLC RCP firmware used by
 Ziggurat and Thread/Matter. `dependencies/rtl8196e-gateway/` supplies the pinned
 radio source/configuration and recovery images; `dependencies/slc-cli/` supplies
-the generator. Gecko SDK is shared with Matter under
-`../shared/dependencies/gecko-sdk/`. These upstream pins remain unchanged.
+the generator. Gecko SDK is a firmware dependency under
+`dependencies/gecko-sdk/`. These upstream pins remain unchanged.
 
 From the repository root:
 
