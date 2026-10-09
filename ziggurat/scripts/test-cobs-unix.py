@@ -20,6 +20,10 @@ import urllib.request
 from ziggurat_cobs import Client, encode
 
 ROOT=Path(__file__).resolve().parents[2]
+import sys
+sys.path.insert(0, str(ROOT / "scripts"))
+from toolchain_config import target_path, settings
+
 spec=importlib.util.spec_from_file_location("sim",ROOT/"ziggurat/scripts/simulate-rcp.py")
 sim=importlib.util.module_from_spec(spec);spec.loader.exec_module(sim)
 
@@ -50,8 +54,8 @@ def main():
             if args.host:
                 report["production_before"]=status();assert report["production_before"]["online"] and report["production_before"]["network_formed"]
                 report["production_binary_before"]=remote("md5sum /tuya/native/microhad").split()[0]
-                binary=args.binary or ROOT/"build/ziggurat-hdlc/lexra-stock-uclibc/release/ziggurat.stripped"
-                probe=ROOT/"build/hdlc-unix-probe"
+                binary=args.binary or target_path(ROOT / "build/ziggurat-hdlc") / settings()["TARGET_SPEC_NAME"] / "release/ziggurat.stripped"
+                probe=target_path(ROOT / "build/hdlc-unix-probe")
                 memory=remote("cat /proc/meminfo")
                 available=next(int(line.split()[1]) for line in memory.splitlines() if line.startswith("MemFree:"))
                 upload_kib=(binary.stat().st_size+probe.stat().st_size+1023)//1024

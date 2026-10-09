@@ -3,8 +3,9 @@
 set -eu
 project_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 source "$project_dir/../scripts/toolchains.sh"
-compiler_prefix="$RSDK_ROOT/bin/$TARGET_PREFIX"
-build_dir="$project_dir/build/busybox-1.13.4"
+compiler_prefix="$TARGET_TOOLCHAIN_ROOT/bin/$TARGET_PREFIX"
+build_dir="$project_dir/build/${TARGET_BUILD_SUBDIR}busybox-1.13.4"
+python3 "$project_dir/../scripts/toolchain-build.py" "$build_dir"
 archive="$project_dir/build/busybox-1.13.4.tar.bz2"
 archive_sha256=43ff187937f0bf38b23a926f4215be021c9f937b497912d785a91fbdf180b94b
 source_dir="$build_dir/source"
@@ -48,6 +49,16 @@ text = text.replace("config %config:", "config:\n%config:")
 text = text.replace("/ %/: prepare scripts FORCE", "/: prepare scripts FORCE\n%/: prepare scripts FORCE")
 path.write_text(text)
 PY
+# The logread-only build does not use login accounting. BusyBox's common
+# messages file only needs the wtmp pathname, which paths.h also supplies.
+python3 - "$source_dir/libbb/messages.c" <<'PYMESSAGES'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+text = path.read_text()
+text = text.replace('#include <utmp.h>', '#include <paths.h>')
+path.write_text(text)
+PYMESSAGES
 if [ ! -f "$source_dir/.config" ]; then
     make -s -C "$source_dir" allnoconfig
 fi
@@ -77,9 +88,10 @@ for key, value in values.items():
 path.write_text("\n".join(lines) + "\n")
 PY
 (cd "$source_dir" && yes "" | scripts/kconfig/conf -o Config.in) >/dev/null 2>&1 || true
-make -s -C "$source_dir" CROSS_COMPILE="$compiler_prefix" ARCH=mips busybox
-output="$project_dir/build/logread-mips"
-"${compiler_prefix}strip" -o "$output" "$source_dir/busybox"
-"${compiler_prefix}readelf" -h "$output" | grep -q 'Data:.*big endian'
-"${compiler_prefix}readelf" -h "$output" | grep -q 'Machine:.*MIPS'
+make -s -C "$source_dir" CROSS_COMPILE="$compiler_prefix" ARCH=mips CC="$TARGET_CC" AR="$TARGET_AR" NM="$TARGET_NM" STRIP="$TARGET_STRIP" EXTRA_CFLAGS=-std=gnu89 busybox
+output="$project_dir/build/${TARGET_BUILD_SUBDIR}logread-mips"
+"$TARGET_STRIP" -o "$output" "$source_dir/busybox"
+"$TARGET_READELF" -h "$output" | grep -q 'Data:.*big endian'
+"$TARGET_READELF" -h "$output" | grep -q 'Machine:.*MIPS'
 echo "Built $output"
+python3 "$project_dir/../scripts/verify-gateway-target.py" "$output"

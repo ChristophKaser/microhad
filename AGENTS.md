@@ -15,7 +15,10 @@ Compiler defaults are maintained once in `config/toolchains.mk`. Shell build
 helpers source `scripts/toolchains.sh`; Python checks use
 `scripts/toolchain_config.py`; MicroHAD's Makefile includes the same settings.
 `RSDK_ROOT` can be set in the environment or on a Make command line to select
-another compatible toolchain.
+another compatible toolchain. `TOOLCHAIN=crosstool-ng` selects the experimental
+source-built Lexra/uClibc-ng compiler; `CROSSTOOL_NG_ROOT` overrides its location.
+See [toolchain selection](config/TOOLCHAINS.md) for build commands, isolated outputs
+and compatibility limits. RSDK remains the default.
 
 From the repository root, build MicroHAD with:
 

@@ -3,6 +3,8 @@
 This component is the native C++03 gateway service for the Tuya MIPS device.
 Build target binaries with the shared compiler settings in
 `../config/toolchains.mk`; `RSDK_ROOT` can override the configured RSDK.
+`make TOOLCHAIN=crosstool-ng mips` selects the experimental compiler and writes
+under `build/crosstool-ng/`. See [toolchain selection](../config/TOOLCHAINS.md).
 
 ```sh
 make host test

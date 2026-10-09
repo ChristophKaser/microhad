@@ -100,6 +100,9 @@ def main():
             raise SystemExit('installed libc has an incompatible feature: ' + unsupported)
     if '#define __UCLIBC_HAS_LINUXTHREADS__ 1' not in libc_config:
         raise SystemExit('installed libc does not use LinuxThreads')
+    for required in ['__UCLIBC_SUSV3_LEGACY__', '__UCLIBC_SUSV4_LEGACY__', '__UCLIBC_USE_NETLINK__', '__UCLIBC_SUPPORT_AI_ADDRCONFIG__']:
+        if '#define ' + required + ' 1' not in libc_config:
+            raise SystemExit('installed libc lost application API support: ' + required)
     complete.write_text(fingerprint + '\n')
 
 

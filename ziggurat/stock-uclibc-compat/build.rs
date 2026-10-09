@@ -9,36 +9,54 @@ fn main() {
     assert_eq!(env::var("CARGO_CFG_TARGET_ARCH").unwrap(), "mips");
     let manifest = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap());
     let root = manifest.parent().unwrap().parent().unwrap();
-    let defaults = include_str!("../../config/toolchains.mk");
-    let relative = defaults
-        .lines()
-        .find_map(|line| line.strip_prefix("RSDK_RELATIVE="))
-        .expect("shared RSDK setting");
-    let prefix = defaults
-        .lines()
-        .find_map(|line| line.strip_prefix("TARGET_PREFIX="))
-        .expect("shared target prefix");
-    let rsdk = env::var_os("RSDK_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| root.join(relative));
-    let compiler = env::var_os("TARGET_CC")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| rsdk.join("bin").join(format!("{prefix}gcc")));
-    let archiver = env::var_os("TARGET_AR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| rsdk.join("bin").join(format!("{prefix}ar")));
-    for variable in ["RSDK_ROOT", "TARGET_CC", "TARGET_AR"] {
+    let resolve = |key: &str| -> PathBuf {
+        let output = Command::new("python3")
+            .arg(root.join("scripts/toolchain_config.py"))
+            .arg(key).output().expect("cannot resolve shared toolchain");
+        assert!(output.status.success(), "invalid shared toolchain configuration");
+        PathBuf::from(String::from_utf8(output.stdout).unwrap().trim())
+    };
+    let compiler = resolve("TARGET_CC");
+    let archiver = resolve("TARGET_AR");
+    let nm = resolve("TARGET_NM");
+    for variable in ["TOOLCHAIN", "RSDK_ROOT", "CROSSTOOL_NG_ROOT", "TARGET_PREFIX", "TARGET_CC", "TARGET_AR", "TARGET_NM"] {
         println!("cargo:rerun-if-env-changed={variable}");
     }
     println!("cargo:rerun-if-changed=../../config/toolchains.mk");
+    println!("cargo:rerun-if-changed=../../scripts/toolchain_config.py");
+    let mut symbols = std::collections::HashSet::new();
+    for library in ["libc.a", "libpthread.a", "librt.a"] {
+        let output = Command::new(&compiler).arg(format!("-print-file-name={library}"))
+            .output().expect("cannot resolve libc archive");
+        assert!(output.status.success());
+        let archive = String::from_utf8(output.stdout).unwrap();
+        let archive = archive.trim();
+        println!("cargo:rerun-if-changed={archive}");
+        let output = Command::new(&nm).args(["--defined-only", archive])
+            .output().expect("cannot inspect libc symbols");
+        assert!(output.status.success(), "cannot inspect selected libc archive");
+        for line in String::from_utf8(output.stdout).unwrap().lines() {
+            if let Some(symbol) = line.split_whitespace().last() {
+                symbols.insert(symbol.to_owned());
+            }
+        }
+    }
+    let missing: Vec<_> = ["epoll_create1", "eventfd", "accept4", "clock_nanosleep", "pthread_setname_np",
+                         "bcmp", "pthread_getattr_np", "pthread_attr_getstack"]
+        .into_iter().filter(|symbol| !symbols.contains(*symbol)).collect();
+    let defines: Vec<_> = missing.iter().map(|symbol| format!("-DCOMPAT_NEED_{symbol}")).collect();
+    if missing.contains(&"pthread_getattr_np") || missing.contains(&"pthread_attr_getstack") {
+        println!("cargo:warning=Experimental LinuxThreads stack inspection returns ENOSYS; overflow handling is not guaranteed");
+    }
     let object = PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("stock_compat.o");
     let status = Command::new(&compiler)
         .args(["-O2", "-std=gnu99", "-Wall", "-Wextra", "-Werror", "-c"])
+        .args(&defines)
         .arg(manifest.join("native/stock_compat.c"))
         .arg("-o")
         .arg(&object)
         .status()
-        .expect("cannot run the stock RSDK C compiler");
+        .expect("cannot run the selected target C compiler");
     assert!(
         status.success(),
         "stock libc compatibility shim did not compile"
@@ -59,7 +77,7 @@ fn main() {
         .arg(&object)
         .arg(&fault_object)
         .status()
-        .expect("cannot run the stock RSDK archiver");
+        .expect("cannot run the selected target archiver");
     assert!(status.success(), "cannot archive the compatibility shim");
     println!(
         "cargo:rustc-link-search=native={}",

@@ -20,6 +20,10 @@ import time
 import urllib.request
 
 ROOT = Path(__file__).resolve().parents[2]
+import sys
+sys.path.insert(0, str(ROOT / "scripts"))
+from toolchain_config import target_path, settings
+
 spec = importlib.util.spec_from_file_location("sim", ROOT / "ziggurat/scripts/simulate-rcp.py")
 sim = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(sim)
@@ -143,7 +147,7 @@ def main():
     radio = ThreadRcp(device, tcp_nodelay=True)
     process = relay = None
     ssh = sim.ssh_args(args) if args.host else []
-    binary_dir = ROOT / "build/openthread-unix"
+    binary_dir = target_path(ROOT / "build/openthread-unix") if args.host else ROOT / "build/openthread-unix"
     logs = ROOT / "logs"
     logs.mkdir(exist_ok=True)
     log_path = logs / f"openthread-device-{token}.log"

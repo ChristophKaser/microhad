@@ -896,6 +896,7 @@ dependencies = [
  "serde_json",
  "static_cell",
  "zeroize",
+ "ziggurat-stock-uclibc-compat",
 ]
 
 [[package]]
@@ -1974,6 +1975,10 @@ dependencies = [
  "quote",
  "syn 3.0.6",
 ]
+
+[[package]]
+name = "ziggurat-stock-uclibc-compat"
+version = "0.1.0"
 
 [[package]]
 name = "zmij"

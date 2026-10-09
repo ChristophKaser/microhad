@@ -8,13 +8,38 @@ mode=${1:-mips}
 case "$mode" in host|mips) ;; *) echo 'Usage: build-openthread.sh [host|mips]' >&2; exit 2 ;; esac
 output="$experiment_root/build/openthread-unix"
 source_copy="$output/source-mailbox"
+if [[ "$mode" == mips ]]; then
+    output="$experiment_root/build/${TARGET_BUILD_SUBDIR}openthread-unix"
+    python3 scripts/toolchain-build.py "$output/mips"
+fi
 python3 micro-thread-matter-daemon/scripts/prepare-openthread.py
-python3 - "$experiment_root" <<'PY'
+if [[ "$mode" == mips ]]; then
+python3 - "$experiment_root" "$output" <<'PY'
 import os
 from pathlib import Path
 import sys
 root = Path(sys.argv[1])
-out = root / 'build/openthread-unix'
+out = Path(sys.argv[2])
+out.mkdir(parents=True, exist_ok=True)
+if os.environ['TOOLCHAIN'] == 'crosstool-ng':
+    import subprocess
+    cc, cxx = os.environ['TARGET_CC'], os.environ['TARGET_CXX']
+    sysroot = subprocess.check_output([cc, '-print-sysroot'], text=True).strip()
+    flags = f'-D_DEFAULT_SOURCE -Os -march=lx4380 -msoft-float -mabi=32 -fno-pic -mabicalls -G0 -fno-stack-protector -DOPENTHREAD_POSIX_CONFIG_BACKTRACE_ENABLE=0'
+    (out / 'toolchain.cmake').write_text(f'''set(CMAKE_SYSTEM_NAME Linux)
+set(CMAKE_SYSTEM_PROCESSOR mips)
+set(CMAKE_C_COMPILER {cc})
+set(CMAKE_CXX_COMPILER {cxx})
+set(CMAKE_SYSROOT {sysroot})
+set(CMAKE_AR {os.environ['TARGET_AR']})
+set(CMAKE_C_FLAGS_INIT "{flags}")
+set(CMAKE_CXX_FLAGS_INIT "{flags} -fno-exceptions")
+set(CMAKE_C_FLAGS "${{CMAKE_C_FLAGS_INIT}}" CACHE STRING "" FORCE)
+set(CMAKE_CXX_FLAGS "${{CMAKE_CXX_FLAGS_INIT}}" CACHE STRING "" FORCE)
+set(CMAKE_EXE_LINKER_FLAGS_INIT "-static -Wl,--gc-sections")
+set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
+''')
+    raise SystemExit(0)
 rd = Path(os.environ['RSDK_ROOT'])
 cxx = rd / 'include/c++/4.4.7'
 # GCC 4.4 exception_ptr.h assumes an earlier type_info declaration.
@@ -41,6 +66,7 @@ set(CMAKE_C_LINK_EXECUTABLE "{os.environ['TARGET_CC']} <LINK_FLAGS> <OBJECTS> -o
 set(CMAKE_CXX_LINK_EXECUTABLE "{os.environ['TARGET_CXX']} <LINK_FLAGS> <OBJECTS> -o <TARGET> -static -Wl,--gc-sections -Wl,--start-group <LINK_LIBRARIES> -Wl,--end-group")
 ''')
 PY
+fi
 options=(-DGATEWAY_OT_TRANSPORT_SOURCE="$experiment_root/micro-thread-matter-daemon/openthread-transport/adapter.cpp"
     -DGATEWAY_OT_DISCOVERY_TEST_SOURCE="$experiment_root/micro-thread-matter-daemon/tests/openthread-discovery-fixture.cpp"
     -DOT_PLATFORM=posix -DOT_POSIX_RCP_HDLC_BUS=ON -DOT_APP_NCP=OFF
@@ -76,6 +102,7 @@ assert 'mips1' in header and 'o32' in header and 'Soft float' in attributes
 assert 'INTERP' not in segments and 'There is no dynamic section' in dynamic
 print('Target verification passed: big-endian MIPS-I/o32, soft float, static')
 PYVERIFY
+    python3 scripts/verify-gateway-target.py "$output/ot-cli-mips"
     file "$output/ot-cli-mips"
     readelf -h "$output/ot-cli-mips"
     readelf -A "$output/ot-cli-mips" | sed -n '1,5p'

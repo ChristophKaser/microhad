@@ -199,44 +199,7 @@ extern "C" void gatewayOtDeinit()
 
 extern "C" bool gatewayOtReady() { return instance && otThreadGetDeviceRole(instance) >= OT_DEVICE_ROLE_CHILD; }
 
-#ifdef GATEWAY_OT_FACTORY_UCLIBC
-// Factory uClibc 0.9.30 lacks these newer POSIX symbols used by Rust std.
-#include <pthread.h>
-#include <time.h>
-#include <sys/socket.h>
-#include <fcntl.h>
-#include <unistd.h>
-// The service is single-threaded, so setting descriptor flags immediately
-// after accept preserves accept4 semantics without a concurrent fork window.
-extern "C" int accept4(int socket, struct sockaddr *address, socklen_t *length, int flags)
-{
-    if (flags & ~(O_NONBLOCK | O_CLOEXEC)) { errno = EINVAL; return -1; }
-    int fd = accept(socket, address, length);
-    if (fd < 0) return fd;
-    if (((flags & O_NONBLOCK) && fcntl(fd, F_SETFL, O_NONBLOCK) < 0) ||
-        ((flags & O_CLOEXEC) && fcntl(fd, F_SETFD, FD_CLOEXEC) < 0)) {
-        int saved = errno;
-        close(fd);
-        errno = saved;
-        return -1;
-    }
-    return fd;
-}
-extern "C" int pthread_setname_np(pthread_t, const char *) { return ENOSYS; }
-extern "C" int clock_nanosleep(clockid_t clock, int flags, const struct timespec *request,
-                                struct timespec *remaining)
-{
-    if (!request || request->tv_sec < 0 || request->tv_nsec < 0 || request->tv_nsec >= 1000000000L ||
-        (clock != CLOCK_MONOTONIC && clock != CLOCK_REALTIME) || (flags != 0 && flags != TIMER_ABSTIME))
-        return EINVAL;
-    struct timespec delay = *request;
-    // Rust std uses relative CLOCK_MONOTONIC sleeps. Absolute realtime deadlines
-    // need clock-adjustment semantics that a nanosleep wrapper cannot provide.
-    if (flags == TIMER_ABSTIME) return ENOTSUP;
-    if (nanosleep(&delay, flags == 0 ? remaining : nullptr) == 0) return 0;
-    return errno;
-}
-#endif
+// Target libc wrappers are supplied by the shared Rust compatibility crate.
 
 // DNS query contexts are static generation cookies, never pointers into a Rust future.
 extern "C" {

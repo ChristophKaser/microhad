@@ -20,6 +20,10 @@ import threading
 import time
 
 ROOT = Path(__file__).resolve().parents[2]
+import sys
+sys.path.insert(0, str(ROOT / "scripts"))
+from toolchain_config import target_path, settings
+
 spec = importlib.util.spec_from_file_location("simulator", ROOT / "ziggurat/scripts/simulate-rcp.py")
 sim = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(sim)
@@ -105,7 +109,7 @@ def main():
 
     try:
         if args.host:
-            binary = args.binary or ROOT / "build/ziggurat-hdlc/lexra-stock-uclibc/release/ziggurat.stripped"
+            binary = args.binary or target_path(ROOT / "build/ziggurat-hdlc") / settings()["TARGET_SPEC_NAME"] / "release/ziggurat.stripped"
             remote_binary = f"/tmp/ziggurat-hdlc-{token}"
             remote_probe = remote_binary + "-probe"
             # This gateway uses ramfs: its file cache is not safely reclaimable.
@@ -114,12 +118,12 @@ def main():
                 text=True, timeout=12)
             values = {line.split(":")[0]: int(line.split()[1]) for line in memory.splitlines() if line.strip()}
             available = values.get("MemFree", 0)
-            required = (binary.stat().st_size + (ROOT / "build/hdlc-unix-probe").stat().st_size + 1023) // 1024 + 8192
+            required = (binary.stat().st_size + target_path(ROOT / "build/hdlc-unix-probe").stat().st_size + 1023) // 1024 + 8192
             report["memory_preflight_kib"] = {"available": available, "required": required}
             if available < required:
                 raise RuntimeError(f"Insufficient gateway memory for RAM-backed uploads: {available} KiB available, {required} required")
             upload(binary, remote_binary)
-            upload(ROOT / "build/hdlc-unix-probe", remote_probe)
+            upload(target_path(ROOT / "build/hdlc-unix-probe"), remote_probe)
             remote_port = 19996
             command = f"""set -u
 ulimit -c 0

@@ -1,0 +1,20 @@
+# The resolver is shared with shell/Python; Make command-line overrides win.
+TOOLCHAIN ?= rsdk
+ifneq ($(filter rsdk crosstool-ng,$(TOOLCHAIN)),$(TOOLCHAIN))
+$(error TOOLCHAIN must be rsdk or crosstool-ng)
+endif
+ifneq ($(words $(TOOLCHAIN)),1)
+$(error TOOLCHAIN must be rsdk or crosstool-ng)
+endif
+RSDK_ROOT ?= $(abspath $(ZIGGURAT_ROOT)/$(RSDK_RELATIVE))
+CROSSTOOL_NG_ROOT ?= $(abspath $(ZIGGURAT_ROOT)/$(CROSSTOOL_NG_RELATIVE))
+TARGET_PREFIX ?= $(if $(filter rsdk,$(TOOLCHAIN)),$(RSDK_PREFIX),$(CROSSTOOL_NG_PREFIX))
+TARGET_TOOLCHAIN_ROOT := $(if $(filter rsdk,$(TOOLCHAIN)),$(RSDK_ROOT),$(CROSSTOOL_NG_ROOT))
+TARGET_BUILD_SUBDIR := $(if $(filter crosstool-ng,$(TOOLCHAIN)),crosstool-ng/)
+TARGET_CC ?= $(TARGET_TOOLCHAIN_ROOT)/bin/$(TARGET_PREFIX)gcc
+TARGET_CXX ?= $(TARGET_TOOLCHAIN_ROOT)/bin/$(TARGET_PREFIX)g++
+TARGET_AR ?= $(TARGET_TOOLCHAIN_ROOT)/bin/$(TARGET_PREFIX)ar
+TARGET_NM ?= $(TARGET_TOOLCHAIN_ROOT)/bin/$(TARGET_PREFIX)nm
+TARGET_STRIP ?= $(TARGET_TOOLCHAIN_ROOT)/bin/$(TARGET_PREFIX)strip
+TARGET_READELF ?= $(TARGET_TOOLCHAIN_ROOT)/bin/$(TARGET_PREFIX)readelf
+export TOOLCHAIN RSDK_ROOT CROSSTOOL_NG_ROOT TARGET_PREFIX TARGET_CC TARGET_CXX TARGET_AR TARGET_NM TARGET_STRIP TARGET_READELF

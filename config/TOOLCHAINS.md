@@ -1,0 +1,104 @@
+# Gateway toolchains
+
+Gateway builds accept `TOOLCHAIN=rsdk` (the default) or
+`TOOLCHAIN=crosstool-ng` (experimental). Host builds use the host compilers and
+do not require either SDK directory. Silicon Labs firmware keeps its ARM tools.
+
+The source-built candidate targets Lexra LX4380, big-endian MIPS-I/O32 and
+soft float. It uses GCC 15.2.0, binutils 2.45.1, uClibc-ng 1.0.54 LinuxThreads,
+and stock Linux 3.10.90 headers. Native TLS, time64 and FENV remain disabled.
+The application configuration enables interface enumeration and SUSv3/SUSv4
+legacy APIs required by OpenThread and BusyBox.
+
+## Build
+
+Build the compiler explicitly before selecting it:
+
+```sh
+python3 experiments/toolchain-proof/build-toolchain.py
+```
+
+Sources, checksums and Lexra patches are pinned by that builder. It installs
+under `tools/lexra-proof`, uses local bootstrap tools, and requires approximately
+12 GiB free space. See the experiment README for host prerequisites. Application
+builds never install a compiler automatically. A missing compiler fails the build.
+
+Run from the repository root:
+
+```sh
+make -C microhad TOOLCHAIN=crosstool-ng mips
+TOOLCHAIN=crosstool-ng ZIGGURAT_MULTIPAN=1 bash ziggurat/scripts/build.sh
+TOOLCHAIN=crosstool-ng bash micro-thread-matter-daemon/scripts/build.sh mips service
+TOOLCHAIN=crosstool-ng bash firmware/scripts/build-maintenance.sh
+TOOLCHAIN=crosstool-ng bash microhad/scripts/build-logread.sh
+```
+
+Set `RSDK_ROOT` or `CROSSTOOL_NG_ROOT` to select a compatible installation.
+Explicit `TARGET_CC`, `TARGET_CXX`, `TARGET_AR`, `TARGET_NM`, `TARGET_STRIP`,
+`TARGET_READELF` and `TARGET_PREFIX` overrides are supported by Make, shell and
+Python consumers. Use a fresh process for each selection; exported explicit tool
+overrides remain overrides when switching `TOOLCHAIN` in a sourced shell.
+
+## Artifacts and verification
+
+RSDK paths and host fixture paths remain unchanged. Candidate paths insert
+`crosstool-ng/` immediately below `build/`:
+
+| Artifact | Candidate path |
+| --- | --- |
+| MicroHAD with Zigbee/Matter | `microhad/build/crosstool-ng/mips-ziggurat-matter/microhad` |
+| Ziggurat multipan | `build/crosstool-ng/ziggurat-hdlc/lexra-crosstool-ng-uclibc/release/ziggurat.stripped` |
+| Matter service | `build/crosstool-ng/micro-thread-matter-daemon/mthread-matter-mips` |
+| OpenThread CLI | `build/crosstool-ng/openthread-unix/ot-cli-mips` |
+| Maintenance helper | `build/crosstool-ng/gateway-maintenance` |
+| Log reader | `microhad/build/crosstool-ng/logread-mips` |
+
+Native and Cargo target caches are separated. Compiler/tool identities and
+runtime archive identities are recorded in each guarded target directory's
+`toolchain-provenance.json`. Changing the selected installation invalidates that
+directory's generated cache. Shared patched source and host artifacts are retained.
+
+Build verification checks static linkage, ELF32 big-endian MIPS-I/O32, soft-float
+attributes, and absence of `rdhwr`/`teq`. Other Lexra-sensitive instructions are
+reported. Rust still uses LLVM for code generation and the selected GCC for linking.
+RSDK OpenThread retains its Clang workaround; candidate OpenThread uses native GCC.
+
+```sh
+python3 scripts/test-toolchain-config.py
+make -C microhad host test
+make -C microhad mips
+make -C microhad TOOLCHAIN=crosstool-ng mips
+```
+
+## Experimental limits
+
+The shared Rust shim supplies only APIs missing from the selected libc archives.
+For LinuxThreads, `pthread_getattr_np` and `pthread_attr_getstack` return `ENOSYS`.
+Stack-bound diagnostics and reliable stack-overflow reporting are not guaranteed.
+`pthread_setname_np` supports the current thread only. Application builds require
+the expanded libc configuration, rather than the initial minimal proof compiler.
+
+The initial compiler proof passed bounded native and Rust/Tokio tests on the
+stock gateway. Application compilation and ELF checks do not validate a complete
+release on the device. RSDK remains the production default. Deployment defaults
+remain on RSDK artifacts; a future explicitly requested candidate deployment must
+pass all selected artifact paths and follow the existing maintenance flow.
+
+## Local validation: 2026-10-09
+
+Both backends compiled all three MicroHAD feature combinations, both Ziggurat
+modes, OpenThread CLI/transport archives, Matter service/transport/commissioning
+probes, and maintenance/logread/RNG/relay helpers. Candidate application builds
+used `RSDK_ROOT=/nonexistent`. The shared selector/cache checks, forbidden-instruction
+verifier tests, MicroHAD host tests with the rebuilt synthetic CASE fixture, and
+offline patch checks passed. Switching back to RSDK completed without cleaning and retained the candidate
+artifacts and host commissioning fixture. No application was deployed.
+
+Stripped artifact sizes in bytes:
+
+| Artifact | RSDK | crosstool-NG |
+| --- | ---: | ---: |
+| MicroHAD | 1,788,056 | 2,775,532 |
+| Ziggurat multipan | 3,557,192 | 3,630,816 |
+| Matter service | 2,403,924 | 2,394,796 |
+| logread | 48,576 | 117,016 |

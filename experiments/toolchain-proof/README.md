@@ -1,8 +1,8 @@
 # Stock gateway compiler proof
 
 This isolated experiment evaluates a source-built replacement for RSDK while
-keeping the stock Linux kernel. It does not select compilers for production
-builds. The eventual shared interface is `TOOLCHAIN=rsdk|crosstool-ng`; the
+keeping the stock Linux kernel. Application build selection now uses `TOOLCHAIN=rsdk|crosstool-ng`; see
+[shared toolchain selection](../../config/TOOLCHAINS.md). The
 production default remains RSDK until application compatibility is established.
 
 The candidate uses crosstool-NG 1.28.0, GCC 15.2.0, binutils 2.45.1,
@@ -85,7 +85,7 @@ local inspection, and every candidate checkpoint passes on the stock gateway.
 This is a prerequisite for application migration, not validation of a complete
 MicroHAD/Ziggurat/Matter release.
 
-## Result: 2026-10-09
+## Initial minimal-configuration result: 2026-10-09
 
 **The first proof passed on the stock Linux 3.10.90 gateway.** Both native and
 Rust/Tokio probes completed every checkpoint with exit status 0 for RSDK and
@@ -124,8 +124,9 @@ The experiment's `ct-work` directory can be removed after a successful build;
 the installed toolchain, source archives, reports, and probe caches suffice to
 reuse the compiler and rerun the proof.
 
-The next step is to add shared `TOOLCHAIN=rsdk|crosstool-ng` selection, separate
-build outputs, and update the OpenThread compiler/sysroot and libc compatibility
-handling. Then build and verify MicroHAD, Ziggurat, Matter, and native helpers
-with both choices before deployment. This experiment changes no production
-build defaults and deploys no application release.
+The application integration corrects the SUSv3/SUSv4 configuration option names
+and enables `UCLIBC_SUPPORT_AI_ADDRCONFIG` for OpenThread interface enumeration.
+The builder verifies these installed features. The size measurements and gateway
+results above describe the original minimal configuration; the expanded libc
+requires fresh application runtime validation before a release. The build switch
+remains experimental and changes no production default.

@@ -20,9 +20,12 @@ import uuid
 ROOT = Path(__file__).resolve().parents[2]
 import sys
 sys.path.insert(0, str(ROOT / "scripts"))
-from toolchain_config import settings
+from toolchain_config import target_path, settings
 
-SERVICE = ROOT / 'build/micro-thread-matter-daemon/mthread-matter-mips'
+import sys
+sys.path.insert(0, str(ROOT / "scripts"))
+
+SERVICE = target_path(ROOT / 'build/micro-thread-matter-daemon/mthread-matter-mips')
 SIM_SPEC = importlib.util.spec_from_file_location(
     'matter_service_sim', ROOT / 'micro-thread-matter-daemon/scripts/test-openthread-device.py')
 sim = importlib.util.module_from_spec(SIM_SPEC)
@@ -31,7 +34,7 @@ SIM_SPEC.loader.exec_module(sim)
 
 def build_ipc_client():
     toolchain = settings()
-    output = ROOT / 'build/micro-thread-matter-daemon/matter-ipc-client-mips'
+    output = target_path(ROOT / 'build/micro-thread-matter-daemon/matter-ipc-client-mips')
     source = ROOT / 'micro-thread-matter-daemon/tests/helpers/matter-ipc-client.cpp'
     native = ROOT / 'microhad'
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -113,8 +116,8 @@ def main():
 
     if args.active_thread_simulation:
         subprocess.run(['bash', str(ROOT / 'micro-thread-matter-daemon/scripts/build-openthread-relay.sh'), 'mips'], check=True)
-    relay_binary = ROOT / 'build/openthread-unix/sim-relay-mips'
-    cache_binary = ROOT / 'build/openthread-unix/drop-test-cache-mips'
+    relay_binary = target_path(ROOT / 'build/openthread-unix/sim-relay-mips')
+    cache_binary = target_path(ROOT / 'build/openthread-unix/drop-test-cache-mips')
     ipc_client = build_ipc_client() if args.active_thread_simulation else None
     radio = sim.ThreadRcp(args.host, tcp_nodelay=True) if args.active_thread_simulation else None
     if args.active_thread_simulation and not relay_binary.is_file():

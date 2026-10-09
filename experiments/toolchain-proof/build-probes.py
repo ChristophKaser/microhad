@@ -63,7 +63,7 @@ def main():
         cc, cxx, ar, readelf = 'gcc', 'g++', 'ar', 'readelf'
         flags = ['-O2']
     else:
-        prefix = 'mips-lexra-linux-uclibc-' if args.backend == 'crosstool-ng' else settings['TARGET_PREFIX']
+        prefix = 'mips-lexra-linux-uclibc-' if args.backend == 'crosstool-ng' else settings['RSDK_PREFIX']
         compiler_root = ROOT / 'tools/lexra-proof' if args.backend == 'crosstool-ng' else (
             args.rsdk_root or Path(os.environ.get('RSDK_ROOT', ROOT / settings['RSDK_RELATIVE']))).resolve()
         cc, cxx, ar, readelf = [str(compiler_root / 'bin' / (prefix + name)) for name in ['gcc', 'g++', 'ar', 'readelf']]

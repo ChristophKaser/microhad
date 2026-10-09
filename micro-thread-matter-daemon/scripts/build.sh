@@ -15,17 +15,24 @@ esac
 bash micro-thread-matter-daemon/scripts/build-openthread-transport.sh "$mode"
 bash micro-thread-matter-daemon/scripts/fetch-rs-matter.sh
 source scripts/rust-env.sh
-export CARGO_TARGET_DIR="$project_root/build/micro-thread-matter-daemon/target"
+output_root="$project_root/build/micro-thread-matter-daemon"
+if [ "$mode" = mips ]; then
+    output_root="$project_root/build/${TARGET_BUILD_SUBDIR}micro-thread-matter-daemon"
+    python3 scripts/toolchain-build.py "$output_root/target/$TARGET_SPEC_NAME"
+    bash scripts/make-llvm-target.sh
+fi
+export CARGO_TARGET_DIR="$output_root/target"
 args=(--locked --release --manifest-path micro-thread-matter-daemon/Cargo.toml --features "$feature" --bin "$binary")
 if [ "$mode" = mips ]; then
     export RUSTFLAGS='-C target-feature=+crt-static -C relocation-model=static --cfg sha2_backend_soft="compact" --cfg aes_backend_soft="compact"'
-    args+=(--target targets/lexra-stock-uclibc.json -Z json-target-spec -Z build-std=std,panic_abort)
+    args+=(--target "targets/$TARGET_SPEC_NAME.json" -Z json-target-spec -Z build-std=std,panic_abort)
 fi
 cargo +$RUST_TOOLCHAIN build "${args[@]}"
 if [ "$mode" = mips ]; then
-    "$LLVM_STRIP" --keep-section=.gnu.attributes -o "build/micro-thread-matter-daemon/$output" \
-        "build/micro-thread-matter-daemon/target/lexra-stock-uclibc/release/$binary"
-    artifact="build/micro-thread-matter-daemon/$output"
+    "$LLVM_STRIP" --keep-section=.gnu.attributes -o "$output_root/$output" \
+        "$CARGO_TARGET_DIR/$TARGET_SPEC_NAME/release/$binary"
+    artifact="$output_root/$output"
+    python3 scripts/verify-gateway-target.py "$artifact"
 else
     artifact="build/micro-thread-matter-daemon/target/release/$binary"
 fi

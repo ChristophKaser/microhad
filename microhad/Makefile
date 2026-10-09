@@ -3,12 +3,7 @@
 MICROHAD_ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 ZIGGURAT_ROOT := $(abspath $(MICROHAD_ROOT)/..)
 include $(ZIGGURAT_ROOT)/config/toolchains.mk
-RSDK_ROOT ?= $(abspath $(ZIGGURAT_ROOT)/$(RSDK_RELATIVE))
-TARGET_CXX ?= $(RSDK_ROOT)/bin/$(TARGET_PREFIX)g++
-TARGET_CC ?= $(RSDK_ROOT)/bin/$(TARGET_PREFIX)gcc
-TARGET_AR ?= $(RSDK_ROOT)/bin/$(TARGET_PREFIX)ar
-TARGET_STRIP ?= $(RSDK_ROOT)/bin/$(TARGET_PREFIX)strip
-TARGET_READELF ?= $(RSDK_ROOT)/bin/$(TARGET_PREFIX)readelf
+include $(ZIGGURAT_ROOT)/config/toolchain-select.mk
 BUILD_REVISION := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 
 ZIGGURAT ?= 1
@@ -42,17 +37,16 @@ BACKEND_SUFFIX := $(BACKEND_SUFFIX)-matter
 endif
 
 WARNINGS := -Wall -Wextra -Werror -pedantic
-# GCC 3.4 in the supplied RSDK has no -std=gnu++03 switch; its default is
-# C++98/C++03-compatible. Keep target flags explicit and separate from host.
+# Both target compilers support the C++98 dialect used by this C++03 daemon.
 HOST_CXXFLAGS := -std=gnu++03 $(WARNINGS) -Iinclude -Ithird_party/mbedtls/include -O2 -DMICROHAD_ZIGGURAT_ENABLED=$(ZIGGURAT) -DMICROHAD_MBEDTLS_ENABLED=1 -DMICROHAD_BUILD_REVISION=\"$(BUILD_REVISION)\"
-TARGET_CXXFLAGS := $(WARNINGS) -Iinclude -Ithird_party/mbedtls/include -O2 -ffunction-sections -fdata-sections -DMICROHAD_MIPS_TARGET=1 -DMICROHAD_ZIGGURAT_ENABLED=$(ZIGGURAT) -DMICROHAD_MBEDTLS_ENABLED=1 -DMICROHAD_BUILD_REVISION=\"$(BUILD_REVISION)\"
+TARGET_CXXFLAGS := -std=gnu++98 $(WARNINGS) -Iinclude -Ithird_party/mbedtls/include -O2 -ffunction-sections -fdata-sections -DMICROHAD_MIPS_TARGET=1 -DMICROHAD_ZIGGURAT_ENABLED=$(ZIGGURAT) -DMICROHAD_MBEDTLS_ENABLED=1 -DMICROHAD_BUILD_REVISION=\"$(BUILD_REVISION)\"
 HOST_CXXFLAGS += -DMICROHAD_MATTER_ENABLED=$(MATTER)
 TARGET_CXXFLAGS += -DMICROHAD_MATTER_ENABLED=$(MATTER)
 TARGET_CFLAGS := $(WARNINGS) -O2 -ffunction-sections -fdata-sections
 LDFLAGS := -lpthread -lrt
 SOURCES := src/main.cpp src/matter_websocket.cpp src/matter_protocol.cpp src/matter_cbor.cpp src/matter_client.cpp src/matter_worker.cpp src/gateway_config.cpp src/ash.cpp src/json_util.cpp src/storage.cpp src/network_backup.cpp $(ZIGGURAT_SOURCES) src/http_server.cpp src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/sensor_history.cpp src/syslog_log_reader.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp src/external_http_device.cpp src/device_shelly.cpp src/device_fritz_box.cpp
 HOST_BUILD := build/host$(BACKEND_SUFFIX)
-MIPS_BUILD := build/mips$(BACKEND_SUFFIX)
+MIPS_BUILD := build/$(TARGET_BUILD_SUBDIR)mips$(BACKEND_SUFFIX)
 HOST_BIN := $(HOST_BUILD)/microhad
 HOST_TEST_BIN := $(HOST_BUILD)/microhad-test
 MIPS_BIN := $(MIPS_BUILD)/microhad
@@ -90,13 +84,14 @@ $(HOST_TEST_BIN): $(SOURCES) $(HOST_C_OBJECTS) $(HOST_MBEDTLS_LIBS) $(wildcard i
 
 mips: mbedtls-mips $(MIPS_BIN) verify-target
 
-rng-seed: build/rng-seed
+rng-seed: build/$(TARGET_BUILD_SUBDIR)rng-seed
 
-build/rng-seed: src/rng_seed.c
-	@test -x $(TARGET_CC) || (echo "RSDK compiler not found: $(TARGET_CC)"; exit 1)
-	@mkdir -p build
+build/$(TARGET_BUILD_SUBDIR)rng-seed: src/rng_seed.c
+	@test -x $(TARGET_CC) || (echo "Selected target compiler not found: $(TARGET_CC)"; exit 1)
+	@mkdir -p $(dir $@)
 	$(TARGET_CC) -std=gnu99 -Os -Wall -Wextra -Werror -static -msoft-float $< -o $@
 	$(TARGET_STRIP) $@
+	python3 $(ZIGGURAT_ROOT)/scripts/verify-gateway-target.py "$@"
 ifeq ($(MATTER),1)
 mips: $(MIPS_MATTER_MANIFEST)
 
@@ -115,7 +110,7 @@ $(HOST_MBEDTLS_LIBS): $(MBEDTLS_DIR)/CMakeLists.txt $(MBEDTLS_DIR)/include/mbedt
 mbedtls-mips: $(MIPS_MBEDTLS_LIBS)
 
 $(MIPS_MBEDTLS_LIBS): $(MBEDTLS_DIR)/CMakeLists.txt $(MBEDTLS_DIR)/include/mbedtls/config.h $(MBEDTLS_DIR)/include/mbedtls/microhad_config.h
-	@test -x $(TARGET_CC) || (echo "RSDK compiler not found: $(TARGET_CC)"; exit 1)
+	@test -x $(TARGET_CC) || (echo "Selected target compiler not found: $(TARGET_CC)"; exit 1)
 	$(CMAKE) -S $(MBEDTLS_DIR) -B $(MIPS_MBEDTLS_BUILD) -DCMAKE_C_COMPILER=$(TARGET_CC) -DCMAKE_AR=$(TARGET_AR) -DCMAKE_C_FLAGS='-O2 -std=gnu99 -ffunction-sections -fdata-sections' -DENABLE_PROGRAMS=OFF -DENABLE_TESTING=OFF -DUSE_SHARED_MBEDTLS_LIBRARY=OFF -DMBEDTLS_FATAL_WARNINGS=OFF
 	$(CMAKE) --build $(MIPS_MBEDTLS_BUILD) --target mbedtls mbedx509 mbedcrypto
 
@@ -128,7 +123,7 @@ $(MIPS_BUILD)/%.o: src/%.c $(MIPS_MBEDTLS_LIBS)
 	$(TARGET_CC) -std=gnu99 $(TARGET_CFLAGS) -I$(MBEDTLS_DIR)/include -c $< -o $@
 
 $(MIPS_BIN): $(SOURCES) $(wildcard include/*.h) $(MIPS_MBEDTLS_LIBS) $(MIPS_C_OBJECTS)
-	@test -x $(TARGET_CXX) || (echo "RSDK compiler not found: $(TARGET_CXX)"; exit 1)
+	@test -x $(TARGET_CXX) || (echo "Selected target compiler not found: $(TARGET_CXX)"; exit 1)
 	@mkdir -p $(MIPS_BUILD)
 	$(TARGET_CXX) $(TARGET_CXXFLAGS) -static -Wl,--gc-sections $(SOURCES) $(MIPS_C_OBJECTS) -o $@ $(MIPS_MBEDTLS_LIBS) $(LDFLAGS)
 	$(TARGET_STRIP) $@
@@ -142,7 +137,7 @@ $(1) -h $(2) | grep -q 'Machine:.*MIPS'
 endef
 
 verify-target: $(MIPS_BIN)
-	@$(call verify_elf,$(TARGET_READELF),$(MIPS_BIN))
+	@python3 $(ZIGGURAT_ROOT)/scripts/verify-gateway-target.py "$(MIPS_BIN)"
 
 $(UNIT_TEST_BIN): $(UNIT_TEST_SOURCES) src/matter_websocket.cpp src/matter_protocol.cpp src/matter_cbor.cpp src/matter_client.cpp src/matter_worker.cpp src/gateway_config.cpp src/ash.cpp src/json_util.cpp src/storage.cpp src/network_backup.cpp $(ZIGGURAT_SOURCES) src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/sensor_history.cpp src/log_ring.cpp src/syslog_log_reader.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp src/external_http_device.cpp src/device_shelly.cpp src/device_fritz_box.cpp $(HOST_C_OBJECTS) $(HOST_MBEDTLS_LIBS) $(wildcard include/*.h)
 	@mkdir -p $(HOST_BUILD)
@@ -210,3 +205,12 @@ $(MIPS_BIN): $(addprefix $(MIPS_BUILD)/tinycbor-,$(addsuffix .o,$(CBOR_NAMES)))
 
 $(HOST_BIN) $(HOST_TEST_BIN) $(UNIT_TEST_BIN) $(INTEGRATION_TEST_BIN) $(MIPS_BIN): include/matter_wire_shapes.inc
 $(UNIT_TEST_BIN): include/matter_wire_vectors.inc
+
+# Keep compiler changes from reusing objects or CMake caches from another SDK.
+ifneq ($(filter mips mbedtls-mips verify-target rng-seed $(MIPS_BIN),$(MAKECMDGOALS)),)
+.PHONY: toolchain-force
+toolchain-force:
+$(MIPS_BUILD)/.toolchain: toolchain-force
+	@python3 $(ZIGGURAT_ROOT)/scripts/toolchain-build.py "$(MICROHAD_ROOT)/$(MIPS_BUILD)"
+$(MIPS_BIN) $(MIPS_C_OBJECTS) $(MIPS_MBEDTLS_LIBS) build/$(TARGET_BUILD_SUBDIR)rng-seed: $(MIPS_BUILD)/.toolchain
+endif

@@ -39,6 +39,8 @@ for mailbox in "${mailboxes[@]}"; do mailbox_paths+=("$experiment_root/$mailbox"
 python3 scripts/apply-mailbox-series.py "$build_worktree" "$source_revision" "${mailbox_paths[@]}"
 python3 ziggurat/scripts/check-ziggurat-patches.py --build-worktree "$build_worktree" \
     --source-revision "$source_revision" --multipan "$ZIGGURAT_MULTIPAN"
+build_output="build/${TARGET_BUILD_SUBDIR}${build_output#build/}"
+python3 scripts/toolchain-build.py "$experiment_root/$build_output/$TARGET_SPEC_NAME"
 bash scripts/make-llvm-target.sh
 export CARGO_TARGET_DIR="$experiment_root/${build_output}"
 export CARGO_NET_GIT_FETCH_WITH_CLI=true
@@ -47,13 +49,15 @@ python3 scripts/prepare-crate-patches.py getrandom-0.4.3 nix-0.26.4 radium-0.7.0
 export RUSTFLAGS='-C target-feature=+crt-static -C relocation-model=static'
 cargo +$RUST_TOOLCHAIN build --release \
     --manifest-path ${build_worktree}/Cargo.toml -p ziggurat-server \
-    --target targets/lexra-stock-uclibc.json \
+    --target "targets/$TARGET_SPEC_NAME.json" \
     -Z json-target-spec -Z build-std=std,panic_abort \
     --config "patch.crates-io.getrandom.path=\"$experiment_root/build/patched-crates-mailbox/getrandom-0.4.3\"" \
     --config "patch.crates-io.nix.path=\"$experiment_root/build/patched-crates-mailbox/nix-0.26.4\"" \
     --config "patch.crates-io.radium.path=\"$experiment_root/build/patched-crates-mailbox/radium-0.7.0\""
 if [[ $ZIGGURAT_MULTIPAN == 1 ]]; then
-    target_binary="$experiment_root/$build_output/lexra-stock-uclibc/release/ziggurat"
-    "$TARGET_STRIP" \
+    target_binary="$experiment_root/$build_output/$TARGET_SPEC_NAME/release/ziggurat"
+    "$LLVM_STRIP" --keep-section=.gnu.attributes \
         -o "$target_binary.stripped" "$target_binary"
 fi
+
+python3 scripts/verify-gateway-target.py "$experiment_root/$build_output/$TARGET_SPEC_NAME/release/ziggurat"

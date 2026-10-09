@@ -12,6 +12,10 @@ import urllib.request
 import uuid
 
 ROOT = Path(__file__).resolve().parents[2]
+import sys
+sys.path.insert(0, str(ROOT / "scripts"))
+from toolchain_config import target_path, settings
+
 spec = importlib.util.spec_from_file_location('ot_sim', ROOT / 'micro-thread-matter-daemon/scripts/test-openthread-device.py')
 sim = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(sim)
@@ -64,11 +68,11 @@ def main():
             data = json.load(response)
         return {key: data[key] for key in ('online', 'network_formed', 'coordinator_backend') if key in data}
 
-    binary = ROOT / 'build/micro-thread-matter-daemon' / ('ot-commissioning-mips' if args.commissioning else 'ot-transport-mips')
-    relay_binary = ROOT / 'build/openthread-unix/sim-relay-mips'
+    binary = target_path(ROOT / 'build/micro-thread-matter-daemon') / ('ot-commissioning-mips' if args.commissioning else 'ot-transport-mips')
+    relay_binary = target_path(ROOT / 'build/openthread-unix/sim-relay-mips')
     payload = binary.read_bytes()
     relay_payload = relay_binary.read_bytes()
-    cache_payload = (ROOT / 'build/openthread-unix/drop-test-cache-mips').read_bytes()
+    cache_payload = (target_path(ROOT / 'build/openthread-unix/drop-test-cache-mips')).read_bytes()
     token = uuid.uuid4().hex
     stage = '/tuya/native-test/ot-matter-' + token
     ram = '/tmp/ot-sim-matter-' + token

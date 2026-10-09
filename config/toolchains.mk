@@ -10,4 +10,6 @@ LLVM_STRIP=llvm-strip-18
 LLVM_AR=llvm-ar-18
 CLANG=clang-18
 CLANGXX=clang++-18
-TARGET_PREFIX=mips-linux-
+RSDK_PREFIX=mips-linux-
+CROSSTOOL_NG_RELATIVE=tools/lexra-proof
+CROSSTOOL_NG_PREFIX=mips-lexra-linux-uclibc-

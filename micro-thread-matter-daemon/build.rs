@@ -14,7 +14,14 @@ fn main() {
     } else {
         "host"
     };
-    let base = root.join("build/openthread-unix").join(mode);
+    println!("cargo:rerun-if-env-changed=TOOLCHAIN");
+    let backend = env::var("TOOLCHAIN").unwrap_or_else(|_| "rsdk".into());
+    assert!(backend == "rsdk" || backend == "crosstool-ng", "invalid TOOLCHAIN");
+    let base = if mode == "mips" && backend == "crosstool-ng" {
+        root.join("build/crosstool-ng/openthread-unix").join(mode)
+    } else {
+        root.join("build/openthread-unix").join(mode)
+    };
     if env::var_os("CARGO_FEATURE_CONTROLLER_PROBE").is_some() {
         let fixture = base.join("src/posix/libgateway-thread-discovery-fixture.a");
         assert!(
