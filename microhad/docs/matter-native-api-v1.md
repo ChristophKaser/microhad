@@ -7,10 +7,15 @@ these control/job routes and retains disabled read-only status responses.
 
 ## Commissioning calls
 
-Send a JSON object with `schema:1` to these routes. Bodies follow the strict
-[private IPC contract](matter-ipc-v2.md); duplicate/unknown fields, invalid PINs,
+Send a JSON object with `schema:1` to these routes. HTTP bodies retain strict
+JSON validation: duplicate/unknown fields, invalid PINs,
 noncanonical IDs, trailing data and payloads over 2048 bytes are rejected before
 queueing. No request body is returned or logged.
+
+The daemon converts accepted JSON into [private CBOR IPC v2](matter-ipc-v2.md).
+Private-wire unknown fields are skipped with safe warnings; this does not relax
+the public HTTP validator. IDs and binary data retain their JSON encodings here
+and become unsigned integers and byte strings on the private wire.
 
 | Method/path | Body fields besides schema | Behavior |
 | --- | --- | --- |

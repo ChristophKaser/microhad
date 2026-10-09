@@ -24,6 +24,11 @@ HTTP API. Ziggurat runs the Zigbee stack and is the sole owner of the radio
 UART. The Matter service owns commissioning, fabrics, sessions, subscriptions
 and Thread state, using rs-matter and OpenThread.
 
+MicroHAD and `mthread-matter` communicate using
+[length-prefixed CBOR v2](microhad/docs/matter-ipc-v2.md). Only the length is
+outside the CBOR message. Both daemons must be updated together; public HTTP
+and WebSocket JSON and persistent state formats remain unchanged.
+
 The diagram shows application data paths in the default paired stack. The
 dotted supervisor link represents process management.
 
@@ -71,7 +76,7 @@ The private socket paths below are launcher defaults and can be overridden.
 | Link | Default socket | Protocol |
 | --- | --- | --- |
 | MicroHAD ↔ Ziggurat | `/tmp/ziggurat/native.sock` | COBS-framed Ziggurat API v2 |
-| MicroHAD ↔ Matter service | `/tmp/microhad-matter.sock` | Version-1 bounded, framed IPC |
+| MicroHAD ↔ Matter service | `/tmp/microhad-matter.sock` | Length-prefixed CBOR IPC v2 |
 | OpenThread ↔ Ziggurat | `/tmp/ziggurat/thread.sock` | HDLC-encoded Spinel; client IID 0 is mapped to radio IID 2 |
 
 The radio UART runs at 460800 baud with hardware RTS/CTS flow control. Zigbee

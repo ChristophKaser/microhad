@@ -1,5 +1,16 @@
 # Optional Matter-over-Thread integration
 
+The current source component is `micro-thread-matter-daemon/`, its executable
+is `mthread-matter`, and private IPC uses [CBOR v2](docs/matter-ipc-v2.md).
+Only a two-byte little-endian length precedes the CBOR envelope. There is no
+reserved field; unknown fields are skipped with safe warnings. Structural bounds
+are 16 nested containers, 256 map pairs and 512 array entries, within the
+2048-byte envelope limit. The rename and v2 migration have been verified locally
+and have not been deployed. Gateway observations and older framing descriptions
+below record earlier releases, including JSON IPC v1; they do not describe the
+currently built wire format. A release must update both daemons together using
+the documented maintenance deployment.
+
 ## Current result: gateway Matter service and Thread are running
 
 The opt-in native build, Rust Matter/OpenThread service, private IPC, Garage

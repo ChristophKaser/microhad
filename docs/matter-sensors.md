@@ -1,5 +1,10 @@
 # Matter sensor reads
 
+The private wire format is [CBOR v2](../microhad/docs/matter-ipc-v2.md), served
+by `mthread-matter` in `micro-thread-matter-daemon/`. JSON examples and typed
+JSON checks below describe public/in-process representations. Nullable values
+also use CBOR null on the private wire. Dated validation results are historical.
+
 Boolean State (cluster 69) is now read as a typed boolean using the generic
 Interaction Model attribute path and is included in subscription reports. The
 shared native/UI contact mapping is tracked in the native plan 07 checkpoint.

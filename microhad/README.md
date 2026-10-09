@@ -48,6 +48,12 @@ Build the paired Rust Matter service from the repository root with
 `bash micro-thread-matter-daemon/scripts/build.sh mips service`; it uses the shared
 Rust and MIPS toolchain settings.
 
+The component is `micro-thread-matter-daemon/` and the service executable is
+`mthread-matter`. Its private protocol is [length-prefixed CBOR v2](docs/matter-ipc-v2.md);
+public HTTP and WebSocket interfaces remain JSON. Initialize the pinned TinyCBOR
+dependency with `git submodule update --init microhad/dependencies/tinycbor`
+from the repository root before building MicroHAD.
+
 Matter is an optional build selection, `MATTER=0|1`, defaulting to `1` when
 Ziggurat is enabled and `0` for the EZSP build.
 `MATTER=1` requires `ZIGGURAT=1`. The small native C++03 bridge uses the

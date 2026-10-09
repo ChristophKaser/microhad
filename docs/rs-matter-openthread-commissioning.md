@@ -146,6 +146,15 @@ a production commissioner does not need the fixture accessory data model.
 
 ## Native IPC framing
 
+The current service is `mthread-matter` in `micro-thread-matter-daemon/` and
+uses [length-prefixed CBOR v2](../microhad/docs/matter-ipc-v2.md). Only the
+length remains outside CBOR. Unknown fields are skipped with safe warnings;
+the structural bounds are 16 containers, 256 map pairs and 512 array entries.
+Public HTTP/WebSocket JSON and persistent state formats are unchanged.
+
+The following paragraph records the original v1 checkpoint, which is superseded
+by v2. Later dated checkpoints retain their historical binary names and sizes.
+
 The companion native `include/matter_protocol.h`/`src/matter_protocol.cpp` and
 Rust `src/ipc.rs` implement the same version-1 bounded stream codec. Golden
 vectors cover little-endian fields on host and factory big-endian MIPS,

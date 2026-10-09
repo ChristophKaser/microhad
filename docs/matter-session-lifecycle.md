@@ -1,5 +1,10 @@
 # Commissioning session lifetime
 
+The current service is `mthread-matter` in `micro-thread-matter-daemon/`, using
+[CBOR IPC v2](../microhad/docs/matter-ipc-v2.md). The dated checkpoints below
+retain the service names and measurements from their original validation runs.
+The CBOR migration preserves the session lifecycle described here.
+
 ## Cancel when the IPC peer disconnects — 2026-10-05
 
 The controller now checks the selected commissioning event peer on every
@@ -25,7 +30,8 @@ Start remains `not_ready` until a validated dataset is active on a freshly
 observed matching coordinator channel.
 
 Session IDs are unpredictable nonzero OS-entropy u64 values, rendered as sixteen
-lowercase hex characters. They are distinct from IPC correlations. Status uses
+lowercase hex characters in public/in-process JSON and unsigned integers on the
+private CBOR wire. They are distinct from IPC correlations. Status uses
 monotonic deadlines (30–900 seconds); reading status or accepting callbacks does
 not extend them. Cancellation, deadline expiry and task completion drop the
 owned future before clearing BTP, invalidate the connection generation, and

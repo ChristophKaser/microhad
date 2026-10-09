@@ -1,5 +1,14 @@
 # Plan: Thread network lifecycle on the shared radio
 
+Current private IPC uses [CBOR v2](../matter-ipc-v2.md); the component is
+`micro-thread-matter-daemon/` and the executable is `mthread-matter`. The v2
+rename/migration has host and build verification only and has not been deployed.
+Dated implementation and device checkpoints below retain historical names,
+measurements and v1 protocol details. JSON examples describe the public or
+in-process models; private-wire IDs and binary data use CBOR integers and byte
+strings. Current wire rules, unknown-field warnings and limits are in the v2
+contract.
+
 ## Current open work — 2026-10-05
 
 The staged Matter service is now running on the development gateway alongside
@@ -381,7 +390,7 @@ Verification passed:
 `source scripts/rust-env.sh && CARGO_TARGET_DIR="$PWD/build/micro-thread-matter-daemon/target"
 cargo +nightly-2026-10-02 build --offline --manifest-path
 micro-thread-matter-daemon/Cargo.toml --features controller-service-test-hooks --bin
-thread-matter --locked`, `python3 micro-thread-matter-daemon/scripts/test-matter-service.py`, and the
+mthread-matter --locked`, `python3 micro-thread-matter-daemon/scripts/test-matter-service.py`, and the
 targeted lifecycle unit test with `controller-service-test-hooks` (1/1). The
 full service script also passes its existing commissioning, timeout, mismatch,
 expiry, and restart gates. This does not test the OpenThread C API or a failure

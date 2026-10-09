@@ -30,9 +30,13 @@ export PROJECT_ROOT="$WORKSPACE/embedded-home-automation"
 git clone https://github.com/banksy-git/lidl-gateway-freedom.git
 ```
 
-The six submodules pin upstream Ziggurat, rs-matter, OpenThread,
-rtl8196e-gateway, Gecko SDK and SLC CLI. Each component owns its dependencies.
+The seven submodules pin upstream Ziggurat, rs-matter, OpenThread,
+rtl8196e-gateway, Gecko SDK, SLC CLI and TinyCBOR. Each component owns its dependencies.
 Gecko SDK belongs to firmware; Thread/Matter owns its upstream OpenThread checkout.
+TinyCBOR v0.6.0 is pinned under `microhad/dependencies/tinycbor`. The Matter
+component is `micro-thread-matter-daemon/` and its executable is `mthread-matter`.
+Both Matter daemons must use [CBOR IPC v2](../microhad/docs/matter-ipc-v2.md)
+together; builds do not deploy the coordinated release.
 MicroHAD is included in this checkout; no separate native repository is needed.
 
 After updating an existing checkout, synchronize its moved submodules and

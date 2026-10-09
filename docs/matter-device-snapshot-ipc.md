@@ -1,7 +1,15 @@
 # Device snapshot IPC
 
-Opcode 10 accepts `{"schema":1,"action":"snapshot"}` with optional `cursor`
-(u16, default zero) and `revision` (nonzero 16-character lowercase hex string).
+The private wire format is [CBOR v2](../microhad/docs/matter-ipc-v2.md).
+Examples below use the public/in-process JSON representation: private-wire
+node and revision IDs are unsigned 64-bit integers; the JSON representation
+uses sixteen-digit hexadecimal strings. Unknown private-wire fields are skipped
+with safe warnings. Historical validation checkpoints retain their original
+service names and measurements; the current executable is `mthread-matter`.
+
+Opcode 10 accepts a CBOR map equivalent to `{"schema":1,"action":"snapshot"}`
+with optional `cursor` (u16, default zero) and `revision` (nonzero unsigned 64-bit
+integer on the wire, sixteen-digit lowercase hex string in JSON).
 It responds immediately from the private catalog and in-memory descriptors;
 no read triggers CASE, DNS, BLE, flash writes or a radio wait.
 

@@ -3,7 +3,7 @@
 The active private protocol is [CBOR IPC v2](matter-ipc-v2.md). This document
 records the previous JSON wire format and lifecycle history.
 
-This fixes the contract for the remaining implementation. The service dispatches
+This recorded the contract at the v1 implementation checkpoints. The service dispatched
 status opcodes 1/2, commissioning/relay opcodes 3–8 and Thread lifecycle opcode 9.
 Thread, commissioning snapshot and opaque BLE-write events are implemented.
 Opcode 10 snapshot dispatch and bounded OnOff operation jobs plus opcode 11

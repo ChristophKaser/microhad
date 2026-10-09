@@ -1,5 +1,14 @@
 # Plan: Rust Matter service runtime
 
+Current private IPC uses [CBOR v2](../matter-ipc-v2.md); the component is
+`micro-thread-matter-daemon/` and the executable is `mthread-matter`. The v2
+rename/migration has host and build verification only and has not been deployed.
+Dated implementation and device checkpoints below retain historical names,
+measurements and v1 protocol details. JSON examples describe the public or
+in-process models; private-wire IDs and binary data use CBOR integers and byte
+strings. Current wire rules, unknown-field warnings and limits are in the v2
+contract.
+
 ## Read-only first-device readiness check — 2026-10-05
 
 At the initial read-only check, the live gateway ran

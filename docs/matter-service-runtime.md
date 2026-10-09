@@ -1,6 +1,6 @@
 # Gateway Matter service runtime
 
-The `thread-matter` executable is a single-threaded controller process. It owns
+The `mthread-matter` executable in `micro-thread-matter-daemon/` is a single-threaded controller process. It owns
 OpenThread, the Matter UDP transport, the private store, and a bounded Unix IPC
 listener. It creates/restores a private controller authority and fabric;
 Thread create/import/restore and commissioning/relay dispatch are implemented.
@@ -37,7 +37,7 @@ executable.
 Example invocation, once the coordinator provides a private Thread endpoint:
 
 ```sh
-thread-matter --socket /tmp/microhad-matter.sock \
+mthread-matter --socket /tmp/microhad-matter.sock \
   --state-dir /tuya/native/matter \
   --radio-url 'spinel+hdlc+unix:///tmp/ziggurat/thread.sock?no-reset'
 ```
@@ -66,14 +66,18 @@ the development administrator vendor). This metadata is not a manufacturer
 certificate. Set it before first initialization; a different value on restart
 is rejected. See the native `docs/matter-identity-store-v1.md` for the schema.
 
-IPC uses the shared version-1 bounded frame format. Opcodes 1 and 2 accept empty
-payloads and return redacted JSON. Matter reports initialization/fabric readiness;
-Thread reports attachment. Opcodes 3–11 now decode strict schema-1 request bodies;
+IPC uses [length-prefixed CBOR v2](../microhad/docs/matter-ipc-v2.md).
+Only the two-byte little-endian length is outside the CBOR envelope. Opcodes 1
+and 2 accept empty CBOR maps and return redacted CBOR status maps; their public
+HTTP representations remain JSON. Matter reports initialization/fabric readiness;
+Thread reports attachment. Opcodes 3–11 decode schema-1 request bodies;
+unknown fields are skipped with warnings containing only the opcode and count.
+Structural limits are 16 nested containers, 256 map pairs and 512 array entries.
 valid operations without implemented lifecycles return `unsupported`, and invalid
 bodies return `malformed`, without echoing input. Opcode-12 requests close the peer.
 Limits:
 four clients, four accepts per loop, 4096 read/write bytes per client per loop,
-eight queued responses per client, 2048 bytes per payload, and a two-second idle
+eight queued responses per client, 2048 bytes per complete CBOR envelope, and a two-second idle
 deadline that partial requests cannot extend. OpenThread polls at most five
 milliseconds between Matter and IPC turns.
 
@@ -84,11 +88,17 @@ and live listeners are refused. Normal shutdown removes only the socket inode
 created by this invocation. Retaining `.lock` prevents an inode replacement race.
 SIGINT/SIGTERM unwind the transport and release storage and IPC ownership.
 
-Stderr contains only static start/stop/failure messages. Request payloads,
+The production service logs through syslog, including safe unknown-field warnings.
+Request payloads,
 CLI inputs, datasets and store contents have no logging path. A missing radio,
 transport failure, or corrupt state exits the service. The native project's
 optional paired supervisor implements independent bounded retries and backoff;
 see `microhad/MATTER_INTEGRATION.md`. It is not activated in production.
+
+The following validation checkpoints describe earlier releases; their old
+binary names and measured sizes are historical. CBOR v2 and the executable
+rename were verified locally, with no deployment. See the
+[v2 validation and footprint](../microhad/docs/matter-ipc-v2.md#host-validation-and-footprint).
 
 Validation: 36 Rust library tests pass, including six listener checks, three
 strict-body groups, five session lifetime checks and four authority recovery checks.

@@ -1,5 +1,10 @@
 # Rust/OpenThread userspace UDP adapter
 
+This records the original transport checkpoint. Current source and build
+commands live under `micro-thread-matter-daemon/`; the service is `mthread-matter`
+and uses [CBOR IPC v2](../microhad/docs/matter-ipc-v2.md). Historical limits and
+measurements below describe the earlier probe, rather than the current release.
+
 The optional `openthread` Cargo feature connects rs-matter's `NetworkSend`,
 `NetworkReceive` and `NetworkMulticast` traits to the pinned OpenThread userspace
 IPv6 stack. Both host and factory MIPS synthetic-radio tests passed on
@@ -54,14 +59,14 @@ instead of requiring an Embassy executor-specific waker layout.
 
 ## Reproduce
 
-Prepare the pinned rs-matter probe source and custom target with the existing
-`scripts/build-thread-matter.sh` workflow first, then:
+The component build scripts prepare the pinned sources and custom target.
+For the standalone transport fixture, run:
 
 ```sh
-bash micro-thread-matter-daemon/scripts/build.sh host
+bash micro-thread-matter-daemon/scripts/build.sh host transport
 bash micro-thread-matter-daemon/scripts/build-openthread-relay.sh host
 python3 micro-thread-matter-daemon/scripts/test-openthread-matter-transport.py
-bash micro-thread-matter-daemon/scripts/build.sh mips
+bash micro-thread-matter-daemon/scripts/build.sh mips transport
 bash micro-thread-matter-daemon/scripts/build-openthread-relay.sh mips
 python3 micro-thread-matter-daemon/scripts/test-openthread-matter-device.py \
   --host 192.168.178.62 --password-file ../ssh_password.txt

@@ -166,7 +166,7 @@ retention policy rather than routinely writing copies to gateway flash.
    candidate before considering activation:
 
    ```sh
-   thread-matter --validate-state-dir "$MATTER_STAGE_DIR"
+   mthread-matter --validate-state-dir "$MATTER_STAGE_DIR"
    ```
 
    This command is offline: it does not bind IPC or access OpenThread. It
