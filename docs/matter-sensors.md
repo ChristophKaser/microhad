@@ -1,13 +1,12 @@
 # Matter sensor reads
 
 The private wire format is [CBOR v2](../microhad/docs/matter-ipc-v2.md), served
-by `mthread-matter` in `micro-thread-matter-daemon/`. JSON examples and typed
-JSON checks below describe public/in-process representations. Nullable values
-also use CBOR null on the private wire. Dated validation results are historical.
+by `mthread-matter` in `micro-thread-matter-daemon/`. JSON examples describe public/in-process representations. Nullable values
+also use CBOR null on the private wire.
 
 Boolean State (cluster 69) is now read as a typed boolean using the generic
 Interaction Model attribute path and is included in subscription reports. The
-shared native/UI contact mapping is tracked in the native plan 07 checkpoint.
+shared native/UI contact mapping is tracked in the native plan 07.
 
 The Rust Matter service accepts capability-gated reads of attribute 0 from
 advertised Air Quality (cluster 91), Temperature Measurement (1026), Relative
@@ -33,26 +32,3 @@ These are service IPC values, not yet the shared gateway device-model or
 dashboard representation. Matter UI remains limited to joining and
 Matter/Thread-specific settings; sensors must be projected through the shared
 Zigbee/Matter/Shelly device catalog before product UI acceptance.
-
-## Verification
-
-From the `ziggurat-compilation` directory, run:
-
-```sh
-CARGO_INCREMENTAL=0 CARGO_TARGET_DIR="$PWD/build/micro-thread-matter-daemon/target" \
-  cargo +nightly-2026-10-02 test \
-  --locked --manifest-path micro-thread-matter-daemon/Cargo.toml \
-  --features controller-service --lib
-```
-checks request capability gating and exact typed JSON, including signed Celsius
-and null values. The encrypted fixture is run with:
-
-```sh
-bash micro-thread-matter-daemon/scripts/build.sh host commissioning
-python3 micro-thread-matter-daemon/scripts/test-openthread-matter-transport.py --commissioning --ble --service-owner --service-discovery
-```
-
-The fixture synthetic accessory advertises all five sensor clusters and verifies
-temperature, humidity, CO2, PM2.5 and Air Quality reads through the production
-service owner and CASE. It uses a synthetic RCP and phone GATT endpoint; it does
-not test a physical accessory or radio.

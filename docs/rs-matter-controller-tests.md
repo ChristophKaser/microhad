@@ -3,11 +3,10 @@
 The pinned rs-matter controller now passes a reproducible host-only protocol
 harness: PASE, fabric installation, CASE, reads, invokes and stale-session
 recovery work against an in-process accessory. Added sensor reads preserve
-positive, negative and unknown temperatures. The gateway owner has now explicitly selected skipping manufacturer attestation.
+positive, negative and unknown temperatures. The gateway policy skips manufacturer attestation.
 The shared gateway policy maps that choice to rs-matter's existing bypass while
 retaining PASE/CASE. A gateway helper now sends Thread credentials and connects
-them over PASE; this is exercised against a synthetic network handler. Real
-BLE/OpenThread integration and device acceptance remain pending.
+them over PASE; this is exercised against a synthetic network handler. Physical accessory acceptance remains pending.
 
 ## Reproduce
 
@@ -31,10 +30,9 @@ record is [rs-matter-controller-validation.json](rs-matter-controller-validation
 The commissioning fixture binds device and controller sockets to IPv6
 loopback, uses public upstream development credentials, and supplies a stub
 operational resolver. It performs no mDNS multicast discovery, BLE, Thread
-radio operations or gateway deployment. The existing MIPS crypto probe and
-its separate lock remain unchanged. Host OS networking features used here
+radio operations or gateway deployment.  Host OS networking features used here
 are not a proposed networking dependency for factory Linux; the gateway path
-still needs OpenThread's internal IPv6/UDP adapter.
+uses OpenThread's internal IPv6/UDP adapter.
 
 ## Coverage
 
@@ -59,22 +57,6 @@ Separate upstream suites check a PASE handshake, CASE including Sigma2
 retransmission, and certification-declaration/trust-store components. Passing
 those components does not demonstrate integrated attestation verification.
 
-## Recorded result
-
-All 40 checks passed on the development host:
-
-| Suite | Passed | Test duration |
-| --- | ---: | ---: |
-| Extended UDP/TCP commissioning and gateway policy/dataset checks | 5 | 1.16 s |
-| PASE | 1 | 0.51 s |
-| CASE and Sigma2 retransmission | 2 | 0.98 s |
-| Attestation components | 32 | Below displayed 0.01 s resolution |
-
-Compilation time is excluded. The commissioning duration covers both fixture
-flows, repeated commissioning and added reads, not one pairing operation.
-No gateway test, deployment, production configuration or radio state was
-changed during this milestone.
-
 ## Owner-selected attestation policy
 
 In this revision, `Commissioner::verify_device_attestation` in
@@ -85,8 +67,7 @@ explicit development-fixture bypass. `micro-thread-matter-daemon/src/commissioni
 policy: `verify_manufacturer_attestation=false` by default for this gateway,
 as requested by its owner. Setting it true selects upstream's fail-closed
 behavior; a verifier remains unimplemented. The fixture uses this same policy
-rather than its own hard-coded bypass. No running native controller has been
-deployed yet.
+rather than its own hard-coded bypass.
 
 Available building blocks include Certification Declaration CMS signature and
 identity checks, a PAA lookup store, and DER certificate parsers. They are not
@@ -119,14 +100,8 @@ credentials and have no Debug/Display implementation; the helper logs nothing
 and does not persist them. This is an initial gateway validation subset, not a
 replacement for OpenThread's authoritative dataset validation.
 
-Factory-new ALPSTUGA support additionally needs a supported device flow for
-regulatory/network commissioning and Thread dataset provisioning over the
-Garage BLE delegate, followed by discovery and CASE over OpenThread. The
-Thread dataset must use Zigbee's current channel, and Ziggurat retains sole
-UART/reset ownership. Credential persistence, subscriptions and real-device
-restart recovery are separate acceptance gates.
-
-Native `MATTER=1` remains rejected until the actual controller
-transport/IPC integration are implemented and verified. These host test
-durations do not predict gateway commissioning latency, full controller RSS,
-or combined Zigbee/Thread throughput.
+Physical accessory acceptance must exercise the phone BLE delegate, Thread
+provisioning, operational discovery, CASE, subscriptions and restart recovery.
+Ziggurat retains sole UART/reset ownership; Thread uses the observed Zigbee
+channel. Host test timings do not predict target latency, peak RSS or sustained
+Zigbee/Thread throughput.

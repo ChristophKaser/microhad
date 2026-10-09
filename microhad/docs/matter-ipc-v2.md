@@ -78,7 +78,7 @@ The executable is `mthread-matter`; the stripped target artifact is
 `build/micro-thread-matter-daemon/mthread-matter-mips`. Its deployed destination
 is `/tuya/native/mthread-matter`. Probe executable names remain unchanged.
 
-Both daemons must move to v2 together. There is no JSON v1 negotiation or fallback.
+Both daemons must use v2 together.
 Use the documented maintenance deployment for a release: it backs up both
 `thread-matter` and `mthread-matter`, accounts for both paths, stops the stack,
 checks executable ownership, then reclaims the old application binaries.
@@ -95,22 +95,21 @@ recovery with both a stand-in and the real native worker. Retry exhaustion was
 also checked. Production binaries exclude the test-only report hook.
 
 The stripped MIPS artifacts measured 1,788,728 bytes for MicroHAD and 2,403,924
-bytes for Matter, compared with 1,747,988 and 2,297,388 bytes before the change.
+bytes for Matter.
 These are local build measurements; target runtime memory was not measured.
 The standalone host codec/vector probe reported a 4,244 KiB process high-water
 mark, including its runtime and test harness.
 
 Representative complete frames, including their length prefix:
 
-| Message | JSON v1 bytes | CBOR v2 bytes |
-| --- | ---: | ---: |
-| Empty status request | 10 | 36 |
-| BLE indication, 3 bytes | 95 | 92 |
-| BLE indication, 244 bytes | 586 | 338 |
-| Thread dataset import, 254 bytes | 581 | 338 |
-| Correlated failure | 53 | 68 |
-| Measurement event | 216 | 192 |
+| Message | CBOR v2 bytes |
+| --- | ---: |
+| Empty status request | 36 |
+| BLE indication, 3 bytes | 92 |
+| BLE indication, 244 bytes | 338 |
+| Thread dataset import, 254 bytes | 338 |
+| Correlated failure | 68 |
+| Measurement event | 192 |
 
-The shared vectors reproduce the CBOR sizes; the v1 sizes use its ten-byte
-header and the equivalent compact JSON bodies. No gateway was accessed or
+The shared vectors reproduce these CBOR sizes. No gateway was accessed or
 deployed during this validation.

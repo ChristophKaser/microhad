@@ -61,85 +61,10 @@ without a catalog remains pending until Thread is ready. The service browses
 instance labels to the current compressed fabric and IDs below the persisted
 next-node counter, then commits only those live IDs as `RecoveryRequired`. The
 normal authenticated CASE descriptor scheduler then decides which entries are
-usable; no entry is fabricated as complete. Historical allocation gaps
+usable; no entry is fabricated as complete. Prior allocation gaps
 therefore do not occupy catalog space. More than 64 matching operational
 services remains outside the bounded catalog and is rejected without
 committing a partial list. Browse errors leave the catalog absent and retry
 with a capped delay; a successful empty browse commits an empty catalog.
 Commissioning is disabled until reconciliation commits, preventing new IDs
 from racing the migration. A crash before commit safely repeats the browse.
-
-## Verification scope
-
-Service-feature library tests, the actual running service IPC fixture and the
-production-owner encrypted fixture exercise this implementation. Catalog tests
-cover completion/reload/stable identity/no read writes, cancellation/crash
-recovery, capacity, invalid phase order, wrong authority/counter/corruption,
-cleanup storage failure and bounded legacy migration. An identity regression
-rejects orphaned catalogs without changing credentials. The running service fixture independently decodes TMKV and
-the catalog to verify three distinct recovery-required IDs after reattach,
-cancellation and failed GATT writes. The encrypted owner fixture asserts the
-completed catalog entry before testing persisted authority and fresh CASE.
-
-These remain synthetic radio/accessory checks. The original encrypted fixture uses explicit rendezvous. A newer
-`--service-discovery` mode exercises production SRP/DNS lookup; remote recovery,
-descriptors, subscriptions and native device/report integration remain open.
-No physical gateway/accessory acceptance is claimed.
-
-Thread discovery must use SRP/DNS-SD over the userspace Thread network rather
-than assume multicast DNS on the mesh. OpenThread's pinned API provides SRP
-server and DNS client functionality; their build/runtime integration is now
-implemented. See [operational discovery](matter-operational-discovery.md). References: [OpenThread SRP](https://openthread.io/reference/cli/concepts/srp)
-and [Thread discovery architecture](https://openthread.io/codelabs/openthread-border-router).
-
-Verified commands — 2026-10-04:
-
-```sh
-source scripts/rust-env.sh
-CARGO_TARGET_DIR="$PWD/build/micro-thread-matter-daemon/target" cargo +nightly-2026-10-02 test \
-  --locked --release --manifest-path micro-thread-matter-daemon/Cargo.toml \
-  --features controller-service --lib
-bash micro-thread-matter-daemon/scripts/build.sh host service
-bash micro-thread-matter-daemon/scripts/build.sh host commissioning
-python3 micro-thread-matter-daemon/scripts/test-openthread-matter-transport.py --commissioning --ble --service-owner
-python3 micro-thread-matter-daemon/scripts/test-matter-service.py
-bash micro-thread-matter-daemon/scripts/build.sh mips service
-bash micro-thread-matter-daemon/scripts/build.sh mips commissioning
-```
-
-All 48 service-feature tests pass. A separate `controller-identity` feature-only
-library run passes 23 tests, verifying catalog/authority support without service
-IPC or OpenThread. Both host builds, the encrypted owned fixture
-and the running-service catalog assertions pass. Initial sandboxed Unix socket
-checks failed with permission errors; the elevated retries passed. Both stripped
-artifacts pass ELF verification for static big-endian MIPS-I/o32 soft-float. The
-service is 1,748,648 bytes and the commissioning probe is 2,084,544 bytes; both
-increased 8,192 bytes from the preceding checkpoint. These are binary sizes,
-not target RSS or CPU measurements. Hashes/scope are recorded in
-[machine-readable validation](matter-node-catalog-validation.json). Existing
-MIPS linker abicalls/non-abicalls warnings remain; cross-build/ELF checks do not
-replace plan 08 physical execution. No deployment occurred.
-
-## DNS-SD legacy migration checkpoint — 2026-10-05
-
-Rust commit `9e0922e` initially migrated every allocated ID and failed closed
-above the catalog's 64-entry bound. The current implementation defers migration
-until OpenThread is running, browses actual operational Matter instances and
-filters by compressed fabric plus allocator high-water. `Catalog::migrate_legacy`
-accepts only sorted, unique, in-range IDs; it persists them as
-`RecoveryRequired`, including a valid empty result, before enabling new
-commissioning. A DNS timeout or browse error does not write an empty catalog
-and uses capped retry delay. The fixed C ABI caps matching results at 64 and
-signals overflow instead of truncating. Host regression covers sparse IDs up to
-high-water 100,003, and the encrypted SRP fixture verifies the Browse callback
-returns the registered service's node.
-
-Validation: all 76 controller-service tests pass when run with Unix socket
-permissions enabled; the Browse SRP/CASE fixture passes in 16.4 seconds on the
-development host. The static MIPS-I production service cross-build passes at
-2,129,600 bytes, SHA-256
-`1eecdc912a00d22c1f7a1557f090fdaf2916a7a2f9accc72e5d3d4465f17ce82` (20,480
-bytes over the previous checkpoint). Browse uses a fixed 520-byte result
-buffer and scans at most 256 labels per response; no gateway execution or
-reset-sensitive workload was run. Physical filesystem and power-loss
-verification remain excluded in plan 08.

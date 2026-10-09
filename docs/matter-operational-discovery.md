@@ -112,21 +112,3 @@ Default older fixture modes retain explicit rendezvous for comparison; only the
 Primary API references: [OpenThread SRP](https://openthread.io/reference/group/api-srp),
 [DNS service resolution](https://openthread.io/reference/group/api-dns) and
 [Thread discovery architecture](https://openthread.io/codelabs/openthread-border-router).
-
-## Verified checkpoint — 2026-10-04
-
-All 54 service-feature library tests pass. The encrypted SRP/DNS production-owner
-fixture passes abandoned-callback/missing-service checks, commissioning, catalog
-completion, controls and fresh CASE after fabric reopen without the phone. The
-running-service IPC/catalog regression and native worker `--real-service` HTTP/
-WebSocket regression pass with the updated service. Both host and MIPS builds
-pass. Production symbol inspection confirms the fixture helper is absent.
-
-The stripped MIPS service is 1,924,788 bytes (176,140 more than the catalog
-checkpoint); the commissioning probe is 2,264,780 bytes (180,236 more). ELF checks
-prove static big-endian MIPS-I/o32 soft-float artifacts. Existing linker ABI
-warnings remain. Hashes/test scope are in
-[validation manifest](matter-operational-discovery-validation.json). The final
-host fixture took about 7.7 seconds including Thread attachment, SRP advertisement
-and registration; this is not target throughput or RSS/CPU evidence. No updated
-artifact was run on the physical gateway.

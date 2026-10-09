@@ -1,27 +1,11 @@
-# Plan: Real-device acceptance
+# Real-device acceptance
 
-Current private IPC uses [CBOR v2](../matter-ipc-v2.md); the component is
-`micro-thread-matter-daemon/` and the executable is `mthread-matter`. The v2
-rename/migration has host and build verification only and has not been deployed.
-Dated implementation and device checkpoints below retain historical names,
-measurements and v1 protocol details. JSON examples describe the public or
-in-process models; private-wire IDs and binary data use CBOR integers and byte
-strings. Current wire rules, unknown-field warnings and limits are in the v2
-contract.
+The source component is `micro-thread-matter-daemon/` and the executable is
+`mthread-matter`. Private messages use [CBOR IPC v2](../matter-ipc-v2.md).
+Public HTTP/WebSocket APIs remain JSON.
 
-## Current open work — 2026-10-04
-
-Physical gateway/accessory acceptance remains pending; this document is a test plan
-only.
-
-Next deliverable: Collect evidence and artifact hashes from plans 01–07, then prepare
-the private backup, baseline, staging and rollback manifest. Physical testing requires
-its separately arranged scope.
-
-Follow the ordered steps and execution checklist below. Record verification
-commands, results and the owning repository commit after each completed step.
-Earlier checkpoint sections are historical; use the latest evidence when
-assessing completion. Keep physical acceptance in plan 08.
+Physical gateway/accessory acceptance remains pending. This is a test plan;
+deployment and device tests require an explicit request.
 
 ## Goal
 
@@ -71,52 +55,7 @@ factory-new IKEA ALPSTUGA while preserving the existing Zigbee network.
 - Resource, report reliability, recovery, and flash-write gates pass, and the
   rollback procedure is demonstrated.
 
-## Status quo — 2026-10-04
-
-Pending. Existing transport/commissioning fixtures and build measurements do
-not prove real-accessory commissioning or production coexistence. This file
-documents the final gate; creating the plan does not initiate deployment or
-pairing.
-
-## Remaining checkpoints
-
-1. Review plans 01–07 against their acceptance criteria and collect a manifest
-   of exact source commits, artifact hashes and unresolved limitations.
-2. Arrange the physical test scope and backups, then stage artifacts using the
-   repository's deployment procedure without an extra UART owner.
-3. Execute the commissioning, phone-detached operation, restart and failure
-   scenarios above, recording redacted results against the baseline.
-4. Measure sustained resource/RF behavior, verify rollback and cleanup, and
-   publish a pass/fail report before considering permanent activation.
-
 ## Dependencies
 
 All preceding plans, especially persistent identity, Thread lifecycle, the
 Garage BLE relay, and device report integration. This is the final release gate.
-
-## Execution checklist for open work — 2026-10-04
-
-All unchecked items below remain open. Earlier checkpoint measurements
-are historical; the latest status/evidence section above takes precedence.
-
-1. [ ] Review acceptance evidence from plans 01–07 and list remaining risks.
-   Assemble exact commits, artifact hashes, configuration, radio mapping and
-   rollback commands into a test manifest.
-2. [ ] Arrange the physical test scope; take private consistent backups and
-   redacted Zigbee/resource baselines before staging anything on the gateway.
-3. [ ] Stage and verify artifacts in a temporary directory. Establish sole
-   UART ownership and cleanup/rollback before starting the test services.
-4. [ ] Commission the factory-new accessory using Garage; record redacted
-   phase timings and failures, then verify advertised values and controls with
-   the phone disconnected.
-5. [ ] Verify service/gateway restart, identity/catalog restore, fresh CASE and
-   the listed BLE/radio/state failure scenarios without losing Zigbee state.
-6. [ ] Measure sustained CPU, peak RSS, free RAM, RF/report reliability and
-   flash writes against the manifest's acceptance gates; do not substitute
-   development-host timings or binary sizes for these measurements.
-7. [ ] Demonstrate rollback, remove temporary artifacts, compare to baseline
-   and publish a redacted pass/fail report. Treat permanent launcher activation
-   as a separate deployment decision after acceptance.
-
-Validation: backed-up physical gateway/accessory testing. This is a planning
-file only; no deployment, pairing or cutover is initiated by this update.
