@@ -140,37 +140,90 @@ elif 'wc -c' in command or 'du -sk' in command:
                 self.assertNotIn('config.json', row['command'])
                 self.assertNotIn('ziggurat-state.json', row['command'])
 
-    def test_webui_verification_uses_selected_protocol_and_directory(self):
-        for https in (False, True):
-            with self.subTest(https=https), tempfile.TemporaryDirectory() as directory:
-                root = Path(directory)
-                fake = root / 'sshpass';fake.write_text(FAKE_SSH);fake.chmod(0o700)
-                curl = root / 'curl'
-                curl.write_text('''#!/usr/bin/env python3
+    def test_webui_verification_uses_http_and_selected_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake = root / 'sshpass';fake.write_text(FAKE_SSH);fake.chmod(0o700)
+            curl = root / 'curl'
+            curl.write_text("""#!/usr/bin/env python3
 import json, os, sys
 with open(os.environ['VERIFY_CALLS'], 'a') as output:
     output.write(json.dumps(sys.argv[1:]) + '\\n')
-''')
-                curl.chmod(0o700)
-                webui = root / 'webui';webui.mkdir()
-                (webui / 'index.html').write_text('<script src="/app.js"></script>\n<link href="/app.css">\n')
-                for name in ('sw.js', 'app.js', 'app.css'):
-                    (webui / name).write_text('fixture')
-                password = root / 'password';password.touch()
-                calls = root / 'verify-calls'
+""")
+            curl.chmod(0o700)
+            webui = root / 'webui';webui.mkdir()
+            (webui / 'index.html').write_text('<script src="/app.js"></script>\n<link href="/app.css">\n')
+            for name in ('sw.js', 'app.js', 'app.css'):
+                (webui / name).write_text('fixture')
+            password = root / 'password';password.touch()
+            calls = root / 'verify-calls'
+            env = dict(os.environ, PATH=str(root)+os.pathsep+os.environ['PATH'],
+                       STAGING_CALLS=str(root / 'staging-calls'), VERIFY_CALLS=str(calls))
+            subprocess.run(['sh', str(ROOT.parent / 'deploy.sh'), '--password-file', str(password),
+                            '--webui-only', '--webui-dir', str(webui)],
+                           env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                           check=True, timeout=10)
+            rows = [json.loads(line) for line in calls.read_text().splitlines()]
+            self.assertEqual([row[-1] for row in rows],
+                             ['http://192.168.178.62/app.js', 'http://192.168.178.62/app.css'])
+            self.assertTrue(all('-fsS' in row and '-kfsS' not in row for row in rows))
+
+    def test_dashboard_wait_handles_delayed_startup_and_timeout(self):
+        script = (ROOT.parent / 'deploy.sh').read_text()
+        functions = script[script.index('verification_get() {'):script.index('verify_webui_assets() {')]
+        for failures in (0, 2, -1):
+            with self.subTest(failures=failures), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                calls = root / 'calls'
+                clock = root / 'clock';clock.write_text('0')
+                programs = {
+                    'date': """from pathlib import Path
+import os
+print(Path(os.environ['CLOCK']).read_text())
+""",
+                    'sleep': """from pathlib import Path
+import json, os, sys
+clock = Path(os.environ['CLOCK'])
+clock.write_text(str(int(clock.read_text()) + int(sys.argv[1])))
+with open(os.environ['CALLS'], 'a') as output:
+    output.write(json.dumps({'sleep': int(sys.argv[1])}) + '\\n')
+""",
+                    'curl': """from pathlib import Path
+import json, os, sys
+calls = Path(os.environ['CALLS'])
+rows = [json.loads(line) for line in calls.read_text().splitlines()]
+count = sum('curl' in row for row in rows) + 1
+with calls.open('a') as output:
+    output.write(json.dumps({'curl': sys.argv[1:]}) + '\\n')
+failures = int(os.environ['FAILURES'])
+if failures < 0 or count <= failures:
+    clock = Path(os.environ['CLOCK'])
+    clock.write_text(str(int(clock.read_text()) + 2))
+    print('connection refused', file=sys.stderr)
+    sys.exit(7)
+""",
+                }
+                for name, body in programs.items():
+                    executable = root / name
+                    executable.write_text('#!/usr/bin/env python3\n' + body)
+                    executable.chmod(0o700)
                 env = dict(os.environ, PATH=str(root)+os.pathsep+os.environ['PATH'],
-                           STAGING_CALLS=str(root / 'staging-calls'), VERIFY_CALLS=str(calls))
-                args = ['sh', str(ROOT.parent / 'deploy.sh'), '--password-file', str(password),
-                        '--webui-only', '--webui-dir', str(webui)]
-                if https:
-                    args.append('--verify-https')
-                subprocess.run(args, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                               check=True, timeout=10)
+                           CLOCK=str(clock), CALLS=str(calls), FAILURES=str(failures))
+                result = subprocess.run(['sh', '-c', 'host=fixture\n' + functions + 'wait_for_dashboard'],
+                                        env=env, capture_output=True, text=True, timeout=10)
                 rows = [json.loads(line) for line in calls.read_text().splitlines()]
-                scheme = 'https' if https else 'http'
-                self.assertEqual([row[-1] for row in rows],
-                                 [f'{scheme}://192.168.178.62/app.js', f'{scheme}://192.168.178.62/app.css'])
-                self.assertEqual(all('-kfsS' in row for row in rows), https)
+                self.assertEqual(rows[0], {'sleep': 3})
+                probes = [row['curl'] for row in rows if 'curl' in row]
+                self.assertTrue(all(row[-1] == 'http://fixture/api/status' for row in probes))
+                self.assertTrue(all(row[row.index('--max-time') + 1] == '2' for row in probes))
+                if failures >= 0:
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(len(probes), failures + 1)
+                else:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn('did not become ready within 30 seconds', result.stderr)
+                    self.assertLessEqual(int(clock.read_text()), 35)
+                self.assertNotIn('connection refused', result.stderr)
 
     def test_paired_launcher_enables_matter_only_for_staged_executable(self):
         for staged in (False, True):

@@ -31,12 +31,11 @@ logread=""
 webui_dir="$project_dir/webui/dist"
 maintenance_deploy=false
 rollback_dir=""
-verify_https=false
 rng_seed_helper=""
 flash_reserve_kib=${DEPLOY_FLASH_RESERVE_KIB:-512}
 
 usage() {
-    echo "usage: $0 --password-file PATH --maintenance-deploy --binary PATH --ziggurat PATH --matter-service PATH --maintenance-helper PATH --logread PATH [--webui-dir DIR] [--rollback-dir DIR] [--verify-https] [--host HOST] [--target /tuya/native]" >&2
+    echo "usage: $0 --password-file PATH --maintenance-deploy --binary PATH --ziggurat PATH --matter-service PATH --maintenance-helper PATH --logread PATH [--webui-dir DIR] [--rollback-dir DIR] [--host HOST] [--target /tuya/native]" >&2
     echo "       $0 --password-file PATH [--both --supervisor --binary PATH --target /tuya/native] [existing deployment options]" >&2
     exit 2
 }
@@ -62,7 +61,6 @@ while [ "$#" -gt 0 ]; do
         --webui-dir) webui_dir=${2-}; shift 2 ;;
         --maintenance-deploy) maintenance_deploy=true; shift ;;
         --rollback-dir) rollback_dir=${2-}; shift 2 ;;
-        --verify-https) verify_https=true; shift ;;
         --tls-certificate) certificate=${2-}; shift 2 ;;
         --tls-private-key) private_key=${2-}; shift 2 ;;
         --ca-bundle) ca_bundle=${2-}; shift 2 ;;
@@ -161,11 +159,20 @@ start_remote_launcher() {
 }
 
 verification_get() {
-    if [ "$verify_https" = true ]; then
-        curl --noproxy '*' --connect-timeout 5 --max-time 10 -kfsS "https://$host$1"
-    else
-        curl --noproxy '*' --connect-timeout 5 --max-time 10 -fsS "http://$host$1"
-    fi
+    curl --noproxy '*' --connect-timeout 5 --max-time "${2:-10}" -fsS "http://$host$1"
+}
+
+wait_for_dashboard() {
+    echo "Waiting for the HTTP dashboard to become ready"
+    sleep 3
+    dashboard_deadline=$(($(date +%s) + 30))
+    while ! verification_get /api/status 2 >/dev/null 2>&1; do
+        if [ "$(date +%s)" -ge "$dashboard_deadline" ]; then
+            echo "HTTP dashboard did not become ready within 30 seconds" >&2
+            return 1
+        fi
+        sleep 1
+    done
 }
 
 verify_webui_assets() {
@@ -398,7 +405,8 @@ maintenance_deploy_run() {
         echo "New services did not become ready. No automatic rollback was attempted. Use the preserved backup at $rollback_dir for manual recovery." >&2
         return 1
     }
-    verification_get / >/dev/null &&
+    wait_for_dashboard &&
+        verification_get / >/dev/null &&
         verification_get /api/status >/dev/null &&
         verification_get /api/logs | grep -q '"lines"' || {
             echo "Web UI or status API did not respond" >&2
