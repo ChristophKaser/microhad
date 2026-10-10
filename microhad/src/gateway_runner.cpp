@@ -404,7 +404,7 @@ std::string GatewayRunner::logsJson() const {
     return json;
 }
 #endif
-bool GatewayRunner::readHistoryJson(const std::string& address, unsigned long before,
+bool GatewayRunner::readHistoryJson(const std::string& address, uint64_t before,
                                     std::string* json, std::string* error) const {
     return historyStore_ != 0 && historyStore_->readForDevice(address, before, json, error);
 }

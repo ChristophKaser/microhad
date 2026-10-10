@@ -48,7 +48,7 @@ public:
 #ifdef MICROHAD_TESTING
     std::string logsJson() const;
 #endif
-    bool readHistoryJson(const std::string& address, unsigned long before,
+    bool readHistoryJson(const std::string& address, uint64_t before,
                          std::string* json, std::string* error) const;
     bool registerShelly(const std::string& id, const std::string& name, const std::string& oldName,
                         const std::string& model, const std::vector<int>& inputIndices,

@@ -2,6 +2,7 @@
 #define MICROHAD_ZIGBEE_SENSOR_HISTORY_H
 
 #include <map>
+#include <stdint.h>
 #include <pthread.h>
 #include <string>
 #include <sys/types.h>
@@ -28,45 +29,44 @@ public:
     bool initialize(std::string* error = 0);
     bool appendValue(const std::string& deviceId, unsigned char metric, const std::string& value,
                      const std::string& unit, long timestamp);
-    bool readForDevice(const std::string& deviceId, unsigned long before,
+    bool readForDevice(const std::string& deviceId, uint64_t before,
                        std::string* json, std::string* error,
                        ReadStats* stats = 0) const;
     static bool readJson(const std::string& path, const std::string& deviceId,
-                         unsigned long before, std::string* json, std::string* error,
+                         uint64_t before, std::string* json, std::string* error,
                          ReadStats* stats = 0);
 
 public:
     struct ValueRecord {
-        unsigned long sequence;
+        uint64_t cursor;
         unsigned long timestamp;
         float value;
         unsigned char metric;
-        ValueRecord(unsigned long seq = 0, unsigned long t = 0, unsigned char m = 0, float v = 0)
-            : sequence(seq), timestamp(t), value(v), metric(m) {}
+        ValueRecord(uint64_t c = 0, unsigned long t = 0, unsigned char m = 0, float v = 0)
+            : cursor(c), timestamp(t), value(v), metric(m) {}
     };
     struct Page {
         bool allocated;
         std::string id;
         unsigned char metric;
         unsigned long generation;
-        unsigned long newest;
-        unsigned long oldest;
-        unsigned long lastSequence;
+        uint64_t newest;
+        uint64_t oldest;
         unsigned long lastTimestamp;
         float lastValue;
         unsigned int recordCount;
-        Page() : allocated(false), metric(0), generation(0), newest(0), oldest(0), lastSequence(0), lastTimestamp(0), lastValue(0), recordCount(0) {}
+        Page() : allocated(false), metric(0), generation(0), newest(0), oldest(0), lastTimestamp(0), lastValue(0), recordCount(0) {}
     };
     struct LastValue {
-        unsigned long sequence;
+        unsigned long generation;
         unsigned long timestamp;
         float value;
-        LastValue(unsigned long s = 0, unsigned long t = 0, float v = 0) : sequence(s), timestamp(t), value(v) {}
+        LastValue(unsigned long s = 0, unsigned long t = 0, float v = 0) : generation(s), timestamp(t), value(v) {}
     };
 private:
     struct ValueJournal {
         std::string path;
-        unsigned long sequence;
+        unsigned long generation;
         bool initialized;
         mutable pthread_mutex_t mutex;
         std::vector<Page> pages;
@@ -75,12 +75,11 @@ private:
         ValueJournal();
         ~ValueJournal();
     };
-    std::string obsoleteHistoryPath_;
     ValueJournal values_;
     bool initializeValues(std::string* error);
     bool appendValueLocked(const std::string& deviceId, unsigned char metric, const std::string& value,
                            const std::string& unit, long timestamp);
-    bool readValuesJson(const std::string& deviceId, unsigned long before,
+    bool readValuesJson(const std::string& deviceId, uint64_t before,
                         std::string* json, std::string* error, ReadStats* stats) const;
 };
 

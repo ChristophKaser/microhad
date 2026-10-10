@@ -10,9 +10,9 @@ catalog lock, then release it before all disk reads and JSON construction.
 They compare page identity and allocation generation against their snapshot,
 validate header and record CRCs, and recheck the header after copying a page.
 A page evicted during a request is skipped; a later request sees the new data.
-Pages are visited by newest sequence, skipping ranges outside the cursor and
-stopping once the response and pagination sentinel are known. The API keeps
-its existing response tuple `[sequence, timestamp, metric, value, unit]` and
+Pages are visited by newest timestamp and position, skipping ranges outside
+the cursor and stopping once the response and pagination sentinel are known. The API keeps
+its existing response tuple `[cursor, timestamp, metric, value, unit]` and
 2,000-sample response pagination.
 
 ## V3 file and page layout
@@ -26,15 +26,15 @@ XOR). The file header is 16 bytes:
 | 0 | 4 | ASCII magic `TZH3` |
 | 4 | 1 | Format version, `3` |
 | 5 | 1 | File-header size, `16` |
-| 6 | 1 | Page-header size, `85` |
-| 7 | 1 | Sample-record size, `13` |
-| 8 | 2 | Samples per page, `151` |
+| 6 | 1 | Page-header size, `86` |
+| 7 | 1 | Sample-record size, `9` |
+| 8 | 2 | Samples per page, `218` |
 | 10 | 2 | Maximum page pool, `1023` |
 | 12 | 3 | Reserved zero bytes |
 | 15 | 1 | CRC over bytes 0–14 |
 
-Each page is exactly 2,048 bytes: an 85-byte header followed by 151 records of
-13 bytes each. The page header is:
+Each page is exactly 2,048 bytes: an 86-byte header followed by 218 records of
+9 bytes each. The page header is:
 
 | Offset | Size | Meaning |
 | ---: | ---: | --- |
@@ -43,20 +43,21 @@ Each page is exactly 2,048 bytes: an 85-byte header followed by 151 records of
 | 2 | 1 | State: `1` allocated; zero means unused |
 | 3 | 4 | Page allocation generation |
 | 7 | 64 | Device ID, zero-padded |
-| 71 | 13 | Reserved zero bytes, including the five bytes moved into the header |
-| 84 | 1 | CRC over bytes 0–83 |
+| 71 | 14 | Reserved zero bytes, including the five bytes moved into the header |
+| 85 | 1 | CRC over bytes 0–84 |
 
-The record is sequence (4 bytes), Unix timestamp (4 bytes), IEEE-754 binary32
-value (4 bytes), and CRC (1 byte). The record CRC covers the page identity,
-generation, and first 12 record bytes. Numeric values are stored as float32;
+The record is a full Unix timestamp (4 bytes), IEEE-754 binary32 value (4 bytes),
+and CRC (1 byte). No sequence number is stored. The record CRC covers the page
+identity, generation, and first 8 record bytes. Numeric values are stored as float32;
 contact, occupancy, and light use 0 or 1, while air-quality readings use codes
 0–5 for good through extremely poor.
 
 The maximum file size is `16 + 1023 * 2048 = 2,095,120` bytes, below 2 MiB.
 Pages are allocated on demand at fixed offsets. When the pool is full, the
 oldest page is evicted, except that an incoming metric’s only page is protected
-while another page can be reclaimed. Reallocated pages advance their generation
-and their record areas are cleared before the new header is published.
+while another page can be reclaimed. Every allocation advances a global page
+generation, and reallocated record areas are cleared before the new header is
+published.
 Generation checks and CRCs detect concurrent reuse; clearing prevents CRC-8
 identity collisions from reviving stale records after restart. The final page has no
 footer: all 2,048 bytes belong to its header and records.
@@ -87,15 +88,25 @@ rejected rather than mixed into an incompatible series.
 
 ## Recovery and retention
 
-Startup scans page headers and contiguous valid records to rebuild the sequence
-and page catalog, sorting each pair’s pages by sequence so appends resume in
-the newest partially filled page after allocation wraps. Invalid headers and checksummed records are skipped; an
-incomplete record tail is ignored. V3 is written fresh without migration. A
-recognized former `TUV1` values journal is reset; unknown or damaged formats are
+Startup scans page headers and contiguous valid records to rebuild the page
+catalog and highest allocation generation. Each pair’s pages are sorted by
+allocation generation so appends resume in the newest partially filled page
+after allocation wraps, including when the clock moves backwards. The oldest
+allocation generation determines eviction. Invalid headers and checksummed
+records are skipped; an incomplete record tail is ignored. V3 is written fresh
+without migration or legacy-file removal. Unknown or damaged formats are
 preserved and initialization fails closed.
 
 Samples append until a page fills, then a new page is allocated for that
-device/metric pair. Duplicate values are suppressed; non-discrete metrics keep
-the existing once-per-minute sampling rule, while contact and other discrete
-transitions are retained. API reads sort by global sequence and apply the
-existing `before` cursor and 2,000-sample response limit.
+device/metric pair. Full timestamps support devices reporting once per day
+without forcing pages to close early. Duplicate values are suppressed;
+non-discrete metrics keep the existing once-per-minute sampling rule, while
+contact and other discrete transitions are retained.
+
+The API derives each cursor as `(timestamp << 18) | (page_index << 8) | slot`.
+This provides distinct cursors for same-second samples without storing extra
+bytes. The maximum cursor is below 2^50 and is an exact JavaScript integer.
+Reads sort by timestamp and position, apply the exclusive `before` cursor,
+and return at most 2,000 samples. Generation checks and CRCs validate the copied
+pages independently of these cursors. Cursors identify retained samples; a
+reused physical slot at the same timestamp can reuse its cursor.

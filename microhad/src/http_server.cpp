@@ -1007,14 +1007,14 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
         bool valid = suffix != std::string::npos && suffix > 0;
         std::string address = valid ? decodeComponent(target.substr(0, suffix)) : "";
         std::string query = valid ? target.substr(suffix + 8) : "";
-        unsigned long before = 0;
+        uint64_t before = 0;
         valid = valid && (query.empty() || query.find("?before=") == 0);
         if (valid && !query.empty()) {
             const std::string number = query.substr(8);
             char* parseEnd = 0;
             errno = 0;
-            before = strtoul(number.c_str(), &parseEnd, 10);
-            valid = !number.empty() && errno == 0 && *parseEnd == 0 && before > 0 && before <= 0xffffffffUL;
+            before = strtoull(number.c_str(), &parseEnd, 10);
+            valid = !number.empty() && errno == 0 && *parseEnd == 0 && before > 0 && before < (static_cast<uint64_t>(1) << 50);
         }
         std::string json;
         std::string error;
