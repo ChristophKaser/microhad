@@ -344,10 +344,10 @@ std::string decodeFramePayload(unsigned short profile, unsigned short cluster, c
 
 Gateway::Gateway(const std::string& serialDevice, int serialBaud, const std::string& runtimeDirectory,
                  const std::string& firebaseServiceAccount, const std::string& firebaseTopic, const std::string& caBundle,
-                 NotificationWorker* notificationWorker, const std::string& historyPath) :
+                 NotificationWorker* notificationWorker, const std::string& historyPath, const std::string& historyFlashPath) :
     serialDevice_(serialDevice), serialBaud_(serialBaud), runtimeDirectory_(runtimeDirectory),
     matterCountryCode_("DE"), matterRegulatoryLocation_("indoor"), networkRandomSource_("/dev/urandom"),
-    firebaseServiceAccount_(firebaseServiceAccount), firebaseTopic_(firebaseTopic), caBundle_(caBundle), history_(historyPath), shellyTransport_(0), notificationWorker_(notificationWorker), serialFd_(-1), serialOpenedAt_(0),
+    firebaseServiceAccount_(firebaseServiceAccount), firebaseTopic_(firebaseTopic), caBundle_(caBundle), history_(historyPath, historyFlashPath), shellyTransport_(0), notificationWorker_(notificationWorker), serialFd_(-1), serialOpenedAt_(0),
     online_(false), joinUntil_(0), joinPermitRenewAt_(0), joinPermitClosePending_(false), joinPermitCloseDeadline_(0), pendingJoinSeconds_(0), joinPreparationStep_(0), joinPreparationDeadline_(0), ashSendSequence_(0), ashReceiveSequence_(0), ezspSequence_(0),
     ashAckDeadline_(0), ashRetries_(0), ashPendingSensitive_(false), networkBackupQuery_(0, std::vector<unsigned char>()), networkBackupSequence_(0), networkBackupDeadline_(0), networkBackupStarted_(0), ezspVersion_(4), zdoSequence_(0), zclTransactionSequence_(0), ezspVersionNegotiated_(false), stackTokenWritingRequested_(false), networkInitRequested_(false), tradfriBindGroupConfigured_(false), coordinatorInitializationStep_(0), coordinatorInitializationDeadline_(0), resetDeadline_(0), serialReconnectFailures_(0), zigbeeDownAlertQueued_(false), nextHeartbeatAt_(0), serialRxBytes_(0), ashRxFrames_(0), networkForming_(false), networkFormationStep_(0), networkFormationDeadline_(0), networkFormed_(false), networkPanId_(0),
     networkChannel_(0), observedNetworkChannel_(0), interviewRequestInFlight_(false), interviewSendAccepted_(false), interviewEzspSequence_(0), interviewNode_(0xffff),
@@ -1236,6 +1236,8 @@ void Gateway::pollZiggurat() {
 #endif
 
 void Gateway::poll() {
+    const std::string persistenceError = history_.takePersistenceError();
+    if (!persistenceError.empty()) addLog(persistenceError);
 #if MICROHAD_ZIGGURAT_ENABLED
     if (ziggurat_ != 0) pollZiggurat();
 #endif

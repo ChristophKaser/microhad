@@ -1,8 +1,8 @@
 # Sensor history file format
 
 Sensor history is a single-writer store under `/tmp`. It is transient RAM-backed
-state, survives a native-service restart, and is cleared by a device reboot. It
-must never be moved to `/tuya` flash.
+state and survives a native-service restart. A smaller flash copy restores
+committed history after reboot; the live store always remains in `/tmp`.
 
 The coordinator owns appends, allocation, eviction, and the in-memory page
 catalog. HTTP workers copy the requested device’s page list under a short
@@ -118,3 +118,31 @@ remain reserved. Actual sensor measurements, including smart-plug power, are
 still recorded. FRITZ!Box Wi-Fi presence devices receive no history for privacy
 reasons: connection transitions can expose arrivals, departures, and routines.
 Only their current presence state is maintained.
+
+## Flash persistence
+
+Production uses `<runtime_dir>/history.values` (normally `/tuya/native/history.values`).
+Its maximum is 255 pages plus the existing header: 522,256 logical bytes. The
+v3 header remains unchanged; the smaller pool limit is enforced by persistence.
+Filesystem overhead and garbage collection are outside this file-size ceiling.
+
+A dedicated worker writes full 2,048-byte page images when pages fill. Dirty
+sparse pages are eligible every four hours on a monotonic schedule starting at
+initialization. There is no shutdown flush. Existing RAM history takes precedence;
+only an absent RAM file triggers validation and compact restoration from flash.
+Restored RAM indices, and therefore API cursors, can change after reboot.
+
+Flash residents retain their exact slots across updates and restarts. Unchanged
+pages are never rewritten. Pages evicted from RAM remain in flash until replaced;
+there is no flash compaction or separate clearing/zero-fill operation. Incoming
+pages use unused slots first, then replace victims directly. Retention prioritizes
+each device/metric's newest eligible page, then newest allocation generations
+overall. If more than 255 pairs qualify, the newest 255 win.
+
+The worker snapshots the RAM catalog briefly under its mutex, then reads and
+validates page identities, CRC8 checksums and header rechecks outside it. It
+synchronizes write batches before acknowledging them; concurrent new records
+remain dirty. Failures are reported through the coordinator and retried after
+60 seconds. Invalid flash headers are preserved and disable persistence for the
+run; invalid pages are skipped. CRC8 is the chosen, limited protection against
+torn writes, without a new format, migration, or additional checksums.

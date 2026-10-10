@@ -71,7 +71,7 @@ int main(int argc, char** argv) {
         return 1;
     }
     gateway = new Gateway(serialDevice, serialBaud, runtimeDirectory, firebaseServiceAccount, firebaseTopic, caBundle,
-                          notificationWorker);
+                          notificationWorker, "/tmp/microhad-history.bin", runtimeDirectory + "/history.values");
 #if MICROHAD_ZIGGURAT_ENABLED
     gateway->useZiggurat(config.zigguratSocket);
 #endif

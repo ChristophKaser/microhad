@@ -241,7 +241,8 @@ public:
     Gateway(const std::string& serialDevice, int serialBaud, const std::string& runtimeDirectory,
             const std::string& firebaseServiceAccount, const std::string& firebaseTopic, const std::string& caBundle,
             NotificationWorker* notificationWorker = 0,
-            const std::string& historyPath = "/tmp/microhad-history.bin");
+            const std::string& historyPath = "/tmp/microhad-history.bin",
+            const std::string& historyFlashPath = "");
     ~Gateway();
 #if MICROHAD_ZIGGURAT_ENABLED
     void useZiggurat(const std::string& socketPath);

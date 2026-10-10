@@ -1,6 +1,10 @@
 #include "sensor_history.h"
 
 #include <algorithm>
+#include <cerrno>
+#include <set>
+#include <poll.h>
+#include <time.h>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -15,6 +19,9 @@
 #ifdef MICROHAD_TESTING
 void (*sensorHistorySnapshotHook)(void*) = 0;
 void* sensorHistorySnapshotHookData = 0;
+void (*sensorHistoryPersistenceCopyHook)(void*) = 0;
+void* sensorHistoryPersistenceCopyHookData = 0;
+bool sensorHistoryFailPersistenceSync = false;
 #endif
 
 namespace {
@@ -187,10 +194,275 @@ void makePageHeader(unsigned char* h, const std::string& id, unsigned char metri
 }
 }
 
+
+namespace {
+enum { flashPageLimit = 255, flashFileBytes = fileHeaderBytes + flashPageLimit * pageBytes,
+       sparseInterval = 4 * 60 * 60 };
+unsigned long monotonicSeconds() {
+    struct timespec now;
+    return clock_gettime(CLOCK_MONOTONIC, &now) == 0 ? static_cast<unsigned long>(now.tv_sec) : 0;
+}
+bool samePage(const SensorHistory::Page& a, const SensorHistory::Page& b) {
+    return a.allocated && b.allocated && a.generation == b.generation && a.id == b.id && a.metric == b.metric;
+}
+bool historyPageAllowed(const SensorHistory::Page& p) {
+    return p.metric != SensorHistory::Light && p.metric != SensorHistory::Brightness && p.id.find("fritz:") != 0;
+}
+// Decode contiguous records only: CRC8 remains the explicitly chosen recovery protection.
+bool decodePage(const unsigned char* bytes, SensorHistory::Page* page) {
+    uint32_t generation = 0;
+    if (!pageHeaderValid(bytes, &page->id, &page->metric, &generation)) return false;
+    page->generation = generation; page->allocated = true; page->recordCount = 0;
+    if (!historyPageAllowed(*page)) return false;
+    for (unsigned int r = 0; r < recordsPerPage; ++r) {
+        const unsigned char* record = bytes + pageHeaderBytes + r * recordBytes;
+        const uint32_t timestamp = get32(record);
+        const float value = decodeFloat(record + 4);
+        if (record[8] != recordCrc(bytes, record) || timestamp == 0 || !std::isfinite(value) ||
+            (page->metric == SensorHistory::AirQuality && qualityText(value).empty())) break;
+        ++page->recordCount;
+    }
+    return page->recordCount != 0;
+}
+struct FlashCandidate {
+    SensorHistory::Page page;
+    int ramIndex;
+    int slot;
+    FlashCandidate(const SensorHistory::Page& p, int r, int s) : page(p), ramIndex(r), slot(s) {}
+};
+bool newestAllocation(const FlashCandidate& a, const FlashCandidate& b) { return a.page.generation > b.page.generation; }
+}
+
+struct SensorHistory::FlashState {
+    std::string path;
+    std::string error;
+    bool prepared, disabled, started, stopping, manual, retrySparse;
+    pthread_t thread;
+    int wakeRead, wakeWrite;
+    unsigned long nextSparse, retryAt, pageWrites;
+    std::vector<Page> residents;
+    explicit FlashState(const std::string& p) : path(p), prepared(false), disabled(false), started(false),
+        stopping(false), manual(false), retrySparse(false), wakeRead(-1), wakeWrite(-1), nextSparse(sparseInterval), retryAt(0), pageWrites(0),
+        residents(flashPageLimit) {
+        if (!path.empty()) {
+            int descriptors[2];
+            if (pipe(descriptors) == 0) {
+                wakeRead = descriptors[0]; wakeWrite = descriptors[1];
+                fcntl(wakeRead, F_SETFL, fcntl(wakeRead, F_GETFL) | O_NONBLOCK);
+                fcntl(wakeWrite, F_SETFL, fcntl(wakeWrite, F_GETFL) | O_NONBLOCK);
+            } else { disabled = true; error = "cannot create history persistence wakeup pipe"; }
+        }
+    }
+    void signal() {
+        if (wakeWrite >= 0) { const char byte = 1; ssize_t ignored = write(wakeWrite, &byte, 1); (void)ignored; }
+    }
+    ~FlashState() { if (wakeRead >= 0) close(wakeRead); if (wakeWrite >= 0) close(wakeWrite); }
+};
+
+bool SensorHistory::prepareFlash(std::string* error) {
+    if (flash_->path.empty() || flash_->disabled) return true;
+    if (!flash_->prepared) {
+        flash_->prepared = true;
+        int fd = open(flash_->path.c_str(), O_RDONLY);
+        if (fd < 0 && errno != ENOENT) {
+            flash_->disabled = true; flash_->error = "cannot read flash history; persistence disabled";
+        } else if (fd >= 0) {
+            struct stat st; unsigned char header[fileHeaderBytes];
+            bool valid = fstat(fd, &st) == 0 && st.st_size >= fileHeaderBytes && st.st_size <= flashFileBytes &&
+                pread(fd, header, sizeof(header), 0) == fileHeaderBytes && fileHeaderValid(header);
+            if (!valid) {
+                flash_->disabled = true; flash_->error = "invalid flash history header; file preserved, persistence disabled";
+            } else {
+                for (unsigned int i = 0; i < flashPageLimit; ++i) {
+                    const off_t at = fileHeaderBytes + static_cast<off_t>(i) * pageBytes;
+                    if (at + pageBytes > st.st_size) break;
+                    unsigned char bytes[pageBytes]; Page page;
+                    if (pread(fd, bytes, sizeof(bytes), at) == pageBytes && decodePage(bytes, &page))
+                        flash_->residents[i] = page;
+                }
+            }
+            close(fd);
+        }
+    }
+    struct stat ram;
+    if (stat(values_.path.c_str(), &ram) == 0) return true;
+    if (errno != ENOENT) { if (error) *error = "cannot inspect RAM history"; return false; }
+    if (flash_->disabled) return true;
+    int source = open(flash_->path.c_str(), O_RDONLY);
+    if (source < 0) return true; // Missing flash starts fresh in RAM.
+    std::string temporary = values_.path + ".restore-XXXXXX";
+    std::vector<char> name(temporary.begin(), temporary.end()); name.push_back(0);
+    int target = mkstemp(&name[0]);
+    if (target < 0) { close(source); if (error) *error = "cannot restore flash history into RAM"; return false; }
+    unsigned char header[fileHeaderBytes]; memcpy(header, fileTemplate, sizeof(header)); header[15] = crc8(header, 15);
+    bool ok = writeAllAt(target, header, sizeof(header), 0);
+    unsigned int restored = 0;
+    for (unsigned int i = 0; ok && i < flashPageLimit; ++i) {
+        if (!flash_->residents[i].allocated) continue;
+        unsigned char bytes[pageBytes]; Page page;
+        const off_t at = fileHeaderBytes + static_cast<off_t>(i) * pageBytes;
+        if (pread(source, bytes, sizeof(bytes), at) != pageBytes || !decodePage(bytes, &page) ||
+            !samePage(page, flash_->residents[i])) continue;
+        ok = writeAllAt(target, bytes, sizeof(bytes), fileHeaderBytes + static_cast<off_t>(restored) * pageBytes);
+        if (ok) ++restored;
+    }
+    close(source); close(target);
+    if (ok) ok = rename(&name[0], values_.path.c_str()) == 0;
+    if (!ok) { unlink(&name[0]); if (error) *error = "cannot restore flash history into RAM"; }
+    return ok;
+}
+
+std::string SensorHistory::takePersistenceError() {
+    pthread_mutex_lock(&values_.mutex); std::string result = flash_->error; flash_->error.clear();
+    pthread_mutex_unlock(&values_.mutex); return result;
+}
+
+bool SensorHistory::persistPages(unsigned long seconds, std::string* error) {
+    if (error) error->clear();
+    if (flash_->path.empty() || flash_->disabled || seconds < flash_->retryAt) return true;
+    const bool sparse = flash_->retrySparse || seconds >= flash_->nextSparse;
+    if (seconds >= flash_->nextSparse)
+        flash_->nextSparse += ((seconds - flash_->nextSparse) / sparseInterval + 1) * sparseInterval;
+    std::vector<Page> ram;
+    pthread_mutex_lock(&values_.mutex); ram = values_.pages; bool stopping = flash_->stopping;
+    pthread_mutex_unlock(&values_.mutex);
+    if (stopping) return true;
+    std::vector<FlashCandidate> candidates;
+    for (unsigned int i = 0; i < flashPageLimit; ++i)
+        if (flash_->residents[i].allocated) candidates.push_back(FlashCandidate(flash_->residents[i], -1, i));
+    for (unsigned int i = 0; i < ram.size(); ++i) {
+        if (!ram[i].allocated || !historyPageAllowed(ram[i]) || (ram[i].recordCount < recordsPerPage && !sparse)) continue;
+        bool found = false;
+        for (unsigned int j = 0; j < candidates.size(); ++j) {
+            if (!samePage(candidates[j].page, ram[i])) continue;
+            found = true;
+            if (ram[i].recordCount > candidates[j].page.recordCount) {
+                candidates[j].page = ram[i]; candidates[j].ramIndex = i;
+            }
+            break;
+        }
+        if (!found) candidates.push_back(FlashCandidate(ram[i], i, -1));
+    }
+    std::sort(candidates.begin(), candidates.end(), newestAllocation);
+    std::vector<FlashCandidate> selected; std::set<std::string> pairs; std::set<unsigned long> generations;
+    for (unsigned int i = 0; i < candidates.size() && selected.size() < flashPageLimit; ++i) {
+        if (!pairs.insert(pairKey(candidates[i].page.id, candidates[i].page.metric)).second) continue;
+        selected.push_back(candidates[i]); generations.insert(candidates[i].page.generation);
+    }
+    for (unsigned int i = 0; i < candidates.size() && selected.size() < flashPageLimit; ++i)
+        if (generations.insert(candidates[i].page.generation).second) selected.push_back(candidates[i]);
+    bool used[flashPageLimit]; memset(used, 0, sizeof(used));
+    bool pending = false;
+    for (unsigned int i = 0; i < selected.size(); ++i) {
+        if (selected[i].slot >= 0) used[selected[i].slot] = true;
+        if (selected[i].ramIndex >= 0) pending = true;
+    }
+    if (!pending) { flash_->retrySparse = false; return true; }
+    int source = open(values_.path.c_str(), O_RDONLY);
+    int target = open(flash_->path.c_str(), O_RDWR | O_CREAT, 0600);
+    bool ok = source >= 0 && target >= 0;
+    if (ok) {
+        struct stat st; unsigned char header[fileHeaderBytes];
+        ok = fstat(target, &st) == 0 && st.st_size <= flashFileBytes;
+        if (ok && st.st_size == 0) {
+            memcpy(header, fileTemplate, sizeof(header)); header[15] = crc8(header, 15);
+            ok = writeAllAt(target, header, sizeof(header), 0);
+        } else if (ok) ok = pread(target, header, sizeof(header), 0) == fileHeaderBytes && fileHeaderValid(header);
+    }
+    std::vector<FlashCandidate> written;
+    for (unsigned int i = 0; ok && i < selected.size(); ++i) {
+        FlashCandidate candidate = selected[i];
+        if (candidate.ramIndex < 0) continue;
+        pthread_mutex_lock(&values_.mutex); stopping = flash_->stopping; pthread_mutex_unlock(&values_.mutex);
+        if (stopping) break;
+        unsigned char bytes[pageBytes], confirmed[pageHeaderBytes]; Page actual;
+        off_t at = fileHeaderBytes + static_cast<off_t>(candidate.ramIndex) * pageBytes;
+        if (pread(source, bytes, sizeof(bytes), at) != pageBytes || !decodePage(bytes, &actual) ||
+            !samePage(actual, candidate.page) || actual.recordCount < candidate.page.recordCount ||
+            pread(source, confirmed, sizeof(confirmed), at) != pageHeaderBytes ||
+            memcmp(confirmed, bytes, sizeof(confirmed)) != 0) continue;
+        if (candidate.slot < 0) {
+            // Surviving residents already own their slots. Never move them to compact the file.
+            for (unsigned int slot = 0; slot < flashPageLimit; ++slot)
+                if (!used[slot] && !flash_->residents[slot].allocated) { candidate.slot = slot; break; }
+            if (candidate.slot < 0)
+                for (unsigned int slot = 0; slot < flashPageLimit; ++slot)
+                    if (!used[slot]) { candidate.slot = slot; break; }
+        }
+        if (candidate.slot < 0) continue;
+        used[candidate.slot] = true;
+#ifdef MICROHAD_TESTING
+        if (sensorHistoryPersistenceCopyHook) sensorHistoryPersistenceCopyHook(sensorHistoryPersistenceCopyHookData);
+#endif
+        // Reserve ownership before writing, even if a short write or fsync fails.
+        // Retry must use this same slot; record count is acknowledged only after sync.
+        Page reserved = actual;
+        reserved.recordCount = samePage(flash_->residents[candidate.slot], actual) ?
+            flash_->residents[candidate.slot].recordCount : 0;
+        flash_->residents[candidate.slot] = reserved;
+        at = fileHeaderBytes + static_cast<off_t>(candidate.slot) * pageBytes;
+        ok = writeAllAt(target, bytes, sizeof(bytes), at);
+        if (ok) { candidate.page = actual; written.push_back(candidate); }
+    }
+    bool synced = target >= 0 && fsync(target) == 0;
+#ifdef MICROHAD_TESTING
+    if (sensorHistoryFailPersistenceSync) synced = false;
+#endif
+    if (synced) {
+        for (unsigned int i = 0; i < written.size(); ++i) flash_->residents[written[i].slot] = written[i].page;
+        pthread_mutex_lock(&values_.mutex); flash_->pageWrites += written.size(); pthread_mutex_unlock(&values_.mutex);
+    }
+    if (source >= 0) close(source);
+    if (target >= 0) close(target);
+    ok = ok && synced;
+    flash_->retrySparse = !ok && sparse;
+    flash_->retryAt = ok ? 0 : seconds + 60;
+    if (!ok && error) *error = "flash history write failed; pending pages will be retried";
+    return ok;
+}
+
+void* SensorHistory::persistenceThread(void* opaque) {
+    static_cast<SensorHistory*>(opaque)->runPersistence(); return 0;
+}
+void SensorHistory::runPersistence() {
+    for (;;) {
+        std::string error; persistPages(monotonicSeconds(), &error);
+        pthread_mutex_lock(&values_.mutex);
+        if (!error.empty()) flash_->error = error;
+        if (flash_->stopping) { pthread_mutex_unlock(&values_.mutex); break; }
+        pthread_mutex_unlock(&values_.mutex);
+        unsigned long now = monotonicSeconds();
+        unsigned long delay = flash_->nextSparse > now ? flash_->nextSparse - now : 1;
+        struct pollfd descriptor; descriptor.fd = flash_->wakeRead; descriptor.events = POLLIN; descriptor.revents = 0;
+        // Relative poll timeout avoids wall-clock changes affecting the monotonic schedule.
+        poll(&descriptor, 1, static_cast<int>(std::min(delay, 60UL) * 1000));
+        char bytes[64];
+        while (read(flash_->wakeRead, bytes, sizeof(bytes)) > 0) {}
+
+    }
+}
+#ifdef MICROHAD_TESTING
+void SensorHistory::useManualPersistenceForTests() { flash_->manual = true; }
+bool SensorHistory::persistForTests(unsigned long seconds, std::string* error) {
+    return initializeValues(error) && persistPages(seconds, error);
+}
+unsigned long SensorHistory::persistenceWritesForTests() const {
+    pthread_mutex_lock(&values_.mutex); unsigned long result = flash_->pageWrites;
+    pthread_mutex_unlock(&values_.mutex); return result;
+}
+#endif
+
 SensorHistory::ValueJournal::ValueJournal() : generation(0), initialized(false) { pthread_mutex_init(&mutex, 0); }
 SensorHistory::ValueJournal::~ValueJournal() { pthread_mutex_destroy(&mutex); }
-SensorHistory::SensorHistory(const std::string& path) { values_.path = path + ".values"; }
-SensorHistory::~SensorHistory() {}
+SensorHistory::SensorHistory(const std::string& path, const std::string& flashPath)
+    : flash_(new FlashState(flashPath)) { values_.path = path + ".values"; }
+SensorHistory::~SensorHistory() {
+    pthread_mutex_lock(&values_.mutex);
+    flash_->stopping = true; flash_->signal();
+    pthread_mutex_unlock(&values_.mutex);
+    if (flash_->started) pthread_join(flash_->thread, 0);
+    delete flash_;
+}
 const std::string& SensorHistory::path() const { return values_.path; }
 
 bool SensorHistory::initialize(std::string* error) {
@@ -200,6 +472,7 @@ bool SensorHistory::initialize(std::string* error) {
 bool SensorHistory::initializeValues(std::string* error) {
     pthread_mutex_lock(&values_.mutex);
     if (values_.initialized) { pthread_mutex_unlock(&values_.mutex); return true; }
+    if (!prepareFlash(error)) { pthread_mutex_unlock(&values_.mutex); return false; }
     int fd = open(values_.path.c_str(), O_RDWR | O_CREAT, 0600);
     if (fd < 0) { if (error) *error = "cannot open paged history"; pthread_mutex_unlock(&values_.mutex); return false; }
     struct stat st; bool ok = fstat(fd, &st) == 0;
@@ -213,6 +486,8 @@ bool SensorHistory::initializeValues(std::string* error) {
     if (!ok) { if (error) *error = "invalid paged history header; file preserved"; close(fd); pthread_mutex_unlock(&values_.mutex); return false; }
 
     values_.pages.assign(pageLimit, Page()); values_.pairPages.clear(); values_.lastValues.clear(); values_.generation = 0;
+    for (unsigned int i = 0; i < flash_->residents.size(); ++i)
+        if (flash_->residents[i].generation > values_.generation) values_.generation = flash_->residents[i].generation;
     for (unsigned int i = 0; i < pageLimit; ++i) {
         off_t base = fileHeaderBytes + static_cast<off_t>(i) * pageBytes;
         if (base + pageHeaderBytes > st.st_size) break;
@@ -247,7 +522,13 @@ bool SensorHistory::initializeValues(std::string* error) {
     for (std::map<std::string, std::vector<unsigned int> >::iterator pair = values_.pairPages.begin();
          pair != values_.pairPages.end(); ++pair)
         std::sort(pair->second.begin(), pair->second.end(), PageOrder(&values_.pages));
-    close(fd); values_.initialized = true; pthread_mutex_unlock(&values_.mutex); return true;
+    close(fd); values_.initialized = true;
+    if (!flash_->path.empty() && !flash_->disabled && !flash_->manual) {
+        flash_->nextSparse = monotonicSeconds() + 4 * 60 * 60;
+        if (pthread_create(&flash_->thread, 0, persistenceThread, this) == 0) flash_->started = true;
+        else { flash_->disabled = true; flash_->error = "cannot start history persistence worker"; }
+    }
+    pthread_mutex_unlock(&values_.mutex); return true;
 }
 
 bool SensorHistory::appendValue(const std::string& deviceId, unsigned char metric, const std::string& value,
@@ -341,6 +622,7 @@ bool SensorHistory::appendValueLocked(const std::string& deviceId, unsigned char
     off_t offset = base + pageHeaderBytes + static_cast<off_t>(slot) * recordBytes;
     bool ok = writeAllAt(fd, rec, sizeof(rec), offset); close(fd); if (!ok) return false;
     ++page->recordCount; page->lastValue = numeric;
+    if (page->recordCount == recordsPerPage) flash_->signal();
     const uint64_t cursor = recordCursor(static_cast<uint32_t>(timestamp), pageIndex, slot);
     if (page->oldest == 0 || cursor < page->oldest) page->oldest = cursor;
     if (cursor > page->newest) page->newest = cursor;

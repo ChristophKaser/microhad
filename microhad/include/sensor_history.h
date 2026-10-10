@@ -23,10 +23,16 @@ public:
         ReadStats() : pagesRead(0), recordsChecked(0), bytesRead(0) {}
     };
 
-    explicit SensorHistory(const std::string& path);
+    explicit SensorHistory(const std::string& path, const std::string& flashPath = "");
     ~SensorHistory();
     const std::string& path() const;
     bool initialize(std::string* error = 0);
+    std::string takePersistenceError();
+#ifdef MICROHAD_TESTING
+    void useManualPersistenceForTests();
+    bool persistForTests(unsigned long seconds, std::string* error);
+    unsigned long persistenceWritesForTests() const;
+#endif
     bool appendValue(const std::string& deviceId, unsigned char metric, const std::string& value,
                      const std::string& unit, long timestamp);
     bool readForDevice(const std::string& deviceId, uint64_t before,
@@ -75,7 +81,13 @@ private:
         ValueJournal();
         ~ValueJournal();
     };
+    struct FlashState;
+    FlashState* flash_;
     ValueJournal values_;
+    bool prepareFlash(std::string* error);
+    bool persistPages(unsigned long seconds, std::string* error);
+    static void* persistenceThread(void* opaque);
+    void runPersistence();
     bool initializeValues(std::string* error);
     bool appendValueLocked(const std::string& deviceId, unsigned char metric, const std::string& value,
                            const std::string& unit, long timestamp);

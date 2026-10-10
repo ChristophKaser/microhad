@@ -277,8 +277,11 @@ Permanent radio captures belong under the
 ignored `diagnostics/` directory and must never be committed.
 
 Warning: daily operation must not write logs, diagnostics, or other
-high-frequency state beneath `/tuya` (flash). Keep transient output in `/tmp`
-and verify new runtime behavior does not introduce flash write cycles.
+high-frequency state beneath `/tuya` (flash). Keep transient output in `/tmp`.
+The explicitly authorized exception is `history.values`: its 255 flash slots
+are stable, full pages are persisted by a background worker, and dirty sparse
+pages are written only every four hours. Never compact flash history or clear
+slots without a replacement. See `SENSOR_HISTORY_FORMAT.md`.
 
 ## Garage Android app
 
