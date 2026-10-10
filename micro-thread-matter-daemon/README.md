@@ -63,7 +63,7 @@ Runtime compatibility checks remain enabled. Host synthetic tests validate the
 shared-radio no-reset attachment; physical radio compatibility requires a
 separately authorized gateway acceptance run.
 
-The private protocol is [length-prefixed CBOR v2](../microhad/docs/matter-ipc-v2.md).
+The private protocol is [length-prefixed CBOR v2](docs/matter-ipc-v2.md).
 Only the length prefix is outside the CBOR envelope.
 
 ## Matter logging

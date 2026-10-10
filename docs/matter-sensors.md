@@ -1,6 +1,6 @@
 # Matter sensor reads
 
-The private wire format is [CBOR v2](../microhad/docs/matter-ipc-v2.md), served
+The private wire format is [CBOR v2](../micro-thread-matter-daemon/docs/matter-ipc-v2.md), served
 by `mthread-matter` in `micro-thread-matter-daemon/`. JSON examples describe public/in-process representations. Nullable values
 also use CBOR null on the private wire.
 

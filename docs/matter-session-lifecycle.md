@@ -1,7 +1,7 @@
 # Commissioning session lifetime
 
 The current service is `mthread-matter` in `micro-thread-matter-daemon/`, using
-[CBOR IPC v2](../microhad/docs/matter-ipc-v2.md). The service owns the session lifecycle described here.
+[CBOR IPC v2](../micro-thread-matter-daemon/docs/matter-ipc-v2.md). The service owns the session lifecycle described here.
 
 ## Disconnect and cancellation
 

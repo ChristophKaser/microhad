@@ -1,7 +1,7 @@
 # Thread network lifecycle
 
 The source component is `micro-thread-matter-daemon/` and the executable is
-`mthread-matter`. Private messages use [CBOR IPC v2](../matter-ipc-v2.md).
+`mthread-matter`. Private messages use [CBOR IPC v2](../../../micro-thread-matter-daemon/docs/matter-ipc-v2.md).
 Public HTTP/WebSocket APIs remain JSON.
 
 Thread uses the private Spinel socket supplied by Ziggurat; the Matter service

@@ -1,10 +1,10 @@
 # Commissioning and control IPC
 
 The source component is `micro-thread-matter-daemon/` and the executable is
-`mthread-matter`. Private messages use [CBOR IPC v2](../matter-ipc-v2.md).
+`mthread-matter`. Private messages use [CBOR IPC v2](../../../micro-thread-matter-daemon/docs/matter-ipc-v2.md).
 Public HTTP/WebSocket APIs remain JSON.
 
-The [v2 contract](../matter-ipc-v2.md) and [CDDL schema](../../../protocol/matter-ipc-v2.cddl)
+The [v2 contract](../../../micro-thread-matter-daemon/docs/matter-ipc-v2.md) and [CDDL schema](../../../protocol/matter-ipc-v2.cddl)
 define status, commissioning, BLE callbacks, Thread operations, device jobs and
 events. Only the length prefix remains outside CBOR. Unknown fields are skipped
 with opcode/count warnings; known types, ranges and authorization remain checked.

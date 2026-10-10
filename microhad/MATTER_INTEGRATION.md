@@ -7,7 +7,7 @@ userspace OpenThread. Ziggurat owns the radio UART and exposes the Thread
 Spinel socket. No second UART owner or Linux IPv6/TUN interface is required.
 
 The private socket `/tmp/microhad-matter.sock` carries
-[CBOR IPC v2](docs/matter-ipc-v2.md). Only the length prefix is outside CBOR;
+[CBOR IPC v2](../micro-thread-matter-daemon/docs/matter-ipc-v2.md). Only the length prefix is outside CBOR;
 unknown fields are skipped with safe warnings. Public APIs remain JSON.
 
 ## Build and verification

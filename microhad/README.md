@@ -55,7 +55,7 @@ Build the paired Rust Matter service from the repository root with
 Rust and MIPS toolchain settings.
 
 The component is `micro-thread-matter-daemon/` and the service executable is
-`mthread-matter`. Its private protocol is [length-prefixed CBOR v2](docs/matter-ipc-v2.md);
+`mthread-matter`. Its private protocol is [length-prefixed CBOR v2](../micro-thread-matter-daemon/docs/matter-ipc-v2.md);
 public HTTP and WebSocket interfaces remain JSON. Initialize the pinned TinyCBOR
 dependency with `git submodule update --init microhad/dependencies/tinycbor`
 from the repository root before building MicroHAD.

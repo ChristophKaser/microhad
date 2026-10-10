@@ -35,4 +35,4 @@ handoff using an isolated test-hook build; production artifacts exclude it.
 The radio and accessory remain synthetic. Physical BLE/GATT interoperability,
 Thread RF coexistence and accessory/service/gateway restart acceptance require
 explicitly requested device testing. The private native/service transport is
-[CBOR IPC v2](../microhad/docs/matter-ipc-v2.md).
+[CBOR IPC v2](../micro-thread-matter-daemon/docs/matter-ipc-v2.md).

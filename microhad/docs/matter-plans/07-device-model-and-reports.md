@@ -1,7 +1,7 @@
 # Matter device model and reports
 
 The source component is `micro-thread-matter-daemon/` and the executable is
-`mthread-matter`. Private messages use [CBOR IPC v2](../matter-ipc-v2.md).
+`mthread-matter`. Private messages use [CBOR IPC v2](../../../micro-thread-matter-daemon/docs/matter-ipc-v2.md).
 Public HTTP/WebSocket APIs remain JSON.
 
 The service discovers operational addresses through SRP/DNS-SD and reads

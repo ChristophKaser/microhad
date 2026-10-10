@@ -1,7 +1,7 @@
 # Matter implementation and acceptance
 
 The current component is `micro-thread-matter-daemon/`, executable `mthread-matter`.
-Private messages use [CBOR IPC v2](../matter-ipc-v2.md); public APIs remain JSON.
+Private messages use [CBOR IPC v2](../../../micro-thread-matter-daemon/docs/matter-ipc-v2.md); public APIs remain JSON.
 
 The implementation has synthetic host and target-build verification. Physical
 accessory interoperability, sustained resource/RF behavior and full restart

@@ -59,7 +59,7 @@ the development administrator vendor). This metadata is not a manufacturer
 certificate. Set it before first initialization; a different value on restart
 is rejected. See the native `docs/matter-identity-store-v1.md` for the schema.
 
-IPC uses [length-prefixed CBOR v2](../microhad/docs/matter-ipc-v2.md).
+IPC uses [length-prefixed CBOR v2](../micro-thread-matter-daemon/docs/matter-ipc-v2.md).
 Only the two-byte little-endian length is outside the CBOR envelope. Opcodes 1
 and 2 accept empty CBOR maps and return redacted CBOR status maps; their public
 HTTP representations remain JSON. Matter reports initialization/fabric readiness;
@@ -91,6 +91,6 @@ see [Matter integration](../microhad/MATTER_INTEGRATION.md).
 ## Verification
 
 Use the [component build and test commands](../micro-thread-matter-daemon/README.md)
-and [CBOR contract](../microhad/docs/matter-ipc-v2.md). Synthetic fixtures exercise
+and [CBOR contract](../micro-thread-matter-daemon/docs/matter-ipc-v2.md). Synthetic fixtures exercise
 CASE/report delivery, persistent native calls, BLE ownership and supervisor
 recovery. They do not prove physical accessory or RF acceptance.

@@ -11,7 +11,7 @@ submodule. Cargo lockfiles pin the dependency graphs.
 
 Use the [runtime contract](matter-service-runtime.md),
 [commissioning fixture](rs-matter-openthread-commissioning.md) and
-[CBOR IPC contract](../microhad/docs/matter-ipc-v2.md). Synthetic protocol tests
+[CBOR IPC contract](../micro-thread-matter-daemon/docs/matter-ipc-v2.md). Synthetic protocol tests
 cover PASE, provisioning, CASE, reads, commands and report delivery. Physical
 accessory interoperability and sustained target resource/RF acceptance remain
 open; see the [acceptance plan](../microhad/docs/matter-plans/08-real-device-acceptance.md).

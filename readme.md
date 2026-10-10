@@ -1,33 +1,26 @@
-# Embedded home automation for the Silvercrest gateway
+# Embedded home automation without an external host
 
-A standalone home automation stack for the Lidl/Silvercrest gateway with an
-RTL8196E CPU and EFR32MG1B232 radio. It runs on factory MIPS/uClibc Linux and
-provides a local dashboard, device control, sensor history, notifications, and
-HTTP device integrations without requiring Home Assistant or a cloud service.
+A standalone home automation stack that runs directly on embedded devices such
+as the Lidl/Silvercrest SGWZ 1 A1 Zigbee gateway (HG06339). Features include:
 
-The stack has three gateway services and a radio firmware component:
+- A local web dashboard
+- Device control
+- Sensor history
+- Notifications
+- Zigbee and Matter-over-Thread support
+- HTTP integrations with Shelly and Fritz!Box devices
+
+Components:
 
 | Component | Purpose |
 | --- | --- |
-| [MicroHAD](microhad/README.md) | C++03 daemon, Web UI and REST API; owns the common device model, history, alerts and integrations with Shelly and Fritz!Box devices. |
-| [Ziggurat](ziggurat/README.md) | Rust Zigbee stack and Spinel multiplexer; connects MicroHAD and Thread to the shared radio. |
-| [Thread/Matter](micro-thread-matter-daemon/README.md) | Rust Matter controller using rs-matter and userspace OpenThread; owns commissioning, fabrics, sessions and Thread state. |
-| [Firmware](firmware/README.md) | Rebuildable two-instance HDLC radio firmware, packaging and radio maintenance tools. |
+| [MicroHAD](microhad/README.md) | C++03 daemon, Web UI and REST API; owns the common device model, controls, history, alerts and integrations with external HTTP devices. |
+| [Ziggurat](ziggurat/README.md) (optional) | Rust Zigbee stack and Spinel multiplexer; connects MicroHAD and Thread to the shared radio and is the sole owner of the radio UART. |
+| [mthread-matter](micro-thread-matter-daemon/README.md) (optional) | Rust Matter controller using rs-matter and userspace OpenThread; owns commissioning, fabrics, sessions, subscriptions and Thread state. |
+| [Firmware](firmware/README.md) (optional) | Rebuildable two-instance HDLC radio firmware, packaging and radio maintenance tools. |
+| [paired_start.sh](microhad/paired_start.sh) (optional) | Starts, monitors and recovers MicroHAD, Ziggurat and mthread-matter as separate processes. The default configuration enables both optional services with `ZIGGURAT=1 MATTER=1`. |
 
 ## Processes and protocol paths
-
-The default `ZIGGURAT=1 MATTER=1` stack runs MicroHAD, Ziggurat and
-`mthread-matter` as separate processes.
-[paired_start.sh](microhad/paired_start.sh) starts, monitors and recovers all
-three. MicroHAD owns the common device model, controls, history, alerts and
-HTTP API. Ziggurat runs the Zigbee stack and is the sole owner of the radio
-UART. The Matter service owns commissioning, fabrics, sessions, subscriptions
-and Thread state, using rs-matter and OpenThread.
-
-MicroHAD and `mthread-matter` communicate using
-[length-prefixed CBOR v2](microhad/docs/matter-ipc-v2.md). Only the length is
-outside the CBOR message. Both daemons must be updated together; public HTTP
-and WebSocket JSON and persistent state formats remain unchanged.
 
 The diagram shows application data paths in the default paired stack. The
 dotted supervisor link represents process management.

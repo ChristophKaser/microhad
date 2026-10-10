@@ -1,6 +1,6 @@
 # Device snapshot IPC
 
-The private wire format is [CBOR v2](../microhad/docs/matter-ipc-v2.md).
+The private wire format is [CBOR v2](../micro-thread-matter-daemon/docs/matter-ipc-v2.md).
 Examples below use the public/in-process JSON representation: private-wire
 node and revision IDs are unsigned 64-bit integers; the JSON representation
 uses sixteen-digit hexadecimal strings. Unknown private-wire fields are skipped

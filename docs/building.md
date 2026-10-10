@@ -35,7 +35,7 @@ rtl8196e-gateway, Gecko SDK, SLC CLI and TinyCBOR. Each component owns its depen
 Gecko SDK belongs to firmware; Thread/Matter owns its upstream OpenThread checkout.
 TinyCBOR v0.6.0 is pinned under `microhad/dependencies/tinycbor`. The Matter
 component is `micro-thread-matter-daemon/` and its executable is `mthread-matter`.
-Both Matter daemons must use [CBOR IPC v2](../microhad/docs/matter-ipc-v2.md)
+Both Matter daemons must use [CBOR IPC v2](../micro-thread-matter-daemon/docs/matter-ipc-v2.md)
 together; builds do not deploy the coordinated release.
 MicroHAD is included in this checkout; no separate native repository is needed.
 
@@ -277,7 +277,7 @@ Build `mthread-matter` with the component scripts in
 `micro-thread-matter-daemon/`. See the [component README](../micro-thread-matter-daemon/README.md)
 for host/MIPS builds, pinned dependencies and synthetic tests, and the
 [integration guide](../microhad/MATTER_INTEGRATION.md) for the paired runtime.
-Native and Rust daemons must use [CBOR IPC v2](../microhad/docs/matter-ipc-v2.md)
+Native and Rust daemons must use [CBOR IPC v2](../micro-thread-matter-daemon/docs/matter-ipc-v2.md)
 together. `TOOLCHAIN=crosstool-ng` selects the candidate MIPS build and writes
 `build/crosstool-ng/micro-thread-matter-daemon/mthread-matter-mips`; host fixtures
 keep their existing paths. Builds do not deploy a release.

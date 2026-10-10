@@ -12,5 +12,5 @@ compiler: RSDK by default, or experimental crosstool-NG. See
 
 See [building](building.md), the [component README](../micro-thread-matter-daemon/README.md),
 [runtime](matter-service-runtime.md) and [integration](../microhad/MATTER_INTEGRATION.md).
-Both daemons use [CBOR IPC v2](../microhad/docs/matter-ipc-v2.md); target builds
+Both daemons use [CBOR IPC v2](../micro-thread-matter-daemon/docs/matter-ipc-v2.md); target builds
 and synthetic tests do not establish physical accessory acceptance.
