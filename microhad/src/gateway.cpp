@@ -669,18 +669,9 @@ bool Gateway::applyMatterReading(const MatterReading& reading, std::string* erro
     std::string historyUnit;
     unsigned char historyMetric = 0;
     if (reading.known) {
-        if (reading.cluster == 6) {
-            historyMetric = SensorHistory::Light;
-            historyValue = reading.booleanValue ? "1" : "0";
-        } else if (reading.cluster == 69) {
+        if (reading.cluster == 69) {
             historyMetric = SensorHistory::Contact;
             historyValue = reading.booleanValue ? "1" : "0";
-        } else if (reading.cluster == 8) {
-            historyMetric = SensorHistory::Brightness;
-            std::ostringstream value;
-            value << device.brightnessPercent;
-            historyValue = value.str();
-            historyUnit = "percent";
         } else if (reading.cluster == 1026) historyMetric = SensorHistory::Temperature;
         else if (reading.cluster == 1029) historyMetric = SensorHistory::Humidity;
         else if (reading.cluster == 91) {
@@ -688,8 +679,7 @@ bool Gateway::applyMatterReading(const MatterReading& reading, std::string* erro
             historyValue = reading.textValue;
         } else if (reading.cluster == 1037) historyMetric = SensorHistory::CarbonDioxide;
         else if (reading.cluster == 1066) historyMetric = SensorHistory::Pm25;
-        if (historyMetric != SensorHistory::Light && historyMetric != SensorHistory::Contact && historyMetric != SensorHistory::AirQuality &&
-            historyMetric != SensorHistory::Brightness) {
+        if (historyMetric != SensorHistory::Contact && historyMetric != SensorHistory::AirQuality) {
             std::ostringstream value;
             value << std::setprecision(15) << reading.numberValue;
             historyValue = value.str();
@@ -811,11 +801,7 @@ bool Gateway::applyShellyEvent(const std::string& id, int metric, int channelInd
                 updateContactAlert(d.ieeeAddress, wasOpen, hadKnownState);
             }
         } else {
-            const bool changed = !d.actorKnown || d.actorOn != (value != 0);
             d.actorOn = value != 0; d.actorKnown = true;
-            if (changed)
-                history_.appendValue("shelly:" + d.externalId + ":" + d.component, SensorHistory::Light,
-                                     d.actorOn ? "1" : "0", "", now);
         }
     } else if (metric == 2) {
         Device before = d;
@@ -858,9 +844,11 @@ bool Gateway::applyFritzEvent(const std::string& id, bool connected, bool hasSig
     it->second.occupied = connected;
     it->second.hasWifiSignal = hasSignal;
     if (hasSignal) it->second.wifiSignalPercent = signalPercent;
-    if (it->second.occupied != before.occupied)
-        history_.appendValue("fritz:" + id + ":" + it->second.component, SensorHistory::Occupancy,
-                             connected ? "1" : "0", "", time(0));
+    /* =====================================================================
+     * PRIVACY: WI-FI PRESENCE DEVICES GET NO HISTORY.
+     * Connection changes reveal people's arrivals, departures and routines.
+     * Keep only current presence state; never append these readings to history.
+     * ===================================================================== */
     if (hasSignal) updateValueAlerts(it->second, before);
     it->second.lastSeen = time(0);
     markViewDirty(); saveState();

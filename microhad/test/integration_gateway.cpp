@@ -1905,7 +1905,7 @@ void testGatewayRunnerCommandDispatch() {
         std::string shellyHistory;
         assert(runner.readHistoryJson("shelly:0011223344556677:plug", 0, &shellyHistory, &error));
         assert(shellyHistory.find("42.299") != std::string::npos);
-        assert(shellyHistory.find(",10,1,\"\"") != std::string::npos);
+        assert(shellyHistory.find(",10,1,\"\"") == std::string::npos);
         assert(!runner.refreshDevice("runner-light", &error) && error == "Zigbee network is not ready");
         assert(!runner.setLightState("runner-light", "on", -1, &error) && error == "Zigbee network is not ready");
         assert(runner.setSceneConfiguration(scenes, &error));

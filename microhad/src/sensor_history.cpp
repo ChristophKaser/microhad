@@ -259,6 +259,9 @@ bool SensorHistory::appendValue(const std::string& deviceId, unsigned char metri
 }
 bool SensorHistory::appendValueLocked(const std::string& deviceId, unsigned char inputMetric, const std::string& value,
                                       const std::string& unit, long timestamp) {
+    // Actuator states are not sensor history. FRITZ!Box Wi-Fi presence has no
+    // history for privacy reasons, including calls bypassing gateway handlers.
+    if (inputMetric == Light || inputMetric == Brightness || deviceId.find("fritz:") == 0) return false;
     if (!values_.initialized || !plainText(deviceId, 64, false) || timestamp <= 0 ||
         static_cast<unsigned long>(timestamp) > 0xffffffffUL) return false;
     unsigned char metric = 0; float numeric = 0; std::string text;

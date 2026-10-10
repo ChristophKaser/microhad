@@ -110,3 +110,11 @@ Reads sort by timestamp and position, apply the exclusive `before` cursor,
 and return at most 2,000 samples. Generation checks and CRCs validate the copied
 pages independently of these cursors. Cursors identify retained samples; a
 reused physical slot at the same timestamp can reuse its cursor.
+
+## Excluded readings
+
+Actuator on/off states and brightness are not recorded. Metric codes 10 and 11
+remain reserved. Actual sensor measurements, including smart-plug power, are
+still recorded. FRITZ!Box Wi-Fi presence devices receive no history for privacy
+reasons: connection transitions can expose arrivals, departures, and routines.
+Only their current presence state is maintained.

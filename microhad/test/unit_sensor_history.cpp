@@ -58,8 +58,8 @@ void runSensorHistoryUnitTests() {
         assert(history.appendValue(matterId, SensorHistory::Pm25, "900", "ppb", 1708000120L));
         assert(history.appendValue(matterId, SensorHistory::Pm25, "2", "particles/ft3", 1708000180L));
         assert(history.appendValue(matterId, SensorHistory::AirQuality, "moderate", "", 1708000001L));
-        assert(history.appendValue(matterId, SensorHistory::Light, "1", "", 1708000002L));
-        assert(history.appendValue(matterId, SensorHistory::Brightness, "50", "percent", 1708000003L));
+        assert(!history.appendValue(matterId, SensorHistory::Light, "1", "", 1708000002L));
+        assert(!history.appendValue(matterId, SensorHistory::Brightness, "50", "percent", 1708000003L));
         assert(history.appendValue(secondMatterId, SensorHistory::Temperature, "21.5", "celsius", 1708000000L));
         assert(history.appendValue(shellyId, SensorHistory::Temperature, "22.375", "celsius", 1708000000L));
         assert(history.appendValue(shellyId, SensorHistory::Contact, "1", "", 1708000001L));
@@ -67,6 +67,10 @@ void runSensorHistoryUnitTests() {
         assert(history.appendValue(zigbeeId, SensorHistory::Battery, "87", "percent", 1708000004L));
         assert(!history.appendValue(shellyId, SensorHistory::Power, "42.3", "kW", 1708000060L));
         assert(!history.appendValue(matterId, SensorHistory::CarbonDioxide, "758.5", "miles", 1708000300L));
+
+        assert(!history.appendValue("fritz:001122334455:presence", SensorHistory::Occupancy, "1", "", 1708000000L));
+        assert(history.readForDevice("fritz:001122334455:presence", 0, &json, &error));
+        assert(json == "{\"samples\":[],\"next_before\":0}");
 
         struct stat info; assert(stat((path + ".values").c_str(), &info) == 0);
         assert(info.st_size >= 16 + 2048 && (info.st_size - 16) % 2048 == 0);
@@ -90,7 +94,7 @@ void runSensorHistoryUnitTests() {
         assert(json.find(",16,0.899999976,\"ppm\"]") != std::string::npos);
         assert(json.find(",17,70.6293335,\"particles/m3\"]") != std::string::npos);
         assert(json.find("\"moderate\",\"\"") != std::string::npos);
-        assert(json.find(",11,50,\"percent\"") != std::string::npos);
+        assert(json.find(",11,50,\"percent\"") == std::string::npos);
         assert(json.find("21.5") == std::string::npos);
         assert(history.readForDevice(shellyId, 0, &json, &error));
         assert(json.find("22.375,\"celsius\"") != std::string::npos);
