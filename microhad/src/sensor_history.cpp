@@ -8,10 +8,14 @@
 #include <fcntl.h>
 #include <iomanip>
 #include <sstream>
-#include <set>
 #include <stdint.h>
 #include <sys/stat.h>
 #include <unistd.h>
+
+#ifdef MICROHAD_TESTING
+void (*sensorHistorySnapshotHook)(void*) = 0;
+void* sensorHistorySnapshotHookData = 0;
+#endif
 
 namespace {
 enum { fileHeaderBytes = 16, pageHeaderBytes = 85, recordBytes = 13, recordsPerPage = 151,
@@ -71,6 +75,17 @@ bool olderRecord(const SensorHistory::ValueRecord& a, const SensorHistory::Value
 bool newerRecord(const SensorHistory::ValueRecord& a, const SensorHistory::ValueRecord& b) {
     return a.sequence > b.sequence;
 }
+struct PageOrder {
+    const std::vector<SensorHistory::Page>* pages;
+    explicit PageOrder(const std::vector<SensorHistory::Page>* p) : pages(p) {}
+    bool operator()(unsigned int a, unsigned int b) const { return (*pages)[a].newest < (*pages)[b].newest; }
+};
+struct ReadPage {
+    unsigned int index;
+    SensorHistory::Page page;
+    ReadPage(unsigned int i, const SensorHistory::Page& p) : index(i), page(p) {}
+};
+bool newestPageFirst(const ReadPage& a, const ReadPage& b) { return a.page.newest > b.page.newest; }
 bool fileHeaderValid(const unsigned char* bytes) {
     unsigned char expected[fileHeaderBytes]; memcpy(expected, fileTemplate, sizeof(expected));
     expected[15] = crc8(expected, 15); return memcmp(bytes, expected, sizeof(expected)) == 0;
@@ -221,6 +236,7 @@ bool SensorHistory::initializeValues(std::string* error) {
             std::string text = metric == AirQuality ? qualityText(v) : numberText(v);
             if (text.empty()) break;
             ++page.recordCount;
+            if (page.oldest == 0 || seq < page.oldest) page.oldest = seq;
             if (seq > page.newest) page.newest = seq;
             if (seq > page.lastSequence) {
                 page.lastSequence = seq; page.lastValue = v; page.lastTimestamp = timestamp;
@@ -235,12 +251,15 @@ bool SensorHistory::initializeValues(std::string* error) {
             const std::string key = pairKey(id, metric); values_.pairPages[key].push_back(i);
         } else page.allocated = false;
     }
+    for (std::map<std::string, std::vector<unsigned int> >::iterator pair = values_.pairPages.begin();
+         pair != values_.pairPages.end(); ++pair)
+        std::sort(pair->second.begin(), pair->second.end(), PageOrder(&values_.pages));
     close(fd); values_.initialized = true; pthread_mutex_unlock(&values_.mutex); return true;
 }
 
 bool SensorHistory::appendValue(const std::string& deviceId, unsigned char metric, const std::string& value,
                                const std::string& unit, long timestamp) {
-    if (!values_.initialized && !initializeValues(0)) return false;
+    if (!initializeValues(0)) return false;
     pthread_mutex_lock(&values_.mutex);
     bool result = appendValueLocked(deviceId, metric, value, unit, timestamp);
     pthread_mutex_unlock(&values_.mutex); return result;
@@ -307,7 +326,12 @@ bool SensorHistory::appendValueLocked(const std::string& deviceId, unsigned char
         struct stat fileInfo;
         bool extended = fstat(fd, &fileInfo) == 0 &&
             (fileInfo.st_size >= base + pageBytes || ftruncate(fd, base + pageBytes) == 0);
-        if (!extended || !writeAllAt(fd, ph, sizeof(ph), base)) { allocated = Page(); close(fd); return false; }
+        /* Invalidate ownership, erase old records, then publish the new header.
+           CRC-8 identity collisions must never resurrect a previous owner's data. */
+        unsigned char cleared[pageBytes]; memset(cleared, 0, sizeof(cleared));
+        if (!extended || !writeAllAt(fd, cleared, pageHeaderBytes, base) ||
+            !writeAllAt(fd, cleared + pageHeaderBytes, pageBytes - pageHeaderBytes, base + pageHeaderBytes) ||
+            !writeAllAt(fd, ph, sizeof(ph), base)) { allocated = Page(); close(fd); return false; }
         owned.push_back(pageIndex); page = &allocated;
     } else pageIndex = static_cast<unsigned int>(page - &values_.pages[0]);
 
@@ -322,6 +346,7 @@ bool SensorHistory::appendValueLocked(const std::string& deviceId, unsigned char
     off_t offset = base + pageHeaderBytes + static_cast<off_t>(slot) * recordBytes;
     bool ok = writeAllAt(fd, rec, sizeof(rec), offset); close(fd); if (!ok) return false;
     ++page->recordCount; page->lastValue = numeric;
+    if (page->oldest == 0) page->oldest = sequence;
     page->lastTimestamp = static_cast<uint32_t>(timestamp); page->newest = sequence; page->lastSequence = sequence;
     values_.lastValues[key] = LastValue(sequence, static_cast<unsigned long>(timestamp), numeric);
     values_.sequence = sequence; return true;
@@ -330,65 +355,85 @@ bool SensorHistory::appendValueLocked(const std::string& deviceId, unsigned char
 bool SensorHistory::readValuesJson(const std::string& deviceId, unsigned long before,
                                    std::string* json, std::string* error, ReadStats* stats) const {
     if (!plainText(deviceId, 64, false)) { if (error) *error = "invalid device ID"; return false; }
-    if (!values_.initialized && !const_cast<SensorHistory*>(this)->initializeValues(error)) return false;
+    if (!const_cast<SensorHistory*>(this)->initializeValues(error)) return false;
+    std::vector<ReadPage> pages;
     pthread_mutex_lock(&values_.mutex);
-    if (!values_.initialized) { pthread_mutex_unlock(&values_.mutex); if (error) *error = "paged history catalog is unavailable"; return false; }
-    std::vector<ValueRecord> selected; std::set<unsigned int> selectedPages;
-    int fd = open(values_.path.c_str(), O_RDONLY);
-    if (fd < 0) { pthread_mutex_unlock(&values_.mutex); if (error) *error = "cannot read paged history"; return false; }
     for (unsigned char metric = 1; metric <= maximumMetric; ++metric) {
-        std::string key = pairKey(deviceId, metric);
-        std::map<std::string, std::vector<unsigned int> >::const_iterator found = values_.pairPages.find(key);
-        if (found == values_.pairPages.end()) continue;
-        for (unsigned long p = 0; p < found->second.size(); ++p) {
-            const unsigned int pageIndex = found->second[p]; selectedPages.insert(pageIndex);
-            const Page& page = values_.pages[pageIndex];
-            unsigned char pageData[pageBytes];
-            off_t base = fileHeaderBytes + static_cast<off_t>(pageIndex) * pageBytes;
-            if (pread(fd, pageData, sizeof(pageData), base) != static_cast<ssize_t>(sizeof(pageData))) continue;
-            std::string owner; unsigned char ownerMetric = 0; uint32_t generation = 0;
-            if (!pageHeaderValid(pageData, &owner, &ownerMetric, &generation) || owner != deviceId || ownerMetric != metric) continue;
-            for (unsigned int i = 0; i < page.recordCount; ++i) {
-                unsigned char* rec = pageData + pageHeaderBytes + i * recordBytes;
-                if (rec[12] != recordCrc(pageData, rec)) continue;
-                uint32_t seq = get32(rec); if (seq == 0 || (before != 0 && seq >= before)) continue;
-                ValueRecord sample(seq, base + pageHeaderBytes + static_cast<off_t>(i) * recordBytes, metric);
-                if (selected.size() < apiPageLimit + 1) {
-                    selected.push_back(sample);
-                    std::push_heap(selected.begin(), selected.end(), newerRecord);
-                } else if (seq > selected.front().sequence) {
-                    std::pop_heap(selected.begin(), selected.end(), newerRecord);
-                    selected.back() = sample;
-                    std::push_heap(selected.begin(), selected.end(), newerRecord);
-                }
+        std::map<std::string, std::vector<unsigned int> >::const_iterator pair =
+            values_.pairPages.find(pairKey(deviceId, metric));
+        if (pair == values_.pairPages.end()) continue;
+        for (unsigned long i = 0; i < pair->second.size(); ++i) {
+            const unsigned int index = pair->second[i];
+            const Page& page = values_.pages[index];
+            if (before == 0 || page.oldest < before) pages.push_back(ReadPage(index, page));
+        }
+    }
+    pthread_mutex_unlock(&values_.mutex);
+
+#ifdef MICROHAD_TESTING
+    if (sensorHistorySnapshotHook) sensorHistorySnapshotHook(sensorHistorySnapshotHookData);
+#endif
+    // All disk reads and response construction use only the copied catalog.
+    std::sort(pages.begin(), pages.end(), newestPageFirst);
+    int fd = open(values_.path.c_str(), O_RDONLY);
+    if (fd < 0) { if (error) *error = "cannot read paged history"; return false; }
+    unsigned char header[fileHeaderBytes];
+    if (pread(fd, header, sizeof(header), 0) != fileHeaderBytes || !fileHeaderValid(header)) {
+        close(fd); if (error) *error = "invalid paged history header"; return false;
+    }
+    if (stats) stats->bytesRead += fileHeaderBytes;
+    std::vector<ValueRecord> selected;
+    for (unsigned long p = 0; p < pages.size(); ++p) {
+        const ReadPage& snapshot = pages[p];
+        if (selected.size() == apiPageLimit + 1 && snapshot.page.newest <= selected.front().sequence) break;
+        unsigned char pageData[pageBytes];
+        off_t base = fileHeaderBytes + static_cast<off_t>(snapshot.index) * pageBytes;
+        if (stats) { ++stats->pagesRead; stats->bytesRead += pageBytes; }
+        if (pread(fd, pageData, sizeof(pageData), base) != static_cast<ssize_t>(sizeof(pageData))) continue;
+        std::string owner; unsigned char metric = 0; uint32_t generation = 0;
+        if (!pageHeaderValid(pageData, &owner, &metric, &generation) || owner != deviceId ||
+            metric != snapshot.page.metric || generation != snapshot.page.generation) continue;
+        unsigned char confirmed[pageHeaderBytes];
+        if (stats) stats->bytesRead += pageHeaderBytes;
+        if (pread(fd, confirmed, sizeof(confirmed), base) != static_cast<ssize_t>(sizeof(confirmed)) ||
+            memcmp(confirmed, pageData, sizeof(confirmed)) != 0) continue;
+        for (unsigned int i = 0; i < snapshot.page.recordCount; ++i) {
+            const unsigned char* rec = pageData + pageHeaderBytes + i * recordBytes;
+            const uint32_t seq = get32(rec);
+            if (seq < snapshot.page.oldest || seq > snapshot.page.newest || (before != 0 && seq >= before)) continue;
+            if (stats) ++stats->recordsChecked;
+            if (rec[12] != recordCrc(pageData, rec)) continue;
+            const uint32_t timestamp = get32(rec + 4);
+            const float value = decodeFloat(rec + 8);
+            if (timestamp == 0 || !std::isfinite(value) || (metric == AirQuality && qualityText(value).empty())) continue;
+            const ValueRecord sample(seq, timestamp, metric, value);
+            if (selected.size() < apiPageLimit + 1) {
+                selected.push_back(sample);
+                std::push_heap(selected.begin(), selected.end(), newerRecord);
+            } else if (seq > selected.front().sequence) {
+                std::pop_heap(selected.begin(), selected.end(), newerRecord);
+                selected.back() = sample;
+                std::push_heap(selected.begin(), selected.end(), newerRecord);
             }
         }
     }
-    bool more = selected.size() > apiPageLimit;
+    close(fd);
+    const bool more = selected.size() > apiPageLimit;
     if (more) {
         std::pop_heap(selected.begin(), selected.end(), newerRecord);
         selected.pop_back();
     }
     std::sort(selected.begin(), selected.end(), olderRecord);
-    std::ostringstream out; out << "{\"samples\":["; bool first = true;
+    std::ostringstream out; out << "{\"samples\":[";
     for (unsigned long i = 0; i < selected.size(); ++i) {
-        unsigned char rec[recordBytes];
-        if (pread(fd, rec, sizeof(rec), selected[i].offset) != static_cast<ssize_t>(sizeof(rec))) continue;
-        uint32_t seq = get32(rec), timestamp = get32(rec + 4); float value = decodeFloat(rec + 8);
-        if (seq != selected[i].sequence || !std::isfinite(value)) continue;
-        std::string valueStr = selected[i].metric == AirQuality ? qualityText(value) : numberText(value);
-        if (valueStr.empty()) continue;
-        if (stats) { ++stats->recordsChecked; stats->bytesRead += recordBytes; }
-        if (!first) out << ',';
-        first = false;
-        out << '[' << seq << ',' << timestamp << ',' << static_cast<unsigned int>(selected[i].metric) << ',';
-        if (selected[i].metric == AirQuality) out << jsonString(valueStr); else out << valueStr;
-        out << ',' << jsonString(unitForMetric(selected[i].metric)) << ']';
+        const ValueRecord& sample = selected[i];
+        if (i != 0) out << ',';
+        out << '[' << sample.sequence << ',' << sample.timestamp << ',' << static_cast<unsigned int>(sample.metric) << ',';
+        if (sample.metric == AirQuality) out << jsonString(qualityText(sample.value)); else out << numberText(sample.value);
+        out << ',' << jsonString(unitForMetric(sample.metric)) << ']';
     }
     out << "],\"next_before\":" << (more && !selected.empty() ? selected.front().sequence : 0) << '}';
-    *json = out.str(); close(fd);
-    if (stats) stats->pagesRead += selectedPages.size();
-    pthread_mutex_unlock(&values_.mutex); return true;
+    *json = out.str(); return true;
 }
 
 bool SensorHistory::readForDevice(const std::string& address, unsigned long before,

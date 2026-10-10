@@ -38,9 +38,11 @@ public:
 public:
     struct ValueRecord {
         unsigned long sequence;
-        off_t offset;
+        unsigned long timestamp;
+        float value;
         unsigned char metric;
-        ValueRecord(unsigned long seq = 0, off_t at = 0, unsigned char m = 0) : sequence(seq), offset(at), metric(m) {}
+        ValueRecord(unsigned long seq = 0, unsigned long t = 0, unsigned char m = 0, float v = 0)
+            : sequence(seq), timestamp(t), value(v), metric(m) {}
     };
     struct Page {
         bool allocated;
@@ -48,11 +50,12 @@ public:
         unsigned char metric;
         unsigned long generation;
         unsigned long newest;
+        unsigned long oldest;
         unsigned long lastSequence;
         unsigned long lastTimestamp;
         float lastValue;
         unsigned int recordCount;
-        Page() : allocated(false), metric(0), generation(0), newest(0), lastSequence(0), lastTimestamp(0), lastValue(0), recordCount(0) {}
+        Page() : allocated(false), metric(0), generation(0), newest(0), oldest(0), lastSequence(0), lastTimestamp(0), lastValue(0), recordCount(0) {}
     };
     struct LastValue {
         unsigned long sequence;

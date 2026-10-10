@@ -5,7 +5,13 @@ state, survives a native-service restart, and is cleared by a device reboot. It
 must never be moved to `/tuya` flash.
 
 The coordinator owns appends, allocation, eviction, and the in-memory page
-catalog. HTTP workers read through that catalog under its mutex. The API keeps
+catalog. HTTP workers copy the requested device’s page list under a short
+catalog lock, then release it before all disk reads and JSON construction.
+They compare page identity and allocation generation against their snapshot,
+validate header and record CRCs, and recheck the header after copying a page.
+A page evicted during a request is skipped; a later request sees the new data.
+Pages are visited by newest sequence, skipping ranges outside the cursor and
+stopping once the response and pagination sentinel are known. The API keeps
 its existing response tuple `[sequence, timestamp, metric, value, unit]` and
 2,000-sample response pagination.
 
@@ -50,7 +56,9 @@ The maximum file size is `16 + 1023 * 2048 = 2,095,120` bytes, below 2 MiB.
 Pages are allocated on demand at fixed offsets. When the pool is full, the
 oldest page is evicted, except that an incoming metric’s only page is protected
 while another page can be reclaimed. Reallocated pages advance their generation
-so stale records cannot be attributed to the new owner. The final page has no
+and their record areas are cleared before the new header is published.
+Generation checks and CRCs detect concurrent reuse; clearing prevents CRC-8
+identity collisions from reviving stale records after restart. The final page has no
 footer: all 2,048 bytes belong to its header and records.
 
 ## Metric codes and unit normalization
@@ -80,7 +88,8 @@ rejected rather than mixed into an incompatible series.
 ## Recovery and retention
 
 Startup scans page headers and contiguous valid records to rebuild the sequence
-and page catalog. Invalid headers and checksummed records are skipped; an
+and page catalog, sorting each pair’s pages by sequence so appends resume in
+the newest partially filled page after allocation wraps. Invalid headers and checksummed records are skipped; an
 incomplete record tail is ignored. V3 is written fresh without migration. A
 recognized former `TUV1` values journal is reset; unknown or damaged formats are
 preserved and initialization fails closed.

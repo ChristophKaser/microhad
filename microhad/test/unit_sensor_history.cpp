@@ -7,6 +7,9 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+extern void (*sensorHistorySnapshotHook)(void*);
+extern void* sensorHistorySnapshotHookData;
+
 namespace {
 std::string historyPath() {
     char name[] = "/tmp/microhad-history-test-XXXXXX";
@@ -14,6 +17,20 @@ std::string historyPath() {
 }
 void removeHistoryFiles(const std::string& path) {
     unlink(path.c_str()); unlink((path + ".values").c_str()); unlink((path + ".values.tmp").c_str());
+}
+struct EvictionContext {
+    SensorHistory* history;
+    std::string id;
+};
+void evictAfterSnapshot(void* data) {
+    EvictionContext* context = static_cast<EvictionContext*>(data);
+    assert(context->history->appendValue(context->id, SensorHistory::Contact, "1", "", 1718000000L));
+}
+unsigned long nextBefore(const std::string& json) {
+    const std::string marker = "\"next_before\":";
+    const std::string::size_type at = json.find(marker);
+    assert(at != std::string::npos);
+    return strtoul(json.c_str() + at + marker.size(), 0, 10);
 }
 }
 
@@ -108,10 +125,54 @@ void runSensorHistoryUnitTests() {
         }
         struct stat boundedFile; assert(stat((boundedPath + ".values").c_str(), &boundedFile) == 0);
         assert(boundedFile.st_size == 16 + 1023 * 2048);
-        assert(bounded.readForDevice(matterId, 0, &json, &error));
+        SensorHistory::ReadStats latestStats;
+        assert(bounded.readForDevice(matterId, 0, &json, &error, &latestStats));
+        assert(latestStats.pagesRead <= 15 && latestStats.recordsChecked <= 2300);
+        const unsigned long cursor = nextBefore(json);
+        assert(cursor != 0);
+        SensorHistory::ReadStats olderStats;
+        std::string older;
+        assert(bounded.readForDevice(matterId, cursor, &older, &error, &olderStats));
+        assert(olderStats.pagesRead <= 16 && olderStats.recordsChecked <= 2400);
+        assert(nextBefore(older) < cursor);
         assert(json.find(",7,154473,\"ppm\"]") != std::string::npos);
         assert(bounded.readForDevice(matterId, 152, &json, &error));
         assert(json == "{\"samples\":[],\"next_before\":0}");
     }
+    {
+        SensorHistory restarted(boundedPath);
+        assert(restarted.initialize(&error));
+        assert(restarted.appendValue(matterId, SensorHistory::CarbonDioxide, "154474", "ppm", 1717268440L));
+        assert(restarted.readForDevice(matterId, 303, &json, &error));
+        assert(json.find("[152,") != std::string::npos);
+        assert(json.find("[302,") != std::string::npos);
+    }
     removeHistoryFiles(boundedPath);
+
+    const std::string collisionPath = historyPath();
+    const std::string collisionId = "zigbee:0x00124b0000000463";
+    {
+        SensorHistory history(collisionPath);
+        for (unsigned int i = 0; i < 151; ++i)
+            assert(history.appendValue(zigbeeId, SensorHistory::Contact, i % 2 ? "1" : "0", "", 1708000000L + i));
+        char value[16];
+        for (unsigned long i = 0; i < 1022 * 151; ++i) {
+            snprintf(value, sizeof(value), "%lu", i);
+            assert(history.appendValue(matterId, SensorHistory::CarbonDioxide, value, "ppm", 1708000200L + i * 60));
+        }
+        EvictionContext context; context.history = &history; context.id = collisionId;
+        sensorHistorySnapshotHook = evictAfterSnapshot;
+        sensorHistorySnapshotHookData = &context;
+        assert(history.readForDevice(zigbeeId, 0, &json, &error));
+        sensorHistorySnapshotHook = 0;
+        sensorHistorySnapshotHookData = 0;
+        assert(json == "{\"samples\":[],\"next_before\":0}");
+    }
+    {
+        SensorHistory restarted(collisionPath);
+        assert(restarted.initialize(&error));
+        assert(restarted.readForDevice(collisionId, 0, &json, &error));
+        assert(json == "{\"samples\":[[154474,1718000000,3,1,\"\"]],\"next_before\":0}");
+    }
+    removeHistoryFiles(collisionPath);
 }
