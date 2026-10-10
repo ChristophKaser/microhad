@@ -376,5 +376,5 @@ fn warning(opcode: u8, count: usize) {
         }
     }
     #[cfg(not(feature = "controller-service"))]
-    eprintln!("Matter IPC opcode {opcode}: ignored {count} unknown fields");
+    log::debug!("Matter IPC opcode {opcode}: ignored {count} unknown fields");
 }

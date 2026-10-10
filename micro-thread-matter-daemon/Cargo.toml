@@ -12,13 +12,14 @@ default-run = "mthread-matter"
 default = []
 openthread = ["dep:embassy-time-queue-utils"]
 controller-probe = ["controller-service", "dep:embassy-futures", "dep:static_cell", "dep:heapless"]
-controller-service = ["openthread", "control-ipc", "controller-identity", "dep:static_cell", "dep:libc", "dep:heapless", "dep:embassy-futures"]
+controller-service = ["openthread", "control-ipc", "controller-identity", "dep:static_cell", "dep:libc", "dep:heapless", "dep:embassy-futures", "rs-matter/log"]
 controller-service-test-hooks = ["controller-service"]
 controller-identity = ["dep:zeroize"]
 control-ipc = ["dep:zeroize"]
 
 [dependencies]
 ciborium = "=0.2.2"
+log = "0.4"
 
 rs-matter = { path = "../build/micro-thread-matter-daemon/service-source/rs-matter", default-features = false, features = ["rustcrypto"] }
 critical-section = { version = "1.2", features = ["std"] }

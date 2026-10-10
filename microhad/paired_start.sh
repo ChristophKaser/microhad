@@ -22,9 +22,12 @@ matter_state=${MATTER_STATE_DIR:-/tuya/native/matter}
 matter_socket=${MATTER_SOCKET:-/tmp/microhad-matter.sock}
 thread_socket=${THREAD_SOCKET:-/tmp/ziggurat/thread.sock}
 matter_limit=${MATTER_RESTART_LIMIT:-5}
+matter_log_level=${MATTER_LOG_LEVEL:-info}
+matter_level_restart=false
 syslogd=${SYSLOGD_BIN:-/bin/busybox}
 case "$limit:$startup_limit:$stop_limit:$backoff:$matter_limit" in *[!0-9:]*|:*|*::*) exit 2;; esac
 case "$zig_log_level" in off|error|warn|info|debug|trace) ;; *) echo 'Invalid ZIGGURAT_LOG_LEVEL' >&2;exit 2;; esac
+case "$matter_log_level" in off|error|warn|info|debug|trace) ;; *) echo 'Invalid MATTER_LOG_LEVEL' >&2;exit 2;; esac
 for path in "$ZIGGURAT_BIN" "$NATIVE_BIN" "$NATIVE_CONFIG" "$MAINTENANCE_BIN" "$control" "$socket_path" "$device" "$zig_log" "$seed_helper" "$seed_file" "$seed_log"; do
     case "$path" in /*) ;; *) echo 'Absolute paths required' >&2;exit 2;; esac
 done
@@ -86,7 +89,7 @@ cleanup() {
     stop_child "$matter_pid";matter_pid=
     stop_child "$native_pid";native_pid=
     stop_child "$zig_pid";zig_pid=
-    rm -f "$control/matter.pid" "$control/matter.failed" "$control/native.pid" "$control/ziggurat.pid" "$control/supervisor.pid" "$control/quiesce" "$control/quiesced" "$control/stop" "$control/active-log-level" "$control/requested-log-level" "$control/requested-log-level."*
+    rm -f "$control/matter.pid" "$control/matter.failed" "$control/active-matter-log-level" "$control/requested-matter-log-level" "$control/requested-matter-log-level."* "$control/native.pid" "$control/ziggurat.pid" "$control/supervisor.pid" "$control/quiesce" "$control/quiesced" "$control/stop" "$control/active-log-level" "$control/requested-log-level" "$control/requested-log-level."*
     # Device lacks rmdir. Only remove this invocation's known control directory.
     rm -rf "$control"
 }
@@ -147,13 +150,30 @@ start_native() {
 }
 poll_matter() {
     [ -n "$matter_bin" ] || return 0
+    if [ -f "$control/requested-matter-log-level" ]; then
+        requested_matter_level=
+        IFS= read -r requested_matter_level < "$control/requested-matter-log-level" || requested_matter_level=
+        case "$requested_matter_level" in
+            off|error|warn|info|debug|trace)
+                if [ "$requested_matter_level" != "$matter_log_level" ] &&
+                    [ -n "$matter_pid" ]; then
+                    matter_log_level=$requested_matter_level
+                    stop_child "$matter_pid";matter_pid=
+                    rm -f "$control/matter.pid" "$control/active-matter-log-level"
+                    matter_level_restart=true
+                    matter_next=0
+                fi ;;
+        esac
+        rm -f "$control/requested-matter-log-level"
+    fi
+    [ ! -e "$control/quiesce" ] && [ ! -e "$control/stop" ] || return 0
     if [ -n "$matter_pid" ] && kill -0 "$matter_pid" 2>/dev/null; then return 0;fi
     if [ -n "$matter_pid" ]; then
         wait "$matter_pid" 2>/dev/null || true;matter_pid=
-        rm -f "$control/matter.pid"
+        rm -f "$control/matter.pid" "$control/active-matter-log-level"
         matter_next=$(($(date +%s)+backoff))
     fi
-    if [ "$matter_retries" -ge "$matter_limit" ]; then
+    if [ "$matter_retries" -ge "$matter_limit" ] && [ "$matter_level_restart" = false ]; then
         if [ ! -e "$control/matter.failed" ]; then
             echo 'Matter restart budget exhausted; Zigbee remains running' >&2
             : > "$control/matter.failed"
@@ -165,8 +185,11 @@ poll_matter() {
     [ -S "$thread_socket" ] || return 0
     prepare_socket_path "$matter_socket" || { matter_next=$(($(date +%s)+backoff));return 0; }
     "$matter_bin" --socket "$matter_socket" --state-dir "$matter_state" \
-        --radio-url "spinel+hdlc+unix://$thread_socket?no-reset" 2>&1 &
-    matter_pid=$!;matter_retries=$((matter_retries+1))
+        --radio-url "spinel+hdlc+unix://$thread_socket?no-reset" --log-level "$matter_log_level" 2>&1 &
+    matter_pid=$!
+    if [ "$matter_level_restart" = false ]; then matter_retries=$((matter_retries+1));fi
+    matter_level_restart=false
+    printf '%s\n' "$matter_log_level" > "$control/active-matter-log-level"
     printf '%s\n' "$matter_pid" > "$control/matter.pid"
 }
 while :; do
@@ -175,7 +198,7 @@ while :; do
         if [ "$quiesced" = false ]; then
             stop_child "$matter_pid";matter_pid=
             stop_child "$native_pid";native_pid=
-            rm -f "$control/matter.pid" "$control/native.pid";: > "$control/quiesced";quiesced=true
+            rm -f "$control/matter.pid" "$control/active-matter-log-level" "$control/native.pid";: > "$control/quiesced";quiesced=true
         fi
         # Leave Ziggurat alive for the host freeze/export tool. No respawn.
         sleep 1;continue
@@ -207,7 +230,7 @@ while :; do
         else
             # Unexpected radio failures retain the existing pair recovery order.
             stop_child "$matter_pid";matter_pid=
-            rm -f "$control/matter.pid"
+            rm -f "$control/matter.pid" "$control/active-matter-log-level"
             stop_child "$native_pid";native_pid=
             stop_child "$zig_pid";zig_pid=
             rm -f "$control/requested-log-level"

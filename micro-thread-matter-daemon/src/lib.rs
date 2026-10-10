@@ -9,6 +9,8 @@ pub mod entropy;
 #[cfg(feature = "controller-identity")]
 pub mod identity;
 pub mod ipc;
+#[cfg(feature = "controller-service")]
+pub mod logging;
 mod wire_cbor;
 mod wire_shapes;
 #[cfg(feature = "control-ipc")]

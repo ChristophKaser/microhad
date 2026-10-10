@@ -1030,7 +1030,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                     .as_mut()
                     .map(|registry| registry.accept(self.crypto, &message));
                 if let Some(Err(error)) = accepted.as_ref() {
-                    eprintln!(
+                    log::warn!(
                         "Matter ICD Check-In rejected for {:016x}/fabric {}: {:?}",
                         message.node, message.fabric, error
                     );
@@ -1089,7 +1089,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                         }
                     }
                 } else if self.icd_registry.is_none() {
-                    eprintln!(
+                    log::warn!(
                         "Matter ICD Check-In received without a client registry for {:016x}/fabric {}",
                         message.node, message.fabric
                     );
@@ -1113,7 +1113,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 })
                 .flatten();
             if let Some((node, endpoint)) = candidate {
-                eprintln!(
+                log::debug!(
                     "Matter ICD Management found at {:016x}/{}; probing features",
                     node, endpoint
                 );
@@ -1173,7 +1173,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             self.icd_work = None;
             self.icd_registry = crate::icd::ClientRegistry::open(self.catalog.store()).ok();
             self.icd_entropy = crate::entropy::OsEntropy::open().ok();
-            eprintln!(
+            log::warn!(
                 "Matter ICD Management probe timed out for {:016x}/{}",
                 key.0, key.1
             );
@@ -1209,7 +1209,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                         self.icd_checked.push(key);
                     }
                 } else {
-                    eprintln!(
+                    log::warn!(
                         "Matter ICD management probe failed for {:016x}/{}: {:?}",
                         key.0, key.1, result
                     );

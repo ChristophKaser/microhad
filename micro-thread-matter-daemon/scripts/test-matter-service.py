@@ -309,6 +309,7 @@ def main():
             args = [str(ROOT / "build/micro-thread-matter-daemon/target/release/mthread-matter"),
                 "--socket", str(ipc_path), "--state-dir", str(private / "state"),
                 "--radio-url", f"spinel+hdlc+unix://{radio_path}?no-reset"]
+            args += ["--log-level", os.environ.get("MICROHAD_MATTER_TEST_LOG_LEVEL", "info")]
             service = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             deadline = time.monotonic() + 5
             while True:

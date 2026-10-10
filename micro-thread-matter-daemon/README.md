@@ -65,3 +65,38 @@ separately authorized gateway acceptance run.
 
 The private protocol is [length-prefixed CBOR v2](../microhad/docs/matter-ipc-v2.md).
 Only the length prefix is outside the CBOR envelope.
+
+## Matter logging
+
+`mthread-matter --log-level LEVEL` accepts `off`, `error`, `warn`, `info`,
+`debug`, and `trace`, defaulting to `info`. Service and rs-matter diagnostics
+use syslog under `mthread-matter`. Debug includes protocol exchanges and
+retransmissions; trace also includes frame bytes and decoded payloads, which
+can expose decrypted commissioning data. Payload tracing remains at trace.
+
+The paired supervisor uses `MATTER_LOG_LEVEL` (default `info`). Change it for
+its current lifetime with:
+
+```sh
+/tuya/native/paired_control.sh matter-log-level trace
+/tuya/native/paired_control.sh matter-log-level info
+```
+
+The command gracefully restarts only Matter, interrupting its current sessions
+and subscriptions. It leaves native and Ziggurat processes running and does not
+consume the Matter failure-restart budget. The selected level survives child
+restarts and resets to `MATTER_LOG_LEVEL` on a fresh supervisor launch or reboot.
+An unchanged level is a no-op; stopped or quiesced services reject the request.
+The existing `paired_control.sh log-level LEVEL` continues to select Ziggurat.
+
+Messages stream through a bounded splitter without truncating long entries.
+Bodies are at most 174 bytes, reserving space for the libc header and longer
+Matter tag within the stock gateway's 255-byte syslog limit. Long entries use
+Ziggurat's `[entry/part+]` continuation and `[entry/part=]` final markers, with
+150-byte payload fragments. UTF-8 boundaries are preserved and NULs sanitized.
+Logs stay in syslog's RAM ring; no flash log files are created.
+
+After building the host service and synthetic relay, run
+`python3 micro-thread-matter-daemon/scripts/test-matter-logging.py` for CLI and
+syslog integration checks using simulated radio traffic and a host-only libc
+capture shim. It does not access the gateway.

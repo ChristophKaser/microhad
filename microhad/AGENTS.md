@@ -171,6 +171,15 @@ current supervisor lifetime and resets to `ZIGGURAT_LOG_LEVEL` (normally
 `info`) after a fresh supervisor launch or reboot. Paired deployment stages
 `paired_control.sh` with the supervisor.
 
+Matter uses `MATTER_LOG_LEVEL` (normally `info`) and
+`/tuya/native/paired_control.sh matter-log-level LEVEL` with the same six levels.
+This gracefully restarts only Matter without consuming its failure-restart
+budget. The level lasts for the supervisor lifetime and resets to
+`MATTER_LOG_LEVEL` on a fresh launch or reboot. Debug shows protocol activity;
+trace includes decrypted payloads. Matter syslog bodies use 174-byte limits and
+the same fragment markers as Ziggurat to fit the stock 255-byte receive limit.
+
+
 When the Matter package is already staged but there is not enough flash to
 stage another binary copy, activate the paired launcher while checking the
 same local artifacts against the staged device files:

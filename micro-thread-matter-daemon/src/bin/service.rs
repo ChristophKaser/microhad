@@ -1,19 +1,5 @@
 //! Gateway controller process. Owns OpenThread, Matter and IPC on a single thread.
 use core::pin::pin;
-use rs_matter::crypto::{
-    default_crypto, CanonPkcPublicKeyRef, CanonPkcSecretKeyRef, Crypto, CryptoSensitiveRef, TryRng,
-};
-use rs_matter::dm::clusters::{basic_info::BasicInfoConfig, dev_att::DeviceAttestation};
-use rs_matter::sc::pase::{Spake2pVerifierPassword, Spake2pVerifierPasswordRef};
-use rs_matter::transport::network::{Address, ChainedNetwork, NoNetwork};
-use rs_matter::utils::{init::InitMaybeUninit, sync::DynBase};
-use rs_matter::{BasicCommData, Matter, MATTER_PORT};
-use static_cell::StaticCell;
-use std::ffi::CString;
-use std::future::Future;
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, Instant};
 use micro_thread_matter_daemon::{
     ble::BleRelay,
     catalog::Catalog,
@@ -28,26 +14,22 @@ use micro_thread_matter_daemon::{
     store::PrivateStore,
     thread_lifecycle::{Failure, Lifecycle, Radio},
 };
+use rs_matter::crypto::{
+    default_crypto, CanonPkcPublicKeyRef, CanonPkcSecretKeyRef, Crypto, CryptoSensitiveRef, TryRng,
+};
+use rs_matter::dm::clusters::{basic_info::BasicInfoConfig, dev_att::DeviceAttestation};
+use rs_matter::sc::pase::{Spake2pVerifierPassword, Spake2pVerifierPasswordRef};
+use rs_matter::transport::network::{Address, ChainedNetwork, NoNetwork};
+use rs_matter::utils::{init::InitMaybeUninit, sync::DynBase};
+use rs_matter::{BasicCommData, Matter, MATTER_PORT};
+use static_cell::StaticCell;
+use std::future::Future;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 
 static STOP: AtomicBool = AtomicBool::new(false);
 static MATTER: StaticCell<Matter> = StaticCell::new();
-fn log_message(message: &str) {
-    let safe = message.replace('\0', "?");
-    if let Ok(message) = CString::new(safe) {
-        unsafe {
-            libc::openlog(
-                b"mthread-matter\0".as_ptr() as *const _,
-                libc::LOG_PID,
-                libc::LOG_DAEMON,
-            );
-            libc::syslog(
-                libc::LOG_INFO,
-                b"%s\0".as_ptr() as *const _,
-                message.as_ptr(),
-            );
-        }
-    }
-}
 static DETAILS: BasicInfoConfig = BasicInfoConfig {
     product_name: "Gateway Matter controller",
     device_name: "Gateway controller",
@@ -251,10 +233,12 @@ fn publish_thread(
         return Ok(());
     }
     let snapshot = lifecycle.snapshot();
-    let event = micro_thread_matter_daemon::responses::event(micro_thread_matter_daemon::responses::Event::Thread(&snapshot))
-        .ok_or_else(|| {
-            std::io::Error::new(std::io::ErrorKind::InvalidData, "Thread event unavailable")
-        })?;
+    let event = micro_thread_matter_daemon::responses::event(
+        micro_thread_matter_daemon::responses::Event::Thread(&snapshot),
+    )
+    .ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::InvalidData, "Thread event unavailable")
+    })?;
     for (peer, previous) in subscribers.iter_mut() {
         if *previous != event.payload && ipc.publish(*peer, &event)? {
             *previous = event.payload.clone();
@@ -282,10 +266,12 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut radio = None;
     let mut administrator_vendor = 0xfff1u16;
     let mut validate_only = false;
+    let mut log_level = log::LevelFilter::Info;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         let value = args.next().ok_or("missing option value")?;
         match arg.as_str() {
+            "--log-level" => log_level = micro_thread_matter_daemon::logging::parse_level(&value)?,
             "--socket" => socket = value.into(),
             "--state-dir" => state = value.into(),
             "--validate-state-dir" => {
@@ -297,6 +283,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             _ => return Err("unknown option".into()),
         }
     }
+    micro_thread_matter_daemon::logging::init(log_level)
+        .map_err(|_| "logger initialization failed")?;
     if !state.is_absolute() {
         return Err("absolute state directory required".into());
     }
@@ -384,10 +372,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut subscribers = Vec::new();
     // Do not initialize OT (and restore POSIX settings) until a fresh protected
     // native coordinator observation agrees with the persisted dataset.
-    log_message("Matter controller service started");
+    log::info!("Matter controller service started");
     let channel = loop {
         if STOP.load(Ordering::Relaxed) {
-            log_message("Matter controller service stopped");
+            log::info!("Matter controller service stopped");
             return Ok(());
         }
         lifecycle
@@ -483,13 +471,18 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             return Err("Thread radio stop failed".into());
         }
     }
-    log_message("Matter controller service stopped");
+    log::info!("Matter controller service stopped");
     Ok(())
 }
 fn main() {
     if run().is_err() {
         // Errors deliberately omit CLI inputs, blobs and credential contents.
-        log_message("Matter controller service failed");
+        if !micro_thread_matter_daemon::logging::initialized() {
+            // CLI failures happen before the logger is installed.
+            eprintln!("Matter controller service failed");
+        } else {
+            log::error!("Matter controller service failed");
+        }
         std::process::exit(1);
     }
 }

@@ -36,6 +36,9 @@ if role=='zig':
    c,_=s.accept();c.sendall(bytes.fromhex('01020302020100'));c.close()
   except socket.timeout:pass
 else:
+ if role=='matter':
+  level=sys.argv[sys.argv.index('--log-level')+1]
+  with open(os.environ['TEST_EVENTS'],'a') as f:f.write('matter level '+level+'\\n')
  if role=='native' and os.environ.get('TEST_EXIT')=='1':raise SystemExit(0)
  if role=='matter' and os.environ.get('TEST_MATTER_EXIT')=='1':raise SystemExit(1)
  while True:time.sleep(.1)
@@ -145,6 +148,50 @@ class Paired(unittest.TestCase):
         self.assertIn('already using info',self.run_control('log-level','info').stdout)
         self.assertEqual(int((self.control/'ziggurat.pid').read_text()),zig_pid)
         self.quiesce();self.stop()
+    def test_matter_log_level_switch_retention_and_budget(self):
+        self.enable_matter();self.env['MATTER_RESTART_LIMIT']='1';self.start();self.ready()
+        wait(lambda:'matter level info' in self.events.read_text())
+        native_pid=int((self.control/'native.pid').read_text())
+        zig_pid=int((self.control/'ziggurat.pid').read_text())
+        matter_pid=int((self.control/'matter.pid').read_text())
+        for level in ('trace','debug','off'):
+            self.assertIn('restarting Matter',self.run_control('matter-log-level',level).stdout)
+            wait(lambda:int((self.control/'matter.pid').read_text())!=matter_pid if (self.control/'matter.pid').exists() else False)
+            wait(lambda:('matter level '+level) in self.events.read_text())
+            matter_pid=int((self.control/'matter.pid').read_text())
+            self.assertEqual((self.control/'active-matter-log-level').read_text().strip(),level)
+            self.assertEqual(int((self.control/'native.pid').read_text()),native_pid)
+            self.assertEqual(int((self.control/'ziggurat.pid').read_text()),zig_pid)
+        self.assertIn('already using off',self.run_control('matter-log-level','off').stdout)
+        self.assertEqual(int((self.control/'matter.pid').read_text()),matter_pid)
+        self.assertNotEqual(self.run_control('matter-log-level','verbose',check=False).returncode,0)
+        os.kill(matter_pid,signal.SIGTERM)
+        wait(lambda:(self.control/'matter.failed').exists())
+        self.assertEqual(self.events.read_text().count('matter start'),4)
+        self.quiesce();self.stop()
+
+    def test_matter_log_level_default_and_unexpected_restart(self):
+        self.enable_matter();self.env['MATTER_LOG_LEVEL']='warn';self.start();self.ready()
+        wait(lambda:'matter level warn' in self.events.read_text())
+        self.run_control('matter-log-level','trace')
+        wait(lambda:'matter level trace' in self.events.read_text())
+        os.kill(int((self.control/'matter.pid').read_text()),signal.SIGTERM)
+        wait(lambda:self.events.read_text().count('matter level trace')==2)
+        self.quiesce()
+        self.assertNotEqual(self.run_control('matter-log-level','info',check=False).returncode,0)
+        self.stop()
+        self.events.write_text('');self.start();self.ready()
+        wait(lambda:'matter level warn' in self.events.read_text())
+        self.quiesce();self.stop()
+
+    def test_matter_log_level_unavailable_and_invalid_startup(self):
+        self.assertNotEqual(self.run_control('matter-log-level','trace',check=False).returncode,0)
+        self.start();self.ready()
+        self.assertNotEqual(self.run_control('matter-log-level','trace',check=False).returncode,0)
+        self.quiesce();self.stop()
+        self.env['MATTER_LOG_LEVEL']='verbose';self.start();self.process.wait(timeout=5)
+        self.assertEqual(self.process.returncode,2)
+
     def test_native_crash_restarts_without_second_radio_owner_and_budget_bounds(self):
         self.env['TEST_EXIT']='1';self.start();self.process.wait(timeout=12)
         self.assertEqual(self.events.read_text().count('zig start'),1)
