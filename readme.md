@@ -17,6 +17,14 @@ alerts when a window stays open. See [usage](docs/native-usage.md).
 
 Dashboard shown with demo data.
 
+## Project status
+
+This entire project has been vibe coded. I have not meaningfully reviewed the
+code; my involvement has mainly been high-level architectural decisions.
+Treat it as a proof of concept / prototype rather than production-ready
+software. The same applies to the documentation: it has not been thoroughly
+reviewed and may contain errors or omissions.
+
 ## Getting started
 
 See the [documentation index](docs/README.md) for setup, usage, deployment,
