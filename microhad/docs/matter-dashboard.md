@@ -1,86 +1,68 @@
-# Matter and Thread dashboard controls
+# Use Matter and Thread from the dashboard
 
-The Controls tab contains a Matter panel in Matter-enabled builds. Disabled
-status hides the panel and all Matter mutations. Missing/stalled service or
-coordinator readiness shows an unavailable state and a check/retry action;
-controls require validated controller/fabric and Thread readiness snapshots.
-The panel uses same-origin HTTP. It requires no installed gateway certificate
-and does not alter browser TLS validation or the Zigbee joining controls.
+Matter-enabled builds show Thread setup and commissioning controls. Disabled
+builds hide them. Unavailable service/coordinator state blocks mutations and
+shows a check/retry action. Basic panel requests use same-origin HTTP;
+Browser Push has separate HTTPS requirements.
 
-## Set up the Thread network
+## Set up Thread
 
-When no dataset is configured, explicitly create a network or enter/import the
-existing operational dataset as lowercase hexadecimal (1–254 bytes). The input
-is masked, excluded from autocomplete, cleared before submission, on page
-backgrounding and when a configured network is observed. Nothing is stored in
-browser preferences/localStorage or diagnostics. The gateway independently
-validates TLVs and the fresh observed Zigbee channel; the browser cannot supply
-or override the channel. Existing configured networks expose no create/import
-controls. The service refuses replacement independently of this UI gate.
+When no dataset is configured, explicitly create a network or import an existing
+operational dataset as lowercase hexadecimal, 1–254 bytes. The gateway derives
+the channel from a fresh Zigbee coordinator observation and independently
+validates the dataset. The Thread channel must match Zigbee; the browser cannot
+override it.
 
-## Commission a device through Garage
+The dataset input is masked and cleared on submission/backgrounding. It is not
+saved in browser preferences or diagnostics. Existing networks cannot be
+replaced through these controls; identical import is idempotent. If a reply is
+lost, inspect status before retrying. Mutations are not replayed automatically.
 
-Open Matter in Garage, enter the local HTTP gateway address shown in the panel,
-bring the accessory into commissioning mode, then enter/scan its setup code and
-select the matching BLE advertisement. Keep Garage open through completion.
-Garage remains the foreground GATT relay; the gateway owns BTP, PASE, Thread
-provisioning, fabric credentials and CASE. The dashboard receives no setup code
-or PIN and does not take over the phone relay.
+## Commission through the phone
 
-Garage commit `7540b17` displays a selectable session ID. Copy it into the
-panel's session field and select **Watch progress**. The dashboard polls the
-same session's status, displays fixed commissioning phases, remaining gateway
-budget and a retained terminal node ID, and provides explicit cancellation.
-The session ID correlates traffic; it is not administrator authentication.
-A delivery job becoming complete does not mark the accessory commissioned.
-Only the returned session state `complete` does that.
+1. Open Matter in Garage and enter your gateway's local HTTP address.
+2. Put the accessory in commissioning mode, enter/scan its setup code and
+   select its BLE advertisement. Keep Garage in the foreground.
+3. Copy the displayed session ID into the dashboard's session field and select
+   **Watch progress** if you want to monitor from the browser.
+4. Wait for session state `complete`. A delivery job marked complete only means
+   a request finished; it does not mean the accessory was commissioned.
 
-Status polling stops at a terminal result, failure or panel unmount. Cancellation
-stops current session polling before submitting its separate mutation. Leaving
-the dashboard stops its requests but does not cancel a running gateway operation
-or the phone relay. Returning requires explicitly selecting a session again.
-Retries never automatically repeat create, import or cancellation. Lost replies
-can leave an operation running; inspect status or wait for its gateway deadline
-before retrying. Queue/service errors are fixed human messages and never include
-untrusted response bodies, datasets or BLE traffic.
+The phone owns GATT and relays opaque BTP packets. The gateway owns PASE,
+Thread provisioning, fabric credentials and CASE. The session ID correlates
+requests and is not administrator authentication. The dashboard does not receive
+the setup PIN or take over the phone relay.
 
-## Verification — 2026-10-04
+The browser displays phases, remaining gateway budget and terminal node ID,
+and provides explicit cancellation. Leaving the panel stops polling without
+cancelling the phone's operation. Return by selecting the session again.
+Lost replies may leave an operation running until its gateway deadline.
 
-`make webui` passed TypeScript checking and the production Vite build. It needed
-sandbox escalation for the npm cache/dependency installation. The generated
-bundle is about 401 kB (129 kB gzip), including the existing dashboard/chart UI;
-build output is not committed.
+## Devices, readings and controls
 
-`python3 scripts/test_matter_webui.py` passed nine tests. It compiles the actual
-production Matter client and uses real localhost HTTP fixtures for disabled and
-unconfigured status, schema/input bounds, job polling, delivery-versus-session
-completion, Thread import, cancellation, capacity/service failures, wrong job
-IDs, oversized/error-body redaction and aborted polling without mutation replay.
-Requests have a three-second bound, queued operations a ten-second overall
-bound, and response retention a 2048-byte cap. Polling is sequential per session,
-at two-second intervals after the prior status call finishes.
+Discovered Matter endpoints feed the shared device catalog alongside Zigbee
+and Shelly. Supported clusters include OnOff, Level, Boolean State/contact,
+temperature, humidity, air quality, CO₂ and PM2.5. Availability and controls follow
+advertised capabilities. Unknown/null values remain unknown rather than showing
+fabricated measurements. Sensor units follow the service's typed replies.
 
-Garage's two flavor suites still pass 60 tests and both APKs build after session
-ID display. These checks establish host/client behavior and compile the UI;
-they do not establish rendered browser interaction, Android Bluetooth/camera or
-real accessory behavior. No device deployment or plan 08 acceptance occurred.
+OnOff/Level commands complete only after a separate CASE readback. Level is
+0–254 and transition time is in deciseconds. Cached descriptors/readings may
+remain while a node is offline; cached display does not guarantee a command
+will succeed. [The HTTP API](matter-native-api-v1.md) describes jobs, snapshots
+and relay ownership.
 
-Device catalog/controls/measurements still depend on plan 07 and remain open in
-plan 04. The catalog view supports confirmed OnOff power reads and On/Off/Toggle
-for online endpoints advertising cluster 6. It also supports CurrentLevel reads
-and MoveToLevel slider commands for online endpoints advertising cluster 8. The
-slider accepts levels 0–254 and transition durations in deciseconds; the
-display changes only after the gateway's separate CASE readback. Other cluster
-controls and sensor measurements remain open. See [API contract](matter-native-api-v1.md),
-[plan 04](matter-plans/04-native-api-dashboard.md) and
-[plan 05](matter-plans/05-garage-ble-relay.md).
+## Developer verification and limits
 
-## Level controls — 2026-10-04
+```sh
+make -C microhad webui
+python3 microhad/scripts/test_matter_webui.py
+node microhad/webui/test/matter-devices-browser.cjs
+```
 
-`make webui` passes TypeScript checking and the production build. The updated
-`python3 scripts/test_matter_webui.py` suite passes 18 actual-localhost tests for
-OnOff/Level typed values, invalid ranges, null reads and null mutation rejection.
-`node webui/test/matter-devices-browser.cjs` passes under Chromium with rendered
-CurrentLevel read and MoveToLevel slider interaction, including a 20-decisecond
-transition and confirmed level 124. These synthetic checks do not verify a
-physical accessory.
+Run from the repository root after installing Web UI dependencies. These use
+synthetic service/browser fixtures. Physical phone/accessory commissioning,
+reports and restart recovery remain in [hardware acceptance](matter-plans/08-real-device-acceptance.md).
+The current controller policy bypasses manufacturer attestation; enabling
+verification fails closed until a verifier is implemented. PASE/CASE remain
+active. See [controller policy](../../docs/rs-matter-controller-tests.md).

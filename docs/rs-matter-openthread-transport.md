@@ -26,9 +26,7 @@ than silently truncating a packet. This adapter supports UDP/IPv6 only.
 
 The pinned OpenThread build defaults to a 1280-byte IPv6 datagram limit.
 Payloads are capped at 1232 bytes to leave 40 IPv6 and 8 UDP header bytes;
-oversized sends fail before enqueueing. The initial 1280-byte payload test
-stalled after entering the fragmentation path. Delivery at 1232 bytes now
-passes. Larger-message fragmentation has not been validated. Multicast
+oversized sends fail before enqueueing.  Larger-message fragmentation has not been validated. Multicast
 membership is instance-wide; currently one mDNS socket owns its subscriptions.
 The proof checks membership calls and unicast delivery to the mDNS port,
 not multicast delivery to an external device. mDNS sends use hop limit 255.
@@ -60,7 +58,7 @@ python3 micro-thread-matter-daemon/scripts/test-openthread-matter-transport.py
 bash micro-thread-matter-daemon/scripts/build.sh mips transport
 bash micro-thread-matter-daemon/scripts/build-openthread-relay.sh mips
 python3 micro-thread-matter-daemon/scripts/test-openthread-matter-device.py \
-  --host 192.168.178.62 --password-file ../ssh_password.txt
+  --host "$GATEWAY_IP" --password-file "$PASSWORD_FILE"
 ```
 
 The device command explicitly runs a temporary probe. It requires production

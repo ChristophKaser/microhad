@@ -1,16 +1,16 @@
 # Simulated Matter controller protocol checks
 
-The pinned rs-matter controller now passes a reproducible host-only protocol
+The pinned rs-matter controller has a host-only protocol
 harness: PASE, fabric installation, CASE, reads, invokes and stale-session
 recovery work against an in-process accessory. Added sensor reads preserve
 positive, negative and unknown temperatures. The gateway policy skips manufacturer attestation.
 The shared gateway policy maps that choice to rs-matter's existing bypass while
-retaining PASE/CASE. A gateway helper now sends Thread credentials and connects
+retaining PASE/CASE. A gateway helper sends Thread credentials and connects
 them over PASE; this is exercised against a synthetic network handler. Physical accessory acceptance remains pending.
 
 ## Reproduce
 
-From `ziggurat-compilation` on the development host:
+From the repository root on the development host:
 
 ```sh
 python3 micro-thread-matter-daemon/scripts/test-rs-matter-controller.py
@@ -63,7 +63,7 @@ In this revision, `Commissioner::verify_device_attestation` in
 `rs-matter/src/onboard.rs` does not request or verify device evidence. It
 returns success only when `allow_test_attestation=true`; otherwise it returns
 `ErrorCode::Failure`. The test patch confirms default rejection before the
-explicit development-fixture bypass. `micro-thread-matter-daemon/src/commissioning.rs` now supplies an explicit application
+explicit development-fixture bypass. `micro-thread-matter-daemon/src/commissioning.rs` supplies an explicit application
 policy: `verify_manufacturer_attestation=false` by default for this gateway,
 as requested by its owner. Setting it true selects upstream's fail-closed
 behavior; a verifier remains unimplemented. The fixture uses this same policy
@@ -78,9 +78,8 @@ and advertised identity. The CSR response path also needs its DAC-signed
 attestation proof checked; the existing nonce-echo check alone is insufficient.
 
 Matter attestation trust roots are distinct from a gateway web certificate.
-The agreed Garage transport remains trusted-LAN HTTP/WebSocket with no trusted
-gateway certificate requirement. The owner separately authorized bypassing manufacturer attestation, so its
-verifier is no longer a prerequisite for this setup. PASE/CASE authentication,
+Garage uses trusted-LAN HTTP/WebSocket. The configured attestation bypass is
+independent of gateway web TLS. PASE/CASE authentication,
 session encryption, nonces and replay protection are retained.
 
 ## Thread provisioning adapter
@@ -90,7 +89,7 @@ shared `provision_thread` helper fills that step between credential installation
 and commissioning completion. It sends `AddOrUpdateThreadNetwork` with active
 dataset bytes, checks the network configuration response, and sends
 `ConnectNetwork` with the extended PAN ID only on success. A failed response
-stops the flow. The simulator now advertises a Thread root endpoint and checks
+stops the flow. The simulator advertises a Thread root endpoint and checks
 successful delivery and both failure statuses over real encrypted PASE.
 
 The borrowed dataset validator checks required fields, bounds, duplicate and

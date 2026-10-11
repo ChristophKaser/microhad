@@ -1,9 +1,11 @@
 # Operational transaction executor
 
-`operations::Operation` supports opcode-10 OnOff (`cluster 6`, attribute 0) and
-Level Control (`cluster 8`, attribute 0) reads, opcode-11 on/off/toggle, and
-Level Control MoveToLevel. Other paths return `unsupported`; controller/reserved
-node IDs and wildcard endpoints are rejected. Level values are bounded to the
+`operations::Operation` supports opcode-10 reads of attribute 0 for OnOff (6),
+Level (8), Boolean State (69), Air Quality (91), temperature (1026), humidity
+(1029), CO₂ (1037) and PM2.5 (1066). Opcode 11 supports on/off/toggle and
+MoveToLevel. Opcode 10 also accepts binding jobs for OnOff/Level targets;
+bindings require the endpoint to advertise Binding cluster 30. Other paths
+return `unsupported`; controller/reserved node IDs and wildcard endpoints are rejected. Level values are bounded to the
 Matter `u8` command range excluding 255; transition time uses bounded `u16`
 deciseconds. The service admits these requests as bounded asynchronous jobs.
 `devices::Manager::submit` requires an attached Thread radio, no active
@@ -20,8 +22,9 @@ active jobs fail on radio loss. The 30-second deadline includes queue wait and
 execution. On/off/toggle invocation acknowledgement is followed by a separate
 OnOff read; MoveToLevel acknowledgement is followed by a separate CurrentLevel
 read. Returned values are actual readback, never optimistic requested values.
-Tagged results contain the stable node, endpoint, cluster/attribute and either
-`{type:"bool",value:true|false}` or `{type:"u8",value:0..254|null}`. A Level
+Tagged results contain the stable node, endpoint and cluster/attribute. OnOff
+and Boolean State values are boolean; Level is U8 or null; sensors use the
+[typed measurement/air-quality contract](matter-sensors.md). A Level
 command whose post-command readback is null fails instead of claiming success.
 Errors are fixed enum values without opaque SDK diagnostics or input data.
 

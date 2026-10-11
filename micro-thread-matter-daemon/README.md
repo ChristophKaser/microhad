@@ -48,15 +48,11 @@ python3 microhad/scripts/test_matter_native_report_integration.py
 The native integration builds a separate service artifact with test-only report
 hooks. Production builds check that those hooks are absent.
 See [runtime](../docs/matter-service-runtime.md) and
-[physical acceptance tracking](../microhad/docs/matter-plans/README.md).
+[physical acceptance](../microhad/docs/matter-plans/08-real-device-acceptance.md).
 
 OpenThread is pinned to release `v2026.10.0`, commit
 `53e8322140dde7b26827332100504507cec9cc4e`. Its build initializes the nested
 Mbed TLS dependency without requiring the Silicon Labs firmware installer.
-Existing clean GSDK-derived source and CMake directories are preserved as
-`source-mailbox-gsdk-backup`, `host-gsdk-backup` and `mips-gsdk-backup` on migration;
-modified legacy sources are refused rather than overwritten.
-
 The release and the unchanged GSDK 4.5.0 radio source both declare Spinel RCP API
 version 11, minimum supported RCP API version 4, and protocol version 4.3.
 Runtime compatibility checks remain enabled. Host synthetic tests validate the

@@ -75,37 +75,15 @@ python3 microhad/scripts/test_matter_native_report_integration.py
 python3 microhad/scripts/test-matter-ipc-codec.py
 ```
 
-## Coordinated release and rename
+## Release compatibility
 
-The component directory and Cargo package are `micro-thread-matter-daemon`.
-The executable is `mthread-matter`; the stripped target artifact is
-`build/micro-thread-matter-daemon/mthread-matter-mips`. Its deployed destination
-is `/tuya/native/mthread-matter`. Probe executable names remain unchanged.
+Both daemons must use v2 together. The service executable is `mthread-matter`,
+installed at `/tuya/native/mthread-matter`. Use the
+[maintenance release](../../docs/deployment.md#maintenance-release) for coordinated
+updates. Runtime configuration, network state, Matter identity and socket paths
+are preserved. Production binaries exclude test-only report hooks.
 
-Both daemons must use v2 together.
-Use the documented maintenance deployment for a release: it backs up both
-`thread-matter` and `mthread-matter`, accounts for both paths, stops the stack,
-checks executable ownership, then reclaims the old application binaries.
-Ordinary staging does not remove the legacy executable or restart services.
-Runtime configuration, network state, Matter identity, socket paths, and backups
-are preserved. Host fixture verification does not authorize deployment.
-
-## Host validation and footprint
-
-The coordinated change was checked with native host/unit/integration tests,
-native and Rust MIPS builds, shared codec vectors, synthetic service and native
-worker fixtures, CASE/report integration, deployment mocks, and supervisor
-recovery with both a stand-in and the real native worker. Retry exhaustion was
-also checked. Production binaries exclude the test-only report hook.
-
-The stripped MIPS artifacts measured 1,788,088 bytes for MicroHAD and 2,403,924
-bytes for Matter.
-These are local build measurements.
-The standalone host codec/vector probe reported a 4,244 KiB process high-water
-mark, including its runtime and test harness.
-The standalone factory MIPS codec probe passes the shared decode vectors and
-an exact encoded status-frame check. Its sampled process high-water mark is
-492 KiB; this does not measure the complete gateway/service workload.
+## Wire sizes
 
 Representative complete frames, including their length prefix:
 

@@ -1,204 +1,90 @@
-<img src="webui/public/microhad-icon.svg" width="96" height="96" alt="MicroHAD microchip-house icon" />
+# MicroHAD
 
-# MicroHAD — Micro Home Automation Daemon
+MicroHAD is the C++03 daemon serving the dashboard and REST API on the factory
+MIPS gateway. It owns the shared device model, Zigbee application state,
+sensor history, alerts and external HTTP integrations.
 
-A standalone local Zigbee dashboard and automation service for the
-Lidl/Silvercrest RTL8196E + EFR32MG1 gateway. The statically linked C++03 daemon
-runs on factory MIPS/uClibc Linux, without Node.js or low.js.
+Ziggurat owns the Zigbee stack and radio UART; the separate Rust Matter service
+owns Thread and Matter sessions/identity. MicroHAD reaches both through private
+Unix sockets. The alternative EZSP build opens the NCP UART directly.
 
-**Start with the [fresh-device installation guide](../docs/installation.md).**
-It explains root access, backups, SSH, firmware, deployment and first pairing.
-It also covers Home Assistant setups, which use ZHA instead of MicroHAD.
-This component lives in the same repository as Ziggurat and the Matter service.
+## Build and test
 
-## Choose the native backend
-
-| Backend | Build | Radio firmware | Connection | Installation |
-| --- | --- | --- | --- | --- |
-| EZSP | `make ZIGGURAT=0 mips` | Zigbee NCP, 115200 baud / RTS-CTS | MicroHAD directly owns `/dev/ttyS1` | [Mode A](../docs/installation.md#mode-a-native-service-without-ziggurat) |
-| Ziggurat | `make ZIGGURAT=1 mips` | Two-instance HDLC RCP, 460800 baud / RTS-CTS | MicroHAD → private COBS Unix socket → Ziggurat → UART | [Mode B](../docs/installation.md#mode-b-native-service-with-ziggurat) |
-
-Ziggurat's durable network state is owned by native. A fresh native Ziggurat
-installation currently bootstraps an empty network using EZSP, exports its state,
-then migrates before pairing devices. An absent state file does not create a
-network, and the Ziggurat dashboard cannot create one.
-
-Do not run the native coordinator alongside ZHA, serialgateway or another
-UART owner. Home Assistant + EZSP uses a TCP bridge; Home Assistant + Ziggurat
-uses its WebSocket API. Both are covered in the shared guide.
-
-## Build and deploy
-
-An x86_64 Linux host needs CMake and a host C/C++ compiler; building the
-dashboard also needs Node.js/npm. Gateway builds use RSDK (the production
-default) or experimental source-built crosstool-NG; host builds need neither SDK.
-Shared compiler
-settings are in `../config/toolchains.mk`; see [build setup](../docs/building.md).
-
-From this directory, the RSDK is discovered from the shared toolchain
-configuration. Set `RSDK_ROOT` to override it. After building the candidate
-with `python3 scripts/build-toolchain.py` from the repository root, use
-`make TOOLCHAIN=crosstool-ng mips` instead. `CROSSTOOL_NG_ROOT` overrides its
-installation. See [toolchain selection](../config/TOOLCHAINS.md) for source
-credits and experimental limits. Candidate MicroHAD builds default to `-Os`.
+Run from the repository root:
 
 ```sh
-make ZIGGURAT=0 host test
-make ZIGGURAT=0 mips
-make ZIGGURAT=1 host test
-make ZIGGURAT=1 mips
-make webui
+make -C microhad host test
+make -C microhad mips
+make -C microhad webui
 ```
 
-Build the paired Rust Matter service from the repository root with
-`bash micro-thread-matter-daemon/scripts/build.sh mips service`; it uses the shared
-Rust and MIPS toolchain settings.
+Defaults are `ZIGGURAT=1 MATTER=1`; Matter requires Ziggurat. Use
+`ZIGGURAT=1 MATTER=0` for Zigbee only, or `ZIGGURAT=0` for EZSP.
+The default target binary is `microhad/build/mips-ziggurat-matter/microhad`.
+[Build setup](../docs/building.md) covers dependencies and artifact paths;
+[toolchain selection](../config/TOOLCHAINS.md) covers RSDK and experimental crosstool-NG.
 
-The component is `micro-thread-matter-daemon/` and the service executable is
-`mthread-matter`. Its private protocol is [length-prefixed CBOR v2](../micro-thread-matter-daemon/docs/matter-ipc-v2.md);
-public HTTP and WebSocket interfaces remain JSON. Initialize the pinned TinyCBOR
-dependency with `git submodule update --init microhad/dependencies/tinycbor`
-from the repository root before building MicroHAD.
+After every C++ source/header change, run host tests and the MIPS build. After
+Web UI changes, build the UI. See [test entrypoints](test/TEST_PLAN.md) and
+[repository instructions](AGENTS.md) for verification and commit requirements.
 
-Matter is an optional build selection, `MATTER=0|1`, defaulting to `1` when
-Ziggurat is enabled and `0` for the EZSP build.
-`MATTER=1` requires `ZIGGURAT=1`. The small native C++03 bridge uses the
-factory runtime; Matter controller behavior runs in the separate Rust service
-because the factory C++ runtime cannot build the pinned C++ Matter SDK. The
-Rust Matter service and common device/report
-integration are implemented and synthetic-tested. The development gateway now
-runs the Matter service, has a persisted Thread dataset attached on the current
-Zigbee channel, and retains its existing Zigbee network. A first accessory has
-not yet been commissioned; active-daemon CASE sensor reports and physical
-device onboarding remain open. See [Matter build flags, compiler findings, and
-remaining integration](MATTER_INTEGRATION.md) and the [open-point
-plans](docs/matter-plans/README.md).
+## Configuration and state
 
-See the [gateway processes and protocol paths](../readme.md#processes-and-protocol-paths)
-for the service architecture, shared radio transport and Android commissioning
-relay.
+The launcher reads `/tuya/native/config.json`; `runtime_dir` normally points
+to `/tuya/native`. Choose the binary to match the radio firmware. A Ziggurat
+socket failure stays offline rather than falling back to UART access.
 
-Builds default to `ZIGGURAT=1 MATTER=1`, matching the current gateway
-deployment. Set `ZIGGURAT=0` for the legacy EZSP build; that also defaults
-Matter off. `MATTER=1` requires `ZIGGURAT=1`.
+| State | Purpose |
+| --- | --- |
+| `devices.json` | Inventory, bindings and completed reporting configuration |
+| `ziggurat-state.json` | Private Zigbee network/security state for the Ziggurat backend |
+| `gateway-settings.json` | Saved runtime settings overriding configuration defaults |
+| `notifications.json` | Global push setting |
+| `history.values` | Committed sensor history pages |
+| `matter/` | State owned by the Rust Matter service |
 
-Outputs are `build/mips-ziggurat-matter/microhad` by default,
-`build/mips-ziggurat/microhad` for `ZIGGURAT=1 MATTER=0`, and
-`build/mips/microhad` for `ZIGGURAT=0`. Candidate builds insert `crosstool-ng/`
-below `build/`, such as `build/crosstool-ng/mips-ziggurat-matter/microhad`.
-The deployment script
-defaults to the Matter-capable output; `--binary` selects another build. It
-installs the executable at `/tuya/native/microhad` and updates the launcher.
+Preserve configuration, identity and network state during application updates.
+[Installation](../docs/installation.md) supplies initial configuration;
+[deployment](../docs/deployment.md) explains staged and complete releases.
+
+## Developer boundaries
+
+The coordinator thread owns `Gateway`, the Zigbee connection and all common
+state mutations. HTTP workers use protected snapshots and the command queue;
+the notification worker owns outbound delivery. Never call `Gateway` directly
+from HTTP or notification threads. The Matter worker owns its persistent IPC
+connection and hands common-device updates to the coordinator.
+
+Completed bindings/reporting signatures survive announcements and restarts.
+Reconfiguration is required for new/changed endpoint inputs or an explicit
+leave without rejoin. Use `POST /api/devices/<ieee-address>/reconfigure` to
+request discovery, bindings and reporting setup; it requires an online network
+and active device address. `/refresh` requests current attributes. Increment
+the reporting-policy signature version when changing that policy.
+
+`GET /api/settings` exposes broadcast quorum, `applied_value`,
+`application_state` and `application_error`. Form-encoded `POST /api/settings`
+saves `broadcast_passive_ack_quorum` from 1–255. Persistence can succeed while
+stack application is pending. The saved override is reapplied on reconnect;
+a corrupt override prevents startup. To return to config defaults, stop the
+service and remove the override deliberately.
+
+## Web UI development
 
 ```sh
-../deploy.sh --host "$GATEWAY_IP" --password-file "$PASSWORD_FILE" \
-  --binary build/mips-ziggurat-matter/microhad \
-  --config "$CONFIG_FILE" --target /tuya/native
+cd microhad/webui
+npm ci
+npm run dev
 ```
 
-Transfers use SSH stdin on port 22, without SCP. Build the web UI first; default
-deployment includes it. Configurations and network state must stay outside Git.
-`--activate` installs the **EZSP MicroHAD launcher only**, preserving the
-previous launcher. Existing processes continue until the normal supervised
-restart or reboot. On its next start, the launcher removes the old
-`/tuya/native/tuya-zigbee-native` executable after confirming no process still uses it.
-Follow the backend's installation procedure before activation or restart.
+Vite proxies `/api/` to the address configured in `vite.config.ts`. Check that
+address before using the development server. Browser Push enrollment is tested
+from the deployed HTTPS dashboard. `make -C microhad webui` builds
+`microhad/webui/dist/`; deployment uploads it beneath the runtime directory.
 
-## Broadcast confirmation setting
+## References
 
-Set `broadcast_passive_ack_quorum` in native `config.json` to an integer from
-1 to 255 (default: 8). Ziggurat considers a broadcast confirmed when it hears
-rebroadcasts from that many eligible neighbor routers, or from all eligible
-neighbors if fewer are present. These confirmations measure mesh propagation;
-they do not confirm that each target bulb applied a scene.
-
-The dashboard's **Gateway settings** dialog saves changes atomically in
-`runtime_dir/gateway-settings.json`. That saved value overrides `config.json`;
-remove the override file while the service is stopped to restore the config
-value. Unchanged saves do not rewrite the file. Changes apply immediately using
-Ziggurat's `SetTunable` command and are reapplied after reconnects and restarts.
-The dialog shows saved and confirmed applied values separately, including
-pending, rejected and unsupported states. The setting is unavailable with EZSP.
-A corrupt settings override prevents startup and must be corrected.
-
-`GET /api/settings` returns `broadcast_passive_ack_quorum`, `applied_value`
-(`null` until confirmed for the current connection), `application_state`, and
-`application_error`. Form-encoded `POST /api/settings` accepts
-`broadcast_passive_ack_quorum` and returns the same snapshot after saving;
-successful persistence can still be pending application to Ziggurat.
-
-Verify the dialog with `node webui/test/gateway-settings-browser.cjs` after
-installing its dependencies; this uses headless Chromium and simulated replies.
-
-## Use the gateway
-
-The dashboard handles joining, sensors, lights, scenes, remotes and local
-Shelly/Fritz!Box devices. HTTPS enables Browser Push; Android/FCM notifications
-need separate credentials. These are optional for basic local Zigbee operation.
-See [dashboard and application usage](docs/usage.md).
-
-Use `/api/status` for backend/network readiness and `/api/logs` for the BusyBox
-syslogd RAM ring, read directly without spawning helper processes. See
-[syslog IPC compatibility](docs/syslog-ipc.md). Wait for `online` and `network_formed` before pairing. Existing-network
-migration requires radio security state in addition to the application inventory.
-
-The paired supervisor restores a one-use kernel RNG seed from
-`/tuya/native/ziggurat-rng.seed` before starting Ziggurat, then saves a refreshed
-seed after 180 seconds once the kernel RNG is ready. This removes the usual cold
-boot entropy wait after the first successful seed save while retaining the
-readiness check. The seed is 44 bytes, mode `0600`, on the `/tuya` JFFS2 volume;
-it adds one small persistent write per boot. See
-[RNG seed deployment and recovery](RECOVERY_TOOLING.md#paired-startup-and-maintenance-control).
-
-## Current state — 2026-10-05
-
-The development gateway runs the native paired supervisor, Ziggurat, native
-gateway and Matter service. Its Thread dataset is attached on channel 11, while
-the Zigbee network remains online and formed. No Matter accessory is paired
-yet; the Garage BLE onboarding flow still needs a real accessory and setup
-code. Startup/reboot recovery and existing-light controls are verified.
-Thermometer profile, cached-rejoin, parent-announcement and fresh-join replay
-fixes are deployed, but sustained TH01 reporting and live acceptance remain
-unresolved. One cold boot needed 121 seconds; broadcast verdicts can be
-intermittent.
-
-- [Latest fix, tests and remaining acceptance](TH01_HERDSMAN_FIX.md)
-- [Thermometer investigation](THERMOMETER_RECOVERY.md)
-- [Protocol and state ownership](ZIGGURAT_INTEGRATION.md)
-- [Existing-network deployment and rollback](ZIGGURAT_DEPLOYMENT_PLAN.md)
-- [Recovery commands](RECOVERY_TOOLING.md)
-- [Real-radio measurements and limitations](REAL_RADIO_MIGRATION.md)
-
-Original backups remain private. The restart counter margin is not an
-unconditional guarantee after arbitrary crashes; reverse NCP restoration has
-not been exercised live.
-
-## Device reporting configuration
-
-Successful Zigbee reporting and coordinator bindings are recorded in
-`devices.json`. Ordinary device announcements and short-address changes keep
-those bindings. A gateway restart also keeps completed light configuration.
-Setup runs for new devices, changed endpoint/binding inputs, or after an explicit
-leave announcement with `rejoin=false`. Router-reported departures and keepalive
-expiry do not invalidate configuration. Ziggurat's current join notification does
-not distinguish a factory reset from a connectivity rejoin; a reset without a
-preceding leave can therefore require an explicit reconfiguration request.
-
-Existing device records without a success marker receive configuration once;
-rejected binding/reporting responses are not recorded as successful. Configuration
-completion writes persistent state only when the recorded configuration changes.
-
-Use `POST /api/devices/<ieee-address>/reconfigure` to force endpoint discovery,
-binding and reporting setup. It uses the coordinator command queue and requires
-an online Zigbee network and an active device address. The existing `/refresh`
-request retains its attribute-refresh behavior (and explicit setup for remotes).
-When changing reporting policy in the implementation, increment the signature
-version so previously configured devices receive the new settings.
-
-To stage the controller, Web UI, and current supervisor without replacing the
-installed Matter service, use `../deploy.sh --both --supervisor --binary PATH
---password-file PATH --target /tuya/native`. This validates the Matter manifest,
-checks staging flash space with the 512 KiB reserve, and uploads the manifest and
-both supervisor/control scripts. Restart the paired supervisor separately to load
-the new script. Starting the boot launcher with `ZIGGURAT_LOG_LEVEL=trace` changes
-only that running supervisor; a reboot uses the default `info` level again.
+- [Dashboard usage](../docs/native-usage.md) and [diagnostics](../docs/recovery-tooling.md).
+- [Ziggurat protocol/state ownership](../docs/native-ziggurat-integration.md).
+- [Matter integration](MATTER_INTEGRATION.md), [HTTP API](docs/matter-native-api-v1.md) and [dashboard](docs/matter-dashboard.md).
+- [Sensor history format](SENSOR_HISTORY_FORMAT.md), [syslog IPC](docs/syslog-ipc.md) and [third-party notices](THIRD_PARTY.md).

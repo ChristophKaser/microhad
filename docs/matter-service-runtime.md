@@ -6,9 +6,9 @@ listener. It creates/restores a private controller authority and fabric;
 Thread create/import/restore and commissioning/relay dispatch are implemented.
 Production operational SRP/DNS-SD and remote catalog recovery are wired and
 host-tested. Physical accessory acceptance remains pending.
-The production Manager and IPC report path are composed with a live CASE
-accessory fixture and native gateway process on the host. The optional native worker now
-supplies protected coordinator observations and caches status for HTTP.
+The native worker supplies protected coordinator observations and caches status
+for HTTP. Host integration exercises the production Manager and report path
+with synthetic CASE accessory traffic.
 
 The Manager's telemetry queue holds at most 512 values, suppresses identical
 consecutive values per subscription, and evicts the oldest value at capacity.
@@ -82,8 +82,9 @@ created by this invocation. Retaining `.lock` prevents an inode replacement race
 SIGINT/SIGTERM unwind the transport and release storage and IPC ownership.
 
 The production service logs through syslog, including safe unknown-field warnings.
-Request payloads,
-CLI inputs, datasets and store contents have no logging path. A missing radio,
+Normal diagnostics exclude request payloads, datasets and store contents.
+Trace-level packet diagnostics can expose decrypted data; use them only for
+bounded diagnosis. See [logging controls](recovery-tooling.md#check-readiness-and-logs). A missing radio,
 transport failure, or corrupt state exits the service. The native project's
 optional paired supervisor implements independent bounded retries and backoff;
 see [Matter integration](../microhad/MATTER_INTEGRATION.md).

@@ -24,7 +24,7 @@ and become unsigned integers and byte strings on the private wire.
 | `POST /api/matter/commissioning/cancel` | `session` | Submit cancellation; retained cancelled sessions are idempotent |
 | `GET /api/matter/jobs/<id>` | None | Read an ephemeral native call snapshot without contacting the service |
 | `POST /api/matter/devices/snapshot` | `action:"snapshot"`, optional `cursor`/`revision` | Queue a validated endpoint snapshot page; poll its job for the response |
-| `POST /api/matter/devices/read` | `node`, `endpoint`, `cluster:6|8`, `attribute:0` | Queue an OnOff or CurrentLevel read |
+| `POST /api/matter/devices/read` | `node`, `endpoint`, `cluster`, `attribute:0` | Queue a capability-checked actor or sensor read |
 | `POST /api/matter/devices/command` | OnOff: `command:"on"|"off"|"toggle"`, `node`, `endpoint`; Level: `command:"move_to_level"`, `node`, `endpoint`, `level`, `transition_deciseconds` | Queue a capability-checked command; result is a separate CASE readback |
 
 Successful submission returns HTTP **202 Accepted**:
@@ -61,17 +61,12 @@ Read-only `GET /api/matter/status` and `GET /api/thread/status` remain cached
 service snapshots. Commissioning calls run exclusively on the Matter worker;
 HTTP/coordinator threads never wait for PASE, BLE, Thread or a service reply.
 
-## Current scope
+## Support and verification
 
-The routes reach the real Rust session owner through the persistent worker.
-Waiting-BLE, busy/status/cancel/stale-session behavior is verified with the
-actual service and synthetic radio peers. The owned plain WebSocket relay is
-implemented and verified through native/Rust BTP callbacks. Garage foreground onboarding and dashboard session monitoring are implemented
-with host evidence. Operational SRP/DNS discovery now has encrypted host
-evidence. OnOff and Level read/command jobs have native HTTP admission and host
-worker-round-trip evidence; physical accessory behavior, reports and
-measurements remain open. A successful start does not establish end-to-end
-accessory support.
+The routes use the real Rust session/device owner through the persistent native
+worker. Synthetic fixtures cover commissioning, BLE callbacks, Thread operations,
+CASE reads/commands and report handoff. Physical accessory acceptance remains
+pending; successful request admission is not proof of commissioning or delivery.
 
 ## Device snapshot pages
 
@@ -86,7 +81,8 @@ restart pagination explicitly. There is no automatic replay or full-catalog
 HTTP aggregation.
 
 Entries contain node/catalog state, online flag, nullable stable endpoint ID,
-nullable endpoint number and up to 64 advertised server clusters. An undiscovered
+nullable endpoint number, up to 64 advertised server clusters and an optional
+bounded client-cluster list. An undiscovered
 node is visible with null endpoint/ID and no clusters. Cached descriptors may
 remain when offline. Availability is based on successful descriptor discovery,
 not a guarantee the next command will succeed. No snapshot request waits for
@@ -96,19 +92,11 @@ Before returning a successful job response, native validation checks exact
 fields, bounded arrays, canonical nonzero IDs, endpoint ID/node/number agreement,
 cluster ordering/uniqueness, Descriptor support and online/catalog consistency.
 Malformed peer replies fail the job and invalidate the service connection.
-Default Matter-disabled builds return 404 for this route. The interim Matter
-view provides explicit refresh and next-endpoint loading, catalog/recovery
-states, availability, stable IDs and advertised feature labels; OnOff and Level
-controls are verified there. It stops on changed revisions, rejects loops or
-contradictory metadata, and offers explicit refresh without replaying calls.
-Loaded information remains visibly cached after a read failure. Sensor reads
-are capability-gated transport support, but sensor values are not projected
-into the shared gateway device model. The Matter-specific device view is an
-interim state: common controls and telemetry must move into the same
-Zigbee/Matter/Shelly catalog, leaving joining and Matter/Thread settings in the
-Matter area. Broader dashboard interaction remains open.
+Matter-disabled builds return 404 for this route. Discovered capabilities,
+readings and reports feed the shared device catalog. Snapshot pagination does
+not wait for new accessory traffic. See [dashboard usage](matter-dashboard.md).
 
-## OnOff operations
+## Device reads and commands
 
 Device read and command routes use the same native job queue and polling
 contract. `node` is a 16-character lowercase hexadecimal Matter node ID;
@@ -156,15 +144,6 @@ return service `malformed` in the completed job. Successful results contain only
 the redacted Thread snapshot, never dataset/key bytes. Dataset inputs remain
 transient and are removed from queued storage on execution/failure/shutdown.
 Cached `GET /api/thread/status` continues to expose lifecycle/readiness state.
-
-## WebSocket codec checkpoint (historical)
-
-The bounded [RFC 6455](https://www.rfc-editor.org/rfc/rfc6455.html) handshake/frame
-codec is implemented and host tested, with 2048-byte text messages, masked
-fragment handling, interleaved controls, UTF-8 validation and eight queued
-messages. It is not yet attached to `/api/matter/relay` or any public upgrade
-route. Socket handoff to the Matter worker and typed BLE/session dispatch remain
-pending; the existing HTTP commissioning and Thread routes are unchanged.
 
 ## Owned BLE relay WebSocket
 

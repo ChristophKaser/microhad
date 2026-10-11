@@ -48,11 +48,10 @@ matching channels before enabling Thread or commissioning. Dataset and identity
 state survive radio/service restart. Mutations are never automatically replayed.
 
 Both daemons must use v2 together. Use the documented
-[maintenance deployment](AGENTS.md) for a coordinated release. The installed
+[maintenance deployment](../docs/deployment.md#maintenance-release) for a coordinated release. The installed
 service destination is `/tuya/native/mthread-matter`; configuration, sockets,
 Matter identity and network state retain their existing paths and formats.
-Deployment requires an explicit request. The v2 release has local build and
-synthetic verification; physical accessory acceptance remains pending.
+Deployment requires an explicit request. Physical accessory acceptance remains pending.
 
 See the [runtime](../docs/matter-service-runtime.md),
 [public API](docs/matter-native-api-v1.md),

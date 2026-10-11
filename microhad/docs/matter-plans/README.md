@@ -1,22 +1,16 @@
-# Matter implementation and acceptance
+# Matter development and acceptance
 
-The current component is `micro-thread-matter-daemon/`, executable `mthread-matter`.
-Private messages use [CBOR IPC v2](../../../micro-thread-matter-daemon/docs/matter-ipc-v2.md); public APIs remain JSON.
+The implementation references live in the [documentation index](../../../docs/README.md#develop-the-stack).
+Use [physical acceptance](08-real-device-acceptance.md) for the remaining
+phone/accessory, restart and sustained RF/resource checks. Host tests and target
+builds do not establish hardware interoperability.
 
-The implementation has synthetic host and target-build verification. Physical
-accessory interoperability, sustained resource/RF behavior and full restart
-acceptance remain open. CBOR v2 requires a coordinated native/service release.
+Development entrypoints:
 
-1. [Service runtime and release checks](01-rust-service-runtime.md)
-2. [Commissioning and control IPC](02-commissioning-control-ipc.md)
-3. [Persistent identity and recovery](03-persistent-fabric-identity.md)
-4. [Native API and dashboard](04-native-api-dashboard.md)
-5. [Phone BLE relay](05-garage-ble-relay.md)
-6. [Thread lifecycle](06-thread-network-lifecycle.md)
-7. [Device model and reports](07-device-model-and-reports.md)
-8. [Physical acceptance](08-real-device-acceptance.md)
-
-Use the component build/test commands and current contracts when changing the
-implementation. Keep device configuration, identities and network state private.
-Device deployment requires an explicit request and the documented maintenance
-flow; host tests do not authorize device access.
+- [Runtime/builds](../../../micro-thread-matter-daemon/README.md).
+- [CBOR IPC](../../../micro-thread-matter-daemon/docs/matter-ipc-v2.md).
+- [HTTP/WebSocket API](../matter-native-api-v1.md) and [dashboard](../matter-dashboard.md).
+- [Identity/store](../matter-identity-store-v1.md) and [backup/recovery](../matter-backup-recovery.md).
+- [Commissioning sessions](../../../docs/matter-session-lifecycle.md).
+- [Catalog](../../../docs/matter-node-catalog.md), [descriptors](../../../docs/matter-device-discovery.md) and [reports](../../../docs/matter-sensors.md).
+- [Coordinated release](../../../docs/deployment.md#maintenance-release).

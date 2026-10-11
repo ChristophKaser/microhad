@@ -5,7 +5,7 @@ The current service is `mthread-matter` in `micro-thread-matter-daemon/`, using
 
 ## Disconnect and cancellation
 
-The controller now checks the selected commissioning event peer on every
+The controller checks the selected commissioning event peer on every
 publish turn. When that IPC connection closes, it cancels the active session
 and drops its commissioner task immediately. This also covers a lost start
 response where the native worker never learned the session ID; the worker's
@@ -15,7 +15,7 @@ remain stale and mutations are never replayed.
 
 `sessions::Sessions` is a single-owner manager for one active job and one
 retained terminal snapshot. It owns the pinned commissioning future and borrows
-the stable gateway BTP relay. The production `controller::Controller` now
+the stable gateway BTP relay. The production `controller::Controller`
 connects it to IPC, persisted authority/allocator and the actual commissioner.
 Start remains `not_ready` until a validated dataset is active on a freshly
 observed matching coordinator channel.
@@ -65,7 +65,7 @@ and zeroizing passcodes before invalidating callbacks.
 Start/attach select the persistent IPC event peer. Valid status with optional
 `subscribe:true` can select a new peer; status without it does not retarget.
 Commissioning snapshots and opaque C1 writes use the targeted bounded event
-queue. Missing IPC peers now cancel their active commissioning session;
+queue. Missing IPC peers cancel their active commissioning session;
 write/session deadlines remain additional bounds. Reconnection must attach a
 new BLE generation when a pending write was lost.
 The native persistent worker consumes these events and retires relay ownership

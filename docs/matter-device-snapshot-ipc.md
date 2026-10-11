@@ -23,15 +23,16 @@ Successful replies have `schema:1`, `ok:true` and this `result`:
     "online": true,
     "id": "matter:0000000000000001:0000000000000002:0001",
     "endpoint": 1,
-    "servers": [6, 29]
+    "servers": [6, 29],
+    "clients": []
   }],
   "next_cursor": null
 }
 ```
 
-Each page contains at most one endpoint, with at most 64 server cluster IDs.
+Each page contains at most one endpoint, with at most 64 server and 64 client cluster IDs.
 Node/endpoint ordering is canonical. A node whose descriptors are not yet known
-still gets one entry: `id:null`, `endpoint:null`, `servers:[]`, `online:false`.
+still gets one entry: `id:null`, `endpoint:null`, `servers:[]`, `clients:[]`, `online:false`.
 Its state is `complete`, `recovery_required` or `commissioning` according to the
 catalog. Incomplete entries are visible for recovery, never silently trusted.
 An empty catalog returns `devices:[]`, `next_cursor:null` at cursor zero.

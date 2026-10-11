@@ -1,213 +1,111 @@
-# Using the native gateway
+# Use the gateway dashboard
 
-Mirrored from the native repository’s `docs/usage.md`.
+Open `http://<gateway-ip>/` after [installation](installation.md). Check that
+Zigbee is online and its network is formed before pairing. Use HTTPS when
+enrolling Browser Push. [Matter setup](../microhad/docs/matter-dashboard.md)
+uses its own Thread and commissioning controls.
 
-Installation and backend selection are covered in the [README](installation.md).
-The examples below using a development address must be changed to your gateway address.
+## Pair Zigbee devices
 
-## Pairing and alerts
+Select **Allow joining (5 min)**, then put the device into pairing mode while
+the countdown is active. Wake battery-powered devices while discovery and
+configuration finish. Verify a real measurement or control response; a device
+appearing in the inventory does not establish that it reports correctly.
 
-Open the HTTPS dashboard and select **Allow joining (5 min)**, then reset or
-put the sensor in pairing mode while the displayed join countdown is active.
-The gateway accepts standard Zigbee 3.0 joining and sends the standard IAS Zone
-Enroll Response required by generic contact/window sensors. Joined devices are
-identified by their IEEE address and retain their assigned IAS zone ID across
-restarts.
+The dashboard displays supported contact, temperature, humidity, occupancy,
+battery and link-quality values. Generic contact sensors use IAS enrollment;
+their zone IDs survive restarts. [Sensor reporting](thermometer-recovery.md)
+explains refresh, reconfiguration and sleepy-device troubleshooting.
 
-The normalized device model is model-independent: IAS contact state, standard
-Temperature Measurement (`0x0402`), Relative Humidity Measurement (`0x0405`),
-Occupancy Sensing (`0x0406`), Power Configuration battery percentage, link
-quality, and last-seen state are retained and surfaced in the dashboard. An
-opened contact starts a ten-minute notification window, followed by five-minute
-reminders while it remains open; closing it cancels the pending alert.
-Contact sensor settings can switch to Trigger mode, which sends an immediate
-push for each known open/closed transition and suppresses further transitions
-for the configured cooldown (60 seconds by default). Trigger alerts use the
-separate **Triggers** notification channel in the Pommern Garage Android app;
-its notification settings can be managed independently in Android settings.
-Temperature thresholds can be set per device in the dashboard.
+A temperature/humidity sensor's fallback refresh defaults to five minutes.
+Set its interval to `0` to disable automatic refresh while keeping manual
+Refresh available. eWeLink TH01 reporting allows up to one hour between reports;
+short quiet periods alone do not establish a fault.
 
-eWeLink TH01 devices have a dedicated reporting profile: temperature/humidity
-maximum intervals are one hour, with changes reported sooner when the device
-accepts the configuration. The deployed profile still needs live acceptance and
-sustained-reporting verification; a quiet 15-minute window is not sufficient to
-establish failure or success. See [current TH01 findings](th01-herdsman-fix.md).
+## Lights, scenes and remotes
 
-Temperature and humidity devices also have a per-device fallback refresh
-interval in their settings. It defaults to five minutes for devices that
-ignore standard reporting; set it to `0` to disable automatic fallback refresh
-while retaining the manual Refresh action.
+Use **Scenes & groups** to group lights and save scenes. In **Configure remotes**,
+choose **Gateway scenes** to run saved button rules, or **Native light control**
+to bind a compatible remote directly to its group. Scene rules remain saved
+when native control is selected. Pending provisioning may need another button
+press to wake the remote; the dashboard shows pending, active or failed binding.
+Remotes rejecting group binding are tried with individual light bindings.
 
-## External HTTP devices
+Direct remote control with the gateway powered off also requires another
+reachable Zigbee parent, such as a powered bulb/router. A broadcast confirmation
+indicates mesh propagation; it does not confirm every bulb applied a scene.
 
-Use **More ⋯ → Add external device** to add a Shelly or Fritz!Box. Shelly setup
-supports a Uni Gen1, Plug Gen1, or Plug S Gen1 by its local host or address. The Uni can expose one selected
-digital input as a contact, an optional temperature probe, and one relay as an
-actor. Plugs expose their relay as an actor. Optional HTTP Basic credentials
-are stored in `shelly-devices.jsonl` in the runtime directory with mode `0600`.
-Shelly readings, actors, and contact alerts appear alongside Zigbee devices in
-the dashboard's device type groups. A Uni appears as separate contact,
-temperature, and relay cards; a Plug combines its switch and power reading.
-The status API lists all device sources in `devices` with stable `id` and `source`
-fields; Shelly history and actor commands use the regular `/api/devices/{id}`
-routes. `/api/shelly/config` manages only the Shelly connection settings.
+With Ziggurat, **Gateway settings** controls `broadcast_passive_ack_quorum`
+(1–255, default 8). The dashboard distinguishes the saved value from the value
+confirmed by the running stack. Saving persists an override in
+`gateway-settings.json`; reconnects reapply it. See [MicroHAD](../microhad/README.md)
+for the developer/API behavior.
 
-Fritz!Box setup uses local TR-064 credentials to discover known Wi-Fi hosts.
-Selected clients appear as connected/not-connected presence sensors. The
-Fritz!Box reports Wi-Fi signal strength as a percentage, available only while
-a client is connected. Shelly and Fritz!Box polling share one outbound device
-worker. Fritz!Box settings are stored in `fritz-boxes.tsv` with mode `0600`.
+## Alerts
 
-Shelly devices poll every 30 seconds by default; the interval can be changed
-from 5 to 3600 seconds. Callback mode can replace polling for contact and relay
-state. Enable it in the device settings and set the gateway HTTP address that
-the Shelly can reach, then copy the generated URLs into the
-matching **btn_on_url / btn_off_url** (Uni input) and **out_on_url / out_off_url**
-(relay) actions in the Shelly interface. Callback URLs contain a secret token;
-keep them private. The Uni thermometer continues polling because Gen1
-temperature actions only report threshold crossings, not each reading. Select
-**None** for a Uni without a temperature probe.
-Plug power is polled even in callback mode. The shared RAM history records
-changed power readings in 0.1 W units and does not repeat unchanged readings.
+Contact alerts default to a first **Window open** notification after ten
+minutes, followed by five-minute reminders. Closing the contact cancels the
+pending alert. Per-device **Trigger** mode sends an immediate notification
+on a known state transition and applies a cooldown, defaulting to 60 seconds.
+Temperature thresholds are also configurable per device.
 
-For Browser Push, visit the HTTPS dashboard, accept the certificate, select
-**Enable browser alerts**, grant the browser permission, then select **Test
-alerts**. The Pommern Garage app registers its FCM token from the home LAN at
-`http://192.168.178.62`. The dashboard's **Phones** section lets you label
-each installation and enable or disable its alerts. FCM sends directly to
-enabled phones using the configured service account. The legacy `firebase_topic`
-config field is accepted but no longer used for delivery. The test action uses
-the configured delivery transports for an end-to-end check.
+The global **Push notifications** switch blocks both automatic and test
+notifications, discards pending delivery jobs and retains browser subscriptions
+for later re-enabling. The **Phones** section labels app installations and
+enables/disables their delivery individually.
 
-## Remote control of lights
+For Browser Push, open the HTTPS dashboard, accept the configured certificate,
+select **Enable browser alerts**, grant permission, then use **Test alerts**.
+Android/FCM delivery needs a configured service account and a registered phone.
+The app must use your gateway's LAN address. Trigger alerts have a separate
+Android notification channel. TLS/notification credentials are optional for
+basic local device operation and must stay outside Git.
 
-In **Scenes & groups**, assign lights to a group. Open **Configure remotes** to
-choose a control mode for each discovered remote. **Gateway scenes** keeps the
-existing button-to-scene rules. **Native light control** binds the remote's On/Off and Level Control
-commands to the selected group, so compatible remotes can operate the lights
-without the gateway daemon. Gateway scene rules remain saved but are inactive
-for that remote until Gateway scenes is selected again. The dashboard shows
-whether native binding is pending, active, or failed; press a sleepy remote's
-button again if provisioning is waiting for it to wake. Remotes that reject
-group binding are tried with individual bindings to the group's lights.
+## Add Shelly or Fritz!Box devices
 
-Native control while the gateway is powered off also requires the remote to
-have another reachable Zigbee parent, such as a powered bulb or router.
+Use **More ⋯ → Add external device**. Supported Shelly Gen1 devices are Uni,
+Plug and Plug S. Uni can expose a digital input, temperature probe and relay;
+choose **None** if no probe is connected. Plugs expose switch and power.
+Their controls and readings use the same device cards and history as Zigbee.
 
-## Live diagnostics
+Shelly polling defaults to 30 seconds, configurable from 5–3600 seconds.
+Callback mode can replace contact/relay polling: set a gateway HTTP address the
+Shelly can reach and copy the generated URLs into its `btn_on_url`/`btn_off_url`
+and `out_on_url`/`out_off_url` actions. These URLs contain secret tokens.
+Temperature and plug power still poll in callback mode.
 
-The dashboard includes a live coordinator log, refreshed every two seconds from
-`/api/logs`. The on-device log is a circular binary file at
-`/tmp/microhad.log`; on this gateway `/tmp` resolves below the
-RAM-backed `/var` mount, not the `/tuya` flash volume. Its total size is at
-most 1,000,000 bytes. The coordinator writes one record at a time, and HTTP
-workers read the ring directly without locking or waiting for the coordinator.
-Use `/api/logs` to read the log as text. Diagnostics do not create flash write
-cycles or consume unbounded memory.
+Fritz!Box uses local TR-064 credentials to discover Wi-Fi hosts. Selected hosts
+become presence sensors with signal strength while connected. Presence history
+is intentionally omitted. Shelly and Fritz!Box share an outbound polling worker;
+credentials are stored privately under the runtime directory.
 
-### Event-loop diagnostics
+## History
 
-Event-loop diagnostics are off by default and can be toggled while the service
-is running. Send a form-encoded POST to `/api/debug/event-loop` with
-`enabled=true` to start, or `enabled=false` to stop:
+Sensor cards offer a History dialog. The live V3 store is
+`/tmp/microhad-history.bin`, bounded below 2 MiB. It survives a service restart;
+committed pages in `<runtime_dir>/history.values` restore history after a reboot.
+Uncommitted samples can be lost on power loss. Duplicate values are suppressed;
+non-discrete readings are sampled at most once per minute, while contact and
+other discrete transitions are retained.
+
+Flash persistence keeps at most 255 pages, writes full pages in the background,
+and writes dirty sparse pages every four hours. There is no shutdown flush.
+Actuator on/off/brightness and Fritz!Box presence are excluded. See the
+[history format](../microhad/SENSOR_HISTORY_FORMAT.md) for retention and API cursors.
+
+## Diagnose a problem
+
+The live log reads `/api/logs` from BusyBox syslogd's 512 KiB RAM ring. Logging
+does not append files to gateway flash. [Recovery tooling](recovery-tooling.md)
+explains log levels, readiness checks and orderly stops.
+
+From the development computer:
 
 ```sh
-curl --connect-timeout 5 --max-time 8 -sS -X POST \
-  -d 'enabled=true' http://192.168.178.62/api/debug/event-loop
-curl --connect-timeout 5 --max-time 8 -sS http://192.168.178.62/api/logs
-curl --connect-timeout 5 --max-time 8 -sS -X POST \
-  -d 'enabled=false' http://192.168.178.62/api/debug/event-loop
+curl --connect-timeout 5 --max-time 8 -sS "http://$GATEWAY_IP/api/status"
+curl --connect-timeout 5 --max-time 8 -sS "http://$GATEWAY_IP/api/logs"
 ```
 
-While enabled, the coordinator adds one `EVENT_LOOP_DEBUG` line about every
-five seconds to `/api/logs`. It reports loop counts, whether the loop skipped
-waiting for commands or immediate work, `select()` results and readiness, and
-the most recent poll deadline. For periodic reporting, the wait is capped at
-five seconds while diagnostics are enabled. Output remains in the existing
-1 MB RAM-backed log ring; it is never written beneath `/tuya`.
-Disable diagnostics after collecting a few intervals to avoid extra wakeups
-and profiling overhead during normal operation.
-
-### Sampling a hot MIPS thread
-
-`tools/gateway_cpu_sampler.c` samples the program counter of one running task
-without restarting the gateway. Build it with the same MIPS toolchain used for
-the gateway. Run from `microhad/`; set `TOOLCHAIN=crosstool-ng` before sourcing
-for the candidate compiler, or leave the default RSDK selection:
-
-```sh
-source ../scripts/toolchains.sh
-"$TARGET_CC" -Os -static \
-  -o /tmp/gateway_cpu_sampler tools/gateway_cpu_sampler.c
-```
-
-Copy the executable to the gateway's RAM-backed `/tmp`, identify the hot task
-with `top`, and run the sampler as root with that task's PID:
-
-```sh
-top
-/tmp/gateway_cpu_sampler TID [samples]
-```
-
-The sample count defaults to 100 and can be set from 1 to 1000. Each sample
-attaches to the selected task, waits for its ptrace stop, reads MIPS EPC from
-register slot 34, detaches, and sleeps for 10 ms. The output lists each
-sampled instruction address and how many samples landed there. A larger count
-at an address suggests the task spent more sampled time there; these counts
-are estimates, not precise CPU percentages. Attaching briefly pauses that
-task and can interrupt a blocking system call, so use a bounded sample count.
-The tool reads registers only and writes no runtime data beneath `/tuya`.
-
-The gateway binary is stripped. To translate addresses into function names,
-use a matching unstripped MIPS build with debug information on the development
-machine, for example:
-
-```sh
-addr2line -f -C -e /path/to/matching-unstripped-binary 0xADDRESS
-```
-
-The executable and source revision must match the running gateway binary for
-the result to be reliable. Do not deploy the unstripped binary as the service.
-
-Sensor cards offer a History dialog for temperature, humidity, and contact
-state. The coordinator writes fixed-size binary records to
-`/tmp/microhad-history.bin`. V2 stores 128 samples per
-device/metric page in an initially 2 MiB page pool; it can grow in the
-exceptional case where every page is a protected device/metric's only page.
-History is returned in pages of up to 2,000 samples. Temperature and humidity
-are sampled at most once per metric per minute, while each contact transition
-is retained. The RAM-backed history survives a service restart but is cleared
-by a device reboot. See [Sensor history format](https://github.com/ChristophKaser/microhad/blob/main/SENSOR_HISTORY_FORMAT.md) for
-the V2 binary layout and retention rules.
-
-## Web UI development
-
-The dashboard source is in `webui/src`. Build the React and TypeScript UI with
-Vite before deploying:
-
-```sh
-make webui
-```
-
-`deploy.sh` uploads the contents of `webui/dist` to `<runtime_dir>/webui` when
-web UI deployment is selected. Deploy the updated binary together with the new
-UI the first time, because the server must support bundled assets. The service
-worker is built from `webui/public/sw.js` and served as `/sw.js`.
-
-For local development, run `cd webui && npm ci && npm run dev`. Open
-`http://localhost:5173` or `http://<this-computer-ip>:5173` on the LAN. Vite
-proxies `/api/` requests to the development gateway at `192.168.178.62`, so
-no CORS support is required. Browser-push enrollment is disabled in this mode;
-test it from the deployed HTTPS dashboard instead.
-
-## Coordinator boundary
-
-The EZSP backend contains the native ASH transport (escaping, CRC, framing and
-reset/retry primitives) and a coordinator service boundary. EZSP command
-coverage is intentionally isolated in `Gateway` so further Silicon Labs NCP
-commands and generic ZDO/ZCL capability handlers can be added without touching
-the HTTP, state, or notification contracts.
-
-The enabled Ziggurat backend replaces that radio connection with the local COBS
-client. Both keep gateway mutations on the coordinator thread. See
-[protocol and state ownership](native-ziggurat-integration.md).
+**Restart service** restarts only the supervised native daemon. It does not
+reboot the gateway or replace network state. Use the
+[deployment procedure](deployment.md) to apply launcher or Matter service changes.

@@ -10,19 +10,19 @@ deployment and device tests require an explicit request.
 ## Goal
 
 Demonstrate end-to-end commissioning and sustained operation with the target
-factory-new IKEA ALPSTUGA while preserving the existing Zigbee network.
+factory-new Matter-over-Thread accessory (the planned sensor is IKEA ALPSTUGA) while preserving the existing Zigbee network.
 
 ## Steps
 
-1. Finish and review the preceding plans. Record the exact native and Rust
+1. Review the runtime, identity, relay and device-model contracts. Record the exact native and Rust
    commits, binary hashes, service configuration, radio socket mapping, and
    rollback procedure before touching the gateway.
 2. Capture a filtered baseline of Zigbee online/network-formed state, channel,
    free memory, CPU, flash free space, and relevant service processes. Back up
    the configuration and network state without exposing keys in reports.
-3. Stage the native binary, Rust service, and required assets under a unique
-   temporary target directory. Verify checksums and ensure the test path cannot
-   start a second Zigbee UART owner.
+3. Use the [coordinated maintenance release](../../../docs/deployment.md#maintenance-release)
+   to install the required native/Rust artifacts and assets. Verify checksums
+   and prevent a second Zigbee UART owner.
 4. Commission a factory-new ALPSTUGA through the Garage BLE relay. Record only
    redacted phase timings and success/failure codes; do not retain setup codes,
    datasets, or session secrets in validation reports.
@@ -57,5 +57,5 @@ factory-new IKEA ALPSTUGA while preserving the existing Zigbee network.
 
 ## Dependencies
 
-All preceding plans, especially persistent identity, Thread lifecycle, the
-Garage BLE relay, and device report integration. This is the final release gate.
+The runtime, persistent identity, Thread lifecycle, phone relay and device
+report contracts linked from the [development index](README.md). This is the final release gate.

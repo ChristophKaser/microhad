@@ -58,8 +58,7 @@ An in-flight request can wait for Thread attachment within the SDK's five-second
 resolve budget. Query futures are bounded at 4.2 seconds; retry delays are
 100/250/500/1000 ms and stop when the SDK request has ended or Thread is lost.
 There is no tight polling, unbounded query queue or persistent address cache.
-Proactive invalidation after a CASE failure and production reconnection of
-catalogued nodes remain plan 07 device/recovery integration work. Very slow
+Proactive invalidation after a CASE failure remains a recovery limitation. Very slow
 attachment/registration still fails the bounded attempt and needs explicit retry.
 
 ## Synthetic encrypted acceptance of this path
@@ -78,7 +77,7 @@ sections and linker garbage collection remove its instance accessor from the
 production service. Binary symbol inspection verifies all discovery fixture
 symbols are absent. The helper is not reachable through IPC or production Rust.
 
-Commands (host checks require permission for synthetic sockets):
+Run on the development host:
 
 ```sh
 bash micro-thread-matter-daemon/scripts/build.sh host service
@@ -94,20 +93,10 @@ bash micro-thread-matter-daemon/scripts/build.sh mips service
 bash micro-thread-matter-daemon/scripts/build.sh mips commissioning
 ```
 
-Initial checks exposed the required Thread Network Data service build option,
-pinned SDK public name/service adapter types, premature synthetic GATT before
-attach, and a fixture dataset reapply after registration that detached Thread.
-The fixture now configures its dataset before SRP startup and forwards GATT only
-after the production owner publishes an attach generation. An older MIPS CMake
-cache also needed the optional fixture target guarded against a missing source
-path; the persistent generator now supplies that guard. Diagnostic tracing was
-removed after those failures were resolved.
-
-This is actual userspace SRP/DNS and encrypted host evidence with a synthetic
-radio/accessory. It is not physical RF interoperability, target performance,
-complete remote catalog recovery or production descriptor/report integration.
-Default older fixture modes retain explicit rendezvous for comparison; only the
-`--service-discovery` mode proves this path. No deployment or plan 08 action occurs.
+The fixture uses real userspace SRP/DNS and encrypted Matter exchanges with a
+synthetic radio/accessory. Only `--service-discovery` exercises this resolver path;
+older fixture modes supply explicit rendezvous addresses. Physical RF
+interoperability and target performance require separate acceptance.
 
 Primary API references: [OpenThread SRP](https://openthread.io/reference/group/api-srp),
 [DNS service resolution](https://openthread.io/reference/group/api-dns) and

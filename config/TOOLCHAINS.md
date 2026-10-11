@@ -91,27 +91,3 @@ stock gateway. Application compilation and ELF checks do not validate a complete
 release on the device. RSDK remains the production default. Deployment defaults
 remain on RSDK artifacts; a future explicitly requested candidate deployment must
 pass all selected artifact paths and follow the existing maintenance flow.
-
-## Local validation: 2026-10-09
-
-Both backends compiled all three MicroHAD feature combinations, both Ziggurat
-modes, OpenThread CLI/transport archives, Matter service/transport/commissioning
-probes, and maintenance/logread/RNG/relay helpers. Candidate application builds
-used `RSDK_ROOT=/nonexistent`. The shared selector/cache checks, forbidden-instruction
-verifier tests, MicroHAD host tests with the rebuilt synthetic CASE fixture, and
-offline patch checks passed. Switching back to RSDK completed without cleaning and retained the candidate
-artifacts and host commissioning fixture. No application was deployed.
-
-Stripped artifact sizes in bytes from the initial `-O2` MicroHAD comparison
-(the candidate now defaults to `-Os`):
-
-| Artifact | RSDK | crosstool-NG |
-| --- | ---: | ---: |
-| MicroHAD | 1,788,056 | 2,775,532 |
-| Ziggurat multipan | 3,557,192 | 3,630,816 |
-| Matter service | 2,403,924 | 2,394,796 |
-| logread | 48,576 | 117,016 |
-
-With `-Os` applied to candidate MicroHAD C/C++, TinyCBOR and Mbed TLS, the
-stripped default-feature binary is 1,861,244 bytes and passes target ELF/instruction
-verification.

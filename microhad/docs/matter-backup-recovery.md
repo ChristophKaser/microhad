@@ -1,9 +1,11 @@
 # Matter identity backup and recovery
 
-This is an offline maintenance runbook for the complete private Matter state.
-It does not initiate a gateway connection, stop a service, restore state or
-change the launcher. Physical execution belongs to plan 08. The host recovery
-exercises in plan 03 must still verify these procedures before deployment.
+Use this runbook to back up or restore the complete private Matter state during
+an arranged maintenance window. Host shell templates run from `microhad/`;
+set `GATEWAY_IP` and an absolute `PASSWORD_FILE` before connecting. Coordinate
+shutdown through the [recovery guide](../../docs/recovery-tooling.md#orderly-stop-and-frozen-zigbee-export).
+Physical recovery/durability checks remain part of
+[hardware acceptance](matter-plans/08-real-device-acceptance.md).
 
 ## State and consistency
 
@@ -85,11 +87,11 @@ test -d "$MATTER_BACKUP_DIR"
 test ! -e "$MATTER_BACKUP_PART"
 test ! -e "$MATTER_BACKUP_FINAL"
 
-MATTER_SSH=(sshpass -f ../ssh_password.txt ssh
+MATTER_SSH=(sshpass -f "$PASSWORD_FILE" ssh
     -o ConnectTimeout=8 -o StrictHostKeyChecking=yes
     -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa
     -o PreferredAuthentications=password -o PubkeyAuthentication=no
-    root@192.168.178.62)
+    root@"$GATEWAY_IP")
 
 "${MATTER_SSH[@]}" 'tar -C /tuya/native/matter -cf - .' |
     gpg --encrypt --recipient "$MATTER_BACKUP_RECIPIENT" --output "$MATTER_BACKUP_PART"
@@ -230,25 +232,20 @@ Take a fresh consistent recovery point before switching again. Finish by removin
 plaintext RAM staging, recording redacted validation/cleanup results and retaining
 only private encrypted recovery copies under the operator policy.
 
-## Verification and remaining work
+## Verify recovery tooling
 
-The paths, owner lock, permission rules, atomic credential replacement and paired
-supervisor quiesce/resume behavior were checked against the current sources.
-All document links and shell-template syntax are checked on the host. No actual
-credentials were read, encrypted, exported or restored, and no gateway was
-contacted. These are documented procedures, not executed recovery evidence.
+Run from the repository root:
 
-Synthetic archive tests cover incomplete state trees, traversal, duplicate
-paths, links, file/directory conflicts, size bounds, redacted CLI output,
-owner-only staged modes and preservation of existing/source data. The service
-harness covers offline identity validation, wrong permissions and
-archive-to-validator success/corrupt-envelope refusal without source changes.
-The service restart fixture also preserves the allocated node as
-`recovery_required` after an interrupted commissioning attempt. Plan 03 still
-requires a crash during atomic replacement and target filesystem durability
-checks. Extend recovery tests to node-catalog remote reconciliation once plan 07
-implements it. Factory filesystem durability and physical CASE/reception/
-resource measurements remain in excluded plan 08.
+```sh
+python3 microhad/scripts/test_matter_archive.py
+python3 micro-thread-matter-daemon/scripts/test-matter-service.py
+```
+
+Synthetic fixtures cover unsafe archives, bounds, private extraction, offline
+identity validation and corrupt-candidate refusal. They do not prove factory
+filesystem durability or safe activation of a stale counter high-water point.
+Physical recovery must verify the same identity, fresh CASE, device reports,
+Zigbee continuity and resource headroom after restoration.
 
 [GnuPG command reference](https://www.gnupg.org/documentation/manuals/gnupg/Operational-GPG-Commands.html)
 describes public-key encryption and explicit-output decryption. The runbook's

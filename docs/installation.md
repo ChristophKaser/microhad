@@ -10,25 +10,22 @@ board, including the Sengled G4. Replacement Linux is a separate
 our factory-Linux binaries have not been validated on that replacement system.
 
 A fresh device has no Zigbee devices whose pairings need preservation. If yours
-already has a network, use the [existing-network migration plan](ziggurat-deployment-plan.md)
+already has a network, use the [existing-network migration runbook](ziggurat-deployment-plan.md)
 instead of creating a fresh network or following the destructive reset steps.
 
-## Choose your installation
+## Choose a backend
 
-| Mode | Radio application | Gateway Linux services | Zigbee application/state owner | Status |
-| --- | --- | --- | --- | --- |
-| [A: Native without Ziggurat](#mode-a-native-service-without-ziggurat) | EZSP NCP | Native | Native dashboard; radio stores network security | Previously deployed here; both backends tested |
-| [B: Native with Ziggurat](#mode-b-native-service-with-ziggurat) | HDLC RCP | Native + Ziggurat | Native dashboard; native persists stack state | Real gateway deployment verified, device limitations remain |
-| [C: Home Assistant without Ziggurat](#mode-c-home-assistant-without-ziggurat) | EZSP NCP | TCP serial bridge | External Home Assistant ZHA | Established upstream Silvercrest setup |
-| [D: Home Assistant with Ziggurat](#mode-d-home-assistant-with-ziggurat) | HDLC RCP | Ziggurat WebSocket server | External Home Assistant ZHA | Upstream-supported client; this device combination untested |
+| Setup | Radio firmware | Runtime |
+| --- | --- | --- |
+| [Mode A: native EZSP](#mode-a-native-service-without-ziggurat) | EZSP NCP | MicroHAD owns the UART |
+| [Mode B: native Ziggurat](#mode-b-native-service-with-ziggurat) | Two-instance HDLC RCP | Ziggurat owns UART; MicroHAD owns application/durable network state |
+| [Mode C: external Home Assistant](#mode-c-home-assistant-without-ziggurat) | Compatible EZSP NCP | TCP bridge to an external ZHA instance |
 
-Choose A for standalone operation with the simplest stack, or C if you already
-use Home Assistant. B and D require replacing the radio application. None of
-these modes runs Home Assistant itself on the small gateway. ZHA and native are
-alternative coordinator clients: do not start both. The default build also supports a Rust Thread/Matter service; this guide
-covers the Zigbee modes. See [Matter runtime](matter-service-runtime.md) and
-[maintenance deployment](../microhad/AGENTS.md) for the paired stack. The HDLC
-image alone does not provide a Thread border router or Matter controller.
+The default application build enables Ziggurat and Matter. First establish
+Zigbee with the matching backend, then add the Matter service using
+[deployment](deployment.md) and [Thread setup](../microhad/docs/matter-dashboard.md).
+The RCP image alone supplies neither a Matter controller nor a border router.
+Only one coordinator client may own the radio. Home Assistant runs externally.
 
 ## 1. Equipment, sources and host variables
 
@@ -64,8 +61,8 @@ export CONFIG_FILE="$PRIVATE_DIR/native-config.json"
 ```
 
 `WORKSPACE`, `PROJECT_ROOT`, `MIGRATION_PYTHON`, `NCP_IMAGE` and `RCP_IMAGE` come from
-[build setup](building.md); `RSDK` is needed only for the RSDK setup/serial bridge.
-Only Ziggurat modes need `RCP_IMAGE` built.
+[build setup](building.md); `RSDK_ROOT` is needed for the serial-bridge build.
+Only Mode B needs `RCP_IMAGE` built.
 Store all credentials and backups outside Git. The address above is an example;
 this guide does not use the development gateway's address.
 
@@ -209,8 +206,8 @@ After reboot inspect `ps`: factory Zigbee applications must be stopped before
 opening `/dev/ttyS1`. Check the actual process names on your revision; do not
 assume the factory processes are native or low.js. Retain the untouched factory
 launcher. Permanent mode launchers below replace this idle launcher only after
-preparation. Keep executables on `/tuya` and transient logs in RAM; large executable
-uploads to `/tmp` previously caused suspected memory pressure.
+preparation. Keep executables on `/tuya` and transient logs in RAM; check flash
+and RAM before staging.
 
 ### Clock setup for native modes
 
@@ -236,12 +233,12 @@ network access and `date` afterward. If this applet is absent, this hook will no
 work: arrange a compatible clock-sync program before accepting unattended native
 startup. For an initial test only, set the date from the serial console using the
 format printed by `date --help`; this does not survive a power cycle. Retain an
-existing working hook rather than overwriting it. Clock setup was already present
-on the development device, so this factory prerequisite remains revision-dependent.
+existing working hook rather than overwriting it. Clock-sync availability
+depends on the factory revision.
 
 ## 5. Establish a compatible EZSP baseline
 
-Modes A/B use this project's tested NCP **7.5.1 / EZSP v13**, 115200 baud with
+Modes A/B use the pinned NCP **7.5.1 / EZSP v13**, 115200 baud with
 RTS/CTS. Mode C can retain factory NCP firmware if current ZHA supports it;
 otherwise use this same baseline. Record the original firmware before updating.
 
@@ -275,8 +272,7 @@ fresh unpaired device, validate and upload the pinned NCP application:
 
 Require bootloader acceptance and EZSP v13 before continuing. Do not retry an
 uncertain upload blindly. The image excludes bootloader and NVM3; this is not a
-chip erase. The factory-to-baseline step has not been retested on a newly purchased
-unit here. If a bootloader menu/upgrade is unavailable, retain console access and
+chip erase. If a bootloader menu/upgrade is unavailable, retain console access and
 follow radio-specific recovery rather than flashing Linux or replacing the loader.
 Keep TCP:8888 on a trusted LAN; the bridge has no authentication.
 
@@ -339,8 +335,12 @@ Keep factory recovery and coordinator backups separately.
 Start by completing Mode A through **creation of an empty network**, but do not
 pair devices yet. This avoids inventing network keys/state: the native Ziggurat
 client requires a prepared private state file and does not implement dashboard
-network creation. Build Ziggurat, the maintenance helper, HDLC GBL and the enabled
-native binary using [build setup](building.md).
+network creation. Build Ziggurat, the maintenance helper and HDLC GBL using
+[build setup](building.md), then build the Zigbee-only native binary:
+
+```sh
+make -C "$PROJECT_ROOT/microhad" ZIGGURAT=1 MATTER=0 mips
+```
 
 ### B1. Stage, export and stop the empty NCP network
 
@@ -403,6 +403,8 @@ old coordinator after preparing the handover. For interruption/rollback use the
 
 ### B2. Flash the application-only RCP
 
+Inspect the built RCP image with `ezsp_preflight.py image "$RCP_IMAGE"`, review
+its application ranges, and set `RCP_SHA256` to the accepted artifact hash.
 The radio is now in its bootloader. On the **host**, restart the exact bridge
 with explicitly disabled hardware flow for the 115200-baud bootloader:
 
@@ -412,7 +414,7 @@ gateway_ssh '/tuya/ziggurat-stage/gateway-maintenance check-free /dev/ttyS1'
 gateway_ssh '/tuya/serialgateway -f -p 8888 -b 115200 >/dev/null 2>&1 & echo $! > /tmp/silvercrest-bridge.pid'
 BRIDGE_PID=$(gateway_ssh 'cat /tmp/silvercrest-bridge.pid')
 "$MIGRATION_PYTHON" scripts/ezsp_flash.py --image "$RCP_IMAGE" \
-  --sha256 5e835cf429dbc25ded9e6217f620d0d2243c11c98935de0e29e387657063bb48 \
+  --sha256 "$RCP_SHA256" \
   --host "$GATEWAY_IP" --exclusive-radio --already-in-bootloader --flash
 gateway_ssh "kill -TERM $BRIDGE_PID"
 gateway_ssh '/tuya/ziggurat-stage/gateway-maintenance check-free /dev/ttyS1'
@@ -461,14 +463,15 @@ Require `/api/status` backend `ziggurat`, online/formed, preserved coordinator
 identity and advanced counters. The native service owns
 `/tuya/native/ziggurat-state.json`; Ziggurat owns UART at 460800/RTS-CTS.
 The COBS socket is `/tmp/ziggurat/native.sock`, private to the local processes.
-Allow up to three minutes before diagnosing a cold-start timeout: one verified
-boot needed 121 seconds, with cause unresolved. Pair one device from the native
+Cold startup can wait for kernel entropy; inspect readiness and logs before
+diagnosing a timeout. Pair one device from the native
 dashboard, verify actual reports/control, reboot, and verify again. Check a sleepy
 device by waking it; an inventory row alone does not prove continuity.
 
 **Maintenance/return path:** quiesce the pair, save a newly frozen complete stack
 snapshot, prepare the advanced NCP recovery backup, stop the pair, enter the
-bootloader using IID 1, restore pinned NCP application and current network state,
+bootloader through the maintenance helper, restore the pinned NCP application
+and current network state,
 then restore the archived EZSP application/launcher. Exact commands and failure
 checkpoints are in the [rollback plan](ziggurat-deployment-plan.md) and
 [recovery tools](recovery-tooling.md). Once Ziggurat transmits, the earlier empty
@@ -519,107 +522,6 @@ and process; restore the chosen NCP native or factory launcher and reboot.
 Do not run native against a ZHA network without a deliberate application/network
 migration. Retain ZHA backup and the radio application version.
 
-## Mode D: Home Assistant with Ziggurat
-
-**Experimental on this gateway.** Upstream documents Ziggurat radio support in
-**Home Assistant 2026.7.0 or newer**; this exact patched MIPS server/client
-combination has not been exercised here. Confirm your installed ZHA offers the
-Ziggurat radio type. See [upstream setup](https://github.com/zigpy/ziggurat#setup).
-
-1. Complete sections 1–5. Build the patched MIPS Ziggurat, helper and two-instance
-   RCP image. Native is not the runtime client for this mode.
-2. With the idle launcher still installed and exactly one maintenance bridge
-   owning UART, enter the bootloader on the **host**:
-
-   ```sh
-   cd "$PROJECT_ROOT/microhad"
-   "$MIGRATION_PYTHON" scripts/ezsp_preflight.py bootloader-roundtrip \
-     --host "$GATEWAY_IP" --exclusive-radio
-   ```
-
-   This command returns to NCP; it proves menu/run before replacement. Recheck
-   the radio, then validate and flash the pinned RCP application on the host:
-
-   ```sh
-   "$MIGRATION_PYTHON" scripts/ezsp_flash.py --image "$RCP_IMAGE" \
-     --sha256 5e835cf429dbc25ded9e6217f620d0d2243c11c98935de0e29e387657063bb48
-   "$MIGRATION_PYTHON" scripts/ezsp_flash.py --image "$RCP_IMAGE" \
-     --sha256 5e835cf429dbc25ded9e6217f620d0d2243c11c98935de0e29e387657063bb48 \
-     --host "$GATEWAY_IP" --exclusive-radio --flash
-   ```
-   On this **fresh network only**, no native bootstrap/state import is needed:
-   ZHA creates and subsequently persists the network through Ziggurat's API.
-   If flow switching does not expose the menu, use the verified no-flow bridge
-   procedure in B2 after explicit bootloader entry; do not continue without a
-   recognized menu. Stop the exact maintenance bridge before starting Ziggurat.
-3. On the **host**, upload the MIPS server and a dedicated boot launcher:
-
-   ```sh
-   gateway_ssh 'mkdir -p /tuya/ziggurat; chmod 700 /tuya/ziggurat'
-   cat "$PROJECT_ROOT/build/gateway-maintenance" | \
-     gateway_ssh 'cat > /tuya/ziggurat/gateway-maintenance.new && chmod 700 /tuya/ziggurat/gateway-maintenance.new && mv /tuya/ziggurat/gateway-maintenance.new /tuya/ziggurat/gateway-maintenance'
-   cat "$PROJECT_ROOT/build/ziggurat-hdlc/lexra-stock-uclibc/release/ziggurat.stripped" | \
-     gateway_ssh 'cat > /tuya/ziggurat/ziggurat.new && chmod 700 /tuya/ziggurat/ziggurat.new && mv /tuya/ziggurat/ziggurat.new /tuya/ziggurat/ziggurat'
-   gateway_ssh 'cat > /tuya/tuya_start.sh.new' <<'SH'
-   #!/bin/sh
-   while true; do
-       /tuya/ziggurat/ziggurat --device /dev/ttyS1 --baudrate 460800 \
-           --flow-control hardware --spinel-iid 1 --api ws \
-           --listen 0.0.0.0:9999 --log-level error >/dev/null 2>&1
-       sleep 3
-   done &
-   SH
-   gateway_ssh 'chmod 755 /tuya/tuya_start.sh.new; mv /tuya/tuya_start.sh.new /tuya/tuya_start.sh'
-   ```
-
-   This example launcher is for the experimental ZHA mode; it is not the
-   validated native paired supervisor. It restarts a crashed server but does
-   not certify network recovery. Start it once from the gateway console after
-   UART is free, then perform the reboot test below. No native service, TCP
-   serial bridge or second Ziggurat server should run alongside it.
-4. In **external Home Assistant ZHA**, choose manual connection, **Ziggurat**
-   radio type and `ws://GATEWAY_IP:9999`. Create a new network, pair one device,
-   and verify actual reports/control. ZHA owns durable network state and pushes
-   configuration on startup; do not deploy native's private state into ZHA.
-   Take a Home Assistant backup, reboot the gateway, restart/reconnect ZHA if
-   needed, and require the same device to resume communication before acceptance.
-
-The patched server's flags are `--device`, `--api ws` and `--listen`; do not copy
-an upstream invocation with different historical CLI flags. Its API is binary
-WebSocket protocol v2, not EZSP. Keep port 9999 on a trusted wired LAN because
-this example has no TLS/authentication. The normal HA app URL
-`ws://local-ziggurat:9999` refers to an app-hosted server, **not this gateway**.
-This guide deliberately runs Ziggurat on the gateway and does not install that
-second app server. The COBS socket from Mode B is not ZHA's endpoint.
-
-**Return path:** stop ZHA and the exact Ziggurat supervisor/server; preserve ZHA
-backups. RCP must be replaced with NCP before Mode C can work again. Preserving
-an active ZHA/Ziggurat network requires current state/counters and a validated
-conversion/restore procedure; this project's native freeze CLI is specific to
-Mode B and does not directly freeze the WebSocket-only setup. Do not claim a
-seamless Mode D rollback. For this disposable fresh test network, deliberately
-start a new NCP/ZHA network and re-pair the test device after radio restoration.
-After disabling ZHA and stopping the verified server **and its supervisor**, use
-these host commands to restore the radio application only:
-
-```sh
-gateway_ssh '/tuya/ziggurat/gateway-maintenance check-free /dev/ttyS1'
-gateway_ssh '/tuya/ziggurat/gateway-maintenance bootloader-enter /dev/ttyS1 --exclusive-radio'
-gateway_ssh '/tuya/serialgateway -f -p 8888 -b 115200 >/dev/null 2>&1 & echo $! > /tmp/silvercrest-bridge.pid'
-BRIDGE_PID=$(gateway_ssh 'cat /tmp/silvercrest-bridge.pid')
-cd "$PROJECT_ROOT/microhad"
-"$MIGRATION_PYTHON" scripts/ezsp_flash.py --image "$NCP_IMAGE" \
-  --sha256 05c66bcc7895bc7db0b9648c12c40e387a1145eabe792413a2762d3d0ada262d \
-  --host "$GATEWAY_IP" --exclusive-radio --already-in-bootloader --flash
-gateway_ssh "kill -TERM $BRIDGE_PID"
-```
-
-Install the Mode C launcher, reboot, then deliberately create the replacement
-ZHA network. This procedure discards continuity of the disposable Mode D test
-network; do not apply it as a preserving rollback for paired production devices.
-If the RCP does not respond to bootloader entry, software recovery is unproven;
-keep the backups and diagnose instead of erasing the radio.
-
 ## Acceptance and troubleshooting
 
 | Symptom | Check |
@@ -631,12 +533,10 @@ keep the backups and diagnose instead of erasing the radio.
 | Native Ziggurat fails immediately | Correct enabled binary, initialized private state file, mode 0600, matching RCP identity, paired launcher |
 | Wrong protocol/timeouts | EZSP firmware cannot serve HDLC; RCP cannot serve EZSP. Check baud, RTS/CTS and IID 1 |
 | Duplicate UART ownership | Stop the actual competing supervisor and child; killing a child alone may respawn it |
-| Slow native cold start | Observe `/api/logs` and RAM; one boot needed 121 seconds. Do not weaken entropy checks |
+| Slow native cold start | Observe `/api/logs`, RAM and RNG readiness; preserve entropy checks |
 | Device listed but silent | Wake a sleepy device and verify an actual report; inspect TH01 reporting limitations |
-| HA says unknown radio type | Check HA/ZHA version, select EmberZNet for Mode C or Ziggurat for Mode D |
+| HA says unknown radio type | Check installed ZHA support and select EmberZNet/EZSP for Mode C |
 
 For each installed mode, record firmware hash/version, binary revisions,
 launcher, ports, state owner, one successful real-device action, and reboot result
-privately. Retain backups off the gateway. None of the installation paths has
-been rerun from a newly purchased device for this documentation change; verified
-existing-device evidence and upstream-derived steps are distinguished above.
+privately. Retain backups off the gateway. Factory revisions can differ; verify each preparation step before continuing.

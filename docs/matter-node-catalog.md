@@ -33,7 +33,7 @@ private ownership/permissions and post-rename durability poisoning.
 
 Endpoint IDs are stable strings `matter:<fabric hex16>:<node hex16>:<endpoint hex4>`.
 The endpoint formatter only accepts catalogued nodes. It does not establish that
-an endpoint exists; descriptor discovery must validate that in plan 07.
+an endpoint exists; [descriptor discovery](matter-device-discovery.md) validates endpoint existence.
 
 ## Commissioning and recovery
 
