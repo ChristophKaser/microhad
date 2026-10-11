@@ -1,4 +1,5 @@
 #include "sensor_history.h"
+#include "thread_name.h"
 
 #include <algorithm>
 #include <cerrno>
@@ -422,6 +423,7 @@ bool SensorHistory::persistPages(unsigned long seconds, std::string* error) {
 }
 
 void* SensorHistory::persistenceThread(void* opaque) {
+    setCurrentThreadName("history-write");
     static_cast<SensorHistory*>(opaque)->runPersistence(); return 0;
 }
 void SensorHistory::runPersistence() {
