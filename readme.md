@@ -19,11 +19,14 @@ Dashboard shown with demo data.
 
 ## Project status
 
-This entire project has been vibe coded. I have not meaningfully reviewed the
-code; my involvement has mainly been high-level architectural decisions.
-Treat it as a proof of concept / prototype rather than production-ready
-software. The same applies to the documentation: it has not been thoroughly
-reviewed and may contain errors or omissions.
+> [!WARNING]
+> **This is a proof of concept / prototype, not production-ready software.**
+>
+> This entire project has been vibe coded. I have not meaningfully reviewed the
+> code; my involvement has mainly been high-level architectural decisions.
+>
+> **The same applies to the documentation:** it has not been thoroughly reviewed
+> and may contain errors or omissions.
 
 ## Getting started
 
