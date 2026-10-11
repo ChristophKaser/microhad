@@ -54,7 +54,7 @@ joining expires, a native restart reconnects, and a full supervised restart
 restores the same network. A cached inventory alone is insufficient.
 
 Do not replace configuration or device inventory to resolve a missing report.
-Use [sensor diagnostics](thermometer-recovery.md). Keep the private recovery
+Use [sensor diagnostics](sensor-reporting.md). Keep the private recovery
 artifacts until communication and restart checks pass. Add Thread/Matter through
 a coordinated [maintenance release](deployment.md#maintenance-release).
 

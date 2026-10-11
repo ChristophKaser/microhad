@@ -6,11 +6,12 @@ Commands run on the development computer unless marked **gateway**.
 
 ## Use and maintain a gateway
 
+- [Supported devices](supported-devices.md): available features, unsupported functions and compatibility limits.
 - [Dashboard usage](native-usage.md): pairing, controls, sensors, history and alerts.
 - [Build setup](building.md): prerequisites, toolchains and output paths.
 - [Deploy application updates](deployment.md): staging, activation, complete releases and rollback.
 - [Recovery and diagnostics](recovery-tooling.md): supervisor control, logs and radio ownership.
-- [Sensor reporting](thermometer-recovery.md): sleepy devices, TH01 configuration and verification.
+- [Sensor reporting](sensor-reporting.md): troubleshoot missing Zigbee readings.
 - [Matter dashboard](../microhad/docs/matter-dashboard.md): Thread setup and phone-assisted commissioning.
 - [Matter backup and recovery](../microhad/docs/matter-backup-recovery.md): consistent identity/state backups.
 

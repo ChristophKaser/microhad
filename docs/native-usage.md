@@ -14,13 +14,13 @@ appearing in the inventory does not establish that it reports correctly.
 
 The dashboard displays supported contact, temperature, humidity, occupancy,
 battery and link-quality values. Generic contact sensors use IAS enrollment;
-their zone IDs survive restarts. [Sensor reporting](thermometer-recovery.md)
+their zone IDs survive restarts. [Sensor reporting](sensor-reporting.md)
 explains refresh, reconfiguration and sleepy-device troubleshooting.
 
 A temperature/humidity sensor's fallback refresh defaults to five minutes.
 Set its interval to `0` to disable automatic refresh while keeping manual
-Refresh available. eWeLink TH01 reporting allows up to one hour between reports;
-short quiet periods alone do not establish a fault.
+Refresh available. Reporting intervals vary by device; a quiet period alone
+does not establish a fault.
 
 ## Lights, scenes and remotes
 

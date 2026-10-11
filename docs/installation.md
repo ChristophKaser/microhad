@@ -13,6 +13,8 @@ A fresh device has no Zigbee devices whose pairings need preservation. If yours
 already has a network, use the [existing-network migration runbook](ziggurat-deployment-plan.md)
 instead of creating a fresh network or following the destructive reset steps.
 
+Check [supported devices](supported-devices.md) before choosing accessories.
+
 ## Choose a backend
 
 | Setup | Radio firmware | Runtime |
@@ -534,7 +536,7 @@ migration. Retain ZHA backup and the radio application version.
 | Wrong protocol/timeouts | EZSP firmware cannot serve HDLC; RCP cannot serve EZSP. Check baud, RTS/CTS and IID 1 |
 | Duplicate UART ownership | Stop the actual competing supervisor and child; killing a child alone may respawn it |
 | Slow native cold start | Observe `/api/logs`, RAM and RNG readiness; preserve entropy checks |
-| Device listed but silent | Wake a sleepy device and verify an actual report; inspect TH01 reporting limitations |
+| Device listed but silent | Wake a sleepy device and verify an actual report; check [sensor reporting](sensor-reporting.md) |
 | HA says unknown radio type | Check installed ZHA support and select EmberZNet/EZSP for Mode C |
 
 For each installed mode, record firmware hash/version, binary revisions,
