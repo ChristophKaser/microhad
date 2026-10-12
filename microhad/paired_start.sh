@@ -10,6 +10,7 @@ socket_path=${ZIGGURAT_SOCKET:-/tmp/ziggurat/native.sock}
 device=${ZIGGURAT_DEVICE:-/dev/ttyS1}
 zig_log=${ZIGGURAT_LOG:-/dev/null}
 zig_log_level=${ZIGGURAT_LOG_LEVEL:-info}
+zig_raw_frames=${ZIGGURAT_RAW_FRAMES:-off}
 seed_helper=${RNG_SEED_HELPER:-/tuya/native/rng-seed}
 seed_file=${RNG_SEED_FILE:-/tuya/native/ziggurat-rng.seed}
 seed_log=${RNG_SEED_LOG:-/tmp/ziggurat-rng-seed.log}
@@ -27,6 +28,7 @@ matter_level_restart=false
 syslogd=${SYSLOGD_BIN:-/bin/busybox}
 case "$limit:$startup_limit:$stop_limit:$backoff:$matter_limit" in *[!0-9:]*|:*|*::*) exit 2;; esac
 case "$zig_log_level" in off|error|warn|info|debug|trace) ;; *) echo 'Invalid ZIGGURAT_LOG_LEVEL' >&2;exit 2;; esac
+case "$zig_raw_frames" in on|off) ;; *) echo 'Invalid ZIGGURAT_RAW_FRAMES' >&2;exit 2;; esac
 case "$matter_log_level" in off|error|warn|info|debug|trace) ;; *) echo 'Invalid MATTER_LOG_LEVEL' >&2;exit 2;; esac
 for path in "$ZIGGURAT_BIN" "$NATIVE_BIN" "$NATIVE_CONFIG" "$MAINTENANCE_BIN" "$control" "$socket_path" "$device" "$zig_log" "$seed_helper" "$seed_file" "$seed_log"; do
     case "$path" in /*) ;; *) echo 'Absolute paths required' >&2;exit 2;; esac
@@ -90,6 +92,7 @@ cleanup() {
     stop_child "$native_pid";native_pid=
     stop_child "$zig_pid";zig_pid=
     rm -f "$control/matter.pid" "$control/matter.failed" "$control/active-matter-log-level" "$control/requested-matter-log-level" "$control/requested-matter-log-level."* "$control/native.pid" "$control/ziggurat.pid" "$control/supervisor.pid" "$control/quiesce" "$control/quiesced" "$control/stop" "$control/active-log-level" "$control/requested-log-level" "$control/requested-log-level."*
+    rm -f "$control/active-raw-frames" "$control/requested-raw-frames" "$control/requested-raw-frames."*
     # Device lacks rmdir. Only remove this invocation's known control directory.
     rm -rf "$control"
 }
@@ -129,6 +132,7 @@ start_zig() {
         if [ ! -d "$parent" ]; then mkdir "$parent" || return 1;chmod 700 "$parent";fi
         set -- --thread-socket "$thread_socket"
     fi
+    if [ "$zig_raw_frames" = on ]; then set -- "$@" --raw-frames;fi
     NO_COLOR=1 "$ZIGGURAT_BIN" --device "$device" --baudrate 460800 --flow-control hardware \
         --spinel-iid 1 --api cobs-unix --listen "unix:$socket_path" --log-level "$zig_log_level" "$@" 2>&1 &
     zig_pid=$!;printf '%s\n' "$zig_pid" > "$control/ziggurat.pid"
@@ -138,6 +142,7 @@ start_zig() {
         kill -0 "$zig_pid" 2>/dev/null || return 1
         if "$MAINTENANCE_BIN" cobs-hello "$socket_path" >/dev/null 2>&1; then
             printf '%s\n' "$zig_log_level" > "$control/active-log-level"
+            printf '%s\n' "$zig_raw_frames" > "$control/active-raw-frames"
             return 0
         fi
         sleep 1
@@ -218,15 +223,26 @@ while :; do
             zig_log_level=$requested_level
             level_change=true
         fi
+        requested_raw_frames=
+        if [ -f "$control/requested-raw-frames" ]; then
+            IFS= read -r requested_raw_frames < "$control/requested-raw-frames" || requested_raw_frames=
+        fi
+        case "$requested_raw_frames" in on|off) ;; *) requested_raw_frames= ;; esac
+        if [ -n "$requested_raw_frames" ] && [ "$requested_raw_frames" != "$zig_raw_frames" ]; then
+            zig_raw_frames=$requested_raw_frames
+            level_change=true
+        fi
         if [ "$level_change" = true ] && [ -n "$native_pid" ] && kill -0 "$native_pid" 2>/dev/null; then
-            # A requested level change deliberately recycles only Ziggurat.
+            # A requested diagnostic change deliberately recycles only Ziggurat.
             zig_pid=
             if ! start_zig; then
                 stop_child "$zig_pid";zig_pid=
                 rm -f "$control/requested-log-level"
+                rm -f "$control/requested-raw-frames"
                 sleep "$backoff";continue
             fi
             rm -f "$control/requested-log-level"
+            rm -f "$control/requested-raw-frames"
         else
             # Unexpected radio failures retain the existing pair recovery order.
             stop_child "$matter_pid";matter_pid=
@@ -234,6 +250,7 @@ while :; do
             stop_child "$native_pid";native_pid=
             stop_child "$zig_pid";zig_pid=
             rm -f "$control/requested-log-level"
+            rm -f "$control/requested-raw-frames"
             if [ "$retries" -ge "$limit" ]; then echo 'Restart budget exhausted' >&2;exit 1;fi
             retries=$((retries+1))
             if ! start_zig; then stop_child "$zig_pid";zig_pid=;sleep "$backoff";continue;fi

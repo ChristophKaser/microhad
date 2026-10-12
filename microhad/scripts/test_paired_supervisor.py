@@ -23,6 +23,7 @@ signal.signal(signal.SIGTERM,stop)
 if role=='zig':
  level=sys.argv[sys.argv.index('--log-level')+1]
  with open(os.environ['TEST_EVENTS'],'a') as f:f.write('zig level '+level+'\\n')
+ with open(os.environ['TEST_EVENTS'],'a') as f:f.write('zig raw '+('on' if '--raw-frames' in sys.argv else 'off')+'\\n')
  with open(os.environ['TEST_EVENTS'],'a') as f:f.write('zig no-color '+os.environ.get('NO_COLOR','unset')+'\\n')
  path=sys.argv[sys.argv.index('--listen')+1][5:]
  Path(path).unlink(missing_ok=True)
@@ -148,6 +149,58 @@ class Paired(unittest.TestCase):
         self.assertIn('already using info',self.run_control('log-level','info').stdout)
         self.assertEqual(int((self.control/'ziggurat.pid').read_text()),zig_pid)
         self.quiesce();self.stop()
+
+    def test_raw_frames_control_retains_level_native_and_restart_budget(self):
+        # Existing accounting charges initial startup as one recovery attempt.
+        self.env['RESTART_LIMIT']='2'
+        self.enable_matter();self.start();self.ready()
+        native_pid=int((self.control/'native.pid').read_text())
+        for setting in ('on','off','on'):
+            zig_pid=int((self.control/'ziggurat.pid').read_text())
+            result=self.run_control('raw-frames',setting)
+            self.assertIn('restarting Ziggurat',result.stdout)
+            wait(lambda:int((self.control/'ziggurat.pid').read_text())!=zig_pid)
+            wait(lambda:(self.control/'active-raw-frames').read_text().strip()==setting)
+            self.assertEqual((self.control/'active-log-level').read_text().strip(),'info')
+            self.assertEqual(int((self.control/'native.pid').read_text()),native_pid)
+            self.assertEqual(self.events.read_text().split('zig raw ')[-1].splitlines()[0],setting)
+        self.run_control('log-level','debug')
+        wait(lambda:(self.control/'active-log-level').read_text().strip()=='debug')
+        self.assertEqual((self.control/'active-raw-frames').read_text().strip(),'on')
+        self.assertNotIn('native stop',self.events.read_text())
+        # Diagnostic switches leave the remaining recovery attempt available.
+        os.kill(int((self.control/'ziggurat.pid').read_text()),signal.SIGTERM)
+        wait(lambda:self.events.read_text().count('native start')==2)
+        self.assertEqual((self.control/'active-raw-frames').read_text().strip(),'on')
+        self.assertEqual(self.events.read_text().split('zig raw ')[-1].splitlines()[0],'on')
+        self.quiesce();self.stop()
+        self.events.write_text('');self.start();self.ready()
+        self.assertEqual((self.control/'active-raw-frames').read_text().strip(),'off')
+        self.quiesce();self.stop()
+
+    def test_raw_frames_validation_noop_and_old_supervisor_refusal(self):
+        self.start();self.ready()
+        zig_pid=int((self.control/'ziggurat.pid').read_text())
+        self.assertNotEqual(self.run_control('raw-frames','trace',check=False).returncode,0)
+        self.assertFalse((self.control/'requested-raw-frames').exists())
+        self.assertIn('already using off',self.run_control('raw-frames','off').stdout)
+        (self.control/'active-raw-frames').unlink()
+        self.assertNotEqual(self.run_control('raw-frames','on',check=False).returncode,0)
+        self.assertEqual(int((self.control/'ziggurat.pid').read_text()),zig_pid)
+        self.assertFalse((self.control/'requested-raw-frames').exists())
+        self.quiesce();self.stop()
+
+    def test_raw_frames_startup_default_and_validation(self):
+        self.env['ZIGGURAT_RAW_FRAMES']='on'
+        self.start();self.ready()
+        self.assertIn('zig raw on',self.events.read_text())
+        self.assertEqual((self.control/'active-raw-frames').read_text().strip(),'on')
+        self.quiesce()
+        self.assertNotEqual(self.run_control('raw-frames','off',check=False).returncode,0)
+        self.stop()
+        self.env['ZIGGURAT_RAW_FRAMES']='trace'
+        self.start();self.process.wait(timeout=5)
+        self.assertEqual(self.process.returncode,2)
     def test_matter_log_level_switch_retention_and_budget(self):
         self.enable_matter();self.env['MATTER_RESTART_LIMIT']='1';self.start();self.ready()
         wait(lambda:'matter level info' in self.events.read_text())

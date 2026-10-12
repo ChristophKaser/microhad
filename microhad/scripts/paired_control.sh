@@ -4,11 +4,19 @@
 set -u
 control=${RUNTIME_CONTROL:-/tmp/ziggurat-supervisor}
 case "${1:-}" in
- log-level)
+ log-level|raw-frames)
     level=${2:-}
-    case "$level" in off|error|warn|info|debug|trace) ;; *) echo 'usage: paired_control.sh log-level off|error|warn|info|debug|trace' >&2;exit 2;; esac
+    if [ "$1" = raw-frames ]; then
+        case "$level" in on|off) ;; *) echo 'usage: paired_control.sh raw-frames on|off' >&2;exit 2;; esac
+        setting=raw-frames
+        label='raw frames'
+    else
+        case "$level" in off|error|warn|info|debug|trace) ;; *) echo 'usage: paired_control.sh log-level off|error|warn|info|debug|trace' >&2;exit 2;; esac
+        setting=log-level
+        label='log level'
+    fi
     [ -d "$control" ] && [ -f "$control/supervisor.pid" ] &&
-        [ -f "$control/ziggurat.pid" ] && [ -f "$control/active-log-level" ] &&
+        [ -f "$control/ziggurat.pid" ] && [ -f "$control/active-$setting" ] &&
         [ ! -e "$control/quiesce" ] && [ ! -e "$control/stop" ] || {
         echo 'Paired supervisor or Ziggurat is not running' >&2;exit 1;
     }
@@ -19,19 +27,19 @@ case "${1:-}" in
     kill -0 "$supervisor_pid" 2>/dev/null && kill -0 "$ziggurat_pid" 2>/dev/null || {
         echo 'Paired supervisor or Ziggurat is not running' >&2;exit 1;
     }
-    current=$(cat "$control/active-log-level") || exit 1
+    current=$(cat "$control/active-$setting") || exit 1
     if [ "$current" = "$level" ]; then echo "Ziggurat is already using $level";exit 0;fi
     umask 077
-    staged="$control/requested-log-level.$$"
+    staged="$control/requested-$setting.$$"
     trap 'rm -f "$staged"' EXIT HUP INT TERM
     printf '%s\n' "$level" > "$staged" || exit 1
-    mv "$staged" "$control/requested-log-level" || exit 1
+    mv "$staged" "$control/requested-$setting" || exit 1
     kill -TERM "$ziggurat_pid" 2>/dev/null || {
-        rm -f "$control/requested-log-level"
+        rm -f "$control/requested-$setting"
         echo 'Could not signal Ziggurat' >&2;exit 1;
     }
     trap - EXIT HUP INT TERM
-    echo "Requested Ziggurat log level $level; restarting Ziggurat" ;;
+    echo "Requested Ziggurat $label $level; restarting Ziggurat" ;;
  matter-log-level)
     level=${2:-}
     case "$level" in off|error|warn|info|debug|trace) ;; *) echo 'usage: paired_control.sh matter-log-level off|error|warn|info|debug|trace' >&2;exit 2;; esac
@@ -70,5 +78,5 @@ case "${1:-}" in
  stop)
     [ "${2:-}" = --frozen-snapshot-saved ] && [ -f "$control/quiesced" ] || { echo 'Quiesce and save frozen snapshot first' >&2;exit 2; }
     : > "$control/stop" ;;
- *) echo 'usage: paired_control.sh log-level LEVEL | matter-log-level LEVEL | quiesce | stop --frozen-snapshot-saved' >&2;exit 2;;
+ *) echo 'usage: paired_control.sh log-level LEVEL | raw-frames on|off | matter-log-level LEVEL | quiesce | stop --frozen-snapshot-saved' >&2;exit 2;;
 esac

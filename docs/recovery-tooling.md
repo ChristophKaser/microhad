@@ -25,6 +25,7 @@ On the **gateway**, temporarily select a log level:
 
 ```sh
 /tuya/native/paired_control.sh log-level debug
+/tuya/native/paired_control.sh raw-frames on
 /tuya/native/paired_control.sh matter-log-level debug
 ```
 
@@ -52,11 +53,23 @@ TX timestamps describe host submission, not measured over-the-air transmission.
 Hardware-generated ACKs are not individually captured. An `Ok` result confirms
 an ACK only when the submitted frame requested one.
 
-The existing supervisor `log-level` helper does not enable `--raw-frames`;
-that option must be passed when starting the updated binary. It can also be
-selected with `RUST_LOG=info,ziggurat_raw=trace`. These features require the
-updated binary to be deployed; changing the log level on an older release does
-not add asynchronous logging or raw-frame mode.
+With the updated supervisor and control helper, use
+`/tuya/native/paired_control.sh raw-frames on` or `raw-frames off` to restart
+Ziggurat with packet capture enabled or disabled. The setting is independent
+of the ordinary log level and survives child restarts for the supervisor's
+lifetime. A fresh supervisor starts with `ZIGGURAT_RAW_FRAMES` (`off` by default;
+accepted values are `on` and `off`). Repeating the current setting does not
+restart anything, and diagnostic switches do not consume the failure restart
+budget. As with a log-level change, the native daemon reconnects and Matter
+may restart if its radio transport exits. Active state is recorded as
+`active-raw-frames` in the private runtime control directory.
+
+The binary option can also be selected with `RUST_LOG=info,ziggurat_raw=trace`.
+The switch controls `--raw-frames`; an explicit `RUST_LOG` directive enabling
+the raw target or a general `trace` level still produces raw records. These
+features require the updated binary and supervisor to be deployed. The helper
+refuses a raw-frame request against an older supervisor without the active
+state file, rather than restarting it with an unsupported request.
 
 ## Supervisor and startup
 
