@@ -27,6 +27,66 @@
 
 class GatewayTestPeer {
 public:
+    static void contactAlertsSurviveRestart() {
+        char directory[] = "/tmp/microhad-contact-restart-XXXXXX";
+        assert(mkdtemp(directory));
+        const std::string values = "/tmp/microhad-values.json";
+        const std::string backup = std::string(directory) + "/values-backup.json";
+        const bool hadValues = rename(values.c_str(), backup.c_str()) == 0;
+        std::string error;
+        std::vector<Device> saved(4);
+        const char* ids[] = {"open", "closed", "trigger", "disabled"};
+        for (unsigned int i = 0; i < saved.size(); ++i) {
+            saved[i].ieeeAddress = ids[i];
+            saved[i].hasContact = true;
+            saved[i].contactKnown = true;
+            saved[i].contactOpen = i != 1;
+            saved[i].contactInitialAlertMinutes = 20;
+            saved[i].contactReminderAlertMinutes = 7;
+        }
+        saved[2].contactTriggerMode = true;
+        saved[3].contactReminderAlertMinutes = 0;
+        assert(saveDevices(std::string(directory) + "/devices.json", saved, &error));
+        assert(saveDevices(values, saved, &error));
+        NotificationWorker worker(directory, "", "", "");
+        assert(worker.start(&error));
+        for (unsigned int disabled = 0; disabled < 2; ++disabled) {
+            assert(worker.setEnabled(disabled == 0, &error));
+            Gateway restarted("/dev/null", 115200, directory, "", "", "", &worker);
+            const long before = time(0);
+            restarted.loadState();
+            assert(restarted.nextContactAlertAt_.size() == 1);
+            assert(restarted.contactOpenedAt_.size() == 1);
+            const long deadline = restarted.nextContactAlertAt_["open"];
+            assert(deadline >= before + 20 * 60 && deadline <= time(0) + 20 * 60);
+            assert(restarted.nextContactTriggerAt_.empty());
+            assert(logOccurrences(restarted, "Notification queued:") == 0);
+            std::vector<unsigned char> open(2, 0);
+            open[0] = 1;
+            assert(restarted.applyIasZoneStatus("open", open));
+            assert(restarted.nextContactAlertAt_["open"] == deadline);
+            restarted.nextContactAlertAt_["open"] = time(0) - 1;
+            restarted.poll();
+            assert(restarted.nextContactAlertAt_["open"] >= time(0) + 7 * 60 - 1);
+            assert(logOccurrences(restarted, "Notification queued: Window open") == (disabled ? 0 : 1));
+            assert(logOccurrences(restarted, "Notification suppressed:") == 0);
+            restarted.nextContactAlertAt_["open"] = time(0) - 1;
+            restarted.poll();
+            assert(logOccurrences(restarted, "Notification queued: Window open") == (disabled ? 0 : 2));
+            std::vector<unsigned char> closed(2, 0);
+            assert(restarted.applyIasZoneStatus("open", closed));
+            assert(restarted.nextContactAlertAt_.empty());
+            assert(restarted.contactOpenedAt_.empty());
+            // Restore the original snapshot for the disabled-push iteration.
+            assert(saveDevices(values, saved, &error));
+        }
+        worker.stop();
+        unlink(values.c_str());
+        if (hadValues) assert(rename(backup.c_str(), values.c_str()) == 0);
+        unlink((std::string(directory) + "/devices.json").c_str());
+        unlink((std::string(directory) + "/notifications.json").c_str());
+        rmdir(directory);
+    }
     static void reportingConfigurationPersistence() {
         char directory[] = "/tmp/microhad-reporting-config-XXXXXX";
         assert(mkdtemp(directory));
@@ -3149,6 +3209,7 @@ void runUnitTests() {
     testContactNotificationIsDeferred();
     testTemperatureThresholdAlerts();
     testContactAlertReminders();
+    GatewayTestPeer::contactAlertsSurviveRestart();
     testNotificationTogglePersistence();
     testPresenceBasedPushRouting();
     testPushDeviceRegistry();

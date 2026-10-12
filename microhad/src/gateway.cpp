@@ -3413,6 +3413,14 @@ void Gateway::loadState() {
             }
         }
     }
+    // Open state survives a service restart in RAM, but its alert timers do not.
+    // Start a fresh initial delay after both device stores have been restored.
+    for (std::map<std::string, Device>::const_iterator device = devices_.begin();
+         device != devices_.end(); ++device) {
+        if (device->second.hasContact && device->second.contactOpen &&
+            !device->second.contactTriggerMode && device->second.contactReminderAlertMinutes != 0)
+            updateContactAlert(device->first, false, false);
+    }
     error.clear();
     if (loadNetworkState(runtimeDirectory_ + "/network.json", &network, &error) && network.formed) {
         networkFormed_ = true;
