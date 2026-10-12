@@ -40,6 +40,7 @@ else:
  if role=='matter':
   level=sys.argv[sys.argv.index('--log-level')+1]
   with open(os.environ['TEST_EVENTS'],'a') as f:f.write('matter level '+level+'\\n')
+  with open(os.environ['TEST_EVENTS'],'a') as f:f.write('matter raw '+('on' if '--raw-frames' in sys.argv else 'off')+'\\n')
  if role=='native' and os.environ.get('TEST_EXIT')=='1':raise SystemExit(0)
  if role=='matter' and os.environ.get('TEST_MATTER_EXIT')=='1':raise SystemExit(1)
  while True:time.sleep(.1)
@@ -243,6 +244,53 @@ class Paired(unittest.TestCase):
         self.assertNotEqual(self.run_control('matter-log-level','trace',check=False).returncode,0)
         self.quiesce();self.stop()
         self.env['MATTER_LOG_LEVEL']='verbose';self.start();self.process.wait(timeout=5)
+        self.assertEqual(self.process.returncode,2)
+
+    def test_matter_raw_frames_controls_only_matter_and_retains_level(self):
+        self.enable_matter();self.env['MATTER_RESTART_LIMIT']='2';self.start();self.ready()
+        wait(lambda:(self.control/'active-matter-raw-frames').exists())
+        native_pid=int((self.control/'native.pid').read_text())
+        zig_pid=int((self.control/'ziggurat.pid').read_text())
+        for setting in ('on','off','on'):
+            matter_pid=int((self.control/'matter.pid').read_text())
+            self.run_control('matter-raw-frames',setting)
+            wait(lambda:(self.control/'matter.pid').exists() and int((self.control/'matter.pid').read_text())!=matter_pid)
+            wait(lambda:(self.control/'active-matter-raw-frames').exists() and (self.control/'active-matter-raw-frames').read_text().strip()==setting)
+            self.assertEqual((self.control/'active-matter-log-level').read_text().strip(),'info')
+            self.assertEqual(int((self.control/'native.pid').read_text()),native_pid)
+            self.assertEqual(int((self.control/'ziggurat.pid').read_text()),zig_pid)
+            wait(lambda:self.events.read_text().split('matter raw ')[-1].splitlines()[0]==setting)
+        self.run_control('matter-log-level','debug')
+        wait(lambda:(self.control/'active-matter-log-level').exists() and (self.control/'active-matter-log-level').read_text().strip()=='debug')
+        self.assertEqual((self.control/'active-matter-raw-frames').read_text().strip(),'on')
+        matter_pid=int((self.control/'matter.pid').read_text())
+        self.assertIn('already using on',self.run_control('matter-raw-frames','on').stdout)
+        self.assertNotEqual(self.run_control('matter-raw-frames','trace',check=False).returncode,0)
+        self.assertEqual(int((self.control/'matter.pid').read_text()),matter_pid)
+        # Startup plus one unexpected failure fits the untouched recovery budget.
+        os.kill(matter_pid,signal.SIGTERM)
+        wait(lambda:(self.control/'matter.pid').exists() and int((self.control/'matter.pid').read_text())!=matter_pid)
+        wait(lambda:self.events.read_text().count('matter raw on')==4)
+        self.assertEqual((self.control/'active-matter-raw-frames').read_text().strip(),'on')
+        self.assertEqual((self.control/'active-matter-log-level').read_text().strip(),'debug')
+        self.assertEqual(int((self.control/'native.pid').read_text()),native_pid)
+        self.assertEqual(int((self.control/'ziggurat.pid').read_text()),zig_pid)
+        self.quiesce()
+        self.assertNotEqual(self.run_control('matter-raw-frames','off',check=False).returncode,0)
+        self.stop()
+
+    def test_matter_raw_frames_startup_and_old_supervisor_refusal(self):
+        self.assertNotEqual(self.run_control('matter-raw-frames','on',check=False).returncode,0)
+        self.enable_matter();self.env['MATTER_RAW_FRAMES']='on';self.start();self.ready()
+        wait(lambda:(self.control/'active-matter-raw-frames').exists())
+        self.assertEqual((self.control/'active-matter-raw-frames').read_text().strip(),'on')
+        wait(lambda:'matter raw on' in self.events.read_text())
+        matter_pid=int((self.control/'matter.pid').read_text())
+        (self.control/'active-matter-raw-frames').unlink()
+        self.assertNotEqual(self.run_control('matter-raw-frames','off',check=False).returncode,0)
+        self.assertEqual(int((self.control/'matter.pid').read_text()),matter_pid)
+        self.quiesce();self.stop()
+        self.env['MATTER_RAW_FRAMES']='verbose';self.start();self.process.wait(timeout=5)
         self.assertEqual(self.process.returncode,2)
 
     def test_native_crash_restarts_without_second_radio_owner_and_budget_bounds(self):

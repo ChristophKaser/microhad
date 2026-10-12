@@ -247,7 +247,9 @@ fn publish_thread(
     Ok(())
 }
 
-fn run() -> Result<(), Box<dyn std::error::Error>> {
+fn run(
+    log_guard: &mut Option<micro_thread_matter_daemon::logging::WorkerGuard>,
+) -> Result<(), Box<dyn std::error::Error>> {
     unsafe {
         libc::umask(0o077);
         let no_core = libc::rlimit {
@@ -267,8 +269,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut administrator_vendor = 0xfff1u16;
     let mut validate_only = false;
     let mut log_level = log::LevelFilter::Info;
+    let mut raw_frames = false;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
+        if arg == "--raw-frames" {
+            raw_frames = true;
+            continue;
+        }
         let value = args.next().ok_or("missing option value")?;
         match arg.as_str() {
             "--log-level" => log_level = micro_thread_matter_daemon::logging::parse_level(&value)?,
@@ -283,8 +290,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             _ => return Err("unknown option".into()),
         }
     }
-    micro_thread_matter_daemon::logging::init(log_level)
-        .map_err(|_| "logger initialization failed")?;
+    *log_guard = Some(
+        micro_thread_matter_daemon::logging::init(log_level, raw_frames)
+            .map_err(|_| "logger initialization failed")?,
+    );
     if !state.is_absolute() {
         return Err("absolute state directory required".into());
     }
@@ -475,7 +484,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 fn main() {
-    if run().is_err() {
+    let mut log_guard = None;
+    if run(&mut log_guard).is_err() {
         // Errors deliberately omit CLI inputs, blobs and credential contents.
         if !micro_thread_matter_daemon::logging::initialized() {
             // CLI failures happen before the logger is installed.
@@ -483,6 +493,7 @@ fn main() {
         } else {
             log::error!("Matter controller service failed");
         }
+        drop(log_guard);
         std::process::exit(1);
     }
 }

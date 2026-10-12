@@ -27,6 +27,7 @@ On the **gateway**, temporarily select a log level:
 /tuya/native/paired_control.sh log-level debug
 /tuya/native/paired_control.sh raw-frames on
 /tuya/native/paired_control.sh matter-log-level debug
+/tuya/native/paired_control.sh matter-raw-frames on
 ```
 
 Levels are `off`, `error`, `warn`, `info`, `debug`, `trace`. The first command
@@ -70,6 +71,26 @@ the raw target or a general `trace` level still produces raw records. These
 features require the updated binary and supervisor to be deployed. The helper
 refuses a raw-frame request against an older supervisor without the active
 state file, rather than restarting it with an unsupported request.
+
+Matter uses the same bounded asynchronous output design, retaining syslog
+severity and the existing 174-byte fragment limit. The updated service accepts
+`--log-level info --raw-frames` for packet-only diagnostics. It records incoming
+and outgoing OpenThread UDP payloads, peer IPv6 addresses and ports, and host
+timestamps in microseconds under the `matter_raw` target. Outgoing records
+include the OpenThread send result: `0` means local acceptance, not an accessory
+acknowledgment. Payloads are recorded at the transport boundary, before Matter
+decryption on receive and after Matter encryption on send; unsecured Matter
+messages remain unsecured. These are UDP records, not 802.15.4 radio frames or
+Thread routing captures. Formatting still costs CPU, and overload drops whole
+entries with an explicit warning.
+
+Use `/tuya/native/paired_control.sh matter-raw-frames on` or `matter-raw-frames off`
+to restart only Matter with capture enabled or disabled, independently of its
+normal log level and the Zigbee capture switch. This does not consume the Matter
+failure restart budget. The setting survives child restarts for the supervisor's
+lifetime, resetting to `MATTER_RAW_FRAMES` (`off` by default, `on` or `off`) on a
+fresh supervisor. Active state is recorded in `active-matter-raw-frames`. Both
+the updated service and supervisor must be installed to use this control.
 
 ## Supervisor and startup
 

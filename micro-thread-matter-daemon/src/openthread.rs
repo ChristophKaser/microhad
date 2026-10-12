@@ -157,7 +157,8 @@ impl OpenThread {
             packets: VecDeque::new(),
             waker: None,
         }));
-        let id = unsafe { gatewayOtOpen(port, receive, (&mut *queue as *mut RefCell<Queue>).cast()) };
+        let id =
+            unsafe { gatewayOtOpen(port, receive, (&mut *queue as *mut RefCell<Queue>).cast()) };
         if id < 0 {
             return Err(ErrorCode::NoNetworkInterface.into());
         }
@@ -188,16 +189,18 @@ extern "C" fn receive(
     let cell = unsafe { &*context.cast::<RefCell<Queue>>() };
     let peer = unsafe { *peer };
     let bytes = unsafe { core::slice::from_raw_parts(data, length as usize) };
-    let mut queue = cell.borrow_mut();
-    if queue.packets.len() >= 8 {
-        return;
-    } // Bounded loss; Matter MRP retries UDP packets.
     let address = Address::Udp(SocketAddr::V6(SocketAddrV6::new(
         peer.ip.into(),
         peer.port,
         0,
         0,
     )));
+    #[cfg(feature = "controller-service")]
+    crate::logging::packet_received(&address, bytes);
+    let mut queue = cell.borrow_mut();
+    if queue.packets.len() >= 8 {
+        return;
+    } // Bounded loss; Matter MRP retries UDP packets.
     queue.packets.push_back((bytes.to_vec(), address));
     let waker = queue.waker.take();
     drop(queue);
@@ -228,7 +231,10 @@ impl NetworkSend for &ThreadNetwork<'_> {
             ip: address.ip().octets(),
             port: address.port(),
         };
-        checked(unsafe { gatewayOtSend(self.id, &peer, data.as_ptr(), data.len() as u16) })
+        let result = unsafe { gatewayOtSend(self.id, &peer, data.as_ptr(), data.len() as u16) };
+        #[cfg(feature = "controller-service")]
+        crate::logging::packet_sent(&address, data, result);
+        checked(result)
     }
 }
 impl NetworkReceive for &ThreadNetwork<'_> {

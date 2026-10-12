@@ -58,5 +58,10 @@ name = "mthread-matter"
 path = "src/bin/service.rs"
 required-features = ["controller-service"]
 
+[[example]]
+name = "logging-capture-probe"
+path = "tests/helpers/logging-capture-probe.rs"
+required-features = ["controller-service"]
+
 [target.'cfg(all(target_arch = "mips", target_env = "uclibc"))'.dependencies]
 ziggurat-stock-uclibc-compat = { path = "../ziggurat/stock-uclibc-compat" }

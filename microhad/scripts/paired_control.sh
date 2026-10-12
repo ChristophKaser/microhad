@@ -40,11 +40,19 @@ case "${1:-}" in
     }
     trap - EXIT HUP INT TERM
     echo "Requested Ziggurat $label $level; restarting Ziggurat" ;;
- matter-log-level)
+ matter-log-level|matter-raw-frames)
     level=${2:-}
-    case "$level" in off|error|warn|info|debug|trace) ;; *) echo 'usage: paired_control.sh matter-log-level off|error|warn|info|debug|trace' >&2;exit 2;; esac
+    if [ "$1" = matter-raw-frames ]; then
+        case "$level" in on|off) ;; *) echo 'usage: paired_control.sh matter-raw-frames on|off' >&2;exit 2;; esac
+        setting=matter-raw-frames
+        label='raw frames'
+    else
+        case "$level" in off|error|warn|info|debug|trace) ;; *) echo 'usage: paired_control.sh matter-log-level off|error|warn|info|debug|trace' >&2;exit 2;; esac
+        setting=matter-log-level
+        label='log level'
+    fi
     [ -d "$control" ] && [ -f "$control/supervisor.pid" ] &&
-        [ -f "$control/matter.pid" ] && [ -f "$control/active-matter-log-level" ] &&
+        [ -f "$control/matter.pid" ] && [ -f "$control/active-$setting" ] &&
         [ ! -e "$control/quiesce" ] && [ ! -e "$control/stop" ] || {
         echo 'Paired supervisor or Matter is not running' >&2;exit 1;
     }
@@ -55,19 +63,19 @@ case "${1:-}" in
     kill -0 "$supervisor_pid" 2>/dev/null && kill -0 "$matter_pid" 2>/dev/null || {
         echo 'Paired supervisor or Matter is not running' >&2;exit 1;
     }
-    current=$(cat "$control/active-matter-log-level") || exit 1
+    current=$(cat "$control/active-$setting") || exit 1
     if [ "$current" = "$level" ]; then echo "Matter is already using $level";exit 0;fi
     umask 077
-    staged="$control/requested-matter-log-level.$$"
+    staged="$control/requested-$setting.$$"
     trap 'rm -f "$staged"' EXIT HUP INT TERM
     printf '%s\n' "$level" > "$staged" || exit 1
-    mv "$staged" "$control/requested-matter-log-level" || exit 1
+    mv "$staged" "$control/requested-$setting" || exit 1
     kill -TERM "$matter_pid" 2>/dev/null || {
-        rm -f "$control/requested-matter-log-level"
+        rm -f "$control/requested-$setting"
         echo 'Could not signal Matter' >&2;exit 1;
     }
     trap - EXIT HUP INT TERM
-    echo "Requested Matter log level $level; restarting Matter" ;;
+    echo "Requested Matter $label $level; restarting Matter" ;;
  quiesce)
     [ -f "$control/supervisor.pid" ] || exit 1
     : > "$control/quiesce"
@@ -78,5 +86,5 @@ case "${1:-}" in
  stop)
     [ "${2:-}" = --frozen-snapshot-saved ] && [ -f "$control/quiesced" ] || { echo 'Quiesce and save frozen snapshot first' >&2;exit 2; }
     : > "$control/stop" ;;
- *) echo 'usage: paired_control.sh log-level LEVEL | raw-frames on|off | matter-log-level LEVEL | quiesce | stop --frozen-snapshot-saved' >&2;exit 2;;
+ *) echo 'usage: paired_control.sh log-level LEVEL | raw-frames on|off | matter-log-level LEVEL | matter-raw-frames on|off | quiesce | stop --frozen-snapshot-saved' >&2;exit 2;;
 esac

@@ -1,4 +1,6 @@
 //! Controller building blocks for the factory gateway; with an optional userspace OpenThread transport.
+#[cfg(feature = "controller-service")]
+mod async_logging;
 pub mod ble;
 #[cfg(feature = "controller-identity")]
 pub mod catalog;
@@ -11,13 +13,13 @@ pub mod identity;
 pub mod ipc;
 #[cfg(feature = "controller-service")]
 pub mod logging;
-mod wire_cbor;
-mod wire_shapes;
 #[cfg(feature = "control-ipc")]
 pub mod sessions;
 pub mod store;
 #[cfg(feature = "controller-service")]
 pub mod subscriptions;
+mod wire_cbor;
+mod wire_shapes;
 
 #[cfg(feature = "controller-service")]
 pub mod controller;

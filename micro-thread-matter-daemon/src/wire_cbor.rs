@@ -367,13 +367,7 @@ pub fn decode(bytes: &[u8]) -> Result<Frame, ProtocolError> {
 fn warning(opcode: u8, count: usize) {
     #[cfg(feature = "controller-service")]
     {
-        let message = std::ffi::CString::new(format!(
-            "Matter IPC opcode {opcode}: ignored {count} unknown fields"
-        ))
-        .unwrap();
-        unsafe {
-            libc::syslog(libc::LOG_WARNING, b"%s\0".as_ptr().cast(), message.as_ptr());
-        }
+        log::warn!("Matter IPC opcode {opcode}: ignored {count} unknown fields");
     }
     #[cfg(not(feature = "controller-service"))]
     log::debug!("Matter IPC opcode {opcode}: ignored {count} unknown fields");

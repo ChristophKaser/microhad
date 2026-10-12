@@ -1,7 +1,10 @@
 //! Bounded log fragments for the gateway's 255-byte syslog receive limit.
 
+use crate::async_logging::AsyncOutput;
+pub use crate::async_logging::WorkerGuard;
 use std::io::{self, Write};
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::OnceLock;
 
 // The pinned uClibc reserves at most 64 bytes plus the tag for its header.
 // 174 + 64 + "mthread-matter".len() + terminating NUL = 253.
@@ -239,6 +242,13 @@ mod tests {
 }
 
 struct Logger;
+struct LogOutput {
+    output: AsyncOutput,
+    level: log::LevelFilter,
+    raw_frames: bool,
+}
+static OUTPUT: OnceLock<LogOutput> = OnceLock::new();
+const RAW_TARGET: &str = "matter_raw";
 static LOGGER: Logger = Logger;
 static INITIALIZED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 pub fn initialized() -> bool {
@@ -268,12 +278,24 @@ fn priority(level: log::Level) -> i32 {
 
 impl log::Log for Logger {
     fn enabled(&self, metadata: &log::Metadata<'_>) -> bool {
-        metadata.level() <= log::max_level()
+        OUTPUT.get().map_or_else(
+            || metadata.level() <= log::max_level(),
+            |output| {
+                enabled(
+                    metadata.level(),
+                    metadata.target(),
+                    output.level,
+                    output.raw_frames,
+                )
+            },
+        )
     }
     fn log(&self, record: &log::Record<'_>) {
         if self.enabled(record.metadata()) {
-            let mut writer = SyslogWriter::new();
-            writer.priority = priority(record.level());
+            let Some(output) = OUTPUT.get() else {
+                return;
+            };
+            let mut writer = output.output.entry(priority(record.level()));
             let _ = writeln!(
                 writer,
                 "{} {}: {}",
@@ -286,7 +308,21 @@ impl log::Log for Logger {
     fn flush(&self) {}
 }
 
-pub fn init(level: log::LevelFilter) -> Result<(), log::SetLoggerError> {
+fn enabled(level: log::Level, target: &str, normal: log::LevelFilter, raw: bool) -> bool {
+    level <= normal || (raw && target == RAW_TARGET)
+}
+
+pub(crate) fn emit(priority: i32, entry: &[u8]) {
+    let mut writer = SyslogWriter::new();
+    writer.priority = priority;
+    let _ = writer.write_all(entry);
+    let _ = writer.flush();
+}
+
+pub fn init(
+    level: log::LevelFilter,
+    raw_frames: bool,
+) -> Result<WorkerGuard, Box<dyn std::error::Error>> {
     unsafe {
         libc::openlog(
             b"mthread-matter\0".as_ptr().cast(),
@@ -294,16 +330,80 @@ pub fn init(level: log::LevelFilter) -> Result<(), log::SetLoggerError> {
             libc::LOG_DAEMON,
         );
     }
-    log::set_logger(&LOGGER)?;
-    log::set_max_level(level);
+    let (output, guard) = AsyncOutput::start()?;
+    OUTPUT
+        .set(LogOutput {
+            output,
+            level,
+            raw_frames,
+        })
+        .map_err(|_| "logger already initialized")?;
+    log::set_logger(&LOGGER).map_err(|_| "logger already installed")?;
+    log::set_max_level(if raw_frames {
+        log::LevelFilter::Trace
+    } else {
+        level
+    });
     INITIALIZED.store(true, Ordering::Relaxed);
-    Ok(())
+    Ok(guard)
+}
+
+pub fn packet_received(peer: &impl std::fmt::Display, bytes: &[u8]) {
+    if log::log_enabled!(target: RAW_TARGET, log::Level::Trace) {
+        log::trace!(target: RAW_TARGET, "RX unix_us={} peer={peer} length={} payload={:02X?}", packet_time(), bytes.len(), bytes);
+    }
+}
+
+pub fn packet_sent(peer: &impl std::fmt::Display, bytes: &[u8], result: i32) {
+    if log::log_enabled!(target: RAW_TARGET, log::Level::Trace) {
+        log::trace!(target: RAW_TARGET, "TX unix_us={} peer={peer} length={} result={result} payload={:02X?}", packet_time(), bytes.len(), bytes);
+    }
+}
+
+fn packet_time() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_micros()
 }
 
 #[cfg(test)]
 mod logger_tests {
     use super::*;
     use log::Log;
+    #[test]
+    fn packet_capture_does_not_enable_general_trace() {
+        assert!(enabled(
+            log::Level::Trace,
+            RAW_TARGET,
+            log::LevelFilter::Info,
+            true
+        ));
+        assert!(!enabled(
+            log::Level::Trace,
+            "rs_matter",
+            log::LevelFilter::Info,
+            true
+        ));
+        assert!(enabled(
+            log::Level::Info,
+            "rs_matter",
+            log::LevelFilter::Info,
+            true
+        ));
+        assert!(!enabled(
+            log::Level::Trace,
+            RAW_TARGET,
+            log::LevelFilter::Info,
+            false
+        ));
+        assert!(enabled(
+            log::Level::Trace,
+            RAW_TARGET,
+            log::LevelFilter::Trace,
+            false
+        ));
+    }
     #[test]
     fn levels_filter_and_map_to_syslog() {
         for (name, level) in [
