@@ -35,6 +35,29 @@ without consuming its failure budget. Levels last for the current supervisor
 and reset to `ZIGGURAT_LOG_LEVEL` / `MATTER_LOG_LEVEL` (normally `info`) on a fresh
 launch. Return to `info` after diagnosis. Matter trace can expose decrypted data.
 
+Ziggurat's asynchronous logger queues at most 16 complete entries of up to
+16 KiB each. A dedicated thread fragments and writes them to syslog, so a slow
+syslog receiver cannot block the radio tasks. On overload it drops whole entries
+and reports the number lost. Existing fragment markers and host collection remain
+compatible. Event formatting still costs CPU; full `trace` can perturb timing.
+
+For Zigbee packet investigation, the updated Ziggurat binary accepts
+`--log-level info --raw-frames`. This enables only the `ziggurat_raw` trace target
+alongside normal informational logs, without verbose stack or Spinel trace.
+RX records contain PSDU bytes including FCS, channel, RSSI, LQI, radio timestamp,
+and the radio's metadata flags (`0x0010` means ACK with frame-pending set).
+TX records contain the submitted PSDU including FCS and the subsequent radio
+result (`Ok`, `NoAck`, or `CcaFailure`), correlated by MAC sequence number.
+TX timestamps describe host submission, not measured over-the-air transmission.
+Hardware-generated ACKs are not individually captured. An `Ok` result confirms
+an ACK only when the submitted frame requested one.
+
+The existing supervisor `log-level` helper does not enable `--raw-frames`;
+that option must be passed when starting the updated binary. It can also be
+selected with `RUST_LOG=info,ziggurat_raw=trace`. These features require the
+updated binary to be deployed; changing the log level on an older release does
+not add asynchronous logging or raw-frame mode.
+
 ## Supervisor and startup
 
 `/tuya/tuya_start.sh` starts the paired supervisor once. Its private control

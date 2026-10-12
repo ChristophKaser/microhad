@@ -82,6 +82,7 @@ def main() -> int:
             if args.multipan == "1":
                 names.extend(PATCHES["multipan_after_common"])
             names.append("ziggurat-syslog-fragments.patch")
+            names.append("ziggurat-async-syslog.patch")
             for name in names:
                 run(["git", "-C", str(expected), "am", str(root / "ziggurat/patches" / name)])
 

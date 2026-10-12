@@ -1,0 +1,379 @@
+From 102cf2932f235ff8e3faa43610169d3f37a89b9d Mon Sep 17 00:00:00 2001
+From: Christoph Kaser <christoph@caser.de>
+Date: Mon, 12 Oct 2026 08:41:48 +0200
+Subject: [PATCH] ziggurat: decouple syslog and add focused raw-frame capture
+
+---
+ crates/ziggurat-phy-spinel/Cargo.toml      |   1 +
+ crates/ziggurat-phy-spinel/src/lib.rs      |  18 ++
+ crates/ziggurat-server/src/async_syslog.rs | 221 +++++++++++++++++++++
+ crates/ziggurat-server/src/main.rs         |  23 ++-
+ 4 files changed, 256 insertions(+), 7 deletions(-)
+ create mode 100644 crates/ziggurat-server/src/async_syslog.rs
+
+diff --git a/crates/ziggurat-phy-spinel/Cargo.toml b/crates/ziggurat-phy-spinel/Cargo.toml
+index ad6f5c4..a14bd23 100644
+--- a/crates/ziggurat-phy-spinel/Cargo.toml
++++ b/crates/ziggurat-phy-spinel/Cargo.toml
+@@ -14,4 +14,5 @@ ziggurat-phy.workspace = true
+ ziggurat-spinel.workspace = true
+ 
+ parking_lot = "0.12.5"
++tracing = "0.1"
+ tokio = { version = "1.53.1", features = ["rt", "time", "sync"] }
+diff --git a/crates/ziggurat-phy-spinel/src/lib.rs b/crates/ziggurat-phy-spinel/src/lib.rs
+index 1b3f0bb..b827d28 100644
+--- a/crates/ziggurat-phy-spinel/src/lib.rs
++++ b/crates/ziggurat-phy-spinel/src/lib.rs
+@@ -97,11 +97,13 @@ impl ExclusiveRadio for SpinelExclusive<'_> {
+     async fn transmit(&self, frame: TxFrame) -> Result<TxResult, RadioError> {
+         let home = *self.phy.home_channel.lock();
+         let spinel_frame = tx_frame_to_spinel(frame, home);
++        trace_raw_tx(&spinel_frame);
+         let status = self
+             .guard
+             .transmit_frame(&spinel_frame)
+             .await
+             .map_err(map_err)?;
++        trace_raw_result(&spinel_frame, status);
+         Ok(map_status(status))
+     }
+ }
+@@ -115,6 +117,10 @@ fn spawn_rx_forwarder(mut raw: mpsc::Receiver<SpinelFramePropValueIs>, slot: Slo
+             if frame.psdu.len() < 2 {
+                 continue;
+             }
++            tracing::trace!(target: "ziggurat_raw",
++                "RX channel={} rssi={} lqi={} radio_us={} flags=0x{:04X} psdu={:02X?}",
++                frame.channel, frame.rssi, frame.lqi, frame.timestamp_us,
++                frame.flags & 0xffff, frame.psdu);
+             let rx = RxFrame {
+                 psdu: frame.psdu[..frame.psdu.len() - 2].to_vec(),
+                 channel: frame.channel,
+@@ -161,6 +167,16 @@ const fn map_status(status: SpinelStatus) -> TxResult {
+     }
+ }
+ 
++fn trace_raw_tx(frame: &SpinelTxFrame) {
++    tracing::trace!(target: "ziggurat_raw", "TX channel={:?} psdu={:02X?}",
++        frame.channel, frame.psdu);
++}
++
++fn trace_raw_result(frame: &SpinelTxFrame, status: SpinelStatus) {
++    tracing::trace!(target: "ziggurat_raw", "TX result sequence={:?} status={status:?}",
++        frame.psdu.get(2));
++}
++
+ async fn set_spinel_prop(
+     client: &SpinelClient,
+     id: SpinelPropertyId,
+@@ -308,11 +324,13 @@ impl RadioPhy for SpinelPhy {
+     async fn transmit(&self, frame: TxFrame) -> Result<TxResult, RadioError> {
+         let home = *self.home_channel.lock();
+         let spinel_frame = tx_frame_to_spinel(frame, home);
++        trace_raw_tx(&spinel_frame);
+         let status = self
+             .client
+             .transmit_frame(&spinel_frame)
+             .await
+             .map_err(map_err)?;
++        trace_raw_result(&spinel_frame, status);
+         Ok(map_status(status))
+     }
+ 
+diff --git a/crates/ziggurat-server/src/async_syslog.rs b/crates/ziggurat-server/src/async_syslog.rs
+new file mode 100644
+index 0000000..c55ed3f
+--- /dev/null
++++ b/crates/ziggurat-server/src/async_syslog.rs
+@@ -0,0 +1,221 @@
++//! Whole-entry, bounded handoff: radio tasks never call libc syslog.
++
++use std::io::{self, Write};
++use std::sync::Arc;
++use std::sync::atomic::{AtomicU32, Ordering};
++use std::sync::mpsc::{self, SyncSender};
++use std::thread::{self, JoinHandle};
++
++// At most 256 KiB of queued text, plus the entry being emitted. Long frames
++// remain intact; overload drops whole entries rather than orphaning fragments.
++const QUEUE_DEPTH: usize = 16;
++const MAX_ENTRY_BYTES: usize = 16 * 1024;
++
++enum Message {
++    Entry(Vec<u8>),
++    Shutdown,
++}
++
++#[derive(Clone)]
++pub(crate) struct LogWriter {
++    sender: SyncSender<Message>,
++    dropped: Arc<AtomicU32>,
++}
++
++pub(crate) struct EntryWriter {
++    output: LogWriter,
++    bytes: Vec<u8>,
++    oversized: bool,
++}
++
++pub(crate) struct WorkerGuard {
++    output: LogWriter,
++    thread: Option<JoinHandle<()>>,
++}
++
++impl LogWriter {
++    pub(crate) fn start() -> io::Result<(Self, WorkerGuard)> {
++        Self::start_with_sink(|entry| {
++            let mut sink = super::syslog::SyslogWriter::new();
++            let _ = sink.write_all(entry);
++            let _ = sink.flush();
++        })
++    }
++
++    fn start_with_sink<F>(mut sink: F) -> io::Result<(Self, WorkerGuard)>
++    where
++        F: FnMut(&[u8]) + Send + 'static,
++    {
++        let (sender, receiver) = mpsc::sync_channel(QUEUE_DEPTH);
++        let dropped = Arc::new(AtomicU32::new(0));
++        let worker_dropped = dropped.clone();
++        let thread = thread::Builder::new()
++            .name("ziggurat-log".into())
++            .stack_size(128 * 1024)
++            .spawn(move || {
++                while let Ok(message) = receiver.recv() {
++                    let shutdown = matches!(message, Message::Shutdown);
++                    match message {
++                        Message::Entry(entry) => sink(&entry),
++                        Message::Shutdown => {}
++                    }
++                    let lost = worker_dropped.swap(0, Ordering::Relaxed);
++                    if lost != 0 {
++                        sink(format!("WARN ziggurat: dropped {lost} complete log entries (queue full or entry exceeded {MAX_ENTRY_BYTES} bytes)\n").as_bytes());
++                    }
++                    if shutdown {
++                        break;
++                    }
++                }
++            })?;
++        let output = Self { sender, dropped };
++        let guard = WorkerGuard {
++            output: output.clone(),
++            thread: Some(thread),
++        };
++        Ok((output, guard))
++    }
++
++    pub(crate) fn entry(&self) -> EntryWriter {
++        EntryWriter {
++            output: self.clone(),
++            bytes: Vec::new(),
++            oversized: false,
++        }
++    }
++}
++
++impl Write for EntryWriter {
++    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
++        if !self.oversized {
++            if bytes.len() > MAX_ENTRY_BYTES - self.bytes.len() {
++                self.oversized = true;
++                self.bytes.clear();
++            } else {
++                self.bytes.extend_from_slice(bytes);
++            }
++        }
++        Ok(bytes.len())
++    }
++
++    fn flush(&mut self) -> io::Result<()> {
++        // tracing owns one writer per event. Keep it whole until Drop, including
++        // if its formatter flushes in the middle of an entry.
++        Ok(())
++    }
++}
++
++impl Drop for EntryWriter {
++    fn drop(&mut self) {
++        if self.oversized {
++            self.output.dropped.fetch_add(1, Ordering::Relaxed);
++        } else if !self.bytes.is_empty()
++            && self
++                .output
++                .sender
++                .try_send(Message::Entry(std::mem::take(&mut self.bytes)))
++                .is_err()
++        {
++            self.output.dropped.fetch_add(1, Ordering::Relaxed);
++        }
++    }
++}
++
++impl Drop for WorkerGuard {
++    fn drop(&mut self) {
++        // Only shutdown waits for the sink: normal event writes use try_send.
++        let _ = self.output.sender.send(Message::Shutdown);
++        if let Some(thread) = self.thread.take() {
++            let _ = thread.join();
++        }
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn blocked_sink_does_not_block_producer_and_reports_whole_entry_loss() {
++        let (entered_tx, entered_rx) = mpsc::channel();
++        let (release_tx, release_rx) = mpsc::channel();
++        let (saved_tx, saved_rx) = mpsc::channel();
++        let mut first = true;
++        let (output, guard) = LogWriter::start_with_sink(move |entry| {
++            if first {
++                first = false;
++                entered_tx.send(()).unwrap();
++                release_rx.recv().unwrap();
++            }
++            saved_tx.send(entry.to_vec()).unwrap();
++        })
++        .unwrap();
++        output.entry().write_all(b"first\n").unwrap();
++        entered_rx.recv().unwrap();
++        for n in 0..QUEUE_DEPTH {
++            write!(output.entry(), "frame {n}\n").unwrap();
++        }
++        output.entry().write_all(b"dropped frame\n").unwrap();
++        assert_eq!(output.dropped.load(Ordering::Relaxed), 1);
++        release_tx.send(()).unwrap();
++        drop(guard);
++        let saved: Vec<_> = saved_rx.try_iter().collect();
++        assert_eq!(saved.len(), QUEUE_DEPTH + 2);
++        assert_eq!(saved[0], b"first\n");
++        assert!(String::from_utf8_lossy(&saved[1]).contains("dropped 1 complete log entries"));
++        for n in 0..QUEUE_DEPTH {
++            assert_eq!(saved[n + 2], format!("frame {n}\n").as_bytes());
++        }
++    }
++
++    #[test]
++    fn flush_preserves_entry_and_oversized_entry_is_dropped_whole() {
++        let (saved_tx, saved_rx) = mpsc::channel();
++        let (output, guard) = LogWriter::start_with_sink(move |entry| {
++            saved_tx.send(entry.to_vec()).unwrap();
++        })
++        .unwrap();
++        let mut huge = output.entry();
++        huge.write_all(&vec![b'x'; MAX_ENTRY_BYTES]).unwrap();
++        huge.write_all(b"overflow").unwrap();
++        drop(huge);
++        let mut entry = output.entry();
++        entry.write_all(b"head ").unwrap();
++        entry.flush().unwrap();
++        entry.write_all(b"tail\n").unwrap();
++        drop(entry);
++        drop(guard);
++        let saved: Vec<_> = saved_rx.try_iter().collect();
++        assert_eq!(saved.len(), 2);
++        assert_eq!(saved[0], b"head tail\n");
++        assert!(String::from_utf8_lossy(&saved[1]).contains("dropped 1 complete log entries"));
++    }
++
++    #[test]
++    fn raw_frame_filter_keeps_frames_and_info_without_general_trace() {
++        use tracing_subscriber::prelude::*;
++        let (saved_tx, saved_rx) = mpsc::channel();
++        let (output, guard) = LogWriter::start_with_sink(move |entry| {
++            saved_tx.send(entry.to_vec()).unwrap();
++        })
++        .unwrap();
++        let filter = tracing_subscriber::EnvFilter::new("info")
++            .add_directive("ziggurat_raw=trace".parse().unwrap());
++        let subscriber = tracing_subscriber::registry().with(
++            tracing_subscriber::fmt::layer()
++                .with_ansi(false)
++                .with_writer(super::super::SyslogMakeWriter(output))
++                .with_filter(filter),
++        );
++        tracing::subscriber::with_default(subscriber, || {
++            tracing::info!("ready");
++            tracing::trace!(target: "ziggurat_raw", "RX psdu=[63, CC]");
++            tracing::trace!(target: "ziggurat_driver", "verbose stack trace");
++        });
++        drop(guard);
++        let saved: Vec<_> = saved_rx.try_iter().collect();
++        assert_eq!(saved.len(), 2);
++        assert!(String::from_utf8_lossy(&saved[0]).contains("ready"));
++        assert!(String::from_utf8_lossy(&saved[1]).contains("RX psdu=[63, CC]"));
++    }
++}
+diff --git a/crates/ziggurat-server/src/main.rs b/crates/ziggurat-server/src/main.rs
+index f348fc8..7646eee 100644
+--- a/crates/ziggurat-server/src/main.rs
++++ b/crates/ziggurat-server/src/main.rs
+@@ -33,13 +33,14 @@ const LOG_DAEMON: c_int = 3 << 3;
+ const LOG_PID: c_int = 1;
+ 
+ mod syslog;
+-use syslog::SyslogWriter;
++mod async_syslog;
++use async_syslog::{EntryWriter, LogWriter};
+ 
+-struct SyslogMakeWriter;
++struct SyslogMakeWriter(LogWriter);
+ impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for SyslogMakeWriter {
+-    type Writer = SyslogWriter;
++    type Writer = EntryWriter;
+     fn make_writer(&'a self) -> Self::Writer {
+-        SyslogWriter::new()
++        self.0.entry()
+     }
+ }
+ 
+@@ -1207,6 +1208,10 @@ struct Args {
+     /// Log level (RUST_LOG still overrides, with per-module filters)
+     #[arg(long, default_value_t = LevelFilter::DEBUG)]
+     log_level: LevelFilter,
++
++    /// Capture Zigbee PSDUs, RX metadata and TX results without verbose stack trace.
++    #[arg(long)]
++    raw_frames: bool,
+ }
+ 
+ fn main() -> Result<(), Box<dyn std::error::Error>> {
+@@ -1222,8 +1227,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
+         unsafe {
+             openlog(b"ziggurat\0".as_ptr() as *const _, LOG_PID, LOG_DAEMON);
+         }
+-        let filter = EnvFilter::try_from_default_env()
++        let (log_writer, _log_guard) = LogWriter::start()?;
++        let mut filter = EnvFilter::try_from_default_env()
+             .unwrap_or_else(|_| EnvFilter::new(args.log_level.to_string()));
++        if args.raw_frames {
++            filter = filter.add_directive("ziggurat_raw=trace".parse()?);
++        }
+ 
+         let timer = ChronoLocal::new("%Y-%m-%dT%H:%M:%S%.6f%:z".to_string());
+ 
+@@ -1233,7 +1242,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
+                 .with(
+                     fmt::layer()
+                         .with_timer(timer)
+-                        .with_writer(SyslogMakeWriter)
++                        .with_writer(SyslogMakeWriter(log_writer))
+                         .with_filter(filter),
+                 )
+                 .init();
+@@ -1242,7 +1251,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
+                 .with(
+                     fmt::layer()
+                         .with_timer(timer)
+-                        .with_writer(SyslogMakeWriter)
++                        .with_writer(SyslogMakeWriter(log_writer))
+                         .with_filter(filter),
+                 )
+                 .init();
+-- 
+2.43.0
+
