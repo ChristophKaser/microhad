@@ -1,0 +1,50 @@
+From 39dc05185998440408f25238f383ab25940a3fa2 Mon Sep 17 00:00:00 2001
+From: Christoph Kaser <christoph@caser.de>
+Date: Wed, 14 Oct 2026 08:33:50 +0200
+Subject: [PATCH] Clear end-device initiator flag on forwarded network frames
+
+---
+ crates/ziggurat-driver/src/zigbee_stack/nwk.rs | 13 ++++++++++---
+ 1 file changed, 10 insertions(+), 3 deletions(-)
+
+diff --git a/crates/ziggurat-driver/src/zigbee_stack/nwk.rs b/crates/ziggurat-driver/src/zigbee_stack/nwk.rs
+index 89bfc13..1c8890a 100644
+--- a/crates/ziggurat-driver/src/zigbee_stack/nwk.rs
++++ b/crates/ziggurat-driver/src/zigbee_stack/nwk.rs
+@@ -1658,6 +1658,9 @@ impl<P: RadioPhy, R: Runtime> ZigbeeStack<P, R> {
+             .neighbors
+             .record_inbound_activity(sender_nwk);
+ 
++        // Spec 3.3.1.1.8: the parent clears the end-device initiator flag on relay.
++        nwk_frame.nwk_header.frame_control.end_device_initiator = false;
++
+         // Spec 3.6.2.2: the radius is decremented on receipt and a frame that reaches
+         // zero is never retransmitted
+         nwk_frame.nwk_header.radius = nwk_frame.nwk_header.radius.saturating_sub(1);
+@@ -1827,16 +1830,20 @@ impl<P: RadioPhy, R: Runtime> ZigbeeStack<P, R> {
+             return;
+         }
+ 
++        // Spec 3.3.1.1.8: clear the end-device initiator flag on every relayed
++        // copy, including indirect delivery to sleepy children. Other routers
++        // reject an initiator-marked frame unless the originator is their child.
++        let mut relayed_frame = nwk_frame.clone();
++        relayed_frame.nwk_header.frame_control.end_device_initiator = false;
++
+         // Spec 3.6.6: deliver another device's 0xFFFF broadcast to our own sleepy
+         // children as MAC unicasts (a no-op for non-0xFFFF destinations).
+         self.maybe_fan_out_broadcast_to_sleepy_children(
+-            nwk_frame,
++            &relayed_frame,
+             NwkSecurityMode::NetworkKey,
+             TrafficClass::Forwarding,
+         );
+ 
+-        let mut relayed_frame = nwk_frame.clone();
+-
+         relayed_frame.nwk_header.radius = relayed_frame.nwk_header.radius.saturating_sub(1);
+         if relayed_frame.nwk_header.radius == 0 {
+             tracing::debug!("Not relaying broadcast, radius is exhausted");
+-- 
+2.43.0
+

@@ -34,6 +34,7 @@ else
     mailboxes+=(ziggurat/patches/ziggurat-stock-compat.patch ziggurat/patches/ziggurat-syslog.patch)
 fi
 mailboxes+=(ziggurat/patches/ziggurat-syslog-fragments.patch ziggurat/patches/ziggurat-async-syslog.patch)
+mailboxes+=(ziggurat/patches/ziggurat-end-device-relay.patch)
 mailbox_paths=()
 for mailbox in "${mailboxes[@]}"; do mailbox_paths+=("$experiment_root/$mailbox"); done
 python3 scripts/apply-mailbox-series.py "$build_worktree" "$source_revision" "${mailbox_paths[@]}"

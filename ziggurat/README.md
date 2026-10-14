@@ -32,6 +32,7 @@ python3 ziggurat/scripts/test-simulate-rcp.py
 python3 ziggurat/scripts/test-cobs-unix.py
 python3 ziggurat/scripts/test-hdlc-multipan.py
 python3 ziggurat/scripts/test-fresh-join-replay.py
+python3 ziggurat/scripts/test-end-device-relay.py
 ```
 
 Run the multipan build first to prepare its worktree. Tests default to synthetic
