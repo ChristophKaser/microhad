@@ -6,6 +6,7 @@
 /garage-app/
 /worktrees/
 /build/
+/diagnostics/
 *.core
 core
 
