@@ -32,6 +32,103 @@ def matter_manifest(binary, matter=1):
 
 
 class Staging(unittest.TestCase):
+    def selected_deployment(self, root, extra=(), **settings):
+        artifact = root / 'matter'
+        artifact.write_bytes(b'selected Matter executable')
+        artifact.chmod(0o700)
+        password = root / 'password'
+        password.touch()
+        readelf = root / 'readelf'
+        readelf.write_text("#!/bin/sh\nprintf '%s\\n' 'Class: ELF32' 'Data: big endian' 'Machine: MIPS'\n")
+        readelf.chmod(0o700)
+        calls = root / 'calls'
+        fake = root / 'sshpass'
+        fake.write_text(FAKE_SSH.split("if 'df -k /tuya'")[0] + """
+if command.startswith('if [ -f ') and 'md5sum' in command:
+    print(os.environ.get('SELECTED_REMOTE_HASH', 'old'))
+elif command.startswith('cat /tmp/ziggurat-supervisor/supervisor.pid'):
+    print('123')
+elif command.startswith('cat '):
+    sys.stdout.buffer.write(b'previous service')
+elif command.startswith('md5sum '):
+    import hashlib
+    print(hashlib.md5(b'previous service').hexdigest())
+elif 'dd of=' in command and os.environ.get('SELECTED_UPLOAD_FAIL'):
+    sys.exit(1)
+elif 'chmod 700' in command and '.new' in command and os.environ.get('SELECTED_VERIFY_FAIL'):
+    sys.exit(1)
+elif 'df -k /tuya' in command:
+    print(os.environ.get('FLASH_AVAILABLE_KIB','1000000'))
+""")
+        fake.chmod(0o700)
+        curl = root / 'curl'
+        curl.write_text("""#!/bin/sh
+echo '{"available":true,"controller_initialized":true,"fabric_ready":true,"state":"running"}'
+""")
+        curl.chmod(0o700)
+        env = dict(os.environ, PATH=str(root)+os.pathsep+os.environ['PATH'],
+                   TARGET_READELF=str(readelf), STAGING_CALLS=str(calls), **settings)
+        result = subprocess.run(['sh', str(ROOT.parent / 'deploy.sh'), '--password-file', str(password),
+            '--services', 'matter', '--matter-service', str(artifact), '--target', '/tuya/native', *extra],
+            env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=15)
+        return result, [json.loads(line) for line in calls.read_text().splitlines()]
+
+    def test_selected_matter_upload_has_no_automatic_backups_or_other_assets(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, calls = self.selected_deployment(Path(directory))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            uploads = [call for call in calls if call['bytes']]
+            self.assertEqual(len(uploads), 1)
+            self.assertIn('/tuya/native/mthread-matter.new', uploads[0]['command'])
+            self.assertFalse(any(call['command'].startswith('cat /tuya/') for call in calls))
+            self.assertFalse(any('config.json' in call['command'] or 'credentials' in call['command'] for call in calls))
+            self.assertIn('Rollback artifact generation disabled', result.stdout)
+            self.assertTrue(any('md5sum' in call['command'] and '&& mv' in call['command'] for call in calls))
+
+    def test_selected_combination_uploads_only_named_services(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            zig = root / 'ziggurat'
+            zig.write_bytes(b'selected radio executable')
+            zig.chmod(0o700)
+            result, calls = self.selected_deployment(root,
+                ['--services', 'matter,ziggurat', '--ziggurat', str(zig)])
+            self.assertEqual(result.returncode, 0, result.stderr)
+            uploads = [row for row in calls if row['bytes']]
+            self.assertEqual(len(uploads), 2)
+            self.assertIn('/mthread-matter.new', uploads[0]['command'])
+            self.assertIn('/ziggurat.new', uploads[1]['command'])
+
+    def test_selected_unchanged_service_does_not_upload_or_restart(self):
+        with tempfile.TemporaryDirectory() as directory:
+            digest = hashlib.md5(b'selected Matter executable').hexdigest()
+            result, calls = self.selected_deployment(Path(directory), SELECTED_REMOTE_HASH=digest)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse(any(call['bytes'] or 'kill ' in call['command'] or 'quiesce' in call['command'] for call in calls))
+
+    def test_selected_flash_preflight_leaves_running_installation_untouched(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, calls = self.selected_deployment(Path(directory), FLASH_AVAILABLE_KIB='512')
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(any(call['bytes'] or 'kill ' in call['command'] or ': >' in call['command'] for call in calls))
+
+    def test_selected_upload_or_verification_failure_does_not_start_stack(self):
+        for failure in ('SELECTED_UPLOAD_FAIL', 'SELECTED_VERIFY_FAIL'):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as directory:
+                result, calls = self.selected_deployment(Path(directory), **{failure:'1'})
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('services remain stopped', result.stderr)
+                self.assertFalse(any('( /tuya/tuya_start.sh ' in call['command'] for call in calls))
+
+    def test_selected_explicit_rollback_saves_only_selected_service(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            rollback = root / 'rollback'
+            result, calls = self.selected_deployment(root, ['--rollback-dir', str(rollback)])
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual([path.name for path in rollback.iterdir()], ['mthread-matter'])
+            self.assertEqual((rollback / 'mthread-matter').read_bytes(), b'previous service')
+
     def test_root_entrypoint_resolves_default_assets_from_any_directory(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -118,7 +215,7 @@ elif 'wc -c' in command or 'du -sk' in command:
             rollback = root / 'rollback'
             env = dict(os.environ, PATH=str(root)+os.pathsep+os.environ['PATH'],
                        TARGET_READELF=str(readelf), STAGING_CALLS=str(calls))
-            result = subprocess.run([
+            arguments = [
                 'sh', str(ROOT.parent / 'deploy.sh'), '--maintenance-deploy',
                 '--password-file', str(password), '--target', '/tuya/native',
                 '--binary', str(artifacts['microhad']),
@@ -126,7 +223,8 @@ elif 'wc -c' in command or 'du -sk' in command:
                 '--matter-service', str(artifacts['mthread-matter']),
                 '--maintenance-helper', str(artifacts['gateway-maintenance']),
                 '--logread', str(artifacts['logread']), '--webui-dir', str(webui),
-                '--rollback-dir', str(rollback)],
+                '--rollback-dir', str(rollback)]
+            result = subprocess.run(arguments,
                 cwd=root, env=env, stdin=subprocess.DEVNULL, capture_output=True,
                 text=True, timeout=15)
             self.assertNotEqual(result.returncode, 0)
@@ -139,6 +237,16 @@ elif 'wc -c' in command or 'du -sk' in command:
             for row in rows:
                 self.assertNotIn('config.json', row['command'])
                 self.assertNotIn('ziggurat-state.json', row['command'])
+
+            calls.write_text('')
+            result = subprocess.run(arguments[:-2], cwd=root, env=env, stdin=subprocess.DEVNULL,
+                                    capture_output=True, text=True, timeout=15)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('Rollback artifact generation disabled', result.stdout)
+            self.assertIn('No rollback artifacts were requested', result.stderr)
+            rows = [json.loads(line) for line in calls.read_text().splitlines()]
+            self.assertFalse(any(row['command'].startswith('cat /tuya/') or
+                                 'tar -cf' in row['command'] for row in rows))
 
     def test_webui_verification_uses_http_and_selected_directory(self):
         with tempfile.TemporaryDirectory() as directory:

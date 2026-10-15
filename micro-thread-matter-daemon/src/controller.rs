@@ -60,7 +60,7 @@ impl<'a> BleConnectionSessions<'a> {
         });
         if removed != 0 {
             self.matter.transport().notify_session_removed();
-            log::debug!("Commissioning BLE connection discarded {removed} transport session(s)");
+            log::info!("Commissioning BLE connection discarded {removed} transport session(s)");
         }
     }
 }

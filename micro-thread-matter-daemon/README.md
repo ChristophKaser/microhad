@@ -88,7 +88,7 @@ The existing `paired_control.sh log-level LEVEL` continues to select Ziggurat.
 Each new phone BLE attachment discards Matter transport sessions for that BLE
 address before starting a fresh PASE handshake. The owned attempt also removes
 those sessions on completion, failure, timeout, cancellation, or reconnection;
-operational sessions and sessions for other peers are retained. Debug logs name
+operational sessions and sessions for other peers are retained. Info logs name
 the current commissioning command (`pase`, `arm_fail_safe`, `regulatory_config`,
 `csr_request`, and credential installation), and failures log that step with the
 error. These diagnostics keep the phone's existing wire protocol compatible.
@@ -104,3 +104,17 @@ After building the host service and synthetic relay, run
 `python3 micro-thread-matter-daemon/scripts/test-matter-logging.py` for CLI and
 syslog integration checks using simulated radio traffic and a host-only libc
 capture shim. It does not access the gateway.
+
+Binding diagnostics include Thread role and child attachment, SRP host/service
+updates (including deletions and leases), SRP response counters, DNS query
+server/instance and OpenThread error names. Binding milestones and these
+low-volume events remain visible at `info`; routine DNS traffic outside binding
+uses `debug`. DNS UDP observation is passive and logs only metadata, never
+packet bodies, TXT data, network keys or datasets. Raw frame logging remains
+separate. Binding start/end also snapshot IPv6 and MAC security error counters.
+
+Deploy only a changed service with `./deploy.sh --services matter --target
+/tuya/native --password-file ../ssh_password.txt --matter-service
+build/micro-thread-matter-daemon/mthread-matter-mips`. Selective maintenance
+retains the installed launcher and restarts the paired stack. Rollback copies
+are opt-in via `--rollback-dir DIR`; existing backups are preserved.

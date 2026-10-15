@@ -442,6 +442,7 @@ fn run(
             result?;
             return Err("Matter ICD Check-In responder ended".into());
         }
+        thread.set_binding_diagnostics(controller.commissioning(Instant::now()));
         if let std::task::Poll::Ready(result) = discovery.as_mut().poll(&mut context) {
             result?;
             return Err("Operational discovery ended".into());

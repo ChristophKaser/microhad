@@ -232,6 +232,8 @@ async fn run_with_refresh(
         let Some(key) = Key::from_service(&service) else {
             continue;
         };
+        log::log!(target: "thread_diagnostics", thread.diagnostic_level(),
+            "Operational discovery requested label={} Thread_ready={}", key.label(), thread.ready());
         // Attachment may finish while the gateway commissioner is already at CASE.
         // Keep this request alive within rs-matter's five-second resolve budget.
         let attaching_deadline = Instant::now() + Duration::from_millis(4900);
@@ -266,10 +268,19 @@ async fn run_with_refresh(
             {
                 let now = Instant::now();
                 if thread.ready() {
-                    if let Ok(record) = Record::parse(key, answer, now) {
-                        record.deposit(matter);
-                        cache.put(record, now);
-                        break;
+                    match Record::parse(key, answer, now) {
+                        Ok(record) => {
+                            log::log!(target: "thread_diagnostics", thread.diagnostic_level(),
+                                "Operational discovery accepted label={} addresses={} port={}",
+                                key.label(), record.addresses.len(), record.port);
+                            record.deposit(matter);
+                            cache.put(record, now);
+                            break;
+                        }
+                        Err(error) => {
+                            log::log!(target: "thread_diagnostics", thread.diagnostic_level(),
+                            "Operational discovery record rejected label={} error={:?}", key.label(), error.code())
+                        }
                     }
                 } else {
                     cache.records.clear();

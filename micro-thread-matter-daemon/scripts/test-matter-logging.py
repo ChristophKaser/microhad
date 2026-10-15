@@ -65,6 +65,12 @@ def main():
         assert any('Matter controller service started' in record for record in records)
         assert any('rs_matter' in record for record in records), 'library logging is not connected'
         assert any('TRACE ' in record for record in records), 'trace logging is not connected'
+        for marker in ('INFO thread_diagnostics: Thread role=',
+                       'INFO thread_diagnostics: SRP server state=',
+                       'INFO micro_thread_matter_daemon::sessions: Commissioning started',
+                       'INFO micro_thread_matter_daemon::sessions: Commissioning step=pase'):
+            assert any(marker in record for record in records), f'missing info binding diagnostic: {marker}'
+
         for record in records:
             tag, severity, body = record.split('\t', 2)
             assert tag == 'mthread-matter'

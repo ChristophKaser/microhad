@@ -43,8 +43,10 @@ bash micro-thread-matter-daemon/scripts/build.sh mips service
 
 For MicroHAD updates, use `./deploy.sh` after building the required
 artifacts. Ordinary deployment stages files; launcher activation and service
-restart are separate operations. A Matter release must use the documented
-maintenance deployment flow in [microhad/AGENTS.md](microhad/AGENTS.md).
+restart are separate operations. Matter updates use the documented maintenance deployment flow in
+[microhad/AGENTS.md](microhad/AGENTS.md): `--services matter` uploads only a
+changed Matter service; complete releases use `--maintenance-deploy`. Rollback
+artifact generation is disabled unless `--rollback-dir DIR` is supplied.
 Never deploy to a device unless explicitly requested.
 
 ## Repository and device state

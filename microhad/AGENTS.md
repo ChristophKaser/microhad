@@ -73,7 +73,7 @@ bash micro-thread-matter-daemon/scripts/build.sh mips service
 Staging does not activate Matter or restart a process. To install the
 Matter-aware paired launcher together with a full package upload, add
 `--activate-paired`; the original `/tuya/tuya_start.sh` is kept at
-`/tuya/tuya_start.sh.lowjs-backup`. If the package is already staged and flash
+`/tuya/tuya_start.sh.lowjs-backup` only when `--rollback-dir` is supplied. If the package is already staged and flash
 space cannot accommodate another binary copy, use `--activate-paired-only` to
 verify the staged Matter files and switch the launcher without re-uploading
 them. Both activation modes require `/tuya/native` and only affect the next
@@ -94,40 +94,53 @@ update. Keep the configured 512 KiB reserve unless an explicit maintenance
 decision changes it. Never remove application backups or network state just to
 make preflight pass.
 
-For a complete Matter release, build all target artifacts and use the explicit
-maintenance deployment mode. It saves installed MicroHAD/Matter application
-binaries, launcher and Web UI under a private local rollback directory,
-quiesces and stops the paired stack, and removes the legacy executable without
-backing it up. It reclaims the old Matter service, Ziggurat and Web UI only
-after saving them locally. Because JFFS2 compresses artifacts,
-it checks measured flash after each temporary upload and deletes that temporary
-file if it would consume the 512 KiB reserve. It then installs
-the controller, Ziggurat, Matter service, `gateway-maintenance` helper and Web
-UI, activates the paired launcher, starts the stack, and checks the
-supervisor, IPC sockets, Web UI, status API, and each JavaScript/CSS file linked
-by the deployed `index.html`. Dashboard verification uses HTTP, waits three
-seconds after process readiness, then retries the status API for up to thirty
-seconds before checking the page, logs and assets.
-Detach SSH stdin from asset-list loops so SSH
-commands cannot consume later `find` results. It removes stale runtime socket
-pathnames only after checking their processes have stopped. It reports available flash and
-process RSS. The mode never copies or removes gateway
-configuration or network/identity state.
+For service-only updates on an installed paired gateway, select exactly the
+services that need uploading. `--services matter`, `--services native`,
+`--services ziggurat`, or a comma-separated combination verify local MIPS
+artifacts, compare installed hashes, and skip unchanged services. Native
+updates require a matching Matter manifest. Only the selected changed
+executables (and native manifest when selected) are transferred. A changed
+selection quiesces and restarts the paired stack using its installed launcher;
+an unchanged selection performs no restart. Configuration, identity, network
+state, Web UI and existing backups are preserved.
 
 ```sh
-# Native controller and Matter manifest, from the repository root
+bash micro-thread-matter-daemon/scripts/build.sh mips service
+./deploy.sh --services matter --host 192.168.178.62 \
+  --password-file ../ssh_password.txt --target /tuya/native \
+  --matter-service build/micro-thread-matter-daemon/mthread-matter-mips
+```
+
+Rollback artifact generation is disabled by default for both selective and
+complete maintenance deployments. Supply `--rollback-dir DIR` to explicitly
+save previous application artifacts in an empty private local directory.
+Selective deployment saves only selected changed services; a complete release
+also saves its launcher, support executables and Web UI. Existing backups are
+never removed. New legacy launcher backups are also opt-in. On upload or
+verification failure, the stack remains stopped and the script reports the
+failure without automatic recovery. Keep local release artifacts for manual
+recovery when opting out of rollback copies.
+
+For a complete Matter release, build all target artifacts and use
+`--maintenance-deploy`. It quiesces and stops the paired stack, discards the
+legacy executable, and replaces the controller, Ziggurat, Matter service,
+`gateway-maintenance`, log reader and Web UI. It activates the paired launcher,
+starts the stack, and checks the supervisor, IPC sockets, dashboard, status API
+and linked assets. It never copies or removes configuration or network/identity
+state. Both maintenance modes retain the 512 KiB flash reserve, check process
+ownership before executable replacement, verify uploaded hashes, and reject
+running deleted executables. Selective staging retains installed files until
+verified atomic replacement. A complete release can reclaim its stopped old
+Matter, Ziggurat and Web UI files before staging, with measured JFFS2 checks
+following every upload. Keep SSH stdin detached from asset-list loops.
+
+```sh
 make -C microhad ZIGGURAT=1 MATTER=1 mips
 make -C microhad webui
 bash microhad/scripts/build-logread.sh
-
-# Ziggurat and radio maintenance helper, from the repository root
 ZIGGURAT_MULTIPAN=1 bash ziggurat/scripts/build.sh
 bash firmware/scripts/build-maintenance.sh
-
-# Matter service, from the repository root
 bash micro-thread-matter-daemon/scripts/build.sh mips service
-
-# Complete maintenance deployment, from the repository root
 ./deploy.sh --maintenance-deploy --host 192.168.178.62 \
   --password-file ../ssh_password.txt --target /tuya/native \
   --binary microhad/build/mips-ziggurat-matter/microhad \
@@ -136,13 +149,6 @@ bash micro-thread-matter-daemon/scripts/build.sh mips service
   --maintenance-helper build/gateway-maintenance \
   --logread microhad/build/logread-mips
 ```
-
-The script prints the local backup directory and retains it after success.
-On transfer or readiness failure it leaves the deployment as-is and does not
-restore files or start either release. If recovery is needed, stop the stack,
-restore the saved application files and Web UI from the printed directory, then
-start `/tuya/tuya_start.sh` manually. Review the backup directory before
-removing it.
 
 For an update to an already paired installation, `--restart` signals only the
 native daemon; its current supervisor restarts it. It does not reload the
@@ -193,7 +199,7 @@ same local artifacts against the staged device files:
 
 `--activate-paired-only` uploads only the launcher after verifying the staged
 Matter manifest, executable files and their MD5 hashes; it requires the
-matching local native and service files as references. It preserves the old
+matching local native and service files as references. With `--rollback-dir`, it preserves the old
 launcher before replacing `/tuya/tuya_start.sh`. The boot script starts the
 paired supervisor once, so restarting that supervisor does not trigger an init
 respawn. After it exits cleanly, invoke `/tuya/tuya_start.sh` over SSH to start

@@ -31,11 +31,14 @@ logread=""
 webui_dir="$project_dir/webui/dist"
 maintenance_deploy=false
 rollback_dir=""
+service_selection=""
+rollback_notice="No rollback artifacts were requested."
 rng_seed_helper=""
 flash_reserve_kib=${DEPLOY_FLASH_RESERVE_KIB:-512}
 
 usage() {
     echo "usage: $0 --password-file PATH --maintenance-deploy --binary PATH --ziggurat PATH --matter-service PATH --maintenance-helper PATH --logread PATH [--webui-dir DIR] [--rollback-dir DIR] [--host HOST] [--target /tuya/native]" >&2
+    echo "       $0 --password-file PATH --services matter[,native,ziggurat] --target /tuya/native [--matter-service PATH] [--binary PATH] [--ziggurat PATH] [--rollback-dir DIR]" >&2
     echo "       $0 --password-file PATH [--both --supervisor --binary PATH --target /tuya/native] [existing deployment options]" >&2
     exit 2
 }
@@ -60,6 +63,9 @@ while [ "$#" -gt 0 ]; do
         --logread) logread=${2-}; shift 2 ;;
         --webui-dir) webui_dir=${2-}; shift 2 ;;
         --maintenance-deploy) maintenance_deploy=true; shift ;;
+        --services) service_selection=${2-}; [ -n "$service_selection" ] || usage; shift 2 ;;
+        --matter-only) service_selection=matter; shift ;;
+        --ziggurat-only) service_selection=ziggurat; shift ;;
         --rollback-dir) rollback_dir=${2-}; shift 2 ;;
         --tls-certificate) certificate=${2-}; shift 2 ;;
         --tls-private-key) private_key=${2-}; shift 2 ;;
@@ -72,8 +78,28 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 
+if [ -n "$service_selection" ]; then
+    maintenance_deploy=true
+    deploy_binary=false
+    deploy_webui=false
+    case "$service_selection" in ,*|*,|*,,*) usage ;; esac
+    selection_seen=,
+    selection_ifs=$IFS; IFS=,
+    for selected in $service_selection; do
+        case "$selection_seen" in *,$selected,*) echo "Duplicate service: $selected" >&2; exit 2 ;; esac
+        selection_seen="$selection_seen$selected,"
+        case "$selected" in
+            matter) [ -n "$matter_service" ] && [ -x "$matter_service" ] || usage ;;
+            native) [ "$binary_explicit" = true ] && [ -x "$binary" ] || usage ;;
+            ziggurat) [ -n "$ziggurat" ] && [ -x "$ziggurat" ] || usage ;;
+            *) echo "Unknown service: $selected" >&2; exit 2 ;;
+        esac
+    done
+    IFS=$selection_ifs
+    [ "$target" = /tuya/native ] || usage
+fi
 [ -n "$password_file" ] && [ -r "$password_file" ] || usage
-[ "$maintenance_deploy" = false ] || {
+[ "$maintenance_deploy" = false ] || [ -n "$service_selection" ] || {
     [ -n "$binary" ] && [ -n "$ziggurat" ] && [ -n "$matter_service" ] &&
         [ -n "$maintenance_helper" ] && [ "$target" = /tuya/native ] &&
         [ -n "$logread" ] && [ "$target" = /tuya/native ] &&
@@ -88,12 +114,12 @@ done
 [ "$maintenance_deploy" = true ] || { [ -z "$ziggurat" ] && [ -z "$maintenance_helper" ] || {
     echo "--ziggurat and --maintenance-helper require --maintenance-deploy" >&2; exit 2;
 }; }
-[ "$deploy_binary" = true ] || [ "$deploy_webui" = true ] || [ -n "$rng_seed_helper" ] || [ "$activate_paired_only" = true ] || usage
-[ -z "$matter_service" ] || [ "$binary_explicit" = true ] || {
+[ "$deploy_binary" = true ] || [ "$deploy_webui" = true ] || [ -n "$service_selection" ] || [ -n "$rng_seed_helper" ] || [ "$activate_paired_only" = true ] || usage
+[ -z "$matter_service" ] || [ -n "$service_selection" ] || [ "$binary_explicit" = true ] || {
     echo "--matter-service requires --binary from a ZIGGURAT=1 MATTER=1 build" >&2; exit 2;
 }
 [ "$deploy_supervisor" = false ] || { [ "$deploy_binary" = true ] && [ "$binary_explicit" = true ] && [ "$target" = /tuya/native ] && [ "$activate_paired_only" = false ]; } || { echo "--supervisor requires --binary and binary deployment to /tuya/native" >&2; exit 2; }
-{ [ -z "$matter_service" ] && [ "$deploy_supervisor" = false ]; } || {
+[ -n "$service_selection" ] || { [ -z "$matter_service" ] && [ "$deploy_supervisor" = false ]; } || {
     manifest="$binary.matter-manifest"
     [ -f "$manifest" ] || { echo "Matter build manifest missing: $manifest" >&2; exit 2; }
     grep -qx 'format=microhad-build-v1' "$manifest" &&
@@ -112,9 +138,9 @@ done
 [ -z "$rng_seed_helper" ] || [ "$target" = /tuya/native ] || { echo "RNG seed helper deployment requires --target /tuya/native" >&2; exit 2; }
 [ -z "$rng_seed_helper" ] || [ "$deploy_binary" = false ] || { echo "Use --rng-seed-only to deploy the RNG helper without replacing application assets" >&2; exit 2; }
 [ -z "$config" ] || { [ "$deploy_binary" = true ] && [ -f "$config" ]; } || usage
-[ -z "$matter_service" ] || { { [ "$deploy_binary" = true ] || [ "$activate_paired_only" = true ]; } && [ -x "$matter_service" ]; } || usage
-[ "$maintenance_deploy" = false ] || { [ -x "$ziggurat" ] && [ -x "$maintenance_helper" ] && [ -x "$logread" ]; } || { echo "Ziggurat, gateway-maintenance, or logread artifact missing or not executable" >&2; exit 1; }
-[ "$maintenance_deploy" = false ] || { [ -d "$webui_dir" ] && [ -f "$webui_dir/index.html" ] && [ -f "$webui_dir/sw.js" ]; } || usage
+[ -z "$matter_service" ] || [ -n "$service_selection" ] || { { [ "$deploy_binary" = true ] || [ "$activate_paired_only" = true ]; } && [ -x "$matter_service" ]; } || usage
+[ "$maintenance_deploy" = false ] || [ -n "$service_selection" ] || { [ -x "$ziggurat" ] && [ -x "$maintenance_helper" ] && [ -x "$logread" ]; } || { echo "Ziggurat, gateway-maintenance, or logread artifact missing or not executable" >&2; exit 1; }
+[ "$maintenance_deploy" = false ] || [ -n "$service_selection" ] || { [ -d "$webui_dir" ] && [ -f "$webui_dir/index.html" ] && [ -f "$webui_dir/sw.js" ]; } || usage
 [ -z "$certificate" ] || [ -f "$certificate" ] || usage
 [ -z "$private_key" ] || [ -f "$private_key" ] || usage
 [ -z "$ca_bundle" ] || [ -f "$ca_bundle" ] || usage
@@ -188,6 +214,116 @@ verify_webui_assets() {
     done
 }
 
+# Selective maintenance keeps the installed launcher and uploads only changed
+# executables. Stop the paired owner before replacing its children, preserving
+# every configuration/identity/network file and the flash reserve.
+selected_service_paths() {
+    case "$1" in
+        matter) service_source=$matter_service; service_name=mthread-matter ;;
+        native) service_source=$binary; service_name=microhad ;;
+        ziggurat) service_source=$ziggurat; service_name=ziggurat ;;
+    esac
+}
+selected_services_deploy() {
+    selected_readelf=${TARGET_READELF:-$(python3 "$repo_root/scripts/toolchain_config.py" TARGET_READELF)}
+    [ -x "$selected_readelf" ] || { echo 'MIPS readelf is missing' >&2; return 1; }
+    selected_words=$(printf '%s' "$service_selection" | tr ',' ' ')
+    changed_services=
+    for selected in $selected_words; do
+        selected_service_paths "$selected"
+        elf_header=$("$selected_readelf" -h "$service_source") || return 1
+        printf '%s\n' "$elf_header" | grep -q 'Class:.*ELF32' &&
+            printf '%s\n' "$elf_header" | grep -q 'Data:.*big endian' &&
+            printf '%s\n' "$elf_header" | grep -q 'Machine:.*MIPS' || {
+                echo "Artifact is not big-endian MIPS: $service_source" >&2; return 1;
+            }
+        if [ "$selected" = native ]; then
+            manifest="$binary.matter-manifest"
+            [ -f "$manifest" ] && grep -qx 'format=microhad-build-v1' "$manifest" &&
+                grep -qx 'ziggurat=1' "$manifest" && grep -qx 'matter=1' "$manifest" &&
+                [ "$(sed -n 's/^binary_sha256=//p' "$manifest")" = "$(sha256sum "$binary" | awk '{print $1}')" ] || {
+                    echo 'Selected native binary requires its matching Matter manifest' >&2; return 1;
+                }
+        fi
+        local_hash=$(md5sum "$service_source" | awk '{print $1}')
+        remote_hash=$(ssh_command "if [ -f \"$target/$service_name\" ]; then md5sum \"$target/$service_name\" | awk '{print \$1}'; fi" </dev/null) || return 1
+        manifest_changed=false
+        if [ "$selected" = native ]; then
+            remote_manifest_hash=$(ssh_command "if [ -f \"$target/microhad.matter-manifest\" ]; then md5sum \"$target/microhad.matter-manifest\" | awk '{print \$1}'; fi" </dev/null) || return 1
+            [ "$remote_manifest_hash" = "$(md5sum "$manifest" | awk '{print $1}')" ] || manifest_changed=true
+        fi
+        if [ "$local_hash" = "$remote_hash" ] && [ "$manifest_changed" = false ]; then
+            echo "Unchanged service: $selected (skipping upload)"
+        else
+            changed_services="$changed_services $selected"
+        fi
+    done
+    [ -n "$changed_services" ] || { echo 'Selected services are already current; no restart needed'; return 0; }
+    ssh_command "test -x /tuya/tuya_start.sh && test -x \"$target/paired_control.sh\" && test -x \"$target/microhad\" && test -x \"$target/ziggurat\" && test -x \"$target/mthread-matter\" && grep -qx 'matter=1' \"$target/microhad.matter-manifest\" && test ! -e /tmp/ziggurat-supervisor/quiesce && test ! -e /tmp/ziggurat-supervisor/stop" || {
+        echo 'Selective deployment requires a running paired Matter installation' >&2; return 1;
+    }
+    # Refuse an existing deleted image before changing any running service.
+    ssh_command "for p in /proc/[0-9]*/exe; do x=\$(ls -l \"\$p\" 2>/dev/null) || continue; case \"\$x\" in *\" -> $target/microhad (deleted)\"|*\" -> $target/ziggurat (deleted)\"|*\" -> $target/mthread-matter (deleted)\") echo 'Running deleted executable; refusing deployment' >&2; exit 1 ;; esac; done" || return 1
+    if [ -n "$rollback_dir" ]; then
+        (umask 077 && mkdir -p "$rollback_dir") || return 1
+        chmod 700 "$rollback_dir"
+        [ -z "$(find "$rollback_dir" -mindepth 1 -print -quit)" ] || { echo 'Rollback directory must be empty' >&2; return 1; }
+        for selected in $changed_services; do
+            selected_service_paths "$selected"
+            ssh_command "cat \"$target/$service_name\"" > "$rollback_dir/$service_name" || return 1
+            saved_hash=$(ssh_command "md5sum \"$target/$service_name\" | awk '{print \$1}'" </dev/null) || return 1
+            [ "$saved_hash" = "$(md5sum "$rollback_dir/$service_name" | awk '{print $1}')" ] || return 1
+            if [ "$selected" = native ]; then
+                ssh_command "cat \"$target/microhad.matter-manifest\"" > "$rollback_dir/microhad.matter-manifest" || return 1
+            fi
+        done
+        rollback_notice="Selected previous application files are preserved at $rollback_dir."
+    else
+        echo 'Rollback artifact generation disabled'
+    fi
+    # Check raw one-file staging headroom before taking the stack offline.
+    available=$(ssh_command "df -k /tuya | awk 'END {print \$4}'" </dev/null) || return 1
+    case "$available" in ''|*[!0-9]*) echo 'Unable to read flash headroom' >&2; return 1 ;; esac
+    for selected in $changed_services; do
+        selected_service_paths "$selected"
+        needed=$((($(wc -c < "$service_source") + 1023) / 1024 + flash_reserve_kib))
+        [ "$available" -ge "$needed" ] || { echo "Insufficient staging space for $selected; installation unchanged" >&2; return 1; }
+    done
+    supervisor_pid=$(ssh_command 'cat /tmp/ziggurat-supervisor/supervisor.pid' </dev/null) || return 1
+    case "$supervisor_pid" in ''|*[!0-9]*) echo 'Invalid supervisor PID' >&2; return 1 ;; esac
+    [ "$supervisor_pid" -gt 1 ] || return 1
+    echo "Updating services:$changed_services; quiescing the paired stack"
+    ssh_command "kill -0 $supervisor_pid && : > /tmp/ziggurat-supervisor/quiesce; n=0; while [ ! -f /tmp/ziggurat-supervisor/quiesced ] && [ \$n -lt 20 ]; do sleep 1; n=\$((n+1)); done; test -f /tmp/ziggurat-supervisor/quiesced" || return 1
+    ssh_command "kill -TERM $supervisor_pid; n=0; while [ -d /proc/$supervisor_pid ] && [ \$n -lt 20 ]; do sleep 1; n=\$((n+1)); done; test ! -d /proc/$supervisor_pid" || return 1
+    ssh_command "for p in /proc/[0-9]*/exe; do x=\$(ls -l \"\$p\" 2>/dev/null) || continue; case \"\$x\" in *\" -> $target/microhad\"|*\" -> $target/ziggurat\"|*\" -> $target/mthread-matter\") echo 'Paired process remains active' >&2; exit 1 ;; esac; done" || return 1
+    selected_upload() {
+        upload_source=$1; upload_destination=$2; upload_mode=$3
+        upload_hash=$(md5sum "$upload_source" | awk '{print $1}')
+        # Measure JFFS2 after transfer and verify before replacing the old file.
+        ssh_command "dd of=\"$upload_destination.new\"" < "$upload_source" || {
+            ssh_command "rm -f \"$upload_destination.new\"" </dev/null || true; return 1;
+        }
+        ssh_command "available=\$(df -k /tuya | awk 'END {print \$4}'); case \"\$available\" in ''|*[!0-9]*) rm -f \"$upload_destination.new\"; exit 1 ;; esac; if [ \"\$available\" -lt $flash_reserve_kib ] || [ \"\$(md5sum \"$upload_destination.new\" | awk '{print \$1}')\" != '$upload_hash' ]; then rm -f \"$upload_destination.new\"; exit 1; fi; chmod $upload_mode \"$upload_destination.new\" && mv \"$upload_destination.new\" \"$upload_destination\"" </dev/null || return 1
+    }
+    for selected in $changed_services; do
+        selected_service_paths "$selected"
+        selected_upload "$service_source" "$target/$service_name" 700 || {
+            echo "Deployment incomplete; services remain stopped. $rollback_notice" >&2; return 1;
+        }
+        if [ "$selected" = native ]; then
+            selected_upload "$binary.matter-manifest" "$target/microhad.matter-manifest" 600 || return 1
+        fi
+    done
+    start_remote_launcher || return 1
+    wait_for_dashboard || return 1
+    ssh_command "n=0; while [ \$n -lt 30 ]; do if [ -S /tmp/ziggurat/thread.sock ] && [ -S /tmp/microhad-matter.sock ] && [ -f /tmp/ziggurat-supervisor/matter.pid ] && kill -0 \$(cat /tmp/ziggurat-supervisor/matter.pid) 2>/dev/null; then exit 0; fi; sleep 1; n=\$((n+1)); done; exit 1" || return 1
+    selected_status=$(verification_get /api/matter/status) || return 1
+    printf '%s' "$selected_status" | python3 -c 'import json,sys; s=json.load(sys.stdin); sys.exit(0 if s.get("available") and s.get("controller_initialized") and s.get("fabric_ready") and s.get("state")=="running" else 1)' || {
+        echo "Matter service did not become ready. $rollback_notice" >&2; return 1;
+    }
+    echo "Selected service deployment complete:$changed_services"
+}
+
 maintenance_deploy_run() {
     [ "$maintenance_deploy" = true ] || return 0
     [ "$deploy_binary" = true ] && [ "$deploy_webui" = true ] || {
@@ -228,44 +364,46 @@ maintenance_deploy_run() {
         case "$relative" in *[!A-Za-z0-9_./-]*|*..*) echo "Unsupported Web UI path: $relative" >&2; exit 1 ;; esac
     done || { echo "Web UI contains an unsupported asset path" >&2; return 1; }
 
-    if [ -z "$rollback_dir" ]; then
-        rollback_dir=$(mktemp -d "${TMPDIR:-/tmp}/microhad-deploy-backup.XXXXXX") || return 1
-    else
+    ssh_command "test -f /tuya/tuya_start.sh" || { echo "Installed launcher is missing; cannot safely activate or restart" >&2; return 1; }
+    if [ -n "$rollback_dir" ]; then
+        rollback_notice="Previous application files are preserved at $rollback_dir for manual recovery."
         (umask 077 && mkdir -p "$rollback_dir") || return 1
         chmod 700 "$rollback_dir"
         [ -z "$(find "$rollback_dir" -mindepth 1 -print -quit)" ] || {
             echo "Rollback directory must be empty: $rollback_dir" >&2; return 2;
         }
-    fi
-    echo "Rollback files will be kept at $rollback_dir"
-    ssh_command "test -f /tuya/tuya_start.sh" || { echo "Installed launcher is missing; cannot safely activate or restart" >&2; return 1; }
+        echo "Rollback files will be kept at $rollback_dir"
 
-    # Backup only application artifacts. Runtime configuration, Matter identity,
-    # Zigbee state, TLS material and network backups are intentionally excluded.
-    for name in microhad microhad.matter-manifest thread-matter mthread-matter ziggurat gateway-maintenance logread paired_start.sh paired_control.sh; do
-        remote="$target/$name"
-        if ssh_command "test -f \"$remote\"" >/dev/null 2>&1; then
-            ssh_command "cat \"$remote\"" > "$rollback_dir/$name" || return 1
-            remote_hash=$(ssh_command "md5sum \"$remote\" | awk '{print \$1}'") || return 1
-            local_hash=$(md5sum "$rollback_dir/$name" | awk '{print $1}')
-            [ "$remote_hash" = "$local_hash" ] || { echo "Backup verification failed for $remote" >&2; return 1; }
+        # Backup only application artifacts. Runtime configuration, Matter identity,
+        # Zigbee state, TLS material and network backups are intentionally excluded.
+        for name in microhad microhad.matter-manifest thread-matter mthread-matter ziggurat gateway-maintenance logread paired_start.sh paired_control.sh; do
+            remote="$target/$name"
+            if ssh_command "test -f \"$remote\"" >/dev/null 2>&1; then
+                ssh_command "cat \"$remote\"" > "$rollback_dir/$name" || return 1
+                remote_hash=$(ssh_command "md5sum \"$remote\" | awk '{print \$1}'") || return 1
+                local_hash=$(md5sum "$rollback_dir/$name" | awk '{print $1}')
+                [ "$remote_hash" = "$local_hash" ] || { echo "Backup verification failed for $remote" >&2; return 1; }
+            else
+                : > "$rollback_dir/$name.absent"
+            fi
+        done
+        if ssh_command "test -f /tuya/tuya_start.sh" >/dev/null 2>&1; then
+            ssh_command "cat /tuya/tuya_start.sh" > "$rollback_dir/gateway_start.sh" || return 1
+            remote_hash=$(ssh_command "md5sum /tuya/tuya_start.sh | awk '{print \$1}'") || return 1
+            local_hash=$(md5sum "$rollback_dir/gateway_start.sh" | awk '{print $1}')
+            [ "$remote_hash" = "$local_hash" ] || { echo "Launcher backup verification failed" >&2; return 1; }
         else
-            : > "$rollback_dir/$name.absent"
+            : > "$rollback_dir/gateway_start.sh.absent"
         fi
-    done
-    if ssh_command "test -f /tuya/tuya_start.sh" >/dev/null 2>&1; then
-        ssh_command "cat /tuya/tuya_start.sh" > "$rollback_dir/gateway_start.sh" || return 1
-        remote_hash=$(ssh_command "md5sum /tuya/tuya_start.sh | awk '{print \$1}'") || return 1
-        local_hash=$(md5sum "$rollback_dir/gateway_start.sh" | awk '{print $1}')
-        [ "$remote_hash" = "$local_hash" ] || { echo "Launcher backup verification failed" >&2; return 1; }
+        if ssh_command "test -d \"$target/webui\"" >/dev/null 2>&1; then
+            ssh_command "tar -cf - -C \"$target\" webui" > "$rollback_dir/webui.tar" || return 1
+            tar -tf "$rollback_dir/webui.tar" >/dev/null || { echo "Web UI backup archive is invalid" >&2; return 1; }
+        else
+            : > "$rollback_dir/webui.absent"
+        fi
+
     else
-        : > "$rollback_dir/gateway_start.sh.absent"
-    fi
-    if ssh_command "test -d \"$target/webui\"" >/dev/null 2>&1; then
-        ssh_command "tar -cf - -C \"$target\" webui" > "$rollback_dir/webui.tar" || return 1
-        tar -tf "$rollback_dir/webui.tar" >/dev/null || { echo "Web UI backup archive is invalid" >&2; return 1; }
-    else
-        : > "$rollback_dir/webui.absent"
+        echo "Rollback artifact generation disabled (use --rollback-dir to opt in)"
     fi
 
     supervisor_pid=$(ssh_command "cat /tmp/ziggurat-supervisor/supervisor.pid 2>/dev/null || true") || return 1
@@ -302,7 +440,7 @@ maintenance_deploy_run() {
         return 1
     }
     # The legacy executable is discarded after stopping without a backup.
-    # Matter service, Ziggurat and Web UI are backed up before reclaiming space.
+    # Rollback copies, when requested, have been saved before reclaiming space.
     old_service_size=$(ssh_command "for service in \"$target/thread-matter\" \"$target/mthread-matter\"; do if [ -f \"\$service\" ]; then wc -c < \"\$service\"; fi; done | awk '{total += \$1} END {print total + 0}'") || return 1
     old_ziggurat_size=$(ssh_command "if [ -f \"$target/ziggurat\" ]; then wc -c < \"$target/ziggurat\" | awk '{print \$1}'; else echo 0; fi") || return 1
     old_legacy_size=$(ssh_command "if [ -f \"$target/tuya-zigbee-native\" ]; then wc -c < \"$target/tuya-zigbee-native\" | awk '{print \$1}'; else echo 0; fi") || return 1
@@ -318,7 +456,8 @@ maintenance_deploy_run() {
     manifest_bytes=$(wc -c < "$binary.matter-manifest")
     support_bytes=$(($(wc -c < "$project_dir/paired_start.sh") + $(wc -c < "$project_dir/scripts/paired_control.sh")))
     launcher_bytes=$(wc -c < "$project_dir/ziggurat_start.sh")
-    launcher_backup_bytes=$(ssh_command "if [ -e /tuya/tuya_start.sh.lowjs-backup ]; then echo 0; elif [ -f /tuya/tuya_start.sh ]; then wc -c < /tuya/tuya_start.sh | awk '{print \$1}'; else echo 0; fi") || return 1
+    launcher_backup_bytes=0
+    [ -z "$rollback_dir" ] || launcher_backup_bytes=$(ssh_command "if [ -e /tuya/tuya_start.sh.lowjs-backup ]; then echo 0; elif [ -f /tuya/tuya_start.sh ]; then wc -c < /tuya/tuya_start.sh | awk '{print \$1}'; else echo 0; fi") || return 1
     webui_largest=$(find "$webui_dir" -type f -exec wc -c {} + |
         awk '$2 != "total" && $1 > largest { largest = $1 } END { print largest + 0 }')
     largest_artifact=$binary_bytes
@@ -386,23 +525,23 @@ maintenance_deploy_run() {
         ! upload_atomic "$matter_service" "$target/mthread-matter" 700 ||
         ! upload_atomic "$project_dir/paired_start.sh" "$target/paired_start.sh" 700 ||
         ! upload_atomic "$project_dir/scripts/paired_control.sh" "$target/paired_control.sh" 700; then
-        echo "Deployment incomplete; services remain stopped. Previous application files are preserved at $rollback_dir for manual recovery." >&2
+        echo "Deployment incomplete; services remain stopped. $rollback_notice" >&2
         return 1
     fi
     find "$webui_dir" -type f ! -name index.html | while IFS= read -r asset; do
         relative=${asset#"$webui_dir"/}
         case "$relative" in *[!A-Za-z0-9_./-]*|*..*) echo "Unsupported Web UI path: $relative" >&2; exit 1 ;; esac
         upload_atomic "$asset" "$target/webui/$relative" 644 || exit 1
-    done || { echo "Deployment incomplete; services remain stopped. Previous application files are preserved at $rollback_dir for manual recovery." >&2; return 1; }
-    upload_atomic "$webui_dir/index.html" "$target/webui/index.html" 644 || { echo "Deployment incomplete; services remain stopped. Previous application files are preserved at $rollback_dir for manual recovery." >&2; return 1; }
+    done || { echo "Deployment incomplete; services remain stopped. $rollback_notice" >&2; return 1; }
+    upload_atomic "$webui_dir/index.html" "$target/webui/index.html" 644 || { echo "Deployment incomplete; services remain stopped. $rollback_notice" >&2; return 1; }
     if [ "$launcher_backup_bytes" -gt 0 ]; then
-        upload_atomic "$rollback_dir/gateway_start.sh" /tuya/tuya_start.sh.lowjs-backup 755 || { echo "Deployment incomplete; services remain stopped. Previous application files are preserved at $rollback_dir for manual recovery." >&2; return 1; }
+        upload_atomic "$rollback_dir/gateway_start.sh" /tuya/tuya_start.sh.lowjs-backup 755 || { echo "Deployment incomplete; services remain stopped. $rollback_notice" >&2; return 1; }
     fi
-    upload_atomic "$project_dir/ziggurat_start.sh" /tuya/tuya_start.sh 755 || { echo "Deployment incomplete; services remain stopped. Previous application files are preserved at $rollback_dir for manual recovery." >&2; return 1; }
-    start_remote_launcher || { echo "Deployment staged, but launcher start failed. Services remain stopped; previous application files are preserved at $rollback_dir for manual recovery." >&2; return 1; }
+    upload_atomic "$project_dir/ziggurat_start.sh" /tuya/tuya_start.sh 755 || { echo "Deployment incomplete; services remain stopped. $rollback_notice" >&2; return 1; }
+    start_remote_launcher || { echo "Deployment staged, but launcher start failed. Services remain stopped; $rollback_notice" >&2; return 1; }
 
     ssh_command "n=0; while [ \$n -lt 30 ]; do if [ -f /tmp/ziggurat-supervisor/supervisor.pid ] && [ -S /tmp/ziggurat/thread.sock ] && [ -S /tmp/microhad-matter.sock ] && kill -0 \$(cat /tmp/ziggurat-supervisor/supervisor.pid) 2>/dev/null; then native=0;zig=0;matter=0; for p in /proc/[0-9]*/exe; do x=\$(ls -l \"\$p\" 2>/dev/null) || continue; case \"\$x\" in *\" -> $target/microhad\") native=1 ;; *\" -> $target/ziggurat\") zig=1 ;; *\" -> $target/mthread-matter\") matter=1 ;; esac; done; [ \$native -eq 1 ] && [ \$zig -eq 1 ] && [ \$matter -eq 1 ] && exit 0; fi; sleep 1; n=\$((n+1)); done; exit 1" || {
-        echo "New services did not become ready. No automatic rollback was attempted. Use the preserved backup at $rollback_dir for manual recovery." >&2
+        echo "New services did not become ready. No automatic rollback was attempted. $rollback_notice" >&2
         return 1
     }
     wait_for_dashboard &&
@@ -410,18 +549,22 @@ maintenance_deploy_run() {
         verification_get /api/status >/dev/null &&
         verification_get /api/logs | grep -q '"lines"' || {
             echo "Web UI or status API did not respond" >&2
-            echo "Dashboard verification failed. No automatic rollback was attempted. Use the preserved backup at $rollback_dir for manual recovery." >&2
+            echo "Dashboard verification failed. No automatic rollback was attempted. $rollback_notice" >&2
             return 1
         }
     verify_webui_assets "$webui_dir/index.html" || {
-        echo "Web UI bundle verification failed. Use the preserved backup at $rollback_dir for manual recovery." >&2
+        echo "Web UI bundle verification failed. $rollback_notice" >&2
         return 1
     }
     runtime_report=$(ssh_command "df -k /tuya | awk 'END {print \"microhad_available_kib=\" \$4}'; awk '/^(MemFree|MemAvailable):/ {print}' /proc/meminfo; for p in /proc/[0-9]*/exe; do x=\$(ls -l \"\$p\" 2>/dev/null) || continue; case \"\$x\" in *\" -> $target/microhad\"|*\" -> $target/ziggurat\"|*\" -> $target/mthread-matter\") pid=\${p#/proc/}; pid=\${pid%/exe}; awk -v pid=\$pid '/^VmRSS:/ {print \"pid=\" pid, \$0}' /proc/\$pid/status 2>/dev/null ;; esac; done") || return 1
-    printf 'Full Matter deployment is running. Runtime report:\n%s\nRollback backup: %s\n' "$runtime_report" "$rollback_dir"
+    printf 'Full Matter deployment is running. Runtime report:\n%s\nRollback backup: %s\n' "$runtime_report" "${rollback_dir:-disabled}"
     return 0
 }
 
+if [ -n "$service_selection" ]; then
+    selected_services_deploy
+    exit $?
+fi
 maintenance_deploy_run || exit $?
 if [ "$maintenance_deploy" = true ]; then exit 0; fi
 
@@ -535,7 +678,7 @@ paired_launcher_preflight() {
     case "$old_launcher:$old_backup" in *[!0-9:]*) echo "Unable to read installed launcher sizes" >&2; return 1 ;; esac
     new_launcher=$(wc -c < "$project_dir/ziggurat_start.sh")
     backup_bytes=0
-    [ "$old_backup" -ne 0 ] || backup_bytes=$old_launcher
+    [ -z "$rollback_dir" ] || [ "$old_backup" -ne 0 ] || backup_bytes=$old_launcher
 
     new_control_size=$(wc -c < "$project_dir/scripts/paired_control.sh")
     required_kib=$(((new_launcher + new_control_size + backup_bytes + 1023) / 1024 + flash_reserve_kib))
@@ -590,7 +733,7 @@ if [ "$deploy_binary" = true ]; then
 fi
 if [ -n "$rng_seed_helper" ]; then
     printf 'Uploading RNG seed helper and startup supervisor to %s:%s\n' "$host" "$target"
-    ssh_command "mkdir -p \"$target\"; [ ! -x \"$target/rng-seed\" ] || cp \"$target/rng-seed\" /tmp/rng-seed.pre-codex; [ ! -f \"$target/paired_start.sh\" ] || cp \"$target/paired_start.sh\" /tmp/paired_start.sh.pre-rng-seed"
+    ssh_command "mkdir -p \"$target\""
     ssh_command "dd of=\"$target/.rng-seed.new\"" < "$rng_seed_helper"
     ssh_command "dd of=\"$target/.paired_start.sh.new\"" < "$project_dir/paired_start.sh"
     ssh_command "dd of=\"$target/.paired_control.sh.new\"" < "$project_dir/scripts/paired_control.sh"
@@ -641,11 +784,11 @@ if [ -n "$ca_bundle" ]; then
 fi
 if [ "$activate" = true ]; then
     ssh_command "dd of=\"$target/.gateway_start.sh.new\"" < "$project_dir/native_start.sh"
-    ssh_command "test -f /tuya/tuya_start.sh.lowjs-backup || cp /tuya/tuya_start.sh /tuya/tuya_start.sh.lowjs-backup; chmod 755 \"$target/.gateway_start.sh.new\"; mv \"$target/.gateway_start.sh.new\" /tuya/tuya_start.sh"
+    ssh_command "[ -z \"$rollback_dir\" ] || test -f /tuya/tuya_start.sh.lowjs-backup || cp /tuya/tuya_start.sh /tuya/tuya_start.sh.lowjs-backup; chmod 755 \"$target/.gateway_start.sh.new\"; mv \"$target/.gateway_start.sh.new\" /tuya/tuya_start.sh"
 fi
 if [ "$activate_paired" = true ] || [ "$activate_paired_only" = true ]; then
     ssh_command "dd of=\"$target/.gateway_start.sh.new\"" < "$project_dir/ziggurat_start.sh"
-    ssh_command "test -f /tuya/tuya_start.sh.lowjs-backup || cp /tuya/tuya_start.sh /tuya/tuya_start.sh.lowjs-backup; chmod 755 \"$target/.gateway_start.sh.new\"; mv \"$target/.gateway_start.sh.new\" /tuya/tuya_start.sh"
+    ssh_command "[ -z \"$rollback_dir\" ] || test -f /tuya/tuya_start.sh.lowjs-backup || cp /tuya/tuya_start.sh /tuya/tuya_start.sh.lowjs-backup; chmod 755 \"$target/.gateway_start.sh.new\"; mv \"$target/.gateway_start.sh.new\" /tuya/tuya_start.sh"
 fi
 if [ "$restart" = true ]; then
     printf 'Restarting the supervised native daemon\n'

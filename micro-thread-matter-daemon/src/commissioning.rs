@@ -108,6 +108,7 @@ pub async fn provision_thread<C: Crypto>(
     dataset: &ThreadDataset<'_>,
 ) -> Result<(), Error> {
     let exchange = Exchange::initiate_pase(matter, crypto, peer, passcode).await?;
+    log::info!("Commissioning command=add_or_update_thread_network");
     let response = exchange
         .network_commissioning()
         .add_or_update_thread_network(0, |request| {
@@ -118,11 +119,13 @@ pub async fn provision_thread<C: Crypto>(
         })
         .await?;
     let status = response.response()?.networking_status()?;
+    log::info!("Commissioning Thread command result={status:?}");
     response.complete().await?;
     if status != NetworkCommissioningStatusEnum::Success {
         return Err(ErrorCode::Failure.into());
     }
     let exchange = Exchange::initiate_pase(matter, crypto, peer, passcode).await?;
+    log::info!("Commissioning command=connect_thread_network");
     let response = exchange
         .network_commissioning()
         .connect_network(0, |request| {
@@ -133,6 +136,7 @@ pub async fn provision_thread<C: Crypto>(
         })
         .await?;
     let status = response.response()?.networking_status()?;
+    log::info!("Commissioning Thread command result={status:?}");
     response.complete().await?;
     if status != NetworkCommissioningStatusEnum::Success {
         return Err(ErrorCode::Failure.into());

@@ -10,19 +10,51 @@
 #include <openthread/message.h>
 #include <openthread/tasklet.h>
 #include <openthread/thread.h>
+#include <openthread/thread_ftd.h>
+#include <openthread/error.h>
 #include <openthread/udp.h>
 #include <cstdlib>
 #include <cstring>
 #include <cerrno>
+#include <cstdarg>
+#include <cstdio>
 #include <strings.h>
 
 extern "C" {
 struct GatewayOtAddress { uint8_t ip[16]; uint16_t port; };
+typedef void (*GatewayOtLog)(uint8_t, const char *);
 typedef void (*GatewayOtReceive)(void *, const GatewayOtAddress *, const uint8_t *, uint16_t);
 }
 namespace {
 otInstance *instance = nullptr;
 void resetDiscovery();
+void pollDiagnostics();
+GatewayOtLog diagnosticLog = nullptr;
+bool bindingDiagnostics = false;
+void diagnostic(uint8_t level, const char *format, ...)
+{
+    if (!diagnosticLog) return;
+    char buffer[384];
+    va_list args;
+    va_start(args, format);
+    ::vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
+    diagnosticLog(level, buffer);
+}
+void stateChanged(otChangedFlags flags, void *)
+{
+    if (flags & OT_CHANGED_THREAD_ROLE)
+        diagnostic(2, "Thread role=%s rloc=0x%04x", otThreadDeviceRoleToString(otThreadGetDeviceRole(instance)), otThreadGetRloc16(instance));
+}
+void neighborChanged(otNeighborTableEvent event, const otNeighborTableEntryInfo *entry)
+{
+    if (!entry || event > OT_NEIGHBOR_TABLE_EVENT_CHILD_MODE_CHANGED) return;
+    const otChildInfo &child = entry->mInfo.mChild;
+    diagnostic(2, "Thread child=%s rloc=0x%04x rx_idle=%u rssi=%d timeout=%lu",
+        event == OT_NEIGHBOR_TABLE_EVENT_CHILD_ADDED ? "added" :
+        event == OT_NEIGHBOR_TABLE_EVENT_CHILD_REMOVED ? "removed" : "mode_changed",
+        child.mRloc16, child.mRxOnWhenIdle, child.mAverageRssi, static_cast<unsigned long>(child.mTimeout));
+}
 bool guardedSettings = false;
 bool activeRestoreAllowed = true;
 bool settingsReadError = false;
@@ -41,6 +73,21 @@ void receive(void *context, otMessage *message, const otMessageInfo *info)
     address.port = info->mPeerPort;
     slot->callback(slot->context, &address, bytes, length);
 }
+}
+extern "C" void gatewayOtSetDiagnosticLog(GatewayOtLog callback) { diagnosticLog = callback; }
+extern "C" void gatewayOtSetBindingDiagnostics(bool enabled)
+{
+    bindingDiagnostics = enabled;
+    if (!instance) return;
+    const otIpCounters *ip = otThreadGetIp6Counters(instance);
+    const otMacCounters *mac = otLinkGetCounters(instance);
+    diagnostic(2, "Binding Thread diagnostics=%s role=%s SRP_state=%d port=%u client_running=%u",
+        enabled ? "enabled" : "finished", otThreadDeviceRoleToString(otThreadGetDeviceRole(instance)),
+        otSrpServerGetState(instance), otSrpServerGetPort(instance), otSrpClientIsRunning(instance));
+    diagnostic(2, "Binding IPv6 rx_ok=%lu rx_fail=%lu tx_ok=%lu tx_fail=%lu MAC_security_fail=%lu MAC_unknown_neighbor=%lu",
+        static_cast<unsigned long>(ip->mRxSuccess), static_cast<unsigned long>(ip->mRxFailure),
+        static_cast<unsigned long>(ip->mTxSuccess), static_cast<unsigned long>(ip->mTxFailure),
+        static_cast<unsigned long>(mac->mRxErrSec), static_cast<unsigned long>(mac->mRxErrUnknownNeighbor));
 }
 extern "C" void otPlatReset(otInstance *) { std::abort(); }
 extern "C" otError __real_otPlatSettingsGet(otInstance *, uint16_t, int, uint8_t *, uint16_t *);
@@ -68,6 +115,11 @@ extern "C" int gatewayOtInit(const char *url)
     config.mCoprocessorUrls.mNum = 1;
     config.mSpeedUpFactor = 1;
     instance = otSysInit(&config);
+    if (instance) {
+        otError error = otSetStateChangedCallback(instance, stateChanged, nullptr);
+        if (error != OT_ERROR_NONE) { otSysDeinit(); instance = nullptr; return -static_cast<int>(error); }
+        otThreadRegisterNeighborTableCallback(instance, neighborChanged);
+    }
     return instance ? 0 : -1;
 }
 extern "C" int gatewayOtInitOnChannel(const char *url, uint8_t channel)
@@ -95,7 +147,7 @@ extern "C" int gatewayOtPoll(uint32_t timeoutUs)
     loop.mTimeout.tv_usec = timeoutUs;
     otSysMainloopUpdate(instance, &loop);
     int result = otSysMainloopPoll(&loop);
-    if (result >= 0) otSysMainloopProcess(instance, &loop);
+    if (result >= 0) { otSysMainloopProcess(instance, &loop); pollDiagnostics(); }
     else if (errno != EINTR) return -1;
     return 0;
 }
@@ -244,7 +296,49 @@ struct BrowseQuery {
 };
 BrowseQuery browseQuery = {};
 uint32_t nextBrowseToken = 0;
+otUdpReceiver dnsObserver = {};
+otSrpServerResponseCounters lastSrpCounters = {};
+int lastSrpState = -1;
+uint16_t lastSrpPort = 0;
+bool discoveryStarted = false;
+void pollDiagnostics()
+{
+    if (!discoveryStarted) return;
+    int state = otSrpServerGetState(instance);
+    uint16_t port = otSrpServerGetPort(instance);
+    if (state != lastSrpState || port != lastSrpPort) {
+        diagnostic(2, "SRP server state=%d port=%u", state, port);
+        lastSrpState = state; lastSrpPort = port;
+    }
+    const otSrpServerResponseCounters *c = otSrpServerGetResponseCounters(instance);
+    if (c && std::memcmp(c, &lastSrpCounters, sizeof(*c)) != 0) {
+        diagnostic(2, "SRP responses success=%lu failure=%lu format=%lu name_exists=%lu refused=%lu other=%lu",
+            static_cast<unsigned long>(c->mSuccess), static_cast<unsigned long>(c->mServerFailure),
+            static_cast<unsigned long>(c->mFormatError), static_cast<unsigned long>(c->mNameExists),
+            static_cast<unsigned long>(c->mRefused), static_cast<unsigned long>(c->mOther));
+        lastSrpCounters = *c;
+    }
+}
+bool observeDns(void *, const otMessage *message, const otMessageInfo *info)
+{
+    // Passive metadata only: never consume or modify a protocol packet.
+    if (info->mSockPort != otSrpServerGetPort(instance) && info->mSockPort != 53 && info->mPeerPort != 53) return false;
+    uint8_t header[12];
+    if (otMessageRead(message, otMessageGetOffset(message), header, sizeof(header)) != sizeof(header)) return false;
+    char peer[OT_IP6_ADDRESS_STRING_SIZE];
+    otIp6AddressToString(&info->mPeerAddr, peer, sizeof(peer));
+    diagnostic(bindingDiagnostics ? 2 : 1, "DNS UDP RX peer=[%s]:%u local=%u id=%u opcode=%u response=%u rcode=%u",
+        peer, info->mPeerPort, info->mSockPort, (header[0] << 8) | header[1], (header[2] >> 3) & 15,
+        header[2] >> 7, header[3] & 15);
+    return false;
+}
 void resetDiscovery() {
+    discoveryStarted = false;
+    bindingDiagnostics = false;
+    dnsObserver = {};
+    lastSrpCounters = {};
+    lastSrpState = -1;
+    lastSrpPort = 0;
     std::memset(&dnsQuery, 0, sizeof(dnsQuery));
     std::memset(&browseQuery, 0, sizeof(browseQuery));
 }
@@ -302,6 +396,11 @@ void srpUpdate(otSrpServerServiceUpdateId id, const otSrpServerHost *updated, ui
     unsigned services = 0;
     uint8_t count = 0;
     otSrpServerHostGetAddresses(updated, &count);
+    otSrpServerLeaseInfo lease = {};
+    otSrpServerHostGetLeaseInfo(updated, &lease);
+    diagnostic(2, "SRP update id=%lu host=%.100s deleted=%u addresses=%u lease_ms=%lu key_lease_ms=%lu",
+        static_cast<unsigned long>(id), otSrpServerHostGetFullName(updated), otSrpServerHostIsDeleted(updated), count,
+        static_cast<unsigned long>(lease.mLease), static_cast<unsigned long>(lease.mKeyLease));
     otError error = count <= 8 ? OT_ERROR_NONE : OT_ERROR_NO_BUFS;
     for (const otSrpServerHost *host = nullptr; (host = otSrpServerGetNextHost(instance, host)) != nullptr;) {
         if (strcasecmp(otSrpServerHostGetFullName(host), otSrpServerHostGetFullName(updated)) == 0) continue;
@@ -311,11 +410,15 @@ void srpUpdate(otSrpServerServiceUpdateId id, const otSrpServerHost *updated, ui
     unsigned added = 0;
     for (const otSrpServerService *service = nullptr; (service = otSrpServerHostGetNextService(updated, service)) != nullptr;) {
         ++added;
+        diagnostic(2, "SRP service id=%lu instance=%.120s deleted=%u port=%u",
+            static_cast<unsigned long>(id), otSrpServerServiceGetInstanceName(service),
+            otSrpServerServiceIsDeleted(service), otSrpServerServiceGetPort(service));
         uint16_t length = 0;
         otSrpServerServiceGetTxtData(service, &length);
         if (length > 256) error = OT_ERROR_NO_BUFS;
     }
     if (hosts > 64 || added > 8 || services + added > 128) error = OT_ERROR_NO_BUFS;
+    diagnostic(2, "SRP update decision id=%lu services=%u result=%s(%u)", static_cast<unsigned long>(id), added, otThreadErrorToString(error), error);
     otSrpServerHandleServiceUpdateResult(instance, id, error);
 }
 void dnsResolved(otError error, const otDnsServiceResponse *response, void *context)
@@ -324,7 +427,11 @@ void dnsResolved(otError error, const otDnsServiceResponse *response, void *cont
     dnsQuery.pending = false;
     dnsQuery.done = !dnsQuery.discarded;
     dnsQuery.error = error;
-    if (dnsQuery.discarded || error != OT_ERROR_NONE) return;
+    if (dnsQuery.discarded || error != OT_ERROR_NONE) {
+        diagnostic(bindingDiagnostics ? 2 : 1, "DNS result token=%lu label=%s error=%s(%u) discarded=%u",
+            static_cast<unsigned long>(dnsQuery.token), dnsQuery.label, otThreadErrorToString(error), error, dnsQuery.discarded);
+        return;
+    }
     char label[64] = {};
     char name[128] = {};
     char host[256] = {};
@@ -354,6 +461,9 @@ void dnsResolved(otError error, const otDnsServiceResponse *response, void *cont
         if (dnsQuery.answer.count == 0 || dnsQuery.answer.ttl == 0) error = OT_ERROR_NOT_FOUND;
     }
     dnsQuery.error = error;
+    diagnostic(bindingDiagnostics ? 2 : 1, "DNS result token=%lu label=%s error=%s(%u) addresses=%u port=%u ttl=%lu",
+        static_cast<unsigned long>(dnsQuery.token), dnsQuery.label, otThreadErrorToString(error), error,
+        dnsQuery.answer.count, dnsQuery.answer.port, static_cast<unsigned long>(dnsQuery.answer.ttl));
 }
 }
 extern "C" int gatewayOtDiscoveryStart()
@@ -366,6 +476,12 @@ extern "C" int gatewayOtDiscoveryStart()
     // Auto-start selects an advertised SRP server and also updates the DNS client's
     // default address. No local host or service is registered by the production client.
     otSrpClientEnableAutoStartMode(instance, nullptr, nullptr);
+    dnsObserver.mHandler = observeDns;
+    error = otUdpAddReceiver(instance, &dnsObserver);
+    if (error != OT_ERROR_NONE) return -static_cast<int>(error);
+    discoveryStarted = true;
+    diagnostic(2, "Thread discovery enabled domain=%s", otSrpServerGetDomain(instance));
+    pollDiagnostics();
     return 0;
 }
 extern "C" int gatewayOtDnsStart(const char *label, uint32_t *token)
@@ -382,6 +498,10 @@ extern "C" int gatewayOtDnsStart(const char *label, uint32_t *token)
     dnsQuery.token = ++nextDnsToken;
     std::memcpy(dnsQuery.label, label, 34);
     otDnsQueryConfig config = *otDnsClientGetDefaultConfig(instance);
+    char server[OT_IP6_ADDRESS_STRING_SIZE];
+    otIp6AddressToString(&config.mServerSockAddr.mAddress, server, sizeof(server));
+    diagnostic(bindingDiagnostics ? 2 : 1, "DNS query token=%lu label=%s server=[%s]:%u",
+        static_cast<unsigned long>(dnsQuery.token), label, server, config.mServerSockAddr.mPort);
     config.mResponseTimeout = 1000;
     config.mMaxTxAttempts = 2;
     config.mServiceMode = OT_DNS_SERVICE_MODE_SRV_TXT;
@@ -406,7 +526,10 @@ extern "C" int gatewayOtDnsPoll(uint32_t token, GatewayOtDnsAnswer *answer)
 }
 extern "C" void gatewayOtDnsRelease(uint32_t token)
 {
-    if (token == dnsQuery.token) { dnsQuery.discarded = true; dnsQuery.done = false; }
+    if (token == dnsQuery.token) {
+        if (dnsQuery.pending) diagnostic(bindingDiagnostics ? 2 : 1, "DNS query cancelled while pending token=%lu label=%s", static_cast<unsigned long>(token), dnsQuery.label);
+        dnsQuery.discarded = true; dnsQuery.done = false;
+    }
 }
 extern "C" int gatewayOtBrowseStart(uint64_t fabric, uint64_t nextNode, uint32_t *token)
 {

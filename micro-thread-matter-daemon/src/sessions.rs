@@ -60,7 +60,7 @@ impl Progress {
     }
     pub fn step(&self, step: &'static str) {
         self.1.set(step);
-        log::debug!("Commissioning step={step}");
+        log::info!("Commissioning step={step}");
     }
 }
 #[derive(Serialize)]
@@ -123,11 +123,14 @@ impl<'a> Sessions<'a> {
     fn finish(&mut self, phase: Phase, error: Option<SessionError>, node: Option<Id>) {
         if let Some(session) = self.current.as_ref() {
             if let Some(error) = error {
-                log::warn!(
+                log::info!(
                     "Commissioning failed step={} error={error:?}",
                     session.progress.1.get()
                 );
             }
+        }
+        if phase == Phase::Complete {
+            log::info!("Commissioning complete");
         }
         // Drop the future before clearing BTP or destroying its credentials.
         self.task = None;
@@ -216,6 +219,10 @@ impl<'a> Sessions<'a> {
             error: None,
             node: None,
         });
+        log::info!(
+            "Commissioning started timeout_seconds={}",
+            request.timeout_seconds
+        );
         self.snapshot(id, now)
     }
     pub fn snapshot(&mut self, id: Id, now: Instant) -> Result<Snapshot, SessionError> {

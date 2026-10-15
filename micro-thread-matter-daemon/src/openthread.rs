@@ -6,7 +6,7 @@ use rs_matter::error::{Error, ErrorCode};
 use rs_matter::transport::network::{
     Address, IpAddr, NetworkMulticast, NetworkReceive, NetworkSend, SocketAddr, SocketAddrV6,
 };
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
 use std::ffi::CString;
 use std::future::poll_fn;
@@ -19,6 +19,8 @@ struct OtAddress {
     port: u16,
 }
 unsafe extern "C" {
+    fn gatewayOtSetDiagnosticLog(callback: Option<extern "C" fn(u8, *const core::ffi::c_char)>);
+    fn gatewayOtSetBindingDiagnostics(enabled: bool);
     fn gatewayOtInit(url: *const core::ffi::c_char) -> i32;
     fn gatewayOtInitOnChannel(url: *const core::ffi::c_char, channel: u8) -> i32;
     fn gatewayOtDisable() -> i32;
@@ -51,19 +53,33 @@ fn checked(result: i32) -> Result<(), Error> {
     }
 }
 
+extern "C" fn thread_diagnostic(level: u8, message: *const core::ffi::c_char) {
+    if message.is_null() {
+        return;
+    }
+    // The adapter passes a bounded, NUL-terminated buffer valid for this call.
+    let message = unsafe { std::ffi::CStr::from_ptr(message) }.to_string_lossy();
+    log::log!(target: "thread_diagnostics", if level == 2 { log::Level::Info } else { log::Level::Debug }, "{message}");
+}
+
 /// Owns the one OpenThread instance. Rc marker forbids crossing threads.
 /// Caller establishes a private, persistent working directory before initialization.
 pub struct OpenThread {
     _url: CString,
     _single_thread: PhantomData<Rc<()>>,
+    binding_diagnostics: Cell<bool>,
 }
 impl OpenThread {
     pub fn init(url: &str) -> Result<Self, Error> {
         let url = CString::new(url).map_err(|_| ErrorCode::InvalidData)?;
+        unsafe {
+            gatewayOtSetDiagnosticLog(Some(thread_diagnostic));
+        }
         checked(unsafe { gatewayOtInit(url.as_ptr()) })?;
         Ok(Self {
             _url: url,
             _single_thread: PhantomData,
+            binding_diagnostics: Cell::new(false),
         })
     }
     pub fn ready(&self) -> bool {
@@ -73,10 +89,14 @@ impl OpenThread {
     /// Saved datasets cannot restore before the validated authority record is applied.
     pub fn init_on_channel(url: &str, channel: u8) -> Result<Self, Error> {
         let url = CString::new(url).map_err(|_| ErrorCode::InvalidData)?;
+        unsafe {
+            gatewayOtSetDiagnosticLog(Some(thread_diagnostic));
+        }
         checked(unsafe { gatewayOtInitOnChannel(url.as_ptr(), channel) })?;
         Ok(Self {
             _url: url,
             _single_thread: PhantomData,
+            binding_diagnostics: Cell::new(false),
         })
     }
     pub fn disable(&self) -> Result<(), Error> {
@@ -102,13 +122,32 @@ impl OpenThread {
             0,
         ))))
     }
+    pub(crate) fn diagnostic_level(&self) -> log::Level {
+        if self.binding_diagnostics.get() {
+            log::Level::Info
+        } else {
+            log::Level::Debug
+        }
+    }
+    pub fn set_binding_diagnostics(&self, enabled: bool) {
+        if self.binding_diagnostics.replace(enabled) != enabled {
+            unsafe {
+                gatewayOtSetBindingDiagnostics(enabled);
+            }
+        }
+    }
     pub fn start_discovery(&self) -> Result<(), Error> {
         checked(unsafe { gatewayOtDiscoveryStart() })
     }
     pub async fn resolve_service(&self, label: &str) -> Result<DnsAnswer, Error> {
         let label = CString::new(label).map_err(|_| ErrorCode::InvalidData)?;
         let mut token = 0;
-        checked(unsafe { gatewayOtDnsStart(label.as_ptr(), &mut token) })?;
+        let result = unsafe { gatewayOtDnsStart(label.as_ptr(), &mut token) };
+        if result != 0 {
+            log::log!(target: "thread_diagnostics", if self.binding_diagnostics.get() { log::Level::Info } else { log::Level::Debug },
+                "DNS start rejected label={} ot_error={result}", label.to_string_lossy());
+        }
+        checked(result)?;
         let _request = DnsRequest {
             _owner: self,
             token,
@@ -118,7 +157,11 @@ impl OpenThread {
             match unsafe { gatewayOtDnsPoll(token, &mut answer) } {
                 0 => return Ok(answer),
                 1 => embassy_time::Timer::after_millis(10).await,
-                _ => return Err(ErrorCode::NotFound.into()),
+                error => {
+                    log::log!(target: "thread_diagnostics", if self.binding_diagnostics.get() { log::Level::Info } else { log::Level::Debug },
+                        "DNS poll failed token={token} ot_error={error}");
+                    return Err(ErrorCode::NotFound.into());
+                }
             }
         }
     }
@@ -171,7 +214,10 @@ impl OpenThread {
 }
 impl Drop for OpenThread {
     fn drop(&mut self) {
-        unsafe { gatewayOtDeinit() };
+        unsafe {
+            gatewayOtDeinit();
+            gatewayOtSetDiagnosticLog(None);
+        };
     }
 }
 
