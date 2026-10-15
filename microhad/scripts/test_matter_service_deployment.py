@@ -47,7 +47,7 @@ class Staging(unittest.TestCase):
 if 'grep -qx' in command:
     sys.exit(99)  # Stock gateway grep does not implement -x.
 elif command.startswith('if [ -f ') and 'md5sum' in command:
-    print(os.environ.get('SELECTED_REMOTE_HASH', 'old'))
+    print(os.environ.get('SELECTED_CONTROL_HASH' if '/paired_control.sh' in command else 'SELECTED_REMOTE_HASH', 'old'))
 elif command.startswith('cat /tmp/ziggurat-supervisor/supervisor.pid'):
     print('123')
 elif command.startswith('cat '):
@@ -100,6 +100,34 @@ echo '{"available":true,"controller_initialized":true,"fabric_ready":true,"state
             self.assertEqual(len(uploads), 2)
             self.assertIn('/mthread-matter.new', uploads[0]['command'])
             self.assertIn('/ziggurat.new', uploads[1]['command'])
+
+    def test_selected_supervisor_uploads_only_supervisor_and_control(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result,calls=self.selected_deployment(Path(directory), ['--services','supervisor'])
+            self.assertEqual(result.returncode,0,result.stderr)
+            uploads=[row for row in calls if row['bytes']]
+            self.assertEqual(len(uploads),2)
+            self.assertIn('/paired_start.sh.new',uploads[0]['command'])
+            self.assertIn('/paired_control.sh.new',uploads[1]['command'])
+            self.assertFalse(any('config.json' in row['command'] for row in calls))
+
+    def test_selected_unchanged_supervisor_skips_upload_and_restart(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            supervisor_hash=hashlib.md5((ROOT/'paired_start.sh').read_bytes()).hexdigest()
+            control_hash=hashlib.md5((ROOT/'scripts/paired_control.sh').read_bytes()).hexdigest()
+            # A current supervisor plus a stale control helper still requires
+            # deployment of the script pair.
+            result,calls=self.selected_deployment(root, ['--services','supervisor'],
+                SELECTED_REMOTE_HASH=supervisor_hash)
+            self.assertEqual(result.returncode,0,result.stderr)
+            self.assertNotEqual(supervisor_hash,control_hash)
+            self.assertEqual(len([row for row in calls if row['bytes']]),2)
+        with tempfile.TemporaryDirectory() as directory:
+            result,calls=self.selected_deployment(Path(directory), ['--services','supervisor'],
+                SELECTED_REMOTE_HASH=supervisor_hash, SELECTED_CONTROL_HASH=control_hash)
+            self.assertEqual(result.returncode,0,result.stderr)
+            self.assertFalse(any(row['bytes'] or 'quiesce' in row['command'] for row in calls))
 
     def test_selected_unchanged_service_does_not_upload_or_restart(self):
         with tempfile.TemporaryDirectory() as directory:

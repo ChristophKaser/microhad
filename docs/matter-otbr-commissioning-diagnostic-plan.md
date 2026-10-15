@@ -13,8 +13,8 @@ The initial experiment is only an OTBR initialization/attach smoke test.
 It does not require a commissioner, BLE, Matter session-key instrumentation
 or either firmware image to begin. Reusing an already enabled Unix endpoint
 needs no Ziggurat restart; installing the TCP-capable binary or changing its
-launch flags does require an orderly frozen export/stop and restart through
-the documented maintenance flow. If proceeding to full commissioning and
+launch configuration does require the documented maintenance deployment flow.
+Once installed, the runtime helper switches endpoints without stopping MicroHAD. If proceeding to full commissioning and
 offline decryption, retain the capture/key requirements below. Skip the radio
 flashing and firmware restoration phases for this experiment.
 
@@ -22,21 +22,22 @@ flashing and firmware restoration phases for this experiment.
    an isolated host OTBR instance, its logs and transport capture before
    interrupting the gateway service. Use the existing Thread dataset and the
    Zigbee channel; do not create a new dataset just to test initialization.
-2. Release the Thread endpoint and suppress the existing Matter service's
-   respawn. Sending TERM alone is insufficient: `paired_start.sh` restarts it.
-   The current supported `paired_control.sh quiesce` stops **both MicroHAD and
-   Matter**, retaining Ziggurat. Use that flow for the first test if the native
-   UI/API outage is acceptable. A Matter-only pause requires a supervisor
-   change; no such control currently exists. Do not suspend Matter with STOP:
-   it would retain its socket connection.
-3. Prefer Ziggurat's `--thread-listen IP:PORT` in place of `--thread-socket`
-   for the diagnostic launch. This needs the updated Ziggurat executable but
-   no radio firmware change. The existing paired launcher supplies the Unix
-   flag; prepare an explicit diagnostic launch configuration rather than
-   adding a second flag or connecting a second UART owner. Keep the gateway
-   Matter service stopped. If changing the running Ziggurat launch, freeze
-   and stop the pair first and preserve a way back to the original launch.
-   The TCP endpoint rejects concurrent consumers.
+2. On an updated paired installation, switch ownership using the runtime
+   control helper:
+
+   ```sh
+   ssh root@"$GATEWAY_IP" "/tuya/native/paired_control.sh thread-tcp $GATEWAY_IP:9998"
+   ```
+
+   The supervisor stops the local Matter consumer, keeps MicroHAD running,
+   and restarts Ziggurat with its TCP Thread listener. It suppresses Matter
+   respawn until the setting returns to `off`. TERM alone would respawn Matter;
+   STOP would retain its connection. Do not start another UART owner.
+3. Wait for `active-thread-tcp` under `/tmp/ziggurat-supervisor` to contain
+   the selected address, then confirm Ziggurat owns the listener, Matter has
+   exited, and native/Zigbee status is healthy. A queued request is not proof
+   of listener readiness. This needs the updated binary and supervisor scripts
+   but no radio firmware change. The listener rejects concurrent consumers.
    See [TCP launch and OTBR configuration](hdlc-multipan-usage.md#tcp-endpoint-for-host-otbr).
 4. Point the pinned `bnutzer/otbr-tcp` image at that gateway address and port,
    setting `OTBR_RCP_ADDITIONAL_ARGS: "&no-reset"`. Verify its actual radio URL
@@ -59,13 +60,12 @@ flashing and firmware restoration phases for this experiment.
    requests one. Do not weaken shared-radio checks to force startup through.
    Stop on Zigbee degradation. Successful initialization alone does not prove
    attachment, border routing or accessory commissioning.
-6. Stop OTBR and any relay, saving logs before removing containers. To resume
-   after the supported quiesce flow, take the documented fresh frozen Zigbee
-   export, stop the paired supervisor with `--frozen-snapshot-saved`, wait for
-   cleanup, then start `/tuya/tuya_start.sh` once. This restarts Ziggurat as well
-   as its clients, without flashing or replacing state. Verify real Zigbee
-   traffic and the original Matter/Thread service. Do not clear the quiesce
-   marker manually or start a second Matter process under the supervisor.
+6. Stop OTBR and any relay, saving logs before removing containers. Run
+   `/tuya/native/paired_control.sh thread-tcp off`, wait for `active-thread-tcp`
+   to report `off`, and verify the Unix Thread endpoint, existing Matter
+   service and actual Zigbee traffic. Every fresh supervisor start or reboot
+   also restores Unix/local-Matter mode automatically. Do not clear runtime
+   markers manually or start a second Matter process under the supervisor.
 
 This path compares the host OTBR/controller with the gateway's Thread/Matter
 software while retaining the multipan firmware and Ziggurat multiplexing.

@@ -41,13 +41,33 @@ ziggurat --device /dev/ttyS1 --spinel-iid 1 \
   --thread-listen 192.168.178.62:9998
 ```
 
-Use only after stopping the previous UART owner through the documented paired
-maintenance flow. This is a Ziggurat command-line option; the paired launcher
-still selects its Unix endpoint for the local Matter service. A diagnostic
-launch must replace that argument and keep the local Matter service stopped.
-The two endpoint flags are mutually exclusive and require IID 1. With neither
-flag, no Thread listener is opened. Bind an explicit gateway address reachable
-by the OTBR host; this diagnostic interface has no authentication or TLS.
+On an updated paired installation, switch the running supervisor through its
+control helper instead of launching a second UART owner:
+
+```sh
+/tuya/native/paired_control.sh thread-tcp 192.168.178.62:9998
+# Return Thread to the local service:
+/tuya/native/paired_control.sh thread-tcp off
+```
+
+The helper validates the IPv4 address/port, writes a request under
+`/tmp/ziggurat-supervisor`, and signals Ziggurat as with a log-level change.
+The supervisor stops `mthread-matter` before starting Ziggurat with
+`--thread-listen`, suppresses Matter respawn while TCP is selected, and keeps
+MicroHAD running. Returning to `off` recreates the Unix endpoint and resumes
+Matter with its existing state. Diagnostic switches do not consume failure
+restart budgets. The selection survives child restarts, but every fresh
+supervisor start or reboot defaults to the Unix endpoint and local Matter;
+no launcher environment or persistent network configuration is changed.
+Inspect `/tmp/ziggurat-supervisor/active-thread-tcp` for the applied selection;
+the helper's acknowledgement means the request was queued, not that startup
+has completed. Older supervisors without that marker refuse the command.
+
+The underlying endpoint flags are mutually exclusive and require IID 1. With
+neither flag, no Thread listener is opened. Bind an explicit gateway address
+reachable by the OTBR host; this diagnostic interface has no authentication
+or TLS. The control helper currently accepts IPv4 addresses; direct Ziggurat
+invocations also accept bracketed IPv6 socket addresses.
 
 TCP carries the same raw HDLC bytes, IID translation and reset/channel policy
 as the Unix endpoint. It enables TCP_NODELAY, serves one consumer, rejects

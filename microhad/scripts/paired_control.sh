@@ -3,10 +3,25 @@
 # stop requires operator confirmation of a saved frozen snapshot. No broad kills.
 set -u
 control=${RUNTIME_CONTROL:-/tmp/ziggurat-supervisor}
+valid_thread_tcp() {
+    [ "$1" = off ] && return 0
+    case "$1" in ''|*[!0-9.:]*) return 1 ;; esac
+    printf '%s\n' "$1" | awk -F: '
+        NF != 2 || $2 !~ /^[0-9]+$/ || $2 < 1 || $2 > 65535 {exit 1}
+        {n=split($1, octets, "."); if (n != 4) exit 1;
+         for (i=1; i<=4; i++)
+             if (octets[i] !~ /^[0-9]+$/ || octets[i] > 255 ||
+                 (length(octets[i]) > 1 && substr(octets[i],1,1) == "0")) exit 1}
+    '
+}
 case "${1:-}" in
- log-level|raw-frames|radio-trace)
+ log-level|raw-frames|radio-trace|thread-tcp)
     level=${2:-}
-    if [ "$1" = raw-frames ] || [ "$1" = radio-trace ]; then
+    if [ "$1" = thread-tcp ]; then
+        valid_thread_tcp "$level" || { echo 'usage: paired_control.sh thread-tcp off|IPv4:PORT' >&2;exit 2; }
+        setting=thread-tcp
+        label='Thread TCP endpoint'
+    elif [ "$1" = raw-frames ] || [ "$1" = radio-trace ]; then
         case "$level" in on|off) ;; *) echo "usage: paired_control.sh $1 on|off" >&2;exit 2;; esac
         setting=$( [ "$1" = radio-trace ] && printf radio-trace || printf raw-frames )
         label=$( [ "$1" = radio-trace ] && printf 'radio trace' || printf 'raw frames' )
@@ -86,5 +101,5 @@ case "${1:-}" in
  stop)
     [ "${2:-}" = --frozen-snapshot-saved ] && [ -f "$control/quiesced" ] || { echo 'Quiesce and save frozen snapshot first' >&2;exit 2; }
     : > "$control/stop" ;;
- *) echo 'usage: paired_control.sh log-level LEVEL | raw-frames on|off | radio-trace on|off | matter-log-level LEVEL | matter-raw-frames on|off | quiesce | stop --frozen-snapshot-saved' >&2;exit 2;;
+ *) echo 'usage: paired_control.sh thread-tcp off|IPv4:PORT | log-level LEVEL | raw-frames on|off | radio-trace on|off | matter-log-level LEVEL | matter-raw-frames on|off | quiesce | stop --frozen-snapshot-saved' >&2;exit 2;;
 esac

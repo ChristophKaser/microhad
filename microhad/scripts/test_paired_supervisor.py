@@ -5,6 +5,7 @@ import os
 import pty
 from pathlib import Path
 import signal
+import socket
 import subprocess
 import tempfile
 import time
@@ -33,6 +34,12 @@ if role=='zig':
   path=sys.argv[sys.argv.index('--thread-socket')+1]
   Path(path).unlink(missing_ok=True)
   thread=socket.socket(socket.AF_UNIX);thread.bind(path);os.chmod(path,0o600);thread.listen()
+ if '--thread-listen' in sys.argv:
+  address=sys.argv[sys.argv.index('--thread-listen')+1]
+  with open(os.environ['TEST_EVENTS'],'a') as f:f.write('zig thread-tcp '+address+'\\n')
+  host,port=address.rsplit(':',1)
+  thread=socket.socket();thread.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
+  thread.bind((host,int(port)));thread.listen()
  while True:
   try:
    c,_=s.accept();c.sendall(bytes.fromhex('01020302020100'));c.close()
@@ -319,6 +326,64 @@ class Paired(unittest.TestCase):
         self.quiesce();self.stop()
         self.env['MATTER_RAW_FRAMES']='verbose';self.start();self.process.wait(timeout=5)
         self.assertEqual(self.process.returncode,2)
+
+    def test_thread_tcp_switch_suppresses_matter_and_retains_native(self):
+        self.enable_matter();self.env['RESTART_LIMIT']='1';self.start();self.ready()
+        wait(lambda:(self.control/'matter.pid').exists())
+        native=(self.control/'native.pid').read_text()
+        with socket.socket() as probe:
+            probe.bind(('127.0.0.1',0));endpoint='127.0.0.1:'+str(probe.getsockname()[1])
+        self.run_control('thread-tcp',endpoint)
+        wait(lambda:(self.control/'active-thread-tcp').read_text().strip()==endpoint)
+        self.assertEqual((self.control/'native.pid').read_text(),native)
+        self.assertFalse((self.control/'matter.pid').exists())
+        events=self.events.read_text()
+        self.assertLess(events.index('matter stop'),events.index('zig thread-tcp '+endpoint))
+        starts=events.count('matter start')
+        self.run_control('log-level','trace')
+        wait(lambda:(self.control/'active-log-level').read_text().strip()=='trace')
+        self.assertEqual(self.events.read_text().count('matter start'),starts)
+        self.assertEqual((self.control/'active-thread-tcp').read_text().strip(),endpoint)
+        zig=(self.control/'ziggurat.pid').read_text()
+        self.assertIn('already using',self.run_control('thread-tcp',endpoint).stdout)
+        self.assertEqual((self.control/'ziggurat.pid').read_text(),zig)
+        self.run_control('thread-tcp','off')
+        wait(lambda:(self.control/'active-thread-tcp').read_text().strip()=='off')
+        wait(lambda:(self.control/'matter.pid').exists())
+        self.assertEqual((self.control/'native.pid').read_text(),native)
+        self.assertEqual(self.events.read_text().count('matter start'),starts+1)
+        self.assertEqual((self.control/'active-log-level').read_text().strip(),'trace')
+        self.quiesce();self.stop()
+
+    def test_thread_tcp_resets_to_unix_on_fresh_supervisor(self):
+        self.enable_matter();self.start();self.ready()
+        with socket.socket() as probe:
+            probe.bind(('127.0.0.1',0));endpoint='127.0.0.1:'+str(probe.getsockname()[1])
+        self.run_control('thread-tcp',endpoint)
+        wait(lambda:(self.control/'active-thread-tcp').read_text().strip()==endpoint)
+        zig=int((self.control/'ziggurat.pid').read_text());os.kill(zig,signal.SIGKILL)
+        wait(lambda:self.events.read_text().count('zig thread-tcp '+endpoint)==2)
+        self.assertFalse((self.control/'matter.pid').exists())
+        self.quiesce();self.stop()
+        self.events.write_text('');self.start();self.ready()
+        wait(lambda:(self.control/'matter.pid').exists())
+        self.assertEqual((self.control/'active-thread-tcp').read_text().strip(),'off')
+        self.assertNotIn('zig thread-tcp',self.events.read_text())
+        self.assertTrue((self.root/'thread.sock').is_socket())
+        self.quiesce();self.stop()
+
+    def test_thread_tcp_validation_and_old_supervisor_refusal(self):
+        self.start();self.ready()
+        zig=(self.control/'ziggurat.pid').read_text()
+        for endpoint in ('', 'on', '127.0.0.1', '256.0.0.1:9998', '127.0.0.1:0',
+                         '127.0.0.1:65536', '127.0.0.1:9998\n127.0.0.1:9999'):
+            self.assertNotEqual(self.run_control('thread-tcp',endpoint,check=False).returncode,0)
+        self.assertEqual((self.control/'ziggurat.pid').read_text(),zig)
+        self.assertFalse((self.control/'requested-thread-tcp').exists())
+        (self.control/'active-thread-tcp').unlink()
+        self.assertNotEqual(self.run_control('thread-tcp','127.0.0.1:9998',check=False).returncode,0)
+        self.assertFalse((self.control/'requested-thread-tcp').exists())
+        self.quiesce();self.stop()
 
     def test_native_crash_restarts_without_second_radio_owner_and_budget_bounds(self):
         self.env['TEST_EXIT']='1';self.start();self.process.wait(timeout=12)

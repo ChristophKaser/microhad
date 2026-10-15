@@ -177,6 +177,18 @@ current supervisor lifetime and resets to `ZIGGURAT_LOG_LEVEL` (normally
 `info`) after a fresh supervisor launch or reboot. Paired deployment stages
 `paired_control.sh` with the supervisor.
 
+For a temporary host-OTBR handover, use
+`/tuya/native/paired_control.sh thread-tcp IPv4:PORT` (for example,
+`192.168.178.62:9998`). This gracefully stops the local Matter consumer,
+restarts Ziggurat with `--thread-listen`, suppresses Matter respawn and keeps
+MicroHAD running. `thread-tcp off` restores the Unix Thread socket and local
+Matter service. The applied selection is in `active-thread-tcp` under the
+private runtime control directory. It survives child restarts but always
+resets to Unix/local Matter on a fresh supervisor start or reboot. Network
+state and identity are preserved. Selective deployment accepts
+`--services ziggurat,supervisor` to upload the changed radio executable and
+supervisor/control scripts without replacing other services.
+
 Matter uses `MATTER_LOG_LEVEL` (normally `info`) and
 `/tuya/native/paired_control.sh matter-log-level LEVEL` with the same six levels.
 This gracefully restarts only Matter without consuming its failure-restart

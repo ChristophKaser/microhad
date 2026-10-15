@@ -53,6 +53,29 @@ same explicit local artifact paths verifies remote files/hashes and uploads
 only the launcher. Both preserve `/tuya/tuya_start.sh.lowjs-backup` and require
 `/tuya/native`. `--activate` selects the EZSP launcher instead.
 
+## Selected services and supervisor
+
+To update Ziggurat and its supervisor/control scripts without uploading native,
+Matter, configuration or Web UI assets:
+
+```sh
+ZIGGURAT_MULTIPAN=1 bash ziggurat/scripts/build.sh
+./deploy.sh --services ziggurat,supervisor --host "$GATEWAY_IP" \
+  --password-file "$PASSWORD_FILE" --target /tuya/native \
+  --ziggurat build/ziggurat-hdlc/lexra-stock-uclibc/release/ziggurat.stripped
+```
+
+`supervisor` selects `paired_start.sh` and `paired_control.sh` as a pair. Either
+changed hash causes that pair to be uploaded. Unchanged selections are skipped;
+if everything matches, no service restarts. A changed selection quiesces/stops
+the current stack, verifies staged files and restarts the installed launcher.
+The 512 KiB reserve, ownership checks and identity/network preservation apply.
+Rollback artifact generation remains opt-in through `--rollback-dir DIR`.
+
+For temporary host OTBR access after this update, use
+`paired_control.sh thread-tcp IPv4:PORT`; `thread-tcp off` restores local Matter.
+See [runtime Thread ownership](hdlc-multipan-usage.md#tcp-endpoint-for-host-otbr).
+
 ## Maintenance release
 
 Build all artifacts and update native/Matter together; their private IPC versions

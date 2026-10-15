@@ -38,7 +38,7 @@ flash_reserve_kib=${DEPLOY_FLASH_RESERVE_KIB:-512}
 
 usage() {
     echo "usage: $0 --password-file PATH --maintenance-deploy --binary PATH --ziggurat PATH --matter-service PATH --maintenance-helper PATH --logread PATH [--webui-dir DIR] [--rollback-dir DIR] [--host HOST] [--target /tuya/native]" >&2
-    echo "       $0 --password-file PATH --services matter[,native,ziggurat] --target /tuya/native [--matter-service PATH] [--binary PATH] [--ziggurat PATH] [--rollback-dir DIR]" >&2
+    echo "       $0 --password-file PATH --services matter[,native,ziggurat,supervisor] --target /tuya/native [--matter-service PATH] [--binary PATH] [--ziggurat PATH] [--rollback-dir DIR]" >&2
     echo "       $0 --password-file PATH [--both --supervisor --binary PATH --target /tuya/native] [existing deployment options]" >&2
     exit 2
 }
@@ -92,6 +92,7 @@ if [ -n "$service_selection" ]; then
             matter) [ -n "$matter_service" ] && [ -x "$matter_service" ] || usage ;;
             native) [ "$binary_explicit" = true ] && [ -x "$binary" ] || usage ;;
             ziggurat) [ -n "$ziggurat" ] && [ -x "$ziggurat" ] || usage ;;
+            supervisor) ;;
             *) echo "Unknown service: $selected" >&2; exit 2 ;;
         esac
     done
@@ -222,6 +223,7 @@ selected_service_paths() {
         matter) service_source=$matter_service; service_name=mthread-matter ;;
         native) service_source=$binary; service_name=microhad ;;
         ziggurat) service_source=$ziggurat; service_name=ziggurat ;;
+        supervisor) service_source="$project_dir/paired_start.sh"; service_name=paired_start.sh ;;
     esac
 }
 selected_services_deploy() {
@@ -231,12 +233,16 @@ selected_services_deploy() {
     changed_services=
     for selected in $selected_words; do
         selected_service_paths "$selected"
-        elf_header=$("$selected_readelf" -h "$service_source") || return 1
-        printf '%s\n' "$elf_header" | grep -q 'Class:.*ELF32' &&
-            printf '%s\n' "$elf_header" | grep -q 'Data:.*big endian' &&
-            printf '%s\n' "$elf_header" | grep -q 'Machine:.*MIPS' || {
-                echo "Artifact is not big-endian MIPS: $service_source" >&2; return 1;
-            }
+        if [ "$selected" = supervisor ]; then
+            sh -n "$service_source" && sh -n "$project_dir/scripts/paired_control.sh" || return 1
+        else
+            elf_header=$("$selected_readelf" -h "$service_source") || return 1
+            printf '%s\n' "$elf_header" | grep -q 'Class:.*ELF32' &&
+                printf '%s\n' "$elf_header" | grep -q 'Data:.*big endian' &&
+                printf '%s\n' "$elf_header" | grep -q 'Machine:.*MIPS' || {
+                    echo "Artifact is not big-endian MIPS: $service_source" >&2; return 1;
+                }
+        fi
         if [ "$selected" = native ]; then
             manifest="$binary.matter-manifest"
             [ -f "$manifest" ] && grep -qx 'format=microhad-build-v1' "$manifest" &&
@@ -248,6 +254,10 @@ selected_services_deploy() {
         local_hash=$(md5sum "$service_source" | awk '{print $1}')
         remote_hash=$(ssh_command "if [ -f \"$target/$service_name\" ]; then md5sum \"$target/$service_name\" | awk '{print \$1}'; fi" </dev/null) || return 1
         manifest_changed=false
+        if [ "$selected" = supervisor ]; then
+            remote_control_hash=$(ssh_command "if [ -f \"$target/paired_control.sh\" ]; then md5sum \"$target/paired_control.sh\" | awk '{print \$1}'; fi" </dev/null) || return 1
+            [ "$remote_control_hash" = "$(md5sum "$project_dir/scripts/paired_control.sh" | awk '{print $1}')" ] || manifest_changed=true
+        fi
         if [ "$selected" = native ]; then
             remote_manifest_hash=$(ssh_command "if [ -f \"$target/microhad.matter-manifest\" ]; then md5sum \"$target/microhad.matter-manifest\" | awk '{print \$1}'; fi" </dev/null) || return 1
             [ "$remote_manifest_hash" = "$(md5sum "$manifest" | awk '{print $1}')" ] || manifest_changed=true
@@ -273,6 +283,9 @@ selected_services_deploy() {
             ssh_command "cat \"$target/$service_name\"" > "$rollback_dir/$service_name" || return 1
             saved_hash=$(ssh_command "md5sum \"$target/$service_name\" | awk '{print \$1}'" </dev/null) || return 1
             [ "$saved_hash" = "$(md5sum "$rollback_dir/$service_name" | awk '{print $1}')" ] || return 1
+            if [ "$selected" = supervisor ]; then
+                ssh_command "cat \"$target/paired_control.sh\"" > "$rollback_dir/paired_control.sh" || return 1
+            fi
             if [ "$selected" = native ]; then
                 ssh_command "cat \"$target/microhad.matter-manifest\"" > "$rollback_dir/microhad.matter-manifest" || return 1
             fi
@@ -286,7 +299,11 @@ selected_services_deploy() {
     case "$available" in ''|*[!0-9]*) echo 'Unable to read flash headroom' >&2; return 1 ;; esac
     for selected in $changed_services; do
         selected_service_paths "$selected"
-        needed=$((($(wc -c < "$service_source") + 1023) / 1024 + flash_reserve_kib))
+        staging_bytes=$(wc -c < "$service_source")
+        if [ "$selected" = supervisor ]; then
+            staging_bytes=$((staging_bytes + $(wc -c < "$project_dir/scripts/paired_control.sh")))
+        fi
+        needed=$(((staging_bytes + 1023) / 1024 + flash_reserve_kib))
         [ "$available" -ge "$needed" ] || { echo "Insufficient staging space for $selected; installation unchanged" >&2; return 1; }
     done
     supervisor_pid=$(ssh_command 'cat /tmp/ziggurat-supervisor/supervisor.pid' </dev/null) || return 1
@@ -310,6 +327,9 @@ selected_services_deploy() {
         selected_upload "$service_source" "$target/$service_name" 700 || {
             echo "Deployment incomplete; services remain stopped. $rollback_notice" >&2; return 1;
         }
+        if [ "$selected" = supervisor ]; then
+            selected_upload "$project_dir/scripts/paired_control.sh" "$target/paired_control.sh" 700 || return 1
+        fi
         if [ "$selected" = native ]; then
             selected_upload "$binary.matter-manifest" "$target/microhad.matter-manifest" 600 || return 1
         fi

@@ -23,6 +23,8 @@ matter_bin=${MATTER_BIN:-}
 matter_state=${MATTER_STATE_DIR:-/tuya/native/matter}
 matter_socket=${MATTER_SOCKET:-/tmp/microhad-matter.sock}
 thread_socket=${THREAD_SOCKET:-/tmp/ziggurat/thread.sock}
+# Diagnostic ownership changes never survive a fresh supervisor or reboot.
+thread_tcp=off
 matter_limit=${MATTER_RESTART_LIMIT:-5}
 matter_log_level=${MATTER_LOG_LEVEL:-info}
 matter_raw_frames=${MATTER_RAW_FRAMES:-off}
@@ -75,6 +77,17 @@ else
     echo 'RNG seed helper missing; cold-boot entropy wait may delay Ziggurat' >>"$seed_log"
 fi
 zig_pid=;native_pid=;matter_pid=;retries=0;matter_retries=0;matter_next=0;quiesced=false
+valid_thread_tcp() {
+    [ "$1" = off ] && return 0
+    case "$1" in ''|*[!0-9.:]*) return 1 ;; esac
+    printf '%s\n' "$1" | awk -F: '
+        NF != 2 || $2 !~ /^[0-9]+$/ || $2 < 1 || $2 > 65535 {exit 1}
+        {n=split($1, octets, "."); if (n != 4) exit 1;
+         for (i=1; i<=4; i++)
+             if (octets[i] !~ /^[0-9]+$/ || octets[i] > 255 ||
+                 (length(octets[i]) > 1 && substr(octets[i],1,1) == "0")) exit 1}
+    '
+}
 stop_child() {
     child=$1
     [ -n "$child" ] || return 0
@@ -99,6 +112,7 @@ cleanup() {
     rm -f "$control/active-raw-frames" "$control/requested-raw-frames" "$control/requested-raw-frames."*
     rm -f "$control/active-radio-trace" "$control/requested-radio-trace" "$control/requested-radio-trace."*
     rm -f "$control/active-matter-raw-frames" "$control/requested-matter-raw-frames" "$control/requested-matter-raw-frames."*
+    rm -f "$control/active-thread-tcp" "$control/requested-thread-tcp" "$control/requested-thread-tcp."*
     # Device lacks rmdir. Only remove this invocation's known control directory.
     rm -rf "$control"
 }
@@ -133,7 +147,9 @@ start_zig() {
     parent=${socket_path%/*}
     if [ ! -d "$parent" ]; then mkdir "$parent" || return 1;chmod 700 "$parent";fi
     set --
-    if [ -n "$matter_bin" ]; then
+    if [ "$thread_tcp" != off ]; then
+        set -- --thread-listen "$thread_tcp"
+    elif [ -n "$matter_bin" ]; then
         parent=${thread_socket%/*}
         if [ ! -d "$parent" ]; then mkdir "$parent" || return 1;chmod 700 "$parent";fi
         set -- --thread-socket "$thread_socket"
@@ -150,6 +166,7 @@ start_zig() {
             printf '%s\n' "$zig_log_level" > "$control/active-log-level"
             printf '%s\n' "$zig_raw_frames" > "$control/active-raw-frames"
             printf '%s\n' "$radio_trace" > "$control/active-radio-trace"
+            printf '%s\n' "$thread_tcp" > "$control/active-thread-tcp"
             return 0
         fi
         sleep 1
@@ -161,6 +178,7 @@ start_native() {
     native_pid=$!;printf '%s\n' "$native_pid" > "$control/native.pid"
 }
 poll_matter() {
+    [ "$thread_tcp" = off ] || return 0
     [ -n "$matter_bin" ] || return 0
     matter_diagnostic_change=false
     if [ -f "$control/requested-matter-log-level" ]; then
@@ -267,6 +285,22 @@ while :; do
             radio_trace=$requested_radio_trace
             level_change=true
         fi
+        requested_thread_tcp=
+        if [ -f "$control/requested-thread-tcp" ]; then
+            IFS= read -r requested_thread_tcp < "$control/requested-thread-tcp" || requested_thread_tcp=
+        fi
+        if [ -n "$requested_thread_tcp" ] && valid_thread_tcp "$requested_thread_tcp" &&
+            [ "$requested_thread_tcp" != "$thread_tcp" ]; then
+            # Stop the local consumer before exposing Thread to the host. Retain
+            # its database and failure budget; an explicit return gets one launch.
+            stop_child "$matter_pid";matter_pid=
+            rm -f "$control/matter.pid" "$control/active-matter-log-level" "$control/active-matter-raw-frames"
+            matter_level_restart=true
+            matter_next=0
+            thread_tcp=$requested_thread_tcp
+            level_change=true
+        fi
+        rm -f "$control/requested-thread-tcp"
         if [ "$level_change" = true ] && [ -n "$native_pid" ] && kill -0 "$native_pid" 2>/dev/null; then
             # A requested diagnostic change deliberately recycles only Ziggurat.
             zig_pid=
