@@ -104,7 +104,7 @@ extern "C" void otPlatLog(otLogLevel, otLogRegion, const char *format, ...)
     va_start(args, format);
     ::vsnprintf(buffer, sizeof(buffer), format, args);
     va_end(args);
-    diagnostic(std::strstr(buffer, "SrpServer") || std::strstr(buffer, "RX fragment conversion failed") ||
+    diagnostic(std::strstr(buffer, "SrpServer") || std::strstr(buffer, "RX fragment ") || std::strstr(buffer, "RX first fragment failed") ||
         std::strstr(buffer, "Dropping rx frag frame") ? 2 : 1, "OpenThread %s", buffer);
 }
 extern "C" void gatewayOtSetDiagnosticLog(GatewayOtLog callback) { diagnosticLog = callback; }

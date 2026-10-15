@@ -160,9 +160,13 @@ the first-fragment reassembly handler with synthetic secured receive metadata.
 It does not replay radio authentication, production neighbor state, or the
 complete datagram. Successful isolated replay therefore establishes validity
 in that test context, not successful delivery through the live radio path.
-Fragment conversion failures log the actual first 32 bytes, mesh-local prefix
-and failing stage at INFO. These allow comparing the live post-decryption
-header against the authenticated offline capture.
+First-fragment failures log the actual first 32 bytes, mesh-local prefix,
+message length and failing stage at INFO. Stages include conversion, the
+post-conversion size check, message extension and ingress filtering. Separate
+bounded events retain the complete header within OpenThread's own log limit.
+These allow comparing the live post-decryption header against the authenticated
+offline capture. The synthetic `lowpan-oversized-first-fragment.hex` vector
+exercises successful conversion followed by rejection at the message-size check.
 
 Deploy only a changed service with `./deploy.sh --services matter --target
 /tuya/native --password-file ../ssh_password.txt --matter-service
