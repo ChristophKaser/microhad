@@ -35,8 +35,8 @@ else
 fi
 mailboxes+=(ziggurat/patches/ziggurat-syslog-fragments.patch ziggurat/patches/ziggurat-async-syslog.patch)
 mailboxes+=(ziggurat/patches/ziggurat-end-device-relay.patch)
-if [ "$multipan" = 1 ]; then
-    mailboxes+=(ziggurat/patches/ziggurat-radio-trace.patch)
+if [ "$ZIGGURAT_MULTIPAN" = 1 ]; then
+    mailboxes+=(ziggurat/patches/ziggurat-radio-trace.patch ziggurat/patches/ziggurat-thread-tcp.patch)
 fi
 mailbox_paths=()
 for mailbox in "${mailboxes[@]}"; do mailbox_paths+=("$experiment_root/$mailbox"); done

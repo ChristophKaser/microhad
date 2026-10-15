@@ -38,6 +38,7 @@ ZIGGURAT_MULTI = [
     "ziggurat-async-syslog.patch",
     "ziggurat-end-device-relay.patch",
     "ziggurat-radio-trace.patch",
+    "ziggurat-thread-tcp.patch",
 ]
 RS_MATTER_SERVICE = [
     "rs-matter-spake2p.patch",

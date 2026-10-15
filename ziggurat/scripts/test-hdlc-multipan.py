@@ -80,7 +80,10 @@ def main():
     parser.add_argument("--host")
     parser.add_argument("--password-file", default=str(ROOT.parent / "ssh_password.txt"))
     parser.add_argument("--binary", type=Path)
+    parser.add_argument("--thread-tcp", action="store_true", help="Test the TCP Thread endpoint (host fixture only)")
     args = parser.parse_args()
+    if args.thread_tcp and args.host:
+        parser.error("--thread-tcp currently supports only the host fixture")
     token = str(time.time_ns())
     device = args.host or "127.0.0.1"
     radio = sim.Rcp(device, tcp_nodelay=True, iid=1)
@@ -160,21 +163,50 @@ done
             thread = HdlcPeer(bridge.stdout, bridge.stdin)
         else:
             binary = args.binary or ROOT / "build/host/debug/ziggurat"
+            thread_endpoint = ["--thread-socket", thread_path]
+            if args.thread_tcp:
+                with socket.socket() as port_probe:
+                    port_probe.bind(("127.0.0.1", 0))
+                    thread_port = port_probe.getsockname()[1]
+                thread_endpoint = ["--thread-listen", f"127.0.0.1:{thread_port}"]
+                for invalid, expected in [
+                    (["--thread-listen", f"127.0.0.1:{thread_port}"], "requires --spinel-iid 1"),
+                    (["--spinel-iid", "1", *thread_endpoint, "--thread-socket", thread_path], "cannot be used with"),
+                    (["--thread-listen", "invalid"], "invalid value"),
+                ]:
+                    rejected = subprocess.run([str(binary), "--device", "/not/a/radio", *invalid], capture_output=True, text=True, timeout=3)
+                    assert rejected.returncode != 0 and expected in rejected.stdout + rejected.stderr
+                passed("TCP endpoint rejects wrong IID, conflicting endpoints and invalid addresses")
             process = subprocess.Popen([str(binary), "--device", f"tcp://{radio.address}:{radio.port}",
-                "--spinel-iid", "1", "--thread-socket", thread_path, "--listen", f"127.0.0.1:{api_port}",
+                "--spinel-iid", "1", *thread_endpoint, "--listen", f"127.0.0.1:{api_port}",
                 "--log-level", "info"], stdout=log_file, stderr=subprocess.STDOUT)
             deadline = time.monotonic() + 5
-            while not Path(thread_path).exists():
-                if process.poll() is not None or time.monotonic() > deadline: raise RuntimeError("Host startup failed")
-                time.sleep(0.02)
-            thread_socket = socket.socket(socket.AF_UNIX)
-            thread_socket.connect(thread_path)
+            if args.thread_tcp:
+                while True:
+                    try:
+                        thread_socket = socket.create_connection(("127.0.0.1", thread_port), timeout=0.2)
+                        break
+                    except ConnectionRefusedError:
+                        if process.poll() is not None or time.monotonic() > deadline:
+                            raise RuntimeError("Host TCP startup failed")
+                        time.sleep(0.02)
+            else:
+                while not Path(thread_path).exists():
+                    if process.poll() is not None or time.monotonic() > deadline: raise RuntimeError("Host startup failed")
+                    time.sleep(0.02)
+                thread_socket = socket.socket(socket.AF_UNIX)
+                thread_socket.connect(thread_path)
             thread = HdlcPeer(thread_socket)
         api = sim.Client(api_port, [])
         assert api.request(2) == sim.EUI
         passed("Zigbee API uses IID 1 through actual server")
         assert thread.request(2, 8) == (8, sim.EUI[::-1])
-        passed("Local Thread HDLC consumer IID 0 maps to RCP IID 2")
+        passed("Thread HDLC consumer IID 0 maps to RCP IID 2")
+        if args.thread_tcp:
+            with socket.create_connection(("127.0.0.1", thread_port), timeout=2) as extra:
+                assert extra.recv(1) == b""
+            assert thread.request(2, 8) == (8, sim.EUI[::-1])
+            passed("Second TCP consumer is rejected without displacing the active consumer")
         api.request(0x10, sim.config())
         api.request(0x16)
         deadline = time.monotonic() + 3
@@ -224,6 +256,15 @@ done
         assert radio.counts["iid_1_property_32"] > programmed
         assert radio.interfaces[1][54] == struct.pack("<H", 0x1a62)
         passed("Global reset notifies Thread consumer and triggers Zigbee recovery")
+        if args.thread_tcp:
+            thread_socket.close()
+            time.sleep(0.1)
+            thread_socket = socket.create_connection(("127.0.0.1", thread_port), timeout=2)
+            thread = HdlcPeer(thread_socket)
+            # The synthetic global reset clears IID2 configuration; reconnect
+            # must still support discovery without assuming a restored PAN.
+            assert thread.request(2, 8) == (8, sim.EUI[::-1])
+            passed("TCP consumer reconnects after disconnect")
         report["passed"] = True
         report["thread_query_timing"] = sim.timing_summary(report["thread_query_ms"])
         if args.host:

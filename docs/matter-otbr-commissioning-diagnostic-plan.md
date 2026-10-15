@@ -1,6 +1,79 @@
 # Matter commissioning diagnostic with host OTBR
 
-## Goal and scope
+## First try — OTBR through Ziggurat, without flashing
+
+Try the existing Thread socket before the firmware cutover below. Ziggurat
+exposes `/tmp/ziggurat/thread.sock` as HDLC/Spinel: consumer IID 0 is translated
+to radio IID 2. This is the radio interface OTBR needs, rather than the native
+COBS control socket. Ziggurat remains the UART owner and Zigbee stays running.
+The repository's userspace OpenThread adapter already consumes this endpoint;
+a full OTBR startup against it still needs verification.
+
+The initial experiment is only an OTBR initialization/attach smoke test.
+It does not require a commissioner, BLE, Matter session-key instrumentation
+or either firmware image to begin. Reusing an already enabled Unix endpoint
+needs no Ziggurat restart; installing the TCP-capable binary or changing its
+launch flags does require an orderly frozen export/stop and restart through
+the documented maintenance flow. If proceeding to full commissioning and
+offline decryption, retain the capture/key requirements below. Skip the radio
+flashing and firmware restoration phases for this experiment.
+
+1. Save baseline Zigbee/Thread status and the intended dataset/channel. Prepare
+   an isolated host OTBR instance, its logs and transport capture before
+   interrupting the gateway service. Use the existing Thread dataset and the
+   Zigbee channel; do not create a new dataset just to test initialization.
+2. Release the Thread endpoint and suppress the existing Matter service's
+   respawn. Sending TERM alone is insufficient: `paired_start.sh` restarts it.
+   The current supported `paired_control.sh quiesce` stops **both MicroHAD and
+   Matter**, retaining Ziggurat. Use that flow for the first test if the native
+   UI/API outage is acceptable. A Matter-only pause requires a supervisor
+   change; no such control currently exists. Do not suspend Matter with STOP:
+   it would retain its socket connection.
+3. Prefer Ziggurat's `--thread-listen IP:PORT` in place of `--thread-socket`
+   for the diagnostic launch. This needs the updated Ziggurat executable but
+   no radio firmware change. The existing paired launcher supplies the Unix
+   flag; prepare an explicit diagnostic launch configuration rather than
+   adding a second flag or connecting a second UART owner. Keep the gateway
+   Matter service stopped. If changing the running Ziggurat launch, freeze
+   and stop the pair first and preserve a way back to the original launch.
+   The TCP endpoint rejects concurrent consumers.
+   See [TCP launch and OTBR configuration](hdlc-multipan-usage.md#tcp-endpoint-for-host-otbr).
+4. Point the pinned `bnutzer/otbr-tcp` image at that gateway address and port,
+   setting `OTBR_RCP_ADDITIONAL_ARGS: "&no-reset"`. Verify its actual radio URL
+   ends in `?uart-baudrate=460800&no-reset`. The container handles TCP-to-PTY
+   internally; no separate gateway relay or serialgateway is required.
+   Alternatively retain the Unix endpoint and relay it through SSH to a host
+   PTY or a patched Unix-HDLC OTBR build. The installed maintenance
+   `cobs-bridge` only accepts `native.sock`, so it cannot relay Thread.
+   Never enable UART reset, hardware reset or automatic reset recovery against
+   the shared RCP. Stop if the selected OTBR build requires those operations.
+5. First require successful RCP version/capability initialization without a
+   physical reset. The Thread channel comes from the Operational Dataset,
+   not the TCP port or radio URL. Before enabling Thread, compare the saved
+   dataset's channel with the recorded Zigbee channel, then import it unchanged
+   as in Phase 3. Start Thread, verify the reported channel, and check role,
+   IPv6 and discovery. See the [channel setup commands](hdlc-multipan-usage.md#supply-the-thread-channel).
+   Record rejected Spinel properties.
+   Ziggurat denies scans, conflicting channels and several global radio
+   controls; OTBR may need configuration or compatibility work if startup
+   requests one. Do not weaken shared-radio checks to force startup through.
+   Stop on Zigbee degradation. Successful initialization alone does not prove
+   attachment, border routing or accessory commissioning.
+6. Stop OTBR and any relay, saving logs before removing containers. To resume
+   after the supported quiesce flow, take the documented fresh frozen Zigbee
+   export, stop the paired supervisor with `--frozen-snapshot-saved`, wait for
+   cleanup, then start `/tuya/tuya_start.sh` once. This restarts Ziggurat as well
+   as its clients, without flashing or replacing state. Verify real Zigbee
+   traffic and the original Matter/Thread service. Do not clear the quiesce
+   marker manually or start a second Matter process under the supervisor.
+
+This path compares the host OTBR/controller with the gateway's Thread/Matter
+software while retaining the multipan firmware and Ziggurat multiplexing.
+If it fails, use the first rejected command or transport error to decide
+whether a small host adaptation is sufficient. The standard OT-RCP cutover
+below remains an escalation for isolating the shared-radio implementation.
+
+## Firmware-cutover goal and scope
 
 This runbook tests the accessory with the repository's host-based OpenThread
 Border Router (OTBR) setup, using the factory-kernel gateway only as a remote
@@ -419,13 +492,18 @@ assume the established gateway authentication/options.
    docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT" exec -T otbr ot-ctl thread stop
    docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT" exec -T otbr ot-ctl ifconfig down
    docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT" exec -T otbr ot-ctl dataset set active "$(cat "$INTENDED_DATASET_HEX_FILE")"
+   docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT" exec -T otbr ot-ctl dataset active
    docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT" exec -T otbr ot-ctl ifconfig up
    docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT" exec -T otbr ot-ctl thread start
+   docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT" exec -T otbr ot-ctl channel
    ```
 
    The input file must contain only hex Operational Dataset TLVs. Require
-   `Done` for each command; never use `dataset init new` on the existing
-   network. Verify the expected RCP/Spinel version and stable Thread role,
+   `Done` for each command. Check the active dataset's channel before enabling
+   the interface and verify the reported channel after startup. When using
+   Ziggurat's shared endpoint, both must match the running Zigbee channel.
+   Reuse the dataset unchanged; do not apply a separate `dataset channel N`
+   override or use `dataset init new` on the existing network. Verify the expected RCP/Spinel version and stable Thread role,
    Thread interface, routes and IPv6/mDNS readiness. An isolated network may
    elect this OTBR leader rather than attach to an existing leader. If the
    dataset is wrong, stop before commissioning.

@@ -1,0 +1,117 @@
+From 9cbf9b4e1cb1f36d5072e6d3799cb776a46bde6c Mon Sep 17 00:00:00 2001
+From: Christoph Kaser <christoph@caser.de>
+Date: Thu, 15 Oct 2026 21:32:27 +0200
+Subject: [PATCH] ziggurat: expose Thread HDLC through an optional TCP listener
+
+---
+ crates/ziggurat-server/src/main.rs | 62 ++++++++++++++++++++++++++++--
+ 1 file changed, 58 insertions(+), 4 deletions(-)
+
+diff --git a/crates/ziggurat-server/src/main.rs b/crates/ziggurat-server/src/main.rs
+index 46bb871..73caa23 100644
+--- a/crates/ziggurat-server/src/main.rs
++++ b/crates/ziggurat-server/src/main.rs
+@@ -280,6 +280,54 @@ impl ZigguratServer {
+                 }
+             });
+         }
++        if let Some(address) = self.serial.thread_listen {
++            let thread = client.interface(2).map_err(std::io::Error::other)?;
++            let listener = TcpListener::bind(address).await?;
++            tracing::info!(
++                "TCP Thread HDLC endpoint: {} (IID 0 translated to RCP IID 2; no-reset consumer)",
++                listener.local_addr()?
++            );
++            tokio::spawn(async move {
++                loop {
++                    let (stream, peer) = match listener.accept().await {
++                        Ok(connection) => connection,
++                        Err(error) => {
++                            tracing::error!("Thread TCP listener failed: {error}");
++                            break;
++                        }
++                    };
++                    if let Err(error) = stream.set_nodelay(true) {
++                        tracing::warn!("Thread TCP_NODELAY failed: {error}");
++                        continue;
++                    }
++                    tracing::info!("Thread TCP consumer connected: {peer}");
++                    let session = thread.serve_hdlc(stream);
++                    tokio::pin!(session);
++                    loop {
++                        tokio::select! {
++                            result = &mut session => {
++                                if let Err(error) = result {
++                                    tracing::warn!("Thread TCP consumer disconnected: {error}");
++                                }
++                                break;
++                            }
++                            incoming = listener.accept() => {
++                                match incoming {
++                                    Ok((extra, peer)) => {
++                                        tracing::warn!("Thread consumer already connected; rejecting {peer}");
++                                        drop(extra);
++                                    }
++                                    Err(error) => {
++                                        tracing::error!("Thread TCP listener failed: {error}");
++                                        return;
++                                    }
++                                }
++                            }
++                        }
++                    }
++                }
++            });
++        }
+         let new_phy = Arc::new(SpinelPhy::new(client));
+         let radio_trace = matches!(std::env::var("MATTER_RADIO_TRACE").as_deref(), Ok("on"));
+         match new_phy.set_radio_trace(radio_trace).await {
+@@ -1121,6 +1169,7 @@ pub struct SerialConfig {
+     flow_control: FlowControlMode,
+     spinel_iid: u8,
+     thread_socket: Option<String>,
++    thread_listen: Option<std::net::SocketAddr>,
+ }
+ 
+ /// A local network hop should establish in well under this; past it, something (a
+@@ -1205,9 +1254,13 @@ struct Args {
+     spinel_iid: u8,
+ 
+     /// Local Thread HDLC socket (requires --spinel-iid 1; no-reset consumer)
+-    #[arg(long)]
++    #[arg(long, conflicts_with = "thread_listen")]
+     thread_socket: Option<String>,
+ 
++    /// Thread HDLC TCP listen address, e.g. 192.168.178.62:9998 (one no-reset consumer)
++    #[arg(long, conflicts_with = "thread_socket")]
++    thread_listen: Option<std::net::SocketAddr>,
++
+     /// WebSocket listen address: `host:port` for TCP, `unix:/path/to.sock` for a
+     /// UNIX socket
+     #[arg(long, default_value = "0.0.0.0:9999")]
+@@ -1226,8 +1279,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
+     #[cfg(target_env = "uclibc")]
+     ziggurat_stock_uclibc_compat::link();
+     let args = Args::parse();
+-    if args.thread_socket.is_some() && args.spinel_iid != 1 {
+-        return Err("--thread-socket requires --spinel-iid 1".into());
++    if (args.thread_socket.is_some() || args.thread_listen.is_some()) && args.spinel_iid != 1 {
++        return Err("Thread endpoint requires --spinel-iid 1".into());
+     }
+ 
+     let rt = tokio::runtime::Runtime::new()?;
+@@ -1271,9 +1324,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
+             flow_control: args.flow_control,
+             spinel_iid: args.spinel_iid,
+             thread_socket: args.thread_socket,
++            thread_listen: args.thread_listen,
+         }));
+ 
+-        if server.serial.thread_socket.is_some() {
++        if server.serial.thread_socket.is_some() || server.serial.thread_listen.is_some() {
+             server.phy().await?; // Start the local endpoint even before a Zigbee client connects.
+         }
+         match args.api {
+-- 
+2.43.0
+

@@ -31,6 +31,7 @@ bash -c 'source scripts/rust-env.sh; CARGO_TARGET_DIR="$PWD/build/host" cargo +"
 python3 ziggurat/scripts/test-simulate-rcp.py
 python3 ziggurat/scripts/test-cobs-unix.py
 python3 ziggurat/scripts/test-hdlc-multipan.py
+python3 ziggurat/scripts/test-hdlc-multipan.py --thread-tcp
 python3 ziggurat/scripts/test-fresh-join-replay.py
 python3 ziggurat/scripts/test-end-device-relay.py
 ```
@@ -38,3 +39,6 @@ python3 ziggurat/scripts/test-end-device-relay.py
 Run the multipan build first to prepare its worktree. Tests default to synthetic
 host traffic; device options require a separately authorized hardware test.
 See [building](../docs/building.md) and [integration](../docs/native-ziggurat-integration.md).
+
+For a host OTBR, use `--thread-listen IP:PORT` instead of `--thread-socket`.
+See [TCP Thread transport and no-reset configuration](../docs/hdlc-multipan-usage.md#tcp-endpoint-for-host-otbr).

@@ -30,6 +30,87 @@ Create a private parent directory first. Thread accepts one local consumer. Its
 OpenThread URL is `spinel+hdlc+unix:///tmp/ziggurat/thread.sock?no-reset`.
 The adapter rejects UART URLs and physical reset requests.
 
+## TCP endpoint for host OTBR
+
+The multipan server also accepts `--thread-listen IP:PORT` instead of
+`--thread-socket PATH`. For example, with all other launch arguments unchanged:
+
+```sh
+ziggurat --device /dev/ttyS1 --spinel-iid 1 \
+  --api cobs-unix --listen unix:/tmp/ziggurat/native.sock \
+  --thread-listen 192.168.178.62:9998
+```
+
+Use only after stopping the previous UART owner through the documented paired
+maintenance flow. This is a Ziggurat command-line option; the paired launcher
+still selects its Unix endpoint for the local Matter service. A diagnostic
+launch must replace that argument and keep the local Matter service stopped.
+The two endpoint flags are mutually exclusive and require IID 1. With neither
+flag, no Thread listener is opened. Bind an explicit gateway address reachable
+by the OTBR host; this diagnostic interface has no authentication or TLS.
+
+TCP carries the same raw HDLC bytes, IID translation and reset/channel policy
+as the Unix endpoint. It enables TCP_NODELAY, serves one consumer, rejects
+additional connections while it is active, and accepts a new consumer after
+it disconnects. Ziggurat continues to own the physical UART at 460800/RTS-CTS.
+
+For the pinned `bnutzer/otbr-tcp` image, configure:
+
+```yaml
+environment:
+  RCP_HOST: 192.168.178.62
+  RCP_PORT: "9998"
+  RCP_BAUDRATE: "460800"
+  OTBR_RCP_ADDITIONAL_ARGS: "&no-reset"
+```
+
+Its [agent startup script](https://github.com/bnutzer/docker-otbr-tcp/blob/main/etc/s6-overlay/s6-rc.d/otbr-agent/run)
+appends `OTBR_RCP_ADDITIONAL_ARGS` to the UART URL of the container's internal
+TCP-to-PTY transport. This yields a URL ending in
+`?uart-baudrate=460800&no-reset`; verify that in the selected image before
+connecting. No separate gateway relay or serialgateway process is needed.
+The host image still uses its internal PTY adapter. `no-reset` suppresses
+initialization resets; Ziggurat independently rejects secondary reset requests.
+Do not enable physical reset or reset recovery against the shared radio.
+Keep Thread on the existing Zigbee channel and retain an isolated OTBR state
+volume; stock OTBR startup compatibility still requires a live smoke test.
+
+## Supply the Thread channel
+
+OTBR gets the channel from its Thread Operational Dataset. Neither
+`--thread-listen`, `RCP_PORT` nor `OTBR_RCP_ADDITIONAL_ARGS` selects it.
+Before switching consumers, record the running Zigbee coordinator's channel
+and verify that the saved Thread dataset contains the same channel. Ziggurat
+rejects a different channel; `no-reset` does not bypass that check.
+
+Disable OTBR auto-attach until the intended dataset has been imported. With
+`INTENDED_DATASET_HEX_FILE` containing only the existing dataset's hex TLVs,
+configure the isolated OTBR instance before starting Thread:
+
+```sh
+docker compose exec -T otbr wrap-ot-ctl thread stop
+docker compose exec -T otbr wrap-ot-ctl ifconfig down
+docker compose exec -T otbr wrap-ot-ctl dataset set active "$(cat "$INTENDED_DATASET_HEX_FILE")"
+docker compose exec -T otbr wrap-ot-ctl dataset active
+docker compose exec -T otbr wrap-ot-ctl ifconfig up
+docker compose exec -T otbr wrap-ot-ctl thread start
+docker compose exec -T otbr wrap-ot-ctl channel
+```
+
+Require successful command responses. Check the active dataset's `Channel`
+against the recorded Zigbee channel before enabling the interface, then verify
+`channel` reports that same value after startup. `wrap-ot-ctl` is the selected
+container image's wrapper for its configured Thread interface; use `ot-ctl`
+with the appropriate interface option in images without that wrapper.
+
+Reuse the existing dataset unchanged for this comparison. `dataset channel N`
+changes the dataset being prepared and is appropriate when deliberately
+creating a separate test network, followed by committing that dataset before
+startup. Do not use it to modify the existing network or make a mismatched
+import appear compatible. If OTBR initialization tries a conflicting channel
+before import is possible, stop and inspect that startup request; do not change
+Zigbee's channel or relax Ziggurat's shared-radio policy.
+
 ## Routing and bounds
 
 Logical clients share the physical reader/writer and radio lock but have
@@ -69,6 +150,7 @@ Prepare the patched host server using [Ziggurat's README](../ziggurat/README.md)
 ```sh
 python3 ziggurat/scripts/test-simulate-rcp.py
 python3 ziggurat/scripts/test-hdlc-multipan.py
+python3 ziggurat/scripts/test-hdlc-multipan.py --thread-tcp
 python3 ziggurat/scripts/test-cobs-unix.py
 python3 micro-thread-matter-daemon/scripts/test-openthread-compatibility.py
 ```
