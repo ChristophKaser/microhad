@@ -1450,6 +1450,10 @@ async fn run(
                     }), "missing initial sensor value for cluster {cluster}");
                 }
                 println!("PASS initial sensor and contact values delivered from subscription priming reports");
+            } else {
+                wait_manager_subscriptions(&mut manager, node, &[6]).await?;
+                // Priming reports precede the value changed by the next toggle.
+                while manager.pop_report().is_some() {}
             }
             let mut report_ipc = if sensor_reports {
                 let directory = if state_directory.is_absolute() {
@@ -1674,7 +1678,11 @@ async fn run(
                     if native_ipc {
                         assert!(payload.is_empty());
                     } else {
-                        assert_eq!(payload, expected);
+                        // CBOR-to-JSON decoding may reorder object fields.
+                        assert_eq!(
+                            serde_json::from_slice::<serde_json::Value>(&payload).unwrap(),
+                            serde_json::from_slice::<serde_json::Value>(expected).unwrap(),
+                        );
                     }
                 }
                 println!(
@@ -1969,6 +1977,15 @@ async fn commission_owned<C: Crypto>(
     let reply: serde_json::Value = serde_json::from_slice(&reply).unwrap();
     assert_eq!(reply["ok"], true);
     let session = reply["result"]["session"].as_str().unwrap();
+    // Regression: a prior BLE connection left a PASE session that the
+    // accessory no longer knows. Attach must discard it before authenticating.
+    {
+        use rs_matter::transport::session::{ReservedSession, SessionMode};
+        let mut stale = ReservedSession::reserve_now(matter, crypto)?;
+        stale.update(0, 0, 123, 456, Address::Btp(BtAddr([0xbb; 6])),
+            SessionMode::Pase { fab_idx: 0 }, None, None, None, None)?;
+        stale.complete();
+    }
     let attach =
         format!(r#"{{"schema":1,"session":"{session}","address":"bbbbbbbbbbbb","mtu":247}}"#);
     let reply = owner
@@ -2022,6 +2039,7 @@ async fn commission_owned<C: Crypto>(
                     format!("matter:{:016x}:{node:016x}:0001", persisted.fabric_id())
                 );
                 println!("PASS persisted production node catalog and stable endpoint identity");
+                println!("PASS stale BLE PASE session discarded before fresh commissioning");
                 println!(
                     "PASS production owned commissioner PASE, provisioning and CASE completion"
                 );

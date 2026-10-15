@@ -53,10 +53,14 @@ pub struct Ticket {
     pub generation: u32,
 }
 #[derive(Clone)]
-pub struct Progress(Rc<Cell<Phase>>);
+pub struct Progress(Rc<Cell<Phase>>, Rc<Cell<&'static str>>);
 impl Progress {
     pub fn set(&self, phase: Phase) {
         self.0.set(phase);
+    }
+    pub fn step(&self, step: &'static str) {
+        self.1.set(step);
+        log::debug!("Commissioning step={step}");
     }
 }
 #[derive(Serialize)]
@@ -117,6 +121,14 @@ impl<'a> Sessions<'a> {
         }
     }
     fn finish(&mut self, phase: Phase, error: Option<SessionError>, node: Option<Id>) {
+        if let Some(session) = self.current.as_ref() {
+            if let Some(error) = error {
+                log::warn!(
+                    "Commissioning failed step={} error={error:?}",
+                    session.progress.1.get()
+                );
+            }
+        }
         // Drop the future before clearing BTP or destroying its credentials.
         self.task = None;
         if self.relay.invalidate().is_err() {
@@ -194,7 +206,10 @@ impl<'a> Sessions<'a> {
             country_code: request.country_code,
             regulatory_location: request.regulatory_location,
             phase: Phase::WaitingBle,
-            progress: Progress(Rc::new(Cell::new(Phase::WaitingBle))),
+            progress: Progress(
+                Rc::new(Cell::new(Phase::WaitingBle)),
+                Rc::new(Cell::new("waiting_ble")),
+            ),
             generation: None,
             mtu: 0,
             indication: 1,
@@ -286,7 +301,7 @@ impl<'a> Sessions<'a> {
         let session = self.current.as_mut().unwrap();
         session.phase = Phase::Pase;
         // A fresh progress cell prevents a retired attempt from publishing state.
-        session.progress = Progress(Rc::new(Cell::new(Phase::Pase)));
+        session.progress = Progress(Rc::new(Cell::new(Phase::Pase)), Rc::new(Cell::new("pase")));
         session.generation = Some(generation);
         session.indication = 1;
         session.mtu = mtu;
@@ -313,7 +328,9 @@ impl<'a> Sessions<'a> {
         Ok(Attempt {
             ticket,
             pin,
-            timeout_seconds: session.deadline.saturating_duration_since(now)
+            timeout_seconds: session
+                .deadline
+                .saturating_duration_since(now)
                 .as_secs()
                 .clamp(30, 900) as u16,
             country_code: session.country_code.clone(),

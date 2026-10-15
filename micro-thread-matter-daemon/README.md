@@ -85,6 +85,14 @@ restarts and resets to `MATTER_LOG_LEVEL` on a fresh supervisor launch or reboot
 An unchanged level is a no-op; stopped or quiesced services reject the request.
 The existing `paired_control.sh log-level LEVEL` continues to select Ziggurat.
 
+Each new phone BLE attachment discards Matter transport sessions for that BLE
+address before starting a fresh PASE handshake. The owned attempt also removes
+those sessions on completion, failure, timeout, cancellation, or reconnection;
+operational sessions and sessions for other peers are retained. Debug logs name
+the current commissioning command (`pase`, `arm_fail_safe`, `regulatory_config`,
+`csr_request`, and credential installation), and failures log that step with the
+error. These diagnostics keep the phone's existing wire protocol compatible.
+
 Messages stream through a bounded splitter without truncating long entries.
 Bodies are at most 174 bytes, reserving space for the libc header and longer
 Matter tag within the stock gateway's 255-byte syslog limit. Long entries use

@@ -37,6 +37,39 @@ struct CompletedWrite {
     write: u32,
 }
 
+/// A secure session belongs to one BLE connection, not to its reusable address.
+/// Construct outside the async body so even an unpolled cancelled job cleans up.
+struct BleConnectionSessions<'a> {
+    matter: &'a Matter<'a>,
+    peer: Address,
+}
+impl<'a> BleConnectionSessions<'a> {
+    fn new(matter: &'a Matter<'a>, address: BtAddr) -> Self {
+        let guard = Self {
+            matter,
+            peer: Address::Btp(address),
+        };
+        guard.clear();
+        guard
+    }
+    fn clear(&self) {
+        let removed = self.matter.with_state(|state| {
+            state
+                .sessions
+                .remove_where(|session| session.get_peer_addr() == self.peer)
+        });
+        if removed != 0 {
+            self.matter.transport().notify_session_removed();
+            log::debug!("Commissioning BLE connection discarded {removed} transport session(s)");
+        }
+    }
+}
+impl Drop for BleConnectionSessions<'_> {
+    fn drop(&mut self) {
+        self.clear();
+    }
+}
+
 pub struct Controller<'a, C: Crypto> {
     sessions: Sessions<'a>,
     matter: &'a Matter<'a>,
@@ -136,6 +169,7 @@ impl<'a, C: Crypto + 'a> Controller<'a, C> {
                         self.sessions
                             .attach(request.session, address, request.mtu, now)?;
                     let attempt = self.sessions.attempt(ticket, now)?;
+                    let connection_sessions = BleConnectionSessions::new(self.matter, address);
                     let work = commission(
                         self.matter,
                         self.crypto,
@@ -147,6 +181,7 @@ impl<'a, C: Crypto + 'a> Controller<'a, C> {
                         attempt,
                         dataset,
                         channel,
+                        connection_sessions,
                     );
                     self.sessions.install(ticket, work, now)?;
                     self.peer = Some(peer);
@@ -258,6 +293,7 @@ async fn commission<C: Crypto>(
     attempt: Attempt,
     dataset: Zeroizing<Vec<u8>>,
     channel: u8,
+    _connection_sessions: BleConnectionSessions<'_>,
 ) -> Result<Id, SessionError> {
     // The old pinned task (and its authority borrow) is dropped before attach
     // installs another one. Allocator gaps on cancellation are intentional.
@@ -286,22 +322,35 @@ async fn commission<C: Crypto>(
     let mut commissioning_options = CommissioningPolicy::default().options();
     commissioning_options.fail_safe_secs = attempt.timeout_seconds;
     commissioning_options.regulatory_config = Some(RegulatoryConfig {
-        country_code: attempt.country_code.as_bytes().try_into()
+        country_code: attempt
+            .country_code
+            .as_bytes()
+            .try_into()
             .map_err(|_| SessionError::Malformed)?,
         location: match attempt.regulatory_location {
-            crate::control::RegulatoryLocation::Indoor =>
-                rs_matter::dm::clusters::gen_comm::RegulatoryLocationTypeEnum::Indoor,
-            crate::control::RegulatoryLocation::Outdoor =>
-                rs_matter::dm::clusters::gen_comm::RegulatoryLocationTypeEnum::Outdoor,
+            crate::control::RegulatoryLocation::Indoor => {
+                rs_matter::dm::clusters::gen_comm::RegulatoryLocationTypeEnum::Indoor
+            }
+            crate::control::RegulatoryLocation::Outdoor => {
+                rs_matter::dm::clusters::gen_comm::RegulatoryLocationTypeEnum::Outdoor
+            }
         },
     });
+    // Authenticate this BLE connection before reporting the first encrypted command.
+    attempt.progress.step("pase");
+    let exchange =
+        rs_matter::transport::exchange::Exchange::initiate_pase(matter, crypto, peer, *attempt.pin)
+            .await
+            .map_err(accessory_error)?;
+    drop(exchange);
     let result = commissioner
-        .commission(
+        .commission_with_progress(
             peer,
             *attempt.pin,
             &commissioning_options,
             node,
             VALID_FOREVER,
+            |step| attempt.progress.step(step),
         )
         .await
         .map_err(accessory_error)?;
@@ -312,6 +361,7 @@ async fn commission<C: Crypto>(
         .fabric_installed()
         .map_err(|_| SessionError::Storage)?;
     attempt.progress.set(Phase::Provisioning);
+    attempt.progress.step("thread_provisioning");
     let parsed = ThreadDataset::parse(&dataset, channel).map_err(|_| SessionError::Storage)?;
     provision_thread(matter, crypto, peer, *attempt.pin, &parsed)
         .await
@@ -323,6 +373,7 @@ async fn commission<C: Crypto>(
     // Completion requires operational DNS-SD/CASE; no fixture address injection
     // or fake completion is permitted. The owned session deadline bounds it.
     attempt.progress.set(Phase::Case);
+    attempt.progress.step("case_and_commissioning_complete");
     commissioner
         .complete_via_case(&result)
         .await
@@ -367,6 +418,124 @@ mod tests {
             true
         }
     }
+    fn seed_pase<C: Crypto>(matter: &Matter<'_>, crypto: &C, address: BtAddr) -> u32 {
+        use rs_matter::transport::session::{ReservedSession, SessionMode};
+        let mut reserved = ReservedSession::reserve_now(matter, crypto).unwrap();
+        reserved
+            .update(
+                0,
+                0,
+                123,
+                456,
+                Address::Btp(address),
+                SessionMode::Pase { fab_idx: 0 },
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+        reserved.complete();
+        matter.with_state(|state| {
+            state
+                .sessions
+                .iter()
+                .find(|s| s.get_peer_addr() == Address::Btp(address))
+                .unwrap()
+                .id()
+        })
+    }
+
+    #[test]
+    fn ble_retry_and_all_terminal_paths_remove_only_connection_sessions() {
+        let crypto = default_crypto(
+            OsEntropy::open().unwrap(),
+            CryptoSensitiveRef::new(&[9; 32]),
+        );
+        let mut memory = Box::new(std::mem::MaybeUninit::uninit());
+        let matter = memory.init_with(Matter::init(
+            &TEST_DEV_DET,
+            TEST_DEV_COMM,
+            &TEST_DEV_ATT,
+            5540,
+        ));
+        let address = BtAddr([1; 6]);
+        let other = seed_pase(matter, &crypto, BtAddr([2; 6]));
+        let operational = matter.with_state(|state| {
+            state
+                .sessions
+                .add(0, false, Address::default(), Some(42), &TEST_DEV_DET)
+                .unwrap()
+                .id()
+        });
+        let stale = seed_pase(matter, &crypto, address);
+        let present = |id| matter.with_state(|state| state.sessions.get(id).is_some());
+        let relay = BleRelay::new();
+        let mut sessions = Sessions::new(&relay);
+        let mut entropy = OsEntropy::open().unwrap();
+        let request = || {
+            match Request::decode(3, br#"{"schema":1,"discriminator":3840,"pin":20202021,"timeout_seconds":30,"country_code":"DE","regulatory_location":"indoor"}"#).unwrap() {
+            Request::CommissionStart(request) => request,
+            _ => unreachable!(),
+        }
+        };
+        struct Wake;
+        impl std::task::Wake for Wake {
+            fn wake(self: std::sync::Arc<Self>) {}
+        }
+        let waker = std::task::Waker::from(std::sync::Arc::new(Wake));
+        let mut context = Context::from_waker(&waker);
+        // Failure, cancellation before first poll, cancellation after polling,
+        // deadline expiry, and reconnect all drop the same owned guard.
+        for ending in 0..5 {
+            let now = Instant::now();
+            let id = sessions
+                .start(request(), &mut entropy, now)
+                .unwrap()
+                .session;
+            let ticket = sessions.attach(id, address, 247, now).unwrap();
+            let guard = BleConnectionSessions::new(matter, address);
+            assert!(!present(stale));
+            let current = seed_pase(matter, &crypto, address);
+            sessions
+                .install(
+                    ticket,
+                    async move {
+                        let _guard = guard;
+                        if ending == 0 {
+                            return Err(SessionError::Timeout);
+                        }
+                        std::future::pending::<Result<Id, SessionError>>().await
+                    },
+                    now,
+                )
+                .unwrap();
+            if ending != 1 {
+                sessions.poll(now, &mut context);
+            }
+            match ending {
+                0 => assert_eq!(
+                    sessions.snapshot(id, now).unwrap().error,
+                    Some(SessionError::Timeout)
+                ),
+                1 | 2 => {
+                    sessions.cancel(id, now).unwrap();
+                }
+                3 => sessions.tick(now + Duration::from_secs(31)),
+                _ => {
+                    sessions.attach(id, address, 247, now).unwrap();
+                    sessions.cancel(id, now).unwrap();
+                }
+            }
+            assert!(
+                !present(current),
+                "connection session survived ending {ending}"
+            );
+            assert!(present(other));
+            assert!(present(operational));
+        }
+    }
+
     #[test]
     fn actual_owner_readiness_cancel_deadline_and_no_status_writes() {
         let directory = Directory(std::env::temp_dir().join(format!(

@@ -22,5 +22,6 @@ python3 scripts/apply-mailbox-series.py "$service_dir" "$revision" \
     "$project_root/micro-thread-matter-daemon/patches/rs-matter-attribute-notify.patch" \
     "$project_root/micro-thread-matter-daemon/patches/rs-matter-icd-capture.patch" \
     "$project_root/micro-thread-matter-daemon/patches/rs-matter-sessionless-icd.patch" \
-    "$project_root/micro-thread-matter-daemon/patches/rs-matter-commissioning-region.patch"
+    "$project_root/micro-thread-matter-daemon/patches/rs-matter-commissioning-region.patch" \
+    "$project_root/micro-thread-matter-daemon/patches/rs-matter-commissioning-progress.patch"
 echo "Pinned rs-matter $revision; controller mailbox series applied"

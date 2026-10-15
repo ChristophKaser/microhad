@@ -72,6 +72,8 @@ def main():
                 native_status = None
             if result.returncode or marker not in result.stdout:
                 raise RuntimeError('Transport failed: ' + result.stdout + result.stderr + '\nRCP error: ' + str(radio.error))
+            if args.service_owner and 'PASS stale BLE PASE session discarded before fresh commissioning' not in result.stdout:
+                raise RuntimeError('Stale BLE PASE retry regression was not exercised')
             if args.service_discovery and 'PASS synthetic accessory SRP registration' not in result.stdout:
                 raise RuntimeError('SRP/DNS fixture registration did not complete: ' + result.stdout + result.stderr)
             if args.service_discovery and 'PASS DNS cancelled callback isolation' not in result.stdout:
