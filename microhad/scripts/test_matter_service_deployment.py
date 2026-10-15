@@ -44,7 +44,9 @@ class Staging(unittest.TestCase):
         calls = root / 'calls'
         fake = root / 'sshpass'
         fake.write_text(FAKE_SSH.split("if 'df -k /tuya'")[0] + """
-if command.startswith('if [ -f ') and 'md5sum' in command:
+if 'grep -qx' in command:
+    sys.exit(99)  # Stock gateway grep does not implement -x.
+elif command.startswith('if [ -f ') and 'md5sum' in command:
     print(os.environ.get('SELECTED_REMOTE_HASH', 'old'))
 elif command.startswith('cat /tmp/ziggurat-supervisor/supervisor.pid'):
     print('123')

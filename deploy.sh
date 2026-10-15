@@ -259,7 +259,7 @@ selected_services_deploy() {
         fi
     done
     [ -n "$changed_services" ] || { echo 'Selected services are already current; no restart needed'; return 0; }
-    ssh_command "test -x /tuya/tuya_start.sh && test -x \"$target/paired_control.sh\" && test -x \"$target/microhad\" && test -x \"$target/ziggurat\" && test -x \"$target/mthread-matter\" && grep -qx 'matter=1' \"$target/microhad.matter-manifest\" && test ! -e /tmp/ziggurat-supervisor/quiesce && test ! -e /tmp/ziggurat-supervisor/stop" || {
+    ssh_command "test -x /tuya/tuya_start.sh && test -x \"$target/paired_control.sh\" && test -x \"$target/microhad\" && test -x \"$target/ziggurat\" && test -x \"$target/mthread-matter\" && grep -q '^matter=1$' \"$target/microhad.matter-manifest\" && test ! -e /tmp/ziggurat-supervisor/quiesce && test ! -e /tmp/ziggurat-supervisor/stop" || {
         echo 'Selective deployment requires a running paired Matter installation' >&2; return 1;
     }
     # Refuse an existing deleted image before changing any running service.
