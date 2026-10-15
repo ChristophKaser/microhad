@@ -113,6 +113,36 @@ uses `debug`. DNS UDP observation is passive and logs only metadata, never
 packet bodies, TXT data, network keys or datasets. Raw frame logging remains
 separate. Binding start/end also snapshot IPv6 and MAC security error counters.
 
+OpenThread's internal SRP server events also use `info`, including parser,
+signature and ownership failures before the application callback, response
+failures, lease expiry and removal. Accepted updates log every host address and
+the full service instance name, so operational identifiers can be compared
+with DNS requests. Binding boundaries and network-data changes log the complete
+Thread network-data TLVs (in offset-labelled hex chunks), including advertised
+SRP/DNS services. These are network data, not the secret operational dataset.
+Commissioning allows twelve operational CASE/discovery attempts (normally
+about sixty seconds of discovery), still bounded by the session deadline.
+
+For diagnosis after the fact, stream the gateway syslog to a private host file:
+
+```sh
+python3 micro-thread-matter-daemon/scripts/capture-thread-logs.py \
+  --password-file ../ssh_password.txt \
+  --output diagnostics/thread-session.log
+```
+
+Enable `/tuya/native/paired_control.sh log-level trace` for all available Spinel
+RX/TX events, including the Thread IID, and `matter-raw-frames on` for Matter UDP
+payloads. Keep Matter at `debug`; registration decisions remain visible at
+`info`. Ziggurat's `raw-frames` setting alone covers Zigbee, not the Thread
+interface. Trace settings restart the relevant supervised services and last
+until the paired supervisor restarts. The host collector reconnects after SSH
+disconnects and marks gaps; reconnection may repeat ring-buffer entries.
+The RAM ring and asynchronous log queues are bounded: capture is best effort,
+and overload/drop markers or connection gaps must be checked before treating
+an absent event as evidence. Frames filtered or dropped by the RCP are not a
+promiscuous over-the-air capture. No capture files are written to gateway flash.
+
 Deploy only a changed service with `./deploy.sh --services matter --target
 /tuya/native --password-file ../ssh_password.txt --matter-service
 build/micro-thread-matter-daemon/mthread-matter-mips`. Selective maintenance

@@ -317,7 +317,11 @@ async fn commission<C: Crypto>(
         .signer(&mut noc_buffer)
         .map_err(|_| SessionError::Storage)?;
     let mut cert_buffer = [0; MAX_CERT_TLV_LEN];
-    let mut commissioner = Commissioner::new(matter, crypto, fabric, &mut signer, &mut cert_buffer);
+    let mut commissioner = Commissioner::new(matter, crypto, fabric, &mut signer, &mut cert_buffer)
+        // Operational resolution waits five seconds per attempt. Allow roughly
+        // sixty seconds for Thread attachment and SRP publication; the owned
+        // commissioning deadline still cancels the whole operation.
+        .with_case_attempts(12);
     let peer = Address::Btp(address);
     let mut commissioning_options = CommissioningPolicy::default().options();
     commissioning_options.fail_safe_secs = attempt.timeout_seconds;

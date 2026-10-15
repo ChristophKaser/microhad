@@ -31,6 +31,9 @@ def main():
             records = capture.read_text()
             assert 'capture probe ready' in records
             assert 'general library trace must stay disabled' not in records
+            assert 'INFO thread_diagnostics: OpenThread [W] SrpServer----: signature rejected' in records
+            assert 'INFO thread_diagnostics: OpenThread [I] SrpServer----: registration accepted' in records
+            assert 'routine stack detail' not in records
             if mode == 'on':
                 assert 'RX unix_us=' in records and 'peer=[fd00::1234]:5540' in records
                 assert 'length=3 payload=[00, AB, FF]' in records
@@ -66,6 +69,7 @@ def main():
         assert any('rs_matter' in record for record in records), 'library logging is not connected'
         assert any('TRACE ' in record for record in records), 'trace logging is not connected'
         for marker in ('INFO thread_diagnostics: Thread role=',
+                       'INFO thread_diagnostics: Thread network data version=',
                        'INFO thread_diagnostics: SRP server state=',
                        'INFO micro_thread_matter_daemon::sessions: Commissioning started',
                        'INFO micro_thread_matter_daemon::sessions: Commissioning step=pase'):

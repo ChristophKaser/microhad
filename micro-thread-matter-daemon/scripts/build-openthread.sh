@@ -71,6 +71,7 @@ options=(-DGATEWAY_OT_TRANSPORT_SOURCE="$experiment_root/micro-thread-matter-dae
     -DGATEWAY_OT_DISCOVERY_TEST_SOURCE="$experiment_root/micro-thread-matter-daemon/tests/openthread-discovery-fixture.cpp"
     -DOT_PLATFORM=posix -DOT_POSIX_RCP_HDLC_BUS=ON -DOT_APP_NCP=OFF
     -DOT_APP_RCP=OFF -DOT_MTD=OFF -DOT_COMPILE_WARNING_AS_ERROR=OFF
+    -DOT_LOG_LEVEL=INFO -DOT_LOG_OUTPUT=PLATFORM_DEFINED
     -DOT_SRP_SERVER=ON -DOT_SRP_CLIENT=ON -DOT_DNSSD_SERVER=ON -DOT_DNS_CLIENT=ON -DOT_ECDSA=ON -DOT_SERVICE=ON
     -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=MinSizeRel)
 if [[ "$mode" == mips ]]; then

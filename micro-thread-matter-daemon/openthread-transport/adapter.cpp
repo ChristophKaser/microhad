@@ -8,6 +8,8 @@
 #include <openthread/link.h>
 #include <openthread/platform/settings.h>
 #include <openthread/message.h>
+#include <openthread/netdata.h>
+#include <openthread/platform/logging.h>
 #include <openthread/tasklet.h>
 #include <openthread/thread.h>
 #include <openthread/thread_ftd.h>
@@ -41,8 +43,25 @@ void diagnostic(uint8_t level, const char *format, ...)
     va_end(args);
     diagnosticLog(level, buffer);
 }
+void networkDataSnapshot()
+{
+    uint8_t bytes[255];
+    uint8_t length = sizeof(bytes);
+    otError error = otNetDataGet(instance, false, bytes, &length);
+    diagnostic(2, "Thread network data version=%u stable_version=%u length=%u result=%s",
+        otNetDataGetVersion(instance), otNetDataGetStableVersion(instance), length, otThreadErrorToString(error));
+    if (error != OT_ERROR_NONE) return;
+    // Full TLVs include SRP/DNS advertisements; never include the active dataset or keys.
+    for (unsigned offset = 0; offset < length; offset += 48) {
+        char hex[97];
+        unsigned count = length - offset < 48 ? length - offset : 48;
+        for (unsigned i = 0; i < count; ++i) ::snprintf(hex + 2 * i, 3, "%02x", bytes[offset + i]);
+        diagnostic(2, "Thread network data offset=%u hex=%s", offset, hex);
+    }
+}
 void stateChanged(otChangedFlags flags, void *)
 {
+    if (flags & OT_CHANGED_THREAD_NETDATA) networkDataSnapshot();
     if (flags & OT_CHANGED_THREAD_ROLE)
         diagnostic(2, "Thread role=%s rloc=0x%04x", otThreadDeviceRoleToString(otThreadGetDeviceRole(instance)), otThreadGetRloc16(instance));
 }
@@ -74,11 +93,24 @@ void receive(void *context, otMessage *message, const otMessageInfo *info)
     slot->callback(slot->context, &address, bytes, length);
 }
 }
+// Override the weak POSIX sink: SRP parser/signature/conflict failures happen
+// before our update callback. Keep every SRP event visible at INFO, including
+// expirations/removals and rejected updates; other stack details remain DEBUG.
+extern "C" void otPlatLog(otLogLevel, otLogRegion, const char *format, ...)
+{
+    char buffer[384];
+    va_list args;
+    va_start(args, format);
+    ::vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
+    diagnostic(std::strstr(buffer, "SrpServer") ? 2 : 1, "OpenThread %s", buffer);
+}
 extern "C" void gatewayOtSetDiagnosticLog(GatewayOtLog callback) { diagnosticLog = callback; }
 extern "C" void gatewayOtSetBindingDiagnostics(bool enabled)
 {
     bindingDiagnostics = enabled;
     if (!instance) return;
+    networkDataSnapshot();
     const otIpCounters *ip = otThreadGetIp6Counters(instance);
     const otMacCounters *mac = otLinkGetCounters(instance);
     diagnostic(2, "Binding Thread diagnostics=%s role=%s SRP_state=%d port=%u client_running=%u",
@@ -322,12 +354,17 @@ void pollDiagnostics()
 bool observeDns(void *, const otMessage *message, const otMessageInfo *info)
 {
     // Passive metadata only: never consume or modify a protocol packet.
-    if (info->mSockPort != otSrpServerGetPort(instance) && info->mSockPort != 53 && info->mPeerPort != 53) return false;
-    uint8_t header[12];
-    if (otMessageRead(message, otMessageGetOffset(message), header, sizeof(header)) != sizeof(header)) return false;
+    bool srp = otSrpServerGetPort(instance) != 0 && info->mSockPort == otSrpServerGetPort(instance);
+    if (!srp && info->mSockPort != 53 && info->mPeerPort != 53) return false;
     char peer[OT_IP6_ADDRESS_STRING_SIZE];
     otIp6AddressToString(&info->mPeerAddr, peer, sizeof(peer));
-    diagnostic(bindingDiagnostics ? 2 : 1, "DNS UDP RX peer=[%s]:%u local=%u id=%u opcode=%u response=%u rcode=%u",
+    uint8_t header[12];
+    if (otMessageRead(message, otMessageGetOffset(message), header, sizeof(header)) != sizeof(header)) {
+        diagnostic(srp || bindingDiagnostics ? 2 : 1, "DNS UDP RX short_header peer=[%s]:%u local=%u length=%u",
+            peer, info->mPeerPort, info->mSockPort, otMessageGetLength(message) - otMessageGetOffset(message));
+        return false;
+    }
+    diagnostic(srp || bindingDiagnostics ? 2 : 1, "DNS UDP RX peer=[%s]:%u local=%u id=%u opcode=%u response=%u rcode=%u",
         peer, info->mPeerPort, info->mSockPort, (header[0] << 8) | header[1], (header[2] >> 3) & 15,
         header[2] >> 7, header[3] & 15);
     return false;
@@ -395,12 +432,17 @@ void srpUpdate(otSrpServerServiceUpdateId id, const otSrpServerHost *updated, ui
     unsigned hosts = 1;
     unsigned services = 0;
     uint8_t count = 0;
-    otSrpServerHostGetAddresses(updated, &count);
+    const otIp6Address *addresses = otSrpServerHostGetAddresses(updated, &count);
     otSrpServerLeaseInfo lease = {};
     otSrpServerHostGetLeaseInfo(updated, &lease);
-    diagnostic(2, "SRP update id=%lu host=%.100s deleted=%u addresses=%u lease_ms=%lu key_lease_ms=%lu",
+    diagnostic(2, "SRP update id=%lu host=%s deleted=%u addresses=%u lease_ms=%lu key_lease_ms=%lu",
         static_cast<unsigned long>(id), otSrpServerHostGetFullName(updated), otSrpServerHostIsDeleted(updated), count,
         static_cast<unsigned long>(lease.mLease), static_cast<unsigned long>(lease.mKeyLease));
+    for (uint8_t i = 0; i < count; ++i) {
+        char address[OT_IP6_ADDRESS_STRING_SIZE];
+        otIp6AddressToString(&addresses[i], address, sizeof(address));
+        diagnostic(2, "SRP address id=%lu index=%u address=%s", static_cast<unsigned long>(id), i, address);
+    }
     otError error = count <= 8 ? OT_ERROR_NONE : OT_ERROR_NO_BUFS;
     for (const otSrpServerHost *host = nullptr; (host = otSrpServerGetNextHost(instance, host)) != nullptr;) {
         if (strcasecmp(otSrpServerHostGetFullName(host), otSrpServerHostGetFullName(updated)) == 0) continue;
@@ -410,15 +452,19 @@ void srpUpdate(otSrpServerServiceUpdateId id, const otSrpServerHost *updated, ui
     unsigned added = 0;
     for (const otSrpServerService *service = nullptr; (service = otSrpServerHostGetNextService(updated, service)) != nullptr;) {
         ++added;
-        diagnostic(2, "SRP service id=%lu instance=%.120s deleted=%u port=%u",
+        diagnostic(2, "SRP service id=%lu instance=%s deleted=%u port=%u",
             static_cast<unsigned long>(id), otSrpServerServiceGetInstanceName(service),
             otSrpServerServiceIsDeleted(service), otSrpServerServiceGetPort(service));
         uint16_t length = 0;
         otSrpServerServiceGetTxtData(service, &length);
-        if (length > 256) error = OT_ERROR_NO_BUFS;
+        if (length > 256) {
+            diagnostic(2, "SRP rejection id=%lu reason=TXT_limit length=%u limit=256", static_cast<unsigned long>(id), length);
+            error = OT_ERROR_NO_BUFS;
+        }
     }
     if (hosts > 64 || added > 8 || services + added > 128) error = OT_ERROR_NO_BUFS;
-    diagnostic(2, "SRP update decision id=%lu services=%u result=%s(%u)", static_cast<unsigned long>(id), added, otThreadErrorToString(error), error);
+    diagnostic(2, "SRP update decision id=%lu hosts=%u/64 addresses=%u/8 services=%u/8 total_services=%u/128 result=%s(%u)",
+        static_cast<unsigned long>(id), hosts, count, added, services + added, otThreadErrorToString(error), error);
     otSrpServerHandleServiceUpdateResult(instance, id, error);
 }
 void dnsResolved(otError error, const otDnsServiceResponse *response, void *context)
