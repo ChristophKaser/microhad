@@ -84,6 +84,8 @@ def main() -> int:
             names.append("ziggurat-syslog-fragments.patch")
             names.append("ziggurat-async-syslog.patch")
             names.append("ziggurat-end-device-relay.patch")
+            if args.multipan == "1":
+                names.append("ziggurat-radio-trace.patch")
             for name in names:
                 run(["git", "-C", str(expected), "am", str(root / "ziggurat/patches" / name)])
 

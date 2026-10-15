@@ -1,0 +1,117 @@
+From 58f5a935a0a93845bdfb8f0ae1d4600aee2431df Mon Sep 17 00:00:00 2001
+From: Christoph Kaser <christoph@caser.de>
+Date: Thu, 15 Oct 2026 15:15:26 +0200
+Subject: [PATCH] Add opt-in RCP radio trace logging
+
+---
+ crates/ziggurat-phy-spinel/src/lib.rs |  7 +++++++
+ crates/ziggurat-server/src/main.rs    |  8 ++++++++
+ crates/ziggurat-spinel/src/client.rs  | 19 +++++++++++++++++++
+ crates/ziggurat-spinel/src/lib.rs     | 17 +++++++++++++++++
+ 4 files changed, 51 insertions(+)
+
+diff --git a/crates/ziggurat-phy-spinel/src/lib.rs b/crates/ziggurat-phy-spinel/src/lib.rs
+index b827d28..d8fb0d4 100644
+--- a/crates/ziggurat-phy-spinel/src/lib.rs
++++ b/crates/ziggurat-phy-spinel/src/lib.rs
+@@ -73,6 +73,13 @@ impl SpinelPhy {
+     pub async fn hw_address(&self) -> Result<Eui64, RadioError> {
+         self.client.get_hw_address().await.map_err(map_err)
+     }
++
++    pub async fn set_radio_trace(&self, enabled: bool) -> Result<(), RadioError> {
++        self.client
++            .set_ncp_log_level(enabled)
++            .await
++            .map_err(map_err)
++    }
+ }
+ 
+ /// Exclusive radio access over the Spinel client.
+diff --git a/crates/ziggurat-server/src/main.rs b/crates/ziggurat-server/src/main.rs
+index 7646eee..46bb871 100644
+--- a/crates/ziggurat-server/src/main.rs
++++ b/crates/ziggurat-server/src/main.rs
+@@ -281,6 +281,14 @@ impl ZigguratServer {
+             });
+         }
+         let new_phy = Arc::new(SpinelPhy::new(client));
++        let radio_trace = matches!(std::env::var("MATTER_RADIO_TRACE").as_deref(), Ok("on"));
++        match new_phy.set_radio_trace(radio_trace).await {
++            Ok(()) => tracing::info!(
++                "RCP radio frame trace {}",
++                if radio_trace { "enabled" } else { "disabled" }
++            ),
++            Err(error) => tracing::warn!("Could not set RCP radio trace level: {error}"),
++        }
+         *phy = Some(new_phy.clone());
+         drop(phy);
+ 
+diff --git a/crates/ziggurat-spinel/src/client.rs b/crates/ziggurat-spinel/src/client.rs
+index 52ebf7f..a5d6618 100644
+--- a/crates/ziggurat-spinel/src/client.rs
++++ b/crates/ziggurat-spinel/src/client.rs
+@@ -680,6 +680,25 @@ impl SpinelClient {
+         }
+     }
+ 
++    /// Enable or quiet OpenThread log messages forwarded by the RCP.
++    pub async fn set_ncp_log_level(&self, debug: bool) -> Result<(), SpinelError> {
++        let level = if debug { 7 } else { 6 };
++        let (response_property, payload) = self
++            .prop_value_set(SpinelPropertyId::DebugNcpLogLevel, vec![level])
++            .await?;
++        if response_property != SpinelPropertyId::LastStatus {
++            return Err(SpinelError::UnexpectedResponseProperty {
++                expected: SpinelPropertyId::LastStatus,
++                got: response_property,
++            });
++        }
++        let status = payload.first().copied().ok_or(SpinelError::EmptyResponse)?;
++        if status != 0 {
++            return Err(SpinelError::InvalidStatus { status });
++        }
++        Ok(())
++    }
++
+     async fn prop_value_set_once(
+         &self,
+         property_id: SpinelPropertyId,
+diff --git a/crates/ziggurat-spinel/src/lib.rs b/crates/ziggurat-spinel/src/lib.rs
+index 6c82120..4dd2d1c 100644
+--- a/crates/ziggurat-spinel/src/lib.rs
++++ b/crates/ziggurat-spinel/src/lib.rs
+@@ -86,6 +86,7 @@ pub enum SpinelPropertyId {
+     StreamDebug = 112,
+     StreamRaw = 113,
+     StreamNet = 114,
++    StreamLog = 116,
+ 
+     // PHY Properties
+     PhyEnabled = 32,
+@@ -792,6 +793,22 @@ impl SpinelProtocol {
+                     Some((SpinelPropertyId::LastStatus, value)) => {
+                         self.handle_unsolicited_last_status(value);
+                     }
++                    Some((SpinelPropertyId::StreamLog, value)) => {
++                        let log_end = value
++                            .iter()
++                            .position(|byte| *byte == 0)
++                            .unwrap_or(value.len());
++                        match std::str::from_utf8(&value[..log_end]) {
++                            Ok(message) if message.starts_with("RADIO_TRACE ") => {
++                                tracing::info!(target: "radio_trace", "{message}");
++                            }
++                            Ok(message) if !message.is_empty() => {
++                                tracing::debug!(target: "rcp_log", "{message}");
++                            }
++                            Ok(_) => {}
++                            Err(error) => tracing::warn!("Invalid RCP log stream UTF-8: {error}"),
++                        }
++                    }
+                     Some((property_id, value)) => {
+                         match self.property_update_receivers.get(&property_id) {
+                             Some(sender) => {
+-- 
+2.43.0
+

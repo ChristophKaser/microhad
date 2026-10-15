@@ -185,6 +185,13 @@ budget. The level lasts for the supervisor lifetime and resets to
 trace includes decrypted payloads. Matter syslog bodies use 174-byte limits and
 the same fragment markers as Ziggurat to fit the stock 255-byte receive limit.
 
+The EFR32 radio trace is disabled by default. Use
+`/tuya/native/paired_control.sh radio-trace on` to restart only Ziggurat with
+RCP debug logging enabled; use `radio-trace off` to turn it off. This captures
+post-encryption Thread frames and emits the active MAC key once per key change,
+so the syslog archive contains decryptable frames. Treat these diagnostic logs
+as containing Thread network secrets.
+
 
 When the Matter package is already staged but there is not enough flash to
 stage another binary copy, activate the paired launcher while checking the

@@ -4,12 +4,12 @@
 set -u
 control=${RUNTIME_CONTROL:-/tmp/ziggurat-supervisor}
 case "${1:-}" in
- log-level|raw-frames)
+ log-level|raw-frames|radio-trace)
     level=${2:-}
-    if [ "$1" = raw-frames ]; then
-        case "$level" in on|off) ;; *) echo 'usage: paired_control.sh raw-frames on|off' >&2;exit 2;; esac
-        setting=raw-frames
-        label='raw frames'
+    if [ "$1" = raw-frames ] || [ "$1" = radio-trace ]; then
+        case "$level" in on|off) ;; *) echo "usage: paired_control.sh $1 on|off" >&2;exit 2;; esac
+        setting=$( [ "$1" = radio-trace ] && printf radio-trace || printf raw-frames )
+        label=$( [ "$1" = radio-trace ] && printf 'radio trace' || printf 'raw frames' )
     else
         case "$level" in off|error|warn|info|debug|trace) ;; *) echo 'usage: paired_control.sh log-level off|error|warn|info|debug|trace' >&2;exit 2;; esac
         setting=log-level
@@ -86,5 +86,5 @@ case "${1:-}" in
  stop)
     [ "${2:-}" = --frozen-snapshot-saved ] && [ -f "$control/quiesced" ] || { echo 'Quiesce and save frozen snapshot first' >&2;exit 2; }
     : > "$control/stop" ;;
- *) echo 'usage: paired_control.sh log-level LEVEL | raw-frames on|off | matter-log-level LEVEL | matter-raw-frames on|off | quiesce | stop --frozen-snapshot-saved' >&2;exit 2;;
+ *) echo 'usage: paired_control.sh log-level LEVEL | raw-frames on|off | radio-trace on|off | matter-log-level LEVEL | matter-raw-frames on|off | quiesce | stop --frozen-snapshot-saved' >&2;exit 2;;
 esac

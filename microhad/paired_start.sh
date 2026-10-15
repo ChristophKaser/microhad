@@ -11,6 +11,7 @@ device=${ZIGGURAT_DEVICE:-/dev/ttyS1}
 zig_log=${ZIGGURAT_LOG:-/dev/null}
 zig_log_level=${ZIGGURAT_LOG_LEVEL:-info}
 zig_raw_frames=${ZIGGURAT_RAW_FRAMES:-off}
+radio_trace=${MATTER_RADIO_TRACE:-off}
 seed_helper=${RNG_SEED_HELPER:-/tuya/native/rng-seed}
 seed_file=${RNG_SEED_FILE:-/tuya/native/ziggurat-rng.seed}
 seed_log=${RNG_SEED_LOG:-/tmp/ziggurat-rng-seed.log}
@@ -30,6 +31,7 @@ syslogd=${SYSLOGD_BIN:-/bin/busybox}
 case "$limit:$startup_limit:$stop_limit:$backoff:$matter_limit" in *[!0-9:]*|:*|*::*) exit 2;; esac
 case "$zig_log_level" in off|error|warn|info|debug|trace) ;; *) echo 'Invalid ZIGGURAT_LOG_LEVEL' >&2;exit 2;; esac
 case "$zig_raw_frames" in on|off) ;; *) echo 'Invalid ZIGGURAT_RAW_FRAMES' >&2;exit 2;; esac
+case "$radio_trace" in on|off) ;; *) echo 'Invalid MATTER_RADIO_TRACE' >&2;exit 2;; esac
 case "$matter_log_level" in off|error|warn|info|debug|trace) ;; *) echo 'Invalid MATTER_LOG_LEVEL' >&2;exit 2;; esac
 case "$matter_raw_frames" in on|off) ;; *) echo 'Invalid MATTER_RAW_FRAMES' >&2;exit 2;; esac
 for path in "$ZIGGURAT_BIN" "$NATIVE_BIN" "$NATIVE_CONFIG" "$MAINTENANCE_BIN" "$control" "$socket_path" "$device" "$zig_log" "$seed_helper" "$seed_file" "$seed_log"; do
@@ -95,6 +97,7 @@ cleanup() {
     stop_child "$zig_pid";zig_pid=
     rm -f "$control/matter.pid" "$control/matter.failed" "$control/active-matter-log-level" "$control/requested-matter-log-level" "$control/requested-matter-log-level."* "$control/native.pid" "$control/ziggurat.pid" "$control/supervisor.pid" "$control/quiesce" "$control/quiesced" "$control/stop" "$control/active-log-level" "$control/requested-log-level" "$control/requested-log-level."*
     rm -f "$control/active-raw-frames" "$control/requested-raw-frames" "$control/requested-raw-frames."*
+    rm -f "$control/active-radio-trace" "$control/requested-radio-trace" "$control/requested-radio-trace."*
     rm -f "$control/active-matter-raw-frames" "$control/requested-matter-raw-frames" "$control/requested-matter-raw-frames."*
     # Device lacks rmdir. Only remove this invocation's known control directory.
     rm -rf "$control"
@@ -136,7 +139,7 @@ start_zig() {
         set -- --thread-socket "$thread_socket"
     fi
     if [ "$zig_raw_frames" = on ]; then set -- "$@" --raw-frames;fi
-    NO_COLOR=1 "$ZIGGURAT_BIN" --device "$device" --baudrate 460800 --flow-control hardware \
+    MATTER_RADIO_TRACE="$radio_trace" NO_COLOR=1 "$ZIGGURAT_BIN" --device "$device" --baudrate 460800 --flow-control hardware \
         --spinel-iid 1 --api cobs-unix --listen "unix:$socket_path" --log-level "$zig_log_level" "$@" 2>&1 &
     zig_pid=$!;printf '%s\n' "$zig_pid" > "$control/ziggurat.pid"
     deadline=$(($(date +%s)+startup_limit))
@@ -146,6 +149,7 @@ start_zig() {
         if "$MAINTENANCE_BIN" cobs-hello "$socket_path" >/dev/null 2>&1; then
             printf '%s\n' "$zig_log_level" > "$control/active-log-level"
             printf '%s\n' "$zig_raw_frames" > "$control/active-raw-frames"
+            printf '%s\n' "$radio_trace" > "$control/active-radio-trace"
             return 0
         fi
         sleep 1
@@ -254,6 +258,15 @@ while :; do
             zig_raw_frames=$requested_raw_frames
             level_change=true
         fi
+        requested_radio_trace=
+        if [ -f "$control/requested-radio-trace" ]; then
+            IFS= read -r requested_radio_trace < "$control/requested-radio-trace" || requested_radio_trace=
+        fi
+        case "$requested_radio_trace" in on|off) ;; *) requested_radio_trace= ;; esac
+        if [ -n "$requested_radio_trace" ] && [ "$requested_radio_trace" != "$radio_trace" ]; then
+            radio_trace=$requested_radio_trace
+            level_change=true
+        fi
         if [ "$level_change" = true ] && [ -n "$native_pid" ] && kill -0 "$native_pid" 2>/dev/null; then
             # A requested diagnostic change deliberately recycles only Ziggurat.
             zig_pid=
@@ -261,10 +274,12 @@ while :; do
                 stop_child "$zig_pid";zig_pid=
                 rm -f "$control/requested-log-level"
                 rm -f "$control/requested-raw-frames"
+                rm -f "$control/requested-radio-trace"
                 sleep "$backoff";continue
             fi
             rm -f "$control/requested-log-level"
             rm -f "$control/requested-raw-frames"
+            rm -f "$control/requested-radio-trace"
         else
             # Unexpected radio failures retain the existing pair recovery order.
             stop_child "$matter_pid";matter_pid=
@@ -273,6 +288,7 @@ while :; do
             stop_child "$zig_pid";zig_pid=
             rm -f "$control/requested-log-level"
             rm -f "$control/requested-raw-frames"
+            rm -f "$control/requested-radio-trace"
             if [ "$retries" -ge "$limit" ]; then echo 'Restart budget exhausted' >&2;exit 1;fi
             retries=$((retries+1))
             if ! start_zig; then stop_child "$zig_pid";zig_pid=;sleep "$backoff";continue;fi

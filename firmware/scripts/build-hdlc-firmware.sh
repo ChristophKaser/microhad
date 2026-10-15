@@ -4,7 +4,7 @@ source "$(dirname -- "$0")/silabs-env.sh"
 project=ot-rcp-multipan
 build_dir="$experiment_root/build/firmware-hdlc"
 patches_dir="$experiment_root/firmware/dependencies/rtl8196e-gateway/2-Zigbee-Radio-Silabs-EFR32/26-OT-RCP/patches"
-revision=90fc93e1f95a10c981f0e49ca6787192e82fd8f2
+revision=853854753883af3c48271aa2060a5f8ffd8b070b
 [[ $(git -C "$GECKO_SDK" rev-parse HEAD) == "$revision" ]] || { echo 'Wrong Gecko SDK revision' >&2; exit 1; }
 command -v slc >/dev/null
 command -v arm-none-eabi-gcc >/dev/null
@@ -29,8 +29,17 @@ C_FLAGS := $(subst -Os,-Oz,$(C_FLAGS))
 CXX_FLAGS := $(subst -Os,-Oz,$(CXX_FLAGS))
 C_FLAGS := $(subst -Werror=unused-label,,$(C_FLAGS))
 C_DEFS += '-DOPENTHREAD_CONFIG_PLATFORM_BOOTLOADER_MODE_ENABLE=1'
+C_DEFS += '-DOPENTHREAD_CONFIG_LOG_LEVEL_DYNAMIC_ENABLE=1'
+C_DEFS += '-DOPENTHREAD_CONFIG_LOG_LEVEL=OT_LOG_LEVEL_INFO'
 '''
 if '# HDLC experiment flags' not in s:s=s.replace(marker,marker+'\n# HDLC experiment flags\n'+extra)
+if '# Radio trace configuration' not in s:
+    radio_trace_defs = '''
+# Radio trace configuration
+C_DEFS += '-DOPENTHREAD_CONFIG_LOG_LEVEL_DYNAMIC_ENABLE=1'
+C_DEFS += '-DOPENTHREAD_CONFIG_LOG_LEVEL=OT_LOG_LEVEL_INFO'
+'''
+    s=s.replace(marker,marker+'\n'+radio_trace_defs)
 p.write_text(s)
 PY
 make -f "$project.Makefile" -j"${BUILD_JOBS:-4}" \

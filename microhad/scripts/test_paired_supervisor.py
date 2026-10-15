@@ -24,6 +24,7 @@ if role=='zig':
  level=sys.argv[sys.argv.index('--log-level')+1]
  with open(os.environ['TEST_EVENTS'],'a') as f:f.write('zig level '+level+'\\n')
  with open(os.environ['TEST_EVENTS'],'a') as f:f.write('zig raw '+('on' if '--raw-frames' in sys.argv else 'off')+'\\n')
+ with open(os.environ['TEST_EVENTS'],'a') as f:f.write('zig radio-trace '+os.environ.get('MATTER_RADIO_TRACE','unset')+'\\n')
  with open(os.environ['TEST_EVENTS'],'a') as f:f.write('zig no-color '+os.environ.get('NO_COLOR','unset')+'\\n')
  path=sys.argv[sys.argv.index('--listen')+1][5:]
  Path(path).unlink(missing_ok=True)
@@ -200,6 +201,32 @@ class Paired(unittest.TestCase):
         self.assertNotEqual(self.run_control('raw-frames','off',check=False).returncode,0)
         self.stop()
         self.env['ZIGGURAT_RAW_FRAMES']='trace'
+        self.start();self.process.wait(timeout=5)
+        self.assertEqual(self.process.returncode,2)
+
+    def test_matter_radio_trace_startup_default_and_validation(self):
+        self.start();self.ready()
+        self.assertIn('zig radio-trace off',self.events.read_text())
+        self.assertEqual((self.control/'active-radio-trace').read_text().strip(),'off')
+        self.run_control('radio-trace','on')
+        wait(lambda:(self.control/'active-radio-trace').exists() and
+             (self.control/'active-radio-trace').read_text().strip()=='on')
+        self.assertIn('zig radio-trace on',self.events.read_text())
+        self.run_control('radio-trace','off')
+        wait(lambda:(self.control/'active-radio-trace').exists() and
+             (self.control/'active-radio-trace').read_text().strip()=='off')
+        self.assertIn('zig radio-trace off',self.events.read_text())
+        self.quiesce()
+        self.stop()
+        self.env['MATTER_RADIO_TRACE']='on'
+        self.start();self.ready()
+        wait(lambda:(self.control/'active-radio-trace').exists() and
+             (self.control/'active-radio-trace').read_text().strip()=='on')
+        self.assertIn('zig radio-trace on',self.events.read_text())
+        self.assertEqual((self.control/'active-radio-trace').read_text().strip(),'on')
+        self.quiesce()
+        self.stop()
+        self.env['MATTER_RADIO_TRACE']='yes'
         self.start();self.process.wait(timeout=5)
         self.assertEqual(self.process.returncode,2)
     def test_matter_log_level_switch_retention_and_budget(self):
