@@ -38,6 +38,21 @@ reboot to enable a bridge for this experiment. See
 [factory Linux constraints](openthread-feasibility.md) and the existing
 [serialgateway flashing procedure](installation.md#b2-flash-the-application-only-rcp).
 
+## Readiness and comparison boundary
+
+This document is a preparation plan until the selected images, return reset
+mechanism, dataset import and instrumented controller have passed preflight.
+The repository does not currently supply the IID0 return tool or a demonstrated
+host-controller key-export/decoder pipeline described below. Do not treat the
+example commands as a ready-to-run automation script. Reviewing this plan does
+not authorize a device cutover.
+
+Record the original gateway commissioning failure and last successful stage
+before changing the stack. Keep the accessory firmware, placement, power,
+Thread dataset/channel and pairing method comparable where possible. OTBR plus
+a different controller changes both Thread and Matter implementations; success
+isolates the problem to that combined difference, not to one daemon by itself.
+
 ## Fixed inputs and permanent capture directory
 
 Run from the repository root. Keep each attempt permanently under
@@ -49,22 +64,32 @@ out of commits as required by the repository instructions.
 ```sh
 SESSION="$PWD/diagnostics/matter-otbr/session-$(date -u +%Y%m%dT%H%M%SZ)"
 mkdir -p "$SESSION"/{capture,keys,state,firmware,logs,metadata}
+chmod 700 "$SESSION/state"
 ```
 
 This is a debug setup: keys, setup codes, decoded payloads and device identifiers
-may appear directly in the diagnostic files and logs. No private directory,
-redaction or restrictive file permissions are required. Preserve complete keys
+may appear directly in the diagnostic files and logs. Preserve complete keys
 in the bundle so analysis does not depend on log retention or a running process.
+`ziggurat_freeze.py` requires its output parent directory to have no group/other
+permissions, hence the explicit mode 0700 on `state` above. Its snapshot is
+written mode 0600; do not relax those tool-enforced permissions.
 
 Record the gateway address, host interface used to reach it, accessory QR/manual
-pairing data, software versions and UTC start time in session metadata.
+pairing data, software versions and UTC start time in session metadata. Set
+`GATEWAY_IP`, `PASSWORD_FILE`, `MIGRATION_PYTHON`, `PRIVATE_TEMPLATE`,
+`OT_RCP_IMAGE`, `OT_RCP_SHA256`, `RETURN_RCP_IMAGE`, `RETURN_RCP_SHA256` and
+`COMPOSE_PROJECT`, `COMPOSE_FILE` and `INTENDED_DATASET_HEX_FILE` explicitly. Image paths must refer to the retained session
+copies. Use one authenticated `gateway_ssh` wrapper with the established SSH
+options and password file for all gateway commands; plain `ssh` below is
+shorthand. Export `SESSION` in each capture terminal. Disable shell tracing
+when expanding credentials, and check host disk capacity for the capture window.
 
 Before beginning, identify and record:
 
 1. The **actual installed** EFR32 firmware version, baud and flow control from
    the paired launcher configuration and current service logs. Do not assume
-   the local `ot-rcp-multipan.gbl` is installed: the checked-in build manifest
-   currently says `flashed: false`.
+   the local `ot-rcp-multipan.gbl` is installed. Local build manifests such as
+   `docs/hdlc-build-manifest.json` describe artifacts, not live device state.
 2. The exact application-only `.gbl` image compatible with the running Ziggurat
    build. Record its SHA-256 and retain it in the session workspace. The return
    image must match the running Ziggurat's expected multipan protocol and
@@ -86,11 +111,19 @@ Before beginning, identify and record:
    to IID0 over the exclusive 460800/RTS-CTS serialgateway connection, then
    disconnect so the bridge can switch to 115200/no-flow for menu validation.
    Record that tool's path, source revision, invocation and successful rehearsal
-   against the selected OT-RCP before cutover. This tool is a preparation
-   prerequisite; the existing IID1 maintenance command is not its replacement.
-4. The current Thread Operational Dataset and Matter controller state, if they
-   need to be retained. Store the dataset as a file. Decide whether
-   OTBR should attach to the existing Thread network or form a separate test
+   against the selected OT-RCP on a spare compatible radio before cutover.
+   Do not flash the production radio merely to satisfy this prerequisite.
+   If no rehearsal hardware or established recovery path exists, record this
+   as an unresolved cutover blocker. This tool is a preparation prerequisite;
+   the existing IID1 maintenance command is not its replacement.
+4. The current Thread Operational Dataset and complete Matter/OpenThread
+   persistent state. Store the dataset as a file. The gateway API returns
+   redacted status, not an `ot-ctl` dataset export: locate the original import
+   TLVs or validate a read-only export from the gateway's persisted dataset
+   record (`thread_lifecycle.rs`, store key `0x1001`). Do not pass the wrapped
+   store record to OTBR as dataset TLVs. If there is no configured production
+   Thread network, record that fact and select a separate test dataset.
+   Decide whether OTBR should attach to the existing Thread network or form a separate test
    network. Prefer the existing dataset for this comparison; never form a new
    network over the existing device without intentionally changing the test.
 5. A pinned host controller build with working PASE/CASE key export.
@@ -99,11 +132,25 @@ Before beginning, identify and record:
    must not be assumed to export keys. Complete the key-export rehearsal below
    before the radio cutover. A controller without demonstrated export is not
    eligible for this test.
-6. A complete, validated frozen Ziggurat rollback snapshot or the matching
-   migration recovery artifacts. The live `ziggurat-state.json` is valuable,
-   but by itself is not the normalized post-freeze evidence used by the
-   repository's rollback tooling. If the current gateway has no matching
-   validated recovery template/snapshot, stop and prepare one before flashing.
+6. The matching normalized migration recovery template and retained recovery
+   artifacts. Validate the template offline with `ziggurat_freeze.py --template
+   "$PRIVATE_TEMPLATE"` before shutdown. Phase 1 creates the fresh frozen
+   snapshot; an additional earlier freeze is unnecessary and an old snapshot
+   cannot replace it. The live `ziggurat-state.json` alone is not normalized
+   post-freeze evidence. Do not improvise a template from that file.
+7. The accessory's initial fabric/network state and return procedure. Use an
+   unpaired test accessory for a BLE-to-Thread commissioning reproduction.
+   An already commissioned accessory needs its existing administrator to open
+   a commissioning window; adding a fabric on its current network exercises
+   a different path and may skip Thread provisioning. Do not factory-reset an
+   existing production accessory implicitly. Record any intended reset, the
+   expected fail-safe rollback after failure, and how test-fabric removal or
+   recommissioning will restore the accessory after the test.
+
+Complete the compose/controller/capture preparation in Phase 3 steps 1–2,
+including image pulls, builds, BLE permissions and logger/key-export rehearsal,
+before Phase 1 stops the gateway. No dependency installation or first-time
+controller instrumentation should be left for the radio downtime.
 
 Retain the selected firmware images in `$SESSION/firmware` and record filenames,
 sizes and SHA-256 hashes in the session manifest. Save the full datasets and
@@ -116,6 +163,13 @@ after commissioning and a short post-commissioning observation window. Do not
 connect a second TCP client to port 8888: the gateway bridge allows one client,
 and a second client can displace OTBR.
 
+Use one host BLE commissioner (preferably the instrumented CHIP Tool) and
+OTBR alone for the default reproduction. Home Assistant, a UI and a second
+Matter server add no evidence to this path; start them only when reproducing
+that specific integration. A second transport collector is also unnecessary
+when controller transport instrumentation already saves complete encrypted
+messages in both directions; HCI capture is useful for diagnosing BLE itself.
+
 Capture these independent views:
 
 | Artifact | What it proves / contains |
@@ -123,7 +177,7 @@ Capture these independent views:
 | Host-side PCAP of TCP port 8888 | Exact TCP byte stream to/from the gateway bridge. Contains HDLC/Spinel frames and may contain raw 802.15.4 frames. It is not an RF PCAP. |
 | Timestamped OTBR debug/trace logs | RCP resets, Spinel protocol events, raw stream TX/RX records if supported by the selected OTBR build, Thread state changes, SRP/mDNS and border-routing events. |
 | Matter session-key export | All PASE/CASE directional traffic keys, session identifiers and nonce context, flushed before teardown; required for offline authenticated decryption. |
-| Host Matter IP capture and BLE HCI capture | Encrypted CASE/IP and PASE/BLE messages for correlation with saved keys; UART capture alone does not include BLE. |
+| Host Matter IP capture and BLE HCI/BTP or controller transport capture | Encrypted CASE/IP and PASE/BLE messages for correlation with saved keys; UART capture alone does not include BLE. |
 | Matter controller logs | BLE/PASE commissioning steps, Thread credentials delivery, attestation, CSR/NOC, CASE, operational discovery and CommissioningComplete result. |
 | Thread dataset before and after | Network Key and the rest of the Operational Dataset, plus separately recorded runtime key sequence needed to interpret/decrypt Thread frames, including any newly generated/rotated dataset. |
 | Host and gateway timeline | UTC timestamps, service stop/start, firmware image/hash, bridge connection, OTBR state, commissioning start/finish and failures. |
@@ -202,6 +256,13 @@ sudo tcpdump -i any -s 0 -U \
   "host $GATEWAY_IP and tcp port 8888"
 ```
 
+For host Matter IP capture, cover the OTBR Thread interface and backbone,
+including UDP/5540, mDNS/5353 and ICMPv6; avoid a filter that loses discovery,
+fragments or nondefault Matter ports. For example, capture IPv6 on `any` and
+post-filter offline. Start `btmon -w "$SESSION/capture/ble.btsnoop"` before the
+BLE connection if using HCI/BTP reconstruction. Save collector stderr/drop
+counts and confirm the actual interfaces exist as OTBR creates them.
+
 The capture must be started before `docker compose up`. Validate it after the
 first OTBR startup: it must contain the full TCP handshake and sustained
 bidirectional payload, and the OTBR logs or an offline HDLC/Spinel decoder must
@@ -209,6 +270,14 @@ show RCP initialization and `STREAM_RAW` transmit/receive frames. If the build
 only logs parsed Spinel commands and the PCAP cannot be decoded to the raw
 stream frames, stop before commissioning and improve the capture instrumentation.
 Do not claim a complete frame trace based on ordinary OTBR debug logs alone.
+Reassemble TCP separately by connection and direction, remove retransmissions,
+then unescape HDLC and validate its FCS before decoding Spinel. Preserve RX
+metadata, TX requests and matching TX completion/status records. TX submissions
+may precede RCP security/header processing (`mIsSecurityProcessed` and
+`mIsHeaderUpdated`); they are not necessarily the encrypted on-air PSDU. Record
+RCP capabilities and returned key-index/frame-counter updates. Demonstrate
+which RX/TX bytes can actually be decrypted; use post-security radio tracing
+or an independent sniffer if the question requires final on-air TX bytes.
 
 ## Phase 1 — baseline and orderly service shutdown
 
@@ -217,9 +286,9 @@ Do not claim a complete frame trace based on ordinary OTBR debug logs alone.
    verify the Matter service, native daemon and Ziggurat versions. Confirm the
    current coordinator identity, PAN/channel and Thread status before stopping.
 2. Close Zigbee joining and stop initiating new Matter operations. Export the
-   current Thread dataset while the current Matter/OpenThread service is still
-   running. Also preserve the current Matter identity/fabric directory; do not
-   replace it with OTBR's fresh test fabric.
+   current Thread dataset before shutdown using the validated export source.
+   Keep production state in place; the host controller uses its own test
+   fabric (OTBR itself has no Matter fabric).
 3. Use the supported paired control flow to quiesce MicroHAD and Matter while
    leaving Ziggurat available for its final state export:
 
@@ -227,7 +296,10 @@ Do not claim a complete frame trace based on ordinary OTBR debug logs alone.
    ssh root@"$GATEWAY_IP" '/tuya/native/paired_control.sh quiesce'
    ```
 
-   Require the quiesce acknowledgement. Use the documented
+   Require the quiesce acknowledgement. Now archive the complete stopped
+   Matter state directory (including OpenThread settings), native persistent
+   state, configuration and launchers to the host session. A live database copy
+   is not the final consistent backup. Use the documented
    `microhad/scripts/ziggurat_freeze.py` flow with the matching validated
    migration template, `--quiesced --execute`, and a **new output path
    under `$SESSION/state`**:
@@ -305,7 +377,8 @@ assume the established gateway authentication/options.
 4. Confirm a single TCP:8888 listener owned by that serialgateway, startup log
    settings of `/dev/ttyS1`, 460800 and HW flow, and no gateway OTBR, Ziggurat or
    Matter service. No reboot or gateway mode/configuration change is required.
-   OTBR must be the only TCP client once capture begins.
+   OTBR must be the only TCP client once capture begins. Do not probe the port
+   with `nc` or a second client while OTBR is connected.
 
 ## Phase 3 — start OTBR and begin all captures
 
@@ -313,29 +386,53 @@ assume the established gateway authentication/options.
    `firmware/dependencies/rtl8196e-gateway/2-Zigbee-Radio-Silabs-EFR32/26-OT-RCP/docker/docker-compose-otbr-host.yml`.
    Adapt its kernel-bridge comments to the serialgateway transport above. Keep
    its OTBR TCP transport, baud, logging and Thread settings. Give test services and persistent
-   volumes unique names, or run only OTBR and use the host CHIP Tool; do not
+   volumes unique names. Prefer only OTBR and the host CHIP Tool; do not
    collide with an existing `otbr`, `matter-server` or `homeassistant`
-   container. Keep the Matter test database separate from the gateway's
-   production Matter fabric. If using Matter.js Server, set `LOG_LEVEL=debug`
+   container. A Compose project name alone does not isolate hard-coded
+   `container_name` values or host-network ports: remove/rename those names
+   and check port conflicts. Set `restart: "no"` for test services. Keep the
+   Matter test database separate from the gateway's production Matter fabric. If using Matter.js Server, set `LOG_LEVEL=debug`
    in the test copy before it starts. If using CHIP Tool, prepare its
    trace output path and verify that this installed build accepts
    `--trace_file` and `--trace_decode 1`.
 2. Set the actual `RCP_HOST`, `RCP_PORT=8888`, `RCP_BAUDRATE=460800`, correct
-   host backbone interface and high OTBR log level. Confirm IPv6 forwarding,
-   host mDNS and the host's network interface are ready. Preserve the exact
-   compose file and its image digests in the session metadata.
+   host backbone interface and high OTBR log level. Pin the OTBR image by
+   digest; the source compose uses the mutable `bnutzer/otbr-tcp` tag. Inspect
+   that image's entrypoint/radio URL and auto-attach behavior rather than
+   assuming the environment variables alone configure it correctly. Confirm
+   host `/dev/net/tun`, IPv6 forwarding, RA acceptance, firewall rules and
+   multicast/mDNS are ready, plus a powered BlueZ adapter and controller BLE
+   access. Save any host settings that will need restoration. Preserve the
+   rendered compose configuration, image digests and OTBR/OpenThread versions.
 3. Start the UART TCP capture, host Matter IP and BLE/transport collectors,
    session-key exporter and timestamped log collectors first. Then start
    OTBR. Do not commission yet.
-4. Wait for OTBR to initialize its RCP and Thread stack. Verify in logs that it
-   identifies the expected EFR32 RCP, obtains the intended active dataset,
-   attaches to the intended Thread network and reaches a stable role. Check
-   the Thread interface and host IPv6/mDNS readiness. If OTBR forms a different
-   network, stop and correct the dataset setup before proceeding.
+4. Initialize OTBR with an isolated settings volume and auto-attach disabled
+   until the intended dataset is installed. Do not clone the gateway's full
+   OpenThread settings into OTBR: share network credentials while letting
+   OTBR retain its own node identity and counters. Record its extended address
+   and verify it does not reuse an active production node's identity. With
+   `COMPOSE_FILE` pointing
+   to the saved test compose, use the selected image's supported CLI:
+
+   ```sh
+   docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT" exec -T otbr ot-ctl thread stop
+   docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT" exec -T otbr ot-ctl ifconfig down
+   docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT" exec -T otbr ot-ctl dataset set active "$(cat "$INTENDED_DATASET_HEX_FILE")"
+   docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT" exec -T otbr ot-ctl ifconfig up
+   docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT" exec -T otbr ot-ctl thread start
+   ```
+
+   The input file must contain only hex Operational Dataset TLVs. Require
+   `Done` for each command; never use `dataset init new` on the existing
+   network. Verify the expected RCP/Spinel version and stable Thread role,
+   Thread interface, routes and IPv6/mDNS readiness. An isolated network may
+   elect this OTBR leader rather than attach to an existing leader. If the
+   dataset is wrong, stop before commissioning.
 5. Export `ot-ctl dataset active -x` (or the OTBR web/API equivalent) into a
    file in `$SESSION/keys`. Compare it with the intended dataset. Record the
-   full Network Key, dataset file and their SHA-256 fingerprints in the key
-   manifest. If Thread key rotation is active, capture each
+   dataset file containing the Network Key and its SHA-256 fingerprint in
+   the key manifest. If Thread key rotation is active, capture each
    active dataset and runtime key sequence observed during the trace. The key
    sequence is runtime state, not an Operational Dataset TLV: record
    `ot-ctl keysequence counter` separately, including before/after values and
@@ -355,22 +452,28 @@ assume the established gateway authentication/options.
    `$SESSION/logs`. For CHIP Tool, enable decoded tracing, for example:
 
    ```sh
-   chip-tool --storage-directory "$SESSION/state/chip-tool" \
-     pairing ble-thread ... --trace_file "$SESSION/logs/chip-tool-trace.log" \
-     --trace_decode 1
+   chip-tool pairing ble-thread "$NODE_ID" "hex:$(cat "$INTENDED_DATASET_HEX_FILE")" \
+     "$SETUP_PIN" "$DISCRIMINATOR" \
+     --storage-directory "$SESSION/state/chip-tool" \
+     --trace_file "$SESSION/logs/chip-tool-trace.log" --trace_decode 1 \
+     > "$SESSION/logs/chip-tool.log" 2>&1
    ```
 
+   Set the node ID, PIN and discriminator from the selected accessory; use
+   the same storage directory and commissioner identity for later reads and
+   cleanup. Configure the instrumented key exporter according to its rehearsed
+   invocation; this stock CLI example does not enable key export on its own.
    Check the installed command's help and pairing syntax before the test. For Matter.js Server, start the test container with
    `LOG_LEVEL=debug` and save timestamped logs from before commissioning, e.g.:
 
    ```sh
-   docker compose -p "$COMPOSE_PROJECT" logs --timestamps --follow matter-server \
+   docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT" logs --timestamps --follow matter-server \
      > "$SESSION/logs/matter-server.log"
    ```
 
    Matter.js debug output can include decoded interaction-model activity and
-   post-decryption Matter payload/TLV bytes. Inspect a harmless read first to
-   confirm the exact output available in the pinned image. These stack logs
+   post-decryption Matter payload/TLV bytes. Confirm the available output
+   during the fixture rehearsal; no extra accessory commissioning is needed. These stack logs
    complement the mandatory session-key export. Verify new PASE and
    CASE key records are durably written during the attempt; debug output alone
    does not fulfill the capture requirement. Use only a controller build that
@@ -391,8 +494,9 @@ assume the established gateway authentication/options.
    - The Matter controller completes operational discovery and CASE.
    - CommissioningComplete succeeds.
    - A basic Matter read/command succeeds after commissioning.
-   - OTBR observes the accessory's SRP host/service registration and publishes
-     the expected operational DNS-SD record.
+   - Record SRP host/service registration and operational DNS-SD publication
+     when that is the accessory's discovery path. These diagnose discovery;
+     a specific SRP implementation is not an extra Matter success criterion.
    - The host resolves the operational Matter service over mDNS and can reach
      the accessory over IPv6/Thread.
 5. At failure, stop only after the terminal timeout/error and observation
@@ -404,51 +508,22 @@ assume the established gateway authentication/options.
    Copy container logs and metadata into the session directory. Verify that PCAP and logs cover the
    same time interval and that neither collector reported drops or disk errors.
 
-## Phase 5 — protect and analyze the evidence
+## Phase 5 — stop OTBR and restore the current gateway stack
 
-Keep the following in the diagnostic bundle:
+Restore the gateway after every cutover, including failed captures or
+commissioning. Do not delay restoration for offline analysis in Phase 6.
 
-- TCP PCAP containing the complete OTBR↔RCP stream;
-- encrypted Matter IPv6/UDP capture and BLE HCI/BTP or controller transport
-  message capture covering PASE;
-- PASE/CASE session-key export, format/decoder instructions, session
-  mapping and nonce context, including resumed/replacement sessions;
-- controller instrumentation revision/patch and authenticated offline
-  decryption results in both directions for the sessions observed;
-- raw Spinel/HDLC frame extraction and decoded 802.15.4 TX/RX frame list, if
-  available;
-- OTBR, verbose Matter controller (including decoded payload/TLV trace) and
-  host mDNS logs;
-- before/after active Thread datasets and key-sequence timeline;
-- commissioning transcript, timestamps, firmware hashes and container image
-  digests;
-- radio and OTBR counters before and after the attempt.
-
-Use the Thread Network Key and matching key sequence to decrypt captured Thread
-MAC payloads offline. Validate decryption against known Thread headers and
-frame-counter progression before drawing conclusions. Thread decryption does
-not reveal Matter CASE/PASE application payloads. Use the saved Matter session
-keys to decrypt the corresponding captured secure messages and verify their
-authentication tags; compare the plaintext with decoded stack traces. Missing
-session keys, missing BLE/transport messages or failed authenticated decryption
-make the evidence incomplete even when decoded controller logs exist. Retain
-the complete debug bundle, including network keys, Matter session keys,
-controller databases, setup codes and device identifiers, for later analysis.
-
-Before calling the frame capture complete, document its observation boundary:
-it includes every frame exchanged with the host that the RCP reports through
-Spinel. It does not independently capture hardware ACKs or prove the absence
-of radio-side filtering. If a question depends on those missing frames, an
-independent 802.15.4 sniffer/PTI capture is required; do not infer those frames
-from TCP success or OpenThread counters.
-
-## Phase 6 — stop OTBR and restore the current gateway stack
-
-1. Stop commissioning and preserve the final OTBR Thread dataset, controller
-   database and flushed session-key export before any controller process exits.
-   Stop the host Matter controller and OTBR cleanly. Use `docker
-   compose down` for the test project but **never** `down -v`; retain its logs,
-   database and volumes until analysis is complete.
+1. Preserve the final OTBR dataset and flush key exports/logs. Record the
+   accessory's final fabric/network state. Perform the agreed accessory cleanup
+   while the test controller and Thread network are reachable; retain its
+   database until that finishes. If cleanup needs commissioning again on the
+   original gateway, record that outstanding action explicitly.
+   Stop the host controller cleanly, then make the final consistent database
+   copy. Save timestamped container logs and counters **before** removing
+   containers: `docker compose down` removes their accessible log history.
+   Stop OTBR, archive persistent test data, then use `docker compose -f
+   "$COMPOSE_FILE" -p "$COMPOSE_PROJECT" down`, **never** `down -v`. Keep the
+   volumes and prevent any test service from auto-restarting.
 2. Confirm OTBR has disconnected and the paired supervisor remains stopped.
    Keep serialgateway at 460800/RTS-CTS, with its verified PID as the sole UART
    owner. Run the preflight-validated IID0 Spinel bootloader-entry tool as the
@@ -476,10 +551,53 @@ from TCP success or OpenThread counters.
    `/tuya/native/matter` identity and the previously saved Thread dataset.
    Do not create a replacement Zigbee or Thread network to make status appear
    healthy.
-6. If identity, counters or service health differ, stop and use the documented
+6. Restore temporary host networking/Bluetooth settings after captures stop,
+   without deleting pre-existing interfaces, volumes or services. Finish any
+   agreed accessory recommissioning and verify its original-controller access.
+7. If identity, counters or service health differ, stop and use the documented
    Ziggurat recovery/migration procedure. Do not flash an NCP or erase EFR32
    NVM as an improvised repair. Keep the host OTBR stack stopped until the
    original gateway services are verified.
+
+## Phase 6 — protect and analyze the evidence
+
+Keep the following in the diagnostic bundle:
+
+- TCP PCAP containing the complete OTBR↔RCP stream;
+- encrypted Matter IPv6/UDP capture and BLE HCI/BTP or controller transport
+  message capture covering PASE;
+- PASE/CASE session-key export, format/decoder instructions, session
+  mapping and nonce context, including resumed/replacement sessions;
+- controller instrumentation revision/patch and authenticated offline
+  decryption results in both directions for the sessions observed;
+- raw Spinel/HDLC frame extraction and decoded 802.15.4 TX/RX frame list, if
+  available;
+- OTBR, verbose Matter controller (including decoded payload/TLV trace) and
+  host mDNS logs;
+- before/after active Thread datasets and key-sequence timeline;
+- commissioning transcript, timestamps, firmware hashes and container image
+  digests;
+- radio and OTBR counters before and after the attempt.
+
+Use the Thread Network Key and matching key sequence to decrypt captured Thread
+MAC payloads offline where the capture contains secured frame bytes. Validate
+MIC/authentication tags as well as headers and frame-counter progression;
+plausible decoded headers alone do not establish successful decryption. Mark
+TX requests affected by RCP security offload separately. Thread decryption does
+not reveal Matter CASE/PASE application payloads. Use the saved Matter session
+keys to decrypt the corresponding captured secure messages and verify their
+authentication tags; compare the plaintext with decoded stack traces. Missing
+session keys, missing BLE/transport messages or failed authenticated decryption
+make the evidence incomplete even when decoded controller logs exist. Retain
+the complete debug bundle, including network keys, Matter session keys,
+controller databases, setup codes and device identifiers, for later analysis.
+
+Before calling the frame capture complete, document its observation boundary:
+it includes every frame exchanged with the host that the RCP reports through
+Spinel. It does not independently capture hardware ACKs or prove the absence
+of radio-side filtering. If a question depends on those missing frames, an
+independent 802.15.4 sniffer/PTI capture is required; do not infer those frames
+from TCP success or OpenThread counters.
 
 ## Exit criteria
 
@@ -492,3 +610,15 @@ limitations explicitly: no passive capture of hardware ACKs/filtered RF frames
 without a sniffer. Missing Matter session keys or undecipherable captured
 sessions are unmet exit criteria; record the failure and restore the gateway
 regardless. Decoded live traces supplement the required saved keys.
+
+## Reference checks
+
+- [Gateway shutdown, frozen export and maintenance helper](recovery-tooling.md#orderly-stop-and-frozen-zigbee-export).
+- [Freeze output permission enforcement](../microhad/scripts/ziggurat_freeze.py),
+  [flasher behavior](../microhad/scripts/ezsp_flash.py) and
+  [IID1 bootloader reset](../firmware/tools/gateway-maintenance.c).
+- [Gateway dataset persistence](../micro-thread-matter-daemon/src/thread_lifecycle.rs).
+- [OpenThread dataset get/set commands](https://github.com/openthread/ot-docs/blob/main/site/en/reference/cli/concepts/dataset.md).
+- [CHIP Tool BLE-to-Thread syntax and storage](https://github.com/project-chip/connectedhomeip/blob/master/docs/development_controllers/chip-tool/chip_tool_guide.md).
+- [Spinel raw-frame metadata](../micro-thread-matter-daemon/dependencies/openthread/src/lib/spinel/spinel.h)
+  and [RCP TX security/counter handling](../micro-thread-matter-daemon/dependencies/openthread/src/lib/spinel/radio_spinel.cpp).
