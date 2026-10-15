@@ -75,7 +75,8 @@ options=(-DGATEWAY_OT_TRANSPORT_SOURCE="$experiment_root/micro-thread-matter-dae
     -DOT_SRP_SERVER=ON -DOT_SRP_CLIENT=ON -DOT_DNSSD_SERVER=ON -DOT_DNS_CLIENT=ON -DOT_ECDSA=ON -DOT_SERVICE=ON
     -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=MinSizeRel)
 if [[ "$mode" == mips ]]; then
-    options+=(-DCMAKE_TOOLCHAIN_FILE="$output/toolchain.cmake")
+    options+=(-DCMAKE_TOOLCHAIN_FILE="$output/toolchain.cmake"
+        "-DOT_MBEDTLS_CONFIG_FILE=\"$experiment_root/micro-thread-matter-daemon/openthread-transport/mbedtls-mips-config.h\"")
 else
     options+=(-DOT_UNIX_ADAPTER_TEST_SOURCE="$experiment_root/micro-thread-matter-daemon/tests/openthread-unix.cpp")
 fi

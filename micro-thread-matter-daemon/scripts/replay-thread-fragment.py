@@ -20,7 +20,7 @@ sys.path.insert(0, str(ROOT / 'scripts'))
 from toolchain_config import settings
 
 
-def build(mode):
+def build(mode, source=None, name='fragment-replay', wrap=()):
     base = ROOT / 'build/openthread-unix' / mode
     flags = base / 'src/posix/CMakeFiles/gateway-thread-discovery-fixture.dir/flags.make'
     arguments = []
@@ -28,19 +28,20 @@ def build(mode):
         if line.startswith(('CXX_DEFINES =', 'CXX_INCLUDES =', 'CXX_FLAGS =')):
             arguments.extend(shlex.split(line.split(' = ', 1)[1]))
     config = settings()
-    output = ROOT / 'build/matter-retry-diagnostics' / ('fragment-replay-' + mode)
+    output = ROOT / 'build/matter-retry-diagnostics' / (name + '-' + mode)
     output.parent.mkdir(parents=True, exist_ok=True)
     obj = output.with_suffix('.o')
     compiler = config['CLANGXX'] if mode == 'mips' else os.environ.get('CXX', 'c++')
     # The test exercises the private production FrameToMessage/HandleFragment
     # entry points. This compiler flag applies only to the separate test object.
     subprocess.run([str(compiler), *arguments, '-DOPENTHREAD_FTD=1', '-fno-access-control',
-                    '-c', str(ROOT / 'micro-thread-matter-daemon/tests/helpers/lowpan-fragment-replay.cpp'),
+                    '-c', str(source or ROOT / 'micro-thread-matter-daemon/tests/helpers/lowpan-fragment-replay.cpp'),
                     '-o', str(obj)], check=True)
     archives = sorted(p for p in base.rglob('*.a') if p.name not in
                       ('libopenthread-cli-ftd.a', 'libgateway-thread-discovery-fixture.a'))
     linker = config['TARGET_CXX'] if mode == 'mips' else compiler
     command = [str(linker), str(obj), '-Wl,--gc-sections', '-Wl,--wrap=otPlatSettingsGet',
+               *('-Wl,--wrap=' + symbol for symbol in wrap),
                '-Wl,--start-group', *map(str, archives), '-Wl,--end-group',
                '-lpthread', '-lrt', '-lutil', '-o', str(output)]
     if mode == 'mips':

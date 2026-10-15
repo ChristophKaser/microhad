@@ -168,6 +168,27 @@ These allow comparing the live post-decryption header against the authenticated
 offline capture. The synthetic `lowpan-oversized-first-fragment.hex` vector
 exercises successful conversion followed by rejection at the message-size check.
 
+The MIPS/Lexra OpenThread build uses portable Mbed TLS arithmetic. Its assembly
+path rejected a valid captured P-256 SRP public key with `ECP_INVALID_KEY` even
+though host and gateway calculated the same signed hash; portable arithmetic
+verified the same update on the gateway. This changes the crypto implementation
+without relaxing signature checks. The host build retains its normal settings.
+
+The isolated signature regression checks a valid synthetic SRP SIG(0), a
+tampered signature, and the exact signed hash:
+
+```sh
+python3 micro-thread-matter-daemon/scripts/test-srp-signature.py
+python3 micro-thread-matter-daemon/scripts/test-srp-signature.py \
+  --device 192.168.178.62 --password-file ../ssh_password.txt
+```
+
+Build the relevant OpenThread transport archives and synthetic relay first.
+The device test requires explicit `--device` and sufficient free RAM; it keeps
+all probe files and synthetic settings beneath a private `/tmp` directory and
+never accesses the production radio or state. `--fixture PATH` accepts a private
+captured vector with hex `public_key`, `dns`, and expected `sha256` fields.
+
 Deploy only a changed service with `./deploy.sh --services matter --target
 /tuya/native --password-file ../ssh_password.txt --matter-service
 build/micro-thread-matter-daemon/mthread-matter-mips`. Selective maintenance
