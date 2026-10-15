@@ -77,6 +77,7 @@ else
     echo 'RNG seed helper missing; cold-boot entropy wait may delay Ziggurat' >>"$seed_log"
 fi
 zig_pid=;native_pid=;matter_pid=;retries=0;matter_retries=0;matter_next=0;quiesced=false
+zig_diagnostic_restart=false
 valid_thread_tcp() {
     [ "$1" = off ] && return 0
     case "$1" in ''|*[!0-9.:]*) return 1 ;; esac
@@ -301,8 +302,10 @@ while :; do
             level_change=true
         fi
         rm -f "$control/requested-thread-tcp"
-        if [ "$level_change" = true ] && [ -n "$native_pid" ] && kill -0 "$native_pid" 2>/dev/null; then
-            # A requested diagnostic change deliberately recycles only Ziggurat.
+        if [ "$level_change" = true ]; then zig_diagnostic_restart=true;fi
+        if [ "$zig_diagnostic_restart" = true ] && [ -n "$native_pid" ] && kill -0 "$native_pid" 2>/dev/null; then
+            # Preserve the diagnostic restart across transient UART/socket
+            # release failures, rather than falling into full paired recovery.
             zig_pid=
             if ! start_zig; then
                 stop_child "$zig_pid";zig_pid=
@@ -311,11 +314,13 @@ while :; do
                 rm -f "$control/requested-radio-trace"
                 sleep "$backoff";continue
             fi
+            zig_diagnostic_restart=false
             rm -f "$control/requested-log-level"
             rm -f "$control/requested-raw-frames"
             rm -f "$control/requested-radio-trace"
         else
             # Unexpected radio failures retain the existing pair recovery order.
+            zig_diagnostic_restart=false
             stop_child "$matter_pid";matter_pid=
             rm -f "$control/matter.pid" "$control/active-matter-log-level" "$control/active-matter-raw-frames"
             stop_child "$native_pid";native_pid=

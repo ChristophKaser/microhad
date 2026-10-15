@@ -328,7 +328,22 @@ class Paired(unittest.TestCase):
         self.assertEqual(self.process.returncode,2)
 
     def test_thread_tcp_switch_suppresses_matter_and_retains_native(self):
-        self.enable_matter();self.env['RESTART_LIMIT']='1';self.start();self.ready()
+        self.enable_matter();self.env['RESTART_LIMIT']='1'
+        maintenance=self.root/'maintenance-retry'
+        maintenance.write_text("""#!/usr/bin/env python3
+import os,sys
+from pathlib import Path
+marker=Path(os.environ['TEST_EVENTS']).parent/'deny-check-free'
+if sys.argv[1]=='check-free' and marker.exists():
+ marker.unlink()
+ with open(os.environ['TEST_EVENTS'],'a') as f:f.write('transient UART refusal\\n')
+ raise SystemExit(1)
+os.execv(os.environ['REAL_MAINTENANCE_BIN'],[os.environ['REAL_MAINTENANCE_BIN']]+sys.argv[1:])
+""")
+        maintenance.chmod(0o700)
+        self.env['REAL_MAINTENANCE_BIN']=self.env['MAINTENANCE_BIN']
+        self.env['MAINTENANCE_BIN']=str(maintenance)
+        self.start();self.ready()
         wait(lambda:(self.control/'matter.pid').exists())
         native=(self.control/'native.pid').read_text()
         with socket.socket() as probe:
@@ -347,10 +362,13 @@ class Paired(unittest.TestCase):
         zig=(self.control/'ziggurat.pid').read_text()
         self.assertIn('already using',self.run_control('thread-tcp',endpoint).stdout)
         self.assertEqual((self.control/'ziggurat.pid').read_text(),zig)
+        (self.root/'deny-check-free').touch()
         self.run_control('thread-tcp','off')
         wait(lambda:(self.control/'active-thread-tcp').read_text().strip()=='off')
+        self.assertIn('transient UART refusal',self.events.read_text())
         wait(lambda:(self.control/'matter.pid').exists())
         self.assertEqual((self.control/'native.pid').read_text(),native)
+        wait(lambda:self.events.read_text().count('matter start')==starts+1)
         self.assertEqual(self.events.read_text().count('matter start'),starts+1)
         self.assertEqual((self.control/'active-log-level').read_text().strip(),'trace')
         self.quiesce();self.stop()
