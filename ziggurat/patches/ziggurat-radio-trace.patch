@@ -4,11 +4,11 @@ Date: Thu, 15 Oct 2026 15:15:26 +0200
 Subject: [PATCH] Add opt-in RCP radio trace logging
 
 ---
- crates/ziggurat-phy-spinel/src/lib.rs |  7 +++++++
- crates/ziggurat-server/src/main.rs    |  8 ++++++++
- crates/ziggurat-spinel/src/client.rs  | 19 +++++++++++++++++++
- crates/ziggurat-spinel/src/lib.rs     | 17 +++++++++++++++++
- 4 files changed, 51 insertions(+)
+ crates/ziggurat-phy-spinel/src/lib.rs |  7 +++++
+ crates/ziggurat-server/src/main.rs    |  8 ++++++
+ crates/ziggurat-spinel/src/client.rs  | 48 ++++++++++++++++++++++++++++++++++-
+ crates/ziggurat-spinel/src/lib.rs     |  1 +
+ 4 files changed, 63 insertions(+), 1 deletion(-)
 
 diff --git a/crates/ziggurat-phy-spinel/src/lib.rs b/crates/ziggurat-phy-spinel/src/lib.rs
 index b827d28..d8fb0d4 100644
@@ -48,10 +48,47 @@ index 7646eee..46bb871 100644
          drop(phy);
  
 diff --git a/crates/ziggurat-spinel/src/client.rs b/crates/ziggurat-spinel/src/client.rs
-index 52ebf7f..a5d6618 100644
+index 52ebf7f..05042fd 100644
 --- a/crates/ziggurat-spinel/src/client.rs
 +++ b/crates/ziggurat-spinel/src/client.rs
-@@ -680,6 +680,25 @@ impl SpinelClient {
+@@ -235,6 +235,8 @@ pub enum SpinelError {
+     },
+     #[error("response payload was empty")]
+     EmptyResponse,
++    #[error("unexpected NCP log level: expected {expected}, got {got}")]
++    UnexpectedLogLevel { expected: u8, got: u8 },
+     #[error("invalid spinel status {status}")]
+     InvalidStatus { status: u8 },
+ }
+@@ -370,7 +372,26 @@ impl SpinelClient {
+                     Ok(n) if n > 0 => {
+                         for frame in decoder.parse_frames_from_bytes(&buffer[..n]) {
+                             let protocols = protocols.lock().expect("Failed to lock interfaces");
+-                            if let Some(status) = global_reset_status(&frame) {
++                            // STREAM_LOG uses the broadcast IID on multi-PAN RCPs.
++                            // Consume it once here, before per-interface routing.
++                            if frame.header.transaction_id == 0
++                                && frame.command_id == SpinelCommandId::PropValueIs
++                                && let Ok((property, value)) = packed_uint21_deserialize(&frame.payload)
++                                && property == SpinelPropertyId::StreamLog as u32
++                            {
++                                let log_end = value.iter().position(|byte| *byte == 0).unwrap_or(value.len());
++                                match std::str::from_utf8(&value[..log_end]) {
++                                    Ok(message) if message.starts_with("RADIO_TRACE ")
++                                        || message.split_once(": ").is_some_and(|(_, body)| body.starts_with("RADIO_TRACE ")) => {
++                                        tracing::info!(target: "radio_trace", "{message}");
++                                    }
++                                    Ok(message) if !message.is_empty() => {
++                                        tracing::debug!(target: "rcp_log", "{message}");
++                                    }
++                                    Ok(_) => {}
++                                    Err(error) => tracing::warn!("Invalid RCP log stream UTF-8: {error}"),
++                                }
++                            } else if let Some(status) = global_reset_status(&frame) {
+                                 for protocol in protocols.values() {
+                                     protocol
+                                         .lock()
+@@ -680,6 +701,31 @@ impl SpinelClient {
          }
      }
  
@@ -61,15 +98,21 @@ index 52ebf7f..a5d6618 100644
 +        let (response_property, payload) = self
 +            .prop_value_set(SpinelPropertyId::DebugNcpLogLevel, vec![level])
 +            .await?;
-+        if response_property != SpinelPropertyId::LastStatus {
++        if response_property == SpinelPropertyId::LastStatus {
++            let status = payload.first().copied().ok_or(SpinelError::EmptyResponse)?;
++            if status != 0 {
++                return Err(SpinelError::InvalidStatus { status });
++            }
++        }
++        if response_property != SpinelPropertyId::DebugNcpLogLevel {
 +            return Err(SpinelError::UnexpectedResponseProperty {
-+                expected: SpinelPropertyId::LastStatus,
++                expected: SpinelPropertyId::DebugNcpLogLevel,
 +                got: response_property,
 +            });
 +        }
-+        let status = payload.first().copied().ok_or(SpinelError::EmptyResponse)?;
-+        if status != 0 {
-+            return Err(SpinelError::InvalidStatus { status });
++        let got = payload.first().copied().ok_or(SpinelError::EmptyResponse)?;
++        if got != level {
++            return Err(SpinelError::UnexpectedLogLevel { expected: level, got });
 +        }
 +        Ok(())
 +    }
@@ -78,7 +121,7 @@ index 52ebf7f..a5d6618 100644
          &self,
          property_id: SpinelPropertyId,
 diff --git a/crates/ziggurat-spinel/src/lib.rs b/crates/ziggurat-spinel/src/lib.rs
-index 6c82120..4dd2d1c 100644
+index 6c82120..73ac473 100644
 --- a/crates/ziggurat-spinel/src/lib.rs
 +++ b/crates/ziggurat-spinel/src/lib.rs
 @@ -86,6 +86,7 @@ pub enum SpinelPropertyId {
@@ -89,29 +132,6 @@ index 6c82120..4dd2d1c 100644
  
      // PHY Properties
      PhyEnabled = 32,
-@@ -792,6 +793,22 @@ impl SpinelProtocol {
-                     Some((SpinelPropertyId::LastStatus, value)) => {
-                         self.handle_unsolicited_last_status(value);
-                     }
-+                    Some((SpinelPropertyId::StreamLog, value)) => {
-+                        let log_end = value
-+                            .iter()
-+                            .position(|byte| *byte == 0)
-+                            .unwrap_or(value.len());
-+                        match std::str::from_utf8(&value[..log_end]) {
-+                            Ok(message) if message.starts_with("RADIO_TRACE ") => {
-+                                tracing::info!(target: "radio_trace", "{message}");
-+                            }
-+                            Ok(message) if !message.is_empty() => {
-+                                tracing::debug!(target: "rcp_log", "{message}");
-+                            }
-+                            Ok(_) => {}
-+                            Err(error) => tracing::warn!("Invalid RCP log stream UTF-8: {error}"),
-+                        }
-+                    }
-                     Some((property_id, value)) => {
-                         match self.property_update_receivers.get(&property_id) {
-                             Some(sender) => {
 -- 
 2.43.0
 

@@ -29,20 +29,24 @@ C_FLAGS := $(subst -Os,-Oz,$(C_FLAGS))
 CXX_FLAGS := $(subst -Os,-Oz,$(CXX_FLAGS))
 C_FLAGS := $(subst -Werror=unused-label,,$(C_FLAGS))
 C_DEFS += '-DOPENTHREAD_CONFIG_PLATFORM_BOOTLOADER_MODE_ENABLE=1'
-C_DEFS += '-DOPENTHREAD_CONFIG_LOG_LEVEL_DYNAMIC_ENABLE=1'
-C_DEFS += '-DOPENTHREAD_CONFIG_LOG_LEVEL=OT_LOG_LEVEL_INFO'
 '''
 if '# HDLC experiment flags' not in s:s=s.replace(marker,marker+'\n# HDLC experiment flags\n'+extra)
-if '# Radio trace configuration' not in s:
-    radio_trace_defs = '''
+# SLC can preserve custom Makefile sections across regeneration. Replace prior
+# logging definitions as well, so an incremental build upgrades the old ceiling.
+s=re.sub(r"^C_DEFS \+= '-DOPENTHREAD_CONFIG_LOG_LEVEL(?:_DYNAMIC_ENABLE|_INIT)?=[^'\n]*'\n", '', s, flags=re.M)
+s=s.replace('# Radio trace configuration\n', '')
+radio_trace_defs = """
 # Radio trace configuration
 C_DEFS += '-DOPENTHREAD_CONFIG_LOG_LEVEL_DYNAMIC_ENABLE=1'
-C_DEFS += '-DOPENTHREAD_CONFIG_LOG_LEVEL=OT_LOG_LEVEL_INFO'
-'''
-    s=s.replace(marker,marker+'\n'+radio_trace_defs)
+C_DEFS += '-DOPENTHREAD_CONFIG_LOG_LEVEL=OT_LOG_LEVEL_DEBG'
+C_DEFS += '-DOPENTHREAD_CONFIG_LOG_LEVEL_INIT=OT_LOG_LEVEL_INFO'
+"""
+s=s.replace(marker,marker+'\n'+radio_trace_defs)
 p.write_text(s)
 PY
-make -f "$project.Makefile" -j"${BUILD_JOBS:-4}" \
+# The generated Makefile does not track compiler-definition changes. Rebuild
+# objects so a changed logging ceiling takes effect in incremental builds.
+make -B -f "$project.Makefile" -j"${BUILD_JOBS:-4}" \
     > "$experiment_root/logs/hdlc-firmware-build.log" 2>&1
 arm-none-eabi-size "build/debug/$project.out"
 arm-none-eabi-nm "build/debug/$project.out" | rg 'otAppNcpInitMulti|otNcpHdlcInitMulti'
