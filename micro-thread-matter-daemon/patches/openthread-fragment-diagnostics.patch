@@ -1,0 +1,42 @@
+From: Christoph Kaser <christoph@caser.de>
+Date: Thu, 15 Oct 2026 14:05:00 +0200
+Subject: [PATCH] openthread: identify first-fragment conversion failures
+
+Log the receive boundary header and conversion stage only on failure.
+No protocol changes or packet contents beyond compressed headers.
+
+--- a/src/core/thread/mesh_forwarder.cpp
++++ b/src/core/thread/mesh_forwarder.cpp
+@@ -1291,18 +1291,32 @@
+     Error             error     = kErrorNone;
+     FrameData         frameData = aRxInfo.mFrameData;
+     Message::Priority priority;
++    const char       *stage = "priority_headers";
+ 
+     SuccessOrExit(error = GetFramePriority(aRxInfo, priority));
+ 
++    stage = "allocate";
+     aMessage = Get<MessagePool>().Allocate(Message::kTypeIp6, /* aReserveHeader */ 0, Message::Settings(priority));
+     VerifyOrExit(aMessage, error = kErrorNoBufs);
+ 
++    stage = "decompress";
+     SuccessOrExit(error = Get<Lowpan::Lowpan>().Decompress(*aMessage, aRxInfo.mMacAddrs, frameData, aDatagramSize));
+ 
++    stage = "append_payload";
+     SuccessOrExit(error = aMessage->AppendData(frameData));
+     aMessage->MoveOffset(frameData.GetLength());
+ 
+ exit:
++    if (error != kErrorNone && aDatagramSize != 0)
++    {
++        String<65> header;
++        String<17> prefix;
++        uint16_t length = aRxInfo.mFrameData.GetLength();
++        header.AppendHexBytes(aRxInfo.mFrameData.GetBytes(), length < 32 ? length : 32);
++        prefix.AppendHexBytes(Get<Mle::Mle>().GetMeshLocalPrefix().m8, 8);
++        LogInfo("RX fragment conversion failed stage:%s error:%s dglen:%u len:%u header:%s mesh_prefix:%s",
++                stage, ErrorToString(error), aDatagramSize, length, header.AsCString(), prefix.AsCString());
++    }
+     return error;
+ }
+ 

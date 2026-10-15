@@ -143,6 +143,27 @@ and overload/drop markers or connection gaps must be checked before treating
 an absent event as evidence. Frames filtered or dropped by the RCP are not a
 promiscuous over-the-air capture. No capture files are written to gateway flash.
 
+To distinguish malformed accessory fragments from receive-path problems, replay
+an authenticated plaintext 6LoWPAN FRAG1 payload (including its four-byte
+fragment header):
+
+```sh
+python3 micro-thread-matter-daemon/scripts/replay-thread-fragment.py /path/to/fragment.bin
+# Explicit isolated MIPS run; files and synthetic settings live only in /tmp:
+python3 micro-thread-matter-daemon/scripts/replay-thread-fragment.py /path/to/fragment.bin \
+  --device 192.168.178.62 --password-file ../ssh_password.txt
+```
+
+Build the host or MIPS OpenThread transport archives and synthetic relay first.
+The helper tests header decoding, full decompression, message conversion and
+the first-fragment reassembly handler with synthetic secured receive metadata.
+It does not replay radio authentication, production neighbor state, or the
+complete datagram. Successful isolated replay therefore establishes validity
+in that test context, not successful delivery through the live radio path.
+Fragment conversion failures log the actual first 32 bytes, mesh-local prefix
+and failing stage at INFO. These allow comparing the live post-decryption
+header against the authenticated offline capture.
+
 Deploy only a changed service with `./deploy.sh --services matter --target
 /tuya/native --password-file ../ssh_password.txt --matter-service
 build/micro-thread-matter-daemon/mthread-matter-mips`. Selective maintenance

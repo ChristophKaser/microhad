@@ -192,6 +192,7 @@ def main() -> int:
         "openthread-hdlc-unix.patch",
         "openthread-hdlc-test.patch",
         "openthread-thread-transport.patch",
+        "openthread-fragment-diagnostics.patch",
         *(f"{crate}.patch" for crate in CRATE_PATCHES),
     }
     actual = {path.name for directory in PATCH_DIRS for path in directory.glob("*.patch")}
@@ -240,6 +241,7 @@ def main() -> int:
         patch_path("openthread-hdlc-unix.patch"),
         patch_path("openthread-hdlc-test.patch"),
         patch_path("openthread-thread-transport.patch"),
+        patch_path("openthread-fragment-diagnostics.patch"),
     ]
     revision = (ROOT / "micro-thread-matter-daemon/dependencies/openthread.revision").read_text().strip()
     if run(["git", "-C", str(openthread), "rev-parse", "HEAD"], capture=True).strip() != revision:
