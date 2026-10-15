@@ -149,6 +149,7 @@ impl<'a, C: Crypto + 'a> Controller<'a, C> {
                 responses::reply(result)
             }
             Request::CommissionCancel(request) => {
+                log::info!("Commissioning cancellation requested over IPC session={:?}", request.session);
                 responses::reply(self.sessions.cancel(request.session, now))
             }
             Request::BleAttach(request) => {
@@ -250,6 +251,7 @@ impl<'a, C: Crypto + 'a> Controller<'a, C> {
         if !ipc.has_peer(peer) {
             if let Some(snapshot) = self.sessions.current_snapshot(now) {
                 if snapshot.state < Phase::Complete {
+                    log::info!("Commissioning cancelled because owning IPC peer disconnected");
                     let _ = self.sessions.cancel(snapshot.session, now);
                 }
             }

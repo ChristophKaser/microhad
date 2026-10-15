@@ -6,6 +6,7 @@
 #include <openthread/srp_client.h>
 #include <openthread/ip6.h>
 #include <openthread/link.h>
+#include <openthread/logging.h>
 #include <openthread/platform/settings.h>
 #include <openthread/message.h>
 #include <openthread/netdata.h>
@@ -148,6 +149,11 @@ extern "C" int gatewayOtInit(const char *url)
     config.mSpeedUpFactor = 1;
     instance = otSysInit(&config);
     if (instance) {
+        // Instance construction resets POSIX's dynamic threshold to CRITICAL.
+        // Set it after initialization so parser/rejection logs remain enabled.
+        if (otSetLogLevel(instance, OT_LOG_LEVEL_INFO) != OT_ERROR_NONE) {
+            otSysDeinit(); instance = nullptr; return -1;
+        }
         otError error = otSetStateChangedCallback(instance, stateChanged, nullptr);
         if (error != OT_ERROR_NONE) { otSysDeinit(); instance = nullptr; return -static_cast<int>(error); }
         otThreadRegisterNeighborTableCallback(instance, neighborChanged);

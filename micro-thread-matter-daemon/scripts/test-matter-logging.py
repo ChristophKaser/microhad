@@ -68,6 +68,8 @@ def main():
         assert any('Matter controller service started' in record for record in records)
         assert any('rs_matter' in record for record in records), 'library logging is not connected'
         assert any('TRACE ' in record for record in records), 'trace logging is not connected'
+        assert any('INFO thread_diagnostics: OpenThread ' in record and 'SrpServer' in record
+                   for record in records), 'actual OpenThread runtime SRP logging is disabled'
         for marker in ('INFO thread_diagnostics: Thread role=',
                        'INFO thread_diagnostics: Thread network data version=',
                        'INFO thread_diagnostics: SRP server state=',
