@@ -56,7 +56,9 @@ The supervisor stops `mthread-matter` before starting Ziggurat with
 `--thread-listen`, suppresses Matter respawn while TCP is selected, and keeps
 MicroHAD running. Returning to `off` recreates the Unix endpoint and resumes
 Matter with its existing state. Diagnostic switches do not consume failure
-restart budgets. The selection survives child restarts, but every fresh
+restart budgets. The supervisor retains diagnostic restart intent across
+transient UART/socket release failures, so a retry does not unnecessarily
+restart MicroHAD. The selection survives child restarts, but every fresh
 supervisor start or reboot defaults to the Unix endpoint and local Matter;
 no launcher environment or persistent network configuration is changed.
 Inspect `/tmp/ziggurat-supervisor/active-thread-tcp` for the applied selection;
@@ -94,6 +96,15 @@ initialization resets; Ziggurat independently rejects secondary reset requests.
 Do not enable physical reset or reset recovery against the shared radio.
 Keep Thread on the existing Zigbee channel and retain an isolated OTBR state
 volume; stock OTBR startup compatibility still requires a live smoke test.
+
+On 2026-10-15, the deployed TCP endpoint answered a live EFR32 Spinel version
+query, and a TCP → Unix → TCP round trip retained MicroHAD's PID and restored
+local Matter when requested. Zigbee remained online on channel 11 with 23
+devices. This verifies the transport and handover, not host OTBR initialization
+or commissioning. See the [diagnostic plan](matter-otbr-commissioning-diagnostic-plan.md#verified-deployment-and-remaining-checks)
+for the dated deployment result and remaining host checks. Re-read the runtime
+selection after reboot or supervisor restart rather than assuming the last
+observed TCP mode is still active.
 
 ## Supply the Thread channel
 

@@ -74,7 +74,10 @@ Rollback artifact generation remains opt-in through `--rollback-dir DIR`.
 
 For temporary host OTBR access after this update, use
 `paired_control.sh thread-tcp IPv4:PORT`; `thread-tcp off` restores local Matter.
-See [runtime Thread ownership](hdlc-multipan-usage.md#tcp-endpoint-for-host-otbr).
+This is a runtime request, not a boot-launcher setting. Every fresh supervisor
+starts with Unix/local Matter, including after reboot. Use the corrected
+supervisor that preserves diagnostic restart intent across transient UART/socket
+release failures. See [runtime Thread ownership](hdlc-multipan-usage.md#tcp-endpoint-for-host-otbr).
 
 ## Maintenance release
 

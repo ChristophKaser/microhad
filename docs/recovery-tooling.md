@@ -92,6 +92,39 @@ lifetime, resetting to `MATTER_RAW_FRAMES` (`off` by default, `on` or `off`) on 
 fresh supervisor. Active state is recorded in `active-matter-raw-frames`. Both
 the updated service and supervisor must be installed to use this control.
 
+## Temporary host OTBR handover
+
+The updated paired supervisor can give the host exclusive use of Thread while
+keeping MicroHAD and Zigbee available. On the **gateway**:
+
+```sh
+/tuya/native/paired_control.sh thread-tcp 192.168.178.62:9998
+cat /tmp/ziggurat-supervisor/active-thread-tcp
+# Stop the host OTBR/reconnect loop before returning to local Matter:
+/tuya/native/paired_control.sh thread-tcp off
+```
+
+Use the gateway's actual IPv4 address and intended port. The helper queues a
+RAM-only request and signals Ziggurat, following the log-level control flow.
+The supervisor stops local Matter before opening the TCP endpoint and prevents
+its respawn while TCP is selected; MicroHAD reconnects to Ziggurat. The corrected
+supervisor retains this diagnostic restart across transient UART/socket release
+failures. Unexpected Ziggurat failures retain full paired recovery.
+
+Wait for the applied marker and verify process/listener readiness, rather than
+assuming the helper acknowledgement means the switch is complete. TCP mode
+must have no local Matter PID/process. After `off`, require the Unix Thread
+socket, a healthy Matter process and `/api/matter/status` reporting `running`,
+plus normal Zigbee traffic. Do not clear runtime markers manually.
+
+The endpoint selection survives child restarts and log-level changes but
+always defaults to Unix/local Matter on a fresh supervisor start or reboot.
+No radio firmware or persistent network/identity files are changed. Runtime
+endpoint switching needs no quiesce/freeze workflow; installing changed
+binaries/scripts still uses the documented maintenance deployment procedure.
+See the [no-flash OTBR procedure](matter-otbr-commissioning-diagnostic-plan.md#primary-path--host-otbr-through-ziggurat-tcp-without-flashing)
+for the host `&no-reset` setting, dataset/channel requirements and capture scope.
+
 ## Supervisor and startup
 
 `/tuya/tuya_start.sh` starts the paired supervisor once. Its private control
