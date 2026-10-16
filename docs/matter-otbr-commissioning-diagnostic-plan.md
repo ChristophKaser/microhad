@@ -87,6 +87,35 @@ credentials. Generated traces/keys are ignored by Git. These automated host
 steps replace the manual capture/controller steps below for the no-flash path;
 they do not invoke the optional firmware-cutover procedure.
 
+### Offline Spinel and radio-frame extraction
+
+The real session `20261016T073813.011529Z` successfully commissioned the
+accessory and read its vendor name (`IKEA of Sweden`) over a separate CASE
+session. Its 34 exported encrypted messages authenticated offline across one
+PASE and two CASE sessions. The remaining local-stack investigation can use
+the captured radio exchanges as a comparison baseline.
+
+Extract raw frames from an existing stopped capture with:
+
+```sh
+SESSION="$PWD/matter-traces/host-otbr-via-ziggurat/20261016T073813.011529Z"
+python3 scripts/matter-diagnostics/extract-spinel.py "$SESSION/capture/host.pcap"
+python3 scripts/matter-diagnostics/extract-thread.py "$SESSION/capture/spinel.trace"
+```
+
+These create JSON Lines `capture/spinel.trace` and `capture/thread.trace`, plus
+separate summary/checksum files. They need no sudo, gateway connection or keys.
+Existing outputs are not overwritten. See the [formats and extraction limits](../scripts/matter-diagnostics/README.md#extract-spinel-and-raw-thread-radio-frames-offline).
+Original captures and their manifest remain unchanged.
+
+The successful session yielded 262 Spinel frames (258 from the fresh connection,
+four from the earlier connection), 57 TX frames, 88 RX frames and 32 embedded
+ACKs. All 57 TX completions succeeded; extraction reported no diagnostics.
+These are RCP interface observations, with TX bytes potentially captured before
+radio encryption, rather than an independent RF capture. Protocol decoding,
+decryption and Wireshark export are deferred; the current tools preserve raw
+bytes, provenance and radio metadata for later analysis.
+
 ### Prepare the host and collect a baseline
 
 Run host commands from the repository root. Create a new permanent attempt

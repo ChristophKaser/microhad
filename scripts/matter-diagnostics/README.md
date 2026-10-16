@@ -253,10 +253,73 @@ also set `MATTER_DIAGNOSTIC_DIR="$SESSION"` and `MATTER_DIAGNOSTIC_BUILD` to the
 saved binary hash and start fresh collectors; a one-off command does not extend
 the stopped packet capture automatically.
 
+## Extract Spinel and raw Thread radio frames offline
+
+These tools use only the Python 3.11+ standard library; neither Docker, sudo nor
+session keys are needed. They read a stopped capture without contacting the gateway:
+
+```sh
+SESSION="$PWD/matter-traces/host-otbr-via-ziggurat/20261016T073813.011529Z"
+python3 scripts/matter-diagnostics/extract-spinel.py "$SESSION/capture/host.pcap"
+python3 scripts/matter-diagnostics/extract-thread.py "$SESSION/capture/spinel.trace"
+```
+
+The first tool selects TCP traffic to/from `192.168.178.62:9998`; override with
+`--gateway ADDRESS --port PORT`. Both accept `--output PATH` and refuse to
+overwrite an existing trace or summary. Outputs have private permissions.
+Each prints counts and writes a separate `*.trace.summary.json` containing
+source/output SHA-256 hashes. The original capture and bundle manifest stay unchanged.
+
+Both `.trace` files contain schema-1 JSON Lines with one-based `record` IDs:
+
+| Output | Records and fields |
+| --- | --- |
+| `capture/spinel.trace` | `spinel` records retain exact `hdlc_hex` (delimiters/escaped FCS included), unescaped `spinel_hex` (FCS removed), command/property/payload, IID and TID. `diagnostic` records preserve malformed/boundary bytes and report CRC failures, TCP gaps and conflicting overlaps. Header parse failures keep the original frame and add `parse_error`. |
+| `capture/thread.trace` | `thread` records have `kind: tx`, `rx` or `ack`, complete `psdu_hex` and available `radio` metadata. `tx_done` records correlate completions to `tx_spinel_record`; they do not duplicate the TX frame. A structurally complete ACK-bearing status can be extracted even without its request; its reference is null. `unmatched_status` retains other LAST_STATUS responses without claiming they are transmissions. Metadata parse failures add `diagnostic` records and retain any already-extracted PSDU. |
+
+Frame records include connection identity, host-relative direction (`tx` toward
+the gateway), contributing one-based PCAP `packets`, and Unix nanosecond
+timestamps. `timestamp_ns` is the latest contributing captured segment time;
+`first_timestamp_ns` is the earliest. These are host capture times, not RF
+transmission times. Thread records refer back through `spinel_record`;
+receive metadata also preserves the RCP's separate `radio_timestamp_us`.
+
+TCP reconstruction handles segmentation, out-of-order delivery, retransmission,
+overlap and sequence wrap within a stream span shorter than 2 GiB. Connections
+already active at capture start are included (`syn_seen: false`). A new client
+SYN with a different sequence starts another connection epoch. Conflicting
+overlaps retain lower-sequence bytes, then the first captured segment for ties,
+and report the alternative bytes. Gaps break framing; extraction resumes at
+the next HDLC boundary. Packet references describe bytes used in reconstruction,
+not redundant retransmissions. Classic PCAP in either byte order and either
+timestamp resolution is supported with Linux cooked v1/v2, Ethernet (including
+VLAN) and raw IP link types. IPv4/IPv6 TCP is supported; fragmented IP and PCAPNG
+input are not reassembled/supported. Target TCP payloads are buffered in memory.
+
+Radio layouts follow the pinned OpenThread `radio_spinel.cpp` implementation:
+STREAM_RAW TX/RX and ACKs inside successful LAST_STATUS TX completions. RX
+retains RSSI, noise, channel, LQI, flags, receive error and optional MAC security
+metadata; TX retains scheduling, retries, channel and security-processing flags.
+Unknown trailing bytes stay in `extra_hex` (including completion security
+updates); nested unknown metadata stays in the radio fields. No frame-type or
+Thread classification filter is applied: ACKs and other radio observations
+remain available. PSDU bytes, including any FCS bytes/placeholders, are preserved
+exactly as transported. TX requests can precede radio security processing and
+do not prove an over-the-air transmission. This is not an independent RF capture.
+Protocol decoding, decryption and Wireshark/PCAPNG export are deferred.
+
+On session `20261016T073813.011529Z`, extraction found 262 valid Spinel frames:
+258 from the fresh connection and four from the earlier connection. The radio
+trace contains 177 frames: 57 TX, 88 RX and 32 embedded ACKs, plus 57 successful
+TX completion records and seven unmatched ordinary LAST_STATUS responses.
+There were no extraction diagnostics or malformed Spinel headers; every TX
+request had a completion and all RX receive-error values were zero.
+
 ## Host-only checks
 
 ```sh
 python3 scripts/matter-diagnostics/test-diagnostics.py
+python3 scripts/matter-diagnostics/test-trace-extract.py
 bash -n scripts/commission-host-otbr-via-ziggurat.sh scripts/matter-diagnostics/*.sh
 ```
 
@@ -275,5 +338,9 @@ Verified on 2026-10-16: the custom OTBR image built and passed running-RCP
 initialization without a boot notification or reset; the split CHIP Tool and
 Linux accessory built; the isolated fixture authenticated 22 PASE TX/11 RX,
 6 CASE TX/3 RX and 2 resumed CASE TX/1 RX messages, with no authentication
-failures. The saved live gateway capture also passed all 214 HDLC/Spinel frames.
-The real accessory has not been commissioned by this preparation work.
+failures. The saved live gateway attach capture also passed all 214 HDLC/Spinel frames.
+The later real commissioning session `20261016T073813.011529Z` completed BLE/PASE,
+Thread attachment, operational CASE commissioning and a separate vendor-name
+read (`IKEA of Sweden`). All 34 exported encrypted messages across one PASE
+and two CASE sessions authenticated offline; that run did not use CASE
+resumption.
