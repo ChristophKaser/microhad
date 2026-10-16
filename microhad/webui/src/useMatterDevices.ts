@@ -31,11 +31,12 @@ export function useMatterDevices() {
     }
   }, [])
 
-  const poll = useCallback(async () => {
+  const poll = useCallback(async (): Promise<void> => {
     if (pending.current || Date.now() < nextPoll.current) return
     pending.current = true
     nextPoll.current = Date.now() + 1500
     const controller = new AbortController()
+    let morePages = false
     try {
       if (Date.now() - statusCheckedAt.current >= 30000) {
         const availability = await matterAvailability(controller.signal)
@@ -64,6 +65,8 @@ export function useMatterDevices() {
       } else {
         cursor.current = page.next_cursor
         snapshotRevision.current = page.revision
+        nextPoll.current = 0
+        morePages = true
         setDevices(currentDevices => {
           const present = new Map(currentDevices.map(device => [device.id, device]))
           for (const endpoint of page.devices) {
@@ -89,6 +92,11 @@ export function useMatterDevices() {
       nextPoll.current = Date.now() + 10000
     } finally {
       pending.current = false
+      // A catalog page is part of the current scan, not a new polling cycle.
+      // Recovery entries must not delay discovery of later usable endpoints.
+      if (morePages && active.current) window.setTimeout(() => {
+        if (active.current) void poll()
+      }, 0)
     }
   }, [])
 

@@ -9,7 +9,7 @@ const esbuild = require('esbuild');
 async function main() {
   const build = await esbuild.build({ entryPoints: [path.join(__dirname, 'matter-devices-browser.tsx')],
     bundle: true, write: false, platform: 'browser', jsx: 'automatic', define: { 'process.env.NODE_ENV': '"production"' } });
-  let mode = 'normal', posts = 0, retryPosts = 0, nextJob = 1, operationValue = false, operationLevel = 0;
+  let mode = 'backlog', posts = 0, retryPosts = 0, nextJob = 1, operationValue = false, operationLevel = 0;
   const jobs = new Map();
   const server = http.createServer(async (request, response) => {
     let body = '';
@@ -26,13 +26,17 @@ async function main() {
     else if (request.url === '/fixture/retry-count') send({ retryPosts });
     else if (request.url === '/api/matter/devices/snapshot') {
       posts++; const fields = JSON.parse(body), job = nextJob++;
-      const endpoint = mode === 'duplicate' ? 0 : fields.cursor;
+      const backlog = mode === 'backlog';
+      const recoveryPage = backlog && fields.cursor < 22;
+      const endpoint = mode === 'duplicate' ? 0 : backlog ? Math.max(0, fields.cursor - 22) : fields.cursor;
       const device = { node: '0000000000000002', state: 'complete', online: mode !== 'offline',
         id: `matter:0000000000000001:0000000000000002:${endpoint.toString(16).padStart(4, '0')}`,
         endpoint, servers: endpoint === 0 ? [29] : [6, 8, 29, 91, 1026, 1029, 1037, 1066] };
-      const result = { revision: '0000000000000007', devices: mode === 'empty' ? [] : [mode === 'recovery' ?
+      const result = { revision: '0000000000000007', devices: mode === 'empty' ? [] : [recoveryPage ?
+        { node: (fields.cursor + 3).toString(16).padStart(16, '0'), state: 'recovery_required', online: false,
+          id: null, endpoint: null, servers: [] } : mode === 'recovery' ?
         { ...device, state: 'recovery_required', online: false, id: null, endpoint: null, servers: [] } : device],
-        next_cursor: mode === 'empty' || mode === 'recovery' || fields.cursor === 1 ? null : 1 };
+        next_cursor: mode === 'empty' || mode === 'recovery' || fields.cursor === (backlog ? 23 : 1) ? null : fields.cursor + 1 };
       jobs.set(job, mode === 'pending' ? { job, state: 'running' } : { job, state: 'complete', response:
         mode === 'stale' ? { schema: 1, ok: false, error: 'stale_revision' } : { schema: 1, ok: true, result } });
       response.statusCode = 202; send({ schema: 1, ok: true, job, state: 'queued' });
