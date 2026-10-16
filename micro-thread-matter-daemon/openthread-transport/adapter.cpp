@@ -130,7 +130,10 @@ void stateChanged(otChangedFlags flags, void *)
 {
     if (flags & OT_CHANGED_THREAD_NETDATA) networkDataSnapshot();
     if (flags & OT_CHANGED_THREAD_ROLE) {
-        diagnostic(2, "Thread role=%s rloc=0x%04x", otThreadDeviceRoleToString(otThreadGetDeviceRole(instance)), otThreadGetRloc16(instance));
+        diagnostic(2, "Thread role=%s rloc=0x%04x partition=%lu leader_weight=%u local_weight=%u",
+            otThreadDeviceRoleToString(otThreadGetDeviceRole(instance)), otThreadGetRloc16(instance),
+            static_cast<unsigned long>(otThreadGetPartitionId(instance)), otThreadGetLeaderWeight(instance),
+            otThreadGetLocalLeaderWeight(instance));
         if ((diagnosticOnMesh || diagnosticExternal) && otThreadGetDeviceRole(instance) >= OT_DEVICE_ROLE_CHILD) {
             otError error = otBorderRouterRegister(instance);
             diagnostic(2, "Diagnostic Thread network data registration result=%s(%u)", otThreadErrorToString(error), error);
@@ -241,6 +244,10 @@ extern "C" int gatewayOtInitOnChannel(const char *url, uint8_t channel)
     settingsReadError = false;
     int result = gatewayOtInit(url);
     if (result != 0) { guardedSettings = false; activeRestoreAllowed = true; return result; }
+    // Prefer this gateway's partition when a newly commissioned FTD briefly
+    // starts a competing singleton partition. Its default FTD weight is 64.
+    otThreadSetLocalLeaderWeight(instance, 72);
+    diagnostic(2, "Thread local leader weight=%u", otThreadGetLocalLeaderWeight(instance));
     otError error = otLinkSetSupportedChannelMask(instance, uint32_t(1) << channel);
     if (error == OT_ERROR_NONE) error = otLinkSetChannel(instance, channel);
     if (settingsReadError && error == OT_ERROR_NONE) error = OT_ERROR_PARSE;
