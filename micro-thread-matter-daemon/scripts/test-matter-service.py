@@ -33,6 +33,8 @@ class ChannelRcp(sim.ThreadRcp):
         self.pause_dataset_write = False
         self.dataset_write_seen = threading.Event()
         self.release_dataset_write = threading.Event()
+        self.radio_mac_counter = 0
+        self.counter_floor = 0
     def receive_frame(self, data):
         command, offset = sim.sim.unpacked(data, 1)
         prop, offset = sim.sim.unpacked(data, offset)
@@ -49,7 +51,21 @@ class ChannelRcp(sim.ThreadRcp):
                 self.dataset_write_errors += 1
                 self.send(data[0], 0, sim.sim.packed(2))
                 return
+            # EFR32 resets its offloaded TX counter whenever MAC keys are set.
+            self.radio_mac_counter = 0
+        if command == 3 and prop == 2049:
+            value = data[offset:]
+            counter = struct.unpack_from('<I', value)[0]
+            only_if_larger = len(value) > 4 and value[4]
+            self.radio_mac_counter = max(self.radio_mac_counter, counter) if only_if_larger else counter
+            self.counter_floor = max(self.counter_floor, counter)
         super().receive_frame(data)
+
+    def assert_counter_restored(self):
+        assert self.counter_floor > 0, 'restart fixture must restore a saved MAC counter'
+        assert self.radio_mac_counter >= self.counter_floor, (
+            'dataset key installation reset the radio below the advertised MAC counter',
+            self.radio_mac_counter, self.counter_floor)
 
 
 def receive(peer, length):
@@ -447,6 +463,14 @@ def main():
             created = status(ipc_path, 2, 318)
             assert created["configured"] and created["dataset_channel"] == 15
             assert credentials.read_bytes() == interrupted_envelope
+            # Establish NetworkInfo with a reserved nonzero TX counter before
+            # the following RCP disconnect/restart exercises guarded restore.
+            deadline = time.monotonic() + 25
+            while not status(ipc_path, 2, 318)["attached"]:
+                assert time.monotonic() < deadline, 'synthetic Thread leader did not attach'
+                assert status(ipc_path, 9, 318,
+                    b'{"schema":1,"action":"observe","zigbee_channel":15,"zigbee_online":true}')["ok"]
+                time.sleep(.1)
             commissioning_calls(ipc_path, credentials)
 
             # RCP socket death must stop the service; restored state must wait
@@ -515,6 +539,7 @@ def main():
                 assert time.monotonic() < deadline
                 time.sleep(.01)
             assert status(ipc_path, 2, 324)["configured"]
+            radio.assert_counter_restored()
             recovered_nodes = catalog_records(credentials)
             assert recovered_nodes[:-1] == previous_nodes
             assert recovered_nodes[-1] == (allocated_id, 5)

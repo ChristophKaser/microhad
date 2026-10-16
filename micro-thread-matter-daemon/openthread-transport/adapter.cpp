@@ -8,6 +8,7 @@
 #include <openthread/link.h>
 #include <openthread/logging.h>
 #include <openthread/platform/settings.h>
+#include <openthread/platform/radio.h>
 #include <openthread/message.h>
 #include <openthread/netdata.h>
 #include <openthread/border_router.h>
@@ -244,10 +245,6 @@ extern "C" int gatewayOtInitOnChannel(const char *url, uint8_t channel)
     settingsReadError = false;
     int result = gatewayOtInit(url);
     if (result != 0) { guardedSettings = false; activeRestoreAllowed = true; return result; }
-    // Prefer this gateway's partition when a newly commissioned FTD briefly
-    // starts a competing singleton partition. Its default FTD weight is 64.
-    otThreadSetLocalLeaderWeight(instance, 72);
-    diagnostic(2, "Thread local leader weight=%u", otThreadGetLocalLeaderWeight(instance));
     otError error = otLinkSetSupportedChannelMask(instance, uint32_t(1) << channel);
     if (error == OT_ERROR_NONE) error = otLinkSetChannel(instance, channel);
     if (settingsReadError && error == OT_ERROR_NONE) error = OT_ERROR_PARSE;
@@ -285,6 +282,15 @@ extern "C" int gatewayOtSetDataset(const uint8_t *bytes, uint16_t length)
         activeRestoreAllowed = previousRestoreAllowed;
         return -static_cast<int>(error);
     }
+    // Boot restores NetworkInfo before the validated dataset is available.
+    // Installing its real MAC key resets the EFR32's offloaded TX counter,
+    // while SubMac retains the saved counter advertised in Parent Responses.
+    // Restore that floor after key installation so secured Child ID Responses
+    // are not rejected as replays. Never lower a radio counter already in use.
+    uint32_t frameCounter = otLinkGetFrameCounter(instance);
+    otPlatRadioSetMacFrameCounterIfLarger(instance, frameCounter);
+    diagnostic(2, "Thread radio MAC counter synchronized floor=%lu",
+        static_cast<unsigned long>(frameCounter));
     error = otIp6SetEnabled(instance, true);
     if (error != OT_ERROR_NONE) return -static_cast<int>(error);
     error = otThreadSetEnabled(instance, true);
