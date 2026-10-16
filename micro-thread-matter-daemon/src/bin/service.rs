@@ -443,6 +443,7 @@ fn run(
     let mut responder = pin!(responder.run());
     let waker = std::task::Waker::from(std::sync::Arc::new(Wake));
     let mut context = std::task::Context::from_waker(&waker);
+    devices.defer_interviews(Duration::from_secs(2));
     while !STOP.load(Ordering::Relaxed) {
         if let std::task::Poll::Ready(result) = transport.as_mut().poll(&mut context) {
             result?;

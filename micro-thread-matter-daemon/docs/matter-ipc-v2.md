@@ -107,3 +107,7 @@ records. A node commit is accepted only after the declared number of endpoint
 records; interrupted updates retain the previous verified metadata. The publisher
 paces records, reserves reply capacity and retries backpressure. A new peer
 receives a fresh bootstrap. No public listing request, job or cursor is involved.
+
+Inventory bootstrap takes priority over background CASE discovery and ICD
+interviews. A short startup grace lets the native peer subscribe before costly
+cryptography starts; report ingestion and transport processing remain active.

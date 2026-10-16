@@ -188,6 +188,7 @@ pub struct Manager<'a, C: Crypto> {
     work: Option<(u64, Instant, Work<'a>)>,
     revision: u64,
     inventory_peers: Vec<InventoryPeer>,
+    inventory_bootstrap_until: Instant,
     seen: Vec<crate::catalog::Node>,
     next_job: u64,
     queued: VecDeque<QueuedOperation>,
@@ -273,6 +274,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             work: None,
             revision,
             inventory_peers: Vec::new(),
+            inventory_bootstrap_until: Instant::now(),
             seen: Vec::new(),
             next_job,
             queued: VecDeque::new(),
@@ -288,6 +290,14 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             reports: VecDeque::new(),
             button_events: VecDeque::new(),
         })
+    }
+    pub fn defer_interviews(&mut self, duration: Duration) {
+        self.inventory_bootstrap_until = Instant::now() + duration;
+    }
+    fn inventory_pending(&self) -> bool {
+        let records = self.catalog.nodes().len() * 2
+            + self.snapshots.iter().map(|snapshot| snapshot.endpoints.len()).sum::<usize>();
+        self.inventory_peers.iter().any(|peer| peer.revision != self.revision || peer.index < records)
     }
     pub fn subscribe_inventory(&mut self, peer: u64) {
         if !self.inventory_peers.iter().any(|entry| entry.peer == peer) {
@@ -837,6 +847,12 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                     Err(_) => {}
                 }
             }
+        }
+        // Finish the cached inventory bootstrap before expensive CASE work.
+        // On MIPS a crypto poll can monopolize the service for seconds. HTTP
+        // listing must not wait behind an interview of an unreachable node.
+        if now < self.inventory_bootstrap_until || self.inventory_pending() {
+            return;
         }
         if self.poll_icd(now, context) {
             return;
@@ -1929,6 +1945,12 @@ mod tests {
         assert!(manager.page(3, Some(first.revision)).is_err());
         manager.poll(true, true, now, &mut context);
         assert!(manager.work.is_none());
+        manager.inventory_peers.push(super::InventoryPeer {
+            peer: 1, revision: 0, index: 0, next: now,
+        });
+        manager.poll(true, false, now, &mut context);
+        assert!(manager.work.is_none(), "inventory bootstrap must precede CASE discovery");
+        manager.inventory_peers.clear();
         manager.poll(true, false, now, &mut context);
         assert_eq!(manager.snapshots.len(), 3); // recovery nodes are retried, not discarded
         assert_eq!(manager.work.as_ref().unwrap().0, 2);
