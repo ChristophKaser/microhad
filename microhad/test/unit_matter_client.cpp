@@ -72,12 +72,16 @@ void* serveStatus(void* opaque) {
     return 0;
 }
 
-struct ChannelPeer { int fd; std::string event; bool wrongId; };
+struct ChannelPeer {
+    int fd; std::string event; bool wrongId; unsigned int firstDelayUs;
+    ChannelPeer() : fd(-1), wrongId(false), firstDelayUs(0) {}
+};
 void* serveChannel(void* opaque) {
     ChannelPeer* peer = static_cast<ChannelPeer*>(opaque);
     for (unsigned int i = 1; i <= (peer->wrongId ? 1U : 2U); ++i) {
         MatterWire::Frame request; assert(readFrame(peer->fd, &request));
         assert(request.payload.empty() && request.id == i);
+        if (i == 1 && peer->firstDelayUs) usleep(peer->firstDelayUs);
         MatterWire::Frame frame;
         frame.kind = MatterWire::Frame::Event; frame.opcode = 12;
         frame.payload.assign(peer->event.begin(), peer->event.end());
@@ -401,6 +405,8 @@ void runMatterClientUnitTests() {
         assert(fcntl(pair[0], F_SETFL, O_NONBLOCK) == 0);
         MatterChannel channel("unused"); channel.fd_ = pair[0];
         ChannelPeer peer; peer.fd = pair[1]; peer.event = writeEvent; peer.wrongId = i != 0;
+        // A slow CASE operation must not tear down the owning IPC channel.
+        if (i == 0) peer.firstDelayUs = 1200000;
         pthread_t server; assert(pthread_create(&server, 0, serveChannel, &peer) == 0);
         assert(channel.call(2, "", &json, &error) == (i == 0));
         if (i == 0) {

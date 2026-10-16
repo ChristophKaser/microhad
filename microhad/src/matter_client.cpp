@@ -15,6 +15,7 @@
 #include <sys/time.h>
 #include <sys/stat.h>
 #include <sys/un.h>
+#include <syslog.h>
 #include <unistd.h>
 
 namespace {
@@ -655,12 +656,25 @@ bool MatterChannel::receive(int64_t deadline, bool wait) {
     ssize_t count;
     do { count = recv(fd_, buffer, sizeof(buffer), MSG_DONTWAIT); } while (count < 0 && errno == EINTR);
     if (count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) return !wait;
-    return count > 0 && decoder_.feed(MatterWire::Bytes(buffer, buffer + count));
+    if (count <= 0) {
+        syslog(LOG_WARNING, "Matter IPC receive failed: reason=%s errno=%d", count == 0 ? "peer_closed" : "read_error", count < 0 ? errno : 0);
+        return false;
+    }
+    if (!decoder_.feed(MatterWire::Bytes(buffer, buffer + count))) {
+        syslog(LOG_WARNING, "Matter IPC receive failed: reason=malformed_frame");
+        return false;
+    }
+    return true;
 }
 bool MatterChannel::event(const MatterWire::Frame& frame) {
     const std::string text(frame.payload.begin(), frame.payload.end());
     if (frame.kind != MatterWire::Frame::Event || frame.opcode != 12 || frame.id != 0 ||
-        events_.size() >= 8 || !eventValid(text)) return false;
+        events_.size() >= 8 || !eventValid(text)) {
+        syslog(LOG_WARNING, "Matter IPC event rejected: reason=%s opcode=%u queued=%lu",
+            events_.size() >= 8 ? "queue_full" : "invalid_event", static_cast<unsigned int>(frame.opcode),
+            static_cast<unsigned long>(events_.size()));
+        return false;
+    }
     events_.push_back(text);
     return true;
 }
@@ -684,7 +698,9 @@ bool MatterChannel::call(unsigned char opcode, const std::string& body, std::str
     if (now < 0 || nextId_ == 0 || opcode < 1 || opcode > 11 || body.size() > MatterWire::MaxPayload) {
         *error = "Matter service request invalid"; return false;
     }
-    const int64_t deadline = now + 1000;
+    // CASE cryptography can occupy the single-threaded MIPS service for more
+    // than a second. Closing this owned IPC channel cancels commissioning.
+    const int64_t deadline = now + 10000;
     if (fd_ < 0) fd_ = connectPrivate(socketPath_, deadline, error);
     if (fd_ < 0) return false;
     MatterWire::Frame request;
@@ -692,19 +708,24 @@ bool MatterChannel::call(unsigned char opcode, const std::string& body, std::str
     request.payload.assign(body.begin(), body.end());
     MatterWire::Bytes bytes;
     bool valid = MatterWire::encode(request, &bytes) && writeAll(fd_, &bytes[0], bytes.size(), deadline);
+    const char* failure = "write_failed";
     while (valid) {
         MatterWire::Frame frame;
         while (decoder_.pop(&frame)) {
-            if (frame.kind == MatterWire::Frame::Event) { if (!event(frame)) { valid = false; break; } }
+            if (frame.kind == MatterWire::Frame::Event) { if (!event(frame)) { failure = "invalid_event"; valid = false; break; } }
             else {
                 const std::string text(frame.payload.begin(), frame.payload.end());
                 if (frame.kind != MatterWire::Frame::Response || frame.id != request.id ||
-                    frame.opcode != opcode || !responseValid(opcode, text)) { valid = false; break; }
+                    frame.opcode != opcode || !responseValid(opcode, text)) { failure = "invalid_response"; valid = false; break; }
                 *json = text; return true;
             }
         }
-        if (valid) valid = receive(deadline, true);
+        if (valid) { failure = "receive_failed"; valid = receive(deadline, true); }
     }
+    const int64_t elapsed = nowMilliseconds() - now;
+    syslog(LOG_WARNING, "Matter IPC disconnect: opcode=%u reason=%s elapsed_ms=%ld queued=%lu",
+        static_cast<unsigned int>(opcode), elapsed >= 10000 ? "timeout" : failure,
+        static_cast<long>(elapsed), static_cast<unsigned long>(events_.size()));
     disconnect(); *error = "Matter service exchange failed"; return false;
 }
 

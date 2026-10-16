@@ -7,6 +7,7 @@
 #include <sstream>
 #include <fcntl.h>
 #include <sys/socket.h>
+#include <syslog.h>
 #include <cerrno>
 
 namespace {
@@ -170,7 +171,10 @@ bool MatterWorker::collectEvents() {
         bool full = events_.size() >= 8;
         if (!full) events_.push_back(event);
         pthread_mutex_unlock(&mutex_);
-        if (full) { unavailable(); return false; }
+        if (full) {
+            syslog(LOG_WARNING, "Matter worker disconnect: reason=event_queue_full queued=8");
+            unavailable(); return false;
+        }
     }
     return true;
 }
