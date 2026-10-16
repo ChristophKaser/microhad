@@ -102,13 +102,16 @@ function pause(ms: number, signal: AbortSignal): Promise<void> {
   })
 }
 export async function matterCall(route: string, fields: Record<string, unknown>, signal: AbortSignal): Promise<unknown> {
-  if (!['/api/thread/create', '/api/thread/import', '/api/thread/retry', '/api/matter/commissioning/status', '/api/matter/commissioning/cancel',
+  if (!['/api/thread/create', '/api/thread/import', '/api/thread/retry', '/api/matter/commissioning/start', '/api/matter/commissioning/status', '/api/matter/commissioning/cancel',
     '/api/matter/devices/read', '/api/matter/devices/command', '/api/matter/devices/bind'].includes(route)) throw new MatterError('unsupported')
   const keys = Object.keys(fields)
   if (route.endsWith('/create') && keys.length !== 0) throw new MatterError('malformed')
   if (route.endsWith('/import') && (keys.length !== 1 || typeof fields.dataset !== 'string' || !validDataset(fields.dataset))) throw new MatterError('malformed')
   if (route.endsWith('/retry') && keys.length !== 0) throw new MatterError('malformed')
-  if (route.includes('/commissioning/') && (keys.length !== 1 || typeof fields.session !== 'string' || !validSession(fields.session))) throw new MatterError('malformed')
+  if (route.endsWith('/commissioning/start') && (keys.length !== 3 || !integer(fields.discriminator, 0, 4095) ||
+      !integer(fields.pin, 1, 99999998) || !integer(fields.timeout_seconds, 30, 900))) throw new MatterError('malformed')
+  if (!route.endsWith('/commissioning/start') && route.includes('/commissioning/') &&
+      (keys.length !== 1 || typeof fields.session !== 'string' || !validSession(fields.session))) throw new MatterError('malformed')
   if (route.endsWith('/devices/read') && (keys.length !== 4 || typeof fields.node !== 'string' || !validSession(fields.node) ||
       !integer(fields.endpoint, 0, 65534) || ![6, 8, 69, 91, 1026, 1029, 1037, 1066].includes(Number(fields.cluster)) || fields.attribute !== 0)) throw new MatterError('malformed')
   if (route.endsWith('/devices/command')) {

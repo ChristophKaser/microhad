@@ -211,6 +211,17 @@ int microhad_tls_write(void* opaque_session, const char* response, unsigned long
     return result < 0 ? result : 0;
 }
 
+/* Relay callers wait for readability on the underlying socket first, then use
+ * this bounded single-record read to move opaque WebSocket bytes. */
+int microhad_tls_read(void* opaque_session, char* output, unsigned long capacity) {
+    struct microhad_tls_session* session = (struct microhad_tls_session*)opaque_session;
+    int received;
+    if (session == 0 || output == 0 || capacity == 0) return -1;
+    do { received = mbedtls_ssl_read(&session->ssl, (unsigned char*)output, capacity); }
+    while (received == MBEDTLS_ERR_SSL_WANT_READ || received == MBEDTLS_ERR_SSL_WANT_WRITE);
+    return received;
+}
+
 void microhad_tls_session_close(void* opaque_session) {
     struct microhad_tls_session* session = (struct microhad_tls_session*)opaque_session;
     if (session == 0) return;

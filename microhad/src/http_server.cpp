@@ -42,6 +42,7 @@ extern "C" int microhad_tls_server_create(const char* certificatePath, const cha
 extern "C" void microhad_tls_server_destroy(void* server);
 extern "C" int microhad_tls_session_open(void* server, int fd, void** session);
 extern "C" int microhad_tls_read_request(void* session, char* request, unsigned long capacity);
+extern "C" int microhad_tls_read(void* session, char* output, unsigned long capacity);
 extern "C" int microhad_tls_write(void* session, const char* response, unsigned long length);
 extern "C" void microhad_tls_session_close(void* session);
 #endif
@@ -81,6 +82,29 @@ bool writeBytes(int fd, const std::string& bytes) {
     }
     return true;
 }
+
+#ifdef MICROHAD_MBEDTLS_ENABLED
+/* The Matter worker continues to own WebSocket parsing and protocol state. This
+ * thread owns only TLS record translation between its accepted socket and a
+ * private Unix socket handed to that worker. */
+void relayTls(void* session, int clientFd, int bridgeFd) {
+    char buffer[2048];
+    while (true) {
+        fd_set ready; FD_ZERO(&ready); FD_SET(clientFd, &ready); FD_SET(bridgeFd, &ready);
+        int maximum = clientFd > bridgeFd ? clientFd : bridgeFd;
+        if (select(maximum + 1, &ready, 0, 0, 0) <= 0) break;
+        if (FD_ISSET(clientFd, &ready)) {
+            int length = microhad_tls_read(session, buffer, sizeof(buffer));
+            if (length <= 0 || write(bridgeFd, buffer, length) != length) break;
+        }
+        if (FD_ISSET(bridgeFd, &ready)) {
+            ssize_t length = read(bridgeFd, buffer, sizeof(buffer));
+            if (length <= 0 || microhad_tls_write(session, buffer, static_cast<unsigned long>(length)) != 0) break;
+        }
+    }
+    close(bridgeFd);
+}
+#endif
 
 void writeResponse(int fd, int status, const char* contentType, const std::string& body) {
     std::ostringstream response;
@@ -732,9 +756,25 @@ void HttpServer::handleClient(int clientFd) {
         if (request.find("GET /api/matter/relay ") == 0) {
 #if MICROHAD_MATTER_ENABLED
             std::string upgrade, error;
-            if (tlsServer_ != 0 || !MatterWebSocket::handshake(request, "/api/matter/relay", &upgrade))
+            if (!MatterWebSocket::handshake(request, "/api/matter/relay", &upgrade))
                 writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"malformed\"}");
-            else if (!matterWorker_ || !matterWorker_->adoptRelay(clientFd, upgrade, &error))
+            else if (!matterWorker_)
+                writeResponse(clientFd, 503, "application/json", "{\"ok\":false,\"error\":\"not_ready\"}");
+#ifdef MICROHAD_MBEDTLS_ENABLED
+            else if (session != 0) {
+                int bridge[2] = {-1, -1};
+                if (socketpair(AF_UNIX, SOCK_STREAM, 0, bridge) != 0 ||
+                    !matterWorker_->adoptRelay(bridge[1], upgrade, &error)) {
+                    if (bridge[0] >= 0) close(bridge[0]);
+                    if (bridge[1] >= 0) close(bridge[1]);
+                    writeResponse(clientFd, 503, "application/json", "{\"ok\":false,\"error\":\"" +
+                                  (error.empty() ? "not_ready" : error) + "\"}");
+                } else {
+                    close(bridge[1]); relayTls(session, clientFd, bridge[0]);
+                }
+            }
+#endif
+            else if (!matterWorker_->adoptRelay(clientFd, upgrade, &error))
                 writeResponse(clientFd, 503, "application/json", "{\"ok\":false,\"error\":\"" +
                               (error.empty() ? "not_ready" : error) + "\"}");
 #else

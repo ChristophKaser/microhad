@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { matterAvailability, matterCall, sessionResult, terminalSession, validDataset, validSession } from './matter'
 import type { MatterSession, MatterStatus, ThreadStatus } from './matter'
+import { BrowserMatterRelay, chooseMatterDevice, setupCode, webBluetoothAvailable } from './browserMatter'
 
 const phases: Record<string, string> = {
   waiting_ble: 'Waiting for phone BLE connection', pase: 'Checking setup code', provisioning: 'Providing Thread network',
@@ -29,12 +30,13 @@ export function MatterPanel() {
   const [session, setSession] = useState<MatterSession | null>(null)
   const [revision, setRevision] = useState(0)
   const operation = useRef<AbortController | null>(null)
+  const browserRelay = useRef<BrowserMatterRelay | null>(null)
   const active = useRef(true)
   useEffect(() => {
     active.current = true
     const clear = () => { if (document.hidden) setDataset('') }
     document.addEventListener('visibilitychange', clear)
-    return () => { active.current = false; operation.current?.abort(); document.removeEventListener('visibilitychange', clear) }
+    return () => { active.current = false; operation.current?.abort(); browserRelay.current?.close(); document.removeEventListener('visibilitychange', clear) }
   }, [])
   useEffect(() => {
     const controller = new AbortController()
@@ -86,6 +88,26 @@ export function MatterPanel() {
     } catch (cause) { if (active.current && !controller.signal.aborted) setError(failure(cause)) }
     finally { operation.current = null; if (active.current) setPending(false) }
   }
+  async function commissionInBrowser(input: string) {
+    if (operation.current) return
+    try {
+      const code = setupCode(input)
+      if (!code.ble) throw new Error('unsupported')
+      // The chooser must be called directly from this click handler.
+      const device = await chooseMatterDevice()
+      const controller = new AbortController(); operation.current = controller; setPending(true); setError('')
+      const started = sessionResult(await matterCall('/api/matter/commissioning/start', {
+        discriminator: code.discriminator, pin: code.pin, timeout_seconds: 120,
+      }, controller.signal))
+      setSession(started); setWatch(started.session)
+      const relay = browserRelay.current = new BrowserMatterRelay(started.session, value => {
+        if (!active.current) return
+        setSession(value); if (terminalSession(value)) { setWatch(''); relay.close() }
+      }, cause => { if (active.current) { setError(failure(cause)); setWatch('') } })
+      await relay.connect(device)
+    } catch (cause) { if (active.current) setError(failure(cause)) }
+    finally { operation.current = null; if (active.current) setPending(false) }
+  }
   useEffect(() => { if (availability?.thread.configured) setDataset('') }, [availability?.thread.configured])
   if (availability && !availability.matter.enabled) return null
   const ready = availability?.matter.available && availability.matter.controller_initialized &&
@@ -106,11 +128,17 @@ export function MatterPanel() {
       </form>
     </div>}
     {ready && configured && <>
-      <p>In Garage, open <strong>Matter</strong>, enter this gateway’s address, and scan or enter the accessory’s setup code. Keep Garage open until setup completes.</p>
+      <p>Commission with <strong>Garage</strong>, or use this browser’s Bluetooth support. Both use the same gateway and commissioning sessions.</p>
       <p className="muted small">Gateway address: {window.location.protocol === 'http:' ? window.location.origin : `http://${window.location.hostname}`}</p>
+      <form onSubmit={event => { event.preventDefault(); const input = sessionInput; setSessionInput(''); void commissionInBrowser(input) }}>
+        <label>Matter setup code<input autoComplete="off" spellCheck={false} maxLength={512} value={sessionInput} disabled={pending || !webBluetoothAvailable()} onChange={event => setSessionInput(event.target.value)} /></label>
+        <button className="button primary" disabled={pending || !sessionInput.trim() || !webBluetoothAvailable()}>Commission with this browser</button>
+        {!webBluetoothAvailable() && <p className="muted small">Bluetooth commissioning needs Chrome or Edge on Android or desktop, opened over HTTPS. You can still use Garage below.</p>}
+      </form>
+      <p className="muted small">Garage remains available: open <strong>Matter</strong>, enter this gateway’s address, and scan or enter the accessory’s setup code.</p>
       <form onSubmit={event => { event.preventDefault(); if (!validSession(sessionInput)) return; setSession(null); setError(''); setWatch(sessionInput); setSessionInput('') }}>
-        <label>Commissioning session ID<input autoComplete="off" spellCheck={false} maxLength={16} value={sessionInput} disabled={pending} onChange={event => setSessionInput(event.target.value)} /></label>
-        <button className="button" disabled={pending || !validSession(sessionInput)}>Watch progress</button>
+        <label>Garage commissioning session ID<input autoComplete="off" spellCheck={false} maxLength={16} value={sessionInput} disabled={pending} onChange={event => setSessionInput(event.target.value)} /></label>
+        <button className="button" disabled={pending || !validSession(sessionInput)}>Watch Garage progress</button>
       </form>
       {session && <div aria-live="polite"><p><strong>{phases[session.state]}</strong>{session.deadline_remaining_seconds > 0 ? ` · ${session.deadline_remaining_seconds}s remaining` : ''}</p>
         {session.node && <p>Commissioned node: {session.node}</p>}
