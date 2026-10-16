@@ -158,10 +158,17 @@ Place the accessory in commissioning mode, then run:
 ```
 
 Supply the QR payload given for the accessory; it is intentionally not committed
-in the script. For password-authenticated optional gateway logs, add
-`--ssh-password-file /path/to/password-file`. SSH keys work without that option;
-host keys must already be known. Gateway logging failure is recorded as a
-warning; packet, Bluetooth or OTBR collector failures stop the attempt.
+in the script. Gateway logging uses the existing repository-adjacent
+`../ssh_password.txt` when present; `--ssh-password-file /path/to/password-file`
+overrides it. Otherwise it uses SSH keys noninteractively. The gateway connection
+enables legacy `ssh-rsa` host keys/signatures as the deployment scripts do;
+strict verification against existing known host keys stays enabled. Gateway
+logging failure is printed immediately and recorded as a warning; packet,
+Bluetooth or OTBR collector failures stop the attempt.
+
+The terminal shows timestamped phases, periodic OTBR readiness updates, and the
+full live CHIP Tool stdout/stderr. CHIP output is also saved unchanged under
+`logs/commission.log` or `logs/read.log`; phase messages are in `logs/runner.log`.
 
 Defaults: container `microhad-otbr-attach`, gateway `192.168.178.62:9998`, backbone
 `wlp7s0`, Thread interface `wpan-otbr-test`, new controller node ID `1`, 300-second

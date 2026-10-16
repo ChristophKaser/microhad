@@ -37,6 +37,7 @@ class Attempt:
         self.foreground = None
         self.last_sample = 0.0
         self.last_sudo_refresh = 0.0
+        self.warned_collectors = set()
         self.sudo = [] if os.geteuid() == 0 else ['sudo', '-n', '--']
         self.result = {'started': stamp, 'commission_exit': None, 'read_exit': None,
                        'errors': [], 'warnings': [], 'collectors': {}, 'success': False}
@@ -44,6 +45,23 @@ class Attempt:
     def save(self, relative, data):
         path = self.directory / relative
         path.write_text(data if isinstance(data, str) else json.dumps(data, indent=2) + '\n')
+
+    def progress(self, message):
+        stamp = datetime.datetime.now(datetime.timezone.utc).strftime('%H:%M:%SZ')
+        line = f'[{stamp}] {message}'
+        print(line, flush=True)
+        with (self.directory / 'logs/runner.log').open('a') as output:
+            output.write(line + '\n')
+
+    @staticmethod
+    def echo_chip(reader):
+        while chunk := reader.read(65536):
+            if hasattr(sys.stdout, 'buffer'):
+                sys.stdout.buffer.write(chunk)
+                sys.stdout.buffer.flush()
+            else:
+                sys.stdout.write(chunk.decode('utf-8', errors='replace'))
+                sys.stdout.flush()
 
     def command(self, command, *, privileged=False, timeout=20, check=True):
         result = subprocess.run((self.sudo if privileged else []) + list(map(str, command)),
@@ -82,7 +100,9 @@ class Attempt:
             if shutil.which(name) is None:
                 raise RuntimeError(f'Missing required command: {name}')
         if self.sudo:
+            self.progress('Authenticating sudo for capture tools and Docker')
             subprocess.run(['sudo', '-v'], check=True)
+        self.progress('Checking controller build, key-export rehearsal, Bluetooth and OTBR')
         from cryptography.hazmat.primitives.ciphers.aead import AESCCM  # noqa: F401
         controller = self.args.controller.resolve()
         manifest_path = controller.parent / 'controller-build.json'
@@ -128,8 +148,10 @@ class Attempt:
         expected = self.args.dataset_file
         if expected and expected.read_text().strip().lower() != self.dataset.lower():
             raise RuntimeError('OTBR active dataset differs from --dataset-file')
+        self.progress(f'Preflight passed: OTBR {status["state"]}, channel {status["channel"]}, Bluetooth powered')
 
     def collector(self, name, command, *, privileged=False, stdout_path=None, required=True):
+        self.progress(f'Starting {name} collector; log: logs/{name}.log')
         log = self.directory / f'logs/{name}.log'
         pid_path = self.directory / f'metadata/{name}.pid'
         pid_path.touch(mode=0o600)
@@ -153,8 +175,12 @@ class Attempt:
             self.command(['sudo', '-n', '-v'])
             self.last_sudo_refresh = time.monotonic()
         for name, process, _, _, required in self.collectors:
-            if process.poll() is not None and required:
-                raise RuntimeError(f'{name} collector exited early; see logs/{name}.log')
+            if process.poll() is not None:
+                if required:
+                    raise RuntimeError(f'{name} collector exited early; see logs/{name}.log')
+                if name not in self.warned_collectors:
+                    self.warned_collectors.add(name)
+                    self.progress(f'Warning: {name} logging stopped (exit {process.returncode}); see logs/{name}.log')
         if time.monotonic() - self.last_sample >= 5:
             self.last_sample = time.monotonic()
             try:
@@ -174,16 +200,7 @@ class Attempt:
         self.collector('tcpdump', ['tcpdump', '-i', 'any', '-p', '-s', '0', '-U', '-Z',
                                   pwd.getpwuid(os.getuid()).pw_name, '-w', str(pcap)], privileged=True)
         self.collector('btmon', ['btmon', '-w', str(ble)], privileged=True)
-        ssh = ['ssh', '-o', 'ConnectTimeout=8', '-o', 'StrictHostKeyChecking=yes']
-        if self.args.ssh_password_file:
-            ssh = ['sshpass', '-f', str(self.args.ssh_password_file.resolve()), *ssh]
-        else:
-            ssh += ['-o', 'BatchMode=yes']
-        ssh += ['root@' + self.args.gateway,
-                'if [ -x /tuya/native/logread ]; then exec /tuya/native/logread -f; '
-                'elif [ -x /tuya/native/busybox ]; then exec /tuya/native/busybox logread -f; '
-                'else exec /bin/busybox logread -f; fi']
-        self.collector('gateway', ssh, required=False)
+        self.collector('gateway', self.gateway_command(), required=False)
         deadline = time.monotonic() + 10
         while pcap.stat().st_size < 24 or ble.stat().st_size < 16:
             self.ensure_collectors()
@@ -191,6 +208,23 @@ class Attempt:
                 raise RuntimeError('Collectors did not create their capture headers')
             time.sleep(0.1)
         self.ensure_collectors()
+        self.progress('Packet and Bluetooth capture are recording')
+
+    def gateway_command(self):
+        ssh = ['ssh', '-o', 'ConnectTimeout=8', '-o', 'StrictHostKeyChecking=yes',
+               '-o', 'HostKeyAlgorithms=+ssh-rsa', '-o', 'PubkeyAcceptedAlgorithms=+ssh-rsa']
+        if self.args.ssh_password_file:
+            if not self.args.ssh_password_file.is_file():
+                raise RuntimeError('Gateway SSH password file does not exist')
+            ssh = ['sshpass', '-f', str(self.args.ssh_password_file.resolve()), *ssh]
+            ssh += ['-o', 'PreferredAuthentications=password', '-o', 'PubkeyAuthentication=no']
+        else:
+            ssh += ['-o', 'BatchMode=yes']
+        ssh += ['root@' + self.args.gateway,
+                'if [ -x /tuya/native/logread ]; then exec /tuya/native/logread -f; '
+                'elif [ -x /tuya/native/busybox ]; then exec /tuya/native/busybox logread -f; '
+                'else exec /bin/busybox logread -f; fi']
+        return ssh
 
     def start_otbr_log(self):
         since = datetime.datetime.strptime(self.result['started'], '%Y%m%dT%H%M%S.%fZ').replace(
@@ -201,24 +235,34 @@ class Attempt:
                                self.args.container], privileged=True)
 
     def wait_ready(self):
+        self.progress('Waiting for Thread attachment, SRP, border routing and complete Spinel capture (up to 90s)')
         deadline = time.monotonic() + 90
         last_error = 'not ready'
+        last_report = time.monotonic()
         while time.monotonic() < deadline:
             self.ensure_collectors()
             try:
-                if self.cli('state') in ('leader', 'router', 'child') and self.cli('br', 'state') == 'running' and \
-                        self.cli('srp', 'server', 'state') == 'running':
+                role = self.cli('state')
+                border = self.cli('br', 'state')
+                srp = self.cli('srp', 'server', 'state')
+                last_error = f'Thread={role}, border routing={border}, SRP={srp}'
+                if role in ('leader', 'router', 'child') and border == 'running' and srp == 'running':
                     stream = inspect_spinel(self.directory / 'capture/host.pcap', self.args.gateway, self.args.port)
                     self.save('metadata/spinel-before-commission.json', stream)
                     if stream['complete']:
+                        self.progress(f'OTBR ready; validated {stream["frames"]} Spinel frames and both TCP handshakes')
                         return
                     last_error = 'Spinel capture not yet complete'
             except (RuntimeError, ValueError, subprocess.SubprocessError) as error:
                 last_error = str(error)
+            if time.monotonic() - last_report >= 10:
+                self.progress('Still waiting for OTBR/capture readiness: ' + last_error)
+                last_report = time.monotonic()
             time.sleep(1)
         raise RuntimeError('OTBR/capture readiness failed: ' + last_error)
 
     def chip(self, name, arguments, timeout):
+        self.progress(f'Starting CHIP Tool {name} (timeout {timeout:g}s); streaming output and saving logs/{name}.log')
         build = json.loads((self.directory / 'metadata/controller-build.json').read_text())
         env = {**os.environ, 'MATTER_DIAGNOSTIC_DIR': str(self.directory),
                'MATTER_DIAGNOSTIC_BUILD': build['binary_sha256']}
@@ -229,18 +273,24 @@ class Attempt:
                    '--paa-trust-store-path', str(self.directory / 'state/paa-trust-store')]
         (self.directory / 'state/chip-tool').mkdir(exist_ok=True, mode=0o700)
         self.save(f'metadata/{name}-command.json', command)
-        with (self.directory / f'logs/{name}.log').open('wb') as output:
+        log_path = self.directory / f'logs/{name}.log'
+        with log_path.open('wb') as output, log_path.open('rb') as live:
             self.foreground = subprocess.Popen(command, stdout=output, stderr=subprocess.STDOUT,
                                                env=env, start_new_session=True)
             deadline = time.monotonic() + timeout
             while self.foreground.poll() is None:
+                self.echo_chip(live)
                 self.ensure_collectors()
                 if time.monotonic() > deadline:
+                    self.progress(f'CHIP Tool {name} timed out; stopping it')
                     self.stop_foreground()
+                    self.echo_chip(live)
                     return 124
                 time.sleep(0.2)
             code = self.foreground.returncode
+            self.echo_chip(live)
             self.foreground = None
+            self.progress(f'CHIP Tool {name} exited with status {code}')
             return code
 
     def stop_foreground(self):
@@ -254,6 +304,7 @@ class Attempt:
         self.foreground = None
 
     def finish(self):
+        self.progress('Saving final OTBR state and stopping capture/log collectors')
         self.stop_foreground()
         try:
             dataset, _ = self.snapshot('after')
@@ -269,6 +320,7 @@ class Attempt:
                 elif process.stdin:
                     process.stdin.close()
                 self.result['collectors'][name] = {'exit': process.returncode, 'exited_early': early_exit}
+                self.progress(f'{name} collector stopped (exit {process.returncode})')
                 if early_exit and required:
                     self.result['errors'].append(name + ' exited before cleanup')
                 elif early_exit:
@@ -289,6 +341,7 @@ class Attempt:
                 self.result['errors'].append('Spinel validation: ' + str(error))
         if (self.directory / 'keys/matter-session-keys.jsonl').exists():
             try:
+                self.progress('Verifying exported session keys by authenticating saved Matter messages')
                 spec = importlib.util.spec_from_file_location('verify_export', Path(__file__).with_name('verify-export.py'))
                 module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(module)
@@ -300,10 +353,12 @@ class Attempt:
                 self.result['errors'].append('Key verification: ' + str(error))
         else:
             self.result['keys_verified'] = False
+            self.progress('No Matter session keys were generated in this attempt')
         self.result['finished'] = datetime.datetime.now(datetime.timezone.utc).isoformat()
         self.result['success'] = (self.result['commission_exit'] == 0 and self.result['read_exit'] == 0 and
                                   self.result.get('keys_verified', False) and not self.result['errors'])
         self.save('result.json', self.result)
+        self.progress('Writing checksums and result: ' + ('SUCCESS' if self.result['success'] else 'FAILED'))
         hashes = {str(p.relative_to(self.directory)): digest(p) for p in sorted(self.directory.rglob('*'))
                   if p.is_file() and p.name != 'sha256.json'}
         self.save('metadata/sha256.json', hashes)
@@ -311,8 +366,10 @@ class Attempt:
 
     def run(self):
         try:
+            self.progress(f'Trace bundle: {self.directory}')
             self.preflight()
             self.start_collectors()
+            self.progress(f'Restarting {self.args.container} with its existing Thread settings')
             self.docker('restart', '--time', '15', self.args.container, timeout=30)
             self.start_otbr_log()
             # The no-reset diagnostic agent intentionally has auto-attach disabled.
@@ -330,20 +387,26 @@ class Attempt:
             dataset, _ = self.snapshot('ready')
             if dataset != self.dataset:
                 raise RuntimeError('Dataset changed during OTBR restart')
+            self.progress('Dataset verified unchanged; starting accessory commissioning')
             self.result['commission_exit'] = self.chip('commission', ['pairing', 'code-thread',
                 str(self.args.node_id), 'hex:' + self.dataset, self.args.payload], self.args.timeout)
             if self.result['commission_exit'] == 0:
+                self.progress('Commissioning succeeded; reading Basic Information over CASE')
                 self.result['read_exit'] = self.chip('read', ['basicinformation', 'read', 'vendor-name',
                     str(self.args.node_id), '0'], 60)
+            else:
+                self.progress(f'Commissioning failed (exit {self.result["commission_exit"]}); skipping CASE read')
+            self.progress(f'Collecting {self.args.tail_seconds:g}s of trailing traffic')
             deadline = time.monotonic() + self.args.tail_seconds
             while time.monotonic() < deadline:
                 self.ensure_collectors()
                 time.sleep(min(0.2, max(0, deadline - time.monotonic())))
         except KeyboardInterrupt:
             self.result['errors'].append('Interrupted')
+            self.progress('Interrupted; cleaning up collectors')
         except Exception as error:
             self.result['errors'].append(str(error))
-            print(str(error), file=sys.stderr)
+            self.progress('Error: ' + str(error))
         finally:
             # A second signal must not interrupt reaping collectors and writing results.
             signal.signal(signal.SIGINT, signal.SIG_IGN)
@@ -366,7 +429,10 @@ def parser():
     result.add_argument('--dataset-file', type=Path)
     result.add_argument('--paa-trust-store', type=Path,
                         default=ROOT / 'build/connectedhomeip/source/credentials/production/paa-root-certs')
-    result.add_argument('--ssh-password-file', type=Path)
+    password_file = ROOT.parent / 'ssh_password.txt'
+    result.add_argument('--ssh-password-file', type=Path,
+                        default=password_file if password_file.is_file() else None,
+                        help='Gateway password file; uses ../ssh_password.txt when present, otherwise SSH keys')
     result.add_argument('--timeout', type=float, default=300)
     result.add_argument('--tail-seconds', type=float, default=10)
     return result

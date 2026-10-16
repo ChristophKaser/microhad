@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Host-only capture, exporter verification and process-cleanup regressions."""
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -10,6 +11,7 @@ import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
+from contextlib import redirect_stdout
 
 from cryptography.hazmat.primitives.ciphers.aead import AESCCM
 import commission
@@ -258,6 +260,62 @@ class WorkflowTests(unittest.TestCase):
                 self.assertEqual(os.getsid(process.pid), os.getsid(0))
             finally:
                 attempt.finish()
+
+    def test_gateway_ssh_password_and_legacy_host_key_options(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            attempt = self.attempt(temporary)
+            password = Path(temporary) / 'password'
+            password.write_text('test-password\n')
+            attempt.args.ssh_password_file = password
+            command = attempt.gateway_command()
+            self.assertEqual(command[:3], ['sshpass', '-f', str(password)])
+            self.assertIn('HostKeyAlgorithms=+ssh-rsa', command)
+            self.assertIn('PubkeyAcceptedAlgorithms=+ssh-rsa', command)
+            self.assertIn('PubkeyAuthentication=no', command)
+            self.assertIn('StrictHostKeyChecking=yes', command)
+            self.assertNotIn('BatchMode=yes', command)
+
+    def test_gateway_ssh_key_auth_remains_noninteractive(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            attempt = self.attempt(temporary)
+            attempt.args.ssh_password_file = None
+            command = attempt.gateway_command()
+            self.assertEqual(command[0], 'ssh')
+            self.assertIn('BatchMode=yes', command)
+            self.assertIn('HostKeyAlgorithms=+ssh-rsa', command)
+
+    def test_chip_output_is_mirrored_and_saved_including_final_output(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            attempt = self.attempt(temporary)
+            controller = Path(temporary) / 'chip-tool'
+            controller.write_text('#!/usr/bin/env python3\n'
+                                  'import sys,time\n'
+                                  'print("SDK output", flush=True)\n'
+                                  'print("SDK error", file=sys.stderr, flush=True)\n'
+                                  'time.sleep(.25)\n'
+                                  'print("Final SDK output", flush=True)\n'
+                                  'raise SystemExit(3)\n')
+            controller.chmod(0o700)
+            attempt.args.controller = controller
+            attempt.save('metadata/controller-build.json', {'binary_sha256': 'test'})
+            attempt.ensure_collectors = lambda: None
+            console = io.StringIO()
+            with redirect_stdout(console):
+                code = attempt.chip('commission', ['pairing'], 3)
+            self.assertEqual(code, 3)
+            log = (attempt.directory / 'logs/commission.log').read_text()
+            for text in ('SDK output', 'SDK error', 'Final SDK output'):
+                self.assertIn(text, console.getvalue())
+                self.assertIn(text, log)
+            self.assertIn('exited with status 3', console.getvalue())
+
+    def test_progress_is_flushed_to_console_and_saved(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            attempt = self.attempt(temporary)
+            with redirect_stdout(io.StringIO()) as console:
+                attempt.progress('Starting capture')
+            self.assertIn('Starting capture', console.getvalue())
+            self.assertEqual(console.getvalue(), (attempt.directory / 'logs/runner.log').read_text())
 
 
 if __name__ == '__main__':
