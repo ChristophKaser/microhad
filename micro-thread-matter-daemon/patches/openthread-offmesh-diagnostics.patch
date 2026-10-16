@@ -1,0 +1,35 @@
+From: Christoph Kaser <christoph@caser.de>
+Date: Fri, 16 Oct 2026 10:00:00 +0200
+Subject: [PATCH] openthread: report off-mesh packets rejected before host callback
+
+The host receive callback observes packets routed off-mesh, but the IPv6
+stack rejects oversized packets and mesh-local sources before invoking it.
+Report these paths so diagnostics account for attempted off-mesh traffic.
+
+diff --git a/src/core/net/ip6.cpp b/src/core/net/ip6.cpp
+--- a/src/core/net/ip6.cpp
++++ b/src/core/net/ip6.cpp
+@@ -1024,5 +1024,10 @@ Error Ip6::PassToHost(OwnedPtr<Message> &aMessagePtr,
+ 
+     VerifyOrExit(mReceiveCallback.IsSet(), error = kErrorNoRoute);
+ 
+     // Do not pass IPv6 packets that exceed kMinimalMtu.
++    if (aMessagePtr->GetLength() > kMinimalMtu && !aReceive)
++    {
++        LogInfo("Off-mesh IPv6 drop reason=oversize src:%s dst:%s len:%u", aHeader.GetSource().ToString().AsCString(),
++                aHeader.GetDestination().ToString().AsCString(), aMessagePtr->GetLength());
++    }
+     VerifyOrExit(aMessagePtr->GetLength() <= kMinimalMtu, error = kErrorDrop);
+@@ -1037,5 +1044,10 @@ Error Ip6::PassToHost(OwnedPtr<Message> &aMessagePtr,
+     // host unless this message is intended for this device itself.
+     if (Get<Mle::Mle>().IsMeshLocalAddress(aHeader.GetSource()))
+     {
++        if (!aReceive)
++        {
++            LogInfo("Off-mesh IPv6 drop reason=mesh_local_source src:%s dst:%s",
++                    aHeader.GetSource().ToString().AsCString(), aHeader.GetDestination().ToString().AsCString());
++        }
+         VerifyOrExit(aReceive, error = kErrorDrop);
+     }
+-- 
+2.43.0

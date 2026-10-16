@@ -10,6 +10,7 @@
 #include <openthread/platform/settings.h>
 #include <openthread/message.h>
 #include <openthread/netdata.h>
+#include <openthread/border_router.h>
 #include <openthread/platform/logging.h>
 #include <openthread/tasklet.h>
 #include <openthread/thread.h>
@@ -27,6 +28,7 @@ extern "C" {
 struct GatewayOtAddress { uint8_t ip[16]; uint16_t port; };
 typedef void (*GatewayOtLog)(uint8_t, const char *);
 typedef void (*GatewayOtReceive)(void *, const GatewayOtAddress *, const uint8_t *, uint16_t);
+int gatewayOtConfigureDiagnosticRoutes(bool onMesh, bool external);
 }
 namespace {
 otInstance *instance = nullptr;
@@ -34,6 +36,11 @@ void resetDiscovery();
 void pollDiagnostics();
 GatewayOtLog diagnosticLog = nullptr;
 bool bindingDiagnostics = false;
+bool diagnosticOnMesh = false;
+bool diagnosticExternal = false;
+otIp6Prefix diagnosticMeshPrefix = {};
+otIp6Prefix diagnosticNat64Prefix = {};
+otIp6Prefix diagnosticDefaultRoute = {};
 void diagnostic(uint8_t level, const char *format, ...)
 {
     if (!diagnosticLog) return;
@@ -60,11 +67,75 @@ void networkDataSnapshot()
         diagnostic(2, "Thread network data offset=%u hex=%s", offset, hex);
     }
 }
+void logOffMeshPacket(otMessage *message, void *)
+{
+    const uint16_t length = otMessageGetLength(message);
+    uint8_t header[44] = {};
+    if (length < 40 || otMessageRead(message, 0, header, length < sizeof(header) ? length : sizeof(header)) < 40 ||
+        (header[0] >> 4) != 6) {
+        diagnostic(1, "Off-mesh IPv6 drop reason=invalid_header length=%u", length);
+        otMessageFree(message);
+        return;
+    }
+    otIp6Address source = {}, destination = {};
+    std::memcpy(source.mFields.m8, header + 8, 16);
+    std::memcpy(destination.mFields.m8, header + 24, 16);
+    char sourceText[OT_IP6_ADDRESS_STRING_SIZE], destinationText[OT_IP6_ADDRESS_STRING_SIZE];
+    otIp6AddressToString(&source, sourceText, sizeof(sourceText));
+    otIp6AddressToString(&destination, destinationText, sizeof(destinationText));
+    unsigned sourcePort = 0, destinationPort = 0;
+    if (length >= 44 && (header[6] == 6 || header[6] == 17)) {
+        sourcePort = (static_cast<unsigned>(header[40]) << 8) | header[41];
+        destinationPort = (static_cast<unsigned>(header[42]) << 8) | header[43];
+    }
+    diagnostic(1, "Off-mesh IPv6 drop reason=no_upstream src=%s dst=%s next_header=%u ports=%u:%u length=%u",
+        sourceText, destinationText, header[6], sourcePort, destinationPort, length);
+    for (uint16_t offset = 0; offset < length; offset += 40) {
+        uint8_t bytes[40];
+        const uint16_t count = length - offset < sizeof(bytes) ? length - offset : sizeof(bytes);
+        if (otMessageRead(message, offset, bytes, count) != count) {
+            diagnostic(1, "Off-mesh IPv6 read_failed offset=%u length=%u", offset, count);
+            break;
+        }
+        char hex[81];
+        for (unsigned i = 0; i < count; ++i) ::snprintf(hex + 2 * i, 3, "%02x", bytes[i]);
+        diagnostic(1, "Off-mesh IPv6 bytes offset=%u hex=%s", offset, hex);
+    }
+    otMessageFree(message);
+}
+void makeDiagnosticPrefixes()
+{
+    const otMeshLocalPrefix *mesh = otThreadGetMeshLocalPrefix(instance);
+    std::memcpy(diagnosticMeshPrefix.mPrefix.mFields.m8, mesh->m8, 8);
+    std::memcpy(diagnosticNat64Prefix.mPrefix.mFields.m8, mesh->m8, 8);
+    diagnosticMeshPrefix.mPrefix.mFields.m8[6] ^= 1;
+    diagnosticNat64Prefix.mPrefix.mFields.m8[6] ^= 2;
+    diagnosticMeshPrefix.mLength = 64;
+    diagnosticNat64Prefix.mLength = 96;
+    diagnosticDefaultRoute.mLength = 0;
+}
+void clearDiagnosticRoutes()
+{
+    if (diagnosticOnMesh) (void)otBorderRouterRemoveOnMeshPrefix(instance, &diagnosticMeshPrefix);
+    if (diagnosticExternal) {
+        (void)otBorderRouterRemoveRoute(instance, &diagnosticDefaultRoute);
+        (void)otBorderRouterRemoveRoute(instance, &diagnosticNat64Prefix);
+        otIp6SetReceiveCallback(instance, nullptr, nullptr);
+    }
+    if ((diagnosticOnMesh || diagnosticExternal) && otThreadGetDeviceRole(instance) >= OT_DEVICE_ROLE_CHILD)
+        (void)otBorderRouterRegister(instance);
+    diagnosticOnMesh = diagnosticExternal = false;
+}
 void stateChanged(otChangedFlags flags, void *)
 {
     if (flags & OT_CHANGED_THREAD_NETDATA) networkDataSnapshot();
-    if (flags & OT_CHANGED_THREAD_ROLE)
+    if (flags & OT_CHANGED_THREAD_ROLE) {
         diagnostic(2, "Thread role=%s rloc=0x%04x", otThreadDeviceRoleToString(otThreadGetDeviceRole(instance)), otThreadGetRloc16(instance));
+        if ((diagnosticOnMesh || diagnosticExternal) && otThreadGetDeviceRole(instance) >= OT_DEVICE_ROLE_CHILD) {
+            otError error = otBorderRouterRegister(instance);
+            diagnostic(2, "Diagnostic Thread network data registration result=%s(%u)", otThreadErrorToString(error), error);
+        }
+    }
 }
 void neighborChanged(otNeighborTableEvent event, const otNeighborTableEntryInfo *entry)
 {
@@ -104,7 +175,8 @@ extern "C" void otPlatLog(otLogLevel, otLogRegion, const char *format, ...)
     va_start(args, format);
     ::vsnprintf(buffer, sizeof(buffer), format, args);
     va_end(args);
-    diagnostic(std::strstr(buffer, "SrpServer") || std::strstr(buffer, "RX fragment ") || std::strstr(buffer, "RX first fragment failed") ||
+    diagnostic(std::strstr(buffer, "Off-mesh IPv6") ? 1 :
+        std::strstr(buffer, "SrpServer") || std::strstr(buffer, "RX fragment ") || std::strstr(buffer, "RX first fragment failed") ||
         std::strstr(buffer, "Dropping rx frag frame") ? 2 : 1, "OpenThread %s", buffer);
 }
 extern "C" void gatewayOtSetDiagnosticLog(GatewayOtLog callback) { diagnosticLog = callback; }
@@ -208,7 +280,11 @@ extern "C" int gatewayOtSetDataset(const uint8_t *bytes, uint16_t length)
     }
     error = otIp6SetEnabled(instance, true);
     if (error != OT_ERROR_NONE) return -static_cast<int>(error);
-    return -static_cast<int>(otThreadSetEnabled(instance, true));
+    error = otThreadSetEnabled(instance, true);
+    if (error != OT_ERROR_NONE) return -static_cast<int>(error);
+    if (diagnosticOnMesh || diagnosticExternal)
+        return gatewayOtConfigureDiagnosticRoutes(diagnosticOnMesh, diagnosticExternal);
+    return 0;
 }
 extern "C" int gatewayOtDisable()
 {
@@ -216,6 +292,58 @@ extern "C" int gatewayOtDisable()
     otError first = otThreadSetEnabled(instance, false);
     otError second = otIp6SetEnabled(instance, false);
     return -static_cast<int>(first != OT_ERROR_NONE ? first : second);
+}
+extern "C" int gatewayOtConfigureDiagnosticRoutes(bool onMesh, bool external)
+{
+    if (!instance) return -OT_ERROR_INVALID_STATE;
+    clearDiagnosticRoutes();
+    if (!onMesh && !external) return 0;
+    makeDiagnosticPrefixes();
+    otError error = OT_ERROR_NONE;
+    if (onMesh) {
+        otBorderRouterConfig config = {};
+        config.mPrefix = diagnosticMeshPrefix;
+        config.mPreference = OT_ROUTE_PREFERENCE_LOW;
+        config.mPreferred = true;
+        config.mSlaac = true;
+        config.mDefaultRoute = external;
+        config.mOnMesh = true;
+        config.mStable = true;
+        error = otBorderRouterAddOnMeshPrefix(instance, &config);
+        if (error != OT_ERROR_NONE) goto fail;
+        diagnosticOnMesh = true;
+        char prefix[OT_IP6_PREFIX_STRING_SIZE];
+        otIp6PrefixToString(&diagnosticMeshPrefix, prefix, sizeof(prefix));
+        diagnostic(2, "Diagnostic Thread on-mesh prefix=%s slaac=1 preferred=1 stable=1 default_route=%u", prefix, external);
+    }
+    if (external) {
+        otExternalRouteConfig config = {};
+        config.mPrefix = diagnosticDefaultRoute;
+        config.mPreference = OT_ROUTE_PREFERENCE_MED;
+        config.mStable = true;
+        error = otBorderRouterAddRoute(instance, &config);
+        if (error != OT_ERROR_NONE) goto fail;
+        diagnosticExternal = true;
+        config.mPrefix = diagnosticNat64Prefix;
+        config.mPreference = OT_ROUTE_PREFERENCE_LOW;
+        config.mNat64 = true;
+        error = otBorderRouterAddRoute(instance, &config);
+        if (error != OT_ERROR_NONE) goto fail;
+        otIp6SetReceiveCallback(instance, logOffMeshPacket, nullptr);
+        char prefix[OT_IP6_PREFIX_STRING_SIZE];
+        otIp6PrefixToString(&diagnosticNat64Prefix, prefix, sizeof(prefix));
+        diagnostic(2, "Diagnostic Thread external routes=::/0 and NAT64=%s capture=debug drop=no_upstream", prefix);
+    }
+    if (otThreadGetDeviceRole(instance) >= OT_DEVICE_ROLE_CHILD) {
+        error = otBorderRouterRegister(instance);
+        if (error != OT_ERROR_NONE) goto fail;
+    }
+    networkDataSnapshot();
+    return 0;
+fail:
+    diagnostic(2, "Diagnostic Thread advertisement failed error=%s(%u)", otThreadErrorToString(error), error);
+    clearDiagnosticRoutes();
+    return -static_cast<int>(error);
 }
 extern "C" int gatewayOtOpen(uint16_t port, GatewayOtReceive callback, void *context)
 {
@@ -279,6 +407,7 @@ extern "C" int gatewayOtMulticast(const uint8_t *bytes, bool join)
 extern "C" void gatewayOtDeinit()
 {
     if (!instance) return;
+    clearDiagnosticRoutes();
     for (int i = 0; i < 2; ++i) if (slots[i].open) gatewayOtClose(i);
     otSysDeinit();
     resetDiscovery();

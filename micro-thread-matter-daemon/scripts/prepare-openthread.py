@@ -9,7 +9,8 @@ OUTPUT = ROOT / 'build/openthread-unix'
 WORKTREE = OUTPUT / 'source-mailbox'
 REVISION = (ROOT / 'micro-thread-matter-daemon/dependencies/openthread.revision').read_text().strip()
 PATCH_NAMES = ['openthread-hdlc-unix.patch', 'openthread-hdlc-test.patch',
-               'openthread-thread-transport.patch', 'openthread-fragment-diagnostics.patch']
+               'openthread-thread-transport.patch', 'openthread-fragment-diagnostics.patch',
+               'openthread-offmesh-diagnostics.patch']
 PATCHES = [ROOT / 'micro-thread-matter-daemon/patches' / name for name in PATCH_NAMES]
 
 

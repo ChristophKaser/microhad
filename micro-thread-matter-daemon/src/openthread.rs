@@ -28,6 +28,7 @@ unsafe extern "C" {
     fn gatewayOtReady() -> bool;
     fn gatewayOtPoll(timeout_us: u32) -> i32;
     fn gatewayOtSetDataset(bytes: *const u8, length: u16) -> i32;
+    fn gatewayOtConfigureDiagnosticRoutes(on_mesh: bool, external: bool) -> i32;
     fn gatewayOtOpen(
         port: u16,
         callback: extern "C" fn(*mut core::ffi::c_void, *const OtAddress, *const u8, u16),
@@ -108,6 +109,9 @@ impl OpenThread {
     pub fn set_dataset(&self, bytes: &[u8], zigbee_channel: u8) -> Result<(), Error> {
         ThreadDataset::parse(bytes, zigbee_channel)?;
         checked(unsafe { gatewayOtSetDataset(bytes.as_ptr(), bytes.len() as u16) })
+    }
+    pub fn configure_diagnostic_routes(&self, on_mesh: bool, external: bool) -> Result<(), Error> {
+        checked(unsafe { gatewayOtConfigureDiagnosticRoutes(on_mesh, external) })
     }
     pub fn own_address(&self, port: u16) -> Result<Address, Error> {
         let mut address = OtAddress {

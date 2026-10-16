@@ -123,6 +123,18 @@ SRP/DNS services. These are network data, not the secret operational dataset.
 Commissioning allows twelve operational CASE/discovery attempts (normally
 about sixty seconds of discovery), still bounded by the session deadline.
 
+`--diagnostic-on-mesh-prefix` and `--diagnostic-external-routes` independently
+enable Thread network-data advertisements. The first publishes a stable ULA
+on-mesh `/64` derived from the Thread mesh-local prefix, with SLAAC and the
+default-route flag when external routes are also enabled. The second publishes
+`::/0` and a separate NAT64 `/96`. The paired launcher enables both. This is
+diagnostic network data only: the gateway has no upstream IPv6 or NAT64
+translator. Off-mesh packets delivered to the service are logged at `debug`
+with addresses, protocol, size, full bytes and a drop reason, then discarded.
+Packets OpenThread rejects before delivery log their addresses and reason. The
+advertisements and registration results are logged at `info`. These flags do
+not enable a host network interface or Linux packet forwarding.
+
 For diagnosis after the fact, stream the gateway syslog to a private host file:
 
 ```sh

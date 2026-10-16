@@ -234,7 +234,8 @@ poll_matter() {
     set --
     if [ "$matter_raw_frames" = on ]; then set -- --raw-frames;fi
     "$matter_bin" --socket "$matter_socket" --state-dir "$matter_state" \
-        --radio-url "spinel+hdlc+unix://$thread_socket?no-reset" --log-level "$matter_log_level" "$@" 2>&1 &
+        --radio-url "spinel+hdlc+unix://$thread_socket?no-reset" --log-level "$matter_log_level" \
+        --diagnostic-on-mesh-prefix --diagnostic-external-routes "$@" 2>&1 &
     matter_pid=$!
     if [ "$matter_level_restart" = false ]; then matter_retries=$((matter_retries+1));fi
     matter_level_restart=false

@@ -49,6 +49,7 @@ else:
   level=sys.argv[sys.argv.index('--log-level')+1]
   with open(os.environ['TEST_EVENTS'],'a') as f:f.write('matter level '+level+'\\n')
   with open(os.environ['TEST_EVENTS'],'a') as f:f.write('matter raw '+('on' if '--raw-frames' in sys.argv else 'off')+'\\n')
+  with open(os.environ['TEST_EVENTS'],'a') as f:f.write('matter routes '+str(int('--diagnostic-on-mesh-prefix' in sys.argv))+':'+str(int('--diagnostic-external-routes' in sys.argv))+'\\n')
  if role=='native' and os.environ.get('TEST_EXIT')=='1':raise SystemExit(0)
  if role=='matter' and os.environ.get('TEST_MATTER_EXIT')=='1':raise SystemExit(1)
  while True:time.sleep(.1)
@@ -261,6 +262,8 @@ class Paired(unittest.TestCase):
     def test_matter_log_level_default_and_unexpected_restart(self):
         self.enable_matter();self.env['MATTER_LOG_LEVEL']='warn';self.start();self.ready()
         wait(lambda:'matter level warn' in self.events.read_text())
+        wait(lambda:'matter routes 1:1' in self.events.read_text())
+        self.assertIn('matter routes 1:1',self.events.read_text())
         self.run_control('matter-log-level','trace')
         wait(lambda:'matter level trace' in self.events.read_text())
         os.kill(int((self.control/'matter.pid').read_text()),signal.SIGTERM)
@@ -270,6 +273,8 @@ class Paired(unittest.TestCase):
         self.stop()
         self.events.write_text('');self.start();self.ready()
         wait(lambda:'matter level warn' in self.events.read_text())
+        wait(lambda:'matter routes 1:1' in self.events.read_text())
+        self.assertIn('matter routes 1:1',self.events.read_text())
         self.quiesce();self.stop()
 
     def test_matter_log_level_unavailable_and_invalid_startup(self):

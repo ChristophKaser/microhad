@@ -270,10 +270,20 @@ fn run(
     let mut validate_only = false;
     let mut log_level = log::LevelFilter::Info;
     let mut raw_frames = false;
+    let mut diagnostic_on_mesh_prefix = false;
+    let mut diagnostic_external_routes = false;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         if arg == "--raw-frames" {
             raw_frames = true;
+            continue;
+        }
+        if arg == "--diagnostic-on-mesh-prefix" {
+            diagnostic_on_mesh_prefix = true;
+            continue;
+        }
+        if arg == "--diagnostic-external-routes" {
+            diagnostic_external_routes = true;
             continue;
         }
         let value = args.next().ok_or("missing option value")?;
@@ -413,6 +423,7 @@ fn run(
     lifecycle
         .restore(&thread, Instant::now())
         .map_err(|_| "Thread restore failed")?;
+    thread.configure_diagnostic_routes(diagnostic_on_mesh_prefix, diagnostic_external_routes)?;
     thread.start_discovery()?;
     let discovery = micro_thread_matter_daemon::discovery::run_with_catalog_and_refresh(
         matter,
