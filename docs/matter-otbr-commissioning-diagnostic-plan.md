@@ -43,10 +43,49 @@ failure; use the corrected scripts from commit `1e82e76` or later, together
 with the TCP handover support from `2d6f6d3`. The TCP binary support is from
 `8215b8f`.
 
-A successful Spinel version query does **not** establish OTBR startup,
+A successful Spinel version query alone does **not** establish OTBR startup,
 capability compatibility, Thread attachment, border routing, discovery or
-accessory commissioning. Those are the next checks below. No complete host
-OTBR commissioning was performed during this deployment verification.
+accessory commissioning. On 2026-10-15 the host OTBR subsequently reached leader
+on channel 11 using the existing dataset through Ziggurat. The capture contained
+214 valid Spinel frames, bidirectional raw traffic and no reset commands or TCP
+gaps. Zigbee retained 23 devices and the native PID was unchanged. No accessory
+was commissioned in that attach test.
+
+On 2026-10-16 OTBR was rebuilt with full DEBUG logging (`OT_FULL_LOGS=ON`,
+`OT_LOG_LEVEL=DEBG`, agent `-d7`, runtime level `5`). mDNS, SRP and border routing
+were running. Host forwarding remained disabled; a commissioner on that same
+host uses the direct Thread interface. Other LAN controllers require a separate
+forwarding/firewall/return-route setup.
+
+### Automated capture and commissioning
+
+Use [the build and capture guide](../scripts/matter-diagnostics/README.md) for
+the pinned custom OTBR Dockerfile, custom native CHIP Tool, session-key export,
+isolated PASE/CASE/resumption rehearsal and bundle format. The strict installed
+CHIP Tool snap is not the controller for this workflow: ordinary debug/decoded
+tracing does not guarantee key export, and its confinement prevents writing
+directly to the requested repository output directory.
+
+After building both components and passing the key-export rehearsal, put the
+accessory in commissioning mode and run from the repository root:
+
+```sh
+./scripts/commission-host-otbr-via-ziggurat.sh --payload 'MT:YOUR_SETUP_PAYLOAD'
+```
+
+The wrapper starts host packet/Bluetooth collectors, restarts the existing
+diagnostic OTBR with the same settings, validates its TCP/HDLC/Spinel capture,
+commissions via `pairing code-thread`, reads Basic Information over CASE, and
+stops its collectors. It preserves failure/interruption output too. Each run
+writes `./matter-traces/host-otbr-via-ziggurat/<UTC-timestamp>/`, including all
+derived PASE/CASE/resumed traffic keys, controller state, active Thread datasets,
+actual encrypted Matter messages/nonce context and authenticated offline
+decryption results. It leaves OTBR running for subsequent inspection.
+
+The supplied setup payload is a command-line input rather than committed device
+credentials. Generated traces/keys are ignored by Git. These automated host
+steps replace the manual capture/controller steps below for the no-flash path;
+they do not invoke the optional firmware-cutover procedure.
 
 ### Prepare the host and collect a baseline
 
@@ -54,9 +93,9 @@ Run host commands from the repository root. Create a new permanent attempt
 directory; export `SESSION` in each collector terminal:
 
 ```sh
-SESSION="$PWD/diagnostics/matter-otbr/session-$(date -u +%Y%m%dT%H%M%SZ)"
+SESSION="$PWD/matter-traces/host-otbr-via-ziggurat/$(date -u +%Y%m%dT%H%M%SZ)"
+umask 077
 mkdir -p "$SESSION"/{capture,logs,keys,state,metadata}
-chmod 700 "$SESSION/state"
 ```
 
 1. Record the current `/api/status`, `/api/matter/status`, Zigbee channel,
@@ -65,16 +104,16 @@ chmod 700 "$SESSION/state"
    If the new binary/scripts are not installed, use
    [selective deployment](deployment.md#selected-services-and-supervisor)
    first; do not start a second supervisor or UART owner.
-2. Select an isolated Compose project, settings volume, host Thread interface
-   and available API ports. Pin the OTBR image by digest and save the rendered
-   compose file. Verify host `/dev/net/tun`, IPv6 forwarding, backbone
+2. Select a dedicated container, settings directory and host Thread interface.
+   Save the custom image ID and Docker configuration. The diagnostic image has
+   no REST/web API ports. Verify host `/dev/net/tun`, IPv6 routing, backbone
    interface/RA handling, firewall rules and multicast/mDNS readiness.
    The upstream compose is a template: its kernel-bridge,
    firmware-flashing and userdata instructions do not apply to this route.
    Run only OTBR for the smoke test; Home Assistant, BLE and a Matter controller
    are unnecessary until testing their particular commissioning path.
-3. Set `GATEWAY_IP`, `THREAD_PORT` (9998 in the verified setup),
-   `COMPOSE_FILE`, `COMPOSE_PROJECT` and `INTENDED_DATASET_HEX_FILE` on the host.
+3. Set `GATEWAY_IP`, `THREAD_PORT` (9998 in the verified setup) and
+   `INTENDED_DATASET_HEX_FILE` on the host.
    The dataset file must contain only hex Operational Dataset TLVs, not the
    gateway's wrapped storage record. Obtain it from the retained import or a
    validated read-only export; the gateway's Thread status API is redacted.
@@ -116,18 +155,22 @@ chmod 700 "$SESSION/state"
    Zigbee is online/formed. A request acknowledgement or marker alone is not
    proof of listener readiness. Do not use TERM alone on Matter (it respawns)
    or STOP (it retains its socket). Do not clear supervisor runtime markers.
-3. Configure the pinned `bnutzer/otbr-tcp` image with the selected endpoint:
+3. Build and run the [custom full-debug OTBR image](../scripts/matter-diagnostics/README.md#build-the-custom-otbr-image)
+   with the selected endpoint and an isolated persistent settings directory:
 
    ```yaml
    environment:
-     RCP_HOST: 192.168.178.62
-     RCP_PORT: "9998"
-     RCP_BAUDRATE: "460800"
-     OTBR_RCP_ADDITIONAL_ARGS: "&no-reset"
+     GATEWAY: 192.168.178.62
+     THREAD_PORT: "9998"
+     BACKBONE_INTERFACE: wlp7s0
+     THREAD_INTERFACE: wpan-otbr-test
    ```
 
    Verify the actual agent URL ends in
-   `?uart-baudrate=460800&no-reset`. The container handles TCP-to-PTY internally;
+   `?uart-baudrate=460800&no-reset&attach-to-running-rcp`. Stock `no-reset`
+   alone waits for a fresh boot notification and failed against the already
+   running shared RCP. The pinned host patch explicitly skips that wait while
+   preserving protocol/version/capability checks. The container handles TCP-to-PTY internally;
    UART baud/RTS-CTS on the gateway remain Ziggurat's responsibility. Disable
    OTBR auto-attach until the intended dataset is installed. Never enable
    physical reset or automatic reset recovery against the shared RCP.
@@ -144,19 +187,19 @@ chmod 700 "$SESSION/state"
    dataset and verify its channel before bringing the interface up:
 
    ```sh
-   docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT" exec -T otbr wrap-ot-ctl thread stop
-   docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT" exec -T otbr wrap-ot-ctl ifconfig down
-   docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT" exec -T otbr wrap-ot-ctl dataset set active "$(cat "$INTENDED_DATASET_HEX_FILE")"
-   docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT" exec -T otbr wrap-ot-ctl dataset active
-   docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT" exec -T otbr wrap-ot-ctl ifconfig up
-   docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT" exec -T otbr wrap-ot-ctl thread start
-   docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT" exec -T otbr wrap-ot-ctl channel
-   docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT" exec -T otbr wrap-ot-ctl state
+   docker exec microhad-otbr-attach /opt/ot-ctl -I wpan-otbr-test thread stop
+   docker exec microhad-otbr-attach /opt/ot-ctl -I wpan-otbr-test ifconfig down
+   docker exec microhad-otbr-attach /opt/ot-ctl -I wpan-otbr-test dataset set active "$(cat "$INTENDED_DATASET_HEX_FILE")"
+   docker exec microhad-otbr-attach /opt/ot-ctl -I wpan-otbr-test dataset active
+   docker exec microhad-otbr-attach /opt/ot-ctl -I wpan-otbr-test ifconfig up
+   docker exec microhad-otbr-attach /opt/ot-ctl -I wpan-otbr-test thread start
+   docker exec microhad-otbr-attach /opt/ot-ctl -I wpan-otbr-test channel
+   docker exec microhad-otbr-attach /opt/ot-ctl -I wpan-otbr-test state
    ```
 
-   Require successful responses and the expected channel/role. `wrap-ot-ctl`
-   selects the configured host Thread interface in this image; other images
-   may require `ot-ctl` with an explicit interface. The channel is in the
+   Require successful responses and the expected channel/role. The custom
+   image uses `/opt/ot-ctl` with an explicit interface; the base image's
+   `wrap-ot-ctl` healthcheck targets a different interface. The channel is in the
    dataset, not the TCP port or radio URL. Import the existing dataset
    unchanged; do not use `dataset init new`, `dataset channel N`, channel
    migration, factory reset or a copy of the gateway's full OpenThread store.

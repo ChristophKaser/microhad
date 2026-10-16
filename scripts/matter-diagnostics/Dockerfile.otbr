@@ -1,0 +1,30 @@
+# Reproducible source revisions; package security updates follow Ubuntu 24.04.
+FROM ubuntu:24.04 AS build
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    ca-certificates git cmake ninja-build build-essential pkg-config python3 libsystemd-dev libreadline-dev \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /source
+RUN git init && git remote add origin https://github.com/openthread/ot-br-posix.git \
+    && git fetch --depth=1 origin cb4bdae242b22287cded07ae3aa10347c2d16d9b \
+    && git checkout --detach FETCH_HEAD \
+    && git submodule update --init --depth=1 third_party/openthread/repo \
+    && git -C third_party/openthread/repo submodule update --init --recursive --depth=1 third_party/mbedtls/repo
+COPY attach-to-running-rcp.patch /tmp/attach.patch
+RUN git -C third_party/openthread/repo apply /tmp/attach.patch \
+    && test "$(git -C third_party/openthread/repo rev-parse HEAD)" = cb18e0f598059d733b3382b81437c4138195d1ea \
+    && cmake -S . -B /out -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+       -DOTBR_DBUS=OFF -DOTBR_WEB=OFF -DOTBR_REST=OFF -DOTBR_FEATURE_FLAGS=OFF \
+       -DOTBR_TELEMETRY_DATA_API=OFF -DOTBR_BORDER_ROUTING=ON -DOTBR_MDNS=openthread \
+       -DOT_FIREWALL=OFF -DOTBR_NFTABLES=OFF -DOTBR_TREL=OFF -DOT_THREAD_VERSION=1.4 \
+       -DOT_LOG_LEVEL=DEBG -DOT_FULL_LOGS=ON -DOT_LOG_LEVEL_DYNAMIC=ON -DBUILD_TESTING=OFF \
+    && cmake --build /out --target otbr-agent ot-ctl -j2
+FROM bnutzer/otbr-tcp@sha256:f0cc0cddca91011d98794c98a0b7e43571058f2e2e92ce0dbe2f0223a63adf61
+COPY --from=build /out/src/agent/otbr-agent /opt/otbr-agent
+COPY --from=build /out/third_party/openthread/repo/src/posix/ot-ctl /opt/ot-ctl
+COPY otbr-entrypoint.sh /diagnostic-start.sh
+LABEL org.microhad.otbr.full-debug="1" \
+      org.microhad.otbr.revision="cb4bdae242b22287cded07ae3aa10347c2d16d9b" \
+      org.microhad.openthread.revision="cb18e0f598059d733b3382b81437c4138195d1ea"
+ENV THREAD_INTERFACE=wpan-otbr-test BACKBONE_INTERFACE=wlp7s0 GATEWAY=192.168.178.62 THREAD_PORT=9998
+HEALTHCHECK --interval=15s --start-period=30s CMD /opt/ot-ctl -I "$THREAD_INTERFACE" state >/dev/null 2>&1
+ENTRYPOINT ["/bin/bash", "/diagnostic-start.sh"]

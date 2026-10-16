@@ -1,0 +1,70 @@
+diff --git a/src/lib/spinel/spinel_driver.cpp b/src/lib/spinel/spinel_driver.cpp
+index 31c8a9672..f20f8dfd5 100644
+--- a/src/lib/spinel/spinel_driver.cpp
++++ b/src/lib/spinel/spinel_driver.cpp
+@@ -66,7 +66,8 @@ SpinelDriver::SpinelDriver(void)
+ CoprocessorType SpinelDriver::Init(SpinelInterface    &aSpinelInterface,
+                                    bool                aSoftwareReset,
+                                    const spinel_iid_t *aIidList,
+-                                   uint8_t             aIidListLength)
++                                   uint8_t             aIidListLength,
++                                   bool                aAttachToRunningRcp)
+ {
+     CoprocessorType coprocessorType;
+ 
+@@ -83,7 +84,17 @@ CoprocessorType SpinelDriver::Init(SpinelInterface    &aSpinelInterface,
+     }
+     mIid = aIidList[0];
+ 
+-    ResetCoprocessor(aSoftwareReset);
++    if (aAttachToRunningRcp)
++    {
++        // A shared RCP has already booted and will not replay its reset event.
++        // Protocol, version and capability validation below remain mandatory.
++        VerifyOrDie(!aSoftwareReset, OT_EXIT_INVALID_ARGUMENTS);
++        mIsCoprocessorReady = true;
++    }
++    else
++    {
++        ResetCoprocessor(aSoftwareReset);
++    }
+     SuccessOrDie(CheckSpinelVersion());
+     SuccessOrDie(GetCoprocessorVersion());
+     SuccessOrDie(GetCoprocessorCaps());
+diff --git a/src/lib/spinel/spinel_driver.hpp b/src/lib/spinel/spinel_driver.hpp
+index 1de408b4e..ef964b79c 100644
+--- a/src/lib/spinel/spinel_driver.hpp
++++ b/src/lib/spinel/spinel_driver.hpp
+@@ -72,6 +72,7 @@ public:
+      * @param[in]  aIidList                    A Pointer to the list of IIDs to receive spinel frame from.
+      *                                         First entry must be the IID of the Host Application.
+      * @param[in]  aIidListLength              The Length of the @p aIidList.
++     * @param[in]  aAttachToRunningRcp         Attach without waiting for a new reset notification.
+      *
+      * @retval  OT_COPROCESSOR_UNKNOWN  The initialization fails.
+      * @retval  OT_COPROCESSOR_RCP      The Co-processor is a RCP.
+@@ -80,7 +81,8 @@ public:
+     CoprocessorType Init(SpinelInterface    &aSpinelInterface,
+                          bool                aSoftwareReset,
+                          const spinel_iid_t *aIidList,
+-                         uint8_t             aIidListLength);
++                         uint8_t             aIidListLength,
++                         bool                aAttachToRunningRcp = false);
+ 
+     /**
+      * Deinitialize this SpinelDriver Instance.
+diff --git a/src/posix/platform/spinel_manager.cpp b/src/posix/platform/spinel_manager.cpp
+index 761b8fb2d..348e9abc9 100644
+--- a/src/posix/platform/spinel_manager.cpp
++++ b/src/posix/platform/spinel_manager.cpp
+@@ -78,7 +78,9 @@ CoprocessorType SpinelManager::Init(const char *aUrl)
+ 
+     swReset = !mUrl.HasParam("no-reset");
+ 
+-    mode = mSpinelDriver.Init(*mSpinelInterface, swReset, iidList, OT_ARRAY_LENGTH(iidList));
++    const bool attachToRunningRcp = mUrl.HasParam("attach-to-running-rcp");
++    VerifyOrDie(!attachToRunningRcp || !swReset, OT_EXIT_INVALID_ARGUMENTS);
++    mode = mSpinelDriver.Init(*mSpinelInterface, swReset, iidList, OT_ARRAY_LENGTH(iidList), attachToRunningRcp);
+ 
+     otLogDebgPlat("instance init:%p - iid = %d", (void *)&mSpinelDriver, iidList[0]);
+ 

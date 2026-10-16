@@ -1,0 +1,161 @@
+diff --git a/src/protocols/secure_channel/CASESession.cpp b/src/protocols/secure_channel/CASESession.cpp
+index 15e757f7..14670b9f 100644
+--- a/src/protocols/secure_channel/CASESession.cpp
++++ b/src/protocols/secure_channel/CASESession.cpp
+@@ -597,6 +597,7 @@ void CASESession::AbortPendingEstablish(CHIP_ERROR err)
+ 
+ CHIP_ERROR CASESession::DeriveSecureSession(CryptoContext & session)
+ {
++    session.DiagnosticSetType("CASE");
+     switch (mState)
+     {
+     case State::kFinished: {
+diff --git a/src/protocols/secure_channel/PASESession.cpp b/src/protocols/secure_channel/PASESession.cpp
+index 7b73e105..159a6ccc 100644
+--- a/src/protocols/secure_channel/PASESession.cpp
++++ b/src/protocols/secure_channel/PASESession.cpp
+@@ -309,6 +309,7 @@ void PASESession::OnResponseTimeout(ExchangeContext * ec)
+ 
+ CHIP_ERROR PASESession::DeriveSecureSession(CryptoContext & session)
+ {
++    session.DiagnosticSetType("PASE");
+     VerifyOrReturnError(mPairingComplete, CHIP_ERROR_INCORRECT_STATE);
+ 
+     SessionKeystore & keystore = *mSessionManager->GetSessionKeystore();
+diff --git a/src/transport/BUILD.gn b/src/transport/BUILD.gn
+index 0d9768b4..a621ff3b 100644
+--- a/src/transport/BUILD.gn
++++ b/src/transport/BUILD.gn
+@@ -23,6 +23,7 @@ static_library("transport") {
+   sources = [
+     "CryptoContext.cpp",
+     "CryptoContext.h",
++    "DiagnosticKeyExport.h",
+     "GroupPeerMessageCounter.cpp",
+     "GroupPeerMessageCounter.h",
+     "GroupSession.h",
+diff --git a/src/transport/CryptoContext.cpp b/src/transport/CryptoContext.cpp
+index f574bf35..72ff8693 100644
+--- a/src/transport/CryptoContext.cpp
++++ b/src/transport/CryptoContext.cpp
+@@ -28,6 +28,11 @@
+ #include <lib/support/BufferWriter.h>
+ #include <lib/support/CodeUtils.h>
+ #include <transport/CryptoContext.h>
++#include <transport/DiagnosticKeyExport.h>
++
++#if CHIP_CONFIG_SECURITY_TEST_MODE
++#error "Diagnostic export requires normal negotiated session keys"
++#endif
+ #include <transport/raw/MessageHeader.h>
+ 
+ #include <lib/support/BytesToHex.h>
+@@ -83,9 +88,13 @@ CHIP_ERROR CryptoContext::InitFromSecret(SessionKeystore & keystore, const ByteS
+     ReturnErrorOnFailure(keystore.DeriveSessionKeys(secret, salt, info, i2rKey, r2iKey, mAttestationChallenge));
+ #endif
+ 
+-    mKeyAvailable = true;
+-    mSessionRole  = role;
+-    mKeystore     = &keystore;
++    mKeyAvailable      = true;
++    mSessionRole       = role;
++    mKeystore          = &keystore;
++    mDiagnosticContext = DiagnosticKeys::Keys(mDiagnosticSessionType, mEncryptionKey.As<Crypto::Symmetric128BitsKeyByteArray>(),
++                                              mDecryptionKey.As<Crypto::Symmetric128BitsKeyByteArray>(),
++                                              mAttestationChallenge.Bytes(), mAttestationChallenge.Capacity(),
++                                              role == SessionRole::kInitiator, infoType == SessionInfoType::kSessionResumption);
+ 
+     return CHIP_NO_ERROR;
+ }
+@@ -108,9 +117,13 @@ CHIP_ERROR CryptoContext::InitFromSecret(Crypto::SessionKeystore & keystore, con
+     ReturnErrorOnFailure(keystore.DeriveSessionKeys(hkdfKey, salt, info, i2rKey, r2iKey, mAttestationChallenge));
+ #endif
+ 
+-    mKeyAvailable = true;
+-    mSessionRole  = role;
+-    mKeystore     = &keystore;
++    mKeyAvailable      = true;
++    mSessionRole       = role;
++    mKeystore          = &keystore;
++    mDiagnosticContext = DiagnosticKeys::Keys(mDiagnosticSessionType, mEncryptionKey.As<Crypto::Symmetric128BitsKeyByteArray>(),
++                                              mDecryptionKey.As<Crypto::Symmetric128BitsKeyByteArray>(),
++                                              mAttestationChallenge.Bytes(), mAttestationChallenge.Capacity(),
++                                              role == SessionRole::kInitiator, infoType == SessionInfoType::kSessionResumption);
+ 
+     return CHIP_NO_ERROR;
+ }
+@@ -208,6 +221,8 @@ CHIP_ERROR CryptoContext::Encrypt(const uint8_t * input, size_t input_length, ui
+ 
+     ReturnErrorOnFailure(GetAdditionalAuthData(header, AAD, aadLen));
+ 
++    const std::string diagnosticPlaintext = mDiagnosticContext != 0 ? DiagnosticKeys::Hex(input, input_length) : "";
++
+     if (mKeyContext)
+     {
+         ByteSpan plaintext(input, input_length);
+@@ -223,6 +238,8 @@ CHIP_ERROR CryptoContext::Encrypt(const uint8_t * input, size_t input_length, ui
+             AES_CCM_encrypt(input, input_length, AAD, aadLen, mEncryptionKey, nonce.data(), nonce.size(), output, tag, taglen));
+     }
+ 
++    DiagnosticKeys::Message(mDiagnosticContext, "tx", nonce.data(), nonce.size(), AAD, aadLen, output, input_length, tag, taglen,
++                            diagnosticPlaintext);
+     mac.SetTag(tag, taglen);
+ 
+     return CHIP_NO_ERROR;
+@@ -242,6 +259,9 @@ CHIP_ERROR CryptoContext::Decrypt(const uint8_t * input, size_t input_length, ui
+ 
+     ReturnErrorOnFailure(GetAdditionalAuthData(header, AAD, aadLen));
+ 
++    DiagnosticKeys::Message(mDiagnosticContext, "rx", nonce.data(), nonce.size(), AAD, aadLen, input, input_length, tag, taglen,
++                            "");
++
+     if (nullptr != mKeyContext)
+     {
+         ByteSpan ciphertext(input, input_length);
+diff --git a/src/transport/CryptoContext.h b/src/transport/CryptoContext.h
+index 4a93685a..fbdc373b 100644
+--- a/src/transport/CryptoContext.h
++++ b/src/transport/CryptoContext.h
+@@ -154,6 +154,10 @@ public:
+ 
+     ByteSpan GetAttestationChallenge() const { return mAttestationChallenge.Span(); }
+ 
++    void DiagnosticSetType(const char * type) { mDiagnosticSessionType = type; }
++
++    uint64_t DiagnosticContext() const { return mDiagnosticContext; }
++
+     bool IsInitiator() const { return mKeyAvailable && mSessionRole == SessionRole::kInitiator; }
+ 
+     bool IsResponder() const { return mKeyAvailable && mSessionRole == SessionRole::kResponder; }
+@@ -161,6 +165,8 @@ public:
+ private:
+     CHIP_ERROR InitTestMode(Crypto::SessionKeystore & keystore, Crypto::Aes128KeyHandle & i2rKey, Crypto::Aes128KeyHandle & r2iKey);
+ 
++    const char * mDiagnosticSessionType = "unknown";
++    uint64_t mDiagnosticContext         = 0;
+     SessionRole mSessionRole;
+ 
+     bool mKeyAvailable;
+diff --git a/src/transport/SecureSession.cpp b/src/transport/SecureSession.cpp
+index 7694df2e..02c5ac41 100644
+--- a/src/transport/SecureSession.cpp
++++ b/src/transport/SecureSession.cpp
+@@ -15,6 +15,7 @@
+  */
+ 
+ #include <access/AuthMode.h>
++#include <transport/DiagnosticKeyExport.h>
+ #include <transport/SecureSession.h>
+ #include <transport/SecureSessionTable.h>
+ 
+@@ -46,6 +47,10 @@ void SecureSession::Activate(const ScopedNodeId & localNode, const ScopedNodeId
+     mPeerSessionId       = peerSessionId;
+     mRemoteSessionParams = sessionParameters;
+     SetFabricIndex(peerNode.GetFabricIndex());
++    char diagnosticAddress[PeerAddress::kMaxToStringSize];
++    GetPeerAddress().ToString(diagnosticAddress);
++    DiagnosticKeys::Session(mCryptoContext.DiagnosticContext(), mSecureSessionType == Type::kPASE ? "PASE" : "CASE",
++                            mLocalSessionId, mPeerSessionId, mLocalNodeId, mPeerNodeId, diagnosticAddress);
+     MarkActiveRx(); // Initialize SessionTimestamp and ActiveTimestamp per spec.
+ 
+     Retain(); // This ref is released inside MarkForEviction

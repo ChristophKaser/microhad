@@ -1,0 +1,6 @@
+# Isolated Linux accessory for PASE/CASE/key-export rehearsal; no host D-Bus/BLE.
+FROM ubuntu:24.04
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    python3 python3-cryptography iproute2 libglib2.0-0t64 libssl3t64 libavahi-client3 libreadline8t64 \
+    && rm -rf /var/lib/apt/lists/*
+ENTRYPOINT ["python3", "/scripts/rehearse-controller.py", "--inside"]
