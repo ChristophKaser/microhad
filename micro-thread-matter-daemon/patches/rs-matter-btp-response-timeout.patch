@@ -1,0 +1,36 @@
+From: Christoph Kaser <christoph@caser.de>
+Date: Fri, 16 Oct 2026 16:35:00 +0200
+Subject: [PATCH] rs-matter: allow Thread attachment before a BLE command response
+
+BTP acknowledgements confirm transport delivery, not command completion.
+ConnectNetwork can take more than five seconds while the accessory searches
+for a Thread parent. Keep the transport acknowledgement timer unchanged and
+allow sixty seconds for the Matter response. The commissioner still enforces
+its overall session deadline.
+
+--- a/rs-matter/src/transport/session.rs
++++ b/rs-matter/src/transport/session.rs
+@@ -66,9 +66,11 @@
+ 
+ /// Receive timeout for a BTP (BLE) session.
+ ///
+-/// BTP runs its own acknowledgement scheme underneath, so the MRP ladder does not
+-/// describe it; this matches the BTP layer's own ack timeout.
+-const BTP_RX_TIMEOUT_MS: u64 = 5_000;
++/// A BTP acknowledgement confirms delivery, not completion of a Matter command.
++/// In particular, ConnectNetwork may be waiting for Thread attachment long after
++/// the request has been acknowledged. Allow that processing time independently
++/// of BTP's transport acknowledgement timer.
++const BTP_RX_TIMEOUT_MS: u64 = 60_000;
+ 
+ pub const MAX_CAT_IDS_PER_NOC: usize = 3;
+ pub type NocCatIds = [u32; MAX_CAT_IDS_PER_NOC];
+@@ -2260,7 +2262,7 @@
+         );
+         assert_eq!(
+             session(Address::Btp(BtAddr([0; 6]))).rx_timeout_ms(300),
+-            BTP_RX_TIMEOUT_MS
++            60_000 // Allow slow Thread ConnectNetwork responses over BLE.
+         );
+ 
+         // UDP sums both directions of the MRP ladder plus the processing

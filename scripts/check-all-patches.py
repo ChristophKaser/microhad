@@ -48,6 +48,7 @@ RS_MATTER_SERVICE = [
     "rs-matter-sessionless-icd.patch",
     "rs-matter-commissioning-region.patch",
     "rs-matter-commissioning-progress.patch",
+    "rs-matter-btp-response-timeout.patch",
 ]
 CRATE_PATCHES = ["getrandom-0.4.3", "nix-0.26.4", "radium-0.7.0"]
 def run(command: list[str], *, cwd: Path | None = None, capture: bool = False) -> str:
