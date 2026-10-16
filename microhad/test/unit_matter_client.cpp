@@ -239,13 +239,13 @@ void runMatterClientUnitTests() {
     const std::string jobBody = "{\"schema\":1,\"action\":\"job\",\"job\":\"0000000000000001\"}";
     const std::string commandBody = "{\"schema\":1,\"command\":\"toggle\",\"node\":\"0000000000000002\",\"endpoint\":1}";
     std::string devicePrepared;
-    const std::string bindInput = "{\"node\":\"0000000000000002\",\"endpoint\":1,\"targets\":[{\"node\":\"0000000000000003\",\"endpoint\":2,\"cluster\":6}]}";
+    const std::string bindInput = "{\"schema\":1,\"node\":\"0000000000000002\",\"endpoint\":1,\"targets\":[{\"node\":\"0000000000000003\",\"endpoint\":2,\"cluster\":6}]}";
     const std::string expectedBind = "{\"schema\":1,\"action\":\"bind\",\"node\":\"0000000000000002\",\"endpoint\":1,\"targets\":[{\"node\":\"0000000000000003\",\"endpoint\":2,\"cluster\":6}]}";
     assert(MatterChannel::deviceBindingRequest(bindInput, &devicePrepared) && devicePrepared == expectedBind);
-    const std::string groupBindInput = "{\"node\":\"0000000000000002\",\"endpoint\":1,\"targets\":[{\"group\":7,\"members\":[{\"node\":\"0000000000000003\",\"endpoint\":2}],\"cluster\":6}]}";
+    const std::string groupBindInput = "{\"schema\":1,\"node\":\"0000000000000002\",\"endpoint\":1,\"targets\":[{\"group\":7,\"members\":[{\"node\":\"0000000000000003\",\"endpoint\":2}],\"cluster\":6}]}";
     assert(MatterChannel::deviceBindingRequest(groupBindInput, &devicePrepared));
     assert(devicePrepared.find("\"members\":[{\"node\":\"0000000000000003\",\"endpoint\":2}]") != std::string::npos);
-    assert(!MatterChannel::deviceBindingRequest("{\"node\":\"0000000000000002\",\"endpoint\":1,\"targets\":[]}", &devicePrepared));
+    assert(!MatterChannel::deviceBindingRequest("{\"schema\":1,\"node\":\"0000000000000002\",\"endpoint\":1,\"targets\":[]}", &devicePrepared));
     MatterButtonEvent button;
     const std::string buttonPayload = "{\"schema\":1,\"event\":\"matter_button\",\"data\":{\"node\":\"0000000000000002\",\"endpoint\":1,\"event\":0,\"position\":1,\"press_count\":1}}";
     assert(MatterChannel::deviceButtonEvent(buttonPayload, &button));
@@ -262,7 +262,7 @@ void runMatterClientUnitTests() {
                    << sensorClusters[i] << ",\"attribute\":0}";
         assert(MatterChannel::validRequest(10, sensorRead.str()));
         std::ostringstream sensorInput;
-        sensorInput << "{\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":"
+        sensorInput << "{\"schema\":1,\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":"
                     << sensorClusters[i] << ",\"attribute\":0}";
         assert(MatterChannel::deviceReadRequest(sensorInput.str(), &devicePrepared));
     }
@@ -270,17 +270,17 @@ void runMatterClientUnitTests() {
     assert(MatterChannel::validRequest(10, jobBody));
     assert(MatterChannel::validRequest(11, commandBody));
     assert(MatterChannel::validRequest(11, levelCommandBody));
-    assert(MatterChannel::deviceReadRequest("{\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":6,\"attribute\":0}", &devicePrepared));
+    assert(MatterChannel::deviceReadRequest("{\"schema\":1,\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":6,\"attribute\":0}", &devicePrepared));
     assert(devicePrepared == readBody);
-    assert(MatterChannel::deviceReadRequest("{\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":69,\"attribute\":0}", &devicePrepared));
-    assert(MatterChannel::deviceReadRequest("{\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":8,\"attribute\":0}", &devicePrepared));
+    assert(MatterChannel::deviceReadRequest("{\"schema\":1,\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":69,\"attribute\":0}", &devicePrepared));
+    assert(MatterChannel::deviceReadRequest("{\"schema\":1,\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":8,\"attribute\":0}", &devicePrepared));
     assert(devicePrepared == levelReadBody);
-    assert(MatterChannel::deviceCommandRequest("{\"command\":\"toggle\",\"node\":\"0000000000000002\",\"endpoint\":1}", &devicePrepared));
+    assert(MatterChannel::deviceCommandRequest("{\"schema\":1,\"command\":\"toggle\",\"node\":\"0000000000000002\",\"endpoint\":1}", &devicePrepared));
     assert(devicePrepared == commandBody);
-    assert(MatterChannel::deviceCommandRequest("{\"command\":\"move_to_level\",\"node\":\"0000000000000002\",\"endpoint\":1,\"level\":124,\"transition_deciseconds\":20}", &devicePrepared));
+    assert(MatterChannel::deviceCommandRequest("{\"schema\":1,\"command\":\"move_to_level\",\"node\":\"0000000000000002\",\"endpoint\":1,\"level\":124,\"transition_deciseconds\":20}", &devicePrepared));
     assert(devicePrepared == levelCommandBody);
-    assert(!MatterChannel::deviceCommandRequest("{\"command\":\"move_to_level\",\"node\":\"0000000000000002\",\"endpoint\":1,\"level\":255,\"transition_deciseconds\":20}", &devicePrepared));
-    assert(!MatterChannel::deviceCommandRequest("{\"command\":\"move_to_level\",\"node\":\"0000000000000002\",\"endpoint\":1,\"level\":1,\"transition_deciseconds\":65536}", &devicePrepared));
+    assert(!MatterChannel::deviceCommandRequest("{\"schema\":1,\"command\":\"move_to_level\",\"node\":\"0000000000000002\",\"endpoint\":1,\"level\":255,\"transition_deciseconds\":20}", &devicePrepared));
+    assert(!MatterChannel::deviceCommandRequest("{\"schema\":1,\"command\":\"move_to_level\",\"node\":\"0000000000000002\",\"endpoint\":1,\"level\":1,\"transition_deciseconds\":65536}", &devicePrepared));
     assert(!MatterChannel::validRequest(11, "{\"schema\":1,\"command\":\"move_to_level\",\"node\":\"0000000000000002\",\"endpoint\":1,\"level\":255,\"transition_deciseconds\":0}"));
     assert(!MatterChannel::validRequest(11, "{\"schema\":1,\"command\":\"move_to_level\",\"node\":\"0000000000000002\",\"endpoint\":1}"));
     std::vector<std::string> operationReplies;

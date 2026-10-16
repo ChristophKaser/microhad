@@ -819,7 +819,7 @@ bool MatterChannel::threadChannel(const std::string& input, unsigned char channe
 bool MatterChannel::deviceReadRequest(const std::string& input, std::string* body) {
     body->clear();
     Fields fields;
-    if (input.size() > MatterWire::MaxPayload || !StatusJson(input).parse(&fields) || fields.size() != 4 ||
+    if (input.size() > MatterWire::MaxPayload || !StatusJson(input).parse(&fields) || fields.size() != 5 || fields["schema"] != "1" ||
         !hex(fields["node"], 16, 16) || fields["node"] <= "\"0000000000000001\"" ||
         !number(fields["endpoint"], 0, 65534) ||
         (fields["cluster"] != "6" && fields["cluster"] != "8" && fields["cluster"] != "69" && fields["cluster"] != "91" &&
@@ -833,13 +833,13 @@ bool MatterChannel::deviceCommandRequest(const std::string& input, std::string* 
     body->clear();
     Fields fields;
     static const char* const commands[] = {"\"on\"", "\"off\"", "\"toggle\""};
-    if (input.size() > MatterWire::MaxPayload || !StatusJson(input).parse(&fields) ||
+    if (input.size() > MatterWire::MaxPayload || !StatusJson(input).parse(&fields) || fields["schema"] != "1" ||
         !hex(fields["node"], 16, 16) || fields["node"] <= "\"0000000000000001\"" ||
         !number(fields["endpoint"], 0, 65534)) return false;
     const bool level = fields["command"] == "\"move_to_level\"";
-    if ((level && (fields.size() != 5 || !number(fields["level"], 0, 254) ||
+    if ((level && (fields.size() != 6 || !number(fields["level"], 0, 254) ||
                    !number(fields["transition_deciseconds"], 0, 65535))) ||
-        (!level && (fields.size() != 3 || !member(fields["command"], commands, 3)))) return false;
+        (!level && (fields.size() != 4 || !member(fields["command"], commands, 3)))) return false;
     *body = "{\"schema\":1,\"command\":" + fields["command"] + ",\"node\":" + fields["node"] +
         ",\"endpoint\":" + fields["endpoint"];
     if (level) *body += ",\"level\":" + fields["level"] + ",\"transition_deciseconds\":" + fields["transition_deciseconds"];
@@ -849,7 +849,7 @@ bool MatterChannel::deviceCommandRequest(const std::string& input, std::string* 
 bool MatterChannel::deviceBindingRequest(const std::string& input, std::string* body) {
     body->clear();
     Fields fields;
-    if (input.size() > MatterWire::MaxPayload || !StatusJson(input).parse(&fields) || fields.size() != 3 ||
+    if (input.size() > MatterWire::MaxPayload || !StatusJson(input).parse(&fields) || fields.size() != 4 || fields["schema"] != "1" ||
         !hex(fields["node"], 16, 16) || fields["node"] <= "\"0000000000000001\"" ||
         !number(fields["endpoint"], 0, 65534) || fields["targets"].size() < 3 ||
         fields["targets"][0] != '[' || fields["targets"][fields["targets"].size() - 1] != ']') return false;

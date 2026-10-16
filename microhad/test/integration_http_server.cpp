@@ -404,7 +404,7 @@ void testServers() {
 #else
     expectStatus("http commissioning disabled", response, 404);
 #endif
-    const std::string matterReadBody = "{\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":6,\"attribute\":0}";
+    const std::string matterReadBody = "{\"schema\":1,\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":6,\"attribute\":0}";
     std::ostringstream matterReadRequest;
     matterReadRequest << "POST /api/matter/devices/read HTTP/1.1\r\nHost: localhost\r\nContent-Length: "
         << matterReadBody.size() << "\r\n\r\n" << matterReadBody;
@@ -414,7 +414,7 @@ void testServers() {
 #else
     expectStatus("http Matter read disabled", response, 404);
 #endif
-    const std::string matterLevelReadBody = "{\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":8,\"attribute\":0}";
+    const std::string matterLevelReadBody = "{\"schema\":1,\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":8,\"attribute\":0}";
     std::ostringstream matterLevelReadRequest;
     matterLevelReadRequest << "POST /api/matter/devices/read HTTP/1.1\r\nHost: localhost\r\nContent-Length: "
         << matterLevelReadBody.size() << "\r\n\r\n" << matterLevelReadBody;
@@ -424,7 +424,7 @@ void testServers() {
 #else
     expectStatus("http Matter Level read disabled", response, 404);
 #endif
-    const std::string matterBindBody = "{\"node\":\"0000000000000002\",\"endpoint\":1,\"targets\":[{\"node\":\"0000000000000003\",\"endpoint\":2,\"cluster\":6}]}";
+    const std::string matterBindBody = "{\"schema\":1,\"node\":\"0000000000000002\",\"endpoint\":1,\"targets\":[{\"node\":\"0000000000000003\",\"endpoint\":2,\"cluster\":6}]}";
     std::ostringstream matterBindRequest;
     matterBindRequest << "POST /api/matter/devices/bind HTTP/1.1\r\nHost: localhost\r\nContent-Length: "
         << matterBindBody.size() << "\r\n\r\n" << matterBindBody;
@@ -434,7 +434,7 @@ void testServers() {
 #else
     expectStatus("http Matter binding disabled", response, 404);
 #endif
-    const std::string matterGroupBindBody = "{\"node\":\"0000000000000002\",\"endpoint\":1,\"targets\":[{\"group\":7,\"members\":[{\"node\":\"0000000000000003\",\"endpoint\":2}],\"cluster\":6}]}";
+    const std::string matterGroupBindBody = "{\"schema\":1,\"node\":\"0000000000000002\",\"endpoint\":1,\"targets\":[{\"group\":7,\"members\":[{\"node\":\"0000000000000003\",\"endpoint\":2}],\"cluster\":6}]}";
     std::ostringstream matterGroupBindRequest;
     matterGroupBindRequest << "POST /api/matter/devices/bind HTTP/1.1\r\nHost: localhost\r\nContent-Length: "
         << matterGroupBindBody.size() << "\r\n\r\n" << matterGroupBindBody;
@@ -444,7 +444,7 @@ void testServers() {
 #else
     expectStatus("http Matter group binding disabled", response, 404);
 #endif
-    const std::string badMatterBindBody = "{\"node\":\"0000000000000002\",\"endpoint\":1,\"targets\":[]}";
+    const std::string badMatterBindBody = "{\"schema\":1,\"node\":\"0000000000000002\",\"endpoint\":1,\"targets\":[]}";
     std::ostringstream badMatterBindRequest;
     badMatterBindRequest << "POST /api/matter/devices/bind HTTP/1.1\r\nHost: localhost\r\nContent-Length: "
         << badMatterBindBody.size() << "\r\n\r\n" << badMatterBindBody;
@@ -454,7 +454,7 @@ void testServers() {
 #else
     expectStatus("http Matter binding disabled", response, 404);
 #endif
-    const std::string levelCommandBody = "{\"command\":\"move_to_level\",\"node\":\"0000000000000002\",\"endpoint\":1,\"level\":124,\"transition_deciseconds\":20}";
+    const std::string levelCommandBody = "{\"schema\":1,\"command\":\"move_to_level\",\"node\":\"0000000000000002\",\"endpoint\":1,\"level\":124,\"transition_deciseconds\":20}";
     std::ostringstream levelCommandRequest;
     levelCommandRequest << "POST /api/matter/devices/command HTTP/1.1\r\nHost: localhost\r\nContent-Length: "
         << levelCommandBody.size() << "\r\n\r\n" << levelCommandBody;
@@ -464,7 +464,7 @@ void testServers() {
 #else
     expectStatus("http Matter Level command disabled", response, 404);
 #endif
-    const std::string badMatterCommandBody = "{\"command\":\"move_to_level\",\"node\":\"0000000000000002\",\"endpoint\":1,\"level\":255,\"transition_deciseconds\":20}";
+    const std::string badMatterCommandBody = "{\"schema\":1,\"command\":\"move_to_level\",\"node\":\"0000000000000002\",\"endpoint\":1,\"level\":255,\"transition_deciseconds\":20}";
     std::ostringstream badMatterCommandRequest;
     badMatterCommandRequest << "POST /api/matter/devices/command HTTP/1.1\r\nHost: localhost\r\nContent-Length: "
         << badMatterCommandBody.size() << "\r\n\r\n" << badMatterCommandBody;
