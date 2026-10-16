@@ -238,6 +238,27 @@ class WorkflowTests(unittest.TestCase):
                 other.terminate()
                 other.wait()
 
+    def test_privileged_launcher_keeps_authenticated_terminal_session(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            attempt = self.attempt(temporary)
+            attempt.sudo = ['sudo', '-n', '--']
+            with patch.object(commission.subprocess, 'Popen') as popen:
+                attempt.collector('privileged', ['tcpdump', '--version'], privileged=True)
+            command = popen.call_args.args[0]
+            self.assertEqual(command[:3], ['sudo', '-n', '--'])
+            self.assertFalse(popen.call_args.kwargs.get('start_new_session', False))
+
+    def test_collector_supervisor_retains_callers_session(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            attempt = self.attempt(temporary)
+            attempt.snapshot = lambda stage: ('00', {})
+            attempt.collector('session', ['sleep', '60'], required=False)
+            process = attempt.collectors[0][1]
+            try:
+                self.assertEqual(os.getsid(process.pid), os.getsid(0))
+            finally:
+                attempt.finish()
+
 
 if __name__ == '__main__':
     os.umask(0o077)

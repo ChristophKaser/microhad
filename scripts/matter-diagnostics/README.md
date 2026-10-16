@@ -189,6 +189,8 @@ its collectors and writes a result. Privileged collectors have control-pipe
 supervisors, so cleanup does not depend on a still-valid sudo ticket. OTBR stays
 running in TCP mode; local gateway Matter stays stopped. Return to local Matter
 explicitly using the diagnostic plan's finish procedure when the experiment ends.
+Sudo launchers retain the invoking terminal session so they can use the initial
+authentication; only the collectors inside their supervisors get new process groups.
 
 ## Trace bundle and decoding
 

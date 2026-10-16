@@ -139,9 +139,10 @@ class Attempt:
         with log.open('wb') as errors:
             output = stdout_path.open('wb') if stdout_path else None
             try:
+                # Keep the controlling terminal for sudo's per-terminal cache.
+                # collector.py isolates the actual collector, not this launcher.
                 process = subprocess.Popen((self.sudo if privileged else []) + launcher,
-                                           stdin=subprocess.PIPE, stdout=output or errors, stderr=errors,
-                                           start_new_session=True)
+                                           stdin=subprocess.PIPE, stdout=output or errors, stderr=errors)
             finally:
                 if output:
                     output.close()
