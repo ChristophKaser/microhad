@@ -73,8 +73,8 @@ void* serveStatus(void* opaque) {
 }
 
 struct ChannelPeer {
-    int fd; std::string event; bool wrongId; unsigned int firstDelayUs;
-    ChannelPeer() : fd(-1), wrongId(false), firstDelayUs(0) {}
+    int fd; std::string event; bool wrongId; unsigned int firstDelayUs; unsigned int eventCount;
+    ChannelPeer() : fd(-1), wrongId(false), firstDelayUs(0), eventCount(1) {}
 };
 void* serveChannel(void* opaque) {
     ChannelPeer* peer = static_cast<ChannelPeer*>(opaque);
@@ -86,7 +86,8 @@ void* serveChannel(void* opaque) {
         frame.kind = MatterWire::Frame::Event; frame.opcode = 12;
         frame.payload.assign(peer->event.begin(), peer->event.end());
         MatterWire::Bytes bytes; assert(MatterWire::encode(frame, &bytes));
-        for (unsigned int n = 0; n < bytes.size(); ++n) assert(write(peer->fd, &bytes[n], 1) == 1);
+        for (unsigned int event = 0; event < peer->eventCount; ++event)
+            assert(write(peer->fd, &bytes[0], bytes.size()) == static_cast<ssize_t>(bytes.size()));
         frame.kind = MatterWire::Frame::Response; frame.opcode = 2; frame.id = peer->wrongId ? 77 : i;
         const std::string reply = "{\"enabled\":true,\"available\":true,\"configured\":false,\"attached\":false,\"state\":\"detached\",\"linux_ipv6_or_tun\":false}";
         frame.payload.assign(reply.begin(), reply.end()); assert(MatterWire::encode(frame, &bytes));
@@ -140,6 +141,19 @@ void* serveWorker(void* opaque) {
     assert(write(fd, &bytes[0], bytes.size()) == static_cast<ssize_t>(bytes.size()));
     unsigned char byte; assert(read(fd, &byte, 1) == 0);
     close(fd); return 0;
+}
+
+struct EventDrain {
+    MatterChannel* channel;
+    unsigned int count;
+    EventDrain() : channel(0), count(0) {}
+};
+bool drainChannelEvents(void* opaque) {
+    EventDrain* drain = static_cast<EventDrain*>(opaque);
+    std::string event;
+    if (drain == 0 || drain->channel == 0 || !drain->channel->popEvent(&event)) return false;
+    ++drain->count;
+    return true;
 }
 }
 
@@ -387,6 +401,20 @@ void runMatterClientUnitTests() {
         } else assert(json.empty() && channel.fd_ == -1 && !channel.popEvent(&json));
         assert(pthread_join(server, 0) == 0);
     }
+    {
+        int pair[2]; assert(socketpair(AF_UNIX, SOCK_STREAM, 0, pair) == 0);
+        assert(fcntl(pair[0], F_SETFL, O_NONBLOCK) == 0);
+        MatterChannel channel("unused"); channel.fd_ = pair[0];
+        ChannelPeer peer; peer.fd = pair[1]; peer.event = writeEvent; peer.eventCount = 33;
+        EventDrain drain; drain.channel = &channel;
+        channel.setEventHandler(&drainChannelEvents, &drain);
+        pthread_t server; assert(pthread_create(&server, 0, serveChannel, &peer) == 0);
+        assert(channel.call(2, "", &json, &error));
+        assert(json == thread && drain.count == 33 && !channel.popEvent(&json));
+        assert(channel.call(2, "", &json, &error));
+        assert(json == thread && drain.count == 66 && !channel.popEvent(&json));
+        assert(pthread_join(server, 0) == 0);
+    }
 
     // Rust's exact cancelled-session vector and callback response bounds.
     for (unsigned int i = 0; i < 5; ++i) {
@@ -412,7 +440,7 @@ void runMatterClientUnitTests() {
         if (i == 1) body.replace(body.find("4294967295"), 10, "4294967296");
         if (i == 2) body.replace(body.find("000fff"), 6, "00zzff");
         if (i == 3) body.insert(body.size()-1, ",\"pin\":12345678");
-        if (i == 4) for (unsigned int n = 0; n < 8; ++n) channel.events_.push_back(writeEvent);
+        if (i == 4) for (unsigned int n = 0; n < 32; ++n) channel.events_.push_back(writeEvent);
         frame.payload.assign(body.begin(), body.end()); MatterWire::Bytes bytes;
         assert(MatterWire::encode(frame, &bytes));
         assert(write(pair[1], &bytes[0], bytes.size()) == static_cast<ssize_t>(bytes.size()));

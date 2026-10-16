@@ -660,8 +660,12 @@ bool MatterClient::exchange(int fd, unsigned char opcode, const std::string& bod
     return true;
 }
 
-MatterChannel::MatterChannel(const std::string& path) : socketPath_(path), fd_(-1), nextId_(1) {}
+MatterChannel::MatterChannel(const std::string& path) : socketPath_(path), fd_(-1), nextId_(1),
+    eventHandler_(0), eventHandlerOpaque_(0) {}
 MatterChannel::~MatterChannel() { disconnect(); }
+void MatterChannel::setEventHandler(EventHandler handler, void* opaque) {
+    eventHandler_ = handler; eventHandlerOpaque_ = opaque;
+}
 void MatterChannel::disconnect() {
     if (fd_ >= 0) close(fd_);
     fd_ = -1;
@@ -687,14 +691,14 @@ bool MatterChannel::receive(int64_t deadline, bool wait) {
 bool MatterChannel::event(const MatterWire::Frame& frame) {
     const std::string text(frame.payload.begin(), frame.payload.end());
     if (frame.kind != MatterWire::Frame::Event || frame.opcode != 12 || frame.id != 0 ||
-        events_.size() >= 8 || !eventValid(text)) {
+        events_.size() >= 32 || !eventValid(text)) {
         syslog(LOG_WARNING, "Matter IPC event rejected: reason=%s opcode=%u queued=%lu",
-            events_.size() >= 8 ? "queue_full" : "invalid_event", static_cast<unsigned int>(frame.opcode),
+            events_.size() >= 32 ? "queue_full" : "invalid_event", static_cast<unsigned int>(frame.opcode),
             static_cast<unsigned long>(events_.size()));
         return false;
     }
     events_.push_back(text);
-    return true;
+    return eventHandler_ == 0 || eventHandler_(eventHandlerOpaque_);
 }
 bool MatterChannel::popEvent(std::string* json) {
     json->clear();

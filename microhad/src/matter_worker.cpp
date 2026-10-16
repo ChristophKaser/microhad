@@ -35,6 +35,7 @@ MatterWorker::MatterWorker(GatewayRunner* gateway, const std::string& socketPath
     phoneReceived_(0), phoneWriteSince_(0), phoneLastId_(0), phoneGeneration_(0), client_(socketPath),
     nextJob_(1), running_(false), started_(false), refreshed_(0) {
     pthread_mutex_init(&mutex_, 0);
+    client_.setEventHandler(&MatterWorker::drainMatterEvents, this);
 }
 MatterWorker::~MatterWorker() { stop(); pthread_mutex_destroy(&mutex_); }
 
@@ -205,15 +206,20 @@ bool MatterWorker::collectEvents() {
             continue;
         }
         pthread_mutex_lock(&mutex_);
-        bool full = events_.size() >= 8;
+        bool full = events_.size() >= 32;
         if (!full) events_.push_back(event);
         pthread_mutex_unlock(&mutex_);
         if (full) {
-            syslog(LOG_WARNING, "Matter worker disconnect: reason=event_queue_full queued=8");
+            syslog(LOG_WARNING, "Matter worker disconnect: reason=event_queue_full queued=32");
             unavailable(); return false;
         }
     }
     return true;
+}
+
+bool MatterWorker::drainMatterEvents(void* opaque) {
+    MatterWorker* worker = static_cast<MatterWorker*>(opaque);
+    return worker != 0 && worker->collectEvents();
 }
 
 void MatterWorker::applyOrDeferReading(const MatterReading& reading) {

@@ -61,6 +61,7 @@ private:
 
     std::deque<MatterReading> deferredReadings_;
     uint32_t nextJob_;
+    static bool drainMatterEvents(void* opaque);
     void unavailable();
     bool collectEvents();
     void applyOrDeferReading(const MatterReading& reading);

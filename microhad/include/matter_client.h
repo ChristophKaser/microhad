@@ -24,10 +24,12 @@ private:
 // Single worker owner; no internal locking and no payload logging.
 class MatterChannel {
 public:
+    typedef bool (*EventHandler)(void* opaque);
     explicit MatterChannel(const std::string& socketPath);
     ~MatterChannel();
     bool call(unsigned char opcode, const std::string& body, std::string* json, std::string* error);
     bool poll(std::string* error);
+    void setEventHandler(EventHandler handler, void* opaque);
     static bool validRequest(unsigned char opcode, const std::string& body);
     static bool commissioningStartRequest(const std::string& input, const std::string& countryCode,
                                           const std::string& location, std::string* body);
@@ -60,6 +62,8 @@ private:
     uint32_t nextId_;
     MatterWire::Decoder decoder_;
     std::deque<std::string> events_;
+    EventHandler eventHandler_;
+    void* eventHandlerOpaque_;
     bool receive(int64_t deadline, bool wait);
     bool event(const MatterWire::Frame& frame);
 };
