@@ -44,6 +44,8 @@ pub enum Event<'a> {
     #[cfg(feature = "controller-service")]
     MatterButton(&'a crate::subscriptions::MatterButtonEvent),
     #[cfg(feature = "controller-service")]
+    MatterInventory(&'a crate::devices::InventoryRecord),
+    #[cfg(feature = "controller-service")]
     Thread(&'a crate::thread_lifecycle::Snapshot),
 }
 #[derive(Serialize)]

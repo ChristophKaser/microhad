@@ -56,6 +56,7 @@ std::string shape(const std::string& context,const Value& v,unsigned int kind,un
         if(event=="ble_write")return "ble-write";
         if(event=="matter_report")return "reading";
         if(event=="matter_button")return "button";
+        if(event=="matter_inventory")return "inventory";
         return "";
     }
     return context;

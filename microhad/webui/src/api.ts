@@ -1,8 +1,10 @@
 export interface EndpointDescriptor {
   endpoint: number
-  profile_id: number
-  device_id: number
-  device_version: number
+  id?: string
+  name?: string
+  profile_id?: number
+  device_id?: number
+  device_version?: number
   input_clusters: number[]
   output_clusters: number[]
 }
@@ -90,6 +92,8 @@ export interface Device {
   endpoint_descriptors: EndpointDescriptor[]
   online?: boolean
   controller_available?: boolean
+  endpoint_metadata_state?: 'missing' | 'stale' | 'ready'
+  commissioning_state?: string
   matter_node?: string
   matter_endpoint?: number
   matter_servers?: number[]

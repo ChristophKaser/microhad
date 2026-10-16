@@ -40,7 +40,7 @@ Lost replies may leave an operation running until its gateway deadline.
 
 ## Devices, readings and controls
 
-Discovered Matter endpoints feed the shared device catalog alongside Zigbee
+Matter nodes and their cached endpoint descriptors arrive in `/api/status` alongside Zigbee
 and Shelly. Supported clusters include OnOff, Level, Boolean State/contact,
 temperature, humidity, air quality, CO₂ and PM2.5. Availability and controls follow
 advertised capabilities. Unknown/null values remain unknown rather than showing
@@ -49,7 +49,7 @@ fabricated measurements. Sensor units follow the service's typed replies.
 OnOff/Level commands complete only after a separate CASE readback. Level is
 0–254 and transition time is in deciseconds. Cached descriptors/readings may
 remain while a node is offline; cached display does not guarantee a command
-will succeed. [The HTTP API](matter-native-api-v1.md) describes jobs, snapshots
+will succeed. [The HTTP API](matter-native-api-v1.md) describes cached inventory, jobs
 and relay ownership.
 
 ## Developer verification and limits

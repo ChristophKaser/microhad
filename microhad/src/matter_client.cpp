@@ -244,26 +244,15 @@ bool sessionValid(Fields fields) {
         fields["session"] != "\"0000000000000000\"" && member(fields["state"], states, 10) &&
         number(fields["deadline_remaining_seconds"], 0, 900);
 }
-bool devicePageValid(Fields fields) {
-    std::vector<std::string> devices;
-    if (fields.size() != 3 || !hex(fields["revision"], 16, 16) ||
-        fields["revision"] == "\"0000000000000000\"" ||
-        (fields["next_cursor"] != "null" && !number(fields["next_cursor"], 1, 2047)) ||
-        !StatusJson(fields["devices"]).parseArray(&devices) || devices.size() > 1) return false;
-    if (devices.empty()) return fields["next_cursor"] == "null";
-    Fields device;
-    if (!StatusJson(devices[0]).parse(&device) ||
-        (device.size() != 6 && device.size() != 7) ||
-        !hex(device["node"], 16, 16) || device["node"] <= "\"0000000000000001\"" ||
-        !booleanField(device, "online")) return false;
+bool endpointRecordValid(Fields device) {
+    if (device.size() != 7 || !hex(device["node"],16,16) ||
+        device["node"] <= "\"0000000000000001\"" || !booleanField(device,"online")) return false;
     static const char* const states[] = {"\"complete\"", "\"recovery_required\"", "\"commissioning\""};
     if (!member(device["state"], states, 3) ||
         (device["online"] == "true" && device["state"] != "\"complete\"")) return false;
     std::vector<std::string> clusters, clients;
     if (!StatusJson(device["servers"]).parseArray(&clusters) ||
         (device.count("clients") && !StatusJson(device["clients"]).parseArray(&clients))) return false;
-    if (device["endpoint"] == "null") return device["id"] == "null" &&
-        device["online"] == "false" && clusters.empty() && clients.empty();
     if (!number(device["endpoint"], 0, 65534)) return false;
     const std::string id = device["id"];
     if (id.size() != 47 || id.substr(0, 8) != "\"matter:" || id[24] != ':' || id[41] != ':' ||
@@ -319,7 +308,7 @@ bool responseValid(unsigned char opcode, const std::string& text) {
     Fields result;
     if (!fields.count("result") || !StatusJson(fields["result"]).parse(&result)) return false;
     if (opcode == 9) return snapshotValid(result, true);
-    if (opcode == 10) return devicePageValid(result) || operationalJobValid(result) || acceptedOperationValid(result);
+    if (opcode == 10) return operationalJobValid(result) || acceptedOperationValid(result);
     if (opcode == 11) return acceptedOperationValid(result);
     if (opcode <= 5) return sessionValid(result);
     const char* name = opcode == 6 ? "generation" : opcode == 7 ? "sequence" : "write";
@@ -341,11 +330,7 @@ bool requestValid(unsigned char opcode, const std::string& text) {
             fields["targets"][0] == '[' && fields["targets"][fields["targets"].size() - 1] == ']';
         if (fields["action"] == "\"job\"") return fields.size() == 3 &&
             hex(fields["job"], 16, 16) && fields["job"] != "\"0000000000000000\"";
-        if (fields["action"] != "\"snapshot\"" ||
-            (fields.count("cursor") && !number(fields["cursor"], 0, 2047)) ||
-            (fields.count("revision") && (!hex(fields["revision"], 16, 16) || fields["revision"] == "\"0000000000000000\"")) ||
-            (fields.count("cursor") && fields["cursor"] != "0" && !fields.count("revision"))) return false;
-        return fields.size() == 2 + fields.count("cursor") + fields.count("revision");
+        return false;
     }
     if (opcode == 11) {
         static const char* const commands[] = {"\"on\"", "\"off\"", "\"toggle\""};
@@ -445,10 +430,43 @@ bool matterReadingFromReport(const Fields& data, MatterReading* reading) {
     return true;
 }
 
+bool inventoryFromData(Fields data, std::string* kind, unsigned int* count, MatterEndpoint* endpoint) {
+    Fields row;
+    if (data.size() != 3 || !number(data["endpoint_count"], 0, 32) ||
+        !StatusJson(data["device"]).parse(&row) || row.size() != 7 ||
+        !hex(row["node"], 16, 16) || row["node"] <= "\"0000000000000001\"" ||
+        !booleanField(row, "online")) return false;
+    if (data["kind"] != "\"identity\"" && data["kind"] != "\"endpoint\"" && data["kind"] != "\"commit\"") return false;
+    const std::string id = row["id"];
+    if (row["state"] != "\"complete\"" && row["state"] != "\"recovery_required\"" && row["state"] != "\"commissioning\"") return false;
+    if (data["kind"] == "\"endpoint\"") {
+        if (!endpointRecordValid(row)) return false;
+    } else if (row["endpoint"] != "null" || row["servers"] != "[]" || row["clients"] != "[]" ||
+        id.size() != 42 || id.substr(0, 8) != "\"matter:" || id[24] != ':' || id[41] != '"' ||
+        !hex('"' + id.substr(8, 16) + '"', 16, 16) || id.substr(25, 16) != row["node"].substr(1, 16)) return false;
+    *kind = data["kind"].substr(1, data["kind"].size()-2);
+    *count = static_cast<unsigned int>(strtoul(data["endpoint_count"].c_str(), 0, 10));
+    endpoint->id = id.substr(1, id.size()-2);
+    endpoint->node = row["node"].substr(1,16);
+    endpoint->state = row["state"].substr(1,row["state"].size()-2);
+    endpoint->endpoint = row["endpoint"] == "null" ? 0xffff : static_cast<unsigned short>(strtoul(row["endpoint"].c_str(),0,10));
+    endpoint->online = row["online"] == "true";
+    endpoint->metadataComplete = *kind == "commit" && *count > 0;
+    std::vector<std::string> clusters;
+    StatusJson(row["servers"]).parseArray(&clusters);
+    for (unsigned long i=0;i<clusters.size();++i) endpoint->servers.push_back(static_cast<unsigned int>(strtoul(clusters[i].c_str(),0,10)));
+    clusters.clear(); StatusJson(row["clients"]).parseArray(&clusters);
+    for (unsigned long i=0;i<clusters.size();++i) endpoint->clients.push_back(static_cast<unsigned int>(strtoul(clusters[i].c_str(),0,10)));
+    return true;
+}
 bool eventValid(const std::string& text) {
     Fields fields, data;
     if (!StatusJson(text).parse(&fields) || fields.size() != 3 || fields["schema"] != "1" ||
         !fields.count("data") || !StatusJson(fields["data"]).parse(&data)) return false;
+    if (fields["event"] == "\"matter_inventory\"") {
+        std::string kind; unsigned int count; MatterEndpoint endpoint;
+        return inventoryFromData(data, &kind, &count, &endpoint);
+    }
     if (fields["event"] == "\"thread\"") return snapshotValid(data, true);
     if (fields["event"] == "\"commissioning\"") return sessionValid(data);
     if (fields["event"] == "\"matter_report\"") {
@@ -732,10 +750,6 @@ bool MatterChannel::call(unsigned char opcode, const std::string& body, std::str
 bool MatterChannel::validRequest(unsigned char opcode, const std::string& body) {
     return requestValid(opcode, body);
 }
-bool MatterChannel::deviceSnapshotRequest(const std::string& body) {
-    Fields fields;
-    return StatusJson(body).parse(&fields) && fields.count("action") && fields["action"] == "\"snapshot\"";
-}
 bool MatterChannel::acceptedOperationJob(unsigned char opcode, const std::string& response, std::string* job) {
     job->clear();
     if ((opcode != 10 && opcode != 11) || !responseValid(opcode, response)) return false;
@@ -839,42 +853,10 @@ bool MatterChannel::deviceBindingRequest(const std::string& input, std::string* 
         ",\"endpoint\":" + fields["endpoint"] + ",\"targets\":" + fields["targets"] + "}";
     return requestValid(10, *body);
 }
-bool MatterChannel::devicePage(const std::string& response, std::string* revision, long* nextCursor,
-                              std::vector<MatterEndpoint>* endpoints) {
-    revision->clear(); *nextCursor = -1; endpoints->clear();
-    if (!responseValid(10, response)) return false;
-    Fields envelope, result;
-    if (!StatusJson(response).parse(&envelope) || !StatusJson(envelope["result"]).parse(&result) ||
-        !devicePageValid(result)) return false;
-    *revision = result["revision"].substr(1, result["revision"].size() - 2);
-    if (result["next_cursor"] != "null") {
-        if (!number(result["next_cursor"], 1, 2047)) return false;
-        *nextCursor = strtol(result["next_cursor"].c_str(), 0, 10);
-    }
-    std::vector<std::string> rows;
-    if (!StatusJson(result["devices"]).parseArray(&rows)) return false;
-    for (unsigned long i = 0; i < rows.size(); ++i) {
-        Fields row;
-        if (!StatusJson(rows[i]).parse(&row) || row["endpoint"] == "null") continue;
-        MatterEndpoint endpoint;
-        endpoint.id = row["id"].substr(1, row["id"].size() - 2);
-        endpoint.node = row["node"].substr(1, row["node"].size() - 2);
-        endpoint.state = row["state"].substr(1, row["state"].size() - 2);
-        endpoint.endpoint = static_cast<unsigned short>(strtoul(row["endpoint"].c_str(), 0, 10));
-        endpoint.online = row["online"] == "true";
-        std::vector<std::string> clusters;
-        if (!StatusJson(row["servers"]).parseArray(&clusters)) return false;
-        for (unsigned long cluster = 0; cluster < clusters.size(); ++cluster)
-            endpoint.servers.push_back(static_cast<unsigned int>(strtoul(clusters[cluster].c_str(), 0, 10)));
-        clusters.clear();
-        if (row.count("clients")) {
-            if (!StatusJson(row["clients"]).parseArray(&clusters)) return false;
-            for (unsigned long cluster = 0; cluster < clusters.size(); ++cluster)
-                endpoint.clients.push_back(static_cast<unsigned int>(strtoul(clusters[cluster].c_str(), 0, 10)));
-        }
-        endpoints->push_back(endpoint);
-    }
-    return true;
+bool MatterChannel::inventoryEvent(const std::string& event, std::string* kind, unsigned int* count, MatterEndpoint* endpoint) {
+    Fields fields, data;
+    return StatusJson(event).parse(&fields) && fields["event"] == "\"matter_inventory\"" &&
+        StatusJson(fields["data"]).parse(&data) && inventoryFromData(data, kind, count, endpoint);
 }
 
 bool MatterChannel::deviceResult(const std::string& response, const std::string& job, MatterReading* reading) {

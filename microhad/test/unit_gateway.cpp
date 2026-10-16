@@ -2199,6 +2199,65 @@ static void testDeviceSettings() {
     rmdir(directory.c_str());
 }
 
+static void testMatterInventoryIsCachedGroupedAndAtomic() {
+    char directory[] = "/tmp/microhad-matter-inventory-XXXXXX";
+    assert(mkdtemp(directory));
+    const std::string nodeId="matter:0000000000000001:0000000000000002";
+    std::string error;
+    MatterEndpoint identity;
+    identity.id=nodeId; identity.node="0000000000000002"; identity.endpoint=0xffff;
+    identity.state="complete";
+    {
+        Gateway gateway("/dev/null",115200,directory,"","","");
+        assert(gateway.reconcileMatterDevices(std::vector<MatterEndpoint>(1,identity),&error));
+        assert(gateway.statusJson().find("\"id\":\""+nodeId+"\"")!=std::string::npos);
+        assert(gateway.statusJson().find("\"endpoint_metadata_state\":\"missing\"")!=std::string::npos);
+        assert(access((std::string(directory)+"/devices.json").c_str(),F_OK)!=0);
+        MatterEndpoint root=identity; root.id=nodeId+":0000"; root.endpoint=0; root.servers.push_back(29);
+        MatterEndpoint sensor=root; sensor.id=nodeId+":0100"; sensor.endpoint=256;
+        sensor.servers.push_back(1026); sensor.servers.push_back(0xffffffffU); sensor.clients.push_back(0xfffffffeU);
+        identity.metadataComplete=true; identity.online=true;
+        std::vector<MatterEndpoint> update; update.push_back(identity); update.push_back(root); update.push_back(sensor);
+        assert(gateway.reconcileMatterDevices(update,&error));
+        std::string status=gateway.statusJson();
+        assert(status.find("\"endpoint_metadata_state\":\"ready\"")!=std::string::npos);
+        assert(status.find("\"endpoint\":256")!=std::string::npos);
+        assert(status.find("4294967295")!=std::string::npos && status.find("4294967294")!=std::string::npos);
+        // Exactly one common device; endpoint IDs remain nested aliases.
+        assert(status.find("\"source\":\"matter\"")==status.rfind("\"source\":\"matter\""));
+        identity.metadataComplete=false; identity.online=false;
+        assert(gateway.reconcileMatterDevices(std::vector<MatterEndpoint>(1,identity),&error));
+        assert(gateway.statusJson().find("\"endpoint\":256")!=std::string::npos);
+        assert(gateway.statusJson().find("\"endpoint_metadata_state\":\"stale\"")!=std::string::npos);
+        assert(gateway.statusJson().find("\"online\":false")!=std::string::npos);
+        MatterReading report; report.node=identity.node; report.endpoint=256; report.cluster=1026;
+        report.known=true; report.numberValue=21.5;
+        assert(gateway.applyMatterReading(report,&error));
+        assert(gateway.statusJson().find("\"online\":true")!=std::string::npos);
+        for(int i=0;i<10;++i) { gateway.statusJson(); assert(gateway.reconcileMatterDevices(update,&error)); }
+        // Coalesce all bootstrap/discovery updates until the scheduled flush.
+        assert(access((std::string(directory)+"/devices.json").c_str(),F_OK)!=0);
+    }
+    {
+        Gateway gateway("/dev/null",115200,directory,"","","");
+        GatewayTestPeer::restoreState(gateway);
+        std::string status=gateway.statusJson();
+        assert(status.find("\"endpoint\":256")!=std::string::npos);
+        assert(status.find("\"endpoint_metadata_state\":\"stale\"")!=std::string::npos);
+        assert(status.find("\"online\":false")!=std::string::npos);
+        struct stat before,after; const std::string path=std::string(directory)+"/devices.json";
+        assert(stat(path.c_str(),&before)==0);
+        identity.metadataComplete=true; identity.online=false;
+        std::vector<MatterEndpoint> unchanged(1,identity);
+        // Identity alone must never discard cached endpoints after restart.
+        unchanged[0].metadataComplete=false;
+        assert(gateway.reconcileMatterDevices(unchanged,&error));
+        gateway.poll();
+        assert(stat(path.c_str(),&after)==0 && before.st_ino==after.st_ino);
+    }
+    unlink((std::string(directory)+"/devices.json").c_str()); rmdir(directory);
+}
+
 static void testMatterAlertSettingsSurviveRestart() {
     char directory[] = "/tmp/microhad-matter-alert-restart-XXXXXX";
     assert(mkdtemp(directory) != 0);
@@ -3183,6 +3242,7 @@ void runUnitTests() {
     testDevicePersistence();
     testDeviceLoadRejectsCorruptDuplicatesAndNumbers();
     testDeviceSettings();
+    testMatterInventoryIsCachedGroupedAndAtomic();
     testMatterAlertSettingsSurviveRestart();
     testNetworkPersistence();
     testNetworkPersistenceRejectsInvalidState();

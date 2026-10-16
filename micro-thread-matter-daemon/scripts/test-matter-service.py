@@ -342,16 +342,9 @@ def main():
             thread = status(ipc_path, 2, 302)
             assert matter["available"] and matter["state"] == "awaiting_coordinator"
             assert matter["fabric_ready"]
-            page = status(ipc_path, 10, 401, b'{"schema":1,"action":"snapshot"}')
-            assert page["ok"] and page["result"]["devices"] == []
-            assert page["result"]["next_cursor"] is None
-            revision = page["result"]["revision"]
-            assert len(revision) == 16 and int(revision, 16) != 0
-            stale = status(ipc_path, 10, 402, b'{"schema":1,"action":"snapshot","cursor":1}')
-            assert stale["error"] == "stale_revision"
-            malformed = status(ipc_path, 10, 403, json.dumps({"schema": 1, "action": "snapshot",
-                "cursor": 65535, "revision": revision}).encode())
-            assert malformed["error"] == "malformed"
+            removed = status(ipc_path, 10, 401, b'{"schema":1,"action":"snapshot"}')
+            assert not removed["ok"] and removed["error"] == "malformed"
+
             assert thread["available"] and not thread["attached"]
             assert not thread["linux_ipv6_or_tun"]
             assert thread["state"] == "awaiting_coordinator"

@@ -11,6 +11,7 @@ async function main() {
     bundle: true, write: false, platform: 'browser', jsx: 'automatic', define: { 'process.env.NODE_ENV': '"production"' } });
   let mode = 'backlog', posts = 0, retryPosts = 0, nextJob = 1, operationValue = false, operationLevel = 0;
   const jobs = new Map();
+  let refreshed = false, listingPosts = 0, statusReads = 0;
   const server = http.createServer(async (request, response) => {
     let body = '';
     for await (const chunk of request) body += chunk;
@@ -24,22 +25,27 @@ async function main() {
     } else if (request.url === '/fixture/mode') { mode = body; posts = 0; retryPosts = 0; send({ ok: true }); }
     else if (request.url === '/fixture/count') send({ posts });
     else if (request.url === '/fixture/retry-count') send({ retryPosts });
-    else if (request.url === '/api/matter/devices/snapshot') {
-      posts++; const fields = JSON.parse(body), job = nextJob++;
-      const backlog = mode === 'backlog';
-      const recoveryPage = backlog && fields.cursor < 22;
-      const endpoint = mode === 'duplicate' ? 0 : backlog ? Math.max(0, fields.cursor - 22) : fields.cursor;
-      const device = { node: '0000000000000002', state: 'complete', online: mode !== 'offline',
-        id: `matter:0000000000000001:0000000000000002:${endpoint.toString(16).padStart(4, '0')}`,
-        endpoint, servers: endpoint === 0 ? [29] : [6, 8, 29, 91, 1026, 1029, 1037, 1066] };
-      const result = { revision: '0000000000000007', devices: mode === 'empty' ? [] : [recoveryPage ?
-        { node: (fields.cursor + 3).toString(16).padStart(16, '0'), state: 'recovery_required', online: false,
-          id: null, endpoint: null, servers: [] } : mode === 'recovery' ?
-        { ...device, state: 'recovery_required', online: false, id: null, endpoint: null, servers: [] } : device],
-        next_cursor: mode === 'empty' || mode === 'recovery' || fields.cursor === (backlog ? 23 : 1) ? null : fields.cursor + 1 };
-      jobs.set(job, mode === 'pending' ? { job, state: 'running' } : { job, state: 'complete', response:
-        mode === 'stale' ? { schema: 1, ok: false, error: 'stale_revision' } : { schema: 1, ok: true, result } });
-      response.statusCode = 202; send({ schema: 1, ok: true, job, state: 'queued' });
+    else if (request.url === '/api/matter/devices/snapshot') { listingPosts++; response.statusCode=404; send({ok:false}); }
+    else if (request.url === '/api/status') {
+      statusReads++;
+      const node='matter:0000000000000001:0000000000000002';
+      send({devices:[{
+        id:node, source:'matter', external_id:node, component:'node', ieee_address:'',
+        name:'Matter light', kind:'light', online:true, matter_node:'0000000000000002', matter_endpoint:1,
+        matter_servers:[6,8,29,91,1026,1029,1037,1066], matter_clients:[], endpoint_metadata_state:'ready',
+        endpoint_descriptors:[{endpoint:0,id:node+':0000',input_clusters:[29],output_clusters:[]},
+          {endpoint:1,id:node+':0001',input_clusters:[6,8,29,91,1026,1029,1037,1066],output_clusters:[]}],
+        has_light:true, has_brightness:true, light_known:operationValue, light_on:operationValue,
+        brightness_known:operationLevel>0, brightness_percent:Math.round(operationLevel*100/254),
+        has_temperature:true, temperature_known:refreshed, temperature_celsius:23.15,
+        has_humidity:true, humidity_known:refreshed, humidity_percent:52.34,
+        has_air_quality:true, air_quality_known:refreshed, air_quality:'moderate',
+        has_co2:true, co2_known:refreshed, co2_ppm:758.5, co2_unit:'ppm',
+        has_pm25:true, pm25_known:refreshed, pm25_micrograms_m3:12.75, pm25_unit:'ug/m3',
+        sensor_values: Object.fromEntries(Object.entries({air_quality:['moderate',''],co2:[758.5,'ppm'],pm25:[12.75,'ug/m3']})
+          .map(([key,[value,unit]])=>[key,{value:refreshed?value:null,unit,quality:refreshed?'measured':'unknown'}])),
+        value_alerts:{}, contact_initial_alert_minutes:10, contact_reminder_alert_minutes:5,
+      }],scene_groups:[],scene_bindings:[],native_bindings:[]});
     } else if (request.url === '/api/matter/status') {
       send({ enabled: true, available: true, controller_initialized: true, fabric_ready: true, state: 'running' });
     } else if (request.url === '/api/thread/status') {
@@ -58,6 +64,7 @@ async function main() {
         if (fields.command === 'toggle') operationValue = !operationValue;
         if (fields.command === 'move_to_level') operationLevel = fields.level;
       }
+      if (request.url.endsWith('/read')) refreshed=true;
       const cluster = fields.cluster || (fields.command === 'move_to_level' ? 8 : 6);
       let typed;
       if (cluster === 8) typed = { type: 'u8', value: operationLevel };
@@ -89,6 +96,7 @@ async function main() {
     try { exitCode = await new Promise((resolve, reject) => { child.on('close', resolve); child.on('error', reject); }); }
     finally { clearTimeout(timer); }
     if (exitCode !== 0 || !output.includes('data-result="passed"')) throw new Error(output + errors);
+    if (listingPosts !== 0 || statusReads < 2) throw new Error('inventory must use ordinary status only');
     console.log(output.match(/PASS Matter endpoints[^<]+/)[0]);
   } finally {
     if (child && child.exitCode === null) child.kill('SIGKILL');

@@ -31,7 +31,6 @@ public:
     static bool validRequest(unsigned char opcode, const std::string& body);
     static bool commissioningStartRequest(const std::string& input, const std::string& countryCode,
                                           const std::string& location, std::string* body);
-    static bool deviceSnapshotRequest(const std::string& body);
     static bool acceptedOperationJob(unsigned char opcode, const std::string& response, std::string* job);
     static bool operationStatus(const std::string& response, const std::string& job,
                                 bool* terminal, bool* failed, std::string* error);
@@ -41,9 +40,8 @@ public:
     static bool deviceReadRequest(const std::string& input, std::string* body);
     static bool deviceCommandRequest(const std::string& input, std::string* body);
     static bool deviceBindingRequest(const std::string& input, std::string* body);
-    static bool devicePage(const std::string& response, std::string* revision, long* nextCursor,
-                           std::vector<MatterEndpoint>* endpoints);
     static bool deviceResult(const std::string& response, const std::string& job, MatterReading* reading);
+    static bool inventoryEvent(const std::string& event, std::string* kind, unsigned int* count, MatterEndpoint* endpoint);
     static bool deviceReportEvent(const std::string& event, MatterReading* reading);
     static bool deviceButtonEvent(const std::string& event, MatterButtonEvent* button);
     static bool relayRequest(const std::string& input, uint32_t* id, unsigned char* opcode,

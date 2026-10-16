@@ -33,7 +33,7 @@ const size_t MaxDeferredMatterReadings = 128;
 MatterWorker::MatterWorker(GatewayRunner* gateway, const std::string& socketPath) :
     gateway_(gateway), phonePendingFd_(-1), phoneActive_(false), phoneFd_(-1), phoneReady_(false), phoneOffset_(0),
     phoneReceived_(0), phoneWriteSince_(0), phoneLastId_(0), phoneGeneration_(0), client_(socketPath),
-    snapshotNextCursor_(0), nextJob_(1), running_(false), started_(false), refreshed_(0) {
+    nextJob_(1), running_(false), started_(false), refreshed_(0) {
     pthread_mutex_init(&mutex_, 0);
 }
 MatterWorker::~MatterWorker() { stop(); pthread_mutex_destroy(&mutex_); }
@@ -136,10 +136,11 @@ void MatterWorker::unavailable() {
     for (unsigned long i = 0; i < offline.size(); ++i) {
         wasOnline = wasOnline || offline[i].online;
         offline[i].online = false;
+        offline[i].metadataComplete = false;
     }
     if (wasOnline) snapshotDevices_ = offline;
     else offline.clear();
-    snapshotBuilding_.clear(); snapshotRevision_.clear(); snapshotNextCursor_ = 0;
+    inventoryBuilding_.clear();
     for (std::map<uint32_t, Job>::iterator it = jobs_.begin(); it != jobs_.end(); ++it) {
         if (it->second.state == "queued" || it->second.state == "running") {
             wipe(&it->second.body); it->second.state = "failed"; it->second.error = "transport";
@@ -154,6 +155,42 @@ void MatterWorker::unavailable() {
 bool MatterWorker::collectEvents() {
     std::string event;
     while (client_.popEvent(&event)) {
+        std::string kind; unsigned int count = 0; MatterEndpoint endpoint;
+        if (MatterChannel::inventoryEvent(event, &kind, &count, &endpoint)) {
+            std::vector<MatterEndpoint> update;
+            if (kind == "identity") {
+                inventoryBuilding_[endpoint.node].clear();
+                update.push_back(endpoint);
+            } else if (kind == "endpoint") {
+                std::vector<MatterEndpoint>& building = inventoryBuilding_[endpoint.node];
+                if (building.size() < 32) building.push_back(endpoint);
+            } else {
+                std::map<std::string, std::vector<MatterEndpoint> >::iterator building = inventoryBuilding_.find(endpoint.node);
+                if (building != inventoryBuilding_.end() && building->second.size() == count) {
+                    update.swap(building->second); update.push_back(endpoint);
+                    inventoryBuilding_.erase(building);
+                }
+            }
+            if (!update.empty() && gateway_) {
+                std::string error;
+                if (gateway_->reconcileMatterDevices(update, &error)) {
+                    if (kind == "commit" && endpoint.metadataComplete) {
+                        for (std::vector<MatterEndpoint>::iterator it=snapshotDevices_.begin();it!=snapshotDevices_.end();) {
+                            if (it->node == endpoint.node) it=snapshotDevices_.erase(it); else ++it;
+                        }
+                    }
+                    for (unsigned long i=0;i<update.size();++i) {
+                        bool found = false;
+                        for (unsigned long j=0;j<snapshotDevices_.size();++j) if (snapshotDevices_[j].id == update[i].id) {
+                            snapshotDevices_[j] = update[i]; found = true; break;
+                        }
+                        if (!found) snapshotDevices_.push_back(update[i]);
+                    }
+                    flushDeferredReadings();
+                } else syslog(LOG_WARNING, "Matter inventory rejected: %s", error.c_str());
+            }
+            continue;
+        }
         MatterReading reading;
         if (MatterChannel::deviceReportEvent(event, &reading)) {
             applyOrDeferReading(reading);
@@ -215,7 +252,6 @@ void MatterWorker::executeJob() {
     unsigned char opcode = value.opcode;
     std::string body; body.swap(value.body);
     pthread_mutex_unlock(&mutex_);
-    const bool snapshotRequest = opcode == 10 && MatterChannel::deviceSnapshotRequest(body);
     std::string response, error;
     bool valid;
     if (opcode == 9) {
@@ -228,38 +264,6 @@ void MatterWorker::executeJob() {
         } else valid = client_.call(9, request, &response, &error);
         wipe(&request);
     } else valid = client_.call(opcode, body, &response, &error);
-    if (valid && snapshotRequest && gateway_) {
-        long cursor = 0, nextCursor = -1;
-        long suppliedCursor = 0;
-        if (jsonLongField(body, "cursor", &suppliedCursor)) cursor = suppliedCursor;
-        std::string revision;
-        std::vector<MatterEndpoint> page;
-        if (MatterChannel::devicePage(response, &revision, &nextCursor, &page)) {
-            std::vector<MatterEndpoint> complete;
-            bool finalPage = false;
-            pthread_mutex_lock(&mutex_);
-            bool sequenceValid = true;
-            if (cursor == 0) {
-                snapshotBuilding_.clear(); snapshotRevision_ = revision; snapshotNextCursor_ = 0;
-            } else sequenceValid = snapshotRevision_ == revision && snapshotNextCursor_ == cursor;
-            if (sequenceValid) {
-                snapshotBuilding_.insert(snapshotBuilding_.end(), page.begin(), page.end());
-                snapshotNextCursor_ = nextCursor < 0 ? -1 : nextCursor;
-                if (nextCursor < 0) {
-                    complete = snapshotBuilding_;
-                    snapshotDevices_ = complete;
-                    finalPage = true;
-                }
-            } else {
-                snapshotBuilding_.clear(); snapshotRevision_.clear(); snapshotNextCursor_ = 0;
-            }
-            pthread_mutex_unlock(&mutex_);
-            if (finalPage) {
-                std::string ignored;
-                if (gateway_->reconcileMatterDevices(complete, &ignored)) flushDeferredReadings();
-            }
-        }
-    }
     wipe(&body);
     std::string serviceJob;
     const bool operation = valid && MatterChannel::acceptedOperationJob(opcode, response, &serviceJob);

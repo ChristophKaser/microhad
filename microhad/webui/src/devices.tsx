@@ -161,10 +161,10 @@ export function DescriptorList({ descriptor }: { descriptor: EndpointDescriptor 
   return (
     <section className="descriptor-row">
       <h3>Endpoint {descriptor.endpoint}</h3>
-      <p className="mono muted">
+      {descriptor.profile_id !== undefined && descriptor.device_id !== undefined && <p className="mono muted">
         Profile {namedId(descriptor.profile_id, profileNames)} · Device{' '}
         {namedId(descriptor.device_id, deviceNames)} · Version {descriptor.device_version}
-      </p>
+      </p>}
       <div className="descriptor-columns">
         <div>
           <b>Server / input clusters</b>

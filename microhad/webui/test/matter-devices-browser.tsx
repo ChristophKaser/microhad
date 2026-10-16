@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import type { Device, Status } from '../src/api'
 import { DeviceGroups, DeviceSettings } from '../src/devices'
@@ -8,11 +8,13 @@ import { useMatterDevices } from '../src/useMatterDevices'
 function Host() {
   const controller = useMatterDevices()
   const [settingsDevice, setSettingsDevice] = useState<Device | null>(null)
-  const status = { devices: controller.devices, scene_groups: [] } as unknown as Status
+  const [status, setStatus] = useState<Status>({ devices: [], scene_groups: [] } as unknown as Status)
+  const refresh = async () => setStatus(await (await fetch('/api/status')).json())
+  useEffect(() => { void refresh() }, [])
   async function action(url: string, body = '') {
     const id = decodeURIComponent(url.slice('/api/devices/'.length).split('/')[0])
-    const device = controller.devices.find(item => item.id === id)
-    if (device) await controller.execute(device, url, body)
+    const device = status.devices.find(item => item.id === id)
+    if (device) { await controller.execute(device, url, body); await refresh() }
   }
   return <>
     <DeviceGroups status={status} action={(url, body) => { void action(url, body) }}

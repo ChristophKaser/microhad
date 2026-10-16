@@ -126,63 +126,11 @@ test('abort stops job polling while a submitted mutation is never replayed', asy
 
 const device = { node: '0000000000000002', state: 'complete', online: true,
   id: 'matter:0000000000000001:0000000000000002:0001', endpoint: 1, servers: [6, 29] };
-const devicePage = { revision: id, devices: [device], next_cursor: null };
-
-test('snapshot pages carry revision and validate stable endpoint metadata', async () => {
-  let cursor = 0;
-  await peer(call => {
-    if (call.method === 'POST') { cursor = call.body.cursor; return { body: accepted }; }
-    return { body: completed({ ...devicePage, devices: [{ ...device, endpoint: cursor,
-      id: device.id.slice(0, -4) + cursor.toString(16).padStart(4, '0') }], next_cursor: cursor === 0 ? 1 : null }) };
-  }, async calls => {
-    const first = await wire.matterDevicePage(0, undefined, signal());
-    const second = await wire.matterDevicePage(first.next_cursor, first.revision, signal());
-    assert.equal(second.devices[0].endpoint, 1);
-    assert.equal(second.next_cursor, null);
-    assert.deepEqual(calls.filter(call => call.method === 'POST').map(call => call.body),
-      [{ schema: 1, action: 'snapshot', cursor: 0 }, { schema: 1, action: 'snapshot', cursor: 1, revision: id }]);
-  });
-});
-
-test('stale snapshot does not restart pagination automatically', async () => {
-  await peer(call => ({ body: call.method === 'POST' ? accepted : { job: 1, state: 'complete', response: { schema: 1, ok: false, error: 'stale_revision' } } }), async calls => {
-    await assert.rejects(wire.matterDevicePage(1, id, signal()), /stale_revision/);
-    assert.equal(calls.filter(call => call.method === 'POST').length, 1);
-  });
-});
-
-test('snapshot rejects loops, changed revisions and contradictory descriptors', async () => {
-  const invalid = [
-    { ...devicePage, next_cursor: 0 }, { ...devicePage, next_cursor: 2 },
-    { ...devicePage, revision: '0000000000000001' },
-    { ...devicePage, devices: [device, device] },
-    ...[{ ...device, endpoint: 2 }, { ...device, servers: [29, 29] },
-      { ...device, servers: [6] }, { ...device, state: 'recovery_required' },
-      { ...device, node: '0000000000000001' }, { ...device, secret: 'PRIVATE_SENTINEL' },
-      { ...device, id: null }, { ...device, servers: Array(65).fill(29) }].map(value => ({ ...devicePage, devices: [value] })),
-  ];
-  let index = 0;
-  await peer(call => ({ body: call.method === 'POST' ? accepted : completed(invalid[index]) }), async () => {
-    for (index = 0; index < invalid.length; index++) await assert.rejects(wire.matterDevicePage(0, id, signal()), /protocol/);
-  });
-});
-
-test('empty and undiscovered/recovery snapshots remain usable', async () => {
-  let empty = true;
-  await peer(call => ({ body: call.method === 'POST' ? accepted : completed(empty ? { ...devicePage, devices: [] } :
-    { ...devicePage, devices: [{ ...device, state: 'recovery_required', online: false, endpoint: null, id: null, servers: [] }] }) }), async () => {
-    assert.deepEqual((await wire.matterDevicePage(0, undefined, signal())).devices, []);
-    empty = false;
-    assert.equal((await wire.matterDevicePage(0, undefined, signal())).devices[0].state, 'recovery_required');
-  });
-});
-
-test('invalid snapshot cursor and revision never submit HTTP jobs', async () => {
+test('listing snapshot API is removed', async () => {
   await peer(() => ({ body: accepted }), async calls => {
-    for (const [cursor, revision] of [[1, undefined], [2048, id], [-1, id], [0, '0000000000000000']]) {
-      await assert.rejects(wire.matterDevicePage(cursor, revision, signal()), /malformed/);
-    }
+    await assert.rejects(wire.matterCall('/api/matter/devices/snapshot', {}, signal()), /unsupported/);
     assert.equal(calls.length, 0);
+    assert.equal(wire.matterDevicePage, undefined);
   });
 });
 

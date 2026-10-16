@@ -65,13 +65,14 @@ use micro_thread_matter_daemon::{
 };
 
 fn native_test_response(
+    peer: u64,
     request: micro_thread_matter_daemon::ipc::Frame,
     manager: &mut micro_thread_matter_daemon::devices::Manager<'_, impl Crypto>,
 ) -> Option<micro_thread_matter_daemon::ipc::Frame> {
     use micro_thread_matter_daemon::control::{DeviceRequest, Request, ThreadRequest};
 
     let payload = match Request::decode(request.opcode, &request.payload) {
-        Ok(Request::MatterStatus) => br#"{"enabled":true,"available":true,"controller_initialized":true,"fabric_ready":true,"state":"running"}"#.to_vec(),
+        Ok(Request::MatterStatus) => { manager.subscribe_inventory(peer); br#"{"enabled":true,"available":true,"controller_initialized":true,"fabric_ready":true,"state":"running"}"#.to_vec() },
         Ok(Request::ThreadStatus) | Ok(Request::Thread(ThreadRequest::Status { .. })) => {
             br#"{"enabled":true,"available":true,"configured":true,"attached":true,"state":"attached","linux_ipv6_or_tun":false}"#.to_vec()
         }
@@ -1562,10 +1563,11 @@ async fn run(
                     while !release_path.exists() {
                         std::future::poll_fn(|context| {
                             manager.poll(true, false, std::time::Instant::now(), context);
-                            ipc.poll_with_peer(|_, request| {
-                                native_test_response(request, &mut manager)
+                            ipc.poll_with_peer(|peer, request| {
+                                native_test_response(peer, request, &mut manager)
                             })
                             .unwrap();
+                            manager.publish_inventory(ipc).unwrap();
                             std::task::Poll::Ready(())
                         })
                         .await;
@@ -1605,10 +1607,11 @@ async fn run(
                         std::future::poll_fn(|context| {
                             if let Some((ipc, _)) = &mut report_ipc {
                                 if native_ipc {
-                                    ipc.poll_with_peer(|_, request| {
-                                        native_test_response(request, &mut manager)
+                                    ipc.poll_with_peer(|peer, request| {
+                                        native_test_response(peer, request, &mut manager)
                                     })
                                     .unwrap();
+                                    manager.publish_inventory(ipc).unwrap();
                                 }
                             }
                             manager.poll(true, false, std::time::Instant::now(), context);
@@ -1617,8 +1620,8 @@ async fn run(
                                     if manager.front_report().is_some()
                                         && manager.publish_reports(ipc).unwrap() != 0
                                     {
-                                        ipc.poll_with_peer(|_, request| {
-                                            native_test_response(request, &mut manager)
+                                        ipc.poll_with_peer(|peer, request| {
+                                            native_test_response(peer, request, &mut manager)
                                         })
                                         .unwrap();
                                         return std::task::Poll::Ready(Vec::new());
@@ -1701,10 +1704,11 @@ async fn run(
                         while !std::path::Path::new(&path).exists() {
                             std::future::poll_fn(|context| {
                                 manager.poll(true, false, std::time::Instant::now(), context);
-                                ipc.poll_with_peer(|_, request| {
-                                    native_test_response(request, &mut manager)
+                                ipc.poll_with_peer(|peer, request| {
+                                    native_test_response(peer, request, &mut manager)
                                 })
                                 .unwrap();
+                                manager.publish_inventory(ipc).unwrap();
                                 std::task::Poll::Ready(())
                             })
                             .await;

@@ -144,6 +144,17 @@ void* serveWorker(void* opaque) {
 }
 
 void runMatterClientUnitTests() {
+    {
+        const std::string inventory="{\"schema\":1,\"event\":\"matter_inventory\",\"data\":{\"kind\":\"identity\",\"endpoint_count\":0,\"device\":{\"node\":\"0000000000000002\",\"state\":\"complete\",\"online\":false,\"id\":\"matter:0000000000000001:0000000000000002\",\"endpoint\":null,\"servers\":[],\"clients\":[]}}}";
+        MatterWire::Frame frame; frame.kind=MatterWire::Frame::Event;frame.opcode=12;
+        frame.payload.assign(inventory.begin(),inventory.end());
+        MatterWire::Bytes encoded; assert(MatterWire::encode(frame,&encoded));
+        MatterWire::Decoder decoder;assert(decoder.feed(encoded));assert(decoder.pop(&frame));
+        std::string kind; unsigned int count=99; MatterEndpoint endpoint;
+        assert(MatterChannel::inventoryEvent(std::string(frame.payload.begin(),frame.payload.end()),&kind,&count,&endpoint));
+        assert(kind=="identity" && count==0 && endpoint.endpoint==0xffff);
+    }
+
     std::string commissioningBody;
     const std::string bareCommissioning="{\"schema\":1,\"discriminator\":3840,\"pin\":20202021,\"timeout_seconds\":120}";
     assert(MatterChannel::commissioningStartRequest(bareCommissioning,"DE","indoor",&commissioningBody));
@@ -154,9 +165,6 @@ void runMatterClientUnitTests() {
     assert(commissioningBody.find("\"country_code\":\"US\"")!=std::string::npos);
     assert(!MatterChannel::commissioningStartRequest(bareCommissioning,"de","indoor",&commissioningBody));
     assert(!MatterChannel::commissioningStartRequest(bareCommissioning,"DE","outside",&commissioningBody));
-    assert(MatterChannel::deviceSnapshotRequest("{\"schema\":1,\"action\":\"snapshot\"}"));
-    assert(MatterChannel::deviceSnapshotRequest("{ \"action\" : \"snapshot\", \"schema\" : 1 }"));
-    assert(!MatterChannel::deviceSnapshotRequest("{\"schema\":1,\"action\":\"job\",\"job\":\"0000000000000001\"}"));
     const std::string thread = "{\"enabled\":true,\"available\":true,\"configured\":false,\"attached\":false,\"state\":\"detached\",\"linux_ipv6_or_tun\":false}";
     MatterClient client("/tmp/microhad-matter-status-test-missing.sock");
     std::vector<std::string> replies;
@@ -211,24 +219,8 @@ void runMatterClientUnitTests() {
         assert(pthread_join(server, 0) == 0);
     }
 
-    const std::string pageBody = "{\"schema\":1,\"action\":\"snapshot\"}";
-    assert(MatterChannel::validRequest(10, pageBody));
-    assert(!MatterChannel::validRequest(10, "{\"schema\":1,\"action\":\"snapshot\",\"cursor\":1}"));
+    assert(!MatterChannel::validRequest(10, "{\"schema\":1,\"action\":\"snapshot\"}"));
     assert(!MatterChannel::validRequest(10, "{\"schema\":1,\"action\":\"read\"}"));
-    const std::string pageReply = "{\"schema\":1,\"ok\":true,\"result\":{\"revision\":\"0000000000000001\","
-        "\"devices\":[{\"node\":\"0000000000000002\",\"state\":\"complete\",\"online\":true,"
-        "\"id\":\"matter:0000000000000001:0000000000000002:0001\",\"endpoint\":1,"
-        "\"servers\":[6,8,29,1026]}],\"next_cursor\":null}}";
-    std::string pageRevision;
-    long pageCursor = 0;
-    std::vector<MatterEndpoint> pageDevices;
-    assert(MatterChannel::devicePage(pageReply, &pageRevision, &pageCursor, &pageDevices));
-    assert(pageRevision == "0000000000000001" && pageCursor == -1 && pageDevices.size() == 1);
-    assert(pageDevices[0].id == "matter:0000000000000001:0000000000000002:0001");
-    assert(pageDevices[0].node == "0000000000000002" && pageDevices[0].endpoint == 1 && pageDevices[0].online);
-    assert(pageDevices[0].servers.size() == 4 && pageDevices[0].servers[0] == 6 && pageDevices[0].servers[3] == 1026);
-    assert(!MatterChannel::devicePage("{\"schema\":1,\"ok\":true,\"result\":{\"job\":\"0000000000000001\",\"state\":\"queued\"}}",
-                                      &pageRevision, &pageCursor, &pageDevices));
     const std::string readBody = "{\"schema\":1,\"action\":\"read\",\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":6,\"attribute\":0}";
     const std::string jobBody = "{\"schema\":1,\"action\":\"job\",\"job\":\"0000000000000001\"}";
     const std::string commandBody = "{\"schema\":1,\"command\":\"toggle\",\"node\":\"0000000000000002\",\"endpoint\":1}";
@@ -378,27 +370,6 @@ void runMatterClientUnitTests() {
         assert(channel.call(10, jobBody, &json, &error) == (i < 5));
         assert(pthread_join(server, 0) == 0);
     }
-    const std::string device = "{\"node\":\"0000000000000002\",\"state\":\"complete\",\"online\":true,"
-        "\"id\":\"matter:0000000000000001:0000000000000002:0001\",\"endpoint\":1,\"servers\":[6,29]}";
-    std::vector<std::string> pages;
-    pages.push_back("{\"schema\":1,\"ok\":true,\"result\":{\"revision\":\"0000000000000001\",\"devices\":[" + device + "],\"next_cursor\":null}}");
-    pages.push_back("{\"schema\":1,\"ok\":true,\"result\":{\"revision\":\"0000000000000001\",\"devices\":[],\"next_cursor\":null}}");
-    pages.push_back("{\"schema\":1,\"ok\":false,\"error\":\"stale_revision\"}");
-    std::string bad = pages[0]; bad.replace(bad.find("[6,29]"), 6, "[29,29]"); pages.push_back(bad);
-    bad = pages[0]; bad.replace(bad.find("\"endpoint\":1"), 12, "\"endpoint\":2"); pages.push_back(bad);
-    bad = pages[0]; bad.replace(bad.find("\"complete\""), 10, "\"recovery_required\""); pages.push_back(bad);
-    bad = pages[0]; bad.replace(bad.find("[6,29]"), 6, "[6]"); pages.push_back(bad);
-    bad = pages[0]; bad.replace(bad.find("[" + device + "]"), device.size() + 2, "[" + device + "," + device + "]"); pages.push_back(bad);
-    for (unsigned int i = 0; i < pages.size(); ++i) {
-        int pair[2]; assert(socketpair(AF_UNIX, SOCK_STREAM, 0, pair) == 0);
-        assert(fcntl(pair[0], F_SETFL, O_NONBLOCK) == 0);
-        MatterChannel channel("unused"); channel.fd_ = pair[0];
-        Peer peer; peer.fd = pair[1]; peer.opcode = 10; peer.body = pageBody; peer.reply = pages[i];
-        pthread_t server; assert(pthread_create(&server, 0, serveStatus, &peer) == 0);
-        assert(channel.call(10, pageBody, &json, &error) == (i < 3));
-        assert(pthread_join(server, 0) == 0);
-    }
-
     const std::string writeEvent = "{\"schema\":1,\"event\":\"ble_write\",\"data\":{\"session\":\"0000000000000001\",\"generation\":4294967295,\"write\":3,\"data\":\"000fff\"}}";
     for (unsigned int i = 0; i < 2; ++i) {
         int pair[2]; assert(socketpair(AF_UNIX, SOCK_STREAM, 0, pair) == 0);

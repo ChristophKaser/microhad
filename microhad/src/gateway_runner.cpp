@@ -406,7 +406,22 @@ std::string GatewayRunner::logsJson() const {
 #endif
 bool GatewayRunner::readHistoryJson(const std::string& address, uint64_t before,
                                     std::string* json, std::string* error) const {
-    return historyStore_ != 0 && historyStore_->readForDevice(address, before, json, error);
+    std::string historyId=address;
+    if (address.size()==40 && address.substr(0,7)=="matter:") {
+        ViewLease* lease=const_cast<GatewayRunner*>(this)->acquireView();
+        if (lease) {
+            const std::vector<Device>& devices=lease->data_->view->devices;
+            for (unsigned long index=0;index<devices.size();++index) {
+                const Device& device=devices[index];
+                if (device.source=="matter" && device.ieeeAddress.substr(0,40)==address && device.matterEndpoint>=0 &&
+                    (device.hasTemperature || device.hasActor || device.hasLight || device.hasContact || device.hasRemote)) {
+                    historyId=device.ieeeAddress; break;
+                }
+            }
+            delete lease;
+        }
+    }
+    return historyStore_ != 0 && historyStore_->readForDevice(historyId, before, json, error);
 }
 
 bool GatewayRunner::registerShelly(const std::string& id, const std::string& name, const std::string& oldName,

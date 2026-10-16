@@ -46,7 +46,6 @@ thread-request =
   {schema, action: "retry", extensions}
 ; Online coordinator observations require channel 11..26.
 device-request =
-  {schema, action: "snapshot", ? cursor: uint .le 2047, ? revision: id64, extensions} /
   {schema, action: "read", node: id64, endpoint: endpoint,
     cluster: uint .le 4294967295, attribute: uint .le 4294967295, extensions} /
   {schema, action: "bind", node: id64, endpoint: endpoint, targets: [* binding-target], extensions} /
@@ -62,7 +61,7 @@ command-request =
     level: 0..254, transition_deciseconds: 0..65535, extensions}
 reply-body = matter-status / thread-status /
   {schema, ok: false, error: error-code, extensions} /
-  {schema, ok: true, result: session-snapshot / thread-status / device-page /
+  {schema, ok: true, result: session-snapshot / thread-status /
     operation-job / {generation: 1..4294967295, extensions} /
     {sequence: 1..4294967295, extensions} / {write: 1..4294967295, extensions}, extensions}
 matter-status = {enabled: bool, available: bool, controller_initialized: bool,
@@ -74,7 +73,6 @@ thread-status = {enabled: bool, available: bool, configured: bool, attached: boo
 session-snapshot = {session: id64, state: "waiting_ble" / "pase" / "provisioning" /
   "waiting_thread" / "case" / "completing" / "complete" / "cancelled" / "failed" / "timed_out",
   deadline_remaining_seconds: 0..900, ? error: error-code, ? node: id64, extensions}
-device-page = {revision: id64, devices: [0*1 device], next_cursor: uint / null, extensions}
 device = {node: id64, state: "complete" / "recovery_required" / "commissioning",
   online: bool, id: tstr / null, endpoint: endpoint / null,
   servers: [0*64 uint], ? clients: [0*64 uint], extensions}
@@ -87,7 +85,11 @@ typed-value = {type: "bool", value: bool, extensions} /
   {type: "measurement", value: {value: float / int / null, unit: tstr,
     quality: "measured" / "unknown", extensions}, extensions} /
   {type: "air_quality", value: {value: tstr, quality: "measured" / "unknown", extensions}, extensions}
-event-body = {schema, event: "thread", data: thread-status, extensions} /
+inventory = {kind: "identity" / "endpoint" / "commit", device: device, endpoint_count: 0..32}
+; Matter-status subscribers receive paced inventory records automatically.
+; All identities precede endpoints. A commit replaces only one complete node.
+event-body = {schema, event: "matter_inventory", data: inventory, extensions} /
+             {schema, event: "thread", data: thread-status, extensions} /
   {schema, event: "commissioning", data: session-snapshot, extensions} /
   {schema, event: "ble_write", data: {session: id64, generation: 1..4294967295,
     write: 1..4294967295, data: bstr .size (1..244), extensions}, extensions} /

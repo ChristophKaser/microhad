@@ -351,7 +351,7 @@ Gateway::Gateway(const std::string& serialDevice, int serialBaud, const std::str
     online_(false), joinUntil_(0), joinPermitRenewAt_(0), joinPermitClosePending_(false), joinPermitCloseDeadline_(0), pendingJoinSeconds_(0), joinPreparationStep_(0), joinPreparationDeadline_(0), ashSendSequence_(0), ashReceiveSequence_(0), ezspSequence_(0),
     ashAckDeadline_(0), ashRetries_(0), ashPendingSensitive_(false), networkBackupQuery_(0, std::vector<unsigned char>()), networkBackupSequence_(0), networkBackupDeadline_(0), networkBackupStarted_(0), ezspVersion_(4), zdoSequence_(0), zclTransactionSequence_(0), ezspVersionNegotiated_(false), stackTokenWritingRequested_(false), networkInitRequested_(false), tradfriBindGroupConfigured_(false), coordinatorInitializationStep_(0), coordinatorInitializationDeadline_(0), resetDeadline_(0), serialReconnectFailures_(0), zigbeeDownAlertQueued_(false), nextHeartbeatAt_(0), serialRxBytes_(0), ashRxFrames_(0), networkForming_(false), networkFormationStep_(0), networkFormationDeadline_(0), networkFormed_(false), networkPanId_(0),
     networkChannel_(0), observedNetworkChannel_(0), interviewRequestInFlight_(false), interviewSendAccepted_(false), interviewEzspSequence_(0), interviewNode_(0xffff),
-    interviewDeadline_(0), nextMessageTag_(1), coordinatorIeeeAddressRequested_(false), viewDirty_(true) {
+    interviewDeadline_(0), nextMessageTag_(1), coordinatorIeeeAddressRequested_(false), viewDirty_(true), matterInventoryDirty_(false), matterInventorySaveAt_(0) {
 #if MICROHAD_ZIGGURAT_ENABLED
     ziggurat_ = 0;
 #endif
@@ -363,6 +363,7 @@ Gateway::Gateway(const std::string& serialDevice, int serialBaud, const std::str
 
 Gateway::~Gateway() {
     stop();
+    if (matterInventoryDirty_) savePersistentState();
 #if MICROHAD_ZIGGURAT_ENABLED
     delete ziggurat_;
 #endif
@@ -473,27 +474,32 @@ bool Gateway::reconcileShelly(const std::vector<std::string>& ids, std::string* 
     return true;
 }
 
+std::string Gateway::resolveDeviceId(const std::string& id) const {
+    if (id.size() != 40 || id.substr(0,7) != "matter:") return id;
+    for (std::map<std::string, Device>::const_iterator it=devices_.begin();it!=devices_.end();++it)
+        if (it->second.source == "matter" && it->first.substr(0,40) == id && it->second.matterEndpoint >= 0 &&
+            (it->second.hasActor || it->second.hasLight || it->second.hasContact || it->second.hasTemperature || it->second.hasRemote)) return it->first;
+    return id;
+}
+
 bool Gateway::reconcileMatterDevices(const std::vector<MatterEndpoint>& endpoints, std::string* error) {
     if (error) error->clear();
     std::map<std::string, Device> replacement;
     for (unsigned long i = 0; i < endpoints.size(); ++i) {
         const MatterEndpoint& endpoint = endpoints[i];
-        if (endpoint.id.empty() || endpoint.node.empty() || endpoint.endpoint == 0xffff ||
-            endpoint.servers.size() > 64 || replacement.find(endpoint.id) != replacement.end()) {
+        if (endpoint.id.empty() || endpoint.node.empty() ||
+            endpoint.servers.size() > 64 || endpoint.clients.size() > 64 || replacement.find(endpoint.id) != replacement.end()) {
             if (error) *error = "invalid Matter endpoint snapshot";
             return false;
         }
-        const unsigned int supported[] = {6, 8, 59, 69, 91, 1026, 1029, 1037, 1066};
-        bool userFacing = false;
-        for (unsigned int cluster = 0; cluster < sizeof(supported) / sizeof(supported[0]); ++cluster)
-            userFacing = userFacing || std::find(endpoint.servers.begin(), endpoint.servers.end(), supported[cluster]) != endpoint.servers.end();
-        if (!userFacing) continue;
         Device device;
         device.source = "matter";
         device.externalId = endpoint.id;
         device.ieeeAddress = endpoint.id;
+        device.matterState = endpoint.state;
+        device.matterMetadataState = endpoint.endpoint == 0xffff ? (endpoint.metadataComplete ? "ready" : "missing") : "ready";
         device.matterNode = endpoint.node;
-        device.matterEndpoint = endpoint.endpoint;
+        device.matterEndpoint = endpoint.endpoint == 0xffff ? -1 : endpoint.endpoint;
         device.matterServers = endpoint.servers;
         device.matterClients = endpoint.clients;
         device.online = endpoint.online;
@@ -529,12 +535,16 @@ bool Gateway::reconcileMatterDevices(const std::vector<MatterEndpoint>& endpoint
     }
     bool changed = false;
     bool persistentChanged = false;
-    for (std::map<std::string, Device>::iterator it = devices_.begin(); it != devices_.end();) {
-        if (it->second.source == "matter" && replacement.find(it->first) == replacement.end()) {
-            devices_.erase(it++);
-            changed = true;
-            persistentChanged = true;
-        } else ++it;
+    // Only a verified node commit replaces its endpoint set. Identity-only
+    // bootstrap and incomplete interviews retain persisted endpoint aliases.
+    for (unsigned long index=0; index<endpoints.size(); ++index) {
+        if (!endpoints[index].metadataComplete || endpoints[index].endpoint != 0xffff) continue;
+        for (std::map<std::string, Device>::iterator it=devices_.begin(); it!=devices_.end();) {
+            if (it->second.source == "matter" && it->second.matterNode == endpoints[index].node &&
+                it->second.matterEndpoint >= 0 && replacement.find(it->first) == replacement.end()) {
+                devices_.erase(it++); changed = persistentChanged = true;
+            } else ++it;
+        }
     }
     for (std::map<std::string, Device>::iterator it = replacement.begin(); it != replacement.end(); ++it) {
         std::map<std::string, Device>::iterator existing = devices_.find(it->first);
@@ -545,10 +555,13 @@ bool Gateway::reconcileMatterDevices(const std::vector<MatterEndpoint>& endpoint
         } else {
             Device& current = existing->second;
             Device& fresh = it->second;
+            if (fresh.matterEndpoint < 0 && fresh.matterMetadataState == "missing" && current.matterMetadataState != "missing")
+                fresh.matterMetadataState = "stale";
             const time_t now = time(0);
-            const bool recentlyReported = current.online && current.lastSeen > 0 &&
+            const bool recentlyReported = current.matterEndpoint >= 0 && current.online && current.lastSeen > 0 &&
                 now >= current.lastSeen && now - current.lastSeen <= 60;
-            if (current.matterNode != fresh.matterNode || current.matterEndpoint != fresh.matterEndpoint ||
+            fresh.name = current.name;
+            if (current.matterState != fresh.matterState || current.matterNode != fresh.matterNode || current.matterEndpoint != fresh.matterEndpoint ||
                 current.matterServers != fresh.matterServers || current.matterClients != fresh.matterClients ||
                 current.kind != fresh.kind || current.hasRemote != fresh.hasRemote ||
                 current.name != fresh.name || current.hasLight != fresh.hasLight ||
@@ -587,13 +600,16 @@ bool Gateway::reconcileMatterDevices(const std::vector<MatterEndpoint>& endpoint
             }
             fresh.valueAlerts = current.valueAlerts;
             if (current.online != fresh.online || current.lastSeen != fresh.lastSeen ||
-                current.name != fresh.name || current.matterServers != fresh.matterServers ||
+                current.matterMetadataState != fresh.matterMetadataState || current.matterState != fresh.matterState || current.name != fresh.name || current.matterServers != fresh.matterServers ||
                 current.matterClients != fresh.matterClients) changed = true;
             current = fresh;
         }
     }
     if (changed) markViewDirty();
-    if (persistentChanged) savePersistentState();
+    if (persistentChanged && !matterInventoryDirty_) {
+        matterInventoryDirty_ = true;
+        matterInventorySaveAt_ = time(0) + 60;
+    }
     return true;
 }
 
@@ -665,6 +681,8 @@ bool Gateway::applyMatterReading(const MatterReading& reading, std::string* erro
     }
     device.lastSeen = time(0);
     device.online = true;
+    std::map<std::string, Device>::iterator node = devices_.find(device.ieeeAddress.substr(0,40));
+    if (node != devices_.end()) { node->second.online = true; node->second.lastSeen = device.lastSeen; }
     std::string historyValue;
     std::string historyUnit;
     unsigned char historyMetric = 0;
@@ -1236,6 +1254,7 @@ void Gateway::pollZiggurat() {
 #endif
 
 void Gateway::poll() {
+    if (matterInventoryDirty_ && time(0) >= matterInventorySaveAt_) savePersistentState();
     const std::string persistenceError = history_.takePersistenceError();
     if (!persistenceError.empty()) addLog(persistenceError);
 #if MICROHAD_ZIGGURAT_ENABLED
@@ -1705,7 +1724,7 @@ bool Gateway::setDeviceSettings(const std::string& ieeeAddress, const std::strin
                                 unsigned long sensorRefreshIntervalMinutes, std::string* error,
                                 bool hasContactTriggerSettings, bool contactTriggerMode,
                                 unsigned long contactTriggerCooldownSeconds) {
-    std::map<std::string, Device>::iterator it = devices_.find(ieeeAddress);
+    std::map<std::string, Device>::iterator it = devices_.find(resolveDeviceId(ieeeAddress));
     if (it == devices_.end()) {
         *error = "device not found";
         return false;
@@ -1781,7 +1800,7 @@ bool Gateway::setDeviceValueAlerts(const std::string& ieeeAddress,
     static const char* names[] = {"temperature", "humidity", "battery", "link_quality", "wifi_signal", "brightness", "power", "co2", "pm25"};
     static const double minimum[] = {-100, 0, 0, 0, 0, 0, 0, 0, 0};
     static const double maximum[] = {200, 100, 100, 255, 100, 100, 6553.5, 3.402823466e38, 3.402823466e38};
-    std::map<std::string, Device>::iterator found = devices_.find(ieeeAddress);
+    std::map<std::string, Device>::iterator found = devices_.find(resolveDeviceId(ieeeAddress));
     if (found == devices_.end()) { *error = "device not found"; return false; }
     Device& device = found->second;
     for (unsigned int i = 0; i < 9; ++i) {
@@ -1830,7 +1849,7 @@ bool Gateway::setDeviceValueAlerts(const std::string& ieeeAddress,
 }
 
 bool Gateway::refreshDevice(const std::string& ieeeAddress, std::string* error) {
-    std::map<std::string, Device>::const_iterator device = devices_.find(ieeeAddress);
+    std::map<std::string, Device>::const_iterator device = devices_.find(resolveDeviceId(ieeeAddress));
     if (device == devices_.end()) { *error = "device is unknown"; return false; }
     if (device->second.source == "shelly") return shellyTransport_ != 0 && shellyTransport_->refresh(device->second.externalId, error);
     if (device->second.source == "fritz_box") return shellyTransport_ != 0 && shellyTransport_->refreshFritzBox(device->second.externalId, error);
@@ -1881,7 +1900,7 @@ bool Gateway::endpointForCluster(const Device& device, unsigned short cluster, u
 }
 
 bool Gateway::identifyDevice(const std::string& ieeeAddress, std::string* error) {
-    std::map<std::string, Device>::const_iterator found = devices_.find(ieeeAddress);
+    std::map<std::string, Device>::const_iterator found = devices_.find(resolveDeviceId(ieeeAddress));
     if (found == devices_.end()) { *error = "device is unknown"; return false; }
     if (!online_ || !networkFormed_ || coordinatorInitializationStep_ != 0) {
         *error = "Zigbee network is not ready"; return false;
@@ -1908,7 +1927,7 @@ bool Gateway::identifyDevice(const std::string& ieeeAddress, std::string* error)
 }
 
 bool Gateway::queryDeviceConfiguration(const std::string& ieeeAddress, std::string* error) {
-    std::map<std::string, Device>::const_iterator device = devices_.find(ieeeAddress);
+    std::map<std::string, Device>::const_iterator device = devices_.find(resolveDeviceId(ieeeAddress));
     if (device == devices_.end()) { *error = "device is unknown"; return false; }
     if (!online_ || !networkFormed_ || coordinatorInitializationStep_ != 0) {
         *error = "Zigbee network is not ready"; return false;
@@ -1970,7 +1989,7 @@ void Gateway::sendZclLightCommand(unsigned short destination, unsigned char endp
 
 bool Gateway::setLightState(const std::string& ieeeAddress, const std::string& state, int brightnessPercent,
                             std::string* error) {
-    std::map<std::string, Device>::iterator found = devices_.find(ieeeAddress);
+    std::map<std::string, Device>::iterator found = devices_.find(resolveDeviceId(ieeeAddress));
     unsigned char endpoint;
     if (found == devices_.end() || !found->second.hasLight) { *error = "device is not a light"; return false; }
     if (!online_ || !networkFormed_ || coordinatorInitializationStep_ != 0) { *error = "Zigbee network is not ready"; return false; }
@@ -2812,7 +2831,7 @@ void Gateway::recordHistory(const Device& before, const Device& after, unsigned 
 }
 
 void Gateway::updateContactAlert(const std::string& ieeeAddress, bool wasOpen, bool hadKnownState) {
-    std::map<std::string, Device>::const_iterator device = devices_.find(ieeeAddress);
+    std::map<std::string, Device>::const_iterator device = devices_.find(resolveDeviceId(ieeeAddress));
     if (device == devices_.end() || !device->second.hasContact) return;
     if (device->second.contactTriggerMode) {
         if (hadKnownState && device->second.contactOpen != wasOpen && notificationsEnabled()) {
@@ -3020,9 +3039,53 @@ std::string GatewayView::statusJson() const {
          << (joiningPreparing ? "true" : "false")
          << ",\"notifications_enabled\":" << (notificationsEnabled ? "true" : "false")
          << ",\"devices\":[";
+    std::vector<Device> listedDevices;
+    std::map<std::string, std::vector<Device> > matterEndpoints;
+    std::map<std::string, Device> matterNodes;
+    for (unsigned long index=0; index<devices.size(); ++index) {
+        const Device& entry=devices[index];
+        if (entry.source != "matter") { listedDevices.push_back(entry); continue; }
+        const std::string id=entry.ieeeAddress.substr(0,40);
+        if (entry.matterEndpoint < 0) matterNodes[id]=entry;
+        else matterEndpoints[id].push_back(entry);
+    }
+    for (std::map<std::string, std::vector<Device> >::const_iterator it=matterEndpoints.begin(); it!=matterEndpoints.end(); ++it)
+        if (matterNodes.find(it->first)==matterNodes.end()) {
+            matterNodes[it->first]=it->second.front();
+            matterNodes[it->first].matterMetadataState="stale";
+        }
+    for (std::map<std::string, Device>::iterator it=matterNodes.begin(); it!=matterNodes.end(); ++it) {
+        Device node=it->second;
+        const std::vector<Device>& endpoints=matterEndpoints[it->first];
+        const Device* preferred=0;
+        for (unsigned long index=0;index<endpoints.size();++index)
+            if (endpoints[index].hasActor || endpoints[index].hasLight || endpoints[index].hasContact ||
+                endpoints[index].hasTemperature || endpoints[index].hasRemote) { preferred=&endpoints[index]; break; }
+        if (preferred) {
+            const std::string state=node.matterState, metadata=node.matterMetadataState;
+            const bool online=node.online;
+            node=*preferred; node.matterState=state; node.matterMetadataState=metadata; node.online=online;
+        }
+        for (unsigned long index=0;index<endpoints.size();++index) {
+            const Device& endpoint=endpoints[index];
+            node.hasActor = node.hasActor || endpoint.hasActor;
+            node.hasLight = node.hasLight || endpoint.hasLight;
+            node.hasRemote = node.hasRemote || endpoint.hasRemote;
+            node.hasContact = node.hasContact || endpoint.hasContact;
+            if (endpoint.hasTemperature) { node.hasTemperature=true; node.temperatureKnown=endpoint.temperatureKnown; node.temperatureCelsius=endpoint.temperatureCelsius; }
+            if (endpoint.hasHumidity) { node.hasHumidity=true; node.humidityKnown=endpoint.humidityKnown; node.humidityPercent=endpoint.humidityPercent; }
+            if (endpoint.hasAirQuality) { node.hasAirQuality=true; node.airQualityKnown=endpoint.airQualityKnown; node.airQuality=endpoint.airQuality; }
+            if (endpoint.hasCo2) { node.hasCo2=true; node.co2Known=endpoint.co2Known; node.co2Ppm=endpoint.co2Ppm; node.co2Unit=endpoint.co2Unit; }
+            if (endpoint.hasPm25) { node.hasPm25=true; node.pm25Known=endpoint.pm25Known; node.pm25MicrogramsM3=endpoint.pm25MicrogramsM3; node.pm25Unit=endpoint.pm25Unit; }
+        }
+        node.ieeeAddress=node.externalId=it->first;
+        node.component="node";
+        if (node.matterMetadataState.empty()) node.matterMetadataState=endpoints.empty()?"missing":"stale";
+        listedDevices.push_back(node);
+    }
     bool first = true;
-    for (unsigned long deviceIndex = 0; deviceIndex < devices.size(); ++deviceIndex) {
-        const Device& device = devices[deviceIndex];
+    for (unsigned long deviceIndex = 0; deviceIndex < listedDevices.size(); ++deviceIndex) {
+        const Device& device = listedDevices[deviceIndex];
         if (!first) json << ',';
         first = false;
         json << "{\"id\":\"" << jsonEscape(device.ieeeAddress) << "\",\"source\":\"" << jsonEscape(device.source)
@@ -3087,6 +3150,8 @@ std::string GatewayView::statusJson() const {
              << "\",\"model_id\":\"" << jsonEscape(device.modelId)
              << '\"';
         if (device.source == "matter") {
+            json << ",\"commissioning_state\":\"" << jsonEscape(device.matterState)
+                 << "\",\"endpoint_metadata_state\":\"" << jsonEscape(device.matterMetadataState) << '"';
             json << ",\"online\":" << (device.online ? "true" : "false")
                  << ",\"matter_node\":\"" << jsonEscape(device.matterNode)
                  << "\",\"matter_endpoint\":" << device.matterEndpoint
@@ -3180,6 +3245,19 @@ std::string GatewayView::statusJson() const {
                  << ",\"descriptor_capability\":" << static_cast<unsigned int>(d[12]) << '}';
         } else json << "null";
         json << ",\"endpoint_descriptors\":[";
+        if (device.source == "matter") {
+            const std::vector<Device>& endpoints=matterEndpoints[device.ieeeAddress];
+            for (unsigned long index=0;index<endpoints.size();++index) {
+                const Device& endpoint=endpoints[index];
+                if (index) json << ',';
+                json << "{\"endpoint\":" << endpoint.matterEndpoint << ",\"id\":\"" << jsonEscape(endpoint.ieeeAddress)
+                     << "\",\"name\":\"" << jsonEscape(endpoint.name) << "\",\"input_clusters\":[";
+                for (unsigned long c=0;c<endpoint.matterServers.size();++c) { if(c)json<<','; json<<endpoint.matterServers[c]; }
+                json << "],\"output_clusters\":[";
+                for (unsigned long c=0;c<endpoint.matterClients.size();++c) { if(c)json<<','; json<<endpoint.matterClients[c]; }
+                json << "]}";
+            }
+        }
         for (unsigned long endpointIndex = 0; endpointIndex < device.endpoints.size(); ++endpointIndex) {
             const EndpointDescriptor& endpoint = device.endpoints[endpointIndex];
             if (endpointIndex != 0) json << ',';
@@ -3445,7 +3523,8 @@ void Gateway::savePersistentState() const {
     std::string ignored;
     unsigned long i;
     for (i = 0; i < saved.size(); ++i) clearVolatileDeviceValues(&saved[i]);
-    saveDevices(runtimeDirectory_ + "/devices.json", saved, &ignored);
+    if (saveDevices(runtimeDirectory_ + "/devices.json", saved, &ignored)) matterInventoryDirty_ = false;
+    else matterInventorySaveAt_ = time(0) + 60;
 }
 
 void Gateway::loadScenes() {
@@ -4616,7 +4695,7 @@ void Gateway::registerNode(unsigned short nodeId, const unsigned char* eui64) {
 }
 
 int Gateway::allocateIasZoneId(const std::string& ieeeAddress) {
-    std::map<std::string, Device>::iterator current = devices_.find(ieeeAddress);
+    std::map<std::string, Device>::iterator current = devices_.find(resolveDeviceId(ieeeAddress));
     int candidate;
     if (current != devices_.end() && current->second.iasZoneId >= 0 && current->second.iasZoneId <= 254) {
         return current->second.iasZoneId;
@@ -4650,7 +4729,7 @@ void Gateway::sendIasEnrollResponse(unsigned short destination, unsigned char so
 }
 
 bool Gateway::reconfigureDevice(const std::string& ieeeAddress, std::string* error) {
-    std::map<std::string, Device>::iterator device = devices_.find(ieeeAddress);
+    std::map<std::string, Device>::iterator device = devices_.find(resolveDeviceId(ieeeAddress));
     if (device == devices_.end() || device->second.source != "zigbee") {
         *error = "device is not a known Zigbee device"; return false;
     }

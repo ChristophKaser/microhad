@@ -151,8 +151,8 @@ fn dispatch<C: Crypto>(
     }
     let decoded = Request::decode(request.opcode, &request.payload);
     let payload = match decoded {
-        Ok(Request::MatterStatus) => format!("{{\"enabled\":true,\"available\":true,\"controller_initialized\":true,\"fabric_ready\":{},\"state\":\"{}\"}}",
-            fabric_ready, if thread.is_some() { "running" } else { "awaiting_coordinator" }),
+        Ok(Request::MatterStatus) => { devices.subscribe_inventory(peer); format!("{{\"enabled\":true,\"available\":true,\"controller_initialized\":true,\"fabric_ready\":{},\"state\":\"{}\"}}",
+            fabric_ready, if thread.is_some() { "running" } else { "awaiting_coordinator" }) },
         Ok(Request::ThreadStatus) => serde_json::to_string(&lifecycle.snapshot()).ok()?,
         Ok(Request::Thread(body)) => {
             let now = Instant::now();
@@ -190,8 +190,6 @@ fn dispatch<C: Crypto>(
             Request::BleWriteComplete(_))) => String::from_utf8(controller.handle(
                 body, peer, lifecycle, entropy, Instant::now(),
             )?).ok()?,
-        Ok(Request::Device(micro_thread_matter_daemon::control::DeviceRequest::Snapshot { cursor, revision, .. })) =>
-            String::from_utf8(micro_thread_matter_daemon::responses::reply(devices.page(cursor, revision))?).ok()?,
         Ok(Request::Device(body @ micro_thread_matter_daemon::control::DeviceRequest::Read { .. })) =>
             String::from_utf8(micro_thread_matter_daemon::responses::reply(devices.submit(
                 Request::Device(body), lifecycle.snapshot().attached && thread.is_some(),
@@ -413,6 +411,7 @@ fn run(
                 &mut devices,
             )
         })?;
+        devices.publish_inventory(&mut ipc)?;
         publish_thread(&mut ipc, &mut subscribers, &lifecycle)?;
         if let Some(channel) = lifecycle.boot_channel(Instant::now()) {
             break channel;
@@ -484,6 +483,7 @@ fn run(
         );
         devices.publish_reports(&mut ipc)?;
         controller.publish(&mut ipc, Instant::now())?;
+        devices.publish_inventory(&mut ipc)?;
         publish_thread(&mut ipc, &mut subscribers, &lifecycle)?;
         if controller.fatal() {
             return Err("Matter catalog storage failed".into());

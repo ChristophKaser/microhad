@@ -271,7 +271,9 @@ bool saveDevices(const std::string& filename, const std::vector<Device>& devices
                << "\",\"endpoint_descriptors\":\"" << encodeEndpointDescriptors(device.endpoints)
                << "\",\"node_descriptor\":\"" << hexEncode(device.nodeDescriptor) << '"';
         if (device.source == "matter") {
-            output << ",\"matter_node\":\"" << jsonEscape(device.matterNode)
+            output << ",\"matter_state\":\"" << jsonEscape(device.matterState)
+                   << "\",\"matter_metadata_state\":\"" << jsonEscape(device.matterMetadataState) << '"'
+                   << ",\"matter_node\":\"" << jsonEscape(device.matterNode)
                    << "\",\"matter_endpoint\":" << device.matterEndpoint
                    << ",\"matter_servers\":\"" << encodeMatterServers(device.matterServers)
                    << "\",\"matter_clients\":\"" << encodeMatterServers(device.matterClients) << '"';
@@ -424,12 +426,16 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
             value = numericField(line, "matter_endpoint");
             if (value != 0) device.matterEndpoint = static_cast<int>(strtol(value, 0, 10));
             jsonStringField(line, "matter_node", &device.matterNode);
+            jsonStringField(line, "matter_state", &device.matterState);
+            if (device.source == "matter" && device.matterState.empty()) device.matterState = "complete";
+            jsonStringField(line, "matter_metadata_state", &device.matterMetadataState);
+            if (device.source == "matter" && device.matterMetadataState != "missing") device.matterMetadataState = "stale";
             jsonStringField(line, "air_quality", &device.airQuality);
             jsonStringField(line, "co2_unit", &device.co2Unit);
             jsonStringField(line, "pm25_unit", &device.pm25Unit);
             if (device.source == "matter") {
                 std::string encodedServers;
-                if (device.matterNode.size() != 16 || device.matterEndpoint < 0 ||
+                if (device.matterNode.size() != 16 || device.matterEndpoint < -1 ||
                     !jsonStringField(line, "matter_servers", &encodedServers) ||
                     !decodeMatterServers(encodedServers, &device.matterServers)) {
                     *error = "invalid Matter endpoint state";

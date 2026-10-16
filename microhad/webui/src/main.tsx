@@ -101,13 +101,7 @@ function App() {
     if (!await loadOlderLogs()) preserveLogPosition.current = null
   }
   const matterController = useMatterDevices()
-  const catalogStatus = status ? {
-    ...status,
-    devices: [...new Map([
-      ...status.devices.map(device => [device.id, device] as const),
-      ...matterController.devices.map(device => [device.id, { ...status.devices.find(item => item.id === device.id), ...device }] as const),
-    ]).values()],
-  } : null
+  const catalogStatus = status
   const [dialog, setDialog] = useState<'network' | 'scenes' | 'remotes' | 'text' | 'push' | null>(null)
   const [selected, setSelected] = useState<Device | null>(null)
   const [detailsDevice, setDetailsDevice] = useState<Device | null>(null)
@@ -157,7 +151,7 @@ function App() {
   const action = async (url: string, body = '') => {
     try {
       const deviceId = url.startsWith('/api/devices/') ? decodeURIComponent(url.slice('/api/devices/'.length).split('/')[0]) : ''
-      const matterDevice = matterController.devices.find(device => device.id === deviceId)
+      const matterDevice = status?.devices.find(device => device.id === deviceId)
       const result: { message?: string } = matterDevice?.source === 'matter'
         ? await matterController.execute(matterDevice, url, body).then(() => ({}))
         : await post<{ message?: string }>(url, body)

@@ -57,6 +57,7 @@ fn shape(context: &str, value: &Cbor, kind: u8, opcode: u8, event: &str) -> Stri
             "ble_write" => "ble-write",
             "matter_report" => "reading",
             "matter_button" => "button",
+            "matter_inventory" => "inventory",
             _ => "",
         }
         .into(),

@@ -78,37 +78,11 @@ def main():
             assert fixture.status()['coordinator_backend'] == 'ziggurat'
             release.touch()
             wait_for(lambda: reports_sent.exists(), timeout=15)
-            assert not any(device.get('source') == 'matter' for device in fixture.status()['devices']), \
-                'CASE reports must arrive before the first native endpoint snapshot'
-            time.sleep(.1)
-            accepted = fixture.request('/api/matter/devices/snapshot',
-                                       json.dumps({'schema': 1, 'action': 'snapshot'}).encode())
-            assert accepted['ok'] and accepted['state'] == 'queued', accepted
-
-            def snapshot_complete():
-                job = fixture.request('/api/matter/jobs/' + str(accepted['job']))
-                assert job['state'] != 'failed', job
-                return job if job['state'] == 'complete' else None
-
-            snapshot = wait_for(snapshot_complete)['response']
-            assert snapshot['ok'], snapshot
-            while snapshot['result']['next_cursor'] is not None and not any(
-                    item['endpoint'] == 1 for item in snapshot['result']['devices']):
-                accepted = fixture.request('/api/matter/devices/snapshot', json.dumps({
-                    'schema': 1, 'action': 'snapshot',
-                    'cursor': snapshot['result']['next_cursor'],
-                    'revision': snapshot['result']['revision']}).encode())
-                assert accepted['ok'] and accepted['state'] == 'queued', accepted
-                job_id = accepted['job']
-
-                def next_snapshot_complete():
-                    job = fixture.request('/api/matter/jobs/' + str(job_id))
-                    assert job['state'] != 'failed', job
-                    return job if job['state'] == 'complete' else None
-
-                snapshot = wait_for(next_snapshot_complete)['response']
-                assert snapshot['ok'], snapshot
-            assert any(item['endpoint'] == 1 for item in snapshot['result']['devices']), snapshot
+            # Inventory is now pushed independently of the browser. Release
+            # reports and verify the ordinary status cache consumes both.
+            release.touch()
+            wait_for(lambda: reports_sent.exists() or probe.poll() is not None, timeout=30)
+            assert reports_sent.exists(), 'CASE reports were not published'
 
             # The fixture reports Boolean State true: contact made (closed).
             def reported_device():

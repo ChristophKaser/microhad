@@ -23,7 +23,6 @@ and become unsigned integers and byte strings on the private wire.
 | `POST /api/matter/commissioning/status` | `session`, optional boolean `subscribe` | Submit a session status call; default subscription is false |
 | `POST /api/matter/commissioning/cancel` | `session` | Submit cancellation; retained cancelled sessions are idempotent |
 | `GET /api/matter/jobs/<id>` | None | Read an ephemeral native call snapshot without contacting the service |
-| `POST /api/matter/devices/snapshot` | `action:"snapshot"`, optional `cursor`/`revision` | Queue a validated endpoint snapshot page; poll its job for the response |
 | `POST /api/matter/devices/read` | `node`, `endpoint`, `cluster`, `attribute:0` | Queue a capability-checked actor or sensor read |
 | `POST /api/matter/devices/command` | OnOff: `command:"on"|"off"|"toggle"`, `node`, `endpoint`; Level: `command:"move_to_level"`, `node`, `endpoint`, `level`, `transition_deciseconds` | Queue a capability-checked command; result is a separate CASE readback |
 
@@ -68,33 +67,29 @@ worker. Synthetic fixtures cover commissioning, BLE callbacks, Thread operations
 CASE reads/commands and report handoff. Physical accessory acceptance remains
 pending; successful request admission is not proof of commissioning or delivery.
 
-## Device snapshot pages
+## Cached common device inventory
 
-`POST /api/matter/devices/snapshot` uses the same bounded queue and job polling
-as commissioning. Start with `{"schema":1,"action":"snapshot"}`. The completed
-job's `response.result` contains `revision`, `devices` (zero or one endpoint)
-and nullable `next_cursor`. Continue with the returned cursor and revision.
-Native requests restrict cursors to 0–2047 and require a nonzero canonical
-revision for nonzero cursors. A changed revision is delivered as a completed
-job whose response is `{"schema":1,"ok":false,"error":"stale_revision"}`;
-restart pagination explicitly. There is no automatic replay or full-catalog
-HTTP aggregation.
+`GET /api/status` returns Matter nodes alongside every other device in the
+normal `devices` array. Each physical node has one stable ID,
+`matter:<fabric>:<node>`. All endpoints, including administrative and unsupported
+endpoints, are included in `endpoint_descriptors` with 16-bit endpoint numbers
+and 32-bit `input_clusters` / `output_clusters`. Nested endpoint IDs remain valid
+for commands, settings and history. The node ID selects its default usable endpoint
+for settings and history; explicit node/endpoint operation targets are unchanged.
 
-Entries contain node/catalog state, online flag, nullable stable endpoint ID,
-nullable endpoint number, up to 64 advertised server clusters and an optional
-bounded client-cluster list. An undiscovered
-node is visible with null endpoint/ID and no clusters. Cached descriptors may
-remain when offline. Availability is based on successful descriptor discovery,
-not a guarantee the next command will succeed. No snapshot request waits for
-new accessory reads or writes flash.
+`commissioning_state` distinguishes complete, commissioning and recovery nodes.
+`endpoint_metadata_state` is `missing`, `stale` or `ready`. Known nodes remain
+visible during discovery and service outages. Cached metadata is restored from
+`devices.json` immediately; background interviews update it independently of HTTP.
+Listing performs no radio or IPC calls and creates no jobs. The old snapshot
+route is removed. Jobs remain for commissioning, Thread setup and operations.
 
-Before returning a successful job response, native validation checks exact
-fields, bounded arrays, canonical nonzero IDs, endpoint ID/node/number agreement,
-cluster ordering/uniqueness, Descriptor support and online/catalog consistency.
-Malformed peer replies fail the job and invalidate the service connection.
-Matter-disabled builds return 404 for this route. Discovered capabilities,
-readings and reports feed the shared device catalog. Snapshot pagination does
-not wait for new accessory traffic. See [dashboard usage](matter-dashboard.md).
+The daemon automatically streams bounded identity, endpoint and node-commit
+records to its native status subscriber. Identities arrive first; only a complete
+verified node update replaces endpoints. Reconnects retain the previous cache.
+Structural changes are coalesced for 60 seconds and flushed at clean shutdown.
+Unchanged interviews, availability, reports and status reads do not schedule
+metadata writes. Existing endpoint records preserve settings/history aliases.
 
 ## Device reads and commands
 

@@ -172,4 +172,7 @@ pub(super) const FIELDS: &[(&str, &str, &str)] = &[
     ("request11:move_to_level", "endpoint", ""),
     ("request11:move_to_level", "level", ""),
     ("request11:move_to_level", "transition_deciseconds", ""),
+    ("inventory", "kind", ""),
+    ("inventory", "device", "device"),
+    ("inventory", "endpoint_count", ""),
 ];

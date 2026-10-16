@@ -31,9 +31,10 @@ struct MatterEndpoint {
     std::string state;
     unsigned short endpoint;
     bool online;
+    bool metadataComplete;
     std::vector<unsigned int> servers;
     std::vector<unsigned int> clients;
-    MatterEndpoint() : endpoint(0), online(false) {}
+    MatterEndpoint() : endpoint(0), online(false), metadataComplete(false) {}
 };
 
 struct MatterReading {
@@ -135,6 +136,8 @@ struct Device {
     std::string softwareBuildId; /* read during interview; persisted for remote binding compatibility */
     std::string configuredSignature; /* last successfully applied reporting/binding configuration */
     std::vector<EndpointDescriptor> endpoints;
+    std::string matterState;
+    std::string matterMetadataState;
     std::string matterNode;
     int matterEndpoint;
     bool online;
@@ -553,6 +556,8 @@ private:
     std::deque<std::string> logs_;
 #endif
     bool viewDirty_;
+    mutable bool matterInventoryDirty_;
+    mutable time_t matterInventorySaveAt_;
     bool configureSerial(std::string* error);
     bool writeBytes(const std::vector<unsigned char>& bytes, bool sensitive = false);
     void sendAshReset();
@@ -668,6 +673,7 @@ private:
     void addHexLog(const std::string& direction, const unsigned char* bytes, unsigned long length);
     void loadState();
     void saveState() const;
+    std::string resolveDeviceId(const std::string& id) const;
     void savePersistentState() const;
 };
 

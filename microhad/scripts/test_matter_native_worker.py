@@ -121,19 +121,7 @@ class MatterPeer:
                                     result = dict(schema=1, ok=False, error='malformed')
                         elif opcode == 10:
                             decoded = json.loads(body)
-                            if decoded['action'] == 'snapshot':
-                                cursor = decoded.get('cursor', 0)
-                                revision = '0000000000000007'
-                                if decoded.get('revision', revision) != revision:
-                                    result = dict(schema=1, ok=False, error='stale_revision')
-                                else:
-                                    endpoint = cursor
-                                    result = dict(schema=1, ok=True, result=dict(revision=revision,
-                                        devices=[dict(node='0000000000000002', state='complete', online=True,
-                                            id=f'matter:0000000000000001:0000000000000002:{endpoint:04x}',
-                                            endpoint=endpoint, servers=[6, 29, 1026])],
-                                        next_cursor=1 if cursor == 0 else None))
-                            elif decoded['action'] == 'read':
+                            if decoded['action'] == 'read':
                                 assert decoded['cluster'] in (6, 8) and decoded['attribute'] == 0
                                 job = self.next_operation_job
                                 self.next_operation_job += 1
@@ -208,7 +196,7 @@ class MatterPeer:
                             result = thread
                         if opcode in (1, 2) and self.stall_next_status:
                             self.stall_next_status = False
-                            time.sleep(2.5)
+                            time.sleep(11)
                             break
                         if self.malformed_next_header:
                             mode = self.malformed_next_header
@@ -265,6 +253,16 @@ class MatterPeer:
                             overflow_frame = matter_wire.frame(12, 2, 0, overflow_payload)
                             for _ in range(9):
                                 wire.extend(overflow_frame)
+                        if opcode == 1:
+                            base = dict(node='0000000000000002', state='complete', online=True,
+                                id='matter:0000000000000001:0000000000000002',endpoint=None,servers=[],clients=[])
+                            records=[dict(kind='identity',device=base,endpoint_count=2)]
+                            for endpoint, servers in [(0,[29]),(1,[6,8,29,1026])]:
+                                records.append(dict(kind='endpoint',endpoint_count=2,device=dict(base,
+                                    id=base['id']+f':{endpoint:04x}',endpoint=endpoint,servers=servers)))
+                            records.append(dict(kind='commit',device=base,endpoint_count=2))
+                            for record in records:
+                                wire.extend(matter_wire.frame(12,2,0,dict(schema=1,event='matter_inventory',data=record)))
                         if not self.send(peer, wire):
                             break
                         if event:
@@ -629,39 +627,22 @@ def relay_tests(fixture, matter):
 
 
 
-def device_snapshot_http(fixture, real):
-    def page(body):
-        accepted = fixture.request('/api/matter/devices/snapshot', json.dumps(body).encode())
-        assert accepted['ok'] and accepted['state'] == 'queued'
-        def finished():
-            job = fixture.request('/api/matter/jobs/'+str(accepted['job']))
-            assert job['state'] != 'failed', job
-            return job if job['state'] == 'complete' else None
-        wait_for(finished)
-        return finished()['response']
-    for bad in (dict(schema=1, action='snapshot', cursor=1),
-                dict(schema=1, action='snapshot', revision='0000000000000000'),
-                dict(schema=1, action='snapshot', cursor=2048),
-                dict(schema=1, action='read'),
-                dict(schema=1, action='snapshot', secret='discard')):
-        try:
-            page(bad)
-        except urllib.error.HTTPError as error:
-            assert error.code == 400 and json.load(error)['error'] == 'malformed'
-        else:
-            raise AssertionError('Invalid snapshot request accepted')
-    first = page(dict(schema=1, action='snapshot'))
-    assert first['ok'] and len(first['result']['revision']) == 16
-    if real:
-        assert first['result']['devices'] == [] and first['result']['next_cursor'] is None
+def device_inventory_http(fixture, real):
+    try:
+        fixture.request('/api/matter/devices/snapshot', b'{"schema":1,"action":"snapshot"}')
+    except urllib.error.HTTPError as error:
+        assert error.code in (400, 404)
     else:
-        assert first['result']['devices'][0]['endpoint'] == 0
-        final = page(dict(schema=1, action='snapshot', cursor=first['result']['next_cursor'],
-                          revision=first['result']['revision']))
-        assert final['result']['devices'][0]['endpoint'] == 1
-        assert final['result']['next_cursor'] is None
-    changed = '0000000000000001' if first['result']['revision'] != '0000000000000001' else '0000000000000002'
-    assert page(dict(schema=1, action='snapshot', revision=changed))['error'] == 'stale_revision'
+        raise AssertionError('Removed listing route still exists')
+    if real:
+        assert not any(device.get('source') == 'matter' for device in fixture.status()['devices'])
+    else:
+        def inventory():
+            devices=[device for device in fixture.status()['devices'] if device.get('source')=='matter']
+            return devices if len(devices)==1 and devices[0].get('endpoint_metadata_state')=='ready' else None
+        devices=wait_for(inventory)
+        assert devices[0]['id']=='matter:0000000000000001:0000000000000002'
+        assert [entry['endpoint'] for entry in devices[0]['endpoint_descriptors']]==[0,1]
 
 
 def device_operations_http(fixture):
@@ -810,7 +791,7 @@ def main():
                 matter.malformed_next_header = malformed_header
                 wait_for(matter_unavailable)
                 wait_for(lambda: fixture.request('/api/matter/status')['state'] == 'running')
-        device_snapshot_http(fixture, real)
+        device_inventory_http(fixture, real)
         if real:
             device_dispatch_http(fixture)
         else:
@@ -826,7 +807,7 @@ def main():
                 devices = fixture.status()['devices']
                 return next((device for device in devices
                     if device['source'] == 'matter' and device['matter_node'] == '0000000000000002' and
-                    device['matter_endpoint'] == 1 and device['actor_known'] and device['actor_on'] and
+                    device['matter_endpoint'] == 1 and device['light_known'] and device['light_on'] and
                     device['sensor_values']['temperature'] == dict(value=21.5, unit='°C', quality='measured')), None)
             assert wait_for(report_applied), 'Unsolicited Matter reports did not update shared device state'
         begin = time.monotonic()

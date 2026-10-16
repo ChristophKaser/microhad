@@ -339,6 +339,14 @@ impl IpcServer {
         self.clients[index].responses.push_back(encoded);
         Ok(true)
     }
+    /// Inventory has its own paced publisher. Reserve room for replies and
+    /// commissioning events and retry later instead of disconnecting a peer.
+    pub fn publish_inventory(&mut self, peer: u64, event: &Frame) -> io::Result<bool> {
+        if !self.clients.iter().any(|client| client.id == peer && client.responses.len() < 2) {
+            return Ok(false);
+        }
+        self.publish(peer, event)
+    }
     /// Broadcast a validated state event to every live IPC client. Clients with
     /// expired deadlines or full output queues are retired independently.
     pub fn publish_all(&mut self, event: &Frame) -> io::Result<usize> {

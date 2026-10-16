@@ -27,7 +27,7 @@ embedded as the private message body.
 Receivers permit at most **16 nested containers**, **256 pairs per map**, and
 **512 entries per array**, counting the envelope and body containers. The
 independent 2048-byte frame bound still applies. Known operations retain their
-stricter limits, such as one endpoint per snapshot page and 244 BLE bytes.
+stricter limits, such as one endpoint per inventory record and 244 BLE bytes.
 Container sizes are checked before allocation. Maps have unique UTF-8 text keys.
 Indefinite lengths, tags, undefined/simple extensions, nonfinite floats, malformed
 encoding, and trailing data are rejected. Known integer fields require integers;
@@ -97,3 +97,13 @@ Representative complete frames, including their length prefix:
 | Measurement event | 192 |
 
 The shared vectors reproduce these CBOR sizes.
+
+## Automatic inventory
+
+A Matter status request subscribes its persistent native peer to inventory
+updates. Opcode 12 `matter_inventory` events carry `kind`, `device` and
+`endpoint_count`. Identity records for all catalog nodes precede endpoint
+records. A node commit is accepted only after the declared number of endpoint
+records; interrupted updates retain the previous verified metadata. The publisher
+paces records, reserves reply capacity and retries backpressure. A new peer
+receives a fresh bootstrap. No public listing request, job or cursor is involved.

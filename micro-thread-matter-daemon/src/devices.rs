@@ -63,6 +63,21 @@ pub struct Endpoint {
     pub clients: Vec<u32>,
 }
 
+/// Bounded inventory records. Identity records precede endpoint records; a
+/// node commit makes its verified endpoint set atomic at the receiver.
+#[derive(Serialize)]
+pub struct InventoryRecord {
+    pub kind: &'static str,
+    pub device: Device,
+    pub endpoint_count: usize,
+}
+struct InventoryPeer {
+    peer: u64,
+    revision: u64,
+    index: usize,
+    next: Instant,
+}
+
 pub struct Snapshot {
     pub node: u64,
     pub endpoints: Vec<Endpoint>,
@@ -172,6 +187,7 @@ pub struct Manager<'a, C: Crypto> {
     snapshots: Vec<Snapshot>,
     work: Option<(u64, Instant, Work<'a>)>,
     revision: u64,
+    inventory_peers: Vec<InventoryPeer>,
     seen: Vec<crate::catalog::Node>,
     next_job: u64,
     queued: VecDeque<QueuedOperation>,
@@ -256,6 +272,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             snapshots: Vec::new(),
             work: None,
             revision,
+            inventory_peers: Vec::new(),
             seen: Vec::new(),
             next_job,
             queued: VecDeque::new(),
@@ -271,6 +288,70 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             reports: VecDeque::new(),
             button_events: VecDeque::new(),
         })
+    }
+    pub fn subscribe_inventory(&mut self, peer: u64) {
+        if !self.inventory_peers.iter().any(|entry| entry.peer == peer) {
+            self.inventory_peers.push(InventoryPeer {
+                peer, revision: 0, index: 0, next: Instant::now(),
+            });
+        }
+    }
+    pub fn publish_inventory(&mut self, ipc: &mut crate::service::IpcServer) -> std::io::Result<()> {
+        let nodes = self.catalog.nodes();
+        if nodes != self.seen {
+            self.seen = nodes.clone();
+            self.changed();
+        }
+        self.inventory_peers.retain(|entry| ipc.has_peer(entry.peer));
+        let now = Instant::now();
+        // No retained full-catalog frames: generate at most one bounded frame
+        // per peer per tick, and respect output backpressure without dropping it.
+        for index in 0..self.inventory_peers.len() {
+            if now < self.inventory_peers[index].next { continue; }
+            if self.inventory_peers[index].revision != self.revision {
+                self.inventory_peers[index].revision = self.revision;
+                self.inventory_peers[index].index = 0;
+            }
+            let offset = self.inventory_peers[index].index;
+            let mut record = None;
+            let mut cursor = 0;
+            for identity_only in [true, false] {
+                for node in &nodes {
+                    let snapshot = self.snapshots.iter().find(|entry| entry.node == node.id);
+                    let endpoints = snapshot.map(|entry| entry.endpoints.as_slice()).unwrap_or(&[]);
+                    let count = if identity_only { 1 } else { endpoints.len() + 1 };
+                    if offset >= cursor && offset < cursor + count {
+                        let endpoint = if identity_only { None } else { endpoints.get(offset - cursor) };
+                        record = Some(InventoryRecord {
+                            kind: if identity_only { "identity" } else if endpoint.is_some() { "endpoint" } else { "commit" },
+                            endpoint_count: endpoints.len(),
+                            device: Device {
+                                node: crate::control::Id(node.id),
+                                state: match node.phase { Phase::Complete => "complete", Phase::RecoveryRequired => "recovery_required", _ => "commissioning" },
+                                online: node.phase == Phase::Complete && snapshot.is_some_and(|entry| entry.online),
+                                id: Some(endpoint.map(|entry| self.catalog.endpoint_id(node.id, entry.id).unwrap())
+                                    .unwrap_or_else(|| self.catalog.endpoint_id(node.id, 0).unwrap()[..40].to_owned())),
+                                endpoint: endpoint.map(|entry| entry.id),
+                                servers: endpoint.map(|entry| entry.servers.clone()).unwrap_or_default(),
+                                clients: endpoint.map(|entry| entry.clients.clone()).unwrap_or_default(),
+                            },
+                        });
+                        break;
+                    }
+                    cursor += count;
+                }
+                if record.is_some() { break; }
+            }
+            if let Some(record) = record {
+                let event = crate::responses::event(crate::responses::Event::MatterInventory(&record))
+                    .ok_or_else(|| std::io::Error::other("inventory exceeds IPC bound"))?;
+                if ipc.publish_inventory(self.inventory_peers[index].peer, &event)? {
+                    self.inventory_peers[index].index += 1;
+                    self.inventory_peers[index].next = now + Duration::from_millis(20);
+                }
+            }
+        }
+        Ok(())
     }
     pub fn snapshots(&self) -> &[Snapshot] {
         &self.snapshots
@@ -360,7 +441,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         let now = Instant::now();
         let endpoints = vec![Endpoint {
             id: 1,
-            servers: vec![6, 8, 69, 91, 1026, 1029, 1037, 1066],
+            servers: vec![6, 8, 29, 69, 91, 1026, 1029, 1037, 1066],
             clients: vec![],
         }];
         if let Some(snapshot) = self.snapshots.iter_mut().find(|entry| entry.node == node) {
@@ -593,6 +674,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             self.changed();
         }
     }
+    #[cfg(any(test, feature = "controller-probe"))]
     pub fn page(
         &mut self,
         cursor: u16,
@@ -974,7 +1056,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             .snapshots
             .iter()
             .filter(|s| s.next <= now && self.node_awake(s.node, now))
-            .min_by_key(|s| s.next)
+            .min_by_key(|s| (self.catalog.nodes().iter().find(|node| node.id == s.node).is_none_or(|node| node.phase != Phase::Complete), s.next))
         {
             self.work = Some((
                 snapshot.node,
@@ -1263,11 +1345,13 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         if report.fabric != self.fabric.get() {
             return;
         }
-        let Some(subscription) = self.subscriptions.iter_mut().find(|subscription| {
+        let Some(index) = self.subscriptions.iter().position(|subscription| {
             subscription.key.node == report.node && subscription.id == Some(report.subscription_id)
-        }) else {
-            return;
-        };
+        }) else { return; };
+        let became_online = self.snapshots.iter_mut().find(|snapshot| snapshot.node == report.node)
+            .is_some_and(|snapshot| { let changed = !snapshot.online; snapshot.online = true; changed });
+        if became_online { self.changed(); }
+        let subscription = &mut self.subscriptions[index];
         // max_int is the publisher's report/keepalive cadence, not a lease
         // that requires periodic re-subscription. Only re-establish after
         // reports actually stop arriving.
@@ -1399,6 +1483,29 @@ pub async fn discover<C: Crypto>(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn inventory_maximum_endpoint_fits_wire_and_round_trips() {
+        let record = super::InventoryRecord {
+            kind: "endpoint", endpoint_count: super::MAX_ENDPOINTS,
+            device: super::Device {
+                node: crate::control::Id(2), state: "complete", online: true,
+                id: Some("matter:0000000000000001:0000000000000002:fffe".into()),
+                endpoint: Some(65534),
+                servers: (u32::MAX-63..=u32::MAX).collect(),
+                clients: (u32::MAX-63..=u32::MAX).collect(),
+            },
+        };
+        let event=crate::responses::event(crate::responses::Event::MatterInventory(&record)).unwrap();
+        let encoded=event.encode().unwrap();
+        assert!(encoded.len()<=crate::ipc::MAX_PAYLOAD+2);
+        let mut decoder=crate::ipc::Decoder::default();
+        decoder.feed(&encoded).unwrap();
+        let decoded=decoder.pop().unwrap();
+        let json: serde_json::Value=serde_json::from_slice(&decoded.payload).unwrap();
+        assert_eq!(json["data"]["device"]["servers"][63],u32::MAX);
+        assert_eq!(json["data"]["device"]["endpoint"],65534);
+    }
+
     use super::*;
     #[test]
     fn manager_report_queue_drains_only_after_ipc_delivery() {
