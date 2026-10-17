@@ -142,18 +142,17 @@ export function MatterPanel() {
     const detector = new window.BarcodeDetector({ formats: ['qr_code'] })
     video.srcObject = cameraStream.current
     void video.play().catch(() => { if (active.current) { setScannerMessage('The camera preview could not start. Enter the Matter setup code instead.'); stopScanning() } })
-    let detecting = false
-    const detect = () => {
+    const detect = async () => {
       if (!scannerActive.current) return
-      if (!detecting && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
-        detecting = true
-        void detector.detect(video).then(codes => {
+      if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+        try {
+          const codes = await detector.detect(video)
           const value = codes.find(code => typeof code.rawValue === 'string' && matterQrCode(code.rawValue))?.rawValue
           if (value && scannerActive.current) { setSessionInput(value); setScannerMessage('Matter QR code scanned. Select Commission with this browser to continue.'); stopScanning() }
           else if (codes.length && scannerActive.current) setScannerMessage('That QR code is not a supported Matter setup code. Keep scanning.')
-        }).catch(() => {
+        } catch {
           if (scannerActive.current) { setScannerMessage('QR scanning failed. Enter the Matter setup code instead.'); stopScanning() }
-        }).finally(() => { detecting = false })
+        }
       }
       if (scannerActive.current) scannerFrame.current = window.requestAnimationFrame(detect)
     }
@@ -187,11 +186,17 @@ export function MatterPanel() {
         {!webBluetoothAvailable() && <p className="muted small">Bluetooth commissioning needs Chrome or Edge on Android or desktop, opened over HTTPS. You can still use Garage below.</p>}
       </form>
       {webQrScannerAvailable() && <div className="matter-scanner">
-        {!scanning ? <button className="button" disabled={pending || !webBluetoothAvailable()} onClick={() => void startScanning()}>Scan Matter QR code</button> : <>
-          <video ref={scannerVideo} muted playsInline aria-label="Matter QR code camera preview" />
-          <button className="button" onClick={stopScanning}>Stop scanning</button>
-        </>}
+        <button className="button" disabled={pending || !webBluetoothAvailable()} onClick={() => void startScanning()}>Scan Matter QR code</button>
         {scannerMessage && <p className="muted small" role="status">{scannerMessage}</p>}
+      </div>}
+      {scanning && <div className="modal matter-scanner-modal">
+        <section className="matter-scanner-dialog" role="dialog" aria-modal="true" aria-labelledby="matter-scanner-title">
+          <div className="matter-scanner-heading"><div><p className="eyebrow">Matter commissioning</p><h2 id="matter-scanner-title">Scan Matter QR code</h2></div>
+            <button className="icon-button" onClick={stopScanning} aria-label="Close QR scanner">✕</button></div>
+          <video ref={scannerVideo} muted playsInline aria-label="Matter QR code camera preview" />
+          <p role="status">Point the camera at the accessory’s Matter QR code.</p>
+          <button className="button" onClick={stopScanning}>Stop scanning</button>
+        </section>
       </div>}
       <p className="muted small">Garage remains available: open <strong>Matter</strong>, enter this gateway’s address, and scan or enter the accessory’s setup code.</p>
       <form onSubmit={event => { event.preventDefault(); if (!validSession(sessionInput)) return; setSession(null); setError(''); setWatch(sessionInput); setSessionInput('') }}>

@@ -37,12 +37,13 @@ over the phone relay.
 
 Chrome and Edge can scan a Matter QR code directly in the Device setup panel.
 Open the dashboard over HTTPS, select **Scan Matter QR code**, and allow camera
-access. The scanner prefers the rear camera, decodes the code locally, then
-fills the setup-code field. Select **Commission with this browser** to choose
-the accessory and start commissioning; scanning never starts commissioning on
-its own. Stop scanning or leave the panel to release the camera. If scanning is
-unavailable, denied, or cannot recognize the code, enter the setup code manually
-or use Garage.
+access. A full-screen scanner opens, prefers the rear camera, decodes the code
+locally, then fills the setup-code field. It extracts a valid `MT:` setup
+payload from any scanned URL, including percent-encoded IKEA redirect links.
+Select **Commission with this browser** to choose the accessory and start
+commissioning; scanning never starts commissioning on its own. Stop scanning or
+leave the panel to release the camera. If scanning is unavailable, denied, or
+cannot recognize the code, enter the setup code manually or use Garage.
 
 The browser displays phases, remaining gateway budget and terminal node ID,
 and provides explicit cancellation. Leaving the panel stops polling without

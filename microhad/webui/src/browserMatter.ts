@@ -48,8 +48,12 @@ function base38(value: string): Uint8Array {
 }
 function bits(bytes: Uint8Array, at: number, count: number): number { let value = 0; for (let i = 0; i < count; i++) value |= ((bytes[Math.floor((at + i) / 8)] >>> ((at + i) % 8)) & 1) << i; return value }
 export function setupCode(input: string): SetupCode {
-  let value = input.trim(); const ikea = /^https:\/\/matter\.ikea\.com\/v1\/add\/[^/?#]+\?r=([^,&]+),((?:MT:).+)$/i.exec(value)
-  if (ikea) value = ikea[2]
+  let value = input.trim()
+  try {
+    new URL(value)
+    const match = /MT:[0-9A-Z.-]+/i.exec(decodeURIComponent(value))
+    if (match) value = match[0]
+  } catch { }
   if (value.startsWith('MT:')) { const bytes = base38(value.slice(3)); if (bytes.length < 11 || bits(bytes, 0, 3) !== 0) throw new MatterError('malformed'); const flow = bits(bytes, 35, 2); const passcode = bits(bytes, 57, 27); if (flow === 2 || !pin(passcode)) throw new MatterError('unsupported'); return { discriminator: bits(bytes, 45, 12), pin: passcode, ble: (bits(bytes, 37, 8) & 2) !== 0 } }
   value = value.replace(/[ -]/g, ''); if (!/^\d{11}$/.test(value) && !/^\d{21}$/.test(value) || !validManual(value)) throw new MatterError('malformed')
   const first = Number(value[0]); const second = Number(value.slice(1, 6)); const third = Number(value.slice(6, 10)); const long = (first & 4) !== 0; const passcode = (third << 14) | (second & 16383)
