@@ -1121,6 +1121,9 @@ button:disabled {
 .matter-panel form { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; margin: 14px 0; }
 .matter-panel label { display: grid; gap: 6px; flex: 1; min-width: 200px; }
 .matter-panel input { min-width: 0; width: 100%; box-sizing: border-box; }
+.matter-scanner { display: grid; gap: 10px; margin: 14px 0; }
+.matter-scanner video { width: min(100%, 420px); max-height: 55vh; background: #111; border-radius: 8px; }
+.matter-scanner p { margin: 0; }
 .matter-devices { margin-top: 24px; padding-top: 16px; }
 .matter-device-list { list-style: none; padding: 0; }
 .matter-device-list li { margin: 12px 0; overflow-wrap: anywhere; }

@@ -19,7 +19,13 @@ async function main() {
     const send = value => response.end(JSON.stringify(value));
     if (request.url === '/') {
       response.setHeader('Content-Type', 'text/html');
-      response.end('<!doctype html><html><body><div id="root"></div><pre id="result"></pre><script src="/bundle.js"></script></body></html>');
+      response.end(`<!doctype html><html><body><div id="root"></div><pre id="result"></pre><script>
+        Object.defineProperty(navigator, 'bluetooth', { value: { requestDevice: async () => ({}) } });
+        Object.defineProperty(navigator, 'mediaDevices', { value: { getUserMedia: async () => new MediaStream() } });
+        Object.defineProperty(HTMLMediaElement.prototype, 'readyState', { get: () => 2 });
+        HTMLMediaElement.prototype.play = async () => {};
+        window.BarcodeDetector = class { async detect() { return [{ rawValue: 'MT:Y.K9042C00KA0648G00' }]; } };
+      </script><script src="/bundle.js"></script></body></html>`);
     } else if (request.url === '/bundle.js') {
       response.setHeader('Content-Type', 'application/javascript'); response.end(build.outputFiles[0].text);
     } else if (request.url === '/fixture/mode') { mode = body; posts = 0; retryPosts = 0; send({ ok: true }); }

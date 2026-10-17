@@ -46,6 +46,11 @@ async function run() {
   check(document.body.textContent?.includes('Unknown'), 'unknown initial Matter values were not kept explicit')
   check(document.querySelector('[aria-label^="Settings for Matter light"]'), 'common device settings are missing from Matter card')
   check(document.querySelector('[aria-label^="History for Matter light"]'), 'common telemetry history is missing from Matter card')
+  button('Scan Matter QR code').click()
+  await wait(() => (document.querySelector('input[autocomplete="off"]') as HTMLInputElement | null)?.value === 'MT:Y.K9042C00KA0648G00',
+    'Matter QR scanner did not fill the setup code')
+  check(document.body.textContent?.includes('Select Commission with this browser to continue.'), 'scan did not require explicit commissioning')
+  check(!document.body.textContent?.includes('Stop scanning'), 'scanner did not release the camera after a successful scan')
 
   button('Turn on').click()
   await wait(() => document.body.textContent?.includes('Turn off') === true, 'confirmed OnOff state through common light card')
@@ -70,7 +75,7 @@ async function run() {
   await wait(async () => (await (await fetch('/fixture/retry-count')).json()).retryPosts === 1,
     'retry stored Thread dataset is sent without dataset input')
   document.body.dataset.result = 'passed'
-  document.getElementById('result')!.textContent = 'PASS Matter endpoints render and operate through the shared device catalog, common controls, Matter join/settings and Thread dataset retry'
+  document.getElementById('result')!.textContent = 'PASS Matter endpoints render and operate through the shared device catalog, common controls, Matter QR scanning, Matter join/settings and Thread dataset retry'
 }
 void run().catch(error => {
   document.body.dataset.result = 'failed'

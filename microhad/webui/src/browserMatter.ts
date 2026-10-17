@@ -8,10 +8,21 @@ const forbiddenPins = new Set([11111111, 22222222, 33333333, 44444444, 55555555,
 type BluetoothCharacteristic = { startNotifications(): Promise<unknown>; addEventListener(type: 'characteristicvaluechanged', listener: (event: Event) => void): void; writeValueWithResponse?: (value: BufferSource) => Promise<void>; writeValue(value: BufferSource): Promise<void> }
 type BluetoothServer = { getPrimaryService(service: string): Promise<{ getCharacteristic(id: string): Promise<BluetoothCharacteristic> }> }
 type BluetoothDevice = { gatt?: { connect(): Promise<BluetoothServer>; disconnect(): void }; addEventListener(type: 'gattserverdisconnected', listener: () => void): void }
-declare global { interface Navigator { bluetooth?: { requestDevice(options: { filters: Array<{ services: string[] }> }): Promise<BluetoothDevice> } } }
+export type BarcodeDetector = { detect(source: ImageBitmapSource): Promise<Array<{ rawValue?: string }>> }
+declare global {
+  interface Navigator { bluetooth?: { requestDevice(options: { filters: Array<{ services: string[] }> }): Promise<BluetoothDevice> } }
+  interface Window { BarcodeDetector?: new (options: { formats: string[] }) => BarcodeDetector }
+}
 
 export type SetupCode = { discriminator: number; pin: number; ble: boolean }
 export function webBluetoothAvailable(): boolean { return window.isSecureContext && !!navigator.bluetooth }
+export function webQrScannerAvailable(): boolean {
+  return window.isSecureContext && !!navigator.mediaDevices?.getUserMedia && !!window.BarcodeDetector
+}
+export function matterQrCode(value: string): boolean {
+  if (value.length > 512) return false
+  try { setupCode(value); return true } catch { return false }
+}
 export async function chooseMatterDevice(): Promise<BluetoothDevice> {
   if (!navigator.bluetooth) throw new MatterError('unsupported')
   return navigator.bluetooth.requestDevice({ filters: [{ services: [SERVICE] }] })

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { matterAvailability, matterCall, sessionResult, terminalSession, validDataset, validSession } from './matter'
 import type { MatterSession, MatterStatus, ThreadStatus } from './matter'
-import { BrowserMatterRelay, chooseMatterDevice, setupCode, webBluetoothAvailable } from './browserMatter'
+import { BrowserMatterRelay, chooseMatterDevice, matterQrCode, setupCode, webBluetoothAvailable, webQrScannerAvailable } from './browserMatter'
 
 const phases: Record<string, string> = {
   waiting_ble: 'Waiting for phone BLE connection', pase: 'Checking setup code', provisioning: 'Providing Thread network',
@@ -26,17 +26,28 @@ export function MatterPanel() {
   const [pending, setPending] = useState(false)
   const [dataset, setDataset] = useState('')
   const [sessionInput, setSessionInput] = useState('')
+  const [scanning, setScanning] = useState(false)
+  const [scannerMessage, setScannerMessage] = useState('')
   const [watch, setWatch] = useState('')
   const [session, setSession] = useState<MatterSession | null>(null)
   const [revision, setRevision] = useState(0)
   const operation = useRef<AbortController | null>(null)
   const browserRelay = useRef<BrowserMatterRelay | null>(null)
+  const cameraStream = useRef<MediaStream | null>(null)
+  const scannerFrame = useRef(0)
+  const scannerActive = useRef(false)
+  const scannerVideo = useRef<HTMLVideoElement | null>(null)
   const active = useRef(true)
   useEffect(() => {
     active.current = true
     const clear = () => { if (document.hidden) setDataset('') }
     document.addEventListener('visibilitychange', clear)
-    return () => { active.current = false; operation.current?.abort(); browserRelay.current?.close(); document.removeEventListener('visibilitychange', clear) }
+    return () => {
+      active.current = false; operation.current?.abort(); browserRelay.current?.close(); scannerActive.current = false
+      if (scannerFrame.current) window.cancelAnimationFrame(scannerFrame.current)
+      cameraStream.current?.getTracks().forEach(track => track.stop()); cameraStream.current = null
+      document.removeEventListener('visibilitychange', clear)
+    }
   }, [])
   useEffect(() => {
     const controller = new AbortController()
@@ -108,6 +119,46 @@ export function MatterPanel() {
     } catch (cause) { if (active.current) setError(failure(cause)) }
     finally { operation.current = null; if (active.current) setPending(false) }
   }
+  function stopScanning() {
+    scannerActive.current = false
+    if (scannerFrame.current) window.cancelAnimationFrame(scannerFrame.current)
+    scannerFrame.current = 0
+    cameraStream.current?.getTracks().forEach(track => track.stop()); cameraStream.current = null
+    if (scannerVideo.current) scannerVideo.current.srcObject = null
+    setScanning(false)
+  }
+  async function startScanning() {
+    if (!webQrScannerAvailable() || pending || scanning) return
+    setScannerMessage('')
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: 'environment' } } })
+      if (!active.current) { stream.getTracks().forEach(track => track.stop()); return }
+      cameraStream.current = stream; scannerActive.current = true; setScanning(true)
+    } catch { if (active.current) setScannerMessage('Camera access was unavailable. Enter the Matter setup code instead.') }
+  }
+  useEffect(() => {
+    if (!scanning || !scannerVideo.current || !cameraStream.current || !window.BarcodeDetector) return
+    const video = scannerVideo.current
+    const detector = new window.BarcodeDetector({ formats: ['qr_code'] })
+    video.srcObject = cameraStream.current
+    void video.play().catch(() => { if (active.current) { setScannerMessage('The camera preview could not start. Enter the Matter setup code instead.'); stopScanning() } })
+    let detecting = false
+    const detect = () => {
+      if (!scannerActive.current) return
+      if (!detecting && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+        detecting = true
+        void detector.detect(video).then(codes => {
+          const value = codes.find(code => typeof code.rawValue === 'string' && matterQrCode(code.rawValue))?.rawValue
+          if (value && scannerActive.current) { setSessionInput(value); setScannerMessage('Matter QR code scanned. Select Commission with this browser to continue.'); stopScanning() }
+          else if (codes.length && scannerActive.current) setScannerMessage('That QR code is not a supported Matter setup code. Keep scanning.')
+        }).catch(() => {
+          if (scannerActive.current) { setScannerMessage('QR scanning failed. Enter the Matter setup code instead.'); stopScanning() }
+        }).finally(() => { detecting = false })
+      }
+      if (scannerActive.current) scannerFrame.current = window.requestAnimationFrame(detect)
+    }
+    scannerFrame.current = window.requestAnimationFrame(detect)
+  }, [scanning])
   useEffect(() => { if (availability?.thread.configured) setDataset('') }, [availability?.thread.configured])
   if (availability && !availability.matter.enabled) return null
   const ready = availability?.matter.available && availability.matter.controller_initialized &&
@@ -135,6 +186,13 @@ export function MatterPanel() {
         <button className="button primary" disabled={pending || !sessionInput.trim() || !webBluetoothAvailable()}>Commission with this browser</button>
         {!webBluetoothAvailable() && <p className="muted small">Bluetooth commissioning needs Chrome or Edge on Android or desktop, opened over HTTPS. You can still use Garage below.</p>}
       </form>
+      {webQrScannerAvailable() && <div className="matter-scanner">
+        {!scanning ? <button className="button" disabled={pending || !webBluetoothAvailable()} onClick={() => void startScanning()}>Scan Matter QR code</button> : <>
+          <video ref={scannerVideo} muted playsInline aria-label="Matter QR code camera preview" />
+          <button className="button" onClick={stopScanning}>Stop scanning</button>
+        </>}
+        {scannerMessage && <p className="muted small" role="status">{scannerMessage}</p>}
+      </div>}
       <p className="muted small">Garage remains available: open <strong>Matter</strong>, enter this gateway’s address, and scan or enter the accessory’s setup code.</p>
       <form onSubmit={event => { event.preventDefault(); if (!validSession(sessionInput)) return; setSession(null); setError(''); setWatch(sessionInput); setSessionInput('') }}>
         <label>Garage commissioning session ID<input autoComplete="off" spellCheck={false} maxLength={16} value={sessionInput} disabled={pending} onChange={event => setSessionInput(event.target.value)} /></label>
