@@ -45,6 +45,16 @@ const clusterNames: Record<number, string> = {
   2819: 'Appliance Events and Alerts',
   2820: 'Electrical Measurement',
 }
+const timeZones = [
+  'UTC', 'Europe/Berlin', 'Europe/London', 'Europe/Paris', 'Europe/Madrid', 'Europe/Rome',
+  'Europe/Stockholm', 'Europe/Helsinki', 'Europe/Warsaw', 'Europe/Istanbul',
+  'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles',
+  'America/Toronto', 'America/Vancouver', 'America/Sao_Paulo',
+  'Asia/Dubai', 'Asia/Kolkata', 'Asia/Bangkok', 'Asia/Singapore', 'Asia/Shanghai',
+  'Asia/Tokyo', 'Asia/Seoul', 'Australia/Sydney', 'Pacific/Auckland',
+]
+const browserTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
+const defaultTimeZone = timeZones.includes(browserTimeZone) ? browserTimeZone : 'Europe/Berlin'
 const namedId = (id: number, names: Record<number, string>) =>
   `0x${id.toString(16).padStart(4, '0').toUpperCase()}${names[id] ? ` — ${names[id]}` : ''}`
 function LightBulbIcon({ on, level = on ? 1 : 0 }: { on: boolean; level?: number }) {
@@ -554,7 +564,7 @@ export function DeviceSettings({
   const [saving, setSaving] = useState(false)
   const [syncingClock, setSyncingClock] = useState(false)
   const [clockResult, setClockResult] = useState('')
-  const [timeZone, setTimeZone] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Berlin')
+  const [timeZone, setTimeZone] = useState(defaultTimeZone)
   const clockEndpoint = device.source === 'matter'
     ? device.endpoint_descriptors.find(endpoint => endpoint.input_clusters.includes(56))?.endpoint
     : undefined
@@ -688,7 +698,9 @@ export function DeviceSettings({
             <legend>Clock</legend>
             <p className="muted">Set the accessory clock from the gateway’s UTC time.</p>
             <label className="field">Time zone
-              <input value={timeZone} onChange={(event) => setTimeZone(event.target.value)} maxLength={64} required />
+              <select value={timeZone} onChange={(event) => setTimeZone(event.target.value)}>
+                {timeZones.map(zone => <option key={zone} value={zone}>{zone}</option>)}
+              </select>
             </label>
             {clockResult && <p className={clockResult === 'Clock synchronized.' ? 'success' : 'error'} role="status">{clockResult}</p>}
             <button type="button" className="button" disabled={syncingClock || !device.online} onClick={() => void syncClock()}>
