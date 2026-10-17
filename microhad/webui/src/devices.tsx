@@ -134,6 +134,44 @@ function relativeTime(epoch: number): string {
   if (seconds < 86400) return `${Math.floor(seconds / 3600)} hr ago`
   return `${Math.floor(seconds / 86400)} days ago`
 }
+
+type SensorSeverity = 'good' | 'fair' | 'moderate' | 'poor' | 'very-poor' | 'extremely-poor'
+type CardReading = { text: string; severity?: SensorSeverity }
+
+function sensorSeverity(sensor: string, value: number | string | null, unit: string, quality: 'measured' | 'unknown'): SensorSeverity | undefined {
+  if (quality !== 'measured' || value === null) return undefined
+  if (sensor === 'air_quality' && typeof value === 'string') {
+    const qualities: Record<string, SensorSeverity> = {
+      good: 'good', fair: 'fair', moderate: 'moderate', poor: 'poor',
+      very_poor: 'very-poor', extremely_poor: 'extremely-poor',
+    }
+    return qualities[value]
+  }
+  if (typeof value !== 'number') return undefined
+  let normalized: number | undefined
+  let limits: number[] | undefined
+  if (sensor === 'co2') {
+    normalized = unit === 'ppm' ? value : unit === 'ppb' ? value / 1000 : unit === 'ppt' ? value / 1000000 : undefined
+    limits = [800, 1000, 1400, 2000, 5000]
+  } else if (sensor === 'pm25') {
+    normalized = unit === 'ug/m3' ? value : unit === 'mg/m3' ? value * 1000 : unit === 'ng/m3' ? value / 1000 : undefined
+    limits = [10, 20, 35, 55, 125]
+  }
+  if (normalized === undefined || !limits) return undefined
+  const severities: SensorSeverity[] = ['good', 'fair', 'moderate', 'poor', 'very-poor', 'extremely-poor']
+  const band = limits.findIndex(limit => normalized < limit)
+  return severities[band === -1 ? severities.length - 1 : band]
+}
+
+function cardSensorReading(sensor: string, value: number | string | null, unit: string, quality: 'measured' | 'unknown', colorize: boolean): CardReading {
+  const label = ({ air_quality: 'Air quality', co2: 'CO₂', pm25: 'PM2.5' } as Record<string, string>)[sensor] ?? 'Measurement'
+  const unknown = quality === 'unknown' || value === null
+  return {
+    text: `${label}: ${unknown ? 'Unknown' : `${value}${unit ? ` ${unit}` : ''}`}`,
+    severity: colorize ? sensorSeverity(sensor, value, unit, quality) : undefined,
+  }
+}
+
 export function ClipboardButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false)
   const copy = async () => {
@@ -215,22 +253,23 @@ function DeviceCard({
   const canDim = isDimmable(device)
   const controlsAvailable = device.online !== false && device.controller_available !== false
   const type = getDeviceType(device)
+  const colorizeSensorReadings = type === 'Air quality sensors'
   const extraReadings = [
-    type !== 'Climate sensors' && device.has_temperature && `🌡 Temperature: ${device.temperature_known ? `${device.temperature_celsius} °C` : 'Unknown'}`,
-    type !== 'Climate sensors' && device.has_humidity && `💧 Humidity: ${device.humidity_known === false ? 'Unknown' : `${device.humidity_percent}%`}`,
-    type !== 'Contact sensors' && device.has_contact && (device.contact_trigger_mode
+    type !== 'Climate sensors' && device.has_temperature && { text: `🌡 Temperature: ${device.temperature_known ? `${device.temperature_celsius} °C` : 'Unknown'}` },
+    type !== 'Climate sensors' && device.has_humidity && { text: `💧 Humidity: ${device.humidity_known === false ? 'Unknown' : `${device.humidity_percent}%`}` },
+    type !== 'Contact sensors' && device.has_contact && { text: device.contact_trigger_mode
       ? (device.contact_trigger_active ? 'Triggered' : 'Idle')
-      : (device.contact_open ? 'Open' : 'Closed')),
-    type !== 'Motion sensors' && type !== 'Presence sensors' && device.has_occupancy && (device.occupied ? 'Motion' : 'Clear'),
-    type !== 'Presence sensors' && device.source === 'fritz_box' && device.has_wifi_signal && `Wi‑Fi ${device.wifi_signal_percent}%`,
-    type !== 'Lights' && device.has_light && (device.light_on ? 'Light on' : 'Light off'),
-    type !== 'Smart plugs' && device.has_power && device.power_known && `${device.power_watts.toFixed(1)} W`,
+      : (device.contact_open ? 'Open' : 'Closed') },
+    type !== 'Motion sensors' && type !== 'Presence sensors' && device.has_occupancy && { text: device.occupied ? 'Motion' : 'Clear' },
+    type !== 'Presence sensors' && device.source === 'fritz_box' && device.has_wifi_signal && { text: `Wi‑Fi ${device.wifi_signal_percent}%` },
+    type !== 'Lights' && device.has_light && { text: device.light_on ? 'Light on' : 'Light off' },
+    type !== 'Smart plugs' && device.has_power && device.power_known && { text: `${device.power_watts.toFixed(1)} W` },
     ...Object.entries(device.sensor_values ?? {}).filter(([sensor]) => !['temperature', 'humidity'].includes(sensor))
-      .map(([sensor, reading]) => `${({ air_quality: 'Air quality', co2: 'CO₂', pm25: 'PM2.5' } as Record<string, string>)[sensor] ?? 'Measurement'}: ${reading.quality === 'unknown' || reading.value === null ? 'Unknown' : `${reading.value}${reading.unit ? ` ${reading.unit}` : ''}`}`),
-    !device.sensor_values?.air_quality && device.has_air_quality && `Air quality: ${device.air_quality_known ? device.air_quality : 'Unknown'}`,
-    !device.sensor_values?.co2 && device.has_co2 && `CO₂: ${device.co2_known ? `${device.co2_ppm} ppm` : 'Unknown'}`,
-    !device.sensor_values?.pm25 && device.has_pm25 && `PM2.5: ${device.pm25_known ? `${device.pm25_micrograms_m3} ug/m3` : 'Unknown'}`,
-  ].filter(Boolean)
+      .map(([sensor, reading]) => cardSensorReading(sensor, reading.value, reading.unit, reading.quality, colorizeSensorReadings)),
+    !device.sensor_values?.air_quality && device.has_air_quality && cardSensorReading('air_quality', device.air_quality_known ? device.air_quality : null, '', device.air_quality_known ? 'measured' : 'unknown', colorizeSensorReadings),
+    !device.sensor_values?.co2 && device.has_co2 && cardSensorReading('co2', device.co2_known ? device.co2_ppm : null, 'ppm', device.co2_known ? 'measured' : 'unknown', colorizeSensorReadings),
+    !device.sensor_values?.pm25 && device.has_pm25 && cardSensorReading('pm25', device.pm25_known ? device.pm25_micrograms_m3 : null, 'ug/m3', device.pm25_known ? 'measured' : 'unknown', colorizeSensorReadings),
+  ].filter(Boolean) as CardReading[]
   return (
     <article className={`device-card device-card-${type.toLowerCase().replace(/[^a-z]+/g, '-')} ${
       (type === 'Contact sensors' && !device.contact_trigger_mode && device.contact_open) ||
@@ -286,7 +325,7 @@ function DeviceCard({
       )}
       {!!extraReadings.length && (
         <div className="extra-readings">
-          {extraReadings.map((reading, index) => <span key={index}>{reading}</span>)}
+          {extraReadings.map((reading, index) => <span key={index} className={`sensor-reading${reading.severity ? ` sensor-reading-${reading.severity}` : ''}`}>{reading.text}</span>)}
         </div>
       )}
       {device.has_power && <div className="extra-readings"><span>Power: {device.power_known ? `${device.power_watts.toFixed(1)} W` : 'Unknown'}</span></div>}

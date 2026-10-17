@@ -466,6 +466,12 @@ button:disabled {
   padding: 4px 6px;
   font-size: 0.75rem;
 }
+.extra-readings .sensor-reading-good { background: #d9f3df; color: #155d32; }
+.extra-readings .sensor-reading-fair { background: #b9e8c5; color: #155d32; }
+.extra-readings .sensor-reading-moderate { background: #fff0bb; color: #765000; }
+.extra-readings .sensor-reading-poor { background: #ffd9d4; color: #8d3029; }
+.extra-readings .sensor-reading-very-poor { background: #efa39e; color: #70231f; }
+.extra-readings .sensor-reading-extremely-poor { background: #7f1d1d; color: #fff; }
 .history-ranges { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0; }
 .history-chart { border-top: 1px solid #e9eef3; padding-top: 4px; }
 .history-chart-title { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
