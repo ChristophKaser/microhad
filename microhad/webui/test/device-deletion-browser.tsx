@@ -68,6 +68,7 @@ async function run() {
   check(button('Cancel').disabled, 'Controls were not disabled while deleting')
   await until(() => removed === 1)
   check(posts.join(',') === 'unpair' && !document.body.textContent!.includes('Unfinished sensor'), 'Successful deletion did not refresh the list')
+  check(!document.body.textContent!.includes('Incomplete setup'), 'Empty incomplete setup section must be hidden')
   await render('timeout')
   button('Delete').click(); await until(() => !!document.querySelector('[role="dialog"]'))
   button('Unpair and delete').click(); await until(() => document.body.textContent!.includes('Delete locally'))

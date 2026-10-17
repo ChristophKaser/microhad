@@ -18,9 +18,10 @@ export function incompleteDevices(devices: Device[]): Device[] {
 
 export function IncompleteDevices({ devices, onDelete }: { devices: Device[]; onDelete: (device: Device) => void }) {
   const incomplete = incompleteDevices(devices)
+  if (incomplete.length === 0) return null
   return <section className="panel">
     <div className="section-heading"><h2>Incomplete setup</h2></div>
-    {incomplete.length === 0 ? <p className="muted">No incomplete devices.</p> : <div className="incomplete-devices">
+    <div className="incomplete-devices">
       {incomplete.map(device => <div className="incomplete-device" key={device.id}>
         <div><strong>{device.name || device.id}</strong>
           <p className="muted small">{device.source === 'matter' ? 'Matter' : 'Zigbee'} · {device.commissioning_state === 'commissioning' ?
@@ -29,7 +30,7 @@ export function IncompleteDevices({ devices, onDelete }: { devices: Device[]; on
         </div>
         <button type="button" className="button danger" onClick={() => onDelete(device)} aria-label={`Delete ${device.name}`}>Delete</button>
       </div>)}
-    </div>}
+    </div>
   </section>
 }
 

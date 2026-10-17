@@ -287,7 +287,6 @@ function App() {
         configError={dashboardError}
       />}
       {tab === 'Controls' && <>
-      <IncompleteDevices devices={catalogStatus?.devices ?? []} onDelete={setDeletingDevice} />
       <section className="overview">
         <div className={`overview-item ${statusError || !status?.online ? 'bad' : 'good'}`}>
           <span className="overview-icon">●</span>
@@ -354,6 +353,7 @@ function App() {
         </div>
       </section>
       <MatterPanel />
+      <IncompleteDevices devices={catalogStatus?.devices ?? []} onDelete={setDeletingDevice} />
       <ControllerStats status={status} thread={thread} />
       </>}
       {tab === 'Groups' && <section className="panel">
