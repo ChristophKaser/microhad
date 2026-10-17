@@ -214,6 +214,11 @@ pub enum CommandRequest {
         level: u8,
         transition_deciseconds: u16,
     },
+    SyncTime {
+        schema: Schema,
+        node: Id,
+        endpoint: u16,
+    },
 }
 pub enum Request {
     MatterStatus,
@@ -403,6 +408,7 @@ mod tests {
             11,
             r#"{"schema":1,"command":"move_to_level","node":"123456789abcdef0","endpoint":1,"level":254,"transition_deciseconds":65535}"#,
         );
+        valid(11, r#"{"schema":1,"command":"sync_time","node":"123456789abcdef0","endpoint":0}"#);
         invalid(12, "{}");
     }
     #[test]

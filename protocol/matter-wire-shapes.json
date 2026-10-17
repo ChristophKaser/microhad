@@ -250,6 +250,12 @@
     "node": "@id",
     "endpoint": ""
   },
+  "request11:sync_time": {
+    "schema": "",
+    "command": "",
+    "node": "@id",
+    "endpoint": ""
+  },
   "request11:move_to_level": {
     "schema": "",
     "command": "",

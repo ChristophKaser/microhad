@@ -57,7 +57,7 @@ binding-target = {
   cluster: uint .le 4294967295, extensions
 }
 command-request =
-  {schema, node: id64, endpoint: endpoint, command: "on" / "off" / "toggle", extensions} /
+  {schema, node: id64, endpoint: endpoint, command: "on" / "off" / "toggle" / "sync_time", extensions} /
   {schema, node: id64, endpoint: endpoint, command: "move_to_level",
     level: 0..254, transition_deciseconds: 0..65535, extensions}
 reply-body = matter-status / thread-status /

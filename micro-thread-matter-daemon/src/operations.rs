@@ -17,6 +17,7 @@ use rs_matter::{
         pm_25_concentration_measurement::Pm25ConcentrationMeasurementClient,
         relative_humidity_measurement::RelativeHumidityMeasurementClient,
         temperature_measurement::TemperatureMeasurementClient,
+        time_synchronization::{GranularityEnum, TimeSourceEnum, TimeSynchronizationClient},
     },
     error::{Error, ErrorCode},
     im::{client::ImClient, AttrPath},
@@ -40,6 +41,7 @@ pub enum Action {
         level: u8,
         transition_deciseconds: u16,
     },
+    SyncTime,
     Bind { targets: Vec<BindingTarget> },
 }
 #[derive(Clone)]
@@ -337,6 +339,9 @@ impl Operation {
                     transition_deciseconds,
                 },
             ),
+            Request::Command(CommandRequest::SyncTime { node, endpoint, .. }) => {
+                (node, endpoint, Action::SyncTime)
+            }
             _ => return Err(Failure::Unsupported),
         };
         if node.0 < 2 || endpoint == u16::MAX {
@@ -369,6 +374,7 @@ impl Operation {
             Action::ReadLevel | Action::MoveToLevel { .. } => 8,
             Action::ReadSensor { cluster } => *cluster,
             Action::Bind { .. } => 59,
+            Action::SyncTime => 56,
         };
         if !endpoint.servers.contains(&required_cluster) ||
             (matches!(self.action, Action::Bind { .. }) && !endpoint.servers.contains(&30)) {
@@ -517,9 +523,29 @@ impl Operation {
                             })
                             .await?
                     }
+                    Action::SyncTime => {
+                        const MATTER_EPOCH_UNIX_SECONDS: u64 = 946_684_800;
+                        let unix = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map_err(|_| ErrorCode::InvalidData)?;
+                        let seconds = unix.as_secs().checked_sub(MATTER_EPOCH_UNIX_SECONDS)
+                            .ok_or(ErrorCode::InvalidData)?;
+                        let utc_us = seconds.checked_mul(1_000_000)
+                            .and_then(|value| value.checked_add(u64::from(unix.subsec_micros())))
+                            .ok_or(ErrorCode::InvalidData)?;
+                        exchange.time_synchronization().set_utc_time(self.endpoint, |request| {
+                            request.utc_time(utc_us)?
+                                .granularity(GranularityEnum::MicrosecondsGranularity)?
+                                .time_source(Some(TimeSourceEnum::Admin))?.end()
+                        }).await?
+                    }
                     Action::Bind { .. } | Action::Delete { .. } => unreachable!(),
                     Action::Read | Action::ReadLevel | Action::ReadSensor { .. } => unreachable!(),
                 }
+            }
+            if matches!(self.action, Action::SyncTime) {
+                return Ok(ResultValue { node: Id(self.node), endpoint: self.endpoint, cluster: 56,
+                    attribute: 0, value: Value::Bool(true) });
             }
             // An invocation acknowledgement is insufficient: return the actual value.
             let exchange = Exchange::initiate(matter, &crypto, fabric, self.node).await?;

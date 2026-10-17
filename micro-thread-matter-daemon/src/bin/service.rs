@@ -208,7 +208,8 @@ fn dispatch<C: Crypto>(
         Ok(Request::Command(body @ (micro_thread_matter_daemon::control::CommandRequest::On { .. } |
             micro_thread_matter_daemon::control::CommandRequest::Off { .. } |
             micro_thread_matter_daemon::control::CommandRequest::Toggle { .. } |
-            micro_thread_matter_daemon::control::CommandRequest::MoveToLevel { .. }))) =>
+            micro_thread_matter_daemon::control::CommandRequest::MoveToLevel { .. } |
+            micro_thread_matter_daemon::control::CommandRequest::SyncTime { .. }))) =>
             String::from_utf8(micro_thread_matter_daemon::responses::reply(devices.submit(
                 Request::Command(body), lifecycle.snapshot().attached && thread.is_some(),
                 controller.commissioning(Instant::now()), Instant::now(),

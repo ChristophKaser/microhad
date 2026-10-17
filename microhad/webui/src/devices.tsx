@@ -3,6 +3,7 @@ import type { Device, EndpointDescriptor, Status } from './api'
 import { errorMessage, form, post } from './api'
 import { isDimmable } from './scenes'
 import { DeleteDeviceDialog } from './DeviceDeletion'
+import { matterSyncTime } from './matter'
 
 const profileNames: Record<number, string> = {
   260: 'Home Automation',
@@ -551,6 +552,24 @@ export function DeviceSettings({
   const [refresh, setRefresh] = useState(String(device.sensor_refresh_interval_minutes))
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+  const [syncingClock, setSyncingClock] = useState(false)
+  const [clockResult, setClockResult] = useState('')
+  const clockEndpoint = device.source === 'matter'
+    ? device.endpoint_descriptors.find(endpoint => endpoint.input_clusters.includes(56))?.endpoint
+    : undefined
+  const syncClock = async () => {
+    if (!device.matter_node || clockEndpoint === undefined || syncingClock) return
+    setSyncingClock(true)
+    setClockResult('')
+    try {
+      await matterSyncTime(device.matter_node, clockEndpoint, new AbortController().signal)
+      setClockResult('Clock synchronized.')
+    } catch (cause) {
+      setClockResult(errorMessage(cause))
+    } finally {
+      setSyncingClock(false)
+    }
+  }
   const save = async (event: React.FormEvent) => {
     event.preventDefault()
     setSaving(true)
@@ -662,6 +681,16 @@ export function DeviceSettings({
               required
             />
           </label>
+        )}
+        {clockEndpoint !== undefined && (
+          <fieldset>
+            <legend>Clock</legend>
+            <p className="muted">Set the accessory clock from the gateway’s UTC time.</p>
+            {clockResult && <p className={clockResult === 'Clock synchronized.' ? 'success' : 'error'} role="status">{clockResult}</p>}
+            <button type="button" className="button" disabled={syncingClock || !device.online} onClick={() => void syncClock()}>
+              {syncingClock ? 'Synchronizing…' : 'Synchronize clock now'}
+            </button>
+          </fieldset>
         )}
         <div className="dialog-actions">
           {['zigbee', 'matter'].includes(device.source) && <button type="button" className="button danger" disabled={saving} onClick={() => setDeleting(true)}>Delete device</button>}

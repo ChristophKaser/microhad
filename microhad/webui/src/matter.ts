@@ -116,7 +116,7 @@ export async function matterCall(route: string, fields: Record<string, unknown>,
       !integer(fields.endpoint, 0, 65534) || ![6, 8, 69, 91, 1026, 1029, 1037, 1066].includes(Number(fields.cluster)) || fields.attribute !== 0)) throw new MatterError('malformed')
   if (route.endsWith('/devices/command')) {
     const identityValid = typeof fields.node === 'string' && validSession(fields.node) && integer(fields.endpoint, 0, 65534)
-    const onOff = keys.length === 3 && ['on', 'off', 'toggle'].includes(String(fields.command))
+    const onOff = keys.length === 3 && ['on', 'off', 'toggle', 'sync_time'].includes(String(fields.command))
     const level = keys.length === 5 && fields.command === 'move_to_level' && integer(fields.level, 0, 254) &&
       integer(fields.transition_deciseconds, 0, 65535)
     if (!identityValid || (!onOff && !level)) throw new MatterError('malformed')
@@ -245,6 +245,19 @@ export async function matterOnOff(node: string, endpoint: number, action: 'read'
   const value = object(result.value)
   if (Object.keys(value).length !== 2 || value.type !== 'bool' || typeof value.value !== 'boolean') throw new MatterError('protocol')
   return value.value
+}
+
+export async function matterSyncTime(node: string, endpoint: number, signal: AbortSignal): Promise<void> {
+  const data = object(await matterCall('/api/matter/devices/command', { node, endpoint, command: 'sync_time' }, signal))
+  if (Object.keys(data).length !== 3 || data.state !== 'complete' || typeof data.job !== 'string' || !/^[0-9a-f]{16}$/.test(data.job)) {
+    throw new MatterError('protocol')
+  }
+  const result = object(data.result)
+  if (Object.keys(result).length !== 5 || result.node !== node || result.endpoint !== endpoint || result.cluster !== 56 || result.attribute !== 0) {
+    throw new MatterError('protocol')
+  }
+  const value = object(result.value)
+  if (Object.keys(value).length !== 2 || value.type !== 'bool' || value.value !== true) throw new MatterError('protocol')
 }
 
 export async function matterContact(node: string, endpoint: number, signal: AbortSignal): Promise<boolean> {

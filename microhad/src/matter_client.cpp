@@ -343,10 +343,10 @@ bool requestValid(unsigned char opcode, const std::string& text) {
         return false;
     }
     if (opcode == 11) {
-        static const char* const commands[] = {"\"on\"", "\"off\"", "\"toggle\""};
+        static const char* const commands[] = {"\"on\"", "\"off\"", "\"toggle\"", "\"sync_time\""};
         if (!hex(fields["node"], 16, 16) || fields["node"] <= "\"0000000000000001\"" ||
             !number(fields["endpoint"], 0, 65534)) return false;
-        if (member(fields["command"], commands, 3)) return fields.size() == 4;
+        if (member(fields["command"], commands, 4)) return fields.size() == 4;
         return fields["command"] == "\"move_to_level\"" && fields.size() == 6 &&
             number(fields["level"], 0, 254) && number(fields["transition_deciseconds"], 0, 65535);
     }
@@ -866,14 +866,14 @@ bool MatterChannel::deviceReadRequest(const std::string& input, std::string* bod
 bool MatterChannel::deviceCommandRequest(const std::string& input, std::string* body) {
     body->clear();
     Fields fields;
-    static const char* const commands[] = {"\"on\"", "\"off\"", "\"toggle\""};
+    static const char* const commands[] = {"\"on\"", "\"off\"", "\"toggle\"", "\"sync_time\""};
     if (input.size() > MatterWire::MaxPayload || !StatusJson(input).parse(&fields) || fields["schema"] != "1" ||
         !hex(fields["node"], 16, 16) || fields["node"] <= "\"0000000000000001\"" ||
         !number(fields["endpoint"], 0, 65534)) return false;
     const bool level = fields["command"] == "\"move_to_level\"";
     if ((level && (fields.size() != 6 || !number(fields["level"], 0, 254) ||
                    !number(fields["transition_deciseconds"], 0, 65535))) ||
-        (!level && (fields.size() != 4 || !member(fields["command"], commands, 3)))) return false;
+        (!level && (fields.size() != 4 || !member(fields["command"], commands, 4)))) return false;
     *body = "{\"schema\":1,\"command\":" + fields["command"] + ",\"node\":" + fields["node"] +
         ",\"endpoint\":" + fields["endpoint"];
     if (level) *body += ",\"level\":" + fields["level"] + ",\"transition_deciseconds\":" + fields["transition_deciseconds"];
