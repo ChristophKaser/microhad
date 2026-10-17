@@ -75,6 +75,11 @@ public:
                            unsigned long contactTriggerCooldownSeconds = 60);
     bool setDeviceValueAlerts(const std::string& address, const std::map<std::string, DeviceValueAlert>& alerts,
                               std::string* error);
+    bool deleteDevice(const std::string& address, bool local, std::string* error);
+    bool deviceDeletionStatus(const std::string& address, std::string* json, std::string* error);
+    bool matterDeletionTarget(const std::string& address, std::string* node, std::string* error);
+    bool removeMatterNode(const std::string& node, std::string* error);
+    bool reconcileMatterNodes(const std::vector<std::string>& nodes, std::string* error);
     bool refreshDevice(const std::string& ieeeAddress, std::string* error);
     bool reconfigureDevice(const std::string& ieeeAddress, std::string* error);
     bool identifyDevice(const std::string& ieeeAddress, std::string* error);
@@ -92,7 +97,7 @@ public:
                                      std::string* error);
 
 private:
-    enum CommandType { GatewaySettings, MatterRegionSettings, NetworkBackup, Join, CreateNetwork, DeviceSettings, DeviceValueAlerts, DeviceRefresh, DeviceReconfigure, DeviceIdentify, DeviceConfiguration, LightState, SceneConfiguration, SceneActivate, SceneOff, TestNotification, NotificationSetting, EventLoopDebug, ShellyRegister, ShellyRemove, ShellyReconcile, MatterReconcile, MatterValue, MatterButton, ShellyEvent, FritzEvent, FritzReconcile, ActorState };
+    enum CommandType { DeviceDelete, DeviceDeleteStatus, MatterDeleteTarget, MatterNodeRemove, MatterNodesReconcile, GatewaySettings, MatterRegionSettings, NetworkBackup, Join, CreateNetwork, DeviceSettings, DeviceValueAlerts, DeviceRefresh, DeviceReconfigure, DeviceIdentify, DeviceConfiguration, LightState, SceneConfiguration, SceneActivate, SceneOff, TestNotification, NotificationSetting, EventLoopDebug, ShellyRegister, ShellyRemove, ShellyReconcile, MatterReconcile, MatterValue, MatterButton, ShellyEvent, FritzEvent, FritzReconcile, ActorState };
     struct Command {
         CommandType type;
         unsigned int seconds;

@@ -357,27 +357,7 @@ bool dashboardConfigJson(const std::string& value) {
 }
 
 bool saveDashboardConfig(const std::string& filename, const std::string& value) {
-    static pthread_mutex_t sequenceMutex = PTHREAD_MUTEX_INITIALIZER;
-    static unsigned long sequence = 0;
-    pthread_mutex_lock(&sequenceMutex);
-    unsigned long current = ++sequence;
-    pthread_mutex_unlock(&sequenceMutex);
-    std::ostringstream temporaryName;
-    temporaryName << filename << ".tmp." << static_cast<long>(getpid()) << "." << current;
-    const std::string temporary = temporaryName.str();
-    int fd = open(temporary.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
-    if (fd < 0) return false;
-    unsigned long written = 0;
-    while (written < value.size()) {
-        ssize_t count = write(fd, value.data() + written, value.size() - written);
-        if (count <= 0) { close(fd); unlink(temporary.c_str()); return false; }
-        written += static_cast<unsigned long>(count);
-    }
-    bool synced = fsync(fd) == 0;
-    bool closed = close(fd) == 0;
-    bool ok = synced && closed && rename(temporary.c_str(), filename.c_str()) == 0;
-    if (!ok) unlink(temporary.c_str());
-    return ok;
+    return saveDashboardConfiguration(filename, value);
 }
 
 const char* assetContentType(const std::string& path) {
@@ -980,6 +960,35 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
         bool valid = bodyAt != std::string::npos && formValue(request.substr(bodyAt + 4), "state", &state) && (state == "on" || state == "off");
         if (valid && shelly_->setActor(id, 0, state == "on", &error)) writeResponse(clientFd, 200, "application/json", "{\"ok\":true}");
         else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + jsonEscape(valid ? error : "invalid actor command") + "\"}");
+    } else if ((request.find("POST /api/devices/") == 0 || request.find("GET /api/devices/") == 0) && request.find("/delete ") != std::string::npos) {
+        const bool getting = request.find("GET ") == 0;
+        const std::string prefix = getting ? "GET /api/devices/" : "POST /api/devices/";
+        const std::string::size_type end = request.find("/delete ", prefix.size());
+        const std::string address = decodeComponent(request.substr(prefix.size(), end - prefix.size()));
+        std::string error, json;
+        if (getting) {
+            if (gateway_->deviceDeletionStatus(address, &json, &error)) writeResponse(clientFd, 200, "application/json", json);
+            else writeResponse(clientFd, 404, "application/json", "{\"ok\":false,\"error\":\"" + jsonEscape(error) + "\"}");
+        } else {
+            const std::string::size_type bodyAt = request.find("\r\n\r\n");
+            std::string mode;
+            const bool valid = bodyAt != std::string::npos && formValue(request.substr(bodyAt + 4), "mode", &mode) && (mode == "local" || mode == "unpair");
+            if (!valid) writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"Invalid deletion mode\"}");
+            else if (address.substr(0, 7) == "matter:") {
+#if MICROHAD_MATTER_ENABLED
+                std::string node; uint32_t job = 0;
+                if (gateway_->matterDeletionTarget(address, &node, &error) && matterWorker_ && matterWorker_->submit(10,
+                    "{\"schema\":1,\"action\":\"delete\",\"node\":\"" + node + "\",\"local\":" + (mode == "local" ? "true" : "false") + "}", &job, &error)) {
+                    std::ostringstream out; out << "{\"ok\":true,\"state\":\"pending\",\"job\":" << job << '}';
+                    writeResponse(clientFd, 200, "application/json", out.str());
+                } else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + jsonEscape(error.empty() ? "Matter service unavailable" : error) + "\"}");
+#else
+                writeResponse(clientFd, 404, "application/json", "{\"ok\":false,\"error\":\"Matter is disabled\"}");
+#endif
+            } else if (gateway_->deleteDevice(address, mode == "local", &error)) {
+                writeResponse(clientFd, 200, "application/json", "{\"ok\":true,\"state\":\"pending\"}");
+            } else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + jsonEscape(error) + "\"}");
+        }
     } else if (request.find("GET /api/dashboard/config ") == 0) {
         std::string content;
         if (!readTextFile(gateway_->runtimeDirectory() + "/dashboard.json", &content)) content = "{\"widgets\":[]}";

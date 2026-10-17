@@ -197,7 +197,7 @@ bool measurementValueValid(const std::string& text, uint32_t cluster) {
 }
 bool typedValueValid(const Fields& result, Fields value) {
     const std::string& clusterName = result.find("cluster")->second;
-    if (clusterName == "30")
+    if (clusterName == "30" || clusterName == "62")
         return result.at("attribute") == "0" && value.size() == 2 &&
             value["type"] == "\"bool\"" && booleanField(value, "value");
     if (clusterName == "6" || clusterName == "69")
@@ -318,6 +318,8 @@ bool requestValid(unsigned char opcode, const std::string& text) {
     Fields fields;
     if (text.size() > MatterWire::MaxPayload || !StatusJson(text).parse(&fields) || fields["schema"] != "1") return false;
     if (opcode == 10) {
+        if (fields["action"] == "\"delete\"") return fields.size() == 4 && hex(fields["node"], 16, 16) &&
+            fields["node"] > "\"0000000000000001\"" && booleanField(fields, "local");
         if (fields["action"] == "\"read\"") return fields.size() == 6 &&
             hex(fields["node"], 16, 16) && fields["node"] > "\"0000000000000001\"" &&
             number(fields["endpoint"], 0, 65534) &&
@@ -459,10 +461,27 @@ bool inventoryFromData(Fields data, std::string* kind, unsigned int* count, Matt
     for (unsigned long i=0;i<clusters.size();++i) endpoint->clients.push_back(static_cast<unsigned int>(strtoul(clusters[i].c_str(),0,10)));
     return true;
 }
+
+bool inventoryNodesFromData(Fields data, std::vector<std::string>* nodes) {
+    std::vector<std::string> rows;
+    if (data.size() != 1 || !StatusJson(data["nodes"]).parseArray(&rows) || rows.size() > 64) return false;
+    std::string previous;
+    for (unsigned long i = 0; i < rows.size(); ++i) {
+        Fields row;
+        if (!StatusJson(rows[i]).parse(&row) || row.size() != 1 || !hex(row["node"], 16, 16) ||
+            row["node"] <= "\"0000000000000001\"" || row["node"] <= previous) return false;
+        previous = row["node"]; nodes->push_back(previous.substr(1, 16));
+    }
+    return true;
+}
+
 bool eventValid(const std::string& text) {
     Fields fields, data;
     if (!StatusJson(text).parse(&fields) || fields.size() != 3 || fields["schema"] != "1" ||
         !fields.count("data") || !StatusJson(fields["data"]).parse(&data)) return false;
+    if (fields["event"] == "\"matter_inventory_nodes\"") {
+        std::vector<std::string> nodes; return inventoryNodesFromData(data, &nodes);
+    }
     if (fields["event"] == "\"matter_inventory\"") {
         std::string kind; unsigned int count; MatterEndpoint endpoint;
         return inventoryFromData(data, &kind, &count, &endpoint);
@@ -857,6 +876,13 @@ bool MatterChannel::deviceBindingRequest(const std::string& input, std::string* 
         ",\"endpoint\":" + fields["endpoint"] + ",\"targets\":" + fields["targets"] + "}";
     return requestValid(10, *body);
 }
+
+bool MatterChannel::inventoryNodesEvent(const std::string& event, std::vector<std::string>* nodes) {
+    Fields envelope, data; nodes->clear();
+    return StatusJson(event).parse(&envelope) && envelope["event"] == "\"matter_inventory_nodes\"" &&
+        StatusJson(envelope["data"]).parse(&data) && inventoryNodesFromData(data, nodes);
+}
+
 bool MatterChannel::inventoryEvent(const std::string& event, std::string* kind, unsigned int* count, MatterEndpoint* endpoint) {
     Fields fields, data;
     return StatusJson(event).parse(&fields) && fields["event"] == "\"matter_inventory\"" &&
@@ -874,7 +900,7 @@ bool MatterChannel::deviceResult(const std::string& response, const std::string&
     parsed.node = result["node"].substr(1, result["node"].size() - 2);
     parsed.endpoint = static_cast<unsigned short>(strtoul(result["endpoint"].c_str(), 0, 10));
     parsed.cluster = static_cast<unsigned int>(strtoul(result["cluster"].c_str(), 0, 10));
-    if (parsed.cluster == 6 || parsed.cluster == 69) {
+    if (parsed.cluster == 6 || parsed.cluster == 69 || parsed.cluster == 62) {
         parsed.known = true;
         parsed.booleanValue = value["value"] == "true";
     } else if (parsed.cluster == 8) {

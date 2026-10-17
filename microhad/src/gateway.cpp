@@ -51,7 +51,7 @@ Device::Device() : source("zigbee"), networkAddress(0xffff), kind("generic"), co
                    iasZoneId(-1), hasLowTemperatureAlert(false), hasHighTemperatureAlert(false), lowTemperatureAlert(0),
                    highTemperatureAlert(0), contactInitialAlertMinutes(10), contactReminderAlertMinutes(5),
                    contactTriggerMode(false), contactTriggerCooldownSeconds(60), contactTriggerUntil(0),
-                   sensorRefreshIntervalMinutes(60), matterEndpoint(-1), online(false) {
+                   sensorRefreshIntervalMinutes(60), initialInterviewComplete(false), matterEndpoint(-1), online(false) {
 }
 
 namespace {
@@ -471,6 +471,133 @@ bool Gateway::reconcileShelly(const std::vector<std::string>& ids, std::string* 
         } else ++it;
     }
     if (changed) { markViewDirty(); saveState(); savePersistentState(); }
+    return true;
+}
+
+
+bool Gateway::removeDeviceRecords(const std::vector<std::string>& addresses, std::string* error) {
+    if (addresses.empty()) return true;
+    std::map<std::string, Device> remaining = devices_;
+    std::vector<SceneGroup> groups = sceneGroups_;
+    std::vector<RemoteSceneBinding> bindings = sceneBindings_;
+    std::vector<NativeRemoteBinding> native = nativeBindings_;
+    std::vector<unsigned short> affectedGroups;
+    for (unsigned long a = 0; a < addresses.size(); ++a) {
+        const std::string& id = addresses[a];
+        remaining.erase(id);
+        for (unsigned long g = 0; g < groups.size(); ++g) {
+            std::vector<std::string>& members = groups[g].members;
+            if (std::find(members.begin(), members.end(), id) != members.end()) affectedGroups.push_back(groups[g].id);
+            members.erase(std::remove(members.begin(), members.end(), id), members.end());
+            for (unsigned long s = 0; s < groups[g].scenes.size(); ++s) {
+                std::vector<SceneLightState>& states = groups[g].scenes[s].states;
+                for (std::vector<SceneLightState>::iterator it = states.begin(); it != states.end();)
+                    if (it->ieeeAddress == id) it = states.erase(it); else ++it;
+            }
+        }
+        for (std::vector<RemoteSceneBinding>::iterator it = bindings.begin(); it != bindings.end();)
+            if (it->ieeeAddress == id) it = bindings.erase(it); else ++it;
+        for (std::vector<NativeRemoteBinding>::iterator it = native.begin(); it != native.end();)
+            if (it->ieeeAddress == id) it = native.erase(it); else ++it;
+    }
+    if (!pruneDashboardDevices(runtimeDirectory_ + "/dashboard.json", addresses, error) ||
+        !saveSceneConfiguration(runtimeDirectory_ + "/scenes.conf", groups, bindings, native, error)) return false;
+    std::vector<Device> saved;
+    for (std::map<std::string, Device>::const_iterator it = remaining.begin(); it != remaining.end(); ++it) {
+        Device device = it->second; clearVolatileDeviceValues(&device); saved.push_back(device);
+    }
+    if (!saveDevices(runtimeDirectory_ + "/devices.json", saved, error)) return false;
+    devices_.swap(remaining); sceneGroups_.swap(groups); sceneBindings_.swap(bindings); nativeBindings_.swap(native);
+    for (unsigned long a = 0; a < addresses.size(); ++a) {
+        const std::string& id = addresses[a];
+        for (std::map<unsigned short, std::string>::iterator it = nodeAddresses_.begin(); it != nodeAddresses_.end();) {
+            if (it->second != id) { ++it; continue; }
+            unsigned short node = it->first;
+            interviews_.erase(node); nextSensorRefreshAt_.erase(node); lastActiveEndpointRequestAt_.erase(node);
+            lightSetupPending_.erase(node); remoteSceneHolds_.erase(node);
+            if (interviewRequestInFlight_ && interviewNode_ == node) { interviewRequestInFlight_ = false; interviewDeadline_ = 0; }
+            nodeAddresses_.erase(it++);
+        }
+        contactOpenedAt_.erase(id); nextContactAlertAt_.erase(id); nextContactTriggerAt_.erase(id);
+        remoteCommands_.erase(id); sceneProvisioning_.erase(id); nativeBindingStates_.erase(id);
+        deviceConfigurations_.erase(id); deviceConfigurationQueries_.erase(id);
+        for (std::vector<NativeBindOperation>::iterator it = nativeBindOperations_.begin(); it != nativeBindOperations_.end();)
+            if (it->ieeeAddress == id || it->targetIeee == id) it = nativeBindOperations_.erase(it); else ++it;
+    }
+    // Cached member indexes cannot survive membership changes. Other groups
+    // retain their pending commands and retry progress.
+    for (unsigned long g = 0; g < affectedGroups.size(); ++g) sceneRetries_.erase(affectedGroups[g]);
+    saveState(); saveSceneRuntime(); markViewDirty();
+    return true;
+}
+
+bool Gateway::matterDeletionTarget(const std::string& address, std::string* node, std::string* error) {
+    std::map<std::string, Device>::const_iterator found = devices_.find(address);
+    if (found == devices_.end()) found = devices_.find(resolveDeviceId(address));
+    if (found == devices_.end() || found->second.source != "matter") { *error = "Matter device not found"; return false; }
+    *node = found->second.matterNode; return true;
+}
+bool Gateway::removeMatterNode(const std::string& node, std::string* error) {
+    std::vector<std::string> addresses;
+    for (std::map<std::string, Device>::const_iterator it = devices_.begin(); it != devices_.end(); ++it)
+        if (it->second.source == "matter" && it->second.matterNode == node) {
+            addresses.push_back(it->first); addresses.push_back(it->first.substr(0, 40));
+        }
+    return removeDeviceRecords(addresses, error);
+}
+bool Gateway::reconcileMatterNodes(const std::vector<std::string>& nodes, std::string* error) {
+    std::vector<std::string> addresses;
+    for (std::map<std::string, Device>::const_iterator it = devices_.begin(); it != devices_.end(); ++it)
+        if (it->second.source == "matter" && std::find(nodes.begin(), nodes.end(), it->second.matterNode) == nodes.end()) {
+            addresses.push_back(it->first); addresses.push_back(it->first.substr(0, 40));
+        }
+    return removeDeviceRecords(addresses, error);
+}
+
+bool Gateway::deleteDevice(const std::string& address, bool local, std::string* error) {
+    std::map<std::string, Device>::const_iterator found = devices_.find(address);
+    if (found == devices_.end() || found->second.source != "zigbee") { *error = "Zigbee device not found"; return false; }
+    std::map<std::string, DeviceDeletion>::iterator previous = deviceDeletions_.find(address);
+    if (previous != deviceDeletions_.end() && previous->second.state == "pending") { *error = "Device deletion is already pending"; return false; }
+    if (!local && (!online_ || !networkFormed_ || found->second.networkAddress == 0xffff)) {
+        *error = "Device cannot be reached. Retry or delete locally."; return false;
+    }
+    if (deviceDeletions_.size() >= 32 && previous == deviceDeletions_.end()) {
+        std::map<std::string, DeviceDeletion>::iterator old = deviceDeletions_.begin();
+        while (old != deviceDeletions_.end() && old->second.state == "pending") ++old;
+        if (old == deviceDeletions_.end()) { *error = "Too many pending deletions"; return false; }
+        deviceDeletions_.erase(old);
+    }
+    DeviceDeletion& operation = deviceDeletions_[address];
+    operation.state = "pending"; operation.error.clear(); operation.node = found->second.networkAddress; operation.deadline = time(0) + 15;
+    if (local) { completeDeviceDeletion(address); return true; }
+    // Stop old discovery and configuration work before asking the node to leave.
+    interviews_.erase(operation.node); nextSensorRefreshAt_.erase(operation.node);
+    lastActiveEndpointRequestAt_.erase(operation.node); lightSetupPending_.erase(operation.node);
+    if (interviewRequestInFlight_ && interviewNode_ == operation.node) { interviewRequestInFlight_ = false; interviewDeadline_ = 0; }
+    sceneProvisioning_.erase(address);
+    for (std::vector<NativeBindOperation>::iterator it = nativeBindOperations_.begin(); it != nativeBindOperations_.end();)
+        if (it->ieeeAddress == address || it->targetIeee == address) it = nativeBindOperations_.erase(it); else ++it;
+    std::vector<unsigned char> request; request.push_back(++zdoSequence_); operation.sequence = zdoSequence_;
+    for (int i = 7; i >= 0; --i) {
+        unsigned int value = 0; std::istringstream parser(address.substr(2 + i * 2, 2)); parser >> std::hex >> value;
+        request.push_back(static_cast<unsigned char>(value));
+    }
+    request.push_back(0); // Remove only this node; no children and no rejoin.
+    sendApsUnicast(operation.node, 0, 0x0034, 0, 0, request);
+    markViewDirty(); return true;
+}
+void Gateway::completeDeviceDeletion(const std::string& address) {
+    std::vector<std::string> ids(1, address); std::string error;
+    bool success = removeDeviceRecords(ids, &error);
+    DeviceDeletion& operation = deviceDeletions_[address];
+    operation.state = success ? "succeeded" : "failed"; operation.error = success ? "" : "storage"; operation.deadline = 0;
+    if (!success) addLog("Device removal could not be saved: " + error);
+}
+bool Gateway::deviceDeletionStatus(const std::string& address, std::string* json, std::string* error) {
+    std::map<std::string, DeviceDeletion>::const_iterator found = deviceDeletions_.find(address);
+    if (found == deviceDeletions_.end()) { *error = "Deletion operation not found"; return false; }
+    *json = "{\"state\":\"" + found->second.state + "\",\"error\":\"" + jsonEscape(found->second.error) + "\"}";
     return true;
 }
 
@@ -1205,6 +1332,10 @@ void Gateway::pollZiggurat() {
                 device.networkAddress=0xffff;
                 nodeAddresses_.erase(known);
             }
+            if (b[11] == 0 && (b[2] & 2) == 0) {
+                for (std::map<std::string, DeviceDeletion>::iterator deletion = deviceDeletions_.begin(); deletion != deviceDeletions_.end(); ++deletion)
+                    if (deletion->second.state == "pending" && deletion->second.node == node) { completeDeviceDeletion(deletion->first); break; }
+            }
             interviews_.erase(node); nextSensorRefreshAt_.erase(node); savePersistentState(); markViewDirty();
         } else if (event.type==ZigguratClient::Event::ReceivedAps && b.size()>=17) {
             unsigned int length=b[15] | (static_cast<unsigned int>(b[16])<<8);
@@ -1254,6 +1385,12 @@ void Gateway::pollZiggurat() {
 #endif
 
 void Gateway::poll() {
+    for (std::map<std::string, DeviceDeletion>::iterator it = deviceDeletions_.begin(); it != deviceDeletions_.end(); ++it) {
+        if (it->second.state == "pending" && time(0) >= it->second.deadline) {
+            it->second.state = "failed"; it->second.error = "Device did not confirm unpairing within 15 seconds";
+            it->second.deadline = 0; markViewDirty();
+        }
+    }
     if (matterInventoryDirty_ && time(0) >= matterInventorySaveAt_) savePersistentState();
     const std::string persistenceError = history_.takePersistenceError();
     if (!persistenceError.empty()) addLog(persistenceError);
@@ -1547,6 +1684,8 @@ long Gateway::nextPollDeadline(std::string* source) {
     if (ziggurat_ != 0) CONSIDER_DEADLINE(ziggurat_->deadline(), "ziggurat");
 #endif
     if (!ashPendingData_.empty()) CONSIDER_DEADLINE(ashAckDeadline_, "ash_ack");
+    for (std::map<std::string, DeviceDeletion>::const_iterator deletion = deviceDeletions_.begin(); deletion != deviceDeletions_.end(); ++deletion)
+        if (deletion->second.state == "pending") CONSIDER_DEADLINE(deletion->second.deadline, "device_delete");
     if (online_) CONSIDER_DEADLINE(nextHeartbeatAt_, "heartbeat");
     if (!online_) CONSIDER_DEADLINE(resetDeadline_, "serial_reset");
     CONSIDER_DEADLINE(networkBackupDeadline_, "network_backup");
@@ -3149,6 +3288,10 @@ std::string GatewayView::statusJson() const {
              << ",\"manufacturer_name\":\"" << jsonEscape(device.manufacturerName)
              << "\",\"model_id\":\"" << jsonEscape(device.modelId)
              << '\"';
+        if (device.source == "zigbee" || device.source == "matter")
+            json << ",\"setup_state\":\"" << (device.source == "matter" ?
+                (device.matterState == "complete" ? "complete" : "incomplete") :
+                (device.initialInterviewComplete ? "complete" : "incomplete")) << '"';
         if (device.source == "matter") {
             json << ",\"commissioning_state\":\"" << jsonEscape(device.matterState)
                  << "\",\"endpoint_metadata_state\":\"" << jsonEscape(device.matterMetadataState) << '"';
@@ -3481,6 +3624,7 @@ void Gateway::loadState() {
                 Device& persistent = devices_[volatileValues[i].ieeeAddress];
                 // Successful configuration is authoritative in the persistent store, even if
                 // the RAM snapshot predates completion or a leave invalidation.
+                volatileValues[i].initialInterviewComplete = persistent.initialInterviewComplete;
                 volatileValues[i].configuredSignature = persistent.configuredSignature;
                 if (volatileValues[i].manufacturerName.empty()) volatileValues[i].manufacturerName = persistent.manufacturerName;
                 if (volatileValues[i].modelId.empty()) volatileValues[i].modelId = persistent.modelId;
@@ -4617,6 +4761,9 @@ void Gateway::registerNode(unsigned short nodeId, const unsigned char* eui64) {
     address << "0x" << std::hex << std::setfill('0');
     /* EZSP transmits EUI64 least significant byte first. */
     for (i = 7; i >= 0; --i) address << std::setw(2) << static_cast<unsigned int>(eui64[i]);
+    std::map<std::string, DeviceDeletion>::const_iterator removed = deviceDeletions_.find(address.str());
+    if (removed != deviceDeletions_.end() && (removed->second.state == "pending" ||
+        (removed->second.state == "succeeded" && joinUntil_ <= time(0)))) return;
     if (nodeAddresses_.count(nodeId) && nodeAddresses_[nodeId] != address.str()) {
         devices_[nodeAddresses_[nodeId]].networkAddress = 0xffff;
         interviews_.erase(nodeId);
@@ -4879,6 +5026,10 @@ void Gateway::buildConfigurationOperations(unsigned short destination) {
     if (state.configurationPending) state.refreshOnly = false;
     state.configurationPending = false;
     Device& device = devices_[state.ieeeAddress];
+    if (!state.refreshOnly && !device.endpoints.empty() && !device.initialInterviewComplete) {
+        device.initialInterviewComplete = true;
+        savePersistentState(); saveState(); markViewDirty();
+    }
     state.configurationSignature = deviceConfigurationSignature(device);
     state.configurationFailed = false;
     if (!state.forceConfiguration && device.configuredSignature == state.configurationSignature) {
@@ -5165,6 +5316,10 @@ void Gateway::completeInterviewOperation(unsigned short destination) {
             savePersistentState();
             saveState();
         }
+        if (!state.refreshOnly && !device.initialInterviewComplete) {
+            device.initialInterviewComplete = true;
+            savePersistentState(); saveState(); markViewDirty();
+        }
         addLog(state.refreshOnly ? "Sensor attribute refresh completed" : "Sensor interview completed");
         interviews_.erase(destination);
     }
@@ -5302,6 +5457,14 @@ void Gateway::handleApsMessage(unsigned short sender, unsigned short profile, un
                               unsigned char messageType, unsigned char lqi, signed char rssi,
                               const std::vector<unsigned char>& message) {
     if (message.size() < 2) return;
+    for (std::map<std::string, DeviceDeletion>::iterator deletion = deviceDeletions_.begin(); deletion != deviceDeletions_.end(); ++deletion) {
+        if (deletion->second.state != "pending" || deletion->second.node != sender) continue;
+        if (profile == 0 && cluster == 0x8034 && message[0] == deletion->second.sequence) {
+            if (message[1] == 0) completeDeviceDeletion(deletion->first);
+            else { deletion->second.state = "failed"; deletion->second.error = "Device rejected unpairing"; deletion->second.deadline = 0; }
+        }
+        return; // Ignore old interview/configuration replies while removal is pending.
+    }
     std::map<unsigned short, std::string>::const_iterator address;
     std::map<unsigned short, std::string>::const_iterator nativeSender = nodeAddresses_.find(sender);
     if (nativeSender != nodeAddresses_.end()) wakeSceneProvisioning(nativeSender->second);

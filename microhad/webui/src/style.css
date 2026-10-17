@@ -1129,3 +1129,8 @@ button:disabled {
 .matter-device-controls label { display: grid; gap: 5px; min-width: 180px; }
 .matter-device-controls input[type='range'] { width: min(100%, 320px); }
 .matter-device-controls input[type='number'] { max-width: 140px; }
+
+.incomplete-devices { display: grid; gap: 12px; }
+.incomplete-device { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 0; border-top: 1px solid #dce5ed; }
+.incomplete-device p { margin: 5px 0; }
+.incomplete-device code { overflow-wrap: anywhere; }

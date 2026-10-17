@@ -196,6 +196,12 @@ impl Catalog {
             armed: true,
         })
     }
+    /// Retire a node without reusing its allocated ID.
+    pub fn remove(&self, id: u64) -> Result<(), Error> {
+        let mut nodes = self.nodes();
+        nodes.retain(|node| node.id != id);
+        self.commit(nodes)
+    }
     fn advance(&self, id: u64, phase: Phase) -> Result<(), Error> {
         let mut nodes = self.nodes.borrow().clone();
         let node = nodes
@@ -297,6 +303,23 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
         }
+    }
+    #[test]
+    fn deletion_is_durable_preserves_neighbors_and_does_not_reuse_ids() {
+        let directory = Directory::new();
+        let store = directory.store();
+        let catalog = Catalog::open(store.clone(), 17, 2).unwrap();
+        drop(catalog.reserve(2).unwrap()); drop(catalog.reserve(3).unwrap());
+        catalog.remove(2).unwrap();
+        assert_eq!(catalog.nodes().len(), 1);
+        assert_eq!(catalog.nodes()[0].id, 3);
+        assert!(catalog.reserve(2).is_err());
+        catalog.remove(2).unwrap(); // Repeat cleanup is idempotent.
+        drop(catalog); drop(store);
+        let store = directory.store();
+        let catalog = Catalog::open(store, 17, 4).unwrap();
+        assert_eq!(catalog.nodes().len(), 1);
+        assert_eq!(catalog.nodes()[0].id, 3);
     }
     #[test]
     fn completed_identity_survives_reload_without_observation_writes() {

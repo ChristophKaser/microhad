@@ -190,6 +190,11 @@ fn dispatch<C: Crypto>(
             Request::BleWriteComplete(_))) => String::from_utf8(controller.handle(
                 body, peer, lifecycle, entropy, Instant::now(),
             )?).ok()?,
+        Ok(Request::Device(body @ micro_thread_matter_daemon::control::DeviceRequest::Delete { .. })) =>
+            String::from_utf8(micro_thread_matter_daemon::responses::reply(devices.submit(
+                Request::Device(body), lifecycle.snapshot().attached && thread.is_some(),
+                controller.commissioning(Instant::now()), Instant::now(),
+            ))?).ok()?,
         Ok(Request::Device(body @ micro_thread_matter_daemon::control::DeviceRequest::Read { .. })) =>
             String::from_utf8(micro_thread_matter_daemon::responses::reply(devices.submit(
                 Request::Device(body), lifecycle.snapshot().attached && thread.is_some(),

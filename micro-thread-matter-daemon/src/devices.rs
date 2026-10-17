@@ -71,6 +71,10 @@ pub struct InventoryRecord {
     pub device: Device,
     pub endpoint_count: usize,
 }
+#[derive(Serialize)]
+pub struct InventoryNodes { pub nodes: Vec<InventoryNode> }
+#[derive(Serialize)]
+pub struct InventoryNode { pub node: crate::control::Id }
 struct InventoryPeer {
     peer: u64,
     revision: u64,
@@ -100,6 +104,7 @@ struct QueuedOperation {
 struct ActiveOperation<'a> {
     id: u64,
     node: u64,
+    deleting: bool,
     deadline: Instant,
     work: OperationWork<'a>,
 }
@@ -307,6 +312,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         }
     }
     pub fn publish_inventory(&mut self, ipc: &mut crate::service::IpcServer) -> std::io::Result<()> {
+        if self.catalog.legacy_pending() { return Ok(()); }
         let nodes = self.catalog.nodes();
         if nodes != self.seen {
             self.seen = nodes.clone();
@@ -319,6 +325,10 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         for index in 0..self.inventory_peers.len() {
             if now < self.inventory_peers[index].next { continue; }
             if self.inventory_peers[index].revision != self.revision {
+                let manifest = InventoryNodes { nodes: nodes.iter().map(|node| InventoryNode { node: crate::control::Id(node.id) }).collect() };
+                let event = crate::responses::event(crate::responses::Event::MatterInventoryNodes(&manifest))
+                    .ok_or_else(|| std::io::Error::other("inventory manifest exceeds IPC bound"))?;
+                if !ipc.publish_inventory(self.inventory_peers[index].peer, &event)? { continue; }
                 self.inventory_peers[index].revision = self.revision;
                 self.inventory_peers[index].index = 0;
             }
@@ -569,9 +579,8 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         now: Instant,
     ) -> Result<JobAccepted, crate::operations::Failure> {
         use crate::operations::Failure;
-        if !ready {
-            return Err(Failure::NotReady);
-        }
+        let local_delete = matches!(&request, crate::control::Request::Device(crate::control::DeviceRequest::Delete { local: true, .. }));
+        if !ready && !local_delete { return Err(Failure::NotReady); }
         if commissioning {
             return Err(Failure::Busy);
         }
@@ -583,7 +592,8 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             .catalog
             .nodes()
             .iter()
-            .any(|node| node.id == operation.node && node.phase == Phase::Complete)
+            .any(|node| node.id == operation.node &&
+                (node.phase == Phase::Complete || matches!(operation.action, crate::operations::Action::Delete { .. })))
         {
             return Err(Failure::NotFound);
         }
@@ -591,17 +601,26 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         if self.next_job == 0 {
             return Err(Failure::Capacity);
         }
+        if self.queued.iter().any(|job| job.operation.node == operation.node &&
+            (matches!(job.operation.action, crate::operations::Action::Delete { .. }) || matches!(operation.action, crate::operations::Action::Delete { .. }))) ||
+            self.active.as_ref().is_some_and(|job| job.node == operation.node && (job.deleting || matches!(operation.action, crate::operations::Action::Delete { .. }))) {
+            return Err(Failure::Busy);
+        }
+        let timeout = if matches!(operation.action, crate::operations::Action::Delete { .. }) { 15 } else { 30 };
         let id = self.next_job;
         self.next_job = self.next_job.checked_add(1).unwrap_or(0);
-        self.queued.push_back(QueuedOperation {
-            id,
-            operation,
-            deadline: now + Duration::from_secs(30),
-        });
-        self.jobs.push_back(JobRecord {
-            id,
-            state: JobRecordState::Queued,
-        });
+        let state = if local_delete {
+            self.remove_node(operation.node)?;
+            JobRecordState::Complete(crate::operations::ResultValue {
+                node: crate::control::Id(operation.node), endpoint: 0, cluster: 62, attribute: 0,
+                value: crate::operations::Value::Bool(true),
+            })
+        } else {
+            self.queued.push_back(QueuedOperation { id, operation, deadline: now + Duration::from_secs(timeout) });
+            JobRecordState::Queued
+        };
+        self.jobs.push_back(JobRecord { id, state });
+        self.trim_jobs();
         Ok(JobAccepted {
             job: crate::control::Id(id),
             state: "queued",
@@ -630,16 +649,13 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         if let Some(record) = self.jobs.iter_mut().find(|record| record.id == id) {
             record.state = state;
         }
+        self.trim_jobs();
+    }
+    fn trim_jobs(&mut self) {
         while self.jobs.len() > MAX_RETAINED_JOBS {
-            if self.jobs.front().is_some_and(|record| {
-                matches!(
-                    record.state,
-                    JobRecordState::Queued | JobRecordState::Running
-                )
-            }) {
-                break;
-            }
-            self.jobs.pop_front();
+            let Some(index) = self.jobs.iter().position(|record|
+                matches!(record.state, JobRecordState::Complete(_) | JobRecordState::Failed(_))) else { break; };
+            self.jobs.remove(index);
         }
     }
     pub fn prepare(
@@ -660,6 +676,29 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         }
         operation.authorize(&self.snapshots)?;
         Ok(operation.run(self.matter, self.crypto, self.fabric))
+    }
+    fn remove_node(&mut self, node: u64) -> Result<(), crate::operations::Failure> {
+        use crate::operations::Failure;
+        // Remove wake credentials first. A failed catalog write retains a visible retryable record.
+        if let Some(registry) = &mut self.icd_registry { registry.remove(self.fabric, node).map_err(|_| Failure::Storage)?; }
+        self.catalog.remove(node).map_err(|_| Failure::Storage)?;
+        self.snapshots.retain(|entry| entry.node != node);
+        if self.work.as_ref().is_some_and(|(id, _, _)| *id == node) { self.work = None; }
+        if self.icd_work.as_ref().is_some_and(|(id, _, _, _)| *id == node) { self.icd_work = None; }
+        self.registered_nodes.retain(|id| *id != node);
+        self.icd_checked.retain(|(id, _)| *id != node);
+        self.icd_retry_after.retain(|((id, _), _)| *id != node);
+        self.awake_until.retain(|(id, _)| *id != node);
+        self.subscriptions.retain(|entry| entry.key.node != node);
+        if self.subscription_work.as_ref().is_some_and(|(key, _, _)| key.node == node) { self.subscription_work = None; }
+        self.report_subscriptions.replace(self.fabric.get(), self.subscriptions.iter().filter_map(|entry| entry.id.map(|id| (entry.key.node, id))));
+        self.reports.retain(|entry| entry.node.0 != node);
+        self.button_events.retain(|entry| entry.node.0 != node);
+        let removed = self.matter.with_state(|state| state.sessions.remove_where(|session|
+            session.get_local_fabric_idx() == self.fabric.get() && session.get_peer_node_id() == Some(node)));
+        if removed != 0 { self.matter.transport().notify_session_removed(); }
+        self.changed();
+        Ok(())
     }
     fn changed(&mut self) {
         if self.revision != 0 {
@@ -873,10 +912,13 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                     Poll::Pending => None,
                 }
             };
-            if let Some(result) = completed {
+            if let Some(mut result) = completed {
                 let id = active.id;
                 let node = active.node;
                 self.active = None;
+                if result.as_ref().is_ok_and(|value| value.cluster == 62) {
+                    result = self.remove_node(node).map(|()| result.unwrap());
+                }
                 if let Err(error) = result {
                     if matches!(
                         error,
@@ -905,7 +947,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         let ready_job = self
             .queued
             .iter()
-            .position(|queued| self.node_awake(queued.operation.node, now));
+            .position(|queued| matches!(queued.operation.action, crate::operations::Action::Delete { .. }) || self.node_awake(queued.operation.node, now));
         if let Some(index) = ready_job {
             let queued = self.queued.remove(index).unwrap();
             let id = queued.id;
@@ -914,7 +956,8 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 .catalog
                 .nodes()
                 .iter()
-                .any(|node| node.id == queued.operation.node && node.phase == Phase::Complete)
+                .any(|node| node.id == queued.operation.node &&
+                    (node.phase == Phase::Complete || matches!(queued.operation.action, crate::operations::Action::Delete { .. })))
                 .then(|| queued.operation.authorize(&self.snapshots))
                 .unwrap_or(Err(crate::operations::Failure::NotFound));
             if let Err(error) = authorization {
@@ -925,12 +968,14 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             let timeout = embassy_time::Duration::from_millis(
                 remaining.as_millis().min(u64::MAX as u128) as u64,
             );
+            let deleting = matches!(queued.operation.action, crate::operations::Action::Delete { .. });
             let work = queued
                 .operation
                 .run_for(self.matter, self.crypto, self.fabric, timeout);
             self.active = Some(ActiveOperation {
                 id,
                 node: operation_node,
+                deleting,
                 deadline: queued.deadline,
                 work: Box::pin(work),
             });
@@ -1796,6 +1841,51 @@ mod tests {
             subscription_keys(&[oversized], MAX_DEVICE_SUBSCRIPTIONS).len(),
             MAX_DEVICE_SUBSCRIPTIONS
         );
+    }
+
+    #[test]
+    fn local_deletion_retires_incomplete_nodes_and_icd_keys_without_radio() {
+        use crate::{control::Request, entropy::OsEntropy, store::PrivateStore};
+        use rs_matter::{crypto::{default_crypto, CryptoSensitiveRef},
+            dm::devices::test::{TEST_DEV_ATT, TEST_DEV_COMM, TEST_DEV_DET}, utils::init::InitMaybeUninit};
+        let directory = std::env::temp_dir().join(format!("matter-delete-{}", std::process::id()));
+        let store = PrivateStore::open(&directory).unwrap();
+        let catalog = Catalog::open(store.clone(), 1, 2).unwrap();
+        drop(catalog.reserve(2).unwrap()); // Interrupted commissioning: recovery_required.
+        let reservation = catalog.reserve(3).unwrap();
+        reservation.fabric_installed().unwrap(); reservation.thread_provisioned().unwrap(); reservation.complete().unwrap();
+        let crypto = default_crypto(OsEntropy::open().unwrap(), CryptoSensitiveRef::new(&[9; 32]));
+        let mut memory = Box::new(std::mem::MaybeUninit::uninit());
+        let matter = memory.init_with(Matter::init(&TEST_DEV_DET, TEST_DEV_COMM, &TEST_DEV_ATT, 5540));
+        let fabric = NonZeroU8::new(1).unwrap();
+        let mut manager = Manager::new(matter, &crypto, fabric, catalog.clone()).unwrap();
+        manager.icd_registry.as_mut().unwrap().install(fabric, 2, 1, [0x42; 16], 7).unwrap();
+        manager.registered_nodes.push(2);
+        let request = || Request::decode(10, br#"{"schema":1,"action":"delete","node":"0000000000000002","local":true}"#).unwrap();
+        let now = Instant::now();
+        assert_eq!(manager.submit(request(), false, true, now).unwrap_err(), crate::operations::Failure::Busy);
+        assert_eq!(catalog.nodes().len(), 2);
+        let accepted = manager.submit(request(), false, false, now).unwrap();
+        assert!(matches!(manager.job(accepted.job).unwrap(), JobState::Complete { .. }));
+        assert!(!manager.registered_nodes.contains(&2));
+        assert!(!manager.icd_registry.as_ref().unwrap().is_registered(fabric, 2));
+        assert_eq!(catalog.nodes().iter().map(|node| node.id).collect::<Vec<_>>(), vec![3]);
+        assert_eq!(manager.submit(request(), false, false, now).unwrap_err(), crate::operations::Failure::NotFound);
+        // Immediate local deletions must obey the same retained-job bound as queued operations.
+        for node in 4..25 {
+            drop(catalog.reserve(node).unwrap());
+            let body = format!("{{\"schema\":1,\"action\":\"delete\",\"node\":\"{node:016x}\",\"local\":true}}");
+            let accepted = manager.submit(Request::decode(10, body.as_bytes()).unwrap(), false, false, now).unwrap();
+            assert!(matches!(manager.job(accepted.job).unwrap(), JobState::Complete { .. }));
+            assert!(manager.jobs.len() <= MAX_RETAINED_JOBS);
+        }
+        // A durable reload keeps the other node and does not resurrect the removed identity.
+        drop(manager); drop(catalog); drop(store);
+        let store = PrivateStore::open(&directory).unwrap();
+        let catalog = Catalog::open(store.clone(), 1, 4).unwrap();
+        assert_eq!(catalog.nodes().iter().map(|node| node.id).collect::<Vec<_>>(), vec![3]);
+        assert!(!crate::icd::ClientRegistry::open(store.clone()).unwrap().is_registered(fabric, 2));
+        drop(catalog); drop(store); std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]

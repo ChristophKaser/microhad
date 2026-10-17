@@ -93,6 +93,7 @@ export interface Device {
   online?: boolean
   controller_available?: boolean
   endpoint_metadata_state?: 'missing' | 'stale' | 'ready'
+  setup_state?: 'complete' | 'incomplete'
   commissioning_state?: string
   matter_node?: string
   matter_endpoint?: number

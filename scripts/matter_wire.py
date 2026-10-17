@@ -63,7 +63,7 @@ def shape(context,value,kind,opcode,event):
         return f'request{opcode}:{action}' if opcode in (9,10,11) and action else f'request{opcode}'
     if context=='body':return 'event' if kind==2 else 'matter' if opcode==1 else 'thread' if opcode==2 else 'reply'
     if context=='result':return 'session' if opcode<=5 else f'ack{opcode}' if opcode<=8 else 'thread' if opcode==9 else 'page' if 'devices' in value else 'job'
-    if context=='event-data':return {'thread':'thread','commissioning':'session','ble_write':'ble-write','matter_report':'reading','matter_button':'button','matter_inventory':'inventory'}.get(event,'')
+    if context=='event-data':return {'thread':'thread','commissioning':'session','ble_write':'ble-write','matter_report':'reading','matter_button':'button','matter_inventory':'inventory','matter_inventory_nodes':'inventory-nodes'}.get(event,'')
     return context
 
 def convert(value,context,kind,opcode,event='',incoming=False):

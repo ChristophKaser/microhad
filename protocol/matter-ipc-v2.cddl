@@ -46,6 +46,7 @@ thread-request =
   {schema, action: "retry", extensions}
 ; Online coordinator observations require channel 11..26.
 device-request =
+  {schema, action: "delete", node: id64, local: bool, extensions} /
   {schema, action: "read", node: id64, endpoint: endpoint,
     cluster: uint .le 4294967295, attribute: uint .le 4294967295, extensions} /
   {schema, action: "bind", node: id64, endpoint: endpoint, targets: [* binding-target], extensions} /
@@ -88,7 +89,8 @@ typed-value = {type: "bool", value: bool, extensions} /
 inventory = {kind: "identity" / "endpoint" / "commit", device: device, endpoint_count: 0..32}
 ; Matter-status subscribers receive paced inventory records automatically.
 ; All identities precede endpoints. A commit replaces only one complete node.
-event-body = {schema, event: "matter_inventory", data: inventory, extensions} /
+event-body = {schema, event: "matter_inventory_nodes", data: inventory-nodes, extensions} /
+             {schema, event: "matter_inventory", data: inventory, extensions} /
              {schema, event: "thread", data: thread-status, extensions} /
   {schema, event: "commissioning", data: session-snapshot, extensions} /
   {schema, event: "ble_write", data: {session: id64, generation: 1..4294967295,
@@ -101,3 +103,6 @@ error-code = "malformed" / "unsupported" / "not_ready" / "busy" /
   "transport" / "storage" / "capacity" / "accessory" / "stale_revision"
 ; Lifecycle, cluster support, binding capacities, sorted cluster IDs, catalog IDs,
 ; job state/result consistency, and field-specific ranges remain application checks.
+
+; An authoritative node manifest precedes each inventory revision and retires absent nodes.
+inventory-nodes = {nodes: [0*64 {node: id64}]}

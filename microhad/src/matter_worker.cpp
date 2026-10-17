@@ -9,6 +9,7 @@
 #include <sys/socket.h>
 #include <syslog.h>
 #include <cerrno>
+#include <algorithm>
 
 namespace {
 int64_t tick() {
@@ -156,6 +157,18 @@ void MatterWorker::unavailable() {
 bool MatterWorker::collectEvents() {
     std::string event;
     while (client_.popEvent(&event)) {
+        std::vector<std::string> nodes;
+        if (MatterChannel::inventoryNodesEvent(event, &nodes)) {
+            std::string error;
+            if (gateway_ && !gateway_->reconcileMatterNodes(nodes, &error)) { unavailable(); return false; }
+            for (std::map<std::string, std::vector<MatterEndpoint> >::iterator it = inventoryBuilding_.begin(); it != inventoryBuilding_.end();)
+                if (std::find(nodes.begin(), nodes.end(), it->first) == nodes.end()) inventoryBuilding_.erase(it++); else ++it;
+            for (std::vector<MatterEndpoint>::iterator it = snapshotDevices_.begin(); it != snapshotDevices_.end();)
+                if (std::find(nodes.begin(), nodes.end(), it->node) == nodes.end()) it = snapshotDevices_.erase(it); else ++it;
+            for (std::deque<MatterReading>::iterator it = deferredReadings_.begin(); it != deferredReadings_.end();)
+                if (std::find(nodes.begin(), nodes.end(), it->node) == nodes.end()) it = deferredReadings_.erase(it); else ++it;
+            continue;
+        }
         std::string kind; unsigned int count = 0; MatterEndpoint endpoint;
         if (MatterChannel::inventoryEvent(event, &kind, &count, &endpoint)) {
             std::vector<MatterEndpoint> update;
@@ -310,7 +323,9 @@ void MatterWorker::pollOperationJob() {
         valid = MatterChannel::deviceResult(response, serviceJob, &reading);
         if (valid && gateway_) {
             std::string ignored;
-            gateway_->applyMatterReading(reading, &ignored);
+            if (reading.cluster == 62) {
+                if (!gateway_->removeMatterNode(reading.node, &ignored)) { failed = true; operationError = "storage"; }
+            } else gateway_->applyMatterReading(reading, &ignored);
         }
     }
     pthread_mutex_lock(&mutex_);

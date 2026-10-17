@@ -40,6 +40,41 @@ TinyCBOR is pinned at `microhad/dependencies/tinycbor`; Rust uses Ciborium.
 The host report fixture uses an isolated service-test-hook build. Production
 artifacts must exclude that hook.
 
+## Device removal
+
+Controls lists incomplete Zigbee interviews and Matter commissioning/recovery
+records. Their Delete action and the Zigbee/Matter settings popup share a
+confirmation flow. Unpairing has a 15-second deadline; failed or unreachable
+accessories offer an explicit local-only removal. Active commissioning blocks
+Matter removal. Shelly and FRITZ removal remains in connection settings.
+
+`POST /api/devices/{encoded-id}/delete` accepts form data `mode=unpair` or
+`mode=local`. Zigbee returns `state=pending`; poll
+`GET /api/devices/{encoded-id}/delete` for `pending`, `succeeded`, or `failed`.
+Matter also returns a numeric `job`; poll the existing
+`GET /api/matter/jobs/{job}` endpoint until its service operation completes.
+A successful HTTP submission alone does not mean removal succeeded.
+
+Matter deletion uses opcode 10, action `delete`, with `schema`, `node`, and a
+boolean `local`. It removes the entire node, including endpoint aliases and ICD
+Check-In registrations. Unpairing reads the accessory's CurrentFabricIndex and
+removes only that fabric. An authoritative `matter_inventory_nodes` event
+precedes inventory revisions and removes stale native records after reconnect;
+legacy catalog migration finishes before this manifest is emitted.
+
+Removal cleans device settings and scene/group/binding/dashboard references.
+It retains sensor history, controller identity, network state and other
+accessories. Native and Matter service changes belong in the same release.
+
+The host-only two-fabric removal regression is:
+
+```sh
+bash micro-thread-matter-daemon/scripts/build.sh host commissioning
+python3 micro-thread-matter-daemon/scripts/test-openthread-matter-transport.py \
+  --commissioning --ble --service-owner --delete-device
+node microhad/webui/test/device-deletion-browser.cjs
+```
+
 ## Runtime and release
 
 The paired supervisor starts and monitors MicroHAD, Ziggurat and Matter with

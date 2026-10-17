@@ -134,6 +134,7 @@ struct Device {
     std::string manufacturerName;
     std::string modelId;
     std::string softwareBuildId; /* read during interview; persisted for remote binding compatibility */
+    bool initialInterviewComplete;
     std::string configuredSignature; /* last successfully applied reporting/binding configuration */
     std::vector<EndpointDescriptor> endpoints;
     std::string matterState;
@@ -296,6 +297,11 @@ public:
                            unsigned long contactTriggerCooldownSeconds = 60);
     bool setDeviceValueAlerts(const std::string& ieeeAddress, const std::map<std::string, DeviceValueAlert>& alerts,
                               std::string* error);
+    bool deleteDevice(const std::string& address, bool local, std::string* error);
+    bool deviceDeletionStatus(const std::string& address, std::string* json, std::string* error);
+    bool matterDeletionTarget(const std::string& address, std::string* node, std::string* error);
+    bool removeMatterNode(const std::string& node, std::string* error);
+    bool reconcileMatterNodes(const std::vector<std::string>& nodes, std::string* error);
     bool refreshDevice(const std::string& ieeeAddress, std::string* error);
     bool reconfigureDevice(const std::string& ieeeAddress, std::string* error);
     bool identifyDevice(const std::string& ieeeAddress, std::string* error);
@@ -558,6 +564,17 @@ private:
     bool viewDirty_;
     mutable bool matterInventoryDirty_;
     mutable time_t matterInventorySaveAt_;
+    struct DeviceDeletion {
+        std::string state;
+        std::string error;
+        unsigned short node;
+        unsigned char sequence;
+        long deadline;
+        DeviceDeletion() : node(0xffff), sequence(0), deadline(0) {}
+    };
+    std::map<std::string, DeviceDeletion> deviceDeletions_;
+    bool removeDeviceRecords(const std::vector<std::string>& addresses, std::string* error);
+    void completeDeviceDeletion(const std::string& address);
     bool configureSerial(std::string* error);
     bool writeBytes(const std::vector<unsigned char>& bytes, bool sensitive = false);
     void sendAshReset();

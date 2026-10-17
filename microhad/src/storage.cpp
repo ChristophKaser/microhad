@@ -12,6 +12,8 @@
 #include <sstream>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <fcntl.h>
+#include <pthread.h>
 
 NetworkState::NetworkState() : formed(false), panId(0), channel(0) {
 }
@@ -195,6 +197,100 @@ bool ensureDirectory(const std::string& directory, std::string* error) {
     return false;
 }
 
+
+namespace {
+pthread_mutex_t dashboardMutex = PTHREAD_MUTEX_INITIALIZER;
+bool writeDashboard(const std::string& filename, const std::string& value) {
+    const std::string temporary = filename + ".tmp";
+    int fd = open(temporary.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
+    if (fd < 0) return false;
+    unsigned long written = 0;
+    while (written < value.size()) {
+        ssize_t size = write(fd, value.data() + written, value.size() - written);
+        if (size <= 0) { close(fd); unlink(temporary.c_str()); return false; }
+        written += size;
+    }
+    bool synced = fsync(fd) == 0;
+    bool closed = close(fd) == 0;
+    bool ok = synced && closed && rename(temporary.c_str(), filename.c_str()) == 0;
+    if (!ok) unlink(temporary.c_str());
+    return ok;
+}
+// Match the top-level property, including escaped keys, without confusing a
+// metadata string containing "widgets" with the actual widget array.
+std::string::size_type widgetArrayStart(const std::string& content) {
+    unsigned int depth = 0;
+    std::string::size_type result = std::string::npos;
+    for (unsigned long at = 0; at < content.size(); ++at) {
+        const char c = content[at];
+        if (c == '{' || c == '[') { ++depth; continue; }
+        if (c == '}' || c == ']') { if (depth == 0) return std::string::npos; --depth; continue; }
+        if (c != '"') continue;
+        const unsigned long start = at++;
+        bool escaped = false;
+        while (at < content.size()) {
+            if (escaped) escaped = false;
+            else if (content[at] == '\\') escaped = true;
+            else if (content[at] == '"') break;
+            ++at;
+        }
+        if (at == content.size()) return std::string::npos;
+        unsigned long next = at + 1;
+        while (next < content.size() && isspace(static_cast<unsigned char>(content[next]))) ++next;
+        if (depth != 1 || next == content.size() || content[next] != ':') continue;
+        std::string key;
+        if (!jsonStringField("{\"key\":" + content.substr(start, at - start + 1) + "}", "key", &key)) return std::string::npos;
+        if (key != "widgets") continue;
+        ++next;
+        while (next < content.size() && isspace(static_cast<unsigned char>(content[next]))) ++next;
+        if (result != std::string::npos || next == content.size() || content[next] != '[') return std::string::npos;
+        result = next;
+    }
+    return depth == 0 ? result : std::string::npos;
+}
+bool pruneDashboard(const std::string& filename, const std::vector<std::string>& ids, std::string* error) {
+    std::string content;
+    if (access(filename.c_str(), F_OK) != 0 && errno == ENOENT) return true;
+    if (!readTextFile(filename, &content) || content.size() > 12000) { *error = "Cannot read dashboard configuration"; return false; }
+    std::string::size_type begin = widgetArrayStart(content);
+    if (begin == std::string::npos) { *error = "Invalid dashboard configuration"; return false; }
+    std::string kept;
+    unsigned long at = begin + 1;
+    while (at < content.size()) {
+        while (at < content.size() && (isspace(static_cast<unsigned char>(content[at])) || content[at] == ',')) ++at;
+        if (at < content.size() && content[at] == ']') break;
+        unsigned long start = at;
+        int depth = 0; bool quoted = false, escaped = false;
+        if (at >= content.size() || content[at] != '{') { *error = "Invalid dashboard widget"; return false; }
+        for (; at < content.size(); ++at) {
+            char c = content[at];
+            if (quoted) {
+                if (escaped) escaped = false;
+                else if (c == '\\') escaped = true;
+                else if (c == '"') quoted = false;
+            } else if (c == '"') quoted = true;
+            else if (c == '{' || c == '[') ++depth;
+            else if (c == '}' || c == ']') { if (--depth == 0) { ++at; break; } }
+        }
+        if (depth != 0 || quoted) { *error = "Invalid dashboard widget"; return false; }
+        std::string widget = content.substr(start, at - start), target;
+        jsonStringField(widget, "target", &target);
+        if (std::find(ids.begin(), ids.end(), target) == ids.end()) { if (!kept.empty()) kept += ','; kept += widget; }
+    }
+    if (at >= content.size()) { *error = "Invalid dashboard configuration"; return false; }
+    std::string result = content.substr(0, begin + 1) + kept + content.substr(at);
+    if (result == content) return true;
+    if (!writeDashboard(filename, result)) { *error = "Cannot save dashboard configuration"; return false; }
+    return true;
+}
+}
+bool saveDashboardConfiguration(const std::string& filename, const std::string& value) {
+    pthread_mutex_lock(&dashboardMutex); bool ok = writeDashboard(filename, value); pthread_mutex_unlock(&dashboardMutex); return ok;
+}
+bool pruneDashboardDevices(const std::string& filename, const std::vector<std::string>& addresses, std::string* error) {
+    pthread_mutex_lock(&dashboardMutex); bool ok = pruneDashboard(filename, addresses, error); pthread_mutex_unlock(&dashboardMutex); return ok;
+}
+
 bool saveDevices(const std::string& filename, const std::vector<Device>& devices, std::string* error) {
     std::string temporary = filename + ".tmp";
     std::ofstream output(temporary.c_str());
@@ -264,6 +360,7 @@ bool saveDevices(const std::string& filename, const std::vector<Device>& devices
                    << ",\"alert_" << alert->first << "_hysteresis\":" << alert->second.hysteresis
                    << ",\"alert_" << alert->first << "_unit\":\"" << jsonEscape(alert->second.unit) << '"';
         }
+        output << ",\"initial_interview_complete\":" << (device.initialInterviewComplete ? "true" : "false");
         output << ",\"manufacturer_name\":\""
                << jsonEscape(device.manufacturerName) << "\",\"model_id\":\"" << jsonEscape(device.modelId)
                << "\",\"software_build_id\":\"" << jsonEscape(device.softwareBuildId)
@@ -482,6 +579,8 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
                     return false;
                 }
             }
+            device.initialInterviewComplete = line.find("\"initial_interview_complete\":") == std::string::npos
+                ? !device.endpoints.empty() : line.find("\"initial_interview_complete\":true") != std::string::npos;
             parsedDevices.push_back(device);
         }
     }

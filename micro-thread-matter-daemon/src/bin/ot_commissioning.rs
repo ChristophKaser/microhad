@@ -724,6 +724,15 @@ async fn run(
     );
     device_matter.startup(&device_kv)?;
     dm.startup().await?;
+    let delete_device = std::env::args().any(|arg| arg == "--delete-device");
+    let other_fabric = if delete_device {
+        // Give the accessory another controller first. Its gateway fabric index
+        // must now differ from the gateway's own local fabric index.
+        let other_store = PrivateStore::open(std::path::Path::new("other-controller-state"))
+            .map_err(|_| rs_matter::error::ErrorCode::Failure)?;
+        let other = Identity::open(&other_store, device_crypto, ADMIN_VENDOR_ID)?;
+        Some(other.install(device_matter, device_crypto, &other_store)?)
+    } else { None };
 
     // Open commissioning window before starting the mDNS responder so the
     // `wait_mdns` signal is already set when the broadcast loop first runs.
@@ -844,6 +853,12 @@ async fn run(
             )
             .await?
         };
+        let accessory_fabric = if delete_device {
+            use rs_matter::dm::clusters::noc::OperationalCredentialsClient;
+            let index = Exchange::initiate(ctrl_matter, ctrl_crypto, fab, node).await?
+                .operational_credentials().current_fabric_index_read(0).await?;
+            std::num::NonZeroU8::new(index).ok_or(rs_matter::error::ErrorCode::InvalidData)?
+        } else { fab };
         if icd && device_matter.comm_window_state().is_open() {
             let closed = dm.close_comm_window()?;
             eprintln!("ICD fixture closed commissioning window: {closed}");
@@ -1366,7 +1381,7 @@ async fn run(
                 let mut exchange = Exchange::initiate(
                     device_matter,
                     device_crypto,
-                    fab,
+                    accessory_fabric,
                     active_store_identity_node(ctrl_matter, fab)?,
                 )
                 .await?;
@@ -1718,8 +1733,39 @@ async fn run(
                 }
             }
             println!("PASS production manager subscription and peer-correlated OnOff reports");
+            if delete_device {
+                use rs_matter::dm::clusters::noc::OperationalCredentialsClient;
+                let remote_index = Exchange::initiate(ctrl_matter, ctrl_crypto, fab, node).await?
+                    .operational_credentials().current_fabric_index_read(0).await?;
+                assert_ne!(remote_index, fab.get());
+                assert_eq!(device_matter.with_state(|state| state.fabrics.iter().count()), 2);
+                let body = format!("{{\"schema\":1,\"action\":\"delete\",\"node\":\"{node:016x}\",\"local\":false}}");
+                let accepted = manager.submit(
+                    micro_thread_matter_daemon::control::Request::decode(10, body.as_bytes())
+                        .map_err(|_| rs_matter::error::ErrorCode::InvalidData)?,
+                    true, false, std::time::Instant::now(),
+                ).map_err(|_| rs_matter::error::ErrorCode::InvalidData)?;
+                let outcome = std::future::poll_fn(|context| {
+                    manager.poll(true, false, std::time::Instant::now(), context);
+                    match manager.job(accepted.job) {
+                        Ok(state @ (micro_thread_matter_daemon::devices::JobState::Complete { .. } |
+                            micro_thread_matter_daemon::devices::JobState::Failed { .. })) => std::task::Poll::Ready(state),
+                        Ok(_) => { context.waker().wake_by_ref(); std::task::Poll::Pending }
+                        Err(_) => panic!("deletion job disappeared"),
+                    }
+                }).await;
+                match outcome {
+                    micro_thread_matter_daemon::devices::JobState::Complete { result, .. } => assert_eq!(result.cluster, 62),
+                    micro_thread_matter_daemon::devices::JobState::Failed { error, .. } => panic!("deletion failed: {error:?}"),
+                    _ => unreachable!(),
+                }
+                assert!(catalog.nodes().iter().all(|entry| entry.id != node));
+                assert_eq!(device_matter.with_state(|state| state.fabrics.iter().count()), 1);
+                assert!(device_matter.with_state(|state| state.fabrics.get(other_fabric.unwrap()).is_some()));
+                println!("PASS targeted Matter fabric removal uses accessory index, preserves other controller and retires catalog node");
+            }
         }
-        if sensor_reports || icd {
+        if sensor_reports || icd || delete_device {
             return Ok((fab, node, operational));
         }
         let exchange = Exchange::initiate(ctrl_matter, ctrl_crypto, fab, node).await?;
@@ -1760,7 +1806,7 @@ async fn run(
             }
             embassy_futures::select::Either3::Third(result) => result?,
         };
-        if sensor_reports || icd {
+        if sensor_reports || icd || delete_device {
             return Ok(());
         }
         // Replace the controller stack, including all sessions, with a fresh instance.

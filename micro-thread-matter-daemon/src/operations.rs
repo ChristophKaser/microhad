@@ -27,6 +27,7 @@ use serde::Serialize;
 
 #[derive(Clone)]
 pub enum Action {
+    Delete { local: bool },
     Read,
     ReadLevel,
     ReadSensor {
@@ -58,6 +59,7 @@ pub enum Failure {
     Accessory,
     Busy,
     Capacity,
+    Storage,
 }
 #[derive(Clone, Serialize)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
@@ -267,6 +269,7 @@ pub fn report_values(
 impl Operation {
     pub fn decode(request: Request) -> Result<Self, Failure> {
         let (node, endpoint, action) = match request {
+            Request::Device(DeviceRequest::Delete { node, local, .. }) => (node, 0, Action::Delete { local }),
             Request::Device(DeviceRequest::Bind { node, endpoint, targets, .. }) => {
                 if targets.is_empty() || targets.len() > 32 || targets.iter().any(|target| {
                     !matches!(target.cluster, 6 | 8) ||
@@ -346,6 +349,8 @@ impl Operation {
         })
     }
     pub fn authorize(&self, snapshots: &[Snapshot]) -> Result<(), Failure> {
+        // Decommissioning also works for interrupted nodes without endpoint metadata.
+        if matches!(self.action, Action::Delete { .. }) { return Ok(()); }
         let snapshot = snapshots
             .iter()
             .find(|s| s.node == self.node)
@@ -359,6 +364,7 @@ impl Operation {
             .find(|e| e.id == self.endpoint)
             .ok_or(Failure::NotFound)?;
         let required_cluster = match &self.action {
+            Action::Delete { .. } => unreachable!(),
             Action::Read | Action::On | Action::Off | Action::Toggle => 6,
             Action::ReadLevel | Action::MoveToLevel { .. } => 8,
             Action::ReadSensor { cluster } => *cluster,
@@ -416,6 +422,22 @@ impl Operation {
         timeout: embassy_time::Duration,
     ) -> Result<ResultValue, Failure> {
         let transaction = async {
+            if let Action::Delete { local } = self.action {
+                if !local {
+                    use rs_matter::dm::clusters::noc::{OperationalCredentialsClient, NodeOperationalCertStatusEnum};
+                    // Fabric indexes are local to the accessory, not the controller.
+                    let index = Exchange::initiate(matter, &crypto, fabric, self.node).await?
+                        .operational_credentials().current_fabric_index_read(0).await?;
+                    if index == 0 { return Err(ErrorCode::InvalidData.into()); }
+                    let handle = Exchange::initiate(matter, &crypto, fabric, self.node).await?
+                        .operational_credentials().remove_fabric(0, |request| request.fabric_index(index)?.end()).await?;
+                    if handle.response()?.status_code()? != NodeOperationalCertStatusEnum::OK {
+                        return Err(ErrorCode::Failure.into());
+                    }
+                    handle.complete().await?;
+                }
+                return Ok(ResultValue { node: Id(self.node), endpoint: 0, cluster: 62, attribute: 0, value: Value::Bool(true) });
+            }
             if let Action::Bind { targets } = &self.action {
                 use rs_matter::dm::clusters::decl::binding::{BindingClient, TargetStructArrayBuilder};
                 let mut provisioned_groups = Vec::new();
@@ -495,7 +517,7 @@ impl Operation {
                             })
                             .await?
                     }
-                    Action::Bind { .. } => unreachable!(),
+                    Action::Bind { .. } | Action::Delete { .. } => unreachable!(),
                     Action::Read | Action::ReadLevel | Action::ReadSensor { .. } => unreachable!(),
                 }
             }

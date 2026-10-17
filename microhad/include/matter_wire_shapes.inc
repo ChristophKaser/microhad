@@ -176,4 +176,10 @@ const WireField wireFields[] = {
     {"inventory", "kind", ""},
     {"inventory", "device", "device"},
     {"inventory", "endpoint_count", ""},
+    {"request10:delete", "schema", ""},
+    {"request10:delete", "action", ""},
+    {"request10:delete", "node", "@id"},
+    {"request10:delete", "local", ""},
+    {"inventory-nodes", "nodes", "inventory-node"},
+    {"inventory-node", "node", "@id"},
 };

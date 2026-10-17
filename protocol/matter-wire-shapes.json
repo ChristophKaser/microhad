@@ -259,5 +259,17 @@
     "kind": "",
     "device": "device",
     "endpoint_count": ""
+  },
+  "request10:delete": {
+    "schema": "",
+    "action": "",
+    "node": "@id",
+    "local": ""
+  },
+  "inventory-nodes": {
+    "nodes": "inventory-node"
+  },
+  "inventory-node": {
+    "node": "@id"
   }
 }

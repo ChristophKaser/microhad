@@ -43,6 +43,7 @@ public:
     static bool deviceCommandRequest(const std::string& input, std::string* body);
     static bool deviceBindingRequest(const std::string& input, std::string* body);
     static bool deviceResult(const std::string& response, const std::string& job, MatterReading* reading);
+    static bool inventoryNodesEvent(const std::string& event, std::vector<std::string>* nodes);
     static bool inventoryEvent(const std::string& event, std::string* kind, unsigned int* count, MatterEndpoint* endpoint);
     static bool deviceReportEvent(const std::string& event, MatterReading* reading);
     static bool deviceButtonEvent(const std::string& event, MatterButtonEvent* button);

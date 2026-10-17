@@ -57,6 +57,7 @@ std::string shape(const std::string& context,const Value& v,unsigned int kind,un
         if(event=="matter_report")return "reading";
         if(event=="matter_button")return "button";
         if(event=="matter_inventory")return "inventory";
+        if(event=="matter_inventory_nodes")return "inventory-nodes";
         return "";
     }
     return context;

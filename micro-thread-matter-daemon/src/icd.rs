@@ -160,6 +160,17 @@ impl ClientRegistry {
         })
     }
 
+    pub fn remove(&mut self, fabric: NonZeroU8, node: u64) -> Result<(), Error> {
+        if let Some(index) = self.registrations.iter().position(|r| r.fabric == fabric && r.node == node) {
+            let previous = self.registrations.remove(index);
+            if let Err(error) = self.persist() {
+                self.registrations.insert(index, previous);
+                return Err(error);
+            }
+        }
+        Ok(())
+    }
+
     pub fn len(&self) -> usize {
         self.registrations.len()
     }

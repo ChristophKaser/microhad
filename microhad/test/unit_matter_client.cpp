@@ -158,6 +158,15 @@ bool drainChannelEvents(void* opaque) {
 }
 
 void runMatterClientUnitTests() {
+    assert(MatterChannel::validRequest(10, "{\"schema\":1,\"action\":\"delete\",\"node\":\"0000000000000002\",\"local\":true}"));
+    assert(!MatterChannel::validRequest(10, "{\"schema\":1,\"action\":\"delete\",\"node\":\"0000000000000002\",\"local\":\"true\"}"));
+    std::vector<std::string> manifest;
+    assert(MatterChannel::inventoryNodesEvent("{\"schema\":1,\"event\":\"matter_inventory_nodes\",\"data\":{\"nodes\":[{\"node\":\"0000000000000002\"}]}}", &manifest) && manifest.size() == 1);
+    assert(MatterChannel::inventoryNodesEvent("{\"schema\":1,\"event\":\"matter_inventory_nodes\",\"data\":{\"nodes\":[]}}", &manifest) && manifest.empty());
+    assert(!MatterChannel::inventoryNodesEvent("{\"schema\":1,\"event\":\"matter_inventory_nodes\",\"data\":{\"nodes\":[{\"node\":\"0000000000000002\"},{\"node\":\"0000000000000002\"}]}}", &manifest));
+    MatterReading deleted;
+    assert(MatterChannel::deviceResult("{\"schema\":1,\"ok\":true,\"result\":{\"job\":\"0000000000000001\",\"state\":\"complete\",\"result\":{\"node\":\"0000000000000002\",\"endpoint\":0,\"cluster\":62,\"attribute\":0,\"value\":{\"type\":\"bool\",\"value\":true}}}}", "0000000000000001", &deleted) && deleted.cluster == 62);
+
     {
         const std::string inventory="{\"schema\":1,\"event\":\"matter_inventory\",\"data\":{\"kind\":\"identity\",\"endpoint_count\":0,\"device\":{\"node\":\"0000000000000002\",\"state\":\"complete\",\"online\":false,\"id\":\"matter:0000000000000001:0000000000000002\",\"endpoint\":null,\"servers\":[],\"clients\":[]}}}";
         MatterWire::Frame frame; frame.kind=MatterWire::Frame::Event;frame.opcode=12;

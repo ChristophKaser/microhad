@@ -46,10 +46,12 @@ class MatterPeer:
         self.stall_next_status = False
         self.malformed_next_header = None
         self.truncate_next_reply = None
-        self.saturate_next_event_queue = False
+        self.burst_next_reports = False
         self.onoff = False
         self.level = 0
         self.report_sent = False
+        self.deleted = False
+        self.deletions = []
         self.error = None
         self.closed = False
         self.thread = threading.Thread(target=self.run, daemon=True)
@@ -121,7 +123,17 @@ class MatterPeer:
                                     result = dict(schema=1, ok=False, error='malformed')
                         elif opcode == 10:
                             decoded = json.loads(body)
-                            if decoded['action'] == 'read':
+                            if decoded['action'] == 'delete':
+                                assert decoded['node'] == '0000000000000002' and isinstance(decoded['local'], bool)
+                                if self.session and self.session['state'] == 'waiting_ble':
+                                    result = dict(schema=1, ok=False, error='busy')
+                                else:
+                                    self.deletions.append(decoded['local'])
+                                    job = self.next_operation_job
+                                    self.next_operation_job += 1
+                                    self.operation_jobs[f'{job:016x}'] = dict(kind='delete', polls=0, cluster=62)
+                                    result = dict(schema=1, ok=True, result=dict(job=f'{job:016x}', state='queued'))
+                            elif decoded['action'] == 'read':
                                 assert decoded['cluster'] in (6, 8) and decoded['attribute'] == 0
                                 job = self.next_operation_job
                                 self.next_operation_job += 1
@@ -140,10 +152,14 @@ class MatterPeer:
                                     elif job['kind'] == 'toggle': self.onoff = not self.onoff
                                     elif job['kind'] == 'move_to_level': self.level = job['level']
                                     cluster = job.get('cluster', 8 if job['kind'] == 'move_to_level' else 6)
-                                    value = (dict(type='bool', value=self.onoff) if cluster == 6 else
+                                    if job['kind'] == 'delete':
+                                        self.deleted = True
+                                        event = dict(schema=1, event='matter_inventory_nodes', data=dict(nodes=[]))
+                                    value = (dict(type='bool', value=True) if cluster == 62 else
+                                             dict(type='bool', value=self.onoff) if cluster == 6 else
                                              dict(type='u8', value=self.level))
                                     result = dict(schema=1, ok=True, result=dict(state='complete', job=decoded['job'],
-                                        result=dict(node='0000000000000002', endpoint=1, cluster=cluster, attribute=0,
+                                        result=dict(node='0000000000000002', endpoint=0 if cluster == 62 else 1, cluster=cluster, attribute=0,
                                             value=value)))
                         elif opcode == 11:
                             decoded = json.loads(body)
@@ -243,8 +259,8 @@ class MatterPeer:
                             self.malformed_next_event = False
                             malformed = b'{"schema":1,"event":"matter_report","data":{}}'
                             wire.extend(matter_wire.frame(12, 2, 0, malformed))
-                        if self.saturate_next_event_queue:
-                            self.saturate_next_event_queue = False
+                        if self.burst_next_reports:
+                            self.burst_next_reports = False
                             overflow_report = dict(schema=1, event='matter_report', data=dict(
                                 node='0000000000000002', endpoint=1, cluster=1026, attribute=0,
                                 value=dict(type='measurement', value=dict(
@@ -254,6 +270,9 @@ class MatterPeer:
                             for _ in range(9):
                                 wire.extend(overflow_frame)
                         if opcode == 1:
+                            nodes = [] if self.deleted else [dict(node='0000000000000002')]
+                            wire.extend(matter_wire.frame(12, 2, 0, dict(schema=1, event='matter_inventory_nodes', data=dict(nodes=nodes))))
+                        if opcode == 1 and not self.deleted:
                             base = dict(node='0000000000000002', state='complete', online=True,
                                 id='matter:0000000000000001:0000000000000002',endpoint=None,servers=[],clients=[])
                             records=[dict(kind='identity',device=base,endpoint_count=2)]
@@ -656,7 +675,7 @@ def device_operations_http(fixture):
             assert job['response']['ok'] and job['response']['result']['state'] == 'complete'
             return {'value': job['response']['result']['result']['value']['value']}
         return wait_for(finished)
-    identity = dict(node='0000000000000002', endpoint=1)
+    identity = dict(schema=1, node='0000000000000002', endpoint=1)
     assert operation('/api/matter/devices/command', dict(identity, command='on')) == {'value': True}
     assert operation('/api/matter/devices/read', dict(identity, cluster=6, attribute=0)) == {'value': True}
     assert operation('/api/matter/devices/command', dict(identity, command='toggle')) == {'value': False}
@@ -667,8 +686,32 @@ def device_operations_http(fixture):
     assert operation('/api/matter/devices/read', dict(identity, cluster=8, attribute=0)) == {'value': 124}
 
 
+def device_deletion_http(fixture, matter):
+    path = '/api/devices/matter%3A0000000000000001%3A0000000000000002/delete'
+    def submit(mode):
+        accepted = fixture.request(path, ('mode=' + mode).encode())
+        assert accepted['ok'] and accepted['state'] == 'pending'
+        return wait_for(lambda: terminal(accepted['job']))
+    def terminal(ident):
+        job = fixture.request('/api/matter/jobs/' + str(ident))
+        assert job['state'] != 'failed', job
+        return job if job['state'] == 'complete' else None
+    matter.session = dict(session='0000000000000001', state='waiting_ble', deadline_remaining_seconds=30)
+    assert submit('unpair')['response'] == dict(schema=1, ok=False, error='busy')
+    assert any(device.get('source') == 'matter' for device in fixture.status()['devices'])
+    matter.session['state'] = 'cancelled'
+    for mode in ('unpair', 'local'):
+        matter.deleted = False
+        wait_for(lambda: any(device.get('source') == 'matter' for device in fixture.status()['devices']))
+        result = submit(mode)
+        assert result['response']['ok'] and result['response']['result']['state'] == 'complete', result
+        wait_for(lambda: not any(device.get('source') == 'matter' for device in fixture.status()['devices']))
+    assert matter.deletions == [False, True]
+    print('PASS shared HTTP deletion, active commissioning rejection, local removal and authoritative inventory cleanup')
+
+
 def device_dispatch_http(fixture):
-    identity = dict(node='0000000000000002', endpoint=1,
+    identity = dict(schema=1, node='0000000000000002', endpoint=1,
                     command='move_to_level', level=124, transition_deciseconds=20)
     accepted = fixture.request('/api/matter/devices/command', json.dumps(identity).encode())
     assert accepted['ok'] and accepted['state'] == 'queued'
@@ -683,7 +726,7 @@ def device_dispatch_http(fixture):
 
 def device_queue_pressure_http(fixture, matter):
     matter.stall_jobs = True
-    body = json.dumps(dict(node='0000000000000002', endpoint=1,
+    body = json.dumps(dict(schema=1, node='0000000000000002', endpoint=1,
                            command='on')).encode()
 
     def submit(index):
@@ -753,10 +796,12 @@ def main():
                 sys.stderr.write(f'Matter peer error: {matter.error}\n')
                 sys.stderr.write(fixture.log.read().decode(errors='replace'))
                 raise
-            # Nine valid events exceed MatterChannel's bounded eight-event
-            # queue. The worker must clear readiness and reconnect cleanly.
-            matter.saturate_next_event_queue = True
-            wait_for(matter_unavailable)
+            # The streaming handler drains valid report bursts while preserving
+            # readiness; raw queue overflow remains covered by channel unit tests.
+            matter.burst_next_reports = True
+            wait_for(lambda: any(device.get('source') == 'matter' and
+                                 device.get('temperature_celsius') == 21.5
+                                 for device in fixture.status()['devices']))
             try:
                 wait_for(lambda: fixture.request('/api/matter/status')['state'] == 'running')
             except TimeoutError:
@@ -934,6 +979,8 @@ def main():
             assert create_result == dict(schema=1, ok=False, error='busy')
         else:
             assert create_result == dict(schema=1, ok=False, error='not_ready')
+        if not real:
+            device_deletion_http(fixture, matter)
         # Missing service clears the cache while Zigbee/native remains responsive.
         matter.close()
         def unavailable():

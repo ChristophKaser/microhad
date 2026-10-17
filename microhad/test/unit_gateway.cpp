@@ -27,6 +27,89 @@
 
 class GatewayTestPeer {
 public:
+
+    static void deviceDeletion() {
+        puts("unit: device setup state, targeted deletion, local fallback and durable reference cleanup");
+        char directory[] = "/tmp/microhad-device-deletion-XXXXXX"; assert(mkdtemp(directory));
+        const std::string base(directory), id = "0x00124b0000000020", other = "0x00124b0000000021";
+        const std::string values = "/tmp/microhad-values.json", backup = base + "/values-backup.json";
+        const bool hadValues = rename(values.c_str(), backup.c_str()) == 0;
+        std::string error, json;
+        Gateway gateway("/dev/null", 115200, base, "", "", "");
+        Device device; device.ieeeAddress = id; device.name = "Unfinished"; device.networkAddress = 0x1234;
+        gateway.devices_[id] = device; gateway.nodeAddresses_[0x1234] = id;
+        device.ieeeAddress = other; device.initialInterviewComplete = true; device.networkAddress = 0xffff;
+        gateway.devices_[other] = device;
+        assert(gateway.statusJson().find("\"setup_state\":\"incomplete\"") != std::string::npos);
+        assert(!gateway.deleteDevice(id, false, &error)); // Offline requires explicit local fallback.
+        gateway.online_ = true; gateway.networkFormed_ = true;
+        SceneGroup group; group.id = 1; group.name = "Room"; group.members.push_back(id); group.members.push_back(other);
+        Scene scene; scene.id = 1; scene.name = "Evening"; SceneLightState state; state.ieeeAddress = id; scene.states.push_back(state); group.scenes.push_back(scene);
+        gateway.sceneGroups_.push_back(group);
+        gateway.sceneRetries_[1]; gateway.sceneRetries_[2];
+        RemoteSceneBinding binding; binding.ieeeAddress = id; binding.groupId = 1; gateway.sceneBindings_.push_back(binding);
+        NativeRemoteBinding native; native.ieeeAddress = id; native.groupId = 1; gateway.nativeBindings_.push_back(native);
+        gateway.nextContactAlertAt_[id] = time(0); gateway.sceneProvisioning_[id];
+        assert(saveDashboardConfiguration(base + "/dashboard.json", "{\"widgets\":[{\"id\":\"a\",\"kind\":\"device\",\"target\":\"" + id + "\"},{\"id\":\"b\",\"kind\":\"chart\",\"target\":\"" + other + "\"}],\"gateway_widget_initialized\":true}"));
+        { std::ofstream history((base + "/history.values").c_str()); history << "keep history"; }
+        assert(gateway.deleteDevice(id, false, &error));
+        assert(!gateway.deleteDevice(id, true, &error)); // Do not override a pending unpair.
+        assert(gateway.sceneProvisioning_.count(id) == 0);
+        const unsigned char sequence = gateway.deviceDeletions_[id].sequence;
+        std::vector<unsigned char> reply(2, 0); reply[0] = sequence + 1;
+        gateway.handleApsMessage(0x1234, 0, 0x8034, 0, 0, 0, 0, 0, 0, 0, 0, reply);
+        assert(gateway.devices_.count(id));
+        reply[0] = sequence;
+        gateway.handleApsMessage(0x1234, 0, 0x8034, 0, 0, 0, 0, 0, 0, 0, 0, reply);
+        assert(gateway.deviceDeletionStatus(id, &json, &error) && json.find("succeeded") != std::string::npos);
+        assert(!gateway.devices_.count(id) && gateway.devices_.count(other));
+        assert(!gateway.nodeAddresses_.count(0x1234) && !gateway.nextContactAlertAt_.count(id));
+        assert(gateway.sceneGroups_[0].members.size() == 1 && gateway.sceneGroups_[0].scenes[0].states.empty());
+        assert(gateway.sceneBindings_.empty() && gateway.nativeBindings_.empty());
+        assert(!gateway.sceneRetries_.count(1) && gateway.sceneRetries_.count(2));
+        assert(readTextFile(base + "/dashboard.json", &json) && json.find(id) == std::string::npos && json.find(other) != std::string::npos);
+        assert(json.find("gateway_widget_initialized") != std::string::npos);
+        assert(saveDashboardConfiguration(base + "/dashboard.json", "{\"label\":\"widgets\",\"metadata\":[{\"target\":\"" + id + "\"}],\"widg\\u0065ts\":[{\"target\":\"" + id + "\"},{\"target\":\"" + other + "\"}]}"));
+        assert(pruneDashboardDevices(base + "/dashboard.json", std::vector<std::string>(1, id), &error));
+        assert(readTextFile(base + "/dashboard.json", &json));
+        assert(json.find("\"metadata\":[{\"target\":\"" + id + "\"}]") != std::string::npos);
+        assert(json.find("\"widg\\u0065ts\":[{\"target\":\"" + other + "\"}]") != std::string::npos);
+
+        assert(readTextFile(base + "/history.values", &json) && json == "keep history");
+        Gateway restarted("/dev/null", 115200, base, "", "", ""); restarted.loadState();
+        assert(!restarted.devices_.count(id) && restarted.devices_.count(other));
+        assert(restarted.devices_[other].initialInterviewComplete);
+        // Timed-out attempts retain the record; explicit local fallback removes it.
+        gateway.devices_[id] = device; gateway.devices_[id].ieeeAddress = id; gateway.devices_[id].networkAddress = 0x1234;
+        gateway.nodeAddresses_[0x1234] = id;
+        assert(gateway.deleteDevice(id, false, &error)); gateway.deviceDeletions_[id].deadline = time(0) - 1; gateway.poll();
+        assert(gateway.deviceDeletionStatus(id, &json, &error) && json.find("failed") != std::string::npos && gateway.devices_.count(id));
+        assert(gateway.deleteDevice(id, true, &error) && !gateway.devices_.count(id));
+        // A storage failure must not claim success or discard the visible record.
+        Gateway broken("/dev/null", 115200, base + "/missing", "", "", ""); broken.devices_[id] = device;
+        assert(broken.deleteDevice(id, true, &error));
+        assert(broken.deviceDeletionStatus(id, &json, &error) && json.find("failed") != std::string::npos && broken.devices_.count(id));
+        // Completed discovery of an unsupported device is still completed setup.
+        Gateway unsupported("/dev/null", 115200, base, "", "", ""); unsupported.devices_[id] = device;
+        unsupported.devices_[id].initialInterviewComplete = false;
+        EndpointDescriptor endpoint; endpoint.endpoint = 1; unsupported.devices_[id].endpoints.push_back(endpoint);
+        unsupported.interviews_[0x1234].ieeeAddress = id; unsupported.buildConfigurationOperations(0x1234);
+        assert(unsupported.devices_[id].initialInterviewComplete && unsupported.interviews_.empty());
+        std::vector<Device> loaded; assert(loadDevices(base + "/devices.json", &loaded, &error) && loaded[0].initialInterviewComplete);
+        assert(readTextFile(base + "/devices.json", &json));
+        const std::string marker = ",\"initial_interview_complete\":true"; json.erase(json.find(marker), marker.size());
+        { std::ofstream legacy((base + "/devices.json").c_str()); legacy << json; }
+        assert(loadDevices(base + "/devices.json", &loaded, &error) && loaded[0].initialInterviewComplete);
+        // Matter removal retires every endpoint and node alias, but preserves other protocols.
+        const std::string node = "0000000000000002", prefix = "matter:0000000000000001:" + node;
+        for (int i = 0; i < 2; ++i) { Device m; m.source = "matter"; m.matterNode = node; m.ieeeAddress = prefix + (i == 0 ? ":0001" : ":0002"); unsupported.devices_[m.ieeeAddress] = m; }
+        assert(unsupported.reconcileMatterNodes(std::vector<std::string>(), &error));
+        assert(unsupported.devices_.size() == 1 && unsupported.devices_.count(id));
+        const char* files[] = {"devices.json", "scenes.conf", "dashboard.json", "history.values"};
+        for (unsigned int i = 0; i < 4; ++i) unlink((base + "/" + files[i]).c_str());
+        unlink(values.c_str()); if (hadValues) assert(rename(backup.c_str(), values.c_str()) == 0); rmdir(directory);
+    }
+
     static void contactAlertsSurviveRestart() {
         char directory[] = "/tmp/microhad-contact-restart-XXXXXX";
         assert(mkdtemp(directory));
@@ -3220,6 +3303,7 @@ static void testSharedJsonUtilities() {
 }
 
 void runUnitTests() {
+    GatewayTestPeer::deviceDeletion();
     GatewayTestPeer::reportingConfigurationPersistence();
     GatewayTestPeer::gatewaySettings();
     GatewayTestPeer::emptyDeadlineIsUnscheduled();

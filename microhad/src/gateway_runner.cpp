@@ -186,6 +186,11 @@ void GatewayRunner::execute(Command* command) {
                                                                                       command->contactTriggerMode,
                                                                                       command->contactTriggerCooldownSeconds);
     else if (command->type == DeviceValueAlerts) result = gateway_->setDeviceValueAlerts(command->address, command->valueAlerts, &error);
+    else if (command->type == DeviceDelete) result = gateway_->deleteDevice(command->address, command->enabled, &error);
+    else if (command->type == DeviceDeleteStatus) result = gateway_->deviceDeletionStatus(command->address, &command->configuration, &error);
+    else if (command->type == MatterDeleteTarget) result = gateway_->matterDeletionTarget(command->address, &command->name, &error);
+    else if (command->type == MatterNodeRemove) result = gateway_->removeMatterNode(command->address, &error);
+    else if (command->type == MatterNodesReconcile) result = gateway_->reconcileMatterNodes(command->ids, &error);
     else if (command->type == DeviceRefresh) result = gateway_->refreshDevice(command->address, &error);
     else if (command->type == DeviceReconfigure) result = gateway_->reconfigureDevice(command->address, &error);
     else if (command->type == DeviceIdentify) result = gateway_->identifyDevice(command->address, &error);
@@ -499,6 +504,24 @@ bool GatewayRunner::setDeviceValueAlerts(const std::string& address,
     command.address = address;
     command.valueAlerts = alerts;
     return invoke(&command, error);
+}
+bool GatewayRunner::deleteDevice(const std::string& address, bool local, std::string* error) {
+    Command command; command.type = DeviceDelete; command.address = address; command.enabled = local;
+    return invoke(&command, error);
+}
+bool GatewayRunner::deviceDeletionStatus(const std::string& address, std::string* json, std::string* error) {
+    Command command; command.type = DeviceDeleteStatus; command.address = address;
+    bool result = invoke(&command, error); *json = command.configuration; return result;
+}
+bool GatewayRunner::matterDeletionTarget(const std::string& address, std::string* node, std::string* error) {
+    Command command; command.type = MatterDeleteTarget; command.address = address;
+    bool result = invoke(&command, error); *node = command.name; return result;
+}
+bool GatewayRunner::removeMatterNode(const std::string& node, std::string* error) {
+    Command command; command.type = MatterNodeRemove; command.address = node; return invoke(&command, error);
+}
+bool GatewayRunner::reconcileMatterNodes(const std::vector<std::string>& nodes, std::string* error) {
+    Command command; command.type = MatterNodesReconcile; command.ids = nodes; return invoke(&command, error);
 }
 bool GatewayRunner::refreshDevice(const std::string& address, std::string* error) {
     Command command;

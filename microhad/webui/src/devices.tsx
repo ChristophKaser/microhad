@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { Device, EndpointDescriptor, Status } from './api'
 import { errorMessage, form, post } from './api'
 import { isDimmable } from './scenes'
+import { DeleteDeviceDialog } from './DeviceDeletion'
 
 const profileNames: Record<number, string> = {
   260: 'Home Automation',
@@ -464,10 +465,12 @@ export function DeviceSettings({
   device,
   onClose,
   onSaved,
+  onDeleted,
 }: {
   device: Device
   onClose: () => void
   onSaved: () => void
+  onDeleted?: () => void
 }) {
   const co2Unit = device.sensor_values?.co2?.unit ?? ''
   const pm25Unit = device.sensor_values?.pm25?.unit ?? ''
@@ -494,6 +497,7 @@ export function DeviceSettings({
     if (metric === 'temperature' && field === 'high' && device.has_high_temperature_alert) return String(device.high_temperature_alert)
     return field === 'hysteresis' ? '0' : ''
   }
+  const [deleting, setDeleting] = useState(false)
   const [name, setName] = useState(device.name)
   const [alertValues, setAlertValues] = useState<Record<string, { low: string; high: string; hysteresis: string }>>(
     Object.fromEntries(alertMetrics.map(metric => [metric.id, {
@@ -538,6 +542,7 @@ export function DeviceSettings({
       setSaving(false)
     }
   }
+  if (deleting) return <DeleteDeviceDialog device={device} onClose={() => setDeleting(false)} onDeleted={() => { (onDeleted ?? onSaved)(); onClose() }} />
   return (
     <div className="modal">
       <form className="dialog" onSubmit={save}>
@@ -619,6 +624,7 @@ export function DeviceSettings({
           </label>
         )}
         <div className="dialog-actions">
+          {['zigbee', 'matter'].includes(device.source) && <button type="button" className="button danger" disabled={saving} onClick={() => setDeleting(true)}>Delete device</button>}
           <button type="button" className="button" onClick={onClose}>
             Cancel
           </button>

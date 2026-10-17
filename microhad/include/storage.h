@@ -21,6 +21,8 @@ struct NetworkState {
 
 bool ensureDirectory(const std::string& directory, std::string* error);
 bool loadDevices(const std::string& filename, std::vector<Device>* devices, std::string* error);
+bool saveDashboardConfiguration(const std::string& filename, const std::string& value);
+bool pruneDashboardDevices(const std::string& filename, const std::vector<std::string>& addresses, std::string* error);
 bool saveDevices(const std::string& filename, const std::vector<Device>& devices, std::string* error);
 bool loadNetworkState(const std::string& filename, NetworkState* network, std::string* error);
 bool saveNetworkState(const std::string& filename, const NetworkState& network, std::string* error);

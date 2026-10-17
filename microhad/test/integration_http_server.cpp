@@ -351,6 +351,10 @@ void testServers() {
     expectStatus("http missing asset", plainRequest(http.boundPort(), "GET /assets/missing.js HTTP/1.1\r\nHost: localhost\r\n\r\n"), 404);
     expectStatus("http traversal", plainRequest(http.boundPort(), "GET /assets/../index.html HTTP/1.1\r\nHost: localhost\r\n\r\n"), 404);
     expectStatus("http encoded traversal", plainRequest(http.boundPort(), "GET /assets/%2e%2e/index.html HTTP/1.1\r\nHost: localhost\r\n\r\n"), 404);
+
+    expectStatus("delete rejects missing mode", plainRequest(http.boundPort(), "POST /api/devices/unknown/delete HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n"), 400);
+    expectStatus("delete rejects unknown device", plainRequest(http.boundPort(), "POST /api/devices/unknown/delete HTTP/1.1\r\nHost: localhost\r\nContent-Length: 10\r\n\r\nmode=local"), 400);
+    expectStatus("delete status rejects unknown operation", plainRequest(http.boundPort(), "GET /api/devices/unknown/delete HTTP/1.1\r\nHost: localhost\r\n\r\n"), 404);
     response = plainRequest(http.boundPort(), "GET /api/settings HTTP/1.1\r\nHost: localhost\r\n\r\n");
     expectStatus("gateway settings snapshot",response,200);
     assert(response.find("\"broadcast_passive_ack_quorum\":8")!=std::string::npos);

@@ -15,6 +15,7 @@ import { useMatterDevices } from './useMatterDevices'
 import { useGatewayData } from './useGatewayData'
 import { useGatewayOverview } from './useGatewayOverview'
 import { GatewaySettingsDialog } from './GatewaySettingsDialog'
+import { DeleteDeviceDialog, IncompleteDevices } from './DeviceDeletion'
 import './style.css'
 
 function LogLine({ line }: { line: string }) {
@@ -103,6 +104,7 @@ function App() {
   const matterController = useMatterDevices()
   const catalogStatus = status
   const [dialog, setDialog] = useState<'network' | 'scenes' | 'remotes' | 'text' | 'push' | null>(null)
+  const [deletingDevice, setDeletingDevice] = useState<Device | null>(null)
   const [selected, setSelected] = useState<Device | null>(null)
   const [detailsDevice, setDetailsDevice] = useState<Device | null>(null)
   const [historyDevice, setHistoryDevice] = useState<Device | null>(null)
@@ -138,6 +140,14 @@ function App() {
     }).catch(error => { if (active) { const fallback = prepareDashboard({ widgets: [] }); setDashboard(fallback); setDashboardDraft(fallback); setDashboardError(errorMessage(error)); setDashboardLoaded(true) } })
     return () => { active = false }
   }, [])
+  const afterDeviceDeletion = () => {
+    setDeletingDevice(null)
+    setSelected(null)
+    void refreshStatus()
+    void jsonRequest<DashboardConfig>('/api/dashboard/config').then(value => {
+      setDashboard(value); setDashboardDraft(value)
+    }).catch(error => setDashboardError(errorMessage(error)))
+  }
   const saveDashboard = async () => {
     setDashboardSaving(true)
     setDashboardError('')
@@ -277,6 +287,7 @@ function App() {
         configError={dashboardError}
       />}
       {tab === 'Controls' && <>
+      <IncompleteDevices devices={catalogStatus?.devices ?? []} onDelete={setDeletingDevice} />
       <section className="overview">
         <div className={`overview-item ${statusError || !status?.online ? 'bad' : 'good'}`}>
           <span className="overview-icon">●</span>
@@ -401,11 +412,13 @@ function App() {
         </details>
       </section>
       }
+      {deletingDevice && <DeleteDeviceDialog device={deletingDevice} onClose={() => setDeletingDevice(null)} onDeleted={afterDeviceDeletion} />}
       {selected && (
         <DeviceSettings
           key={selected.ieee_address}
           device={selected}
           onClose={() => setSelected(null)}
+          onDeleted={afterDeviceDeletion}
           onSaved={() => void refreshStatus()}
         />
       )}

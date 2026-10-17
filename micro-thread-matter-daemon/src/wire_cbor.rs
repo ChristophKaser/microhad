@@ -58,6 +58,7 @@ fn shape(context: &str, value: &Cbor, kind: u8, opcode: u8, event: &str) -> Stri
             "matter_report" => "reading",
             "matter_button" => "button",
             "matter_inventory" => "inventory",
+            "matter_inventory_nodes" => "inventory-nodes",
             _ => "",
         }
         .into(),

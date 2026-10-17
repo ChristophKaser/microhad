@@ -25,7 +25,10 @@ def main():
     parser.add_argument('--sensor-reports', action='store_true', help='Run notifier-backed multi-cluster sensor report fixture')
     parser.add_argument('--icd', action='store_true', help='Exercise LIT RegisterClient, authenticated Check-In and wake-window dispatch')
     parser.add_argument('--native-bridge', action='store_true', help='Deliver live CASE sensor reports through a native gateway process and verify shared device state')
+    parser.add_argument('--delete-device', action='store_true', help='Unpair the synthetic accessory while retaining its other fabric')
     args = parser.parse_args()
+    if args.delete_device and (not args.service_owner or args.native_bridge or args.icd):
+        parser.error('--delete-device requires --service-owner without --native-bridge or --icd')
     if args.service_discovery and not args.service_owner:
         parser.error('--service-discovery requires --service-owner')
     if args.sensor_reports and not args.service_owner:
@@ -58,7 +61,7 @@ def main():
             command.extend(flag for enabled, flag in (
                 (args.ble, '--ble'), (args.service_owner, '--service-owner'),
                 (args.service_discovery, '--service-discovery'),
-                (args.sensor_reports, '--sensor-reports'), (args.icd, '--icd')) if enabled)
+                (args.sensor_reports, '--sensor-reports'), (args.icd, '--icd'), (args.delete_device, '--delete-device')) if enabled)
             if args.native_bridge:
                 result, native_status = run_native_bridge(command, directory, timeout)
                 print('PASS live CASE sensor reports reached the native gateway shared device model')
@@ -100,6 +103,8 @@ def main():
                 raise RuntimeError('ICD Check-In wake-window dispatch did not complete: ' + result.stdout + result.stderr)
             if args.icd and 'PASS production ICD registration and authenticated Check-In counter acceptance' not in result.stdout:
                 raise RuntimeError('ICD registration or authenticated Check-In was not accepted: ' + result.stdout + result.stderr)
+            if args.delete_device and 'PASS targeted Matter fabric removal uses accessory index, preserves other controller and retires catalog node' not in result.stdout:
+                raise RuntimeError('Targeted Matter deletion was not exercised: ' + result.stdout + result.stderr)
             if radio.error:
                 raise RuntimeError('Synthetic RCP failed: ' + radio.error)
             report = {'platform': 'development host', 'radio': 'synthetic RCP',
