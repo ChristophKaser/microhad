@@ -129,7 +129,10 @@
     "id": "",
     "endpoint": "",
     "servers": "",
-    "clients": ""
+    "clients": "",
+    "manufacturer": "",
+    "model": "",
+    "rssi_dbm": ""
   },
   "job": {
     "job": "@id",

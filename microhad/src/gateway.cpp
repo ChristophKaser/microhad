@@ -47,7 +47,7 @@ Device::Device() : source("zigbee"), networkAddress(0xffff), kind("generic"), co
                    airQualityKnown(false), hasCo2(false), co2Known(false), co2Ppm(0), hasPm25(false),
                    pm25Known(false), pm25MicrogramsM3(0), hasOccupancy(false), occupied(false),
                    hasBattery(false), batteryPercent(0), hasLight(false), lightOn(false), lightKnown(false), hasBrightness(false),
-                   brightnessPercent(0), brightnessKnown(false), hasRemote(false), hasActor(false), actorKnown(false), actorOn(false), hasPower(false), powerKnown(false), powerWatts(0), linkQuality(0), hasWifiSignal(false), wifiSignalPercent(0), lastSeen(0),
+                   brightnessPercent(0), brightnessKnown(false), hasRemote(false), hasActor(false), actorKnown(false), actorOn(false), hasPower(false), powerKnown(false), powerWatts(0), linkQuality(0), matterRssiDbm(1), hasWifiSignal(false), wifiSignalPercent(0), lastSeen(0),
                    iasZoneId(-1), hasLowTemperatureAlert(false), hasHighTemperatureAlert(false), lowTemperatureAlert(0),
                    highTemperatureAlert(0), contactInitialAlertMinutes(10), contactReminderAlertMinutes(5),
                    contactTriggerMode(false), contactTriggerCooldownSeconds(60), contactTriggerUntil(0),
@@ -649,7 +649,9 @@ bool Gateway::reconcileMatterDevices(const std::vector<MatterEndpoint>& endpoint
         device.hasAirQuality = std::find(endpoint.servers.begin(), endpoint.servers.end(), 91U) != endpoint.servers.end();
         device.hasCo2 = std::find(endpoint.servers.begin(), endpoint.servers.end(), 1037U) != endpoint.servers.end();
         device.hasPm25 = std::find(endpoint.servers.begin(), endpoint.servers.end(), 1066U) != endpoint.servers.end();
-        device.manufacturerName = "Matter";
+        device.manufacturerName = endpoint.manufacturer;
+        device.modelId = endpoint.model;
+        device.matterRssiDbm = endpoint.rssiDbm;
         device.lastSeen = endpoint.online ? time(0) : 0;
         replacement[endpoint.id] = device;
     }
@@ -690,6 +692,7 @@ bool Gateway::reconcileMatterDevices(const std::vector<MatterEndpoint>& endpoint
             fresh.name = current.name;
             if (current.matterState != fresh.matterState || current.matterNode != fresh.matterNode || current.matterEndpoint != fresh.matterEndpoint ||
                 current.matterServers != fresh.matterServers || current.matterClients != fresh.matterClients ||
+                current.manufacturerName != fresh.manufacturerName || current.modelId != fresh.modelId || current.matterRssiDbm != fresh.matterRssiDbm ||
                 current.kind != fresh.kind || current.hasRemote != fresh.hasRemote ||
                 current.name != fresh.name || current.hasLight != fresh.hasLight ||
                 current.hasBrightness != fresh.hasBrightness || current.hasActor != fresh.hasActor ||
@@ -3295,6 +3298,8 @@ std::string GatewayView::statusJson() const {
         if (device.source == "matter") {
             json << ",\"commissioning_state\":\"" << jsonEscape(device.matterState)
                  << "\",\"endpoint_metadata_state\":\"" << jsonEscape(device.matterMetadataState) << '"';
+            json << ",\"matter_rssi_dbm\":";
+            if (device.matterRssiDbm >= -128 && device.matterRssiDbm <= 0) json << device.matterRssiDbm; else json << "null";
             json << ",\"online\":" << (device.online ? "true" : "false")
                  << ",\"matter_node\":\"" << jsonEscape(device.matterNode)
                  << "\",\"matter_endpoint\":" << device.matterEndpoint

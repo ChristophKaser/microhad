@@ -99,6 +99,7 @@ export interface Device {
   matter_endpoint?: number
   matter_servers?: number[]
   matter_clients?: number[]
+  matter_rssi_dbm?: number | null
   sensor_values?: Record<string, { value: number | string | null; unit: string; quality: 'measured' | 'unknown' }>
   light_known?: boolean
   brightness_known?: boolean

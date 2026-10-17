@@ -373,7 +373,8 @@ fn run(
     let mut lifecycle = Lifecycle::load(store.clone()).map_err(|_| "Thread state unavailable")?;
     let (compressed_fabric, next_node) = controller.discovery_identity();
     let address_refresh = micro_thread_matter_daemon::discovery::RefreshRequests::default();
-    let mut devices = micro_thread_matter_daemon::devices::Manager::new_with_address_refresh(
+    let signals = micro_thread_matter_daemon::discovery::SignalBook::default();
+    let mut devices = micro_thread_matter_daemon::devices::Manager::new_with_address_refresh_and_signals(
         matter,
         &crypto,
         controller_fabric,
@@ -381,6 +382,7 @@ fn run(
         micro_thread_matter_daemon::devices::MAX_DEVICE_SUBSCRIPTIONS,
         compressed_fabric,
         address_refresh.clone(),
+        signals.clone(),
     )?;
     #[cfg(feature = "controller-service-test-hooks")]
     if let Some(node) = std::env::var("MICROHAD_MATTER_TEST_SEED_SENSOR_REPORT_NODE").ok() {
@@ -429,13 +431,14 @@ fn run(
         .map_err(|_| "Thread restore failed")?;
     thread.configure_diagnostic_routes(diagnostic_on_mesh_prefix, diagnostic_external_routes)?;
     thread.start_discovery()?;
-    let discovery = micro_thread_matter_daemon::discovery::run_with_catalog_and_refresh(
+    let discovery = micro_thread_matter_daemon::discovery::run_with_catalog_and_refresh_and_signals(
         matter,
         &thread,
         controller.catalog(),
         compressed_fabric,
         next_node,
         address_refresh,
+        signals,
     );
     let mut discovery = pin!(discovery);
     let network = thread.bind(MATTER_PORT)?;

@@ -32,9 +32,12 @@ struct MatterEndpoint {
     unsigned short endpoint;
     bool online;
     bool metadataComplete;
+    std::string manufacturer;
+    std::string model;
+    int rssiDbm;
     std::vector<unsigned int> servers;
     std::vector<unsigned int> clients;
-    MatterEndpoint() : endpoint(0), online(false), metadataComplete(false) {}
+    MatterEndpoint() : endpoint(0), online(false), metadataComplete(false), rssiDbm(1) {}
 };
 
 struct MatterReading {
@@ -116,6 +119,7 @@ struct Device {
     bool powerKnown;
     double powerWatts;
     int linkQuality;
+    int matterRssiDbm; /* 1 means unavailable; valid direct Thread RSSI is -128..0 */
     bool hasWifiSignal;
     int wifiSignalPercent;
     long lastSeen;

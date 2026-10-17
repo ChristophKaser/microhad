@@ -223,7 +223,7 @@ export function matterDeviceModel(endpoint: MatterDevice, state: MatterDeviceSta
     has_low_temperature_alert: false, low_temperature_alert: 0, has_high_temperature_alert: false, high_temperature_alert: 0,
     contact_initial_alert_minutes: 0, contact_reminder_alert_minutes: 0, contact_trigger_mode: false,
     contact_trigger_cooldown_seconds: 0, contact_trigger_active: false, sensor_refresh_interval_minutes: 0,
-    value_alerts: {}, last_seen: 0, manufacturer_name: 'Matter', model_id: '', node_descriptor: null,
+    value_alerts: {}, last_seen: 0, manufacturer_name: '', model_id: '', node_descriptor: null,
     endpoint_descriptors: [], online: endpoint.online, controller_available: controllerAvailable, matter_node: endpoint.node,
     matter_endpoint: endpoint.endpoint, matter_servers: servers, matter_clients: clients,
     sensor_values: sensorValues,

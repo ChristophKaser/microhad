@@ -47,7 +47,7 @@ private:
         value->clear();
         while (at_ < text_.size() && text_[at_] != '"') {
             unsigned char c = text_[at_++];
-            if (c < 0x20 || c > 0x7e || c == '\\' || value->size() >= 508) return false;
+            if (c < 0x20 || c == '\\' || value->size() >= 508) return false;
             *value += static_cast<char>(c);
         }
         return take('"');
@@ -245,7 +245,7 @@ bool sessionValid(Fields fields) {
         number(fields["deadline_remaining_seconds"], 0, 900);
 }
 bool endpointRecordValid(Fields device) {
-    if (device.size() != 7 || !hex(device["node"],16,16) ||
+    if ((device.size() != 7 && device.size() != 10) || !hex(device["node"],16,16) ||
         device["node"] <= "\"0000000000000001\"" || !booleanField(device,"online")) return false;
     static const char* const states[] = {"\"complete\"", "\"recovery_required\"", "\"commissioning\""};
     if (!member(device["state"], states, 3) ||
@@ -280,6 +280,14 @@ bool endpointRecordValid(Fields device) {
         if (i != 0 && value <= previous) return false;
         previous = value;
     }
+    if (device.size() == 7) return descriptor;
+    const std::string& manufacturer = device["manufacturer"];
+    const std::string& model = device["model"];
+    if (manufacturer.size() < 2 || manufacturer.size() > 66 || model.size() < 2 || model.size() > 66 ||
+        manufacturer[0] != '"' || manufacturer[manufacturer.size()-1] != '"' ||
+        model[0] != '"' || model[model.size()-1] != '"' ||
+        (device["rssi_dbm"] != "null" && (device["rssi_dbm"].empty() ||
+         strtol(device["rssi_dbm"].c_str(), 0, 10) < -128 || strtol(device["rssi_dbm"].c_str(), 0, 10) > 0))) return false;
     return descriptor;
 }
 bool operationalJobValid(Fields fields) {
@@ -435,7 +443,7 @@ bool matterReadingFromReport(const Fields& data, MatterReading* reading) {
 bool inventoryFromData(Fields data, std::string* kind, unsigned int* count, MatterEndpoint* endpoint) {
     Fields row;
     if (data.size() != 3 || !number(data["endpoint_count"], 0, 32) ||
-        !StatusJson(data["device"]).parse(&row) || row.size() != 7 ||
+        !StatusJson(data["device"]).parse(&row) || (row.size() != 7 && row.size() != 10) ||
         !hex(row["node"], 16, 16) || row["node"] <= "\"0000000000000001\"" ||
         !booleanField(row, "online")) return false;
     if (data["kind"] != "\"identity\"" && data["kind"] != "\"endpoint\"" && data["kind"] != "\"commit\"") return false;
@@ -454,6 +462,11 @@ bool inventoryFromData(Fields data, std::string* kind, unsigned int* count, Matt
     endpoint->endpoint = row["endpoint"] == "null" ? 0xffff : static_cast<unsigned short>(strtoul(row["endpoint"].c_str(),0,10));
     endpoint->online = row["online"] == "true";
     endpoint->metadataComplete = *kind == "commit" && *count > 0;
+    if (row.size() == 10) {
+        endpoint->manufacturer = row["manufacturer"].substr(1, row["manufacturer"].size() - 2);
+        endpoint->model = row["model"].substr(1, row["model"].size() - 2);
+        endpoint->rssiDbm = row["rssi_dbm"] == "null" ? 1 : static_cast<int>(strtol(row["rssi_dbm"].c_str(), 0, 10));
+    }
     std::vector<std::string> clusters;
     StatusJson(row["servers"]).parseArray(&clusters);
     for (unsigned long i=0;i<clusters.size();++i) endpoint->servers.push_back(static_cast<unsigned int>(strtoul(clusters[i].c_str(),0,10)));

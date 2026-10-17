@@ -23,6 +23,25 @@ const CACHE_SIZE: usize = 16;
 const MAX_TTL: u32 = 120;
 const MAX_REFRESH_REQUESTS: usize = 64;
 
+/// Last DNS-SD addresses advertised by operational nodes. The manager uses this
+/// only to ask OpenThread for a direct-neighbor RSSI; indirect routes return None.
+#[derive(Clone, Default)]
+pub struct SignalBook(Rc<RefCell<Vec<(u64, u64, Vec<[u8; 16]>)>>>);
+impl SignalBook {
+    pub fn update(&self, fabric: u64, node: u64, addresses: &[IpAddr]) {
+        let mut entries = self.0.borrow_mut();
+        entries.retain(|entry| entry.0 != fabric || entry.1 != node);
+        let addresses = addresses.iter().filter_map(|address| match address {
+            IpAddr::V6(address) => Some(address.octets()), _ => None,
+        }).collect();
+        entries.push((fabric, node, addresses));
+    }
+    pub fn rssi(&self, fabric: u64, node: u64) -> Option<i8> {
+        self.0.borrow().iter().find(|entry| entry.0 == fabric && entry.1 == node)
+            .and_then(|entry| entry.2.iter().find_map(crate::openthread::direct_rssi))
+    }
+}
+
 /// Bounded handoff for CASE clients to invalidate cached operational addresses.
 #[derive(Clone, Default)]
 pub struct RefreshRequests(Rc<RefCell<Vec<(u64, u64)>>>);
@@ -222,9 +241,15 @@ pub async fn run(matter: &Matter<'_>, thread: &OpenThread) -> Result<(), Error> 
 }
 
 async fn run_with_refresh(
+    matter: &Matter<'_>, thread: &OpenThread, refresh: RefreshRequests,
+) -> Result<(), Error> {
+    run_with_refresh_and_signals(matter, thread, refresh, SignalBook::default()).await
+}
+async fn run_with_refresh_and_signals(
     matter: &Matter<'_>,
     thread: &OpenThread,
     refresh: RefreshRequests,
+    signals: SignalBook,
 ) -> Result<(), Error> {
     let mut cache = Cache::default();
     loop {
@@ -249,6 +274,7 @@ async fn run_with_refresh(
             continue;
         }
         if let Some(record) = cache.get_for_case(key, Instant::now(), &refresh) {
+            signals.update(key.fabric, key.node, &record.addresses);
             record.deposit(matter);
             continue;
         }
@@ -273,6 +299,7 @@ async fn run_with_refresh(
                             log::log!(target: "thread_diagnostics", thread.diagnostic_level(),
                                 "Operational discovery accepted label={} addresses={} port={}",
                                 key.label(), record.addresses.len(), record.port);
+                            signals.update(key.fabric, key.node, &record.addresses);
                             record.deposit(matter);
                             cache.put(record, now);
                             break;
@@ -321,6 +348,13 @@ pub async fn run_with_catalog_and_refresh(
     next_node: u64,
     refresh: RefreshRequests,
 ) -> Result<(), Error> {
+    run_with_catalog_and_refresh_and_signals(matter, thread, catalog, compressed_fabric, next_node, refresh, SignalBook::default()).await
+}
+
+pub async fn run_with_catalog_and_refresh_and_signals(
+    matter: &Matter<'_>, thread: &OpenThread, catalog: Catalog, compressed_fabric: u64,
+    next_node: u64, refresh: RefreshRequests, signals: SignalBook,
+) -> Result<(), Error> {
     let mut delay = 250;
     while catalog.legacy_pending() {
         if !thread.ready() {
@@ -344,7 +378,7 @@ pub async fn run_with_catalog_and_refresh(
             }
         }
     }
-    run_with_refresh(matter, thread, refresh).await
+    run_with_refresh_and_signals(matter, thread, refresh, signals).await
 }
 
 #[cfg(test)]

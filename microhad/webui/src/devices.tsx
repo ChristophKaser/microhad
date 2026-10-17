@@ -377,6 +377,7 @@ function DeviceCard({
         <div className="device-status">
           {device.has_battery && <span title="Battery">🔋 {device.battery_percent}%</span>}
           {device.source === 'zigbee' && <span title="Link quality">LQI {device.link_quality}</span>}
+          {device.source === 'matter' && <span title="Direct Thread signal">RSSI {device.matter_rssi_dbm === null || device.matter_rssi_dbm === undefined ? 'unavailable' : `${device.matter_rssi_dbm} dBm`}</span>}
           <span title={device.last_seen ? new Date(device.last_seen * 1000).toLocaleString() : undefined}>
             Seen {relativeTime(device.last_seen)}
           </span>

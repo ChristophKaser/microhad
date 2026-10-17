@@ -104,7 +104,7 @@ export function DeviceDetailsDialog({ device, configuration, onClose }: {
           <div><dt>Manufacturer</dt><dd>{device.manufacturer_name || 'Unknown'}</dd></div>
           <div><dt>Model</dt><dd>{device.model_id || 'Unknown'}</dd></div>
           <div><dt>Battery</dt><dd>{device.has_battery ? `${device.battery_percent}%` : 'Not reported'}</dd></div>
-          <div><dt>Link quality</dt><dd>{device.link_quality}</dd></div>
+          <div><dt>{device.source === 'matter' ? 'Direct Thread RSSI' : 'Link quality'}</dt><dd>{device.source === 'matter' ? (device.matter_rssi_dbm === null || device.matter_rssi_dbm === undefined ? 'Unavailable' : `${device.matter_rssi_dbm} dBm`) : device.link_quality}</dd></div>
           <div><dt>Last contact</dt><dd>{device.last_seen ? new Date(device.last_seen * 1000).toLocaleString() : 'Never'}</dd></div>
         </dl>
         <h3>Endpoint descriptors</h3>

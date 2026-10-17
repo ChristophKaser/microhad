@@ -431,6 +431,23 @@ extern "C" void gatewayOtDeinit()
 }
 
 extern "C" bool gatewayOtReady() { return instance && otThreadGetDeviceRole(instance) >= OT_DEVICE_ROLE_CHILD; }
+extern "C" bool gatewayOtRssiForAddress(const uint8_t *address, int8_t *rssi)
+{
+    if (!instance || !address || !rssi) return false;
+    otCacheEntryIterator cache = {};
+    otCacheEntryInfo entry = {};
+    uint16_t rloc = 0xffff;
+    while (otThreadGetNextCacheEntry(instance, &entry, &cache) == OT_ERROR_NONE) {
+        if (std::memcmp(entry.mTarget.mFields.m8, address, 16) == 0) { rloc = entry.mRloc16; break; }
+    }
+    if (rloc == 0xffff) return false;
+    otNeighborInfoIterator neighbors = OT_NEIGHBOR_INFO_ITERATOR_INIT;
+    otNeighborInfo neighbor = {};
+    while (otThreadGetNextNeighborInfo(instance, &neighbors, &neighbor) == OT_ERROR_NONE) {
+        if (neighbor.mRloc16 == rloc && neighbor.mLastRssi <= 0) { *rssi = neighbor.mLastRssi; return true; }
+    }
+    return false;
+}
 
 // Target libc wrappers are supplied by the shared Rust compatibility crate.
 

@@ -3,7 +3,7 @@ use crate::catalog::{Catalog, Phase};
 use core::num::NonZeroU8;
 use rs_matter::{
     crypto::Crypto,
-    dm::clusters::{desc::DescriptorClient, icd_mgmt::IcdManagementClient},
+    dm::clusters::{basic_info::BasicInformationClient, desc::DescriptorClient, icd_mgmt::IcdManagementClient},
     error::{Error, ErrorCode},
     transport::exchange::Exchange,
     Matter,
@@ -41,6 +41,9 @@ pub struct Device {
     pub endpoint: Option<u16>,
     pub servers: Vec<u32>,
     pub clients: Vec<u32>,
+    pub manufacturer: String,
+    pub model: String,
+    pub rssi_dbm: Option<i8>,
 }
 #[derive(Serialize)]
 pub struct Page {
@@ -85,11 +88,19 @@ struct InventoryPeer {
 pub struct Snapshot {
     pub node: u64,
     pub endpoints: Vec<Endpoint>,
+    pub manufacturer: String,
+    pub model: String,
+    pub rssi_dbm: Option<i8>,
     pub online: bool,
     next: Instant,
     failures: u8,
 }
-type Work<'a> = Pin<Box<dyn Future<Output = Result<Vec<Endpoint>, Error>> + 'a>>;
+struct Discovery {
+    endpoints: Vec<Endpoint>,
+    manufacturer: String,
+    model: String,
+}
+type Work<'a> = Pin<Box<dyn Future<Output = Result<Discovery, Error>> + 'a>>;
 type OperationWork<'a> = Pin<
     Box<
         dyn Future<Output = Result<crate::operations::ResultValue, crate::operations::Failure>>
@@ -181,6 +192,7 @@ pub struct Manager<'a, C: Crypto> {
     compressed_fabric: u64,
     catalog: Catalog,
     address_refresh: crate::discovery::RefreshRequests,
+    signals: crate::discovery::SignalBook,
     icd_registry: Option<crate::icd::ClientRegistry>,
     local_node: u64,
     icd_entropy: Option<crate::entropy::OsEntropy>,
@@ -244,6 +256,14 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         compressed_fabric: u64,
         address_refresh: crate::discovery::RefreshRequests,
     ) -> Result<Self, std::io::Error> {
+        Self::new_with_address_refresh_and_signals(matter, crypto, fabric, catalog, subscription_limit,
+            compressed_fabric, address_refresh, crate::discovery::SignalBook::default())
+    }
+    pub fn new_with_address_refresh_and_signals(
+        matter: &'a Matter<'a>, crypto: &'a C, fabric: NonZeroU8, catalog: Catalog,
+        subscription_limit: usize, compressed_fabric: u64, address_refresh: crate::discovery::RefreshRequests,
+        signals: crate::discovery::SignalBook,
+    ) -> Result<Self, std::io::Error> {
         if subscription_limit > MAX_DEVICE_SUBSCRIPTIONS {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
@@ -267,6 +287,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             compressed_fabric,
             catalog,
             address_refresh,
+            signals,
             icd_registry: Some(icd_registry),
             local_node,
             icd_entropy: Some(crate::entropy::OsEntropy::open()?),
@@ -354,6 +375,9 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                                 endpoint: endpoint.map(|entry| entry.id),
                                 servers: endpoint.map(|entry| entry.servers.clone()).unwrap_or_default(),
                                 clients: endpoint.map(|entry| entry.clients.clone()).unwrap_or_default(),
+                                manufacturer: snapshot.map(|entry| entry.manufacturer.clone()).unwrap_or_default(),
+                                model: snapshot.map(|entry| entry.model.clone()).unwrap_or_default(),
+                                rssi_dbm: snapshot.and_then(|entry| entry.rssi_dbm),
                             },
                         });
                         break;
@@ -472,6 +496,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             self.snapshots.push(Snapshot {
                 node,
                 endpoints,
+                manufacturer: String::new(), model: String::new(), rssi_dbm: None,
                 online: true,
                 next: now + Duration::from_secs(3600),
                 failures: 0,
@@ -761,6 +786,9 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                         endpoint: endpoint.map(|e| e.id),
                         servers: endpoint.map(|e| e.servers.clone()).unwrap_or_default(),
                         clients: endpoint.map(|e| e.clients.clone()).unwrap_or_default(),
+                        manufacturer: snapshot.map(|entry| entry.manufacturer.clone()).unwrap_or_default(),
+                        model: snapshot.map(|entry| entry.model.clone()).unwrap_or_default(),
+                        rssi_dbm: snapshot.and_then(|entry| entry.rssi_dbm),
                     });
                 }
                 offset += 1;
@@ -1066,17 +1094,22 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                     self.icd_checked
                         .retain(|(checked_node, _)| *checked_node != node);
                 }
+                let rssi_dbm = self.signals.rssi(self.compressed_fabric, node);
                 let snapshot = self.snapshots.iter_mut().find(|s| s.node == node).unwrap();
                 let visible_changed = match &result {
-                    Ok(endpoints) => !snapshot.online || snapshot.endpoints != *endpoints,
+                    Ok(discovery) => !snapshot.online || snapshot.endpoints != discovery.endpoints ||
+                        snapshot.manufacturer != discovery.manufacturer || snapshot.model != discovery.model || snapshot.rssi_dbm != rssi_dbm,
                     Err(_) => snapshot.online,
                 };
                 if result.is_err() {
                     self.address_refresh.request(self.compressed_fabric, node);
                 }
                 match result {
-                    Ok(endpoints) => {
-                        snapshot.endpoints = endpoints;
+                    Ok(discovery) => {
+                        snapshot.endpoints = discovery.endpoints;
+                        snapshot.manufacturer = discovery.manufacturer;
+                        snapshot.model = discovery.model;
+                        snapshot.rssi_dbm = rssi_dbm;
                         snapshot.online = true;
                         snapshot.failures = 0;
                         snapshot.next = now + Duration::from_secs(300);
@@ -1107,6 +1140,9 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 self.snapshots.push(Snapshot {
                     node: node.id,
                     endpoints: Vec::new(),
+                    manufacturer: String::new(),
+                    model: String::new(),
+                    rssi_dbm: None,
                     online: false,
                     next: now,
                     failures: 0,
@@ -1122,7 +1158,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             self.work = Some((
                 snapshot.node,
                 now + Duration::from_secs(30),
-                Box::pin(discover(
+                Box::pin(discover_with_metadata(
                     self.matter,
                     self.crypto,
                     self.fabric,
@@ -1507,12 +1543,26 @@ fn bounded<T: Copy + Ord>(
 
 /// Root PartsList defines the node's endpoints, including bridged endpoints.
 /// Each read gets its own exchange; return a snapshot only after every read succeeds.
-pub async fn discover<C: Crypto>(
+async fn discover_with_metadata<C: Crypto>(
     matter: &Matter<'_>,
     crypto: C,
     fabric: NonZeroU8,
     node: u64,
-) -> Result<Vec<Endpoint>, Error> {
+) -> Result<Discovery, Error> {
+    let exchange = Exchange::initiate(matter, &crypto, fabric, node).await?;
+    let manufacturer = exchange
+        .basic_information()
+        .vendor_name_read_with(0, |value| value.map(String::from))
+        .await??;
+    let exchange = Exchange::initiate(matter, &crypto, fabric, node).await?;
+    let model = exchange
+        .basic_information()
+        .product_name_read_with(0, |value| value.map(String::from))
+        .await??;
+    if manufacturer.len() > 64 || model.len() > 64 || manufacturer.bytes().any(|byte| byte < 0x20) ||
+        model.bytes().any(|byte| byte < 0x20) {
+        return Err(ErrorCode::InvalidData.into());
+    }
     let exchange = Exchange::initiate(matter, &crypto, fabric, node).await?;
     let mut ids = exchange
         .descriptor()
@@ -1539,7 +1589,13 @@ pub async fn discover<C: Crypto>(
         }
         endpoints.push(Endpoint { id, servers, clients });
     }
-    Ok(endpoints)
+    Ok(Discovery { endpoints, manufacturer, model })
+}
+
+pub async fn discover<C: Crypto>(
+    matter: &Matter<'_>, crypto: C, fabric: NonZeroU8, node: u64,
+) -> Result<Vec<Endpoint>, Error> {
+    Ok(discover_with_metadata(matter, crypto, fabric, node).await?.endpoints)
 }
 
 #[cfg(test)]
@@ -1554,6 +1610,7 @@ mod tests {
                 endpoint: Some(65534),
                 servers: (u32::MAX-63..=u32::MAX).collect(),
                 clients: (u32::MAX-63..=u32::MAX).collect(),
+                manufacturer: "Acme".into(), model: "Model X".into(), rssi_dbm: Some(-42),
             },
         };
         let event=crate::responses::event(crate::responses::Event::MatterInventory(&record)).unwrap();
@@ -1784,6 +1841,7 @@ mod tests {
                     clients: vec![],
                 },
             ],
+            manufacturer: String::new(), model: String::new(), rssi_dbm: None,
             online: true,
             next: now,
             failures: 0,
@@ -1799,6 +1857,7 @@ mod tests {
                     clients: endpoint.clients.clone(),
                 })
                 .collect(),
+            manufacturer: String::new(), model: String::new(), rssi_dbm: None,
             online: false,
             next: now,
             failures: 0,
@@ -1833,6 +1892,7 @@ mod tests {
                     clients: vec![],
                 })
                 .collect(),
+            manufacturer: String::new(), model: String::new(), rssi_dbm: None,
             online: true,
             next: now,
             failures: 0,
@@ -1930,6 +1990,7 @@ mod tests {
                 servers: vec![6],
                 clients: vec![],
             }],
+            manufacturer: String::new(), model: String::new(), rssi_dbm: None,
             online: true,
             next: Instant::now() + Duration::from_secs(300),
             failures: 0,
@@ -2192,6 +2253,7 @@ mod tests {
                 servers: vec![6],
                 clients: vec![],
             }],
+            manufacturer: String::new(), model: String::new(), rssi_dbm: None,
             online: true,
             next,
             failures: 0,

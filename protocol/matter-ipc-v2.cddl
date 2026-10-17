@@ -76,7 +76,8 @@ session-snapshot = {session: id64, state: "waiting_ble" / "pase" / "provisioning
   deadline_remaining_seconds: 0..900, ? error: error-code, ? node: id64, extensions}
 device = {node: id64, state: "complete" / "recovery_required" / "commissioning",
   online: bool, id: tstr / null, endpoint: endpoint / null,
-  servers: [0*64 uint], ? clients: [0*64 uint], extensions}
+  servers: [0*64 uint], ? clients: [0*64 uint], manufacturer: tstr .size (0..64),
+  model: tstr .size (0..64), rssi_dbm: -128..0 / null, extensions}
 operation-job = {job: id64, state: "queued" / "running" / "complete" / "failed",
                  ? error: error-code, ? result: reading, extensions}
 reading = {node: id64, endpoint: endpoint, cluster: uint, attribute: uint,

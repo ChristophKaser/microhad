@@ -26,6 +26,7 @@ unsafe extern "C" {
     fn gatewayOtDisable() -> i32;
     fn gatewayOtDeinit();
     fn gatewayOtReady() -> bool;
+    fn gatewayOtRssiForAddress(address: *const u8, rssi: *mut i8) -> bool;
     fn gatewayOtPoll(timeout_us: u32) -> i32;
     fn gatewayOtSetDataset(bytes: *const u8, length: u16) -> i32;
     fn gatewayOtConfigureDiagnosticRoutes(on_mesh: bool, external: bool) -> i32;
@@ -45,6 +46,10 @@ unsafe extern "C" {
     fn gatewayOtBrowseStart(fabric: u64, next_node: u64, token: *mut u32) -> i32;
     fn gatewayOtBrowsePoll(token: u32, result: *mut BrowseResult) -> i32;
     fn gatewayOtBrowseRelease(token: u32);
+}
+pub fn direct_rssi(address: &[u8; 16]) -> Option<i8> {
+    let mut rssi = 0;
+    if unsafe { gatewayOtRssiForAddress(address.as_ptr(), &mut rssi) } { Some(rssi) } else { None }
 }
 fn checked(result: i32) -> Result<(), Error> {
     if result == 0 {
