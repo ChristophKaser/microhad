@@ -352,7 +352,7 @@ maintenance_deploy_run() {
     [ "$target" = /tuya/native ] || return 2
     command -v strings >/dev/null 2>&1 || { echo "strings is required to verify the Ziggurat interface" >&2; return 1; }
     ziggurat_strings=$(strings "$ziggurat") || return 1
-    printf '%s\n' "$ziggurat_strings" | grep -Fq -- '--thread-socket requires --spinel-iid 1' &&
+    printf '%s\n' "$ziggurat_strings" | grep -Fq -- 'Thread endpoint requires --spinel-iid 1' &&
         printf '%s\n' "$ziggurat_strings" | grep -Fq -- 'cobs-unix requires unix:/absolute/path' || {
             echo "Ziggurat artifact lacks the multipan/COBS Unix and Thread socket interfaces; rebuild with ZIGGURAT_MULTIPAN=1" >&2
             return 1
