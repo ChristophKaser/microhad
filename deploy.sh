@@ -438,7 +438,7 @@ maintenance_deploy_run() {
         orphaned_images=$(ssh_command "for image in \"$target/microhad\" \"$target/tuya-zigbee-native\" \"$target/thread-matter\" \"$target/mthread-matter\" \"$target/ziggurat\"; do for p in /proc/[0-9]*/exe; do x=\$(ls -l \"\$p\" 2>/dev/null) || continue; case \"\$x\" in *\" -> \$image\"|*\" -> \$image (deleted)\") echo \"\$x\" ;; esac; done; done") || return 1
         [ -z "$orphaned_images" ] || { echo "Application executable is still active without its paired supervisor: $orphaned_images" >&2; return 1; }
     fi
-    deleted_images=$(ssh_command "for image in \"$target/microhad\" \"$target/tuya-zigbee-native\" \"$target/thread-matter\" \"$target/mthread-matter\" \"$target/ziggurat\" \"$target/gateway-maintenance\" \"$target/logread\"; do for p in /proc/[0-9]*/exe; do x=\$(ls -l \"\$p\" 2>/dev/null) || continue; case \"\$x\" in *\" -> \$image (deleted)\") echo \"\$x\" ;; esac; done; done") || return 1
+    deleted_images=$(ssh_command "for image in \"$target/microhad\" \"$target/tuya-zigbee-native\" \"$target/thread-matter\" \"$target/mthread-matter\" \"$target/ziggurat\" \"$target/gateway-maintenance\" \"$target/logread\"; do for p in /proc/[0-9]*/exe; do x=\$(ls -l \"\$p\" 2>/dev/null) || continue; case \"\$x\" in *\" -> \$image (deleted)\") echo \"\$x\" ;; esac; done; done; :") || return 1
     [ -z "$deleted_images" ] || { echo "Found a running deleted executable; refusing maintenance deployment" >&2; return 1; }
 
     if [ -n "$supervisor_pid" ]; then
