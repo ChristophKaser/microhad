@@ -554,6 +554,7 @@ export function DeviceSettings({
   const [saving, setSaving] = useState(false)
   const [syncingClock, setSyncingClock] = useState(false)
   const [clockResult, setClockResult] = useState('')
+  const [timeZone, setTimeZone] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Berlin')
   const clockEndpoint = device.source === 'matter'
     ? device.endpoint_descriptors.find(endpoint => endpoint.input_clusters.includes(56))?.endpoint
     : undefined
@@ -562,7 +563,7 @@ export function DeviceSettings({
     setSyncingClock(true)
     setClockResult('')
     try {
-      await matterSyncTime(device.matter_node, clockEndpoint, new AbortController().signal)
+      await matterSyncTime(device.matter_node, clockEndpoint, timeZone, new AbortController().signal)
       setClockResult('Clock synchronized.')
     } catch (cause) {
       setClockResult(errorMessage(cause))
@@ -686,6 +687,9 @@ export function DeviceSettings({
           <fieldset>
             <legend>Clock</legend>
             <p className="muted">Set the accessory clock from the gateway’s UTC time.</p>
+            <label className="field">Time zone
+              <input value={timeZone} onChange={(event) => setTimeZone(event.target.value)} maxLength={64} required />
+            </label>
             {clockResult && <p className={clockResult === 'Clock synchronized.' ? 'success' : 'error'} role="status">{clockResult}</p>}
             <button type="button" className="button" disabled={syncingClock || !device.online} onClick={() => void syncClock()}>
               {syncingClock ? 'Synchronizing…' : 'Synchronize clock now'}

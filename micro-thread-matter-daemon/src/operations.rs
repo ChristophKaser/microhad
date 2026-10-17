@@ -41,7 +41,7 @@ pub enum Action {
         level: u8,
         transition_deciseconds: u16,
     },
-    SyncTime,
+    SyncTime { time_zone: String, offset_seconds: i32 },
     Bind { targets: Vec<BindingTarget> },
 }
 #[derive(Clone)]
@@ -339,8 +339,8 @@ impl Operation {
                     transition_deciseconds,
                 },
             ),
-            Request::Command(CommandRequest::SyncTime { node, endpoint, .. }) => {
-                (node, endpoint, Action::SyncTime)
+            Request::Command(CommandRequest::SyncTime { node, endpoint, time_zone, offset_seconds, .. }) => {
+                (node, endpoint, Action::SyncTime { time_zone, offset_seconds })
             }
             _ => return Err(Failure::Unsupported),
         };
@@ -523,7 +523,7 @@ impl Operation {
                             })
                             .await?
                     }
-                    Action::SyncTime => {
+                    Action::SyncTime { ref time_zone, offset_seconds } => {
                         const MATTER_EPOCH_UNIX_SECONDS: u64 = 946_684_800;
                         let unix = std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
@@ -533,7 +533,15 @@ impl Operation {
                         let utc_us = seconds.checked_mul(1_000_000)
                             .and_then(|value| value.checked_add(u64::from(unix.subsec_micros())))
                             .ok_or(ErrorCode::InvalidData)?;
-                        exchange.time_synchronization().set_utc_time(self.endpoint, |request| {
+                        let name = rs_matter::tlv::Utf8Str::new(time_zone);
+                        let mut zone = exchange.time_synchronization().set_time_zone(self.endpoint, |request| {
+                            request.time_zone()?.push()?.offset(offset_seconds)?.valid_at(utc_us)?
+                                .name(Some(name))?.end()?.end()?.end()
+                        }).await?;
+                        let requires_dst = zone.response()?.dst_offset_required()?;
+                        zone.complete().await?;
+                        if requires_dst { return Err(ErrorCode::UnsupportedFeature.into()); }
+                        Exchange::initiate(matter, &crypto, fabric, self.node).await?.time_synchronization().set_utc_time(self.endpoint, |request| {
                             request.utc_time(utc_us)?
                                 .granularity(GranularityEnum::MicrosecondsGranularity)?
                                 .time_source(Some(TimeSourceEnum::Admin))?.end()
@@ -543,7 +551,7 @@ impl Operation {
                     Action::Read | Action::ReadLevel | Action::ReadSensor { .. } => unreachable!(),
                 }
             }
-            if matches!(self.action, Action::SyncTime) {
+            if matches!(self.action, Action::SyncTime { .. }) {
                 return Ok(ResultValue { node: Id(self.node), endpoint: self.endpoint, cluster: 56,
                     attribute: 0, value: Value::Bool(true) });
             }

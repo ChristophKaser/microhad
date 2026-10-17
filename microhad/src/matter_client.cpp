@@ -346,6 +346,7 @@ bool requestValid(unsigned char opcode, const std::string& text) {
         static const char* const commands[] = {"\"on\"", "\"off\"", "\"toggle\"", "\"sync_time\""};
         if (!hex(fields["node"], 16, 16) || fields["node"] <= "\"0000000000000001\"" ||
             !number(fields["endpoint"], 0, 65534)) return false;
+        if (fields["command"] == "\"sync_time\"") return fields.size() == 6 && number(fields["offset_seconds"], -50400, 50400) && fields["time_zone"].size() > 2;
         if (member(fields["command"], commands, 4)) return fields.size() == 4;
         return fields["command"] == "\"move_to_level\"" && fields.size() == 6 &&
             number(fields["level"], 0, 254) && number(fields["transition_deciseconds"], 0, 65535);
@@ -871,12 +872,15 @@ bool MatterChannel::deviceCommandRequest(const std::string& input, std::string* 
         !hex(fields["node"], 16, 16) || fields["node"] <= "\"0000000000000001\"" ||
         !number(fields["endpoint"], 0, 65534)) return false;
     const bool level = fields["command"] == "\"move_to_level\"";
+    const bool syncTime = fields["command"] == "\"sync_time\"";
     if ((level && (fields.size() != 6 || !number(fields["level"], 0, 254) ||
                    !number(fields["transition_deciseconds"], 0, 65535))) ||
-        (!level && (fields.size() != 4 || !member(fields["command"], commands, 4)))) return false;
+        (syncTime && (fields.size() != 6 || !number(fields["offset_seconds"], -50400, 50400) || fields["time_zone"].size() < 3)) ||
+        (!level && !syncTime && (fields.size() != 4 || !member(fields["command"], commands, 4)))) return false;
     *body = "{\"schema\":1,\"command\":" + fields["command"] + ",\"node\":" + fields["node"] +
         ",\"endpoint\":" + fields["endpoint"];
     if (level) *body += ",\"level\":" + fields["level"] + ",\"transition_deciseconds\":" + fields["transition_deciseconds"];
+    if (syncTime) *body += ",\"time_zone\":" + fields["time_zone"] + ",\"offset_seconds\":" + fields["offset_seconds"];
     *body += '}';
     return requestValid(11, *body);
 }

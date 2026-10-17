@@ -116,10 +116,13 @@ export async function matterCall(route: string, fields: Record<string, unknown>,
       !integer(fields.endpoint, 0, 65534) || ![6, 8, 69, 91, 1026, 1029, 1037, 1066].includes(Number(fields.cluster)) || fields.attribute !== 0)) throw new MatterError('malformed')
   if (route.endsWith('/devices/command')) {
     const identityValid = typeof fields.node === 'string' && validSession(fields.node) && integer(fields.endpoint, 0, 65534)
-    const onOff = keys.length === 3 && ['on', 'off', 'toggle', 'sync_time'].includes(String(fields.command))
+    const onOff = keys.length === 3 && ['on', 'off', 'toggle'].includes(String(fields.command))
+    const syncTime = keys.length === 5 && fields.command === 'sync_time' && typeof fields.time_zone === 'string' &&
+      fields.time_zone.length > 0 && fields.time_zone.length <= 64 && /^[-+/_A-Za-z0-9]+$/.test(fields.time_zone) &&
+      integer(fields.offset_seconds, -50400, 50400)
     const level = keys.length === 5 && fields.command === 'move_to_level' && integer(fields.level, 0, 254) &&
       integer(fields.transition_deciseconds, 0, 65535)
-    if (!identityValid || (!onOff && !level)) throw new MatterError('malformed')
+    if (!identityValid || (!onOff && !level && !syncTime)) throw new MatterError('malformed')
   }
   if (route.endsWith('/devices/bind')) {
     const targets = fields.targets
@@ -247,8 +250,9 @@ export async function matterOnOff(node: string, endpoint: number, action: 'read'
   return value.value
 }
 
-export async function matterSyncTime(node: string, endpoint: number, signal: AbortSignal): Promise<void> {
-  const data = object(await matterCall('/api/matter/devices/command', { node, endpoint, command: 'sync_time' }, signal))
+export async function matterSyncTime(node: string, endpoint: number, timeZone: string, signal: AbortSignal): Promise<void> {
+  const offsetSeconds = -new Date().getTimezoneOffset() * 60
+  const data = object(await matterCall('/api/matter/devices/command', { node, endpoint, command: 'sync_time', time_zone: timeZone, offset_seconds: offsetSeconds }, signal))
   if (Object.keys(data).length !== 3 || data.state !== 'complete' || typeof data.job !== 'string' || !/^[0-9a-f]{16}$/.test(data.job)) {
     throw new MatterError('protocol')
   }

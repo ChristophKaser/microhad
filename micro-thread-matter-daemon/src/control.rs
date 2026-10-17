@@ -218,6 +218,8 @@ pub enum CommandRequest {
         schema: Schema,
         node: Id,
         endpoint: u16,
+        time_zone: String,
+        offset_seconds: i32,
     },
 }
 pub enum Request {
@@ -318,6 +320,11 @@ impl Request {
                 if matches!(&body, CommandRequest::MoveToLevel { level: 255, .. }) {
                     return Err(BodyError::Malformed);
                 }
+                if let CommandRequest::SyncTime { time_zone, offset_seconds, .. } = &body {
+                    if time_zone.is_empty() || time_zone.len() > 64 || !time_zone.bytes().all(|c| c.is_ascii_alphanumeric() || matches!(c, b'/' | b'_' | b'+' | b'-')) || !(-50_400..=50_400).contains(offset_seconds) {
+                        return Err(BodyError::Malformed);
+                    }
+                }
                 Self::Command(body)
             }
             _ => return Err(BodyError::Unsupported),
@@ -408,7 +415,7 @@ mod tests {
             11,
             r#"{"schema":1,"command":"move_to_level","node":"123456789abcdef0","endpoint":1,"level":254,"transition_deciseconds":65535}"#,
         );
-        valid(11, r#"{"schema":1,"command":"sync_time","node":"123456789abcdef0","endpoint":0}"#);
+        valid(11, r#"{"schema":1,"command":"sync_time","node":"123456789abcdef0","endpoint":0,"time_zone":"Europe/Berlin","offset_seconds":7200}"#);
         invalid(12, "{}");
     }
     #[test]
