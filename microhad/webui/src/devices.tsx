@@ -253,7 +253,7 @@ function DeviceCard({
   const canDim = isDimmable(device)
   const controlsAvailable = device.online !== false && device.controller_available !== false
   const type = getDeviceType(device)
-  const colorizeSensorReadings = type === 'Air quality sensors'
+  const colorizeSensorReadings = device.has_air_quality || device.has_co2 || device.has_pm25
   const extraReadings = [
     type !== 'Climate sensors' && device.has_temperature && { text: `🌡 Temperature: ${device.temperature_known ? `${device.temperature_celsius} °C` : 'Unknown'}` },
     type !== 'Climate sensors' && device.has_humidity && { text: `💧 Humidity: ${device.humidity_known === false ? 'Unknown' : `${device.humidity_percent}%`}` },

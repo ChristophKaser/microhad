@@ -63,9 +63,9 @@ async function run() {
   await wait(() => document.body.textContent?.includes('23.15') && document.body.textContent?.includes('52.34') &&
     document.body.textContent?.includes('758.5 ppm') && document.body.textContent?.includes('12.75 ug/m3') &&
     document.body.textContent?.includes('Air quality: moderate'), 'typed sensor reads shown in shared device card')
-  check(document.querySelector('.sensor-reading-moderate')?.textContent?.includes('Air quality: moderate'), 'air quality reading did not receive moderate severity styling')
-  check(document.querySelector('.sensor-reading-good')?.textContent?.includes('CO₂: 758.5 ppm'), 'CO₂ reading did not receive good severity styling')
-  check(document.querySelector('.sensor-reading-fair')?.textContent?.includes('PM2.5: 12.75 ug/m3'), 'PM2.5 reading did not receive fair severity styling')
+  check(document.querySelector('.sensor-reading-moderate')?.textContent?.includes('Air quality: moderate'), 'air quality reading on a light card did not receive moderate severity styling')
+  check(document.querySelector('.sensor-reading-good')?.textContent?.includes('CO₂: 758.5 ppm'), 'CO₂ reading on a light card did not receive good severity styling')
+  check(document.querySelector('.sensor-reading-fair')?.textContent?.includes('PM2.5: 12.75 ug/m3'), 'PM2.5 reading on a light card did not receive fair severity styling')
   check(document.body.textContent?.includes('Temperature') && document.body.textContent?.includes('Humidity'), 'shared climate fields were not used')
   document.querySelector<HTMLButtonElement>('[aria-label^="Settings for Matter light"]')!.click()
   await wait(() => document.body.textContent?.includes('CO₂ alerts (ppm)') && document.body.textContent?.includes('PM2.5 alerts (ug/m3)'),
