@@ -531,10 +531,12 @@ bool waitFor(int fd, bool writing, int64_t deadline) {
 bool writeAll(int fd, const unsigned char* data, unsigned int size, int64_t deadline) {
     unsigned int offset = 0;
     while (offset < size) {
-        if (!waitFor(fd, true, deadline)) return false;
         ssize_t written = send(fd, data + offset, size - offset, MSG_NOSIGNAL);
         if (written > 0) offset += static_cast<unsigned int>(written);
-        else if (written < 0 && (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)) continue;
+        else if (written < 0 && errno == EINTR) continue;
+        else if (written < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            if (!waitFor(fd, true, deadline)) return false;
+        }
         else return false;
     }
     return true;
