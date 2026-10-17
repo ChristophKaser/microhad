@@ -3,6 +3,7 @@
 #include "matter_worker.h"
 
 #include <assert.h>
+#include <errno.h>
 #include <pthread.h>
 #include <sstream>
 #include <string.h>
@@ -155,9 +156,25 @@ bool drainChannelEvents(void* opaque) {
     ++drain->count;
     return true;
 }
+
+void requireLocalSocketSend() {
+    int sockets[2];
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, sockets) != 0) return;
+    const unsigned char byte = 0;
+    const ssize_t written = send(sockets[0], &byte, 1, MSG_NOSIGNAL);
+    const int sendError = errno;
+    close(sockets[0]);
+    close(sockets[1]);
+    if (written < 0 && sendError == EPERM) {
+        fprintf(stderr, "Matter unit tests require Unix-socket IPC, but the execution sandbox denied "
+                "send(..., MSG_NOSIGNAL) with EPERM. Rerun with local Unix-socket access enabled.\n");
+        abort();
+    }
+}
 }
 
 void runMatterClientUnitTests() {
+    requireLocalSocketSend();
     assert(MatterChannel::validRequest(10, "{\"schema\":1,\"action\":\"delete\",\"node\":\"0000000000000002\",\"local\":true}"));
     assert(!MatterChannel::validRequest(10, "{\"schema\":1,\"action\":\"delete\",\"node\":\"0000000000000002\",\"local\":\"true\"}"));
     std::vector<std::string> manifest;
