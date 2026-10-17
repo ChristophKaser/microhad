@@ -310,6 +310,9 @@ bool saveDevices(const std::string& filename, const std::vector<Device>& devices
                << jsonEscape(device.kind) << "\",\"contact_open\":" << (device.contactOpen ? "true" : "false")
                << ",\"has_contact\":" << (device.hasContact ? "true" : "false")
                << ",\"contact_known\":" << (device.contactKnown ? "true" : "false")
+               << ",\"has_water_leak\":" << (device.hasWaterLeak ? "true" : "false")
+               << ",\"water_leak_known\":" << (device.waterLeakKnown ? "true" : "false")
+               << ",\"water_detected\":" << (device.waterDetected ? "true" : "false")
                << ",\"temperature_celsius\":" << device.temperatureCelsius << ",\"has_temperature\":"
                << (device.hasTemperature ? "true" : "false") << ",\"humidity_percent\":" << device.humidityPercent
                << ",\"temperature_known\":" << (device.temperatureKnown ? "true" : "false")
@@ -373,7 +376,8 @@ bool saveDevices(const std::string& filename, const std::vector<Device>& devices
                    << ",\"matter_node\":\"" << jsonEscape(device.matterNode)
                    << "\",\"matter_endpoint\":" << device.matterEndpoint
                    << ",\"matter_servers\":\"" << encodeMatterServers(device.matterServers)
-                   << "\",\"matter_clients\":\"" << encodeMatterServers(device.matterClients) << '"';
+                   << "\",\"matter_clients\":\"" << encodeMatterServers(device.matterClients)
+                   << "\",\"matter_device_types\":\"" << encodeMatterServers(device.matterDeviceTypes) << '"';
         }
         output << '}';
         output << (i + 1 == devices.size() ? "\n" : ",\n");
@@ -454,6 +458,9 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
             device.contactOpen = line.find("\"contact_open\":true") != std::string::npos;
             device.hasContact = line.find("\"has_contact\":true") != std::string::npos;
             device.contactKnown = line.find("\"contact_known\":true") != std::string::npos;
+            device.hasWaterLeak = line.find("\"has_water_leak\":true") != std::string::npos;
+            device.waterLeakKnown = line.find("\"water_leak_known\":true") != std::string::npos;
+            device.waterDetected = line.find("\"water_detected\":true") != std::string::npos;
             device.hasTemperature = line.find("\"has_temperature\":true") != std::string::npos;
             device.temperatureKnown = line.find("\"temperature_known\":true") != std::string::npos;
             device.hasHumidity = line.find("\"has_humidity\":true") != std::string::npos;
@@ -542,6 +549,12 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
                 if (jsonStringField(line, "matter_clients", &encodedClients) &&
                     !decodeMatterServers(encodedClients, &device.matterClients)) {
                     *error = "invalid Matter endpoint client clusters";
+                    return false;
+                }
+                std::string encodedTypes;
+                if (jsonStringField(line, "matter_device_types", &encodedTypes) &&
+                    !decodeMatterServers(encodedTypes, &device.matterDeviceTypes)) {
+                    *error = "invalid Matter endpoint device types";
                     return false;
                 }
             }

@@ -245,14 +245,15 @@ bool sessionValid(Fields fields) {
         number(fields["deadline_remaining_seconds"], 0, 900);
 }
 bool endpointRecordValid(Fields device) {
-    if ((device.size() != 7 && device.size() != 10) || !hex(device["node"],16,16) ||
+    if ((device.size() != 7 && device.size() != 8 && device.size() != 10 && device.size() != 11) || !hex(device["node"],16,16) ||
         device["node"] <= "\"0000000000000001\"" || !booleanField(device,"online")) return false;
     static const char* const states[] = {"\"complete\"", "\"recovery_required\"", "\"commissioning\""};
     if (!member(device["state"], states, 3) ||
         (device["online"] == "true" && device["state"] != "\"complete\"")) return false;
-    std::vector<std::string> clusters, clients;
+    std::vector<std::string> clusters, clients, deviceTypes;
     if (!StatusJson(device["servers"]).parseArray(&clusters) ||
-        (device.count("clients") && !StatusJson(device["clients"]).parseArray(&clients))) return false;
+        (device.count("clients") && !StatusJson(device["clients"]).parseArray(&clients)) ||
+        (device.count("device_types") && !StatusJson(device["device_types"]).parseArray(&deviceTypes))) return false;
     if (!number(device["endpoint"], 0, 65534)) return false;
     const std::string id = device["id"];
     if (id.size() != 47 || id.substr(0, 8) != "\"matter:" || id[24] != ':' || id[41] != ':' ||
@@ -273,6 +274,8 @@ bool endpointRecordValid(Fields device) {
         previous = value; if (value == 29) descriptor = true;
     }
     previous = 0;
+    for (unsigned long i = 0; i < deviceTypes.size(); ++i)
+        if (!number(deviceTypes[i], 0, 0xffffffffU)) return false;
     for (unsigned long i = 0; i < clients.size(); ++i) {
         if (!number(clients[i], 0, 0xffffffffU)) return false;
         uint64_t value = 0;
@@ -444,7 +447,7 @@ bool matterReadingFromReport(const Fields& data, MatterReading* reading) {
 bool inventoryFromData(Fields data, std::string* kind, unsigned int* count, MatterEndpoint* endpoint) {
     Fields row;
     if (data.size() != 3 || !number(data["endpoint_count"], 0, 32) ||
-        !StatusJson(data["device"]).parse(&row) || (row.size() != 7 && row.size() != 10) ||
+        !StatusJson(data["device"]).parse(&row) || (row.size() != 7 && row.size() != 8 && row.size() != 10 && row.size() != 11) ||
         !hex(row["node"], 16, 16) || row["node"] <= "\"0000000000000001\"" ||
         !booleanField(row, "online")) return false;
     if (data["kind"] != "\"identity\"" && data["kind"] != "\"endpoint\"" && data["kind"] != "\"commit\"") return false;
@@ -453,6 +456,7 @@ bool inventoryFromData(Fields data, std::string* kind, unsigned int* count, Matt
     if (data["kind"] == "\"endpoint\"") {
         if (!endpointRecordValid(row)) return false;
     } else if (row["endpoint"] != "null" || row["servers"] != "[]" || row["clients"] != "[]" ||
+        (row.count("device_types") && row["device_types"] != "[]") ||
         id.size() != 42 || id.substr(0, 8) != "\"matter:" || id[24] != ':' || id[41] != '"' ||
         !hex('"' + id.substr(8, 16) + '"', 16, 16) || id.substr(25, 16) != row["node"].substr(1, 16)) return false;
     *kind = data["kind"].substr(1, data["kind"].size()-2);
@@ -463,7 +467,7 @@ bool inventoryFromData(Fields data, std::string* kind, unsigned int* count, Matt
     endpoint->endpoint = row["endpoint"] == "null" ? 0xffff : static_cast<unsigned short>(strtoul(row["endpoint"].c_str(),0,10));
     endpoint->online = row["online"] == "true";
     endpoint->metadataComplete = *kind == "commit" && *count > 0;
-    if (row.size() == 10) {
+    if (row.size() == 10 || row.size() == 11) {
         endpoint->manufacturer = row["manufacturer"].substr(1, row["manufacturer"].size() - 2);
         endpoint->model = row["model"].substr(1, row["model"].size() - 2);
         endpoint->rssiDbm = row["rssi_dbm"] == "null" ? 1 : static_cast<int>(strtol(row["rssi_dbm"].c_str(), 0, 10));
@@ -473,6 +477,10 @@ bool inventoryFromData(Fields data, std::string* kind, unsigned int* count, Matt
     for (unsigned long i=0;i<clusters.size();++i) endpoint->servers.push_back(static_cast<unsigned int>(strtoul(clusters[i].c_str(),0,10)));
     clusters.clear(); StatusJson(row["clients"]).parseArray(&clusters);
     for (unsigned long i=0;i<clusters.size();++i) endpoint->clients.push_back(static_cast<unsigned int>(strtoul(clusters[i].c_str(),0,10)));
+    if (row.count("device_types")) {
+        clusters.clear(); StatusJson(row["device_types"]).parseArray(&clusters);
+        for (unsigned long i=0;i<clusters.size();++i) endpoint->deviceTypes.push_back(static_cast<unsigned int>(strtoul(clusters[i].c_str(),0,10)));
+    }
     return true;
 }
 

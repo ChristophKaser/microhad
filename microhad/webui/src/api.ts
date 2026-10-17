@@ -42,6 +42,9 @@ export interface Device {
   has_contact: boolean
   contact_known: boolean
   contact_open: boolean
+  has_water_leak: boolean
+  water_leak_known: boolean
+  water_detected: boolean
   has_temperature: boolean
   temperature_known: boolean
   temperature_celsius: number
@@ -99,6 +102,7 @@ export interface Device {
   matter_endpoint?: number
   matter_servers?: number[]
   matter_clients?: number[]
+  matter_device_types?: number[]
   matter_rssi_dbm?: number | null
   sensor_values?: Record<string, { value: number | string | null; unit: string; quality: 'measured' | 'unknown' }>
   light_known?: boolean

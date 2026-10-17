@@ -56,6 +56,7 @@ bool expectedAttributeType(const Device* device, unsigned short cluster, unsigne
     if (cluster == 0x0406 && attribute == 0x0000) return type == 0x18;
     if (cluster == 0x0001 && attribute == 0x0021) return type == 0x20;
     if (cluster == 0x0500 && attribute == 0x0002) return type == 0x19;
+    if (cluster == 0x0500 && attribute == 0x0001) return type == 0x21;
     if (cluster == 0x0006 && attribute == 0x0000) return type == 0x10;
     if (cluster == 0x0008 && attribute == 0x0000) return type == 0x20;
     return cluster != 0x0000 || attribute != 0xff01 || type == 0x41;
@@ -88,11 +89,27 @@ bool applyZclAttribute(Device* device, unsigned short cluster, unsigned short at
         /* Power Configuration reports half-percent units. */
         device->batteryPercent = static_cast<int>(value[0]) / 2;
         if (observed != 0) *observed |= ZclObservedBattery;
+    } else if (cluster == 0x0500 && attribute == 0x0001 && value.size() == 2) {
+        /* IAS Zone Type 0x002a is the standard water sensor.  Preserve
+           hasContact internally so existing binary alert scheduling and
+           persisted notification settings remain compatible. */
+        if (littleEndian16(value) != 0x002a) return false;
+        device->hasWaterLeak = true;
+        device->hasContact = true;
+        device->kind = "water leak";
+        device->waterDetected = device->contactOpen;
+        device->waterLeakKnown = device->contactKnown;
+        if (observed != 0) *observed |= ZclObservedWaterLeak;
     } else if (cluster == 0x0500 && attribute == 0x0002 && value.size() == 2) {
         device->hasContact = true;
         device->contactKnown = true;
         device->contactOpen = (littleEndian16(value) & 0x0001) != 0;
-        device->kind = "contact";
+        if (device->hasWaterLeak) {
+            device->waterLeakKnown = true;
+            device->waterDetected = device->contactOpen;
+            device->kind = "water leak";
+            if (observed != 0) *observed |= ZclObservedWaterLeak;
+        } else device->kind = "contact";
         if (observed != 0) *observed |= ZclObservedContact;
     } else if (cluster == 0x0006 && attribute == 0x0000 && value.size() == 1) {
         if (value[0] > 1) return false;
@@ -123,7 +140,11 @@ bool applyIasZoneStatus(Device* device, const std::vector<unsigned char>& payloa
     device->hasContact = true;
     device->contactKnown = true;
     device->contactOpen = (littleEndian16(payload) & 0x0001) != 0;
-    device->kind = "contact";
+    if (device->hasWaterLeak) {
+        device->waterLeakKnown = true;
+        device->waterDetected = device->contactOpen;
+        device->kind = "water leak";
+    } else device->kind = "contact";
     device->lastSeen = observedAt;
     return true;
 }

@@ -41,6 +41,7 @@ pub struct Device {
     pub endpoint: Option<u16>,
     pub servers: Vec<u32>,
     pub clients: Vec<u32>,
+    pub device_types: Vec<u32>,
     pub manufacturer: String,
     pub model: String,
     pub rssi_dbm: Option<i8>,
@@ -64,6 +65,7 @@ pub struct Endpoint {
     pub id: u16,
     pub servers: Vec<u32>,
     pub clients: Vec<u32>,
+    pub device_types: Vec<u32>,
 }
 
 /// Bounded inventory records. Identity records precede endpoint records; a
@@ -375,6 +377,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                                 endpoint: endpoint.map(|entry| entry.id),
                                 servers: endpoint.map(|entry| entry.servers.clone()).unwrap_or_default(),
                                 clients: endpoint.map(|entry| entry.clients.clone()).unwrap_or_default(),
+                                device_types: endpoint.map(|entry| entry.device_types.clone()).unwrap_or_default(),
                                 manufacturer: snapshot.map(|entry| entry.manufacturer.clone()).unwrap_or_default(),
                                 model: snapshot.map(|entry| entry.model.clone()).unwrap_or_default(),
                                 rssi_dbm: snapshot.and_then(|entry| entry.rssi_dbm),
@@ -487,6 +490,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             id: 1,
             servers: vec![6, 8, 29, 69, 91, 1026, 1029, 1037, 1066],
             clients: vec![],
+            device_types: vec![],
         }];
         if let Some(snapshot) = self.snapshots.iter_mut().find(|entry| entry.node == node) {
             snapshot.endpoints = endpoints;
@@ -786,6 +790,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                         endpoint: endpoint.map(|e| e.id),
                         servers: endpoint.map(|e| e.servers.clone()).unwrap_or_default(),
                         clients: endpoint.map(|e| e.clients.clone()).unwrap_or_default(),
+                        device_types: endpoint.map(|e| e.device_types.clone()).unwrap_or_default(),
                         manufacturer: snapshot.map(|entry| entry.manufacturer.clone()).unwrap_or_default(),
                         model: snapshot.map(|entry| entry.model.clone()).unwrap_or_default(),
                         rssi_dbm: snapshot.and_then(|entry| entry.rssi_dbm),
@@ -1584,10 +1589,17 @@ async fn discover_with_metadata<C: Crypto>(
             .descriptor()
             .client_list_read_with(id, |value| bounded(value?.iter(), MAX_CLUSTERS))
             .await??;
+        let exchange = Exchange::initiate(matter, &crypto, fabric, node).await?;
+        let device_types = exchange
+            .descriptor()
+            .device_type_list_read_with(id, |value| {
+                bounded(value?.iter().map(|entry| entry.and_then(|entry| entry.device_type())), MAX_CLUSTERS)
+            })
+            .await??;
         if !servers.contains(&0x1d) {
             return Err(ErrorCode::InvalidData.into());
         }
-        endpoints.push(Endpoint { id, servers, clients });
+        endpoints.push(Endpoint { id, servers, clients, device_types });
     }
     Ok(Discovery { endpoints, manufacturer, model })
 }
@@ -1610,6 +1622,7 @@ mod tests {
                 endpoint: Some(65534),
                 servers: (u32::MAX-63..=u32::MAX).collect(),
                 clients: (u32::MAX-63..=u32::MAX).collect(),
+                device_types: vec![67],
                 manufacturer: "Acme".into(), model: "Model X".into(), rssi_dbm: Some(-42),
             },
         };
@@ -1834,11 +1847,13 @@ mod tests {
                     id: 1,
                     servers: vec![6, 69, 1026, 0x1d],
                     clients: vec![59],
+                    device_types: vec![],
                 },
                 Endpoint {
                     id: 2,
                     servers: vec![8, 91, 1029, 1037, 1066, 0x1d],
                     clients: vec![],
+                    device_types: vec![],
                 },
             ],
             manufacturer: String::new(), model: String::new(), rssi_dbm: None,
@@ -1855,6 +1870,7 @@ mod tests {
                     id: endpoint.id,
                     servers: endpoint.servers.clone(),
                     clients: endpoint.clients.clone(),
+                    device_types: endpoint.device_types.clone(),
                 })
                 .collect(),
             manufacturer: String::new(), model: String::new(), rssi_dbm: None,
@@ -1890,6 +1906,7 @@ mod tests {
                     id,
                     servers: vec![6, 8, 69, 91, 1026, 1029, 1037, 1066],
                     clients: vec![],
+                    device_types: vec![],
                 })
                 .collect(),
             manufacturer: String::new(), model: String::new(), rssi_dbm: None,
@@ -1989,6 +2006,7 @@ mod tests {
                 id: 1,
                 servers: vec![6],
                 clients: vec![],
+                device_types: vec![],
             }],
             manufacturer: String::new(), model: String::new(), rssi_dbm: None,
             online: true,
@@ -2124,6 +2142,7 @@ mod tests {
                     id: 0,
                     servers: vec![0x1d],
                     clients: vec![],
+                    device_types: vec![],
                 }])
             }),
         ));
@@ -2155,6 +2174,7 @@ mod tests {
                 id: id as u16,
                 servers: (u32::MAX - MAX_CLUSTERS as u32 + 1..=u32::MAX).collect(),
                 clients: vec![],
+                device_types: vec![],
             })
             .collect();
         manager.changed();
@@ -2252,6 +2272,7 @@ mod tests {
                 id: 1,
                 servers: vec![6],
                 clients: vec![],
+                device_types: vec![],
             }],
             manufacturer: String::new(), model: String::new(), rssi_dbm: None,
             online: true,

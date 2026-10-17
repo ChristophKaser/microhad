@@ -203,6 +203,7 @@ export function matterDeviceModel(endpoint: MatterDevice, state: MatterDeviceSta
     name: `${hasRemote ? 'Matter remote' : hasContact ? 'Matter contact sensor' : isLight ? 'Matter light' : hasActor ? 'Matter switch' : 'Matter device'} ${suffix}`,
     kind: hasRemote ? 'remote control' : hasContact ? 'contact' : isLight ? 'light' : hasActor ? 'switch' : 'Matter device',
     has_contact: hasContact, contact_known: typeof state.contact === 'boolean', contact_open: state.contact ?? false,
+    has_water_leak: false, water_leak_known: false, water_detected: false,
     has_temperature: servers.includes(1026), temperature_known: temperature?.quality === 'measured' && typeof temperature.value === 'number',
     temperature_celsius: typeof temperature?.value === 'number' ? temperature.value : 0,
     has_humidity: servers.includes(1029), humidity_known: humidity?.quality === 'measured' && typeof humidity.value === 'number',

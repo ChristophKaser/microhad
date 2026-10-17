@@ -37,6 +37,7 @@ struct MatterEndpoint {
     int rssiDbm;
     std::vector<unsigned int> servers;
     std::vector<unsigned int> clients;
+    std::vector<unsigned int> deviceTypes;
     MatterEndpoint() : endpoint(0), online(false), metadataComplete(false), rssiDbm(1) {}
 };
 
@@ -84,6 +85,9 @@ struct Device {
     bool contactOpen;
     bool hasContact;
     bool contactKnown;
+    bool hasWaterLeak;
+    bool waterLeakKnown;
+    bool waterDetected;
     bool hasTemperature;
     bool temperatureKnown;
     double temperatureCelsius;
@@ -148,6 +152,7 @@ struct Device {
     bool online;
     std::vector<unsigned int> matterServers;
     std::vector<unsigned int> matterClients;
+    std::vector<unsigned int> matterDeviceTypes;
     std::vector<unsigned char> nodeDescriptor; /* raw 13-byte Zigbee Node Descriptor body */
     Device();
 };

@@ -92,6 +92,7 @@ export function LightGroupStates({ members, devices }: { members: string[]; devi
 }
 
 function DeviceVisual({ device, type }: { device: Device; type: string }) {
+  if (type === 'Water leak detectors') return <span aria-hidden="true">{device.water_detected ? '💧' : '◌'}</span>
   if (type === 'Contact sensors' && device.contact_trigger_mode) return (
     <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M24 49h16M27 55h10M29 10a3 3 0 0 1 6 0c9 2 14 10 14 20 0 8 3 12 6 15H9c3-3 6-7 6-15 0-10 5-18 14-20Z" fill="currentColor" fillOpacity=".12" />
@@ -116,7 +117,8 @@ function DeviceVisual({ device, type }: { device: Device; type: string }) {
   return <span aria-hidden="true">{type === 'Remotes' ? '🎛️' : '📡'}</span>
 }
 export const deviceTypes = [
-  { name: 'Contact sensors', matches: (device: Device) => device.has_contact },
+  { name: 'Water leak detectors', matches: (device: Device) => device.has_water_leak },
+  { name: 'Contact sensors', matches: (device: Device) => device.has_contact && !device.has_water_leak },
   {
     name: 'Climate sensors',
     matches: (device: Device) => !device.has_light && (device.has_temperature || device.has_humidity),
@@ -283,7 +285,8 @@ function DeviceCard({
   ].filter(Boolean) as CardReading[]
   return (
     <article className={`device-card device-card-${type.toLowerCase().replace(/[^a-z]+/g, '-')} ${
-      (type === 'Contact sensors' && !device.contact_trigger_mode && device.contact_open) ||
+      ((type === 'Contact sensors' && !device.contact_trigger_mode && device.contact_open) ||
+      (type === 'Water leak detectors' && device.water_leak_known && device.water_detected)) ||
       (type === 'Motion sensors' && device.occupied) ||
       (type === 'Presence sensors' && device.occupied) ||
       (type === 'Lights' && device.light_on)
@@ -314,7 +317,8 @@ function DeviceCard({
         <div className={`device-focus ${type === 'Lights' ? 'light-focus' : ''}`}>
           <span className="focus-icon"><DeviceVisual device={device} type={type} /></span>
           <div className="focus-copy">
-            <strong>{type === 'Contact sensors' ? (device.contact_trigger_mode
+            <strong>{type === 'Water leak detectors' ? (!device.water_leak_known ? 'Unknown' : device.water_detected ? 'Wet' : 'Dry')
+              : type === 'Contact sensors' ? (device.contact_trigger_mode
               ? (device.contact_trigger_active ? 'Triggered' : 'Idle')
               : (!device.contact_known ? 'Unknown' : device.contact_open ? 'Open' : 'Closed'))
               : type === 'Presence sensors' ? (!device.last_seen || Date.now() / 1000 - device.last_seen > 90 ? 'Unknown' : device.occupied ? 'Present' : 'Not present')
@@ -323,7 +327,8 @@ function DeviceCard({
               : type === 'Air quality sensors' ? 'Air quality readings'
               : type === 'Switches' || type === 'Smart plugs' ? (!device.actor_known ? 'Unknown' : device.actor_on ? 'On' : 'Off')
               : type === 'Remotes' ? 'Remote' : device.kind}</strong>
-            <span>{type === 'Contact sensors' ? (device.contact_trigger_mode ? 'Trigger mode' : 'Contact sensor')
+            <span>{type === 'Water leak detectors' ? (device.contact_trigger_mode ? 'Water leak trigger mode' : 'Water leak detector')
+              : type === 'Contact sensors' ? (device.contact_trigger_mode ? 'Trigger mode' : 'Contact sensor')
               : type === 'Presence sensors' ? 'Wi‑Fi presence sensor'
               : type === 'Motion sensors' ? 'Motion sensor'
               : type === 'Lights' ? 'Light'
@@ -595,7 +600,7 @@ export function DeviceSettings({
       fields[`value_alert_${metric.id}_hysteresis`] = value.hysteresis
       if (metric.id === 'co2' || metric.id === 'pm25') fields[`value_alert_${metric.id}_unit`] = metric.unit
     }
-    if (device.has_contact) {
+    if (device.has_contact || device.has_water_leak) {
       fields.initial_minutes = initial
       fields.reminder_minutes = reminder
       fields.contact_trigger_mode = String(triggerMode)
@@ -639,10 +644,10 @@ export function DeviceSettings({
             required
           />
         </label>
-        {device.has_contact && (
+        {(device.has_contact || device.has_water_leak) && (
           <>
             <label className="check">
-              <input type="checkbox" checked={triggerMode} onChange={(event) => setTriggerMode(event.target.checked)} /> Trigger mode
+              <input type="checkbox" checked={triggerMode} onChange={(event) => setTriggerMode(event.target.checked)} /> {device.has_water_leak ? 'Water leak trigger mode' : 'Trigger mode'}
             </label>
             {triggerMode ? (
               <label className="field">

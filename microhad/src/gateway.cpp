@@ -42,7 +42,7 @@ RemoteSceneBinding::RemoteSceneBinding() : groupId(0), off(false) {}
 Gateway::SceneRetry::SceneRetry() : off(false), inFlight(false), retryRequested(false), sentOff(false), unicast(false), memberIndex(0), sceneId(0), sentSceneId(0),
                                     ezspSequence(0), attempts(0), sentAt(0), retryAt(0) {}
 
-Device::Device() : source("zigbee"), networkAddress(0xffff), kind("generic"), contactOpen(false), hasContact(false), contactKnown(false), hasTemperature(false), temperatureKnown(false),
+Device::Device() : source("zigbee"), networkAddress(0xffff), kind("generic"), contactOpen(false), hasContact(false), contactKnown(false), hasWaterLeak(false), waterLeakKnown(false), waterDetected(false), hasTemperature(false), temperatureKnown(false),
                    temperatureCelsius(0), hasHumidity(false), humidityKnown(false), humidityPercent(0), hasAirQuality(false),
                    airQualityKnown(false), hasCo2(false), co2Known(false), co2Ppm(0), hasPm25(false),
                    pm25Known(false), pm25MicrogramsM3(0), hasOccupancy(false), occupied(false),
@@ -629,6 +629,7 @@ bool Gateway::reconcileMatterDevices(const std::vector<MatterEndpoint>& endpoint
         device.matterEndpoint = endpoint.endpoint == 0xffff ? -1 : endpoint.endpoint;
         device.matterServers = endpoint.servers;
         device.matterClients = endpoint.clients;
+        device.matterDeviceTypes = endpoint.deviceTypes;
         device.online = endpoint.online;
         device.component = "endpoint";
         device.name = endpoint.servers.end() != std::find(endpoint.servers.begin(), endpoint.servers.end(), 8U)
@@ -639,10 +640,12 @@ bool Gateway::reconcileMatterDevices(const std::vector<MatterEndpoint>& endpoint
         device.hasBrightness = device.hasLight;
         device.hasActor = std::find(endpoint.servers.begin(), endpoint.servers.end(), 6U) != endpoint.servers.end() && !device.hasLight;
         device.hasContact = std::find(endpoint.servers.begin(), endpoint.servers.end(), 69U) != endpoint.servers.end();
+        device.hasWaterLeak = std::find(endpoint.deviceTypes.begin(), endpoint.deviceTypes.end(), 67U) != endpoint.deviceTypes.end();
         device.hasRemote = std::find(endpoint.servers.begin(), endpoint.servers.end(), 59U) != endpoint.servers.end();
         if (device.hasLight) device.kind = "light";
         else if (device.hasActor) { device.kind = "switch"; device.name = "Matter switch"; }
         if (device.hasRemote) { device.kind = "remote control"; device.name = "Matter remote"; }
+        else if (device.hasWaterLeak) { device.kind = "water leak"; device.name = "Matter water leak detector"; }
         else if (device.hasContact) { device.kind = "contact"; device.name = "Matter contact sensor"; }
         device.hasTemperature = std::find(endpoint.servers.begin(), endpoint.servers.end(), 1026U) != endpoint.servers.end();
         device.hasHumidity = std::find(endpoint.servers.begin(), endpoint.servers.end(), 1029U) != endpoint.servers.end();
@@ -691,12 +694,12 @@ bool Gateway::reconcileMatterDevices(const std::vector<MatterEndpoint>& endpoint
                 now >= current.lastSeen && now - current.lastSeen <= 60;
             fresh.name = current.name;
             if (current.matterState != fresh.matterState || current.matterNode != fresh.matterNode || current.matterEndpoint != fresh.matterEndpoint ||
-                current.matterServers != fresh.matterServers || current.matterClients != fresh.matterClients ||
+                current.matterServers != fresh.matterServers || current.matterClients != fresh.matterClients || current.matterDeviceTypes != fresh.matterDeviceTypes ||
                 current.manufacturerName != fresh.manufacturerName || current.modelId != fresh.modelId || current.matterRssiDbm != fresh.matterRssiDbm ||
                 current.kind != fresh.kind || current.hasRemote != fresh.hasRemote ||
                 current.name != fresh.name || current.hasLight != fresh.hasLight ||
                 current.hasBrightness != fresh.hasBrightness || current.hasActor != fresh.hasActor ||
-                current.hasContact != fresh.hasContact ||
+                current.hasContact != fresh.hasContact || current.hasWaterLeak != fresh.hasWaterLeak ||
                 current.hasTemperature != fresh.hasTemperature || current.hasHumidity != fresh.hasHumidity ||
                 current.hasAirQuality != fresh.hasAirQuality || current.hasCo2 != fresh.hasCo2 ||
                 current.hasPm25 != fresh.hasPm25) persistentChanged = true;
@@ -706,6 +709,8 @@ bool Gateway::reconcileMatterDevices(const std::vector<MatterEndpoint>& endpoint
             fresh.actorKnown = current.actorKnown;
             fresh.contactOpen = current.contactOpen;
             fresh.contactKnown = current.contactKnown;
+            fresh.waterDetected = current.waterDetected;
+            fresh.waterLeakKnown = current.waterLeakKnown;
             fresh.contactInitialAlertMinutes = current.contactInitialAlertMinutes;
             fresh.contactReminderAlertMinutes = current.contactReminderAlertMinutes;
             fresh.contactTriggerMode = current.contactTriggerMode;
@@ -779,6 +784,11 @@ bool Gateway::applyMatterReading(const MatterReading& reading, std::string* erro
     if (reading.cluster == 6 && (device.hasLight || device.hasActor)) {
         if (device.hasLight) { device.lightOn = reading.booleanValue; device.lightKnown = true; }
         if (device.hasActor) { device.actorOn = reading.booleanValue; device.actorKnown = true; }
+    } else if (reading.cluster == 69 && device.hasWaterLeak) {
+        device.waterDetected = reading.booleanValue;
+        device.waterLeakKnown = reading.known;
+        device.contactOpen = reading.booleanValue;
+        device.contactKnown = reading.known;
     } else if (reading.cluster == 69 && device.hasContact) {
         // Matter Boolean State defines true as contact made (closed).
         device.contactOpen = !reading.booleanValue;
@@ -817,7 +827,7 @@ bool Gateway::applyMatterReading(const MatterReading& reading, std::string* erro
     std::string historyUnit;
     unsigned char historyMetric = 0;
     if (reading.known) {
-        if (reading.cluster == 69) {
+        if (reading.cluster == 69 && !device.hasWaterLeak) {
             historyMetric = SensorHistory::Contact;
             historyValue = reading.booleanValue ? "1" : "0";
         } else if (reading.cluster == 1026) historyMetric = SensorHistory::Temperature;
@@ -844,6 +854,7 @@ bool Gateway::applyMatterReading(const MatterReading& reading, std::string* erro
     bool volatileChanged = before.lightKnown != device.lightKnown || before.lightOn != device.lightOn ||
         before.actorKnown != device.actorKnown || before.actorOn != device.actorOn ||
         before.contactKnown != device.contactKnown || before.contactOpen != device.contactOpen ||
+        before.waterLeakKnown != device.waterLeakKnown || before.waterDetected != device.waterDetected ||
         before.brightnessKnown != device.brightnessKnown || before.brightnessPercent != device.brightnessPercent ||
         before.temperatureKnown != device.temperatureKnown || before.temperatureCelsius != device.temperatureCelsius ||
         before.humidityKnown != device.humidityKnown || before.humidityPercent != device.humidityPercent ||
@@ -2936,8 +2947,9 @@ bool Gateway::applyIasZoneStatus(const std::string& ieeeAddress, const std::vect
     if (device.ieeeAddress.empty()) device.ieeeAddress = ieeeAddress;
     changed = ::applyIasZoneStatus(&device, payload, time(0));
     if (changed) {
-        recordHistory(before, device, ZclObservedContact, device.lastSeen);
-        addLog(std::string("Contact status from ") + ieeeAddress + (device.contactOpen ? ": open" : ": closed"));
+        if (!device.hasWaterLeak) recordHistory(before, device, ZclObservedContact, device.lastSeen);
+        addLog(std::string(device.hasWaterLeak ? "Water leak status from " : "Contact status from ") + ieeeAddress +
+               (device.contactOpen ? (device.hasWaterLeak ? ": wet" : ": open") : (device.hasWaterLeak ? ": dry" : ": closed")));
         updateContactAlert(ieeeAddress, wasOpen, hadKnownContact);
         saveState();
     }
@@ -2976,7 +2988,8 @@ void Gateway::updateContactAlert(const std::string& ieeeAddress, bool wasOpen, b
     std::map<std::string, Device>::const_iterator device = devices_.find(resolveDeviceId(ieeeAddress));
     if (device == devices_.end() || !device->second.hasContact) return;
     if (device->second.contactTriggerMode) {
-        if (hadKnownState && device->second.contactOpen != wasOpen && notificationsEnabled()) {
+        if (hadKnownState && device->second.contactOpen != wasOpen && notificationsEnabled() &&
+            (!device->second.hasWaterLeak || device->second.contactOpen)) {
             long now = time(0);
             std::map<std::string, long>::const_iterator due = nextContactTriggerAt_.find(ieeeAddress);
             if (due == nextContactTriggerAt_.end() || now >= due->second) {
@@ -3214,6 +3227,8 @@ std::string GatewayView::statusJson() const {
             node.hasLight = node.hasLight || endpoint.hasLight;
             node.hasRemote = node.hasRemote || endpoint.hasRemote;
             node.hasContact = node.hasContact || endpoint.hasContact;
+            node.hasWaterLeak = node.hasWaterLeak || endpoint.hasWaterLeak;
+            if (endpoint.hasWaterLeak) { node.waterLeakKnown = endpoint.waterLeakKnown; node.waterDetected = endpoint.waterDetected; }
             if (endpoint.hasTemperature) { node.hasTemperature=true; node.temperatureKnown=endpoint.temperatureKnown; node.temperatureCelsius=endpoint.temperatureCelsius; }
             if (endpoint.hasHumidity) { node.hasHumidity=true; node.humidityKnown=endpoint.humidityKnown; node.humidityPercent=endpoint.humidityPercent; }
             if (endpoint.hasAirQuality) { node.hasAirQuality=true; node.airQualityKnown=endpoint.airQualityKnown; node.airQuality=endpoint.airQuality; }
@@ -3238,6 +3253,9 @@ std::string GatewayView::statusJson() const {
              << "\",\"has_contact\":" << (device.hasContact ? "true" : "false")
              << ",\"contact_known\":" << (device.source == "zigbee" || device.contactKnown ? "true" : "false")
              << ",\"contact_open\":" << (device.contactOpen ? "true" : "false")
+             << ",\"has_water_leak\":" << (device.hasWaterLeak ? "true" : "false")
+             << ",\"water_leak_known\":" << (device.source == "zigbee" || device.waterLeakKnown ? "true" : "false")
+             << ",\"water_detected\":" << (device.waterDetected ? "true" : "false")
              << ",\"has_temperature\":" << (device.hasTemperature ? "true" : "false")
              << ",\"temperature_known\":" << (device.source == "zigbee" || device.temperatureKnown ? "true" : "false")
              << ",\"temperature_celsius\":" << device.temperatureCelsius
@@ -3352,6 +3370,11 @@ std::string GatewayView::statusJson() const {
             for (unsigned long cluster = 0; cluster < device.matterClients.size(); ++cluster) {
                 if (cluster != 0) json << ',';
                 json << device.matterClients[cluster];
+            }
+            json << "],\"matter_device_types\":[";
+            for (unsigned long type = 0; type < device.matterDeviceTypes.size(); ++type) {
+                if (type) json << ',';
+                json << device.matterDeviceTypes[type];
             }
             json << ']';
         }
@@ -5019,6 +5042,8 @@ void Gateway::buildRefreshOperations(unsigned short destination) {
             queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0001, 0x0021);
             queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0001, 0x0020);
         }
+        if (endpointSupports(endpoint, 0x0500))
+            queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0500, 0x0001);
     }
     if (state.operations.empty()) {
         addLog("Refresh completed: no persisted measurement endpoints");

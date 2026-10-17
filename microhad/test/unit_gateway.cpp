@@ -2708,6 +2708,18 @@ static void testGenericCapabilities() {
     assert(device.hasContact && !device.contactOpen && device.lastSeen == 126);
 
     device = Device();
+    std::vector<unsigned char> waterType;
+    waterType.push_back(0x2a); waterType.push_back(0x00); /* IAS water sensor */
+    assert(applyZclAttribute(&device, 0x0500, 0x0001, waterType, 127));
+    assert(device.hasWaterLeak && device.hasContact && device.kind == "water leak");
+    zone[0] = 1;
+    assert(applyIasZoneStatus(&device, zone, 128));
+    assert(device.waterLeakKnown && device.waterDetected && device.contactOpen);
+    zone[0] = 0;
+    assert(applyIasZoneStatus(&device, zone, 129));
+    assert(device.waterLeakKnown && !device.waterDetected && !device.contactOpen);
+
+    device = Device();
     std::vector<unsigned char> on(1, 1);
     std::vector<unsigned char> level(1, 127);
     assert(applyZclAttribute(&device, 0x0006, 0x0000, on, 126));

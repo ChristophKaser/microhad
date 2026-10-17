@@ -94,7 +94,7 @@ export function HistoryDialog({ device, onClose }: { device: Device; onClose: ()
   const metrics: HistoryMetric[] = [
     ...(device.has_temperature ? [1 as const] : []),
     ...(device.has_humidity ? [2 as const] : []),
-    ...(device.has_contact ? [3 as const] : []),
+    ...(device.has_contact && !device.has_water_leak ? [3 as const] : []),
     ...(device.has_power ? [4 as const] : []),
     ...(device.has_occupancy ? [5 as const] : []),
     ...(device.has_battery ? [6 as const] : []),

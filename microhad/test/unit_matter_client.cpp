@@ -168,7 +168,7 @@ void runMatterClientUnitTests() {
     assert(MatterChannel::deviceResult("{\"schema\":1,\"ok\":true,\"result\":{\"job\":\"0000000000000001\",\"state\":\"complete\",\"result\":{\"node\":\"0000000000000002\",\"endpoint\":0,\"cluster\":62,\"attribute\":0,\"value\":{\"type\":\"bool\",\"value\":true}}}}", "0000000000000001", &deleted) && deleted.cluster == 62);
 
     {
-        const std::string inventory="{\"schema\":1,\"event\":\"matter_inventory\",\"data\":{\"kind\":\"identity\",\"endpoint_count\":0,\"device\":{\"node\":\"0000000000000002\",\"state\":\"complete\",\"online\":false,\"id\":\"matter:0000000000000001:0000000000000002\",\"endpoint\":null,\"servers\":[],\"clients\":[]}}}";
+        const std::string inventory="{\"schema\":1,\"event\":\"matter_inventory\",\"data\":{\"kind\":\"identity\",\"endpoint_count\":0,\"device\":{\"node\":\"0000000000000002\",\"state\":\"complete\",\"online\":false,\"id\":\"matter:0000000000000001:0000000000000002\",\"endpoint\":null,\"servers\":[],\"clients\":[],\"device_types\":[]}}}";
         MatterWire::Frame frame; frame.kind=MatterWire::Frame::Event;frame.opcode=12;
         frame.payload.assign(inventory.begin(),inventory.end());
         MatterWire::Bytes encoded; assert(MatterWire::encode(frame,&encoded));
