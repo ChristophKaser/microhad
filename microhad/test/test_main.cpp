@@ -8,6 +8,7 @@ void runNetworkBackupUnitTests();
 void runFcmUnitTests();
 void runWebPushUnitTests();
 void runGatewayConfigUnitTests();
+void runCompanionDiscoveryUnitTests();
 void runSensorHistoryUnitTests();
 void runLogRingUnitTests();
 void runSyslogLogReaderUnitTests();
@@ -29,6 +30,7 @@ int main() {
     runFcmUnitTests();
     runWebPushUnitTests();
     runGatewayConfigUnitTests();
+    runCompanionDiscoveryUnitTests();
     runSensorHistoryUnitTests();
     runLogRingUnitTests();
     runSyslogLogReaderUnitTests();
