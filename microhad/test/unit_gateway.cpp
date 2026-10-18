@@ -2296,7 +2296,7 @@ static void testMatterInventoryIsCachedGroupedAndAtomic() {
         assert(gateway.statusJson().find("\"id\":\""+nodeId+"\"")!=std::string::npos);
         assert(gateway.statusJson().find("\"endpoint_metadata_state\":\"missing\"")!=std::string::npos);
         assert(access((std::string(directory)+"/devices.json").c_str(),F_OK)!=0);
-        MatterEndpoint root=identity; root.id=nodeId+":0000"; root.endpoint=0; root.servers.push_back(29);
+        MatterEndpoint root=identity; root.id=nodeId+":0000"; root.endpoint=0; root.servers.push_back(29); root.servers.push_back(47);
         MatterEndpoint sensor=root; sensor.id=nodeId+":0100"; sensor.endpoint=256;
         sensor.servers.push_back(1026); sensor.servers.push_back(0xffffffffU); sensor.clients.push_back(0xfffffffeU);
         identity.metadataComplete=true; identity.online=true;
@@ -2306,6 +2306,10 @@ static void testMatterInventoryIsCachedGroupedAndAtomic() {
         assert(status.find("\"endpoint_metadata_state\":\"ready\"")!=std::string::npos);
         assert(status.find("\"endpoint\":256")!=std::string::npos);
         assert(status.find("4294967295")!=std::string::npos && status.find("4294967294")!=std::string::npos);
+        MatterReading battery; battery.node=identity.node; battery.endpoint=0; battery.cluster=47;
+        battery.known=true; battery.numberValue=153;
+        assert(gateway.applyMatterReading(battery,&error));
+        assert(gateway.statusJson().find("\"has_battery\":true,\"battery_percent\":76")!=std::string::npos);
         // Exactly one common device; endpoint IDs remain nested aliases.
         assert(status.find("\"source\":\"matter\"")==status.rfind("\"source\":\"matter\""));
         identity.metadataComplete=false; identity.online=false;

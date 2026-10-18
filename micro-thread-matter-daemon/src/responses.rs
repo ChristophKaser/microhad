@@ -90,13 +90,15 @@ pub fn event(event: Event<'_>) -> Option<Frame> {
 
 fn matter_report_valid(reading: &crate::operations::ResultValue) -> bool {
     use crate::operations::Value;
-    if reading.node.0 < 2 || reading.endpoint == u16::MAX || reading.attribute != 0 {
+    if reading.node.0 < 2 || reading.endpoint == u16::MAX ||
+        (reading.attribute != 0 && !(reading.cluster == 47 && reading.attribute == 12)) {
         return false;
     }
     match (reading.cluster, &reading.value) {
         (6, Value::Bool(_)) => true,
         (69, Value::Bool(_)) => true,
         (8, Value::U8(value)) => value.is_none_or(|value| value <= 254),
+        (47, Value::U8(value)) => value.is_none_or(|value| value <= 200),
         (91, Value::AirQuality(value)) => {
             let known = matches!(
                 value.value,

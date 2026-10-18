@@ -193,6 +193,22 @@ pub fn report_values(
             value: Value::U8(value?.as_opt_ref().copied()),
         });
     }
+    // Power Source's BatPercentRemaining is expressed in half-percent units.
+    // Keep that wire value intact here; the native gateway owns presentation
+    // normalization alongside its existing Zigbee battery handling.
+    for (endpoint, value) in report.attrs::<Nullable<u8>>(47, 12) {
+        let value = value?.as_opt_ref().copied();
+        if value.is_some_and(|value| value > 200) {
+            return Err(ErrorCode::InvalidData.into());
+        }
+        values.push(ResultValue {
+            node: Id(node),
+            endpoint,
+            cluster: 47,
+            attribute: 12,
+            value: Value::U8(value),
+        });
+    }
     for (endpoint, value) in
         report.attrs::<rs_matter::dm::clusters::decl::air_quality::AirQualityEnum>(91, 0)
     {
@@ -785,19 +801,23 @@ mod tests {
         utils::storage::WriteBuf,
     };
 
-    fn append_attribute_report(writer: &mut WriteBuf<'_>, cluster: u32, data: &[u8]) {
+    fn append_attribute_report_at(writer: &mut WriteBuf<'_>, cluster: u32, attribute: u32, data: &[u8]) {
         AttrResp::from(AttrData::new(
             None,
             AttrPath {
                 endpoint: Some(1),
                 cluster: Some(cluster),
-                attr: Some(0),
+                attr: Some(attribute),
                 ..Default::default()
             },
             TLVElement::new(data),
         ))
         .to_tlv(&TLVTag::Anonymous, writer)
         .unwrap_or_else(|error| panic!("attribute report cluster {cluster}: {error:?}"));
+    }
+
+    fn append_attribute_report(writer: &mut WriteBuf<'_>, cluster: u32, data: &[u8]) {
+        append_attribute_report_at(writer, cluster, 0, data)
     }
 
     fn encode_attribute_value<T: ToTLV>(value: &T) -> Vec<u8> {
@@ -847,13 +867,19 @@ mod tests {
             1066,
             &encode_attribute_value(&Nullable::some(25.5f32)),
         );
+        append_attribute_report_at(
+            &mut writer,
+            47,
+            12,
+            &encode_attribute_value(&Nullable::some(153u8)),
+        );
         writer.end_container().unwrap();
         writer.u8(&TLVTag::Context(0xff), 12).unwrap();
         writer.end_container().unwrap();
         let report = ReportDataResp::from_tlv(&TLVElement::new(writer.as_slice())).unwrap();
 
         let values = report_values(2, &report).unwrap();
-        assert_eq!(values.len(), 7);
+        assert_eq!(values.len(), 8);
         assert!(matches!(values[0].value, Value::Bool(true)));
         assert!(matches!(values[1].value, Value::AirQuality(ref value)
             if value.value == "poor" && value.quality == "measured"));
@@ -865,6 +891,7 @@ mod tests {
             if value.value == Some(64.0) && value.unit == "percent" && value.quality == "measured"));
         assert!(matches!(values[5].value, Value::RawMeasurement(Some(value)) if value == 800.0));
         assert!(matches!(values[6].value, Value::RawMeasurement(Some(value)) if value == 25.5));
+        assert!(matches!(values[7], ResultValue { cluster: 47, attribute: 12, value: Value::U8(Some(153)), .. }));
     }
     #[test]
     fn unsupported_paths_and_invalid_identity_are_rejected() {

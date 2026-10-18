@@ -729,6 +729,8 @@ bool Gateway::reconcileMatterDevices(const std::vector<MatterEndpoint>& endpoint
             fresh.pm25MicrogramsM3 = current.pm25MicrogramsM3;
             fresh.pm25Unit = current.pm25Unit;
             fresh.pm25Known = current.pm25Known;
+            fresh.hasBattery = current.hasBattery;
+            fresh.batteryPercent = current.batteryPercent;
             if (recentlyReported) {
                 fresh.online = true;
                 fresh.lastSeen = current.lastSeen;
@@ -759,6 +761,7 @@ bool Gateway::applyMatterReading(const MatterReading& reading, std::string* erro
          (reading.cluster == 8 && (reading.numberValue < 0 || reading.numberValue > 254)) ||
          (reading.cluster == 1026 && (reading.numberValue < -327.68 || reading.numberValue > 327.67)) ||
          (reading.cluster == 1029 && (reading.numberValue < 0 || reading.numberValue > 100)) ||
+         (reading.cluster == 47 && (reading.numberValue < 0 || reading.numberValue > 200)) ||
          ((reading.cluster == 1037 || reading.cluster == 1066) &&
           (reading.numberValue < 0 || reading.numberValue > 3.402823466e38)))) {
         if (error) *error = "invalid Matter reading value";
@@ -815,6 +818,10 @@ bool Gateway::applyMatterReading(const MatterReading& reading, std::string* erro
         if (reading.known) device.pm25MicrogramsM3 = reading.numberValue;
         device.pm25Unit = reading.unit;
         device.pm25Known = reading.known;
+    } else if (reading.cluster == 47 &&
+               std::find(device.matterServers.begin(), device.matterServers.end(), 47U) != device.matterServers.end()) {
+        device.hasBattery = reading.known;
+        device.batteryPercent = reading.known ? static_cast<int>(reading.numberValue) / 2 : 0;
     } else {
         if (error) *error = "Matter reading is not advertised by endpoint";
         return false;
@@ -837,11 +844,13 @@ bool Gateway::applyMatterReading(const MatterReading& reading, std::string* erro
             historyValue = reading.textValue;
         } else if (reading.cluster == 1037) historyMetric = SensorHistory::CarbonDioxide;
         else if (reading.cluster == 1066) historyMetric = SensorHistory::Pm25;
+        else if (reading.cluster == 47) historyMetric = SensorHistory::Battery;
         if (historyMetric != SensorHistory::Contact && historyMetric != SensorHistory::AirQuality) {
             std::ostringstream value;
-            value << std::setprecision(15) << reading.numberValue;
+            value << std::setprecision(15) <<
+                (reading.cluster == 47 ? static_cast<double>(device.batteryPercent) : reading.numberValue);
             historyValue = value.str();
-            historyUnit = reading.unit;
+            historyUnit = reading.cluster == 47 ? "percent" : reading.unit;
         }
         if (historyMetric != 0) history_.appendValue(device.externalId, historyMetric, historyValue, historyUnit, time(0));
     }
@@ -861,7 +870,8 @@ bool Gateway::applyMatterReading(const MatterReading& reading, std::string* erro
         before.airQualityKnown != device.airQualityKnown || before.airQuality != device.airQuality ||
         before.co2Known != device.co2Known || before.co2Ppm != device.co2Ppm || before.co2Unit != device.co2Unit ||
         before.pm25Known != device.pm25Known || before.pm25MicrogramsM3 != device.pm25MicrogramsM3 ||
-        before.pm25Unit != device.pm25Unit;
+        before.pm25Unit != device.pm25Unit ||
+        before.hasBattery != device.hasBattery || before.batteryPercent != device.batteryPercent;
     if (volatileChanged) saveState();
     return true;
 }
@@ -3234,6 +3244,7 @@ std::string GatewayView::statusJson() const {
             if (endpoint.hasAirQuality) { node.hasAirQuality=true; node.airQualityKnown=endpoint.airQualityKnown; node.airQuality=endpoint.airQuality; }
             if (endpoint.hasCo2) { node.hasCo2=true; node.co2Known=endpoint.co2Known; node.co2Ppm=endpoint.co2Ppm; node.co2Unit=endpoint.co2Unit; }
             if (endpoint.hasPm25) { node.hasPm25=true; node.pm25Known=endpoint.pm25Known; node.pm25MicrogramsM3=endpoint.pm25MicrogramsM3; node.pm25Unit=endpoint.pm25Unit; }
+            if (endpoint.hasBattery) { node.hasBattery=true; node.batteryPercent=endpoint.batteryPercent; }
         }
         node.ieeeAddress=node.externalId=it->first;
         node.component="node";

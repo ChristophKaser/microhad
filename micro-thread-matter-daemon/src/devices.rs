@@ -1515,6 +1515,9 @@ fn subscription_keys(snapshots: &[Snapshot], maximum: usize) -> Vec<Subscription
                     keys.push(SubscriptionKey { node: snapshot.node, endpoint: endpoint.id, cluster, attribute: 0 });
                 }
             }
+            if endpoint.servers.contains(&47) {
+                keys.push(SubscriptionKey { node: snapshot.node, endpoint: endpoint.id, cluster: 47, attribute: 12 });
+            }
             if endpoint.servers.contains(&59) {
                 keys.push(SubscriptionKey { node: snapshot.node, endpoint: endpoint.id, cluster: 59, attribute: SWITCH_EVENT_ATTRIBUTE });
             }

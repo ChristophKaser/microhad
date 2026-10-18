@@ -382,6 +382,12 @@ void runMatterClientUnitTests() {
         "{\"schema\":1,\"event\":\"matter_report\",\"data\":{\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":8,\"attribute\":0,\"value\":{\"type\":\"u8\",\"value\":124}}}";
     assert(MatterChannel::deviceReportEvent(levelReport, &decoded));
     assert(decoded.cluster == 8 && decoded.known && decoded.numberValue == 124);
+    const std::string batteryReport =
+        "{\"schema\":1,\"event\":\"matter_report\",\"data\":{\"node\":\"0000000000000002\",\"endpoint\":0,\"cluster\":47,\"attribute\":12,\"value\":{\"type\":\"u8\",\"value\":153}}}";
+    assert(MatterChannel::deviceReportEvent(batteryReport, &decoded));
+    assert(decoded.endpoint == 0 && decoded.cluster == 47 && decoded.known && decoded.numberValue == 153);
+    assert(!MatterChannel::deviceReportEvent(
+        "{\"schema\":1,\"event\":\"matter_report\",\"data\":{\"node\":\"0000000000000002\",\"endpoint\":0,\"cluster\":47,\"attribute\":12,\"value\":{\"type\":\"u8\",\"value\":201}}}", &decoded));
     const std::string sensorReports[] = {
         "{\"schema\":1,\"event\":\"matter_report\",\"data\":{\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":1026,\"attribute\":0,\"value\":{\"type\":\"measurement\",\"value\":{\"value\":-5.25,\"unit\":\"celsius\",\"quality\":\"measured\"}}}}",
         "{\"schema\":1,\"event\":\"matter_report\",\"data\":{\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":1029,\"attribute\":0,\"value\":{\"type\":\"measurement\",\"value\":{\"value\":null,\"unit\":\"percent\",\"quality\":\"unknown\"}}}}",

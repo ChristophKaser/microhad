@@ -217,6 +217,8 @@ bool typedValueValid(const Fields& result, Fields value) {
         return value.size() == 2 && value["type"] == "\"bool\"" && booleanField(value, "value");
     if (clusterName == "8") return value.size() == 2 && value["type"] == "\"u8\"" &&
         (value["value"] == "null" || number(value["value"], 0, 254));
+    if (clusterName == "47") return result.at("attribute") == "12" && value.size() == 2 &&
+        value["type"] == "\"u8\"" && (value["value"] == "null" || number(value["value"], 0, 200));
     uint32_t cluster = 0;
     if (clusterName == "91") cluster = 91;
     else if (clusterName == "1026") cluster = 1026;
@@ -400,8 +402,7 @@ bool matterReadingFromReport(const Fields& data, MatterReading* reading) {
         !data.count("cluster") || !data.count("attribute") || !data.count("value") ||
         !hex(data.find("node")->second, 16, 16) ||
         data.find("node")->second <= "\"0000000000000001\"" ||
-        !number(data.find("endpoint")->second, 0, 65534) ||
-        !number(data.find("attribute")->second, 0, 0)) return false;
+        !number(data.find("endpoint")->second, 0, 65534)) return false;
     const std::string& clusterText = data.find("cluster")->second;
     uint32_t cluster = 0;
     if (number(clusterText, 6, 6)) cluster = 6;
@@ -412,7 +413,9 @@ bool matterReadingFromReport(const Fields& data, MatterReading* reading) {
     else if (number(clusterText, 1029, 1029)) cluster = 1029;
     else if (number(clusterText, 1037, 1037)) cluster = 1037;
     else if (number(clusterText, 1066, 1066)) cluster = 1066;
+    else if (number(clusterText, 47, 47)) cluster = 47;
     else return false;
+    if (!number(data.find("attribute")->second, cluster == 47 ? 12 : 0, cluster == 47 ? 12 : 0)) return false;
 
     Fields value;
     if (!StatusJson(data.find("value")->second).parse(&value) || value.size() != 2 ||
@@ -425,11 +428,11 @@ bool matterReadingFromReport(const Fields& data, MatterReading* reading) {
         if (value["type"] != "\"bool\"" || (value["value"] != "true" && value["value"] != "false")) return false;
         parsed.known = true;
         parsed.booleanValue = value["value"] == "true";
-    } else if (cluster == 8) {
+    } else if (cluster == 8 || cluster == 47) {
         if (value["type"] != "\"u8\"") return false;
         parsed.known = value["value"] != "null";
         if (parsed.known) {
-            if (!number(value["value"], 0, 254)) return false;
+            if (!number(value["value"], 0, cluster == 47 ? 200 : 254)) return false;
             parsed.numberValue = strtod(value["value"].c_str(), 0);
         }
     } else if (cluster == 91) {
