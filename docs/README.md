@@ -7,6 +7,7 @@ Commands run on the development computer unless marked **gateway**.
 ## Use and maintain a gateway
 
 - [Supported devices](supported-devices.md): available features, unsupported functions and compatibility limits.
+- [Android companion app](companion-app.md): gateway setup, Matter commissioning, FCM push and LAN discovery.
 - [Dashboard usage](native-usage.md): pairing, controls, sensors, history and alerts.
 - [Build setup](building.md): prerequisites, toolchains and output paths.
 - [Deploy application updates](deployment.md): staging, activation, complete releases and rollback.
@@ -19,6 +20,7 @@ Commands run on the development computer unless marked **gateway**.
 
 | Component | Entry point | Main references |
 | --- | --- | --- |
+| Android companion | [README](../companion-app/README.md) | [Setup and API](companion-app.md), MIT license |
 | MicroHAD | [README](../microhad/README.md) | [Ziggurat integration](native-ziggurat-integration.md), [tests](../microhad/test/TEST_PLAN.md) |
 | Ziggurat | [README](../ziggurat/README.md) | [Shared-radio transport](hdlc-multipan-usage.md), [network conversion](network-migration.md) |
 | Thread/Matter | [README](../micro-thread-matter-daemon/README.md) | [Runtime](matter-service-runtime.md), [transport](rs-matter-openthread-transport.md) |

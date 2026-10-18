@@ -7,6 +7,7 @@ as the Lidl/Silvercrest SGWZ 1 A1 Zigbee gateway (HG06339). Features include:
 - Device control
 - Sensor history
 - Notifications
+- An [Android companion app](docs/companion-app.md) for Matter setup and push alerts
 - Zigbee and Matter-over-Thread support
 - HTTP integrations with Shelly and Fritz!Box devices
 
@@ -116,7 +117,7 @@ Matter devices onto the gateway’s Thread network.
 ```mermaid
 sequenceDiagram
     participant accessory as Matter accessory
-    participant phone as Garage Android app
+    participant phone as MicroHAD Companion
     participant native as MicroHAD
     participant matter as mthread-matter
     Note over accessory,matter: BLE commissioning · bidirectional packet relay

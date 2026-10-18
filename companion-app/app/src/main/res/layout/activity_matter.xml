@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent" android:fillViewport="true">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="vertical" android:padding="24dp">
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="@string/matter_title" android:textSize="24sp" />
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="12dp" android:text="@string/matter_instructions" />
+        <EditText android:id="@+id/gatewayInput" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:hint="@string/matter_gateway_hint"
+            android:inputType="textUri" android:singleLine="true" android:saveEnabled="false"
+            android:importantForAutofill="no" android:maxLength="256" />
+        <Button android:id="@+id/checkButton" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:text="@string/matter_check" />
+        <TextView android:id="@+id/statusText" android:textIsSelectable="true" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:layout_marginTop="16dp"
+            android:accessibilityLiveRegion="polite" android:textSize="18sp" />
+        <ProgressBar android:id="@+id/progress" android:layout_width="wrap_content"
+            android:layout_height="wrap_content" android:visibility="gone" />
+        <Button android:id="@+id/createThreadButton" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:text="@string/matter_create_thread" android:visibility="gone" />
+        <LinearLayout android:id="@+id/setupGroup" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:orientation="vertical" android:visibility="gone">
+            <EditText android:id="@+id/setupInput" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:hint="@string/matter_code_hint"
+                android:inputType="textVisiblePassword|textNoSuggestions" android:singleLine="true"
+                android:saveEnabled="false" android:freezesText="false" android:importantForAutofill="no"
+                android:maxLength="512" />
+            <Button android:id="@+id/qrButton" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:text="@string/matter_scan_qr" />
+            <Button android:id="@+id/scanButton" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:text="@string/matter_scan_devices" />
+        </LinearLayout>
+        <LinearLayout android:id="@+id/candidates" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:orientation="vertical" />
+        <Button android:id="@+id/cancelButton" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:text="@string/matter_cancel" android:visibility="gone" />
+        <Button android:id="@+id/retryButton" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:text="@string/matter_retry" android:visibility="gone" />
+    </LinearLayout>
+</ScrollView>

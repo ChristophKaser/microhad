@@ -10,5 +10,7 @@
   "firebase_service_account": "/tuya/native/firebase-service-account-file.json",
   "firebase_topic": "zigbee_alerts",
   "ca_bundle": "/tuya/native/tls/ca-bundle.pem",
-  "ziggurat_socket": "/tmp/ziggurat/native.sock"
+  "ziggurat_socket": "/tmp/ziggurat/native.sock",
+  "gateway_name": "MicroHAD",
+  "companion_discovery": 1
 }

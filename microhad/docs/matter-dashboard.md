@@ -20,9 +20,9 @@ lost, inspect status before retrying. Mutations are not replayed automatically.
 
 ## Commission through the phone
 
-1. Open Matter in Garage and enter your gateway's local HTTP address.
+1. Connect [MicroHAD Companion](../../docs/companion-app.md) to your gateway, then select **Commission Matter device**.
 2. Put the accessory in commissioning mode, enter/scan its setup code and
-   select its BLE advertisement. Keep Garage in the foreground.
+   select its BLE advertisement. Keep MicroHAD Companion in the foreground.
 3. Copy the displayed session ID into the dashboard's session field and select
    **Watch progress** if you want to monitor from the browser.
 4. Wait for session state `complete`. A delivery job marked complete only means
@@ -43,7 +43,7 @@ payload from any scanned URL, including percent-encoded IKEA redirect links.
 Select **Commission with this browser** to choose the accessory and start
 commissioning; scanning never starts commissioning on its own. Stop scanning or
 leave the panel to release the camera. If scanning is unavailable, denied, or
-cannot recognize the code, enter the setup code manually or use Garage.
+cannot recognize the code, enter the setup code manually or use MicroHAD Companion.
 
 The browser displays phases, remaining gateway budget and terminal node ID,
 and provides explicit cancellation. Leaving the panel stops polling without

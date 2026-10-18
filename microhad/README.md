@@ -88,3 +88,11 @@ from the deployed HTTPS dashboard. `make -C microhad webui` builds
 - [Ziggurat protocol/state ownership](../docs/native-ziggurat-integration.md).
 - [Matter integration](MATTER_INTEGRATION.md), [HTTP API](docs/matter-native-api-v1.md) and [dashboard](docs/matter-dashboard.md).
 - [Sensor history format](SENSOR_HISTORY_FORMAT.md), [syslog IPC](docs/syslog-ipc.md) and [third-party notices](THIRD_PARTY.md).
+
+## Android companion
+
+[MicroHAD Companion](../companion-app/README.md) supports configurable gateway
+setup, LAN discovery, Matter commissioning and FCM push notifications. See
+[companion configuration](../docs/companion-app.md) for public Firebase client
+settings and the `/api/companion/config` endpoint. Private sending credentials
+remain on the gateway.
