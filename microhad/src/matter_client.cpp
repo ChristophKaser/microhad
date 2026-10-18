@@ -173,6 +173,19 @@ bool number(const std::string& value, uint32_t minimum, uint32_t maximum) {
     }
     return result >= minimum && result <= maximum;
 }
+bool signedNumber(const std::string& value, int32_t minimum, int32_t maximum) {
+    if (value.empty() || value.size() > 11) return false;
+    unsigned long start = value[0] == '-' ? 1 : 0;
+    if (start == value.size() || (value.size() - start > 1 && value[start] == '0')) return false;
+    uint32_t result = 0;
+    for (unsigned long i = start; i < value.size(); ++i) {
+        if (value[i] < '0' || value[i] > '9') return false;
+        result = result * 10 + value[i] - '0';
+        if (result > 50400U) return false;
+    }
+    const int32_t signedResult = start ? -static_cast<int32_t>(result) : static_cast<int32_t>(result);
+    return signedResult >= minimum && signedResult <= maximum;
+}
 bool finiteNumber(const std::string& value, double minimum, double maximum) {
     if (value == "null") return true;
     if (value.empty() || value.size() > 32) return false;
@@ -349,7 +362,7 @@ bool requestValid(unsigned char opcode, const std::string& text) {
         static const char* const commands[] = {"\"on\"", "\"off\"", "\"toggle\"", "\"sync_time\""};
         if (!hex(fields["node"], 16, 16) || fields["node"] <= "\"0000000000000001\"" ||
             !number(fields["endpoint"], 0, 65534)) return false;
-        if (fields["command"] == "\"sync_time\"") return fields.size() == 6 && number(fields["offset_seconds"], -50400, 50400) && fields["time_zone"].size() > 2;
+        if (fields["command"] == "\"sync_time\"") return fields.size() == 6 && signedNumber(fields["offset_seconds"], -50400, 50400) && fields["time_zone"].size() > 2;
         if (member(fields["command"], commands, 4)) return fields.size() == 4;
         return fields["command"] == "\"move_to_level\"" && fields.size() == 6 &&
             number(fields["level"], 0, 254) && number(fields["transition_deciseconds"], 0, 65535);
@@ -883,7 +896,7 @@ bool MatterChannel::deviceCommandRequest(const std::string& input, std::string* 
     const bool syncTime = fields["command"] == "\"sync_time\"";
     if ((level && (fields.size() != 6 || !number(fields["level"], 0, 254) ||
                    !number(fields["transition_deciseconds"], 0, 65535))) ||
-        (syncTime && (fields.size() != 6 || !number(fields["offset_seconds"], -50400, 50400) || fields["time_zone"].size() < 3)) ||
+        (syncTime && (fields.size() != 6 || !signedNumber(fields["offset_seconds"], -50400, 50400) || fields["time_zone"].size() < 3)) ||
         (!level && !syncTime && (fields.size() != 4 || !member(fields["command"], commands, 4)))) return false;
     *body = "{\"schema\":1,\"command\":" + fields["command"] + ",\"node\":" + fields["node"] +
         ",\"endpoint\":" + fields["endpoint"];
