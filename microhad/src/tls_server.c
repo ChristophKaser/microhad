@@ -1,25 +1,20 @@
+extern int microhad_crypto_init(void);
 #include <stddef.h>
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include <mbedtls/ctr_drbg.h>
-#include <mbedtls/entropy.h>
 #include <mbedtls/net_sockets.h>
 #include <mbedtls/pk.h>
 #include <mbedtls/ssl.h>
 #include <mbedtls/ssl_cache.h>
 #include <mbedtls/x509_crt.h>
-#include <pthread.h>
 
 struct microhad_tls_server {
     mbedtls_ssl_config config;
     mbedtls_x509_crt certificate;
     mbedtls_pk_context private_key;
-    mbedtls_ctr_drbg_context drbg;
-    mbedtls_entropy_context entropy;
     mbedtls_ssl_cache_context cache;
-    pthread_mutex_t rng_mutex;
 };
 
 struct microhad_tls_session {
@@ -30,9 +25,9 @@ struct microhad_tls_session {
 
 /* P-521 ECDHE costs roughly two seconds on the gateway's MIPS CPU. P-256 is
  * widely supported by browsers and is also the curve used for Web Push. */
-static const mbedtls_ecp_group_id server_curves[] = {
-    MBEDTLS_ECP_DP_SECP256R1,
-    MBEDTLS_ECP_DP_NONE
+static const uint16_t server_curves[] = {
+    MBEDTLS_SSL_IANA_TLS_GROUP_SECP256R1,
+    0
 };
 
 static char ascii_lower(char value) {
@@ -88,33 +83,6 @@ static void release_session(struct microhad_tls_session* session) {
     mbedtls_net_free(&session->socket); free(session);
 }
 
-static int locked_random(void* opaque, unsigned char* output, size_t length) {
-    struct microhad_tls_server* server = (struct microhad_tls_server*)opaque;
-    int result;
-    pthread_mutex_lock(&server->rng_mutex);
-    result = mbedtls_ctr_drbg_random(&server->drbg, output, length);
-    pthread_mutex_unlock(&server->rng_mutex);
-    return result;
-}
-
-static int locked_cache_get(void* opaque, mbedtls_ssl_session* session) {
-    struct microhad_tls_server* server = (struct microhad_tls_server*)opaque;
-    int result;
-    pthread_mutex_lock(&server->rng_mutex);
-    result = mbedtls_ssl_cache_get(&server->cache, session);
-    pthread_mutex_unlock(&server->rng_mutex);
-    return result;
-}
-
-static int locked_cache_set(void* opaque, const mbedtls_ssl_session* session) {
-    struct microhad_tls_server* server = (struct microhad_tls_server*)opaque;
-    int result;
-    pthread_mutex_lock(&server->rng_mutex);
-    result = mbedtls_ssl_cache_set(&server->cache, session);
-    pthread_mutex_unlock(&server->rng_mutex);
-    return result;
-}
-
 int microhad_tls_server_create(const char* certificate_path, const char* private_key_path, void** output_server) {
     struct microhad_tls_server* server;
     int result;
@@ -123,21 +91,18 @@ int microhad_tls_server_create(const char* certificate_path, const char* private
     server = (struct microhad_tls_server*)calloc(1, sizeof(*server));
     if (server == 0) return -1;
     mbedtls_ssl_config_init(&server->config); mbedtls_x509_crt_init(&server->certificate);
-    mbedtls_pk_init(&server->private_key); mbedtls_ctr_drbg_init(&server->drbg);
-    mbedtls_entropy_init(&server->entropy); mbedtls_ssl_cache_init(&server->cache);
-    if (pthread_mutex_init(&server->rng_mutex, 0) != 0) { free(server); return -1; }
-    result = mbedtls_ctr_drbg_seed(&server->drbg, mbedtls_entropy_func, &server->entropy,
-                                   (const unsigned char*)"microhad-web-server", 15);
+    mbedtls_pk_init(&server->private_key);
+    mbedtls_ssl_cache_init(&server->cache);
+    result = microhad_crypto_init();
     if (result == 0) result = mbedtls_x509_crt_parse_file(&server->certificate, certificate_path);
     if (result == 0) result = mbedtls_pk_parse_keyfile(&server->private_key, private_key_path, 0);
     if (result == 0) result = mbedtls_ssl_config_defaults(&server->config, MBEDTLS_SSL_IS_SERVER,
                                                            MBEDTLS_SSL_TRANSPORT_STREAM, MBEDTLS_SSL_PRESET_DEFAULT);
-    if (result == 0) mbedtls_ssl_conf_curves(&server->config, server_curves);
-    if (result == 0) mbedtls_ssl_conf_rng(&server->config, locked_random, server);
-    if (result == 0) mbedtls_ssl_conf_session_cache(&server->config, server,
-                                                     locked_cache_get, locked_cache_set);
+    if (result == 0) mbedtls_ssl_conf_groups(&server->config, server_curves);
+    if (result == 0) mbedtls_ssl_conf_session_cache(&server->config, &server->cache,
+                                                     mbedtls_ssl_cache_get, mbedtls_ssl_cache_set);
     if (result == 0) result = mbedtls_ssl_conf_own_cert(&server->config, &server->certificate, &server->private_key);
-    if (result != 0) { mbedtls_ssl_cache_free(&server->cache); mbedtls_ssl_config_free(&server->config); mbedtls_x509_crt_free(&server->certificate); mbedtls_pk_free(&server->private_key); mbedtls_ctr_drbg_free(&server->drbg); mbedtls_entropy_free(&server->entropy); pthread_mutex_destroy(&server->rng_mutex); free(server); return -1; }
+    if (result != 0) { mbedtls_ssl_cache_free(&server->cache); mbedtls_ssl_config_free(&server->config); mbedtls_x509_crt_free(&server->certificate); mbedtls_pk_free(&server->private_key); free(server); return -1; }
     *output_server = server;
     return 0;
 }
@@ -147,8 +112,8 @@ void microhad_tls_server_destroy(void* opaque_server) {
     if (server == 0) return;
     mbedtls_ssl_cache_free(&server->cache); mbedtls_ssl_config_free(&server->config);
     mbedtls_x509_crt_free(&server->certificate); mbedtls_pk_free(&server->private_key);
-    mbedtls_ctr_drbg_free(&server->drbg); mbedtls_entropy_free(&server->entropy);
-    pthread_mutex_destroy(&server->rng_mutex); free(server);
+
+    free(server);
 }
 
 int microhad_tls_session_open(void* opaque_server, int fd, void** output_session) {

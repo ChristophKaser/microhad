@@ -39,8 +39,8 @@ endif
 WARNINGS := -Wall -Wextra -Werror -pedantic
 TARGET_OPTIMIZATION ?= $(if $(filter crosstool-ng,$(TOOLCHAIN)),-Os,-O2)
 # Both target compilers support the C++98 dialect used by this C++03 daemon.
-HOST_CXXFLAGS := -std=gnu++03 $(WARNINGS) -Iinclude -Ithird_party/mbedtls/include -O2 -DMICROHAD_ZIGGURAT_ENABLED=$(ZIGGURAT) -DMICROHAD_MBEDTLS_ENABLED=1 -DMICROHAD_BUILD_REVISION=\"$(BUILD_REVISION)\"
-TARGET_CXXFLAGS := -std=gnu++98 $(WARNINGS) -Iinclude -Ithird_party/mbedtls/include $(TARGET_OPTIMIZATION) -ffunction-sections -fdata-sections -DMICROHAD_MIPS_TARGET=1 -DMICROHAD_ZIGGURAT_ENABLED=$(ZIGGURAT) -DMICROHAD_MBEDTLS_ENABLED=1 -DMICROHAD_BUILD_REVISION=\"$(BUILD_REVISION)\"
+HOST_CXXFLAGS = -std=gnu++03 $(WARNINGS) -Iinclude $(TLS_CPPFLAGS) -O2 -DMICROHAD_ZIGGURAT_ENABLED=$(ZIGGURAT) -DMICROHAD_MBEDTLS_ENABLED=1 -DMICROHAD_BUILD_REVISION=\"$(BUILD_REVISION)\"
+TARGET_CXXFLAGS = -std=gnu++98 $(WARNINGS) -Iinclude $(TLS_CPPFLAGS) $(TARGET_OPTIMIZATION) -ffunction-sections -fdata-sections -DMICROHAD_MIPS_TARGET=1 -DMICROHAD_ZIGGURAT_ENABLED=$(ZIGGURAT) -DMICROHAD_MBEDTLS_ENABLED=1 -DMICROHAD_BUILD_REVISION=\"$(BUILD_REVISION)\"
 HOST_CXXFLAGS += -DMICROHAD_MATTER_ENABLED=$(MATTER)
 TARGET_CXXFLAGS += -DMICROHAD_MATTER_ENABLED=$(MATTER)
 TARGET_CFLAGS := $(WARNINGS) $(TARGET_OPTIMIZATION) -ffunction-sections -fdata-sections
@@ -53,14 +53,22 @@ HOST_TEST_BIN := $(HOST_BUILD)/microhad-test
 MIPS_BIN := $(MIPS_BUILD)/microhad
 MIPS_MATTER_MANIFEST := $(MIPS_BIN).matter-manifest
 HOST_CXXFLAGS += -DMICROHAD_TEST_BINARY=\"$(HOST_BIN)\"
-TLS_C_SOURCES := src/fcm_signer.c src/https_client.c src/vapid_key.c src/web_push_crypto.c src/tls_server.c
+TLS_C_SOURCES := src/crypto_init.c src/fcm_signer.c src/https_client.c src/vapid_key.c src/web_push_crypto.c src/tls_server.c
 HOST_C_OBJECTS := $(patsubst src/%.c,$(HOST_BUILD)/%.o,$(TLS_C_SOURCES))
 MIPS_C_OBJECTS := $(patsubst src/%.c,$(MIPS_BUILD)/%.o,$(TLS_C_SOURCES))
-MBEDTLS_DIR := third_party/mbedtls
-HOST_MBEDTLS_BUILD := $(HOST_BUILD)/mbedtls
-MIPS_MBEDTLS_BUILD := $(MIPS_BUILD)/mbedtls
-HOST_MBEDTLS_LIBS := $(HOST_MBEDTLS_BUILD)/library/libmbedtls.a $(HOST_MBEDTLS_BUILD)/library/libmbedx509.a $(HOST_MBEDTLS_BUILD)/library/libmbedcrypto.a
-MIPS_MBEDTLS_LIBS := $(MIPS_MBEDTLS_BUILD)/library/libmbedtls.a $(MIPS_MBEDTLS_BUILD)/library/libmbedx509.a $(MIPS_MBEDTLS_BUILD)/library/libmbedcrypto.a
+MBEDTLS_DIR := dependencies/mbedtls
+TLS_CONFIG := $(abspath config/mbedtls_user_config.h)
+PSA_CONFIG := $(abspath config/psa_crypto_config.h)
+TLS_CPPFLAGS = -isystem $(MBEDTLS_DIR)/include -isystem $(MBEDTLS_DIR)/tf-psa-crypto/include -isystem $(MBEDTLS_DIR)/tf-psa-crypto/drivers/builtin/include -DMBEDTLS_USER_CONFIG_FILE='"$(TLS_CONFIG)"' -DTF_PSA_CRYPTO_CONFIG_FILE='"$(PSA_CONFIG)"'
+TLS_CMAKE_FLAGS := -DMBEDTLS_USER_CONFIG_FILE=$(TLS_CONFIG) -DTF_PSA_CRYPTO_CONFIG_FILE=$(PSA_CONFIG) -DENABLE_PROGRAMS=OFF -DENABLE_TESTING=OFF -DUSE_SHARED_MBEDTLS_LIBRARY=OFF -DMBEDTLS_FATAL_WARNINGS=OFF
+# Submodule HEAD changes must invalidate the libraries even when upstream
+# preserves timestamps on individual source files. All these checkouts are pinned.
+TLS_SUBMODULE_HEADS := $(foreach dep,$(MBEDTLS_DIR) $(MBEDTLS_DIR)/tf-psa-crypto $(MBEDTLS_DIR)/framework $(MBEDTLS_DIR)/tf-psa-crypto/framework,$(wildcard $(shell git -C $(dep) rev-parse --absolute-git-dir 2>/dev/null)/HEAD))
+TLS_DEPENDENCIES := $(TLS_SUBMODULE_HEADS) Makefile $(TLS_CONFIG) $(PSA_CONFIG) $(MBEDTLS_DIR)/CMakeLists.txt $(MBEDTLS_DIR)/tf-psa-crypto/CMakeLists.txt
+HOST_MBEDTLS_BUILD := $(HOST_BUILD)/mbedtls-v4
+MIPS_MBEDTLS_BUILD := $(MIPS_BUILD)/mbedtls-v4
+HOST_MBEDTLS_LIBS := $(HOST_MBEDTLS_BUILD)/library/libmbedtls.a $(HOST_MBEDTLS_BUILD)/library/libmbedx509.a $(HOST_MBEDTLS_BUILD)/library/libtfpsacrypto.a
+MIPS_MBEDTLS_LIBS := $(MIPS_MBEDTLS_BUILD)/library/libmbedtls.a $(MIPS_MBEDTLS_BUILD)/library/libmbedx509.a $(MIPS_MBEDTLS_BUILD)/library/libtfpsacrypto.a
 UNIT_TEST_BIN := $(HOST_BUILD)/unit_tests
 INTEGRATION_TEST_BIN := $(HOST_BUILD)/integration_tests
 UNIT_TEST_SOURCES := $(ZIGGURAT_TEST_SOURCES) test/unit_matter_websocket.cpp test/unit_matter_protocol.cpp test/unit_matter_client.cpp test/unit_network_backup.cpp test/unit_gateway.cpp test/unit_gateway_config.cpp test/unit_fcm.cpp test/unit_web_push.cpp test/unit_sensor_history.cpp test/unit_log_ring.cpp test/unit_syslog_log_reader.cpp test/unit_external_http_device.cpp test/test_main.cpp
@@ -104,24 +112,26 @@ endif
 
 mbedtls-host: $(HOST_MBEDTLS_LIBS)
 
-$(HOST_MBEDTLS_LIBS): $(MBEDTLS_DIR)/CMakeLists.txt $(MBEDTLS_DIR)/include/mbedtls/config.h $(MBEDTLS_DIR)/include/mbedtls/microhad_config.h
-	$(CMAKE) -S $(MBEDTLS_DIR) -B $(HOST_MBEDTLS_BUILD) -DCMAKE_C_COMPILER=$(HOST_CC) -DENABLE_PROGRAMS=OFF -DENABLE_TESTING=OFF -DUSE_SHARED_MBEDTLS_LIBRARY=OFF -DMBEDTLS_FATAL_WARNINGS=OFF
-	$(CMAKE) --build $(HOST_MBEDTLS_BUILD) --target mbedtls mbedx509 mbedcrypto
+$(HOST_MBEDTLS_LIBS) &: $(TLS_DEPENDENCIES)
+	$(CMAKE) -S $(MBEDTLS_DIR) -B $(HOST_MBEDTLS_BUILD) -DCMAKE_C_COMPILER=$(HOST_CC) $(TLS_CMAKE_FLAGS)
+	$(CMAKE) --build $(HOST_MBEDTLS_BUILD) --target mbedtls mbedx509 tfpsacrypto
+	@touch $(HOST_MBEDTLS_LIBS)
 
 mbedtls-mips: $(MIPS_MBEDTLS_LIBS)
 
-$(MIPS_MBEDTLS_LIBS): $(MBEDTLS_DIR)/CMakeLists.txt $(MBEDTLS_DIR)/include/mbedtls/config.h $(MBEDTLS_DIR)/include/mbedtls/microhad_config.h
+$(MIPS_MBEDTLS_LIBS) &: $(TLS_DEPENDENCIES)
 	@test -x $(TARGET_CC) || (echo "Selected target compiler not found: $(TARGET_CC)"; exit 1)
-	$(CMAKE) -S $(MBEDTLS_DIR) -B $(MIPS_MBEDTLS_BUILD) -DCMAKE_C_COMPILER=$(TARGET_CC) -DCMAKE_AR=$(TARGET_AR) -DCMAKE_C_FLAGS='$(TARGET_OPTIMIZATION) -std=gnu99 -ffunction-sections -fdata-sections' -DENABLE_PROGRAMS=OFF -DENABLE_TESTING=OFF -DUSE_SHARED_MBEDTLS_LIBRARY=OFF -DMBEDTLS_FATAL_WARNINGS=OFF
-	$(CMAKE) --build $(MIPS_MBEDTLS_BUILD) --target mbedtls mbedx509 mbedcrypto
+	$(CMAKE) -S $(MBEDTLS_DIR) -B $(MIPS_MBEDTLS_BUILD) -DCMAKE_C_COMPILER=$(TARGET_CC) -DCMAKE_AR=$(TARGET_AR) -DCMAKE_C_FLAGS='$(TARGET_OPTIMIZATION) -std=gnu99 -ffunction-sections -fdata-sections' $(TLS_CMAKE_FLAGS)
+	$(CMAKE) --build $(MIPS_MBEDTLS_BUILD) --target mbedtls mbedx509 tfpsacrypto
+	@touch $(MIPS_MBEDTLS_LIBS)
 
 $(HOST_BUILD)/%.o: src/%.c $(HOST_MBEDTLS_LIBS)
 	@mkdir -p $(HOST_BUILD)
-	$(HOST_CC) -std=gnu99 $(WARNINGS) -O2 -I$(MBEDTLS_DIR)/include -c $< -o $@
+	$(HOST_CC) -std=gnu99 $(WARNINGS) -O2 $(TLS_CPPFLAGS) -c $< -o $@
 
 $(MIPS_BUILD)/%.o: src/%.c $(MIPS_MBEDTLS_LIBS)
 	@mkdir -p $(MIPS_BUILD)
-	$(TARGET_CC) -std=gnu99 $(TARGET_CFLAGS) -I$(MBEDTLS_DIR)/include -c $< -o $@
+	$(TARGET_CC) -std=gnu99 $(TARGET_CFLAGS) $(TLS_CPPFLAGS) -c $< -o $@
 
 $(MIPS_BIN): $(SOURCES) $(wildcard include/*.h) $(MIPS_MBEDTLS_LIBS) $(MIPS_C_OBJECTS)
 	@test -x $(TARGET_CXX) || (echo "Selected target compiler not found: $(TARGET_CXX)"; exit 1)
@@ -214,6 +224,19 @@ toolchain-force:
 $(MIPS_BUILD)/.toolchain: toolchain-force
 	@python3 $(ZIGGURAT_ROOT)/scripts/toolchain-build.py "$(MICROHAD_ROOT)/$(MIPS_BUILD)"
 $(MIPS_BIN) $(MIPS_C_OBJECTS) $(MIPS_MBEDTLS_LIBS) build/$(TARGET_BUILD_SUBDIR)rng-seed: $(MIPS_BUILD)/.toolchain
-# Apply target optimization changes to cached C objects and vendored TLS libraries.
+# Apply target optimization changes to cached C objects and TLS libraries.
 $(MIPS_C_OBJECTS) $(MIPS_MBEDTLS_LIBS): Makefile
 endif
+
+$(MBEDTLS_DIR)/CMakeLists.txt $(MBEDTLS_DIR)/tf-psa-crypto/CMakeLists.txt:
+	@echo "Initialize TLS dependencies: git submodule update --init --recursive microhad/dependencies/mbedtls"; exit 1
+
+$(HOST_C_OBJECTS) $(MIPS_C_OBJECTS): Makefile
+
+# Independent host verification; requires Python's cryptography package.
+.PHONY: crypto-interop-test
+$(HOST_BUILD)/crypto-interop: test/crypto_interop.c $(HOST_C_OBJECTS) $(HOST_MBEDTLS_LIBS) Makefile
+	$(HOST_CC) -std=gnu99 $(WARNINGS) -O2 $< $(HOST_C_OBJECTS) -o $@ $(HOST_MBEDTLS_LIBS) $(LDFLAGS)
+
+crypto-interop-test: $(HOST_BUILD)/crypto-interop
+	python3 scripts/test_crypto_interop.py $(HOST_BUILD)/crypto-interop

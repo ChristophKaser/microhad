@@ -1,6 +1,7 @@
 #include "ziggurat_client.h"
 #include "json_util.h"
-#include "mbedtls/sha256.h"
+#include <mbedtls/md.h>
+extern "C" int microhad_crypto_init(void);
 #include <algorithm>
 #include <cerrno>
 #include <cstdio>
@@ -34,7 +35,7 @@ std::string checksum(const ZigguratState& state) {
     bytes.insert(bytes.end(),state.children.begin(),state.children.end());
     bytes.insert(bytes.end(),state.addresses.begin(),state.addresses.end());
     Bytes hash(32,0);
-    if (bytes.empty() || mbedtls_sha256_ret(&bytes[0],bytes.size(),&hash[0],0)!=0) return "";
+    if (bytes.empty() || microhad_crypto_init()!=0 || mbedtls_md(mbedtls_md_info_from_type(MBEDTLS_MD_SHA256),&bytes[0],bytes.size(),&hash[0])!=0) return "";
     return hex(hash);
 }
 bool unhex(const std::string& text, Bytes* result) {

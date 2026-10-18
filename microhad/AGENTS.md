@@ -12,7 +12,8 @@ make mips
 ```
 
 Builds default to Ziggurat and Matter, matching the current deployment.
-`make mips` builds the vendored Mbed TLS dependency and produces the static,
+Initialize TLS with `git submodule update --init --recursive microhad/dependencies/mbedtls`
+from the repository root before building. `make mips` builds the Mbed TLS v4 submodule and produces the static,
 big-endian MIPS binary at `build/mips-ziggurat-matter/microhad`.
 Use `make ZIGGURAT=0 mips` for the legacy EZSP binary or
 `make ZIGGURAT=1 MATTER=0 mips` for Ziggurat without Matter APIs.

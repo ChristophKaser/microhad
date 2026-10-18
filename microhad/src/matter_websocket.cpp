@@ -1,7 +1,8 @@
 #include "matter_websocket.h"
 #include <map>
 #include <mbedtls/base64.h>
-#include <mbedtls/sha1.h>
+#include <mbedtls/md.h>
+extern "C" int microhad_crypto_init(void);
 #include <stdint.h>
 
 namespace MatterWebSocket {
@@ -87,7 +88,7 @@ bool handshake(const std::string& request, const std::string& path, std::string*
     if (mbedtls_base64_encode(encoded, sizeof(encoded), &length, decoded, 16) != 0 ||
         std::string(reinterpret_cast<char*>(encoded), length) != key) return false;
     const std::string input = key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
-    if (mbedtls_sha1_ret(reinterpret_cast<const unsigned char*>(input.data()), input.size(), digest) != 0 ||
+    if (microhad_crypto_init() != 0 || mbedtls_md(mbedtls_md_info_from_type(MBEDTLS_MD_SHA1), reinterpret_cast<const unsigned char*>(input.data()), input.size(), digest) != 0 ||
         mbedtls_base64_encode(encoded, sizeof(encoded), &length, digest, sizeof(digest)) != 0) return false;
     *response = "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: " +
         std::string(reinterpret_cast<char*>(encoded), length) + "\r\n\r\n";

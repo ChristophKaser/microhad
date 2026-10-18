@@ -1,3 +1,4 @@
+extern "C" int microhad_crypto_init(void);
 #include "gateway.h"
 #include "gateway_runner.h"
 #include "gateway_integration_peer.h"
@@ -11,8 +12,6 @@
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wpedantic"
-#include <mbedtls/ctr_drbg.h>
-#include <mbedtls/entropy.h>
 #include <mbedtls/net_sockets.h>
 #include <mbedtls/ssl.h>
 #include <mbedtls/x509_crt.h>
@@ -120,24 +119,20 @@ std::string tlsRequest(int port, const std::string& request) {
     mbedtls_ssl_context ssl;
     mbedtls_ssl_config config;
     mbedtls_x509_crt certificate;
-    mbedtls_ctr_drbg_context random;
-    mbedtls_entropy_context entropy;
     std::ostringstream portText;
     std::string response;
     char buffer[1024];
     int result;
     mbedtls_net_init(&socket); mbedtls_ssl_init(&ssl); mbedtls_ssl_config_init(&config);
-    mbedtls_x509_crt_init(&certificate); mbedtls_ctr_drbg_init(&random); mbedtls_entropy_init(&entropy);
+    mbedtls_x509_crt_init(&certificate);
     portText << port;
-    result = mbedtls_ctr_drbg_seed(&random, mbedtls_entropy_func, &entropy,
-                                   reinterpret_cast<const unsigned char*>("integration"), 11);
+    result = microhad_crypto_init();
     if (result == 0) result = mbedtls_x509_crt_parse_file(&certificate, "test/fixtures/tls/localhost.crt");
     if (result == 0) result = mbedtls_net_connect(&socket, "127.0.0.1", portText.str().c_str(), MBEDTLS_NET_PROTO_TCP);
     if (result == 0) result = mbedtls_ssl_config_defaults(&config, MBEDTLS_SSL_IS_CLIENT, MBEDTLS_SSL_TRANSPORT_STREAM, MBEDTLS_SSL_PRESET_DEFAULT);
     if (result == 0) {
         mbedtls_ssl_conf_authmode(&config, MBEDTLS_SSL_VERIFY_REQUIRED);
         mbedtls_ssl_conf_ca_chain(&config, &certificate, 0);
-        mbedtls_ssl_conf_rng(&config, mbedtls_ctr_drbg_random, &random);
         result = mbedtls_ssl_setup(&ssl, &config);
     }
     if (result == 0) result = mbedtls_ssl_set_hostname(&ssl, "localhost");
@@ -157,7 +152,7 @@ std::string tlsRequest(int port, const std::string& request) {
         response.append(buffer, static_cast<unsigned long>(result));
     assert(result == 0 || result == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY);
     mbedtls_ssl_close_notify(&ssl); mbedtls_ssl_free(&ssl); mbedtls_ssl_config_free(&config);
-    mbedtls_net_free(&socket); mbedtls_x509_crt_free(&certificate); mbedtls_ctr_drbg_free(&random); mbedtls_entropy_free(&entropy);
+    mbedtls_net_free(&socket); mbedtls_x509_crt_free(&certificate);
     return response;
 }
 
@@ -219,25 +214,21 @@ void tlsAbortAfterRequest(int port) {
     mbedtls_ssl_context ssl;
     mbedtls_ssl_config config;
     mbedtls_x509_crt certificate;
-    mbedtls_ctr_drbg_context random;
-    mbedtls_entropy_context entropy;
     std::ostringstream portText;
     const std::string request = "GET /api/status HTTP/1.1\r\nHost: localhost\r\n\r\n";
     unsigned long offset = 0;
     int result;
     struct linger reset;
     mbedtls_net_init(&socket); mbedtls_ssl_init(&ssl); mbedtls_ssl_config_init(&config);
-    mbedtls_x509_crt_init(&certificate); mbedtls_ctr_drbg_init(&random); mbedtls_entropy_init(&entropy);
+    mbedtls_x509_crt_init(&certificate);
     portText << port;
-    result = mbedtls_ctr_drbg_seed(&random, mbedtls_entropy_func, &entropy,
-                                   reinterpret_cast<const unsigned char*>("abort-integration"), 18);
+    result = microhad_crypto_init();
     if (result == 0) result = mbedtls_x509_crt_parse_file(&certificate, "test/fixtures/tls/localhost.crt");
     if (result == 0) result = mbedtls_net_connect(&socket, "127.0.0.1", portText.str().c_str(), MBEDTLS_NET_PROTO_TCP);
     if (result == 0) result = mbedtls_ssl_config_defaults(&config, MBEDTLS_SSL_IS_CLIENT, MBEDTLS_SSL_TRANSPORT_STREAM, MBEDTLS_SSL_PRESET_DEFAULT);
     if (result == 0) {
         mbedtls_ssl_conf_authmode(&config, MBEDTLS_SSL_VERIFY_REQUIRED);
         mbedtls_ssl_conf_ca_chain(&config, &certificate, 0);
-        mbedtls_ssl_conf_rng(&config, mbedtls_ctr_drbg_random, &random);
         result = mbedtls_ssl_setup(&ssl, &config);
     }
     if (result == 0) result = mbedtls_ssl_set_hostname(&ssl, "localhost");
@@ -256,7 +247,7 @@ void tlsAbortAfterRequest(int port) {
     assert(setsockopt(socket.fd, SOL_SOCKET, SO_LINGER, &reset, sizeof(reset)) == 0);
     close(socket.fd); socket.fd = -1;
     mbedtls_ssl_free(&ssl); mbedtls_ssl_config_free(&config); mbedtls_net_free(&socket);
-    mbedtls_x509_crt_free(&certificate); mbedtls_ctr_drbg_free(&random); mbedtls_entropy_free(&entropy);
+    mbedtls_x509_crt_free(&certificate);
 }
 
 void failTlsHandshake(int port) {

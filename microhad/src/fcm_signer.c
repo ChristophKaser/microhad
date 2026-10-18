@@ -1,29 +1,23 @@
 #include <stddef.h>
 #include <string.h>
-
-#include <mbedtls/ctr_drbg.h>
-#include <mbedtls/entropy.h>
+#include <psa/crypto.h>
 #include <mbedtls/pk.h>
-#include <mbedtls/sha256.h>
+
+extern int microhad_crypto_init(void);
 
 int microhad_fcm_sign(const char* pem, const unsigned char* input, size_t input_length,
-                  unsigned char* signature, size_t* signature_length) {
+                     unsigned char* signature, size_t* signature_length) {
     unsigned char hash[32];
+    size_t hash_length = 0;
     mbedtls_pk_context key;
-    mbedtls_entropy_context entropy;
-    mbedtls_ctr_drbg_context drbg;
-    int result;
+    int result = microhad_crypto_init();
     mbedtls_pk_init(&key);
-    mbedtls_entropy_init(&entropy);
-    mbedtls_ctr_drbg_init(&drbg);
-    result = mbedtls_ctr_drbg_seed(&drbg, mbedtls_entropy_func, &entropy,
-                                   (const unsigned char*)"microhad-zigbee-fcm", 15);
     if (result == 0) result = mbedtls_pk_parse_key(&key, (const unsigned char*)pem, strlen(pem) + 1, 0, 0);
-    if (result == 0) result = mbedtls_sha256_ret(input, input_length, hash, 0);
-    if (result == 0) result = mbedtls_pk_sign(&key, MBEDTLS_MD_SHA256, hash, sizeof(hash), signature,
-                                               signature_length, mbedtls_ctr_drbg_random, &drbg);
+    if (result == 0 && (!mbedtls_pk_can_do_psa(&key, PSA_ALG_RSA_PKCS1V15_SIGN(PSA_ALG_SHA_256), PSA_KEY_USAGE_SIGN_HASH) || mbedtls_pk_get_bitlen(&key) > 4096)) result = -1;
+    if (result == 0) result = psa_hash_compute(PSA_ALG_SHA_256, input, input_length, hash, sizeof(hash), &hash_length);
+    /* The caller provides 512 bytes for RSA keys up to 4096 bits. */
+    if (result == 0) result = mbedtls_pk_sign_ext(MBEDTLS_PK_SIGALG_RSA_PKCS1V15, &key, MBEDTLS_MD_SHA256, hash, hash_length,
+                                            signature, 512, signature_length);
     mbedtls_pk_free(&key);
-    mbedtls_ctr_drbg_free(&drbg);
-    mbedtls_entropy_free(&entropy);
     return result;
 }

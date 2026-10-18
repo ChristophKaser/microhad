@@ -1,18 +1,26 @@
 #include <stddef.h>
 #include <string.h>
 
-#include <mbedtls/ctr_drbg.h>
-#include <mbedtls/ecdh.h>
-#include <mbedtls/ecdsa.h>
-#include <mbedtls/entropy.h>
-#include <mbedtls/gcm.h>
-#include <mbedtls/md.h>
-#include <mbedtls/sha256.h>
+#include <psa/crypto.h>
+#include <mbedtls/platform_util.h>
+
+extern int microhad_crypto_init(void);
 
 static int hmac_sha256(const unsigned char* key, size_t key_length, const unsigned char* input,
                        size_t input_length, unsigned char* output) {
-    const mbedtls_md_info_t* info = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
-    return mbedtls_md_hmac(info, key, key_length, input, input_length, output);
+    psa_key_attributes_t attributes = PSA_KEY_ATTRIBUTES_INIT;
+    psa_key_id_t id = 0;
+    size_t length = 0;
+    int result;
+    psa_set_key_type(&attributes, PSA_KEY_TYPE_HMAC);
+    psa_set_key_usage_flags(&attributes, PSA_KEY_USAGE_SIGN_MESSAGE);
+    psa_set_key_algorithm(&attributes, PSA_ALG_HMAC(PSA_ALG_SHA_256));
+    result = psa_import_key(&attributes, key, key_length, &id);
+    if (result == 0) result = psa_mac_compute(id, PSA_ALG_HMAC(PSA_ALG_SHA_256), input, input_length, output, 32, &length);
+    if (result == 0 && length != 32) result = -1;
+    psa_destroy_key(id);
+    psa_reset_key_attributes(&attributes);
+    return result;
 }
 
 static int hkdf_expand(const unsigned char* prk, const unsigned char* info, size_t info_length,
@@ -42,11 +50,10 @@ static int hkdf_expand(const unsigned char* prk, const unsigned char* info, size
 int microhad_web_push_encrypt(const unsigned char* client_public, const unsigned char* auth_secret,
                           const unsigned char* plaintext, unsigned long plaintext_length,
                           unsigned char* output, unsigned long output_capacity, unsigned long* output_length) {
-    mbedtls_ecdh_context context;
-    mbedtls_entropy_context entropy;
-    mbedtls_ctr_drbg_context drbg;
-    mbedtls_gcm_context gcm;
-    unsigned char shared[32], prk[32], ikm[32], salt[16], cek[16], nonce[12], tag[16];
+    psa_key_attributes_t attributes = PSA_KEY_ATTRIBUTES_INIT;
+    psa_key_id_t ephemeral = 0, aes = 0;
+    size_t length = 0;
+    unsigned char shared[32], prk[32], ikm[32], salt[16], cek[16], nonce[12];
     unsigned char server_public[65], webpush_info[144];
     const unsigned char cek_info[] = "Content-Encoding: aes128gcm\0";
     const unsigned char nonce_info[] = "Content-Encoding: nonce\0";
@@ -55,77 +62,72 @@ int microhad_web_push_encrypt(const unsigned char* client_public, const unsigned
     size_t ciphertext_length;
     int result = -1;
     if (plaintext_length > 4095 || output_capacity < plaintext_length + 102) return -1;
-    mbedtls_ecdh_init(&context);
-    mbedtls_entropy_init(&entropy);
-    mbedtls_ctr_drbg_init(&drbg);
-    mbedtls_gcm_init(&gcm);
-    result = mbedtls_ctr_drbg_seed(&drbg, mbedtls_entropy_func, &entropy,
-                                   (const unsigned char*)"microhad-web-push", 13);
-    if (result == 0) result = mbedtls_ecp_group_load(&context.grp, MBEDTLS_ECP_DP_SECP256R1);
-    if (result == 0) result = mbedtls_ecp_point_read_binary(&context.grp, &context.Qp, client_public, 65);
-    if (result == 0) result = mbedtls_ecp_gen_keypair(&context.grp, &context.d, &context.Q,
-                                                       mbedtls_ctr_drbg_random, &drbg);
-    if (result == 0) result = mbedtls_ecdh_compute_shared(&context.grp, &context.z, &context.Qp, &context.d,
-                                                           mbedtls_ctr_drbg_random, &drbg);
-    if (result == 0) result = mbedtls_mpi_write_binary(&context.z, shared, sizeof(shared));
+    result = microhad_crypto_init();
+    psa_set_key_type(&attributes, PSA_KEY_TYPE_ECC_KEY_PAIR(PSA_ECC_FAMILY_SECP_R1));
+    psa_set_key_bits(&attributes, 256);
+    psa_set_key_usage_flags(&attributes, PSA_KEY_USAGE_DERIVE);
+    psa_set_key_algorithm(&attributes, PSA_ALG_ECDH);
+    if (result == 0) result = psa_generate_key(&attributes, &ephemeral);
+    if (result == 0) result = psa_raw_key_agreement(PSA_ALG_ECDH, ephemeral, client_public, 65,
+                                                  shared, sizeof(shared), &length);
+    if (result == 0 && length != sizeof(shared)) result = -1;
     if (result == 0) result = hmac_sha256(auth_secret, 16, shared, sizeof(shared), prk);
     if (result == 0) {
         memcpy(webpush_info, "WebPush: info\0", 14);
         memcpy(webpush_info + 14, client_public, 65);
-        result = mbedtls_ecp_point_write_binary(&context.grp, &context.Q, MBEDTLS_ECP_PF_UNCOMPRESSED,
-                                                &server_public_length, server_public, sizeof(server_public));
+        result = psa_export_public_key(ephemeral, server_public, sizeof(server_public), &server_public_length);
         if (result == 0 && server_public_length != 65) result = -1;
         if (result == 0) memcpy(webpush_info + 79, server_public, 65);
     }
     webpush_info_length = 144;
     if (result == 0) result = hkdf_expand(prk, webpush_info, webpush_info_length, ikm, sizeof(ikm));
-    if (result == 0) result = mbedtls_ctr_drbg_random(&drbg, salt, sizeof(salt));
+    if (result == 0) result = psa_generate_random(salt, sizeof(salt));
     if (result == 0) result = hmac_sha256(salt, sizeof(salt), ikm, sizeof(ikm), prk);
     if (result == 0) result = hkdf_expand(prk, cek_info, sizeof(cek_info) - 1, cek, sizeof(cek));
     if (result == 0) result = hkdf_expand(prk, nonce_info, sizeof(nonce_info) - 1, nonce, sizeof(nonce));
     ciphertext_length = plaintext_length;
-    if (result == 0) result = mbedtls_gcm_setkey(&gcm, MBEDTLS_CIPHER_ID_AES, cek, 128);
-    if (result == 0) result = mbedtls_gcm_crypt_and_tag(&gcm, MBEDTLS_GCM_ENCRYPT, plaintext_length, nonce,
-                                                         sizeof(nonce), 0, 0, plaintext, output + 86, sizeof(tag), tag);
+    psa_reset_key_attributes(&attributes);
+    psa_set_key_type(&attributes, PSA_KEY_TYPE_AES);
+    psa_set_key_bits(&attributes, 128);
+    psa_set_key_usage_flags(&attributes, PSA_KEY_USAGE_ENCRYPT);
+    psa_set_key_algorithm(&attributes, PSA_ALG_GCM);
+    if (result == 0) result = psa_import_key(&attributes, cek, sizeof(cek), &aes);
+    if (result == 0) result = psa_aead_encrypt(aes, PSA_ALG_GCM, nonce, sizeof(nonce), 0, 0,
+                                              plaintext, plaintext_length, output + 86,
+                                              output_capacity - 86, &length);
+    if (result == 0 && length != plaintext_length + 16) result = -1;
     if (result == 0) {
         memcpy(output, salt, sizeof(salt));
         output[16] = 0; output[17] = 0; output[18] = 16; output[19] = 0;
         output[20] = 65;
         memcpy(output + 21, server_public, sizeof(server_public));
-        memcpy(output + 86 + ciphertext_length, tag, sizeof(tag));
         *output_length = (unsigned long)(102 + ciphertext_length);
     }
-    mbedtls_gcm_free(&gcm);
-    mbedtls_ecdh_free(&context);
-    mbedtls_ctr_drbg_free(&drbg);
-    mbedtls_entropy_free(&entropy);
+    psa_destroy_key(aes);
+    psa_destroy_key(ephemeral);
+    psa_reset_key_attributes(&attributes);
+    mbedtls_platform_zeroize(shared, sizeof(shared));
+    mbedtls_platform_zeroize(prk, sizeof(prk));
+    mbedtls_platform_zeroize(ikm, sizeof(ikm));
+    mbedtls_platform_zeroize(cek, sizeof(cek));
     return result;
 }
 
 int microhad_vapid_sign(const unsigned char* private_key, const unsigned char* input, unsigned long input_length,
                     unsigned char* signature) {
-    mbedtls_ecp_keypair key;
-    mbedtls_entropy_context entropy;
-    mbedtls_ctr_drbg_context drbg;
-    mbedtls_mpi r, s;
-    unsigned char hash[32];
-    int result;
-    mbedtls_ecp_keypair_init(&key);
-    mbedtls_entropy_init(&entropy);
-    mbedtls_ctr_drbg_init(&drbg);
-    mbedtls_mpi_init(&r); mbedtls_mpi_init(&s);
-    result = mbedtls_ctr_drbg_seed(&drbg, mbedtls_entropy_func, &entropy,
-                                   (const unsigned char*)"microhad-vapid-sign", 15);
-    if (result == 0) result = mbedtls_ecp_group_load(&key.grp, MBEDTLS_ECP_DP_SECP256R1);
-    if (result == 0) result = mbedtls_mpi_read_binary(&key.d, private_key, 32);
-    if (result == 0) result = mbedtls_sha256_ret(input, input_length, hash, 0);
-    if (result == 0) result = mbedtls_ecdsa_sign(&key.grp, &r, &s, &key.d, hash, sizeof(hash),
-                                                  mbedtls_ctr_drbg_random, &drbg);
-    if (result == 0) result = mbedtls_mpi_write_binary(&r, signature, 32);
-    if (result == 0) result = mbedtls_mpi_write_binary(&s, signature + 32, 32);
-    mbedtls_mpi_free(&r); mbedtls_mpi_free(&s);
-    mbedtls_ecp_keypair_free(&key);
-    mbedtls_ctr_drbg_free(&drbg);
-    mbedtls_entropy_free(&entropy);
+    psa_key_attributes_t attributes = PSA_KEY_ATTRIBUTES_INIT;
+    psa_key_id_t key = 0;
+    size_t length = 0;
+    int result = microhad_crypto_init();
+    psa_set_key_type(&attributes, PSA_KEY_TYPE_ECC_KEY_PAIR(PSA_ECC_FAMILY_SECP_R1));
+    psa_set_key_bits(&attributes, 256);
+    psa_set_key_usage_flags(&attributes, PSA_KEY_USAGE_SIGN_MESSAGE);
+    psa_set_key_algorithm(&attributes, PSA_ALG_ECDSA(PSA_ALG_SHA_256));
+    if (result == 0) result = psa_import_key(&attributes, private_key, 32, &key);
+    if (result == 0) result = psa_sign_message(key, PSA_ALG_ECDSA(PSA_ALG_SHA_256), input, input_length,
+                                              signature, 64, &length);
+    if (result == 0 && length != 64) result = -1;
+    psa_destroy_key(key);
+    psa_reset_key_attributes(&attributes);
     return result;
 }

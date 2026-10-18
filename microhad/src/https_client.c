@@ -1,9 +1,8 @@
+extern int microhad_crypto_init(void);
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
-#include <mbedtls/ctr_drbg.h>
-#include <mbedtls/entropy.h>
 #include <mbedtls/error.h>
 #include <mbedtls/net_sockets.h>
 #include <mbedtls/ssl.h>
@@ -19,8 +18,6 @@ int microhad_https_post(const char* host, const char* path, const char* headers,
     mbedtls_ssl_context ssl;
     mbedtls_ssl_config conf;
     mbedtls_x509_crt ca;
-    mbedtls_ctr_drbg_context drbg;
-    mbedtls_entropy_context entropy;
     char* request = 0;
     int result = -1;
     int header_length;
@@ -32,16 +29,14 @@ int microhad_https_post(const char* host, const char* path, const char* headers,
     mbedtls_ssl_init(&ssl);
     mbedtls_ssl_config_init(&conf);
     mbedtls_x509_crt_init(&ca);
-    mbedtls_ctr_drbg_init(&drbg);
-    mbedtls_entropy_init(&entropy);
+
     if (host == 0 || path == 0 || headers == 0 || body == 0 || ca_bundle == 0 ||
         response == 0 || response_length == 0 || response_capacity == 0) goto done;
     request = (char*)malloc(MICROHAD_HTTPS_REQUEST_CAPACITY);
     stage = "allocate";
     if (request == 0) goto done;
     stage = "seed";
-    result = mbedtls_ctr_drbg_seed(&drbg, mbedtls_entropy_func, &entropy,
-                                   (const unsigned char*)"microhad-https", 10);
+    result = microhad_crypto_init();
     if (result != 0) goto done;
     stage = "CA bundle";
     result = mbedtls_x509_crt_parse_file(&ca, ca_bundle);
@@ -56,7 +51,6 @@ int microhad_https_post(const char* host, const char* path, const char* headers,
     if (result != 0) goto done;
     mbedtls_ssl_conf_authmode(&conf, MBEDTLS_SSL_VERIFY_REQUIRED);
     mbedtls_ssl_conf_ca_chain(&conf, &ca, 0);
-    mbedtls_ssl_conf_rng(&conf, mbedtls_ctr_drbg_random, &drbg);
     stage = "TLS setup";
     result = mbedtls_ssl_setup(&ssl, &conf);
     if (result != 0) goto done;
@@ -117,8 +111,7 @@ done:
     mbedtls_ssl_config_free(&conf);
     mbedtls_net_free(&server);
     mbedtls_x509_crt_free(&ca);
-    mbedtls_ctr_drbg_free(&drbg);
-    mbedtls_entropy_free(&entropy);
+
     return result;
 }
 
@@ -128,8 +121,6 @@ typedef struct microhad_https_session {
     mbedtls_ssl_context ssl;
     mbedtls_ssl_config conf;
     mbedtls_x509_crt ca;
-    mbedtls_ctr_drbg_context drbg;
-    mbedtls_entropy_context entropy;
 } microhad_https_session;
 
 void microhad_https_session_close(void* opaque) {
@@ -137,7 +128,7 @@ void microhad_https_session_close(void* opaque) {
     if (s == 0) return;
     mbedtls_ssl_free(&s->ssl); mbedtls_ssl_config_free(&s->conf);
     mbedtls_net_free(&s->server); mbedtls_x509_crt_free(&s->ca);
-    mbedtls_ctr_drbg_free(&s->drbg); mbedtls_entropy_free(&s->entropy); free(s);
+    free(s);
 }
 
 void* microhad_https_session_open(const char* host, const char* ca_bundle) {
@@ -145,9 +136,8 @@ void* microhad_https_session_open(const char* host, const char* ca_bundle) {
     int result;
     if (s == 0) return 0;
     mbedtls_net_init(&s->server); mbedtls_ssl_init(&s->ssl); mbedtls_ssl_config_init(&s->conf);
-    mbedtls_x509_crt_init(&s->ca); mbedtls_ctr_drbg_init(&s->drbg); mbedtls_entropy_init(&s->entropy);
-    result = mbedtls_ctr_drbg_seed(&s->drbg, mbedtls_entropy_func, &s->entropy,
-                                   (const unsigned char*)"microhad-https", 10);
+    mbedtls_x509_crt_init(&s->ca);
+    result = microhad_crypto_init();
     if (result == 0) result = mbedtls_x509_crt_parse_file(&s->ca, ca_bundle);
     if (result >= 0) result = mbedtls_net_connect(&s->server, host, "443", MBEDTLS_NET_PROTO_TCP);
     if (result == 0) result = mbedtls_ssl_config_defaults(&s->conf, MBEDTLS_SSL_IS_CLIENT,
@@ -155,7 +145,6 @@ void* microhad_https_session_open(const char* host, const char* ca_bundle) {
     if (result == 0) {
         mbedtls_ssl_conf_authmode(&s->conf, MBEDTLS_SSL_VERIFY_REQUIRED);
         mbedtls_ssl_conf_ca_chain(&s->conf, &s->ca, 0);
-        mbedtls_ssl_conf_rng(&s->conf, mbedtls_ctr_drbg_random, &s->drbg);
         result = mbedtls_ssl_setup(&s->ssl, &s->conf);
     }
     if (result == 0) result = mbedtls_ssl_set_hostname(&s->ssl, host);

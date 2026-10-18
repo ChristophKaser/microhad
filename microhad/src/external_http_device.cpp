@@ -6,7 +6,8 @@
 
 #include "json_util.h"
 
-#include "mbedtls/md5.h"
+#include <mbedtls/md.h>
+extern "C" int microhad_crypto_init(void);
 
 #include <arpa/inet.h>
 #include <algorithm>
@@ -66,7 +67,7 @@ std::string base64(const std::string& input) {
 
 std::string md5Hex(const std::string& value) {
     unsigned char digest[16];
-    if (mbedtls_md5_ret(reinterpret_cast<const unsigned char*>(value.data()), value.size(), digest) != 0) return "";
+    if (microhad_crypto_init() != 0 || mbedtls_md(mbedtls_md_info_from_type(MBEDTLS_MD_MD5), reinterpret_cast<const unsigned char*>(value.data()), value.size(), digest) != 0) return "";
     static const char hex[] = "0123456789abcdef";
     std::string result;
     for (unsigned long i = 0; i < sizeof(digest); ++i) {
