@@ -182,12 +182,12 @@ export function MatterPanel() {
       </form>
     </div>}
     {ready && configured && <>
-      <p>Commission with <strong>Garage</strong>, or use this browser’s Bluetooth support. Both use the same gateway and commissioning sessions.</p>
-      <p className="muted small">Gateway address: {window.location.protocol === 'http:' ? window.location.origin : `http://${window.location.hostname}`}</p>
+      <p>Commission with <strong>MicroHAD Companion</strong>, or use this browser’s Bluetooth support. Both use the same gateway and commissioning sessions.</p>
+      <p className="muted small">Gateway address: {window.location.origin}</p>
       <form onSubmit={event => { event.preventDefault(); const input = sessionInput; setSessionInput(''); void commissionInBrowser(input) }}>
         <label>Matter setup code<input autoComplete="off" spellCheck={false} maxLength={512} value={sessionInput} disabled={pending || !webBluetoothAvailable()} onChange={event => setSessionInput(event.target.value)} /></label>
         <button className="button primary" disabled={pending || !sessionInput.trim() || !webBluetoothAvailable()}>Commission with this browser</button>
-        {!webBluetoothAvailable() && <p className="muted small">Bluetooth commissioning needs Chrome or Edge on Android or desktop, opened over HTTPS. You can still use Garage below.</p>}
+        {!webBluetoothAvailable() && <p className="muted small">Bluetooth commissioning needs Chrome or Edge on Android or desktop, opened over HTTPS. You can still use MicroHAD Companion below.</p>}
       </form>
       {webQrScannerAvailable() && <div className="matter-scanner">
         <button className="button" disabled={pending || !webBluetoothAvailable()} onClick={() => void startScanning()}>Scan Matter QR code</button>
@@ -202,10 +202,10 @@ export function MatterPanel() {
           <button className="button" onClick={stopScanning}>Stop scanning</button>
         </section>
       </div>}
-      <p className="muted small">Garage remains available: open <strong>Matter</strong>, enter this gateway’s address, and scan or enter the accessory’s setup code.</p>
+      <p className="muted small">MicroHAD Companion remains available: connect to this gateway, select <strong>Commission Matter device</strong>, and scan or enter the accessory’s setup code.</p>
       <form onSubmit={event => { event.preventDefault(); if (!validSession(sessionInput)) return; setSession(null); setError(''); setWatch(sessionInput); setSessionInput('') }}>
-        <label>Garage commissioning session ID<input autoComplete="off" spellCheck={false} maxLength={16} value={sessionInput} disabled={pending} onChange={event => setSessionInput(event.target.value)} /></label>
-        <button className="button" disabled={pending || !validSession(sessionInput)}>Watch Garage progress</button>
+        <label>MicroHAD Companion commissioning session ID<input autoComplete="off" spellCheck={false} maxLength={16} value={sessionInput} disabled={pending} onChange={event => setSessionInput(event.target.value)} /></label>
+        <button className="button" disabled={pending || !validSession(sessionInput)}>Watch MicroHAD Companion progress</button>
       </form>
       {session && <div aria-live="polite"><p><strong>{phases[session.state]}</strong>{session.deadline_remaining_seconds > 0 ? ` · ${session.deadline_remaining_seconds}s remaining` : ''}</p>
         {session.node && <p>Commissioned node: {session.node}</p>}
