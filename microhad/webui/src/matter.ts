@@ -251,8 +251,20 @@ export async function matterOnOff(node: string, endpoint: number, action: 'read'
   return value.value
 }
 
+function timeZoneOffsetSeconds(timeZone: string, now: Date): number {
+  const values: Record<string, number> = {}
+  for (const part of new Intl.DateTimeFormat('en-CA', {
+    timeZone, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  }).formatToParts(now)) {
+    if (part.type !== 'literal') values[part.type] = Number(part.value)
+  }
+  return Math.round((Date.UTC(values.year, values.month - 1, values.day,
+    values.hour, values.minute, values.second) - now.getTime()) / 1000)
+}
+
 export async function matterSyncTime(node: string, endpoint: number, timeZone: string, signal: AbortSignal): Promise<void> {
-  const offsetSeconds = -new Date().getTimezoneOffset() * 60
+  const offsetSeconds = timeZoneOffsetSeconds(timeZone, new Date())
   const data = object(await matterCall('/api/matter/devices/command', { node, endpoint, command: 'sync_time', time_zone: timeZone, offset_seconds: offsetSeconds }, signal))
   if (Object.keys(data).length !== 3 || data.state !== 'complete' || typeof data.job !== 'string' || !/^[0-9a-f]{16}$/.test(data.job)) {
     throw new MatterError('protocol')
