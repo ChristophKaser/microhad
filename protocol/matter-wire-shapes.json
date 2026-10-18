@@ -254,7 +254,9 @@
     "schema": "",
     "command": "",
     "node": "@id",
-    "endpoint": ""
+    "endpoint": "",
+    "time_zone": "",
+    "offset_seconds": ""
   },
   "request11:move_to_level": {
     "schema": "",

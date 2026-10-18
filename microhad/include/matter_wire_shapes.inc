@@ -174,6 +174,8 @@ const WireField wireFields[] = {
     {"request11:sync_time", "command", ""},
     {"request11:sync_time", "node", "@id"},
     {"request11:sync_time", "endpoint", ""},
+    {"request11:sync_time", "time_zone", ""},
+    {"request11:sync_time", "offset_seconds", ""},
     {"request11:move_to_level", "schema", ""},
     {"request11:move_to_level", "command", ""},
     {"request11:move_to_level", "node", "@id"},
