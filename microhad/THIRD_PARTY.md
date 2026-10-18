@@ -19,7 +19,10 @@ ChaCha20-Poly1305 and the existing LAN-device authentication hashes are enabled.
 PSA keys are volatile; no persistent PSA key store is enabled. PSA initialization
 is shared through pthread_once, with upstream pthread synchronization enabled
 for concurrent TLS and notification operations. Randomness uses the upstream
-OS entropy implementation.
+OS entropy implementation, with `/dev/urandom` selected for kernels without
+`getrandom()`. This preserves the previous TLS entropy source and avoids
+blocking startup on the gateway's legacy kernel. Existing launcher seed
+restoration remains unchanged.
 
 The project builds static libraries from source for both host tests and the
 selected gateway toolchain: RSDK by default, or experimental crosstool-NG via

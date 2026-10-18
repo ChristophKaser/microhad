@@ -34,6 +34,9 @@
 #define MBEDTLS_HAVE_TIME
 #define MBEDTLS_HAVE_TIME_DATE
 #define MBEDTLS_PLATFORM_C
+/* Legacy gateway kernels lack getrandom(); /dev/random can block startup.
+ * Retain the previous TLS entropy source and the launcher's seed handling. */
+#define MBEDTLS_PLATFORM_DEV_RANDOM "/dev/urandom"
 #define MBEDTLS_MD_C
 #define MBEDTLS_PK_C
 #define MBEDTLS_PK_PARSE_C
