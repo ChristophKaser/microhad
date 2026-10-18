@@ -550,13 +550,25 @@ impl Operation {
                             .and_then(|value| value.checked_add(u64::from(unix.subsec_micros())))
                             .ok_or(ErrorCode::InvalidData)?;
                         let name = time_zone.as_str();
-                        let mut zone = exchange.time_synchronization().set_time_zone(self.endpoint, |request| {
-                            request.time_zone()?.push()?.offset(offset_seconds)?.valid_at(utc_us)?
+                        let zone = exchange.time_synchronization().set_time_zone(self.endpoint, |request| {
+                            // Matter requires the first time-zone entry to be valid from
+                            // the Matter epoch.  A current timestamp is rejected by
+                            // accessories such as ALPSTUGA with CONSTRAINT_ERROR.
+                            request.time_zone()?.push()?.offset(offset_seconds)?.valid_at(0)?
                                 .name(Some(name))?.end()?.end()?.end()
                         }).await?;
                         let requires_dst = zone.response()?.dst_offset_required()?;
                         zone.complete().await?;
-                        if requires_dst { return Err(ErrorCode::InvalidInState.into()); }
+                        if requires_dst {
+                            // The UI supplies the currently effective UTC offset, so an
+                            // empty DST table preserves that offset.  Sending the table is
+                            // nevertheless required by accessories that report
+                            // DSTOffsetRequired after accepting SetTimeZone.
+                            Exchange::initiate(matter, &crypto, fabric, self.node).await?
+                                .time_synchronization().set_dst_offset(self.endpoint, |request| {
+                                    request.dst_offset()?.end()?.end()
+                                }).await?;
+                        }
                         Exchange::initiate(matter, &crypto, fabric, self.node).await?.time_synchronization().set_utc_time(self.endpoint, |request| {
                             request.utc_time(utc_us)?
                                 .granularity(GranularityEnum::MicrosecondsGranularity)?
