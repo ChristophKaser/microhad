@@ -210,7 +210,7 @@ bool measurementValueValid(const std::string& text, uint32_t cluster) {
 }
 bool typedValueValid(const Fields& result, Fields value) {
     const std::string& clusterName = result.find("cluster")->second;
-    if (clusterName == "30" || clusterName == "62")
+    if (clusterName == "30" || clusterName == "56" || clusterName == "62")
         return result.at("attribute") == "0" && value.size() == 2 &&
             value["type"] == "\"bool\"" && booleanField(value, "value");
     if (clusterName == "6" || clusterName == "69")
