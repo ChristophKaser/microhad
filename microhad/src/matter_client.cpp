@@ -940,7 +940,7 @@ bool MatterChannel::deviceResult(const std::string& response, const std::string&
     parsed.node = result["node"].substr(1, result["node"].size() - 2);
     parsed.endpoint = static_cast<unsigned short>(strtoul(result["endpoint"].c_str(), 0, 10));
     parsed.cluster = static_cast<unsigned int>(strtoul(result["cluster"].c_str(), 0, 10));
-    if (parsed.cluster == 6 || parsed.cluster == 69 || parsed.cluster == 62) {
+    if (parsed.cluster == 6 || parsed.cluster == 56 || parsed.cluster == 62 || parsed.cluster == 69) {
         parsed.known = true;
         parsed.booleanValue = value["value"] == "true";
     } else if (parsed.cluster == 8) {
