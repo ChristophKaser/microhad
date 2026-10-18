@@ -20,13 +20,14 @@ public:
     HttpServer(int port, GatewayRunner* gateway, const std::string& webuiDirectory,
                const std::string& certificatePath, const std::string& privateKeyPath,
                ExternalHttpDeviceWorker* shelly = 0, NotificationWorker* notifications = 0,
-               MatterWorker* matterWorker = 0);
+               MatterWorker* matterWorker = 0, const std::string& companionConfig = "");
     ~HttpServer();
     bool start(std::string* error);
     void poll();
     int boundPort() const;
 
 private:
+    std::string companionConfig_;
     int port_;
     int listenFd_;
     GatewayRunner* gateway_;

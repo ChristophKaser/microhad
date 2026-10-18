@@ -1,3 +1,4 @@
+#include "gateway_config.h"
 #include "http_server.h"
 #include "gateway_runner.h"
 #include "storage.h"
@@ -575,8 +576,8 @@ bool threadUsageOrder(const ThreadCpuReading& left, const ThreadCpuReading& righ
 
 HttpServer::HttpServer(int port, GatewayRunner* gateway, const std::string& webuiDirectory,
                        const std::string& certificatePath, const std::string& privateKeyPath,
-                       ExternalHttpDeviceWorker* shelly, NotificationWorker* notifications, MatterWorker* matterWorker) :
-    port_(port), listenFd_(-1), gateway_(gateway), processId_(static_cast<unsigned long>(getpid())),
+                       ExternalHttpDeviceWorker* shelly, NotificationWorker* notifications, MatterWorker* matterWorker, const std::string& companionConfig) :
+    companionConfig_(companionConfig.empty() ? GatewayConfig().companionJson() : companionConfig), port_(port), listenFd_(-1), gateway_(gateway), processId_(static_cast<unsigned long>(getpid())),
     threadNamePrefix_(certificatePath.empty() ? "http" : "https"), shelly_(shelly), notifications_(notifications),
     matter_(new MatterClient("/tmp/microhad-matter.sock")), matterWorker_(matterWorker), webPush_(new WebPushStore(gateway->runtimeDirectory())), webuiDirectory_(webuiDirectory),
     certificatePath_(certificatePath), privateKeyPath_(privateKeyPath), tlsServer_(0), running_(false),
@@ -1034,6 +1035,8 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
             if (!view) writeResponse(clientFd,503,"application/json","{\"ok\":false,\"error\":\"gateway unavailable\"}");
             else { std::string body=view->settingsJson(); delete view; writeResponse(clientFd,200,"application/json",body); }
         }
+    } else if (request.find("GET /api/companion/config ") == 0) {
+        writeResponse(clientFd, 200, "application/json", companionConfig_);
     } else if (request.find("GET /api/status ") == 0) {
         GatewayRunner::ViewLease* view = gateway_->acquireView();
         if (view == 0) writeResponse(clientFd, 503, "application/json", "{\"ok\":false,\"error\":\"coordinator is unavailable\"}");

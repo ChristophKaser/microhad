@@ -81,7 +81,7 @@ void CompanionDiscovery::send(const Interface& interface, const std::string& pac
 }
 void CompanionDiscovery::closeSocket() {
     if (fd_ >= 0) {
-        for (size_t i=0; i<interfaces_.size(); ++i) if (interfaces_[i].probes == 3)
+        for (size_t i=0; i<interfaces_.size(); ++i) if (interfaces_[i].announced)
             send(interfaces_[i], records(interfaces_[i].label, interfaces_[i].address, port_, 0));
         close(fd_); fd_ = -1;
     }
@@ -121,7 +121,7 @@ void CompanionDiscovery::refresh(uint64_t now) {
         struct ip_mreq membership; membership.imr_multiaddr.s_addr = inet_addr("224.0.0.251"); membership.imr_interface.s_addr = addresses[i];
         if (setsockopt(fd_, IPPROTO_IP, IP_ADD_MEMBERSHIP, &membership, sizeof(membership)) != 0) continue;
         Interface interface; interface.address=addresses[i]; interface.suffix=1; interface.label=labelFor(addresses[i],1);
-        interface.probes=0; interface.due=now+250; interfaces_.push_back(interface);
+        interface.probes=0; interface.announced=false; interface.due=now+250; interfaces_.push_back(interface);
     }
 }
 void CompanionDiscovery::poll() {
@@ -133,7 +133,7 @@ void CompanionDiscovery::poll() {
             name(&probe, instance(interface.label)); word(&probe,255); word(&probe,1);
             name(&probe, host(interface.label)); word(&probe,255); word(&probe,1);
             send(interface,probe); ++interface.probes; interface.due=now+250;
-        } else { send(interface,records(interface.label,interface.address,port_,120)); interface.due=now+60000; }
+        } else { send(interface,records(interface.label,interface.address,port_,120)); interface.announced=true; interface.due=now+60000; }
     }
     for (unsigned int received=0; received<8; ++received) {
         char buffer[1501]; struct sockaddr_in source; socklen_t sourceSize=sizeof(source);
@@ -167,15 +167,12 @@ void CompanionDiscovery::poll() {
                     if (!readName(packet,&target,&targetName)) { valid=false; break; }
                     conflict=getWord(packet,at+4)!=port_ || targetName!=host(interface.label);
                 }
-                if (conflict) { interface.label=labelFor(interface.address,++interface.suffix); interface.probes=0; interface.due=now+250; }
+                if (conflict) { interface.label=labelFor(interface.address,++interface.suffix); interface.probes=0; interface.announced=false; interface.due=now+250; }
             }
             at+=length;
         }
         if (valid && !(static_cast<unsigned char>(packet[2])&0x80) && wanted && now-lastReply_>=250) {
-            for (size_t i=0; i<interfaces_.size(); ++i) if (interfaces_[i].probes==3 && now>=interfaces_[i].due-250)
-                send(interfaces_[i],records(interfaces_[i].label,interfaces_[i].address,port_,120));
-            // Announced interfaces have due in the future; reply to them as well.
-            for (size_t i=0; i<interfaces_.size(); ++i) if (interfaces_[i].probes==3 && interfaces_[i].due>now+250)
+            for (size_t i=0; i<interfaces_.size(); ++i) if (interfaces_[i].announced)
                 send(interfaces_[i],records(interfaces_[i].label,interfaces_[i].address,port_,120));
             lastReply_=now;
         }

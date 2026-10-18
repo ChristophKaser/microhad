@@ -18,6 +18,7 @@ private:
         std::string label;
         unsigned int suffix;
         unsigned int probes;
+        bool announced;
         uint64_t due;
     };
     int fd_;

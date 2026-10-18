@@ -3,6 +3,7 @@
 #include "notification_worker.h"
 #include "http_server.h"
 #include "gateway_config.h"
+#include "companion_discovery.h"
 #include "external_http_device.h"
 #include "thread_name.h"
 #include "matter_worker.h"
@@ -104,7 +105,7 @@ int main(int argc, char** argv) {
         return 1;
     }
 #endif
-    server = new HttpServer(httpPort, gatewayRunner, runtimeDirectory + "/webui", "", "", shellyIntegration, notificationWorker, &matterWorker);
+    server = new HttpServer(httpPort, gatewayRunner, runtimeDirectory + "/webui", "", "", shellyIntegration, notificationWorker, &matterWorker, config.companionJson());
     if (!server->start(&error)) {
         fprintf(stderr, "web startup failed: %s\n", error.c_str());
         delete server;
@@ -127,7 +128,7 @@ int main(int argc, char** argv) {
             delete notificationWorker;
             return 2;
         }
-        httpsServer = new HttpServer(httpsPort, gatewayRunner, runtimeDirectory + "/webui", certificatePath, privateKeyPath, shellyIntegration, notificationWorker, &matterWorker);
+        httpsServer = new HttpServer(httpsPort, gatewayRunner, runtimeDirectory + "/webui", certificatePath, privateKeyPath, shellyIntegration, notificationWorker, &matterWorker, config.companionJson());
         if (!httpsServer->start(&error)) {
             fprintf(stderr, "HTTPS startup failed: %s\n", error.c_str());
             delete httpsServer;
@@ -143,7 +144,9 @@ int main(int argc, char** argv) {
     signal(SIGTERM, stopHandler);
     fprintf(stderr, "microhad: serial=%s http=%d https=%d\n", serialDevice.c_str(), httpPort,
             httpsServer == 0 ? 0 : httpsPort);
+    CompanionDiscovery discovery(static_cast<unsigned short>(httpPort));
     while (running) {
+        if (config.companionDiscovery) discovery.poll();
         server->poll();
         if (httpsServer != 0) httpsServer->poll();
         usleep(20000);

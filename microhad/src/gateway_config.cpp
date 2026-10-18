@@ -120,7 +120,7 @@ bool numberSetting(const std::map<std::string, std::string>& strings,
 }
 
 GatewayConfig::GatewayConfig() : zigguratSocket("/tmp/ziggurat/native.sock"), serialDevice("/dev/ttyS1"), serialBaud(115200), broadcastPassiveAckQuorum(8), matterCountryCode("DE"), matterRegulatoryLocation("indoor"), runtimeDirectory("/tuya/native"),
-    httpPort(80), httpsPort(443), firebaseTopic("zigbee_alerts") {}
+    httpPort(80), httpsPort(443), firebaseTopic("zigbee_alerts"), gatewayName("MicroHAD"), companionDiscovery(1) {}
 
 bool selectGatewayConfigPath(int argc, const char* const argv[], std::string* path, std::string* error) {
     if (argc == 1) { *path = "/tuya/native/config.json"; return true; }
@@ -148,9 +148,43 @@ bool loadGatewayConfig(const std::string& path, GatewayConfig* config, std::stri
         !numberSetting(strings, numbers, "https_port", &config->httpsPort, error) ||
         !stringSetting(strings, numbers, "firebase_service_account", &config->firebaseServiceAccount, error) ||
         !stringSetting(strings, numbers, "firebase_topic", &config->firebaseTopic, error) ||
+        !stringSetting(strings, numbers, "gateway_name", &config->gatewayName, error) ||
+        !numberSetting(strings, numbers, "companion_discovery", &config->companionDiscovery, error) ||
+        !stringSetting(strings, numbers, "firebase_application_id", &config->firebaseApplicationId, error) ||
+        !stringSetting(strings, numbers, "firebase_api_key", &config->firebaseApiKey, error) ||
+        !stringSetting(strings, numbers, "firebase_project_id", &config->firebaseProjectId, error) ||
+        !stringSetting(strings, numbers, "firebase_sender_id", &config->firebaseSenderId, error) ||
         !stringSetting(strings, numbers, "ca_bundle", &config->caBundle, error) ||
         !stringSetting(strings, numbers, "tls_certificate", &config->tlsCertificate, error) ||
         !stringSetting(strings, numbers, "tls_private_key", &config->tlsPrivateKey, error)) return false;
+    if (config->gatewayName.empty() || config->gatewayName.size() > 128 ||
+        config->gatewayName.find_first_of("\r\n\t") != std::string::npos) {
+        *error = "gateway_name must contain 1-128 bytes without control whitespace"; return false;
+    }
+    if (config->companionDiscovery != 0 && config->companionDiscovery != 1) {
+        *error = "companion_discovery must be 0 or 1"; return false;
+    }
+    bool hasFirebaseClient = !config->firebaseApplicationId.empty() || !config->firebaseApiKey.empty() ||
+        !config->firebaseProjectId.empty() || !config->firebaseSenderId.empty();
+    if (hasFirebaseClient) {
+        const std::string values[] = {config->firebaseApplicationId, config->firebaseApiKey, config->firebaseProjectId, config->firebaseSenderId};
+        for (unsigned int i=0; i<4; ++i) {
+            if (values[i].empty() || values[i].size()>512) { *error="all four Firebase client fields are required (1-512 bytes each)"; return false; }
+            for (size_t j=0; j<values[i].size(); ++j) if (static_cast<unsigned char>(values[i][j])<=32) {
+                *error="Firebase client fields must not contain whitespace or control characters"; return false;
+            }
+        }
+        if (config->firebaseSenderId.find_first_not_of("0123456789") != std::string::npos ||
+            config->firebaseApplicationId.find("1:" + config->firebaseSenderId + ":android:") != 0 ||
+            config->firebaseApplicationId.size() <= config->firebaseSenderId.size()+11) {
+            *error="Firebase application ID must be an Android app belonging to firebase_sender_id"; return false;
+        }
+        std::string accountText, project;
+        if (config->firebaseServiceAccount.empty() || !readTextFile(config->firebaseServiceAccount, &accountText) ||
+            !jsonStringField(accountText, "project_id", &project) || project != config->firebaseProjectId) {
+            *error="Firebase client project must match the configured sending service account"; return false;
+        }
+    }
     if (config->broadcastPassiveAckQuorum < 1 || config->broadcastPassiveAckQuorum > 255) {
         *error = "broadcast_passive_ack_quorum must be an integer between 1 and 255"; return false;
     }
@@ -184,4 +218,18 @@ bool loadGatewayConfig(const std::string& path, GatewayConfig* config, std::stri
         *error = "runtime_dir must not be empty"; return false;
     }
     return true;
+}
+
+std::string GatewayConfig::companionJson() const {
+    std::string body = "{\"schema\":1,\"name\":\"" + jsonEscape(gatewayName) + "\",\"matter\":";
+#if MICROHAD_MATTER_ENABLED
+    body += "true";
+#else
+    body += "false";
+#endif
+    body += ",\"firebase\":";
+    if (firebaseApplicationId.empty()) body += "null";
+    else body += "{\"application_id\":\"" + jsonEscape(firebaseApplicationId) + "\",\"api_key\":\"" + jsonEscape(firebaseApiKey) +
+        "\",\"project_id\":\"" + jsonEscape(firebaseProjectId) + "\",\"sender_id\":\"" + jsonEscape(firebaseSenderId) + "\"}";
+    return body + "}";
 }

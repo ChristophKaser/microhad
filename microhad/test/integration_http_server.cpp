@@ -327,6 +327,13 @@ void testServers() {
     failTlsHandshake(https.boundPort());
     tlsAbortAfterRequest(https.boundPort());
 
+    response = plainRequest(http.boundPort(), "GET /api/companion/config HTTP/1.1\r\nHost: localhost\r\n\r\n");
+    expectStatus("http companion config", response, 200);
+    assert(response.find("\"schema\":1") != std::string::npos && response.find("\"firebase\":null") != std::string::npos);
+    assert(response.find("private_key") == std::string::npos && response.find("service_account") == std::string::npos);
+    response = tlsRequest(https.boundPort(), "GET /api/companion/config HTTP/1.1\r\nHost: localhost\r\n\r\n");
+    expectStatus("https companion config", response, 200);
+
     response = plainRequest(http.boundPort(), "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n");
     expectStatus("http dashboard", response, 200);
     assert(response.find("Content-Type: text/html; charset=utf-8\r\n") != std::string::npos && response.find("<html>integration dashboard</html>") != std::string::npos);

@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
+#include <fstream>
 #include <string>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -142,6 +143,26 @@ void runGatewayConfigUnitTests() {
     output = runInvalidConfigProcess(filename, &exitCode);
     assert(exitCode == 2 && output.find("listener ports must be between 1 and 65535") != std::string::npos);
     assert(access(runtimePath.c_str(), F_OK) != 0);
+    const std::string accountPath=std::string(filename)+".account";
+    { std::ofstream account(accountPath.c_str()); account << "{\"project_id\":\"example-project\",\"private_key\":\"never-export-this\"}"; }
+    const std::string firebaseFields="\"firebase_application_id\":\"1:123456:android:abcdef\",\"firebase_api_key\":\"example-key\",\"firebase_project_id\":\"example-project\",\"firebase_sender_id\":\"123456\"";
+    replaceFileContents(filename,"{"+firebaseFields+",\"firebase_service_account\":\""+accountPath+"\",\"gateway_name\":\"My gateway\",\"companion_discovery\":0}");
+    GatewayConfig companion;
+    assert(loadGatewayConfig(filename,&companion,&error));
+    std::string publicConfig=companion.companionJson();
+    assert(companion.companionDiscovery==0 && publicConfig.find("My gateway")!=std::string::npos);
+    assert(publicConfig.find("example-key")!=std::string::npos && publicConfig.find("never-export-this")==std::string::npos);
+    assert(publicConfig.find(accountPath)==std::string::npos && publicConfig.find("private_key")==std::string::npos);
+    replaceFileContents(filename,"{"+firebaseFields+"}"); GatewayConfig missingSender;
+    assert(!loadGatewayConfig(filename,&missingSender,&error));
+    { std::ofstream account(accountPath.c_str()); account << "{\"project_id\":\"other-project\"}"; }
+    replaceFileContents(filename,"{"+firebaseFields+",\"firebase_service_account\":\""+accountPath+"\"}"); GatewayConfig mismatch;
+    assert(!loadGatewayConfig(filename,&mismatch,&error));
+    replaceFileContents(filename,"{\"firebase_api_key\":\"incomplete\"}"); GatewayConfig incomplete;
+    assert(!loadGatewayConfig(filename,&incomplete,&error));
+    replaceFileContents(filename,"{\"companion_discovery\":2}"); GatewayConfig invalidDiscovery;
+    assert(!loadGatewayConfig(filename,&invalidDiscovery,&error));
+    unlink(accountPath.c_str());
     unlink(filename);
     rmdir(directoryPath);
     fprintf(stderr, "unit: malformed and wrong-type configuration rejected before startup\n");

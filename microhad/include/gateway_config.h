@@ -15,6 +15,13 @@ struct GatewayConfig {
     long httpsPort;
     std::string firebaseServiceAccount;
     std::string firebaseTopic;
+    std::string gatewayName;
+    long companionDiscovery;
+    std::string firebaseApplicationId;
+    std::string firebaseApiKey;
+    std::string firebaseProjectId;
+    std::string firebaseSenderId;
+    std::string companionJson() const;
     std::string caBundle;
     std::string tlsCertificate;
     std::string tlsPrivateKey;
