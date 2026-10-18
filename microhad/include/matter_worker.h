@@ -33,6 +33,7 @@ private:
     std::deque<std::string> phoneOutput_;
     unsigned long phoneOffset_;
     int64_t phoneReceived_;
+    int64_t phonePingAt_;
     int64_t phoneWriteSince_;
     uint32_t phoneLastId_;
     uint32_t phoneGeneration_;

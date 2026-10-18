@@ -114,7 +114,11 @@ export function MatterPanel() {
       const relay = browserRelay.current = new BrowserMatterRelay(started.session, value => {
         if (!active.current) return
         setSession(value); if (terminalSession(value)) { setWatch(''); relay.close() }
-      }, cause => { if (active.current) { setError(failure(cause)); setWatch('') } })
+      }, cause => {
+        // The gateway cancels a failed relay asynchronously.  Continue polling
+        // so the screen shows that terminal result rather than stale PASE state.
+        if (active.current) setError(failure(cause))
+      })
       await relay.connect(device)
     } catch (cause) { if (active.current) setError(failure(cause)) }
     finally { operation.current = null; if (active.current) setPending(false) }

@@ -33,7 +33,7 @@ const size_t MaxDeferredMatterReadings = 128;
 
 MatterWorker::MatterWorker(GatewayRunner* gateway, const std::string& socketPath) :
     gateway_(gateway), phonePendingFd_(-1), phoneActive_(false), phoneFd_(-1), phoneReady_(false), phoneOffset_(0),
-    phoneReceived_(0), phoneWriteSince_(0), phoneLastId_(0), phoneGeneration_(0), client_(socketPath),
+    phoneReceived_(0), phonePingAt_(0), phoneWriteSince_(0), phoneLastId_(0), phoneGeneration_(0), client_(socketPath),
     nextJob_(1), running_(false), started_(false), refreshed_(0) {
     pthread_mutex_init(&mutex_, 0);
     client_.setEventHandler(&MatterWorker::drainMatterEvents, this);
@@ -419,7 +419,7 @@ void MatterWorker::dropPhone(bool cancel, unsigned int code) {
         close(phoneFd_); phoneFd_ = -1;
     }
     phoneDecoder_ = MatterWebSocket::Decoder(); phoneOutput_.clear(); phoneOffset_ = 0;
-    phoneLastId_ = 0; phoneGeneration_ = 0; phoneReady_ = false;
+    phoneLastId_ = 0; phoneGeneration_ = 0; phoneReceived_ = 0; phonePingAt_ = 0; phoneReady_ = false;
     pthread_mutex_lock(&mutex_);
     if (phonePendingFd_ >= 0) { close(phonePendingFd_); phonePendingFd_ = -1; }
     phoneHandshake_.clear(); phoneActive_ = false;
@@ -438,13 +438,20 @@ void MatterWorker::phonePump() {
     if (phonePendingFd_ >= 0) {
         phoneFd_ = phonePendingFd_; phonePendingFd_ = -1;
         phoneOutput_.push_back(phoneHandshake_); phoneHandshake_.clear(); phoneWriteSince_ = tick();
-        phoneReceived_ = tick(); events_.clear();
+        phoneReceived_ = tick(); phonePingAt_ = phoneReceived_ + 10000; events_.clear();
     }
     pthread_mutex_unlock(&mutex_);
     if (phoneFd_ < 0) return;
     const int64_t now = tick();
     if (now - phoneReceived_ > 30000 || (!phoneOutput_.empty() && now - phoneWriteSince_ > 2000)) {
         dropPhone(true, 1008); return;
+    }
+    // Chrome responds to WebSocket ping frames internally.  Keep an otherwise
+    // quiet BLE relay alive while PASE waits for an accessory response, but
+    // retain the 30-second peer-deadline when its pong stops arriving.
+    if (now >= phonePingAt_ && phoneOutput_.empty()) {
+        if (!phoneQueue(9, "")) { dropPhone(true, 1009); return; }
+        phonePingAt_ = now + 10000;
     }
     char buffer[MatterWebSocket::MaxChunk];
     ssize_t count = recv(phoneFd_, buffer, sizeof(buffer), MSG_DONTWAIT);
@@ -458,6 +465,7 @@ void MatterWorker::phonePump() {
     MatterWebSocket::Message message;
     if (phoneDecoder_.pop(&message)) {
         phoneReceived_ = tick();
+        phonePingAt_ = phoneReceived_ + 10000;
         if (message.opcode == 8) { dropPhone(true, 1000); return; }
         if (message.opcode == 9) {
             if (!phoneQueue(10, message.payload)) { dropPhone(true, 1009); return; }
