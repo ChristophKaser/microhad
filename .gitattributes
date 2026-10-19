@@ -3,3 +3,6 @@ patches/*.patch -whitespace
 ziggurat/patches/*.patch -whitespace
 micro-thread-matter-daemon/patches/*.patch -whitespace
 scripts/matter-diagnostics/*.patch -whitespace
+
+# Preserve verbatim upstream license/NOTICE formatting.
+third-party/** -whitespace

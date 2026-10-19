@@ -176,3 +176,10 @@ described in the guide.
 
 See [native usage](docs/native-usage.md), [Matter runtime](docs/matter-service-runtime.md),
 and [recovery tooling](docs/recovery-tooling.md).
+
+## License and attribution
+
+Original project code and documentation are licensed under the [MIT License](LICENSE),
+Copyright (c) 2026 MicroHAD contributors. Third-party code, assets and upstream-derived
+modifications retain their respective licenses; the root license does not relicense them.
+See [third-party software and release obligations](THIRD_PARTY.md).

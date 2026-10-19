@@ -194,7 +194,7 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun Page(title: String, content: @Composable ColumnScope.() -> Unit) {
         Column(Modifier.fillMaxSize()) {
-            TopAppBar(title = { Text(title, fontWeight = FontWeight.SemiBold) }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface))
+            TopAppBar(title = { Text(title, fontWeight = FontWeight.SemiBold) }, actions = { TextButton({ startActivity(Intent(this@MainActivity, LicensesActivity::class.java)) }) { Text("Licenses") } }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface))
             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(16.dp), content = content)
         }
     }

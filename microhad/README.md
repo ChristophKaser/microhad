@@ -119,3 +119,9 @@ exits. Strings are decoded and integers use decimal notation. A missing field
 prints an empty line; implicit defaults are not included. With no `--config`,
 it reads `/tuya/native/config.json`. This is a local command and can print
 private configuration values, so do not expose it through a public endpoint.
+
+## Licenses and attribution
+
+Original project code is MIT licensed; upstream components retain their own terms.
+See the repository-wide [third-party inventory](../THIRD_PARTY.md) for attribution,
+notice generation and release requirements.

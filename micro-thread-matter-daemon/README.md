@@ -218,3 +218,9 @@ This example uses the RSDK artifact; select the candidate output path when
 using crosstool-NG. Selective maintenance
 retains the installed launcher and restarts the paired stack. Rollback copies
 are opt-in via `--rollback-dir DIR`; existing backups are preserved.
+
+## Licenses and attribution
+
+Original project code is MIT licensed; upstream components retain their own terms.
+See the repository-wide [third-party inventory](../THIRD_PARTY.md) for attribution,
+notice generation and release requirements.

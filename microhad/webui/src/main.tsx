@@ -253,6 +253,7 @@ function App() {
           <p className="eyebrow">Smart home / Gateway</p>
           <h1 className="hero-brand"><img src="/microhad-icon.svg" width="56" height="56" alt="" />MicroHAD</h1>
           <p className="hero-sub">Devices, scenes, and coordinator activity in one place.</p>
+          <a href="/licenses.html">Open-source licenses</a>
         </div>
         <div className="hero-actions"><div className="serial-state">
           {restarting ? 'Restarting service…' : statusError ? 'Gateway status unavailable' : status?.online ? 'Coordinator online' : 'Coordinator offline'}

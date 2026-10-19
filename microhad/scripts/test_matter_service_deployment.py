@@ -300,7 +300,7 @@ with open(os.environ['VERIFY_CALLS'], 'a') as output:
             curl.chmod(0o700)
             webui = root / 'webui';webui.mkdir()
             (webui / 'index.html').write_text('<script src="/app.js"></script>\n<link href="/app.css">\n')
-            for name in ('sw.js', 'app.js', 'app.css'):
+            for name in ('sw.js', 'app.js', 'app.css', 'licenses.html'):
                 (webui / name).write_text('fixture')
             password = root / 'password';password.touch()
             calls = root / 'verify-calls'
@@ -314,6 +314,11 @@ with open(os.environ['VERIFY_CALLS'], 'a') as output:
             self.assertEqual([row[-1] for row in rows],
                              ['http://192.168.178.62/app.js', 'http://192.168.178.62/app.css'])
             self.assertTrue(all('-fsS' in row and '-kfsS' not in row for row in rows))
+            staging = [json.loads(line) for line in (root / 'staging-calls').read_text().splitlines()]
+            uploads = [row['command'] for row in staging if row['command'].startswith('dd of=')]
+            self.assertTrue(any('/webui/licenses.html.new' in command for command in uploads))
+            self.assertTrue(all('/webui/' in command for command in uploads))
+
 
     def test_dashboard_wait_handles_delayed_startup_and_timeout(self):
         script = (ROOT.parent / 'deploy.sh').read_text()

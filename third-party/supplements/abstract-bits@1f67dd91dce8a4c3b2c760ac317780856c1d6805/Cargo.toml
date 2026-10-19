@@ -1,0 +1,24 @@
+[package]
+name = "abstract-bits"
+version = "0.2.0"
+edition = "2024"
+rust-version = "1.86"
+
+readme = "README.md"
+description = "Turn any combination of bit and byte fields into a structs"
+categories = ["data-structures", "no-std", "embedded", "rust-patterns"]
+repository = "https://github.com/dvdsk/abstract-bits"
+
+license = "Apache-2.0 OR MIT"
+authors = ["David Kleingeld"]
+
+[dependencies]
+arbitrary-int = "2.1.1"
+bitvec = { version = "1.0.1", default-features = false, features = ["alloc"] }
+thiserror = { version = "2.0.12", default-features = false }
+abstract-bits-derive = { path = "abstract-bits-derive", version = "0.2.0" }
+
+[dev-dependencies]
+color-eyre = "0.6.4"
+hex = "0.4.3"
+hex-literal = "1.0.0"

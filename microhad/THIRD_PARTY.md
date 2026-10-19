@@ -1,4 +1,9 @@
-# Third-party source
+# MicroHAD third-party source
+
+The repository-wide [inventory and attribution requirements](../THIRD_PARTY.md)
+cover all components, dependency licenses and release gates. This page retains
+MicroHAD-specific build information. Mbed TLS and TF-PSA-Crypto are used under
+their Apache-2.0 option; this does not relicense their nested third-party code.
 
 `dependencies/mbedtls` is a Git submodule of
 https://github.com/Mbed-TLS/mbedtls.git pinned to `mbedtls-4.2.0`

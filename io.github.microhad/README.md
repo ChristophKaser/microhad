@@ -67,3 +67,9 @@ cover the configuration endpoint and mDNS encoding/parser bounds.
 Real phone Bluetooth, LAN discovery, push delivery after process death/reboot,
 and accessory commissioning require the manual acceptance checks in the usage
 guide. Synthetic tests do not establish those hardware behaviors.
+
+## Licenses and attribution
+
+Original project code is MIT licensed; upstream components retain their own terms.
+See the repository-wide [third-party inventory](../THIRD_PARTY.md) for attribution,
+notice generation and release requirements.

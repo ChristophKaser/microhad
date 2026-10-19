@@ -1,0 +1,49 @@
+import groovy.json.JsonOutput
+import org.gradle.maven.MavenModule
+import org.gradle.maven.MavenPomArtifact
+
+abstract class GenerateThirdPartyNotices extends DefaultTask {
+    @OutputDirectory
+    abstract DirectoryProperty getOutputDirectory()
+}
+
+// Resolve the actual variant graph, not every item in the Gradle cache.
+androidComponents.onVariants(androidComponents.selector().all()) { variant ->
+    def capitalized = variant.name.capitalize()
+    def output = layout.buildDirectory.dir("generated/thirdParty/${variant.name}")
+    def generate = tasks.register("generate${capitalized}ThirdPartyNotices", GenerateThirdPartyNotices) {
+        outputDirectory.set(output)
+        // Resolve on every build so a graph change cannot reuse stale notices.
+        outputs.upToDateWhen { false }
+        doLast {
+            def configuration = configurations.getByName("${variant.name}RuntimeClasspath")
+            def artifacts = configuration.resolvedConfiguration.resolvedArtifacts
+            def ids = configuration.incoming.resolutionResult.allComponents.collect { it.id }
+                .findAll { it instanceof org.gradle.api.artifacts.component.ModuleComponentIdentifier }
+            def query = dependencies.createArtifactResolutionQuery().forComponents(ids)
+                .withArtifacts(MavenModule, MavenPomArtifact).execute()
+            def poms = [:]
+            query.resolvedComponents.each { component ->
+                component.getArtifacts(MavenPomArtifact).each { artifact ->
+                    if (artifact instanceof org.gradle.api.artifacts.result.ResolvedArtifactResult) {
+                        poms["${component.id.group}:${component.id.module}:${component.id.version}".toString()] = artifact.file.absolutePath
+                    }
+                }
+            }
+            def records = artifacts.collect { artifact ->
+                def id = artifact.moduleVersion.id
+                def coordinate = "${id.group}:${id.name}:${id.version}"
+                [coordinate: coordinate, artifact: artifact.file.absolutePath, pom: poms[coordinate.toString()]]
+            }.sort { it.coordinate }
+            def manifest = layout.buildDirectory.file("thirdParty/${variant.name}.json").get().asFile
+            manifest.parentFile.mkdirs()
+            manifest.text = JsonOutput.prettyPrint(JsonOutput.toJson(records)) + '\n'
+            exec {
+                commandLine 'python3', rootProject.file('../scripts/licensing/android-notices.py'),
+                    '--manifest', manifest, '--output', outputDirectory.get().file('licenses.html').asFile,
+                    '--cache', new File(gradle.gradleUserHomeDir, 'caches/modules-2/files-2.1')
+            }
+        }
+    }
+    variant.sources.assets.addGeneratedSourceDirectory(generate) { it.outputDirectory }
+}

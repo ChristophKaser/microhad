@@ -1,10 +1,11 @@
 {
   "name": "microhad-webui",
   "private": true,
+  "license": "MIT",
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && vite build && python3 ../../scripts/licensing/notices.py web --output dist/licenses.html",
     "dev": "vite --host 0.0.0.0"
   },
   "dependencies": {

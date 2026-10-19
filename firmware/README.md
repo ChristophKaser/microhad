@@ -36,3 +36,9 @@ Follow [installation](../docs/installation.md) and
 [recovery](../docs/recovery-tooling.md) for authorized device work. Keep existing
 network state and factory backups; shared-radio maintenance requires exclusive
 UART ownership.
+
+## Licenses and attribution
+
+Original project code is MIT licensed; upstream components retain their own terms.
+See the repository-wide [third-party inventory](../THIRD_PARTY.md) for attribution,
+notice generation and release requirements.

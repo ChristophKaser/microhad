@@ -46,3 +46,9 @@ See [building](../docs/building.md) and [integration](../docs/native-ziggurat-in
 
 For a host OTBR, use `--thread-listen IP:PORT` instead of `--thread-socket`.
 See [TCP Thread transport and no-reset configuration](../docs/hdlc-multipan-usage.md#tcp-endpoint-for-host-otbr).
+
+## Licenses and attribution
+
+Original project code is MIT licensed; upstream components retain their own terms.
+See the repository-wide [third-party inventory](../THIRD_PARTY.md) for attribution,
+notice generation and release requirements.
