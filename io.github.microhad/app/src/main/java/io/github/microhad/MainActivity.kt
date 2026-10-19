@@ -8,153 +8,271 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
-import android.widget.*
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.app.AlertDialog
-import androidx.appcompat.app.AppCompatActivity
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.dp
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.work.WorkManager
 import com.google.firebase.FirebaseApp
 import com.google.firebase.messaging.FirebaseMessaging
-import kotlinx.coroutines.*
-import kotlinx.coroutines.tasks.await
 import io.github.microhad.matter.MatterActivity
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : ComponentActivity() {
+    private enum class Destination { DASHBOARD, SETUP, DISCONNECTED }
+    private data class Gateway(val name: String, val base: String)
+
     private lateinit var store: GatewayStore
-    private lateinit var content: LinearLayout
-    private lateinit var status: TextView
+    private var destination by mutableStateOf(Destination.SETUP)
+    private var status by mutableStateOf("")
+    private var address by mutableStateOf("")
+    private var busy by mutableStateOf(false)
+    private var confirmDisconnect by mutableStateOf(false)
+    private var certificateProposal by mutableStateOf<String?>(null)
+    private val discoveredGateways = mutableStateListOf<Gateway>()
     private var discovery: GatewayDiscovery? = null
-    private var busy = false
-    private val permission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { PushRegistration.schedule(this); home() }
+
+    private val permission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
+        PushRegistration.schedule(this)
+        home()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState); store = GatewayStore(this); home()
-        WorkManager.getInstance(this).getWorkInfosForUniqueWorkLiveData("gateway-push-registration").observe(this) { work ->
-            if (!busy && store.base.isNotEmpty() && work.any { it.state.isFinished }) home()
-        }
+        super.onCreate(savedInstanceState)
+        store = GatewayStore(this)
+        setContent { CompanionApp() }
+        home()
+        WorkManager.getInstance(this).getWorkInfosForUniqueWorkLiveData("gateway-push-registration")
+            .observe(this) { work -> if (!busy && store.base.isNotEmpty() && work.any { it.state.isFinished }) home() }
     }
-    override fun onResume() { super.onResume(); if (::store.isInitialized && store.base.isNotEmpty() && !busy) home() }
-    override fun onStop() { discovery?.close(); discovery = null; super.onStop() }
-    private fun screen(title: String) {
-        discovery?.close(); discovery = null
-        content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(24, 24, 24, 24) }
-        val scroll = ScrollView(this).apply { addView(content) }
-        ViewCompat.setOnApplyWindowInsetsListener(scroll) { view, insets ->
-            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            view.setPadding(bars.left, bars.top, bars.right, bars.bottom); insets
-        }
-        setContentView(scroll)
-        content.addView(TextView(this).apply { text = title; textSize = 26f })
+
+    override fun onResume() {
+        super.onResume()
+        if (::store.isInitialized && store.base.isNotEmpty() && !busy) home()
     }
-    private fun text(value: String) = TextView(this).apply { text = value; setPadding(0, 16, 0, 16); content.addView(this) }
-    private fun button(label: String, action: () -> Unit) = Button(this).apply {
-        text = label; content.addView(this); setOnClickListener { if (!busy) action() }
+
+    override fun onStop() {
+        discovery?.close()
+        discovery = null
+        super.onStop()
     }
+
     private fun home() {
-        if (store.resetPending) {
-            screen("Gateway disconnected")
-            text("Close and reopen the app to configure a gateway. If the previous gateway was unreachable, remove this phone from its Push clients page.")
-            busy = false
-            button("Close app") { finishAffinity(); android.os.Process.killProcess(android.os.Process.myPid()) }
+        discovery?.close()
+        discovery = null
+        discoveredGateways.clear()
+        when {
+            store.resetPending -> { destination = Destination.DISCONNECTED; status = "" }
+            store.base.isEmpty() -> { destination = Destination.SETUP; status = "" }
+            else -> { destination = Destination.DASHBOARD; status = gatewayStatus() }
+        }
+    }
+
+    private fun gatewayStatus(config: GatewayConfig? = store.config) = buildString {
+        append("Connection: ready")
+        append("\nMatter: ").append(if (config?.matter == true) "available" else "disabled")
+        append("\nPush: ").append(if (config?.firebase == null) "not configured" else store.status)
+        append("\nNotifications: ").append(if (NotificationManagerCompat.from(this@MainActivity).areNotificationsEnabled()) "allowed" else "blocked in Android settings")
+    }
+
+    private fun discover() {
+        discovery?.close()
+        discoveredGateways.clear()
+        status = "Looking for gateways on this Wi-Fi network…"
+        discovery = GatewayDiscovery(this, { name, base ->
+            if (discoveredGateways.none { it.base == base }) discoveredGateways += Gateway(name, base)
+        }, { status = it }).also { it.start() }
+    }
+
+    private fun inspectCertificate() {
+        val base = runCatching { GatewayTransport.normalize(address) }.getOrElse {
+            status = it.message ?: "Enter a valid gateway address."
             return
         }
-        if (store.base.isEmpty()) { setup(); return }
-        screen("MicroHAD Companion")
-        text("${store.config?.name ?: "Gateway"}\n${store.base}")
-        status = text("Connection: not checked\nMatter: ${if (store.config?.matter == true) "available" else "disabled"}\nPush: ${if (store.config?.firebase == null) "not configured on gateway" else store.status}\nNotifications: ${if (NotificationManagerCompat.from(this).areNotificationsEnabled()) "allowed" else "blocked in Android settings"}")
-        button("Check gateway / retry push registration") {
-            busy = true
-            lifecycleScope.launch {
-                try {
-                    val config = GatewayConfig.parse(GatewayApi(store.base, store.fingerprint).config())
-                    if (config.firebase != store.config?.firebase) status.text = "Firebase settings changed. Change gateway and reconnect to load the new settings."
-                    else {
-                        PushRegistration.schedule(this@MainActivity)
-                        status.text = "Connection: connected\nMatter: ${if (config.matter) "available" else "disabled"}\nPush: ${if (config.firebase == null) "not configured" else "registration scheduled"}"
-                    }
-                } catch (_: Exception) { status.text = "Connection failed. Check the address, network, and gateway certificate." }
-                finally { busy = false }
-            }
-        }
-        button("Commission Matter device") { startActivity(Intent(this, MatterActivity::class.java)) }
-        button("Open gateway dashboard") {
-            runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(store.base))) }.onFailure { status.text = "No browser installed. Open ${store.base} in a browser." }
-        }
-        button("Enable notifications / Android settings") {
-            startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, packageName))
-        }
-        button("Change gateway / reset") {
-            AlertDialog.Builder(this).setTitle("Disconnect this gateway?")
-                .setMessage("This removes local settings and notifications and attempts to remove this phone from the gateway. The app will close; reopen it to configure a gateway.")
-                .setNegativeButton("Cancel", null).setPositiveButton("Disconnect") { _, _ -> reset() }.show()
-        }
-    }
-    private fun setup() {
-        screen("Connect to your gateway")
-        text("Enter a gateway address or discover gateways on this LAN.")
-        val address = EditText(this).apply {
-            hint = "http(s)://gateway[:port]"; inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_URI
-            isSingleLine = true; content.addView(this)
-        }
-        status = text("")
-        button("Connect") { connect(address.text.toString(), "") }
-        button("Discover on LAN") {
-            discovery?.close()
-            val results = mutableSetOf<String>()
-            discovery = GatewayDiscovery(this, { name, base ->
-                if (results.add(base)) button("$name — $base") { address.setText(base) }
-            }, { status.text = it }).also { it.start() }
-        }
-        button("Allow an untrusted HTTPS certificate…") {
-            val base = runCatching { GatewayTransport.normalize(address.text.toString()) }.getOrElse { status.text = it.message; return@button }
-            busy = true
-            lifecycleScope.launch {
-                try {
-                    val pin = withContext(Dispatchers.IO) { GatewayTransport.inspectCertificate(base) }
-                    AlertDialog.Builder(this@MainActivity).setTitle("Trust this gateway certificate?")
-                        .setMessage("$base\n\nSHA-256:\n${pin.chunked(2).joinToString(":")}\n\nVerify this fingerprint through a trusted source. The exception permits an expired certificate or hostname mismatch only for this exact certificate.")
-                        .setNegativeButton("Cancel", null).setPositiveButton("Trust and connect") { _, _ -> connect(base, pin) }.show()
-                } catch (_: Exception) { status.text = "Could not inspect the HTTPS certificate. Check the address and network." }
-                finally { busy = false }
-            }
-        }
-    }
-    private fun connect(input: String, pin: String) {
-        val base = runCatching { GatewayTransport.normalize(input) }.getOrElse { status.text = it.message; return }
-        busy = true; status.text = "Connecting…"; discovery?.close()
+        busy = true
+        status = "Checking certificate…"
         lifecycleScope.launch {
-            try {
-                val raw = GatewayApi(base, pin).config(); GatewayConfig.parse(raw)
-                store.save(base, pin, raw)
-                runCatching { CompanionApplication.initializeFirebase(this@MainActivity) }.onFailure { store.status("Firebase initialization failed; check gateway settings") }
-                PushRegistration.schedule(this@MainActivity)
-                busy = false; home()
-                if (store.config?.firebase != null && Build.VERSION.SDK_INT >= 33 &&
-                    ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
-                    permission.launch(Manifest.permission.POST_NOTIFICATIONS)
-            } catch (_: Exception) { status.text = "Connection failed. Check the gateway address and configuration. For untrusted HTTPS, use the certificate option." }
+            try { certificateProposal = withContext(Dispatchers.IO) { GatewayTransport.inspectCertificate(base) } }
+            catch (_: Exception) { status = "Could not inspect the HTTPS certificate. Check the address and network." }
             finally { busy = false }
         }
     }
+
+    private fun connect(input: String, pin: String) {
+        val base = runCatching { GatewayTransport.normalize(input) }.getOrElse {
+            status = it.message ?: "Enter a valid gateway address."
+            return
+        }
+        busy = true
+        status = "Connecting to gateway…"
+        discovery?.close()
+        lifecycleScope.launch {
+            try {
+                val raw = GatewayApi(base, pin).config()
+                GatewayConfig.parse(raw)
+                store.save(base, pin, raw)
+                runCatching { CompanionApplication.initializeFirebase(this@MainActivity) }
+                    .onFailure { store.status("Firebase initialization failed; check gateway settings") }
+                PushRegistration.schedule(this@MainActivity)
+                busy = false
+                home()
+                if (store.config?.firebase != null && Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) permission.launch(Manifest.permission.POST_NOTIFICATIONS)
+            } catch (_: Exception) {
+                status = "Connection failed. Check the address and configuration. For an untrusted HTTPS certificate, use the certificate option."
+            } finally { busy = false }
+        }
+    }
+
+    private fun checkGateway() {
+        busy = true
+        status = "Checking gateway…"
+        lifecycleScope.launch {
+            try {
+                val config = GatewayConfig.parse(GatewayApi(store.base, store.fingerprint).config())
+                status = if (config.firebase != store.config?.firebase) "Firebase settings changed. Disconnect and reconnect to load the new settings."
+                else { PushRegistration.schedule(this@MainActivity); gatewayStatus(config).replace("Connection: ready", "Connection: connected") }
+            } catch (_: Exception) { status = "Connection failed. Check the address, network, and gateway certificate." }
+            finally { busy = false }
+        }
+    }
+
     private fun reset() {
-        busy = true; status.text = "Disconnecting…"
-        val base = store.base; val pin = store.fingerprint; val id = store.installationId()
-        store.clear() // Invalidate queued workers before asynchronous cleanup.
+        busy = true
+        status = "Disconnecting…"
+        val base = store.base
+        val pin = store.fingerprint
+        val id = store.installationId()
+        store.clear()
         WorkManager.getInstance(this).cancelUniqueWork("gateway-push-registration")
         lifecycleScope.launch {
-            val removed = runCatching { GatewayApi(base, pin).remove(id) }.isSuccess
-            runCatching { withTimeout(10000) {
-                if (FirebaseApp.getApps(this@MainActivity).isNotEmpty()) FirebaseMessaging.getInstance().deleteToken().await()
-            } }
+            runCatching { GatewayApi(base, pin).remove(id) }
+            runCatching { withTimeout(10_000) { if (FirebaseApp.getApps(this@MainActivity).isNotEmpty()) FirebaseMessaging.getInstance().deleteToken().await() } }
             (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).cancelAll()
-            if (isFinishing || isDestroyed) return@launch
-            AlertDialog.Builder(this@MainActivity).setTitle("Gateway disconnected")
-                .setMessage(if (removed) "Reopen the app to configure a gateway." else "Reopen the app to configure a gateway. The old gateway could not be updated; remove this phone from its Push clients page if needed.")
-                .setCancelable(false).setPositiveButton("Close app") { _, _ -> finishAffinity(); android.os.Process.killProcess(android.os.Process.myPid()) }.show()
+            busy = false
+            destination = Destination.DISCONNECTED
         }
+    }
+
+    @Composable
+    private fun CompanionApp() {
+        MaterialTheme(colorScheme = lightColorScheme(primary = Color(0xFF006875), onPrimary = Color.White, primaryContainer = Color(0xFFB9F1F5), surface = Color(0xFFF8FAFA), surfaceVariant = Color(0xFFE2E8E8), onSurface = Color(0xFF171D1E), onSurfaceVariant = Color(0xFF3F494A), outline = Color(0xFF6F797A), error = Color(0xFFB3261E))) {
+            Surface(Modifier.fillMaxSize()) {
+                when (destination) {
+                    Destination.DASHBOARD -> Dashboard()
+                    Destination.SETUP -> Setup()
+                    Destination.DISCONNECTED -> Disconnected()
+                }
+            }
+            CertificateDialog()
+            DisconnectDialog()
+        }
+    }
+
+    @OptIn(ExperimentalMaterial3Api::class)
+    @Composable
+    private fun Page(title: String, content: @Composable ColumnScope.() -> Unit) {
+        Column(Modifier.fillMaxSize()) {
+            TopAppBar(title = { Text(title, fontWeight = FontWeight.SemiBold) }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface))
+            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(16.dp), content = content)
+        }
+    }
+
+    @Composable
+    private fun Header(title: String, subtitle: String) {
+        Row(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.primary, RoundedCornerShape(28.dp)).padding(24.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(painterResource(R.drawable.ic_gateway), null, tint = Color.White, modifier = Modifier.size(42.dp))
+            Spacer(Modifier.width(16.dp))
+            Column {
+                Text(title, color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(4.dp))
+                Text(subtitle, color = MaterialTheme.colorScheme.primaryContainer, style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+    }
+
+    @Composable
+    private fun StatusCard(value: String) {
+        if (value.isBlank()) return
+        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant), shape = RoundedCornerShape(20.dp)) {
+            Text(value, Modifier.padding(20.dp), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+
+    @Composable
+    private fun Action(label: String, primary: Boolean = false, action: () -> Unit) {
+        if (primary) Button(onClick = action, enabled = !busy, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(26.dp)) { Text(label) }
+        else OutlinedButton(onClick = action, enabled = !busy, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(26.dp)) { Text(label) }
+    }
+
+    @Composable
+    private fun Dashboard() = Page("MicroHAD Companion") {
+        Header(store.config?.name ?: "Your gateway", store.base)
+        StatusCard(status)
+        Text("Manage your home gateway", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Action("Check connection and retry push registration", true, ::checkGateway)
+        Action("Commission Matter device") { startActivity(Intent(this@MainActivity, MatterActivity::class.java)) }
+        Action("Open gateway dashboard") { runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(store.base))) }.onFailure { status = "No browser is installed. Open ${store.base} in a browser." } }
+        Action("Notification settings") { startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, packageName)) }
+        TextButton({ confirmDisconnect = true }, Modifier.align(Alignment.CenterHorizontally)) { Text("Disconnect this gateway", color = MaterialTheme.colorScheme.error) }
+        Spacer(Modifier.height(12.dp))
+    }
+
+    @Composable
+    private fun Setup() = Page("Connect a gateway") {
+        Header("Welcome home", "Connect MicroHAD to manage your gateway securely.")
+        Text("Enter its address, or find a gateway on your local network.", style = MaterialTheme.typography.bodyLarge)
+        OutlinedTextField(address, { address = it }, Modifier.fillMaxWidth(), label = { Text("Gateway address") }, placeholder = { Text("https://gateway[:port]") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri), enabled = !busy)
+        Action("Connect", true) { connect(address, "") }
+        Action("Find gateways on this Wi-Fi network", action = ::discover)
+        discoveredGateways.forEach { gateway ->
+            Card(Modifier.fillMaxWidth().clickable { address = gateway.base }, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant), shape = RoundedCornerShape(16.dp)) {
+                Text(gateway.name, Modifier.padding(start = 18.dp, top = 14.dp, end = 18.dp), fontWeight = FontWeight.SemiBold)
+                Text(gateway.base, Modifier.padding(start = 18.dp, end = 18.dp, bottom = 14.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        StatusCard(status)
+        TextButton(::inspectCertificate, enabled = !busy, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Allow an untrusted HTTPS certificate") }
+        Spacer(Modifier.height(12.dp))
+    }
+
+    @Composable
+    private fun Disconnected() = Page("Gateway disconnected") {
+        Header("Disconnected", "Local connection settings and push registration were removed.")
+        Text("Close and reopen the app to connect another gateway. If the old gateway was unreachable, remove this phone from its Push clients page.")
+        Action("Close app", true) { finishAndRemoveTask() }
+    }
+
+    @Composable
+    private fun CertificateDialog() {
+        val pin = certificateProposal ?: return
+        AlertDialog(onDismissRequest = { certificateProposal = null }, title = { Text("Trust this certificate?") }, text = { Text("Verify this SHA-256 fingerprint through a trusted source before continuing.\n\n${pin.chunked(2).joinToString(":")}") }, confirmButton = { TextButton({ certificateProposal = null; connect(address, pin) }) { Text("Trust and connect") } }, dismissButton = { TextButton({ certificateProposal = null }) { Text("Cancel") } })
+    }
+
+    @Composable
+    private fun DisconnectDialog() {
+        if (!confirmDisconnect) return
+        AlertDialog(onDismissRequest = { confirmDisconnect = false }, title = { Text("Disconnect this gateway?") }, text = { Text("This removes local settings and notifications, then asks the gateway to remove this phone. You can reconnect at any time.") }, confirmButton = { TextButton({ confirmDisconnect = false; reset() }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Disconnect") } }, dismissButton = { TextButton({ confirmDisconnect = false }) { Text("Cancel") } })
     }
 }

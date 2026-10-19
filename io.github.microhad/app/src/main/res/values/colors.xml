@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="companion_brand">#006875</color>
+    <color name="companion_brand_dark">#004F59</color>
+    <color name="companion_brand_container">#B9F1F5</color>
+    <color name="companion_on_brand">#FFFFFF</color>
+    <color name="companion_surface">#F8FAFA</color>
+    <color name="companion_surface_variant">#E2E8E8</color>
+    <color name="companion_on_surface">#171D1E</color>
+    <color name="companion_on_surface_variant">#3F494A</color>
+    <color name="companion_outline">#6F797A</color>
+    <color name="companion_error">#B3261E</color>
+</resources>
