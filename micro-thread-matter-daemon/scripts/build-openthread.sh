@@ -40,7 +40,7 @@ set(CMAKE_EXE_LINKER_FLAGS_INIT "-static -Wl,--gc-sections")
 set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
 ''')
     raise SystemExit(0)
-link_flags = '' if os.environ['LINK_MODE'] == 'dynamic' else '-static'
+link_flags = ('-L' + os.environ['STOCK_ROOTFS'] + '/link') if os.environ['LINK_MODE'] == 'dynamic' else '-static'
 rd = Path(os.environ['RSDK_ROOT'])
 cxx = rd / 'include/c++/4.4.7'
 # GCC 4.4 exception_ptr.h assumes an earlier type_info declaration.

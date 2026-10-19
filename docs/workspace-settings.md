@@ -21,6 +21,7 @@ and ignored by tools that do not use them. Do not source an untrusted file.
 | `LINK_MODE` | `static` (default) or experimental `dynamic` with RSDK; see [toolchain guide](../config/TOOLCHAINS.md) |
 | `RSDK_ROOT` | RSDK installation; default from `config/toolchains.mk` |
 | `CROSSTOOL_NG_ROOT` | Candidate compiler installation; default `tools/lexra-proof` |
+| `STOCK_ROOTFS` | Extracted stock `/lib` for dynamic builds; default `build/stock-runtime` |
 | `SSH_PASSWORD_FILE` | Existing password file; empty by default |
 | `SSH_PASSWORD` | Inline password alternative; empty by default |
 | `SSH_USER` | SSH login, default `root` |

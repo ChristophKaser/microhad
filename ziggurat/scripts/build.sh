@@ -52,7 +52,7 @@ cargo +$RUST_TOOLCHAIN fetch --manifest-path ${build_worktree}/Cargo.toml
 python3 scripts/prepare-crate-patches.py getrandom-0.4.3 nix-0.26.4 radium-0.7.0
 export RUSTFLAGS='-C target-feature=+crt-static -C relocation-model=static'
 if [[ "$LINK_MODE" == dynamic ]]; then
-    RUSTFLAGS=${RUSTFLAGS/+crt-static/-crt-static}
+    RUSTFLAGS="${RUSTFLAGS/+crt-static/-crt-static} -L native=$STOCK_ROOTFS/link"
 fi
 cargo +$RUST_TOOLCHAIN build --release \
     --manifest-path ${build_worktree}/Cargo.toml -p ziggurat-server \

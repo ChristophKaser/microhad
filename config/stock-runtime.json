@@ -1,0 +1,65 @@
+{
+  "description": "Libraries from the stock gateway SquashFS /lib (uClibc 0.9.33). No additional shared libraries may be required.",
+  "libraries": {
+    "ld-uClibc.so.0": {
+      "file": "lib/ld-uClibc-0.9.33.so",
+      "sha256": "a65419541c64ac9dc5f42978a90d045e2e528b1b465c4d6f0db539a93934e591"
+    },
+    "libcrypt.so.0": {
+      "file": "lib/libcrypt-0.9.33.so",
+      "sha256": "12e198914620a25368cf7218d8ab5240f4c99f69b29bfaa921a1569c5a5168a5"
+    },
+    "libdl.so.0": {
+      "file": "lib/libdl-0.9.33.so",
+      "sha256": "060a0c5a5cb2dc06dffe4cf94772eb96a8ccb8115c1e3604c6dcf2a3aff883f9"
+    },
+    "libgcc_s.so.1": {
+      "file": "lib/libgcc_s.so.1",
+      "sha256": "5f05072c5462a665b0d7316004d0543f0c04dd695d8a716bd6aa61eda46ad5eb"
+    },
+    "libm.so.0": {
+      "file": "lib/libm-0.9.33.so",
+      "sha256": "3d44ac35d6fa53979c20fce4082d12092c9e37cad93611fb12fd162fe987a908"
+    },
+    "libnsl.so.0": {
+      "file": "lib/libnsl-0.9.33.so",
+      "sha256": "af15038c76d49762bc5fe1bfbaa4299be215f00376bf2bd7d8bc76af05681d1f"
+    },
+    "libpthread.so.0": {
+      "file": "lib/libpthread-0.9.33.so",
+      "sha256": "473a7546bed297c333f37913dfe8f1fad36e4a2970b30ff81f1e5197055c6fff"
+    },
+    "libresolv.so.0": {
+      "file": "lib/libresolv-0.9.33.so",
+      "sha256": "1e742c3170e5a4fd4ec9c320799c6cbec325be82fbfcd4ae924e19d0b0b4df7f"
+    },
+    "librt.so.0": {
+      "file": "lib/librt-0.9.33.so",
+      "sha256": "630581baa5798e468c709fb8ce4dd5f1da2a23e76392f622f7435b6dbaaf69d8"
+    },
+    "libstdc++.so.6": {
+      "file": "lib/libstdc++.so.6.0.16",
+      "sha256": "6982d80796323c7d12146fc7507b3ffe32017e2c99520a834b440ab1989c0f06"
+    },
+    "libthread_db.so.1": {
+      "file": "lib/libthread_db-0.9.33.so",
+      "sha256": "79a94ef12a54bfc0e2e858ac0c84b5233785bc4627e0ac6d870ca9116c1b72a0"
+    },
+    "libc.so.0": {
+      "file": "lib/libuClibc-0.9.33.so",
+      "sha256": "71bc767c850d2703b95bedd1f28fcab0c06c4632aa0b7f2244d81f3f8f93c451"
+    },
+    "libuargp.so.0": {
+      "file": "lib/libuargp-0.9.33.so",
+      "sha256": "9de7706cb42ae95636e61efa5df520d728d3dd2363f0dff2a834115b810320e3"
+    },
+    "libubacktrace.so.0": {
+      "file": "lib/libubacktrace-0.9.33.so",
+      "sha256": "9f4542f878e84b6bfe22d2a03ed732cdece0e1c2a5193b7aa0ab9221d310a200"
+    },
+    "libz.so.1": {
+      "file": "lib/libz.so.1.2.8",
+      "sha256": "b35c532ad64588857d266f5c1f47f68cc45d20d7b3f4f8f72bf08a544bb7d46a"
+    }
+  }
+}

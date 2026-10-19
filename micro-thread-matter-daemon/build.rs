@@ -80,7 +80,12 @@ fn main() {
         }
     }
     println!("cargo:rustc-link-lib=stdc++");
-    println!("cargo:rustc-link-lib=util");
+    if mode == "mips" && link_mode == "dynamic" {
+        // The stock image has no libutil.so; include forkpty/openpty locally.
+        println!("cargo:rustc-link-lib=static=util");
+    } else {
+        println!("cargo:rustc-link-lib=util");
+    }
     println!("cargo:rustc-link-lib=rt");
     println!("cargo:rustc-link-arg=-Wl,--wrap=otPlatSettingsGet");
 }

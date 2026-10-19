@@ -45,7 +45,7 @@ def main():
         subprocess.run([values['TARGET_CC'], '-shared', '-fPIC', provider, '-o', library], check=True)
         subprocess.run([values['TARGET_CC'], source, '-L' + temporary, '-lgateway_missing_fixture', '-o', binary], check=True)
         result = subprocess.run(['python3', verifier, '--link-mode', 'dynamic', binary], capture_output=True, text=True)
-        assert result.returncode != 0 and 'runtime library missing from selected RSDK' in result.stderr, result.stderr
+        assert result.returncode != 0 and 'shared library not provided by stock image' in result.stderr, result.stderr
     print('PASS verifier rejects host ELF, forbidden instructions, wrong linkage, PIE, wrong loader and missing runtime; static and dynamic fixtures pass')
 
 

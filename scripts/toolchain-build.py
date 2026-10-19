@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 from toolchain_config import ROOT, settings
+from stock_runtime import inventory, resolve as resolve_stock_runtime, prepare_link_directory
 
 
 def ensure(directory):
@@ -26,7 +27,13 @@ def ensure(directory):
     evidence['sysroot'] = subprocess.check_output([values['TARGET_CC'], '-print-sysroot'], text=True).strip()
     libraries = ('libc.a', 'libpthread.a', 'libstdc++.a')
     if values['LINK_MODE'] == 'dynamic':
-        libraries += ('libc.so.0', 'libpthread.so.0', 'librt.so.0', 'libstdc++.so.6', 'libgcc_s.so.1', 'ld-uClibc.so.0')
+        prepare_link_directory(values)
+        evidence['STOCK_ROOTFS'] = str(values['STOCK_ROOTFS'])
+        evidence['stock_runtime'] = {}
+        for name in inventory():
+            runtime = resolve_stock_runtime(values, name)
+            evidence['stock_runtime'][name] = [str(runtime), hashlib.sha256(runtime.read_bytes()).hexdigest()]
+        libraries += ('libutil.a', 'libm.so.0', 'libc.so.0', 'libpthread.so.0', 'librt.so.0', 'libstdc++.so.6', 'libgcc_s.so.1', 'ld-uClibc.so.0')
     for name in libraries:
         archive = Path(subprocess.check_output([values['TARGET_CC'], '-print-file-name=' + name], text=True).strip()).resolve()
         evidence[name] = [str(archive), archive.stat().st_mtime_ns, archive.stat().st_size]

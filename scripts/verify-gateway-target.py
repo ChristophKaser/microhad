@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 import subprocess
 from toolchain_config import settings
+from stock_runtime import resolve as resolve_runtime
 
 
 def read(values, binary, *args):
@@ -14,16 +15,6 @@ def read(values, binary, *args):
 
 def needed(values, binary):
     return re.findall(r'\(NEEDED\).*\[([^]]+)\]', read(values, binary, '-d'))
-
-
-def resolve_runtime(values, name):
-    if '/' in name:
-        raise ValueError('unexpected runtime dependency pathname: ' + name)
-    path = Path(subprocess.check_output(
-        [values['TARGET_CC'], '-print-file-name=' + name], text=True).strip()).resolve()
-    if not path.is_file() or not path.is_relative_to(values['TARGET_TOOLCHAIN_ROOT'].resolve()):
-        raise ValueError('runtime library missing from selected RSDK: ' + name)
-    return path
 
 
 def dynamic_dependencies(values, binary):
@@ -47,19 +38,20 @@ def dynamic_dependencies(values, binary):
     exports, imports = set(), set()
     for path in [binary, *(item['path'] for item in libraries.values())]:
         for line in read(values, path, '--dyn-syms', '--wide').splitlines():
-            fields = line.split()
+            fields = line.replace('[MIPS PLT]', '').split()
             if len(fields) < 8 or not fields[0].rstrip(':').isdigit():
                 continue
-            symbol = fields[7].split('@')[0]
+            symbol = fields[7].replace('@@', '@')
             if fields[6] == 'UND':
                 if fields[4] == 'GLOBAL':
                     imports.add(symbol)
-            elif fields[4] in ('GLOBAL', 'WEAK'):
-                exports.add(symbol)
+            elif fields[4] in ('GLOBAL', 'WEAK') and fields[5] in ('DEFAULT', 'PROTECTED'):
+                exports.update((symbol, symbol.split('@')[0]))
     missing = sorted(imports - exports)
     if missing:
         raise ValueError('unresolved dynamic symbols: ' + ', '.join(missing))
-    return {'interpreter': match[1], 'needed': needed(values, binary), 'libraries': libraries}
+    return {'interpreter': match[1], 'needed': needed(values, binary), 'libraries': libraries,
+            'runtime_source': 'stock image', 'additional_runtime_bytes': 0}
 
 
 def verify(binary, link_mode='static'):

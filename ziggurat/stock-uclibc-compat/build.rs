@@ -19,7 +19,7 @@ fn main() {
     let compiler = resolve("TARGET_CC");
     let archiver = resolve("TARGET_AR");
     let nm = resolve("TARGET_NM");
-    for variable in ["LINK_MODE", "TOOLCHAIN", "RSDK_ROOT", "CROSSTOOL_NG_ROOT", "TARGET_PREFIX", "TARGET_CC", "TARGET_AR", "TARGET_NM"] {
+    for variable in ["STOCK_ROOTFS", "LINK_MODE", "TOOLCHAIN", "RSDK_ROOT", "CROSSTOOL_NG_ROOT", "TARGET_PREFIX", "TARGET_CC", "TARGET_AR", "TARGET_NM"] {
         println!("cargo:rerun-if-env-changed={variable}");
     }
     println!("cargo:rerun-if-changed=../../config/toolchains.mk");
@@ -27,21 +27,25 @@ fn main() {
     let dynamic = env::var("LINK_MODE").as_deref() == Ok("dynamic");
     let mut symbols = std::collections::HashSet::new();
     for library in if dynamic { ["libc.so.0", "libpthread.so.0", "librt.so.0"] } else { ["libc.a", "libpthread.a", "librt.a"] } {
-        let output = Command::new(&compiler).arg(format!("-print-file-name={library}"))
-            .output().expect("cannot resolve libc archive");
-        assert!(output.status.success());
-        let archive = String::from_utf8(output.stdout).unwrap();
-        let archive = archive.trim();
-        println!("cargo:rerun-if-changed={archive}");
+        let archive = if dynamic {
+            resolve("STOCK_ROOTFS").join("lib").join(library)
+                .canonicalize().expect("extract stock /lib and set STOCK_ROOTFS first")
+        } else {
+            let output = Command::new(&compiler).arg(format!("-print-file-name={library}"))
+                .output().expect("cannot resolve libc archive");
+            assert!(output.status.success());
+            PathBuf::from(String::from_utf8(output.stdout).unwrap().trim())
+        };
+        println!("cargo:rerun-if-changed={}", archive.display());
         let mut command = Command::new(&nm);
         command.arg("--defined-only");
         if dynamic { command.arg("-D"); }
-        let output = command.arg(archive)
+        let output = command.arg(&archive)
             .output().expect("cannot inspect libc symbols");
         assert!(output.status.success(), "cannot inspect selected libc archive");
         for line in String::from_utf8(output.stdout).unwrap().lines() {
             if let Some(symbol) = line.split_whitespace().last() {
-                symbols.insert(symbol.to_owned());
+                symbols.insert(symbol.split('@').next().unwrap().to_owned());
             }
         }
     }

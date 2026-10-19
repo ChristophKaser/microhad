@@ -14,7 +14,7 @@ def run(args, env):
 
 
 def main():
-    base = {k: v for k, v in os.environ.items() if not k.startswith('TARGET_') and k not in ('TOOLCHAIN', 'RSDK_ROOT', 'CROSSTOOL_NG_ROOT', 'LINK_MODE')}
+    base = {k: v for k, v in os.environ.items() if not k.startswith('TARGET_') and k not in ('TOOLCHAIN', 'RSDK_ROOT', 'CROSSTOOL_NG_ROOT', 'LINK_MODE', 'STOCK_ROOTFS')}
     base['WORKSPACE_CONFIG'] = str(ROOT / 'workspace.local.env.example')
     with tempfile.TemporaryDirectory() as temporary:
         for backend, prefix in [('rsdk', 'mips-linux-'), ('crosstool-ng', 'mips-lexra-linux-uclibc-')]:
@@ -30,8 +30,8 @@ def main():
             env['TARGET_CC'] = temporary + '/custom-gcc'
             assert run(['python3', 'scripts/toolchain_config.py', 'TARGET_CC'], env).strip() == env['TARGET_CC']
             assert run(['bash', '-c', 'source scripts/toolchains.sh; echo "$TARGET_CC"'], env).strip() == env['TARGET_CC']
-        env = dict(base, TOOLCHAIN='rsdk', LINK_MODE='dynamic')
-        for key in ('LINK_MODE', 'TARGET_BUILD_SUBDIR'):
+        env = dict(base, TOOLCHAIN='rsdk', LINK_MODE='dynamic', STOCK_ROOTFS='build/stock-runtime')
+        for key in ('LINK_MODE', 'TARGET_BUILD_SUBDIR', 'STOCK_ROOTFS'):
             python = run(['python3', 'scripts/toolchain_config.py', key], env).strip()
             shell = run(['bash', '-c', 'source scripts/toolchains.sh; printf "%s" "$' + key + '"'], env).strip()
             recipe = 'include microhad/Makefile\n.PHONY: print-setting\nprint-setting:\n\t@echo $(' + key + ')\n'
@@ -97,6 +97,19 @@ def main():
                 pass
             else:
                 raise AssertionError('guard accepted the entire shared build directory')
+            values.update(LINK_MODE='dynamic', STOCK_ROOTFS=base_path)
+            runtime = base_path / 'stock-libc.so'
+            runtime.write_bytes(b'stock runtime v1')
+            with patch.object(guard, 'inventory', return_value={'libc.so.0': {}}), \
+                    patch.object(guard, 'resolve_stock_runtime', return_value=runtime), \
+                    patch.object(guard, 'prepare_link_directory'):
+                guard.ensure(directory)
+                sentinel.write_text('stock-dependent object')
+                guard.ensure(directory)
+                assert sentinel.exists()
+                runtime.write_bytes(b'stock runtime v2')
+                guard.ensure(directory)
+                assert not sentinel.exists() and host.read_text() == 'preserve'
     print('PASS shared Make/shell/Python selection, overrides, missing RSDK, invalid values, isolated outputs')
 
 

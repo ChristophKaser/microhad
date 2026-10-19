@@ -80,11 +80,28 @@ make -C microhad mips
 make -C microhad TOOLCHAIN=crosstool-ng mips
 ```
 
-## Experimental dynamic uClibc linkage
+## Experimental dynamic linkage using stock libraries
 
-`LINK_MODE=dynamic` opts the three application services into shared RSDK runtime
-linkage. `LINK_MODE=static` remains the default. Dynamic mode currently requires
-`TOOLCHAIN=rsdk`; it uses the stock uClibc 0.9.30.3 ABI rather than uClibc-ng.
+`LINK_MODE=dynamic` builds non-PIE application executables using only shared
+libraries supplied by the stock image. `LINK_MODE=static` remains the default;
+dynamic mode requires `TOOLCHAIN=rsdk`. The compiler and headers remain RSDK,
+but dynamic linking and ELF verification use the stock uClibc 0.9.33 libraries,
+not the SDK's uClibc 0.9.30.3 runtime.
+
+Extract only `/lib` from a local stock flash dump before building. This gateway's
+SquashFS starts at offset `0x200000`; do not extract or commit userdata:
+
+```sh
+unsquashfs -d build/stock-runtime -o 2097152 /path/to/stock-flash.bin lib
+```
+
+`STOCK_ROOTFS` can select another extraction directory through the environment,
+Make arguments, or `workspace.local.env`. The default is `build/stock-runtime`.
+`config/stock-runtime.json` records stock SONAMEs and file hashes; a missing or
+modified library fails validation. Build preparation creates a generated `link/`
+directory beside the extracted `lib/`, bypassing the stock `libc.so` script's
+reference to an archive absent from the image. Extracted binaries and generated
+links are ignored build artifacts and must not be committed.
 
 ```sh
 make -C microhad TOOLCHAIN=rsdk LINK_MODE=dynamic mips
@@ -92,27 +109,26 @@ TOOLCHAIN=rsdk LINK_MODE=dynamic ZIGGURAT_MULTIPAN=1 bash ziggurat/scripts/build
 TOOLCHAIN=rsdk LINK_MODE=dynamic bash micro-thread-matter-daemon/scripts/build.sh mips service
 ```
 
-Outputs and caches are isolated under `microhad/build/dynamic/` and
-`build/dynamic/`. The Rust target is `lexra-stock-uclibc-dynamic`. MicroHAD's
-Mbed TLS and Matter's OpenThread archives remain statically incorporated;
-system and C++ runtime libraries are shared. Dynamic executables use fixed-address
-(non-PIE) code, with Rust static relocation and `crt-static` disabled; OpenThread
-and compatibility objects also avoid PIC. The compatibility shim inspects shared-
-library exports when choosing missing-API implementations. Firmware, RNG seed and maintenance
-helpers retain static linkage. Deployment defaults continue selecting static
-artifacts and their existing verifier requirements are unchanged.
+Outputs and caches remain isolated under `microhad/build/dynamic/` and
+`build/dynamic/`; the Rust target is `lexra-stock-uclibc-dynamic`. MicroHAD's
+Mbed TLS and Matter's OpenThread archives remain statically incorporated.
+The stock image supplies the loader, libc, pthread, math, realtime, C++ and GCC
+runtime libraries. It has no `libutil.so`: the selected SDK's `libutil.a` supplies
+`forkpty`/`openpty` locally. The Rust compatibility shim inspects stock exports
+and supplies its existing ENOSYS fallbacks for missing pthread stack-inspection
+APIs. Firmware, RNG seed, maintenance helpers and deployment defaults retain
+static linkage.
 
-Each dynamic executable receives an adjacent `.linkage.json` report. Verification
-requires a non-PIE `ET_EXEC` executable and `/lib/ld-uClibc.so.0`, resolves
-transitive dependencies within the selected RSDK, checks strong imports against
-dependency exports, and retains executable
-MIPS-I/O32, soft-float and forbidden-instruction checks. It does not prove symbol
-version compatibility, loader execution or device kernel behavior. The selected
-RSDK libraries must match the installed gateway runtime before any device trial.
-No gateway is contacted during these builds.
+Each executable receives an adjacent `.linkage.json`. Verification requires
+non-PIE `ET_EXEC`, `/lib/ld-uClibc.so.0`, and a dependency closure contained in
+the recorded stock library set. It checks strong imports and symbol versions
+against those exact libraries, plus executable MIPS-I/O32, soft-float and
+forbidden-instruction checks. Loader-required symbols and copy relocations
+remain visible. These checks do not establish runtime compatibility of RSDK
+headers/CRT with the stock libraries or stock kernel behavior; a device trial
+still requires explicit authorization.
 
-After building both modes, compare stripped service artifacts and count shared
-runtime files once:
+Compare the stripped executables with static counterparts:
 
 ```sh
 python3 scripts/report-dynamic-linkage.py --output build/dynamic/linkage-summary.json \
@@ -121,46 +137,27 @@ python3 scripts/report-dynamic-linkage.py --output build/dynamic/linkage-summary
   build/dynamic/micro-thread-matter-daemon/mthread-matter-mips.linkage.json
 ```
 
-The report compares current static counterparts and counts uncompressed RSDK
-runtime files. Installed library reuse and JFFS2 compression are not measured.
-Dynamic linking does not guarantee a smaller release or lower memory use.
-Loader-required dynamic symbols, including copy-relocated runtime data, remain
-visible; removing the entire dynamic symbol table would break loading. A device
-startup, threading, networking and TLS trial requires separate explicit authorization.
+All shared dependencies are part of the stock image, so the additional
+shared-library upload is **zero bytes**. The summary also lists their existing
+uncompressed size for reference; it is not additional application storage.
+JFFS2 compression and process memory use are not measured.
 
-The initial experiment (Rust services built as PIE, stripped artifacts) was:
+Current stripped artifacts, linked and checked against the stock libraries:
 
-| Service | Static bytes | Dynamic bytes |
+| Service | Static bytes | Stock-dynamic bytes |
 | --- | ---: | ---: |
 | MicroHAD | 1,959,780 | 1,567,736 |
-| Ziggurat multipan | 3,643,400 | 3,960,672 |
-| Matter | 2,621,088 | 3,200,644 |
+| Ziggurat multipan | 3,643,400 | 3,521,320 |
+| Matter (static libutil) | 2,621,088 | 2,474,048 |
+| Total | 8,224,268 | 7,563,104 |
 
-The dynamic executables total 8,729,052 bytes, an increase of 504,784 bytes.
-Their combined RSDK runtime dependency set occupies 2,008,707 additional bytes
-when counted once. These PIE results motivated disabling position independence.
-Local ELF checks establish linking feasibility, not verified gateway runtime
-compatibility.
-
-After disabling PIE and PIC, the same dynamic artifacts measure:
-
-| Service | Non-PIE dynamic bytes | Saved versus static bytes |
-| --- | ---: | ---: |
-| MicroHAD (already non-PIE) | 1,567,736 | 392,044 |
-| Ziggurat multipan | 3,521,320 | 122,080 |
-| Matter | 2,469,952 | 151,136 |
-
-The executables total 7,559,008 bytes, saving 665,260 bytes versus static and
-1,170,044 bytes versus the initial experiment. The shared runtime set is still
-2,008,707 bytes; packaging all those SDK files gives 9,567,715 bytes total.
-Ziggurat now defines only five linker/runtime dynamic symbols. Matter defines
-those five plus two C++ runtime vtables with copy relocations; OpenThread
-application symbols are no longer exported. Imports and loader-required dynamic
-symbols are retained. No gateway runtime test or deployment has been performed.
+The executable saving is 661,164 bytes (about 646 KiB), with zero extra shared
+libraries. Stock runtime files are already present in the image and are not
+part of the application upload. No deployment or gateway runtime test was run.
 
 ## Experimental limits
 
-The shared Rust shim supplies only APIs missing from the selected libc archives.
+The shared Rust shim supplies only APIs missing from the selected libc.
 For LinuxThreads, `pthread_getattr_np` and `pthread_attr_getstack` return `ENOSYS`.
 Stack-bound diagnostics and reliable stack-overflow reporting are not guaranteed.
 `pthread_setname_np` supports the current thread only. Application builds require

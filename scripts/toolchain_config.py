@@ -25,6 +25,7 @@ def settings():
         raise ValueError('LINK_MODE must be static or dynamic: ' + link_mode)
     if link_mode == 'dynamic' and backend != 'rsdk':
         raise ValueError('LINK_MODE=dynamic requires TOOLCHAIN=rsdk')
+    values['STOCK_ROOTFS'] = Path(environment.get('STOCK_ROOTFS', ROOT / 'build/stock-runtime')).resolve()
     values['LINK_MODE'] = link_mode
     values['TOOLCHAIN'] = backend
     values['RSDK_ROOT'] = Path(environment.get('RSDK_ROOT', ROOT / values['RSDK_RELATIVE'])).resolve()
