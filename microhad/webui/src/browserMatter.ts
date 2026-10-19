@@ -75,7 +75,8 @@ function bytes(value: string): Uint8Array { if (!/^(?:[0-9a-f]{2})+$/.test(value
 function randomAddress(): string { const value = new Uint8Array(6); crypto.getRandomValues(value); value[0] = (value[0] | 2) & 254; return hex(value) }
 
 export class BrowserMatterRelay {
-  private socket: WebSocket | null = null; private next = 1; private generation = 0; private write = Promise.resolve(); private c1: BluetoothCharacteristic | null = null; private c2: BluetoothCharacteristic | null = null; private c2Subscribed = false
+  private socket: WebSocket | null = null; private next = 1; private indicationSequence = 1; private generation = 0; private write = Promise.resolve(); private c1: BluetoothCharacteristic | null = null; private c2: BluetoothCharacteristic | null = null; private c2Subscribed = false
+  private pending = new Map<number, { resolve: (value: unknown) => void; reject: (error: MatterError) => void; timer: number; opcode: number }>()
   constructor(private readonly session: string, private readonly progress: (value: MatterSession) => void, private readonly fail: (error: MatterError) => void) {}
   async connect(device: BluetoothDevice): Promise<void> {
     trace('GATT connecting')
@@ -87,20 +88,35 @@ export class BrowserMatterRelay {
       if (value) {
         const data = hex(new Uint8Array(value.buffer, value.byteOffset, value.byteLength))
         trace('C2 indication received', { bytes: value.byteLength, generation: this.generation, data })
-        void this.call(7, { generation: this.generation, sequence: this.next, data }).then(() => { this.next++ }).catch(() => this.reportFailure(new MatterError('transport')))
+        void this.call(7, { generation: this.generation, sequence: this.indicationSequence++, data }).catch(() => this.reportFailure(new MatterError('transport')))
       }
     })
     device.addEventListener('gattserverdisconnected', () => { trace('GATT disconnected'); this.close() })
     await this.open(); trace('BTP relay attaching', { mtu: MATTER_BTP_MTU }); const attached = await this.call(6, { address: randomAddress(), mtu: MATTER_BTP_MTU }) as { generation: number }
     if (!Number.isInteger(attached.generation) || attached.generation < 1) throw new MatterError('protocol')
+    this.indicationSequence = 1
     this.generation = attached.generation; trace('BLE relay attached', { generation: this.generation })
   }
-  private open(): Promise<void> { return new Promise((resolve, reject) => { const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'; trace('Relay WebSocket connecting'); const socket = this.socket = new WebSocket(`${protocol}//${location.host}/api/matter/relay`); socket.onopen = () => { trace('Relay WebSocket open'); void this.call(4, {}).then(() => { trace('Commissioning status subscription active'); resolve() }, reject) }; socket.onerror = () => { trace('Relay WebSocket error'); reject(new MatterError('transport')) }; socket.onclose = event => trace('Relay WebSocket closed', { code: event.code, clean: event.wasClean }); socket.onmessage = event => this.message(event.data) }) }
+  private open(): Promise<void> { return new Promise((resolve, reject) => { const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'; trace('Relay WebSocket connecting'); const socket = this.socket = new WebSocket(`${protocol}//${location.host}/api/matter/relay`); socket.onopen = () => { trace('Relay WebSocket open'); void this.call(4, {}).then(() => { trace('Commissioning status subscription active'); resolve() }, reject) }; socket.onerror = () => { trace('Relay WebSocket error'); reject(new MatterError('transport')) }; socket.onclose = event => { trace('Relay WebSocket closed', { code: event.code, clean: event.wasClean }); this.rejectPending() }; socket.onmessage = event => this.message(event.data) }) }
   private reportFailure(error: MatterError) { trace('Relay failure', { error: error.message }); this.fail(error) }
   private message(raw: unknown) {
     try {
       const data = JSON.parse(String(raw)) as Record<string, unknown>
-      if (Number.isInteger(data.id) && data.response && typeof data.response === 'object') return
+      if (Number.isInteger(data.id) && data.response && typeof data.response === 'object') {
+        const pending = this.pending.get(data.id as number)
+        if (!pending) return
+        this.pending.delete(data.id as number)
+        window.clearTimeout(pending.timer)
+        const response = data.response as Record<string, unknown>
+        if (response.ok !== true) {
+          trace('Relay request failed', { id: data.id, opcode: pending.opcode, error: String(response.error) })
+          pending.reject(new MatterError(String(response.error)))
+        } else {
+          trace('Relay request completed', { id: data.id, opcode: pending.opcode })
+          pending.resolve(response.result)
+        }
+        return
+      }
       if (data.event === 'commissioning') {
         const progress = data.data as MatterSession
         trace('Commissioning event', { state: progress.state, remaining_seconds: progress.deadline_remaining_seconds })
@@ -131,6 +147,37 @@ export class BrowserMatterRelay {
       this.reportFailure(error instanceof MatterError ? error : new MatterError('protocol'))
     }
   }
-  private call(opcode: number, body: Record<string, unknown>): Promise<unknown> { return new Promise((resolve, reject) => { const id = this.next++; const socket = this.socket; if (!socket || socket.readyState !== WebSocket.OPEN) { trace('Relay request rejected: socket unavailable', { opcode }); reject(new MatterError('transport')); return } trace('Relay request sent', { id, opcode }); const timer = window.setTimeout(() => { trace('Relay request timed out', { id, opcode }); reject(new MatterError('timeout')) }, 10000); const previous = socket.onmessage; socket.onmessage = event => { this.message(event.data); try { const data = JSON.parse(String(event.data)) as Record<string, unknown>; if (data.id === id && data.response && typeof data.response === 'object') { window.clearTimeout(timer); socket.onmessage = previous; const response = data.response as Record<string, unknown>; if (response.ok !== true) { trace('Relay request failed', { id, opcode, error: String(response.error) }); reject(new MatterError(String(response.error))) } else { trace('Relay request completed', { id, opcode }); resolve(response.result) } } } catch { } }; socket.send(JSON.stringify({ schema: 1, id, opcode, body: { schema: 1, session: this.session, ...body } })) }) }
-  close() { trace('Relay closing'); this.socket?.close(); this.socket = null; this.c1 = null; this.c2 = null; this.c2Subscribed = false }
+  private call(opcode: number, body: Record<string, unknown>): Promise<unknown> {
+    return new Promise((resolve, reject) => {
+      const id = this.next++
+      const socket = this.socket
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        trace('Relay request rejected: socket unavailable', { opcode })
+        reject(new MatterError('transport'))
+        return
+      }
+      trace('Relay request sent', { id, opcode })
+      const timer = window.setTimeout(() => {
+        this.pending.delete(id)
+        trace('Relay request timed out', { id, opcode })
+        reject(new MatterError('timeout'))
+      }, 10000)
+      this.pending.set(id, { resolve, reject, timer, opcode })
+      try {
+        socket.send(JSON.stringify({ schema: 1, id, opcode, body: { schema: 1, session: this.session, ...body } }))
+      } catch {
+        this.pending.delete(id)
+        window.clearTimeout(timer)
+        reject(new MatterError('transport'))
+      }
+    })
+  }
+  private rejectPending() {
+    for (const pending of this.pending.values()) {
+      window.clearTimeout(pending.timer)
+      pending.reject(new MatterError('transport'))
+    }
+    this.pending.clear()
+  }
+  close() { trace('Relay closing'); this.socket?.close(); this.socket = null; this.rejectPending(); this.c1 = null; this.c2 = null; this.c2Subscribed = false }
 }
