@@ -24,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -227,25 +228,25 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun Dashboard() = Page("MicroHAD Companion") {
+    private fun Dashboard() = Page(stringResource(R.string.companion_title)) {
         Header(store.config?.name ?: "Your gateway", store.base)
         StatusCard(status)
-        Text("Manage your home gateway", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-        Action("Check connection and retry push registration", true, ::checkGateway)
-        Action("Commission Matter device") { startActivity(Intent(this@MainActivity, MatterActivity::class.java)) }
-        Action("Open gateway dashboard") { runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(store.base))) }.onFailure { status = "No browser is installed. Open ${store.base} in a browser." } }
-        Action("Notification settings") { startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, packageName)) }
-        TextButton({ confirmDisconnect = true }, Modifier.align(Alignment.CenterHorizontally)) { Text("Disconnect this gateway", color = MaterialTheme.colorScheme.error) }
+        Text(stringResource(R.string.manage_gateway), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Action(stringResource(R.string.check_gateway), true, ::checkGateway)
+        Action(stringResource(R.string.commission_matter)) { startActivity(Intent(this@MainActivity, MatterActivity::class.java)) }
+        Action(stringResource(R.string.open_dashboard)) { runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(store.base))) }.onFailure { status = "No browser is installed. Open ${store.base} in a browser." } }
+        Action(stringResource(R.string.notification_settings)) { startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, packageName)) }
+        TextButton({ confirmDisconnect = true }, Modifier.align(Alignment.CenterHorizontally)) { Text(stringResource(R.string.disconnect_gateway), color = MaterialTheme.colorScheme.error) }
         Spacer(Modifier.height(12.dp))
     }
 
     @Composable
-    private fun Setup() = Page("Connect a gateway") {
-        Header("Welcome home", "Connect MicroHAD to manage your gateway securely.")
-        Text("Enter its address, or find a gateway on your local network.", style = MaterialTheme.typography.bodyLarge)
-        OutlinedTextField(address, { address = it }, Modifier.fillMaxWidth(), label = { Text("Gateway address") }, placeholder = { Text("https://gateway[:port]") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri), enabled = !busy)
-        Action("Connect", true) { connect(address, "") }
-        Action("Find gateways on this Wi-Fi network", action = ::discover)
+    private fun Setup() = Page(stringResource(R.string.connect_title)) {
+        Header(stringResource(R.string.welcome_title), stringResource(R.string.welcome_subtitle))
+        Text(stringResource(R.string.connect_intro), style = MaterialTheme.typography.bodyLarge)
+        OutlinedTextField(address, { address = it }, Modifier.fillMaxWidth(), label = { Text(stringResource(R.string.gateway_address)) }, placeholder = { Text("https://gateway[:port]") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri), enabled = !busy)
+        Action(stringResource(R.string.connect), true) { connect(address, "") }
+        Action(stringResource(R.string.find_gateways), action = ::discover)
         discoveredGateways.forEach { gateway ->
             Card(Modifier.fillMaxWidth().clickable { address = gateway.base }, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant), shape = RoundedCornerShape(16.dp)) {
                 Text(gateway.name, Modifier.padding(start = 18.dp, top = 14.dp, end = 18.dp), fontWeight = FontWeight.SemiBold)
@@ -253,15 +254,15 @@ class MainActivity : ComponentActivity() {
             }
         }
         StatusCard(status)
-        TextButton(::inspectCertificate, enabled = !busy, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Allow an untrusted HTTPS certificate") }
+        TextButton(::inspectCertificate, enabled = !busy, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text(stringResource(R.string.certificate)) }
         Spacer(Modifier.height(12.dp))
     }
 
     @Composable
-    private fun Disconnected() = Page("Gateway disconnected") {
-        Header("Disconnected", "Local connection settings and push registration were removed.")
-        Text("Close and reopen the app to connect another gateway. If the old gateway was unreachable, remove this phone from its Push clients page.")
-        Action("Close app", true) { finishAndRemoveTask() }
+    private fun Disconnected() = Page(stringResource(R.string.disconnected_title)) {
+        Header(stringResource(R.string.disconnected_heading), stringResource(R.string.disconnected_subtitle))
+        Text(stringResource(R.string.disconnected_intro))
+        Action(stringResource(R.string.close_app), true) { finishAndRemoveTask() }
     }
 
     @Composable

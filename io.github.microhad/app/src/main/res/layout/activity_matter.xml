@@ -1,12 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent" android:layout_height="match_parent" android:fillViewport="true">
+    android:layout_width="match_parent" android:layout_height="match_parent" android:fillViewport="true"
+    android:background="@color/companion_surface">
     <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:orientation="vertical" android:padding="24dp">
+        android:orientation="vertical" android:padding="20dp">
         <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:text="@string/matter_title" android:textSize="24sp" />
+            android:text="@string/matter_title" android:textSize="28sp" android:textStyle="bold"
+            android:textColor="@color/companion_on_surface" android:layout_marginTop="12dp" />
         <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:layout_marginTop="12dp" android:text="@string/matter_instructions" />
+            android:layout_marginTop="12dp" android:layout_marginBottom="20dp" android:text="@string/matter_instructions"
+            android:textColor="@color/companion_on_surface_variant" android:lineSpacingExtra="4dp" />
         <EditText android:id="@+id/gatewayInput" android:layout_width="match_parent"
             android:layout_height="wrap_content" android:hint="@string/matter_gateway_hint"
             android:inputType="textUri" android:singleLine="true" android:saveEnabled="false"
@@ -14,8 +17,8 @@
         <Button android:id="@+id/checkButton" android:layout_width="match_parent"
             android:layout_height="wrap_content" android:text="@string/matter_check" />
         <TextView android:id="@+id/statusText" android:textIsSelectable="true" android:layout_width="match_parent"
-            android:layout_height="wrap_content" android:layout_marginTop="16dp"
-            android:accessibilityLiveRegion="polite" android:textSize="18sp" />
+            android:layout_height="wrap_content" android:layout_marginTop="20dp" android:padding="20dp"
+            android:background="@drawable/bg_matter_status" android:accessibilityLiveRegion="polite" android:textSize="16sp" />
         <ProgressBar android:id="@+id/progress" android:layout_width="wrap_content"
             android:layout_height="wrap_content" android:visibility="gone" />
         <Button android:id="@+id/createThreadButton" android:layout_width="match_parent"
