@@ -560,13 +560,14 @@ impl Operation {
                         let requires_dst = zone.response()?.dst_offset_required()?;
                         zone.complete().await?;
                         if requires_dst {
-                            // The UI supplies the currently effective UTC offset, so an
-                            // empty DST table preserves that offset.  Sending the table is
-                            // nevertheless required by accessories that report
-                            // DSTOffsetRequired after accepting SetTimeZone.
+                            // ALPSTUGA requires an explicit active DST table entry before
+                            // it applies the time-zone offset.  The UI supplies the
+                            // currently effective offset in SetTimeZone, so this zero
+                            // adjustment keeps that offset unchanged.
                             Exchange::initiate(matter, &crypto, fabric, self.node).await?
                                 .time_synchronization().set_dst_offset(self.endpoint, |request| {
-                                    request.dst_offset()?.end()?.end()
+                                    request.dst_offset()?.push()?.offset(0)?.valid_starting(0)?
+                                        .valid_until(Nullable::null())?.end()?.end()?.end()
                                 }).await?;
                         }
                         Exchange::initiate(matter, &crypto, fabric, self.node).await?.time_synchronization().set_utc_time(self.endpoint, |request| {
