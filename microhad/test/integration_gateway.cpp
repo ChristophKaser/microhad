@@ -131,7 +131,7 @@ void expectUsageFailure(bool missingConfigPath) {
     close(capture[0]);
     assert(waitpid(child, &status, 0) == child);
     assert(WIFEXITED(status) && WEXITSTATUS(status) == 2);
-    assert(output.find("usage: microhad [--config /protected/path/config.json]") != std::string::npos);
+    assert(output.find("usage: microhad [--print-config FIELD] [--config /protected/path/config.json]") != std::string::npos);
 }
 
 void testResetAndVersionOverPipe() {

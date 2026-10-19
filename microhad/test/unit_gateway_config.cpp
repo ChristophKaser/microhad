@@ -60,6 +60,7 @@ void runGatewayConfigUnitTests() {
     assert(defaults.serialDevice == "/dev/ttyS1" && defaults.serialBaud == 115200);
     assert(defaults.runtimeDirectory == "/tuya/native" && defaults.httpPort == 80 && defaults.httpsPort == 443);
     assert(defaults.broadcastPassiveAckQuorum == 8);
+    assert(defaults.syslogRemote.empty());
     assert(defaults.matterCountryCode == "DE" && defaults.matterRegulatoryLocation == "indoor");
     assert(defaults.firebaseTopic == "zigbee_alerts" && defaults.firebaseServiceAccount.empty());
 
@@ -78,6 +79,22 @@ void runGatewayConfigUnitTests() {
     assert(selected.serialBaud == 115200 && selected.httpsPort == 443);
     assert(selected.broadcastPassiveAckQuorum == 8);
     assert(selected.matterCountryCode == "DE" && selected.matterRegulatoryLocation == "indoor");
+    const char* loggingDocuments[] = {
+        "{\"syslog_remote\":\"\"}", "{\"syslog_remote\":\"192.0.2.10:7878\"}",
+        "{\"syslog_remote\":\"logs.example.test:514\"}",
+        "{\"syslog_remote\":42}", "{\"syslog_remote\":\"logs.example.test\"}",
+        "{\"syslog_remote\":\":514\"}", "{\"syslog_remote\":\"host:0\"}",
+        "{\"syslog_remote\":\"host:65536\"}", "{\"syslog_remote\":\"host:999999999999999999999\"}",
+        "{\"syslog_remote\":\"host:514 -O /tmp/log\"}",
+        "{\"syslog_remote\":\"host:514\\n\"}", "{\"syslog_remote\":\"$(touch /tmp/no):514\"}",
+        "{\"syslog_remote\":\"host:514\",\"syslog_remote\":\"other:514\"}"
+    };
+    for (unsigned long loggingIndex = 0; loggingIndex < sizeof(loggingDocuments)/sizeof(loggingDocuments[0]); ++loggingIndex) {
+        replaceFileContents(filename, loggingDocuments[loggingIndex]);
+        GatewayConfig logging;
+        assert(loadGatewayConfig(filename, &logging, &error) == (loggingIndex < 3));
+        if (loggingIndex == 1) assert(logging.syslogRemote == "192.0.2.10:7878");
+    }
     replaceFileContents(filename, "{\"matter_country_code\":\"US\",\"matter_regulatory_location\":\"outdoor\"}");
     assert(loadGatewayConfig(filename, &selected, &error));
     assert(selected.matterCountryCode == "US" && selected.matterRegulatoryLocation == "outdoor");

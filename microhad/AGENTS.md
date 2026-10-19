@@ -299,7 +299,12 @@ minute interval or `0` to disable fallback polling. The coordinator then
 refreshes attributes after the device responds. This is intentionally
 serialized for sleepy battery devices.
 
-The paired launcher runs BusyBox `syslogd -C512 -L -R 192.168.178.51:7878`.
+The paired launcher reads `syslog_remote` from `NATIVE_CONFIG` using the native
+daemon's `--print-config syslog_remote --config PATH` mode before changing any processes.
+It runs BusyBox `syslogd -C512 -L -m 0`, adding `-R HOST:PORT` only when
+`syslog_remote` is nonempty. Missing or empty values disable forwarding.
+The development gateway's private device configuration retains its collector;
+never hard-code that destination in the launcher or public example config.
 Native gateway and Matter service messages use syslog directly; Ziggurat's
 tracing output is sent to syslog. The `/api/logs` reader attaches directly to the daemon's 512 KiB RAM ring and
 uses bounded, nonblocking semaphore acquisition. It never forks a helper. See

@@ -13,9 +13,11 @@ import unittest
 
 ROOT=Path(__file__).resolve().parents[1]
 FAKE='''#!/usr/bin/env python3
-import os,signal,socket,sys,time
+import json,os,signal,socket,sys,time
 from pathlib import Path
 role=Path(sys.argv[0]).name
+if role=='native' and '--print-config' in sys.argv:
+ print(json.loads(Path(sys.argv[sys.argv.index('--config')+1]).read_text()).get(sys.argv[sys.argv.index('--print-config')+1],''));sys.exit(0)
 with open(os.environ['TEST_EVENTS'],'a') as f:f.write(role+' start '+str(os.getpid())+'\\n')
 def stop(*args):
  with open(os.environ['TEST_EVENTS'],'a') as f:f.write(role+' stop\\n')
@@ -64,6 +66,40 @@ def wait(check,timeout=12):
     raise AssertionError('Supervisor condition deadline')
 
 
+class LoggingConfigCommand(unittest.TestCase):
+    def test_validated_logging_output_does_not_start_gateway(self):
+        binary = ROOT/'build/host-ziggurat-matter/microhad'
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config = root/'config.json'
+            runtime = root/'must-not-be-created'
+            for remote in ('', '192.0.2.10:7878', 'logs.example.test:514'):
+                config.write_text(json.dumps({'runtime_dir':str(runtime),
+                    'serial_device':'/dev/forbidden-radio', 'syslog_remote':remote}))
+                result = subprocess.run([str(binary),'--print-config','syslog_remote','--config',str(config)],
+                    capture_output=True,text=True,timeout=5)
+                self.assertEqual(result.returncode,0,result.stderr)
+                self.assertEqual(result.stdout,remote+'\n')
+                self.assertFalse(runtime.exists())
+            fields = {'runtime_dir':str(runtime), 'http_port':8088,
+                      'custom_string':'quotes " and newline\n', 'custom_integer':-42, 'empty':''}
+            config.write_text(json.dumps(fields))
+            for field, expected in [('http_port','8088'), ('custom_integer','-42'),
+                    ('custom_string',fields['custom_string']), ('empty',''), ('absent','')]:
+                result = subprocess.run([str(binary),'--print-config',field,'--config',str(config)],
+                    capture_output=True,text=True,timeout=5)
+                self.assertEqual(result.returncode,0,result.stderr)
+                self.assertEqual(result.stdout,expected+'\n')
+                self.assertFalse(runtime.exists())
+            result = subprocess.run([str(binary),'--print-config'],capture_output=True,text=True,timeout=5)
+            self.assertEqual(result.returncode,2)
+            config.write_text('{"syslog_remote":"host:0"}')
+            result = subprocess.run([str(binary),'--print-config','syslog_remote','--config',str(config)],
+                capture_output=True,text=True,timeout=5)
+            self.assertEqual(result.returncode,2)
+            self.assertEqual(result.stdout,'')
+
+
 class Paired(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.root=Path(self.tmp.name)
@@ -71,8 +107,9 @@ class Paired(unittest.TestCase):
             p=self.root/name;p.write_text(FAKE);p.chmod(0o700)
         syslogd=self.root/'syslogd';syslog_state=self.root/'syslogd.running'
         syslogd.write_text('#!/bin/sh\nif [ "$1" = ps ]; then [ ! -f "'+str(syslog_state)+'" ] || '
-                           'echo "999999 root 1 S /bin/busybox syslogd -C512 -L -R 192.168.178.51:7878"\n'
-                           'elif [ "$1" = syslogd ]; then : > "'+str(syslog_state)+'"; fi\n')
+                           'cat "'+str(syslog_state)+'"\n'
+                           'elif [ "$1" = syslogd ]; then echo "999999 root 1 S /bin/busybox $*" > "'+str(syslog_state)+'"; fi\n')
+        (self.root/'config.json').write_text('{}')
         syslogd.chmod(0o700)
         self.control=self.root/'control';self.events=self.root/'events';self.events.touch()
         self.env=dict(os.environ,ZIGGURAT_BIN=str(self.root/'zig'),NATIVE_BIN=str(self.root/'native'),
@@ -105,6 +142,26 @@ class Paired(unittest.TestCase):
             try:self.process.wait(timeout=12)
             except subprocess.TimeoutExpired:self.process.kill();self.process.wait()
         self.log.close();os.close(self.master);self.tmp.cleanup()
+    def test_logging_defaults_to_local_only(self):
+        self.start();self.ready()
+        self.assertEqual((self.root/'syslogd.running').read_text().strip(),
+                         '999999 root 1 S /bin/busybox syslogd -C512 -L -m 0')
+        self.quiesce();self.stop()
+
+    def test_logging_uses_configured_destination(self):
+        (self.root/'config.json').write_text(json.dumps({'syslog_remote':'192.0.2.10:7878'}))
+        self.start();self.ready()
+        self.assertIn('-R 192.0.2.10:7878 -m 0', (self.root/'syslogd.running').read_text())
+        self.quiesce();self.stop()
+
+    def test_bad_logging_config_leaves_processes_and_control_untouched(self):
+        (self.root/'config.json').write_text('{broken')
+        self.start();self.process.wait(timeout=5)
+        self.assertEqual(self.process.returncode,2)
+        self.assertFalse((self.root/'syslogd.running').exists())
+        self.assertFalse(self.control.exists())
+        self.assertEqual(self.events.read_text(),'')
+
     def test_order_quiesce_retains_radio_owner_and_stop_order(self):
         self.start();self.ready();self.assertTrue(self.events.read_text().startswith('zig start'))
         self.quiesce();zig=int((self.control/'ziggurat.pid').read_text());os.kill(zig,0)

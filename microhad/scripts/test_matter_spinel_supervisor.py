@@ -48,7 +48,10 @@ while True:
  except socket.timeout:pass
 '''
 NATIVE = r'''#!/usr/bin/env python3
-import os,signal,time
+import json,os,signal,sys,time
+from pathlib import Path
+if "--print-config" in sys.argv:
+ print(json.loads(Path(sys.argv[sys.argv.index("--config")+1]).read_text()).get(sys.argv[sys.argv.index("--print-config")+1],""));sys.exit(0)
 with open(os.environ['TEST_EVENTS'],'a') as f:f.write('native start\n')
 def stop(*args):
  with open(os.environ['TEST_EVENTS'],'a') as f:f.write('native stop\n')
@@ -58,6 +61,8 @@ while True:time.sleep(.1)
 '''
 NATIVE_GATEWAY_WRAPPER = r'''#!/usr/bin/env python3
 import os,sys
+if "--print-config" in sys.argv:
+ os.execv(os.environ["REAL_NATIVE_BIN"],[os.environ["REAL_NATIVE_BIN"]]+sys.argv[1:])
 with open(os.environ['TEST_EVENTS'],'a') as f:f.write('native start\\n')
 fd=os.open(os.environ['NATIVE_LOG'],os.O_WRONLY|os.O_CREAT|os.O_APPEND,0o600)
 os.dup2(fd,1);os.dup2(fd,2)
@@ -154,11 +159,11 @@ def main():
 import sys
 from pathlib import Path
 marker=Path(__file__).with_suffix('.started')
-if sys.argv[1:]==['syslogd','-C512','-L','-R','192.168.178.51:7878','-m','0']:
+if sys.argv[1:]==['syslogd','-C512','-L','-m','0']:
  marker.touch()
 elif sys.argv[1:]==['ps']:
  if marker.exists():
-  print('999999 root 0 S /bin/busybox syslogd -C512 -L -R 192.168.178.51:7878 -m 0')
+  print('999999 root 0 S /bin/busybox syslogd -C512 -L -m 0')
   marker.unlink()
 else:
  raise SystemExit(2)

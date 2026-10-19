@@ -26,6 +26,7 @@ def remote(command):
 class SyslogdDeviceCapabilities(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        cls.remote_destination = remote("/tuya/native/microhad --print-config syslog_remote --config /tuya/native/config.json").strip()
         cls.version = remote("busybox")
         cls.applets = remote("busybox").split("Currently defined functions:", 1)[-1]
         processes = remote("ps")
@@ -40,7 +41,8 @@ class SyslogdDeviceCapabilities(unittest.TestCase):
     def test_syslogd_remote_forwarding_is_active(self):
         self.assertIn("syslogd", self.applets)
         self.assertIn("-R", self.command_line)
-        self.assertIn("192.168.178.51:7878", self.command_line)
+        self.assertTrue(self.remote_destination, "Device configuration must enable forwarding for this check")
+        self.assertIn(self.remote_destination, self.command_line)
 
     def test_syslogd_shared_memory_ring_is_active(self):
         self.assertRegex(self.command_line, r"-C(?:\x00)?\d+")

@@ -96,3 +96,26 @@ setup, LAN discovery, Matter commissioning and FCM push notifications. See
 [companion configuration](../docs/companion-app.md) for public Firebase client
 settings and the `/api/companion/config` endpoint. Private sending credentials
 remain on the gateway.
+
+## Remote logging
+
+The paired launcher reads `syslog_remote` from the device's native JSON config
+(`NATIVE_CONFIG`, normally `/tuya/native/config.json`). Omit it or set it to
+`""` for local logging only. To forward logs over UDP, set a hostname or IPv4
+address and explicit port, for example `"syslog_remote": "192.0.2.10:514"`.
+The local 512 KiB RAM log ring remains enabled in either mode. Restart the paired
+stack after changing this setting; restarting only MicroHAD does not reload it.
+Diagnostic logging can contain network secrets, so choose a trusted collector.
+
+Query an explicitly configured string or integer without starting the gateway:
+
+```sh
+/tuya/native/microhad --print-config syslog_remote --config /tuya/native/config.json
+/tuya/native/microhad --print-config http_port --config /tuya/native/config.json
+```
+
+The command validates the configuration, prints only the selected value and
+exits. Strings are decoded and integers use decimal notation. A missing field
+prints an empty line; implicit defaults are not included. With no `--config`,
+it reads `/tuya/native/config.json`. This is a local command and can print
+private configuration values, so do not expose it through a public endpoint.

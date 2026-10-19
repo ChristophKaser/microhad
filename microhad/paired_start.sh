@@ -47,22 +47,36 @@ if [ -n "$matter_bin" ]; then
     [ "$thread_socket" != "$socket_path" ] && [ "$matter_socket" != "$socket_path" ] &&
         [ "$matter_socket" != "$thread_socket" ] || { echo 'Distinct IPC paths required' >&2;exit 2; }
 fi
+# Reuse the daemon's JSON parser and validation before changing processes or
+# claiming the control directory. This mode never starts the daemon or radio.
+syslog_remote=$("$NATIVE_BIN" --print-config syslog_remote --config "$NATIVE_CONFIG") || exit 2
 # Atomic directory claim refuses stale/duplicate supervisors; operator inspects it.
 mkdir "$control" || exit 2
 printf '%s\n' "$$" > "$control/supervisor.pid"
 : > "$zig_log" 2>/dev/null || true
 : > "$seed_log"
 # Stock firmware's BusyBox syslogd owns the 512 KiB IPC ring and forwards to
-# the configured collector. Replace its prior instance to apply these flags.
+# an optional collector from config.json. Replace its prior instance to apply
+# these flags. An absent/empty syslog_remote keeps logging local.
 [ -x "$syslogd" ] || { echo 'BusyBox syslogd executable missing' >&2; exit 2; }
 for old_syslog_pid in $($syslogd ps 2>/dev/null | awk '$5 == "/bin/busybox" && $6 == "syslogd" {print $1}'); do
     kill "$old_syslog_pid" 2>/dev/null || true
 done
 sleep 1
-$syslogd syslogd -C512 -L -R 192.168.178.51:7878 -m 0
+if [ -n "$syslog_remote" ]; then
+    "$syslogd" syslogd -C512 -L -R "$syslog_remote" -m 0
+else
+    "$syslogd" syslogd -C512 -L -m 0
+fi
 sleep 1
-$syslogd ps 2>/dev/null | awk '$5 == "/bin/busybox" && $6 == "syslogd" && $7 == "-C512" && $8 == "-L" && $9 == "-R" && $10 == "192.168.178.51:7878" {found=1} END {exit !found}' || {
-    echo 'BusyBox syslogd did not start with the required ring and remote logging options' >&2
+"$syslogd" ps 2>/dev/null | awk -v remote="$syslog_remote" '
+    $5 == "/bin/busybox" && $6 == "syslogd" && $7 == "-C512" && $8 == "-L" {
+        if (remote == "" && $9 == "-m" && $10 == "0") found=1
+        # Stock BusyBox ps can truncate the trailing -m 0 in remote mode.
+        if (remote != "" && $9 == "-R" && $10 == remote) found=1
+    }
+    END {exit !found}' || {
+    echo 'BusyBox syslogd did not start with the configured logging options' >&2
     rm -f "$control/supervisor.pid"
     rm -rf "$control"
     exit 2

@@ -43,13 +43,23 @@ int main(int argc, char** argv) {
     HttpServer* server;
     ExternalHttpDeviceWorker* shellyIntegration;
 
+    const bool printConfig = argc > 2 && std::string(argv[1]) == "--print-config";
+    std::string configField;
+    std::map<std::string, std::string> configuredValues;
+    if (printConfig) { configField = argv[2]; argc -= 2; argv += 2; }
     if (!selectGatewayConfigPath(argc, const_cast<const char* const*>(argv), &configPath, &error)) {
         fprintf(stderr, "%s\n", error.c_str());
         return 2;
     }
-    if (!loadGatewayConfig(configPath, &config, &error)) {
+    if (!loadGatewayConfig(configPath, &config, &error, printConfig ? &configuredValues : 0)) {
         fprintf(stderr, "%s\n", error.c_str());
         return 2;
+    }
+    if (printConfig) {
+        const std::string& value = configuredValues[configField];
+        fwrite(value.data(), 1, value.size(), stdout);
+        putchar('\n');
+        return 0;
     }
     serialDevice = config.serialDevice;
     serialBaud = static_cast<int>(config.serialBaud);

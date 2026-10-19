@@ -2,6 +2,7 @@
 #define MICROHAD_ZIGBEE_GATEWAY_CONFIG_H
 
 #include <string>
+#include <map>
 
 struct GatewayConfig {
     std::string zigguratSocket;
@@ -11,6 +12,7 @@ struct GatewayConfig {
     std::string matterCountryCode;
     std::string matterRegulatoryLocation;
     std::string runtimeDirectory;
+    std::string syslogRemote;
     long httpPort;
     long httpsPort;
     std::string firebaseServiceAccount;
@@ -29,6 +31,9 @@ struct GatewayConfig {
 };
 
 bool selectGatewayConfigPath(int argc, const char* const argv[], std::string* path, std::string* error);
-bool loadGatewayConfig(const std::string& path, GatewayConfig* config, std::string* error);
+// Optional configuredValues returns explicitly configured fields as decoded
+// strings (including decimal integers), without exporting implicit defaults.
+bool loadGatewayConfig(const std::string& path, GatewayConfig* config, std::string* error,
+                       std::map<std::string, std::string>* configuredValues = 0);
 
 #endif

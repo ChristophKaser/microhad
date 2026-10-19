@@ -3,6 +3,7 @@
 #include "json_util.h"
 
 #include <cerrno>
+#include <cstdio>
 #include <cstdlib>
 #include <fstream>
 #include <limits.h>
@@ -127,11 +128,12 @@ bool selectGatewayConfigPath(int argc, const char* const argv[], std::string* pa
     if (argc == 3 && std::string(argv[1]) == "--config" && argv[2] != 0 && argv[2][0] != '\0') {
         *path = argv[2]; return true;
     }
-    *error = "usage: microhad [--config /protected/path/config.json]";
+    *error = "usage: microhad [--print-config FIELD] [--config /protected/path/config.json]";
     return false;
 }
 
-bool loadGatewayConfig(const std::string& path, GatewayConfig* config, std::string* error) {
+bool loadGatewayConfig(const std::string& path, GatewayConfig* config, std::string* error,
+                       std::map<std::string, std::string>* configuredValues) {
     std::string input;
     std::map<std::string, std::string> strings;
     std::map<std::string, long> numbers;
@@ -144,6 +146,7 @@ bool loadGatewayConfig(const std::string& path, GatewayConfig* config, std::stri
         !stringSetting(strings, numbers, "matter_country_code", &config->matterCountryCode, error) ||
         !stringSetting(strings, numbers, "matter_regulatory_location", &config->matterRegulatoryLocation, error) ||
         !stringSetting(strings, numbers, "runtime_dir", &config->runtimeDirectory, error) ||
+        !stringSetting(strings, numbers, "syslog_remote", &config->syslogRemote, error) ||
         !numberSetting(strings, numbers, "http_port", &config->httpPort, error) ||
         !numberSetting(strings, numbers, "https_port", &config->httpsPort, error) ||
         !stringSetting(strings, numbers, "firebase_service_account", &config->firebaseServiceAccount, error) ||
@@ -157,6 +160,20 @@ bool loadGatewayConfig(const std::string& path, GatewayConfig* config, std::stri
         !stringSetting(strings, numbers, "ca_bundle", &config->caBundle, error) ||
         !stringSetting(strings, numbers, "tls_certificate", &config->tlsCertificate, error) ||
         !stringSetting(strings, numbers, "tls_private_key", &config->tlsPrivateKey, error)) return false;
+    if (!config->syslogRemote.empty()) {
+        const std::string& remote = config->syslogRemote;
+        std::string::size_type colon = remote.find(':');
+        if (colon == std::string::npos || colon == 0 || colon > 253 || colon + 1 == remote.size() ||
+            remote.substr(0, colon).find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-") != std::string::npos ||
+            remote.substr(colon + 1).find_first_not_of("0123456789") != std::string::npos) {
+            *error = "syslog_remote must be empty or an IPv4 address/hostname followed by :port"; return false;
+        }
+        errno = 0;
+        long port = strtol(remote.c_str() + colon + 1, 0, 10);
+        if (errno != 0 || port < 1 || port > 65535) {
+            *error = "syslog_remote port must be between 1 and 65535"; return false;
+        }
+    }
     if (config->gatewayName.empty() || config->gatewayName.size() > 128 ||
         config->gatewayName.find_first_of("\r\n\t") != std::string::npos) {
         *error = "gateway_name must contain 1-128 bytes without control whitespace"; return false;
@@ -216,6 +233,14 @@ bool loadGatewayConfig(const std::string& path, GatewayConfig* config, std::stri
     }
     if (config->runtimeDirectory.empty()) {
         *error = "runtime_dir must not be empty"; return false;
+    }
+    if (configuredValues != 0) {
+        *configuredValues = strings;
+        for (std::map<std::string, long>::const_iterator it = numbers.begin(); it != numbers.end(); ++it) {
+            char value[32];
+            snprintf(value, sizeof(value), "%ld", it->second);
+            (*configuredValues)[it->first] = value;
+        }
     }
     return true;
 }
