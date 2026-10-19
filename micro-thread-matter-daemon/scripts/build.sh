@@ -26,7 +26,7 @@ args=(--locked --release --manifest-path micro-thread-matter-daemon/Cargo.toml -
 if [ "$mode" = mips ]; then
     export RUSTFLAGS='-C target-feature=+crt-static -C relocation-model=static --cfg sha2_backend_soft="compact" --cfg aes_backend_soft="compact"'
     if [[ "$LINK_MODE" == dynamic ]]; then
-        RUSTFLAGS=${RUSTFLAGS/-C target-feature=+crt-static -C relocation-model=static/-C target-feature=-crt-static -C relocation-model=pic}
+        RUSTFLAGS=${RUSTFLAGS/+crt-static/-crt-static}
     fi
     args+=(--target "targets/$TARGET_SPEC_NAME.json" -Z json-target-spec -Z build-std=std,panic_abort)
 fi

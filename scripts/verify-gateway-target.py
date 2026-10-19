@@ -77,6 +77,8 @@ def verify(binary, link_mode='static'):
     else:
         if values['TOOLCHAIN'] != 'rsdk':
             raise ValueError('dynamic verification requires TOOLCHAIN=rsdk')
+        if not re.search(r'Type:\s+EXEC\b', header):
+            raise ValueError('expected non-PIE ET_EXEC dynamic executable: ' + str(binary))
         report.update(dynamic_dependencies(values, binary))
     decoded = subprocess.check_output(['llvm-objdump-18', '--disassemble', '--mcpu=mips32r2', str(binary)], text=True)
     counts = {op: len(re.findall(r'\t' + op + r'\s', decoded)) for op in ('rdhwr', 'teq', 'sync', 'll', 'sc', 'lwl', 'lwr', 'swl', 'swr')}

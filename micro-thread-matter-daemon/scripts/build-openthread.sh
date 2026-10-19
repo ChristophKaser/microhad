@@ -41,7 +41,6 @@ set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
 ''')
     raise SystemExit(0)
 link_flags = '' if os.environ['LINK_MODE'] == 'dynamic' else '-static'
-relocation = '-fPIC' if os.environ['LINK_MODE'] == 'dynamic' else '-fno-pic'
 rd = Path(os.environ['RSDK_ROOT'])
 cxx = rd / 'include/c++/4.4.7'
 # GCC 4.4 exception_ptr.h assumes an earlier type_info declaration.
@@ -49,7 +48,7 @@ cxx = rd / 'include/c++/4.4.7'
 flags = (f'--target=mips-linux-gnu -march=mips1 -msoft-float -mabi=32 '
          f'--sysroot={rd}/mips-linux-uclibc '
          f'-isystem {rd}/lib/gcc/mips-linux-uclibc/4.4.7/include-fixed '
-         f'-Os {relocation} -mabicalls -G0 -fno-stack-protector -mllvm -mno-check-zero-division '
+         '-Os -fno-pic -mabicalls -G0 -fno-stack-protector -mllvm -mno-check-zero-division '
          '-DOPENTHREAD_POSIX_CONFIG_BACKTRACE_ENABLE=0')
 cppflags = (f'{flags} -nostdinc++ -isystem {cxx} -isystem {cxx}/mips-linux-uclibc/4181 '
             f'-fno-exceptions -include {out}/stock-cxx-compat.hpp '

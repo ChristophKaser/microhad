@@ -52,7 +52,10 @@ stock["has-thread-local"] = False
 stock["llvm-args"] = ["-mno-check-zero-division"]
 if os.environ["LINK_MODE"] == "dynamic":
     stock["crt-static-default"] = False
-    stock["relocation-model"] = "pic"
+    # Shared libc does not require a PIE executable. Fixed-address code avoids
+    # the substantial MIPS-I PIC call and relocation overhead.
+    stock["position-independent-executables"] = False
+    stock["relocation-model"] = "static"
 stock["linker"] = os.environ["TARGET_CC"]
 write(os.environ["TARGET_SPEC_NAME"] + ".json", stock)
 PY

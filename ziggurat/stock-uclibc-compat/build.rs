@@ -55,7 +55,6 @@ fn main() {
     let object = PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("stock_compat.o");
     let status = Command::new(&compiler)
         .args(["-O2", "-std=gnu99", "-Wall", "-Wextra", "-Werror", "-c"])
-        .args(if dynamic { vec!["-fPIC"] } else { vec![] })
         .args(&defines)
         .arg(manifest.join("native/stock_compat.c"))
         .arg("-o")
@@ -70,7 +69,6 @@ fn main() {
     let fault_object = object.with_file_name("fault_report.o");
     let status = Command::new(&compiler)
         .args(["-O2", "-std=gnu99", "-Wall", "-Wextra", "-Werror", "-c"])
-        .args(if dynamic { vec!["-fPIC"] } else { vec![] })
         .arg(manifest.join("native/fault_report.c"))
         .arg("-o")
         .arg(&fault_object)

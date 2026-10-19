@@ -32,6 +32,9 @@ def main():
             other = 'dynamic' if mode == 'static' else 'static'
             result = subprocess.run(['python3', verifier, '--link-mode', other, binary], capture_output=True, text=True)
             assert result.returncode != 0, 'verifier accepted wrong linkage mode'
+        subprocess.run([values['TARGET_CC'], '-fPIC', '-pie', '-msoft-float', source, '-o', binary], check=True)
+        result = subprocess.run(['python3', verifier, '--link-mode', 'dynamic', binary], capture_output=True, text=True)
+        assert result.returncode != 0 and 'expected non-PIE ET_EXEC' in result.stderr, result.stderr
         subprocess.run([values['TARGET_CC'], '-msoft-float', '-Wl,--dynamic-linker=/wrong/loader', source, '-o', binary], check=True)
         result = subprocess.run(['python3', verifier, '--link-mode', 'dynamic', binary], capture_output=True, text=True)
         assert result.returncode != 0 and 'expected /lib/ld-uClibc.so.0' in result.stderr, result.stderr
@@ -43,7 +46,7 @@ def main():
         subprocess.run([values['TARGET_CC'], source, '-L' + temporary, '-lgateway_missing_fixture', '-o', binary], check=True)
         result = subprocess.run(['python3', verifier, '--link-mode', 'dynamic', binary], capture_output=True, text=True)
         assert result.returncode != 0 and 'runtime library missing from selected RSDK' in result.stderr, result.stderr
-    print('PASS verifier rejects host ELF, forbidden instructions, wrong linkage, wrong loader and missing runtime; static and dynamic fixtures pass')
+    print('PASS verifier rejects host ELF, forbidden instructions, wrong linkage, PIE, wrong loader and missing runtime; static and dynamic fixtures pass')
 
 
 if __name__ == '__main__':

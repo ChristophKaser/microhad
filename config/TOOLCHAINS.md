@@ -95,15 +95,17 @@ TOOLCHAIN=rsdk LINK_MODE=dynamic bash micro-thread-matter-daemon/scripts/build.s
 Outputs and caches are isolated under `microhad/build/dynamic/` and
 `build/dynamic/`. The Rust target is `lexra-stock-uclibc-dynamic`. MicroHAD's
 Mbed TLS and Matter's OpenThread archives remain statically incorporated;
-system and C++ runtime libraries are shared. Rust uses PIC and disables
-`crt-static`; the compatibility shim inspects shared-library exports when
-choosing missing-API implementations. Firmware, RNG seed and maintenance
+system and C++ runtime libraries are shared. Dynamic executables use fixed-address
+(non-PIE) code, with Rust static relocation and `crt-static` disabled; OpenThread
+and compatibility objects also avoid PIC. The compatibility shim inspects shared-
+library exports when choosing missing-API implementations. Firmware, RNG seed and maintenance
 helpers retain static linkage. Deployment defaults continue selecting static
 artifacts and their existing verifier requirements are unchanged.
 
 Each dynamic executable receives an adjacent `.linkage.json` report. Verification
-requires `/lib/ld-uClibc.so.0`, resolves transitive dependencies within the selected
-RSDK, checks strong imports against dependency exports, and retains executable
+requires a non-PIE `ET_EXEC` executable and `/lib/ld-uClibc.so.0`, resolves
+transitive dependencies within the selected RSDK, checks strong imports against
+dependency exports, and retains executable
 MIPS-I/O32, soft-float and forbidden-instruction checks. It does not prove symbol
 version compatibility, loader execution or device kernel behavior. The selected
 RSDK libraries must match the installed gateway runtime before any device trial.
@@ -121,11 +123,12 @@ python3 scripts/report-dynamic-linkage.py --output build/dynamic/linkage-summary
 
 The report compares current static counterparts and counts uncompressed RSDK
 runtime files. Installed library reuse and JFFS2 compression are not measured.
-PIC and relocation tables can increase Rust executable sizes; dynamic linking
-does not guarantee a smaller release or lower memory use. A device startup,
-threading, networking and TLS trial requires separate explicit authorization.
+Dynamic linking does not guarantee a smaller release or lower memory use.
+Loader-required dynamic symbols, including copy-relocated runtime data, remain
+visible; removing the entire dynamic symbol table would break loading. A device
+startup, threading, networking and TLS trial requires separate explicit authorization.
 
-The initial local comparison (same source revision and stripped artifacts) was:
+The initial experiment (Rust services built as PIE, stripped artifacts) was:
 
 | Service | Static bytes | Dynamic bytes |
 | --- | ---: | ---: |
@@ -135,8 +138,25 @@ The initial local comparison (same source revision and stripped artifacts) was:
 
 The dynamic executables total 8,729,052 bytes, an increase of 504,784 bytes.
 Their combined RSDK runtime dependency set occupies 2,008,707 additional bytes
-when counted once. These results establish local linking feasibility, not a
-size win for the complete stack or verified gateway runtime compatibility.
+when counted once. These PIE results motivated disabling position independence.
+Local ELF checks establish linking feasibility, not verified gateway runtime
+compatibility.
+
+After disabling PIE and PIC, the same dynamic artifacts measure:
+
+| Service | Non-PIE dynamic bytes | Saved versus static bytes |
+| --- | ---: | ---: |
+| MicroHAD (already non-PIE) | 1,567,736 | 392,044 |
+| Ziggurat multipan | 3,521,320 | 122,080 |
+| Matter | 2,469,952 | 151,136 |
+
+The executables total 7,559,008 bytes, saving 665,260 bytes versus static and
+1,170,044 bytes versus the initial experiment. The shared runtime set is still
+2,008,707 bytes; packaging all those SDK files gives 9,567,715 bytes total.
+Ziggurat now defines only five linker/runtime dynamic symbols. Matter defines
+those five plus two C++ runtime vtables with copy relocations; OpenThread
+application symbols are no longer exported. Imports and loader-required dynamic
+symbols are retained. No gateway runtime test or deployment has been performed.
 
 ## Experimental limits
 
