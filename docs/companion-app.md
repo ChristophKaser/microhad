@@ -1,6 +1,6 @@
 # Android companion app
 
-[MicroHAD Companion](../companion-app/README.md) is the general-purpose Android
+[MicroHAD Companion](../io.github.microhad/README.md) is the general-purpose Android
 app for commissioning Matter devices and receiving gateway notifications. It
 supports one gateway per installation and opens the existing dashboard for
 controls and configuration. It is MIT licensed and builds without household
@@ -45,7 +45,7 @@ page. Reset also applies when changing the gateway's Firebase project/options.
 Push requires a Firebase project operated by the gateway owner. There is no
 shared project or hosted relay supplied by this repository. In that project:
 
-1. Register an Android app with package name `org.microhad.companion`.
+1. Register an Android app with package name `io.github.microhad`.
 2. Obtain its Firebase application ID, API key, project ID and project number
    (messaging sender ID) from the Android client configuration. Keep package
    and signing-certificate API restrictions compatible with your APK.
@@ -163,7 +163,7 @@ Automated verification:
 ```sh
 make -C microhad host test
 make -C microhad mips
-cd companion-app
+cd io.github.microhad
 ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
 ```
 

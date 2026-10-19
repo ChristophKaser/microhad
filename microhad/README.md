@@ -91,7 +91,7 @@ from the deployed HTTPS dashboard. `make -C microhad webui` builds
 
 ## Android companion
 
-[MicroHAD Companion](../companion-app/README.md) supports configurable gateway
+[MicroHAD Companion](../io.github.microhad/README.md) supports configurable gateway
 setup, LAN discovery, Matter commissioning and FCM push notifications. See
 [companion configuration](../docs/companion-app.md) for public Firebase client
 settings and the `/api/companion/config` endpoint. Private sending credentials

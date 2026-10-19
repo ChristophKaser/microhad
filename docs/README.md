@@ -20,7 +20,7 @@ Commands run on the development computer unless marked **gateway**.
 
 | Component | Entry point | Main references |
 | --- | --- | --- |
-| Android companion | [README](../companion-app/README.md) | [Setup and API](companion-app.md), MIT license |
+| Android companion | [README](../io.github.microhad/README.md) | [Setup and API](companion-app.md), MIT license |
 | MicroHAD | [README](../microhad/README.md) | [Ziggurat integration](native-ziggurat-integration.md), [tests](../microhad/test/TEST_PLAN.md) |
 | Ziggurat | [README](../ziggurat/README.md) | [Shared-radio transport](hdlc-multipan-usage.md), [network conversion](network-migration.md) |
 | Thread/Matter | [README](../micro-thread-matter-daemon/README.md) | [Runtime](matter-service-runtime.md), [transport](rs-matter-openthread-transport.md) |
