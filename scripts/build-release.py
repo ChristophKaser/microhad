@@ -28,7 +28,7 @@ DEPENDENCIES = ['microhad/dependencies/mbedtls', 'microhad/dependencies/tinycbor
 PREPARED = ['worktrees/ziggurat-multipan', 'build/openthread-unix/source-mailbox',
             'build/micro-thread-matter-daemon/service-source',
             *['build/patched-crates-mailbox/' + n for n in ('getrandom-0.4.3', 'nix-0.26.4', 'radium-0.7.0')]]
-EXCLUDE = ['io.github.microhad/', 'firmware/dependencies/', 'firmware/hdlc-multipan/',
+EXCLUDE = ['microhad/test/fixtures/tls/', 'io.github.microhad/', 'firmware/dependencies/', 'firmware/hdlc-multipan/',
            '.codex/', '.githooks/', '.gitmodules']
 
 
@@ -100,6 +100,19 @@ def archive(root, destination, epoch):
                     output.addfile(info, stream)
             else:
                 output.addfile(info)
+
+
+def pinned_revisions():
+    result = {}
+    def visit(repo, prefix='', recurse=False):
+        for line in git('ls-files', '--stage', cwd=repo).splitlines():
+            if line.startswith('160000 '):
+                fields, name = line.split('\t', 1)
+                result[prefix + name] = fields.split()[1]
+                if recurse or name in DEPENDENCIES:
+                    visit(repo / name, prefix + name + '/', True)
+    visit(ROOT)
+    return result
 
 
 def snapshot_sources(root):
@@ -346,8 +359,7 @@ def main():
         run(['python3', 'scripts/build-toolchain.py'], env=env)
         root = staging / ('microhad-' + version + '-source')
         collect(root, args, env, toolchain, sysroot)
-        revisions = {line.split('\t', 1)[1]: line.split()[1]
-                     for line in git('ls-files', '--stage').splitlines() if line.startswith('160000 ')}
+        revisions = pinned_revisions()
         metadata = {'schema': 1, 'version': version, 'revision': git('rev-parse', 'HEAD'),
                     'source_date_epoch': epoch, 'toolchain': 'crosstool-ng', 'link_mode': 'static',
                     'modes': ['paired', 'microhad-only'], 'rust_version': rust_version,

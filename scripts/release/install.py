@@ -163,12 +163,17 @@ class Installer:
     def verify_dashboard(self):
         base = 'http://' + self.args.host
         for attempt in range(30):
+            running = self.remote("for p in /proc/[0-9]*/exe; do x=$(ls -l \"$p\" 2>/dev/null) || continue; "
+                                  "case \"$x\" in *' -> /tuya/native/microhad') echo running; exit 0;; esac; done; echo stopped")
+            if running != 'running':
+                time.sleep(1)
+                continue
             result = subprocess.run(['curl', '-fsS', '--connect-timeout', '2', '--max-time', '4', base + '/api/status'],
                                     capture_output=True, env=self.env)
             if result.returncode == 0:
                 try:
                     status = json.loads(result.stdout)
-                    if status.get('online') and status.get('backend') in ('ezsp', 'native', None):
+                    if status.get('online') and status.get('coordinator_backend') == 'ezsp':
                         subprocess.run(['curl', '-fsS', '--max-time', '5', base + '/licenses.html'], stdout=subprocess.DEVNULL, env=self.env, check=True)
                         print('MicroHAD-only installation is running')
                         return
@@ -200,6 +205,8 @@ def main():
         if not args.config or (args.mode == 'paired' and not args.ziggurat_state):
             parser.error('install requires --config and paired mode also requires --ziggurat-state')
         config = json.loads(args.config.read_text())
+        if not isinstance(config, dict):
+            parser.error('Configuration must be a JSON object')
         if config.get('runtime_dir', TARGET) != TARGET:
             parser.error('Configuration runtime_dir must be /tuya/native')
         if (args.mode == 'paired') != bool(config.get('ziggurat_socket')):

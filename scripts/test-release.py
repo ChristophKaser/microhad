@@ -77,6 +77,7 @@ class Packages(unittest.TestCase):
             self.assertEqual(sorted(p.name for p in output.iterdir()), ['source.c'])
             self.assertTrue(builder.excluded('firmware/dependencies/gecko-sdk/secret'))
             self.assertTrue(builder.excluded('io.github.microhad/app/build.gradle'))
+            self.assertTrue(builder.excluded('microhad/test/fixtures/tls/localhost.key'))
             self.assertFalse(builder.excluded('firmware/scripts/build-maintenance.sh'))
 
     def test_source_bundle_detects_missing_or_changed_dependency(self):
@@ -197,6 +198,15 @@ class Installer(unittest.TestCase):
             with self.assertRaises(subprocess.CalledProcessError):
                 instance.native()
         remote.assert_not_called()
+
+    def test_native_readiness_checks_exact_executable_and_ezsp_backend(self):
+        instance = install.Installer(options(mode='microhad-only'))
+        response = subprocess.CompletedProcess([], 0, stdout=b'{"online":true,"coordinator_backend":"ezsp"}')
+        with patch.object(instance, 'remote', return_value='running') as remote, \
+                patch.object(install.subprocess, 'run', return_value=response) as run:
+            instance.verify_dashboard()
+        self.assertIn(" -> /tuya/native/microhad", remote.call_args.args[0])
+        self.assertIn('/licenses.html', run.call_args.args[0][-1])
 
     def test_paired_update_delegates_without_configuration_or_identity(self):
         instance = install.Installer(options(action='update'))

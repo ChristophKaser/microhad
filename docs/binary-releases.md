@@ -141,7 +141,9 @@ The builder does not install, deploy, publish, or access a gateway.
 The matching source archive includes pinned dependencies, patched source trees,
 Cargo/npm sources, Rust standard-library sources, compiler/libc source archives,
 configurations, licenses and a checksummed source manifest. It excludes radio
-firmware, proprietary SDK bundles, Git history, local settings and device data.
+firmware, proprietary SDK bundles, Git history, local settings, device data and
+the repository-only localhost TLS test fixtures. Those fixtures are not needed
+to build or relink the release executables.
 The original application sources remain MIT; upstream libraries retain their
 licenses, including LGPL 2.1 for uClibc-ng and GCC runtime exceptions.
 
