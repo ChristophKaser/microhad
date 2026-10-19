@@ -129,8 +129,16 @@ only in paired mode. No standalone license files are installed on the gateway.
 From a committed repository, on Linux x86_64:
 
 ```sh
+git submodule update --init --recursive microhad/dependencies/mbedtls microhad/dependencies/tinycbor \
+  micro-thread-matter-daemon/dependencies/openthread micro-thread-matter-daemon/dependencies/rs-matter \
+  ziggurat/dependencies/ziggurat
 python3 scripts/build-release.py --version VERSION --jobs 4
 ```
+
+The source-built compiler also needs the pinned Lexra patch files from
+`firmware/dependencies/rtl8196e-gateway`; initialize that submodule (without
+recursing into its firmware dependencies) if absent. Gecko SDK, SLC and radio
+firmware builds are not required.
 
 The build uses crosstool-NG and static linking regardless of private workspace
 settings. It builds both MicroHAD modes, Ziggurat multipan, the Matter service,

@@ -89,7 +89,14 @@ The app exposes them before gateway connection. Test dependencies are excluded;
 debug notices include debug-only runtime dependencies. Do not silently exclude
 unrecognized SDK terms or inherited Maven licenses.
 
-For downloadable native/firmware releases, accompany artifacts with a host-side
+For complete static software releases, use `python3 scripts/build-release.py
+--version VERSION`. The builder includes runtime attribution and a matching
+source/rebuild package for crosstool-NG/uClibc-ng, supports paired and stock-EZSP
+MicroHAD-only modes, and excludes radio firmware. See
+[binary release instructions](docs/binary-releases.md). This does not clear
+proprietary RSDK artifacts or radio firmware for redistribution.
+
+For other downloadable artifacts, accompany them with a host-side notice
 bundle (never passed to deployment):
 
 ```sh

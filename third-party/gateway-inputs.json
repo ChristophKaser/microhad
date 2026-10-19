@@ -28,7 +28,7 @@
     "patches/getrandom-0.4.3.patch": "12ad4c2e1f639ade672d1588503d295a4fc0add097c8ba124b924eefef65bcab",
     "patches/nix-0.26.4.patch": "d6a9b186442ab23daeb203d255ffb7db0be68aab09168ad4f332f449b6d69e57",
     "patches/radium-0.7.0.patch": "ef497a3f87cd43ed9a0863b21fbfcb0052a3b5a224d5eef467323cc786301acc",
-    "scripts/licensing/notices.py": "c8267dd91055043194c1ea34a7fa14781e490d28b5b88603d9642ce8020d5805",
+    "scripts/licensing/notices.py": "7064c75aaa8969b26dcc9dd9ed76298cbc8727ea53c7e1ba00a5b08d3cba0803",
     "third-party/supplements.json": "4a6b1aa2006b773287e022a5d1fe847252807030616551dbad967debc32b9edc",
     "ziggurat/dependencies/ziggurat": "392d4c7fe5c497d553977492bc02cb305573b7fc",
     "ziggurat/dependencies/ziggurat/Cargo.lock": "be1cd92f9a1077465670f3ff58f9c5f46b1527a32a79db6a21f0004fb130827d",

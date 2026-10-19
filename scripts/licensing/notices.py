@@ -65,6 +65,9 @@ def inputs():
     result = {p: hashlib.sha256((ROOT / p).read_bytes()).hexdigest() for p in paths}
     for p in SUBMODULES:
         result[p] = git('rev-parse', f'HEAD:{p}')
+        software_only = os.environ.get('MICROHAD_RELEASE_SOFTWARE_ONLY') == '1'
+        if software_only and p.startswith('firmware/dependencies/'):
+            continue
         if git('-C', str(ROOT / p), 'rev-parse', 'HEAD') != result[p]:
             raise ValueError(f'{p}: checkout does not match parent repository pin')
     return result

@@ -84,7 +84,7 @@ bool writeBytes(int fd, const std::string& bytes) {
     return true;
 }
 
-#ifdef MICROHAD_MBEDTLS_ENABLED
+#if defined(MICROHAD_MBEDTLS_ENABLED) && MICROHAD_MATTER_ENABLED
 /* The Matter worker continues to own WebSocket parsing and protocol state. This
  * thread owns only TLS record translation between its accepted socket and a
  * private Unix socket handed to that worker. */

@@ -49,7 +49,7 @@ def environment(root, jobs, cargo_home, rustup_home, epoch):
                CARGO_HOME=str(cargo_home), RUSTUP_HOME=str(rustup_home), BUILD_JOBS=str(jobs),
                CARGO_BUILD_JOBS=str(jobs), ZIGGURAT_MULTIPAN='1', SOURCE_DATE_EPOCH=str(epoch),
                npm_config_userconfig='/dev/null', npm_config_globalconfig=str(root / 'scripts/release/npmrc'), npm_config_audit='false',
-               npm_config_fund='false', npm_config_cache=str(root / '.release/npm-cache'))
+               npm_config_fund='false', npm_config_cache=str(root / '.release/npm-cache'), MICROHAD_RELEASE_SOFTWARE_ONLY='1')
     env['PATH'] = str(cargo_home / 'bin') + ':' + env['PATH']
     return env
 
@@ -58,14 +58,15 @@ def excluded(name):
     return any(name.startswith(prefix) for prefix in EXCLUDE) or name.startswith('firmware/scripts/') and name != 'firmware/scripts/build-maintenance.sh'
 
 
-def export_git(source, destination, recursive=True, filter_root=False):
+def export_git(source, destination, recursive=True, filter_root=False, revision=None):
     """Export tracked bytes only. Never copy .git, caches, local settings or state."""
     destination.mkdir(parents=True, exist_ok=True)
-    for row in git('ls-files', '--stage', '-z', cwd=source).split('\0'):
+    revision = revision or git('rev-parse', 'HEAD', cwd=source)
+    for row in git('ls-tree', '-r', '-z', revision, cwd=source).split('\0'):
         if not row:
             continue
         fields, name = row.split('\t', 1)
-        mode, oid, _ = fields.split()
+        mode, _, oid = fields.split()
         if filter_root and excluded(name):
             continue
         target = destination / name
@@ -73,7 +74,7 @@ def export_git(source, destination, recursive=True, filter_root=False):
             if recursive:
                 if git('rev-parse', 'HEAD', cwd=source / name) != oid:
                     raise ValueError('Dependency pin mismatch: ' + name)
-                export_git(source / name, target)
+                export_git(source / name, target, revision=oid)
             continue
         target.parent.mkdir(parents=True, exist_ok=True)
         data = subprocess.check_output(['git', '-C', str(source), 'cat-file', 'blob', oid])
@@ -102,16 +103,17 @@ def archive(root, destination, epoch):
                 output.addfile(info)
 
 
-def pinned_revisions():
+def pinned_revisions(revision):
     result = {}
-    def visit(repo, prefix='', recurse=False):
-        for line in git('ls-files', '--stage', cwd=repo).splitlines():
+    def visit(repo, revision, prefix='', recurse=False):
+        for line in git('ls-tree', '-r', revision, cwd=repo).splitlines():
             if line.startswith('160000 '):
                 fields, name = line.split('\t', 1)
-                result[prefix + name] = fields.split()[1]
+                oid = fields.split()[2]
+                result[prefix + name] = oid
                 if recurse or name in DEPENDENCIES:
-                    visit(repo / name, prefix + name + '/', True)
-    visit(ROOT)
+                    visit(repo / name, oid, prefix + name + '/', True)
+    visit(ROOT, revision)
     return result
 
 
@@ -170,7 +172,7 @@ def cargo_patches(root):
 def toolchain_evidence(prefix):
     compiler = prefix / 'bin/mips-lexra-linux-uclibc-gcc'
     result = {'compiler_version': subprocess.check_output([compiler, '--version'], text=True), 'runtime_archives': {}}
-    for name in ('libc.a', 'libm.a', 'libpthread.a', 'libstdc++.a', 'libgcc.a', 'crt1.o', 'crti.o', 'crtn.o'):
+    for name in ('libc.a', 'libm.a', 'libpthread.a', 'libutil.a', 'librt.a', 'libdl.a', 'libstdc++.a', 'libgcc.a', 'libgcc_eh.a', 'crt1.o', 'crti.o', 'crtn.o'):
         path = Path(subprocess.check_output([compiler, '-print-file-name=' + name], text=True).strip()).resolve()
         if not path.is_relative_to(prefix.resolve()):
             raise ValueError('Runtime outside validated compiler: ' + name)
@@ -186,7 +188,7 @@ def collect(root, args, env, toolchain, sysroot):
     for manifest in ('micro-thread-matter-daemon/Cargo.toml', 'worktrees/ziggurat-multipan/Cargo.toml'):
         run(['cargo', '+' + toolchain, 'fetch', '--manifest-path', manifest], env=env)
     run(['python3', 'scripts/prepare-crate-patches.py', 'getrandom-0.4.3', 'nix-0.26.4', 'radium-0.7.0'], env=env)
-    export_git(ROOT, root, recursive=False, filter_root=True)
+    export_git(ROOT, root, recursive=False, filter_root=True, revision=args.revision)
     for name in DEPENDENCIES:
         export_git(ROOT / name, root / name)
     for name in PREPARED:
@@ -315,7 +317,16 @@ def check_clean():
         raise ValueError('Commit the release builder before building a release')
     for name in git('diff', '--name-only', 'HEAD').splitlines():
         if not excluded(name): raise ValueError('Commit release input changes first: ' + name)
+    rtl = ROOT / 'firmware/dependencies/rtl8196e-gateway'
+    if not (rtl / '.git').exists():
+        raise ValueError('Initialize the pinned RTL8196E submodule for its compiler patches')
+    if git('rev-parse', 'HEAD', cwd=rtl) != git('rev-parse', 'HEAD:firmware/dependencies/rtl8196e-gateway'):
+        raise ValueError('Compiler patch submodule does not match its parent pin')
+    if git('diff', '--name-only', 'HEAD', '--', 'LICENSE', '1-Build-Environment/10-lexra-toolchain/patches', cwd=rtl):
+        raise ValueError('Compiler patches/license must match the pinned committed source')
     for name in DEPENDENCIES:
+        if not (ROOT / name / '.git').exists():
+            raise ValueError('Initialize required software submodules first: git submodule update --init --recursive ' + ' '.join(DEPENDENCIES))
         if git('status', '--porcelain', '--untracked-files=all', cwd=ROOT / name):
             raise ValueError('Modified dependency: ' + name)
 
@@ -340,6 +351,7 @@ def main():
         if not args.version or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*', args.version):
             parser.error('--version must be a safe filename component')
         check_clean()
+        args.revision = git('rev-parse', 'HEAD')
         version = args.version
         epoch = int(git('show', '-s', '--format=%ct', 'HEAD'))
     output = (args.output or ROOT / 'build/releases' / version).resolve()
@@ -359,8 +371,8 @@ def main():
         run(['python3', 'scripts/build-toolchain.py'], env=env)
         root = staging / ('microhad-' + version + '-source')
         collect(root, args, env, toolchain, sysroot)
-        revisions = pinned_revisions()
-        metadata = {'schema': 1, 'version': version, 'revision': git('rev-parse', 'HEAD'),
+        revisions = pinned_revisions(args.revision)
+        metadata = {'schema': 1, 'version': version, 'revision': args.revision,
                     'source_date_epoch': epoch, 'toolchain': 'crosstool-ng', 'link_mode': 'static',
                     'modes': ['paired', 'microhad-only'], 'rust_version': rust_version,
                     'revisions': revisions,
@@ -390,6 +402,10 @@ def main():
     (staging / 'SHA256SUMS').write_text(''.join(sha(p) + '  ' + p.name + '\n' for p in [*archives, staging / 'release-manifest.json']))
     # The unpacked trees remain in .incomplete for diagnostics until success;
     # final public output contains only archives and manifests.
+    if not args.rebuild:
+        check_clean()
+        if git('rev-parse', 'HEAD') != metadata['revision']:
+            raise ValueError('Repository revision changed during the release build; refusing publication')
     publish = staging / 'publish'
     publish.mkdir()
     for p in [*archives, staging / 'release-manifest.json', staging / 'SHA256SUMS']:
