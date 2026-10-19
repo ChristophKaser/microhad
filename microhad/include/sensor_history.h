@@ -38,6 +38,11 @@ public:
     bool readForDevice(const std::string& deviceId, uint64_t before,
                        std::string* json, std::string* error,
                        ReadStats* stats = 0) const;
+    /* Combines records from multiple physical IDs into one cursor-ordered view.
+       Matter uses one ID per endpoint while presenting a single node card. */
+    bool readForDevices(const std::vector<std::string>& deviceIds, uint64_t before,
+                        std::string* json, std::string* error,
+                        ReadStats* stats = 0) const;
     static bool readJson(const std::string& path, const std::string& deviceId,
                          uint64_t before, std::string* json, std::string* error,
                          ReadStats* stats = 0);
@@ -91,7 +96,7 @@ private:
     bool initializeValues(std::string* error);
     bool appendValueLocked(const std::string& deviceId, unsigned char metric, const std::string& value,
                            const std::string& unit, long timestamp);
-    bool readValuesJson(const std::string& deviceId, uint64_t before,
+    bool readValuesJson(const std::vector<std::string>& deviceIds, uint64_t before,
                         std::string* json, std::string* error, ReadStats* stats) const;
 };
 

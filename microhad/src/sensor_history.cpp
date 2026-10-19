@@ -633,20 +633,24 @@ bool SensorHistory::appendValueLocked(const std::string& deviceId, unsigned char
     return true;
 }
 
-bool SensorHistory::readValuesJson(const std::string& deviceId, uint64_t before,
+bool SensorHistory::readValuesJson(const std::vector<std::string>& deviceIds, uint64_t before,
                                    std::string* json, std::string* error, ReadStats* stats) const {
-    if (!plainText(deviceId, 64, false)) { if (error) *error = "invalid device ID"; return false; }
+    if (deviceIds.empty()) { if (error) *error = "invalid device ID"; return false; }
+    for (unsigned long idIndex = 0; idIndex < deviceIds.size(); ++idIndex)
+        if (!plainText(deviceIds[idIndex], 64, false)) { if (error) *error = "invalid device ID"; return false; }
     if (!const_cast<SensorHistory*>(this)->initializeValues(error)) return false;
     std::vector<ReadPage> pages;
     pthread_mutex_lock(&values_.mutex);
-    for (unsigned char metric = 1; metric <= maximumMetric; ++metric) {
-        std::map<std::string, std::vector<unsigned int> >::const_iterator pair =
-            values_.pairPages.find(pairKey(deviceId, metric));
-        if (pair == values_.pairPages.end()) continue;
-        for (unsigned long i = 0; i < pair->second.size(); ++i) {
-            const unsigned int index = pair->second[i];
-            const Page& page = values_.pages[index];
-            if (before == 0 || page.oldest < before) pages.push_back(ReadPage(index, page));
+    for (unsigned long idIndex = 0; idIndex < deviceIds.size(); ++idIndex) {
+        for (unsigned char metric = 1; metric <= maximumMetric; ++metric) {
+            std::map<std::string, std::vector<unsigned int> >::const_iterator pair =
+                values_.pairPages.find(pairKey(deviceIds[idIndex], metric));
+            if (pair == values_.pairPages.end()) continue;
+            for (unsigned long i = 0; i < pair->second.size(); ++i) {
+                const unsigned int index = pair->second[i];
+                const Page& page = values_.pages[index];
+                if (before == 0 || page.oldest < before) pages.push_back(ReadPage(index, page));
+            }
         }
     }
     pthread_mutex_unlock(&values_.mutex);
@@ -672,7 +676,8 @@ bool SensorHistory::readValuesJson(const std::string& deviceId, uint64_t before,
         if (stats) { ++stats->pagesRead; stats->bytesRead += pageBytes; }
         if (pread(fd, pageData, sizeof(pageData), base) != static_cast<ssize_t>(sizeof(pageData))) continue;
         std::string owner; unsigned char metric = 0; uint32_t generation = 0;
-        if (!pageHeaderValid(pageData, &owner, &metric, &generation) || owner != deviceId ||
+        if (!pageHeaderValid(pageData, &owner, &metric, &generation) ||
+            std::find(deviceIds.begin(), deviceIds.end(), owner) == deviceIds.end() ||
             metric != snapshot.page.metric || generation != snapshot.page.generation) continue;
         unsigned char confirmed[pageHeaderBytes];
         if (stats) stats->bytesRead += pageHeaderBytes;
@@ -719,14 +724,24 @@ bool SensorHistory::readValuesJson(const std::string& deviceId, uint64_t before,
 
 bool SensorHistory::readForDevice(const std::string& address, uint64_t before,
                                   std::string* json, std::string* error, ReadStats* stats) const {
-    const std::string::size_type separator = address.find(':');
-    if (separator == std::string::npos) {
-        if (address.size() != 18 || address[0] != '0' || address[1] != 'x') { if (error) *error = "invalid device address"; return false; }
-        for (unsigned long i = 2; i < address.size(); ++i) {
-            char c = address[i]; if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) { if (error) *error = "invalid device address"; return false; }
-        }
+    return readForDevices(std::vector<std::string>(1, address), before, json, error, stats);
+}
+
+bool SensorHistory::readForDevices(const std::vector<std::string>& deviceIds, uint64_t before,
+                                   std::string* json, std::string* error, ReadStats* stats) const {
+    std::vector<std::string> normalized;
+    for (unsigned long index = 0; index < deviceIds.size(); ++index) {
+        const std::string& address = deviceIds[index];
+        if (address.find(':') == std::string::npos) {
+            if (address.size() != 18 || address[0] != '0' || address[1] != 'x') { if (error) *error = "invalid device address"; return false; }
+            for (unsigned long i = 2; i < address.size(); ++i) {
+                char c = address[i];
+                if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) { if (error) *error = "invalid device address"; return false; }
+            }
+            normalized.push_back("zigbee:" + address);
+        } else normalized.push_back(address);
     }
-    return readValuesJson(separator == std::string::npos ? "zigbee:" + address : address, before, json, error, stats);
+    return readValuesJson(normalized, before, json, error, stats);
 }
 bool SensorHistory::readJson(const std::string& path, const std::string& address, uint64_t before,
                              std::string* json, std::string* error, ReadStats* stats) {

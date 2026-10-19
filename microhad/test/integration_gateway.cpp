@@ -1870,7 +1870,14 @@ void testGatewayRunnerCommandDispatch() {
         matter.servers.push_back(29);
         matter.servers.push_back(1037);
         matter.servers.push_back(59);
+        MatterEndpoint matterHumidity = matter;
+        matterHumidity.id = "matter:0000000000000001:0000000000000002:0002";
+        matterHumidity.endpoint = 2;
+        matterHumidity.servers.clear();
+        matterHumidity.servers.push_back(29);
+        matterHumidity.servers.push_back(1029);
         std::vector<MatterEndpoint> matterEndpoints(1, matter);
+        matterEndpoints.push_back(matterHumidity);
         assert(runner.reconcileMatterDevices(matterEndpoints, &error));
         view = runner.acquireView();
         assert(view != 0 && view->statusJson().find("\"matter_node\":\"0000000000000002\"") != std::string::npos);
@@ -1890,14 +1897,23 @@ void testGatewayRunnerCommandDispatch() {
         co2.numberValue = 758.5;
         co2.unit = "ppb";
         assert(runner.applyMatterReading(co2, &error));
+        MatterReading humidity;
+        humidity.node = matter.node;
+        humidity.endpoint = matterHumidity.endpoint;
+        humidity.cluster = 1029;
+        humidity.known = true;
+        humidity.numberValue = 53.25;
+        humidity.unit = "percent";
+        assert(runner.applyMatterReading(humidity, &error));
         assert(runner.reconcileMatterDevices(matterEndpoints, &error));
         view = runner.acquireView();
         assert(view != 0 && view->statusJson().find("\"co2\":{\"value\":758.5,\"unit\":\"ppb\",\"quality\":\"measured\"}") !=
                std::string::npos);
         delete view;
         std::string matterHistory;
-        assert(runner.readHistoryJson(matter.id, 0, &matterHistory, &error));
+        assert(runner.readHistoryJson("matter:0000000000000001:0000000000000002", 0, &matterHistory, &error));
         assert(matterHistory.find(",7,0.75849998,\"ppm\"]") != std::string::npos);
+        assert(matterHistory.find(",2,53.25,\"percent\"]") != std::string::npos);
         assert(runner.registerShelly("0011223344556677", "Test plug", "Test plug", "plug",
                                      std::vector<int>(), std::vector<int>(), std::vector<int>(), &error));
         assert(runner.applyShellyEvent("0011223344556677", 4, 0, 42.3, &error));
