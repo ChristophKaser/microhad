@@ -3,6 +3,10 @@ import { MatterError, type MatterSession } from './matter'
 const SERVICE = '0000fff6-0000-1000-8000-00805f9b34fb'
 const C1 = '18ee2ef5-263d-4559-959f-4f9c429f9d11'
 const C2 = '18ee2ef5-263d-4559-959f-4f9c429f9d12'
+// Web Bluetooth does not expose the negotiated ATT MTU. 247 is the Matter BTP
+// maximum and is the value negotiated by Android commissioners; a peer that
+// supports less selects the lower value in its handshake response.
+const MATTER_BTP_MTU = 247
 const forbiddenPins = new Set([11111111, 22222222, 33333333, 44444444, 55555555, 66666666, 77777777, 88888888, 12345678, 87654321])
 
 function trace(event: string, details?: Record<string, unknown>) {
@@ -88,7 +92,7 @@ export class BrowserMatterRelay {
       }
     })
     device.addEventListener('gattserverdisconnected', () => { trace('GATT disconnected'); this.close() })
-    await this.open(); const attached = await this.call(6, { address: randomAddress(), mtu: 23 }) as { generation: number }
+    await this.open(); trace('BTP relay attaching', { mtu: MATTER_BTP_MTU }); const attached = await this.call(6, { address: randomAddress(), mtu: MATTER_BTP_MTU }) as { generation: number }
     if (!Number.isInteger(attached.generation) || attached.generation < 1) throw new MatterError('protocol')
     this.generation = attached.generation; trace('BLE relay attached', { generation: this.generation })
   }
