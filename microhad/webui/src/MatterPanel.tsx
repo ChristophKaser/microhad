@@ -8,6 +8,9 @@ const phases: Record<string, string> = {
   waiting_thread: 'Waiting for Thread attachment', case: 'Verifying connection over Thread', completing: 'Completing setup',
   complete: 'Device commissioned', cancelled: 'Cancelled', failed: 'Failed', timed_out: 'Timed out',
 }
+function traceCommissioning(source: string, value: MatterSession) {
+  console.info('[Matter commissioning]', source, { state: value.state, remaining_seconds: value.deadline_remaining_seconds, error: value.error ?? null })
+}
 function failure(error: unknown): string {
   switch (error instanceof Error ? error.message : '') {
     case 'busy': return 'Another operation is active. Cancel its known session or wait for its deadline before retrying.'
@@ -73,7 +76,7 @@ export function MatterPanel() {
         const next = sessionResult(await matterCall('/api/matter/commissioning/status', { session: watch }, controller.signal))
         if (next.session !== watch) throw new Error('protocol')
         if (controller.signal.aborted) return
-        setSession(next); setError('')
+        traceCommissioning('status', next); setSession(next); setError('')
         if (!terminalSession(next)) timer = window.setTimeout(() => void load(), 2000)
       } catch (cause) { if (!controller.signal.aborted) { setWatch(''); setError(failure(cause)) } }
     }
@@ -110,10 +113,10 @@ export function MatterPanel() {
       const started = sessionResult(await matterCall('/api/matter/commissioning/start', {
         discriminator: code.discriminator, pin: code.pin, timeout_seconds: 120,
       }, controller.signal))
-      setSession(started); setWatch(started.session)
+      traceCommissioning('started', started); setSession(started); setWatch(started.session)
       const relay = browserRelay.current = new BrowserMatterRelay(started.session, value => {
         if (!active.current) return
-        setSession(value); if (terminalSession(value)) { setWatch(''); relay.close() }
+        traceCommissioning('relay event', value); setSession(value); if (terminalSession(value)) { setWatch(''); relay.close() }
       }, cause => {
         // The gateway cancels a failed relay asynchronously.  Continue polling
         // so the screen shows that terminal result rather than stale PASE state.
