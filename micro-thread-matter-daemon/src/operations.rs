@@ -567,7 +567,7 @@ impl Operation {
                             Exchange::initiate(matter, &crypto, fabric, self.node).await?
                                 .time_synchronization().set_dst_offset(self.endpoint, |request| {
                                     request.dst_offset()?.push()?.offset(0)?.valid_starting(0)?
-                                        .valid_until(Nullable::null())?.end()?.end()?.end()
+                                        .valid_until(Nullable::none())?.end()?.end()?.end()
                                 }).await?;
                         }
                         Exchange::initiate(matter, &crypto, fabric, self.node).await?.time_synchronization().set_utc_time(self.endpoint, |request| {
