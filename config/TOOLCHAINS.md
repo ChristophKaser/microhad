@@ -153,7 +153,17 @@ Current stripped artifacts, linked and checked against the stock libraries:
 
 The executable saving is 661,164 bytes (about 646 KiB), with zero extra shared
 libraries. Stock runtime files are already present in the image and are not
-part of the application upload. No deployment or gateway runtime test was run.
+part of the application upload.
+
+A stock-gateway deployment trial on 2026-10-19 passed for all three dynamic
+services on Linux 3.10.90. Installed runtime hashes matched the recorded stock
+libraries; process maps confirmed the stock DSOs were loaded. HTTP and HTTPS
+status checks passed, Zigbee was online with the same 26-device inventory, and
+Matter reported its controller initialized, fabric ready and state running.
+The trial replaced only the three executables and native build manifest,
+retaining existing configuration and network/identity state. No new shared
+libraries were uploaded. This trial verified startup and integration;
+commissioning, device control and long-duration behavior remain untested.
 
 ## Experimental limits
 
