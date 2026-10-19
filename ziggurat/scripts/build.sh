@@ -51,6 +51,9 @@ export CARGO_NET_GIT_FETCH_WITH_CLI=true
 cargo +$RUST_TOOLCHAIN fetch --manifest-path ${build_worktree}/Cargo.toml
 python3 scripts/prepare-crate-patches.py getrandom-0.4.3 nix-0.26.4 radium-0.7.0
 export RUSTFLAGS='-C target-feature=+crt-static -C relocation-model=static'
+if [[ "$LINK_MODE" == dynamic ]]; then
+    RUSTFLAGS=${RUSTFLAGS/-C target-feature=+crt-static -C relocation-model=static/-C target-feature=-crt-static -C relocation-model=pic}
+fi
 cargo +$RUST_TOOLCHAIN build --release \
     --manifest-path ${build_worktree}/Cargo.toml -p ziggurat-server \
     --target "targets/$TARGET_SPEC_NAME.json" \
@@ -62,6 +65,7 @@ if [[ $ZIGGURAT_MULTIPAN == 1 ]]; then
     target_binary="$experiment_root/$build_output/$TARGET_SPEC_NAME/release/ziggurat"
     "$LLVM_STRIP" --keep-section=.gnu.attributes \
         -o "$target_binary.stripped" "$target_binary"
+    python3 scripts/verify-gateway-target.py --link-mode "$LINK_MODE" "$target_binary.stripped"
 fi
 
-python3 scripts/verify-gateway-target.py "$experiment_root/$build_output/$TARGET_SPEC_NAME/release/ziggurat"
+python3 scripts/verify-gateway-target.py --link-mode "$LINK_MODE" "$experiment_root/$build_output/$TARGET_SPEC_NAME/release/ziggurat"

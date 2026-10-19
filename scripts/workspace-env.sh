@@ -1,7 +1,7 @@
 #!/bin/sh
 # Source this file, then call workspace_load /absolute/workspace/root.
 # workspace.local.env is trusted shell code, not a dotenv data format.
-workspace_keys='GATEWAY_IP LAN_INTERFACE TOOLCHAIN RSDK_ROOT CROSSTOOL_NG_ROOT SSH_PASSWORD_FILE SSH_PASSWORD SSH_USER SSH_PORT SSH_CONNECT_TIMEOUT'
+workspace_keys='GATEWAY_IP LAN_INTERFACE TOOLCHAIN LINK_MODE RSDK_ROOT CROSSTOOL_NG_ROOT SSH_PASSWORD_FILE SSH_PASSWORD SSH_USER SSH_PORT SSH_CONNECT_TIMEOUT'
 workspace_quote() {
     printf "'"
     printf '%s' "$1" | sed "s/'/'\\\\''/g"
@@ -30,7 +30,7 @@ $workspace_key=$(workspace_quote "$workspace_value")"
         return 2
     fi
     eval "$workspace_saved"
-    : "${GATEWAY_IP=}" "${LAN_INTERFACE=}" "${TOOLCHAIN=rsdk}"
+    : "${GATEWAY_IP=}" "${LAN_INTERFACE=}" "${TOOLCHAIN=rsdk}" "${LINK_MODE=static}"
     workspace_rsdk_default=$( . "$workspace_root/config/toolchains.mk"; printf '%s' "$RSDK_RELATIVE" )
     workspace_crosstool_default=$( . "$workspace_root/config/toolchains.mk"; printf '%s' "$CROSSTOOL_NG_RELATIVE" )
     : "${RSDK_ROOT=$workspace_root/$workspace_rsdk_default}"
@@ -49,7 +49,7 @@ $workspace_key=$(workspace_quote "$workspace_value")"
         eval "$workspace_key=$(workspace_quote "$workspace_value")"
     done
     # Password stays a shell variable; do not export it to build subprocesses.
-    export GATEWAY_IP LAN_INTERFACE TOOLCHAIN RSDK_ROOT CROSSTOOL_NG_ROOT
+    export GATEWAY_IP LAN_INTERFACE TOOLCHAIN LINK_MODE RSDK_ROOT CROSSTOOL_NG_ROOT
     export SSH_PASSWORD_FILE SSH_USER SSH_PORT SSH_CONNECT_TIMEOUT
     SSH_PASSWORD_SET=
     [ -z "$SSH_PASSWORD" ] || SSH_PASSWORD_SET=1

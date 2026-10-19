@@ -19,20 +19,24 @@ fn main() {
     let compiler = resolve("TARGET_CC");
     let archiver = resolve("TARGET_AR");
     let nm = resolve("TARGET_NM");
-    for variable in ["TOOLCHAIN", "RSDK_ROOT", "CROSSTOOL_NG_ROOT", "TARGET_PREFIX", "TARGET_CC", "TARGET_AR", "TARGET_NM"] {
+    for variable in ["LINK_MODE", "TOOLCHAIN", "RSDK_ROOT", "CROSSTOOL_NG_ROOT", "TARGET_PREFIX", "TARGET_CC", "TARGET_AR", "TARGET_NM"] {
         println!("cargo:rerun-if-env-changed={variable}");
     }
     println!("cargo:rerun-if-changed=../../config/toolchains.mk");
     println!("cargo:rerun-if-changed=../../scripts/toolchain_config.py");
+    let dynamic = env::var("LINK_MODE").as_deref() == Ok("dynamic");
     let mut symbols = std::collections::HashSet::new();
-    for library in ["libc.a", "libpthread.a", "librt.a"] {
+    for library in if dynamic { ["libc.so.0", "libpthread.so.0", "librt.so.0"] } else { ["libc.a", "libpthread.a", "librt.a"] } {
         let output = Command::new(&compiler).arg(format!("-print-file-name={library}"))
             .output().expect("cannot resolve libc archive");
         assert!(output.status.success());
         let archive = String::from_utf8(output.stdout).unwrap();
         let archive = archive.trim();
         println!("cargo:rerun-if-changed={archive}");
-        let output = Command::new(&nm).args(["--defined-only", archive])
+        let mut command = Command::new(&nm);
+        command.arg("--defined-only");
+        if dynamic { command.arg("-D"); }
+        let output = command.arg(archive)
             .output().expect("cannot inspect libc symbols");
         assert!(output.status.success(), "cannot inspect selected libc archive");
         for line in String::from_utf8(output.stdout).unwrap().lines() {
@@ -51,6 +55,7 @@ fn main() {
     let object = PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("stock_compat.o");
     let status = Command::new(&compiler)
         .args(["-O2", "-std=gnu99", "-Wall", "-Wextra", "-Werror", "-c"])
+        .args(if dynamic { vec!["-fPIC"] } else { vec![] })
         .args(&defines)
         .arg(manifest.join("native/stock_compat.c"))
         .arg("-o")
@@ -65,6 +70,7 @@ fn main() {
     let fault_object = object.with_file_name("fault_report.o");
     let status = Command::new(&compiler)
         .args(["-O2", "-std=gnu99", "-Wall", "-Wextra", "-Werror", "-c"])
+        .args(if dynamic { vec!["-fPIC"] } else { vec![] })
         .arg(manifest.join("native/fault_report.c"))
         .arg("-o")
         .arg(&fault_object)

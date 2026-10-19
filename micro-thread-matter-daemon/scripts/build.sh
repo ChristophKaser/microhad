@@ -25,6 +25,9 @@ export CARGO_TARGET_DIR="$output_root/target"
 args=(--locked --release --manifest-path micro-thread-matter-daemon/Cargo.toml --features "$feature" --bin "$binary")
 if [ "$mode" = mips ]; then
     export RUSTFLAGS='-C target-feature=+crt-static -C relocation-model=static --cfg sha2_backend_soft="compact" --cfg aes_backend_soft="compact"'
+    if [[ "$LINK_MODE" == dynamic ]]; then
+        RUSTFLAGS=${RUSTFLAGS/-C target-feature=+crt-static -C relocation-model=static/-C target-feature=-crt-static -C relocation-model=pic}
+    fi
     args+=(--target "targets/$TARGET_SPEC_NAME.json" -Z json-target-spec -Z build-std=std,panic_abort)
 fi
 cargo +$RUST_TOOLCHAIN build "${args[@]}"
@@ -32,7 +35,7 @@ if [ "$mode" = mips ]; then
     "$LLVM_STRIP" --keep-section=.gnu.attributes -o "$output_root/$output" \
         "$CARGO_TARGET_DIR/$TARGET_SPEC_NAME/release/$binary"
     artifact="$output_root/$output"
-    python3 scripts/verify-gateway-target.py "$artifact"
+    python3 scripts/verify-gateway-target.py --link-mode "$LINK_MODE" "$artifact"
 else
     artifact="build/micro-thread-matter-daemon/target/release/$binary"
 fi

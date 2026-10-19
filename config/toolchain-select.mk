@@ -25,13 +25,27 @@ endif
 ifeq ($(strip $(CROSSTOOL_NG_ROOT)),)
 $(error CROSSTOOL_NG_ROOT must not be empty)
 endif
+ifeq ($(origin LINK_MODE),undefined)
+LINK_MODE := $(call workspace_config_get,LINK_MODE)
+endif
+ifneq ($(words $(LINK_MODE)),1)
+$(error LINK_MODE must be static or dynamic)
+endif
+ifneq ($(filter static dynamic,$(LINK_MODE)),$(LINK_MODE))
+$(error LINK_MODE must be static or dynamic)
+endif
+ifeq ($(LINK_MODE),dynamic)
+ifneq ($(TOOLCHAIN),rsdk)
+$(error LINK_MODE=dynamic requires TOOLCHAIN=rsdk)
+endif
+endif
 TARGET_PREFIX ?= $(if $(filter rsdk,$(TOOLCHAIN)),$(RSDK_PREFIX),$(CROSSTOOL_NG_PREFIX))
 TARGET_TOOLCHAIN_ROOT := $(if $(filter rsdk,$(TOOLCHAIN)),$(RSDK_ROOT),$(CROSSTOOL_NG_ROOT))
-TARGET_BUILD_SUBDIR := $(if $(filter crosstool-ng,$(TOOLCHAIN)),crosstool-ng/)
+TARGET_BUILD_SUBDIR := $(if $(filter crosstool-ng,$(TOOLCHAIN)),crosstool-ng/)$(if $(filter dynamic,$(LINK_MODE)),dynamic/)
 TARGET_CC ?= $(TARGET_TOOLCHAIN_ROOT)/bin/$(TARGET_PREFIX)gcc
 TARGET_CXX ?= $(TARGET_TOOLCHAIN_ROOT)/bin/$(TARGET_PREFIX)g++
 TARGET_AR ?= $(TARGET_TOOLCHAIN_ROOT)/bin/$(TARGET_PREFIX)ar
 TARGET_NM ?= $(TARGET_TOOLCHAIN_ROOT)/bin/$(TARGET_PREFIX)nm
 TARGET_STRIP ?= $(TARGET_TOOLCHAIN_ROOT)/bin/$(TARGET_PREFIX)strip
 TARGET_READELF ?= $(TARGET_TOOLCHAIN_ROOT)/bin/$(TARGET_PREFIX)readelf
-export TOOLCHAIN RSDK_ROOT CROSSTOOL_NG_ROOT TARGET_PREFIX TARGET_CC TARGET_CXX TARGET_AR TARGET_NM TARGET_STRIP TARGET_READELF
+export TOOLCHAIN LINK_MODE RSDK_ROOT CROSSTOOL_NG_ROOT TARGET_PREFIX TARGET_CC TARGET_CXX TARGET_AR TARGET_NM TARGET_STRIP TARGET_READELF

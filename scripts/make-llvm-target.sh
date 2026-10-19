@@ -50,6 +50,9 @@ stock["metadata"] = spec["metadata"]
 stock["has-thread-local"] = False
 # LLVM otherwise emits TEQ for division checks, which the Lexra kernel rejects.
 stock["llvm-args"] = ["-mno-check-zero-division"]
+if os.environ["LINK_MODE"] == "dynamic":
+    stock["crt-static-default"] = False
+    stock["relocation-model"] = "pic"
 stock["linker"] = os.environ["TARGET_CC"]
 write(os.environ["TARGET_SPEC_NAME"] + ".json", stock)
 PY

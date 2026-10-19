@@ -17,14 +17,17 @@ def ensure(directory):
     if directory.is_symlink() or not any(directory.is_relative_to(base) and directory != base for base in allowed):
         raise ValueError('expected a component target directory under build/: ' + str(directory))
     values = settings()
-    evidence = {key: str(values[key]) for key in ('TOOLCHAIN', 'TARGET_TOOLCHAIN_ROOT', 'TARGET_PREFIX',
+    evidence = {key: str(values[key]) for key in ('TOOLCHAIN', 'LINK_MODE', 'TARGET_TOOLCHAIN_ROOT', 'TARGET_PREFIX',
                 'TARGET_CC', 'TARGET_CXX', 'TARGET_AR', 'TARGET_NM', 'TARGET_STRIP', 'TARGET_READELF')}
     for key in ('TARGET_CC', 'TARGET_CXX', 'TARGET_AR', 'TARGET_NM', 'TARGET_STRIP', 'TARGET_READELF'):
         tool = Path(values[key]).resolve()
         evidence[key + '_identity'] = [str(tool), tool.stat().st_mtime_ns, tool.stat().st_size]
     evidence['compiler_version'] = subprocess.check_output([values['TARGET_CC'], '--version'], text=True)
     evidence['sysroot'] = subprocess.check_output([values['TARGET_CC'], '-print-sysroot'], text=True).strip()
-    for name in ('libc.a', 'libpthread.a', 'libstdc++.a'):
+    libraries = ('libc.a', 'libpthread.a', 'libstdc++.a')
+    if values['LINK_MODE'] == 'dynamic':
+        libraries += ('libc.so.0', 'libpthread.so.0', 'librt.so.0', 'libstdc++.so.6', 'libgcc_s.so.1', 'ld-uClibc.so.0')
+    for name in libraries:
         archive = Path(subprocess.check_output([values['TARGET_CC'], '-print-file-name=' + name], text=True).strip()).resolve()
         evidence[name] = [str(archive), archive.stat().st_mtime_ns, archive.stat().st_size]
         if values['TOOLCHAIN'] == 'crosstool-ng' and not archive.is_relative_to(values['TARGET_TOOLCHAIN_ROOT']):

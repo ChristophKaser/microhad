@@ -17,7 +17,11 @@ fn main() {
     println!("cargo:rerun-if-env-changed=TOOLCHAIN");
     let backend = env::var("TOOLCHAIN").unwrap_or_else(|_| "rsdk".into());
     assert!(backend == "rsdk" || backend == "crosstool-ng", "invalid TOOLCHAIN");
-    let base = if mode == "mips" && backend == "crosstool-ng" {
+    println!("cargo:rerun-if-env-changed=LINK_MODE");
+    let link_mode = env::var("LINK_MODE").unwrap_or_else(|_| "static".into());
+    let base = if mode == "mips" && link_mode == "dynamic" {
+        root.join("build/dynamic/openthread-unix").join(mode)
+    } else if mode == "mips" && backend == "crosstool-ng" {
         root.join("build/crosstool-ng/openthread-unix").join(mode)
     } else {
         root.join("build/openthread-unix").join(mode)

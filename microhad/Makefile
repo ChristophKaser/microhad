@@ -44,6 +44,7 @@ TARGET_CXXFLAGS = -std=gnu++98 $(WARNINGS) -Iinclude $(TLS_CPPFLAGS) $(TARGET_OP
 HOST_CXXFLAGS += -DMICROHAD_MATTER_ENABLED=$(MATTER)
 TARGET_CXXFLAGS += -DMICROHAD_MATTER_ENABLED=$(MATTER)
 TARGET_CFLAGS := $(WARNINGS) $(TARGET_OPTIMIZATION) -ffunction-sections -fdata-sections
+TARGET_LINK_FLAGS := $(if $(filter dynamic,$(LINK_MODE)),,-static)
 LDFLAGS := -lpthread -lrt
 SOURCES := src/main.cpp src/matter_websocket.cpp src/matter_protocol.cpp src/matter_cbor.cpp src/matter_client.cpp src/matter_worker.cpp src/gateway_config.cpp src/companion_discovery.cpp src/ash.cpp src/json_util.cpp src/storage.cpp src/network_backup.cpp $(ZIGGURAT_SOURCES) src/http_server.cpp src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/sensor_history.cpp src/syslog_log_reader.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp src/external_http_device.cpp src/device_shelly.cpp src/device_fritz_box.cpp
 HOST_BUILD := build/host$(BACKEND_SUFFIX)
@@ -136,7 +137,7 @@ $(MIPS_BUILD)/%.o: src/%.c $(MIPS_MBEDTLS_LIBS)
 $(MIPS_BIN): $(SOURCES) $(wildcard include/*.h) $(MIPS_MBEDTLS_LIBS) $(MIPS_C_OBJECTS)
 	@test -x $(TARGET_CXX) || (echo "Selected target compiler not found: $(TARGET_CXX)"; exit 1)
 	@mkdir -p $(MIPS_BUILD)
-	$(TARGET_CXX) $(TARGET_CXXFLAGS) -static -Wl,--gc-sections $(SOURCES) $(MIPS_C_OBJECTS) -o $@ $(MIPS_MBEDTLS_LIBS) $(LDFLAGS)
+	$(TARGET_CXX) $(TARGET_CXXFLAGS) $(TARGET_LINK_FLAGS) -Wl,--gc-sections $(SOURCES) $(MIPS_C_OBJECTS) -o $@ $(MIPS_MBEDTLS_LIBS) $(LDFLAGS)
 	$(TARGET_STRIP) $@
 
 # Recompile after changing feature definitions or build recipes.
@@ -148,7 +149,7 @@ $(1) -h $(2) | grep -q 'Machine:.*MIPS'
 endef
 
 verify-target: $(MIPS_BIN)
-	@python3 $(ZIGGURAT_ROOT)/scripts/verify-gateway-target.py "$(MIPS_BIN)"
+	@python3 $(ZIGGURAT_ROOT)/scripts/verify-gateway-target.py --link-mode $(LINK_MODE) "$(MIPS_BIN)"
 
 $(UNIT_TEST_BIN): $(UNIT_TEST_SOURCES) src/matter_websocket.cpp src/matter_protocol.cpp src/matter_cbor.cpp src/matter_client.cpp src/matter_worker.cpp src/gateway_config.cpp src/companion_discovery.cpp src/ash.cpp src/json_util.cpp src/storage.cpp src/network_backup.cpp $(ZIGGURAT_SOURCES) src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/sensor_history.cpp src/log_ring.cpp src/syslog_log_reader.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp src/external_http_device.cpp src/device_shelly.cpp src/device_fritz_box.cpp $(HOST_C_OBJECTS) $(HOST_MBEDTLS_LIBS) $(wildcard include/*.h)
 	@mkdir -p $(HOST_BUILD)

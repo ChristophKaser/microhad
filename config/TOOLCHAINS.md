@@ -80,6 +80,64 @@ make -C microhad mips
 make -C microhad TOOLCHAIN=crosstool-ng mips
 ```
 
+## Experimental dynamic uClibc linkage
+
+`LINK_MODE=dynamic` opts the three application services into shared RSDK runtime
+linkage. `LINK_MODE=static` remains the default. Dynamic mode currently requires
+`TOOLCHAIN=rsdk`; it uses the stock uClibc 0.9.30.3 ABI rather than uClibc-ng.
+
+```sh
+make -C microhad TOOLCHAIN=rsdk LINK_MODE=dynamic mips
+TOOLCHAIN=rsdk LINK_MODE=dynamic ZIGGURAT_MULTIPAN=1 bash ziggurat/scripts/build.sh
+TOOLCHAIN=rsdk LINK_MODE=dynamic bash micro-thread-matter-daemon/scripts/build.sh mips service
+```
+
+Outputs and caches are isolated under `microhad/build/dynamic/` and
+`build/dynamic/`. The Rust target is `lexra-stock-uclibc-dynamic`. MicroHAD's
+Mbed TLS and Matter's OpenThread archives remain statically incorporated;
+system and C++ runtime libraries are shared. Rust uses PIC and disables
+`crt-static`; the compatibility shim inspects shared-library exports when
+choosing missing-API implementations. Firmware, RNG seed and maintenance
+helpers retain static linkage. Deployment defaults continue selecting static
+artifacts and their existing verifier requirements are unchanged.
+
+Each dynamic executable receives an adjacent `.linkage.json` report. Verification
+requires `/lib/ld-uClibc.so.0`, resolves transitive dependencies within the selected
+RSDK, checks strong imports against dependency exports, and retains executable
+MIPS-I/O32, soft-float and forbidden-instruction checks. It does not prove symbol
+version compatibility, loader execution or device kernel behavior. The selected
+RSDK libraries must match the installed gateway runtime before any device trial.
+No gateway is contacted during these builds.
+
+After building both modes, compare stripped service artifacts and count shared
+runtime files once:
+
+```sh
+python3 scripts/report-dynamic-linkage.py --output build/dynamic/linkage-summary.json \
+  microhad/build/dynamic/mips-ziggurat-matter/microhad.linkage.json \
+  build/dynamic/ziggurat-hdlc/lexra-stock-uclibc-dynamic/release/ziggurat.stripped.linkage.json \
+  build/dynamic/micro-thread-matter-daemon/mthread-matter-mips.linkage.json
+```
+
+The report compares current static counterparts and counts uncompressed RSDK
+runtime files. Installed library reuse and JFFS2 compression are not measured.
+PIC and relocation tables can increase Rust executable sizes; dynamic linking
+does not guarantee a smaller release or lower memory use. A device startup,
+threading, networking and TLS trial requires separate explicit authorization.
+
+The initial local comparison (same source revision and stripped artifacts) was:
+
+| Service | Static bytes | Dynamic bytes |
+| --- | ---: | ---: |
+| MicroHAD | 1,959,780 | 1,567,736 |
+| Ziggurat multipan | 3,643,400 | 3,960,672 |
+| Matter | 2,621,088 | 3,200,644 |
+
+The dynamic executables total 8,729,052 bytes, an increase of 504,784 bytes.
+Their combined RSDK runtime dependency set occupies 2,008,707 additional bytes
+when counted once. These results establish local linking feasibility, not a
+size win for the complete stack or verified gateway runtime compatibility.
+
 ## Experimental limits
 
 The shared Rust shim supplies only APIs missing from the selected libc archives.

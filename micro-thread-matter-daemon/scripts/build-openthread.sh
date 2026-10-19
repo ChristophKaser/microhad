@@ -40,6 +40,8 @@ set(CMAKE_EXE_LINKER_FLAGS_INIT "-static -Wl,--gc-sections")
 set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
 ''')
     raise SystemExit(0)
+link_flags = '' if os.environ['LINK_MODE'] == 'dynamic' else '-static'
+relocation = '-fPIC' if os.environ['LINK_MODE'] == 'dynamic' else '-fno-pic'
 rd = Path(os.environ['RSDK_ROOT'])
 cxx = rd / 'include/c++/4.4.7'
 # GCC 4.4 exception_ptr.h assumes an earlier type_info declaration.
@@ -47,7 +49,7 @@ cxx = rd / 'include/c++/4.4.7'
 flags = (f'--target=mips-linux-gnu -march=mips1 -msoft-float -mabi=32 '
          f'--sysroot={rd}/mips-linux-uclibc '
          f'-isystem {rd}/lib/gcc/mips-linux-uclibc/4.4.7/include-fixed '
-         '-Os -fno-pic -mabicalls -G0 -fno-stack-protector -mllvm -mno-check-zero-division '
+         f'-Os {relocation} -mabicalls -G0 -fno-stack-protector -mllvm -mno-check-zero-division '
          '-DOPENTHREAD_POSIX_CONFIG_BACKTRACE_ENABLE=0')
 cppflags = (f'{flags} -nostdinc++ -isystem {cxx} -isystem {cxx}/mips-linux-uclibc/4181 '
             f'-fno-exceptions -include {out}/stock-cxx-compat.hpp '
@@ -62,8 +64,8 @@ set(CMAKE_C_FLAGS "${{CMAKE_C_FLAGS_INIT}}" CACHE STRING "" FORCE)
 set(CMAKE_CXX_FLAGS "${{CMAKE_CXX_FLAGS_INIT}}" CACHE STRING "" FORCE)
 set(CMAKE_AR {os.environ['LLVM_AR']})
 set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
-set(CMAKE_C_LINK_EXECUTABLE "{os.environ['TARGET_CC']} <LINK_FLAGS> <OBJECTS> -o <TARGET> -static -Wl,--gc-sections -Wl,--start-group <LINK_LIBRARIES> -Wl,--end-group")
-set(CMAKE_CXX_LINK_EXECUTABLE "{os.environ['TARGET_CXX']} <LINK_FLAGS> <OBJECTS> -o <TARGET> -static -Wl,--gc-sections -Wl,--start-group <LINK_LIBRARIES> -Wl,--end-group")
+set(CMAKE_C_LINK_EXECUTABLE "{os.environ['TARGET_CC']} <LINK_FLAGS> <OBJECTS> -o <TARGET> {link_flags} -Wl,--gc-sections -Wl,--start-group <LINK_LIBRARIES> -Wl,--end-group")
+set(CMAKE_CXX_LINK_EXECUTABLE "{os.environ['TARGET_CXX']} <LINK_FLAGS> <OBJECTS> -o <TARGET> {link_flags} -Wl,--gc-sections -Wl,--start-group <LINK_LIBRARIES> -Wl,--end-group")
 ''')
 PY
 fi
@@ -92,20 +94,7 @@ if [[ "$mode" == host ]]; then
     "$build_dir/src/posix/ot-unix-adapter-test"
 else
     "$LLVM_STRIP" --keep-section=.gnu.attributes -o "$output/ot-cli-mips" "$build_dir/src/posix/ot-cli"
-    python3 - "$output/ot-cli-mips" <<'PYVERIFY'
-import subprocess
-import sys
-binary = sys.argv[1]
-header = subprocess.check_output(['readelf', '-h', binary], text=True)
-attributes = subprocess.check_output(['readelf', '-A', binary], text=True)
-segments = subprocess.check_output(['readelf', '-l', binary], text=True)
-dynamic = subprocess.check_output(['readelf', '-d', binary], text=True)
-assert 'ELF32' in header and 'big endian' in header and 'MIPS' in header
-assert 'mips1' in header and 'o32' in header and 'Soft float' in attributes
-assert 'INTERP' not in segments and 'There is no dynamic section' in dynamic
-print('Target verification passed: big-endian MIPS-I/o32, soft float, static')
-PYVERIFY
-    python3 scripts/verify-gateway-target.py "$output/ot-cli-mips"
+    python3 scripts/verify-gateway-target.py --link-mode "$LINK_MODE" "$output/ot-cli-mips"
     file "$output/ot-cli-mips"
     readelf -h "$output/ot-cli-mips"
     readelf -A "$output/ot-cli-mips" | sed -n '1,5p'

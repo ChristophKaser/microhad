@@ -14,7 +14,7 @@ def run(args, env):
 
 
 def main():
-    base = {k: v for k, v in os.environ.items() if not k.startswith('TARGET_') and k not in ('TOOLCHAIN', 'RSDK_ROOT', 'CROSSTOOL_NG_ROOT')}
+    base = {k: v for k, v in os.environ.items() if not k.startswith('TARGET_') and k not in ('TOOLCHAIN', 'RSDK_ROOT', 'CROSSTOOL_NG_ROOT', 'LINK_MODE')}
     base['WORKSPACE_CONFIG'] = str(ROOT / 'workspace.local.env.example')
     with tempfile.TemporaryDirectory() as temporary:
         for backend, prefix in [('rsdk', 'mips-linux-'), ('crosstool-ng', 'mips-lexra-linux-uclibc-')]:
@@ -30,6 +30,23 @@ def main():
             env['TARGET_CC'] = temporary + '/custom-gcc'
             assert run(['python3', 'scripts/toolchain_config.py', 'TARGET_CC'], env).strip() == env['TARGET_CC']
             assert run(['bash', '-c', 'source scripts/toolchains.sh; echo "$TARGET_CC"'], env).strip() == env['TARGET_CC']
+        env = dict(base, TOOLCHAIN='rsdk', LINK_MODE='dynamic')
+        for key in ('LINK_MODE', 'TARGET_BUILD_SUBDIR'):
+            python = run(['python3', 'scripts/toolchain_config.py', key], env).strip()
+            shell = run(['bash', '-c', 'source scripts/toolchains.sh; printf "%s" "$' + key + '"'], env).strip()
+            recipe = 'include microhad/Makefile\n.PHONY: print-setting\nprint-setting:\n\t@echo $(' + key + ')\n'
+            make = subprocess.run(['make', '--no-print-directory', '-f', '-', 'print-setting'], input=recipe,
+                                  env=env, cwd=ROOT, text=True, capture_output=True, check=True).stdout.strip()
+            assert python == shell == make, (key, python, shell, make)
+        assert run(['python3', 'scripts/toolchain_config.py', 'TARGET_BUILD_SUBDIR'], env).strip() == 'dynamic/'
+        assert run(['python3', 'scripts/toolchain_config.py', 'TARGET_SPEC_NAME'], env).strip() == 'lexra-stock-uclibc-dynamic'
+        for backend, mode in [('rsdk', ''), ('rsdk', 'unknown'), ('rsdk', 'static dynamic'), ('crosstool-ng', 'dynamic')]:
+            env = dict(base, TOOLCHAIN=backend, LINK_MODE=mode)
+            for args in (['python3', 'scripts/toolchain_config.py', 'TARGET_CC'],
+                         ['bash', '-c', 'source scripts/toolchains.sh'],
+                         ['make', '-C', 'microhad', '-n', 'mips']):
+                result = subprocess.run(args, env=env, cwd=ROOT, capture_output=True, text=True)
+                assert result.returncode != 0 and 'LINK_MODE' in result.stderr, (args, result.stderr)
         for invalid in ('', 'unknown', 'rsdk crosstool-ng', '%'):
             env = dict(base, TOOLCHAIN=invalid)
             for args in (['python3', 'scripts/toolchain_config.py', 'TARGET_CC'],
@@ -52,7 +69,7 @@ def main():
         tool.write_text('compiler identity')
         archive = base_path / 'runtime.a'
         archive.write_text('library identity')
-        values = dict(TOOLCHAIN='rsdk', TARGET_TOOLCHAIN_ROOT=base_path, TARGET_PREFIX='fake-')
+        values = dict(TOOLCHAIN='rsdk', LINK_MODE='static', TARGET_TOOLCHAIN_ROOT=base_path, TARGET_PREFIX='fake-')
         for name in ('CC', 'CXX', 'AR', 'NM', 'STRIP', 'READELF'):
             values['TARGET_' + name] = tool
         def output(args, **kwargs):
