@@ -29,7 +29,7 @@ Zigbee with the matching backend, then add the Matter service using
 The RCP image alone supplies neither a Matter controller nor a border router.
 Only one coordinator client may own the radio. Home Assistant runs externally.
 
-## 1. Equipment, sources and host variables
+## 1. Equipment, sources and host settings
 
 Use a Linux development computer, Ethernet, the gateway's normal power supply,
 and a **3.3 V TTL USB-to-UART adapter**. Connect only GND, TX and RX. Do not
@@ -49,24 +49,32 @@ python3 -m venv "$WORKSPACE/console-venv"
 "$WORKSPACE/console-venv/bin/pip" install pyserial cryptography
 ```
 
-Host Bash variables used throughout, after changing the address to yours:
+Create `workspace.local.env` from the root example and set your `GATEWAY_IP`,
+`LAN_INTERFACE`, compiler paths and `SSH_PASSWORD_FILE`; see
+[shared host settings](workspace-settings.md). For this first-install procedure,
+choose a private password-file pathname even before recovering the password.
+Use `SSH_PORT=2333` only if that is the verified factory SSH port; update it to
+22 after the optional normalization below.
+
+Load settings for the raw shell commands, then set installation-specific paths:
 
 ```sh
-export GATEWAY_IP=192.168.1.50
+. "$PROJECT_ROOT/scripts/workspace-env.sh"
+workspace_load "$PROJECT_ROOT"
+: "${GATEWAY_IP:?Set GATEWAY_IP}" "${SSH_PASSWORD_FILE:?Set SSH_PASSWORD_FILE for first installation}"
 export SERIAL_PORT=/dev/ttyUSB0
 export PRIVATE_DIR="$HOME/silvercrest-private"
 umask 077
 mkdir -p "$PRIVATE_DIR"
 chmod 700 "$PRIVATE_DIR"
-export PASSWORD_FILE="$PRIVATE_DIR/ssh-password.txt"
 export CONFIG_FILE="$PRIVATE_DIR/native-config.json"
 ```
 
 `WORKSPACE`, `PROJECT_ROOT`, `MIGRATION_PYTHON`, `NCP_IMAGE` and `RCP_IMAGE` come from
 [build setup](building.md); `RSDK_ROOT` is needed for the serial-bridge build.
 Only Mode B needs `RCP_IMAGE` built.
-Store all credentials and backups outside Git. The address above is an example;
-this guide does not use the development gateway's address.
+Store all credentials and backups outside Git. The host settings file is
+private and is never installed on the gateway.
 
 ## 2. Open the case and obtain root access
 
@@ -109,7 +117,7 @@ Run the decoder on the host and paste the requested lines privately:
   "$WORKSPACE/lidl-gateway-freedom/scripts/lidl_auskey_decode.py"
 ```
 
-The recovered password is device-specific; save it in `PASSWORD_FILE` with mode
+The recovered password is device-specific; save it in `SSH_PASSWORD_FILE` with mode
 0600 using a local editor. The decoder displays secrets: do not share its output
 or put it in a build log. This procedure follows
 [Paul Banks' root-access instructions](https://paulbanks.org/projects/lidl-zigbee/root/).
@@ -140,8 +148,8 @@ root shell. A factory SSH server commonly listens on **2333**. Verify its host
 key interactively, then authenticate using the recovered password:
 
 ```sh
-ssh -p 2333 -o HostKeyAlgorithms=+ssh-rsa \
-  -o PubkeyAcceptedAlgorithms=+ssh-rsa root@"$GATEWAY_IP"
+ssh -p "$SSH_PORT" -l "$SSH_USER" -o HostKeyAlgorithms=+ssh-rsa \
+  -o PubkeyAcceptedAlgorithms=+ssh-rsa "$GATEWAY_IP"
 ```
 
 Do not repeatedly guess passwords: factory SSH has a persistent failure lockout.
@@ -150,7 +158,10 @@ Dropbear/monitor scripts. Do not assume it already behaves like our test device.
 
 ## 4. Normalize SSH and preserve the startup files
 
-The deployment and migration tools use **port 22** and do not offer a port flag.
+The shared SSH wrapper uses `SSH_PORT` (default **22**). If the factory SSH
+server remains on a verified custom port, configure that value instead; host
+tools no longer require changing it. The normalization below is optional and
+applies only to the documented factory layout.
 On the **gateway's serial root console**, preserve factory scripts once:
 
 ```sh
@@ -173,16 +184,18 @@ on port 22. Keep the serial console open so you can restore the backup if the
 factory revision does not start standard Dropbear. Do not launch a second daemon
 blindly or stop your only remote-access process.
 
-On the **host**, register/verify the port-22 host key interactively, then define:
+On the **host**, update `SSH_PORT` in `workspace.local.env` to the verified
+port (22 after normalization). Start a fresh host shell and reload the section-1
+settings/variables so an already exported port cannot override the edited file.
+Register/verify its host key interactively. Define a helper that uses the shared
+credential wrapper:
 
 ```sh
-ssh -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa root@"$GATEWAY_IP"
+workspace_load "$PROJECT_ROOT"
+ssh -p "$SSH_PORT" -l "$SSH_USER" -o HostKeyAlgorithms=+ssh-rsa \
+  -o PubkeyAcceptedAlgorithms=+ssh-rsa "$GATEWAY_IP"
 gateway_ssh() {
-    sshpass -f "$PASSWORD_FILE" ssh -o ConnectTimeout=8 \
-      -o StrictHostKeyChecking=yes -o HostKeyAlgorithms=+ssh-rsa \
-      -o PubkeyAcceptedAlgorithms=+ssh-rsa \
-      -o PreferredAuthentications=password -o PubkeyAuthentication=no \
-      root@"$GATEWAY_IP" "$@"
+    sh "$PROJECT_ROOT/scripts/workspace-ssh.sh" -- "$GATEWAY_IP" "$@"
 }
 gateway_ssh 'tar -cf - /tuya/tuya_start.sh.factory-backup /tuya/ssh_monitor.sh.factory-backup' \
   > "$PRIVATE_DIR/factory-startup.tar"
@@ -296,7 +309,7 @@ Keep TCP:8888 on a trusted LAN; the bridge has no authentication.
    JSON
    chmod 600 "$CONFIG_FILE"
    cd "$PROJECT_ROOT/microhad"
-   ../deploy.sh --host "$GATEWAY_IP" --password-file "$PASSWORD_FILE" \
+   ../deploy.sh \
      --binary build/mips/microhad --config "$CONFIG_FILE" \
      --target /tuya/native --activate
    ```
@@ -357,7 +370,7 @@ cat "$PROJECT_ROOT/build/ziggurat-hdlc/lexra-stock-uclibc/release/ziggurat.strip
   gateway_ssh 'cat > /tuya/ziggurat-stage/ziggurat.new && chmod 700 /tuya/ziggurat-stage/ziggurat.new && mv /tuya/ziggurat-stage/ziggurat.new /tuya/ziggurat-stage/ziggurat'
 cd "$PROJECT_ROOT/microhad"
 "$MIGRATION_PYTHON" scripts/network_backup.py collect \
-  --host "$GATEWAY_IP" --password-file "$PASSWORD_FILE" \
+  --host \
   --output "$PRIVATE_DIR/empty-running-export.json"
 gateway_ssh 'ps'
 ```
@@ -382,7 +395,7 @@ BRIDGE_PID=$(gateway_ssh 'cat /tmp/silvercrest-bridge.pid')
 "$MIGRATION_PYTHON" scripts/ezsp_final_capture.py \
   --compare "$PRIVATE_DIR/empty-running-export.json" \
   --output "$PRIVATE_DIR/empty-final-export.json" \
-  --host "$GATEWAY_IP" --password-file "$PASSWORD_FILE" \
+  --host \
   --bridge-pid "$BRIDGE_PID" --supervisor-pid "$SUPERVISOR_PID" \
   --exclusive-radio --capture --enter-bootloader
 "$MIGRATION_PYTHON" scripts/network_backup.py convert \
@@ -441,7 +454,7 @@ x['ziggurat_socket'] = '/tmp/ziggurat/native.sock'
 p.write_text(json.dumps(x, indent=2) + '\n')
 PY
 cd "$PROJECT_ROOT/microhad"
-../deploy.sh --host "$GATEWAY_IP" --password-file "$PASSWORD_FILE" \
+../deploy.sh \
   --binary build/mips-ziggurat/microhad \
   --config "$CONFIG_FILE" --target /tuya/native
 cat "$PRIVATE_DIR/native-ziggurat-state.json" | \
@@ -529,7 +542,7 @@ migration. Retain ZHA backup and the radio application version.
 | Symptom | Check |
 | --- | --- |
 | No readable console | Correct PCB/pin orientation, common GND, crossed RX/TX, 3.3 V logic, 38400 8N1/no flow |
-| SSH script cannot connect | Port 22 verified, accepted host key, password file mode/readability; factory port 2333 needs the earlier transition |
+| SSH script cannot connect | Verify `GATEWAY_IP`, `SSH_PORT`, `SSH_USER`, accepted host key and credential-file mode/readability; factory port 2333 can be configured directly |
 | Upload command expects SCP | Use SSH stdin; the old server has no SCP subsystem |
 | Native deployment has no dashboard | Run `make webui`; the default deploy requires its generated assets |
 | Native Ziggurat fails immediately | Correct enabled binary, initialized private state file, mode 0600, matching RCP identity, paired launcher |

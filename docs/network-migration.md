@@ -5,6 +5,9 @@ backends. Use [the migration runbook](ziggurat-deployment-plan.md) for cutover
 and [recovery tooling](recovery-tooling.md) for frozen exports. Host commands
 below run from the repository root. Python dependencies are installed by
 [build setup](building.md#prepare-installation-and-migration-tools).
+Configure gateway and SSH credentials in [shared host settings](workspace-settings.md);
+collection reads them automatically. Offline inspection/conversion does not
+contact the gateway.
 
 ## What must be preserved
 
@@ -31,7 +34,7 @@ Set `MIGRATION_PYTHON` from build setup and choose new absolute output filenames
 
 ```sh
 "$MIGRATION_PYTHON" microhad/scripts/network_backup.py collect \
-  --host "$GATEWAY_IP" --password-file "$PASSWORD_FILE" --output "$PRIVATE_EXPORT"
+  --output "$PRIVATE_EXPORT"
 "$MIGRATION_PYTHON" microhad/scripts/network_backup.py inspect --input "$PRIVATE_EXPORT"
 "$MIGRATION_PYTHON" microhad/scripts/network_backup.py convert \
   --input "$PRIVATE_EXPORT" --output "$PRIVATE_STATE" \

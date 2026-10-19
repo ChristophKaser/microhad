@@ -17,45 +17,22 @@ images, IID0 bootloader return tool, migration template and freeze/export
 sequence in the firmware-cutover sections are not prerequisites for an
 ordinary runtime endpoint switch on the updated installation.
 
-### Verified deployment and remaining checks
+### Runtime requirements and acceptance checks
 
-On 2026-10-15 the development gateway was updated with the TCP-capable Ziggurat
-binary and supervisor/control scripts. The following checks passed:
+Use the current Ziggurat binary and paired supervisor/control scripts. They must
+support TCP handover and retain diagnostic restart intent while a previous
+UART/socket owner releases its resources. Inspect the applied mode before each
+attempt: a fresh supervisor or reboot restores Unix/local-Matter mode.
 
-| Check | Result |
-| --- | --- |
-| Fresh supervisor startup | Unix Thread socket and local Matter service started by default. |
-| Runtime TCP → Unix → TCP handover | Local Matter stopped/resumed as selected; MicroHAD's PID remained unchanged with the corrected supervisor. |
-| Live TCP Spinel query | The endpoint returned the EFR32 NCP version (`SL-OPENTHREAD/2.4.7.0`). |
-| Zigbee continuity | Online/formed on channel 11 with 23 devices after the handover. |
-| Installed file verification | Ziggurat and both supervisor scripts matched the verified host artifacts. Configuration, native/Matter executable and boot-launcher hashes were unchanged. |
+For the installed release, verify TCP/Unix handover, listener ownership, local
+Matter stop/resume, native PID continuity and Zigbee health. Then test OTBR
+initialization, Thread attachment, discovery and commissioning separately;
+a successful Spinel version query does not establish those capabilities.
 
-The last observed selection was `192.168.178.62:9998`, with local Matter
-stopped. This is a dated observation, not a persistent setting: a reboot or
-fresh supervisor restores Unix/local-Matter mode. Re-read the applied mode
-before continuing. Reboot itself was not exercised; fresh-supervisor defaults
-and synthetic restart tests were verified.
-
-The corrected supervisor retains diagnostic restart intent while a previous
-UART/socket owner finishes releasing resources. The original implementation
-could fall back to restarting the full pair after one transient startup
-failure; use the corrected scripts from commit `1e82e76` or later, together
-with the TCP handover support from `2d6f6d3`. The TCP binary support is from
-`8215b8f`.
-
-A successful Spinel version query alone does **not** establish OTBR startup,
-capability compatibility, Thread attachment, border routing, discovery or
-accessory commissioning. On 2026-10-15 the host OTBR subsequently reached leader
-on channel 11 using the existing dataset through Ziggurat. The capture contained
-214 valid Spinel frames, bidirectional raw traffic and no reset commands or TCP
-gaps. Zigbee retained 23 devices and the native PID was unchanged. No accessory
-was commissioned in that attach test.
-
-On 2026-10-16 OTBR was rebuilt with full DEBUG logging (`OT_FULL_LOGS=ON`,
-`OT_LOG_LEVEL=DEBG`, agent `-d7`, runtime level `5`). mDNS, SRP and border routing
-were running. Host forwarding remained disabled; a commissioner on that same
-host uses the direct Thread interface. Other LAN controllers require a separate
-forwarding/firewall/return-route setup.
+Use full OTBR DEBUG logging (`OT_FULL_LOGS=ON`, `OT_LOG_LEVEL=DEBG`, agent `-d7`,
+runtime level `5`). A commissioner on the same host can use its direct Thread
+interface. Other LAN controllers require explicit forwarding, firewall and
+return-route configuration; do not assume those exist.
 
 ### Automated capture and commissioning
 
@@ -89,16 +66,10 @@ they do not invoke the optional firmware-cutover procedure.
 
 ### Offline Spinel and radio-frame extraction
 
-The real session `20261016T073813.011529Z` successfully commissioned the
-accessory and read its vendor name (`IKEA of Sweden`) over a separate CASE
-session. Its 34 exported encrypted messages authenticated offline across one
-PASE and two CASE sessions. The remaining local-stack investigation can use
-the captured radio exchanges as a comparison baseline.
-
 Extract raw frames from an existing stopped capture with:
 
 ```sh
-SESSION="$PWD/matter-traces/host-otbr-via-ziggurat/20261016T073813.011529Z"
+SESSION="/absolute/path/to/your/stopped-session"
 python3 scripts/matter-diagnostics/extract-spinel.py "$SESSION/capture/host.pcap"
 python3 scripts/matter-diagnostics/extract-thread.py "$SESSION/capture/spinel.trace"
 ```
@@ -108,20 +79,21 @@ separate summary/checksum files. They need no sudo, gateway connection or keys.
 Existing outputs are not overwritten. See the [formats and extraction limits](../scripts/matter-diagnostics/README.md#extract-spinel-and-raw-thread-radio-frames-offline).
 Original captures and their manifest remain unchanged.
 
-The successful session yielded 262 Spinel frames (258 from the fresh connection,
-four from the earlier connection), 57 TX frames, 88 RX frames and 32 embedded
-ACKs. All 57 TX completions succeeded; extraction reported no diagnostics.
-These are RCP interface observations, with TX bytes potentially captured before
-radio encryption, rather than an independent RF capture. Protocol decoding,
-decryption and Wireshark export are deferred; the current tools preserve raw
-bytes, provenance and radio metadata for later analysis.
+The tools preserve RCP-interface bytes, provenance and radio metadata, with TX
+bytes potentially captured before radio encryption. They do not provide an
+independent RF capture, protocol decoding, decryption or Wireshark export.
 
 ### Prepare the host and collect a baseline
 
-Run host commands from the repository root. Create a new permanent attempt
-directory; export `SESSION` in each collector terminal:
+Configure gateway, LAN interface, compiler and SSH credentials in the private
+[workspace env file](workspace-settings.md). Run host commands from the repository
+root. Load settings and create a new attempt directory; load the same settings
+and export `SESSION` in each collector terminal:
 
 ```sh
+. ./scripts/workspace-env.sh
+workspace_load "$PWD"
+: "${GATEWAY_IP:?Set GATEWAY_IP}" "${LAN_INTERFACE:?Set LAN_INTERFACE}"
 SESSION="$PWD/matter-traces/host-otbr-via-ziggurat/$(date -u +%Y%m%dT%H%M%SZ)"
 umask 077
 mkdir -p "$SESSION"/{capture,logs,keys,state,metadata}
@@ -141,13 +113,13 @@ mkdir -p "$SESSION"/{capture,logs,keys,state,metadata}
    firmware-flashing and userdata instructions do not apply to this route.
    Run only OTBR for the smoke test; Home Assistant, BLE and a Matter controller
    are unnecessary until testing their particular commissioning path.
-3. Set `GATEWAY_IP`, `THREAD_PORT` (9998 in the verified setup) and
-   `INTENDED_DATASET_HEX_FILE` on the host.
+3. Use `GATEWAY_IP` and `LAN_INTERFACE` from the loaded host settings. Set
+   `THREAD_PORT` (default 9998) and `INTENDED_DATASET_HEX_FILE` on the host.
    The dataset file must contain only hex Operational Dataset TLVs, not the
    gateway's wrapped storage record. Obtain it from the retained import or a
    validated read-only export; the gateway's Thread status API is redacted.
    Check that its channel matches the current Zigbee channel before enabling
-   Thread. The observed channel 11 is a baseline, not a hard-coded default.
+   Thread. Read the current channel; do not assume a default channel.
 4. Save logs from failed attempts too. Start TCP capture
    **before OTBR connects**:
 
@@ -170,10 +142,10 @@ mkdir -p "$SESSION"/{capture,logs,keys,state,metadata}
    ```sh
    cat /tmp/ziggurat-supervisor/active-thread-tcp
    cat /tmp/ziggurat-supervisor/native.pid
-   /tuya/native/paired_control.sh thread-tcp 192.168.178.62:9998
+   /tuya/native/paired_control.sh thread-tcp GATEWAY_IPV4:9998
    ```
 
-   Substitute the gateway's actual IPv4 address and selected port. The helper
+   Replace `GATEWAY_IPV4` with the IPv4 value of the host's `GATEWAY_IP` and use the selected port. Do not source the host env file on the gateway. The helper
    queues a request in the private RAM control directory, then signals
    Ziggurat as with a log-level change. It suppresses local Matter respawn
    while TCP is selected. Repeating the applied selection is a no-op. An old
@@ -189,9 +161,9 @@ mkdir -p "$SESSION"/{capture,logs,keys,state,metadata}
 
    ```yaml
    environment:
-     GATEWAY: 192.168.178.62
+     GATEWAY: "${GATEWAY_IP:?Set GATEWAY_IP on the host}"
      THREAD_PORT: "9998"
-     BACKBONE_INTERFACE: wlp7s0
+     BACKBONE_INTERFACE: "${LAN_INTERFACE:?Set LAN_INTERFACE on the host}"
      THREAD_INTERFACE: wpan-otbr-test
    ```
 
@@ -347,13 +319,25 @@ written mode 0600; do not relax those tool-enforced permissions.
 
 Record the gateway address, host interface used to reach it, accessory QR/manual
 pairing data, software versions and UTC start time in session metadata. Set
-`GATEWAY_IP`, `PASSWORD_FILE`, `MIGRATION_PYTHON`, `PRIVATE_TEMPLATE`,
-`OT_RCP_IMAGE`, `OT_RCP_SHA256`, `RETURN_RCP_IMAGE`, `RETURN_RCP_SHA256` and
-`COMPOSE_PROJECT`, `COMPOSE_FILE` and `INTENDED_DATASET_HEX_FILE` explicitly. Image paths must refer to the retained session
-copies. Use one authenticated `gateway_ssh` wrapper with the established SSH
-options and password file for all gateway commands; plain `ssh` below is
-shorthand. Export `SESSION` in each capture terminal. Disable shell tracing
-when expanding credentials, and check host disk capacity for the capture window.
+`MIGRATION_PYTHON`, `PRIVATE_TEMPLATE`, `OT_RCP_IMAGE`, `OT_RCP_SHA256`,
+`RETURN_RCP_IMAGE`, `RETURN_RCP_SHA256`, `COMPOSE_PROJECT`, `COMPOSE_FILE` and
+`INTENDED_DATASET_HEX_FILE` explicitly. Image paths must refer to retained session
+copies. Load gateway/interface/SSH settings and define one authenticated wrapper
+from the repository root:
+
+```sh
+DIAGNOSTIC_ROOT=$PWD
+. "$DIAGNOSTIC_ROOT/scripts/workspace-env.sh"
+workspace_load "$DIAGNOSTIC_ROOT"
+: "${GATEWAY_IP:?Set GATEWAY_IP}" "${LAN_INTERFACE:?Set LAN_INTERFACE}"
+gateway_ssh() {
+    sh "$DIAGNOSTIC_ROOT/scripts/workspace-ssh.sh" -- "$GATEWAY_IP" "$@"
+}
+```
+
+Use `gateway_ssh` for gateway commands; plain `ssh` below is shorthand. Export
+`SESSION` in each capture terminal. Disable shell tracing when expanding
+credentials, and check host disk capacity for the capture window.
 
 Before beginning, identify and record:
 
@@ -577,8 +561,7 @@ or an independent sniffer if the question requires final on-air TX bytes.
 
    ```sh
    "$MIGRATION_PYTHON" microhad/scripts/ziggurat_freeze.py \
-     --template "$PRIVATE_TEMPLATE" --host "$GATEWAY_IP" \
-     --password-file "$PASSWORD_FILE" \
+     --template "$PRIVATE_TEMPLATE" --host \
      --bridge /tuya/native/gateway-maintenance \
      --quiesced --execute \
      --output "$SESSION/state/ziggurat-frozen.json"

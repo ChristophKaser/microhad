@@ -6,6 +6,10 @@ radio source/configuration and recovery images; `dependencies/slc-cli/` supplies
 the generator. Gecko SDK is a firmware dependency under
 `dependencies/gecko-sdk/`. These upstream pins remain unchanged.
 
+Host tools read compiler, gateway and SSH settings from the private root
+`workspace.local.env`; see [shared host settings](../docs/workspace-settings.md).
+Explicit environment and command-line overrides still apply.
+
 From the repository root:
 
 ```sh

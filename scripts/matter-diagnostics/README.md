@@ -68,7 +68,9 @@ docker run -d --name microhad-otbr-attach --restart=no \
 
 The gateway must already be in temporary Thread TCP mode, with local
 `mthread-matter` stopped. Its launcher command is
-`/tuya/native/paired_control.sh thread-tcp 192.168.178.62:9998`.
+`/tuya/native/paired_control.sh thread-tcp GATEWAY_IPV4:9998` (replace
+`GATEWAY_IPV4` with the host-configured gateway IPv4 address; the host env file
+is not installed on the gateway).
 See the [diagnostic plan](../../docs/matter-otbr-commissioning-diagnostic-plan.md)
 for ownership and Zigbee checks. A gateway reboot restores local Unix sockets.
 
@@ -263,13 +265,14 @@ These tools use only the Python 3.11+ standard library; neither Docker, sudo nor
 session keys are needed. They read a stopped capture without contacting the gateway:
 
 ```sh
-SESSION="$PWD/matter-traces/host-otbr-via-ziggurat/20261016T073813.011529Z"
+SESSION="/absolute/path/to/your/stopped-session"
 python3 scripts/matter-diagnostics/extract-spinel.py "$SESSION/capture/host.pcap"
 python3 scripts/matter-diagnostics/extract-thread.py "$SESSION/capture/spinel.trace"
 ```
 
-The first tool selects TCP traffic to/from `192.168.178.62:9998`; override with
-`--gateway ADDRESS --port PORT`. Both accept `--output PATH` and refuse to
+The first tool selects TCP traffic to/from the configured `GATEWAY_IP` on port
+9998; override with `--gateway ADDRESS --port PORT`. For a capture from another
+gateway or an older setup, pass the address recorded in that capture explicitly. Both accept `--output PATH` and refuse to
 overwrite an existing trace or summary. Outputs have private permissions.
 Each prints counts and writes a separate `*.trace.summary.json` containing
 source/output SHA-256 hashes. The original capture and bundle manifest stay unchanged.
@@ -312,13 +315,6 @@ exactly as transported. TX requests can precede radio security processing and
 do not prove an over-the-air transmission. This is not an independent RF capture.
 Protocol decoding, decryption and Wireshark/PCAPNG export are deferred.
 
-On session `20261016T073813.011529Z`, extraction found 262 valid Spinel frames:
-258 from the fresh connection and four from the earlier connection. The radio
-trace contains 177 frames: 57 TX, 88 RX and 32 embedded ACKs, plus 57 successful
-TX completion records and seven unmatched ordinary LAST_STATUS responses.
-There were no extraction diagnostics or malformed Spinel headers; every TX
-request had a completion and all RX receive-error values were zero.
-
 ## Host-only checks
 
 ```sh
@@ -338,13 +334,7 @@ The OTBR image also has a synthetic startup check that does not access the radio
 python3 scripts/matter-diagnostics/test-otbr-init.py --image microhad-otbr-debug:local
 ```
 
-Verified on 2026-10-16: the custom OTBR image built and passed running-RCP
-initialization without a boot notification or reset; the split CHIP Tool and
-Linux accessory built; the isolated fixture authenticated 22 PASE TX/11 RX,
-6 CASE TX/3 RX and 2 resumed CASE TX/1 RX messages, with no authentication
-failures. The saved live gateway attach capture also passed all 214 HDLC/Spinel frames.
-The later real commissioning session `20261016T073813.011529Z` completed BLE/PASE,
-Thread attachment, operational CASE commissioning and a separate vendor-name
-read (`IKEA of Sweden`). All 34 exported encrypted messages across one PASE
-and two CASE sessions authenticated offline; that run did not use CASE
-resumption.
+Re-run the image startup test and isolated key-export rehearsal for the exact
+build being used. Synthetic acceptance does not establish accessory behavior;
+require a successful live commissioning/CASE read and authenticated offline
+decryption before accepting a full capture workflow.

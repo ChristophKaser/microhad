@@ -9,12 +9,27 @@ See [microhad/AGENTS.md](microhad/AGENTS.md) for native daemon, deployment, and
 device-state requirements. Its C++ and Web UI verification rules apply to all
 changes in that component.
 
+## Private development-host settings
+
+Use the gitignored root `workspace.local.env`, with
+`workspace.local.env.example` as the tracked template. It supplies gateway IP,
+LAN interface, compiler mode/paths and SSH credentials to host tools. See
+[shared host settings](docs/workspace-settings.md). Existing environment and
+explicit tool/Make arguments override it; extra keys are allowed. It is trusted
+POSIX shell code, sourced by `scripts/workspace-env.sh`, not a device config.
+Never commit it or print credentials. Prefer `SSH_PASSWORD_FILE` by pathname.
+
+Host tools load it automatically. Before raw host shell commands such as curl
+or Docker, source the loader and call `workspace_load "$PWD"` from the root.
+Do not infer device-access authorization from configured defaults. Optional
+device tests still require explicit `--host` or `--device`.
+
 ## Shared toolchains and builds
 
 Compiler defaults are maintained once in `config/toolchains.mk`. Shell build
 helpers source `scripts/toolchains.sh`; Python checks use
 `scripts/toolchain_config.py`; MicroHAD's Makefile includes the same settings.
-`RSDK_ROOT` can be set in the environment or on a Make command line to select
+`RSDK_ROOT` can be set in `workspace.local.env`, the environment or on a Make command line to select
 another compatible toolchain. `TOOLCHAIN=crosstool-ng` selects the experimental
 source-built Lexra/uClibc-ng compiler; `CROSSTOOL_NG_ROOT` overrides its location.
 See [toolchain selection](config/TOOLCHAINS.md) for build commands, isolated outputs

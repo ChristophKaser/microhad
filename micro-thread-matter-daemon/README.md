@@ -5,6 +5,12 @@ subscriptions and Thread state. It uses the pinned rs-matter dependency and an
 OpenThread C ABI adapter built from upstream OpenThread v2026.10.0.
 MicroHAD consumes its private IPC API and applies devices and reports to the common dashboard model.
 
+Configure compiler, gateway and SSH credentials in the private root
+`workspace.local.env`; see [shared host settings](../docs/workspace-settings.md).
+Host tools load it automatically. Device-only commands inherit the configured
+gateway; dual-mode fixtures require explicit `--host` or `--device` (without a
+value to use `GATEWAY_IP`). Omit that flag for a host-only run.
+
 From the repository root:
 
 ```sh
@@ -139,7 +145,6 @@ For diagnosis after the fact, poll the gateway log API into a private host file:
 
 ```sh
 python3 micro-thread-matter-daemon/scripts/capture-thread-logs.py \
-  --host "$GATEWAY_IP" \
   --output diagnostics/thread-session.log
 ```
 
@@ -164,7 +169,7 @@ fragment header):
 python3 micro-thread-matter-daemon/scripts/replay-thread-fragment.py /path/to/fragment.bin
 # Explicit isolated MIPS run; files and synthetic settings live only in /tmp:
 python3 micro-thread-matter-daemon/scripts/replay-thread-fragment.py /path/to/fragment.bin \
-  --device 192.168.178.62 --password-file ../ssh_password.txt
+  --device
 ```
 
 Build the host or MIPS OpenThread transport archives and synthetic relay first.
@@ -193,7 +198,7 @@ tampered signature, and the exact signed hash:
 ```sh
 python3 micro-thread-matter-daemon/scripts/test-srp-signature.py
 python3 micro-thread-matter-daemon/scripts/test-srp-signature.py \
-  --device 192.168.178.62 --password-file ../ssh_password.txt
+  --device
 ```
 
 Build the relevant OpenThread transport archives and synthetic relay first.
@@ -202,8 +207,14 @@ all probe files and synthetic settings beneath a private `/tmp` directory and
 never accesses the production radio or state. `--fixture PATH` accepts a private
 captured vector with hex `public_key`, `dns`, and expected `sha256` fields.
 
-Deploy only a changed service with `./deploy.sh --services matter --target
-/tuya/native --password-file ../ssh_password.txt --matter-service
-build/micro-thread-matter-daemon/mthread-matter-mips`. Selective maintenance
+For explicitly requested deployment of a changed service, run from the root:
+
+```sh
+./deploy.sh --services matter --target /tuya/native \
+  --matter-service build/micro-thread-matter-daemon/mthread-matter-mips
+```
+
+This example uses the RSDK artifact; select the candidate output path when
+using crosstool-NG. Selective maintenance
 retains the installed launcher and restarts the paired stack. Rollback copies
 are opt-in via `--rollback-dir DIR`; existing backups are preserved.

@@ -7,7 +7,14 @@ this transport does not provide a Linux border-router interface.
 
 ## Build and configure
 
-Follow [build setup](building.md) for firmware and target applications:
+Configure the private [workspace env file](workspace-settings.md) and follow
+[build setup](building.md) for firmware and target applications. Before raw host
+shell or Docker Compose commands, source `scripts/workspace-env.sh` and call
+`workspace_load "$PWD"` from the repository root. The host file is not installed
+on the gateway. In gateway commands below, replace `GATEWAY_IPV4` with the
+IPv4 value configured as `GATEWAY_IP` on the host.
+
+Build the target server:
 
 ```sh
 ZIGGURAT_MULTIPAN=1 bash ziggurat/scripts/build.sh
@@ -38,14 +45,14 @@ The multipan server also accepts `--thread-listen IP:PORT` instead of
 ```sh
 ziggurat --device /dev/ttyS1 --spinel-iid 1 \
   --api cobs-unix --listen unix:/tmp/ziggurat/native.sock \
-  --thread-listen 192.168.178.62:9998
+  --thread-listen GATEWAY_IPV4:9998
 ```
 
 On an updated paired installation, switch the running supervisor through its
 control helper instead of launching a second UART owner:
 
 ```sh
-/tuya/native/paired_control.sh thread-tcp 192.168.178.62:9998
+/tuya/native/paired_control.sh thread-tcp GATEWAY_IPV4:9998
 # Return Thread to the local service:
 /tuya/native/paired_control.sh thread-tcp off
 ```
@@ -80,7 +87,7 @@ For the pinned `bnutzer/otbr-tcp` image, configure:
 
 ```yaml
 environment:
-  RCP_HOST: 192.168.178.62
+  RCP_HOST: "${GATEWAY_IP:?Set GATEWAY_IP on the host}"
   RCP_PORT: "9998"
   RCP_BAUDRATE: "460800"
   OTBR_RCP_ADDITIONAL_ARGS: "&no-reset"
@@ -97,14 +104,12 @@ Do not enable physical reset or reset recovery against the shared radio.
 Keep Thread on the existing Zigbee channel and retain an isolated OTBR state
 volume; stock OTBR startup compatibility still requires a live smoke test.
 
-On 2026-10-15, the deployed TCP endpoint answered a live EFR32 Spinel version
-query, and a TCP → Unix → TCP round trip retained MicroHAD's PID and restored
-local Matter when requested. Zigbee remained online on channel 11 with 23
-devices. This verifies the transport and handover, not host OTBR initialization
-or commissioning. See the [diagnostic plan](matter-otbr-commissioning-diagnostic-plan.md#verified-deployment-and-remaining-checks)
-for the dated deployment result and remaining host checks. Re-read the runtime
-selection after reboot or supervisor restart rather than assuming the last
-observed TCP mode is still active.
+Re-read `/tmp/ziggurat-supervisor/active-thread-tcp` after reboot or supervisor
+restart. Verify listener ownership, native continuity, Zigbee health and local
+Matter restoration for the installed release. A successful Spinel version query
+does not establish OTBR attachment or accessory commissioning. Follow the
+[host OTBR procedure](matter-otbr-commissioning-diagnostic-plan.md#primary-path--host-otbr-through-ziggurat-tcp-without-flashing)
+for those checks.
 
 ## Supply the Thread channel
 

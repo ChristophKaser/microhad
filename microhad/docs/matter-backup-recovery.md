@@ -1,8 +1,9 @@
 # Matter identity backup and recovery
 
 Use this runbook to back up or restore the complete private Matter state during
-an arranged maintenance window. Host shell templates run from `microhad/`;
-set `GATEWAY_IP` and an absolute `PASSWORD_FILE` before connecting. Coordinate
+an arranged maintenance window. Host shell templates run from `microhad/` and
+use the private root [workspace env file](../../docs/workspace-settings.md) for
+the gateway, SSH port/user and credentials. Coordinate
 shutdown through the [recovery guide](../../docs/recovery-tooling.md#orderly-stop-and-frozen-zigbee-export).
 Physical recovery/durability checks remain part of
 [hardware acceptance](matter-plans/08-real-device-acceptance.md).
@@ -74,6 +75,9 @@ If the state directory differs, review the fixed remote tar path as well.
 
 ```bash
 set -euo pipefail
+. ../scripts/workspace-env.sh
+workspace_load "$(CDPATH= cd -- .. && pwd)"
+: "${GATEWAY_IP:?Set GATEWAY_IP in workspace.local.env}"
 umask 077
 MATTER_BACKUP_DIR=/secure/private/matter-backups
 MATTER_BACKUP_RECIPIENT=VERIFIED_OPENPGP_FINGERPRINT
@@ -87,11 +91,7 @@ test -d "$MATTER_BACKUP_DIR"
 test ! -e "$MATTER_BACKUP_PART"
 test ! -e "$MATTER_BACKUP_FINAL"
 
-MATTER_SSH=(sshpass -f "$PASSWORD_FILE" ssh
-    -o ConnectTimeout=8 -o StrictHostKeyChecking=yes
-    -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa
-    -o PreferredAuthentications=password -o PubkeyAuthentication=no
-    root@"$GATEWAY_IP")
+MATTER_SSH=(sh ../scripts/workspace-ssh.sh -- "$GATEWAY_IP")
 
 "${MATTER_SSH[@]}" 'tar -C /tuya/native/matter -cf - .' |
     gpg --encrypt --recipient "$MATTER_BACKUP_RECIPIENT" --output "$MATTER_BACKUP_PART"

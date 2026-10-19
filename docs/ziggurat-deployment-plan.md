@@ -5,6 +5,11 @@ while preserving coordinator identity, keys and existing pairings. Application
 updates on an already migrated gateway use [deployment](deployment.md).
 A fresh gateway uses [installation](installation.md).
 
+Configure gateway, compiler and SSH credentials in the private
+[workspace env file](workspace-settings.md). Host tools read it automatically;
+for raw shell commands, load it as shown in that guide. Commands below run from
+the repository root. Radio work still requires explicit maintenance authorization.
+
 ## Prepare the handover
 
 1. Build the Ziggurat backend, multipan server, maintenance helper and
@@ -81,14 +86,14 @@ For orderly return after transmission:
    ```sh
    "$MIGRATION_PYTHON" microhad/scripts/ezsp_flash.py --image "$NCP_IMAGE" \
      --sha256 05c66bcc7895bc7db0b9648c12c40e387a1145eabe792413a2762d3d0ada262d \
-     --host "$GATEWAY_IP" --exclusive-radio --already-in-bootloader --flash
+     --host --exclusive-radio --already-in-bootloader --flash
    ```
 
 4. Confirm EZSP v13 with the exclusive bridge, then restore current logical state:
 
    ```sh
    "$MIGRATION_PYTHON" microhad/scripts/ezsp_restore.py \
-     --backup "$PRIVATE_ROLLBACK_BACKUP" --host "$GATEWAY_IP" \
+     --backup "$PRIVATE_ROLLBACK_BACKUP" --host \
      --exclusive-radio --restore --output "$PRIVATE_VERIFIED_NCP_BACKUP"
    ```
 

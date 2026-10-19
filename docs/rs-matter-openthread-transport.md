@@ -49,7 +49,9 @@ instead of requiring an Embassy executor-specific waker layout.
 ## Reproduce
 
 The component build scripts prepare the pinned sources and custom target.
-For the standalone transport fixture, run:
+Configure compiler, gateway and SSH settings in the private
+[workspace env file](workspace-settings.md). For the standalone transport fixture,
+run from the repository root:
 
 ```sh
 bash micro-thread-matter-daemon/scripts/build.sh host transport
@@ -57,8 +59,7 @@ bash micro-thread-matter-daemon/scripts/build-openthread-relay.sh host
 python3 micro-thread-matter-daemon/scripts/test-openthread-matter-transport.py
 bash micro-thread-matter-daemon/scripts/build.sh mips transport
 bash micro-thread-matter-daemon/scripts/build-openthread-relay.sh mips
-python3 micro-thread-matter-daemon/scripts/test-openthread-matter-device.py \
-  --host "$GATEWAY_IP" --password-file "$PASSWORD_FILE"
+python3 micro-thread-matter-daemon/scripts/test-openthread-matter-device.py
 ```
 
 The device command explicitly runs a temporary probe. It requires production

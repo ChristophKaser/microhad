@@ -147,10 +147,13 @@ tools/network-migration-venv/bin/pip install \
 The serial bridge uses its RSDK build recipe:
 
 ```sh
+. ./scripts/workspace-env.sh
+workspace_load "$PWD"
 make -C ../lidl-gateway-freedom/gateway CC="$RSDK_ROOT/bin/mips-linux-gcc" build
 ```
 
-Set `RSDK_ROOT` explicitly for that command. Avoid its upload target, which
+The upstream Makefile does not read our env file, so the command above loads
+`RSDK_ROOT` first and passes its compiler explicitly. Avoid its upload target, which
 contains a fixed device address. Transfer through SSH stdin as shown in
 [installation](installation.md).
 

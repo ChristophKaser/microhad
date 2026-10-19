@@ -2,7 +2,13 @@
 
 This component is the native C++03 gateway service for the Tuya MIPS device.
 Build target binaries with the shared compiler settings in
-`../config/toolchains.mk`; `RSDK_ROOT` can override the configured RSDK.
+`../config/toolchains.mk`; the gitignored root `workspace.local.env` supplies
+local compiler selection, gateway IP, LAN interface and SSH credentials. See
+[shared host settings](../docs/workspace-settings.md) and the root
+`workspace.local.env.example`. Host tools load it automatically; explicit
+arguments and existing environment variables override it. Never commit this
+trusted shell file or print credentials. Prefer an existing `SSH_PASSWORD_FILE`
+by pathname. `RSDK_ROOT` can override the configured RSDK.
 `make TOOLCHAIN=crosstool-ng mips` selects the experimental compiler and writes
 under `build/crosstool-ng/`. See [toolchain selection](../config/TOOLCHAINS.md).
 
@@ -11,7 +17,11 @@ make host test
 make mips
 ```
 
-Builds default to Ziggurat and Matter, matching the current deployment.
+Artifact paths shown below are RSDK outputs. When the local configuration selects
+crosstool-NG, use its isolated artifact paths from the toolchain guide; explicit
+`--binary` and service-path arguments override automatic selection.
+
+Builds default to Ziggurat and Matter.
 Initialize TLS with `git submodule update --init --recursive microhad/dependencies/mbedtls`
 from the repository root before building. `make mips` builds the Mbed TLS v4 submodule and produces the static,
 big-endian MIPS binary at `build/mips-ziggurat-matter/microhad`.
@@ -49,7 +59,7 @@ socket, is a symlink, or the kernel socket table cannot be read, startup leaves
 it untouched and reports the problem. This handles socket files left after a
 crash without unlinking a live service's socket.
 
-From the repository root, deploy updates with `./deploy.sh` and the password file by pathname. The default
+From the repository root, deploy updates with `./deploy.sh`, using the configured host and SSH credentials. Explicit `--host` and `--password-file` arguments remain overrides. The default
 copies the selected binary and Web UI; `--binary-only`, `--webui-only`, and
 `--both` select those assets. Pass `--config` only when intentionally replacing
 the device configuration. Files are transferred through SSH stdin and each
@@ -65,8 +75,7 @@ make -C microhad mips
 bash micro-thread-matter-daemon/scripts/build.sh mips service
 
 # Stage the Matter package without changing the active launcher or processes
-./deploy.sh --host 192.168.178.62 --password-file ../ssh_password.txt \
-  --target /tuya/native --binary-only \
+./deploy.sh --target /tuya/native --binary-only \
   --binary microhad/build/mips-ziggurat-matter/microhad \
   --matter-service build/micro-thread-matter-daemon/mthread-matter-mips
 ```
@@ -107,8 +116,7 @@ state, Web UI and existing backups are preserved.
 
 ```sh
 bash micro-thread-matter-daemon/scripts/build.sh mips service
-./deploy.sh --services matter --host 192.168.178.62 \
-  --password-file ../ssh_password.txt --target /tuya/native \
+./deploy.sh --services matter --target /tuya/native \
   --matter-service build/micro-thread-matter-daemon/mthread-matter-mips
 ```
 
@@ -141,8 +149,7 @@ make -C microhad webui
 ZIGGURAT_MULTIPAN=1 bash ziggurat/scripts/build.sh
 bash firmware/scripts/build-maintenance.sh
 bash micro-thread-matter-daemon/scripts/build.sh mips service
-./deploy.sh --maintenance-deploy --host 192.168.178.62 \
-  --password-file ../ssh_password.txt --target /tuya/native \
+./deploy.sh --maintenance-deploy --target /tuya/native \
   --binary microhad/build/mips-ziggurat-matter/microhad \
   --ziggurat build/ziggurat-hdlc/lexra-stock-uclibc/release/ziggurat \
   --matter-service build/micro-thread-matter-daemon/mthread-matter-mips \
@@ -178,7 +185,8 @@ current supervisor lifetime and resets to `ZIGGURAT_LOG_LEVEL` (normally
 
 For a temporary host-OTBR handover, use
 `/tuya/native/paired_control.sh thread-tcp IPv4:PORT` (for example,
-`192.168.178.62:9998`). This gracefully stops the local Matter consumer,
+`GATEWAY_IPV4:9998`, replacing `GATEWAY_IPV4` with the host-configured gateway
+address). This gracefully stops the local Matter consumer,
 restarts Ziggurat with `--thread-listen`, suppresses Matter respawn and keeps
 MicroHAD running. `thread-tcp off` restores the Unix Thread socket and local
 Matter service. The applied selection is in `active-thread-tcp` under the
@@ -209,8 +217,7 @@ stage another binary copy, activate the paired launcher while checking the
 same local artifacts against the staged device files:
 
 ```sh
-./deploy.sh --host 192.168.178.62 --password-file ../ssh_password.txt \
-  --target /tuya/native --activate-paired-only \
+./deploy.sh --target /tuya/native --activate-paired-only \
   --binary microhad/build/mips-ziggurat-matter/microhad \
   --matter-service build/micro-thread-matter-daemon/mthread-matter-mips
 ```
@@ -226,14 +233,14 @@ under the existing supervisor.
 
 ## Device build, deployment, and checks
 
-The development gateway is `192.168.178.62`. From the repository root, use the
-untracked password file only by pathname:
+Use the private workspace settings for the selected gateway, compiler and SSH
+credentials. A configured gateway is not authorization to contact or deploy to
+it: device access still requires an explicit request. From the repository root:
 
 ```sh
 make -C microhad host test
 make -C microhad mips
-./deploy.sh --host 192.168.178.62 --password-file ../ssh_password.txt \
-  --target /tuya/native --restart
+./deploy.sh --target /tuya/native --restart
 ```
 
 Service restarts are allowed when needed to load a deployed binary, unless the
@@ -246,12 +253,15 @@ Check the external dashboard rather than using `curl` on the device (it is not
 installed there):
 
 ```sh
-curl --connect-timeout 5 --max-time 8 -sS http://192.168.178.62/api/status
-curl --connect-timeout 5 --max-time 8 -sS http://192.168.178.62/api/logs
-curl --connect-timeout 5 --max-time 8 -k -sS https://192.168.178.62/api/status
+. ./scripts/workspace-env.sh
+workspace_load "$PWD"
+: "${GATEWAY_IP:?Set GATEWAY_IP in workspace.local.env}"
+curl --connect-timeout 5 --max-time 8 -sS "http://$GATEWAY_IP/api/status"
+curl --connect-timeout 5 --max-time 8 -sS "http://$GATEWAY_IP/api/logs"
+curl --connect-timeout 5 --max-time 8 -k -sS "https://$GATEWAY_IP/api/status"
 ```
 
-When a `curl` request to `http://192.168.178.62/` or any endpoint beneath it
+When a `curl` request to the configured gateway or any endpoint beneath it
 fails, the cause is almost always the sandbox. Rerun the failed command with
 elevated permissions (`sandbox_permissions: "require_escalated"`), even if
 previous `curl` invocations succeeded without elevation. Do not conclude that
@@ -262,7 +272,7 @@ gracefully restarts only the supervised native daemon; it does not reboot the
 device or replace Zigbee state:
 
 ```sh
-curl --connect-timeout 5 --max-time 8 -sS -X POST http://192.168.178.62/api/service/restart
+curl --connect-timeout 5 --max-time 8 -sS -X POST "http://$GATEWAY_IP/api/service/restart"
 ```
 
 The dashboard serves HTTP on port 80 and HTTPS on port 443. The coordinator

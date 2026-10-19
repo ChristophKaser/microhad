@@ -7,9 +7,12 @@ Use `/tmp` for transient gateway output; `/tuya` is flash.
 
 ## Check readiness and logs
 
-From the host, with `GATEWAY_IP` set to your address:
+From the repository root on the host, load your [shared settings](workspace-settings.md):
 
 ```sh
+. ./scripts/workspace-env.sh
+workspace_load "$PWD"
+: "${GATEWAY_IP:?Set GATEWAY_IP in workspace.local.env}"
 curl --connect-timeout 5 --max-time 8 -sS "http://$GATEWAY_IP/api/status"
 curl --connect-timeout 5 --max-time 8 -sS "http://$GATEWAY_IP/api/logs"
 ```
@@ -18,8 +21,9 @@ The dashboard reads BusyBox syslogd's 512 KiB RAM ring directly, with bounded
 semaphore acquisition. Native and Matter use syslog; Ziggurat tracing is
 forwarded to it. Use `/api/logs` for host diagnostics. See
 [syslog IPC](../microhad/docs/syslog-ipc.md).
-The paired launcher also forwards logs to a site-specific remote collector;
-review that destination in `paired_start.sh` when setting up another site.
+The paired launcher reads optional `syslog_remote` from the gateway's runtime
+configuration. Missing or empty values disable forwarding. This is a device
+setting, separate from the development-host env file.
 
 On the **gateway**, temporarily select a log level:
 
@@ -98,13 +102,13 @@ The updated paired supervisor can give the host exclusive use of Thread while
 keeping MicroHAD and Zigbee available. On the **gateway**:
 
 ```sh
-/tuya/native/paired_control.sh thread-tcp 192.168.178.62:9998
+/tuya/native/paired_control.sh thread-tcp GATEWAY_IPV4:9998
 cat /tmp/ziggurat-supervisor/active-thread-tcp
 # Stop the host OTBR/reconnect loop before returning to local Matter:
 /tuya/native/paired_control.sh thread-tcp off
 ```
 
-Use the gateway's actual IPv4 address and intended port. The helper queues a
+Replace `GATEWAY_IPV4` with the IPv4 value configured as `GATEWAY_IP` on the host, and choose the intended port. The host env file is not sourced on the gateway. The helper queues a
 RAM-only request and signals Ziggurat, following the log-level control flow.
 The supervisor stops local Matter before opening the TCP endpoint and prevents
 its respawn while TCP is selected; MicroHAD reconnects to Ziggurat. The corrected
@@ -146,8 +150,9 @@ flash write per successful boot. A missing helper/seed retains the normal wait.
 ## Orderly stop and frozen Zigbee export
 
 Use this sequence when preserving final Zigbee security state for rollback.
-Set `MIGRATION_PYTHON`, `GATEWAY_IP`, `PASSWORD_FILE` and private filenames on the
-host; the normalized template is retained from migration.
+Set `MIGRATION_PYTHON` and private filenames on the host; the normalized template
+is retained from migration. Gateway and credentials come from the shared host
+settings. Explicit `--host` selects remote execution.
 
 On the **gateway**:
 
@@ -160,8 +165,7 @@ available for export. Confirm acknowledgement before continuing. On the **host**
 
 ```sh
 "$MIGRATION_PYTHON" microhad/scripts/ziggurat_freeze.py \
-  --template "$PRIVATE_TEMPLATE" --host "$GATEWAY_IP" \
-  --password-file "$PASSWORD_FILE" \
+  --template "$PRIVATE_TEMPLATE" --host \
   --bridge /tuya/native/gateway-maintenance \
   --quiesced --execute --output "$PRIVATE_FROZEN_STATE"
 ```

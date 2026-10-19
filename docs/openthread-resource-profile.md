@@ -7,11 +7,13 @@ radio throughput, accessory behavior or the full Matter service.
 ## Run a profile
 
 Build the CLI and relay using [OpenThread build commands](openthread-feasibility.md).
-For an explicitly requested device test, run from the repository root:
+Configure the gateway and SSH credentials in the private
+[workspace env file](workspace-settings.md). For an explicitly requested device
+test, run from the repository root (`--host` selects the configured gateway):
 
 ```sh
 python3 micro-thread-matter-daemon/scripts/test-openthread-device.py \
-  --host "$GATEWAY_IP" --password-file "$PASSWORD_FILE" --profile
+  --host --profile
 ```
 
 The default profile uses 20 seconds disabled idle, 60 seconds load and 20 seconds
@@ -35,6 +37,5 @@ A run passing just above its memory threshold establishes little spare capacity.
 For a release, measure the complete native/Ziggurat/Matter workload under
 sustained accessory reports and control traffic, including restart/recovery.
 CLI figures cannot substitute for that check. Record exact commits, hashes,
-workload and limits with every result. Retained machine-readable measurements
-are [the profile record](openthread-resource-profile.json); they describe their
-recorded build/environment rather than the current release.
+workload and limits with every result; measure the selected release rather than
+using an older build's figures.

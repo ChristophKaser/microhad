@@ -5,6 +5,10 @@ in `dependencies/ziggurat/`; local patches and synthetic tooling live here.
 `stock-uclibc-compat/` supplies syscall wrappers missing from factory uClibc
 and an early illegal-instruction reporter. It is production compatibility code.
 
+Host tools read compiler, gateway and SSH settings from the private root
+`workspace.local.env`; see [shared host settings](../docs/workspace-settings.md).
+Explicit environment and command-line overrides still apply.
+
 From the repository root:
 
 ```sh
