@@ -19,13 +19,14 @@ from toolchain_config import target_path, settings
 spec = importlib.util.spec_from_file_location('ot_sim', ROOT / 'micro-thread-matter-daemon/scripts/test-openthread-device.py')
 sim = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(sim)
+from workspace_config import setting, gateway_host, ssh_command
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--host', required=True)
+    parser.add_argument('--host', default=setting('GATEWAY_IP'), required=not bool(setting('GATEWAY_IP')), type=gateway_host)
     parser.add_argument('--commissioning', action='store_true')
-    parser.add_argument('--password-file', type=Path, required=True)
+    parser.add_argument('--password-file', type=Path)
     parser.add_argument('--report', type=Path, default=None)
     parser.add_argument('--ble', action='store_true', help='Commission over synthetic phone GATT/BTP')
     parser.add_argument('--service-owner', action='store_true',
@@ -54,10 +55,7 @@ def main():
     rss_limit = 3072 if args.commissioning else 1536
     limit = 160 if args.icd else 100 if args.commissioning else 22
     marker = 'PASS commissioning complete' if args.commissioning else 'PASS transport complete'
-    ssh = ['sshpass', '-f', str(args.password_file), 'ssh', '-o', 'ConnectTimeout=8',
-           '-o', 'StrictHostKeyChecking=yes', '-o', 'HostKeyAlgorithms=+ssh-rsa',
-           '-o', 'PubkeyAcceptedAlgorithms=+ssh-rsa', '-o', 'PreferredAuthentications=password',
-           '-o', 'PubkeyAuthentication=no', 'root@' + args.host]
+    ssh = ssh_command(args.host, args.password_file)
 
     def remote(command, payload=None, timeout=15):
         return subprocess.run(ssh + [command], input=payload, stdout=subprocess.PIPE,

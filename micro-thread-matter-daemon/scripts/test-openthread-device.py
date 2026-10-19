@@ -27,6 +27,7 @@ from toolchain_config import target_path, settings
 spec = importlib.util.spec_from_file_location("sim", ROOT / "ziggurat/scripts/simulate-rcp.py")
 sim = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(sim)
+from workspace_config import setting, gateway_host
 
 
 class ThreadRcp(sim.Rcp):
@@ -113,8 +114,8 @@ def memory_values(meminfo):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--host")
-    parser.add_argument("--password-file", type=Path, default=ROOT.parent / "ssh_password.txt")
+    parser.add_argument('--host', nargs='?', const=setting('GATEWAY_IP'), type=gateway_host)
+    parser.add_argument("--password-file", type=Path, default=None)
     parser.add_argument('--profile', action='store_true', help='20s disabled idle, 60s loaded UDP/RCP calls, 20s enabled idle')
     parser.add_argument('--profile-load-seconds', type=int, default=60)
     parser.add_argument('--constrained-memory-profile', action='store_true',
@@ -155,7 +156,7 @@ def main():
     events = queue.Queue()
 
     def remote(command, **kwargs):
-        return subprocess.run(ssh + [f"root@{args.host}", command], check=True, timeout=20, **kwargs)
+        return subprocess.run(ssh + [args.host, command], check=True, timeout=20, **kwargs)
 
     def upload(source, destination):
         with source.open('rb') as stream:
@@ -270,7 +271,7 @@ result=$?
 echo "CLI_EXIT=$result"
 exit "$result"
 '''
-            process = subprocess.Popen(ssh + [f"root@{args.host}", "sh -c " + shlex.quote(script)],
+            process = subprocess.Popen(ssh + [args.host, "sh -c " + shlex.quote(script)],
                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         else:
             os.mkdir(ram, 0o700)

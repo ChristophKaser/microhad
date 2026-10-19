@@ -37,7 +37,11 @@ TOOLCHAIN=crosstool-ng bash micro-thread-matter-daemon/scripts/build.sh mips ser
 TOOLCHAIN=crosstool-ng bash firmware/scripts/build-maintenance.sh
 ```
 
-Set `RSDK_ROOT` or `CROSSTOOL_NG_ROOT` to select a compatible installation.
+Set `TOOLCHAIN`, `RSDK_ROOT` and `CROSSTOOL_NG_ROOT` in the gitignored root
+`workspace.local.env` to share your selection across Make, shell and Python.
+Environment and Make command-line overrides still win. See
+[development-host settings](../docs/workspace-settings.md). Set `RSDK_ROOT` or
+`CROSSTOOL_NG_ROOT` to select a compatible installation.
 Explicit `TARGET_CC`, `TARGET_CXX`, `TARGET_AR`, `TARGET_NM`, `TARGET_STRIP`,
 `TARGET_READELF` and `TARGET_PREFIX` overrides are supported by Make, shell and
 Python consumers. Use a fresh process for each selection; exported explicit tool

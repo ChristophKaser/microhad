@@ -23,6 +23,11 @@ EUI = bytes.fromhex("0200000000000042")
 SPECIAL = {0x7e, 0x7d, 0x11, 0x13, 0xf8}
 
 
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts'))
+from workspace_config import setting, gateway_host, ssh_prefix
+
+
 def packed(value):
     result = bytearray()
     while value >= 128:
@@ -309,10 +314,7 @@ def config():
 
 
 def ssh_args(args):
-    return ["sshpass", "-f", str(args.password_file), "ssh", "-o", "ConnectTimeout=8",
-            "-o", "StrictHostKeyChecking=yes", "-o", "HostKeyAlgorithms=+ssh-rsa",
-            "-o", "PubkeyAcceptedAlgorithms=+ssh-rsa", "-o", "PreferredAuthentications=password",
-            "-o", "PubkeyAuthentication=no"]
+    return ssh_prefix(args.password_file)
 
 
 def timing_summary(values):
@@ -355,8 +357,8 @@ def top_samples(output):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--host", default="192.168.178.62")
-    parser.add_argument("--password-file", type=Path, default=ROOT.parent / "ssh_password.txt")
+    parser.add_argument("--host", default=setting("GATEWAY_IP"), type=gateway_host)
+    parser.add_argument("--password-file", type=Path, default=None)
     parser.add_argument("--binary", default="/tmp/ziggurat-server-smoke-20261002")
     parser.add_argument("--seconds", type=int, default=15)
     parser.add_argument("--load", action="store_true")
@@ -419,7 +421,7 @@ done
 """
     ssh = subprocess.Popen(ssh_args(args) + ["-o", "ExitOnForwardFailure=yes", "-L",
                            f"127.0.0.1:{client_port}:127.0.0.1:{remote_port}",
-                           f"root@{args.host}", "sh -c " + shlex.quote(remote)],
+                           args.host, "sh -c " + shlex.quote(remote)],
                            stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                            stderr=subprocess.STDOUT, text=True)
     output = []

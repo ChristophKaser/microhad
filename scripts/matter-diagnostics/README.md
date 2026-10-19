@@ -48,14 +48,21 @@ For a first installation, choose a new private directory instead:
 `OTBR_STATE="$PWD/build/matter-diagnostics/otbr-state"; install -d -m 700 "$OTBR_STATE"`.
 Preserve existing settings on subsequent runs, including counters and identity.
 
+The following command reads gateway/interface settings from the private host
+[workspace configuration](../../docs/workspace-settings.md). The container
+requires these two values explicitly; it never reads your SSH credentials.
+
 ```sh
+. ./scripts/workspace-env.sh
+workspace_load "$PWD"
+: "${GATEWAY_IP:?Set GATEWAY_IP}" "${LAN_INTERFACE:?Set LAN_INTERFACE}"
 docker run -d --name microhad-otbr-attach --restart=no \
   --network=host --read-only --cap-add=NET_ADMIN --cap-add=NET_RAW \
   --device=/dev/net/tun \
   --tmpfs /tmp:rw,nosuid,nodev --tmpfs /run:rw,nosuid,nodev \
   --mount "type=bind,src=$OTBR_STATE,dst=/var/lib/thread" \
-  -e GATEWAY=192.168.178.62 -e THREAD_PORT=9998 \
-  -e BACKBONE_INTERFACE=wlp7s0 -e THREAD_INTERFACE=wpan-otbr-test \
+  -e "GATEWAY=$GATEWAY_IP" -e THREAD_PORT=9998 \
+  -e "BACKBONE_INTERFACE=$LAN_INTERFACE" -e THREAD_INTERFACE=wpan-otbr-test \
   microhad-otbr-debug:local
 ```
 
@@ -167,8 +174,8 @@ The terminal shows timestamped phases, periodic OTBR readiness updates, and the
 full live CHIP Tool stdout/stderr. CHIP output is also saved unchanged under
 `logs/commission.log` or `logs/read.log`; phase messages are in `logs/runner.log`.
 
-Defaults: container `microhad-otbr-attach`, gateway `192.168.178.62:9998`, backbone
-`wlp7s0`, Thread interface `wpan-otbr-test`, new controller node ID `1`, 300-second
+Defaults: container `microhad-otbr-attach`, gateway `GATEWAY_IP:9998`, backbone
+`LAN_INTERFACE` from the shared host settings, Thread interface `wpan-otbr-test`, new controller node ID `1`, 300-second
 commissioning limit and 10-second observation tail. `--help` lists overrides.
 `--dataset-file` additionally compares the active dataset against an intended
 hex file. The channel comes from that dataset; no channel override is sent.

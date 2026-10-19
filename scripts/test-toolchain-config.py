@@ -15,6 +15,7 @@ def run(args, env):
 
 def main():
     base = {k: v for k, v in os.environ.items() if not k.startswith('TARGET_') and k not in ('TOOLCHAIN', 'RSDK_ROOT', 'CROSSTOOL_NG_ROOT')}
+    base['WORKSPACE_CONFIG'] = str(ROOT / 'workspace.local.env.example')
     with tempfile.TemporaryDirectory() as temporary:
         for backend, prefix in [('rsdk', 'mips-linux-'), ('crosstool-ng', 'mips-lexra-linux-uclibc-')]:
             env = dict(base, TOOLCHAIN=backend, RSDK_ROOT=temporary + '/missing-rsdk', CROSSTOOL_NG_ROOT=temporary + '/candidate')

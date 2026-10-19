@@ -19,6 +19,11 @@ import bellows.types as t
 
 COUNTER_INCREMENT = 10000
 
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts'))
+from workspace_config import setting, gateway_host
+
+
 def prepared_restore_backup(backup):
     prepared = copy.deepcopy(backup)
     nwk = prepared.network_info.network_key.tx_counter
@@ -98,7 +103,7 @@ async def restore(args, backup):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--backup", required=True)
-    parser.add_argument("--host")
+    parser.add_argument('--host', nargs='?', const=setting('GATEWAY_IP'), type=gateway_host)
     parser.add_argument("--port", type=int, default=8888)
     parser.add_argument("--output")
     parser.add_argument("--restore", action="store_true")

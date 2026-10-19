@@ -89,7 +89,7 @@ class StreamTests(unittest.TestCase):
 
     def run_capture(self, packets, **kwargs):
         pcap(self.path, packets, **kwargs)
-        return extract_spinel(self.path)
+        return extract_spinel(self.path, gateway=GATEWAY)
 
     def test_out_of_order_retransmission_escape_provenance(self):
         frame = hdlc(b'\x81\x03\x71\x7e\x7d')
@@ -154,16 +154,16 @@ class StreamTests(unittest.TestCase):
         self.run_capture([])
         with self.path.open('ab') as output:
             output.write(b'cut')
-        rows, _ = extract_spinel(self.path)
+        rows, _ = extract_spinel(self.path, gateway=GATEWAY)
         self.assertIn('truncated PCAP', rows[0]['message'])
         self.path.write_bytes(b'not pcap')
         with self.assertRaises(TraceError):
-            extract_spinel(self.path)
+            extract_spinel(self.path, gateway=GATEWAY)
 
     def test_truncated_packet_record(self):
         self.run_capture([tcp(hdlc(b'\x81\x03\x71'))])
         self.path.write_bytes(self.path.read_bytes()[:-2])
-        rows, counts = extract_spinel(self.path)
+        rows, counts = extract_spinel(self.path, gateway=GATEWAY)
         self.assertEqual(counts['diagnostic'], 1)
         self.assertEqual(rows[0]['message'], 'truncated PCAP record')
 
@@ -181,17 +181,17 @@ class StreamTests(unittest.TestCase):
             output.write(struct.pack('<IHHIIII', 0xa1b2c3d4, 2, 4, 0, 0, 65535, 1))
             output.write(struct.pack('<IIII', 1, 0, len(packet), len(packet)))
             output.write(packet)
-        _, counts = extract_spinel(self.path)
+        _, counts = extract_spinel(self.path, gateway=GATEWAY)
         self.assertEqual(counts['spinel'], 1)
 
     def test_cli_outputs_no_overwrite(self):
         self.run_capture([tcp(hdlc(b'\x81\x03\x71'))])
         script = Path(__file__).with_name('extract-spinel.py')
-        first = subprocess.run([sys.executable, str(script), str(self.path)], capture_output=True)
+        first = subprocess.run([sys.executable, str(script), str(self.path), '--gateway', GATEWAY], capture_output=True)
         self.assertEqual(first.returncode, 0, first.stderr)
         self.assertTrue(self.path.with_name('spinel.trace.summary.json').exists())
         before = self.path.with_name('spinel.trace').read_bytes()
-        second = subprocess.run([sys.executable, str(script), str(self.path)], capture_output=True)
+        second = subprocess.run([sys.executable, str(script), str(self.path), '--gateway', GATEWAY], capture_output=True)
         self.assertNotEqual(second.returncode, 0)
         self.assertEqual(self.path.with_name('spinel.trace').read_bytes(), before)
 

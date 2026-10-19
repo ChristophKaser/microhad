@@ -20,6 +20,11 @@ from spinel_capture import inspect as inspect_spinel
 ROOT = Path(__file__).resolve().parents[2]
 
 
+import sys as _workspace_sys
+_workspace_sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts'))
+from workspace_config import setting, gateway_host
+
+
 def digest(path: Path) -> str:
     with path.open('rb') as source:
         return hashlib.file_digest(source, 'sha256').hexdigest()
@@ -410,9 +415,9 @@ def parser():
     result.add_argument('--output-root', type=Path, default=Path('./matter-traces/host-otbr-via-ziggurat'))
     result.add_argument('--controller', type=Path, default=ROOT / 'build/matter-diagnostics/chip-tool')
     result.add_argument('--container', default='microhad-otbr-attach')
-    result.add_argument('--gateway', default='192.168.178.62')
+    result.add_argument('--gateway', default=setting('GATEWAY_IP'), type=gateway_host)
     result.add_argument('--port', type=int, default=9998)
-    result.add_argument('--backbone', default='wlp7s0')
+    result.add_argument('--backbone', default=setting('LAN_INTERFACE'))
     result.add_argument('--thread-interface', default='wpan-otbr-test')
     result.add_argument('--node-id', type=int, default=1)
     result.add_argument('--dataset-file', type=Path)

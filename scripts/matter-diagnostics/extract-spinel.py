@@ -8,10 +8,15 @@ from pathlib import Path
 from trace_extract import checksum, extract_spinel, save_trace
 
 
+import sys as _workspace_sys
+_workspace_sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts'))
+from workspace_config import setting, gateway_host
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('pcap', type=Path)
-    parser.add_argument('--gateway', default='192.168.178.62')
+    parser.add_argument('--gateway', default=setting('GATEWAY_IP'), type=gateway_host)
     parser.add_argument('--port', type=int, default=9998)
     parser.add_argument('--output', type=Path, help='default: spinel.trace beside PCAP; must not exist')
     args = parser.parse_args()

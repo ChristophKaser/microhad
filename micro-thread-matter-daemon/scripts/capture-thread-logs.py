@@ -13,6 +13,10 @@ from urllib.error import URLError
 from urllib.request import urlopen
 
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts'))
+from workspace_config import setting, gateway_host
+
+
 class LogCursor:
     """Track the API's inclusive, second-resolution timestamp boundary."""
     def __init__(self):
@@ -55,7 +59,7 @@ def capture(host, output):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--host', default='192.168.178.62')
+    parser.add_argument('--host', default=setting('GATEWAY_IP'), type=gateway_host)
     parser.add_argument('--output', type=Path, help='Private host archive; defaults to stdout')
     args = parser.parse_args()
     if args.output:

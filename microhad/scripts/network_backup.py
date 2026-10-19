@@ -15,6 +15,11 @@ import urllib.parse
 import urllib.request
 
 
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts'))
+from workspace_config import setting, gateway_host, ssh_command
+
+
 def private_write(path, data):
     path = Path(path)
     if path.parent.stat().st_mode & 0o077:
@@ -27,10 +32,7 @@ def private_write(path, data):
 
 
 def ssh_args(args):
-    return ["sshpass", "-f", args.password_file, "ssh", "-o", "ConnectTimeout=8",
-            "-o", "StrictHostKeyChecking=yes", "-o", "HostKeyAlgorithms=+ssh-rsa",
-            "-o", "PubkeyAcceptedAlgorithms=+ssh-rsa", "-o", "PreferredAuthentications=password",
-            "-o", "PubkeyAuthentication=no", f"root@{args.host}"]
+    return ssh_command(args.host, args.password_file)
 
 
 def collect(args):
@@ -230,8 +232,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
     p = sub.add_parser("collect")
-    p.add_argument("--host", default="192.168.178.62")
-    p.add_argument("--password-file", required=True)
+    p.add_argument("--host", default=setting("GATEWAY_IP"), type=gateway_host)
+    p.add_argument("--password-file")
     p.add_argument("--output", required=True)
     p = sub.add_parser("inspect")
     p.add_argument("--input", required=True)

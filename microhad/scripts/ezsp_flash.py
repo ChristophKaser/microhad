@@ -16,6 +16,11 @@ import time
 from ezsp_preflight import inspect_image, inspect_radio
 
 
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts'))
+from workspace_config import setting, gateway_host
+
+
 def flow_control(host, port, enabled):
     with socket.create_connection((host, port), timeout=5) as sock:
         sock.send(b"\x11" if enabled else b"\x10", socket.MSG_OOB)
@@ -53,7 +58,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--image", required=True)
     parser.add_argument("--sha256", required=True)
-    parser.add_argument("--host")
+    parser.add_argument('--host', nargs='?', const=setting('GATEWAY_IP'), type=gateway_host)
     parser.add_argument("--port", type=int, default=8888)
     parser.add_argument("--flash", action="store_true")
     parser.add_argument("--exclusive-radio", action="store_true")

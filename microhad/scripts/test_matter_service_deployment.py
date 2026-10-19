@@ -5,11 +5,16 @@ import hashlib
 import os
 from pathlib import Path
 import subprocess
+import shutil
 import tempfile
 import time
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
+os.environ['WORKSPACE_CONFIG'] = str(ROOT.parent / 'workspace.local.env.example')
+os.environ['GATEWAY_IP'] = '192.168.178.62'
+os.environ['TOOLCHAIN'] = 'rsdk'
+os.environ['SSH_PASSWORD'] = ''
 FAKE_SSH = '''#!/usr/bin/env python3
 import json, os, sys
 data = sys.stdin.buffer.read()
@@ -176,6 +181,10 @@ echo '{"available":true,"controller_initialized":true,"fabric_ready":true,"state
             (webui / 'sw.js').write_text('default service worker')
             script = checkout / 'deploy.sh'
             script.write_bytes((ROOT.parent / 'deploy.sh').read_bytes())
+            for relative in ('scripts/workspace-env.sh', 'scripts/workspace-ssh.sh', 'config/toolchains.mk'):
+                destination = checkout / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy(ROOT.parent / relative, destination)
             fake = root / 'sshpass'
             fake.write_text(FAKE_SSH)
             fake.chmod(0o700)

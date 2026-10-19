@@ -26,12 +26,13 @@ from toolchain_config import target_path, settings
 
 spec=importlib.util.spec_from_file_location("sim",ROOT/"ziggurat/scripts/simulate-rcp.py")
 sim=importlib.util.module_from_spec(spec);spec.loader.exec_module(sim)
+from workspace_config import setting, gateway_host
 
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--host")
-    parser.add_argument("--password-file",type=Path,default=ROOT.parent/"ssh_password.txt")
+    parser.add_argument('--host', nargs='?', const=setting('GATEWAY_IP'), type=gateway_host)
+    parser.add_argument("--password-file",type=Path,default=None)
     parser.add_argument("--binary",type=Path)
     parser.add_argument("--upload-storage",choices=["ram","flash"],default="ram",
         help="Temporary executable staging; flash avoids ramfs allocation and is removed after testing")
@@ -41,14 +42,14 @@ def main():
     report={"target":args.host or "host","synthetic_state_only":True,"physical_radio_accessed":False,
         "service_deployed":False,"firmware_flashed":False,"results":[]}
     ssh=sim.ssh_args(args) if args.host else []
-    def remote(command,**kw):return subprocess.check_output(ssh+[f"root@{args.host}",command],text=True,timeout=15,**kw)
+    def remote(command,**kw):return subprocess.check_output(ssh+[args.host,command],text=True,timeout=15,**kw)
     def passed(text):report["results"].append(text);print("PASS",text,flush=True)
     def status():
         with urllib.request.urlopen(f"http://{args.host}/api/status",timeout=8) as response:
             value=json.load(response);return {"online":value["online"],"network_formed":value["network_formed"],"device_count":len(value["devices"])}
     def upload(path,destination):
         with path.open("rb") as source:
-            subprocess.run(ssh+[f"root@{args.host}",f"umask 077; test ! -e {shlex.quote(destination)} && cat > {shlex.quote(destination)} && chmod 700 {shlex.quote(destination)}"],stdin=source,check=True,timeout=45)
+            subprocess.run(ssh+[args.host,f"umask 077; test ! -e {shlex.quote(destination)} && cat > {shlex.quote(destination)} && chmod 700 {shlex.quote(destination)}"],stdin=source,check=True,timeout=45)
     try:
         with tempfile.TemporaryDirectory(prefix="cobs-unix-host-") as tmp, tempfile.TemporaryFile() as log:
             if args.host:
@@ -105,7 +106,7 @@ while read action; do
  esac
 done
 '''
-                process=subprocess.Popen(ssh+[f"root@{args.host}","sh -c "+shlex.quote(command)],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True)
+                process=subprocess.Popen(ssh+[args.host,"sh -c "+shlex.quote(command)],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True)
                 ready=threading.Event()
                 def reader():
                     for line in process.stdout:
@@ -113,7 +114,7 @@ done
                         if line.strip()=="READY":ready.set()
                 thread=threading.Thread(target=reader,daemon=True);thread.start()
                 if not ready.wait(12):raise RuntimeError("Remote simulation failed to start")
-                bridge=subprocess.Popen(ssh+[f"root@{args.host}",remote_dir+"/probe",socket_path],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=log)
+                bridge=subprocess.Popen(ssh+[args.host,remote_dir+"/probe",socket_path],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=log)
                 client=Client(bridge.stdout,bridge.stdin)
             else:
                 socket_path=Path(tmp)/"api.sock";binary=args.binary or ROOT/"build/host/debug/ziggurat"

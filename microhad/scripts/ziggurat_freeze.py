@@ -15,12 +15,17 @@ from ziggurat_cobs import Client
 from ziggurat_migration import freeze_and_export, validate
 
 
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts'))
+from workspace_config import setting, gateway_host, has_credentials
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--template', required=True)
     p.add_argument('--output')
     p.add_argument('--socket', default='/tmp/ziggurat/native.sock')
-    p.add_argument('--host')
+    p.add_argument('--host', nargs='?', const=setting('GATEWAY_IP'), type=gateway_host)
     p.add_argument('--password-file')
     p.add_argument('--bridge', default='/tuya/ziggurat-stage/gateway-maintenance')
     p.add_argument('--quiesced', action='store_true')
@@ -35,8 +40,8 @@ def main():
     destination = Path(args.output)
     if destination.exists() or destination.parent.stat().st_mode & 0o077:
         p.error('output must be new inside a private directory')
-    if args.host and not args.password_file:
-        p.error('remote access requires --password-file')
+    if args.host and not has_credentials(args.password_file):
+        p.error('remote access requires configured SSH credentials or --password-file')
     if args.socket != '/tmp/ziggurat/native.sock' and args.host:
         p.error('remote recovery socket must be /tmp/ziggurat/native.sock')
     import shlex

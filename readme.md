@@ -32,7 +32,8 @@ Dashboard shown with demo data.
 ## Getting started
 
 See the [documentation index](docs/README.md) for setup, usage, deployment,
-recovery and developer guides. Check [supported devices](docs/supported-devices.md)
+recovery and developer guides. Configure your development machine with the
+[shared host settings](docs/workspace-settings.md). Check [supported devices](docs/supported-devices.md)
 for available features and compatibility limits.
 
 The tested hardware is the Silvercrest SGWZ 1 A1 (HG06339) with an RTL8196E CPU,

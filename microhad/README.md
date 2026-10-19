@@ -77,8 +77,8 @@ npm ci
 npm run dev
 ```
 
-Vite proxies `/api/` to the address configured in `vite.config.ts`. Check that
-address before using the development server. Browser Push enrollment is tested
+Vite proxies `/api/` to `GATEWAY_IP` from the root `workspace.local.env` or the
+environment. See [shared host settings](../docs/workspace-settings.md). Browser Push enrollment is tested
 from the deployed HTTPS dashboard. `make -C microhad webui` builds
 `microhad/webui/dist/`; deployment uploads it beneath the runtime directory.
 

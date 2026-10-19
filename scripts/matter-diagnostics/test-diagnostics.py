@@ -175,7 +175,7 @@ class LoggerSplitTests(unittest.TestCase):
 
 class WorkflowTests(unittest.TestCase):
     def attempt(self, temporary):
-        args = commission.parser().parse_args(['--payload', 'MT:TEST', '--output-root', temporary, '--tail-seconds', '0'])
+        args = commission.parser().parse_args(['--payload', 'MT:TEST', '--gateway', '192.168.178.62', '--backbone', 'fixture0', '--output-root', temporary, '--tail-seconds', '0'])
         result = commission.Attempt(args)
         result.sudo = []
         return result

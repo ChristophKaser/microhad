@@ -7,12 +7,16 @@ set -eu
 
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 project_dir="$repo_root/microhad"
-host=192.168.178.62
-user=root
+. "$repo_root/scripts/workspace-env.sh"
+workspace_load "$repo_root"
+host=$GATEWAY_IP
+user=$SSH_USER
 target=/tuya/native-test
-binary="$project_dir/build/mips-ziggurat-matter/microhad"
+build_subdir=
+[ "$TOOLCHAIN" != crosstool-ng ] || build_subdir=crosstool-ng/
+binary="$project_dir/build/${build_subdir}mips-ziggurat-matter/microhad"
 binary_explicit=false
-password_file=""
+password_file=$SSH_PASSWORD_FILE
 config=""
 deploy_binary=true
 deploy_webui=true
@@ -45,7 +49,7 @@ usage() {
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --config) config=${2-}; shift 2 ;;
-        --password-file) password_file=${2-}; shift 2 ;;
+        --password-file) password_file=${2-}; SSH_PASSWORD=; shift 2 ;;
         --binary-only) deploy_binary=true; deploy_webui=false; shift ;;
         --webui-only) deploy_binary=false; deploy_webui=true; shift ;;
         --both) deploy_binary=true; deploy_webui=true; shift ;;
@@ -97,7 +101,13 @@ if [ -n "$service_selection" ]; then
     IFS=$selection_ifs
     [ "$target" = /tuya/native ] || usage
 fi
-[ -n "$password_file" ] && [ -r "$password_file" ] || usage
+[ -n "$host" ] || { echo 'Set GATEWAY_IP or supply --host HOST' >&2; exit 2; }
+[ -z "$password_file" ] || [ -z "$SSH_PASSWORD" ] || { echo 'Configure SSH_PASSWORD_FILE or SSH_PASSWORD, not both' >&2; exit 2; }
+if [ -n "$password_file" ]; then
+    [ -r "$password_file" ] || usage
+else
+    [ -n "$SSH_PASSWORD" ] || usage
+fi
 [ "$maintenance_deploy" = false ] || [ -n "$service_selection" ] || {
     [ -n "$binary" ] && [ -n "$ziggurat" ] && [ -n "$matter_service" ] &&
         [ -n "$maintenance_helper" ] && [ "$target" = /tuya/native ] &&
@@ -166,9 +176,13 @@ case "$target" in *[!A-Za-z0-9_./-]*) echo "target contains unsupported characte
 
 ssh_command() {
     remote_command=$1
-    sshpass -f "$password_file" ssh -o ConnectTimeout=8 -o StrictHostKeyChecking=yes \
-        -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa \
-        -o PreferredAuthentications=password -o PubkeyAuthentication=no "$user@$host" "$remote_command" || {
+    # The wrapper sources inline credentials itself; only a pathname is passed.
+    if [ -n "$password_file" ]; then
+        set -- --password-file "$password_file"
+    else
+        set --
+    fi
+    sh "$repo_root/scripts/workspace-ssh.sh" "$@" --user "$user" -- "$host" "$remote_command" || {
             status=$?
             printf 'ERROR: SSH command failed for %s@%s (exit %s): %s\n' \
                 "$user" "$host" "$status" "$remote_command" >&2

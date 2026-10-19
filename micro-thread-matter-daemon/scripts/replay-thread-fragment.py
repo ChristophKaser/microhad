@@ -18,6 +18,7 @@ import uuid
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'scripts'))
 from toolchain_config import settings
+from workspace_config import setting, gateway_host, has_credentials, ssh_command
 
 
 def build(mode, source=None, name='fragment-replay', wrap=()):
@@ -55,11 +56,11 @@ def build(mode, source=None, name='fragment-replay', wrap=()):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('fragment', type=Path, help='plaintext first-fragment bytes, including FRAG1 header')
-    parser.add_argument('--device', help='explicitly run isolated MIPS replay on this gateway')
+    parser.add_argument('--device', nargs='?', const=setting('GATEWAY_IP'), type=gateway_host, help='explicitly run isolated MIPS replay on this gateway')
     parser.add_argument('--password-file', type=Path)
     args = parser.parse_args()
-    if args.device and args.password_file is None:
-        parser.error('--device requires --password-file')
+    if args.device and not has_credentials(args.password_file):
+        parser.error('--device requires configured SSH credentials or --password-file')
     fragment = args.fragment.resolve()
     data = bytes.fromhex(fragment.read_text()) if fragment.suffix == '.hex' else fragment.read_bytes()
     if not 4 <= len(data) <= 127 or data[0] & 0xf8 != 0xc0:
@@ -96,11 +97,7 @@ def main():
 
 
 def run_device(args, binary, data, radio):
-    ssh = ['sshpass', '-f', str(args.password_file.resolve()), 'ssh', '-T',
-           '-o', 'ConnectTimeout=8', '-o', 'StrictHostKeyChecking=yes',
-           '-o', 'HostKeyAlgorithms=+ssh-rsa', '-o', 'PubkeyAcceptedAlgorithms=+ssh-rsa',
-           '-o', 'PreferredAuthentications=password', '-o', 'PubkeyAuthentication=no',
-           'root@' + args.device]
+    ssh = ssh_command(args.device, args.password_file, options=['-T'])
 
     def remote(command, payload=None):
         result = subprocess.run(ssh + [command], input=payload, stdout=subprocess.PIPE,

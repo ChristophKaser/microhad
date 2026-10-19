@@ -22,7 +22,6 @@ import sys
 sys.path.insert(0, str(ROOT / "scripts"))
 from toolchain_config import target_path, settings
 
-import sys
 sys.path.insert(0, str(ROOT / "scripts"))
 
 SERVICE = target_path(ROOT / 'build/micro-thread-matter-daemon/mthread-matter-mips')
@@ -30,6 +29,7 @@ SIM_SPEC = importlib.util.spec_from_file_location(
     'matter_service_sim', ROOT / 'micro-thread-matter-daemon/scripts/test-openthread-device.py')
 sim = importlib.util.module_from_spec(SIM_SPEC)
 SIM_SPEC.loader.exec_module(sim)
+from workspace_config import setting, gateway_host, ssh_command
 
 
 def build_ipc_client():
@@ -63,8 +63,8 @@ def memory_values(meminfo):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--host', required=True)
-    parser.add_argument('--password-file', type=Path, required=True)
+    parser.add_argument('--host', default=setting('GATEWAY_IP'), required=not bool(setting('GATEWAY_IP')), type=gateway_host)
+    parser.add_argument('--password-file', type=Path)
     parser.add_argument('--seconds', type=int, default=15)
     parser.add_argument('--active-thread-simulation', action='store_true',
                         help='supply private coordinator observation and create Thread over synthetic RCP')
@@ -79,10 +79,7 @@ def main():
     token = uuid.uuid4().hex
     stage = '/tuya/native-test/ot-matter-' + token
     runtime = '/tmp/ot-sim-matter-' + token
-    ssh = ['sshpass', '-f', str(args.password_file), 'ssh', '-o', 'ConnectTimeout=8',
-           '-o', 'StrictHostKeyChecking=yes', '-o', 'HostKeyAlgorithms=+ssh-rsa',
-           '-o', 'PubkeyAcceptedAlgorithms=+ssh-rsa', '-o', 'PreferredAuthentications=password',
-           '-o', 'PubkeyAuthentication=no', 'root@' + args.host]
+    ssh = ssh_command(args.host, args.password_file)
 
     def remote(command, data=None, timeout=20, check=True):
         result = subprocess.run(ssh + [command], input=data, stdout=subprocess.PIPE,

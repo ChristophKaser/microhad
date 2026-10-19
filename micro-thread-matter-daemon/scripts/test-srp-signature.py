@@ -12,6 +12,11 @@ import uuid
 ROOT = Path(__file__).resolve().parents[2]
 
 
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts'))
+from workspace_config import setting, gateway_host, has_credentials, ssh_command
+
+
 def load(name, path):
     spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
@@ -22,11 +27,11 @@ def load(name, path):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--fixture', type=Path, default=ROOT / 'micro-thread-matter-daemon/tests/fixtures/srp-ecdsa-validation.json')
-    parser.add_argument('--device', help='Explicit isolated test on this gateway; RAM files, no physical radio')
+    parser.add_argument('--device', nargs='?', const=setting('GATEWAY_IP'), type=gateway_host, help='Explicit isolated test on this gateway; RAM files, no physical radio')
     parser.add_argument('--password-file', type=Path)
     args = parser.parse_args()
-    if args.device and args.password_file is None:
-        parser.error('--device requires --password-file')
+    if args.device and not has_credentials(args.password_file):
+        parser.error('--device requires configured SSH credentials or --password-file')
     vector = json.loads(args.fixture.read_text())
     key, dns = bytes.fromhex(vector['public_key']), bytes.fromhex(vector['dns'])
     if len(key) != 64 or not 107 <= len(dns) < 2048:
@@ -70,10 +75,7 @@ def main():
 
 
 def run_device(args, binary, key, dns, radio):
-    ssh = ['sshpass', '-f', str(args.password_file.resolve()), 'ssh', '-T',
-        '-o', 'ConnectTimeout=8', '-o', 'StrictHostKeyChecking=yes', '-o', 'HostKeyAlgorithms=+ssh-rsa',
-        '-o', 'PubkeyAcceptedAlgorithms=+ssh-rsa', '-o', 'PreferredAuthentications=password',
-        '-o', 'PubkeyAuthentication=no', 'root@' + args.device]
+    ssh = ssh_command(args.device, args.password_file, options=['-T'])
 
     def remote(command, payload=None):
         result = subprocess.run(ssh + [command], input=payload, stdout=subprocess.PIPE,

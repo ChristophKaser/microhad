@@ -15,6 +15,11 @@ import struct
 import time
 
 
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts'))
+from workspace_config import setting, gateway_host
+
+
 def inspect_image(path):
     from universal_silabs_flasher.firmware import parse_firmware_image
 
@@ -94,7 +99,7 @@ def main():
     image.add_argument("paths", nargs="+")
     for name in ("radio", "bootloader-roundtrip", "bootloader-return"):
         command = sub.add_parser(name)
-        command.add_argument("--host", required=True)
+        command.add_argument("--host", default=setting('GATEWAY_IP'), required=not bool(setting('GATEWAY_IP')), type=gateway_host)
         command.add_argument("--port", type=int, default=8888)
         command.add_argument("--exclusive-radio", action="store_true", required=True,
                              help="Confirm native daemon and supervisor are stopped")

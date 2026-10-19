@@ -13,3 +13,6 @@ core
 
 __pycache__/
 *.pyc
+
+# Private development-host settings (may contain an SSH password).
+/workspace.local.env

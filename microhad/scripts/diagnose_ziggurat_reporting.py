@@ -18,6 +18,11 @@ from network_backup import ssh_args
 from ziggurat_cobs import Client
 
 
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts'))
+from workspace_config import setting, gateway_host, has_credentials
+
+
 def http(args, path, post=False):
     request = urllib.request.Request('http://' + args.host + path,
                                      data=b'' if post else None)
@@ -189,7 +194,7 @@ def readback(args, emit):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--mode', choices=['observe', 'trace', 'readback', 'alert'], default='observe')
-    parser.add_argument('--host', required=True)
+    parser.add_argument('--host', default=setting('GATEWAY_IP'), required=not bool(setting('GATEWAY_IP')), type=gateway_host)
     parser.add_argument('--password-file')
     parser.add_argument('--bridge', default='/tuya/native/gateway-maintenance')
     parser.add_argument('--ieee', default='0x00124b002a52140a')
@@ -205,8 +210,8 @@ def main():
             raise ValueError()
     except ValueError:
         parser.error('IEEE must be 0x followed by 16 hexadecimal digits')
-    if args.mode in ['trace', 'readback'] and not args.password_file:
-        parser.error('SSH modes require --password-file')
+    if args.mode in ['trace', 'readback'] and not has_credentials(args.password_file):
+        parser.error('SSH modes require configured credentials or --password-file')
     if args.mode in ['readback', 'alert'] and not args.execute:
         parser.error('readback/alert require explicit --execute')
     if args.bridge != '/tuya/native/gateway-maintenance':

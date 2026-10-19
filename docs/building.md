@@ -34,6 +34,13 @@ source of record. Enable patch coverage checks with:
 git config core.hooksPath .githooks
 ```
 
+## Local development settings
+
+Copy `workspace.local.env.example` to the gitignored `workspace.local.env` and
+set your gateway address, LAN interface, compiler location and SSH credentials.
+See [shared host settings](workspace-settings.md) for syntax and overrides.
+Host tools read it automatically; no gateway is accessed by loading settings.
+
 ## Select a MIPS toolchain
 
 Host builds need no MIPS SDK. Gateway builds default to RSDK

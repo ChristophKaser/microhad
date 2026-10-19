@@ -7,6 +7,9 @@ import struct
 from pathlib import Path
 
 from spinel_capture import hdlc, packed
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts'))
+from workspace_config import setting, gateway_host
 
 
 class TraceError(ValueError):
@@ -169,7 +172,8 @@ def decode_run(data, origins, stream):
     return records
 
 
-def extract_spinel(path, gateway='192.168.178.62', port=9998):
+def extract_spinel(path, gateway=None, port=9998):
+    gateway = gateway_host(setting('GATEWAY_IP') if gateway is None else gateway)
     streams, records, count = read_pcap(path, gateway, port)
     for stream in streams:
         segments = stream['segments']

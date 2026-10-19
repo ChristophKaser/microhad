@@ -25,6 +25,6 @@ COPY otbr-entrypoint.sh /diagnostic-start.sh
 LABEL org.microhad.otbr.full-debug="1" \
       org.microhad.otbr.revision="cb4bdae242b22287cded07ae3aa10347c2d16d9b" \
       org.microhad.openthread.revision="cb18e0f598059d733b3382b81437c4138195d1ea"
-ENV THREAD_INTERFACE=wpan-otbr-test BACKBONE_INTERFACE=wlp7s0 GATEWAY=192.168.178.62 THREAD_PORT=9998
+ENV THREAD_INTERFACE=wpan-otbr-test THREAD_PORT=9998
 HEALTHCHECK --interval=15s --start-period=30s CMD /opt/ot-ctl -I "$THREAD_INTERFACE" state >/dev/null 2>&1
 ENTRYPOINT ["/bin/bash", "/diagnostic-start.sh"]

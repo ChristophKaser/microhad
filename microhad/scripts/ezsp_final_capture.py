@@ -18,6 +18,11 @@ from pathlib import Path
 from network_backup import normalize, private_write, ssh_args
 
 
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts'))
+from workspace_config import setting, gateway_host, has_credentials
+
+
 def compare(original, final):
     for field in ('ieee_address', 'pan_id', 'extended_pan_id', 'channel', 'network_key',
                   'network_key_seq', 'tc_link_key', 'tclk_seed', 'tclk_flavor'):
@@ -160,7 +165,7 @@ async def live(args, original):
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--compare',required=True);p.add_argument('--output')
-    p.add_argument('--host');p.add_argument('--port',type=int,default=8888)
+    p.add_argument('--host', nargs='?', const=setting('GATEWAY_IP'), type=gateway_host);p.add_argument('--port',type=int,default=8888)
     p.add_argument('--password-file');p.add_argument('--bridge-pid',type=int)
     p.add_argument('--supervisor-pid',type=int)
     p.add_argument('--maintenance',default='/tuya/ziggurat-stage/gateway-maintenance')
@@ -169,8 +174,8 @@ def main():
     args=p.parse_args();original=normalize(json.loads(Path(args.compare).read_text()))
     if not args.capture:
         print('Comparison export validated offline; no radio connection');return
-    if not all((args.host,args.password_file,args.bridge_pid,args.supervisor_pid,args.exclusive_radio,args.output)):
-        p.error('capture requires host/password-file/bridge-pid/exclusive-radio/output')
+    if not all((args.host,has_credentials(args.password_file),args.bridge_pid,args.supervisor_pid,args.exclusive_radio,args.output)):
+        p.error('capture requires host/SSH credentials/bridge-pid/supervisor-pid/exclusive-radio/output')
     if args.bridge_pid<=1 or args.supervisor_pid<=1 or Path(args.output).exists() or Path(args.output).parent.stat().st_mode&0o077:
         p.error('invalid bridge PID or private output')
     logging.getLogger('bellows').setLevel(logging.CRITICAL)

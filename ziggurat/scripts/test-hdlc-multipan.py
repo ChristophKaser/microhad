@@ -27,6 +27,7 @@ from toolchain_config import target_path, settings
 spec = importlib.util.spec_from_file_location("simulator", ROOT / "ziggurat/scripts/simulate-rcp.py")
 sim = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(sim)
+from workspace_config import setting, gateway_host
 
 
 class HdlcPeer:
@@ -77,8 +78,8 @@ class HdlcPeer:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--host")
-    parser.add_argument("--password-file", default=str(ROOT.parent / "ssh_password.txt"))
+    parser.add_argument('--host', nargs='?', const=setting('GATEWAY_IP'), type=gateway_host)
+    parser.add_argument("--password-file", default=None)
     parser.add_argument("--binary", type=Path)
     parser.add_argument("--thread-tcp", action="store_true", help="Test the TCP Thread endpoint (host fixture only)")
     args = parser.parse_args()
@@ -106,7 +107,7 @@ def main():
 
     def upload(path, remote):
         with path.open("rb") as source:
-            subprocess.run(ssh_base + [f"root@{args.host}",
+            subprocess.run(ssh_base + [args.host,
                 f"umask 077; test ! -e {shlex.quote(remote)} && cat > {shlex.quote(remote)} && chmod 700 {shlex.quote(remote)}"],
                 stdin=source, check=True, timeout=40)
 
@@ -117,7 +118,7 @@ def main():
             remote_probe = remote_binary + "-probe"
             # This gateway uses ramfs: its file cache is not safely reclaimable.
             # Require genuinely free RAM, leaving 8 MiB beyond uploaded file sizes.
-            memory = subprocess.check_output(ssh_base + [f"root@{args.host}", "cat /proc/meminfo"],
+            memory = subprocess.check_output(ssh_base + [args.host, "cat /proc/meminfo"],
                 text=True, timeout=12)
             values = {line.split(":")[0]: int(line.split()[1]) for line in memory.splitlines() if line.strip()}
             available = values.get("MemFree", 0)
@@ -147,7 +148,7 @@ while read action; do
 done
 """
             process = subprocess.Popen(ssh_base + ["-o", "ExitOnForwardFailure=yes", "-L",
-                f"127.0.0.1:{api_port}:127.0.0.1:{remote_port}", f"root@{args.host}", "sh -c " + shlex.quote(command)],
+                f"127.0.0.1:{api_port}:127.0.0.1:{remote_port}", args.host, "sh -c " + shlex.quote(command)],
                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
             ready = threading.Event()
 
@@ -158,7 +159,7 @@ done
 
             threading.Thread(target=read_output, daemon=True).start()
             if not ready.wait(12): raise RuntimeError("Gateway startup failed: " + "\n".join(output))
-            bridge = subprocess.Popen(ssh_base + [f"root@{args.host}", remote_probe, thread_path],
+            bridge = subprocess.Popen(ssh_base + [args.host, remote_probe, thread_path],
                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=log_file)
             thread = HdlcPeer(bridge.stdout, bridge.stdin)
         else:
@@ -283,7 +284,7 @@ done
             except subprocess.TimeoutExpired: process.kill(); process.wait()
         if args.host:
             try:
-                subprocess.run(ssh_base + [f"root@{args.host}",
+                subprocess.run(ssh_base + [args.host,
                     f"rm -f /tmp/ziggurat-hdlc-{token} /tmp/ziggurat-hdlc-{token}-probe /tmp/ziggurat-hdlc-{token}.log {thread_path}"],
                     check=True, timeout=10, stdout=subprocess.DEVNULL)
             except (subprocess.SubprocessError, OSError) as error:

@@ -15,15 +15,16 @@ from toolchain_config import settings
 
 TOOLCHAIN = settings()
 RSDK = TOOLCHAIN['RSDK_ROOT']
+from workspace_config import setting, gateway_host, has_credentials, ssh_command
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--host')
+    parser.add_argument('--host', nargs='?', const=setting('GATEWAY_IP'), type=gateway_host)
     parser.add_argument('--password-file', type=Path)
     args = parser.parse_args()
-    if bool(args.host) != bool(args.password_file):
-        parser.error('--host and --password-file must be provided together')
+    if args.host and not has_credentials(args.password_file):
+        parser.error('--host requires configured SSH credentials or --password-file')
     report = {'host': False, 'factory_mips': False, 'real_radio_access': False}
     with tempfile.TemporaryDirectory(prefix='matter-ipc-codec-') as directory:
         directory = Path(directory)
@@ -60,10 +61,7 @@ def main():
                             '-Os', '-msoft-float', '-static', '-I' + str(ROOT / 'include'), *sources, *target_objects,
                             '-o', str(target)], check=True)
             subprocess.run([str(TOOLCHAIN['TARGET_STRIP']), str(target)], check=True)
-            ssh = ['sshpass', '-f', str(args.password_file), 'ssh', '-o', 'ConnectTimeout=8',
-                   '-o', 'StrictHostKeyChecking=yes', '-o', 'HostKeyAlgorithms=+ssh-rsa',
-                   '-o', 'PubkeyAcceptedAlgorithms=+ssh-rsa', '-o', 'PreferredAuthentications=password',
-                   '-o', 'PubkeyAuthentication=no', 'root@' + args.host]
+            ssh = ssh_command(args.host, args.password_file)
             stage = '/tmp/matter-ipc-' + uuid.uuid4().hex
             def remote(command, payload=None):
                 return subprocess.run(ssh + [command], input=payload, stdout=subprocess.PIPE,

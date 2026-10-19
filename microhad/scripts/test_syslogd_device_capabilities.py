@@ -8,19 +8,17 @@ import unittest
 from pathlib import Path
 
 
-HOST = os.environ.get("SYSLOGD_TEST_HOST", "192.168.178.62")
-PASSWORD_FILE = Path(os.environ.get(
-    "SYSLOGD_TEST_PASSWORD_FILE", Path(__file__).resolve().parents[2] / "ssh_password.txt"
-))
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts'))
+from workspace_config import setting, ssh_command
+
+HOST = os.environ.get("SYSLOGD_TEST_HOST", setting('GATEWAY_IP'))
+PASSWORD_FILE = os.environ.get("SYSLOGD_TEST_PASSWORD_FILE")
 
 
 def remote(command):
-    ssh = [
-        "sshpass", "-f", str(PASSWORD_FILE), "ssh", "-o", "StrictHostKeyChecking=no",
-        "-o", "UserKnownHostsFile=/dev/null", "-o", "HostKeyAlgorithms=+ssh-rsa",
-        "-o", "PubkeyAuthentication=no", "root@" + HOST, command,
-    ]
-    return subprocess.run(ssh, check=True, text=True, capture_output=True).stdout
+    return subprocess.run(ssh_command(HOST, PASSWORD_FILE) + [command],
+                          check=True, text=True, capture_output=True).stdout
 
 
 class SyslogdDeviceCapabilities(unittest.TestCase):
