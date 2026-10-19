@@ -35,7 +35,6 @@ make -C microhad TOOLCHAIN=crosstool-ng mips
 TOOLCHAIN=crosstool-ng ZIGGURAT_MULTIPAN=1 bash ziggurat/scripts/build.sh
 TOOLCHAIN=crosstool-ng bash micro-thread-matter-daemon/scripts/build.sh mips service
 TOOLCHAIN=crosstool-ng bash firmware/scripts/build-maintenance.sh
-TOOLCHAIN=crosstool-ng bash microhad/scripts/build-logread.sh
 ```
 
 Set `RSDK_ROOT` or `CROSSTOOL_NG_ROOT` to select a compatible installation.
@@ -59,7 +58,6 @@ RSDK paths and host fixture paths remain unchanged. Candidate paths insert
 | Matter service | `build/crosstool-ng/micro-thread-matter-daemon/mthread-matter-mips` |
 | OpenThread CLI | `build/crosstool-ng/openthread-unix/ot-cli-mips` |
 | Maintenance helper | `build/crosstool-ng/gateway-maintenance` |
-| Log reader | `microhad/build/crosstool-ng/logread-mips` |
 
 Native and Cargo target caches are separated. Compiler/tool identities and
 runtime archive identities are recorded in each guarded target directory's

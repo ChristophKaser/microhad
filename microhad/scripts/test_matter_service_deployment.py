@@ -232,9 +232,9 @@ elif 'wc -c' in command or 'du -sk' in command:
             for name in ('sw.js', 'app.js'):
                 (webui / name).write_text('fixture')
             artifacts = {}
-            for name in ('microhad', 'ziggurat', 'mthread-matter', 'gateway-maintenance', 'logread'):
+            for name in ('microhad', 'ziggurat', 'mthread-matter', 'gateway-maintenance'):
                 artifact = root / name
-                artifact.write_bytes(b'--thread-socket requires --spinel-iid 1\ncobs-unix requires unix:/absolute/path\n')
+                artifact.write_bytes(b'Thread endpoint requires --spinel-iid 1\ncobs-unix requires unix:/absolute/path\n')
                 artifact.chmod(0o700)
                 artifacts[name] = artifact
             Path(str(artifacts['microhad']) + '.matter-manifest').write_text(
@@ -252,7 +252,7 @@ elif 'wc -c' in command or 'du -sk' in command:
                 '--ziggurat', str(artifacts['ziggurat']),
                 '--matter-service', str(artifacts['mthread-matter']),
                 '--maintenance-helper', str(artifacts['gateway-maintenance']),
-                '--logread', str(artifacts['logread']), '--webui-dir', str(webui),
+                '--webui-dir', str(webui),
                 '--rollback-dir', str(rollback)]
             result = subprocess.run(arguments,
                 cwd=root, env=env, stdin=subprocess.DEVNULL, capture_output=True,

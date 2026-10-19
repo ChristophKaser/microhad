@@ -70,7 +70,6 @@ make -C microhad webui
 ZIGGURAT_MULTIPAN=1 bash ziggurat/scripts/build.sh
 bash micro-thread-matter-daemon/scripts/build.sh mips service
 bash firmware/scripts/build-maintenance.sh
-bash microhad/scripts/build-logread.sh
 ```
 
 | Artifact | Default output |
@@ -79,7 +78,6 @@ bash microhad/scripts/build-logread.sh
 | Ziggurat multipan | `build/ziggurat-hdlc/lexra-stock-uclibc/release/ziggurat.stripped` |
 | Matter service | `build/micro-thread-matter-daemon/mthread-matter-mips` |
 | Radio maintenance helper | `build/gateway-maintenance` |
-| Diagnostic log reader | `microhad/build/logread-mips` |
 
 Candidate toolchain outputs insert `crosstool-ng/` below the relevant `build/`
 directory; Ziggurat also changes its target directory name. Use the exact

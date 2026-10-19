@@ -8,6 +8,7 @@ from pathlib import Path
 import signal
 import struct
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -261,28 +262,13 @@ class WorkflowTests(unittest.TestCase):
             finally:
                 attempt.finish()
 
-    def test_gateway_ssh_password_and_legacy_host_key_options(self):
+    def test_gateway_capture_uses_log_api_collector(self):
         with tempfile.TemporaryDirectory() as temporary:
             attempt = self.attempt(temporary)
-            password = Path(temporary) / 'password'
-            password.write_text('test-password\n')
-            attempt.args.ssh_password_file = password
             command = attempt.gateway_command()
-            self.assertEqual(command[:3], ['sshpass', '-f', str(password)])
-            self.assertIn('HostKeyAlgorithms=+ssh-rsa', command)
-            self.assertIn('PubkeyAcceptedAlgorithms=+ssh-rsa', command)
-            self.assertIn('PubkeyAuthentication=no', command)
-            self.assertIn('StrictHostKeyChecking=yes', command)
-            self.assertNotIn('BatchMode=yes', command)
-
-    def test_gateway_ssh_key_auth_remains_noninteractive(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            attempt = self.attempt(temporary)
-            attempt.args.ssh_password_file = None
-            command = attempt.gateway_command()
-            self.assertEqual(command[0], 'ssh')
-            self.assertIn('BatchMode=yes', command)
-            self.assertIn('HostKeyAlgorithms=+ssh-rsa', command)
+            self.assertEqual(command[0], sys.executable)
+            self.assertTrue(command[1].endswith('/scripts/capture-thread-logs.py'))
+            self.assertEqual(command[2:], ['--host', attempt.args.gateway])
 
     def test_chip_output_is_mirrored_and_saved_including_final_output(self):
         with tempfile.TemporaryDirectory() as temporary:

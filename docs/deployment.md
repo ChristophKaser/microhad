@@ -88,7 +88,6 @@ already exist. It does not install radio firmware or create network state.
 ```sh
 make -C microhad ZIGGURAT=1 MATTER=1 mips
 make -C microhad webui
-bash microhad/scripts/build-logread.sh
 ZIGGURAT_MULTIPAN=1 bash ziggurat/scripts/build.sh
 bash firmware/scripts/build-maintenance.sh
 bash micro-thread-matter-daemon/scripts/build.sh mips service
@@ -97,8 +96,7 @@ bash micro-thread-matter-daemon/scripts/build.sh mips service
   --binary microhad/build/mips-ziggurat-matter/microhad \
   --ziggurat build/ziggurat-hdlc/lexra-stock-uclibc/release/ziggurat \
   --matter-service build/micro-thread-matter-daemon/mthread-matter-mips \
-  --maintenance-helper build/gateway-maintenance \
-  --logread microhad/build/logread-mips
+  --maintenance-helper build/gateway-maintenance
 ```
 
 The script saves installed application binaries, launcher and Web UI in a private

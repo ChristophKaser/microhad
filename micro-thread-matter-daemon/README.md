@@ -135,11 +135,11 @@ Packets OpenThread rejects before delivery log their addresses and reason. The
 advertisements and registration results are logged at `info`. These flags do
 not enable a host network interface or Linux packet forwarding.
 
-For diagnosis after the fact, stream the gateway syslog to a private host file:
+For diagnosis after the fact, poll the gateway log API into a private host file:
 
 ```sh
 python3 micro-thread-matter-daemon/scripts/capture-thread-logs.py \
-  --password-file ../ssh_password.txt \
+  --host "$GATEWAY_IP" \
   --output diagnostics/thread-session.log
 ```
 
@@ -148,8 +148,9 @@ RX/TX events, including the Thread IID, and `matter-raw-frames on` for Matter UD
 payloads. Keep Matter at `debug`; registration decisions remain visible at
 `info`. Ziggurat's `raw-frames` setting alone covers Zigbee, not the Thread
 interface. Trace settings restart the relevant supervised services and last
-until the paired supervisor restarts. The host collector reconnects after SSH
-disconnects and marks gaps; reconnection may repeat ring-buffer entries.
+until the paired supervisor restarts. The host collector polls `/api/logs` once
+per second, retries failed requests, and avoids repeating entries at the
+inclusive timestamp boundary.
 The RAM ring and asynchronous log queues are bounded: capture is best effort,
 and overload/drop markers or connection gaps must be checked before treating
 an absent event as evidence. Frames filtered or dropped by the RCP are not a

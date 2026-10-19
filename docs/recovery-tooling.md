@@ -15,9 +15,9 @@ curl --connect-timeout 5 --max-time 8 -sS "http://$GATEWAY_IP/api/logs"
 ```
 
 The dashboard reads BusyBox syslogd's 512 KiB RAM ring directly, with bounded
-semaphore acquisition. It does not fork `logread`. Native and Matter use syslog;
-Ziggurat tracing is forwarded to it. The deployed `logread` remains available
-for console diagnostics. See [syslog IPC](../microhad/docs/syslog-ipc.md).
+semaphore acquisition. Native and Matter use syslog; Ziggurat tracing is
+forwarded to it. Use `/api/logs` for host diagnostics. See
+[syslog IPC](../microhad/docs/syslog-ipc.md).
 The paired launcher also forwards logs to a site-specific remote collector;
 review that destination in `paired_start.sh` when setting up another site.
 

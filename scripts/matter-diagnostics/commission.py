@@ -211,20 +211,9 @@ class Attempt:
         self.progress('Packet and Bluetooth capture are recording')
 
     def gateway_command(self):
-        ssh = ['ssh', '-o', 'ConnectTimeout=8', '-o', 'StrictHostKeyChecking=yes',
-               '-o', 'HostKeyAlgorithms=+ssh-rsa', '-o', 'PubkeyAcceptedAlgorithms=+ssh-rsa']
-        if self.args.ssh_password_file:
-            if not self.args.ssh_password_file.is_file():
-                raise RuntimeError('Gateway SSH password file does not exist')
-            ssh = ['sshpass', '-f', str(self.args.ssh_password_file.resolve()), *ssh]
-            ssh += ['-o', 'PreferredAuthentications=password', '-o', 'PubkeyAuthentication=no']
-        else:
-            ssh += ['-o', 'BatchMode=yes']
-        ssh += ['root@' + self.args.gateway,
-                'if [ -x /tuya/native/logread ]; then exec /tuya/native/logread -f; '
-                'elif [ -x /tuya/native/busybox ]; then exec /tuya/native/busybox logread -f; '
-                'else exec /bin/busybox logread -f; fi']
-        return ssh
+        return [sys.executable,
+                str(ROOT / 'micro-thread-matter-daemon/scripts/capture-thread-logs.py'),
+                '--host', self.args.gateway]
 
     def start_otbr_log(self):
         since = datetime.datetime.strptime(self.result['started'], '%Y%m%dT%H%M%S.%fZ').replace(
@@ -429,10 +418,6 @@ def parser():
     result.add_argument('--dataset-file', type=Path)
     result.add_argument('--paa-trust-store', type=Path,
                         default=ROOT / 'build/connectedhomeip/source/credentials/production/paa-root-certs')
-    password_file = ROOT.parent / 'ssh_password.txt'
-    result.add_argument('--ssh-password-file', type=Path,
-                        default=password_file if password_file.is_file() else None,
-                        help='Gateway password file; uses ../ssh_password.txt when present, otherwise SSH keys')
     result.add_argument('--timeout', type=float, default=300)
     result.add_argument('--tail-seconds', type=float, default=10)
     return result

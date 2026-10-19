@@ -125,7 +125,7 @@ recovery when opting out of rollback copies.
 For a complete Matter release, build all target artifacts and use
 `--maintenance-deploy`. It quiesces and stops the paired stack, discards the
 legacy executable, and replaces the controller, Ziggurat, Matter service,
-`gateway-maintenance`, log reader and Web UI. It activates the paired launcher,
+`gateway-maintenance` and Web UI. It activates the paired launcher,
 starts the stack, and checks the supervisor, IPC sockets, dashboard, status API
 and linked assets. It never copies or removes configuration or network/identity
 state. Both maintenance modes retain the 512 KiB flash reserve, check process
@@ -138,7 +138,6 @@ following every upload. Keep SSH stdin detached from asset-list loops.
 ```sh
 make -C microhad ZIGGURAT=1 MATTER=1 mips
 make -C microhad webui
-bash microhad/scripts/build-logread.sh
 ZIGGURAT_MULTIPAN=1 bash ziggurat/scripts/build.sh
 bash firmware/scripts/build-maintenance.sh
 bash micro-thread-matter-daemon/scripts/build.sh mips service
@@ -147,8 +146,7 @@ bash micro-thread-matter-daemon/scripts/build.sh mips service
   --binary microhad/build/mips-ziggurat-matter/microhad \
   --ziggurat build/ziggurat-hdlc/lexra-stock-uclibc/release/ziggurat \
   --matter-service build/micro-thread-matter-daemon/mthread-matter-mips \
-  --maintenance-helper build/gateway-maintenance \
-  --logread microhad/build/logread-mips
+  --maintenance-helper build/gateway-maintenance
 ```
 
 For an update to an already paired installation, `--restart` signals only the
@@ -304,9 +302,7 @@ serialized for sleepy battery devices.
 The paired launcher runs BusyBox `syslogd -C512 -L -R 192.168.178.51:7878`.
 Native gateway and Matter service messages use syslog directly; Ziggurat's
 tracing output is sent to syslog. The `/api/logs` reader attaches directly to the daemon's 512 KiB RAM ring and
-uses bounded, nonblocking semaphore acquisition. It never forks a helper.
-The separately deployed BusyBox 1.13.4 `logread` remains a diagnostic tool; it
-omits the `syslogd` applet because the stock firmware runs that daemon. See
+uses bounded, nonblocking semaphore acquisition. It never forks a helper. See
 [syslog IPC compatibility](docs/syslog-ipc.md) for supported layouts and bounds.
 Permanent radio captures belong under the
 ignored `diagnostics/` directory and must never be committed.
