@@ -43,8 +43,12 @@ class Installer:
             raise ValueError('Unsupported gateway or missing prepared launcher/UART')
         if 'deleted' in lines[4:]:
             raise ValueError('Gateway has a running deleted executable; restart its owner before installing')
-        largest = max(p.stat().st_size for p in (ROOT / 'bin').iterdir())
-        if int(lines[1]) < (largest + 1023) // 1024 + 512:
+        names = ('microhad-ezsp', 'rng-seed') if self.args.mode == 'microhad-only' else ('microhad', 'mthread-matter', 'ziggurat', 'gateway-maintenance', 'rng-seed')
+        candidates = [ROOT / 'bin' / name for name in names if (ROOT / 'bin' / name).is_file()]
+        candidates += [p for p in (ROOT / 'webui').rglob('*') if p.is_file()]
+        largest = max((p.stat().st_size for p in candidates), default=0)
+        required = 512 if lines[2] == 'configured' and self.args.mode == 'paired' else (largest + 1023) // 1024 + 512
+        if int(lines[1]) < required:
             raise ValueError('Insufficient flash for the largest artifact plus the 512 KiB reserve')
         self.fresh = lines[2] == 'fresh'
         mode = lines[3]

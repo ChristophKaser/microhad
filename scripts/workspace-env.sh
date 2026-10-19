@@ -22,7 +22,7 @@ workspace_load() {
 $workspace_key=$(workspace_quote "$workspace_value")"
         fi
     done
-    if [ -f "$workspace_file" ]; then
+    if [ -f "$workspace_file" ] || [ "$workspace_file" = /dev/null ]; then
         sh -n "$workspace_file" 2>/dev/null || { echo 'Invalid shell syntax in workspace configuration' >&2; return 2; }
         . "$workspace_file"
     elif [ "${WORKSPACE_CONFIG+x}" = x ]; then

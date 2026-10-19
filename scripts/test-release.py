@@ -31,6 +31,11 @@ def options(**overrides):
 
 
 class Packages(unittest.TestCase):
+    def test_release_environment_disables_private_workspace_settings(self):
+        env = dict(os.environ, WORKSPACE_CONFIG='/dev/null', TOOLCHAIN='crosstool-ng', LINK_MODE='static')
+        value = subprocess.check_output(['sh', str(ROOT / 'scripts/workspace-env.sh'), '--get', 'TOOLCHAIN'], env=env, text=True)
+        self.assertEqual(value.strip(), 'crosstool-ng')
+
     def test_inventory_detects_tamper_and_external_symlinks(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

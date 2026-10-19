@@ -48,7 +48,7 @@ def environment(root, jobs, cargo_home, rustup_home, epoch):
     env.update(TOOLCHAIN='crosstool-ng', LINK_MODE='static', WORKSPACE_CONFIG='/dev/null',
                CARGO_HOME=str(cargo_home), RUSTUP_HOME=str(rustup_home), BUILD_JOBS=str(jobs),
                CARGO_BUILD_JOBS=str(jobs), ZIGGURAT_MULTIPAN='1', SOURCE_DATE_EPOCH=str(epoch),
-               npm_config_userconfig='/dev/null', npm_config_globalconfig='/dev/null', npm_config_audit='false',
+               npm_config_userconfig='/dev/null', npm_config_globalconfig=str(root / 'scripts/release/npmrc'), npm_config_audit='false',
                npm_config_fund='false', npm_config_cache=str(root / '.release/npm-cache'))
     env['PATH'] = str(cargo_home / 'bin') + ':' + env['PATH']
     return env
@@ -200,6 +200,7 @@ def collect(root, args, env, toolchain, sysroot):
     for p in (sysroot / 'share/doc/rust').glob('COPYRIGHT-library.html'):
         shutil.copy2(p, rust_licenses / p.name)
     shutil.copytree(ROOT / 'tools/lexra-proof/share/licenses/uClibc-ng', root / '.release/runtime-licenses/uClibc-ng')
+    shutil.copy2(ROOT / 'tools/lexra-proof/share/licenses/linux/COPYING', root / '.release/runtime-licenses/Linux-COPYING')
     (root / '.release/toolchain.config').write_text((ROOT / 'build/toolchain-proof/.config').read_text().replace(str(ROOT), '@ROOT@'))
     shutil.copy2(ROOT / 'tools/lexra-proof/mips-lexra-linux-uclibc/sysroot/usr/include/bits/uClibc_config.h', root / '.release/libc-config.h')
     gcc = ROOT / 'tools/lexra-proof/share/licenses/gcc'
@@ -214,7 +215,22 @@ def collect(root, args, env, toolchain, sysroot):
     # Cargo emits an absolute directory when given an absolute path; keep archive relocation safe.
     vendor = vendor.replace(str(root / '.release/cargo-vendor'), '.release/cargo-vendor')
     (root / '.cargo').mkdir(exist_ok=True)
-    (root / '.cargo/config.toml').write_text(vendor)
+    patches = '\n[patch.crates-io]\n' + '\n'.join(
+        name + ' = { path = "build/patched-crates-mailbox/' + name + '-' + version + '" }'
+        for name, version in [('getrandom', '0.4.3'), ('nix', '0.26.4'), ('radium', '0.7.0')]) + '\n'
+    (root / '.cargo/config.toml').write_text(vendor + patches)
+    # Cargo records globally configured but unused patches in lockfiles. Allow
+    # that bookkeeping only; a changed dependency graph needs a notice review.
+    original_lock = ROOT / 'micro-thread-matter-daemon/Cargo.lock'
+    effective_lock = root / 'micro-thread-matter-daemon/Cargo.lock'
+    if tomllib.loads(original_lock.read_text())['package'] != tomllib.loads(effective_lock.read_text())['package']:
+        raise ValueError('Vendoring changed the Matter dependency graph; review notices before releasing')
+    (root / '.release/original-lockfiles').mkdir()
+    shutil.copy2(original_lock, root / '.release/original-lockfiles/matter.Cargo.lock')
+    notice = root / 'third-party/gateway-inputs.json'
+    snapshot = json.loads(notice.read_text())
+    snapshot['inputs']['micro-thread-matter-daemon/Cargo.lock'] = sha(effective_lock)
+    notice.write_text(json.dumps(snapshot, indent=2, sort_keys=True) + '\n')
     run(['npm', 'ci', '--ignore-scripts', '--no-audit'], cwd=root / 'microhad/webui', env=vendor_env)
     shutil.rmtree(root / 'microhad/webui/node_modules')
     if (root / '.release/npm-cache/_logs').exists(): shutil.rmtree(root / '.release/npm-cache/_logs')
@@ -336,7 +352,7 @@ def main():
                     'source_date_epoch': epoch, 'toolchain': 'crosstool-ng', 'link_mode': 'static',
                     'modes': ['paired', 'microhad-only'], 'rust_version': rust_version,
                     'revisions': revisions,
-                    'notice_inputs': json.loads((ROOT / 'third-party/gateway-inputs.json').read_text())['inputs'],
+                    'notice_inputs': json.loads((root / 'third-party/gateway-inputs.json').read_text())['inputs'],
                     **toolchain_evidence(ROOT / 'tools/lexra-proof')}
         (root / '.release/metadata.json').write_text(json.dumps(metadata, indent=2, sort_keys=True) + '\n')
         rebuild = root / 'rebuild.sh'
