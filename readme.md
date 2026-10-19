@@ -39,14 +39,17 @@ for available features and compatibility limits.
 The tested hardware is the Silvercrest SGWZ 1 A1 (HG06339) with an RTL8196E CPU,
 EFR32MG1B232 radio and factory Linux. Other embedded devices are not yet
 validated. First installation requires opening the case, a 3.3 V USB-to-UART
-adapter, root access, Ethernet and a Linux build computer. Ziggurat requires
+adapter, root access, Ethernet and a Linux computer. Binary releases do not
+require an application compiler on that computer. Ziggurat requires
 replacement radio firmware.
 
 1. Check your hardware and follow the [installation guide](docs/installation.md)
    to obtain root access and make backups. For an existing Zigbee network, use
    the [migration guide](docs/ziggurat-deployment-plan.md).
-2. Choose your setup, [build the software](docs/building.md), and follow the
-   installation guide to deploy and start it.
+2. Choose your setup and use a [binary release and its SSH installer](docs/binary-releases.md),
+   or [build from source](docs/building.md). Binary bundles support MicroHAD-only
+   with compatible stock EZSP firmware and the separately prepared Ziggurat/Matter stack.
+   Follow the installation guide for root access, backups and radio prerequisites.
 3. Open `http://<gateway-ip>/`, pair a device, and check its readings or controls.
 
 Components:

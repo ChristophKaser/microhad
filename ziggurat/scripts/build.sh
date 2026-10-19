@@ -8,14 +8,18 @@ if [[ "$ZIGGURAT_MULTIPAN" != 0 && "$ZIGGURAT_MULTIPAN" != 1 ]]; then
     exit 2
 fi
 mkdir -p worktrees build logs
-source_revision=$(git -C ziggurat/dependencies/ziggurat rev-parse HEAD)
+if [[ ${MICROHAD_SOURCE_BUNDLE:-0} == 1 ]]; then
+    source_revision=$(python3 -c 'import sys; sys.path.insert(0,"scripts"); from release_source import metadata; print(metadata()["revisions"]["ziggurat/dependencies/ziggurat"])')
+else
+    source_revision=$(git -C ziggurat/dependencies/ziggurat rev-parse HEAD)
+fi
 build_worktree=worktrees/ziggurat-stock
 build_output=build/ziggurat
 if [[ $ZIGGURAT_MULTIPAN == 1 ]]; then
     build_worktree=worktrees/ziggurat-multipan
     build_output=build/ziggurat-hdlc
 fi
-if [[ ! -d ${build_worktree} ]]; then
+if [[ ${MICROHAD_SOURCE_BUNDLE:-0} != 1 && ! -d ${build_worktree} ]]; then
     git -C ziggurat/dependencies/ziggurat worktree add --detach "$experiment_root/$build_worktree" "$source_revision"
 fi
 mailboxes=()
@@ -40,9 +44,14 @@ if [ "$ZIGGURAT_MULTIPAN" = 1 ]; then
 fi
 mailbox_paths=()
 for mailbox in "${mailboxes[@]}"; do mailbox_paths+=("$experiment_root/$mailbox"); done
+if [[ ${MICROHAD_SOURCE_BUNDLE:-0} == 1 ]]; then
+    python3 scripts/release_source.py "$build_worktree"
+else
 python3 scripts/apply-mailbox-series.py "$build_worktree" "$source_revision" "${mailbox_paths[@]}"
 python3 ziggurat/scripts/check-ziggurat-patches.py --build-worktree "$build_worktree" \
     --source-revision "$source_revision" --multipan "$ZIGGURAT_MULTIPAN"
+fi
+if [[ ${1:-} == --prepare-only ]]; then exit 0; fi
 build_output="build/${TARGET_BUILD_SUBDIR}${build_output#build/}"
 python3 scripts/toolchain-build.py "$experiment_root/$build_output/$TARGET_SPEC_NAME"
 bash scripts/make-llvm-target.sh
@@ -54,7 +63,7 @@ export RUSTFLAGS='-C target-feature=+crt-static -C relocation-model=static'
 if [[ "$LINK_MODE" == dynamic ]]; then
     RUSTFLAGS="${RUSTFLAGS/+crt-static/-crt-static} -L native=$STOCK_ROOTFS/link"
 fi
-cargo +$RUST_TOOLCHAIN build --release \
+cargo +$RUST_TOOLCHAIN build --locked --release \
     --manifest-path ${build_worktree}/Cargo.toml -p ziggurat-server \
     --target "targets/$TARGET_SPEC_NAME.json" \
     -Z json-target-spec -Z build-std=std,panic_abort \

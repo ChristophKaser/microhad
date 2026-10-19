@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import release_source
 
 ROOT = Path(__file__).resolve().parents[1]
 HERE = ROOT / 'config/crosstool-ng'
@@ -27,6 +28,10 @@ def digest(path):
 
 def main():
     DOWNLOADS.mkdir(parents=True, exist_ok=True)
+    if release_source.enabled():
+        release_source.verify('config/crosstool-ng')
+        release_source.verify('build/toolchain-proof/downloads')
+        release_source.verify('firmware/dependencies/rtl8196e-gateway/1-Build-Environment/10-lexra-toolchain/patches')
     env = dict(os.environ, PATH=str(BOOTSTRAP / 'bin') + ':' + os.environ['PATH'])
     for variable in ['RSDK_ROOT', 'TARGET_CC', 'TARGET_CXX', 'TARGET_AR', 'CC', 'CXX', 'AR',
                      'CFLAGS', 'CXXFLAGS', 'CPPFLAGS', 'LDFLAGS', 'CPATH', 'C_INCLUDE_PATH',
@@ -36,6 +41,8 @@ def main():
     sources = json.loads((HERE / 'sources.json').read_text())
     for name, metadata in sources.items():
         archive = DOWNLOADS / name
+        if not archive.exists() and release_source.enabled():
+            raise SystemExit('Missing offline toolchain source: ' + name)
         if not archive.exists():
             temporary = archive.with_suffix(archive.suffix + '.part')
             run(['curl', '-fL', '--retry', '2', '--connect-timeout', '20',
@@ -76,8 +83,9 @@ def main():
         patches / 'binutils/2.45.1/600-Lexra.patch', patches / 'gcc/15.2.0/970-Lexra.patch']}
     (BUILD / 'source-manifest.json').write_text(json.dumps({
         'sources': sources, 'patches': patch_records,
-        'upstream_commit': subprocess.check_output(['git', '-C', str(patches.parents[2]),
-                                                   'rev-parse', 'HEAD'], text=True).strip(),
+        'upstream_commit': (release_source.metadata()['revisions']['firmware/dependencies/rtl8196e-gateway']
+                            if release_source.enabled() else subprocess.check_output(
+                                ['git', '-C', str(patches.parents[2]), 'rev-parse', 'HEAD'], text=True).strip()),
     }, indent=2) + '\n')
     config = (HERE / 'crosstool.config').read_text().replace('@ROOT@', str(ROOT)).replace('@BUILD@', str(BUILD))
     previous = (BUILD / '.config').read_text() if (BUILD / '.config').exists() else None

@@ -47,6 +47,16 @@ def texts(root, recursive=False):
 
 
 def inputs():
+    if os.environ.get('MICROHAD_SOURCE_BUNDLE') == '1':
+        metadata = json.loads((ROOT / '.release/metadata.json').read_text())
+        result = dict(metadata['notice_inputs'])
+        for name in result:
+            path = ROOT / name
+            if path.is_file():
+                result[name] = hashlib.sha256(path.read_bytes()).hexdigest()
+            elif name in metadata['revisions']:
+                result[name] = metadata['revisions'][name]
+        return result
     paths = ['LICENSE', 'third-party/supplements.json', 'scripts/licensing/notices.py',
              'microhad/webui/package-lock.json', 'micro-thread-matter-daemon/Cargo.toml',
              'ziggurat/stock-uclibc-compat/Cargo.toml', *LOCKS]

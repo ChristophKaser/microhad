@@ -15,6 +15,11 @@ instead of creating a fresh network or following the destructive reset steps.
 
 Check [supported devices](supported-devices.md) before choosing accessories.
 
+Application binaries can be installed without a compiler using the
+[binary release installer](binary-releases.md). Complete the root-access, backups
+and radio preparation below first. Choose `microhad-only` for compatible stock
+EZSP firmware, or `paired` after the Ziggurat radio/network handover.
+
 ## Choose a backend
 
 | Setup | Radio firmware | Runtime |
@@ -36,8 +41,9 @@ and a **3.3 V TTL USB-to-UART adapter**. Connect only GND, TX and RX. Do not
 connect the adapter's VCC, use 5 V logic or a PC RS-232 port. Keep serial-console
 access until SSH and your selected boot launcher work.
 
-Follow [build setup](building.md) to obtain the source checkouts and binaries
-needed for your chosen mode. Gateway application builds support separately
+Use the [binary package](binary-releases.md) for prebuilt application binaries,
+or follow [build setup](building.md) for source builds. Radio preparation and
+existing-network migration remain separate from application installation. Gateway application builds support separately
 acquired RSDK (the production default) or source-built experimental crosstool-NG.
 The external serial bridge still uses its documented RSDK recipe. Deployment
 examples below use RSDK artifact paths; candidate builds require explicit paths

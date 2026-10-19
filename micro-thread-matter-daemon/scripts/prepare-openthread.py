@@ -2,6 +2,9 @@
 """Prepare a release-pinned OpenThread worktree without touching a radio."""
 from pathlib import Path
 import subprocess
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+import release_source
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / 'micro-thread-matter-daemon/dependencies/openthread'
@@ -54,6 +57,9 @@ def migrate_legacy():
 
 
 def main():
+    if release_source.enabled():
+        release_source.verify('build/openthread-unix/source-mailbox')
+        return
     OUTPUT.mkdir(parents=True, exist_ok=True)
     # Initializing a missing dependency is separate from validating its pin.
     if not (SOURCE / '.git').exists():

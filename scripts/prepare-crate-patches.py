@@ -8,6 +8,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import release_source
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -22,6 +23,9 @@ def main() -> int:
     destination_root = ROOT / "build/patched-crates-mailbox"
     destination_root.mkdir(parents=True, exist_ok=True)
     for crate in sys.argv[1:]:
+        if release_source.enabled():
+            release_source.verify('build/patched-crates-mailbox/' + crate)
+            continue
         sources = list(REGISTRY.glob(f"*/{crate}"))
         if len(sources) != 1:
             raise SystemExit(f"Expected one fetched Cargo source for {crate}, found {len(sources)}")

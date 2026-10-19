@@ -81,6 +81,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 if [ -n "$service_selection" ]; then
+    [ -z "$rng_seed_helper" ] || usage
     maintenance_deploy=true
     deploy_binary=false
     deploy_webui=false
@@ -114,7 +115,7 @@ fi
         [ "$binary_explicit" = true ] || usage
 }
 [ "$maintenance_deploy" = false ] || {
-    [ -z "$config" ] && [ -z "$rng_seed_helper" ] && [ -z "$certificate" ] &&
+    [ -z "$config" ] && [ -z "$certificate" ] &&
         [ -z "$private_key" ] && [ -z "$ca_bundle" ] && [ "$activate" = false ] &&
         [ "$activate_paired" = false ] && [ "$activate_paired_only" = false ] &&
         [ "$restart" = false ] || usage
@@ -144,7 +145,7 @@ fi
 [ "$deploy_webui" = false ] || { [ -f "$webui_dir/index.html" ] && [ -f "$webui_dir/sw.js" ]; } || { echo "Built Web UI not found; run make webui first" >&2; exit 1; }
 [ -z "$rng_seed_helper" ] || [ -x "$rng_seed_helper" ] || { echo "RNG seed helper missing or not executable: $rng_seed_helper" >&2; exit 1; }
 [ -z "$rng_seed_helper" ] || [ "$target" = /tuya/native ] || { echo "RNG seed helper deployment requires --target /tuya/native" >&2; exit 2; }
-[ -z "$rng_seed_helper" ] || [ "$deploy_binary" = false ] || { echo "Use --rng-seed-only to deploy the RNG helper without replacing application assets" >&2; exit 2; }
+[ -z "$rng_seed_helper" ] || [ "$maintenance_deploy" = true ] || [ "$deploy_binary" = false ] || { echo "Use --rng-seed-only to deploy the RNG helper without replacing application assets" >&2; exit 2; }
 [ -z "$config" ] || { [ "$deploy_binary" = true ] && [ -f "$config" ]; } || usage
 [ -z "$matter_service" ] || [ -n "$service_selection" ] || { { [ "$deploy_binary" = true ] || [ "$activate_paired_only" = true ]; } && [ -x "$matter_service" ]; } || usage
 [ "$maintenance_deploy" = false ] || [ -n "$service_selection" ] || { [ -x "$ziggurat" ] && [ -x "$maintenance_helper" ]; } || { echo "Ziggurat or gateway-maintenance artifact missing or not executable" >&2; exit 1; }
@@ -407,7 +408,7 @@ maintenance_deploy_run() {
 
         # Backup only application artifacts. Runtime configuration, Matter identity,
         # Zigbee state, TLS material and network backups are intentionally excluded.
-        for name in microhad microhad.matter-manifest thread-matter mthread-matter ziggurat gateway-maintenance paired_start.sh paired_control.sh; do
+        for name in microhad microhad.matter-manifest thread-matter mthread-matter ziggurat gateway-maintenance rng-seed paired_start.sh paired_control.sh; do
             remote="$target/$name"
             if ssh_command "test -f \"$remote\"" >/dev/null 2>&1; then
                 ssh_command "cat \"$remote\"" > "$rollback_dir/$name" || return 1
@@ -485,6 +486,7 @@ maintenance_deploy_run() {
     service_bytes=$(wc -c < "$matter_service"); helper_bytes=$(wc -c < "$maintenance_helper")
     manifest_bytes=$(wc -c < "$binary.matter-manifest")
     support_bytes=$(($(wc -c < "$project_dir/paired_start.sh") + $(wc -c < "$project_dir/scripts/paired_control.sh")))
+    [ -z "$rng_seed_helper" ] || support_bytes=$((support_bytes + $(wc -c < "$rng_seed_helper")))
     launcher_bytes=$(wc -c < "$project_dir/ziggurat_start.sh")
     launcher_backup_bytes=0
     [ -z "$rollback_dir" ] || launcher_backup_bytes=$(ssh_command "if [ -e /tuya/tuya_start.sh.lowjs-backup ]; then echo 0; elif [ -f /tuya/tuya_start.sh ]; then wc -c < /tuya/tuya_start.sh | awk '{print \$1}'; else echo 0; fi") || return 1
@@ -556,6 +558,9 @@ maintenance_deploy_run() {
         ! upload_atomic "$project_dir/scripts/paired_control.sh" "$target/paired_control.sh" 700; then
         echo "Deployment incomplete; services remain stopped. $rollback_notice" >&2
         return 1
+    fi
+    if [ -n "$rng_seed_helper" ]; then
+        upload_atomic "$rng_seed_helper" "$target/rng-seed" 700 || return 1
     fi
     find "$webui_dir" -type f ! -name index.html | while IFS= read -r asset; do
         relative=${asset#"$webui_dir"/}

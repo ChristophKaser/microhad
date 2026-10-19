@@ -6,6 +6,10 @@ cd "$project_root"
 source_dir="$project_root/micro-thread-matter-daemon/dependencies/rs-matter"
 service_dir="$project_root/build/micro-thread-matter-daemon/service-source"
 revision=1570356ecb938a9d19be032b93ca3bb487069e75
+if [[ ${MICROHAD_SOURCE_BUNDLE:-0} == 1 ]]; then
+    python3 scripts/release_source.py build/micro-thread-matter-daemon/service-source
+    exit 0
+fi
 git -C "$project_root" submodule update --init micro-thread-matter-daemon/dependencies/rs-matter
 [[ $(git -C "$source_dir" rev-parse HEAD) == "$revision" ]] || {
     echo "Expected rs-matter source revision $revision" >&2; exit 1

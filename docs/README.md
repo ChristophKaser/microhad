@@ -4,6 +4,8 @@ Start with [installation](installation.md) for a new gateway, or
 [Zigbee migration](ziggurat-deployment-plan.md) to preserve an existing network.
 Commands run on the development computer unless marked **gateway**.
 
+- [Binary releases](binary-releases.md): download, verify, install/update over SSH, and rebuild matching sources.
+
 ## Use and maintain a gateway
 
 - [Supported devices](supported-devices.md): available features, unsupported functions and compatibility limits.
