@@ -298,6 +298,8 @@ void testServers() {
     assert(notifications.start(&error));
     SensorHistory history(directory + "/history.bin");
     assert(history.appendValue("zigbee:0x00124b0000000042", SensorHistory::Temperature, "22.45", "celsius", 1700000000));
+    assert(history.appendValue("zigbee:0x00124b0000000042", SensorHistory::Temperature, "23.5", "celsius", 1700000060));
+    assert(history.appendValue("zigbee:0x00124b0000000042", SensorHistory::Temperature, "24.5", "celsius", 1700000120));
     Gateway* gateway = new Gateway("/dev/null", 115200, directory, "", "", "", &notifications, directory + "/history.bin");
     GatewayIntegrationTestPeer::attachSerial(gateway, inbound[0]);
     GatewayRunner runner(gateway);
@@ -545,7 +547,11 @@ void testServers() {
     expectStatus("http accept derived history cursor", plainRequest(http.boundPort(), "GET /api/devices/0x00124b0000000042/history?before=1125899906842623 HTTP/1.1\r\nHost: localhost\r\n\r\n"), 200);
     expectStatus("http reject oversized history cursor", plainRequest(http.boundPort(), "GET /api/devices/0x00124b0000000042/history?before=1125899906842624 HTTP/1.1\r\nHost: localhost\r\n\r\n"), 400);
     expectStatus("http reject invalid history cursor", plainRequest(http.boundPort(), "GET /api/devices/0x00124b0000000042/history?before=bad HTTP/1.1\r\nHost: localhost\r\n\r\n"), 400);
-    expectStatus("http ranged history", plainRequest(http.boundPort(), "GET /api/devices/0x00124b0000000042/history?since=1700000001 HTTP/1.1\r\nHost: localhost\r\n\r\n"), 200);
+    response = plainRequest(http.boundPort(), "GET /api/devices/0x00124b0000000042/history?since=1700000120 HTTP/1.1\r\nHost: localhost\r\n\r\n");
+    expectStatus("http ranged history", response, 200);
+    assert(response.find(",1,22.450") == std::string::npos);
+    assert(response.find(",1700000060,1,23.5,") != std::string::npos);
+    assert(response.find(",1700000120,1,24.5,") != std::string::npos);
     const char* historyQueries[] = { "since=1&before=1125899906842623", "before=1125899906842623&since=1", "since=0", "since=4294967295" };
     for (unsigned int i = 0; i < sizeof(historyQueries) / sizeof(historyQueries[0]); ++i)
         expectStatus("http range query", plainRequest(http.boundPort(), std::string("GET /api/devices/0x00124b0000000042/history?") + historyQueries[i] + " HTTP/1.1\r\nHost: localhost\r\n\r\n"), 200);

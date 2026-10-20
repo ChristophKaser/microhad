@@ -130,6 +130,24 @@ publish each page as it arrives, and cap client retention at 10,000 samples.
 outstanding requests. Dashboard refreshes run 30 seconds after the preceding
 load finishes, merge the newest page by cursor, and do not overlap.
 
+## Chart performance verification
+
+An isolated RAM-snapshot benchmark on the gateway on 2026-10-20 used the stock
+shared libraries and three reads per variant. The running daemon was unchanged.
+The snapshot contained 4,522 samples for the measured air-quality monitor.
+
+| Reader | Responses | Samples returned | Median reader time |
+| --- | ---: | ---: | ---: |
+| Original, unbounded | 3 | 4,522 | 7.35 s |
+| Stream-free serializer, unbounded | 3 | 4,522 | 1.85 s |
+| Stream-free serializer, selected 24 hours | 1 | 1,200 including predecessors | 0.69 s |
+
+Across the unbounded runs, JSON generation decreased from 19.72 s in total to
+4.72 s (4.2× faster). The selected-range reader was 10.7× faster than the
+original median. All three unbounded response fingerprints matched the original
+serializer. These are reader timings, excluding initialization, HTTP transfer,
+and browser rendering; production deployment was not part of the benchmark.
+
 ## Excluded readings
 
 Actuator on/off states and brightness are not recorded. Metric codes 10 and 11

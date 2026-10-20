@@ -42,6 +42,7 @@ uint64_t nextBefore(const std::string& json) {
 std::vector<SensorHistory::ValueRecord> samplesIn(const std::string& json) {
     std::vector<SensorHistory::ValueRecord> samples;
     const std::string marker = "\"samples\":[";
+    assert(json.find(marker) != std::string::npos);
     std::string::size_type at = json.find(marker) + marker.size();
     while (at < json.size() && json[at] == '[') {
         char* end = 0;
@@ -159,6 +160,40 @@ void runSensorHistoryUnitTests() {
     }
     removeHistoryFiles(numericPath);
 
+    const std::string unitsPath = historyPath();
+    {
+        SensorHistory history(unitsPath);
+        struct UnitCase { unsigned char input, output; const char* unit; const char* stored; };
+        const UnitCase cases[] = {
+            { 1, 1, "celsius", "celsius" }, { 2, 2, "percent", "percent" },
+            { 4, 4, "watts", "watts" }, { 6, 6, "percent", "percent" },
+            { 7, 7, "ppm", "ppm" }, { 8, 8, "ug/m3", "ug/m3" },
+            { 7, 12, "ug/m3", "ug/m3" }, { 7, 13, "particles/m3", "particles/m3" },
+            { 7, 14, "Bq/m3", "Bq/m3" }, { 7, 15, "dB/m", "dB/m" },
+            { 8, 16, "ppm", "ppm" }, { 8, 17, "particles/m3", "particles/m3" },
+            { 8, 18, "Bq/m3", "Bq/m3" }, { 8, 19, "dB/m", "dB/m" }
+        };
+        for (unsigned int i = 0; i < sizeof(cases) / sizeof(cases[0]); ++i) {
+            assert(history.appendValue(matterId, cases[i].input, "2.5", cases[i].unit, 1708000000L));
+            assert(history.readForDevice(matterId, 0, &json, &error));
+            std::ostringstream expected;
+            expected << ',' << static_cast<unsigned int>(cases[i].output) << ",2.5,\"" << cases[i].stored << "\"]";
+            assert(json.find(expected.str()) != std::string::npos);
+        }
+        const char* qualities[] = { "good", "fair", "moderate", "poor", "very_poor", "extremely_poor" };
+        for (unsigned int i = 0; i < sizeof(qualities) / sizeof(qualities[0]); ++i) {
+            assert(history.appendValue(matterId, SensorHistory::AirQuality, qualities[i], "", 1708000000L + i));
+            assert(history.readForDevice(matterId, 0, &json, &error));
+            assert(json.find(std::string(",9,\"") + qualities[i] + "\",\"\"]") != std::string::npos);
+        }
+        assert(history.appendValue(matterId, SensorHistory::Temperature, "-2.5", "celsius", 2147483647L));
+        assert(history.readForDevice(matterId, 0, &json, &error));
+        const std::vector<SensorHistory::ValueRecord> samples = samplesIn(json);
+        assert(samples.back().timestamp == 2147483647UL);
+        assert((samples.back().cursor >> 18) == 2147483647UL);
+    }
+    removeHistoryFiles(unitsPath);
+
     // Daily reports retain full timestamps and fill one page over many months.
     const std::string dailyPath = historyPath();
     {
@@ -234,14 +269,17 @@ void runSensorHistoryUnitTests() {
     }
     {
         SensorHistory tied(tiedPath);
+        assert(tied.appendValue(zigbeeId, SensorHistory::Temperature, "20", "celsius", 1707999940L));
         assert(tied.readForDevice(zigbeeId, 0, &json, &error, 0, 1708000000UL));
         assert(samplesIn(json).size() == 2000);
         const uint64_t cursor = nextBefore(json);
         assert(tied.readForDevice(zigbeeId, cursor, &json, &error, 0, 1708000000UL));
-        assert(samplesIn(json).size() == 100 && nextBefore(json) == 0);
+        assert(samplesIn(json).size() == 101 && nextBefore(json) == 0);
         assert(tied.readForDevice(zigbeeId, 0, &json, &error, 0, 1708000001UL));
         const std::vector<SensorHistory::ValueRecord> prior = samplesIn(json);
-        assert(prior.size() == 1 && nextBefore(json) == 0);
+        assert(prior.size() == 2 && nextBefore(json) == 0);
+        assert(tied.readForDevice(zigbeeId, prior.back().cursor, &json, &error, 0, 1708000001UL));
+        assert(samplesIn(json).size() == 1 && samplesIn(json)[0].cursor == prior[0].cursor);
         assert(tied.readForDevice(zigbeeId, prior[0].cursor, &json, &error, 0, 1708000001UL));
         assert(samplesIn(json).empty());
     }
