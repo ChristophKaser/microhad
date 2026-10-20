@@ -6,10 +6,10 @@ as the Lidl/Silvercrest SGWZ 1 A1 Zigbee gateway (HG06339). Features include:
 - A local web dashboard
 - Device control
 - Sensor history
-- Notifications
+- Browser Push and FCM Notifications
 - An [Android companion app](docs/companion-app.md) for Matter setup and push alerts
 - Zigbee and Matter-over-Thread support
-- HTTP integrations with Shelly and Fritz!Box devices
+- HTTP integrations for external devices: Shelly Gen 1 and Fritz!Box (as presence sensor)
 
 Control lights and scenes, view temperature and humidity history, and receive
 alerts when a window stays open. See [usage](docs/native-usage.md).
@@ -37,18 +37,17 @@ recovery and developer guides. Configure your development machine with the
 for available features and compatibility limits.
 
 The tested hardware is the Silvercrest SGWZ 1 A1 (HG06339) with an RTL8196E CPU,
-EFR32MG1B232 radio and factory Linux. Other embedded devices are not yet
-validated. First installation requires opening the case, a 3.3 V USB-to-UART
-adapter, root access, Ethernet and a Linux computer. Binary releases do not
-require an application compiler on that computer. Ziggurat requires
-replacement radio firmware.
+EFR32MG1B232 radio and factory Linux. Other embedded devices might work, but are not tested. 
+First installation requires opening the case, a 3.3 V USB-to-UART
+adapter, root access, Ethernet and a Linux computer. Using Ziggurat and Matter requires
+changing the radio firmware.
 
 1. Check your hardware and follow the [installation guide](docs/installation.md)
    to obtain root access and make backups. For an existing Zigbee network, use
    the [migration guide](docs/ziggurat-deployment-plan.md).
 2. Choose your setup and use a [binary release and its SSH installer](docs/binary-releases.md),
    or [build from source](docs/building.md). Binary bundles support MicroHAD-only
-   with compatible stock EZSP firmware and the separately prepared Ziggurat/Matter stack.
+   with compatible stock EZSP firmware or the separately prepared Ziggurat/Matter stack.
    Follow the installation guide for root access, backups and radio prerequisites.
 3. Open `http://<gateway-ip>/`, pair a device, and check its readings or controls.
 
@@ -59,8 +58,8 @@ Components:
 | [MicroHAD](microhad/README.md) | C++03 daemon, Web UI and REST API; owns the common device model, controls, history, alerts and integrations with external HTTP devices. |
 | [Ziggurat](ziggurat/README.md) (optional) | Rust Zigbee stack and Spinel multiplexer; connects MicroHAD and Thread to the shared radio and is the sole owner of the radio UART. |
 | [mthread-matter](micro-thread-matter-daemon/README.md) (optional) | Rust Matter controller using rs-matter and userspace OpenThread; owns commissioning, fabrics, sessions, subscriptions and Thread state. |
-| [Firmware](firmware/README.md) (optional) | Rebuildable two-instance HDLC radio firmware, packaging and radio maintenance tools. |
-| [paired_start.sh](microhad/paired_start.sh) (optional) | Starts, monitors and recovers MicroHAD, Ziggurat and mthread-matter as separate processes. The default configuration enables both optional services with `ZIGGURAT=1 MATTER=1`. |
+| [Firmware](firmware/README.md) (optional, needed for Ziggurat and mthread-matter) | Rebuildable two-instance HDLC radio firmware, packaging and radio maintenance tools. |
+| [paired_start.sh](microhad/paired_start.sh) | Starts, monitors and recovers MicroHAD, Ziggurat and mthread-matter as separate processes. The default configuration enables both optional services with `ZIGGURAT=1 MATTER=1`. |
 
 ## Processes and protocol paths
 
@@ -70,9 +69,9 @@ dotted supervisor link represents process management.
 ```mermaid
 flowchart TB
     browser["Dashboard browser"]
-    httpDevices["Shelly / Fritz!Box devices"]
+    httpDevices["External http devices"]
 
-    subgraph gateway["Silvercrest gateway · factory MIPS Linux"]
+    subgraph gateway["Gateway · factory MIPS Linux"]
         supervisor["paired_start.sh<br/>Supervisor"]
         subgraph services["Three supervised services"]
             native["MicroHAD · C++03<br/>Web UI / REST API<br/>Common device model"]
@@ -112,11 +111,11 @@ flowchart TB
 | MicroHAD ↔ Matter service | `/tmp/microhad-matter.sock` | Length-prefixed CBOR IPC v2 |
 | OpenThread ↔ Ziggurat | `/tmp/ziggurat/thread.sock` | HDLC-encoded Spinel; client IID 0 is mapped to radio IID 2 |
 
-Zigbee and Thread share the radio through Ziggurat. OpenThread runs inside
+Zigbee and Thread share the radio through a patched Ziggurat. OpenThread runs inside
 `mthread-matter` and provides IPv6/UDP without requiring Linux IPv6 or TUN.
 
 The companion Android app uses the phone’s Bluetooth connection to commission
-Matter devices onto the gateway’s Thread network.
+Matter devices onto the gateway’s Thread network. Alternatively, Matter devices can be commissioned from the Web UI  using Chrome on Android.
 
 ```mermaid
 sequenceDiagram
