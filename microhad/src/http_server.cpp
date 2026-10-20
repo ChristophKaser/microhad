@@ -1062,17 +1062,36 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
         std::string address = valid ? decodeComponent(target.substr(0, suffix)) : "";
         std::string query = valid ? target.substr(suffix + 8) : "";
         uint64_t before = 0;
-        valid = valid && (query.empty() || query.find("?before=") == 0);
-        if (valid && !query.empty()) {
-            const std::string number = query.substr(8);
+        uint32_t since = 0;
+        bool sawBefore = false, sawSince = false;
+        valid = valid && (query.empty() || query[0] == '?');
+        std::string::size_type at = 1;
+        if (query == "?") valid = false;
+        while (valid && at < query.size()) {
+            const std::string::size_type amp = query.find('&', at);
+            const std::string field = query.substr(at, amp == std::string::npos ? amp : amp - at);
+            const std::string::size_type equal = field.find('=');
+            const std::string key = field.substr(0, equal);
+            const std::string number = equal == std::string::npos ? "" : field.substr(equal + 1);
+            valid = !number.empty() && number.find_first_not_of("0123456789") == std::string::npos;
             char* parseEnd = 0;
             errno = 0;
-            before = strtoull(number.c_str(), &parseEnd, 10);
-            valid = !number.empty() && errno == 0 && *parseEnd == 0 && before > 0 && before < (static_cast<uint64_t>(1) << 50);
+            const uint64_t value = valid ? strtoull(number.c_str(), &parseEnd, 10) : 0;
+            valid = valid && errno == 0 && *parseEnd == 0;
+            if (key == "before") {
+                valid = valid && !sawBefore && value > 0 && value < (static_cast<uint64_t>(1) << 50);
+                before = value; sawBefore = true;
+            } else if (key == "since") {
+                valid = valid && !sawSince && value <= 0xffffffffUL;
+                since = static_cast<uint32_t>(value); sawSince = true;
+            } else valid = false;
+            if (amp == std::string::npos) break;
+            at = amp + 1;
+            if (at == query.size()) valid = false;
         }
         std::string json;
         std::string error;
-        if (!valid || !gateway_->readHistoryJson(address, before, &json, &error))
+        if (!valid || !gateway_->readHistoryJson(address, before, &json, &error, since))
             writeResponse(clientFd, valid && error != "invalid device address" ? 500 : 400, "application/json",
                           "{\"ok\":false,\"error\":\"" + jsonEscape(valid ? error : "invalid history request") + "\"}");
         else writeResponse(clientFd, 200, "application/json", json);

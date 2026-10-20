@@ -545,6 +545,13 @@ void testServers() {
     expectStatus("http accept derived history cursor", plainRequest(http.boundPort(), "GET /api/devices/0x00124b0000000042/history?before=1125899906842623 HTTP/1.1\r\nHost: localhost\r\n\r\n"), 200);
     expectStatus("http reject oversized history cursor", plainRequest(http.boundPort(), "GET /api/devices/0x00124b0000000042/history?before=1125899906842624 HTTP/1.1\r\nHost: localhost\r\n\r\n"), 400);
     expectStatus("http reject invalid history cursor", plainRequest(http.boundPort(), "GET /api/devices/0x00124b0000000042/history?before=bad HTTP/1.1\r\nHost: localhost\r\n\r\n"), 400);
+    expectStatus("http ranged history", plainRequest(http.boundPort(), "GET /api/devices/0x00124b0000000042/history?since=1700000001 HTTP/1.1\r\nHost: localhost\r\n\r\n"), 200);
+    const char* historyQueries[] = { "since=1&before=1125899906842623", "before=1125899906842623&since=1", "since=0", "since=4294967295" };
+    for (unsigned int i = 0; i < sizeof(historyQueries) / sizeof(historyQueries[0]); ++i)
+        expectStatus("http range query", plainRequest(http.boundPort(), std::string("GET /api/devices/0x00124b0000000042/history?") + historyQueries[i] + " HTTP/1.1\r\nHost: localhost\r\n\r\n"), 200);
+    const char* invalidHistoryQueries[] = { "since=4294967296", "since=-1", "since=", "since=x", "since=1&since=2", "since=1&before=0", "before=1&before=2", "since=1&unknown=2", "since=1&", "", "since=18446744073709551616" };
+    for (unsigned int i = 0; i < sizeof(invalidHistoryQueries) / sizeof(invalidHistoryQueries[0]); ++i)
+        expectStatus("http reject malformed history range", plainRequest(http.boundPort(), std::string("GET /api/devices/0x00124b0000000042/history?") + invalidHistoryQueries[i] + " HTTP/1.1\r\nHost: localhost\r\n\r\n"), 400);
     expectStatus("http reject invalid history address", plainRequest(http.boundPort(), "GET /api/devices/wrong/history HTTP/1.1\r\nHost: localhost\r\n\r\n"), 400);
     response = plainRequest(http.boundPort(), "GET /api/scenes/config HTTP/1.1\r\nHost: localhost\r\n\r\n");
     expectStatus("http missing scene config", response, 200);

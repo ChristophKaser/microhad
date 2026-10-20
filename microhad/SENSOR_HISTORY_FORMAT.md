@@ -111,6 +111,25 @@ and return at most 2,000 samples. Generation checks and CRCs validate the copied
 pages independently of these cursors. Cursors identify retained samples; a
 reused physical slot at the same timestamp can reuse its cursor.
 
+`GET /api/devices/<id>/history` accepts optional `since` (an inclusive Unix
+timestamp in seconds, 0 through 4294967295) and `before` (an exclusive cursor).
+Parameter order does not matter. Omit `since`, or set it to zero, for the
+existing unbounded read. Invalid, duplicate, and unknown parameters return 400.
+
+A range read includes records at or after `since`, plus the latest retained
+record before `since` for each metric across the requested endpoint IDs. Those
+predecessors retain their original timestamps; the UI carries their values to
+the chart's left edge. Predecessors are selected independently of `before`,
+then filtered by it, so pagination cannot return successively older baseline
+values. The 2,000-sample limit and `next_before` apply to this eligible set.
+Catalog bounds skip older pages once they cannot improve a predecessor.
+
+The history dialog and dashboard request only their selected day/week range,
+publish each page as it arrives, and cap client retention at 10,000 samples.
+“All retained” omits `since`. Changing device/range or closing a dialog aborts
+outstanding requests. Dashboard refreshes run 30 seconds after the preceding
+load finishes, merge the newest page by cursor, and do not overlap.
+
 ## Excluded readings
 
 Actuator on/off states and brightness are not recorded. Metric codes 10 and 11

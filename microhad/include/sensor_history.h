@@ -37,12 +37,13 @@ public:
                      const std::string& unit, long timestamp);
     bool readForDevice(const std::string& deviceId, uint64_t before,
                        std::string* json, std::string* error,
-                       ReadStats* stats = 0) const;
+                       ReadStats* stats = 0, uint32_t since = 0) const;
+    /* since includes one latest predecessor per metric for chart continuity. */
     /* Combines records from multiple physical IDs into one cursor-ordered view.
        Matter uses one ID per endpoint while presenting a single node card. */
     bool readForDevices(const std::vector<std::string>& deviceIds, uint64_t before,
                         std::string* json, std::string* error,
-                        ReadStats* stats = 0) const;
+                        ReadStats* stats = 0, uint32_t since = 0) const;
     static bool readJson(const std::string& path, const std::string& deviceId,
                          uint64_t before, std::string* json, std::string* error,
                          ReadStats* stats = 0);
@@ -97,7 +98,7 @@ private:
     bool appendValueLocked(const std::string& deviceId, unsigned char metric, const std::string& value,
                            const std::string& unit, long timestamp);
     bool readValuesJson(const std::vector<std::string>& deviceIds, uint64_t before,
-                        std::string* json, std::string* error, ReadStats* stats) const;
+                        std::string* json, std::string* error, ReadStats* stats, uint32_t since) const;
 };
 
 #endif

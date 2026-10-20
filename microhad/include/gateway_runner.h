@@ -49,7 +49,7 @@ public:
     std::string logsJson() const;
 #endif
     bool readHistoryJson(const std::string& address, uint64_t before,
-                         std::string* json, std::string* error) const;
+                         std::string* json, std::string* error, uint32_t since = 0) const;
     bool registerShelly(const std::string& id, const std::string& name, const std::string& oldName,
                         const std::string& model, const std::vector<int>& inputIndices,
                         const std::vector<int>& temperatureIndices, const std::vector<int>& relayIndices,

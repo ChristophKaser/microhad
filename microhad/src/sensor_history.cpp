@@ -90,6 +90,16 @@ bool olderRecord(const SensorHistory::ValueRecord& a, const SensorHistory::Value
 bool newerRecord(const SensorHistory::ValueRecord& a, const SensorHistory::ValueRecord& b) {
     return a.cursor > b.cursor;
 }
+void selectRecord(std::vector<SensorHistory::ValueRecord>* selected, const SensorHistory::ValueRecord& sample) {
+    if (selected->size() < apiPageLimit + 1) {
+        selected->push_back(sample);
+        std::push_heap(selected->begin(), selected->end(), newerRecord);
+    } else if (sample.cursor > selected->front().cursor) {
+        std::pop_heap(selected->begin(), selected->end(), newerRecord);
+        selected->back() = sample;
+        std::push_heap(selected->begin(), selected->end(), newerRecord);
+    }
+}
 struct PageOrder {
     const std::vector<SensorHistory::Page>* pages;
     explicit PageOrder(const std::vector<SensorHistory::Page>* p) : pages(p) {}
@@ -639,7 +649,7 @@ bool SensorHistory::appendValueLocked(const std::string& deviceId, unsigned char
 }
 
 bool SensorHistory::readValuesJson(const std::vector<std::string>& deviceIds, uint64_t before,
-                                   std::string* json, std::string* error, ReadStats* stats) const {
+                                   std::string* json, std::string* error, ReadStats* stats, uint32_t since) const {
     if (deviceIds.empty()) { if (error) *error = "invalid device ID"; return false; }
     for (unsigned long idIndex = 0; idIndex < deviceIds.size(); ++idIndex)
         if (!plainText(deviceIds[idIndex], 64, false)) { if (error) *error = "invalid device ID"; return false; }
@@ -654,7 +664,10 @@ bool SensorHistory::readValuesJson(const std::vector<std::string>& deviceIds, ui
             for (unsigned long i = 0; i < pair->second.size(); ++i) {
                 const unsigned int index = pair->second[i];
                 const Page& page = values_.pages[index];
-                if (before == 0 || page.oldest < before) pages.push_back(ReadPage(index, page));
+                // Predecessors must be found independently of the pagination cursor,
+                // otherwise each older page could return another predecessor.
+                if (before == 0 || page.oldest < before || (since && (page.oldest >> 18) < since))
+                    pages.push_back(ReadPage(index, page));
             }
         }
     }
@@ -673,9 +686,12 @@ bool SensorHistory::readValuesJson(const std::vector<std::string>& deviceIds, ui
     }
     if (stats) stats->bytesRead += fileHeaderBytes;
     std::vector<ValueRecord> selected;
+    ValueRecord predecessors[maximumMetric + 1];
     for (unsigned long p = 0; p < pages.size(); ++p) {
         const ReadPage& snapshot = pages[p];
         if (selected.size() == apiPageLimit + 1 && snapshot.page.newest <= selected.front().cursor) break;
+        if (since && (snapshot.page.newest >> 18) < since &&
+            predecessors[snapshot.page.metric].cursor >= snapshot.page.newest) continue;
         unsigned char pageData[pageBytes];
         off_t base = fileHeaderBytes + static_cast<off_t>(snapshot.index) * pageBytes;
         if (stats) { ++stats->pagesRead; stats->bytesRead += pageBytes; }
@@ -692,23 +708,25 @@ bool SensorHistory::readValuesJson(const std::vector<std::string>& deviceIds, ui
             const unsigned char* rec = pageData + pageHeaderBytes + i * recordBytes;
             const uint32_t timestamp = get32(rec);
             const uint64_t cursor = recordCursor(timestamp, snapshot.index, i);
-            if (cursor < snapshot.page.oldest || cursor > snapshot.page.newest || (before != 0 && cursor >= before)) continue;
+            if (cursor < snapshot.page.oldest || cursor > snapshot.page.newest) continue;
+            if ((since == 0 || timestamp >= since) && before != 0 && cursor >= before) continue;
             if (stats) ++stats->recordsChecked;
             if (rec[8] != recordCrc(pageData, rec)) continue;
             const float value = decodeFloat(rec + 4);
             if (timestamp == 0 || !std::isfinite(value) || (metric == AirQuality && qualityText(value).empty())) continue;
             const ValueRecord sample(cursor, timestamp, metric, value);
-            if (selected.size() < apiPageLimit + 1) {
-                selected.push_back(sample);
-                std::push_heap(selected.begin(), selected.end(), newerRecord);
-            } else if (cursor > selected.front().cursor) {
-                std::pop_heap(selected.begin(), selected.end(), newerRecord);
-                selected.back() = sample;
-                std::push_heap(selected.begin(), selected.end(), newerRecord);
-            }
+            if (since && timestamp < since) {
+                if (cursor > predecessors[metric].cursor) predecessors[metric] = sample;
+            } else selectRecord(&selected, sample);
         }
     }
     close(fd);
+    if (since) {
+        for (unsigned int metric = 1; metric <= maximumMetric; ++metric) {
+            const ValueRecord& prior = predecessors[metric];
+            if (prior.cursor && (before == 0 || prior.cursor < before)) selectRecord(&selected, prior);
+        }
+    }
     const bool more = selected.size() > apiPageLimit;
     if (more) {
         std::pop_heap(selected.begin(), selected.end(), newerRecord);
@@ -742,12 +760,12 @@ bool SensorHistory::readValuesJson(const std::vector<std::string>& deviceIds, ui
 }
 
 bool SensorHistory::readForDevice(const std::string& address, uint64_t before,
-                                  std::string* json, std::string* error, ReadStats* stats) const {
-    return readForDevices(std::vector<std::string>(1, address), before, json, error, stats);
+                                  std::string* json, std::string* error, ReadStats* stats, uint32_t since) const {
+    return readForDevices(std::vector<std::string>(1, address), before, json, error, stats, since);
 }
 
 bool SensorHistory::readForDevices(const std::vector<std::string>& deviceIds, uint64_t before,
-                                   std::string* json, std::string* error, ReadStats* stats) const {
+                                   std::string* json, std::string* error, ReadStats* stats, uint32_t since) const {
     std::vector<std::string> normalized;
     for (unsigned long index = 0; index < deviceIds.size(); ++index) {
         const std::string& address = deviceIds[index];
@@ -760,7 +778,7 @@ bool SensorHistory::readForDevices(const std::vector<std::string>& deviceIds, ui
             normalized.push_back("zigbee:" + address);
         } else normalized.push_back(address);
     }
-    return readValuesJson(normalized, before, json, error, stats);
+    return readValuesJson(normalized, before, json, error, stats, since);
 }
 bool SensorHistory::readJson(const std::string& path, const std::string& address, uint64_t before,
                              std::string* json, std::string* error, ReadStats* stats) {

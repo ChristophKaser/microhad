@@ -1,6 +1,7 @@
 #include "sensor_history.h"
 
 #include <cassert>
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
@@ -38,6 +39,24 @@ uint64_t nextBefore(const std::string& json) {
     assert(at != std::string::npos);
     return strtoull(json.c_str() + at + marker.size(), 0, 10);
 }
+std::vector<SensorHistory::ValueRecord> samplesIn(const std::string& json) {
+    std::vector<SensorHistory::ValueRecord> samples;
+    const std::string marker = "\"samples\":[";
+    std::string::size_type at = json.find(marker) + marker.size();
+    while (at < json.size() && json[at] == '[') {
+        char* end = 0;
+        const uint64_t cursor = strtoull(json.c_str() + at + 1, &end, 10);
+        assert(*end == ',');
+        const unsigned long timestamp = strtoul(end + 1, &end, 10);
+        assert(*end == ',');
+        const unsigned char metric = static_cast<unsigned char>(strtoul(end + 1, &end, 10));
+        samples.push_back(SensorHistory::ValueRecord(cursor, timestamp, metric));
+        at = json.find(']', at) + 1;
+        if (json[at] == ',') ++at;
+    }
+    return samples;
+}
+
 }
 
 void runSensorHistoryUnitTests() {
@@ -157,6 +176,48 @@ void runSensorHistoryUnitTests() {
     }
     removeHistoryFiles(dailyPath);
 
+    // Range reads retain exactly one predecessor per metric across endpoint IDs.
+    const std::string rangePath = historyPath();
+    {
+        SensorHistory history(rangePath);
+        const long base = 1708000000L;
+        for (unsigned int i = 0; i < 700; ++i)
+            assert(history.appendValue(matterId, SensorHistory::Temperature, i % 2 ? "21" : "22", "celsius", base + i * 60));
+        assert(history.appendValue(secondMatterId, SensorHistory::Temperature, "23", "celsius", base + 41399));
+        assert(history.appendValue(matterId, SensorHistory::Humidity, "40", "percent", base + 10));
+        assert(history.appendValue(matterId, SensorHistory::Humidity, "41", "percent", base + 40000));
+        assert(history.appendValue(matterId, SensorHistory::Humidity, "42", "percent", base + 42000));
+        assert(history.appendValue(secondMatterId, SensorHistory::Contact, "1", "", base + 1));
+        assert(history.appendValue(matterId, SensorHistory::CarbonDioxide, "1", "ppm", base + 2));
+        assert(history.appendValue(matterId, SensorHistory::CarbonDioxide, "2", "ug/m3", base + 3));
+        std::vector<std::string> ids; ids.push_back(matterId); ids.push_back(secondMatterId);
+        SensorHistory::ReadStats allStats, rangeStats;
+        assert(history.readForDevices(ids, 0, &json, &error, &allStats));
+        const std::vector<SensorHistory::ValueRecord> all = samplesIn(json);
+        const uint32_t since = base + 41400;
+        assert(history.readForDevices(ids, 0, &json, &error, &rangeStats, since));
+        const std::vector<SensorHistory::ValueRecord> window = samplesIn(json);
+        std::vector<uint64_t> expected;
+        std::map<unsigned char, uint64_t> prior;
+        for (unsigned int i = 0; i < all.size(); ++i) {
+            if (all[i].timestamp >= since) expected.push_back(all[i].cursor);
+            else prior[all[i].metric] = all[i].cursor;
+        }
+        for (std::map<unsigned char, uint64_t>::const_iterator it = prior.begin(); it != prior.end(); ++it)
+            expected.push_back(it->second);
+        std::sort(expected.begin(), expected.end());
+        assert(window.size() == expected.size() && window.size() == 16);
+        for (unsigned int i = 0; i < window.size(); ++i) assert(window[i].cursor == expected[i]);
+        assert(nextBefore(json) == 0 && rangeStats.pagesRead < allStats.pagesRead);
+        assert(history.readForDevices(ids, window.front().cursor, &json, &error, 0, since));
+        assert(samplesIn(json).empty() && nextBefore(json) == 0);
+        assert(history.readForDevices(ids, 0, &json, &error, 0, base + 50000));
+        assert(samplesIn(json).size() == prior.size());
+        assert(history.readForDevice("zigbee:0x00124b000000ffff", 0, &json, &error, 0, since));
+        assert(samplesIn(json).empty());
+    }
+    removeHistoryFiles(rangePath);
+
     // Same-second transitions have distinct derived cursors across pagination.
     const std::string tiedPath = historyPath();
     {
@@ -170,6 +231,19 @@ void runSensorHistoryUnitTests() {
         unsigned int count = 0;
         for (std::string::size_type i = 0; i < json.size(); ++i) if (json[i] == '[') ++count;
         assert(count == 101 && nextBefore(json) == 0);
+    }
+    {
+        SensorHistory tied(tiedPath);
+        assert(tied.readForDevice(zigbeeId, 0, &json, &error, 0, 1708000000UL));
+        assert(samplesIn(json).size() == 2000);
+        const uint64_t cursor = nextBefore(json);
+        assert(tied.readForDevice(zigbeeId, cursor, &json, &error, 0, 1708000000UL));
+        assert(samplesIn(json).size() == 100 && nextBefore(json) == 0);
+        assert(tied.readForDevice(zigbeeId, 0, &json, &error, 0, 1708000001UL));
+        const std::vector<SensorHistory::ValueRecord> prior = samplesIn(json);
+        assert(prior.size() == 1 && nextBefore(json) == 0);
+        assert(tied.readForDevice(zigbeeId, prior[0].cursor, &json, &error, 0, 1708000001UL));
+        assert(samplesIn(json).empty());
     }
     removeHistoryFiles(tiedPath);
 
