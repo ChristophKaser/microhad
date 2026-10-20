@@ -41,8 +41,6 @@ def main():
     sources = json.loads((HERE / 'sources.json').read_text())
     for name, metadata in sources.items():
         archive = DOWNLOADS / name
-        if not archive.exists() and release_source.enabled():
-            raise SystemExit('Missing offline toolchain source: ' + name)
         if not archive.exists():
             temporary = archive.with_suffix(archive.suffix + '.part')
             run(['curl', '-fL', '--retry', '2', '--connect-timeout', '20',

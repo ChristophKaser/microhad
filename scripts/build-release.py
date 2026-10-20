@@ -137,31 +137,6 @@ def rust_setup(root, env, expected=None):
     return toolchain, version, sysroot
 
 
-def rust_source_sysroot(root, compiler_sysroot, env):
-    """Build std from bundled source, while using a separately installed compiler."""
-    destination = root / '.release/rust-sysroot'
-    destination.mkdir(exist_ok=True)
-    (destination / 'lib').mkdir(exist_ok=True)
-    for path in (compiler_sysroot / 'lib').iterdir():
-        if path.name != 'rustlib':
-            target = destination / 'lib' / path.name
-            if not target.exists(): target.symlink_to(path)
-    rustlib = destination / 'lib/rustlib'
-    rustlib.mkdir(exist_ok=True)
-    for path in (compiler_sysroot / 'lib/rustlib').iterdir():
-        if path.name != 'src':
-            target = rustlib / path.name
-            if not target.exists(): target.symlink_to(path, target_is_directory=path.is_dir())
-    (rustlib / 'src').mkdir(exist_ok=True)
-    source = rustlib / 'src/rust'
-    if not source.exists(): source.symlink_to(root / '.release/rust-src', target_is_directory=True)
-    wrapper = root / '.release/rustc-wrapper.sh'
-    wrapper.write_text('#!/bin/sh\nexec ' + shlex.quote(str(compiler_sysroot / 'bin/rustc')) +
-                       ' --sysroot ' + shlex.quote(str(destination)) + ' "$@"\n')
-    wrapper.chmod(0o755)
-    env['RUSTC'] = str(wrapper)
-
-
 def cargo_patches(root):
     args = []
     for name, version in [('getrandom', '0.4.3'), ('nix', '0.26.4'), ('radium', '0.7.0')]:
@@ -180,75 +155,160 @@ def toolchain_evidence(prefix):
     return result
 
 
+def git_sources(source, destination, root, records, url, revision=None):
+    """Export a pinned Git tree and record recipes for its submodules."""
+    from fetch import tree_digest
+    revision = revision or git('rev-parse', 'HEAD', cwd=source)
+    export_git(source, destination, recursive=False, revision=revision)
+    links = []
+    for row in git('ls-tree', '-r', revision, cwd=source).splitlines():
+        if row.startswith('160000 '):
+            fields, name = row.split('\t', 1)
+            links.append((name, fields.split()[2]))
+    records.append({'kind': 'git', 'destination': destination.relative_to(root).as_posix(),
+                    'url': url, 'revision': revision, 'exclude': [name for name, _ in links],
+                    'sha256': tree_digest(destination, [name for name, _ in links])})
+    if links:
+        modules = git('config', '-f', str(source / '.gitmodules'), '--get-regexp', r'^submodule\..*\.path$', cwd=source)
+        names = {line.split(' ', 1)[1]: line.split(' ', 1)[0][:-5] for line in modules.splitlines()}
+        for name, oid in links:
+            child_url = git('config', '-f', str(source / '.gitmodules'), '--get', names[name] + '.url', cwd=source)
+            git_sources(source / name, destination / name, root, records, child_url, oid)
+
+
+def required_crates(root, env, toolchain):
+    """Audit the target runtime graph, excluding build dependencies/proc macros."""
+    from fetch import download
+    import re
+    permissive = {'MIT', 'Apache-2.0', 'BSD-2-Clause', 'BSD-3-Clause', 'ISC', 'Zlib',
+                  'Unicode-3.0', 'Unlicense', '0BSD', 'BlueOak-1.0.0'}
+    required = {}
+    for manifest, package, features in [('worktrees/ziggurat-multipan/Cargo.toml', 'ziggurat-server', []),
+            ('micro-thread-matter-daemon/Cargo.toml', 'micro-thread-matter-daemon', ['--features', 'controller-service'])]:
+        tree = run(['cargo', '+' + toolchain, 'tree', '--locked', '--manifest-path', manifest,
+                    '-p', package, '--target', str(ROOT / 'targets/lexra-crosstool-ng-uclibc.json'),
+                    '-Zjson-target-spec', '-e', 'normal,no-proc-macro', '--prefix', 'none',
+                    '--format', '{p}|{l}', *features], env=env, capture=True)
+        lock = tomllib.loads((ROOT / Path(manifest).with_name('Cargo.lock')).read_text())
+        packages = {(p['name'], p['version']): p for p in lock['package']}
+        for row in tree.splitlines():
+            identity, license_name = row.split('|', 1)
+            license_name = license_name.removesuffix(' (*)')
+            # These alternatives have a reviewed permissive licensing option.
+            choices = re.split(r'\s+OR\s+|\s*/\s*', license_name)
+            if any(choice in permissive for choice in choices) or license_name == '(MIT OR Apache-2.0) AND Unicode-3.0':
+                continue
+            if license_name != 'MPL-2.0':
+                raise ValueError('Unreviewed runtime source license: ' + row)
+            name, version = identity.split()[:2]
+            version = version.removeprefix('v')
+            p = packages[(name, version)]
+            if p.get('source') != 'registry+https://github.com/rust-lang/crates.io-index':
+                raise ValueError('Unreviewed MPL source: ' + row)
+            target = root / '.release/required-sources' / (name + '-' + version + '.crate')
+            cache = Path(env['CARGO_HOME']) / 'registry/cache'
+            candidates = list(cache.glob('*/' + target.name))
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if candidates:
+                shutil.copy2(candidates[0], target)
+                if sha(target) != p['checksum']: raise ValueError('Required crate checksum mismatch')
+            else:
+                download('https://static.crates.io/crates/' + name + '/' + target.name, target, p['checksum'])
+            required[name + '-' + version] = {'license': license_name, 'path': target.relative_to(root).as_posix(),
+                                             'sha256': p['checksum']}
+    return required
+
+
 def collect(root, args, env, toolchain, sysroot):
-    # Generated Rust workspaces and registry patches are validated by their existing helpers.
+    from fetch import tree_digest
     run(['bash', 'ziggurat/scripts/build.sh', '--prepare-only'], env=env)
     run(['bash', 'micro-thread-matter-daemon/scripts/fetch-rs-matter.sh'], env=env)
     run(['python3', 'micro-thread-matter-daemon/scripts/prepare-openthread.py'], env=env)
     for manifest in ('micro-thread-matter-daemon/Cargo.toml', 'worktrees/ziggurat-multipan/Cargo.toml'):
-        run(['cargo', '+' + toolchain, 'fetch', '--manifest-path', manifest], env=env)
+        run(['cargo', '+' + toolchain, 'fetch', '--locked', '--manifest-path', manifest], env=env)
     run(['python3', 'scripts/prepare-crate-patches.py', 'getrandom-0.4.3', 'nix-0.26.4', 'radium-0.7.0'], env=env)
     export_git(ROOT, root, recursive=False, filter_root=True, revision=args.revision)
+    (root / '.release/patches').mkdir(parents=True)
+    (root / '.release/lockfiles').mkdir()
+    sources = []
+    modules = git('config', '-f', str(ROOT / '.gitmodules'), '--get-regexp', r'^submodule\..*\.path$')
+    module_names = {line.split(' ', 1)[1]: line.split(' ', 1)[0][:-5] for line in modules.splitlines()}
     for name in DEPENDENCIES:
-        export_git(ROOT / name, root / name)
+        url = git('config', '-f', str(ROOT / '.gitmodules'), '--get', module_names[name] + '.url')
+        git_sources(ROOT / name, root / name, root, sources, url)
+    bases = dict(zip(PREPARED[:3], [DEPENDENCIES[4], DEPENDENCIES[2], DEPENDENCIES[3]]))
+    packages = {}
+    for lock in ('micro-thread-matter-daemon/Cargo.lock', 'worktrees/ziggurat-multipan/Cargo.lock'):
+        for p in tomllib.loads((ROOT / lock).read_text())['package']:
+            packages[(p['name'], p['version'])] = p
     for name in PREPARED:
-        export_git(ROOT / name, root / name)
-        # Cargo.lock is intentionally ignored by the mailbox comparison; include the effective lock.
+        destination = root / name
+        export_git(ROOT / name, destination)
+        slug = name.replace('/', '-')
+        patch_path = '.release/patches/' + slug + '.patch'
+        base = git('rev-parse', 'refs/tags/mailbox-base', cwd=ROOT / name)
+        with (root / patch_path).open('wb') as stream:
+            subprocess.run(['git', '-C', str(ROOT / name), 'diff', '--binary', base, 'HEAD'], stdout=stream, check=True)
+        record = {'destination': name, 'patch': patch_path, 'overlays': {}}
+        if name in bases:
+            record.update(kind='patched', base=bases[name])
+        else:
+            crate_name, version = Path(name).name.rsplit('-', 1)
+            package = packages[(crate_name, version)]
+            record.update(kind='crate', name=crate_name, version=version, archive_sha256=package['checksum'],
+                          url='https://static.crates.io/crates/' + crate_name + '/' + crate_name + '-' + version + '.crate')
         if (ROOT / name / 'Cargo.lock').is_file():
-            shutil.copy2(ROOT / name / 'Cargo.lock', root / name / 'Cargo.lock')
+            overlay = '.release/lockfiles/' + slug + '.lock'
+            shutil.copy2(ROOT / name / 'Cargo.lock', root / overlay)
+            shutil.copy2(root / overlay, destination / 'Cargo.lock')
+            record['overlays']['Cargo.lock'] = overlay
+        record['sha256'] = tree_digest(destination)
+        sources.append(record)
+    required = required_crates(root, env, toolchain)
     patch_root = 'firmware/dependencies/rtl8196e-gateway'
     for relative in ('LICENSE', '1-Build-Environment/10-lexra-toolchain/patches/binutils/2.45.1/600-Lexra.patch',
                      '1-Build-Environment/10-lexra-toolchain/patches/gcc/15.2.0/970-Lexra.patch'):
         target = root / patch_root / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(ROOT / patch_root / relative, target)
-    for filename, record in json.loads((ROOT / 'config/crosstool-ng/sources.json').read_text()).items():
-        source = ROOT / 'build/toolchain-proof/downloads' / filename
-        if sha(source) != record['sha256']:
-            raise ValueError('Toolchain archive checksum mismatch: ' + filename)
-        target = root / 'build/toolchain-proof/downloads' / filename
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source, target)
-    shutil.copytree(sysroot / 'lib/rustlib/src/rust', root / '.release/rust-src')
+    # uClibc is linked into our executables; its matching sources remain bundled.
+    name = 'uClibc-ng-1.0.54.tar.xz'
+    record = json.loads((ROOT / 'config/crosstool-ng/sources.json').read_text())[name]
+    source = ROOT / 'build/toolchain-proof/downloads' / name
+    if sha(source) != record['sha256']: raise ValueError('uClibc source checksum mismatch')
+    target = root / 'build/toolchain-proof/downloads' / name
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, target)
     rust_licenses = root / '.release/runtime-licenses/rust'
     rust_licenses.mkdir(parents=True)
-    for p in (sysroot / 'share/doc/rust').glob('COPYRIGHT-library.html'):
-        shutil.copy2(p, rust_licenses / p.name)
+    shutil.copy2(sysroot / 'share/doc/rust/COPYRIGHT-library.html', rust_licenses)
     shutil.copytree(ROOT / 'tools/lexra-proof/share/licenses/uClibc-ng', root / '.release/runtime-licenses/uClibc-ng')
     shutil.copy2(ROOT / 'tools/lexra-proof/share/licenses/linux/COPYING', root / '.release/runtime-licenses/Linux-COPYING')
     (root / '.release/toolchain.config').write_text((ROOT / 'build/toolchain-proof/.config').read_text().replace(str(ROOT), '@ROOT@'))
     shutil.copy2(ROOT / 'tools/lexra-proof/mips-lexra-linux-uclibc/sysroot/usr/include/bits/uClibc_config.h', root / '.release/libc-config.h')
-    gcc = ROOT / 'tools/lexra-proof/share/licenses/gcc'
     for filename in ('COPYING3', 'COPYING.RUNTIME'):
-        shutil.copy2(gcc / filename, root / '.release/runtime-licenses' / filename)
-    vendor_env = dict(env, npm_config_cache=str(root / '.release/npm-cache'))
-    vendor = run(['cargo', '+' + toolchain, 'vendor', '--versioned-dirs',
-                  '--manifest-path', 'micro-thread-matter-daemon/Cargo.toml',
-                  '--sync', 'worktrees/ziggurat-multipan/Cargo.toml',
-                  '--sync', '.release/rust-src/library/Cargo.toml', *cargo_patches(root), '.release/cargo-vendor'],
-                 cwd=root, env=vendor_env, capture=True)
-    # Cargo emits an absolute directory when given an absolute path; keep archive relocation safe.
-    vendor = vendor.replace(str(root / '.release/cargo-vendor'), '.release/cargo-vendor')
+        shutil.copy2(ROOT / 'tools/lexra-proof/share/licenses/gcc' / filename, root / '.release/runtime-licenses' / filename)
+    (root / '.release/fetch-manifest.json').write_text(json.dumps({'schema': 1, 'sources': sources,
+        'required_sources': required}, indent=2, sort_keys=True) + '\n')
+    # Global patch paths keep registry replacements pinned without vendoring.
     (root / '.cargo').mkdir(exist_ok=True)
-    patches = '\n[patch.crates-io]\n' + '\n'.join(
+    (root / '.cargo/config.toml').write_text('[patch.crates-io]\n' + '\n'.join(
         name + ' = { path = "build/patched-crates-mailbox/' + name + '-' + version + '" }'
-        for name, version in [('getrandom', '0.4.3'), ('nix', '0.26.4'), ('radium', '0.7.0')]) + '\n'
-    (root / '.cargo/config.toml').write_text(vendor + patches)
-    # Cargo records globally configured but unused patches in lockfiles. Allow
-    # that bookkeeping only; a changed dependency graph needs a notice review.
+        for name, version in [('getrandom', '0.4.3'), ('nix', '0.26.4'), ('radium', '0.7.0')]) + '\n')
+    # Cargo records unused global patches in the root lockfile. Keep the exact
+    # release lock without changing its resolved dependency graph.
+    run(['cargo', '+' + toolchain, 'metadata', '--format-version', '1',
+         '--manifest-path', 'micro-thread-matter-daemon/Cargo.toml'], cwd=root, env=env, capture=True)
     original_lock = ROOT / 'micro-thread-matter-daemon/Cargo.lock'
     effective_lock = root / 'micro-thread-matter-daemon/Cargo.lock'
     if tomllib.loads(original_lock.read_text())['package'] != tomllib.loads(effective_lock.read_text())['package']:
-        raise ValueError('Vendoring changed the Matter dependency graph; review notices before releasing')
-    (root / '.release/original-lockfiles').mkdir()
-    shutil.copy2(original_lock, root / '.release/original-lockfiles/matter.Cargo.lock')
+        raise ValueError('Source packaging changed the Matter dependency graph')
     notice = root / 'third-party/gateway-inputs.json'
     snapshot = json.loads(notice.read_text())
     snapshot['inputs']['micro-thread-matter-daemon/Cargo.lock'] = sha(effective_lock)
     notice.write_text(json.dumps(snapshot, indent=2, sort_keys=True) + '\n')
-    run(['npm', 'ci', '--ignore-scripts', '--no-audit'], cwd=root / 'microhad/webui', env=vendor_env)
-    shutil.rmtree(root / 'microhad/webui/node_modules')
-    if (root / '.release/npm-cache/_logs').exists(): shutil.rmtree(root / '.release/npm-cache/_logs')
+    for name in DEPENDENCIES + PREPARED:
+        shutil.rmtree(root / name)
 
 
 def build(root, env, version, jobs):
@@ -338,8 +398,11 @@ def main():
     parser.add_argument('--jobs', type=int, default=min(os.cpu_count() or 2, 8))
     parser.add_argument('--cargo-home', type=Path, default=Path(os.environ.get('CARGO_HOME', ROOT / 'tools/cargo')))
     parser.add_argument('--rustup-home', type=Path, default=Path(os.environ.get('RUSTUP_HOME', ROOT / 'tools/rustup')))
-    parser.add_argument('--rebuild', action='store_true', help='rebuild an extracted source package offline')
+    parser.add_argument('--toolchain-root', type=Path, help='reuse a separately installed Lexra compiler when rebuilding sources')
+    parser.add_argument('--rebuild', action='store_true', help='fetch pinned dependencies and rebuild an extracted source package')
     args = parser.parse_args()
+    if args.toolchain_root and not args.rebuild:
+        parser.error('--toolchain-root is only supported with --rebuild')
     if args.jobs < 1 or platform.system() != 'Linux' or platform.machine() != 'x86_64':
         parser.error('Requires a Linux x86_64 host and positive --jobs')
     if args.rebuild:
@@ -361,11 +424,18 @@ def main():
     if staging.exists(): raise ValueError('Incomplete staging exists; inspect it before retrying: ' + str(staging))
     staging.mkdir()
     env = environment(ROOT, args.jobs, args.cargo_home.resolve(), args.rustup_home.resolve(), epoch)
+    if args.toolchain_root:
+        env['CROSSTOOL_NG_ROOT'] = str(args.toolchain_root.resolve())
+    if args.rebuild:
+        run(['python3', 'scripts/release/fetch.py', '--cargo-home', str(args.cargo_home.resolve()),
+             '--rustup-home', str(args.rustup_home.resolve()),
+             *(['--without-toolchain'] if args.toolchain_root else [])], env=env)
     toolchain, rust_version, sysroot = rust_setup(ROOT, env, metadata['rust_version'] if args.rebuild else None)
     if args.rebuild:
         root = ROOT
-        env.update(MICROHAD_SOURCE_BUNDLE='1', CARGO_NET_OFFLINE='true', npm_config_offline='true')
-        run(['python3', 'scripts/build-toolchain.py'], env=env)
+        env.update(MICROHAD_SOURCE_BUNDLE='1')
+        if not args.toolchain_root:
+            run(['python3', 'scripts/build-toolchain.py'], env=env)
     else:
         run(['python3', 'scripts/licensing/notices.py', 'check'], env=env)
         run(['python3', 'scripts/build-toolchain.py'], env=env)
@@ -386,12 +456,16 @@ def main():
         # Reuse only the validated compiler, not application outputs or dependency caches.
         env = environment(root, args.jobs, args.cargo_home.resolve(), args.rustup_home.resolve(), epoch)
         env.update(CROSSTOOL_NG_ROOT=str(ROOT / 'tools/lexra-proof'), MICROHAD_SOURCE_BUNDLE='1',
-                   CARGO_NET_OFFLINE='true', npm_config_offline='true')
+                   )
         # Archive source inputs before builds create output/cache files.
         archive(root, staging / (root.name + '.tar.xz'), epoch)
+        from fetch import fetch
+        fetch(root, env, toolchain, toolchain_archives=False)
     compiler_prefix = Path(env.get('CROSSTOOL_NG_ROOT', root / 'tools/lexra-proof'))
+    if args.toolchain_root and toolchain_evidence(compiler_prefix)['compiler_version'] != metadata['compiler_version']:
+        raise ValueError('Preinstalled compiler version does not match the release')
     metadata.update(toolchain_evidence(compiler_prefix))
-    rust_source_sysroot(root, sysroot, env)
+    # The separately installed pinned Rust toolchain supplies rust-src.
     build(root, env, metadata['revision'][:12], args.jobs)
     destination = staging / ('microhad-' + version + '-lexra-static')
     binaries(root, destination, metadata)

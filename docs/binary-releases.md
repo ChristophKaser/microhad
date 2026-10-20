@@ -146,24 +146,35 @@ helpers and Web UI. Output appears under `build/releases/VERSION/`; unfinished
 workspaces retain the `.incomplete` suffix. Existing output is never overwritten.
 The builder does not install, deploy, publish, or access a gateway.
 
-The matching source archive includes pinned dependencies, patched source trees,
-Cargo/npm sources, Rust standard-library sources, compiler/libc source archives,
-configurations, licenses and a checksummed source manifest. It excludes radio
-firmware, proprietary SDK bundles, Git history, local settings, device data and
-the repository-only localhost TLS test fixtures. Those fixtures are not needed
-to build or relink the release executables.
+The matching source archive includes project sources, local dependency patches,
+lockfiles, build configurations, licenses, notices and a checksummed source
+manifest. Matching uClibc-ng sources and required MPL runtime crate sources are
+included under `build/toolchain-proof/downloads/` and `.release/required-sources/`.
+They remain available alongside the binary release without depending on upstream
+source servers.
+
+Other dependencies are fetched when rebuilding: Git sources use exact commits
+and verified source-tree hashes; registry crates and npm packages use their
+lockfiles; compiler tools use versioned URLs and SHA-256 checksums. The source
+archive contains `.release/fetch-manifest.json` with the upstream URLs, commits,
+patch recipes and expected tree hashes. It omits dependency snapshots, Cargo/npm
+caches, Rust standard-library sources, compiler-building archives other than
+uClibc-ng, radio firmware, proprietary SDK bundles, Git history, local settings,
+device data and the repository-only localhost TLS test fixtures.
+
 The original application sources remain MIT; upstream libraries retain their
 licenses, including LGPL 2.1 for uClibc-ng and GCC runtime exceptions.
 
 Install the Linux host prerequisites described in `config/TOOLCHAINS.md`
 (GCC/G++, Make, CMake, Ninja, autoconf/automake, flex, bison, gperf, makeinfo,
 rsync, patch, Python 3.11+, Node/npm, LLVM 18 tools and development libraries).
-Install the **exact** Rust nightly from `config/toolchains.mk`, with `rust-src`,
-before disconnecting networking. The compiler version is checked against the
-release manifest. The source archive supplies the standard-library source used
-by the rebuild; a separately installed compiler supplies the compiler executable.
-No preinstalled MIPS compiler is required; the bundled compiler/libc sources are
-built locally (allow at least 12 GiB free space).
+Install `rustup` before rebuilding; the fetch script installs the **exact** Rust
+nightly and its `rust-src` component from `config/toolchains.mk` if missing. The
+compiler version is checked against the release manifest. Git and network access
+to GitHub, crates.io, npm, Rust distribution servers and the pinned toolchain
+source URLs are required. No preinstalled MIPS compiler is required: the default
+rebuild downloads the compiler-building archives and builds the Lexra compiler
+locally (allow at least 12 GiB free space).
 
 ```sh
 tar -xJf microhad-VERSION-source.tar.xz
@@ -172,10 +183,30 @@ cd microhad-VERSION-source
   --output /private/rebuilt-VERSION --jobs 4
 ```
 
-Rebuilding is offline and validates source hashes before compiling. To exercise
-your LGPL right to modify uClibc-ng, edit the bundled library source archive or
-configuration, update the corresponding source checksum and source-manifest
-entry, and rebuild the toolchain/applications. Reapply any required Lexra patches.
-This deliberately creates a modified build, not an unchanged official release.
-Keep original library copyright/license notices and identify your modifications.
-The build does not impose byte-for-byte equality with published executable files.
+`rebuild.sh` fetches and verifies omitted dependencies before compiling. You can
+fetch them separately first:
+
+```sh
+python3 scripts/release/fetch.py --cargo-home "$HOME/.cargo" --rustup-home "$HOME/.rustup"
+```
+
+To reuse an already installed matching Lexra compiler, pass
+`--toolchain-root /path/to/lexra-proof` to `rebuild.sh`; this skips compiler-source
+downloads and compiler bootstrapping. For a separate fetch with that compiler,
+add `--without-toolchain`. The compiler version must match the release, and all
+resulting executables still undergo target/static-link checks.
+
+Fetches refuse checksum or tree mismatches and preserve edited source trees.
+To intentionally modify a fetched dependency, update its SHA-256 tree digest in
+`.release/fetch-manifest.json` using `tree_digest` from `scripts/release/fetch.py`,
+then update that manifest's entry in `.release/source-manifest.json`. Bundled
+source/configuration changes require updating their source-manifest entries.
+
+To exercise your LGPL right to modify uClibc-ng, edit the bundled library source
+archive or configuration, update the corresponding source checksum and
+source-manifest entry, and rebuild the toolchain/applications. The archive's
+checksum is recorded in `config/crosstool-ng/sources.json`; update that file's
+source-manifest entry too. Reapply any required Lexra patches. This creates a
+modified build. Keep original library copyright/license notices and identify
+your modifications. The build does not impose byte-for-byte equality with
+published executable files.

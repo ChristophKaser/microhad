@@ -18,6 +18,7 @@ sys.path.insert(0, str(ROOT / 'scripts/release'))
 sys.path.insert(0, str(ROOT / 'scripts'))
 import common
 import install
+import fetch
 import release_source
 spec = importlib.util.spec_from_file_location('release_builder', ROOT / 'scripts/build-release.py')
 builder = importlib.util.module_from_spec(spec)
@@ -31,6 +32,79 @@ def options(**overrides):
 
 
 class Packages(unittest.TestCase):
+    def test_download_rejects_bad_cache_and_bad_server_content(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / 'source.tar'
+            target.write_bytes(b'corrupt')
+            with self.assertRaisesRegex(ValueError, 'checksum'):
+                fetch.download('https://example.test/source.tar', target, '0' * 64)
+            target.unlink()
+            with patch.object(fetch.urllib.request, 'urlopen', return_value=io.BytesIO(b'corrupt')):
+                with self.assertRaisesRegex(ValueError, 'checksum'):
+                    fetch.download('https://example.test/source.tar', target, '0' * 64)
+            self.assertFalse(target.exists())
+            self.assertFalse(target.with_suffix('.tar.part').exists())
+
+    def test_fetch_archive_preserves_safe_links_and_rejects_escape(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / 'source.tar'
+            with tarfile.open(source, 'w') as archive:
+                file = tarfile.TarInfo('upstream/file')
+                file.size = 4
+                archive.addfile(file, io.BytesIO(b'data'))
+                link = tarfile.TarInfo('upstream/link')
+                link.type, link.linkname = tarfile.SYMTYPE, 'file/'
+                archive.addfile(link)
+            output = root / 'out'
+            output.mkdir()
+            fetch.extract(source, output, strip_root=True)
+            self.assertEqual(os.readlink(output / 'link'), 'file/')
+            with tarfile.open(source, 'w') as archive:
+                archive.addfile(tarfile.TarInfo('../escape'))
+            with self.assertRaises(tarfile.FilterError):
+                fetch.extract(source, output)
+            self.assertFalse((root / 'escape').exists())
+
+    def test_patched_fetch_is_verified_atomic_and_does_not_rewrite_edits(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'base').mkdir()
+            (root / 'base/file').write_text('before\n')
+            (root / 'expected').mkdir()
+            (root / 'expected/file').write_text('after\n')
+            (root / 'change.patch').write_text('diff --git a/file b/file\n--- a/file\n+++ b/file\n@@ -1 +1 @@\n-before\n+after\n')
+            record = dict(kind='patched', destination='prepared', base='base', patch='change.patch',
+                          sha256=fetch.tree_digest(root / 'expected'))
+            fetch.fetch_tree(root, record)
+            self.assertEqual((root / 'prepared/file').read_text(), 'after\n')
+            self.assertFalse((root / 'prepared/.git').exists())
+            fetch.fetch_tree(root, record)
+            (root / 'prepared/file').write_text('local edit\n')
+            with self.assertRaisesRegex(ValueError, 'mismatch'):
+                fetch.fetch_tree(root, record)
+            self.assertEqual((root / 'prepared/file').read_text(), 'local edit\n')
+            record['destination'] = 'failed'
+            record['sha256'] = '0' * 64
+            with self.assertRaisesRegex(ValueError, 'mismatch'):
+                fetch.fetch_tree(root, record)
+            self.assertFalse((root / 'failed').exists())
+
+    def test_source_bundle_verifies_pinned_fetched_trees(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / '.release').mkdir()
+            (root / 'upstream').mkdir()
+            (root / 'upstream/file').write_text('fetched source')
+            (root / '.release/source-manifest.json').write_text('{"files": {}}')
+            (root / '.release/fetch-manifest.json').write_text(json.dumps({'sources': [
+                {'destination': 'upstream', 'sha256': fetch.tree_digest(root / 'upstream')}]}))
+            with patch.object(release_source, 'ROOT', root):
+                release_source.verify('upstream')
+                (root / 'upstream/file').write_text('corrupt')
+                with self.assertRaisesRegex(ValueError, 'mismatch'):
+                    release_source.verify('upstream')
+
     def test_release_environment_disables_private_workspace_settings(self):
         env = dict(os.environ, WORKSPACE_CONFIG='/dev/null', TOOLCHAIN='crosstool-ng', LINK_MODE='static')
         value = subprocess.check_output(['sh', str(ROOT / 'scripts/workspace-env.sh'), '--get', 'TOOLCHAIN'], env=env, text=True)

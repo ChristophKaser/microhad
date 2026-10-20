@@ -36,6 +36,15 @@ def verify(prefix=None):
             raise ValueError('Source executable mode mismatch: ' + name)
         matched += 1
     if not matched:
+        fetch_manifest = ROOT / '.release/fetch-manifest.json'
+        if prefix and fetch_manifest.is_file():
+            import sys
+            sys.path.insert(0, str(ROOT / 'scripts/release'))
+            from fetch import verify_tree
+            for record in json.loads(fetch_manifest.read_text())['sources']:
+                if record['destination'] == prefix.rstrip('/'):
+                    verify_tree(ROOT / record['destination'], record)
+                    return manifest
         raise ValueError('Source package has no verified files for: ' + str(prefix))
     return manifest
 
