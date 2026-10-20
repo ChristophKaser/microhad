@@ -11,8 +11,6 @@
 #include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
-#include <iomanip>
-#include <sstream>
 #include <stdint.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -73,13 +71,18 @@ bool plainText(const std::string& s, unsigned long maximum, bool allowEmpty) {
 std::string pairKey(const std::string& id, unsigned char metric) {
     std::string result = id; result += '\0'; result += static_cast<char>(metric); return result;
 }
-std::string jsonString(const std::string& value) {
-    std::string result = "\"";
-    for (unsigned long i = 0; i < value.size(); ++i) {
-        if (value[i] == '"' || value[i] == '\\') result += '\\';
-        result += value[i];
+// Split large cursors into decimal chunks: C++03 printf has no portable 64-bit
+// modifier, and repeated 64-bit division is expensive on the gateway.
+void appendUnsigned(std::string* out, uint64_t value) {
+    char text[16];
+    if (value < 1000000000UL) {
+        snprintf(text, sizeof(text), "%lu", static_cast<unsigned long>(value));
+    } else {
+        const uint64_t high = value / 1000000000UL;
+        appendUnsigned(out, high);
+        snprintf(text, sizeof(text), "%09lu", static_cast<unsigned long>(value - high * 1000000000UL));
     }
-    result += '"'; return result;
+    *out += text;
 }
 bool olderRecord(const SensorHistory::ValueRecord& a, const SensorHistory::ValueRecord& b) {
     return a.cursor < b.cursor;
@@ -176,7 +179,9 @@ float decodeFloat(const unsigned char* b) {
     uint32_t bits = get32(b); float value = 0; memcpy(&value, &bits, sizeof(value)); return value;
 }
 std::string numberText(float value) {
-    std::ostringstream out; out << std::setprecision(9) << value; return out.str();
+    char text[32];
+    snprintf(text, sizeof(text), "%.9g", static_cast<double>(value));
+    return text;
 }
 std::string qualityText(float value) {
     static const char* const qualities[] = {"good", "fair", "moderate", "poor", "very_poor", "extremely_poor"};
@@ -710,16 +715,30 @@ bool SensorHistory::readValuesJson(const std::vector<std::string>& deviceIds, ui
         selected.pop_back();
     }
     std::sort(selected.begin(), selected.end(), olderRecord);
-    std::ostringstream out; out << "{\"samples\":[";
+    std::string out;
+    out.reserve(selected.size() * 64 + 64);
+    out = "{\"samples\":[";
+    char text[96];
     for (unsigned long i = 0; i < selected.size(); ++i) {
         const ValueRecord& sample = selected[i];
-        if (i != 0) out << ',';
-        out << '[' << sample.cursor << ',' << sample.timestamp << ',' << static_cast<unsigned int>(sample.metric) << ',';
-        if (sample.metric == AirQuality) out << jsonString(qualityText(sample.value)); else out << numberText(sample.value);
-        out << ',' << jsonString(unitForMetric(sample.metric)) << ']';
+        if (i != 0) out += ',';
+        out += '[';
+        appendUnsigned(&out, sample.cursor);
+        snprintf(text, sizeof(text), ",%lu,%u,", sample.timestamp, static_cast<unsigned int>(sample.metric));
+        out += text;
+        if (sample.metric == AirQuality) {
+            out += '"'; out += qualityText(sample.value); out += '"';
+        } else {
+            snprintf(text, sizeof(text), "%.9g", static_cast<double>(sample.value));
+            out += text;
+        }
+        // Units come from the fixed metric table and contain no JSON escapes.
+        out += ",\""; out += unitForMetric(sample.metric); out += "\"]";
     }
-    out << "],\"next_before\":" << (more && !selected.empty() ? selected.front().cursor : 0) << '}';
-    *json = out.str(); return true;
+    out += "],\"next_before\":";
+    appendUnsigned(&out, more && !selected.empty() ? selected.front().cursor : 0);
+    out += '}';
+    json->swap(out); return true;
 }
 
 bool SensorHistory::readForDevice(const std::string& address, uint64_t before,

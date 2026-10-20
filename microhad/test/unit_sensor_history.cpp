@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <string>
 #include <sstream>
+#include <iomanip>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -117,6 +118,27 @@ void runSensorHistoryUnitTests() {
         assert(json.find(",7,0.75849998,\"ppm\"]") != std::string::npos);
     }
     removeHistoryFiles(path);
+
+    // The wire representation preserves nine significant digits of stored floats.
+    const std::string numericPath = historyPath();
+    {
+        SensorHistory history(numericPath);
+        const char* numbers[] = { "0", "0.00000000123456789", "0.123456789", "123456789", "3.4028234e38" };
+        for (unsigned int i = 0; i < sizeof(numbers) / sizeof(numbers[0]); ++i) {
+            const long timestamp = 1708000000L + i * 60;
+            assert(history.appendValue(matterId, SensorHistory::CarbonDioxide, numbers[i], "ppm", timestamp));
+            std::ostringstream expected;
+            expected << std::setprecision(9) << static_cast<float>(strtod(numbers[i], 0));
+            assert(history.readForDevice(matterId, 0, &json, &error));
+            assert(json.find(",7," + expected.str() + ",\"ppm\"]") != std::string::npos);
+        }
+        assert(history.appendValue(zigbeeId, SensorHistory::Temperature, "-0.000123456789", "celsius", 1708000000L));
+        assert(history.readForDevice(zigbeeId, 0, &json, &error));
+        std::ostringstream expected;
+        expected << std::setprecision(9) << static_cast<float>(-0.000123456789);
+        assert(json.find(",1," + expected.str() + ",\"celsius\"]") != std::string::npos);
+    }
+    removeHistoryFiles(numericPath);
 
     // Daily reports retain full timestamps and fill one page over many months.
     const std::string dailyPath = historyPath();
