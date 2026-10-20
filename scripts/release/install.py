@@ -43,7 +43,7 @@ class Installer:
             raise ValueError('Unsupported gateway or missing prepared launcher/UART')
         if 'deleted' in lines[4:]:
             raise ValueError('Gateway has a running deleted executable; restart its owner before installing')
-        names = ('microhad-ezsp', 'rng-seed') if self.args.mode == 'microhad-only' else ('microhad', 'mthread-matter', 'ziggurat', 'gateway-maintenance', 'rng-seed')
+        names = ('microhad-ezsp',) if self.args.mode == 'microhad-only' else ('microhad', 'mthread-matter', 'ziggurat', 'gateway-maintenance')
         candidates = [ROOT / 'bin' / name for name in names if (ROOT / 'bin' / name).is_file()]
         candidates += [p for p in (ROOT / 'webui').rglob('*') if p.is_file()]
         largest = max((p.stat().st_size for p in candidates), default=0)
@@ -108,7 +108,7 @@ class Installer:
                    '--password-file', str(self.args.password_file), '--target', TARGET,
                    '--binary', str(ROOT / 'bin/microhad'), '--ziggurat', str(ROOT / 'bin/ziggurat'),
                    '--matter-service', str(ROOT / 'bin/mthread-matter'), '--maintenance-helper', str(ROOT / 'bin/gateway-maintenance'),
-                   '--rng-seed-helper', str(ROOT / 'bin/rng-seed'), '--webui-dir', str(ROOT / 'webui')]
+                   '--webui-dir', str(ROOT / 'webui')]
         if self.args.rollback_dir:
             command += ['--rollback-dir', str(self.args.rollback_dir)]
         subprocess.run(command, env=self.env, check=True)
@@ -127,7 +127,6 @@ class Installer:
                 "if [ -d /proc/$pid ]; then alive=1; fi; done; [ -z \"$alive\" ] && exit 0; sleep 1; n=$((n+1)); done; exit 1")
         self.check_radio_free()
         self.upload(ROOT / 'bin/microhad-ezsp', TARGET + '/microhad')
-        self.upload(ROOT / 'bin/rng-seed', TARGET + '/rng-seed')
         for path in sorted((ROOT / 'webui').rglob('*'), key=lambda p: (p.name == 'index.html', str(p))):
             if path.is_file():
                 self.upload(path, TARGET + '/webui/' + path.relative_to(ROOT / 'webui').as_posix(), '644')
@@ -146,7 +145,7 @@ class Installer:
         # Paired updates delegate the existing, broader backup to deploy.sh.
         if self.args.mode == 'paired':
             return
-        for name, remote in [('microhad', TARGET + '/microhad'), ('rng-seed', TARGET + '/rng-seed'), ('gateway_start.sh', '/tuya/tuya_start.sh')]:
+        for name, remote in [('microhad', TARGET + '/microhad'), ('gateway_start.sh', '/tuya/tuya_start.sh')]:
             data = subprocess.check_output(self.ssh + ['if [ -f ' + remote + ' ]; then cat ' + remote + '; fi'], env=self.env)
             if data:
                 path = directory / name

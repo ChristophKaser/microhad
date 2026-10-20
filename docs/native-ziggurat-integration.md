@@ -144,4 +144,19 @@ reports/controls and preserved identity through restart.
 | Protocol mismatch | Both sides use the pinned patched protocol-v2 implementation |
 | Identity/counter mismatch | Inspect privately; never overwrite with another coordinator's state |
 | State write failure | Permissions and flash headroom; best-effort freeze alone does not prove rollback safety |
-| Cold-start wait | RNG readiness and optional seed helper; preserve entropy checks |
+| Cold-start RNG | Startup uses `/dev/urandom`; fresh keys require kernel RNG readiness |
+
+Ziggurat reads `/dev/urandom` directly for startup APS sequence numbers,
+address allocation and timing jitter. Fresh trust-center link keys use a
+separate OS read after a nonblocking `/dev/random` readiness poll. If entropy
+is unavailable, the key request is rejected without changing stored or pending
+keys; the device must retry. Keys derived from an inherited TCLK seed do not
+need fresh randomness. MicroHAD applies the same readiness gate before creating
+new network keys and trust-center secrets, returning a retryable error without
+blocking its coordinator. Restoring a network does not regenerate keys.
+
+The paired launcher no longer restores or saves a persistent RNG seed, and
+releases no longer include `rng-seed`. Updates leave any previously installed
+helper and seed files untouched; they are unused by the new launcher. Security
+frame-counter persistence is unchanged. This policy is specific to Zigbee;
+the Matter service retains its own randomness handling.

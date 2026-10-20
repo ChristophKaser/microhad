@@ -42,6 +42,7 @@ mailboxes+=(ziggurat/patches/ziggurat-end-device-relay.patch)
 if [ "$ZIGGURAT_MULTIPAN" = 1 ]; then
     mailboxes+=(ziggurat/patches/ziggurat-radio-trace.patch ziggurat/patches/ziggurat-thread-tcp.patch)
 fi
+mailboxes+=(ziggurat/patches/ziggurat-key-rng-readiness.patch)
 mailbox_paths=()
 for mailbox in "${mailboxes[@]}"; do mailbox_paths+=("$experiment_root/$mailbox"); done
 if [[ ${MICROHAD_SOURCE_BUNDLE:-0} == 1 ]]; then
@@ -57,8 +58,15 @@ python3 scripts/toolchain-build.py "$experiment_root/$build_output/$TARGET_SPEC_
 bash scripts/make-llvm-target.sh
 export CARGO_TARGET_DIR="$experiment_root/${build_output}"
 export CARGO_NET_GIT_FETCH_WITH_CLI=true
-cargo +$RUST_TOOLCHAIN fetch --manifest-path ${build_worktree}/Cargo.toml
 python3 scripts/prepare-crate-patches.py getrandom-0.4.3 nix-0.26.4 radium-0.7.0
+crate_patches=(
+    --config "patch.crates-io.getrandom.path=\"$experiment_root/build/patched-crates-mailbox/getrandom-0.4.3\""
+    --config "patch.crates-io.nix.path=\"$experiment_root/build/patched-crates-mailbox/nix-0.26.4\""
+    --config "patch.crates-io.radium.path=\"$experiment_root/build/patched-crates-mailbox/radium-0.7.0\""
+)
+# Resolve the generated worktree lock with the same patches as the locked build.
+# Host tests otherwise switch these packages back to registry sources.
+cargo +$RUST_TOOLCHAIN fetch --manifest-path ${build_worktree}/Cargo.toml "${crate_patches[@]}"
 export RUSTFLAGS='-C target-feature=+crt-static -C relocation-model=static'
 if [[ "$LINK_MODE" == dynamic ]]; then
     RUSTFLAGS="${RUSTFLAGS/+crt-static/-crt-static} -L native=$STOCK_ROOTFS/link"
@@ -67,9 +75,7 @@ cargo +$RUST_TOOLCHAIN build --locked --release \
     --manifest-path ${build_worktree}/Cargo.toml -p ziggurat-server \
     --target "targets/$TARGET_SPEC_NAME.json" \
     -Z json-target-spec -Z build-std=std,panic_abort \
-    --config "patch.crates-io.getrandom.path=\"$experiment_root/build/patched-crates-mailbox/getrandom-0.4.3\"" \
-    --config "patch.crates-io.nix.path=\"$experiment_root/build/patched-crates-mailbox/nix-0.26.4\"" \
-    --config "patch.crates-io.radium.path=\"$experiment_root/build/patched-crates-mailbox/radium-0.7.0\""
+    "${crate_patches[@]}"
 if [[ $ZIGGURAT_MULTIPAN == 1 ]]; then
     target_binary="$experiment_root/$build_output/$TARGET_SPEC_NAME/release/ziggurat"
     "$LLVM_STRIP" --keep-section=.gnu.attributes \

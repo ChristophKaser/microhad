@@ -364,6 +364,7 @@ private:
     void applyBroadcastQuorum();
     std::string gatewaySettingsJson() const;
     std::string networkRandomSource_;
+    std::string networkRandomReadinessSource_;
     std::string firebaseServiceAccount_;
     std::string firebaseTopic_;
     std::string caBundle_;

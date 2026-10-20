@@ -36,7 +36,6 @@ maintenance_deploy=false
 rollback_dir=""
 service_selection=""
 rollback_notice="No rollback artifacts were requested."
-rng_seed_helper=""
 flash_reserve_kib=${DEPLOY_FLASH_RESERVE_KIB:-512}
 
 usage() {
@@ -58,8 +57,6 @@ while [ "$#" -gt 0 ]; do
         --user) user=${2-}; shift 2 ;;
         --target) target=${2-}; shift 2 ;;
         --binary) binary=${2-}; binary_explicit=true; shift 2 ;;
-        --rng-seed-only) deploy_binary=false; deploy_webui=false; shift ;;
-        --rng-seed-helper) rng_seed_helper=${2-}; shift 2 ;;
         --matter-service) matter_service=${2-}; shift 2 ;;
         --ziggurat) ziggurat=${2-}; shift 2 ;;
         --maintenance-helper) maintenance_helper=${2-}; shift 2 ;;
@@ -81,7 +78,6 @@ while [ "$#" -gt 0 ]; do
 done
 
 if [ -n "$service_selection" ]; then
-    [ -z "$rng_seed_helper" ] || usage
     maintenance_deploy=true
     deploy_binary=false
     deploy_webui=false
@@ -123,7 +119,7 @@ fi
 [ "$maintenance_deploy" = true ] || { [ -z "$ziggurat" ] && [ -z "$maintenance_helper" ] || {
     echo "--ziggurat and --maintenance-helper require --maintenance-deploy" >&2; exit 2;
 }; }
-[ "$deploy_binary" = true ] || [ "$deploy_webui" = true ] || [ -n "$service_selection" ] || [ -n "$rng_seed_helper" ] || [ "$activate_paired_only" = true ] || usage
+[ "$deploy_binary" = true ] || [ "$deploy_webui" = true ] || [ -n "$service_selection" ] || [ "$activate_paired_only" = true ] || usage
 [ -z "$matter_service" ] || [ -n "$service_selection" ] || [ "$binary_explicit" = true ] || {
     echo "--matter-service requires --binary from a ZIGGURAT=1 MATTER=1 build" >&2; exit 2;
 }
@@ -143,9 +139,6 @@ fi
 }
 [ "$deploy_binary" = false ] || [ -x "$binary" ] || { echo "MIPS binary not found or not executable: $binary" >&2; exit 1; }
 [ "$deploy_webui" = false ] || { [ -f "$webui_dir/index.html" ] && [ -f "$webui_dir/sw.js" ]; } || { echo "Built Web UI not found; run make webui first" >&2; exit 1; }
-[ -z "$rng_seed_helper" ] || [ -x "$rng_seed_helper" ] || { echo "RNG seed helper missing or not executable: $rng_seed_helper" >&2; exit 1; }
-[ -z "$rng_seed_helper" ] || [ "$target" = /tuya/native ] || { echo "RNG seed helper deployment requires --target /tuya/native" >&2; exit 2; }
-[ -z "$rng_seed_helper" ] || [ "$maintenance_deploy" = true ] || [ "$deploy_binary" = false ] || { echo "Use --rng-seed-only to deploy the RNG helper without replacing application assets" >&2; exit 2; }
 [ -z "$config" ] || { [ "$deploy_binary" = true ] && [ -f "$config" ]; } || usage
 [ -z "$matter_service" ] || [ -n "$service_selection" ] || { { [ "$deploy_binary" = true ] || [ "$activate_paired_only" = true ]; } && [ -x "$matter_service" ]; } || usage
 [ "$maintenance_deploy" = false ] || [ -n "$service_selection" ] || { [ -x "$ziggurat" ] && [ -x "$maintenance_helper" ]; } || { echo "Ziggurat or gateway-maintenance artifact missing or not executable" >&2; exit 1; }
@@ -171,7 +164,7 @@ case "$target" in *[!A-Za-z0-9_./-]*) echo "target contains unsupported characte
 [ "$activate_paired" = false ] || [ "$restart" = false ] || { echo "--activate-paired cannot be combined with --restart" >&2; exit 2; }
 [ "$activate_paired" = false ] || [ "$target" = /tuya/native ] || { echo "--activate-paired requires --target /tuya/native" >&2; exit 2; }
 [ "$activate_paired" = false ] || [ -n "$matter_service" ] || { echo "--activate-paired requires --matter-service PATH" >&2; exit 2; }
-[ "$activate_paired_only" = false ] || { [ "$target" = /tuya/native ] && [ "$activate_paired" = false ] && [ "$activate" = false ] && [ "$restart" = false ] && [ -z "$config" ] && [ -n "$matter_service" ] && [ "$binary_explicit" = true ] && [ -z "$rng_seed_helper" ] && [ -z "$certificate" ] && [ -z "$private_key" ] && [ -z "$ca_bundle" ]; } || { echo "--activate-paired-only requires --target /tuya/native, --binary, and --matter-service; it cannot be combined with uploads or restart" >&2; exit 2; }
+[ "$activate_paired_only" = false ] || { [ "$target" = /tuya/native ] && [ "$activate_paired" = false ] && [ "$activate" = false ] && [ "$restart" = false ] && [ -z "$config" ] && [ -n "$matter_service" ] && [ "$binary_explicit" = true ] && [ -z "$certificate" ] && [ -z "$private_key" ] && [ -z "$ca_bundle" ]; } || { echo "--activate-paired-only requires --target /tuya/native, --binary, and --matter-service; it cannot be combined with uploads or restart" >&2; exit 2; }
 [ "$restart" = false ] || [ "$target" = /tuya/native ] || { echo "--restart requires --target /tuya/native" >&2; exit 2; }
 [ "$deploy_binary" = true ] || { [ -z "$config" ] && [ "$activate" = false ] && [ "$activate_paired" = false ] && [ "$restart" = false ]; } || { echo "--config, launcher activation, and --restart require binary deployment" >&2; exit 2; }
 
@@ -408,7 +401,7 @@ maintenance_deploy_run() {
 
         # Backup only application artifacts. Runtime configuration, Matter identity,
         # Zigbee state, TLS material and network backups are intentionally excluded.
-        for name in microhad microhad.matter-manifest thread-matter mthread-matter ziggurat gateway-maintenance rng-seed paired_start.sh paired_control.sh; do
+        for name in microhad microhad.matter-manifest thread-matter mthread-matter ziggurat gateway-maintenance paired_start.sh paired_control.sh; do
             remote="$target/$name"
             if ssh_command "test -f \"$remote\"" >/dev/null 2>&1; then
                 ssh_command "cat \"$remote\"" > "$rollback_dir/$name" || return 1
@@ -483,7 +476,6 @@ maintenance_deploy_run() {
     service_bytes=$(wc -c < "$matter_service"); helper_bytes=$(wc -c < "$maintenance_helper")
     manifest_bytes=$(wc -c < "$binary.matter-manifest")
     support_bytes=$(($(wc -c < "$project_dir/paired_start.sh") + $(wc -c < "$project_dir/scripts/paired_control.sh")))
-    [ -z "$rng_seed_helper" ] || support_bytes=$((support_bytes + $(wc -c < "$rng_seed_helper")))
     launcher_bytes=$(wc -c < "$project_dir/ziggurat_start.sh")
     launcher_backup_bytes=0
     [ -z "$rollback_dir" ] || launcher_backup_bytes=$(ssh_command "if [ -e /tuya/tuya_start.sh.lowjs-backup ]; then echo 0; elif [ -f /tuya/tuya_start.sh ]; then wc -c < /tuya/tuya_start.sh | awk '{print \$1}'; else echo 0; fi") || return 1
@@ -554,9 +546,6 @@ maintenance_deploy_run() {
         ! upload_atomic "$project_dir/scripts/paired_control.sh" "$target/paired_control.sh" 700; then
         echo "Deployment incomplete; services remain stopped. $rollback_notice" >&2
         return 1
-    fi
-    if [ -n "$rng_seed_helper" ]; then
-        upload_atomic "$rng_seed_helper" "$target/rng-seed" 700 || return 1
     fi
     find "$webui_dir" -type f ! -name index.html | while IFS= read -r asset; do
         relative=${asset#"$webui_dir"/}
@@ -760,14 +749,6 @@ if [ "$deploy_binary" = true ]; then
         ssh_command "dd of=\"$target/.config.json.new\"" < "$config"
         ssh_command "chmod 700 \"$target/.microhad.new\"; chmod 600 \"$target/.config.json.new\"; mv \"$target/.microhad.new\" \"$target/microhad\"; mv \"$target/.config.json.new\" \"$target/config.json\"; ls -l \"$target/microhad\" \"$target/config.json\""
     fi
-fi
-if [ -n "$rng_seed_helper" ]; then
-    printf 'Uploading RNG seed helper and startup supervisor to %s:%s\n' "$host" "$target"
-    ssh_command "mkdir -p \"$target\""
-    ssh_command "dd of=\"$target/.rng-seed.new\"" < "$rng_seed_helper"
-    ssh_command "dd of=\"$target/.paired_start.sh.new\"" < "$project_dir/paired_start.sh"
-    ssh_command "dd of=\"$target/.paired_control.sh.new\"" < "$project_dir/scripts/paired_control.sh"
-    ssh_command "chmod 700 \"$target/.rng-seed.new\" \"$target/.paired_start.sh.new\" \"$target/.paired_control.sh.new\"; mv \"$target/.rng-seed.new\" \"$target/rng-seed\"; mv \"$target/.paired_start.sh.new\" \"$target/paired_start.sh\"; mv \"$target/.paired_control.sh.new\" \"$target/paired_control.sh\"; ls -l \"$target/rng-seed\" \"$target/paired_start.sh\" \"$target/paired_control.sh\""
 fi
 if { [ -n "$matter_service" ] || [ "$deploy_supervisor" = true ]; } && [ "$activate_paired_only" = false ]; then
     # Stage the selected manifest and supervisor; the service is optional. No launcher activation,

@@ -60,6 +60,9 @@ public:
     static void setNetworkRandomSource(Gateway* gateway, const std::string& path) {
         gateway->networkRandomSource_ = path;
     }
+    static void setNetworkRandomReadinessSource(Gateway* gateway, const std::string& path) {
+        gateway->networkRandomReadinessSource_ = path;
+    }
     static bool networkForming(const Gateway& gateway) { return gateway.networkForming_; }
     static void expireNetworkFormation(Gateway* gateway) { gateway->networkFormationDeadline_ = time(0) - 1; }
     static bool prepareJoining(Gateway* gateway, unsigned int seconds, std::string* error) {

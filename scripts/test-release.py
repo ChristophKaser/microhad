@@ -332,7 +332,7 @@ class Installer(unittest.TestCase):
             instance.paired()
         command = run.call_args.args[0]
         self.assertIn('--maintenance-deploy', command)
-        self.assertIn('--rng-seed-helper', command)
+        self.assertNotIn('--rng-seed-helper', command)
         self.assertNotIn('--config', command)
         self.assertNotIn('--ziggurat-state', command)
         self.assertFalse(any('licenses/' in part for part in command))

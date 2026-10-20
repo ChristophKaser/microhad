@@ -12,9 +12,6 @@ zig_log=${ZIGGURAT_LOG:-/dev/null}
 zig_log_level=${ZIGGURAT_LOG_LEVEL:-info}
 zig_raw_frames=${ZIGGURAT_RAW_FRAMES:-off}
 radio_trace=${MATTER_RADIO_TRACE:-off}
-seed_helper=${RNG_SEED_HELPER:-/tuya/native/rng-seed}
-seed_file=${RNG_SEED_FILE:-/tuya/native/ziggurat-rng.seed}
-seed_log=${RNG_SEED_LOG:-/tmp/ziggurat-rng-seed.log}
 limit=${RESTART_LIMIT:-5}
 startup_limit=${STARTUP_LIMIT:-15}
 stop_limit=${STOP_LIMIT:-8}
@@ -36,7 +33,7 @@ case "$zig_raw_frames" in on|off) ;; *) echo 'Invalid ZIGGURAT_RAW_FRAMES' >&2;e
 case "$radio_trace" in on|off) ;; *) echo 'Invalid MATTER_RADIO_TRACE' >&2;exit 2;; esac
 case "$matter_log_level" in off|error|warn|info|debug|trace) ;; *) echo 'Invalid MATTER_LOG_LEVEL' >&2;exit 2;; esac
 case "$matter_raw_frames" in on|off) ;; *) echo 'Invalid MATTER_RAW_FRAMES' >&2;exit 2;; esac
-for path in "$ZIGGURAT_BIN" "$NATIVE_BIN" "$NATIVE_CONFIG" "$MAINTENANCE_BIN" "$control" "$socket_path" "$device" "$zig_log" "$seed_helper" "$seed_file" "$seed_log"; do
+for path in "$ZIGGURAT_BIN" "$NATIVE_BIN" "$NATIVE_CONFIG" "$MAINTENANCE_BIN" "$control" "$socket_path" "$device" "$zig_log"; do
     case "$path" in /*) ;; *) echo 'Absolute paths required' >&2;exit 2;; esac
 done
 if [ -n "$matter_bin" ]; then
@@ -54,7 +51,6 @@ syslog_remote=$("$NATIVE_BIN" --print-config syslog_remote --config "$NATIVE_CON
 mkdir "$control" || exit 2
 printf '%s\n' "$$" > "$control/supervisor.pid"
 : > "$zig_log" 2>/dev/null || true
-: > "$seed_log"
 # Stock firmware's BusyBox syslogd owns the 512 KiB IPC ring and forwards to
 # an optional collector from config.json. Replace its prior instance to apply
 # these flags. An absent/empty syslog_remote keeps logging local.
@@ -81,15 +77,6 @@ sleep 1
     rm -rf "$control"
     exit 2
 }
-if [ -x "$seed_helper" ]; then
-    "$seed_helper" restore "$seed_file" >>"$seed_log" 2>&1 || true
-    (
-        sleep 180
-        "$seed_helper" save "$seed_file"
-    ) >>"$seed_log" 2>&1 </dev/null &
-else
-    echo 'RNG seed helper missing; cold-boot entropy wait may delay Ziggurat' >>"$seed_log"
-fi
 zig_pid=;native_pid=;matter_pid=;retries=0;matter_retries=0;matter_next=0;quiesced=false
 zig_diagnostic_restart=false
 valid_thread_tcp() {

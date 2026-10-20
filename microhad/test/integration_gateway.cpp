@@ -443,9 +443,19 @@ void testNetworkCreationFailuresAndTimeout() {
 
     Gateway randomFailure("/dev/null", 115200, "/tmp", "", "", "");
     GatewayIntegrationTestPeer::setNetworkReady(&randomFailure, false);
+    int entropyPipe[2];
+    assert(pipe(entropyPipe) == 0);
+    std::ostringstream readinessPath;
+    readinessPath << "/proc/self/fd/" << entropyPipe[0];
+    GatewayIntegrationTestPeer::setNetworkRandomReadinessSource(&randomFailure, readinessPath.str());
+    assert(!randomFailure.createFreshNetwork(&error) && error == "system random source is not ready; retry network creation later");
+    assert(!GatewayIntegrationTestPeer::networkForming(randomFailure));
+    assert(write(entropyPipe[1], "x", 1) == 1);
     GatewayIntegrationTestPeer::setNetworkRandomSource(&randomFailure, "/tmp/microhad-zigbee-no-random-source");
     assert(!randomFailure.createFreshNetwork(&error) && error == "cannot read system random source");
     assert(!GatewayIntegrationTestPeer::networkForming(randomFailure));
+    close(entropyPipe[0]); close(entropyPipe[1]);
+    assert(!randomFailure.createFreshNetwork(&error) && error == "cannot check system random readiness");
 
     char name[] = "/tmp/microhad-zigbee-network-failure-XXXXXX";
     char* temporary = mkdtemp(name);

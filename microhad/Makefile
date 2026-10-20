@@ -75,7 +75,7 @@ INTEGRATION_TEST_BIN := $(HOST_BUILD)/integration_tests
 UNIT_TEST_SOURCES := $(ZIGGURAT_TEST_SOURCES) test/unit_matter_websocket.cpp test/unit_matter_protocol.cpp test/unit_matter_client.cpp test/unit_network_backup.cpp test/unit_gateway.cpp test/unit_gateway_config.cpp test/unit_companion_discovery.cpp test/unit_fcm.cpp test/unit_web_push.cpp test/unit_sensor_history.cpp test/unit_log_ring.cpp test/unit_syslog_log_reader.cpp test/unit_external_http_device.cpp test/test_main.cpp
 INTEGRATION_TEST_SOURCES := test/integration_gateway.cpp test/integration_http_server.cpp test/integration_lifecycle.cpp test/integration_outbound.cpp test/integration_main.cpp
 
-.PHONY: all host mips webui rng-seed mbedtls-host mbedtls-mips unit-test integration-test target-verifier-test test verify-target clean
+.PHONY: all host mips webui mbedtls-host mbedtls-mips unit-test integration-test target-verifier-test test verify-target clean
 
 all: host
 
@@ -94,14 +94,6 @@ $(HOST_TEST_BIN): $(SOURCES) $(HOST_C_OBJECTS) $(HOST_MBEDTLS_LIBS) $(wildcard i
 
 mips: mbedtls-mips $(MIPS_BIN) verify-target
 
-rng-seed: build/$(TARGET_BUILD_SUBDIR)rng-seed
-
-build/$(TARGET_BUILD_SUBDIR)rng-seed: src/rng_seed.c
-	@test -x $(TARGET_CC) || (echo "Selected target compiler not found: $(TARGET_CC)"; exit 1)
-	@mkdir -p $(dir $@)
-	$(TARGET_CC) -std=gnu99 -Os -Wall -Wextra -Werror -static -msoft-float $< -o $@
-	$(TARGET_STRIP) $@
-	python3 $(ZIGGURAT_ROOT)/scripts/verify-gateway-target.py "$@"
 ifeq ($(MATTER),1)
 mips: $(MIPS_MATTER_MANIFEST)
 
@@ -219,12 +211,12 @@ $(HOST_BIN) $(HOST_TEST_BIN) $(UNIT_TEST_BIN) $(INTEGRATION_TEST_BIN) $(MIPS_BIN
 $(UNIT_TEST_BIN): include/matter_wire_vectors.inc
 
 # Keep compiler changes from reusing objects or CMake caches from another SDK.
-ifneq ($(filter mips mbedtls-mips verify-target rng-seed $(MIPS_BIN),$(MAKECMDGOALS)),)
+ifneq ($(filter mips mbedtls-mips verify-target $(MIPS_BIN),$(MAKECMDGOALS)),)
 .PHONY: toolchain-force
 toolchain-force:
 $(MIPS_BUILD)/.toolchain: toolchain-force
 	@python3 $(ZIGGURAT_ROOT)/scripts/toolchain-build.py "$(MICROHAD_ROOT)/$(MIPS_BUILD)"
-$(MIPS_BIN) $(MIPS_C_OBJECTS) $(MIPS_MBEDTLS_LIBS) build/$(TARGET_BUILD_SUBDIR)rng-seed: $(MIPS_BUILD)/.toolchain
+$(MIPS_BIN) $(MIPS_C_OBJECTS) $(MIPS_MBEDTLS_LIBS): $(MIPS_BUILD)/.toolchain
 # Apply target optimization changes to cached C objects and TLS libraries.
 $(MIPS_C_OBJECTS) $(MIPS_MBEDTLS_LIBS): Makefile
 endif

@@ -1,0 +1,215 @@
+From 1111111111111111111111111111111111111111 Mon Sep 17 00:00:00 2001
+From: Christoph Kaser <christoph@caser.de>
+Date: Tue, 20 Oct 2026 12:00:00 +0200
+Subject: [PATCH] Gate fresh keys on OS entropy without delaying stack startup
+
+Use direct urandom for non-secret startup randomness. Poll kernel readiness
+only for fresh link keys, never blocking the radio or using an early-seeded
+userspace generator for keys. Derived TCLK keys need no fresh entropy.
+
+diff --git a/crates/ziggurat-driver/Cargo.toml b/crates/ziggurat-driver/Cargo.toml
+index 739cc7d..db06bc0 100644
+--- a/crates/ziggurat-driver/Cargo.toml
++++ b/crates/ziggurat-driver/Cargo.toml
+@@ -22,6 +22,7 @@ thiserror = { version = "2.0.20", default-features = false }
+ # Host (tokio) runtime backend.
+ parking_lot = { version = "0.12.5", optional = true }
+ rand = { version = "0.10.2", optional = true }
++libc = { version = "0.2", optional = true }
+ tokio = { version = "1.53.1", features = [
+     "rt",
+     "macros",
+@@ -43,7 +44,7 @@ spin = { version = "0.12", default-features = false, features = [
+ [features]
+ default = ["tokio"]
+ # The host runtime: tokio executor, parking_lot locks, OS randomness.
+-tokio = ["dep:tokio", "dep:parking_lot", "dep:rand"]
++tokio = ["dep:tokio", "dep:parking_lot", "dep:rand", "dep:libc"]
+ # The embassy runtime adapter (and its no_std-friendly sync primitives), for the MCU.
+ # Mutually exclusive with `tokio` at the `sync`/`runtime`/`rng` seam.
+ embassy = ["dep:embassy-executor", "dep:embassy-time", "dep:embassy-sync", "dep:spin"]
+diff --git a/crates/ziggurat-driver/src/rng.rs b/crates/ziggurat-driver/src/rng.rs
+index ef000ad..444adf0 100644
+--- a/crates/ziggurat-driver/src/rng.rs
++++ b/crates/ziggurat-driver/src/rng.rs
+@@ -22,19 +22,88 @@ pub fn random_u16() -> u16 {
+     u16::from_le_bytes(bytes)
+ }
+ 
+-/// `N` random bytes, for key material.
+-pub fn random_array<const N: usize>() -> [u8; N] {
++/// Fresh key material, or None if the OS RNG is not ready or cannot be read.
++/// Never use a userspace generator seeded by early-boot non-secret randomness.
++pub fn try_random_array<const N: usize>() -> Option<[u8; N]> {
+     let mut bytes = [0u8; N];
++    #[cfg(all(feature = "tokio", target_os = "linux"))]
++    linux::fill_secret(&mut bytes).ok()?;
++    #[cfg(not(all(feature = "tokio", target_os = "linux")))]
+     fill_bytes(&mut bytes);
+-    bytes
++    Some(bytes)
+ }
+ 
+-#[cfg(feature = "tokio")]
++#[cfg(all(feature = "tokio", not(target_os = "linux")))]
+ fn fill_bytes(buf: &mut [u8]) {
+     use rand::RngExt;
+     rand::rng().fill(buf);
+ }
+ 
++#[cfg(all(feature = "tokio", target_os = "linux"))]
++fn fill_bytes(buf: &mut [u8]) {
++    linux::fill_nonsecret(buf).expect("cannot read /dev/urandom");
++}
++
++#[cfg(all(feature = "tokio", target_os = "linux"))]
++mod linux {
++    extern crate std;
++    use std::{fs::File, io::{self, Read}, os::fd::AsRawFd};
++
++    // This is deliberately independent of rand::rng(): early startup must not
++    // seed a cached PRNG that could later supply cryptographic key material.
++    pub fn fill_nonsecret(buf: &mut [u8]) -> io::Result<()> {
++        File::open("/dev/urandom")?.read_exact(buf)
++    }
++
++    fn check_ready(source: &File) -> io::Result<()> {
++        let mut pfd = libc::pollfd {
++            fd: source.as_raw_fd(), events: libc::POLLIN, revents: 0,
++        };
++        loop {
++            // Same readiness signal as getrandom's old-kernel fallback, but
++            // timeout zero keeps the radio executor responsive.
++            let result = unsafe { libc::poll(&mut pfd, 1, 0) };
++            if result < 0 && io::Error::last_os_error().kind() == io::ErrorKind::Interrupted {
++                continue;
++            }
++            if result == 1 && pfd.revents == libc::POLLIN { return Ok(()); }
++            return Err(io::ErrorKind::WouldBlock.into());
++        }
++    }
++
++    pub fn fill_secret(buf: &mut [u8]) -> io::Result<()> {
++        check_ready(&File::open("/dev/random")?)?;
++        fill_nonsecret(buf)
++    }
++
++    #[cfg(test)]
++    mod tests {
++        use super::*;
++        use std::os::fd::FromRawFd;
++
++        #[test]
++        fn readiness_does_not_block_or_consume_entropy_and_rejects_hangup() {
++            let mut fds = [-1; 2];
++            assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0);
++            let read = unsafe { File::from_raw_fd(fds[0]) };
++            let write = unsafe { File::from_raw_fd(fds[1]) };
++            assert!(check_ready(&read).is_err());
++            assert_eq!(unsafe { libc::write(write.as_raw_fd(), b"x".as_ptr().cast(), 1) }, 1);
++            assert!(check_ready(&read).is_ok());
++            assert!(check_ready(&read).is_ok());
++            drop(write);
++            assert!(check_ready(&read).is_err());
++        }
++
++        #[test]
++        fn nonsecret_and_secret_os_reads_work() {
++            let mut bytes = [0; 32];
++            fill_nonsecret(&mut bytes).unwrap();
++            fill_secret(&mut bytes).unwrap();
++        }
++    }
++}
++
+ #[cfg(all(feature = "embassy", not(feature = "tokio")))]
+ pub use embassy_rng::{fill_bytes, install};
+ 
+diff --git a/crates/ziggurat-driver/src/zigbee_stack/joining.rs b/crates/ziggurat-driver/src/zigbee_stack/joining.rs
+index 5ef39ad..6d7c8cf 100644
+--- a/crates/ziggurat-driver/src/zigbee_stack/joining.rs
++++ b/crates/ziggurat-driver/src/zigbee_stack/joining.rs
+@@ -782,7 +782,11 @@ impl<P: RadioPhy, R: Runtime> ZigbeeStack<P, R> {
+             .core()
+             .aib
+             .aps_security
+-            .issue_device_key(source_ieee, Key(crate::rng::random_array()));
++            .issue_device_key(source_ieee, || crate::rng::try_random_array().map(Key));
++        let Some(new_key) = new_key else {
++            tracing::warn!("Cannot issue trust center link key: OS randomness is not ready; device must retry");
++            return;
++        };
+ 
+         // The key is persisted only once the device proves possession via Verify-Key
+         // (see `handle_verify_key`); a device that never completes the exchange must not
+diff --git a/crates/ziggurat-zigbee/src/aps/security.rs b/crates/ziggurat-zigbee/src/aps/security.rs
+index 2ef2a06..1d4d088 100644
+--- a/crates/ziggurat-zigbee/src/aps/security.rs
++++ b/crates/ziggurat-zigbee/src/aps/security.rs
+@@ -235,17 +235,21 @@ impl ApsSecurity {
+     /// Issue a fresh unique link key for a device, held as *pending* until the device
+     /// proves possession via a Verify-Key exchange. The device's current key (if any)
+     /// stays usable until then, so a device that never verifies is not stranded.
+-    /// `fresh_key` is caller-generated randomness, used only when no TCLK seed is
+-    /// configured.
+-    pub fn issue_device_key(&mut self, eui64: Eui64, fresh_key: Key) -> Key {
+-        let key = self
+-            .tclk_seed
+-            .as_ref()
+-            .map_or(fresh_key, |seed| seed.derive(eui64));
++    /// Call `fresh_key` only when no TCLK seed is configured. If the OS RNG is
++    /// unavailable, leave the device's current and pending keys untouched.
++    pub fn issue_device_key(
++        &mut self,
++        eui64: Eui64,
++        fresh_key: impl FnOnce() -> Option<Key>,
++    ) -> Option<Key> {
++        let key = match self.tclk_seed.as_ref() {
++            Some(seed) => seed.derive(eui64),
++            None => fresh_key()?,
++        };
+ 
+         self.devices.entry(eui64).or_default().pending_key = Some(key.clone());
+ 
+-        key
++        Some(key)
+     }
+ 
+     /// The link key currently shared with an on-network device: its negotiated unique
+@@ -519,3 +523,35 @@ impl ApsSecurity {
+         .map(|(frame, _key)| frame)
+     }
+ }
++
++#[cfg(test)]
++mod key_rng_tests {
++    use super::*;
++
++    #[test]
++    fn unavailable_randomness_preserves_keys_and_counters() {
++        let peer = Eui64([2; 8]);
++        let mut security = ApsSecurity::new(Key([0; 16]), Eui64([1; 8]), None);
++        security.restore_device_key(peer, Key([3; 16]));
++        security.restore_incoming_frame_counter(peer, 42);
++        security.restore_outgoing_frame_counter(99);
++        assert_eq!(security.issue_device_key(peer, || Some(Key([4; 16]))), Some(Key([4; 16])));
++        assert_eq!(security.issue_device_key(peer, || None), None);
++        assert_eq!(security.device_link_key(peer), Key([3; 16]));
++        assert_eq!(security.devices.get(&peer).unwrap().pending_key, Some(Key([4; 16])));
++        assert_eq!(security.incoming_frame_counter(peer), Some(42));
++        assert_eq!(security.outgoing_frame_counter, 99);
++        let unknown = Eui64([5; 8]);
++        assert_eq!(security.issue_device_key(unknown, || None), None);
++        assert!(security.devices.get(&unknown).is_none());
++    }
++
++    #[test]
++    fn inherited_seed_does_not_request_os_randomness() {
++        let peer = Eui64([2; 8]);
++        let seed = TclkSeed { seed: Key([3; 16]), flavor: TclkFlavor::Ezsp };
++        let expected = seed.derive(peer);
++        let mut security = ApsSecurity::new(Key([0; 16]), Eui64([1; 8]), Some(seed));
++        assert_eq!(security.issue_device_key(peer, || panic!("derived keys need no RNG")), Some(expected));
++    }
++}
+

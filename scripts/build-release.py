@@ -340,7 +340,7 @@ def build(root, env, version, jobs):
     run(['bash', 'ziggurat/scripts/build.sh'], cwd=root, env=env)
     run(['bash', 'micro-thread-matter-daemon/scripts/build.sh', 'mips', 'service'], cwd=root, env=env)
     for enabled in (1, 0):
-        run(['make', '-C', 'microhad', '-j' + str(jobs), 'mips', 'rng-seed',
+        run(['make', '-C', 'microhad', '-j' + str(jobs), 'mips',
              'ZIGGURAT=' + str(enabled), 'MATTER=' + str(enabled), 'BUILD_REVISION=' + version], cwd=root, env=env)
     run(['bash', 'firmware/scripts/build-maintenance.sh'], cwd=root, env=env)
     run(['make', '-C', 'microhad', 'webui'], cwd=root, env=env)
@@ -356,7 +356,6 @@ def binaries(root, destination, metadata):
         'bin/mthread-matter': 'build/crosstool-ng/micro-thread-matter-daemon/mthread-matter-mips',
         'bin/ziggurat': 'build/crosstool-ng/ziggurat-hdlc/lexra-crosstool-ng-uclibc/release/ziggurat.stripped',
         'bin/gateway-maintenance': 'build/crosstool-ng/gateway-maintenance',
-        'bin/rng-seed': 'microhad/build/crosstool-ng/rng-seed',
     }
     for target, source in mapping.items():
         out = destination / target

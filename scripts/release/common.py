@@ -59,7 +59,7 @@ def verify_binary(root, readelf='readelf'):
     root = Path(root)
     metadata = json.loads((root / '.release/binary-manifest.json').read_text())
     verify_inventory(root, metadata['files'])
-    for name in ('microhad', 'microhad-ezsp', 'mthread-matter', 'ziggurat', 'gateway-maintenance', 'rng-seed'):
+    for name in ('microhad', 'microhad-ezsp', 'mthread-matter', 'ziggurat', 'gateway-maintenance'):
         verify_elf(root / 'bin' / name, readelf)
     manifest = (root / 'bin/microhad.matter-manifest').read_text().splitlines()
     expected = ['format=microhad-build-v1', 'ziggurat=1', 'matter=1', 'binary_sha256=' + sha(root / 'bin/microhad')]

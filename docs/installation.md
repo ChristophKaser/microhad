@@ -554,7 +554,7 @@ migration. Retain ZHA backup and the radio application version.
 | Native Ziggurat fails immediately | Correct enabled binary, initialized private state file, mode 0600, matching RCP identity, paired launcher |
 | Wrong protocol/timeouts | EZSP firmware cannot serve HDLC; RCP cannot serve EZSP. Check baud, RTS/CTS and IID 1 |
 | Duplicate UART ownership | Stop the actual competing supervisor and child; killing a child alone may respawn it |
-| Slow native cold start | Observe `/api/logs`, RAM and RNG readiness; preserve entropy checks |
+| RNG unavailable during Zigbee key creation | Retry after kernel entropy is ready; existing networks start without a Zigbee RNG wait |
 | Device listed but silent | Wake a sleepy device and verify an actual report; check [sensor reporting](sensor-reporting.md) |
 | HA says unknown radio type | Check installed ZHA support and select EmberZNet/EZSP for Mode C |
 
