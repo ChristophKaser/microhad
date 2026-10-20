@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "build": "tsc --noEmit && vite build && python3 ../../scripts/licensing/notices.py web --output dist/licenses.html",
-    "dev": "vite --host 0.0.0.0"
+    "dev": "vite --host 0.0.0.0",
+    "test:history": "python3 ../scripts/test_history_webui.py"
   },
   "dependencies": {
     "chart.js": "^4.5.1",

@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Chart as ChartJS, LineController, LineElement, LinearScale, PointElement, Tooltip } from 'chart.js'
-import type { Device, HistoryMetric, HistoryPage, HistorySample } from './api'
-import { errorMessage, jsonRequest } from './api'
+import type { Device, HistoryMetric, HistorySample } from './api'
 import { historyDeviceId, historyDiscrete, historyLabel, historyName, historyTick, historyUnit, historyY } from './history'
 
-type Range = 'day' | 'week' | 'all'
-const rangeSeconds: Record<Range, number> = { day: 86400, week: 604800, all: Infinity }
+import { historyRangeSeconds, historyWindow } from './historyLoader'
+import type { HistoryRange } from './historyLoader'
+import { useHistory } from './useHistory'
 const metricColor: Record<HistoryMetric, string> = {
   1: '#d97543', 2: '#3384aa', 3: '#7554a4', 4: '#b77928', 5: '#4b956a', 6: '#71859a',
   7: '#9a5b99', 8: '#6d8293', 9: '#368578', 10: '#d2a635', 11: '#427fb0',
@@ -16,7 +16,7 @@ const metricColor: Record<HistoryMetric, string> = {
 ChartJS.register(LineController, LineElement, LinearScale, PointElement, Tooltip)
 
 function Chart({ samples, metric, unit, now, start }: { samples: HistorySample[]; metric: HistoryMetric; unit: string; now: number; start: number }) {
-  const values = samples.filter((sample) => sample[2] === metric && historyUnit(metric, sample) === unit)
+  const values = useMemo(() => samples.filter(sample => sample[2] === metric && historyUnit(metric, sample) === unit), [samples, metric, unit])
   const canvas = useRef<HTMLCanvasElement>(null)
   const latest = values[values.length - 1]
   const latestLabel = latest && historyLabel(metric, latest)
@@ -86,12 +86,9 @@ function Chart({ samples, metric, unit, now, start }: { samples: HistorySample[]
 }
 
 export function HistoryDialog({ device, onClose }: { device: Device; onClose: () => void }) {
-  const [samples, setSamples] = useState<HistorySample[]>([])
-  const [range, setRange] = useState<Range>('day')
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const [now, setNow] = useState(() => Math.floor(Date.now() / 1000))
-  const metrics: HistoryMetric[] = [
+  const [range, setRange] = useState<HistoryRange>('day')
+  const { samples, now, loading, error } = useHistory(historyDeviceId(device), range)
+  const metrics = useMemo<HistoryMetric[]>(() => [
     ...(device.has_temperature ? [1 as const] : []),
     ...(device.has_humidity ? [2 as const] : []),
     ...(device.has_contact && !device.has_water_leak ? [3 as const] : []),
@@ -105,47 +102,13 @@ export function HistoryDialog({ device, onClose }: { device: Device; onClose: ()
     ...(device.has_brightness ? [11 as const] : []),
     ...([...new Set(samples.map((sample) => sample[2]).filter((metric) => metric >= 12))] as HistoryMetric[]),
     ...([...new Set(samples.map((sample) => sample[2]).filter((metric) => metric === 7 || metric === 8))] as HistoryMetric[]),
-  ]
-  const historyId = historyDeviceId(device)
-  const series = metrics.flatMap((metric) => {
+  ], [device, samples])
+  const series = useMemo(() => metrics.flatMap((metric) => {
     const units = [...new Set(samples.filter((sample) => sample[2] === metric).map((sample) => historyUnit(metric, sample)))]
     return (units.length ? units : [historyUnit(metric)]).map((unit) => ({ metric, unit }))
-  })
-  useEffect(() => {
-    let active = true
-    const load = async () => {
-      setLoading(true)
-      setError('')
-      try {
-        let before = 0
-        const loaded: HistorySample[] = []
-        do {
-          const page = await jsonRequest<HistoryPage>(`/api/devices/${encodeURIComponent(historyId)}/history${before ? `?before=${before}` : ''}`)
-          loaded.push(...page.samples)
-          before = page.next_before
-        } while (before && loaded.length < 10000)
-        if (active) {
-          setSamples(loaded.sort((a, b) => a[0] - b[0]))
-          setNow(Math.floor(Date.now() / 1000))
-        }
-      } catch (cause) {
-        if (active) setError(errorMessage(cause))
-      } finally {
-        if (active) setLoading(false)
-      }
-    }
-    void load()
-    return () => { active = false }
-  }, [historyId])
-  const start = range === 'all' ? (samples[0]?.[1] ?? now) : now - rangeSeconds[range]
-  const visible = useMemo(() => {
-    const current = samples.filter((sample) => sample[1] >= start && sample[1] <= now)
-    for (const metric of metrics) {
-      const prior = [...samples].reverse().find((sample) => sample[2] === metric && sample[1] < start)
-      if (prior) current.unshift([prior[0], start, metric, prior[3], prior[4]])
-    }
-    return current.sort((left, right) => left[1] - right[1])
-  }, [samples, start, now, metrics])
+  }), [metrics, samples])
+  const start = range === 'all' ? (samples[0]?.[1] ?? now) : now - historyRangeSeconds[range]
+  const visible = useMemo(() => historyWindow(samples, start, now), [samples, start, now])
   return (
     <div className="modal" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
       <div className="dialog wide history-dialog" role="dialog" aria-modal="true" aria-label={`History for ${device.name}`}>
@@ -154,9 +117,9 @@ export function HistoryDialog({ device, onClose }: { device: Device; onClose: ()
           {([['day', '24 hours'], ['week', '7 days'], ['all', 'All retained']] as const).map(([key, label]) =>
             <button key={key} className={`button ${range === key ? 'primary' : ''}`} onClick={() => setRange(key)}>{label}</button>)}
         </div>
-        {loading && <p className="muted">Loading history…</p>}
-        {error && <p className="error" role="alert">{error}</p>}
-        {!loading && !error && <>
+        {loading && <p className="muted">{samples.length ? 'Loading older history…' : 'Loading history…'}</p>}
+        {error && <p className="error" role="alert">{samples.length ? `Some history could not be loaded: ${error}` : error}</p>}
+        {(samples.length > 0 || (!loading && !error)) && <>
           {series.map(({ metric, unit }) => <Chart key={`${metric}-${unit}`} samples={visible} metric={metric} unit={unit} now={now} start={start} />)}
         </>}
       </div>
