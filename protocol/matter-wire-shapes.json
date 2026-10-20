@@ -132,7 +132,8 @@
     "clients": "",
     "manufacturer": "",
     "model": "",
-    "rssi_dbm": ""
+    "rssi_dbm": "",
+    "device_types": ""
   },
   "job": {
     "job": "@id",

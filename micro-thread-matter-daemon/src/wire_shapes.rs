@@ -93,6 +93,7 @@ pub(super) const FIELDS: &[(&str, &str, &str)] = &[
     ("device", "manufacturer", ""),
     ("device", "model", ""),
     ("device", "rssi_dbm", ""),
+    ("device", "device_types", ""),
     ("job", "job", "@id"),
     ("job", "state", ""),
     ("job", "error", ""),

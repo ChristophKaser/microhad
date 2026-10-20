@@ -185,7 +185,7 @@ void runMatterClientUnitTests() {
     assert(MatterChannel::deviceResult("{\"schema\":1,\"ok\":true,\"result\":{\"job\":\"0000000000000001\",\"state\":\"complete\",\"result\":{\"node\":\"0000000000000002\",\"endpoint\":0,\"cluster\":62,\"attribute\":0,\"value\":{\"type\":\"bool\",\"value\":true}}}}", "0000000000000001", &deleted) && deleted.cluster == 62);
 
     {
-        const std::string inventory="{\"schema\":1,\"event\":\"matter_inventory\",\"data\":{\"kind\":\"identity\",\"endpoint_count\":0,\"device\":{\"node\":\"0000000000000002\",\"state\":\"complete\",\"online\":false,\"id\":\"matter:0000000000000001:0000000000000002\",\"endpoint\":null,\"servers\":[],\"clients\":[],\"device_types\":[]}}}";
+        const std::string inventory="{\"schema\":1,\"event\":\"matter_inventory\",\"data\":{\"kind\":\"identity\",\"endpoint_count\":0,\"device\":{\"node\":\"0000000000000002\",\"state\":\"complete\",\"online\":false,\"id\":\"matter:0000000000000001:0000000000000002\",\"endpoint\":null,\"servers\":[],\"clients\":[],\"device_types\":[],\"manufacturer\":\"IKEA of Sweden\",\"model\":\"ALPSTUGA air quality monitor\",\"rssi_dbm\":-72}}}";
         MatterWire::Frame frame; frame.kind=MatterWire::Frame::Event;frame.opcode=12;
         frame.payload.assign(inventory.begin(),inventory.end());
         MatterWire::Bytes encoded; assert(MatterWire::encode(frame,&encoded));
@@ -193,6 +193,7 @@ void runMatterClientUnitTests() {
         std::string kind; unsigned int count=99; MatterEndpoint endpoint;
         assert(MatterChannel::inventoryEvent(std::string(frame.payload.begin(),frame.payload.end()),&kind,&count,&endpoint));
         assert(kind=="identity" && count==0 && endpoint.endpoint==0xffff);
+        assert(endpoint.manufacturer == "IKEA of Sweden" && endpoint.model == "ALPSTUGA air quality monitor" && endpoint.rssiDbm == -72);
     }
 
     std::string commissioningBody;

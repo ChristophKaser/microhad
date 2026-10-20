@@ -94,6 +94,7 @@ const WireField wireFields[] = {
     {"device", "manufacturer", ""},
     {"device", "model", ""},
     {"device", "rssi_dbm", ""},
+    {"device", "device_types", ""},
     {"job", "job", "@id"},
     {"job", "state", ""},
     {"job", "error", ""},
