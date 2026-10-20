@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def tree_digest(root, exclude=()):
-    paths = (p for p in root.rglob('*') if '.git' not in p.relative_to(root).parts
+    paths = (p for p in root.rglob('*') if not {'.git', '__pycache__'}.intersection(p.relative_to(root).parts)
              and p.name not in ('.cargo-ok', '.cargo-checksum.json')
              and not any(p == root / n or p.is_relative_to(root / n) for n in exclude))
     return hashlib.sha256(json.dumps(inventory(root, paths), sort_keys=True).encode()).hexdigest()

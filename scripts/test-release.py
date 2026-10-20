@@ -117,6 +117,8 @@ class Packages(unittest.TestCase):
             fetch.fetch_tree(root, record)
             self.assertEqual((root / 'prepared/file').read_text(), 'after\n')
             self.assertFalse((root / 'prepared/.git').exists())
+            (root / 'prepared/__pycache__').mkdir()
+            (root / 'prepared/__pycache__/generated.pyc').write_bytes(b'build-generated cache')
             fetch.fetch_tree(root, record)
             (root / 'prepared/file').write_text('local edit\n')
             with self.assertRaisesRegex(ValueError, 'mismatch'):
