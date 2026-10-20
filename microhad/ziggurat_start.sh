@@ -1,15 +1,5 @@
 #!/bin/sh
 # Permanent launcher for the paired native/Ziggurat stack.
-legacy=/tuya/native/tuya-zigbee-native
-if [ -e "$legacy" ]; then
-    for executable in /proc/[0-9]*/exe; do
-        [ -e "$executable" ] || continue
-        [ "$executable" -ef "$legacy" ] || continue
-        echo 'Legacy daemon is still running; refusing to remove its executable' >&2
-        exit 1
-    done
-    rm -f "$legacy" "$legacy.matter-manifest"
-fi
 export ZIGGURAT_BIN=/tuya/native/ziggurat
 export NATIVE_BIN=/tuya/native/microhad
 export NATIVE_CONFIG=/tuya/native/config.json

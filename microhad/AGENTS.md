@@ -89,12 +89,6 @@ verify the staged Matter files and switch the launcher without re-uploading
 them. Both activation modes require `/tuya/native` and only affect the next
 stack start.
 
-On an existing gateway, stop the old paired supervisor completely before
-launching the updated paired launcher. It checks that no process still uses
-`/tuya/native/tuya-zigbee-native`, then removes that legacy executable and its
-old manifest without keeping a copy. EZSP startup applies the same check on its
-next launch.
-
 The Matter flash preflight checks `/proc/*/exe` before atomically replacing the
 native or Rust service executable. It keeps the old executable size in the
 staging peak while that process is running, because the kernel retains the old
@@ -131,8 +125,8 @@ failure without automatic recovery. Keep local release artifacts for manual
 recovery when opting out of rollback copies.
 
 For a complete Matter release, build all target artifacts and use
-`--maintenance-deploy`. It quiesces and stops the paired stack, discards the
-legacy executable, and replaces the controller, Ziggurat, Matter service,
+`--maintenance-deploy`. It quiesces and stops the paired stack, then replaces
+the controller, Ziggurat, Matter service,
 `gateway-maintenance` and Web UI. It activates the paired launcher,
 starts the stack, and checks the supervisor, IPC sockets, dashboard, status API
 and linked assets. It never copies or removes configuration or network/identity

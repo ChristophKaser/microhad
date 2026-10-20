@@ -111,9 +111,6 @@ Keep the 512 KiB flash reserve. Preflight accounts for executable inodes still
 held by running processes; a process running a deleted executable causes refusal.
 Maintenance measures flash after temporary uploads because JFFS2 compression
 changes actual space use. Never delete state or backups to make a release fit.
-The unused legacy `tuya-zigbee-native` executable is removed only after verifying
-no process uses it; it is not included in rollback backups.
-
 ## Restart and verify
 
 To apply a changed launcher or service configuration, stop the existing paired

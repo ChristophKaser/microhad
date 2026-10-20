@@ -447,10 +447,10 @@ maintenance_deploy_run() {
         echo "Installed maintenance helper is not available" >&2; return 1;
     }
     if [ -z "$supervisor_pid" ]; then
-        orphaned_images=$(ssh_command "for image in \"$target/microhad\" \"$target/tuya-zigbee-native\" \"$target/thread-matter\" \"$target/mthread-matter\" \"$target/ziggurat\"; do for p in /proc/[0-9]*/exe; do x=\$(ls -l \"\$p\" 2>/dev/null) || continue; case \"\$x\" in *\" -> \$image\"|*\" -> \$image (deleted)\") echo \"\$x\" ;; esac; done; done; :") || return 1
+        orphaned_images=$(ssh_command "for image in \"$target/microhad\" \"$target/thread-matter\" \"$target/mthread-matter\" \"$target/ziggurat\"; do for p in /proc/[0-9]*/exe; do x=\$(ls -l \"\$p\" 2>/dev/null) || continue; case \"\$x\" in *\" -> \$image\"|*\" -> \$image (deleted)\") echo \"\$x\" ;; esac; done; done; :") || return 1
         [ -z "$orphaned_images" ] || { echo "Application executable is still active without its paired supervisor: $orphaned_images" >&2; return 1; }
     fi
-    deleted_images=$(ssh_command "for image in \"$target/microhad\" \"$target/tuya-zigbee-native\" \"$target/thread-matter\" \"$target/mthread-matter\" \"$target/ziggurat\" \"$target/gateway-maintenance\"; do for p in /proc/[0-9]*/exe; do x=\$(ls -l \"\$p\" 2>/dev/null) || continue; case \"\$x\" in *\" -> \$image (deleted)\") echo \"\$x\" ;; esac; done; done; :") || return 1
+    deleted_images=$(ssh_command "for image in \"$target/microhad\" \"$target/thread-matter\" \"$target/mthread-matter\" \"$target/ziggurat\" \"$target/gateway-maintenance\"; do for p in /proc/[0-9]*/exe; do x=\$(ls -l \"\$p\" 2>/dev/null) || continue; case \"\$x\" in *\" -> \$image (deleted)\") echo \"\$x\" ;; esac; done; done; :") || return 1
     [ -z "$deleted_images" ] || { echo "Found a running deleted executable; refusing maintenance deployment" >&2; return 1; }
 
     if [ -n "$supervisor_pid" ]; then
@@ -467,15 +467,12 @@ maintenance_deploy_run() {
     else
         echo "Paired services are already stopped"
     fi
-    ssh_command "for image in \"$target/microhad\" \"$target/tuya-zigbee-native\" \"$target/thread-matter\" \"$target/mthread-matter\" \"$target/ziggurat\" \"$target/gateway-maintenance\"; do for p in /proc/[0-9]*/exe; do x=\$(ls -l \"\$p\" 2>/dev/null) || continue; case \"\$x\" in *\" -> \$image\"|*\" -> \$image (deleted)\") echo \"Executable still active: \$x\" >&2; exit 1 ;; esac; done; done; :" || {
+    ssh_command "for image in \"$target/microhad\" \"$target/thread-matter\" \"$target/mthread-matter\" \"$target/ziggurat\" \"$target/gateway-maintenance\"; do for p in /proc/[0-9]*/exe; do x=\$(ls -l \"\$p\" 2>/dev/null) || continue; case \"\$x\" in *\" -> \$image\"|*\" -> \$image (deleted)\") echo \"Executable still active: \$x\" >&2; exit 1 ;; esac; done; done; :" || {
         echo "A deployment executable is still active after supervisor shutdown; refusing replacement" >&2
         return 1
     }
-    # The legacy executable is discarded after stopping without a backup.
-    # Rollback copies, when requested, have been saved before reclaiming space.
     old_service_size=$(ssh_command "for service in \"$target/thread-matter\" \"$target/mthread-matter\"; do if [ -f \"\$service\" ]; then wc -c < \"\$service\"; fi; done | awk '{total += \$1} END {print total + 0}'") || return 1
     old_ziggurat_size=$(ssh_command "if [ -f \"$target/ziggurat\" ]; then wc -c < \"$target/ziggurat\" | awk '{print \$1}'; else echo 0; fi") || return 1
-    old_legacy_size=$(ssh_command "if [ -f \"$target/tuya-zigbee-native\" ]; then wc -c < \"$target/tuya-zigbee-native\" | awk '{print \$1}'; else echo 0; fi") || return 1
     if [ -f "$rollback_dir/webui.tar" ]; then
         old_webui_size=$(tar -tvf "$rollback_dir/webui.tar" | awk '$3 ~ /^[0-9]+$/ { total += $3 } END { print total + 0 }')
     else
@@ -503,10 +500,9 @@ maintenance_deploy_run() {
     available_kib=$(ssh_command "df -k /tuya | awk 'END {print \$4}'") || return 1
     case "$available_kib:$required_kib:$old_service_size:$old_webui_size:$launcher_backup_bytes" in *[!0-9:]*) echo "Unable to calculate Matter bundle flash requirements" >&2; return 1 ;; esac
     case "$old_ziggurat_size" in ''|*[!0-9]*) echo "Unable to read old Ziggurat size" >&2; return 1 ;; esac
-    case "$old_legacy_size" in ''|*[!0-9]*) echo "Unable to read old MicroHAD executable size" >&2; return 1 ;; esac
-    predicted_after_reclaim=$((available_kib + (old_legacy_size + old_service_size + old_ziggurat_size + old_webui_size + 1023) / 1024))
+    predicted_after_reclaim=$((available_kib + (old_service_size + old_ziggurat_size + old_webui_size + 1023) / 1024))
     if [ "$predicted_after_reclaim" -lt "$required_kib" ]; then
-        echo "Insufficient flash even after reclaiming the stopped legacy daemon, Matter service, Ziggurat and Web UI: need ${required_kib} KiB including reserve, have ${predicted_after_reclaim} KiB" >&2
+        echo "Insufficient flash even after reclaiming the stopped Matter service, Ziggurat and Web UI: need ${required_kib} KiB including reserve, have ${predicted_after_reclaim} KiB" >&2
         ssh_command "rm -f /tmp/ziggurat/native.sock /tmp/ziggurat/thread.sock /tmp/microhad-matter.sock" || true
         return 1
     fi
@@ -537,7 +533,7 @@ maintenance_deploy_run() {
         remote_hash=$(ssh_command "md5sum \"$destination\" | awk '{print \$1}'" </dev/null) || return 1
         [ "$local_hash" = "$remote_hash" ] || { echo "Hash verification failed for $destination" >&2; return 1; }
     }
-    ssh_command "rm -f \"$target/tuya-zigbee-native\" \"$target/tuya-zigbee-native.matter-manifest\" \"$target/thread-matter\" \"$target/mthread-matter\" \"$target/ziggurat\"; rm -rf \"$target/webui\""
+    ssh_command "rm -f \"$target/thread-matter\" \"$target/mthread-matter\" \"$target/ziggurat\"; rm -rf \"$target/webui\""
     available_kib=$(ssh_command "df -k /tuya | awk 'END {print \$4}'")
     case "$available_kib" in ''|*[!0-9]*) echo "Unable to reread available /tuya flash space" >&2; return 1 ;; esac
     if [ "$available_kib" -lt "$required_kib" ]; then
