@@ -48,6 +48,7 @@ std::string shape(const std::string& context,const Value& v,unsigned int kind,un
         if(op<=5)return "session";
         if(op<=8){out<<"ack"<<op;return out.str();}
         if(op==9)return "thread";
+        if(op==10 && field(v,"subscriptions"))return "subscription-health";
         return field(v,"devices")?"page":"job";
     }
     if(context=="event-data") {

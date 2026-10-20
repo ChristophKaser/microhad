@@ -136,6 +136,7 @@ struct SubscriptionState {
     failures: u8,
     unit: Option<&'static str>,
     last_report: Option<Vec<u8>>,
+    last_received: Option<Instant>,
 }
 type SubscriptionWork<'a> =
     Pin<Box<dyn Future<Output = Result<crate::subscriptions::DeviceSubscription, Error>> + 'a>>;
@@ -585,6 +586,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 failures: 0,
                 unit: None,
                 last_report: None,
+                last_received: None,
             });
             self.host_test_reports
                 .push_back(crate::subscriptions::ReceivedReport {
@@ -891,6 +893,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                         failures: 0,
                         unit: None,
                         last_report: None,
+                        last_received: None,
                     });
                 }
             }
@@ -951,6 +954,13 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 self.active = None;
                 if result.as_ref().is_ok_and(|value| value.cluster == 62) {
                     result = self.remove_node(node).map(|()| result.unwrap());
+                }
+                if result.is_ok() && self.snapshots.iter().any(|snapshot| snapshot.node == node && !snapshot.online) {
+                    self.restore_after_return(node, now);
+                    if let Some(snapshot) = self.snapshots.iter_mut().find(|snapshot| snapshot.node == node) {
+                        snapshot.online = true;
+                    }
+                    self.changed();
                 }
                 if let Err(error) = result {
                     if matches!(
@@ -1100,6 +1110,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                         .retain(|(checked_node, _)| *checked_node != node);
                 }
                 let rssi_dbm = self.signals.rssi(self.compressed_fabric, node);
+                let returned = result.is_ok() && self.snapshots.iter().any(|snapshot| snapshot.node == node && !snapshot.online);
                 let snapshot = self.snapshots.iter_mut().find(|s| s.node == node).unwrap();
                 let visible_changed = match &result {
                     Ok(discovery) => !snapshot.online || snapshot.endpoints != discovery.endpoints ||
@@ -1129,6 +1140,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                     self.changed();
                 }
                 self.sync_subscriptions(now);
+                if returned { self.restore_after_return(node, now); }
             }
             return;
         }
@@ -1182,6 +1194,11 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             .min_by_key(|subscription| subscription.next_retry)
         {
             let key = subscription.key;
+            if subscription.id.is_some() {
+                log::warn!("Matter subscription overdue: node={:016x} endpoint={} cluster={} interval={}s; restoring", key.node, key.endpoint, key.cluster, subscription.max_interval);
+            }
+            let max_interval = if self.snapshots.iter().any(|snapshot| snapshot.node == key.node &&
+                snapshot.model == "ALPSTUGA air quality monitor") { 900 } else { crate::subscriptions::MAX_REPORT_INTERVAL_SECONDS };
             // Stop acknowledging this ID before asking for its replacement.
             // KeepSubscriptions must stay true to preserve other attributes.
             if let Some(subscription) = self.subscriptions.iter_mut().find(|entry| entry.key == key) {
@@ -1192,8 +1209,8 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 Box::pin(crate::subscriptions::establish_switch_events(
                     self.matter, self.crypto, self.fabric, key.node, key.endpoint))
             } else {
-                Box::pin(crate::subscriptions::establish_device_attribute(
-                    self.matter, self.crypto, self.fabric, key.node, key.endpoint, key.cluster, key.attribute))
+                Box::pin(crate::subscriptions::establish_device_attribute_with_interval(
+                    self.matter, self.crypto, self.fabric, key.node, key.endpoint, key.cluster, key.attribute, max_interval))
             };
             self.subscription_work = Some((
                 key,
@@ -1412,6 +1429,71 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         }
         progressed
     }
+    fn restore_after_return(&mut self, node: u64, now: Instant) {
+        // ICD wakeups are routine, and Power Source alone does not prove mains power.
+        let continuous = !self.registered_nodes.contains(&node) && self.snapshots.iter().any(|snapshot|
+            snapshot.node == node && !snapshot.endpoints.iter().any(|endpoint|
+                endpoint.servers.contains(&ICD_MANAGEMENT_CLUSTER) || endpoint.servers.contains(&47)));
+        if !continuous { return; }
+        for entry in self.subscriptions.iter_mut().filter(|entry| entry.key.node == node) {
+            entry.id = None;
+            entry.next_retry = now;
+            entry.failures = 0;
+        }
+        self.sync_report_subscriptions();
+        log::info!("Matter continuously reachable device returned: {:016x}; restoring subscriptions", node);
+    }
+
+    /// Paginate diagnostics to keep each private IPC response below 2048 bytes.
+    pub fn subscription_health(&mut self, node: u64, restore: bool, cursor: u16, now: Instant)
+        -> Result<serde_json::Value, crate::operations::Failure>
+    {
+        use crate::operations::Failure;
+        if !self.catalog.nodes().iter().any(|entry| entry.id == node && entry.phase == Phase::Complete) {
+            return Err(Failure::NotFound);
+        }
+        if restore && cursor != 0 { return Err(Failure::Malformed); }
+        if restore {
+            if let Some(snapshot) = self.snapshots.iter_mut().find(|snapshot| snapshot.node == node && !snapshot.online) {
+                snapshot.next = now;
+            }
+            if self.subscription_work.as_ref().is_some_and(|(key, _, _)| key.node == node) {
+                self.subscription_work = None;
+            }
+            for entry in self.subscriptions.iter_mut().filter(|entry| entry.key.node == node) {
+                entry.id = None;
+                entry.failures = 0;
+                entry.next_retry = now;
+            }
+            self.sync_report_subscriptions();
+            log::info!("Matter subscription recovery requested for {:016x}", node);
+        }
+        let entries: Vec<_> = self.subscriptions.iter().filter(|entry| entry.key.node == node).collect();
+        let start = usize::from(cursor);
+        if start > entries.len() { return Err(Failure::Malformed); }
+        let end = (start + 6).min(entries.len());
+        let subscriptions: Vec<_> = entries[start..end].iter().map(|entry| {
+            let establishing = self.subscription_work.as_ref().is_some_and(|(key, _, _)| *key == entry.key);
+            serde_json::json!({
+                "endpoint": entry.key.endpoint, "cluster": entry.key.cluster, "attribute": entry.key.attribute,
+                "id": entry.id, "max_interval_seconds": entry.max_interval,
+                "last_report_age_seconds": entry.last_received.map(|time| now.saturating_duration_since(time).as_secs()),
+                "retry_in_seconds": entry.next_retry.saturating_duration_since(now).as_secs(),
+                "failures": entry.failures,
+                "state": if establishing { "establishing" } else if entry.id.is_some() && entry.next_retry > now { "active" }
+                    else if entry.id.is_some() { "overdue" } else { "pending" }
+            })
+        }).collect();
+        let snapshot = self.snapshots.iter().find(|snapshot| snapshot.node == node);
+        let intermittent = self.registered_nodes.contains(&node) || snapshot.is_some_and(|snapshot|
+            snapshot.endpoints.iter().any(|endpoint| endpoint.servers.contains(&ICD_MANAGEMENT_CLUSTER)));
+        let sleeping = self.registered_nodes.contains(&node) && !self.node_awake(node, now);
+        Ok(serde_json::json!({"node": crate::control::Id(node), "restore_scheduled": restore,
+            "reachability": if sleeping { "sleeping" } else if snapshot.is_some_and(|snapshot| snapshot.online) { "online" } else { "offline" },
+            "intermittent": intermittent,
+            "subscriptions": subscriptions, "next_cursor": if end < entries.len() { Some(end) } else { None }}))
+    }
+
     fn sync_subscriptions(&mut self, now: Instant) {
         let desired = subscription_keys(&self.snapshots, self.subscription_limit);
         self.subscriptions
@@ -1430,6 +1512,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                     failures: 0,
                     unit: None,
                     last_report: None,
+                    last_received: None,
                 });
             }
         }
@@ -1454,6 +1537,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             .is_some_and(|snapshot| { let changed = !snapshot.online; snapshot.online = true; changed });
         if became_online { self.changed(); }
         let subscription = &mut self.subscriptions[index];
+        subscription.last_received = Some(Instant::now());
         // max_int is the publisher's report/keepalive cadence, not a lease
         // that requires periodic re-subscription. Only re-establish after
         // reports actually stop arriving.
@@ -1687,6 +1771,7 @@ mod tests {
             failures: 0,
             unit: None,
             last_report: None,
+            last_received: None,
         });
         manager.record_report(crate::subscriptions::ReceivedReport {
             fabric: 1,
@@ -1737,6 +1822,75 @@ mod tests {
         drop(manager);
         drop(ipc);
         drop(peer);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn subscription_health_recovery_and_sleeping_devices() {
+        use crate::{entropy::OsEntropy, store::PrivateStore};
+        use rs_matter::{crypto::{default_crypto, CryptoSensitiveRef},
+            dm::devices::test::{TEST_DEV_ATT, TEST_DEV_COMM, TEST_DEV_DET}, utils::init::InitMaybeUninit};
+        let directory = std::env::temp_dir().join(format!("matter-subscription-health-{}", std::process::id()));
+        let catalog = Catalog::open(PrivateStore::open(&directory).unwrap(), 1, 2).unwrap();
+        for node in 2..=4 {
+            let reservation = catalog.reserve(node).unwrap();
+            reservation.fabric_installed().unwrap();
+            reservation.thread_provisioned().unwrap();
+            reservation.complete().unwrap();
+        }
+        let crypto = default_crypto(OsEntropy::open().unwrap(), CryptoSensitiveRef::new(&[9; 32]));
+        let mut memory = Box::new(std::mem::MaybeUninit::uninit());
+        let matter = memory.init_with(Matter::init(&TEST_DEV_DET, TEST_DEV_COMM, &TEST_DEV_ATT, 5540));
+        let mut manager = Manager::new(matter, &crypto, NonZeroU8::new(1).unwrap(), catalog).unwrap();
+        let now = Instant::now();
+        for node in 2..=4 {
+            manager.snapshots.push(Snapshot { node, endpoints: vec![Endpoint { id: 1,
+                servers: if node == 2 { vec![6, 8, 69, 91, 1026, 1029, 1037, 1066] }
+                    else if node == 3 { vec![70, 1026] } else { vec![47, 1026] },
+                clients: vec![], device_types: vec![] }], manufacturer: String::new(), model: String::new(),
+                rssi_dbm: None, online: true, next: now, failures: 0 });
+        }
+        manager.sync_subscriptions(now);
+        for entry in &mut manager.subscriptions {
+            entry.id = Some(entry.key.cluster);
+            entry.next_retry = now + Duration::from_secs(900);
+            entry.max_interval = 900;
+        }
+        manager.sync_report_subscriptions();
+        let health = manager.subscription_health(2, false, 0, now).unwrap();
+        assert_eq!(health["subscriptions"].as_array().unwrap().len(), 6);
+        assert_eq!(health["next_cursor"], 6);
+        let body = crate::responses::reply::<_, crate::operations::Failure>(Ok(&health)).unwrap();
+        assert!(body.len() <= crate::ipc::MAX_PAYLOAD);
+        let frame = crate::ipc::Frame { kind: 1, opcode: 10, id: 1, payload: body };
+        let encoded = crate::wire_cbor::encode(&frame).unwrap();
+        let decoded = crate::wire_cbor::decode(&encoded[2..]).unwrap();
+        let decoded: serde_json::Value = serde_json::from_slice(&decoded.payload).unwrap();
+        assert_eq!(decoded["result"], health);
+        let second = manager.subscription_health(2, false, 6, now).unwrap();
+        assert_eq!(second["subscriptions"].as_array().unwrap().len(), 2);
+        assert!(second["next_cursor"].is_null());
+        assert!(manager.subscription_health(2, true, 6, now).is_err());
+        assert!(manager.subscription_health(99, false, 0, now).is_err());
+        manager.record_report(crate::subscriptions::ReceivedReport { fabric: 1, node: 2,
+            subscription_id: 1026, values: vec![], buttons: vec![] });
+        let health = manager.subscription_health(2, false, 0, now + Duration::from_secs(1)).unwrap();
+        assert!(health["subscriptions"].as_array().unwrap().iter().any(|row|
+            row["cluster"] == 1026 && row["last_report_age_seconds"].as_u64().is_some()));
+        manager.registered_nodes.push(3);
+        let sleeping = manager.subscription_health(3, false, 0, now).unwrap();
+        assert_eq!(sleeping["reachability"], "sleeping");
+        manager.restore_after_return(3, now);
+        manager.restore_after_return(4, now);
+        assert!(manager.subscriptions.iter().filter(|entry| entry.key.node != 2).all(|entry| entry.id.is_some()));
+        let restored = manager.subscription_health(2, true, 0, now).unwrap();
+        assert_eq!(restored["restore_scheduled"], true);
+        assert!(manager.subscriptions.iter().filter(|entry| entry.key.node == 2).all(|entry| entry.id.is_none() && entry.next_retry == now));
+        assert!(manager.subscriptions.iter().filter(|entry| entry.key.node != 2).all(|entry| entry.id.is_some()));
+        manager.subscriptions[0].id = Some(50);
+        manager.restore_after_return(2, now);
+        assert!(manager.subscriptions[0].id.is_none());
+        drop(manager);
         std::fs::remove_dir_all(directory).unwrap();
     }
 
@@ -1801,6 +1955,7 @@ mod tests {
             failures: 0,
             unit: None,
             last_report: None,
+            last_received: None,
         });
 
         manager.record_report(report(-5.25));
@@ -2141,12 +2296,12 @@ mod tests {
             3,
             now + Duration::from_secs(60),
             Box::pin(async {
-                Ok(vec![Endpoint {
+                Ok(Discovery { endpoints: vec![Endpoint {
                     id: 0,
                     servers: vec![0x1d],
                     clients: vec![],
                     device_types: vec![],
-                }])
+                }], manufacturer: String::new(), model: String::new() })
             }),
         ));
         manager.poll(true, false, now + Duration::from_secs(30), &mut context);

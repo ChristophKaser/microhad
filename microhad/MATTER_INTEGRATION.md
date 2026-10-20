@@ -92,3 +92,37 @@ See the [runtime](../docs/matter-service-runtime.md),
 [public API](docs/matter-native-api-v1.md),
 [backup/recovery runbook](docs/matter-backup-recovery.md) and
 [acceptance requirements](docs/matter-plans/README.md).
+
+## Subscription health and recovery
+
+Matter device settings include **Refresh subscription health** and **Restore
+subscriptions**. Health shows the controller's tracked subscription IDs,
+endpoint/cluster/attribute paths, negotiated maximum report intervals, time
+since the last accepted report (including empty keepalives), retry timing and
+failure counts. These are local controller records, not an accessory-side list.
+
+`POST /api/matter/devices/subscriptions` accepts
+`{"schema":1,"node":"0000000000000019","restore":false,"cursor":0}`.
+It uses the existing HTTP job response/polling mechanism. Results contain at
+most six subscriptions plus `next_cursor`; pass that cursor with `restore:false`
+to read subsequent pages. `restore:true` is accepted only on the first page and
+schedules replacement subscriptions for that node. Completion of this request
+means recovery is scheduled; refresh health to observe establishment and failures.
+Other devices' active subscription IDs are retained. Recovery during
+commissioning or an active operation is rejected as busy.
+
+The ALPSTUGA air quality monitor profile requests a 15-minute maximum report
+interval. Other models retain their existing one-hour request. Recovery uses
+the accessory's actual negotiated maximum plus ten seconds without a report,
+not the age of the last changed measurement. Duplicate values remain suppressed.
+
+A successful authenticated inventory refresh or operation after a device was
+marked offline also schedules immediate subscription recovery when the device
+has neither ICD Management nor Power Source capabilities and is not registered
+as an ICD client. This conservative rule excludes known sleep-capable devices
+and devices whose Power Source cluster does not prove continuous availability.
+Registered ICD devices outside their active window are shown as sleeping;
+requests wait for their normal wake handling. This is an expected sleep state,
+not proof that the battery is healthy. A brief reboot that never produces an
+offline observation is handled by the report deadline rather than inferred
+from a discovery advertisement.

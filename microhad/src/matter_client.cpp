@@ -324,6 +324,27 @@ bool acceptedOperationValid(Fields fields) {
     return fields.size() == 2 && hex(fields["job"], 16, 16) &&
         fields["job"] != "\"0000000000000000\"" && fields["state"] == "\"queued\"";
 }
+bool subscriptionsValid(Fields fields) {
+    if (fields.size() != 6 || !hex(fields["node"], 16, 16) || fields["node"] <= "\"0000000000000001\"" ||
+        !booleanField(fields, "restore_scheduled") || !booleanField(fields, "intermittent") ||
+        (fields["next_cursor"] != "null" && !number(fields["next_cursor"], 1, 384)) ||
+        (fields["reachability"] != "\"online\"" && fields["reachability"] != "\"offline\"" && fields["reachability"] != "\"sleeping\"")) return false;
+    std::vector<std::string> rows;
+    if (!StatusJson(fields["subscriptions"]).parseArray(&rows) || rows.size() > 6) return false;
+    for (unsigned int i = 0; i < rows.size(); ++i) {
+        Fields row;
+        if (!StatusJson(rows[i]).parse(&row) || row.size() != 9 ||
+            !number(row["endpoint"], 0, 65534) || !number(row["cluster"], 0, 0xffffffffU) ||
+            !number(row["attribute"], 0, 0xffffffffU) ||
+            (row["id"] != "null" && !number(row["id"], 0, 0xffffffffU)) ||
+            !number(row["max_interval_seconds"], 1, 65535) ||
+            !number(row["retry_in_seconds"], 0, 0xffffffffU) || !number(row["failures"], 0, 255) ||
+            (row["last_report_age_seconds"] != "null" && !number(row["last_report_age_seconds"], 0, 0xffffffffU)) ||
+            (row["state"] != "\"active\"" && row["state"] != "\"overdue\"" &&
+             row["state"] != "\"pending\"" && row["state"] != "\"establishing\"")) return false;
+    }
+    return true;
+}
 bool responseValid(unsigned char opcode, const std::string& text) {
     Fields fields;
     if (!StatusJson(text).parse(&fields)) return false;
@@ -334,7 +355,7 @@ bool responseValid(unsigned char opcode, const std::string& text) {
     Fields result;
     if (!fields.count("result") || !StatusJson(fields["result"]).parse(&result)) return false;
     if (opcode == 9) return snapshotValid(result, true);
-    if (opcode == 10) return operationalJobValid(result) || acceptedOperationValid(result);
+    if (opcode == 10) return operationalJobValid(result) || acceptedOperationValid(result) || subscriptionsValid(result);
     if (opcode == 11) return acceptedOperationValid(result);
     if (opcode <= 5) return sessionValid(result);
     const char* name = opcode == 6 ? "generation" : opcode == 7 ? "sequence" : "write";
@@ -344,6 +365,10 @@ bool requestValid(unsigned char opcode, const std::string& text) {
     Fields fields;
     if (text.size() > MatterWire::MaxPayload || !StatusJson(text).parse(&fields) || fields["schema"] != "1") return false;
     if (opcode == 10) {
+        if (fields["action"] == "\"subscriptions\"") return fields.size() == 5 &&
+            hex(fields["node"], 16, 16) && fields["node"] > "\"0000000000000001\"" &&
+            booleanField(fields, "restore") && number(fields["cursor"], 0, 384) &&
+            (fields["restore"] == "false" || fields["cursor"] == "0");
         if (fields["action"] == "\"delete\"") return fields.size() == 4 && hex(fields["node"], 16, 16) &&
             fields["node"] > "\"0000000000000001\"" && booleanField(fields, "local");
         if (fields["action"] == "\"read\"") return fields.size() == 6 &&
@@ -463,7 +488,7 @@ bool matterReadingFromReport(const Fields& data, MatterReading* reading) {
 bool inventoryFromData(Fields data, std::string* kind, unsigned int* count, MatterEndpoint* endpoint) {
     Fields row;
     if (data.size() != 3 || !number(data["endpoint_count"], 0, 32) ||
-        !StatusJson(data["device"]).parse(&row) || (row.size() != 7 && row.size() != 8 && row.size() != 10 && row.size() != 11) ||
+        !StatusJson(data["device"]).parse(&row) || (row.size() != 7 && row.size() != 8 && row.size() != 9 && row.size() != 11) ||
         !hex(row["node"], 16, 16) || row["node"] <= "\"0000000000000001\"" ||
         !booleanField(row, "online")) return false;
     if (data["kind"] != "\"identity\"" && data["kind"] != "\"endpoint\"" && data["kind"] != "\"commit\"") return false;
@@ -908,6 +933,15 @@ bool MatterChannel::deviceCommandRequest(const std::string& input, std::string* 
     *body += '}';
     return requestValid(11, *body);
 }
+bool MatterChannel::deviceSubscriptionsRequest(const std::string& input, std::string* body) {
+    body->clear();
+    Fields fields;
+    if (!StatusJson(input).parse(&fields) || fields.size() != 4 || fields["schema"] != "1") return false;
+    *body = "{\"schema\":1,\"action\":\"subscriptions\",\"node\":" + fields["node"] +
+        ",\"restore\":" + fields["restore"] + ",\"cursor\":" + fields["cursor"] + "}";
+    return requestValid(10, *body);
+}
+
 bool MatterChannel::deviceBindingRequest(const std::string& input, std::string* body) {
     body->clear();
     Fields fields;

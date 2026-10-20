@@ -145,6 +145,7 @@ pub enum ThreadRequest {
 #[derive(Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
 pub enum DeviceRequest {
+    Subscriptions { schema: Schema, node: Id, restore: bool, cursor: u16 },
     Delete { schema: Schema, node: Id, local: bool },
     // Synthetic commissioning probe compatibility; never exposed by the service.
     #[cfg(any(test, feature = "controller-probe"))]

@@ -47,6 +47,7 @@ fn shape(context: &str, value: &Cbor, kind: u8, opcode: u8, event: &str) -> Stri
             3..=5 => "session".into(),
             6..=8 => format!("ack{opcode}"),
             9 => "thread".into(),
+            10 if has(value, "subscriptions") => "subscription-health".into(),
             10 if has(value, "devices") => "page".into(),
             10 | 11 => "job".into(),
             _ => "".into(),

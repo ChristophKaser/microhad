@@ -416,6 +416,22 @@ void runMatterClientUnitTests() {
         assert(channel.call(10, jobBody, &json, &error) == (i < 5));
         assert(pthread_join(server, 0) == 0);
     }
+    const std::string subscriptionBody = "{\"schema\":1,\"action\":\"subscriptions\",\"node\":\"0000000000000002\",\"restore\":false,\"cursor\":0}";
+    std::string preparedSubscriptions;
+    assert(MatterChannel::deviceSubscriptionsRequest("{\"schema\":1,\"node\":\"0000000000000002\",\"restore\":false,\"cursor\":0}", &preparedSubscriptions));
+    assert(preparedSubscriptions == subscriptionBody);
+    assert(!MatterChannel::deviceSubscriptionsRequest("{\"schema\":1,\"node\":\"0000000000000002\",\"restore\":true,\"cursor\":6}", &preparedSubscriptions));
+    const std::string subscriptionReply = "{\"schema\":1,\"ok\":true,\"result\":{\"node\":\"0000000000000002\",\"restore_scheduled\":false,\"intermittent\":false,\"reachability\":\"online\",\"next_cursor\":null,\"subscriptions\":[{\"endpoint\":1,\"cluster\":1026,\"attribute\":0,\"id\":77,\"max_interval_seconds\":900,\"last_report_age_seconds\":10,\"retry_in_seconds\":900,\"failures\":0,\"state\":\"active\"}]}}";
+    for (unsigned int i = 0; i < 2; ++i) {
+        int pair[2]; assert(socketpair(AF_UNIX, SOCK_STREAM, 0, pair) == 0);
+        assert(fcntl(pair[0], F_SETFL, O_NONBLOCK) == 0);
+        MatterChannel channel("unused"); channel.fd_ = pair[0];
+        Peer peer; peer.fd = pair[1]; peer.opcode = 10; peer.body = subscriptionBody; peer.reply = subscriptionReply;
+        if (i) peer.reply.replace(peer.reply.find("active"), 6, "invented");
+        pthread_t server; assert(pthread_create(&server, 0, serveStatus, &peer) == 0);
+        assert(channel.call(10, subscriptionBody, &json, &error) == (i == 0));
+        assert(pthread_join(server, 0) == 0);
+    }
     const std::string writeEvent = "{\"schema\":1,\"event\":\"ble_write\",\"data\":{\"session\":\"0000000000000001\",\"generation\":4294967295,\"write\":3,\"data\":\"000fff\"}}";
     for (unsigned int i = 0; i < 2; ++i) {
         int pair[2]; assert(socketpair(AF_UNIX, SOCK_STREAM, 0, pair) == 0);

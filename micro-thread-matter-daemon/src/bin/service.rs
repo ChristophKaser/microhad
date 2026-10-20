@@ -190,6 +190,14 @@ fn dispatch<C: Crypto>(
             Request::BleWriteComplete(_))) => String::from_utf8(controller.handle(
                 body, peer, lifecycle, entropy, Instant::now(),
             )?).ok()?,
+        Ok(Request::Device(micro_thread_matter_daemon::control::DeviceRequest::Subscriptions { node, restore, cursor, .. })) => {
+            let result = if restore && (controller.commissioning(Instant::now()) || devices.operations_busy()) {
+                Err(micro_thread_matter_daemon::operations::Failure::Busy)
+            } else {
+                devices.subscription_health(node.0, restore, cursor, Instant::now())
+            };
+            String::from_utf8(micro_thread_matter_daemon::responses::reply(result)?).ok()?
+        },
         Ok(Request::Device(body @ micro_thread_matter_daemon::control::DeviceRequest::Delete { .. })) =>
             String::from_utf8(micro_thread_matter_daemon::responses::reply(devices.submit(
                 Request::Device(body), lifecycle.snapshot().attached && thread.is_some(),

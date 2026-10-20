@@ -103,7 +103,7 @@ function pause(ms: number, signal: AbortSignal): Promise<void> {
 }
 export async function matterCall(route: string, fields: Record<string, unknown>, signal: AbortSignal): Promise<unknown> {
   if (!['/api/thread/create', '/api/thread/import', '/api/thread/retry', '/api/matter/commissioning/start', '/api/matter/commissioning/status', '/api/matter/commissioning/cancel',
-    '/api/matter/devices/read', '/api/matter/devices/command', '/api/matter/devices/bind'].includes(route)) throw new MatterError('unsupported')
+    '/api/matter/devices/read', '/api/matter/devices/command', '/api/matter/devices/bind', '/api/matter/devices/subscriptions'].includes(route)) throw new MatterError('unsupported')
   const keys = Object.keys(fields)
   if (route.endsWith('/create') && keys.length !== 0) throw new MatterError('malformed')
   if (route.endsWith('/import') && (keys.length !== 1 || typeof fields.dataset !== 'string' || !validDataset(fields.dataset))) throw new MatterError('malformed')
@@ -112,6 +112,8 @@ export async function matterCall(route: string, fields: Record<string, unknown>,
       !integer(fields.pin, 1, 99999998) || !integer(fields.timeout_seconds, 30, 900))) throw new MatterError('malformed')
   if (!route.endsWith('/commissioning/start') && route.includes('/commissioning/') &&
       (keys.length !== 1 || typeof fields.session !== 'string' || !validSession(fields.session))) throw new MatterError('malformed')
+  if (route.endsWith('/devices/subscriptions') && (keys.length !== 3 || typeof fields.node !== 'string' || !validSession(fields.node) ||
+      typeof fields.restore !== 'boolean' || !integer(fields.cursor, 0, 384) || (fields.restore && fields.cursor !== 0))) throw new MatterError('malformed')
   if (route.endsWith('/devices/read') && (keys.length !== 4 || typeof fields.node !== 'string' || !validSession(fields.node) ||
       !integer(fields.endpoint, 0, 65534) || ![6, 8, 69, 91, 1026, 1029, 1037, 1066].includes(Number(fields.cluster)) || fields.attribute !== 0)) throw new MatterError('malformed')
   if (route.endsWith('/devices/command')) {
@@ -339,4 +341,46 @@ export async function matterSensor(node: string, endpoint: number, cluster: numb
   if (Object.keys(measurement).length !== 3 || !valueValid || !units[cluster]?.includes(String(measurement.unit)) ||
       measurement.quality !== (unknown ? 'unknown' : 'measured')) throw new MatterError('protocol')
   return measurement as MatterMeasurement
+}
+
+export interface MatterSubscription {
+  endpoint: number
+  cluster: number
+  attribute: number
+  id: number | null
+  state: 'active' | 'overdue' | 'pending' | 'establishing'
+  max_interval_seconds: number
+  last_report_age_seconds: number | null
+  retry_in_seconds: number
+  failures: number
+}
+export interface MatterSubscriptionHealth {
+  reachability: 'online' | 'offline' | 'sleeping'
+  intermittent: boolean
+  subscriptions: MatterSubscription[]
+}
+export async function matterSubscriptions(node: string, restore: boolean, signal: AbortSignal): Promise<MatterSubscriptionHealth> {
+  const subscriptions: MatterSubscription[] = []
+  let cursor = 0
+  let health: MatterSubscriptionHealth | undefined
+  do {
+    const data = object(await matterCall('/api/matter/devices/subscriptions', { node, restore: restore && cursor === 0, cursor }, signal))
+    if (data.node !== node || typeof data.intermittent !== 'boolean' || !['online', 'offline', 'sleeping'].includes(String(data.reachability)) ||
+        !Array.isArray(data.subscriptions) || data.subscriptions.length > 6 ||
+        (data.next_cursor !== null && (!integer(data.next_cursor, cursor + 1, 384) || data.next_cursor !== cursor + data.subscriptions.length))) throw new MatterError('protocol')
+    for (const value of data.subscriptions) {
+      const row = object(value)
+      if (!integer(row.endpoint, 0, 65534) || !integer(row.cluster, 0, 0xffffffff) || !integer(row.attribute, 0, 0xffffffff) ||
+          (row.id !== null && !integer(row.id, 0, 0xffffffff)) || !integer(row.max_interval_seconds, 1, 65535) ||
+          (row.last_report_age_seconds !== null && !integer(row.last_report_age_seconds, 0, 0xffffffff)) ||
+          !integer(row.retry_in_seconds, 0, 0xffffffff) || !integer(row.failures, 0, 255) ||
+          !['active', 'overdue', 'pending', 'establishing'].includes(String(row.state))) throw new MatterError('protocol')
+      subscriptions.push(row as unknown as MatterSubscription)
+    }
+    health = { reachability: data.reachability as MatterSubscriptionHealth['reachability'], intermittent: data.intermittent, subscriptions }
+    if (data.next_cursor === null) break
+    cursor = data.next_cursor as number
+  } while (cursor < 384)
+  if (!health) throw new MatterError('protocol')
+  return health
 }

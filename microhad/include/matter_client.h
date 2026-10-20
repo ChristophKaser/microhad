@@ -41,6 +41,7 @@ public:
     static bool threadChannel(const std::string& input, unsigned char channel, std::string* body);
     static bool deviceReadRequest(const std::string& input, std::string* body);
     static bool deviceCommandRequest(const std::string& input, std::string* body);
+    static bool deviceSubscriptionsRequest(const std::string& input, std::string* body);
     static bool deviceBindingRequest(const std::string& input, std::string* body);
     static bool deviceResult(const std::string& response, const std::string& job, MatterReading* reading);
     static bool inventoryNodesEvent(const std::string& event, std::vector<std::string>* nodes);

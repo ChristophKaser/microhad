@@ -282,5 +282,31 @@
   },
   "inventory-node": {
     "node": "@id"
+  },
+  "request10:subscriptions": {
+    "schema": "",
+    "action": "",
+    "node": "@id",
+    "restore": "",
+    "cursor": ""
+  },
+  "subscription-health": {
+    "node": "@id",
+    "restore_scheduled": "",
+    "intermittent": "",
+    "reachability": "",
+    "next_cursor": "",
+    "subscriptions": "subscription"
+  },
+  "subscription": {
+    "endpoint": "",
+    "cluster": "",
+    "attribute": "",
+    "id": "",
+    "max_interval_seconds": "",
+    "last_report_age_seconds": "",
+    "retry_in_seconds": "",
+    "failures": "",
+    "state": ""
   }
 }

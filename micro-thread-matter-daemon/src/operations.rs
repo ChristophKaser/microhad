@@ -894,17 +894,17 @@ mod tests {
         let values = report_values(2, &report).unwrap();
         assert_eq!(values.len(), 8);
         assert!(matches!(values[0].value, Value::Bool(true)));
-        assert!(matches!(values[1].value, Value::AirQuality(ref value)
+        assert!(matches!(values[2].value, Value::AirQuality(ref value)
             if value.value == "poor" && value.quality == "measured"));
-        assert!(matches!(values[2].value, Value::Measurement(ref value)
-            if value.value == Some(-5.25) && value.unit == "celsius" && value.quality == "measured"));
         assert!(matches!(values[3].value, Value::Measurement(ref value)
-            if value.value.is_none() && value.unit == "celsius" && value.quality == "unknown"));
+            if value.value == Some(-5.25) && value.unit == "celsius" && value.quality == "measured"));
         assert!(matches!(values[4].value, Value::Measurement(ref value)
+            if value.value.is_none() && value.unit == "celsius" && value.quality == "unknown"));
+        assert!(matches!(values[5].value, Value::Measurement(ref value)
             if value.value == Some(64.0) && value.unit == "percent" && value.quality == "measured"));
-        assert!(matches!(values[5].value, Value::RawMeasurement(Some(value)) if value == 800.0));
-        assert!(matches!(values[6].value, Value::RawMeasurement(Some(value)) if value == 25.5));
-        assert!(matches!(values[7], ResultValue { cluster: 47, attribute: 12, value: Value::U8(Some(153)), .. }));
+        assert!(matches!(values[6].value, Value::RawMeasurement(Some(value)) if value == 800.0));
+        assert!(matches!(values[7].value, Value::RawMeasurement(Some(value)) if value == 25.5));
+        assert!(matches!(values[1], ResultValue { cluster: 47, attribute: 12, value: Value::U8(Some(153)), .. }));
     }
     #[test]
     fn unsupported_paths_and_invalid_identity_are_rejected() {

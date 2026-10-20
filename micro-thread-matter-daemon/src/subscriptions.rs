@@ -107,6 +107,14 @@ pub async fn establish_device_attribute<C: Crypto>(
     cluster: u32,
     attribute: u32,
 ) -> Result<DeviceSubscription, Error> {
+    establish_device_attribute_with_interval(matter, crypto, fabric, node, endpoint, cluster, attribute,
+        MAX_REPORT_INTERVAL_SECONDS).await
+}
+
+pub async fn establish_device_attribute_with_interval<C: Crypto>(
+    matter: &Matter<'_>, crypto: &C, fabric: NonZeroU8, node: u64, endpoint: u16,
+    cluster: u32, attribute: u32, max_interval: u16,
+) -> Result<DeviceSubscription, Error> {
     let unit = match cluster {
         1037 | 1066 => Some(
             crate::operations::read_measurement_unit(
@@ -128,7 +136,7 @@ pub async fn establish_device_attribute<C: Crypto>(
             builder
                 .keep_subs(true)?
                 .min_int_floor(MIN_REPORT_INTERVAL_SECONDS)?
-                .max_int_ceil(MAX_REPORT_INTERVAL_SECONDS)?
+                .max_int_ceil(max_interval)?
                 .attr_requests_from(core::slice::from_ref(&path))?
                 .fabric_filtered(true)?
                 .end()

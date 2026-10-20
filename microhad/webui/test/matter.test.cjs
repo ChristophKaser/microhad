@@ -260,3 +260,29 @@ test('Matter endpoint adapter creates the shared device shape and drops descript
   assert.equal(measured.sensor_values.pm25.value, 7);
   assert.equal(wire.matterDeviceModel({ ...endpoint, servers: [29] }), null);
 });
+
+test('subscription recovery paginates without replaying the recovery request', async () => {
+  let cursor = 0;
+  const row = { endpoint: 1, cluster: 1026, attribute: 0, id: 77, state: 'active', max_interval_seconds: 900,
+    last_report_age_seconds: 3, retry_in_seconds: 907, failures: 0 };
+  await peer(call => {
+    if (call.method === 'POST') { cursor = call.body.cursor; return { body: accepted }; }
+    return { body: completed({ node: id, intermittent: false, reachability: 'online',
+      restore_scheduled: cursor === 0, subscriptions: [row], next_cursor: cursor === 0 ? 1 : null }) };
+  }, async calls => {
+    const value = await wire.matterSubscriptions(id, true, signal());
+    assert.equal(value.subscriptions.length, 2);
+    assert.equal(value.reachability, 'online');
+    assert.deepEqual(calls.filter(call => call.method === 'POST').map(call => call.body), [
+      { schema: 1, node: id, restore: true, cursor: 0 }, { schema: 1, node: id, restore: false, cursor: 1 },
+    ]);
+  });
+});
+
+test('subscription health rejects stale cursors and invalid report state', async () => {
+  await peer(call => ({ body: call.method === 'POST' ? accepted : completed({ node: id, intermittent: true,
+    reachability: 'sleeping', subscriptions: [], next_cursor: 0 }) }), async () => {
+    await assert.rejects(wire.matterSubscriptions(id, false, signal()), /protocol/);
+  });
+  await assert.rejects(wire.matterCall('/api/matter/devices/subscriptions', { node: id, restore: true, cursor: 1 }, signal()), /malformed/);
+});

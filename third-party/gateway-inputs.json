@@ -37,6 +37,7 @@
     "ziggurat/patches/ziggurat-end-device-relay.patch": "f6deec80227bc2b34c8075d40f87464b6697dae1d35527c0e121d4fe7a8f56de",
     "ziggurat/patches/ziggurat-fresh-join-replay.patch": "ce8278686e0738340e6f8a7946b852fd331bec6d348f6f9ddffec4f25f93fc77",
     "ziggurat/patches/ziggurat-hdlc-multipan.patch": "18fe9429093a14071aea1dade5442fa98652a36ca2415241d10ad2fe5b183685",
+    "ziggurat/patches/ziggurat-key-rng-readiness.patch": "1d2cc942a445590617c7f1a1246a36c4c441b6916b04ec209bf26eafacc0d943",
     "ziggurat/patches/ziggurat-multipan-stock-compat.patch": "be75e17c9376fe623cce929ec729b349dd5dd597a657fac0763be818b8b2b37c",
     "ziggurat/patches/ziggurat-multipan-syslog.patch": "520ac586d49ea5255d526e2debc997caab9dce7bcadab9e152aeedb052d88436",
     "ziggurat/patches/ziggurat-network-migration.patch": "674793174d2c401882ae5a3cb69e1df0fc3e94ec852a2c3e9c43507961d87196",

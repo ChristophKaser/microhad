@@ -3,7 +3,8 @@ import type { Device, EndpointDescriptor, Status } from './api'
 import { errorMessage, form, post } from './api'
 import { isDimmable } from './scenes'
 import { DeleteDeviceDialog } from './DeviceDeletion'
-import { matterSyncTime } from './matter'
+import { matterSyncTime, matterSubscriptions } from './matter'
+import type { MatterSubscriptionHealth } from './matter'
 
 const profileNames: Record<number, string> = {
   260: 'Home Automation',
@@ -570,6 +571,22 @@ export function DeviceSettings({
   const [syncingClock, setSyncingClock] = useState(false)
   const [clockResult, setClockResult] = useState('')
   const [timeZone, setTimeZone] = useState(defaultTimeZone)
+  const [subscriptions, setSubscriptions] = useState<MatterSubscriptionHealth>()
+  const [subscriptionBusy, setSubscriptionBusy] = useState(false)
+  const [subscriptionResult, setSubscriptionResult] = useState('')
+  const loadSubscriptions = async (restore = false) => {
+    if (!device.matter_node || subscriptionBusy) return
+    setSubscriptionBusy(true)
+    setSubscriptionResult('')
+    try {
+      setSubscriptions(await matterSubscriptions(device.matter_node, restore, new AbortController().signal))
+      if (restore) setSubscriptionResult('Recovery scheduled. Refresh to check progress.')
+    } catch (cause) {
+      setSubscriptionResult(errorMessage(cause))
+    } finally {
+      setSubscriptionBusy(false)
+    }
+  }
   const clockEndpoint = device.source === 'matter'
     ? device.endpoint_descriptors.find(endpoint => endpoint.input_clusters.includes(56))?.endpoint
     : undefined
@@ -697,6 +714,27 @@ export function DeviceSettings({
               required
             />
           </label>
+        )}
+        {device.source === 'matter' && device.matter_node && (
+          <fieldset>
+            <legend>Measurement subscriptions</legend>
+            <p className="muted">Reports recover automatically after their maximum interval plus 10 seconds. Sleeping devices wait until they wake.</p>
+            {subscriptions && <>
+              <p>Device: {subscriptions.reachability}{subscriptions.intermittent ? ' (supports intermittent connectivity)' : ''}</p>
+              {subscriptions.subscriptions.length === 0 && <p>No subscriptions currently tracked.</p>}
+              {subscriptions.subscriptions.map(row => <p key={`${row.endpoint}:${row.cluster}:${row.attribute}`}>
+                Endpoint {row.endpoint} · {clusterNames[row.cluster] ?? `Cluster ${row.cluster}`} · {row.state}<br />
+                <span className="muted">ID {row.id ?? 'pending'} · Maximum interval {row.max_interval_seconds}s · Last report {row.last_report_age_seconds === null ? 'not yet received' : `${row.last_report_age_seconds}s ago`} · Retry/check in {row.retry_in_seconds}s · Failures {row.failures}</span>
+              </p>)}
+            </>}
+            {subscriptionResult && <p role="status">{subscriptionResult}</p>}
+            <button type="button" className="button" disabled={subscriptionBusy} onClick={() => void loadSubscriptions()}>
+              {subscriptionBusy ? 'Loading…' : 'Refresh subscription health'}
+            </button>
+            <button type="button" className="button" disabled={subscriptionBusy} onClick={() => void loadSubscriptions(true)}>
+              Restore subscriptions
+            </button>
+          </fieldset>
         )}
         {clockEndpoint !== undefined && (
           <fieldset>
