@@ -246,7 +246,8 @@ def collect(root, args, env, toolchain, sysroot):
         export_git(ROOT / name, destination)
         slug = name.replace('/', '-')
         patch_path = '.release/patches/' + slug + '.patch'
-        base = git('rev-parse', 'refs/tags/mailbox-base', cwd=ROOT / name)
+        base = (git('rev-parse', 'HEAD', cwd=ROOT / bases[name]) if name in bases
+                else git('rev-parse', 'refs/tags/mailbox-base', cwd=ROOT / name))
         with (root / patch_path).open('wb') as stream:
             subprocess.run(['git', '-C', str(ROOT / name), 'diff', '--binary', base, 'HEAD'], stdout=stream, check=True)
         record = {'destination': name, 'patch': patch_path, 'overlays': {}}
