@@ -215,6 +215,21 @@ def required_crates(root, env, toolchain):
     return required
 
 
+def verify_lock_graph(before, after, patched=()):
+    def normalized(packages):
+        result = []
+        for package in packages:
+            package = dict(package)
+            if ((package['name'], package['version']) in patched
+                    and package.get('source') in (None, 'registry+https://github.com/rust-lang/crates.io-index')):
+                package.pop('source', None)
+                package.pop('checksum', None)
+            result.append(json.dumps(package, sort_keys=True))
+        return sorted(result)
+    if normalized(before) != normalized(after):
+        raise ValueError('Source packaging changed the resolved dependency graph')
+
+
 def collect(root, args, env, toolchain, sysroot):
     from fetch import tree_digest
     run(['bash', 'ziggurat/scripts/build.sh', '--prepare-only'], env=env)
@@ -286,8 +301,6 @@ def collect(root, args, env, toolchain, sysroot):
     shutil.copy2(ROOT / 'tools/lexra-proof/mips-lexra-linux-uclibc/sysroot/usr/include/bits/uClibc_config.h', root / '.release/libc-config.h')
     for filename in ('COPYING3', 'COPYING.RUNTIME'):
         shutil.copy2(ROOT / 'tools/lexra-proof/share/licenses/gcc' / filename, root / '.release/runtime-licenses' / filename)
-    (root / '.release/fetch-manifest.json').write_text(json.dumps({'schema': 1, 'sources': sources,
-        'required_sources': required}, indent=2, sort_keys=True) + '\n')
     # Global patch paths keep registry replacements pinned without vendoring.
     (root / '.cargo').mkdir(exist_ok=True)
     (root / '.cargo/config.toml').write_text('[patch.crates-io]\n' + '\n'.join(
@@ -299,12 +312,26 @@ def collect(root, args, env, toolchain, sysroot):
          '--manifest-path', 'micro-thread-matter-daemon/Cargo.toml'], cwd=root, env=env, capture=True)
     original_lock = ROOT / 'micro-thread-matter-daemon/Cargo.lock'
     effective_lock = root / 'micro-thread-matter-daemon/Cargo.lock'
-    if tomllib.loads(original_lock.read_text())['package'] != tomllib.loads(effective_lock.read_text())['package']:
-        raise ValueError('Source packaging changed the Matter dependency graph')
+    verify_lock_graph(tomllib.loads(original_lock.read_text())['package'],
+                      tomllib.loads(effective_lock.read_text())['package'])
     notice = root / 'third-party/gateway-inputs.json'
     snapshot = json.loads(notice.read_text())
     snapshot['inputs']['micro-thread-matter-daemon/Cargo.lock'] = sha(effective_lock)
     notice.write_text(json.dumps(snapshot, indent=2, sort_keys=True) + '\n')
+    # Freeze the lock with the three intended registry-to-path substitutions.
+    # Fetching an extracted archive must never need an unlocked resolution.
+    zig_lock = root / 'worktrees/ziggurat-multipan/Cargo.lock'
+    before = tomllib.loads(zig_lock.read_text())['package']
+    run(['cargo', '+' + toolchain, 'metadata', '--format-version', '1',
+         '--manifest-path', 'worktrees/ziggurat-multipan/Cargo.toml'], cwd=root, env=env, capture=True)
+    verify_lock_graph(before, tomllib.loads(zig_lock.read_text())['package'],
+                      {('getrandom', '0.4.3'), ('nix', '0.26.4'), ('radium', '0.7.0')})
+    for record in sources:
+        if record['destination'] == 'worktrees/ziggurat-multipan':
+            shutil.copy2(zig_lock, root / record['overlays']['Cargo.lock'])
+            record['sha256'] = tree_digest(root / record['destination'])
+    (root / '.release/fetch-manifest.json').write_text(json.dumps({'schema': 1, 'sources': sources,
+        'required_sources': required}, indent=2, sort_keys=True) + '\n')
     for name in DEPENDENCIES + PREPARED:
         shutil.rmtree(root / name)
 

@@ -32,6 +32,18 @@ def options(**overrides):
 
 
 class Packages(unittest.TestCase):
+    def test_release_locks_allow_only_reviewed_local_patch_substitutions(self):
+        original = [{'name': 'nix', 'version': '0.26.4', 'dependencies': ['libc'],
+                     'source': 'registry+https://github.com/rust-lang/crates.io-index', 'checksum': 'verified'}]
+        patched = [{'name': 'nix', 'version': '0.26.4', 'dependencies': ['libc']}]
+        builder.verify_lock_graph(original, patched, {('nix', '0.26.4')})
+        with self.assertRaisesRegex(ValueError, 'dependency graph'):
+            builder.verify_lock_graph(original, patched)
+        with self.assertRaisesRegex(ValueError, 'dependency graph'):
+            builder.verify_lock_graph(original, [dict(patched[0], dependencies=['new-dependency'])], {('nix', '0.26.4')})
+        with self.assertRaisesRegex(ValueError, 'dependency graph'):
+            builder.verify_lock_graph(original, [dict(patched[0], version='0.26.5')], {('nix', '0.26.4')})
+
     def test_git_fetch_preserves_export_ignored_and_substituted_files(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
