@@ -17,6 +17,7 @@ export function useHistory(id: string, range: HistoryRange, refresh = false): Hi
     setState(emptyHistory(key, Boolean(id)))
     if (!id) return () => controller.abort()
     const load = async () => {
+      setState(previous => ({ ...previous, loading: true, error: '' }))
       const now = Math.floor(Date.now() / 1000)
       const since = range === 'all' ? undefined : Math.max(0, now - historyRangeSeconds[range])
       try {

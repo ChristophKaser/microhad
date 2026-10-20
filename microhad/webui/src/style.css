@@ -313,6 +313,11 @@ button:disabled {
 .dashboard-widget-actions { display: flex; justify-content: end; gap: 4px; margin-bottom: 5px; }
 .dashboard-widget-actions .icon-button { min-width: 35px; min-height: 35px; padding: 3px; }
 .dashboard-chart-canvas { height: 190px; position: relative; margin-top: 12px; }
+.dashboard-chart-loading { height: 190px; margin-top: 12px; display: flex; align-items: center; justify-content: center; }
+.dashboard-chart-spinner { width: 26px; height: 26px; border: 3px solid #e1e9ef; border-top-color: var(--sensor-color, #71859a); border-radius: 50%; animation: dashboard-chart-spin .8s linear infinite; }
+@keyframes dashboard-chart-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .dashboard-chart-spinner { animation: none; } }
+
 .dashboard-chart-settings { display: flex; flex-wrap: wrap; gap: 12px; padding: 10px 14px 14px; background: #f8fafc; border: 1px solid #dce5ed; border-top: 0; border-radius: 0 0 14px 14px; }
 .dashboard-chart-settings label { display: flex; align-items: center; gap: 7px; color: #61768a; font-size: .82rem; }
 .dashboard-member { display: inline-block; margin: 2px 5px 2px 0; border-radius: 7px; background: #edf3f8; padding: 5px 7px; font-size: .77rem; }

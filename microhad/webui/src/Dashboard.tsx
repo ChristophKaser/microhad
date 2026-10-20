@@ -63,7 +63,7 @@ function SensorChart({ device, metricId, range }: { device: Device | undefined; 
     return () => chart.destroy()
   }, [points, unitPoints, metric, historyMetric, metricId, start, now, unit])
   const value = !latest || !metric ? '—' : historyLabel(historyMetric, latest)
-  return <article className="dashboard-widget dashboard-chart" style={{ '--sensor-color': metric?.color ?? '#71859a' } as CSSProperties}><div className="dashboard-widget-title"><div><h3>{device?.name ?? 'Unavailable device'}</h3><span>{metric?.name ?? 'Sensor'} · {value}</span></div></div>{error && <p className="error">{error}</p>}{points.length ? <div className="dashboard-chart-canvas"><canvas ref={canvas} role="img" aria-label={`${device?.name} ${metric?.name} chart`} /></div> : <p className="muted small">{loading ? 'Loading history…' : 'No retained samples for this value yet.'}</p>}</article>
+  return <article className="dashboard-widget dashboard-chart" style={{ '--sensor-color': metric?.color ?? '#71859a' } as CSSProperties}><div className="dashboard-widget-title"><div><h3>{device?.name ?? 'Unavailable device'}</h3><span>{metric?.name ?? 'Sensor'} · {value}</span></div></div>{error && <p className="error">{error}</p>}{points.length ? <div className="dashboard-chart-canvas"><canvas ref={canvas} role="img" aria-label={`${device?.name} ${metric?.name} chart`} /></div> : loading ? <div className="dashboard-chart-loading" role="status" aria-label="Loading history"><span className="dashboard-chart-spinner" aria-hidden="true" /></div> : !error && <p className="muted small">No retained samples for this time period.</p>}</article>
 }
 
 function formatBytes(value: number | null | undefined): string {
