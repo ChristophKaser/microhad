@@ -29,6 +29,8 @@ Commands run on the development computer unless marked **gateway**.
 | Thread/Matter | [README](../micro-thread-matter-daemon/README.md) | [Runtime](matter-service-runtime.md), [transport](rs-matter-openthread-transport.md) |
 | Radio firmware | [README](../firmware/README.md) | [Build setup](building.md), [recovery](recovery-tooling.md) |
 
+- [Stock userspace in QEMU](stock-qemu.md): download a Malta kernel and emulator, prepare local backups, and boot with no LAN or Internet access.
+
 Protocol and storage references:
 
 - [Matter CBOR IPC v2](../micro-thread-matter-daemon/docs/matter-ipc-v2.md) and [CDDL schema](../protocol/matter-ipc-v2.cddl).
