@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """Build static crosstool-NG binary/source releases; never access a gateway."""
 import argparse
-import fnmatch
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -13,8 +11,6 @@ import shutil
 import subprocess
 import sys
 import tarfile
-import tempfile
-import time
 import tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -265,6 +261,7 @@ def collect(root, args, env, toolchain, sysroot):
             record['overlays']['Cargo.lock'] = overlay
         record['sha256'] = tree_digest(destination)
         sources.append(record)
+    run(['bash', 'scripts/make-llvm-target.sh'], env=env)
     required = required_crates(root, env, toolchain)
     patch_root = 'firmware/dependencies/rtl8196e-gateway'
     for relative in ('LICENSE', '1-Build-Environment/10-lexra-toolchain/patches/binutils/2.45.1/600-Lexra.patch',
@@ -456,8 +453,7 @@ def main():
         snapshot_sources(root)
         # Reuse only the validated compiler, not application outputs or dependency caches.
         env = environment(root, args.jobs, args.cargo_home.resolve(), args.rustup_home.resolve(), epoch)
-        env.update(CROSSTOOL_NG_ROOT=str(ROOT / 'tools/lexra-proof'), MICROHAD_SOURCE_BUNDLE='1',
-                   )
+        env.update(CROSSTOOL_NG_ROOT=str(ROOT / 'tools/lexra-proof'), MICROHAD_SOURCE_BUNDLE='1')
         # Archive source inputs before builds create output/cache files.
         archive(root, staging / (root.name + '.tar.xz'), epoch)
         from fetch import fetch

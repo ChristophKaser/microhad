@@ -78,6 +78,10 @@ def apply_patch(root, patch):
 
 def fetch_tree(root, record):
     destination = root / record['destination']
+    # git archive emits empty directories for gitlinks. They are placeholders,
+    # not existing source checkouts; never replace a populated directory.
+    if destination.is_dir() and not destination.is_symlink() and not any(destination.iterdir()):
+        destination.rmdir()
     if destination.exists():
         verify_tree(destination, record)
         return
@@ -93,6 +97,9 @@ def fetch_tree(root, record):
             subprocess.run(['git', 'init', '--bare', '--quiet', str(repo)], check=True)
             subprocess.run(['git', '-C', str(repo), 'fetch', '--quiet', '--depth=1',
                             record['url'], record['revision']], check=True)
+            # Export the committed bytes, including files upstream marks as
+            # export-ignore, without substituting commit data into export-subst.
+            (repo / 'info/attributes').write_text('* -export-ignore -export-subst\n')
             archive = temporary / 'source.tar'
             subprocess.run(['git', '-C', str(repo), 'archive', '--format=tar',
                             '--output=' + str(archive), record['revision']], check=True)

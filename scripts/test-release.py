@@ -32,6 +32,31 @@ def options(**overrides):
 
 
 class Packages(unittest.TestCase):
+    def test_git_fetch_preserves_export_ignored_and_substituted_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / 'upstream'
+            subprocess.run(['git', 'init', '-q', str(source)], check=True)
+            (source / '.gitattributes').write_text('.tag export-subst\nhidden export-ignore\n')
+            (source / '.tag').write_text('$Format:%H$\n')
+            (source / 'hidden').write_text('required committed file\n')
+            subprocess.run(['git', '-C', str(source), 'add', '-A'], check=True)
+            subprocess.run(['git', '-C', str(source), '-c', 'user.name=Fixture',
+                            '-c', 'user.email=fixture@example.test', 'commit', '-qm', 'fixture'], check=True)
+            revision = subprocess.check_output(['git', '-C', str(source), 'rev-parse', 'HEAD'], text=True).strip()
+            real_run = subprocess.run
+            def run(command, **kwargs):
+                if 'fetch' in command:
+                    command = list(command)
+                    command[-2] = str(source)
+                return real_run(command, **kwargs)
+            record = dict(kind='git', destination='fetched', url='https://example.test/repo.git',
+                          revision=revision, sha256=fetch.tree_digest(source))
+            with patch.object(fetch.subprocess, 'run', side_effect=run):
+                fetch.fetch_tree(root, record)
+            self.assertEqual((root / 'fetched/.tag').read_text(), '$Format:%H$\n')
+            self.assertTrue((root / 'fetched/hidden').is_file())
+
     def test_download_rejects_bad_cache_and_bad_server_content(self):
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory) / 'source.tar'
@@ -76,6 +101,7 @@ class Packages(unittest.TestCase):
             (root / 'change.patch').write_text('diff --git a/file b/file\n--- a/file\n+++ b/file\n@@ -1 +1 @@\n-before\n+after\n')
             record = dict(kind='patched', destination='prepared', base='base', patch='change.patch',
                           sha256=fetch.tree_digest(root / 'expected'))
+            (root / 'prepared').mkdir()  # Git archive's submodule placeholder.
             fetch.fetch_tree(root, record)
             self.assertEqual((root / 'prepared/file').read_text(), 'after\n')
             self.assertFalse((root / 'prepared/.git').exists())
