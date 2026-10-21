@@ -131,23 +131,13 @@ int main(int argc, char** argv) {
     if (!certificatePath.empty() || !privateKeyPath.empty()) {
         if (certificatePath.empty() || privateKeyPath.empty()) {
             fprintf(stderr, "both tls_certificate and tls_private_key are required for HTTPS\n");
-            delete server;
-            delete shellyIntegration;
-            matterWorker.stop();
-            delete gatewayRunner;
-            delete notificationWorker;
-            return 2;
-        }
-        httpsServer = new HttpServer(httpsPort, gatewayRunner, runtimeDirectory + "/webui", certificatePath, privateKeyPath, shellyIntegration, notificationWorker, &matterWorker, config.companionJson());
-        if (!httpsServer->start(&error)) {
-            fprintf(stderr, "HTTPS startup failed: %s\n", error.c_str());
-            delete httpsServer;
-            delete server;
-            delete shellyIntegration;
-            matterWorker.stop();
-            delete gatewayRunner;
-            delete notificationWorker;
-            return 1;
+        } else {
+            httpsServer = new HttpServer(httpsPort, gatewayRunner, runtimeDirectory + "/webui", certificatePath, privateKeyPath, shellyIntegration, notificationWorker, &matterWorker, config.companionJson());
+            if (!httpsServer->start(&error)) {
+                fprintf(stderr, "HTTPS disabled: %s\n", error.c_str());
+                delete httpsServer;
+                httpsServer = 0;
+            }
         }
     }
     signal(SIGINT, stopHandler);
