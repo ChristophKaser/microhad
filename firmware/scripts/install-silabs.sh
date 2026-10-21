@@ -4,7 +4,7 @@ set -euo pipefail
 experiment_root=$(cd -- "$(dirname -- "$0")/../.." && pwd)
 tools_dir="$experiment_root/tools/silabs"
 mkdir -p "$tools_dir"
-sdk_revision=90fc93e1f95a10c981f0e49ca6787192e82fd8f2
+sdk_revision=853854753883af3c48271aa2060a5f8ffd8b070b
 git -C "$experiment_root" submodule update --init firmware/dependencies/slc-cli firmware/dependencies/gecko-sdk
 slc_source="$experiment_root/firmware/dependencies/slc-cli"
 slc_worktree="$experiment_root/build/slc-cli"

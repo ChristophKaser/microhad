@@ -20,6 +20,13 @@ Application binaries can be installed without a compiler using the
 and radio preparation below first. Choose `microhad-only` for compatible stock
 EZSP firmware, or `paired` after the Ziggurat radio/network handover.
 
+The HDLC radio also has a [prebuilt firmware package](../firmware/README.md#prebuilt-firmware-releases)
+with its GBL, standalone SSH-assisted flashing script, README and radio license
+notices. It supports replacement from either EZSP or HDLC and downloads a
+checksum-pinned temporary serial bridge when needed. Follow root-access and
+backup preparation first. **Replacing EZSP may require recreating the Zigbee
+network**; use the [migration runbook](ziggurat-deployment-plan.md) to preserve it.
+
 ## Choose a backend
 
 | Setup | Radio firmware | Runtime |
@@ -45,7 +52,8 @@ Use the [binary package](binary-releases.md) for prebuilt application binaries,
 or follow [build setup](building.md) for source builds. Radio preparation and
 existing-network migration remain separate from application installation. Gateway application builds support separately
 acquired RSDK (the production default) or source-built experimental crosstool-NG.
-The external serial bridge still uses its documented RSDK recipe. Deployment
+The source-built external serial bridge uses its documented RSDK recipe; the
+prebuilt firmware flasher can download the compatible upstream bridge. Deployment
 examples below use RSDK artifact paths; candidate builds require explicit paths
 and the compatibility checks in [toolchain selection](../config/TOOLCHAINS.md).
 For UART tools on the host:
@@ -77,8 +85,11 @@ export CONFIG_FILE="$PRIVATE_DIR/native-config.json"
 ```
 
 `WORKSPACE`, `PROJECT_ROOT`, `MIGRATION_PYTHON`, `NCP_IMAGE` and `RCP_IMAGE` come from
-[build setup](building.md); `RSDK_ROOT` is needed for the serial-bridge build.
-Only Mode B needs `RCP_IMAGE` built.
+[build setup](building.md); RSDK is needed only if building the serial bridge
+from source. The firmware package and upstream prebuilt bridge need no compiler.
+Only Mode B needs `RCP_IMAGE`: build it, or set it to the GBL extracted from the
+prebuilt firmware package. For that package also set `RCP_PACKAGE_DIR` to its
+absolute extraction directory and follow its host dependency setup.
 Store all credentials and backups outside Git. The host settings file is
 private and is never installed on the gateway.
 
@@ -208,10 +219,23 @@ gateway_ssh 'tar -cf - /tuya/tuya_start.sh.factory-backup /tuya/ssh_monitor.sh.f
 gateway_ssh 'uname -a; cat /proc/meminfo; df -k /tuya; ps'
 ```
 
-Transfer through SSH stdin, not SCP (old Dropbear has no SCP subsystem):
+The packaged firmware flasher provisions its own temporary serial bridge;
+skip this manual bridge installation if that is all you need. The manual EZSP
+baseline, network-capture and external Home Assistant procedures below use
+`/tuya/serialgateway`. Obtain that binary without a compiler on the host:
 
 ```sh
-cat "$WORKSPACE/lidl-gateway-freedom/gateway/serialgateway" | \
+curl --fail --location \
+  https://github.com/banksy-git/lidl-gateway-freedom/releases/download/Release-1.2/serialgateway \
+  --output "$PRIVATE_DIR/serialgateway"
+echo "1321510921d97b59336f7e6dc80cc3e8b8eccb2b804c940ab264c666aec3e827  $PRIVATE_DIR/serialgateway" | sha256sum --check
+```
+
+Alternatively build it using [build setup](building.md) and substitute that
+artifact below. Transfer through SSH stdin, not SCP (old Dropbear has no SCP subsystem):
+
+```sh
+cat "$PRIVATE_DIR/serialgateway" | \
   gateway_ssh 'cat > /tuya/serialgateway.new && chmod 755 /tuya/serialgateway.new && mv /tuya/serialgateway.new /tuya/serialgateway'
 ```
 
@@ -423,6 +447,27 @@ old coordinator after preparing the handover. For interruption/rollback use the
 [checkpoint procedure](ziggurat-deployment-plan.md), not a stale export.
 
 ### B2. Flash the application-only RCP
+
+If using the prebuilt package, the final capture above has already entered the
+bootloader. Stop its exact bridge, then invoke the packaged uploader on the
+host; do not reconnect the old EZSP coordinator:
+
+```sh
+gateway_ssh "kill -TERM $BRIDGE_PID"
+"$MIGRATION_PYTHON" "$RCP_PACKAGE_DIR/flash.py" \
+  --host "$GATEWAY_IP" --radio ezsp --already-in-bootloader \
+  --acknowledge-ezsp-replacement --flash
+```
+
+The package validates its bundled hash/CRC/ranges, provisions its own temporary
+bridge if necessary, requires upload acknowledgment and checks an IID1 Spinel
+version reply from the new radio. It does not import the network or resume
+EZSP services. After success continue at **B3**. Its standalone script uses
+normal SSH authentication; use `--ssh-port` or `--identity` where needed.
+It does not read the repository's private workspace settings.
+
+For the source-built GBL and repository uploader instead, use the remaining
+commands in this subsection:
 
 Inspect the built RCP image with `ezsp_preflight.py image "$RCP_IMAGE"`, review
 its application ranges, and set `RCP_SHA256` to the accepted artifact hash.

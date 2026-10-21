@@ -12,8 +12,11 @@ the repository root. Radio work still requires explicit maintenance authorizatio
 
 ## Prepare the handover
 
-1. Build the Ziggurat backend, multipan server, maintenance helper and
-   application-only RCP GBL using [build setup](building.md). Initially use
+1. Build the Ziggurat backend, multipan server and maintenance helper using
+   [build setup](building.md), or obtain matching [application binaries](binary-releases.md).
+   Obtain the application-only RCP GBL from the
+   [prebuilt firmware package](../firmware/README.md#prebuilt-firmware-releases),
+   or build it from source. Initially use
    `ZIGGURAT=1 MATTER=0`; add Matter after Zigbee migration is validated.
 2. Retain the original application/launcher/configuration, a private logical
    network backup and the pinned NCP recovery GBL on the host. Record selected
@@ -37,6 +40,29 @@ network, substitute the current network for its empty-network setup; do not run
 and private. Keep the normalized final pre-cutover state for future rollback.
 
 ## Flash and activate
+
+**WARNING: DIRECT EZSP REPLACEMENT MAY REQUIRE RECREATING THE ZIGBEE NETWORK.**
+The firmware package does not migrate coordinator state. Complete all final
+capture/import preparation above before uploading if preserving pairings.
+
+With the prebuilt package, stop the exact bridge used by final capture and
+leave the old supervisor suspended. Run from its extracted directory on the
+host, after installing the Python dependencies in the packaged README:
+
+```sh
+.venv/bin/python flash.py --host 192.168.1.50 --radio ezsp \
+  --already-in-bootloader --acknowledge-ezsp-replacement --flash
+```
+
+Use the actual gateway address and SSH port/key. The script validates its
+bundled GBL, reuses a matching installed serial bridge or downloads the
+checksum-pinned upstream binary on the host and stages it under `/tmp`.
+It verifies the bootloader menu, upload acknowledgment and a version query to
+the new HDLC radio. It leaves EZSP services and the prepared suspended native
+supervisor stopped. It does not import state, change launchers or activate
+Ziggurat. Continue with installation of the prepared state and services below.
+
+For a source-built GBL, retain the repository's uploader procedure instead:
 
 Verify the expected Gecko menu before uploading an inspected application-only
 GBL at 115200 baud without flow control. Stop the bridge after upload and verify

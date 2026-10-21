@@ -37,8 +37,74 @@ Follow [installation](../docs/installation.md) and
 network state and factory backups; shared-radio maintenance requires exclusive
 UART ownership.
 
+## Prebuilt firmware releases
+
+Download `ot-rcp-multipan-VERSION.tar.gz` from the repository's
+[GitHub releases](https://github.com/ChristophKaser/ziggurat-compilation/releases).
+Extract it on a Linux host and follow its `readme.md`:
+
+```sh
+tar xzf ot-rcp-multipan-VERSION.tar.gz
+cd ot-rcp-multipan-VERSION
+python3 -m venv .venv
+.venv/bin/pip install bellows==1.0.2 universal-silabs-flasher==1.1.0
+.venv/bin/python flash.py
+```
+
+This validates the GBL offline. The archive also contains `license.md` with
+radio-specific SDK, source-header and linked-runtime notices. It requires no
+SDK, compiler or repository checkout to use. The package does not install
+Ziggurat or migrate a Zigbee network.
+
+For an HDLC update, first [quiesce and save a frozen snapshot](../docs/recovery-tooling.md#orderly-stop-and-frozen-zigbee-export).
+Then run from the extracted package:
+
+```sh
+.venv/bin/python flash.py --host 192.168.1.50 --radio hdlc \
+  --frozen-snapshot-saved --flash
+```
+
+**WARNING: REPLACING EZSP MAY REQUIRE RECREATING YOUR ZIGBEE NETWORK.**
+To preserve an existing network, follow [Ziggurat migration](../docs/ziggurat-deployment-plan.md)
+through final capture and bootloader entry before using `--radio ezsp
+--already-in-bootloader --acknowledge-ezsp-replacement --flash`. Stop the
+capture's bridge first. Direct replacement of an EZSP radio is supported
+without `--already-in-bootloader`, with the same explicit acknowledgment.
+EZSP services remain stopped after replacement; do not reboot into their old
+launcher. Factory services and external coordinators must be stopped separately.
+
+The host uses SSH to prepare the gateway and uploads through a temporary TCP
+bridge. If a compatible `/tuya/serialgateway` is absent, it downloads the pinned
+[upstream Release-1.2 binary](https://github.com/banksy-git/lidl-gateway-freedom/releases/tag/Release-1.2),
+verifies SHA-256 and stages it under `/tmp` over SSH stdin. The gateway needs
+neither Internet access nor SCP. Use `--serialgateway PATH` for an offline
+copy of that binary. Existing installed files are not overwritten.
+
+## Build a firmware release
+
+After installing the source-build tools above, run from the repository root
+using a Python environment with the flashing dependencies:
+
+```sh
+tools/network-migration-venv/bin/python firmware/scripts/build-release.py \
+  --version VERSION --jobs 4
+tools/network-migration-venv/bin/python firmware/scripts/test-release.py
+```
+
+If that virtualenv does not exist, create a Python 3.11+ virtualenv and install
+the pinned dependencies shown above, then use its Python executable instead.
+The builder rebuilds firmware, packages and validates the application-only GBL,
+and writes `build/releases/firmware/VERSION/ot-rcp-multipan-VERSION.tar.gz`.
+Existing release output is refused. No device is contacted and nothing is
+published. Commit release inputs before publishing; local changes are identified
+in the packaged README. SDK/reference dependencies must be unmodified.
+`SOURCE_DATE_EPOCH` controls archive timestamps; otherwise the project commit
+timestamp is used. Missing notices or unreviewed link inputs abort packaging.
+
 ## Licenses and attribution
 
 Original project code is MIT licensed; upstream components retain their own terms.
 See the repository-wide [third-party inventory](../THIRD_PARTY.md) for attribution,
 notice generation and release requirements.
+The release builder records applicable SDK/per-file terms and full runtime
+license supplements; it does not lift the firmware redistribution review gate.

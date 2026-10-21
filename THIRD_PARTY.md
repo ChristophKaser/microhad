@@ -57,6 +57,13 @@ Web UI build does not require Rust caches or internet access. Its structured rec
 dependency inventory for the native daemons, Ziggurat, Matter service and Web UI.
 Host tools, proc macros, tests, probes, unrelated platforms and radio firmware
 are excluded. Firmware notices accompany firmware downloads separately.
+The radio release builder, `firmware/scripts/build-release.py`, writes its own
+`license.md` beside the application-only GBL, standalone flasher and README in
+a tar.gz package. It collects SDK/per-file notices from the generated compiler
+dependencies and linker inputs, together with the ARM linked-runtime license
+texts. See [firmware releases](firmware/README.md#build-a-firmware-release).
+The firmware publication review below still applies; generation of notices
+does not clear SDK redistribution rights.
 Verbatim identical license texts are deduplicated, with references retaining
 package identity. Distinct copyright notices remain separate.
 
@@ -111,9 +118,11 @@ bundle (never passed to deployment):
 python3 scripts/licensing/notices.py release --output build/release-notices
 ```
 
-Include that directory alongside every separately downloadable gateway service
-or firmware artifact, and retain the original project MIT license with APK/source
-releases. Notices may cover more components than a particular release uses.
+Include that directory alongside every separately downloadable gateway service,
+and retain the original project MIT license with APK/source releases. Radio-only
+firmware uses the radio builder's `license.md`; the gateway bundle excludes
+radio inputs and cannot replace it. Notices may cover more components than a
+particular release uses.
 
 ## Release gates and limits
 
