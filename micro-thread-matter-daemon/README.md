@@ -61,8 +61,8 @@ Mbed TLS dependency without requiring the Silicon Labs firmware installer.
 The release and the unchanged GSDK 4.5.0 radio source both declare Spinel RCP API
 version 11, minimum supported RCP API version 4, and protocol version 4.3.
 Runtime compatibility checks remain enabled. Host synthetic tests validate the
-shared-radio no-reset attachment; physical radio compatibility requires a
-separately authorized gateway acceptance run.
+shared-radio no-reset attachment. The deployed gateway uses the same radio path
+for Matter-over-Thread temperature and air-quality sensors.
 
 The private protocol is [length-prefixed CBOR v2](docs/matter-ipc-v2.md).
 Only the length prefix is outside the CBOR envelope.

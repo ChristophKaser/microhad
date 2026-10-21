@@ -32,7 +32,7 @@ The service-owner mode uses the production controller/future and operational
 discovery. The report integration also checks the separate service-to-native
 handoff using an isolated test-hook build; production artifacts exclude it.
 
-The radio and accessory remain synthetic. Physical BLE/GATT interoperability,
-Thread RF coexistence and accessory/service/gateway restart acceptance require
-explicitly requested device testing. The private native/service transport is
-[CBOR IPC v2](../micro-thread-matter-daemon/docs/matter-ipc-v2.md).
+The radio and accessory in this fixture remain synthetic. The deployed gateway
+runs Matter-over-Thread temperature and air-quality sensors; the fixture covers
+the protocol paths without depending on a live accessory. The private
+native/service transport is [CBOR IPC v2](../micro-thread-matter-daemon/docs/matter-ipc-v2.md).

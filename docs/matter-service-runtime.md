@@ -5,7 +5,8 @@ OpenThread, the Matter UDP transport, the private store, and a bounded Unix IPC
 listener. It creates/restores a private controller authority and fabric;
 Thread create/import/restore and commissioning/relay dispatch are implemented.
 Production operational SRP/DNS-SD and remote catalog recovery are wired and
-host-tested. Physical accessory acceptance remains pending.
+host-tested. The deployed gateway also receives temperature and air-quality
+reports from Matter-over-Thread sensors.
 The native worker supplies protected coordinator observations and caches status
 for HTTP. Host integration exercises the production Manager and report path
 with synthetic CASE accessory traffic.
@@ -94,4 +95,5 @@ see [Matter integration](../microhad/MATTER_INTEGRATION.md).
 Use the [component build and test commands](../micro-thread-matter-daemon/README.md)
 and [CBOR contract](../micro-thread-matter-daemon/docs/matter-ipc-v2.md). Synthetic fixtures exercise
 CASE/report delivery, persistent native calls, BLE ownership and supervisor
-recovery. They do not prove physical accessory or RF acceptance.
+recovery. They complement the deployed temperature and air-quality sensor path;
+new accessory categories still need compatibility testing.

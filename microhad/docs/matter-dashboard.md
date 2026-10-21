@@ -73,8 +73,8 @@ node microhad/webui/test/matter-devices-browser.cjs
 ```
 
 Run from the repository root after installing Web UI dependencies. These use
-synthetic service/browser fixtures. Physical phone/accessory commissioning,
-reports and restart recovery remain unverified.
+synthetic service/browser fixtures. The deployed gateway receives temperature
+and air-quality reports from Matter-over-Thread sensors.
 The current controller policy bypasses manufacturer attestation; enabling
 verification fails closed until a verifier is implemented. PASE/CASE remain
 active. See [controller policy](../../docs/rs-matter-controller-tests.md).

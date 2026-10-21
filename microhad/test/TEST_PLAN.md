@@ -72,5 +72,7 @@ controlled inputs. Use temporary runtime directories and synthetic credentials;
 never require cloud push, a real radio or production TLS material.
 
 Host checks do not establish physical report timing, RF coexistence, target
-resource headroom or power-loss durability. [Zigbee migration acceptance](../../docs/ziggurat-deployment-plan.md#accept-the-migrated-network)
+resource headroom or power-loss durability for a new accessory. The deployed
+Matter path receives temperature and air-quality reports. [Zigbee migration
+acceptance](../../docs/ziggurat-deployment-plan.md#accept-the-migrated-network)
 covers the Zigbee boundary.

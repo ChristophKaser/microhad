@@ -6,7 +6,9 @@ recovery work against an in-process accessory. Added sensor reads preserve
 positive, negative and unknown temperatures. The gateway policy skips manufacturer attestation.
 The shared gateway policy maps that choice to rs-matter's existing bypass while
 retaining PASE/CASE. A gateway helper sends Thread credentials and connects
-them over PASE; this is exercised against a synthetic network handler. Physical accessory acceptance remains pending.
+them over PASE; this is exercised against a synthetic network handler. The
+gateway also runs Matter-over-Thread temperature and air-quality sensors; this
+fixture remains focused on protocol regression coverage.
 
 ## Reproduce
 

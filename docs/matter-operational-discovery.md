@@ -96,7 +96,8 @@ bash micro-thread-matter-daemon/scripts/build.sh mips commissioning
 The fixture uses real userspace SRP/DNS and encrypted Matter exchanges with a
 synthetic radio/accessory. Only `--service-discovery` exercises this resolver path;
 older fixture modes supply explicit rendezvous addresses. Physical RF
-interoperability and target performance require separate acceptance.
+behavior and target performance depend on the deployed network and accessory
+profile; the deployed temperature and air-quality sensor path uses this service.
 
 Primary API references: [OpenThread SRP](https://openthread.io/reference/group/api-srp),
 [DNS service resolution](https://openthread.io/reference/group/api-dns) and

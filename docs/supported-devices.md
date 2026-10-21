@@ -31,16 +31,16 @@ Do not reset the gateway network to resolve one device's missing readings.
 
 Matter uses a phone-assisted Bluetooth commissioning flow, followed by Thread
 for normal operation. The following functions are implemented and covered by
-synthetic integration tests. Physical accessory compatibility, sustained reports
-and recovery remain unverified.
-There is no verified Matter product list yet.
+synthetic integration tests. The deployed gateway receives temperature and
+air-quality reports from Matter-over-Thread sensors. Other accessory categories
+depend on their advertised clusters and the mappings below.
 
 | Device category | Implemented functions | Limits |
 | --- | --- | --- |
 | Lights, switches and relays | On/off and brightness; confirmed command readback | No color/color-temperature controls |
 | Contact sensors | Boolean contact state, history and alerts | Device must expose the supported Boolean State feature |
-| Environmental sensors | Temperature, humidity, air quality, CO₂ and PM2.5 readings/history | Only advertised supported measurements are mapped; missing values remain unknown |
-| Remotes and buttons | Supported switch events and OnOff/Level bindings | Depends on advertised events and binding capabilities; physical behavior remains unverified |
+| Environmental sensors | Temperature, humidity, air quality, CO₂ and PM2.5 readings/history | Temperature and air-quality sensors operate on the deployed stack; only advertised supported measurements are mapped and missing values remain unknown |
+| Remotes and buttons | Supported switch events and OnOff/Level bindings | Depends on advertised events and binding capabilities |
 
 Matter-over-Wi-Fi devices and general Thread border routing are outside the
 implemented gateway path. Other Matter device functions, including locks,

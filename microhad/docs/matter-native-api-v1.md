@@ -64,8 +64,9 @@ HTTP/coordinator threads never wait for PASE, BLE, Thread or a service reply.
 
 The routes use the real Rust session/device owner through the persistent native
 worker. Synthetic fixtures cover commissioning, BLE callbacks, Thread operations,
-CASE reads/commands and report handoff. Physical accessory acceptance remains
-pending; successful request admission is not proof of commissioning or delivery.
+CASE reads/commands and report handoff. The deployed path receives temperature
+and air-quality reports from Matter-over-Thread sensors. Successful request
+admission is not proof that an individual commissioning or delivery operation completed.
 
 ## Cached common device inventory
 

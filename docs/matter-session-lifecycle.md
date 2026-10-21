@@ -70,4 +70,4 @@ write/session deadlines remain additional bounds. Reconnection must attach a
 new BLE generation when a pending write was lost.
 The native persistent worker consumes these events and retires relay ownership
 on disconnect. Verify with the synthetic service and native worker fixtures;
-physical acceptance must cover phone loss and service/radio restart.
+the deployed stack can also be checked for phone loss and service/radio restart.

@@ -86,7 +86,8 @@ Both daemons must use v2 together. Use the documented
 [maintenance deployment](../docs/deployment.md#maintenance-release) for a coordinated release. The installed
 service destination is `/tuya/native/mthread-matter`; configuration, sockets,
 Matter identity and network state retain their existing paths and formats.
-Deployment requires an explicit request. Physical accessory acceptance remains pending.
+Deployment requires an explicit request. The deployed stack receives temperature
+and air-quality reports from Matter-over-Thread sensors.
 
 See the [runtime](../docs/matter-service-runtime.md),
 [public API](docs/matter-native-api-v1.md),

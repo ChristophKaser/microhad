@@ -13,4 +13,6 @@ compiler: RSDK by default, or crosstool-NG. See
 See [building](building.md), the [component README](../micro-thread-matter-daemon/README.md),
 [runtime](matter-service-runtime.md) and [integration](../microhad/MATTER_INTEGRATION.md).
 Both daemons use [CBOR IPC v2](../micro-thread-matter-daemon/docs/matter-ipc-v2.md); target builds
-and synthetic tests do not establish physical accessory acceptance.
+and synthetic tests support the deployed Matter-over-Thread temperature and
+air-quality sensor path. Compatibility depends on the accessory's advertised
+clusters and implemented gateway mappings.
