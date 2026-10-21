@@ -2,8 +2,8 @@
 
 The Linux-host installer uploads applications over SSH. No compiler, Rust, Node,
 source checkout or MIPS toolchain is needed on the installation computer. These
-static crosstool-NG builds are experimental on the Silvercrest SGWZ 1 A1 / HG06339
-(RTL8196E, EFR32MG1B232, factory Linux); they are not universal MIPS packages.
+static crosstool-NG builds are supported on the Silvercrest SGWZ 1 A1 / HG06339
+(RTL8196E, EFR32MG1B232, factory Linux); they are target-specific MIPS packages.
 
 The same bundle supports two modes:
 

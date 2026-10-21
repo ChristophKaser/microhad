@@ -49,7 +49,7 @@ Obtain the archive separately; the repository does not download it. Its SHA256 i
 `63af001fcbebbf32e6235a66efb117d8abd13e088c8161abece7d578b55b56d2`.
 If installed elsewhere, set `RSDK_ROOT` to its directory.
 
-The experimental source-built compiler is selected explicitly:
+The source-built crosstool-NG compiler is selected explicitly:
 
 ```sh
 python3 scripts/build-toolchain.py
@@ -86,7 +86,7 @@ bash firmware/scripts/build-maintenance.sh
 | Matter service | `build/micro-thread-matter-daemon/mthread-matter-mips` |
 | Radio maintenance helper | `build/gateway-maintenance` |
 
-Candidate toolchain outputs insert `crosstool-ng/` below the relevant `build/`
+Crosstool-NG outputs insert `crosstool-ng/` below the relevant `build/`
 directory; Ziggurat also changes its target directory name. Use the exact
 paths in the [toolchain artifact table](../config/TOOLCHAINS.md#artifacts-and-verification).
 

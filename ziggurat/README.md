@@ -23,7 +23,7 @@ Both apply their patch series to ignored worktrees, preserving upstream source.
 
 Gateway builds use RSDK by default. After `python3 scripts/build-toolchain.py`,
 run `TOOLCHAIN=crosstool-ng ZIGGURAT_MULTIPAN=1 bash ziggurat/scripts/build.sh`
-for the experimental compiler. Its multipan artifact is
+for the source-built compiler. Its multipan artifact is
 `build/crosstool-ng/ziggurat-hdlc/lexra-crosstool-ng-uclibc/release/ziggurat.stripped`;
 single-PAN output is under `build/crosstool-ng/ziggurat/`. See
 [toolchain selection](../config/TOOLCHAINS.md) for source credits and limits.

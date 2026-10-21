@@ -27,11 +27,11 @@ python3 microhad/scripts/test_matter_native_report_integration.py
 python3 microhad/scripts/test_matter_spinel_supervisor.py --native-worker
 ```
 
-The target commands above use RSDK by default. After building the candidate
+The target commands above use RSDK by default. After building crosstool-NG
 with `python3 scripts/build-toolchain.py`, select `TOOLCHAIN=crosstool-ng` for
-both native and Rust target builds. Candidate artifacts are isolated under each
+both native and Rust target builds. Crosstool-NG artifacts are isolated under each
 component's `build/crosstool-ng/`; host fixtures keep their paths. See
-[toolchain selection](../config/TOOLCHAINS.md) for commands and experimental
+[toolchain selection](../config/TOOLCHAINS.md) for commands and runtime
 limits. Deployment examples use RSDK artifact paths.
 
 `MATTER=1` requires `ZIGGURAT=1` and is the default for that backend.

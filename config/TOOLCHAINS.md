@@ -1,10 +1,10 @@
 # Gateway toolchains
 
 Gateway builds accept `TOOLCHAIN=rsdk` (the default) or
-`TOOLCHAIN=crosstool-ng` (experimental). Host builds use the host compilers and
+`TOOLCHAIN=crosstool-ng`. Host builds use the host compilers and
 do not require either SDK directory. Silicon Labs firmware keeps its ARM tools.
 
-The source-built candidate targets Lexra LX4380, big-endian MIPS-I/O32 and
+The source-built crosstool-NG toolchain targets Lexra LX4380, big-endian MIPS-I/O32 and
 soft float. It uses GCC 15.2.0, binutils 2.45.1, uClibc-ng 1.0.54 LinuxThreads,
 and stock Linux 3.10.90 headers. Native TLS, time64 and FENV remain disabled.
 The application configuration enables interface enumeration and SUSv3/SUSv4
@@ -49,13 +49,13 @@ overrides remain overrides when switching `TOOLCHAIN` in a sourced shell.
 
 ## Artifacts and verification
 
-MicroHAD uses `-Os` for candidate C/C++ code, TinyCBOR and Mbed TLS; RSDK
+MicroHAD uses `-Os` for crosstool-NG C/C++ code, TinyCBOR and Mbed TLS; RSDK
 and host builds retain `-O2`.
 
-RSDK paths and host fixture paths remain unchanged. Candidate paths insert
+RSDK paths and host fixture paths remain unchanged. Crosstool-NG paths insert
 `crosstool-ng/` immediately below `build/`:
 
-| Artifact | Candidate path |
+| Artifact | Crosstool-NG path |
 | --- | --- |
 | MicroHAD with Zigbee/Matter | `microhad/build/crosstool-ng/mips-ziggurat-matter/microhad` |
 | Ziggurat multipan | `build/crosstool-ng/ziggurat-hdlc/lexra-crosstool-ng-uclibc/release/ziggurat.stripped` |
@@ -71,7 +71,7 @@ directory's generated cache. Shared patched source and host artifacts are retain
 Build verification checks static linkage, ELF32 big-endian MIPS-I/O32, soft-float
 attributes, and absence of `rdhwr`/`teq`. Other Lexra-sensitive instructions are
 reported. Rust still uses LLVM for code generation and the selected GCC for linking.
-RSDK OpenThread retains its Clang workaround; candidate OpenThread uses native GCC.
+RSDK OpenThread retains its Clang workaround; crosstool-NG OpenThread uses native GCC.
 
 ```sh
 python3 scripts/test-toolchain-config.py
@@ -165,7 +165,7 @@ retaining existing configuration and network/identity state. No new shared
 libraries were uploaded. This trial verified startup and integration;
 commissioning, device control and long-duration behavior remain untested.
 
-## Experimental limits
+## Runtime limits
 
 The shared Rust shim supplies only APIs missing from the selected libc.
 For LinuxThreads, `pthread_getattr_np` and `pthread_attr_getstack` return `ENOSYS`.
@@ -173,8 +173,9 @@ Stack-bound diagnostics and reliable stack-overflow reporting are not guaranteed
 `pthread_setname_np` supports the current thread only. Application builds require
 the expanded libc configuration, rather than the initial minimal proof compiler.
 
-The initial compiler proof passed bounded native and Rust/Tokio tests on the
-stock gateway. Application compilation and ELF checks do not validate a complete
-release on the device. RSDK remains the production default. Deployment defaults
-remain on RSDK artifacts; a future explicitly requested candidate deployment must
-pass all selected artifact paths and follow the existing maintenance flow.
+Static crosstool-NG release artifacts completed a paired deployment on a
+Silvercrest SGWZ 1 A1 / HG06339 gateway on 2026-10-21. MicroHAD, Ziggurat and
+the Matter service started successfully; the dashboard, status and log APIs were
+reachable, and the existing formed Zigbee network retained its 26 devices.
+RSDK remains the default for local source builds. Crosstool-NG deployments use
+explicit artifact paths and follow the existing maintenance flow.

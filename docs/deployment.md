@@ -9,7 +9,7 @@ remain explicit overrides. Deployment requires an explicit request; these
 examples are procedures, not actions run by reading this document.
 
 Artifact paths below show RSDK outputs. When selecting `TOOLCHAIN=crosstool-ng`,
-use the candidate paths listed in [toolchain selection](../config/TOOLCHAINS.md);
+use the crosstool-NG paths listed in [toolchain selection](../config/TOOLCHAINS.md);
 explicit `--binary` and service paths must match the selected build.
 
 ## Choose the update procedure

@@ -15,7 +15,7 @@ bash micro-thread-matter-daemon/scripts/build-openthread.sh mips
 ```
 
 Default output is `build/openthread-unix/ot-cli-mips`. RSDK builds use Clang 18
-and the RSDK linker/sysroot; experimental crosstool-NG builds use native GCC/G++
+and the RSDK linker/sysroot; crosstool-NG builds use native GCC/G++
 and isolated outputs. See [toolchain selection](../config/TOOLCHAINS.md).
 Build scripts apply the Unix adapter and compatibility patches in an ignored
 worktree and check static, big-endian MIPS-I/o32, soft-float artifacts.

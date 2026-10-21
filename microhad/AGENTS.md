@@ -9,7 +9,7 @@ local compiler selection, gateway IP, LAN interface and SSH credentials. See
 arguments and existing environment variables override it. Never commit this
 trusted shell file or print credentials. Prefer an existing `SSH_PASSWORD_FILE`
 by pathname. `RSDK_ROOT` can override the configured RSDK.
-`make TOOLCHAIN=crosstool-ng mips` selects the experimental compiler and writes
+`make TOOLCHAIN=crosstool-ng mips` selects the source-built compiler and writes
 under `build/crosstool-ng/`. See [toolchain selection](../config/TOOLCHAINS.md).
 
 ```sh

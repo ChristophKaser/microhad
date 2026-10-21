@@ -30,7 +30,7 @@ blocking startup on the gateway's legacy kernel. Existing launcher seed
 restoration remains unchanged.
 
 The project builds static libraries from source for both host tests and the
-selected gateway toolchain: RSDK by default, or experimental crosstool-NG via
+selected gateway toolchain: RSDK by default, or crosstool-NG via
 `TOOLCHAIN=crosstool-ng`. See [toolchain selection](../config/TOOLCHAINS.md).
 TLS v4 build outputs use separate `mbedtls-v4` directories to avoid stale v2
 CMake caches. Generated files stay in ignored build directories; no host-built

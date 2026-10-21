@@ -17,10 +17,10 @@ and ignored by tools that do not use them. Do not source an untrusted file.
 | --- | --- |
 | `GATEWAY_IP` | Gateway IP address or hostname; empty until configured |
 | `LAN_INTERFACE` | Host LAN/backbone interface used by OTBR diagnostics; empty until configured |
-| `TOOLCHAIN` | `rsdk` (default) or experimental `crosstool-ng` |
+| `TOOLCHAIN` | `rsdk` (default) or `crosstool-ng` |
 | `LINK_MODE` | `static` (default) or experimental `dynamic` with RSDK; see [toolchain guide](../config/TOOLCHAINS.md) |
 | `RSDK_ROOT` | RSDK installation; default from `config/toolchains.mk` |
-| `CROSSTOOL_NG_ROOT` | Candidate compiler installation; default `tools/lexra-proof` |
+| `CROSSTOOL_NG_ROOT` | Crosstool-NG compiler installation; default `tools/lexra-proof` |
 | `STOCK_ROOTFS` | Extracted stock `/lib` for dynamic builds; default `build/stock-runtime` |
 | `SSH_PASSWORD_FILE` | Existing password file; empty by default |
 | `SSH_PASSWORD` | Inline password alternative; empty by default |

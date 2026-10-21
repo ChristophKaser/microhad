@@ -51,10 +51,10 @@ access until SSH and your selected boot launcher work.
 Use the [binary package](binary-releases.md) for prebuilt application binaries,
 or follow [build setup](building.md) for source builds. Radio preparation and
 existing-network migration remain separate from application installation. Gateway application builds support separately
-acquired RSDK (the production default) or source-built experimental crosstool-NG.
+acquired RSDK (the default) or source-built crosstool-NG.
 The source-built external serial bridge uses its documented RSDK recipe; the
 prebuilt firmware flasher can download the compatible upstream bridge. Deployment
-examples below use RSDK artifact paths; candidate builds require explicit paths
+examples below use RSDK artifact paths; crosstool-NG builds require explicit paths
 and the compatibility checks in [toolchain selection](../config/TOOLCHAINS.md).
 For UART tools on the host:
 

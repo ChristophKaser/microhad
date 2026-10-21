@@ -27,12 +27,12 @@ The default is `host service`. Production outputs are
 Always use the build wrapper before integration checks; plain Cargo builds can
 leave the fixture harness using a stale executable.
 
-MIPS builds select RSDK by default, or experimental crosstool-NG without RSDK.
+MIPS builds select RSDK by default, or crosstool-NG without RSDK.
 After `python3 scripts/build-toolchain.py`, run
 `TOOLCHAIN=crosstool-ng bash micro-thread-matter-daemon/scripts/build.sh mips service`.
 Its output is `build/crosstool-ng/micro-thread-matter-daemon/mthread-matter-mips`;
 OpenThread target artifacts are under `build/crosstool-ng/openthread-unix/`.
-RSDK OpenThread uses Clang 18; the candidate uses its native GCC/G++.
+RSDK OpenThread uses Clang 18; crosstool-NG uses its native GCC/G++.
 Host builds need neither MIPS SDK and keep their fixture paths. See
 [toolchain selection](../config/TOOLCHAINS.md) for source credits and limits.
 
@@ -214,7 +214,7 @@ For explicitly requested deployment of a changed service, run from the root:
   --matter-service build/micro-thread-matter-daemon/mthread-matter-mips
 ```
 
-This example uses the RSDK artifact; select the candidate output path when
+This example uses the RSDK artifact; select the crosstool-NG output path when
 using crosstool-NG. Selective maintenance
 retains the installed launcher and restarts the paired stack. Rollback copies
 are opt-in via `--rollback-dir DIR`; existing backups are preserved.
