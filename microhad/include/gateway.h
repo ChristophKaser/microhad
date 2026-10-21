@@ -2,6 +2,7 @@
 #define MICROHAD_ZIGBEE_GATEWAY_H
 
 #include <map>
+#include "thermostat.h"
 #include <string>
 #include <vector>
 #include <deque>
@@ -75,6 +76,8 @@ struct DeviceValueAlert {
 };
 
 struct Device {
+    TemperatureObservation temperatureObservation;
+    ThermostatState thermostat;
     std::string source;
     std::string externalId;
     std::string component;
@@ -315,6 +318,8 @@ public:
     bool reconfigureDevice(const std::string& ieeeAddress, std::string* error);
     bool identifyDevice(const std::string& ieeeAddress, std::string* error);
     bool queryDeviceConfiguration(const std::string& ieeeAddress, std::string* error);
+    bool setThermostat(const std::string& address, const std::string& field,
+                       const std::string& value, std::string* error);
     bool setLightState(const std::string& ieeeAddress, const std::string& state, int brightnessPercent,
                        std::string* error);
     bool setSceneConfiguration(const std::string& encoded, std::string* error);
@@ -439,6 +444,28 @@ private:
     unsigned char observedNetworkChannel_;
     std::map<std::string, Device> devices_;
     std::map<unsigned short, std::string> nodeAddresses_;
+    struct ThermostatOperation {
+        std::string address;
+        std::string field;
+        unsigned short cluster;
+        unsigned char endpoint;
+        unsigned char command;
+        unsigned char sequence;
+        unsigned int attempts;
+        long deadline;
+        bool readback;
+        std::vector<unsigned char> payload;
+        ThermostatOperation() : cluster(0), endpoint(0), command(0), sequence(0), attempts(0), deadline(0), readback(false) {}
+    };
+    std::deque<ThermostatOperation> thermostatOperations_;
+    void queueThermostatReadings(const Device& device);
+    void pollThermostats();
+    long thermostatDeadline() const;
+    bool handleThermostatMessage(const std::string& address, unsigned char endpoint, unsigned short cluster,
+        unsigned char frameControl, unsigned short manufacturer, unsigned char sequence, unsigned char command,
+        const std::vector<unsigned char>& payload);
+    void queueThermostatOperation(const Device& device, const std::string& field, unsigned short cluster,
+        unsigned char command, const std::vector<unsigned char>& payload);
     enum InterviewOperationType {
         InterviewActiveEndpoints,
         InterviewSimpleDescriptor,

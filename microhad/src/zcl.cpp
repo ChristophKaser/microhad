@@ -30,6 +30,7 @@ bool applyXiaomiMeasurementData(Device* device, const std::vector<unsigned char>
         if (identifier == 0x64 && type == 0x29 && field.size() == 2) {
             device->hasTemperature = true;
             device->temperatureCelsius = static_cast<double>(static_cast<short>(littleEndian16(field))) / 100.0;
+            device->temperatureKnown = true; device->temperatureObservation.at = observedAt;
             device->kind = device->hasHumidity ? "temperature/humidity" : "temperature";
             changed = true;
             if (observed != 0) *observed |= ZclObservedTemperature;
@@ -47,6 +48,10 @@ bool applyXiaomiMeasurementData(Device* device, const std::vector<unsigned char>
 }
 
 bool expectedAttributeType(const Device* device, unsigned short cluster, unsigned short attribute, unsigned char type) {
+    if (isTrvzb(*device) && (cluster == 0x0201 || cluster == 0xfc11)) {
+        unsigned long count; const ThermostatAttribute* list = thermostatAttributes(&count);
+        for (unsigned long i=0;i<count;++i) if (list[i].cluster == cluster && list[i].attribute == attribute) return type == list[i].type;
+    }
     if (cluster == 0x0402 && attribute == 0x0000) return type == 0x29;
     if (cluster == 0x0405 && attribute == 0x0000) {
         /* Some eWeLink TH01 revisions return int16 humidity rather than uint16.
@@ -65,11 +70,22 @@ bool expectedAttributeType(const Device* device, unsigned short cluster, unsigne
 
 bool applyZclAttribute(Device* device, unsigned short cluster, unsigned short attribute,
                        const std::vector<unsigned char>& value, long observedAt, unsigned* observed) {
+    if (isTrvzb(*device) && (cluster == 0x0201 || cluster == 0xfc11)) {
+        unsigned long count; const ThermostatAttribute* list = thermostatAttributes(&count);
+        for (unsigned long i=0;i<count;++i) if (list[i].cluster == cluster && list[i].attribute == attribute) {
+            bool applied = applyThermostatAttribute(device, cluster, attribute, list[i].type, value, observedAt);
+            if (applied && cluster == 0x0201 && attribute == 0 && observed) *observed |= ZclObservedTemperature;
+            return applied;
+        }
+        return false;
+    }
+    if (isTrvzb(*device) && (cluster == 6 || cluster == 8)) return false;
     if (cluster == 0x0402 && attribute == 0x0000 && value.size() == 2) {
         short raw = static_cast<short>(littleEndian16(value));
         if (raw < -27315) return false;
         device->hasTemperature = true;
         device->temperatureCelsius = static_cast<double>(raw) / 100.0;
+        device->temperatureKnown = true; device->temperatureObservation.at = observedAt;
         device->kind = "temperature";
         if (observed != 0) *observed |= ZclObservedTemperature;
     } else if (cluster == 0x0405 && attribute == 0x0000 && value.size() == 2) {

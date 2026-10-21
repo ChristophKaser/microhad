@@ -720,6 +720,7 @@ bool Gateway::reconcileMatterDevices(const std::vector<MatterEndpoint>& endpoint
             fresh.brightnessKnown = current.brightnessKnown;
             fresh.temperatureCelsius = current.temperatureCelsius;
             fresh.temperatureKnown = current.temperatureKnown;
+            fresh.temperatureObservation = current.temperatureObservation;
             fresh.humidityPercent = current.humidityPercent;
             fresh.humidityKnown = current.humidityKnown;
             fresh.airQuality = current.airQuality;
@@ -805,6 +806,7 @@ bool Gateway::applyMatterReading(const MatterReading& reading, std::string* erro
     } else if (reading.cluster == 1026 && device.hasTemperature) {
         if (reading.known) device.temperatureCelsius = reading.numberValue;
         device.temperatureKnown = reading.known;
+        device.temperatureObservation.at = reading.known ? time(0) : 0;
     } else if (reading.cluster == 1029 && device.hasHumidity) {
         if (reading.known) device.humidityPercent = reading.numberValue;
         device.humidityKnown = reading.known;
@@ -978,7 +980,7 @@ bool Gateway::applyShellyEvent(const std::string& id, int metric, int channelInd
         if (value < -100 || value > 200) { *error = "invalid Shelly temperature"; return false; }
         bool known = d.temperatureKnown;
         double previous = d.temperatureCelsius;
-        d.temperatureCelsius = value; d.temperatureKnown = true;
+        d.temperatureCelsius = value; d.temperatureKnown = true; d.temperatureObservation.at = now;
         std::ostringstream historyValue;
         historyValue << std::setprecision(15) << value;
         history_.appendValue("shelly:" + d.externalId + ":" + d.component, SensorHistory::Temperature,
@@ -1392,7 +1394,7 @@ void Gateway::pollZiggurat() {
                     ZigguratWire::put16(&descriptor,kHomeAutomationProfile); ZigguratWire::put16(&descriptor,0xbeef);
                     descriptor.push_back(0);
                     const unsigned short inputs[]={0,3,6,10,25,26,768};
-                    const unsigned short outputs[]={0,3,4,5,6,8,32,768,1024,1026,1029,1030,1280,2817,2819,2820,1794,4096,64513,64514};
+                    const unsigned short outputs[]={0,3,4,5,6,8,32,513,0xfc11,768,1024,1026,1029,1030,1280,2817,2819,2820,1794,4096,64513,64514};
                     descriptor.push_back(sizeof(inputs)/sizeof(inputs[0]));
                     for (unsigned int i=0;i<sizeof(inputs)/sizeof(inputs[0]);++i) ZigguratWire::put16(&descriptor,inputs[i]);
                     descriptor.push_back(sizeof(outputs)/sizeof(outputs[0]));
@@ -1518,9 +1520,10 @@ void Gateway::poll() {
         lightSetupPending_.erase(pending);
         if (nodeAddresses_.find(node) != nodeAddresses_.end()) {
             const Device& device = devices_[nodeAddresses_[node]];
+            if (isTrvzb(device)) queueThermostatReadings(device);
             if (device.configuredSignature != deviceConfigurationSignature(device)) {
                 startInterview(node, false);
-                addLog("Queued missing or changed light reporting setup");
+                addLog("Queued missing or changed device reporting setup");
             }
         }
     }
@@ -1538,6 +1541,7 @@ void Gateway::poll() {
             break; /* one sleepy-device request at a time */
         }
     }
+    pollThermostats();
     pollNativeBindings();
     pollSceneProvisioning();
     if (joinPreparationStep_ != 0 && joinPreparationDeadline_ != 0 && time(0) >= joinPreparationDeadline_) {
@@ -1761,6 +1765,7 @@ long Gateway::nextPollDeadline(std::string* source) {
     if (online_ && networkFormed_ && coordinatorInitializationStep_ == 0)
         for (scene = sceneRetries_.begin(); scene != sceneRetries_.end(); ++scene)
             CONSIDER_DEADLINE(scene->second.inFlight ? scene->second.sentAt + 2 : scene->second.retryAt, "scene_retry");
+    CONSIDER_DEADLINE(thermostatDeadline(), "thermostat");
     #undef CONSIDER_DEADLINE
     if (source != 0) *source = deadlineSource.empty() ? "none" : deadlineSource;
     if (deadline == 0) return 0;
@@ -2827,6 +2832,10 @@ void Gateway::classifyDevice(Device* device) const {
         if (std::find(endpoint.outputClusters.begin(), endpoint.outputClusters.end(), 0x0006) != endpoint.outputClusters.end() ||
             std::find(endpoint.outputClusters.begin(), endpoint.outputClusters.end(), 0x0008) != endpoint.outputClusters.end()) remote = true;
     }
+    if (isTrvzb(*device)) {
+        device->kind = "thermostat"; device->hasLight = false; device->hasBrightness = false;
+        device->hasActor = false; device->hasRemote = false; device->hasTemperature = true; return;
+    }
     device->hasLight = onOffServer;
     device->hasRemote = remote && !onOffServer;
     if (device->hasLight) device->kind = levelServer ? "dimmable light" : "light";
@@ -3204,7 +3213,17 @@ std::string GatewayView::statusJson() const {
          << ",\"joining_until\":" << joiningUntil << ",\"joining_preparing\":"
          << (joiningPreparing ? "true" : "false")
          << ",\"notifications_enabled\":" << (notificationsEnabled ? "true" : "false")
-         << ",\"devices\":[";
+         << ",\"temperature_sources\":[";
+    bool firstSource = true;
+    for (unsigned long i=0;i<devices.size();++i) {
+        const Device& source=devices[i];
+        if (!source.hasTemperature || isTrvzb(source) || (source.source == "matter" && source.matterEndpoint < 0)) continue;
+        if (!firstSource) json << ',';
+        firstSource=false;
+        json << "{\"id\":\"" << jsonEscape(source.ieeeAddress) << "\",\"name\":\"" << jsonEscape(source.name)
+             << "\",\"observed_at\":" << source.temperatureObservation.at << '}';
+    }
+    json << "],\"devices\":[";
     std::vector<Device> listedDevices;
     std::map<std::string, std::vector<Device> > matterEndpoints;
     std::map<std::string, Device> matterNodes;
@@ -3269,7 +3288,9 @@ std::string GatewayView::statusJson() const {
              << ",\"water_leak_known\":" << (device.source == "zigbee" || device.waterLeakKnown ? "true" : "false")
              << ",\"water_detected\":" << (device.waterDetected ? "true" : "false")
              << ",\"has_temperature\":" << (device.hasTemperature ? "true" : "false")
-             << ",\"temperature_known\":" << (device.source == "zigbee" || device.temperatureKnown ? "true" : "false")
+             << ",\"temperature_known\":" << ((device.source == "zigbee" && !isTrvzb(device)) || device.temperatureKnown ? "true" : "false")
+             << ",\"has_thermostat\":" << (isTrvzb(device) ? "true" : "false")
+             << ",\"thermostat\":" << (isTrvzb(device) ? thermostatJson(device) : "null")
              << ",\"temperature_celsius\":" << device.temperatureCelsius
              << ",\"has_humidity\":" << (device.hasHumidity ? "true" : "false")
              << ",\"humidity_percent\":" << device.humidityPercent
@@ -3654,7 +3675,7 @@ void Gateway::loadState() {
             if (saved[i].source == "zigbee") classifyDevice(&saved[i]);
             devices_[saved[i].ieeeAddress] = saved[i];
             if (saved[i].networkAddress != 0xffff) nodeAddresses_[saved[i].networkAddress] = saved[i].ieeeAddress;
-            if (saved[i].hasLight && saved[i].networkAddress != 0xffff) lightSetupPending_[saved[i].networkAddress] = true;
+            if ((saved[i].hasLight || isTrvzb(saved[i])) && saved[i].networkAddress != 0xffff) lightSetupPending_[saved[i].networkAddress] = true;
         }
     }
     error.clear();
@@ -3666,6 +3687,8 @@ void Gateway::loadState() {
                 // the RAM snapshot predates completion or a leave invalidation.
                 volatileValues[i].initialInterviewComplete = persistent.initialInterviewComplete;
                 volatileValues[i].configuredSignature = persistent.configuredSignature;
+                volatileValues[i].thermostat.sourceId = persistent.thermostat.sourceId;
+                volatileValues[i].thermostat.staleMinutes = persistent.thermostat.staleMinutes;
                 if (volatileValues[i].manufacturerName.empty()) volatileValues[i].manufacturerName = persistent.manufacturerName;
                 if (volatileValues[i].modelId.empty()) volatileValues[i].modelId = persistent.modelId;
                 if (volatileValues[i].endpoints.empty()) volatileValues[i].endpoints = persistent.endpoints;
@@ -3981,7 +4004,7 @@ void Gateway::continueCoordinatorInitialization() {
         sendEzspCommand(kEzspSetSourceRouteDiscoveryMode, payload);
     } else if (step == 19) {
         static const unsigned short inputClusters[] = {0, 3, 6, 10, 25, 26, 768};
-        static const unsigned short outputClusters[] = {0, 3, 4, 5, 6, 8, 32, 768, 1024, 1026, 1029,
+        static const unsigned short outputClusters[] = {0, 3, 4, 5, 6, 8, 32, 513, 0xfc11, 768, 1024, 1026, 1029,
                                                         1030, 1280, 2817, 2819, 2820, 1794, 4096, 64513, 64514};
         unsigned long i;
         payload.push_back(kCoordinatorEndpoint);
@@ -3989,11 +4012,11 @@ void Gateway::continueCoordinatorInitialization() {
         appendLittleEndian16(&payload, 0xbeef); /* coordinator device ID */
         payload.push_back(0); /* device version */
         payload.push_back(7); /* input cluster count */
-        payload.push_back(20); /* output cluster count */
+        payload.push_back(sizeof(outputClusters) / sizeof(outputClusters[0])); /* output cluster count */
         for (i = 0; i < 7; ++i) {
             appendLittleEndian16(&payload, inputClusters[i]);
         }
-        for (i = 0; i < 20; ++i) {
+        for (i = 0; i < sizeof(outputClusters) / sizeof(outputClusters[0]); ++i) {
             appendLittleEndian16(&payload, outputClusters[i]);
         }
         ++coordinatorInitializationStep_;
@@ -4958,7 +4981,7 @@ std::string Gateway::deviceConfigurationSignature(const Device& device) const {
     // Bump this version when reporting intervals or configuration policy change.
     // Include endpoint and binding inputs; an address change alone needs no rebind.
     std::ostringstream signature;
-    signature << "reporting-v1:" << std::hex;
+    signature << (isTrvzb(device) ? "trvzb-v1:" : "reporting-v1:") << std::hex;
     for (unsigned long i = 0; i < coordinatorIeeeAddress_.size(); ++i)
         signature << std::setw(2) << std::setfill('0') << static_cast<unsigned int>(coordinatorIeeeAddress_[i]);
     signature << ':' << device.manufacturerName.size() << ':' << device.manufacturerName
@@ -5064,12 +5087,13 @@ void Gateway::buildRefreshOperations(unsigned short destination) {
     const Device& device = devices_[state.ieeeAddress];
     state.operations.clear();
     state.operationIndex = 0;
+    if (isTrvzb(device)) queueThermostatReadings(device);
     for (unsigned long i = 0; i < device.endpoints.size(); ++i) {
         const EndpointDescriptor& endpoint = device.endpoints[i];
         if (endpointSupports(endpoint, 0x0402)) queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0402, 0x0000);
         if (endpointSupports(endpoint, 0x0405)) queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0405, 0x0000);
-        if (endpointSupports(endpoint, 0x0006)) queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0006, 0x0000);
-        if (endpointSupports(endpoint, 0x0008)) queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0008, 0x0000);
+        if (!isTrvzb(device) && endpointSupports(endpoint, 0x0006)) queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0006, 0x0000);
+        if (!isTrvzb(device) && endpointSupports(endpoint, 0x0008)) queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0008, 0x0000);
         if (endpointSupports(endpoint, 0x0001)) {
             queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0001, 0x0021);
             queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0001, 0x0020);
@@ -5099,11 +5123,18 @@ void Gateway::buildConfigurationOperations(unsigned short destination) {
         else interviews_.erase(destination);
         return;
     }
+    if (isTrvzb(device)) { classifyDevice(&device); queueThermostatReadings(device); }
     const bool herdsmanTh01 = device.manufacturerName == "eWeLink" && device.modelId == "TH01";
     state.operations.clear();
     state.operationIndex = 0;
     for (unsigned long i = 0; i < device.endpoints.size(); ++i) {
         const EndpointDescriptor& endpoint = device.endpoints[i];
+        if (isTrvzb(device) && endpointSupports(endpoint, 0x0201)) {
+            queueInterviewOperation(destination, InterviewBind, endpoint.endpoint, 0x0201);
+            queueInterviewOperation(destination, InterviewConfigureReporting, endpoint.endpoint, 0x0201, 0, 0x29, 10, 0, 3600);
+            queueInterviewOperation(destination, InterviewConfigureReporting, endpoint.endpoint, 0x0201, 0x12, 0x29, 10, 0, 3600);
+            queueInterviewOperation(destination, InterviewConfigureReporting, endpoint.endpoint, 0x0201, 0x1c, 0x30, 0, 10, 3600);
+        }
         if (endpointSupports(endpoint, 0x0402)) queueInterviewOperation(destination, InterviewBind, endpoint.endpoint, 0x0402);
         if (endpointSupports(endpoint, 0x0405)) queueInterviewOperation(destination, InterviewBind, endpoint.endpoint, 0x0405);
         if (endpointSupports(endpoint, 0x0001)) queueInterviewOperation(destination, InterviewBind, endpoint.endpoint, 0x0001);
@@ -5150,11 +5181,11 @@ void Gateway::buildConfigurationOperations(unsigned short destination) {
             queueInterviewOperation(destination, InterviewConfigureReporting, endpoint.endpoint, 0x0406, 0x0000, 0x18, 0, 0, 3600);
             queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0406, 0x0000);
         }
-        if (endpointSupports(endpoint, 0x0006)) {
+        if (!isTrvzb(device) && endpointSupports(endpoint, 0x0006)) {
             queueInterviewOperation(destination, InterviewConfigureReporting, endpoint.endpoint, 0x0006, 0x0000, 0x10, 1, 0, 3600);
             queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0006, 0x0000);
         }
-        if (endpointSupports(endpoint, 0x0008)) {
+        if (!isTrvzb(device) && endpointSupports(endpoint, 0x0008)) {
             queueInterviewOperation(destination, InterviewConfigureReporting, endpoint.endpoint, 0x0008, 0x0000, 0x20, 1, 0, 3600);
             queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0008, 0x0000);
         }
@@ -5171,6 +5202,7 @@ void Gateway::buildConfigurationOperations(unsigned short destination) {
 }
 
 void Gateway::sendNextInterviewOperation() {
+    if (!thermostatOperations_.empty() && thermostatOperations_.front().deadline != 0) return;
     std::map<unsigned short, InterviewState>::iterator interview;
     for (interview = interviews_.begin(); interview != interviews_.end(); ++interview) {
         InterviewState& state = interview->second;
@@ -5314,11 +5346,13 @@ bool Gateway::updateBasicIdentity(Device* device, const std::vector<unsigned cha
             changed = true;
         } else if (attribute == 0x4000 && device->softwareBuildId != value) {
             device->softwareBuildId = value;
+            device->thermostat.unsupported.clear();
             changed = true;
             addLog("Device software build: " + device->ieeeAddress + " version=" + value);
         }
         offset += 5 + records[offset + 4];
     }
+    if (isTrvzb(*device)) classifyDevice(device);
     return changed;
 }
 
@@ -5798,6 +5832,11 @@ void Gateway::handleApsMessage(unsigned short sender, unsigned short profile, un
     unsigned char transactionSequence = message[zclOffset - 2];
     if ((frameControl & 0x04) != 0)
         manufacturer = static_cast<unsigned short>(message[1]) | (static_cast<unsigned short>(message[2]) << 8);
+    if (profile == 0x0104 && isTrvzb(devices_[address->second])) {
+        std::vector<unsigned char> payload(message.begin() + zclOffset, message.end());
+        if (handleThermostatMessage(address->second, sourceEndpoint, cluster, frameControl, manufacturer,
+                                   transactionSequence, command, payload)) return;
+    }
     if ((frameControl & 0x0b) == 0x09 &&
         handleSceneProvisionResponse(address->second, cluster, transactionSequence, command, message, zclOffset))
         return;

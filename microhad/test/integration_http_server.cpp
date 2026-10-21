@@ -635,6 +635,8 @@ void testServers() {
     expectStatus("http identify encoded device", response, 200);
     assert(response.find("Identify command queued") != std::string::npos);
     expectStatus("http reject unknown identify device", plainRequest(http.boundPort(), post("/api/devices/unknown/identify", "")), 400);
+    expectStatus("http reject thermostat request without value", plainRequest(http.boundPort(), post("/api/devices/unknown/thermostat", "field=system_mode")), 400);
+    expectStatus("http reject thermostat request for non-thermostat", plainRequest(http.boundPort(), post("/api/devices/light%2Ftest/thermostat", "field=system_mode&value=4")), 400);
     expectStatus("http reject invalid light state", plainRequest(http.boundPort(), post("/api/devices/light%2Ftest/light", "state=blink")), 400);
     response = plainRequest(http.boundPort(), post("/api/devices/light%2Ftest/light", "state=on"));
     expectStatus("http accept encoded light command", response, 200);

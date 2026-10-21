@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react'
+import { ThermostatPanel } from './ThermostatPanel'
+import type { TemperatureSource } from './api'
 import type { Device, EndpointDescriptor, Status } from './api'
 import { errorMessage, form, post } from './api'
 import { isDimmable } from './scenes'
@@ -110,6 +112,7 @@ function DeviceVisual({ device, type }: { device: Device; type: string }) {
       )}
     </svg>
   )
+  if (type === 'Thermostats') return <span aria-hidden="true">🌡️</span>
   if (type === 'Lights') return <LightBulbIcon on={device.light_on} />
   if (type === 'Smart plugs' || type === 'Switches') return <span aria-hidden="true">{type === 'Smart plugs' ? '🔌' : '⏻'}</span>
   if (type === 'Motion sensors') return <span aria-hidden="true">{device.occupied ? '◉' : '◎'}</span>
@@ -118,11 +121,12 @@ function DeviceVisual({ device, type }: { device: Device; type: string }) {
   return <span aria-hidden="true">{type === 'Remotes' ? '🎛️' : '📡'}</span>
 }
 export const deviceTypes = [
+  { name: 'Thermostats', matches: (device: Device) => !!device.has_thermostat },
   { name: 'Water leak detectors', matches: (device: Device) => device.has_water_leak },
   { name: 'Contact sensors', matches: (device: Device) => device.has_contact && !device.has_water_leak },
   {
     name: 'Climate sensors',
-    matches: (device: Device) => !device.has_light && (device.has_temperature || device.has_humidity),
+    matches: (device: Device) => !device.has_thermostat && !device.has_light && (device.has_temperature || device.has_humidity),
   },
   { name: 'Air quality sensors', matches: (device: Device) => !device.has_light &&
     (device.has_air_quality || device.has_co2 || device.has_pm25) },
@@ -243,6 +247,7 @@ export function DescriptorList({ descriptor }: { descriptor: EndpointDescriptor 
 }
 function DeviceCard({
   device,
+  temperatureSources,
   action,
   onSettings,
   onDetails,
@@ -250,6 +255,7 @@ function DeviceCard({
   onConnection,
 }: {
   device: Device
+  temperatureSources: TemperatureSource[]
   action: (url: string, body?: string) => void
   onSettings: () => void
   onDetails: () => void
@@ -347,6 +353,7 @@ function DeviceCard({
       )}
       {device.has_power && <div className="extra-readings"><span>Power: {device.power_known ? `${device.power_watts.toFixed(1)} W` : 'Unknown'}</span></div>}
       {device.has_actor && <div className="light-panel"><button className={`button light-toggle ${device.actor_known && device.actor_on ? 'primary' : ''}`} disabled={!controlsAvailable} onClick={() => action(`${url}/actor`, form({ state: device.actor_known && device.actor_on ? 'off' : 'on' }))}>{device.actor_known && device.actor_on ? 'Turn off' : 'Turn on'}</button></div>}
+      {device.has_thermostat && <ThermostatPanel device={device} sources={temperatureSources} />}
       {device.has_light && (
         <div className="light-panel">
           <button
@@ -502,6 +509,7 @@ export function DeviceGroups({
                     <DeviceCard
                       key={device.id}
                       device={device}
+                      temperatureSources={status.temperature_sources || []}
                       action={action}
                       onSettings={() => onSettings(device)}
                       onDetails={() => onDetails(device)}

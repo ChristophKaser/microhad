@@ -197,6 +197,7 @@ void GatewayRunner::execute(Command* command) {
     else if (command->type == DeviceIdentify) result = gateway_->identifyDevice(command->address, &error);
     else if (command->type == NetworkBackup) result = gateway_->exportNetworkBackup(command->address, &error);
     else if (command->type == DeviceConfiguration) result = gateway_->queryDeviceConfiguration(command->address, &error);
+    else if (command->type == ThermostatSetting) result = gateway_->setThermostat(command->address, command->name, command->configuration, &command->error);
     else if (command->type == LightState) result = gateway_->setLightState(command->address, command->name,
                                                                              command->brightnessPercent, &error);
     else if (command->type == SceneConfiguration) result = gateway_->setSceneConfiguration(command->configuration, &error);
@@ -547,6 +548,11 @@ bool GatewayRunner::queryDeviceConfiguration(const std::string& address, std::st
     command.type = DeviceConfiguration;
     command.address = address;
     return invoke(&command, error);
+}
+bool GatewayRunner::setThermostat(const std::string& address, const std::string& field,
+                                  const std::string& value, std::string* error) {
+    Command command; command.type = ThermostatSetting; command.address = address;
+    command.name = field; command.configuration = value; return invoke(&command, error);
 }
 bool GatewayRunner::setLightState(const std::string& address, const std::string& state, int brightnessPercent,
                                   std::string* error) {

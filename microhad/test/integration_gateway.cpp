@@ -1352,6 +1352,16 @@ void testCoordinatorInitializationSequence() {
         if (step == 0) assert(request.size() == 8 && request[5] == 56 && request[6] == 90 && request[7] == 0);
         if (step == 12) assert(request.size() == 8 && request[5] == 6 && request[6] == 0x60 && request[7] == 0);
         if (step == 15) assert(request.size() == 8 && request[5] == 63 && request[6] == 1 && request[7] == 3);
+        if (step == 19) {
+            assert(request[12] == 22); // thermostat and SONOFF client clusters
+            bool thermostat=false, sonoff=false;
+            for (unsigned long at=13+7*2;at+1<request.size();at+=2) {
+                unsigned short cluster=request[at] | (static_cast<unsigned short>(request[at+1])<<8);
+                if (cluster==0x0201) thermostat=true;
+                if (cluster==0xfc11) sonoff=true;
+            }
+            assert(thermostat && sonoff);
+        }
         replyToFormationCommand(serial[1], request, static_cast<unsigned char>(step & 7));
         gateway.poll();
     }

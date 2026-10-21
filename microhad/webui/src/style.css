@@ -1157,3 +1157,11 @@ button:disabled {
 .gateway-footer { margin-top: 24px; font-size: 0.8rem; }
 .gateway-footer a { color: #5f7183; text-underline-offset: 3px; }
 .gateway-footer a:focus-visible { outline: 2px solid #3577ab; outline-offset: 4px; }
+
+.thermostat-panel { margin-top: .75rem; }
+.thermostat-panel details { margin-top: .75rem; }
+.thermostat-panel summary { cursor: pointer; font-weight: 600; }
+.thermostat-setting { display: flex; align-items: end; gap: .5rem; margin: .65rem 0; }
+.thermostat-setting label { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: .25rem; }
+.thermostat-setting input, .thermostat-setting select { width: 100%; min-width: 0; }
+.thermostat-setting button { flex-shrink: 0; }

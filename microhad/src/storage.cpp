@@ -342,6 +342,8 @@ bool saveDevices(const std::string& filename, const std::vector<Device>& devices
                << (device.contactTriggerMode ? "true" : "false") << ",\"contact_trigger_cooldown_seconds\":"
                << device.contactTriggerCooldownSeconds << ",\"sensor_refresh_interval_minutes\":"
                << device.sensorRefreshIntervalMinutes
+               << ",\"thermostat_source_id\":\"" << jsonEscape(device.thermostat.sourceId) << "\""
+               << ",\"thermostat_stale_minutes\":" << device.thermostat.staleMinutes
                << ",\"humidity_known\":" << (device.humidityKnown ? "true" : "false")
                << ",\"has_air_quality\":" << (device.hasAirQuality ? "true" : "false")
                << ",\"air_quality_known\":" << (device.airQualityKnown ? "true" : "false")
@@ -455,6 +457,10 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
                 jsonStringField(line, fields[index], destinations[index]);
             }
             jsonStringField(line, "configured_signature", &device.configuredSignature);
+            jsonStringField(line, "thermostat_source_id", &device.thermostat.sourceId);
+            long staleMinutes = 90;
+            if (jsonLongField(line, "thermostat_stale_minutes", &staleMinutes) && staleMinutes >= 5 && staleMinutes <= 1440)
+                device.thermostat.staleMinutes = static_cast<unsigned long>(staleMinutes);
             device.contactOpen = line.find("\"contact_open\":true") != std::string::npos;
             device.hasContact = line.find("\"has_contact\":true") != std::string::npos;
             device.contactKnown = line.find("\"contact_known\":true") != std::string::npos;

@@ -28,6 +28,152 @@
 class GatewayTestPeer {
 public:
 
+    static void trvzb() {
+        puts("unit: TRVZB confirmation, sensor freshness, fallback, restart and persistence");
+        char directory[]="/tmp/microhad-trvzb-XXXXXX"; assert(mkdtemp(directory));
+        std::string base(directory), error;
+        Gateway g("/dev/null",115200,base,"","","");
+        g.online_=true; g.networkFormed_=true; g.coordinatorInitializationStep_=0;
+        Device valve; valve.ieeeAddress="0x00124b0000000042"; valve.modelId="TRVZB";
+        valve.softwareBuildId="1.3.0"; valve.networkAddress=0x1234;
+        EndpointDescriptor e; e.endpoint=1; e.profileId=0x0104; e.inputClusters.push_back(0x0201);
+        e.inputClusters.push_back(0xfc11); e.inputClusters.push_back(6); valve.endpoints.push_back(e);
+        g.classifyDevice(&valve); assert(!valve.hasLight && valve.hasTemperature && valve.kind=="thermostat");
+        g.devices_[valve.ieeeAddress]=valve;
+        std::vector<unsigned char> reportingOk(1,0);
+        assert(!g.handleThermostatMessage(valve.ieeeAddress,1,0x0201,8,0,1,7,reportingOk));
+        Device sensor; sensor.ieeeAddress="shelly:room:temperature:0"; sensor.source="shelly";
+        sensor.hasTemperature=true; sensor.temperatureKnown=true; sensor.temperatureCelsius=21.26;
+        sensor.temperatureObservation.at=time(0); g.devices_[sensor.ieeeAddress]=sensor;
+        assert(g.setThermostat(valve.ieeeAddress,"temperature_source",sensor.ieeeAddress,&error));
+        assert(!g.setThermostat(valve.ieeeAddress,"external_temperature_input","20",&error));
+        assert(!g.setThermostat(valve.ieeeAddress,"stale_minutes","4",&error));
+        assert(g.setThermostat(valve.ieeeAddress,"stale_minutes","10",&error));
+        g.pollThermostats(); assert(g.thermostatOperations_.size()==1);
+        ThermostatOperationForTest(g, "external_temperature_input", 2130);
+        assert(g.thermostatOperations_.size()==1 && g.thermostatOperations_.front().field=="temperature_sensor_select");
+        g.pollThermostats(); ThermostatOperationForTest(g,"temperature_sensor_select",1);
+        Device& t=g.devices_[valve.ieeeAddress];
+        assert(t.thermostat.values["temperature_sensor_select"]==1 && t.thermostat.lastForwardValue==21.3);
+        g.pollThermostats(); assert(g.thermostatOperations_.empty());
+        // A changed reading is coalesced for one minute.
+        g.devices_[sensor.ieeeAddress].temperatureCelsius=22;
+        g.pollThermostats(); assert(g.thermostatOperations_.empty());
+        t.thermostat.lastForwardAt=time(0)-61;
+        g.pollThermostats(); assert(g.thermostatOperations_.size()==1);
+        ThermostatOperationForTest(g,"external_temperature_input",2200);
+        g.pollThermostats(); ThermostatOperationForTest(g,"temperature_sensor_select",1);
+        // General traffic cannot keep an old temperature fresh.
+        g.devices_[sensor.ieeeAddress].temperatureObservation.at=time(0)-601;
+        g.devices_[sensor.ieeeAddress].lastSeen=time(0); t.thermostat.lastForwardAt=0;
+        g.pollThermostats();
+        assert(g.thermostatOperations_.front().field=="temperature_sensor_select");
+        assert(t.thermostat.values["temperature_sensor_select"]==1); // fallback not yet confirmed
+        ThermostatOperationForTest(g,"temperature_sensor_select",0);
+        g.pollThermostats(); assert(t.thermostat.status.find("built-in sensor confirmed")!=std::string::npos);
+        // Fresh identical readings recover; selecting the valve itself is rejected.
+        g.devices_[sensor.ieeeAddress].temperatureObservation.at=time(0); t.thermostat.lastForwardAt=0;
+        g.pollThermostats(); assert(g.thermostatOperations_.front().field=="external_temperature_input");
+        assert(!g.setThermostat(valve.ieeeAddress,"temperature_source",valve.ieeeAddress,&error));
+        g.thermostatOperations_.clear();
+        // Actual observations are transient; a reconstructed source must first report.
+        Device zigbeeSensor; zigbeeSensor.ieeeAddress="0x00124b0000000043"; zigbeeSensor.hasTemperature=true;
+        g.devices_[zigbeeSensor.ieeeAddress]=zigbeeSensor;
+        std::vector<unsigned char> measured; measured.push_back(0x34); measured.push_back(8);
+        assert(g.applyAttributeReport(zigbeeSensor.ieeeAddress,0x0402,0,measured));
+        assert(g.devices_[zigbeeSensor.ieeeAddress].temperatureObservation.at>0);
+        assert(g.setThermostat(valve.ieeeAddress,"temperature_source",zigbeeSensor.ieeeAddress,&error));
+        assert(g.setThermostat(valve.ieeeAddress,"temperature_source",sensor.ieeeAddress,&error));
+        Device matterSensor; matterSensor.ieeeAddress="matter:room:1"; matterSensor.source="matter";
+        matterSensor.matterNode="0000000000000044"; matterSensor.matterEndpoint=1; matterSensor.hasTemperature=true;
+        g.devices_[matterSensor.ieeeAddress]=matterSensor;
+        MatterReading reading; reading.node="0000000000000044"; reading.endpoint=1; reading.cluster=1026; reading.known=true; reading.numberValue=20;
+        assert(g.applyMatterReading(reading,&error));
+        assert(g.devices_[matterSensor.ieeeAddress].temperatureObservation.at>0);
+        assert(g.setThermostat(valve.ieeeAddress,"temperature_source",matterSensor.ieeeAddress,&error));
+        reading.known=false; assert(g.applyMatterReading(reading,&error));
+        assert(g.devices_[matterSensor.ieeeAddress].temperatureObservation.at==0);
+        assert(g.setThermostat(valve.ieeeAddress,"temperature_source",sensor.ieeeAddress,&error));
+        g.devices_[sensor.ieeeAddress].temperatureObservation.at=0;
+        t.thermostat.lastForwardAt=0;
+        g.pollThermostats(); assert(g.thermostatOperations_.empty());
+        // Initial background reads cannot delay a required fallback.
+        t.thermostat.values.erase("temperature_sensor_select");
+        g.queueThermostatReadings(t);
+        g.pollThermostats();
+        assert(g.thermostatOperations_.front().field=="temperature_sensor_select" && g.thermostatOperations_.front().command==2);
+        ThermostatOperationForTest(g,"temperature_sensor_select",0);
+        g.thermostatOperations_.clear(); t.thermostat.pending.clear();
+        assert(g.setThermostat(valve.ieeeAddress,"occupied_heating_setpoint","21.5",&error));
+        assert(!g.setThermostat(valve.ieeeAddress,"occupied_heating_setpoint","22",&error));
+        // Reject responses from another endpoint, wrong sequence or manufacturer.
+        g.pollThermostats();
+        unsigned char seq=g.thermostatOperations_.front().sequence;
+        std::vector<unsigned char> ok(1,0);
+        g.handleThermostatMessage(valve.ieeeAddress,2,0x0201,8,0,seq,4,ok);
+        assert(!g.thermostatOperations_.front().readback);
+        g.handleThermostatMessage(valve.ieeeAddress,1,0x0201,8,0x1286,seq,4,ok);
+        assert(!g.thermostatOperations_.front().readback);
+        g.handleThermostatMessage(valve.ieeeAddress,1,0x0201,8,0,seq+1,4,ok);
+        assert(!g.thermostatOperations_.front().readback);
+        ThermostatOperationForTest(g,"occupied_heating_setpoint",2150);
+        assert(t.thermostat.values["occupied_heating_setpoint"]==21.5);
+        g.queueThermostatOperation(t,"child_lock",0xfc11,0,std::vector<unsigned char>(2,0));
+        g.thermostatOperations_.front().attempts=3;
+        g.thermostatOperations_.front().deadline=time(0)-1;
+        g.pollThermostats(); assert(g.thermostatOperations_.empty() && !t.thermostat.error.empty());
+        std::vector<Device> stored; stored.push_back(t); stored.push_back(g.devices_[sensor.ieeeAddress]);
+        assert(saveDevices(base+"/trvzb.json",stored,&error)); stored.clear();
+        assert(loadDevices(base+"/trvzb.json",&stored,&error));
+        assert(stored[0].thermostat.sourceId==sensor.ieeeAddress && stored[0].thermostat.staleMinutes==10);
+        assert(stored[1].temperatureObservation.at==0);
+        g.devices_.erase(sensor.ieeeAddress); t.thermostat.values["temperature_sensor_select"]=1; t.thermostat.lastForwardAt=0;
+        g.pollThermostats(); assert(g.thermostatOperations_.front().field=="temperature_sensor_select");
+        g.thermostatOperations_.clear();
+        t.thermostat.pending.clear();
+        assert(g.setThermostat(valve.ieeeAddress,"temperature_source","builtin",&error));
+        assert(t.thermostat.sourceId.empty());
+        g.pollThermostats();
+        assert(!g.setThermostat(valve.ieeeAddress,"temperature_source","manual",&error));
+        ThermostatOperationForTest(g,"temperature_sensor_select",0);
+        assert(g.setThermostat(valve.ieeeAddress,"schedule_1","00:00/18 07:00/21",&error));
+        g.pollThermostats();
+        Gateway::ThermostatOperation schedule=g.thermostatOperations_.front();
+        std::vector<unsigned char> ack; ack.push_back(1); ack.push_back(0);
+        g.handleThermostatMessage(valve.ieeeAddress,1,0x0201,8,0,schedule.sequence,0x0b,ack);
+        assert(g.thermostatOperations_.front().readback);
+        g.pollThermostats(); schedule=g.thermostatOperations_.front();
+        g.handleThermostatMessage(valve.ieeeAddress,1,0x0201,9,0,schedule.sequence,0,schedule.payload);
+        assert(g.thermostatOperations_.empty() && t.thermostat.schedules[1]=="00:00/18 07:00/21");
+        assert(t.thermostat.schedules.size()==1);
+        assert(g.setThermostat(valve.ieeeAddress,"child_lock","1",&error)); g.pollThermostats();
+        Gateway::ThermostatOperation rejected=g.thermostatOperations_.front();
+        std::vector<unsigned char> rejection; rejection.push_back(0x86); rejection.push_back(0); rejection.push_back(0);
+        g.handleThermostatMessage(valve.ieeeAddress,1,0xfc11,8,0,rejected.sequence,4,rejection);
+        assert(g.thermostatOperations_.empty() && t.thermostat.unsupported.count("child_lock"));
+        assert(!t.thermostat.error.empty() && t.thermostat.pending.empty());
+        std::vector<unsigned char> wrongType; wrongType.push_back(0); wrongType.push_back(0);
+        wrongType.push_back(0x21); wrongType.push_back(0x34); wrongType.push_back(8);
+        g.handleThermostatMessage(valve.ieeeAddress,1,0x0201,0x18,0,100,0x0a,wrongType);
+        assert(!t.temperatureKnown);
+        unlink((base+"/trvzb.json").c_str()); unlink((base+"/devices.json").c_str()); rmdir(base.c_str());
+    }
+    static void ThermostatOperationForTest(Gateway& g, const std::string& field, unsigned long raw) {
+        assert(!g.thermostatOperations_.empty());
+        Gateway::ThermostatOperation op=g.thermostatOperations_.front(); assert(op.field==field);
+        std::vector<unsigned char> ok(1,0);
+        g.handleThermostatMessage(op.address,op.endpoint,op.cluster,8,0,op.sequence,4,ok);
+        assert(g.thermostatOperations_.front().readback);
+        g.pollThermostats(); op=g.thermostatOperations_.front();
+        const ThermostatAttribute* a=thermostatAttribute(field); assert(a);
+        std::vector<unsigned char> response;
+        response.push_back(a->attribute&255); response.push_back(a->attribute>>8);
+        response.push_back(0); response.push_back(a->type);
+        unsigned int size=a->type==0x29 || a->type==0x21 || a->type==0x19 ? 2 : a->type==0x23 ? 4 : 1;
+        for (unsigned int i=0;i<size;++i) response.push_back(static_cast<unsigned char>(raw>>(8*i)));
+        g.handleThermostatMessage(op.address,op.endpoint,op.cluster,8,0,op.sequence,1,response);
+    }
+
     static void deviceDeletion() {
         puts("unit: device setup state, targeted deletion, local fallback and durable reference cleanup");
         char directory[] = "/tmp/microhad-device-deletion-XXXXXX"; assert(mkdtemp(directory));
@@ -3318,7 +3464,59 @@ static void testSharedJsonUtilities() {
     assert(jsonEscape("a\\b\"c\n\001") == "a\\\\b\\\"c\\n\\u0001");
 }
 
+static void testTrvzbProtocol() {
+    puts("unit: TRVZB types, ranges, signed values, firmware gates and weekly schedules");
+    Device d; d.modelId="TRVZB"; d.softwareBuildId="1.0.8";
+    std::vector<unsigned char> bytes; std::string error;
+    assert(thermostatEncode(d,"occupied_heating_setpoint","21.5",&bytes,&error));
+    assert(bytes.size()==5 && bytes[0]==0x12 && bytes[2]==0x29 && bytes[3]==0x66 && bytes[4]==8);
+    assert(!thermostatEncode(d,"occupied_heating_setpoint","21.2",&bytes,&error));
+    assert(!thermostatEncode(d,"occupied_heating_setpoint","nan",&bytes,&error));
+    assert(!thermostatEncode(d,"system_mode","2",&bytes,&error));
+    assert(!thermostatEncode(d,"temperature_sensor_select","2",&bytes,&error));
+    std::vector<unsigned char> reconnected(1,3);
+    assert(applyThermostatAttribute(&d,0xfc11,0x600e,0x20,reconnected,10));
+    assert(d.thermostat.values["temperature_sensor_select"]==1);
+    reconnected[0]=255;
+    assert(applyThermostatAttribute(&d,0xfc11,0x6014,0x20,reconnected,10));
+    assert(d.thermostat.values["temporary_mode_select"]==255);
+    assert(!thermostatEncode(d,"valve_opening_degree","50",&bytes,&error));
+    d.softwareBuildId="v1.3.0";
+    assert(thermostatEncode(d,"valve_opening_degree","50",&bytes,&error));
+    assert(thermostatEncode(d,"local_temperature_calibration","-1.2",&bytes,&error));
+    assert(bytes[3]==244);
+    std::vector<unsigned char> signedValue(1,244);
+    assert(applyThermostatAttribute(&d,0x0201,0x10,0x28,signedValue,10));
+    assert(d.thermostat.values["local_temperature_calibration"]==-1.2);
+    assert(!applyThermostatAttribute(&d,0x0201,0x10,0x20,signedValue,10));
+    signedValue.assign(2,0); signedValue[1]=0x80;
+    assert(!applyThermostatAttribute(&d,0x0201,0,0x29,signedValue,10));
+    signedValue[0]=0x34; signedValue[1]=8;
+    assert(applyThermostatAttribute(&d,0x0201,0,0x29,signedValue,10));
+    assert(d.temperatureObservation.at==10 && d.temperatureCelsius==21);
+    assert(applyThermostatAttribute(&d,0x0201,0,0x29,signedValue,20));
+    assert(d.temperatureObservation.at==20);
+    std::vector<unsigned char> on(1,1); assert(!applyZclAttribute(&d,6,0,on,21)); assert(!d.hasLight);
+    assert(thermostatSchedule("00:00/18 07:00/21.5 22:00/17",1,&bytes));
+    assert(bytes.size()==15 && bytes[0]==3 && bytes[1]==2 && bytes[2]==1);
+    assert(applyThermostatSchedule(&d,bytes));
+    assert(d.thermostat.schedules[1]=="00:00/18 07:00/21.5 22:00/17");
+    assert(!thermostatSchedule("07:00/20",1,&bytes));
+    assert(!thermostatSchedule("00:00/18 00:00/20",1,&bytes));
+    assert(!thermostatSchedule("00:00/18 24:00/20",1,&bytes));
+    assert(!thermostatSchedule("00:00/18.1",1,&bytes));
+    assert(!thermostatSchedule("00:00/18 01:00/20 02:00/20 03:00/20 04:00/20 05:00/20 06:00/20",1,&bytes));
+    assert(!thermostatSchedule("",1,&bytes));
+    d.thermostat.values["smart_temperature_control"]=2;
+    assert(!thermostatEncode(d,"temperature_accuracy","-0.4",&bytes,&error));
+    d.thermostat.unsupported.insert("child_lock");
+    assert(!thermostatEncode(d,"child_lock","1",&bytes,&error));
+    assert(thermostatJson(d).find("\"schedules\":[null,\"00:00/18")!=std::string::npos);
+}
+
 void runUnitTests() {
+    testTrvzbProtocol();
+    GatewayTestPeer::trvzb();
     GatewayTestPeer::deviceDeletion();
     GatewayTestPeer::reportingConfigurationPersistence();
     GatewayTestPeer::gatewaySettings();

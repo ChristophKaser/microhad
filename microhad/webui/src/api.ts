@@ -31,6 +31,19 @@ export interface NodeDescriptor {
   descriptor_capability: number
 }
 
+export interface ThermostatState {
+  pending: string[]
+  values: Partial<Record<string, number>>
+  supported: Record<string, boolean>
+  schedules: (string | null)[]
+  source_id: string
+  stale_minutes: number
+  source_observed_at: number
+  status: string
+  error: string
+}
+export interface TemperatureSource { id: string; name: string; observed_at: number }
+
 export interface Device {
   id: string
   source: 'zigbee' | 'shelly' | 'fritz_box' | 'matter'
@@ -45,6 +58,8 @@ export interface Device {
   has_water_leak: boolean
   water_leak_known: boolean
   water_detected: boolean
+  has_thermostat?: boolean
+  thermostat?: ThermostatState | null
   has_temperature: boolean
   temperature_known: boolean
   temperature_celsius: number
@@ -121,6 +136,7 @@ export interface SceneGroupSummary {
   scenes: SceneSummary[]
 }
 export interface Status {
+  temperature_sources?: TemperatureSource[]
   coordinator_backend?: 'ezsp' | 'ziggurat'
   observed_network_channel?: number
   online: boolean
