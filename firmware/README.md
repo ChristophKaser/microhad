@@ -79,6 +79,9 @@ bridge. If a compatible `/tuya/serialgateway` is absent, it downloads the pinned
 verifies SHA-256 and stages it under `/tmp` over SSH stdin. The gateway needs
 neither Internet access nor SCP. Use `--serialgateway PATH` for an offline
 copy of that binary. Existing installed files are not overwritten.
+Use `--password-file /private/gateway-password` with host `sshpass` for unattended
+SSH password authentication, or `--identity PATH` for key authentication. Stock
+BusyBox tool limitations and LinuxThreads worker PIDs are handled by the flasher.
 
 ## Build a firmware release
 

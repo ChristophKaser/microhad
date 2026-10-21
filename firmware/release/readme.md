@@ -17,6 +17,10 @@ Register and verify the gateway's SSH host key before running the script.
 Standard SSH keys/agent or interactive password authentication are supported;
 `--ssh-port` and `--identity` select a nondefault port/key. Legacy Dropbear RSA
 compatibility is enabled only for this SSH invocation.
+For unattended password authentication, install host `sshpass` and supply
+`--password-file /private/gateway-password`; the password is never a command-line
+argument or copied to the gateway. The script supports stock BusyBox without
+`stat`, `readlink`, `tr`, `mktemp`, `id` or `netstat` applets.
 
 ```sh
 python3 -m venv .venv

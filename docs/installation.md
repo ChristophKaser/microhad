@@ -463,7 +463,8 @@ The package validates its bundled hash/CRC/ranges, provisions its own temporary
 bridge if necessary, requires upload acknowledgment and checks an IID1 Spinel
 version reply from the new radio. It does not import the network or resume
 EZSP services. After success continue at **B3**. Its standalone script uses
-normal SSH authentication; use `--ssh-port` or `--identity` where needed.
+normal SSH authentication; use `--ssh-port`, `--identity`, or `--password-file`
+(with host `sshpass`) where needed.
 It does not read the repository's private workspace settings.
 
 For the source-built GBL and repository uploader instead, use the remaining

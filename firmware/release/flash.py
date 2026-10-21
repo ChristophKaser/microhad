@@ -11,7 +11,9 @@ import importlib.metadata
 import ipaddress
 from pathlib import Path
 import re
+import secrets
 import shlex
+import shutil
 import socket
 import struct
 import subprocess
@@ -36,28 +38,35 @@ WARNING = ("\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 # only process identities, never arbitrary command lines/configuration or keys.
 SCAN = r'''
 set -eu
-[ "$(id -u)" = 0 ] && [ -c /dev/ttyS1 ] || exit 1
-uart=$(stat -Lc '%t:%T' /dev/ttyS1)
-case "$uart" in *:*) ;; *) exit 1;; esac
+[ "$(awk '/^Uid:/ {print $2}' /proc/self/status)" = 0 ] && [ -c /dev/ttyS1 ] || exit 1
+uart=$(ls -lnL /dev/ttyS1 | awk '{print $5 $6}')
+case "$uart" in *,*) ;; *) exit 1;; esac
 for directory in /proc/[0-9]*; do
     [ -d "$directory" ] || continue
     pid=${directory#/proc/}
-    exe=$(readlink "$directory/exe") || { [ ! -d "$directory" ] || [ -z "$(tr '\000' ' ' < "$directory/cmdline")" ] || exit 1; continue; }
+    link=$(ls -l "$directory/exe" 2>/dev/null) || { [ ! -d "$directory" ] || [ -z "$(cat "$directory/cmdline")" ] || exit 1; continue; }
+    case "$link" in *' -> '*) exe=${link##* -> };; *) [ ! -d "$directory" ] || [ -z "$(cat "$directory/cmdline")" ] || exit 1; continue;; esac
     identity=$exe
     case "$exe" in /bin/sh|/bin/ash|/bin/busybox)
-        script=$(tr '\000' '\n' < "$directory/cmdline" | sed -n '2p')
-        case "$script" in /tuya/tuya_start.sh|/tuya/native/paired_start.sh) identity=$script;; esac;;
+        # Stock ash removes NULs in command substitutions. Match the complete
+        # concatenated argv, never a substring (our own sh -c contains paths).
+        argv=$(cat "$directory/cmdline")
+        case "$argv" in
+            /bin/sh/tuya/tuya_start.sh|sh/tuya/tuya_start.sh|/bin/ash/tuya/tuya_start.sh|ash/tuya/tuya_start.sh) identity=/tuya/tuya_start.sh;;
+            /bin/sh/tuya/native/paired_start.sh|sh/tuya/native/paired_start.sh|/bin/ash/tuya/native/paired_start.sh|ash/tuya/native/paired_start.sh) identity=/tuya/native/paired_start.sh;;
+        esac;;
     esac
     state=$(sed 's/.*) //' "$directory/stat" | awk '{print $2 " " $20 " " $1}') || { [ ! -d "$directory" ] || exit 1; continue; }
     owner=0
-    ls "$directory/fd" >/dev/null || { [ ! -d "$directory" ] || exit 1; continue; }
+    [ -r "$directory/fd" ] && [ -x "$directory/fd" ] || { [ ! -d "$directory" ] || exit 1; continue; }
     for fd in "$directory"/fd/*; do
         [ -c "$fd" ] || continue
-        device=$(stat -Lc '%t:%T' "$fd") || { [ ! -e "$fd" ] || exit 1; continue; }
+        device=$(ls -lnL "$fd" 2>/dev/null | awk '{print $5 $6}')
+        case "$device" in *,*) ;; *) [ ! -e "$fd" ] || exit 1; continue;; esac
         [ "$device" != "$uart" ] || owner=1
     done
     case "$identity" in
-        /tuya/native/microhad|/tuya/native/ziggurat|/tuya/native/mthread-matter|/tuya/serialgateway|/tmp/microhad-radio-release.*/serialgateway|/tuya/tuya_start.sh|/tuya/native/paired_start.sh) ;;
+        /tuya/native/microhad|/tuya/native/ziggurat|/tuya/native/mthread-matter|/tuya/serialgateway|/tmp/microhad-radio-release.*/serialgateway|/var/tmp/microhad-radio-release.*/serialgateway|/tuya/tuya_start.sh|/tuya/native/paired_start.sh) ;;
         *) [ "$owner" = 1 ] || continue;;
     esac
     printf '%s\t%s\t%s\t%s\n' "$pid" "$state" "$owner" "$identity"
@@ -148,6 +157,21 @@ def parse_processes(output):
         result[int(pid)] = {"parent": int(parent), "start": start,
                             "status": status, "owner": owner == "1", "exe": executable}
     return result
+
+
+def descended_from(pid, ancestor, processes):
+    """Old uClibc LinuxThreads exposes workers as child PIDs, not one TGID."""
+    seen = set()
+    while pid != ancestor:
+        if pid in seen or pid not in processes:
+            return False
+        seen.add(pid)
+        parent = processes[pid]["parent"]
+        if parent != ancestor and (parent not in processes or
+                                   processes[parent]["exe"] != processes[pid]["exe"]):
+            return False
+        pid = parent
+    return True
 
 
 def crc16(body):
@@ -258,6 +282,11 @@ class Gateway:
                     "-p", str(args.ssh_port)]
         if args.identity:
             self.ssh += ["-i", str(args.identity)]
+        if args.password_file:
+            if not args.password_file.is_file() or not shutil.which("sshpass"):
+                raise ValueError("--password-file requires a readable file and host sshpass")
+            self.ssh = ["sshpass", "-f", str(args.password_file), *self.ssh,
+                        "-o", "PreferredAuthentications=password", "-o", "PubkeyAuthentication=no"]
         self.ssh += ["root@" + args.host]
         self.directory = None
         self.locked = False
@@ -283,15 +312,17 @@ class Gateway:
         if expected is None:
             if owners:
                 raise ValueError("UART still owned by PIDs " + ", ".join(map(str, owners)))
-        elif (set(owners) != {expected} or owners[expected]["exe"] != self.bridge
-              or owners[expected]["start"] != self.bridge_start):
+        elif (expected not in owners or owners[expected]["exe"] != self.bridge
+              or owners[expected]["start"] != self.bridge_start or
+              any(p["exe"] != self.bridge or not descended_from(pid, expected, processes)
+                  for pid, p in owners.items())):
             raise ValueError("UART is not owned exclusively by this invocation's bridge")
 
     def provision(self):
-        self.remote("test \"$(id -u)\" = 0 && test -c /dev/ttyS1 && "
-                    "grep -qi mips /proc/cpuinfo && command -v stat >/dev/null && "
-                    "command -v md5sum >/dev/null && command -v readlink >/dev/null && "
-                    "netstat -lnt >/dev/null")
+        self.remote("test \"$(awk '/^Uid:/ {print $2}' /proc/self/status)\" = 0 && "
+                    "test -c /dev/ttyS1 && grep -qi mips /proc/cpuinfo && "
+                    "test -r /proc/net/tcp && md5sum /dev/null >/dev/null && "
+                    "ls -lnL /dev/ttyS1 >/dev/null")
         # Read installed bytes rather than executing an unknown binary for --help.
         data = None
         if self.args.serialgateway:
@@ -306,13 +337,15 @@ class Gateway:
                 data = bridge_bytes()
         self.remote("umask 077; mkdir /tmp/microhad-radio-release.lock")
         self.locked = True
-        directory = self.remote("umask 077; mktemp -d /tmp/microhad-radio-release.XXXXXXXX")
-        if not re.fullmatch(r"/tmp/microhad-radio-release\.[A-Za-z0-9]+", directory):
-            raise ValueError("Invalid remote temporary directory")
-        self.directory = directory
+        directory = "/tmp/microhad-radio-release." + secrets.token_hex(8)
+        physical = self.remote("umask 077; mkdir " + shlex.quote(directory) +
+                               " && cd " + shlex.quote(directory) + " && pwd -P")
+        if physical not in (directory, "/var" + directory):
+            raise ValueError("Unexpected physical temporary directory: " + physical)
+        self.directory = physical
         if data is None:
             return
-        self.bridge = directory + "/serialgateway"
+        self.bridge = physical + "/serialgateway"
         self.remote("umask 077; cat > " + shlex.quote(self.bridge), data)
         # Old BusyBox may lack SHA-256: the host verified SHA-256 before SSH;
         # MD5 here checks transfer integrity, not download authenticity.
@@ -348,7 +381,7 @@ class Gateway:
                         "grep -q paired_start /tuya/tuya_start.sh")
             supervisor = self.remote("cat /tmp/ziggurat-supervisor/supervisor.pid")
             if (not supervisor.isdigit() or set(supervisors) != {int(supervisor)} or
-                    any(p["parent"] != int(supervisor) for p in services.values())):
+                    any(not descended_from(pid, int(supervisor), processes) for pid in services)):
                 raise ValueError("Paired supervisor/children do not match recorded process identities")
             self.remote(self.guard(int(supervisor), supervisors[int(supervisor)]["start"]))
             self.paired_running = True
@@ -356,7 +389,13 @@ class Gateway:
         else:
             if self.args.radio != "ezsp" or any(p["exe"] != "/tuya/native/microhad" for p in services.values()):
                 raise ValueError("Unsupported service layout; perform the documented orderly stop first")
+            leaders = {pid: p for pid, p in services.items() if p["parent"] in supervisors}
+            if not leaders:
+                raise ValueError("No recognized coordinator supervisor/leader process")
             for pid, process in services.items():
+                if not any(descended_from(pid, leader, processes) for leader in leaders):
+                    raise ValueError("Unrecognized coordinator process ancestry")
+            for pid, process in leaders.items():
                 parent = supervisors.get(process["parent"])
                 if not parent or parent["exe"] != "/tuya/tuya_start.sh":
                     raise ValueError("Unrecognized coordinator supervisor; stop it manually first")
@@ -365,11 +404,11 @@ class Gateway:
             self.remote("grep -q '/tuya/native/microhad --config' /tuya/tuya_start.sh && "
                         "! grep -q paired_start /tuya/tuya_start.sh")
             for pid, process in supervisors.items():
-                if pid not in {p["parent"] for p in services.values()}:
+                if pid not in {p["parent"] for p in leaders.values()}:
                     raise ValueError("Unexpected extra launcher; stop it manually first")
             for pid, process in supervisors.items():
                 self.remote(self.guard(pid, process["start"]) + " && kill -TERM " + str(pid))
-            for pid, process in services.items():
+            for pid, process in leaders.items():
                 self.remote("if test -d /proc/" + str(pid) + "; then " +
                             self.guard(pid, process["start"]) + " && kill -TERM " + str(pid) + "; fi")
         deadline = time.monotonic() + 25
@@ -389,7 +428,10 @@ class Gateway:
                    " -b " + str(baud) + ("" if flow else " -f"))
         # Refuse a port collision before spawning, then verify that the new
         # process remains the sole UART owner (a failed bind exits upstream).
-        self.remote("! netstat -lnt | awk '{print $4}' | grep -q ':" + str(self.args.port) + "$'")
+        port = f"{self.args.port:04X}"
+        self.remote("tables=/proc/net/tcp; if test -r /proc/net/tcp6; then tables=\"$tables /proc/net/tcp6\"; fi; "
+                    "awk '$4 == \"0A\" && toupper($2) ~ /:" + port +
+                    "$/ {found=1} END {exit found ? 1 : 0}' $tables")
         log = shlex.quote(self.directory + "/bridge.log")
         pid = self.remote(command + " </dev/null >" + log + " 2>&1 & echo $!")
         if not pid.isdigit() or int(pid) <= 1:
@@ -469,11 +511,11 @@ class Gateway:
                 self.remote("rm -f " + shlex.quote(self.directory + "/serialgateway"))
                 if self.success:
                     self.remote("rm -f " + shlex.quote(self.directory + "/bridge.log") +
-                                " && rmdir " + shlex.quote(self.directory))
+                                " && rm -r " + shlex.quote(self.directory))
                 else:
                     print("Temporary diagnostics retained under " + self.directory, file=sys.stderr)
             if self.locked:
-                self.remote("rmdir /tmp/microhad-radio-release.lock")
+                self.remote("rm -r /tmp/microhad-radio-release.lock")
         except (OSError, ValueError, subprocess.SubprocessError) as error:
             print("Temporary bridge cleanup incomplete: " + str(error), file=sys.stderr)
             raise ValueError("Inspect UART ownership and /tmp/microhad-radio-release.lock before retrying") from error
@@ -502,6 +544,7 @@ def main(argv=None):
     parser.add_argument("--serialgateway", type=Path, help="Offline copy of pinned upstream Release-1.2 binary")
     parser.add_argument("--ssh-port", type=int, default=22)
     parser.add_argument("--identity", type=Path, help="SSH private-key path; otherwise use normal SSH authentication")
+    parser.add_argument("--password-file", type=Path, help="SSH password file pathname (requires host sshpass)")
     parser.add_argument("--port", type=int, default=8888, help="Temporary gateway TCP bridge port")
     args = parser.parse_args(argv)
     if not all(1 <= port <= 65535 for port in (args.port, args.ssh_port)):
@@ -521,7 +564,14 @@ def main(argv=None):
     try:
         gateway.run(firmware)
     finally:
-        gateway.cleanup()
+        failed = sys.exc_info()[0] is not None
+        try:
+            gateway.cleanup()
+        except Exception:
+            # Cleanup reports its own diagnostics; do not hide the original
+            # failed preflight/upload behind a secondary cleanup exception.
+            if not failed:
+                raise
         if not gateway.success:
             print("Flashing did not complete. Services have not been automatically restarted. "
                   "Inspect the bootloader/application and UART ownership before retrying. "

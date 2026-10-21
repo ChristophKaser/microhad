@@ -8,6 +8,7 @@ import io
 from pathlib import Path
 import socket
 import struct
+import subprocess
 import tarfile
 import tempfile
 import threading
@@ -43,7 +44,7 @@ def image(tags=None):
 
 def args(**kwargs):
     values = dict(host="127.0.0.1", radio="hdlc", port=8888, ssh_port=22,
-                  identity=None, serialgateway=None, frozen_snapshot_saved=False,
+                  identity=None, password_file=None, serialgateway=None, frozen_snapshot_saved=False,
                   already_in_bootloader=False)
     values.update(kwargs)
     return argparse.Namespace(**values)
@@ -159,6 +160,9 @@ class Transport(unittest.TestCase):
 
 class GatewaySafety(unittest.TestCase):
     def gateway(self, **kwargs):
+        token = patch.object(FLASH.secrets, "token_hex", return_value="test")
+        token.start()
+        self.addCleanup(token.stop)
         gateway = FLASH.Gateway(args(**kwargs))
         gateway.remote = Mock(return_value="")
         gateway.processes = Mock(return_value={})
@@ -213,6 +217,49 @@ class GatewaySafety(unittest.TestCase):
         with self.assertRaises(ValueError):
             FLASH.parse_processes("12\tinvalid 123 T\t0\t/tuya/tuya_start.sh\n")
 
+    def test_legacy_linuxthreads_ancestry_is_accepted_without_accepting_strangers(self):
+        processes = {10: process("/tuya/native/paired_start.sh"),
+                     20: process("/tuya/native/ziggurat", parent=10),
+                     21: process("/tuya/native/ziggurat", parent=20),
+                     22: process("/tuya/native/ziggurat", parent=21),
+                     30: process("/tmp/stranger", parent=20),
+                     40: process("/tuya/native/ziggurat", parent=99)}
+        self.assertTrue(FLASH.descended_from(22, 10, processes))
+        self.assertFalse(FLASH.descended_from(30, 10, processes))
+        self.assertFalse(FLASH.descended_from(40, 10, processes))
+
+    def test_shell_scan_uses_stock_tools_and_exact_supervisor_arguments(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "self").mkdir()
+            (root / "self/status").write_text("Uid:\t0\t0\t0\t0\n")
+            for pid, executable, argv, owns in (
+                    (10, "/bin/sh", b"/bin/sh\0/tuya/native/paired_start.sh\0", False),
+                    (20, "/tuya/native/ziggurat", b"/tuya/native/ziggurat\0", True),
+                    (30, "/bin/sh", b"/bin/sh\0-c\0echo /tuya/native/paired_start.sh\0", False)):
+                proc = root / str(pid)
+                (proc / "fd").mkdir(parents=True)
+                (proc / "exe").symlink_to(executable)
+                (proc / "cmdline").write_bytes(argv)
+                (proc / "stat").write_text(str(pid) + " (test) S 1 " + "0 " * 17 + "123 0\n")
+                (proc / "fd/0").symlink_to("/dev/null" if owns else "/dev/zero")
+                (proc / "fd/1").symlink_to("/missing/vanished-fd")
+            script = FLASH.SCAN.replace("/proc", str(root)).replace("/dev/ttyS1", "/dev/null")
+            output = subprocess.check_output(["/bin/sh", "-c", script], text=True)
+            processes = FLASH.parse_processes(output)
+            self.assertEqual(set(processes), {10, 20})
+            self.assertEqual(processes[10]["exe"], "/tuya/native/paired_start.sh")
+            self.assertTrue(processes[20]["owner"])
+
+    def test_password_file_passes_only_its_path_to_sshpass(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "password"
+            path.write_text("never-print-this-secret")
+            with patch.object(FLASH.shutil, "which", return_value="/usr/bin/sshpass"):
+                gateway = FLASH.Gateway(args(password_file=path))
+            self.assertEqual(gateway.ssh[:3], ["sshpass", "-f", str(path)])
+            self.assertNotIn("never-print-this-secret", " ".join(gateway.ssh))
+
     def test_reused_bridge_pid_never_signaled(self):
         gateway = self.gateway()
         gateway.bridge = "/tmp/microhad-radio-release.test/serialgateway"
@@ -252,6 +299,15 @@ class GatewaySafety(unittest.TestCase):
         self.assertEqual(gateway.bridge, "/tmp/microhad-radio-release.test/serialgateway")
         self.assertIn("cat > /tmp/", gateway.remote.call_args_list[-2].args[0])
         self.assertIn("md5sum", gateway.remote.call_args.args[0])
+
+    def test_tmp_symlink_uses_physical_executable_identity(self):
+        gateway = self.gateway()
+        gateway.remote.side_effect = ["", "", "/var/tmp/microhad-radio-release.test", "", ""]
+        with patch.object(FLASH.subprocess, "run", return_value=argparse.Namespace(returncode=1)), \
+                patch.object(FLASH, "bridge_bytes", return_value=b"bridge"):
+            gateway.provision()
+        self.assertEqual(gateway.directory, "/var/tmp/microhad-radio-release.test")
+        self.assertEqual(gateway.bridge, "/var/tmp/microhad-radio-release.test/serialgateway")
 
     def test_flash_failure_never_restarts_services_or_retries(self):
         gateway = self.gateway(radio="ezsp", already_in_bootloader=True)
