@@ -1,4 +1,7 @@
 #include "matter_client.h"
+#include "bounded_json.h"
+#include "json_util.h"
+#include "thermostat.h"
 #include "matter_protocol.h"
 
 #include <cerrno>
@@ -24,114 +27,7 @@ const unsigned int ioTimeoutSeconds = 1;
 typedef std::map<std::string, std::string> Fields;
 // Bounded JSON syntax; operation-specific validators restrict every field.
 // Arrays are bounded and used only by typed device snapshot replies.
-class StatusJson {
-public:
-    explicit StatusJson(const std::string& text) : text_(text), at_(0) {}
-    bool parse(Fields* fields) { return object(fields, 0) && whitespace() == text_.size(); }
-    bool parseArray(std::vector<std::string>* values) { return array(values, 0) && whitespace() == text_.size(); }
-private:
-    const std::string& text_;
-    unsigned long at_;
-    unsigned long whitespace() {
-        while (at_ < text_.size() && (text_[at_] == ' ' || text_[at_] == '\n' ||
-               text_[at_] == '\r' || text_[at_] == '\t')) ++at_;
-        return at_;
-    }
-    bool take(char c) {
-        whitespace();
-        if (at_ >= text_.size() || text_[at_] != c) return false;
-        ++at_; return true;
-    }
-    bool string(std::string* value) {
-        if (!take('"')) return false;
-        value->clear();
-        while (at_ < text_.size() && text_[at_] != '"') {
-            unsigned char c = text_[at_++];
-            if (c < 0x20 || c == '\\' || value->size() >= 508) return false;
-            *value += static_cast<char>(c);
-        }
-        return take('"');
-    }
-    bool array(std::vector<std::string>* values, unsigned int depth) {
-        if (depth > 4 || !take('[')) return false;
-        whitespace();
-        if (at_ < text_.size() && text_[at_] == ']') { ++at_; return true; }
-        while (values->size() < 64) {
-            unsigned long start = whitespace();
-            if (at_ >= text_.size()) return false;
-            if (text_[at_] == '{') {
-                Fields nested;
-                if (!object(&nested, depth + 1)) return false;
-            } else {
-                while (at_ < text_.size() && text_[at_] >= '0' && text_[at_] <= '9') ++at_;
-                if (at_ == start || at_ - start > 10 || (at_ - start > 1 && text_[start] == '0')) return false;
-            }
-            values->push_back(text_.substr(start, at_ - start));
-            whitespace();
-            if (at_ < text_.size() && text_[at_] == ']') { ++at_; return true; }
-            if (!take(',')) return false;
-        }
-        return false;
-    }
-    bool object(Fields* fields, unsigned int depth) {
-        if (depth > 4 || !take('{')) return false;
-        whitespace();
-        if (at_ < text_.size() && text_[at_] == '}') { ++at_; return true; }
-        while (fields->size() < 12) {
-            std::string key, value;
-            if (!string(&key) || fields->count(key) || !take(':')) return false;
-            whitespace();
-            if (at_ >= text_.size()) return false;
-            if (text_[at_] == '{') {
-                unsigned long start = at_;
-                Fields nested;
-                if (!object(&nested, depth + 1)) return false;
-                value = text_.substr(start, at_ - start);
-            } else if (text_[at_] == '[') {
-                unsigned long start = at_;
-                std::vector<std::string> values;
-                if (!array(&values, depth + 1)) return false;
-                value = text_.substr(start, at_ - start);
-            } else if (text_[at_] == '"') {
-                if (!string(&value)) return false;
-                value = '"' + value + '"';
-            } else {
-                unsigned long start = at_;
-                while (at_ < text_.size() && text_[at_] != ',' && text_[at_] != '}' &&
-                       text_[at_] != ' ' && text_[at_] != '\t' && text_[at_] != '\r' && text_[at_] != '\n') ++at_;
-                value = text_.substr(start, at_ - start);
-                if (value != "true" && value != "false" && value != "null" && !jsonNumber(value)) return false;
-            }
-            (*fields)[key] = value;
-            whitespace();
-            if (at_ < text_.size() && text_[at_] == '}') { ++at_; return true; }
-            if (!take(',')) return false;
-        }
-        return false;
-    }
-    static bool jsonNumber(const std::string& value) {
-        if (value.empty() || value.size() > 32) return false;
-        unsigned long i = value[0] == '-' ? 1 : 0;
-        if (i == value.size()) return false;
-        if (value[i] == '0') ++i;
-        else {
-            if (value[i] < '1' || value[i] > '9') return false;
-            while (i < value.size() && value[i] >= '0' && value[i] <= '9') ++i;
-        }
-        if (i < value.size() && value[i] == '.') {
-            ++i; unsigned long start = i;
-            while (i < value.size() && value[i] >= '0' && value[i] <= '9') ++i;
-            if (i == start) return false;
-        }
-        if (i < value.size() && (value[i] == 'e' || value[i] == 'E')) {
-            ++i; if (i < value.size() && (value[i] == '+' || value[i] == '-')) ++i;
-            unsigned long start = i;
-            while (i < value.size() && value[i] >= '0' && value[i] <= '9') ++i;
-            if (i == start) return false;
-        }
-        return i == value.size();
-    }
-};
+typedef BoundedJson StatusJson;
 
 bool booleanField(const Fields& fields, const char* name) {
     Fields::const_iterator it = fields.find(name);
@@ -210,6 +106,10 @@ bool measurementValueValid(const std::string& text, uint32_t cluster) {
 }
 bool typedValueValid(const Fields& result, Fields value) {
     const std::string& clusterName = result.find("cluster")->second;
+    if (clusterName=="513") {
+        if(value.size()!=2 || value["type"].size()<2)return false;
+        return thermostatWireValue(static_cast<unsigned int>(strtoul(result.at("attribute").c_str(),0,10)),value["type"].substr(1,value["type"].size()-2),value["value"]);
+    }
     if (clusterName == "30" || clusterName == "56" || clusterName == "62")
         return result.at("attribute") == "0" && value.size() == 2 &&
             value["type"] == "\"bool\"" && booleanField(value, "value");
@@ -280,6 +180,7 @@ bool endpointRecordValid(Fields device) {
         (id[i] <= '9' ? id[i] - '0' : id[i] - 'a' + 10);
     std::ostringstream canonical; canonical << endpoint;
     if (canonical.str() != device["endpoint"]) return false;
+    if(clusters.size()>64 || clients.size()>64 || deviceTypes.size()>64)return false;
     uint64_t previous = 0; bool descriptor = false;
     for (unsigned long i = 0; i < clusters.size(); ++i) {
         if (!number(clusters[i], 0, 0xffffffffU)) return false;
@@ -316,7 +217,7 @@ bool operationalJobValid(Fields fields) {
     Fields result, value;
     if (!StatusJson(fields["result"]).parse(&result) || result.size() != 5 ||
         !hex(result["node"], 16, 16) || result["node"] == "\"0000000000000000\"" ||
-        !number(result["endpoint"], 0, 65534) || result["attribute"] != "0" ||
+        !number(result["endpoint"], 0, 65534) || (result["cluster"]=="513" ? !number(result["attribute"],0,65542) : result["attribute"] != "0") ||
         !StatusJson(result["value"]).parse(&value) || value.size() != 2) return false;
     return typedValueValid(result, value);
 }
@@ -371,6 +272,9 @@ bool requestValid(unsigned char opcode, const std::string& text) {
             (fields["restore"] == "false" || fields["cursor"] == "0");
         if (fields["action"] == "\"delete\"") return fields.size() == 4 && hex(fields["node"], 16, 16) &&
             fields["node"] > "\"0000000000000001\"" && booleanField(fields, "local");
+        if(fields["action"]=="\"read\"" && fields["cluster"]=="513") return fields.size()==6 && hex(fields["node"],16,16) && fields["node"]>"\"0000000000000001\"" &&
+            number(fields["endpoint"],0,65534) && number(fields["attribute"],0,65542) &&
+            (thermostatWireValue(static_cast<unsigned int>(strtoul(fields["attribute"].c_str(),0,10)),"thermostat","null") || fields["attribute"]=="65529" || fields["attribute"]=="65531" || number(fields["attribute"],65536,65542));
         if (fields["action"] == "\"read\"") return fields.size() == 6 &&
             hex(fields["node"], 16, 16) && fields["node"] > "\"0000000000000001\"" &&
             number(fields["endpoint"], 0, 65534) &&
@@ -386,6 +290,12 @@ bool requestValid(unsigned char opcode, const std::string& text) {
         return false;
     }
     if (opcode == 11) {
+        if(fields["command"]=="\"thermostat\"") {
+            std::string field,value;
+            return fields.size()==6 && hex(fields["node"],16,16) && fields["node"]>"\"0000000000000001\"" && number(fields["endpoint"],0,65534) &&
+                jsonStringField(text,"field",&field) && jsonStringField(text,"value",&value) && value.size()<=1536 &&
+                (thermostatAttribute(field)!=0 || (field.size()==10 && field.compare(0,9,"schedule_")==0 && field[9]>='0' && field[9]<='6'));
+        }
         static const char* const commands[] = {"\"on\"", "\"off\"", "\"toggle\"", "\"sync_time\""};
         if (!hex(fields["node"], 16, 16) || fields["node"] <= "\"0000000000000001\"" ||
             !number(fields["endpoint"], 0, 65534)) return false;
@@ -439,13 +349,21 @@ bool matterReadingFromReport(const Fields& data, MatterReading* reading) {
     else if (number(clusterText, 1037, 1037)) cluster = 1037;
     else if (number(clusterText, 1066, 1066)) cluster = 1066;
     else if (number(clusterText, 47, 47)) cluster = 47;
+    else if (number(clusterText,513,513)) cluster=513;
     else return false;
-    if (!number(data.find("attribute")->second, cluster == 47 ? 12 : 0, cluster == 47 ? 12 : 0)) return false;
+    if (!number(data.find("attribute")->second, cluster==513 ? 0 : cluster == 47 ? 12 : 0, cluster==513 ? 65542 : cluster == 47 ? 12 : 0)) return false;
 
     Fields value;
     if (!StatusJson(data.find("value")->second).parse(&value) || value.size() != 2 ||
         !value.count("type") || !value.count("value")) return false;
     MatterReading parsed;
+    parsed.attribute=static_cast<unsigned int>(strtoul(data.find("attribute")->second.c_str(),0,10));
+    if(cluster==513) {
+        if(!typedValueValid(data,value))return false;
+        parsed.node=data.find("node")->second.substr(1,16); parsed.endpoint=static_cast<unsigned short>(strtoul(data.find("endpoint")->second.c_str(),0,10));
+        parsed.cluster=513; parsed.textValue=value["value"]; parsed.unit=value["type"].substr(1,value["type"].size()-2); parsed.known=value["value"]!="null";
+        *reading=parsed; return true;
+    }
     parsed.node = data.find("node")->second.substr(1, 16);
     parsed.endpoint = static_cast<unsigned short>(strtoul(data.find("endpoint")->second.c_str(), 0, 10));
     parsed.cluster = cluster;
@@ -903,6 +821,10 @@ bool MatterChannel::threadChannel(const std::string& input, unsigned char channe
 bool MatterChannel::deviceReadRequest(const std::string& input, std::string* body) {
     body->clear();
     Fields fields;
+    if(StatusJson(input).parse(&fields) && fields.size()==5 && fields["cluster"]=="513") {
+        *body="{\"action\":\"read\","+input.substr(1);return requestValid(10,*body);
+    }
+    fields.clear();
     if (input.size() > MatterWire::MaxPayload || !StatusJson(input).parse(&fields) || fields.size() != 5 || fields["schema"] != "1" ||
         !hex(fields["node"], 16, 16) || fields["node"] <= "\"0000000000000001\"" ||
         !number(fields["endpoint"], 0, 65534) ||
@@ -920,6 +842,7 @@ bool MatterChannel::deviceCommandRequest(const std::string& input, std::string* 
     if (input.size() > MatterWire::MaxPayload || !StatusJson(input).parse(&fields) || fields["schema"] != "1" ||
         !hex(fields["node"], 16, 16) || fields["node"] <= "\"0000000000000001\"" ||
         !number(fields["endpoint"], 0, 65534)) return false;
+    if(fields["command"]=="\"thermostat\"") { *body=input; return requestValid(11,*body); }
     const bool level = fields["command"] == "\"move_to_level\"";
     const bool syncTime = fields["command"] == "\"sync_time\"";
     if ((level && (fields.size() != 6 || !number(fields["level"], 0, 254) ||
@@ -974,6 +897,13 @@ bool MatterChannel::deviceResult(const std::string& response, const std::string&
         status["state"] != "\"complete\"" || status["job"] != '"' + job + '"' ||
         !StatusJson(status["result"]).parse(&result) || !StatusJson(result["value"]).parse(&value)) return false;
     MatterReading parsed;
+    parsed.attribute=static_cast<unsigned int>(strtoul(result["attribute"].c_str(),0,10));
+    if(result["cluster"]=="513") {
+        if(!typedValueValid(result,value))return false;
+        parsed.node=result["node"].substr(1,16); parsed.endpoint=static_cast<unsigned short>(strtoul(result["endpoint"].c_str(),0,10));
+        parsed.cluster=513; parsed.textValue=value["value"]; parsed.unit=value["type"].substr(1,value["type"].size()-2); parsed.known=value["value"]!="null";
+        *reading=parsed; return true;
+    }
     parsed.node = result["node"].substr(1, result["node"].size() - 2);
     parsed.endpoint = static_cast<unsigned short>(strtoul(result["endpoint"].c_str(), 0, 10));
     parsed.cluster = static_cast<unsigned int>(strtoul(result["cluster"].c_str(), 0, 10));

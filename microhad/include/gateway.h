@@ -46,12 +46,13 @@ struct MatterReading {
     std::string node;
     unsigned short endpoint;
     unsigned int cluster;
+    unsigned int attribute;
     bool known;
     bool booleanValue;
     double numberValue;
     std::string textValue;
     std::string unit;
-    MatterReading() : endpoint(0), cluster(0), known(false), booleanValue(false), numberValue(0) {}
+    MatterReading() : endpoint(0), cluster(0), attribute(0), known(false), booleanValue(false), numberValue(0) {}
 };
 
 struct MatterButtonEvent {
@@ -319,7 +320,8 @@ public:
     bool identifyDevice(const std::string& ieeeAddress, std::string* error);
     bool queryDeviceConfiguration(const std::string& ieeeAddress, std::string* error);
     bool setThermostat(const std::string& address, const std::string& field,
-                       const std::string& value, std::string* error);
+                       const std::string& value, std::string* error, std::string* matterRequest = 0);
+    bool thermostatResult(const std::string& node, unsigned short endpoint, const std::string& field, const std::string& error);
     bool setLightState(const std::string& ieeeAddress, const std::string& state, int brightnessPercent,
                        std::string* error);
     bool setSceneConfiguration(const std::string& encoded, std::string* error);

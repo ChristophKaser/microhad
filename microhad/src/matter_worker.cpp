@@ -26,7 +26,7 @@ void wipe(std::string* value) {
 }
 bool sameReadingKey(const MatterReading& left, const MatterReading& right) {
     return left.node == right.node && left.endpoint == right.endpoint &&
-        left.cluster == right.cluster;
+        left.cluster == right.cluster && left.attribute == right.attribute;
 }
 const size_t MaxDeferredMatterReadings = 128;
 }
@@ -105,6 +105,11 @@ bool MatterWorker::submit(unsigned char opcode, const std::string& body, uint32_
     }
     *id = nextJob_++;
     Job& value = jobs_[*id]; value.opcode = opcode; value.body = body; value.state = "queued";
+    std::string command;
+    if(opcode==11 && jsonStringField(body,"command",&command) && command=="thermostat") {
+        long endpoint=0; jsonStringField(body,"node",&value.thermostatNode); jsonStringField(body,"field",&value.thermostatField);
+        jsonLongField(body,"endpoint",&endpoint); value.thermostatEndpoint=static_cast<unsigned short>(endpoint);
+    }
     pending_.push_back(*id);
     pthread_mutex_unlock(&mutex_); return true;
 }
@@ -131,6 +136,7 @@ void MatterWorker::unavailable() {
     dropPhone(false, 1011);
     client_.disconnect();
     std::vector<MatterEndpoint> offline;
+    std::vector<Job> failedThermostats;
     pthread_mutex_lock(&mutex_);
     matterStatus_.clear(); threadStatus_.clear(); refreshed_ = 0; events_.clear();
     offline = snapshotDevices_;
@@ -146,9 +152,12 @@ void MatterWorker::unavailable() {
     for (std::map<uint32_t, Job>::iterator it = jobs_.begin(); it != jobs_.end(); ++it) {
         if (it->second.state == "queued" || it->second.state == "running") {
             wipe(&it->second.body); it->second.state = "failed"; it->second.error = "transport";
+            if(!it->second.thermostatNode.empty()) failedThermostats.push_back(it->second);
         }
     }
     pending_.clear(); pthread_mutex_unlock(&mutex_);
+    if(gateway_) for(unsigned long i=0;i<failedThermostats.size();++i)
+        gateway_->thermostatResult(failedThermostats[i].thermostatNode,failedThermostats[i].thermostatEndpoint,failedThermostats[i].thermostatField,"transport");
     if (!offline.empty() && gateway_) {
         std::string ignored;
         gateway_->reconcileMatterDevices(offline, &ignored);
@@ -283,11 +292,15 @@ void MatterWorker::executeJob() {
         } else valid = client_.call(9, request, &response, &error);
         wipe(&request);
     } else valid = client_.call(opcode, body, &response, &error);
+    std::string thermostatNode,thermostatField; long thermostatEndpoint=0;
+    if(opcode==11) { std::string command; if(jsonStringField(body,"command",&command) && command=="thermostat") {
+        jsonStringField(body,"node",&thermostatNode); jsonStringField(body,"field",&thermostatField); jsonLongField(body,"endpoint",&thermostatEndpoint); } }
     wipe(&body);
     std::string serviceJob;
     const bool operation = valid && MatterChannel::acceptedOperationJob(opcode, response, &serviceJob);
     pthread_mutex_lock(&mutex_);
     Job& completed = jobs_[id];
+    completed.thermostatNode=thermostatNode; completed.thermostatField=thermostatField; completed.thermostatEndpoint=static_cast<unsigned short>(thermostatEndpoint);
     if (operation) {
         completed.state = "running";
         completed.serviceJob = serviceJob;
@@ -298,6 +311,7 @@ void MatterWorker::executeJob() {
         completed.response = response;
     }
     pthread_mutex_unlock(&mutex_);
+    if(!operation && !thermostatNode.empty() && gateway_) gateway_->thermostatResult(thermostatNode,static_cast<unsigned short>(thermostatEndpoint),thermostatField,valid?"Matter device rejected request":"transport");
     if (!valid) unavailable(); else collectEvents();
 }
 void MatterWorker::pollOperationJob() {
@@ -340,7 +354,11 @@ void MatterWorker::pollOperationJob() {
             found->second.serviceJob.clear();
         }
     }
+    std::string thermostatNode=found==jobs_.end()?"":found->second.thermostatNode;
+    std::string thermostatField=found==jobs_.end()?"":found->second.thermostatField;
+    unsigned short thermostatEndpoint=found==jobs_.end()?0:found->second.thermostatEndpoint;
     pthread_mutex_unlock(&mutex_);
+    if((!valid || terminal) && !thermostatNode.empty() && gateway_) gateway_->thermostatResult(thermostatNode,thermostatEndpoint,thermostatField,(!valid?"transport":failed?operationError:""));
     if (!valid) unavailable(); else collectEvents();
 }
 void MatterWorker::run() {

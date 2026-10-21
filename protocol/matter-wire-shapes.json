@@ -71,7 +71,9 @@
     "endpoint": "",
     "command": "",
     "level": "",
-    "transition_deciseconds": ""
+    "transition_deciseconds": "",
+    "field": "",
+    "value": ""
   },
   "reply": {
     "schema": "",
@@ -155,7 +157,9 @@
   "measurement": {
     "value": "",
     "unit": "",
-    "quality": ""
+    "quality": "",
+    "mode": "",
+    "transitions": "thermostat-transition"
   },
   "ble-write": {
     "session": "@id",
@@ -309,5 +313,22 @@
     "retry_in_seconds": "",
     "failures": "",
     "state": ""
+  },
+  "request11:thermostat": {
+    "schema": "",
+    "command": "",
+    "node": "@id",
+    "endpoint": "",
+    "field": "",
+    "value": ""
+  },
+  "thermostat-schedule": {
+    "mode": "",
+    "transitions": "thermostat-transition"
+  },
+  "thermostat-transition": {
+    "time": "",
+    "heat": "",
+    "cool": ""
   }
 }

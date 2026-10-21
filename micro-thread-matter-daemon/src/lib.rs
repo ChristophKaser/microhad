@@ -31,6 +31,8 @@ pub mod discovery;
 pub mod icd;
 #[cfg(feature = "controller-service")]
 pub mod operations;
+#[cfg(feature = "controller-service")]
+pub mod thermostat;
 #[cfg(feature = "control-ipc")]
 pub mod responses;
 #[cfg(feature = "controller-service")]

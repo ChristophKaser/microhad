@@ -84,11 +84,11 @@ host: mbedtls-host $(HOST_BIN)
 webui:
 	cd webui && npm ci && npm run build
 
-$(HOST_BIN): $(SOURCES) $(HOST_C_OBJECTS) $(HOST_MBEDTLS_LIBS) $(wildcard include/*.h)
+$(HOST_BIN): $(SOURCES) $(HOST_C_OBJECTS) $(HOST_MBEDTLS_LIBS) $(wildcard include/*.h) $(wildcard include/*.inc) ../config/thermostat-attributes.def
 	@mkdir -p $(HOST_BUILD)
 	$(HOST_CXX) $(HOST_CXXFLAGS) $(SOURCES) $(HOST_C_OBJECTS) -o $@ $(HOST_MBEDTLS_LIBS) $(LDFLAGS)
 
-$(HOST_TEST_BIN): $(SOURCES) $(HOST_C_OBJECTS) $(HOST_MBEDTLS_LIBS) $(wildcard include/*.h)
+$(HOST_TEST_BIN): $(SOURCES) $(HOST_C_OBJECTS) $(HOST_MBEDTLS_LIBS) $(wildcard include/*.h) $(wildcard include/*.inc) ../config/thermostat-attributes.def
 	@mkdir -p $(HOST_BUILD)
 	$(HOST_CXX) $(HOST_CXXFLAGS) -DMICROHAD_TESTING=1 $(SOURCES) $(HOST_C_OBJECTS) -o $@ $(HOST_MBEDTLS_LIBS) $(LDFLAGS)
 
@@ -126,7 +126,7 @@ $(MIPS_BUILD)/%.o: src/%.c $(MIPS_MBEDTLS_LIBS)
 	@mkdir -p $(MIPS_BUILD)
 	$(TARGET_CC) -std=gnu99 $(TARGET_CFLAGS) $(TLS_CPPFLAGS) -c $< -o $@
 
-$(MIPS_BIN): $(SOURCES) $(wildcard include/*.h) $(MIPS_MBEDTLS_LIBS) $(MIPS_C_OBJECTS)
+$(MIPS_BIN): $(SOURCES) $(wildcard include/*.h) $(wildcard include/*.inc) ../config/thermostat-attributes.def $(MIPS_MBEDTLS_LIBS) $(MIPS_C_OBJECTS)
 	@test -x $(TARGET_CXX) || (echo "Selected target compiler not found: $(TARGET_CXX)"; exit 1)
 	@mkdir -p $(MIPS_BUILD)
 	$(TARGET_CXX) $(TARGET_CXXFLAGS) $(TARGET_LINK_FLAGS) -Wl,--gc-sections $(SOURCES) $(MIPS_C_OBJECTS) -o $@ $(MIPS_MBEDTLS_LIBS) $(LDFLAGS)
@@ -143,11 +143,11 @@ endef
 verify-target: $(MIPS_BIN)
 	@python3 $(ZIGGURAT_ROOT)/scripts/verify-gateway-target.py --link-mode $(LINK_MODE) "$(MIPS_BIN)"
 
-$(UNIT_TEST_BIN): $(UNIT_TEST_SOURCES) src/matter_websocket.cpp src/matter_protocol.cpp src/matter_cbor.cpp src/matter_client.cpp src/matter_worker.cpp src/gateway_config.cpp src/companion_discovery.cpp src/ash.cpp src/json_util.cpp src/storage.cpp src/network_backup.cpp $(ZIGGURAT_SOURCES) src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/thermostat.cpp src/gateway_thermostat.cpp src/sensor_history.cpp src/log_ring.cpp src/syslog_log_reader.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp src/external_http_device.cpp src/device_shelly.cpp src/device_fritz_box.cpp $(HOST_C_OBJECTS) $(HOST_MBEDTLS_LIBS) $(wildcard include/*.h)
+$(UNIT_TEST_BIN): $(UNIT_TEST_SOURCES) src/matter_websocket.cpp src/matter_protocol.cpp src/matter_cbor.cpp src/matter_client.cpp src/matter_worker.cpp src/gateway_config.cpp src/companion_discovery.cpp src/ash.cpp src/json_util.cpp src/storage.cpp src/network_backup.cpp $(ZIGGURAT_SOURCES) src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/thermostat.cpp src/gateway_thermostat.cpp src/sensor_history.cpp src/log_ring.cpp src/syslog_log_reader.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp src/external_http_device.cpp src/device_shelly.cpp src/device_fritz_box.cpp $(HOST_C_OBJECTS) $(HOST_MBEDTLS_LIBS) $(wildcard include/*.h) $(wildcard include/*.inc) ../config/thermostat-attributes.def
 	@mkdir -p $(HOST_BUILD)
 	$(HOST_CXX) $(HOST_CXXFLAGS) -DMICROHAD_TESTING=1 $(UNIT_TEST_SOURCES) src/matter_websocket.cpp src/matter_protocol.cpp src/matter_cbor.cpp src/matter_client.cpp src/matter_worker.cpp src/gateway_config.cpp src/companion_discovery.cpp src/ash.cpp src/json_util.cpp src/storage.cpp src/network_backup.cpp $(ZIGGURAT_SOURCES) src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/thermostat.cpp src/gateway_thermostat.cpp src/sensor_history.cpp src/log_ring.cpp src/syslog_log_reader.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp src/external_http_device.cpp src/device_shelly.cpp src/device_fritz_box.cpp $(HOST_C_OBJECTS) -o $@ $(HOST_MBEDTLS_LIBS) $(LDFLAGS)
 
-$(INTEGRATION_TEST_BIN): $(INTEGRATION_TEST_SOURCES) src/gateway_config.cpp src/companion_discovery.cpp src/matter_websocket.cpp src/matter_protocol.cpp src/matter_cbor.cpp src/matter_client.cpp src/matter_worker.cpp src/ash.cpp src/json_util.cpp src/storage.cpp src/network_backup.cpp $(ZIGGURAT_SOURCES) src/http_server.cpp src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/thermostat.cpp src/gateway_thermostat.cpp src/sensor_history.cpp src/log_ring.cpp src/syslog_log_reader.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp src/external_http_device.cpp src/device_shelly.cpp src/device_fritz_box.cpp $(HOST_C_OBJECTS) $(HOST_MBEDTLS_LIBS) $(wildcard include/*.h)
+$(INTEGRATION_TEST_BIN): $(INTEGRATION_TEST_SOURCES) src/gateway_config.cpp src/companion_discovery.cpp src/matter_websocket.cpp src/matter_protocol.cpp src/matter_cbor.cpp src/matter_client.cpp src/matter_worker.cpp src/ash.cpp src/json_util.cpp src/storage.cpp src/network_backup.cpp $(ZIGGURAT_SOURCES) src/http_server.cpp src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/thermostat.cpp src/gateway_thermostat.cpp src/sensor_history.cpp src/log_ring.cpp src/syslog_log_reader.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp src/external_http_device.cpp src/device_shelly.cpp src/device_fritz_box.cpp $(HOST_C_OBJECTS) $(HOST_MBEDTLS_LIBS) $(wildcard include/*.h) $(wildcard include/*.inc) ../config/thermostat-attributes.def
 	@mkdir -p $(HOST_BUILD)
 	$(HOST_CXX) $(HOST_CXXFLAGS) -DMICROHAD_TESTING=1 $(INTEGRATION_TEST_SOURCES) src/gateway_config.cpp src/companion_discovery.cpp src/matter_websocket.cpp src/matter_protocol.cpp src/matter_cbor.cpp src/matter_client.cpp src/matter_worker.cpp src/ash.cpp src/json_util.cpp src/storage.cpp src/network_backup.cpp $(ZIGGURAT_SOURCES) src/http_server.cpp src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/thermostat.cpp src/gateway_thermostat.cpp src/sensor_history.cpp src/log_ring.cpp src/syslog_log_reader.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp src/external_http_device.cpp src/device_shelly.cpp src/device_fritz_box.cpp $(HOST_C_OBJECTS) -o $@ $(HOST_MBEDTLS_LIBS) $(LDFLAGS)
 

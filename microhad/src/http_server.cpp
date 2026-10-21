@@ -1277,11 +1277,20 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
         std::string::size_type bodyAt = request.find("\r\n\r\n");
         if (thermostatAt != std::string::npos) {
             std::string address = decodeComponent(request.substr(prefix.size(), thermostatAt - prefix.size()));
-            std::string field, value, error;
+            std::string field, value, error, matterRequest;
             const std::string body = bodyAt == std::string::npos ? "" : request.substr(bodyAt + 4);
             bool valid = formValue(body, "field", &field) && formValue(body, "value", &value);
-            if (valid && gateway_->setThermostat(address, field, value, &error))
-                writeResponse(clientFd, 200, "application/json", "{\"ok\":true,\"message\":\"Thermostat request queued; awaiting device confirmation.\"}");
+            if (valid && gateway_->setThermostat(address, field, value, &error, &matterRequest)) {
+                uint32_t job=0;
+                if (!matterRequest.empty() && (!matterWorker_ || !matterWorker_->submit(11,matterRequest,&job,&error))) {
+                    std::string node; long endpoint=0; jsonStringField(matterRequest,"node",&node); jsonLongField(matterRequest,"endpoint",&endpoint);
+                    gateway_->thermostatResult(node,static_cast<unsigned short>(endpoint),field,error.empty()?"Matter worker unavailable":error);
+                    writeResponse(clientFd,400,"application/json","{\"ok\":false,\"error\":\"Matter thermostat request failed\"}");
+                } else {
+                    std::ostringstream response; response<<"{\"ok\":true,\"job\":"<<job<<",\"message\":\"Thermostat request queued; awaiting device confirmation.\"}";
+                    writeResponse(clientFd,200,"application/json",response.str());
+                }
+            }
             else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + jsonEscape(valid ? error : "invalid thermostat request") + "\"}");
         } else if (configurationAt != std::string::npos) {
             std::string ieeeAddress = decodeComponent(request.substr(prefix.size(), configurationAt - prefix.size()));

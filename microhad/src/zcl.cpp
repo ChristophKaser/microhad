@@ -48,7 +48,7 @@ bool applyXiaomiMeasurementData(Device* device, const std::vector<unsigned char>
 }
 
 bool expectedAttributeType(const Device* device, unsigned short cluster, unsigned short attribute, unsigned char type) {
-    if (isTrvzb(*device) && (cluster == 0x0201 || cluster == 0xfc11)) {
+    if (isThermostat(*device) && (cluster == 0x0201 || (isTrvzb(*device) && cluster == 0xfc11))) {
         unsigned long count; const ThermostatAttribute* list = thermostatAttributes(&count);
         for (unsigned long i=0;i<count;++i) if (list[i].cluster == cluster && list[i].attribute == attribute) return type == list[i].type;
     }
@@ -70,7 +70,7 @@ bool expectedAttributeType(const Device* device, unsigned short cluster, unsigne
 
 bool applyZclAttribute(Device* device, unsigned short cluster, unsigned short attribute,
                        const std::vector<unsigned char>& value, long observedAt, unsigned* observed) {
-    if (isTrvzb(*device) && (cluster == 0x0201 || cluster == 0xfc11)) {
+    if (isThermostat(*device) && (cluster == 0x0201 || (isTrvzb(*device) && cluster == 0xfc11))) {
         unsigned long count; const ThermostatAttribute* list = thermostatAttributes(&count);
         for (unsigned long i=0;i<count;++i) if (list[i].cluster == cluster && list[i].attribute == attribute) {
             bool applied = applyThermostatAttribute(device, cluster, attribute, list[i].type, value, observedAt);
@@ -79,7 +79,7 @@ bool applyZclAttribute(Device* device, unsigned short cluster, unsigned short at
         }
         return false;
     }
-    if (isTrvzb(*device) && (cluster == 6 || cluster == 8)) return false;
+    if (isThermostat(*device) && (cluster == 6 || cluster == 8)) return false;
     if (cluster == 0x0402 && attribute == 0x0000 && value.size() == 2) {
         short raw = static_cast<short>(littleEndian16(value));
         if (raw < -27315) return false;

@@ -1,6 +1,41 @@
 use std::env;
 use std::path::PathBuf;
 fn main() {
+    let fields = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap())
+        .join("../config/thermostat-attributes.def");
+    println!("cargo:rerun-if-changed={}", fields.display());
+    let mut generated = String::from("pub const FIELDS: &[Field] = &[\n");
+    for line in std::fs::read_to_string(fields)
+        .unwrap()
+        .lines()
+        .filter(|line| line.starts_with("THERMOSTAT_ATTRIBUTE("))
+    {
+        let args: Vec<_> = line
+            .trim_start_matches("THERMOSTAT_ATTRIBUTE(")
+            .trim_end_matches(')')
+            .split(',')
+            .map(str::trim)
+            .collect();
+        assert_eq!(args.len(), 10);
+        let float = |v: &str| {
+            let v = if v.starts_with('.') {
+                format!("0{v}")
+            } else if v.starts_with("-.") {
+                v.replacen("-.", "-0.", 1)
+            } else {
+                v.to_owned()
+            };
+            format!("{v}f64")
+        };
+        generated.push_str(&format!("Field {{ name: {}, cluster: {}, attribute: {}, kind: {}, scale: {}, minimum: {}, maximum: {}, step: {}, writable: {} }},\n",
+            args[0], args[1], args[2], args[3], float(args[4]), float(args[5]), float(args[6]), float(args[7]), args[8]));
+    }
+    generated.push_str("];\n");
+    std::fs::write(
+        PathBuf::from(env::var("OUT_DIR").unwrap()).join("thermostat_fields.rs"),
+        generated,
+    )
+    .unwrap();
     println!("cargo:rerun-if-env-changed=CARGO_FEATURE_OPENTHREAD");
     if env::var_os("CARGO_FEATURE_OPENTHREAD").is_none() {
         return;
@@ -16,7 +51,10 @@ fn main() {
     };
     println!("cargo:rerun-if-env-changed=TOOLCHAIN");
     let backend = env::var("TOOLCHAIN").unwrap_or_else(|_| "rsdk".into());
-    assert!(backend == "rsdk" || backend == "crosstool-ng", "invalid TOOLCHAIN");
+    assert!(
+        backend == "rsdk" || backend == "crosstool-ng",
+        "invalid TOOLCHAIN"
+    );
     println!("cargo:rerun-if-env-changed=LINK_MODE");
     let link_mode = env::var("LINK_MODE").unwrap_or_else(|_| "static".into());
     let base = if mode == "mips" && link_mode == "dynamic" {

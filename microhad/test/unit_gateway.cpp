@@ -6,6 +6,7 @@
 #include <sys/socket.h>
 #include "storage.h"
 #include "zcl.h"
+#include "matter_client.h"
 #include "fcm.h"
 #include "notification_worker.h"
 #include "json_util.h"
@@ -28,6 +29,48 @@
 class GatewayTestPeer {
 public:
 
+    static void genericThermostats() {
+        puts("unit: generic Zigbee/Matter thermostat discovery, capabilities, cooling, schedules and transport preparation");
+        Device d; d.ieeeAddress="0x00124b0000000071"; d.networkAddress=0x7771;
+        EndpointDescriptor endpoint; endpoint.endpoint=3; endpoint.profileId=0x104;
+        endpoint.inputClusters.push_back(0x201);endpoint.inputClusters.push_back(6);d.endpoints.push_back(endpoint);
+        char directory[]="/tmp/microhad-generic-thermostat-XXXXXX";assert(mkdtemp(directory));
+        Gateway g("/dev/null",115200,directory,"","","");g.classifyDevice(&d);
+        assert(isThermostat(d) && !isTrvzb(d) && !d.hasLight && d.kind=="thermostat");
+        unsigned observed=0;std::vector<unsigned char> local;local.push_back(0x34);local.push_back(8);
+        assert(applyZclAttribute(&d,0x201,0,local,100,&observed));assert(d.temperatureCelsius==21 && d.temperatureObservation.at==100);
+        d.thermostat.values["control_sequence_of_operation"]=4;
+        d.thermostat.values["occupied_heating_setpoint"]=20;d.thermostat.values["occupied_cooling_setpoint"]=25;
+        d.thermostat.values["system_mode"]=1;d.thermostat.values["min_heat_setpoint_limit"]=5;d.thermostat.values["max_heat_setpoint_limit"]=40;
+        std::string error;std::vector<unsigned char> encoded;
+        assert(thermostatEncode(d,"occupied_heating_setpoint","22.25",&encoded,&error));
+        assert(!thermostatEncode(d,"occupied_heating_setpoint","24",&encoded,&error));
+        assert(!thermostatEncode(d,"child_lock","1",&encoded,&error));
+        assert(thermostatEncode(d,"system_mode","3",&encoded,&error));
+        d.thermostat.values["control_sequence_of_operation"]=2;
+        assert(!thermostatSupported(d,*thermostatAttribute("occupied_cooling_setpoint")));
+        assert(!thermostatModeSupported(d,3));d.thermostat.values["control_sequence_of_operation"]=4;
+        d.thermostat.scheduleSupported=true;
+        assert(thermostatScheduleForDevice(d,"{\"mode\":3,\"transitions\":[{\"time\":60,\"heat\":20,\"cool\":25}]}",1,&encoded));
+        assert(applyThermostatSchedule(&d,encoded));assert(d.thermostat.scheduleDetails.count(1));
+        assert(!thermostatScheduleForDevice(d,"{\"mode\":3,\"transitions\":[{\"time\":60,\"heat\":24,\"cool\":25}]}",1,&encoded));
+        Device matter=d;matter.source="matter";matter.ieeeAddress="matter:test:endpoint";matter.matterNode="0000000000000072";matter.matterEndpoint=2;matter.matterServers.push_back(513);
+        assert(isThermostat(matter));
+        assert(applyMatterThermostat(&matter,65531,"thermostat_list","[0,17,18,27,28,65532]",100));
+        assert(applyMatterThermostat(&matter,65532,"thermostat","35",100));
+        assert(thermostatModeSupported(matter,1) && thermostatModeSupported(matter,3));
+        assert(applyMatterThermostat(&matter,0,"thermostat","null",101));assert(!matter.temperatureKnown);
+        assert(applyMatterThermostat(&matter,0,"thermostat","-525",102));assert(matter.temperatureCelsius==-5.25);
+        g.devices_[matter.ieeeAddress]=matter;std::string request,prepared;
+        assert(g.setThermostat(matter.ieeeAddress,"occupied_cooling_setpoint","26.5",&error,&request));
+        assert(MatterChannel::deviceCommandRequest(request,&prepared));assert(prepared==request);
+        assert(g.thermostatResult(matter.matterNode,2,"occupied_cooling_setpoint","timeout"));
+        assert(!g.devices_[matter.ieeeAddress].thermostat.error.empty());
+        assert(!g.setThermostat(matter.ieeeAddress,"child_lock","1",&error,&request));
+        g.devices_[d.ieeeAddress]=d;
+        assert(g.captureView().statusJson().find("\"has_thermostat\":true")!=std::string::npos);
+        rmdir(directory);
+    }
     static void trvzb() {
         puts("unit: TRVZB confirmation, sensor freshness, fallback, restart and persistence");
         char directory[]="/tmp/microhad-trvzb-XXXXXX"; assert(mkdtemp(directory));
@@ -3515,6 +3558,7 @@ static void testTrvzbProtocol() {
 }
 
 void runUnitTests() {
+    GatewayTestPeer::genericThermostats();
     testTrvzbProtocol();
     GatewayTestPeer::trvzb();
     GatewayTestPeer::deviceDeletion();

@@ -213,7 +213,8 @@ fn dispatch<C: Crypto>(
                 Request::Device(body), lifecycle.snapshot().attached && thread.is_some(),
                 controller.commissioning(Instant::now()), Instant::now(),
             ))?).ok()?,
-        Ok(Request::Command(body @ (micro_thread_matter_daemon::control::CommandRequest::On { .. } |
+        Ok(Request::Command(body @ (micro_thread_matter_daemon::control::CommandRequest::Thermostat { .. } |
+            micro_thread_matter_daemon::control::CommandRequest::On { .. } |
             micro_thread_matter_daemon::control::CommandRequest::Off { .. } |
             micro_thread_matter_daemon::control::CommandRequest::Toggle { .. } |
             micro_thread_matter_daemon::control::CommandRequest::MoveToLevel { .. } |

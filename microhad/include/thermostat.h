@@ -13,6 +13,12 @@ struct ThermostatState {
     std::map<std::string, double> values;
     std::set<std::string> unsupported;
     std::map<int, std::string> schedules;
+    std::map<int, std::string> scheduleDetails;
+    std::set<unsigned int> attributes;
+    std::set<unsigned int> commands;
+    bool attributesKnown;
+    bool commandsKnown;
+    bool scheduleSupported;
     std::set<std::string> pending;
     std::string sourceId;
     unsigned long staleMinutes;
@@ -21,7 +27,7 @@ struct ThermostatState {
     long sourceObservedAt;
     long lastForwardAt;
     double lastForwardValue;
-    ThermostatState() : staleMinutes(90), sourceObservedAt(0), lastForwardAt(0), lastForwardValue(-1) {}
+    ThermostatState() : attributesKnown(false), commandsKnown(false), scheduleSupported(false), staleMinutes(90), sourceObservedAt(0), lastForwardAt(0), lastForwardValue(-1) {}
 };
 struct ThermostatAttribute {
     const char* name;
@@ -37,6 +43,13 @@ struct ThermostatAttribute {
 };
 const ThermostatAttribute* thermostatAttributes(unsigned long* count);
 const ThermostatAttribute* thermostatAttribute(const std::string& name);
+bool isThermostat(const Device& device);
+double thermostatValue(const Device& device, const std::string& name, double fallback);
+ThermostatAttribute thermostatDefinition(const Device& device, const ThermostatAttribute& base);
+bool thermostatModeSupported(const Device& device, int mode);
+bool thermostatScheduleForDevice(const Device& device, const std::string& text, int day, std::vector<unsigned char>* payload);
+bool thermostatWireValue(unsigned int attribute, const std::string& kind, const std::string& value);
+bool applyMatterThermostat(Device* device, unsigned int attribute, const std::string& kind, const std::string& value, long now);
 bool isTrvzb(const Device& device);
 bool thermostatSupported(const Device& device, const ThermostatAttribute& attribute);
 bool thermostatNumber(const std::string& text, double* value);

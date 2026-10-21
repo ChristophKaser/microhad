@@ -31,7 +31,18 @@ export interface NodeDescriptor {
   descriptor_capability: number
 }
 
+export interface ThermostatSchedule {
+  mode: number
+  transitions: { time: number; heat?: number; cool?: number }[]
+}
 export interface ThermostatState {
+  fields: Record<string, { min: number; max: number; step: number; writable: boolean }>
+  modes: number[]
+  schedule_max_transitions: number
+  schedule_midnight_start: boolean
+  schedule_supported: boolean
+  external_input_supported: boolean
+  schedule_details: (ThermostatSchedule | null)[]
   pending: string[]
   values: Partial<Record<string, number>>
   supported: Record<string, boolean>

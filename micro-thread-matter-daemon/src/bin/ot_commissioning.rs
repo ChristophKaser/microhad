@@ -366,6 +366,12 @@ impl air_quality::ClusterHandler for TestAirQuality {
         Ok(self.value.get())
     }
 }
+#[path="fixtures/thermostat.rs"]
+mod thermostat_fixture;
+use thermostat_fixture::TestThermostat;
+use rs_matter::dm::clusters::decl::thermostat as thermostat_cluster;
+use thermostat_cluster::ClusterHandler as _;
+
 const APP_ENDPOINT: Endpoint<'static> = Endpoint::new(
     1,
     devices!(DEV_TYPE_ON_OFF_LIGHT),
@@ -384,6 +390,27 @@ const APP_ENDPOINT: Endpoint<'static> = Endpoint::new(
 
 const NODE: Node<'static> = Node {
     endpoints: &[root_endpoint!(thread), APP_ENDPOINT],
+};
+
+const NODE_THERMOSTAT: Node<'static> = Node {
+    endpoints: &[
+        root_endpoint!(thread),
+        Endpoint {
+            clusters: clusters!(
+                desc::DescHandler::CLUSTER,
+                TestOnOffDeviceLogic::CLUSTER,
+                TestLevelControl::CLUSTER,
+                TestTemperature::CLUSTER,
+                TestThermostat::CLUSTER,
+                humidity_measurement::FULL_CLUSTER,
+                co2_measurement::FULL_CLUSTER,
+                pm25_measurement::FULL_CLUSTER,
+                air_quality::FULL_CLUSTER,
+                boolean_state::FULL_CLUSTER,
+            ),
+            ..APP_ENDPOINT
+        },
+    ],
 };
 
 const NODE_ICD: Node<'static> = Node {
@@ -482,6 +509,7 @@ fn data_model<'a>(
     mut rand: impl Rng + Copy,
     on_off: &'a on_off::OnOffHandler<'a, TestOnOffDeviceLogic, on_off::NoLevelControl>,
     level: &'a level_control::LevelControlHandler<'a, TestLevelControl, level_control::NoOnOff>,
+    thermostat: &'a TestThermostat,
     temperature: &'a TestTemperature,
     humidity: &'a TestHumidity,
     co2: &'a TestConcentration,
@@ -494,7 +522,7 @@ fn data_model<'a>(
     enforce_region_order: bool,
 ) -> impl DataModel + 'a {
     (
-        if icd { NODE_ICD } else { NODE },
+        if icd { NODE_ICD } else if std::env::args().any(|arg|arg=="--thermostat") { NODE_THERMOSTAT } else { NODE },
         CommissioningOrder {
             inner: endpoints::EthSysHandlerBuilder::new()
                 .build(rand)
@@ -510,6 +538,7 @@ fn data_model<'a>(
                     |e, c| e == 1 && c == TestLevelControl::CLUSTER.id,
                     Async(level_control::HandlerAdaptor(level)),
                 )
+                .chain(|e,c|e==1 && c==513,Async(thermostat_cluster::HandlerAdaptor(thermostat)))
                 .chain(
                     |e, c| e == 1 && c == TestTemperature::CLUSTER.id,
                     Async(temperature_measurement::HandlerAdaptor(temperature)),
@@ -662,6 +691,7 @@ async fn run(
         TestLevelControl,
     );
 
+    let thermostat=TestThermostat::new();
     let temperature = TestTemperature {
         value: Cell::new(Some(2315)),
         dataver: Cell::new(1),
@@ -708,6 +738,7 @@ async fn run(
             rand,
             &on_off_handler,
             &level_control_handler,
+            &thermostat,
             &temperature,
             &humidity,
             &co2,
@@ -800,7 +831,7 @@ async fn run(
     };
     let device = async {
         let resolve_controller = async {
-            if icd {
+            if icd || std::env::args().any(|arg|arg=="--thermostat") {
                 // The ICD Check-In is sessionless and the device resolves the
                 // registered controller node independently of the CASE path.
                 resolve_fixture(device_matter, 0, controller_operational).await;
@@ -891,6 +922,42 @@ async fn run(
             );
         }
         println!("PASS bounded operational descriptor endpoint and cluster discovery over CASE");
+        if std::env::args().any(|arg|arg=="--thermostat") {
+            use micro_thread_matter_daemon::{thermostat as tstat,operations::Value};
+            assert!(endpoints[1].servers.contains(&513));
+            for(field,value)in [("occupied_heating_setpoint","21.5"),("occupied_cooling_setpoint","25.5"),("system_mode","1")]{
+                eprintln!("Thermostat fixture: writing {field}");
+                let result=tstat::operate(ctrl_matter,ctrl_crypto,fab,node,1,field,value).await?;
+                assert!(matches!(result.value,Value::Thermostat(Some(_))));
+            }
+            assert!(tstat::operate(ctrl_matter,ctrl_crypto,fab,node,1,"occupied_heating_setpoint","30").await.is_err());
+            eprintln!("Thermostat fixture: schedules");
+            let schedule=r#"{"mode":3,"transitions":[{"time":60,"heat":20,"cool":26},{"time":480,"heat":21,"cool":25}]}"#;
+            let result=tstat::operate(ctrl_matter,ctrl_crypto,fab,node,1,"schedule_1",schedule).await?;
+            assert!(matches!(result.value,Value::ThermostatSchedule(_)));
+            let result=tstat::operate(ctrl_matter,ctrl_crypto,fab,node,1,"schedule_1","__read__").await?;
+            assert!(matches!(result.value,Value::ThermostatSchedule(schedule) if schedule.transitions.len()==2));
+            eprintln!("Thermostat fixture: subscription");
+            let subscription=micro_thread_matter_daemon::subscriptions::establish_device_attribute(ctrl_matter,ctrl_crypto,fab,node,1,513,u32::MAX).await?;
+            assert!(subscription.priming_values.iter().any(|v|v.attribute==65531));
+            assert!(subscription.priming_values.iter().any(|v|v.attribute==0));
+            // Let the accessory commit its priming report after the SubscribeResponse ACK.
+            Timer::after_millis(100).await;
+            thermostat.temperature.set(None);
+            thermostat_cluster::ClusterHandler::dataver_changed(&thermostat);
+            dm.notify_attr_changed(1,513,0);
+            let active=micro_thread_matter_daemon::subscriptions::ReportSubscriptions::default();
+            active.replace(fab.get(),std::iter::once((node,subscription.established.subscription_id)));
+            let report=embassy_time::with_timeout(Duration::from_secs(5),micro_thread_matter_daemon::subscriptions::receive_report(ctrl_matter,active)).await
+                .map_err(|_|rs_matter::error::ErrorCode::RxTimeout)??;
+            assert!(report.values.iter().any(|v|v.cluster==513 && v.attribute==0 && matches!(v.value,Value::Thermostat(None))));
+            eprintln!("Thermostat fixture: live report received; reading nullable temperature");
+            let value=tstat::read(ctrl_matter,ctrl_crypto,fab,node,1,0).await?;
+            assert!(matches!(value.value,Value::Thermostat(None)));
+            thermostat.temperature.set(Some(2150));
+            println!("PASS thermostat heating/cooling, limits, schedule readback, nullable readings and wildcard subscription over CASE");
+        }
+
         if service_owner {
             let persisted = Identity::open(&active_store, ctrl_crypto, ADMIN_VENDOR_ID)?;
             if sensor_reports {

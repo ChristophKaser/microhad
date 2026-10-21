@@ -85,7 +85,8 @@ public:
     bool identifyDevice(const std::string& ieeeAddress, std::string* error);
     bool queryDeviceConfiguration(const std::string& ieeeAddress, std::string* error);
     bool setThermostat(const std::string& address, const std::string& field,
-                       const std::string& value, std::string* error);
+                       const std::string& value, std::string* error, std::string* matterRequest = 0);
+    bool thermostatResult(const std::string& node, unsigned short endpoint, const std::string& field, const std::string& error);
     bool setLightState(const std::string& ieeeAddress, const std::string& state, int brightnessPercent,
                        std::string* error);
     bool setSceneConfiguration(const std::string& configuration, std::string* error);
@@ -99,7 +100,7 @@ public:
                                      std::string* error);
 
 private:
-    enum CommandType { DeviceDelete, DeviceDeleteStatus, MatterDeleteTarget, MatterNodeRemove, MatterNodesReconcile, GatewaySettings, MatterRegionSettings, NetworkBackup, Join, CreateNetwork, DeviceSettings, DeviceValueAlerts, DeviceRefresh, DeviceReconfigure, DeviceIdentify, DeviceConfiguration, LightState, ThermostatSetting, SceneConfiguration, SceneActivate, SceneOff, TestNotification, NotificationSetting, EventLoopDebug, ShellyRegister, ShellyRemove, ShellyReconcile, MatterReconcile, MatterValue, MatterButton, ShellyEvent, FritzEvent, FritzReconcile, ActorState };
+    enum CommandType { DeviceDelete, DeviceDeleteStatus, MatterDeleteTarget, MatterNodeRemove, MatterNodesReconcile, GatewaySettings, MatterRegionSettings, NetworkBackup, Join, CreateNetwork, DeviceSettings, DeviceValueAlerts, DeviceRefresh, DeviceReconfigure, DeviceIdentify, DeviceConfiguration, LightState, ThermostatSetting, ThermostatResult, SceneConfiguration, SceneActivate, SceneOff, TestNotification, NotificationSetting, EventLoopDebug, ShellyRegister, ShellyRemove, ShellyReconcile, MatterReconcile, MatterValue, MatterButton, ShellyEvent, FritzEvent, FritzReconcile, ActorState };
     struct Command {
         CommandType type;
         unsigned int seconds;

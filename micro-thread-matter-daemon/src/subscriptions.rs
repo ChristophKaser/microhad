@@ -71,7 +71,7 @@ pub async fn establish_attribute<C: Crypto>(
     let path = AttrPath {
         endpoint: Some(endpoint),
         cluster: Some(cluster),
-        attr: Some(attribute),
+        attr: if cluster == 513 && attribute == u32::MAX { None } else { Some(attribute) },
         ..AttrPath::default()
     };
     let chunk = Exchange::initiate(matter, crypto, fabric, node)
@@ -127,7 +127,7 @@ pub async fn establish_device_attribute_with_interval<C: Crypto>(
     let path = AttrPath {
         endpoint: Some(endpoint),
         cluster: Some(cluster),
-        attr: Some(attribute),
+        attr: if cluster == 513 && attribute == u32::MAX { None } else { Some(attribute) },
         ..AttrPath::default()
     };
     let mut chunk = Exchange::initiate(matter, crypto, fabric, node)

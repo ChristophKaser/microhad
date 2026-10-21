@@ -31,6 +31,8 @@ pub enum Action {
     Delete { local: bool },
     Read,
     ReadLevel,
+    ThermostatRead { attribute: u32 },
+    Thermostat { field: String, value: String },
     ReadSensor {
         cluster: u32,
     },
@@ -66,6 +68,9 @@ pub enum Failure {
 #[derive(Clone, Serialize)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
 pub enum Value {
+    Thermostat(Option<i64>),
+    ThermostatList(Vec<u32>),
+    ThermostatSchedule(crate::thermostat::Schedule),
     Bool(bool),
     U8(Option<u8>),
     Measurement(MeasurementValue),
@@ -165,7 +170,7 @@ pub fn report_values(
     node: u64,
     report: &rs_matter::im::ReportDataResp<'_>,
 ) -> Result<Vec<ResultValue>, Error> {
-    let mut values = Vec::new();
+    let mut values = crate::thermostat::report_values(node, report)?;
     for (endpoint, value) in report.attrs::<bool>(6, 0) {
         values.push(ResultValue {
             node: Id(node),
@@ -332,6 +337,12 @@ impl Operation {
             }) if matches!(cluster, 69 | 91 | 1026 | 1029 | 1037 | 1066) => {
                 (node, endpoint, Action::ReadSensor { cluster })
             }
+            Request::Device(DeviceRequest::Read { node, endpoint, cluster: 513, attribute, .. })
+                if crate::thermostat::readable(attribute) => (node, endpoint, Action::ThermostatRead { attribute }),
+            Request::Command(CommandRequest::Thermostat { node, endpoint, field, value, .. }) => {
+                if !crate::thermostat::request_valid(&field, &value) { return Err(Failure::Malformed); }
+                (node, endpoint, Action::Thermostat { field, value })
+            }
             Request::Command(CommandRequest::On { node, endpoint, .. }) => {
                 (node, endpoint, Action::On)
             }
@@ -391,6 +402,7 @@ impl Operation {
             Action::ReadSensor { cluster } => *cluster,
             Action::Bind { .. } => 59,
             Action::SyncTime { .. } => 56,
+            Action::Thermostat { .. } | Action::ThermostatRead { .. } => 513,
         };
         if !endpoint.servers.contains(&required_cluster) ||
             (matches!(self.action, Action::Bind { .. }) && !endpoint.servers.contains(&30)) {
@@ -444,6 +456,12 @@ impl Operation {
         timeout: embassy_time::Duration,
     ) -> Result<ResultValue, Failure> {
         let transaction = async {
+            if let Action::Thermostat { ref field, ref value } = self.action {
+                return crate::thermostat::operate(matter, &crypto, fabric, self.node, self.endpoint, field, value).await;
+            }
+            if let Action::ThermostatRead { attribute } = self.action {
+                return crate::thermostat::read(matter, &crypto, fabric, self.node, self.endpoint, attribute).await;
+            }
             if let Action::Delete { local } = self.action {
                 if !local {
                     use rs_matter::dm::clusters::noc::{OperationalCredentialsClient, NodeOperationalCertStatusEnum};
@@ -576,7 +594,7 @@ impl Operation {
                                 .time_source(Some(TimeSourceEnum::Admin))?.end()
                         }).await?
                     }
-                    Action::Bind { .. } | Action::Delete { .. } => unreachable!(),
+                    Action::Thermostat { .. } | Action::ThermostatRead { .. } | Action::Bind { .. } | Action::Delete { .. } => unreachable!(),
                     Action::Read | Action::ReadLevel | Action::ReadSensor { .. } => unreachable!(),
                 }
             }

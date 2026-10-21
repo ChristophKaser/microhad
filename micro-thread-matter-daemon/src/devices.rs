@@ -1556,7 +1556,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             if value.node.0 != subscription.key.node
                 || value.endpoint != subscription.key.endpoint
                 || value.cluster != subscription.key.cluster
-                || value.attribute != subscription.key.attribute
+                || (subscription.key.attribute != u32::MAX && value.attribute != subscription.key.attribute)
             {
                 continue;
             }
@@ -1594,6 +1594,9 @@ fn subscription_keys(snapshots: &[Snapshot], maximum: usize) -> Vec<Subscription
     let mut keys = Vec::new();
     for snapshot in snapshots.iter().filter(|snapshot| snapshot.online) {
         for endpoint in &snapshot.endpoints {
+            if endpoint.servers.contains(&513) {
+                keys.push(SubscriptionKey { node: snapshot.node, endpoint: endpoint.id, cluster: 513, attribute: u32::MAX });
+            }
             for cluster in [6, 8, 69, 91, 1026, 1029, 1037, 1066] {
                 if endpoint.servers.contains(&cluster) {
                     keys.push(SubscriptionKey { node: snapshot.node, endpoint: endpoint.id, cluster, attribute: 0 });

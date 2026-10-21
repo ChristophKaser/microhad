@@ -51,8 +51,11 @@ private:
         std::string response;
         std::string error;
         std::string serviceJob;
+        std::string thermostatNode;
+        std::string thermostatField;
+        unsigned short thermostatEndpoint;
         int64_t pollAt;
-        Job() : opcode(0), pollAt(0) {}
+        Job() : opcode(0), thermostatEndpoint(0), pollAt(0) {}
     };
     std::map<uint32_t, Job> jobs_;
     std::deque<uint32_t> pending_;

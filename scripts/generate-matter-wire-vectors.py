@@ -18,6 +18,12 @@ add('max-dataset-bytes',dict(schema=1,action='import',zigbee_channel=15,dataset=
 add('correlated-failure',dict(schema=1,ok=False,error='not_ready'),9,1,4294967295)
 add('float-preserves-type',dict(schema=1,ok=True,result=dict(generation=1.0)),6,1)
 add('measurement-event',dict(schema=1,event='matter_report',data=dict(node='fedcba9876543210',endpoint=1,cluster=1026,attribute=0,value=dict(type='measurement',value=dict(value=-5.25,unit='celsius',quality='measured')))),12,2,0)
+add('thermostat-write',dict(schema=1,command='thermostat',node='0000000000000002',endpoint=2,field='occupied_cooling_setpoint',value='25.5'),11)
+add('thermostat-scalar-event',dict(schema=1,event='matter_report',data=dict(node='0000000000000002',endpoint=2,cluster=513,attribute=18,value=dict(type='thermostat',value=-525))),12,2,0)
+add('thermostat-null-event',dict(schema=1,event='matter_report',data=dict(node='0000000000000002',endpoint=2,cluster=513,attribute=0,value=dict(type='thermostat',value=None))),12,2,0)
+add('thermostat-capabilities-event',dict(schema=1,event='matter_report',data=dict(node='0000000000000002',endpoint=2,cluster=513,attribute=65531,value=dict(type='thermostat_list',value=[0,17,18,28,65532]))),12,2,0)
+thermostat_result=dict(node='0000000000000002',endpoint=2,cluster=513,attribute=65537,value=dict(type='thermostat_schedule',value=dict(mode=3,transitions=[dict(time=60,heat=20.0,cool=25.0)])))
+add('thermostat-schedule-job',dict(schema=1,ok=True,result=dict(job='0000000000000003',state='complete',result=thermostat_result)),10,1)
 add('unknown-envelope',{},extra={'future':{'private-name':'private-value'}})
 for n in (512,513):add(f'array-{n}',dict(future=[None]*n),valid=n==512);vectors[-1]['body']={}
 for n in (256,257):add(f'map-{n}',dict(future={str(i):None for i in range(n)}),valid=n==256);vectors[-1]['body']={}

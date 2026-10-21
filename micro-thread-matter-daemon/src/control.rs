@@ -193,6 +193,7 @@ pub struct BindingMember {
 #[derive(Deserialize)]
 #[serde(tag = "command", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CommandRequest {
+    Thermostat { schema: Schema, node: Id, endpoint: u16, field: String, value: String },
     On {
         schema: Schema,
         node: Id,

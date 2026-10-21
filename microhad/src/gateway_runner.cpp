@@ -197,7 +197,9 @@ void GatewayRunner::execute(Command* command) {
     else if (command->type == DeviceIdentify) result = gateway_->identifyDevice(command->address, &error);
     else if (command->type == NetworkBackup) result = gateway_->exportNetworkBackup(command->address, &error);
     else if (command->type == DeviceConfiguration) result = gateway_->queryDeviceConfiguration(command->address, &error);
-    else if (command->type == ThermostatSetting) result = gateway_->setThermostat(command->address, command->name, command->configuration, &command->error);
+    else if (command->type == ThermostatSetting) { std::string value=command->configuration;
+        result = gateway_->setThermostat(command->address, command->name, value, &error, &command->configuration); }
+    else if (command->type == ThermostatResult) result=gateway_->thermostatResult(command->matterReading.node,command->matterReading.endpoint,command->name,command->configuration);
     else if (command->type == LightState) result = gateway_->setLightState(command->address, command->name,
                                                                              command->brightnessPercent, &error);
     else if (command->type == SceneConfiguration) result = gateway_->setSceneConfiguration(command->configuration, &error);
@@ -550,9 +552,14 @@ bool GatewayRunner::queryDeviceConfiguration(const std::string& address, std::st
     return invoke(&command, error);
 }
 bool GatewayRunner::setThermostat(const std::string& address, const std::string& field,
-                                  const std::string& value, std::string* error) {
+                                  const std::string& value, std::string* error, std::string* matterRequest) {
     Command command; command.type = ThermostatSetting; command.address = address;
-    command.name = field; command.configuration = value; return invoke(&command, error);
+    command.name = field; command.configuration = value;
+    bool result=invoke(&command,error); if(result && matterRequest)*matterRequest=command.configuration; return result;
+}
+bool GatewayRunner::thermostatResult(const std::string& node, unsigned short endpoint, const std::string& field, const std::string& error) {
+    Command command; command.type=ThermostatResult; command.matterReading.node=node; command.matterReading.endpoint=endpoint;
+    command.name=field; command.configuration=error; std::string ignored; return invoke(&command,&ignored);
 }
 bool GatewayRunner::setLightState(const std::string& address, const std::string& state, int brightnessPercent,
                                   std::string* error) {

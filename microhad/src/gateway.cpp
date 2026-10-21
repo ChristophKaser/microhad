@@ -653,6 +653,7 @@ bool Gateway::reconcileMatterDevices(const std::vector<MatterEndpoint>& endpoint
         device.hasAirQuality = std::find(endpoint.servers.begin(), endpoint.servers.end(), 91U) != endpoint.servers.end();
         device.hasCo2 = std::find(endpoint.servers.begin(), endpoint.servers.end(), 1037U) != endpoint.servers.end();
         device.hasPm25 = std::find(endpoint.servers.begin(), endpoint.servers.end(), 1066U) != endpoint.servers.end();
+        if (isThermostat(device)) { device.kind="thermostat"; device.name="Matter thermostat"; device.hasTemperature=true; device.hasLight=false; device.hasActor=false; device.hasBrightness=false; }
         device.manufacturerName = endpoint.manufacturer;
         device.modelId = endpoint.model;
         device.matterRssiDbm = endpoint.rssiDbm;
@@ -721,6 +722,7 @@ bool Gateway::reconcileMatterDevices(const std::vector<MatterEndpoint>& endpoint
             fresh.temperatureCelsius = current.temperatureCelsius;
             fresh.temperatureKnown = current.temperatureKnown;
             fresh.temperatureObservation = current.temperatureObservation;
+            fresh.thermostat = current.thermostat;
             fresh.humidityPercent = current.humidityPercent;
             fresh.humidityKnown = current.humidityKnown;
             fresh.airQuality = current.airQuality;
@@ -758,7 +760,7 @@ bool Gateway::applyMatterReading(const MatterReading& reading, std::string* erro
         if (error) *error = "invalid Matter reading identity";
         return false;
     }
-    if (reading.known && reading.cluster != 6 && reading.cluster != 69 && reading.cluster != 91 &&
+    if (reading.known && reading.cluster != 513 && reading.cluster != 6 && reading.cluster != 69 && reading.cluster != 91 &&
         (!std::isfinite(reading.numberValue) ||
          (reading.cluster == 8 && (reading.numberValue < 0 || reading.numberValue > 254)) ||
          (reading.cluster == 1026 && (reading.numberValue < -327.68 || reading.numberValue > 327.67)) ||
@@ -786,7 +788,9 @@ bool Gateway::applyMatterReading(const MatterReading& reading, std::string* erro
     }
     Device& device = target->second;
     Device before = device;
-    if (reading.cluster == 6 && (device.hasLight || device.hasActor)) {
+    if (reading.cluster == 513 && isThermostat(device)) {
+        if (!applyMatterThermostat(&device,reading.attribute,reading.unit,reading.textValue,time(0))) { *error="invalid thermostat report"; return false; }
+    } else if (reading.cluster == 6 && (device.hasLight || device.hasActor)) {
         if (device.hasLight) { device.lightOn = reading.booleanValue; device.lightKnown = true; }
         if (device.hasActor) { device.actorOn = reading.booleanValue; device.actorKnown = true; }
     } else if (reading.cluster == 69 && device.hasWaterLeak) {
@@ -840,7 +844,8 @@ bool Gateway::applyMatterReading(const MatterReading& reading, std::string* erro
         if (reading.cluster == 69 && !device.hasWaterLeak) {
             historyMetric = SensorHistory::Contact;
             historyValue = reading.booleanValue ? "1" : "0";
-        } else if (reading.cluster == 1026) historyMetric = SensorHistory::Temperature;
+        } else if (reading.cluster == 513 && reading.attribute==0 && device.temperatureKnown) { historyMetric=SensorHistory::Temperature; std::ostringstream number; number<<device.temperatureCelsius; historyValue=number.str(); historyUnit="celsius"; }
+        else if (reading.cluster == 1026) historyMetric = SensorHistory::Temperature;
         else if (reading.cluster == 1029) historyMetric = SensorHistory::Humidity;
         else if (reading.cluster == 91) {
             historyMetric = SensorHistory::AirQuality;
@@ -1520,7 +1525,7 @@ void Gateway::poll() {
         lightSetupPending_.erase(pending);
         if (nodeAddresses_.find(node) != nodeAddresses_.end()) {
             const Device& device = devices_[nodeAddresses_[node]];
-            if (isTrvzb(device)) queueThermostatReadings(device);
+            if (isThermostat(device)) queueThermostatReadings(device);
             if (device.configuredSignature != deviceConfigurationSignature(device)) {
                 startInterview(node, false);
                 addLog("Queued missing or changed device reporting setup");
@@ -2832,7 +2837,7 @@ void Gateway::classifyDevice(Device* device) const {
         if (std::find(endpoint.outputClusters.begin(), endpoint.outputClusters.end(), 0x0006) != endpoint.outputClusters.end() ||
             std::find(endpoint.outputClusters.begin(), endpoint.outputClusters.end(), 0x0008) != endpoint.outputClusters.end()) remote = true;
     }
-    if (isTrvzb(*device)) {
+    if (isThermostat(*device)) {
         device->kind = "thermostat"; device->hasLight = false; device->hasBrightness = false;
         device->hasActor = false; device->hasRemote = false; device->hasTemperature = true; return;
     }
@@ -3217,7 +3222,7 @@ std::string GatewayView::statusJson() const {
     bool firstSource = true;
     for (unsigned long i=0;i<devices.size();++i) {
         const Device& source=devices[i];
-        if (!source.hasTemperature || isTrvzb(source) || (source.source == "matter" && source.matterEndpoint < 0)) continue;
+        if (!source.hasTemperature || isThermostat(source) || (source.source == "matter" && source.matterEndpoint < 0)) continue;
         if (!firstSource) json << ',';
         firstSource=false;
         json << "{\"id\":\"" << jsonEscape(source.ieeeAddress) << "\",\"name\":\"" << jsonEscape(source.name)
@@ -3229,7 +3234,7 @@ std::string GatewayView::statusJson() const {
     std::map<std::string, Device> matterNodes;
     for (unsigned long index=0; index<devices.size(); ++index) {
         const Device& entry=devices[index];
-        if (entry.source != "matter") { listedDevices.push_back(entry); continue; }
+        if (entry.source != "matter" || isThermostat(entry)) { listedDevices.push_back(entry); continue; }
         const std::string id=entry.ieeeAddress.substr(0,40);
         if (entry.matterEndpoint < 0) matterNodes[id]=entry;
         else matterEndpoints[id].push_back(entry);
@@ -3288,9 +3293,9 @@ std::string GatewayView::statusJson() const {
              << ",\"water_leak_known\":" << (device.source == "zigbee" || device.waterLeakKnown ? "true" : "false")
              << ",\"water_detected\":" << (device.waterDetected ? "true" : "false")
              << ",\"has_temperature\":" << (device.hasTemperature ? "true" : "false")
-             << ",\"temperature_known\":" << ((device.source == "zigbee" && !isTrvzb(device)) || device.temperatureKnown ? "true" : "false")
-             << ",\"has_thermostat\":" << (isTrvzb(device) ? "true" : "false")
-             << ",\"thermostat\":" << (isTrvzb(device) ? thermostatJson(device) : "null")
+             << ",\"temperature_known\":" << ((device.source == "zigbee" && !isThermostat(device)) || device.temperatureKnown ? "true" : "false")
+             << ",\"has_thermostat\":" << (isThermostat(device) ? "true" : "false")
+             << ",\"thermostat\":" << (isThermostat(device) ? thermostatJson(device) : "null")
              << ",\"temperature_celsius\":" << device.temperatureCelsius
              << ",\"has_humidity\":" << (device.hasHumidity ? "true" : "false")
              << ",\"humidity_percent\":" << device.humidityPercent
@@ -3675,7 +3680,7 @@ void Gateway::loadState() {
             if (saved[i].source == "zigbee") classifyDevice(&saved[i]);
             devices_[saved[i].ieeeAddress] = saved[i];
             if (saved[i].networkAddress != 0xffff) nodeAddresses_[saved[i].networkAddress] = saved[i].ieeeAddress;
-            if ((saved[i].hasLight || isTrvzb(saved[i])) && saved[i].networkAddress != 0xffff) lightSetupPending_[saved[i].networkAddress] = true;
+            if ((saved[i].hasLight || isThermostat(saved[i])) && saved[i].networkAddress != 0xffff) lightSetupPending_[saved[i].networkAddress] = true;
         }
     }
     error.clear();
@@ -4981,7 +4986,7 @@ std::string Gateway::deviceConfigurationSignature(const Device& device) const {
     // Bump this version when reporting intervals or configuration policy change.
     // Include endpoint and binding inputs; an address change alone needs no rebind.
     std::ostringstream signature;
-    signature << (isTrvzb(device) ? "trvzb-v1:" : "reporting-v1:") << std::hex;
+    signature << (isThermostat(device) ? "thermostat-v2:" : "reporting-v1:") << std::hex;
     for (unsigned long i = 0; i < coordinatorIeeeAddress_.size(); ++i)
         signature << std::setw(2) << std::setfill('0') << static_cast<unsigned int>(coordinatorIeeeAddress_[i]);
     signature << ':' << device.manufacturerName.size() << ':' << device.manufacturerName
@@ -5087,13 +5092,13 @@ void Gateway::buildRefreshOperations(unsigned short destination) {
     const Device& device = devices_[state.ieeeAddress];
     state.operations.clear();
     state.operationIndex = 0;
-    if (isTrvzb(device)) queueThermostatReadings(device);
+    if (isThermostat(device)) queueThermostatReadings(device);
     for (unsigned long i = 0; i < device.endpoints.size(); ++i) {
         const EndpointDescriptor& endpoint = device.endpoints[i];
         if (endpointSupports(endpoint, 0x0402)) queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0402, 0x0000);
         if (endpointSupports(endpoint, 0x0405)) queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0405, 0x0000);
-        if (!isTrvzb(device) && endpointSupports(endpoint, 0x0006)) queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0006, 0x0000);
-        if (!isTrvzb(device) && endpointSupports(endpoint, 0x0008)) queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0008, 0x0000);
+        if (!isThermostat(device) && endpointSupports(endpoint, 0x0006)) queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0006, 0x0000);
+        if (!isThermostat(device) && endpointSupports(endpoint, 0x0008)) queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0008, 0x0000);
         if (endpointSupports(endpoint, 0x0001)) {
             queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0001, 0x0021);
             queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0001, 0x0020);
@@ -5123,16 +5128,16 @@ void Gateway::buildConfigurationOperations(unsigned short destination) {
         else interviews_.erase(destination);
         return;
     }
-    if (isTrvzb(device)) { classifyDevice(&device); queueThermostatReadings(device); }
+    if (isThermostat(device)) { classifyDevice(&device); queueThermostatReadings(device); }
     const bool herdsmanTh01 = device.manufacturerName == "eWeLink" && device.modelId == "TH01";
     state.operations.clear();
     state.operationIndex = 0;
     for (unsigned long i = 0; i < device.endpoints.size(); ++i) {
         const EndpointDescriptor& endpoint = device.endpoints[i];
-        if (isTrvzb(device) && endpointSupports(endpoint, 0x0201)) {
+        if (isThermostat(device) && endpointSupports(endpoint, 0x0201)) {
             queueInterviewOperation(destination, InterviewBind, endpoint.endpoint, 0x0201);
             queueInterviewOperation(destination, InterviewConfigureReporting, endpoint.endpoint, 0x0201, 0, 0x29, 10, 0, 3600);
-            queueInterviewOperation(destination, InterviewConfigureReporting, endpoint.endpoint, 0x0201, 0x12, 0x29, 10, 0, 3600);
+            if (isTrvzb(device)) queueInterviewOperation(destination, InterviewConfigureReporting, endpoint.endpoint, 0x0201, 0x12, 0x29, 10, 0, 3600);
             queueInterviewOperation(destination, InterviewConfigureReporting, endpoint.endpoint, 0x0201, 0x1c, 0x30, 0, 10, 3600);
         }
         if (endpointSupports(endpoint, 0x0402)) queueInterviewOperation(destination, InterviewBind, endpoint.endpoint, 0x0402);
@@ -5181,11 +5186,11 @@ void Gateway::buildConfigurationOperations(unsigned short destination) {
             queueInterviewOperation(destination, InterviewConfigureReporting, endpoint.endpoint, 0x0406, 0x0000, 0x18, 0, 0, 3600);
             queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0406, 0x0000);
         }
-        if (!isTrvzb(device) && endpointSupports(endpoint, 0x0006)) {
+        if (!isThermostat(device) && endpointSupports(endpoint, 0x0006)) {
             queueInterviewOperation(destination, InterviewConfigureReporting, endpoint.endpoint, 0x0006, 0x0000, 0x10, 1, 0, 3600);
             queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0006, 0x0000);
         }
-        if (!isTrvzb(device) && endpointSupports(endpoint, 0x0008)) {
+        if (!isThermostat(device) && endpointSupports(endpoint, 0x0008)) {
             queueInterviewOperation(destination, InterviewConfigureReporting, endpoint.endpoint, 0x0008, 0x0000, 0x20, 1, 0, 3600);
             queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0008, 0x0000);
         }
@@ -5352,7 +5357,7 @@ bool Gateway::updateBasicIdentity(Device* device, const std::vector<unsigned cha
         }
         offset += 5 + records[offset + 4];
     }
-    if (isTrvzb(*device)) classifyDevice(device);
+    if (isThermostat(*device)) classifyDevice(device);
     return changed;
 }
 
@@ -5832,7 +5837,7 @@ void Gateway::handleApsMessage(unsigned short sender, unsigned short profile, un
     unsigned char transactionSequence = message[zclOffset - 2];
     if ((frameControl & 0x04) != 0)
         manufacturer = static_cast<unsigned short>(message[1]) | (static_cast<unsigned short>(message[2]) << 8);
-    if (profile == 0x0104 && isTrvzb(devices_[address->second])) {
+    if (profile == 0x0104 && isThermostat(devices_[address->second])) {
         std::vector<unsigned char> payload(message.begin() + zclOffset, message.end());
         if (handleThermostatMessage(address->second, sourceEndpoint, cluster, frameControl, manufacturer,
                                    transactionSequence, command, payload)) return;

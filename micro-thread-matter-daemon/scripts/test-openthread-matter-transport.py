@@ -18,6 +18,7 @@ spec.loader.exec_module(sim)
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--thermostat', action='store_true', help='Exercise standard thermostat operations over synthetic CASE')
     parser.add_argument('--commissioning', action='store_true', help='Run encrypted Matter fixture')
     parser.add_argument('--ble', action='store_true', help='Commission over synthetic phone GATT/BTP')
     parser.add_argument('--service-owner', action='store_true', help='Exercise the production owned commissioner with synthetic BLE')
@@ -27,6 +28,8 @@ def main():
     parser.add_argument('--native-bridge', action='store_true', help='Deliver live CASE sensor reports through a native gateway process and verify shared device state')
     parser.add_argument('--delete-device', action='store_true', help='Unpair the synthetic accessory while retaining its other fabric')
     args = parser.parse_args()
+    if args.thermostat and not args.commissioning:
+        parser.error('--thermostat requires --commissioning')
     if args.delete_device and (not args.service_owner or args.native_bridge or args.icd):
         parser.error('--delete-device requires --service-owner without --native-bridge or --icd')
     if args.service_discovery and not args.service_owner:
@@ -59,7 +62,7 @@ def main():
             binary = ROOT / 'build/micro-thread-matter-daemon/target/release' / name
             command = [str(binary), 'spinel+hdlc+unix://' + str(socket) + '?no-reset']
             command.extend(flag for enabled, flag in (
-                (args.ble, '--ble'), (args.service_owner, '--service-owner'),
+                (args.thermostat, '--thermostat'), (args.ble, '--ble'), (args.service_owner, '--service-owner'),
                 (args.service_discovery, '--service-discovery'),
                 (args.sensor_reports, '--sensor-reports'), (args.icd, '--icd'), (args.delete_device, '--delete-device')) if enabled)
             if args.native_bridge:
@@ -75,6 +78,8 @@ def main():
                 native_status = None
             if result.returncode or marker not in result.stdout:
                 raise RuntimeError('Transport failed: ' + result.stdout + result.stderr + '\nRCP error: ' + str(radio.error))
+            if args.thermostat and 'PASS thermostat heating/cooling, limits, schedule readback, nullable readings and wildcard subscription over CASE' not in result.stdout:
+                raise RuntimeError('Thermostat CASE fixture did not complete: ' + result.stdout + result.stderr)
             if args.service_owner and 'PASS stale BLE PASE session discarded before fresh commissioning' not in result.stdout:
                 raise RuntimeError('Stale BLE PASE retry regression was not exercised')
             if args.service_discovery and 'PASS synthetic accessory SRP registration' not in result.stdout:

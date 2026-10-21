@@ -50,27 +50,42 @@ void Gateway::queueThermostatOperation(const Device& device, const std::string& 
     } else thermostatOperations_.push_back(op);
 }
 void Gateway::queueThermostatReadings(const Device& device) {
-    if (!isTrvzb(device)) return;
+    if (!isThermostat(device) || device.source!="zigbee") return;
     unsigned long count; const ThermostatAttribute* list=thermostatAttributes(&count);
     for (unsigned long i=0;i<count;++i) {
         const ThermostatAttribute& a=list[i];
         if (device.thermostat.unsupported.count(a.name)) continue;
         /* Probe features on unknown firmware; a successful read establishes support. */
+        if (a.cluster!=513 && !isTrvzb(device)) continue;
         if (a.minimumVersion[0] && !device.softwareBuildId.empty() && !thermostatSupported(device,a)) continue;
         std::vector<unsigned char> payload; put16(&payload,a.attribute);
         queueThermostatOperation(device,a.name,a.cluster,0,payload);
     }
     for (int day=0;day<7;++day) {
         std::ostringstream field; field<<"schedule_"<<day;
-        std::vector<unsigned char> payload; payload.push_back(static_cast<unsigned char>(1<<day)); payload.push_back(1);
+        std::vector<unsigned char> payload; payload.push_back(static_cast<unsigned char>(1<<day)); payload.push_back(isTrvzb(device)?1:3);
         queueThermostatOperation(device,field.str(),0x0201,0x82,payload);
     }
 }
 bool Gateway::setThermostat(const std::string& address, const std::string& field,
-                            const std::string& value, std::string* error) {
+                            const std::string& value, std::string* error, std::string* matterRequest) {
     std::map<std::string,Device>::iterator it=devices_.find(resolveDeviceId(address));
-    if (it==devices_.end() || !isTrvzb(it->second)) { *error="device is not a SONOFF TRVZB"; return false; }
+    if (it==devices_.end() || !isThermostat(it->second)) { *error="device is not a thermostat"; return false; }
     Device& device=it->second; ThermostatState& state=device.thermostat;
+    if (matterRequest) matterRequest->clear();
+    if (device.source=="matter") {
+        std::vector<unsigned char> encoded;
+        bool schedule=field.size()==10 && field.compare(0,9,"schedule_")==0 && field[9]>='0' && field[9]<='6';
+        if (!matterRequest) { *error="Matter worker is required"; return false; }
+        if (device.thermostat.pending.count(field)) { *error="this setting has a pending request"; return false; }
+        if (schedule ? (value=="__read__" ? !state.scheduleSupported : !thermostatScheduleForDevice(device,value,field[9]-'0',&encoded)) : !thermostatEncode(device,field,value,&encoded,error)) {
+            if(schedule) *error="invalid or unsupported thermostat schedule";
+            return false;
+        }
+        std::ostringstream request; request<<"{\"schema\":1,\"command\":\"thermostat\",\"node\":\""<<device.matterNode<<"\",\"endpoint\":"<<device.matterEndpoint
+            <<",\"field\":\""<<jsonEscape(field)<<"\",\"value\":\""<<jsonEscape(value)<<"\"}";
+        *matterRequest=request.str(); state.pending.insert(field); state.error.clear(); markViewDirty(); return true;
+    }
     unsigned char endpoint=0;
     if (!thermostatEndpoint(device,0x0201,&endpoint)) { *error="thermostat interview is incomplete"; return false; }
     if (field=="stale_minutes") {
@@ -95,7 +110,7 @@ bool Gateway::setThermostat(const std::string& address, const std::string& field
         if (value!="builtin" && value!="manual") {
             std::map<std::string,Device>::const_iterator source=devices_.find(value);
             if (source==devices_.end() || source->first==device.ieeeAddress || !source->second.hasTemperature ||
-                isTrvzb(source->second) || (source->second.source=="matter" && source->second.matterEndpoint<0)) {
+                isThermostat(source->second) || (source->second.source=="matter" && source->second.matterEndpoint<0)) {
                 *error="select a measured temperature sensor endpoint"; return false;
             }
         }
@@ -121,10 +136,12 @@ bool Gateway::setThermostat(const std::string& address, const std::string& field
     std::vector<unsigned char> payload;
     unsigned short cluster=0x0201; unsigned char command=2;
     if (field.size()==10 && field.compare(0,9,"schedule_")==0 && field[9]>='0' && field[9]<='6') {
-        if (!thermostatSchedule(value,field[9]-'0',&payload)) {
-            *error="schedule requires 1–6 ordered HH:mm/temperature transitions, starting at 00:00, 4–35 °C in 0.5 °C steps"; return false;
+        if(value=="__read__") {
+            payload.push_back(static_cast<unsigned char>(1<<(field[9]-'0'))); payload.push_back(isTrvzb(device)?1:3); command=0x82;
+        } else {
+            if (!thermostatScheduleForDevice(device,value,field[9]-'0',&payload)) { *error="invalid or unsupported thermostat schedule"; return false; }
+            command=0x81;
         }
-        command=0x81;
     } else {
         const ThermostatAttribute* a=thermostatAttribute(field);
         if (!a) { *error="unknown thermostat setting"; return false; }
@@ -153,7 +170,7 @@ void Gateway::pollThermostats() {
         Device& valve=it->second; ThermostatState& t=valve.thermostat;
         if (!isTrvzb(valve) || t.sourceId.empty()) continue;
         std::map<std::string,Device>::const_iterator source=devices_.find(t.sourceId);
-        bool fresh=source!=devices_.end() && !isTrvzb(source->second) && sensorFresh(source->second,now,t.staleMinutes);
+        bool fresh=source!=devices_.end() && !isThermostat(source->second) && sensorFresh(source->second,now,t.staleMinutes);
         long observed=source==devices_.end() ? 0 : source->second.temperatureObservation.at;
         if (t.sourceObservedAt!=observed) { t.sourceObservedAt=observed; markViewDirty(); }
         bool pending=false;
@@ -197,7 +214,7 @@ void Gateway::pollThermostats() {
     if (thermostatOperations_.empty()) return;
     ThermostatOperation& op=thermostatOperations_.front();
     std::map<std::string,Device>::iterator device=devices_.find(op.address);
-    if (device==devices_.end() || !isTrvzb(device->second)) { thermostatOperations_.pop_front(); return; }
+    if (device==devices_.end() || !isThermostat(device->second)) { thermostatOperations_.pop_front(); return; }
     if (op.deadline!=0 && now<op.deadline) return;
     if (op.attempts>=3) {
         device->second.thermostat.error="No confirmation for "+op.field;
@@ -212,7 +229,7 @@ void Gateway::pollThermostats() {
     frame.push_back(op.sequence); frame.push_back(op.command&0x7f);
     if (op.readback && op.command==2) { frame[2]=0; frame.insert(frame.end(),op.payload.begin(),op.payload.begin()+2); }
     else if (op.readback && op.command==0x81) {
-        frame[2]=2; frame.push_back(op.payload[1]); frame.push_back(1);
+        frame[2]=2; frame.push_back(op.payload[1]); frame.push_back(op.payload[2]);
     } else frame.insert(frame.end(),op.payload.begin(),op.payload.end());
     ++op.attempts; op.deadline=now+20;
     sendApsUnicast(device->second.networkAddress,0x0104,op.cluster,1,op.endpoint,frame);
@@ -230,7 +247,8 @@ bool Gateway::handleThermostatMessage(const std::string& address, unsigned char 
             unsigned short a=get16(payload,i); put16(&reply,a);
             if (a==0 || a==2 || a==7) {
                 reply.push_back(0); reply.push_back(a==2 ? 0x2b : 0x23);
-                put32(&reply,static_cast<unsigned long>(a==0 ? now : a==2 ? local.tm_gmtoff : now+local.tm_gmtoff));
+                unsigned long epoch=isTrvzb(device) ? 0 : 946684800UL;
+                put32(&reply,static_cast<unsigned long>(a==0 ? now-epoch : a==2 ? local.tm_gmtoff : now-epoch+local.tm_gmtoff));
             } else if (a==1) { reply.push_back(0); reply.push_back(0x18); reply.push_back(3); }
             else reply.push_back(0x86);
         }
@@ -241,9 +259,17 @@ bool Gateway::handleThermostatMessage(const std::string& address, unsigned char 
         reply.push_back(1); put16(&reply,120);
         sendApsUnicast(device.networkAddress,0x0104,cluster,1,endpoint,reply); return true;
     }
-    if (cluster!=0x0201 && cluster!=0xfc11) return false;
+    if (cluster!=0x0201 && (cluster!=0xfc11 || !isTrvzb(device))) return false;
     /* Configure Reporting belongs to the existing interview state machine. */
-    if ((control&3)==0 && command==7) return false;
+    if ((control&3)==0 && command==7) {
+        if(!thermostatOperations_.empty()) {
+            const ThermostatOperation& reporting=thermostatOperations_.front();
+            if(reporting.command==6 && reporting.address==address && reporting.endpoint==endpoint && reporting.cluster==cluster && reporting.sequence==sequence && reporting.deadline) {
+                device.thermostat.pending.erase(reporting.field); thermostatOperations_.pop_front();markViewDirty();return true;
+            }
+        }
+        return false;
+    }
     unsigned char expectedEndpoint=0;
     if (!thermostatEndpoint(device,cluster,&expectedEndpoint) || endpoint!=expectedEndpoint ||
         manufacturer!=0 || !(control&8)) return true;
@@ -264,7 +290,7 @@ bool Gateway::handleThermostatMessage(const std::string& address, unsigned char 
         }
     } else if ((control&3)==0 && command==0x0b && matched && payload.size()==2) {
         ThermostatOperation& op=thermostatOperations_.front();
-        if (payload[0]==(op.command&0x7f) && payload[1]!=0) completed=true;
+        if (payload[0]==(op.command&0x7f) && payload[1]!=0) { completed=true; if(op.command>=0x80)device.thermostat.scheduleSupported=false; }
         else if (payload[0]==1 && op.command==0x81 && !op.readback && payload[1]==0) {
             op.readback=true; op.attempts=0; op.deadline=0;
         }
@@ -303,6 +329,11 @@ bool Gateway::handleThermostatMessage(const std::string& address, unsigned char 
                 recordHistory(before,device,ZclObservedTemperature,time(0));
                 updateTemperatureAlert(device,before.temperatureKnown,before.temperatureCelsius);
                 updateValueAlerts(device,before);
+            }
+            if(applied && command==1 && !isTrvzb(device) && (attribute==0x11 || attribute==0x12)) {
+                std::vector<unsigned char> config=buildZclConfigureReporting(0,attribute,type,10,3600,10);
+                config.erase(config.begin(),config.begin()+3);
+                queueThermostatOperation(device,std::string("report:")+a->name,cluster,6,config);
             }
             if (target && command==1) {
                 ThermostatOperation& op=thermostatOperations_.front();
@@ -344,4 +375,16 @@ bool Gateway::handleThermostatMessage(const std::string& address, unsigned char 
         markViewDirty();
     }
     return true;
+}
+
+bool Gateway::thermostatResult(const std::string& node, unsigned short endpoint, const std::string& field, const std::string& error) {
+    for(std::map<std::string,Device>::iterator it=devices_.begin();it!=devices_.end();++it) {
+        Device& d=it->second;
+        if(d.source=="matter" && d.matterNode==node && d.matterEndpoint==endpoint && isThermostat(d)) {
+            d.thermostat.pending.erase(field); d.thermostat.error=error;
+            d.thermostat.status=error.empty()?"Device confirmed "+field:"Thermostat request failed";
+            markViewDirty(); return true;
+        }
+    }
+    return false;
 }

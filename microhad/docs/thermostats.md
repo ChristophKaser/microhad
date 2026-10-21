@@ -7,27 +7,37 @@ Celsius.
 
 ## Supported devices
 
-| Model | Connection | Support |
+| Device | Connection | Recognition and support |
 | --- | --- | --- |
-| [SONOFF TRVZB](#sonoff-trvzb) | Zigbee | Heating controls, advanced settings, device schedules, battery, and external temperature input |
+| Standard thermostat | Zigbee | Thermostat server cluster `0x0201`; heating/cooling, reported limits, standard settings, and supported weekly schedules |
+| Standard thermostat | Matter | Thermostat server cluster `513`; feature/attribute/command discovery, heating/cooling, standard settings, and supported weekly schedules |
+| [SONOFF TRVZB](#sonoff-trvzb) | Zigbee | Standard controls plus SONOFF settings, firmware gates, and external temperature input |
 
-Currently, thermostat recognition and commands are implemented for the SONOFF
-TRVZB only. Other Zigbee thermostats are not automatically supported merely
-because they expose the standard thermostat cluster. Matter temperature sensors
-can supply external readings, but Matter thermostat control and exposing a
-Zigbee thermostat as a Matter thermostat are not implemented. Firmware updates
-are not provided.
+Manufacturer and model names are not required for standard thermostat
+recognition. Heating-only, cooling-only, and combined devices receive controls
+according to their advertised capabilities. A device that also advertises
+On/Off is classified as a thermostat rather than a light.
+
+Matter thermostat endpoints have individual cards and stable endpoint IDs, so
+commands do not target a grouped parent node or another endpoint. Paired Matter
+thermostats are controlled through the existing Matter worker and controller;
+Zigbee thermostats are not exposed to other Matter controllers as a bridge.
+Firmware updates and proprietary thermostat protocols without the standard
+thermostat server cluster are not provided by this integration.
 
 ## Using a thermostat
 
-Pair supported Zigbee thermostats through the gateway's normal join control.
+Pair Zigbee thermostats through the gateway's normal join control, or commission
+Matter thermostats through the existing Matter commissioning flow.
 Their cards appear under **Thermostats**, with measured temperature, target
-temperature, heating mode, heating status, and battery when reported. Expand
+temperature, cooling target when supported, operating mode, running state,
+and battery when reported. Expand
 **Thermostat settings** for advanced controls, temperature source selection,
 weekly schedules, and diagnostics. Unsupported settings are disabled and
 unknown readings are shown explicitly.
 
-Device commands run through the coordinator queue. A successful request means
+Zigbee commands run through the coordinator queue; Matter commands use the
+existing asynchronous worker and operation jobs. A successful request means
 that work was queued; reported settings change after device confirmation or
 readback. The UI shows pending requests and device rejection or timeout errors.
 Sleepy battery devices may respond when they next wake. Refresh or reconfigure
@@ -35,9 +45,18 @@ an existing paired thermostat without removing its network state.
 
 Weekly schedules execute on the thermostat itself. Saving a day updates that
 day without rewriting the rest of the week. Supported modes, schedule limits,
-and temperature ranges are listed under each model below.
+and temperature ranges follow the reported capabilities. Standard setpoint
+limits are read from the device, with protocol defaults when optional limits
+are absent. Heating/cooling deadband constraints are checked before writes.
+Generic schedules may start after midnight; the TRVZB restrictions below apply
+only to that model. Use **Read day** to retrieve an existing device schedule.
 
 ## External temperature sensors
+
+External temperature forwarding requires a writable device-specific input and
+a defined fallback mechanism. It is currently available for the TRVZB; standard
+Matter and Zigbee thermostats do not inherit SONOFF's FC11 commands. Matter
+thermostats' own reported remote-sensing settings remain available when supported.
 
 Choose a measured Zigbee, Matter endpoint, or external-device temperature
 sensor under **Thermostat settings → Temperature source**. A sensor can feed
@@ -66,10 +85,35 @@ link. Manual input writes are rejected while a link is active.
 Send URL-encoded `field` and `value` parameters to
 `POST /api/devices/{device-id}/thermostat`, following the gateway's existing
 request authentication rules. Requests have bounded retries and surface
-rejection/timeouts in `thermostat.error`. Device-specific fields and numeric
-encodings are listed in the model sections below.
+rejection/timeouts in `thermostat.error`. Standard fields are described below; model-specific fields and numeric
+encodings are listed in their own sections.
 
-The gateway manages these external-sensor settings:
+Standard fields include `occupied_heating_setpoint`,
+`occupied_cooling_setpoint`, their `unoccupied_` counterparts, `system_mode`,
+`local_temperature_calibration`, heating/cooling setpoint limits,
+`min_setpoint_dead_band`, `remote_sensing`, and `programming_operation_mode`.
+Unsupported fields are hidden or rejected. `system_mode` uses 0 off, 1 auto,
+3 cool, and 4 heat where supported. Running state, demand percentages, occupancy,
+control sequence, and other diagnostic attributes are read-only.
+
+Schedules use `schedule_0` through `schedule_6` for Sunday through Saturday.
+Set `value=__read__` to read a day, or send a JSON string as the `value` form
+parameter, for example:
+
+```json
+{"mode":3,"transitions":[{"time":60,"heat":20,"cool":25}]}
+```
+
+Times are minutes after midnight. Mode 1 is heating, 2 cooling, and 3 combined;
+include only the corresponding temperature fields. Transitions must be ordered
+and fit the device's limits and deadband. Existing `HH:mm/temperature` strings
+remain accepted for heating schedules, including the TRVZB API below.
+
+Matter requests return a `job` ID for the existing asynchronous operation
+interface. Pending state clears on confirmed completion, rejection, or transport
+failure. Mutations are not automatically replayed after reconnecting.
+
+The gateway manages these external-sensor settings for supported profiles:
 
 | Field | Value |
 | --- | --- |
@@ -84,6 +128,12 @@ names, and temperature observation times. Thermostat devices have
 | --- | --- |
 | `values` | Reported thermostat readings and settings, keyed by field name |
 | `supported` | Availability of each thermostat attribute |
+| `fields` | Per-field minimum, maximum, step, and writable flag |
+| `modes` | Available operating-mode values |
+| `schedule_supported` | Whether weekly schedule operations are available |
+| `schedule_max_transitions`, `schedule_midnight_start` | Per-day transition limit and midnight-start requirement |
+| `schedule_details` | Structured daily heating/cooling transitions |
+| `external_input_supported` | Whether a device profile supports automatic external input |
 | `pending` | Setting names with queued or outstanding requests |
 | `schedules` | Seven daily schedules, Sunday through Saturday; null while unknown |
 | `source_id` | Linked temperature sensor ID; empty when no automatic link exists |
@@ -93,7 +143,7 @@ names, and temperature observation times. Thermostat devices have
 
 ## SONOFF TRVZB
 
-MicroHAD recognizes the Zigbee model ID `TRVZB` and handles its standard
+The `TRVZB` model profile extends generic thermostat support with its standard
 thermostat cluster (`0x0201`) and SONOFF settings cluster (`0xfc11`). Its On/Off
 cluster is not exposed as a light control.
 
