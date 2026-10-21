@@ -32,7 +32,8 @@ class Installer:
     def preflight(self):
         # This command is deliberately read-only and is also used by check.
         result = self.remote("test -c /dev/ttyS1 && test -f /tuya/tuya_start.sh && "
-            "uname -m; df -k /tuya | awk 'END {print $4}'; "
+            "if grep -qi mips /proc/cpuinfo; then echo mips; else echo unsupported; fi; "
+            "df -k /tuya | awk 'END {print $4}'; "
             "if [ -f /tuya/native/config.json ]; then echo configured; else echo fresh; fi; "
             "if [ -f /tmp/ziggurat-supervisor/supervisor.pid ] || grep -q paired_start /tuya/tuya_start.sh; then echo paired; "
             "elif grep -q 'microhad --config' /tuya/tuya_start.sh; then echo microhad-only; else echo prepared; fi; "

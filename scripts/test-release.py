@@ -248,6 +248,7 @@ class Installer(unittest.TestCase):
         self.assertNotIn('dd of=', command)
         self.assertNotIn('kill ', command)
         self.assertNotIn('rm ', command)
+        self.assertIn('grep -qi mips /proc/cpuinfo', command)
         self.assertNotIn('SSH_PASSWORD', instance.env)
         self.assertEqual(instance.env['WORKSPACE_CONFIG'], '/dev/null')
 
