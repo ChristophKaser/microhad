@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import subprocess
 import tarfile
 import tomllib
@@ -20,8 +21,6 @@ SUBMODULES = {
  'ziggurat/dependencies/ziggurat': 'Apache-2.0; locally patched',
  'micro-thread-matter-daemon/dependencies/rs-matter': 'Apache-2.0; locally patched',
  'micro-thread-matter-daemon/dependencies/openthread': 'BSD-3-Clause and component-specific licenses; locally patched',
- 'firmware/dependencies/gecko-sdk': 'Silicon Labs MSLA and per-file exceptions; redistribution review required',
- 'firmware/dependencies/rtl8196e-gateway': 'MIT; SDK-derived files retain upstream terms',
 }
 LOCKS = ['micro-thread-matter-daemon/Cargo.lock', 'ziggurat/dependencies/ziggurat/Cargo.lock']
 
@@ -59,15 +58,14 @@ def inputs():
         return result
     paths = ['LICENSE', 'third-party/supplements.json', 'scripts/licensing/notices.py',
              'microhad/webui/package-lock.json', 'micro-thread-matter-daemon/Cargo.toml',
-             'ziggurat/stock-uclibc-compat/Cargo.toml', *LOCKS]
+             'ziggurat/stock-uclibc-compat/Cargo.toml', 'third-party/authors.json',
+             'micro-thread-matter-daemon/scripts/build.sh', 'ziggurat/scripts/build.sh',
+             'scripts/rust-env.sh', 'config/toolchains.mk', *LOCKS]
     paths += git('ls-files', 'patches/*.patch', 'ziggurat/patches/*.patch',
-                 'micro-thread-matter-daemon/patches/*.patch', 'firmware/hdlc-multipan/*').splitlines()
+                 'micro-thread-matter-daemon/patches/*.patch').splitlines()
     result = {p: hashlib.sha256((ROOT / p).read_bytes()).hexdigest() for p in paths}
     for p in SUBMODULES:
         result[p] = git('rev-parse', f'HEAD:{p}')
-        software_only = os.environ.get('MICROHAD_RELEASE_SOFTWARE_ONLY') == '1'
-        if software_only and p.startswith('firmware/dependencies/'):
-            continue
         if git('-C', str(ROOT / p), 'rev-parse', 'HEAD') != result[p]:
             raise ValueError(f'{p}: checkout does not match parent repository pin')
     return result
@@ -103,15 +101,71 @@ def fetch_crates():
     print(f'Verified {len(packages)} crate archives')
 
 
+def production_packages():
+    """Resolve only target normal dependencies using the production manifests/patches.
+
+    Host proc macros and build tools are not linked into the distributed binaries.
+    The built-in target has the same dependency-relevant cfg as our custom target.
+    """
+    commands = [
+        ['--manifest-path', 'micro-thread-matter-daemon/Cargo.toml', '--features', 'controller-service'],
+        ['--manifest-path', 'worktrees/ziggurat-multipan/Cargo.toml', '-p', 'ziggurat-server'],
+    ]
+    selected = set()
+    for index, args in enumerate(commands):
+        if index:
+            for crate in ('getrandom-0.4.3', 'nix-0.26.4', 'radium-0.7.0'):
+                name = crate.rsplit('-', 1)[0]
+                args += ['--config', f'patch.crates-io.{name}.path="{ROOT}/build/patched-crates-mailbox/{crate}"']
+        command = ['cargo', '+$RUST_TOOLCHAIN', 'tree', '--offline', '--locked',
+                   '--target', 'mips-unknown-linux-uclibc', '-e', 'normal,no-proc-macro',
+                   '--prefix', 'none', '--format', '{p}', *args]
+        shell = '. scripts/rust-env.sh\n' + ' '.join(
+            x if x == '+$RUST_TOOLCHAIN' else shlex.quote(x) for x in command)
+        output = subprocess.check_output(['bash', '-c', shell], cwd=ROOT, text=True)
+        for line in output.splitlines():
+            match = re.match(r'^(\S+) v(\S+)', line)
+            if match:
+                selected.add(match.groups())
+    return selected
+
+
+def authors(package, name):
+    overrides = json.loads((ROOT / 'third-party/authors.json').read_text())
+    value = overrides.get(name) or package.get('authors') or package.get('author')
+    if isinstance(value, dict):
+        value = value['name']
+    if isinstance(value, str):
+        value = [value]
+    if not value:
+        raise ValueError('Missing reviewed author attribution: ' + name)
+    return value
+
+
 def collect_gateway():
-    records = [{'name': 'MicroHAD original code', 'license': 'MIT', 'texts': [('LICENSE', (ROOT / 'LICENSE').read_text())]}]
+    selected_packages = production_packages()
+    records = []
+    known_packages = {(p['name'], p['version']) for lock in LOCKS
+                      for p in tomllib.loads((ROOT / lock).read_text())['package']}
+    if selected_packages - known_packages:
+        raise ValueError('Production graph contains packages absent from notice locks: ' +
+                         str(sorted(selected_packages - known_packages)))
+    revisions = inputs()
     for folder, license_name in SUBMODULES.items():
         root = ROOT / folder
-        records.append({'name': folder + '@' + inputs()[folder], 'license': license_name,
-                        'texts': texts(root, recursive=folder.endswith(('openthread', 'gecko-sdk', 'mbedtls')))})
+        license_texts = texts(root)
+        # Include linked crypto libraries, not upstream tools, examples, or debug firmware.
+        bundled = {'mbedtls': ['tf-psa-crypto'],
+                   'openthread': ['third_party/mbedtls/repo']}.get(root.name, [])
+        for child in bundled:
+            license_texts += [(child + '/' + name, text) for name, text in texts(root / child)]
+        records.append({'name': root.name, 'revision': revisions[folder], 'license': license_name,
+                        'authors': authors({}, folder), 'texts': license_texts})
     packages = {}
     for lock in LOCKS:
         for p in tomllib.loads((ROOT / lock).read_text())['package']:
+            if (p['name'], p['version']) not in selected_packages:
+                continue
             if p.get('source', '').startswith('git+'):
                 revision = p['source'].rsplit('#', 1)[-1]
                 key = p['name'] + '@' + revision
@@ -123,9 +177,11 @@ def collect_gateway():
                     data = (ROOT / 'third-party/supplements' / key / filename).read_bytes()
                     if hashlib.sha256(data).hexdigest() != digest:
                         raise ValueError('Git supplement checksum mismatch: ' + key)
-                    extra.append((filename, data.decode()))
-                records.append({'name': key + ' (' + p['source'] + ')',
-                                'license': 'Apache-2.0 selected from Apache-2.0 OR MIT', 'texts': extra})
+                    if LEGAL.match(filename):
+                        extra.append((filename, data.decode()))
+                records.append({'name': f'{p["name"]} {p["version"]}', 'revision': revision,
+                                'license': 'Apache-2.0 selected from Apache-2.0 OR MIT',
+                                'authors': authors({}, p['name']), 'texts': extra})
             elif p.get('source', '').startswith('registry+'):
                 packages[(p['name'], p['version'])] = p
             elif p.get('source'):
@@ -155,15 +211,18 @@ def collect_gateway():
                     raise ValueError(f'Missing license text: {key}')
                 extra = []
                 for filename, digest in sorted(supplement['files'].items()):
+                    # Embassy supplements include unrelated RP/CYW43 firmware and documentation.
+                    if name.startswith('embassy-') and filename not in ('LICENSE-APACHE', 'LICENSE-MIT', 'NOTICE.md'):
+                        continue
                     data = (ROOT / 'third-party/supplements' / key / filename).read_bytes()
                     if hashlib.sha256(data).hexdigest() != digest:
                         raise ValueError(f'Supplement checksum mismatch: {key}/{filename}')
                     extra.append((filename, data.decode()))
-                records.append({'name': key + ' (license supplement: ' + supplement['source'] + ')',
-                                'license': license_name, 'texts': extra})
+                records.append({'name': f'{name} {version}',
+                                'license': license_name, 'authors': authors(package, name), 'texts': extra})
                 continue
-            records.append({'name': f'{name} {version} (crates.io, sha256 {p["checksum"]})',
-                            'license': license_name,
+            records.append({'name': f'{name} {version}',
+                            'license': license_name, 'authors': authors(package, name),
                             'texts': [(m.name.split('/', 1)[1], tf.extractfile(m).read().decode()) for m in sorted(selected, key=lambda m: m.name)]})
     lock = json.loads((ROOT / 'microhad/webui/package-lock.json').read_text())
     for folder, p in sorted(lock['packages'].items()):
@@ -173,31 +232,52 @@ def collect_gateway():
         package = json.loads((root / 'package.json').read_text())
         if package['version'] != p['version']:
             raise ValueError(f'Stale npm install: {folder}')
-        records.append({'name': f'{package["name"]} {p["version"]}', 'license': package.get('license', ''), 'texts': texts(root)})
-    return records
+        records.append({'name': f'{package["name"]} {p["version"]}', 'license': package.get('license', ''), 'authors': authors(package, package['name']), 'texts': texts(root)})
+    return sorted(records, key=lambda r: r['name'].casefold())
 
 
 def render(records):
     # Deduplicate identical full texts without discarding distinct copyright notices.
     sections, references = {}, []
     for record in sorted(records, key=lambda r: r['name']):
-        lines = [record['name'], 'License: ' + record['license']]
+        lines = [record['name'], 'Authors: ' + ', '.join(record['authors']), 'License: ' + record['license']]
         for name, text in record['texts']:
             digest = hashlib.sha256(text.encode()).hexdigest()
             sections[digest] = text
             lines.append(f'  {name}: text {digest}')
         references.append('\n'.join(lines))
     return ('MicroHAD licenses and third-party notices\n\n'
-            'Includes a conservative superset of locked Rust dependencies (including host/test/other-platform packages).\n'
-            'Listing SDK terms is not a grant of redistribution permission. See THIRD_PARTY.md for release restrictions.\n\n'
+            'MicroHAD contains or depends on these third-party software libraries.\n'
+            'Thank you to everyone involved in them.\n\n'
             + '\n\n'.join(references) + '\n\n' + '\n\n'.join('TEXT ' + k + '\n' + sections[k] for k in sorted(sections)) + '\n')
 
 
-def page(text):
-    return ('<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width">'
-            '<title>MicroHAD — Open-source licenses</title><style>body{max-width:72rem;margin:2rem auto;padding:0 1rem;'
-            'font:16px system-ui}pre{white-space:pre-wrap;overflow-wrap:anywhere}</style>'
-            '<h1>Open-source licenses</h1><a href="/">Back to MicroHAD</a><pre>' + html.escape(text) + '</pre></html>')
+def page(records, runtime_links=False):
+    escape = html.escape
+    cards = []
+    for record in records:
+        licenses = ''.join('<details><summary>' + escape(name) + '</summary><pre>' +
+                           escape(text) + '</pre></details>' for name, text in record['texts'])
+        cards.append('<article><h2><strong>' + escape(record['name']) + '</strong></h2>'
+                     '<p class="authors">' + escape(', '.join(record['authors'])) + '</p>'
+                     '<p class="license">' + escape(record['license']) + '</p>' + licenses + '</article>')
+    links = ('<nav aria-label="Runtime notices"><a href="/runtime-licenses.html">C/C++ runtime licenses</a>'
+             ' · <a href="/rust-licenses.html">Rust standard-library notices</a></nav>') if runtime_links else ''
+    return ('''<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MicroHAD — Open-source licenses</title><style>
+*{box-sizing:border-box}body{margin:0;background:#f3f6f9;color:#172b41;font:16px/1.6 system-ui,sans-serif}
+main{max-width:960px;margin:auto;padding:32px 20px 64px}a{color:#315f85}a:hover{text-decoration-thickness:2px}
+a:focus-visible,summary:focus-visible{outline:3px solid #3577ab;outline-offset:4px}
+header{margin:24px 0 32px}h1{font-size:clamp(1.8rem,5vw,2.6rem);line-height:1.2;letter-spacing:-.03em}
+header p,.authors{color:#5f7183}article{background:#fff;border:1px solid #dce5ed;border-radius:16px;padding:24px;margin:16px 0}
+h2{font-size:1.15rem;margin:0;overflow-wrap:anywhere}p{margin:8px 0}.license{font-size:.85rem;color:#52718d}
+details{border-top:1px solid #e4ebf1;margin-top:12px}summary{cursor:pointer;padding:12px 0;font-size:.9rem;overflow-wrap:anywhere}
+pre{white-space:pre-wrap;overflow-wrap:anywhere;font:13px/1.6 ui-monospace,monospace;background:#f3f6f9;padding:16px;border-radius:8px}
+@media(max-width:480px){main{padding:20px 12px 40px}article{padding:16px}pre{padding:12px}}
+</style></head><body><main><a href="/">← Back to MicroHAD</a><header><h1>Open-source licenses</h1>
+<p>MicroHAD contains or depends on these third-party software libraries. Thank you to everyone involved in them.</p>
+''' + links + '</header>' + ''.join(cards) + '</main></body></html>')
 
 
 def check_snapshot():
@@ -211,6 +291,11 @@ def check_snapshot():
     text = (ROOT / 'third-party/gateway-notices.txt').read_bytes()
     if hashlib.sha256(text).hexdigest() != snapshot['sha256']:
         raise ValueError('Gateway notice text does not match its recorded checksum')
+    records = (ROOT / 'third-party/gateway-records.json').read_bytes()
+    if hashlib.sha256(records).hexdigest() != snapshot['records_sha256']:
+        raise ValueError('Gateway structured notices do not match their recorded checksum')
+    if render(json.loads(records)) != text.decode():
+        raise ValueError('Gateway notice inventories disagree')
     return text.decode()
 
 
@@ -218,20 +303,24 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('command', choices=['fetch-crates', 'refresh', 'check', 'web', 'release'])
     parser.add_argument('--output', type=Path)
+    parser.add_argument('--runtime-links', action='store_true')
     args = parser.parse_args()
     if args.command == 'fetch-crates':
         fetch_crates()
     elif args.command == 'refresh':
-        text = render(collect_gateway())
+        records = collect_gateway()
+        structured = json.dumps(records, indent=2, ensure_ascii=False) + '\n'
+        (ROOT / 'third-party/gateway-records.json').write_text(structured)
+        text = render(records)
         (ROOT / 'third-party/gateway-notices.txt').write_text(text)
-        (ROOT / 'third-party/gateway-inputs.json').write_text(json.dumps({'inputs': inputs(), 'sha256': hashlib.sha256(text.encode()).hexdigest()}, indent=2, sort_keys=True) + '\n')
+        (ROOT / 'third-party/gateway-inputs.json').write_text(json.dumps({'inputs': inputs(), 'sha256': hashlib.sha256(text.encode()).hexdigest(), 'records_sha256': hashlib.sha256(structured.encode()).hexdigest()}, indent=2, sort_keys=True) + '\n')
     else:
         text = check_snapshot()
         if args.command == 'web':
             if not args.output:
                 parser.error('web requires --output')
             args.output.parent.mkdir(parents=True, exist_ok=True)
-            args.output.write_text(page(text))
+            args.output.write_text(page(json.loads((ROOT / 'third-party/gateway-records.json').read_text()), args.runtime_links))
         elif args.command == 'release':
             if not args.output:
                 parser.error('release requires --output')

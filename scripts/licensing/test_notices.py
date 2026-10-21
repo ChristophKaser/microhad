@@ -6,6 +6,7 @@ import io
 import json
 from pathlib import Path
 import tempfile
+import tarfile
 import unittest
 from unittest.mock import patch
 import zipfile
@@ -18,31 +19,102 @@ spec.loader.exec_module(android)
 
 class Notices(unittest.TestCase):
     def test_deduplication_preserves_distinct_copyrights_and_escapes_html(self):
-        records = [{'name': name, 'license': 'MIT', 'texts': [('LICENSE', text)]}
+        records = [{'name': name, 'license': 'MIT', 'authors': ['Example author'], 'texts': [('LICENSE', text)]}
                    for name, text in [('a', 'Copyright Alice'), ('b', 'Copyright Bob'), ('c', 'Copyright Alice')]]
         text = notices.render(records)
         self.assertEqual(text.count('Copyright Alice'), 1)
         self.assertEqual(text.count('Copyright Bob'), 1)
         self.assertEqual(text, notices.render(list(reversed(records))))
-        self.assertIn('&lt;script&gt;', notices.page('<script>'))
-        self.assertNotIn('<script>', notices.page('<script>'))
+        records[0]['texts'].append(('<script>', '<script>'))
+        page = notices.page(records)
+        self.assertIn('&lt;script&gt;', page)
+        self.assertNotIn('<script>', page)
+        self.assertIn('<strong>a</strong>', page)
+        self.assertIn('Example author', page)
+        self.assertEqual(page.count('Copyright Alice'), 2)
+        self.assertEqual(page.count('<details>'), 4)
+        self.assertNotIn('THIRD_PARTY.md', page)
+        self.assertNotIn('Listing SDK', page)
+        self.assertNotIn(hashlib.sha256(b'Copyright Alice').hexdigest(), page)
+        self.assertNotIn('runtime-licenses.html', page)
+        self.assertIn('runtime-licenses.html', notices.page(records, runtime_links=True))
 
     def test_snapshot_rejects_stale_inputs_and_tampered_text(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / 'third-party').mkdir()
             (root / 'third-party/supplements.json').write_text('{}')
-            (root / 'third-party/gateway-notices.txt').write_text('verified')
+            records = b'[]'
+            text = notices.render([])
+            (root / 'third-party/gateway-records.json').write_bytes(records)
+            (root / 'third-party/gateway-notices.txt').write_text(text)
             snapshot = root / 'third-party/gateway-inputs.json'
-            snapshot.write_text(json.dumps({'inputs': {'lock': 'old'}, 'sha256': hashlib.sha256(b'verified').hexdigest()}))
+            snapshot.write_text(json.dumps({'inputs': {'lock': 'old'}, 'sha256': hashlib.sha256(text.encode()).hexdigest(), 'records_sha256': hashlib.sha256(records).hexdigest()}))
             with patch.object(notices, 'ROOT', root), patch.object(notices, 'inputs', return_value={'lock': 'new'}):
                 with self.assertRaisesRegex(ValueError, 'stale'):
                     notices.check_snapshot()
             with patch.object(notices, 'ROOT', root), patch.object(notices, 'inputs', return_value={'lock': 'old'}):
-                self.assertEqual(notices.check_snapshot(), 'verified')
+                self.assertEqual(notices.check_snapshot(), text)
+                (root / 'third-party/gateway-records.json').write_bytes(b'[{}]')
+                with self.assertRaisesRegex(ValueError, 'structured notices'):
+                    notices.check_snapshot()
+                (root / 'third-party/gateway-records.json').write_bytes(records)
                 (root / 'third-party/gateway-notices.txt').write_text('tampered')
                 with self.assertRaisesRegex(ValueError, 'checksum'):
                     notices.check_snapshot()
+
+    def test_production_graph_uses_target_and_excludes_dev_and_host_macros(self):
+        output = 'runtime v1.2.3\nshared v2.0.0 (*)\n'
+        with patch.object(notices.subprocess, 'check_output', return_value=output) as run:
+            self.assertEqual(notices.production_packages(), {('runtime', '1.2.3'), ('shared', '2.0.0')})
+        for call in run.call_args_list:
+            command = call.args[0][-1]
+            self.assertIn('normal,no-proc-macro', command)
+            self.assertIn('--locked', command)
+            self.assertIn('--offline', command)
+            self.assertIn('mips-unknown-linux-uclibc', command)
+        self.assertIn('controller-service', run.call_args_list[0].args[0][-1])
+        self.assertIn('ziggurat-server', run.call_args_list[1].args[0][-1])
+        self.assertIn('patch.crates-io.nix.path', run.call_args_list[1].args[0][-1])
+
+    def test_collection_excludes_unselected_lock_packages(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'build/license-crates').mkdir(parents=True)
+            (root / 'microhad/webui').mkdir(parents=True)
+            (root / 'microhad/webui/package-lock.json').write_text('{"packages":{}}')
+            archive = root / 'build/license-crates/runtime-1.0.0.crate'
+            with tarfile.open(archive, 'w') as tf:
+                for name, text in [('Cargo.toml', '[package]\nname="runtime"\nversion="1.0.0"\nlicense="MIT"\nauthors=["Alice"]'),
+                                   ('LICENSE', 'Copyright Alice')]:
+                    data = text.encode()
+                    member = tarfile.TarInfo('runtime-1.0.0/' + name)
+                    member.size = len(data)
+                    tf.addfile(member, io.BytesIO(data))
+            checksum = hashlib.sha256(archive.read_bytes()).hexdigest()
+            (root / 'Cargo.lock').write_text(
+                '[[package]]\nname="runtime"\nversion="1.0.0"\n'
+                'source="registry+https://github.com/rust-lang/crates.io-index"\n'
+                f'checksum="{checksum}"\n'
+                '[[package]]\nname="test-only"\nversion="1.0.0"\nsource="git+unreviewed"\n')
+            with patch.object(notices, 'ROOT', root), patch.object(notices, 'LOCKS', ['Cargo.lock']), \
+                 patch.object(notices, 'SUBMODULES', {}), patch.object(notices, 'inputs', return_value={}), \
+                 patch.object(notices, 'production_packages', return_value={('runtime', '1.0.0')}), \
+                 patch.object(notices, 'authors', return_value=['Alice']):
+                records = notices.collect_gateway()
+            self.assertEqual([r['name'] for r in records], ['runtime 1.0.0'])
+            self.assertEqual(records[0]['texts'], [('LICENSE', 'Copyright Alice')])
+
+    def test_checked_inventory_is_production_only_and_complete(self):
+        records = json.loads((notices.ROOT / 'third-party/gateway-records.json').read_text())
+        names = [record['name'] for record in records]
+        self.assertIn('react 18.3.1', names)
+        self.assertIn('mbedtls', names)
+        self.assertIn('openthread', names)
+        for name in names:
+            self.assertNotRegex(name, r'gecko-sdk|rtl8196e|proptest|criterion|trybuild|probe|typescript|vite ')
+        self.assertTrue(all(record['authors'] and record['texts'] for record in records))
+        self.assertEqual(notices.render(records), (notices.ROOT / 'third-party/gateway-notices.txt').read_bytes().decode())
 
     def test_missing_license_text_fails(self):
         with tempfile.TemporaryDirectory() as directory:

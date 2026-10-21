@@ -378,7 +378,8 @@ def binaries(root, destination, metadata):
     (destination / 'webui/runtime-licenses.html').write_text('<!doctype html><meta charset="utf-8"><title>Runtime licenses</title><h1>Runtime licenses</h1><pre style="white-space:pre-wrap">' + html.escape(text) + '</pre>')
     shutil.copy2(runtime / 'rust/COPYRIGHT-library.html', destination / 'webui/rust-licenses.html')
     notice_page = destination / 'webui/licenses.html'
-    notice_page.write_text(notice_page.read_text().replace('<pre>', '<p><a href="/runtime-licenses.html">C/C++ runtime licenses</a> · <a href="/rust-licenses.html">Rust standard-library notices</a></p><pre>', 1))
+    run(['python3', 'scripts/licensing/notices.py', 'web', '--runtime-links',
+         '--output', str(notice_page)], cwd=root, env=dict(os.environ, MICROHAD_SOURCE_BUNDLE='1'))
     shutil.copytree(root / '.release/runtime-licenses', destination / 'licenses/runtime')
     shutil.copy2(root / 'LICENSE', destination / 'licenses/LICENSE')
     shutil.copy2(root / 'THIRD_PARTY.md', destination / 'licenses/THIRD_PARTY.md')

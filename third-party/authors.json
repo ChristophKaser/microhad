@@ -1,0 +1,156 @@
+{
+  "abstract-bits": [
+    "puddly"
+  ],
+  "abstract-bits-derive": [
+    "puddly"
+  ],
+  "anstream": [
+    "Individual contributors"
+  ],
+  "anstyle": [
+    "Individual contributors"
+  ],
+  "anstyle-parse": [
+    "Individual contributors"
+  ],
+  "anstyle-query": [
+    "Individual contributors"
+  ],
+  "bitvec": [
+    "myrrlyn (Alexander Payne)"
+  ],
+  "chart.js": [
+    "Chart.js Contributors"
+  ],
+  "chrono": [
+    "Kang Seonghoon and Chrono contributors"
+  ],
+  "clap": [
+    "Individual contributors"
+  ],
+  "clap_builder": [
+    "Individual contributors"
+  ],
+  "clap_lex": [
+    "Individual contributors"
+  ],
+  "colorchoice": [
+    "Individual contributors"
+  ],
+  "critical-section": [
+    "The critical-section authors"
+  ],
+  "data-encoding": [
+    "Julien Cretin",
+    "Google Inc"
+  ],
+  "either": [
+    "Either authors (rayon-rs/either)"
+  ],
+  "embassy-executor-timer-queue": [
+    "Embassy project contributors"
+  ],
+  "embassy-futures": [
+    "Embassy project contributors"
+  ],
+  "embassy-sync": [
+    "Embassy project contributors"
+  ],
+  "embassy-time": [
+    "Embassy project contributors"
+  ],
+  "embassy-time-driver": [
+    "Embassy project contributors"
+  ],
+  "embassy-time-queue-utils": [
+    "Embassy project contributors"
+  ],
+  "embedded-io": [
+    "The embedded-io authors",
+    "The embedded-io-async authors"
+  ],
+  "embedded-io-async": [
+    "The embedded-io-async authors"
+  ],
+  "futures": [
+    "Alex Crichton",
+    "The Tokio Authors"
+  ],
+  "futures-channel": [
+    "Alex Crichton",
+    "The Tokio Authors"
+  ],
+  "futures-core": [
+    "Alex Crichton",
+    "The Tokio Authors"
+  ],
+  "futures-io": [
+    "Alex Crichton",
+    "The Tokio Authors"
+  ],
+  "futures-sink": [
+    "Alex Crichton",
+    "The Tokio Authors"
+  ],
+  "futures-task": [
+    "Alex Crichton",
+    "The Tokio Authors"
+  ],
+  "futures-util": [
+    "Alex Crichton",
+    "The Tokio Authors"
+  ],
+  "is_terminal_polyfill": [
+    "Individual contributors"
+  ],
+  "libc": [
+    "The Rust Project Developers"
+  ],
+  "micro-thread-matter-daemon/dependencies/openthread": [
+    "The OpenThread Authors"
+  ],
+  "micro-thread-matter-daemon/dependencies/rs-matter": [
+    "Kedar Sovani",
+    "Ivan Markov",
+    "Project CHIP Authors"
+  ],
+  "microhad/dependencies/mbedtls": [
+    "The Mbed TLS Contributors"
+  ],
+  "microhad/dependencies/tinycbor": [
+    "Intel Corporation"
+  ],
+  "nix": [
+    "Carl Lerche + nix-rust Authors"
+  ],
+  "pin-project-lite": [
+    "taiki-e"
+  ],
+  "portable-atomic": [
+    "taiki-e"
+  ],
+  "react": [
+    "Facebook, Inc. and its affiliates"
+  ],
+  "react-dom": [
+    "Facebook, Inc. and its affiliates"
+  ],
+  "scheduler": [
+    "Facebook, Inc. and its affiliates"
+  ],
+  "static_cell": [
+    "The critical-section authors"
+  ],
+  "typenum": [
+    "Paho Lurie-Gregg"
+  ],
+  "zerocopy": [
+    "The Fuchsia Authors"
+  ],
+  "ziggurat/dependencies/ziggurat": [
+    "puddly",
+    "David Kleingeld",
+    "tube0013"
+  ]
+}

@@ -1153,3 +1153,7 @@ button:disabled {
 .incomplete-device { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 0; border-top: 1px solid #dce5ed; }
 .incomplete-device p { margin: 5px 0; }
 .incomplete-device code { overflow-wrap: anywhere; }
+
+.gateway-footer { margin-top: 24px; font-size: 0.8rem; }
+.gateway-footer a { color: #5f7183; text-underline-offset: 3px; }
+.gateway-footer a:focus-visible { outline: 2px solid #3577ab; outline-offset: 4px; }

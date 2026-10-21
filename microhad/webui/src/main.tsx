@@ -253,7 +253,6 @@ function App() {
           <p className="eyebrow">Smart home / Gateway</p>
           <h1 className="hero-brand"><img src="/microhad-icon.svg" width="56" height="56" alt="" />MicroHAD</h1>
           <p className="hero-sub">Devices, scenes, and coordinator activity in one place.</p>
-          <a href="/licenses.html">Open-source licenses</a>
         </div>
         <div className="hero-actions"><div className="serial-state">
           {restarting ? 'Restarting service…' : statusError ? 'Gateway status unavailable' : status?.online ? 'Coordinator online' : 'Coordinator offline'}
@@ -261,7 +260,7 @@ function App() {
       </header>
       {gatewaySettingsOpen && <GatewaySettingsDialog onClose={() => setGatewaySettingsOpen(false)} />}
       <nav className="main-tabs" role="tablist" aria-label="Gateway views">
-        {['Dashboard', 'Controls', 'Groups', ...visibleDeviceTypes.map(type => type.name), 'Diagnostics'].map(name => (
+        {['Dashboard', 'Gateway', 'Groups', ...visibleDeviceTypes.map(type => type.name), 'Diagnostics'].map(name => (
           <button key={name} role="tab" aria-selected={tab === name} className={`main-tab ${tab === name ? 'active' : ''}`} onClick={() => setTab(name)}>{name}</button>
         ))}
       </nav>
@@ -287,7 +286,7 @@ function App() {
         loaded={dashboardLoaded}
         configError={dashboardError}
       />}
-      {tab === 'Controls' && <>
+      {tab === 'Gateway' && <>
       <section className="overview">
         <div className={`overview-item ${statusError || !status?.online ? 'bad' : 'good'}`}>
           <span className="overview-icon">●</span>
@@ -356,6 +355,7 @@ function App() {
       <MatterPanel />
       <IncompleteDevices devices={catalogStatus?.devices ?? []} onDelete={setDeletingDevice} />
       <ControllerStats status={status} thread={thread} />
+      <footer className="gateway-footer"><a href="/licenses.html">Open-source licenses</a></footer>
       </>}
       {tab === 'Groups' && <section className="panel">
         <div className="section-heading">

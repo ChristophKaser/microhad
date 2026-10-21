@@ -1,9 +1,7 @@
 {
   "inputs": {
     "LICENSE": "e8e83cb6632fef0c32b5e4f0b929af9ad67817e2d18c6b2cf5ea5728470c7821",
-    "firmware/dependencies/gecko-sdk": "853854753883af3c48271aa2060a5f8ffd8b070b",
-    "firmware/dependencies/rtl8196e-gateway": "30eb5e5b9ee334d2c6d76812acd4a6cdf2923423",
-    "firmware/hdlc-multipan/ot-rcp-multipan.slcp": "099cc11612ef45ab8bea44a656e3974e5d4c7115f20fd6514280bc2c7b223cb8",
+    "config/toolchains.mk": "27d2af74342c58d98ad7de8249a94afc377b92f4aab1828dbfd764dfbbdaf086",
     "micro-thread-matter-daemon/Cargo.lock": "74a9f04dcd9af4681bd882bf9809cf9b0614b8efd5fb2cd3525bedda60255177",
     "micro-thread-matter-daemon/Cargo.toml": "837f44d0cf6365a6140511ca5f0167ab4aa049e3c1e28921a95bef0cc28b679c",
     "micro-thread-matter-daemon/dependencies/openthread": "53e8322140dde7b26827332100504507cec9cc4e",
@@ -22,13 +20,16 @@
     "micro-thread-matter-daemon/patches/rs-matter-peer-identity.patch": "a8e814db82274f82ea3b639e0d8d91c50bcabd45b155a981b3e594cd224aaa72",
     "micro-thread-matter-daemon/patches/rs-matter-sessionless-icd.patch": "069c64f86c0779cbf943e244aa5110796e02f7ffb537f4164d860ac556b878aa",
     "micro-thread-matter-daemon/patches/rs-matter-spake2p.patch": "c987cbf8bda95b178840b8586df5b924dc1bb5b3b99c060d5cb9378b1b5346d6",
+    "micro-thread-matter-daemon/scripts/build.sh": "111395d0a4dcb71d8f40f777fc692fdddc9e1fcf0684aa344508bc4e86f3af3f",
     "microhad/dependencies/mbedtls": "ece41aa84d7879d7e55c59e955a5884b541f7f3b",
     "microhad/dependencies/tinycbor": "d393c16f3eb30d0c47e6f9d92db62272f0ec4dc7",
     "microhad/webui/package-lock.json": "63194a64b3aac5cb9f6942508c3ccbb3f65cb81194d729060014d6b90a22f766",
     "patches/getrandom-0.4.3.patch": "12ad4c2e1f639ade672d1588503d295a4fc0add097c8ba124b924eefef65bcab",
     "patches/nix-0.26.4.patch": "d6a9b186442ab23daeb203d255ffb7db0be68aab09168ad4f332f449b6d69e57",
     "patches/radium-0.7.0.patch": "ef497a3f87cd43ed9a0863b21fbfcb0052a3b5a224d5eef467323cc786301acc",
-    "scripts/licensing/notices.py": "7064c75aaa8969b26dcc9dd9ed76298cbc8727ea53c7e1ba00a5b08d3cba0803",
+    "scripts/licensing/notices.py": "ab425e51864628f9ed79617525272446f59ab35d8a6402909cd4d5dc0ff892be",
+    "scripts/rust-env.sh": "9e0ab301248766f8420fa4faa60e6374b45f99623c95123a0a5235a6f148e326",
+    "third-party/authors.json": "91ba556da91a6a93f4f7bce3985805fc6d5d46a8962a02eff72c2e6e9e33973c",
     "third-party/supplements.json": "4a6b1aa2006b773287e022a5d1fe847252807030616551dbad967debc32b9edc",
     "ziggurat/dependencies/ziggurat": "392d4c7fe5c497d553977492bc02cb305573b7fc",
     "ziggurat/dependencies/ziggurat/Cargo.lock": "be1cd92f9a1077465670f3ff58f9c5f46b1527a32a79db6a21f0004fb130827d",
@@ -48,7 +49,9 @@
     "ziggurat/patches/ziggurat-syslog-fragments.patch": "8daa50e80ee63abf4a2d61133c6238d01fd5261a8d14dc7df7262fa45f4f4a05",
     "ziggurat/patches/ziggurat-syslog.patch": "89711ce172906331f6aeeb697f4ada0bbe71d39d72083b5b3fd1d069aa71401b",
     "ziggurat/patches/ziggurat-thread-tcp.patch": "befe2262c44c3a6a9cc5861e80e9c81c4951ac6eda874de1bf68fc10825137f5",
+    "ziggurat/scripts/build.sh": "96183a864f4f8931e8249cb2a39d94db5542d146628e9e0c2c6b341f4adb9c72",
     "ziggurat/stock-uclibc-compat/Cargo.toml": "10d8809501704a473e93541ee4cbaa922eafc1a79b4ee0f9f3445f5a7361fdc1"
   },
-  "sha256": "25c937fc72cea63052ccdb0ff57dcfddde064efb2bb8890ba71f3ede01fed75e"
+  "records_sha256": "6c047ae12253d931d172bf513d9424f9963085afde197451fb52786ca491419e",
+  "sha256": "cbe2d63117735d5de892564d3ca296a253b5f98726fc875b97d0b7b9b80764d6"
 }

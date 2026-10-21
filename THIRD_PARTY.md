@@ -53,14 +53,18 @@ and [Silicon Labs MSLA](https://www.silabs.com/about-us/legal/master-software-li
 ## Notice generation and delivery
 
 Python 3.11 or later is required. The reviewed gateway snapshot is tracked so a
-Web UI build does not require Rust caches or internet access. It contains a
-conservative superset of both Rust lockfiles (including host, test and other
-platform packages); this is deliberate, not a claim that all are linked.
+Web UI build does not require Rust caches or internet access. Its structured records and plain-text notices share the production MIPS
+dependency inventory for the native daemons, Ziggurat, Matter service and Web UI.
+Host tools, proc macros, tests, probes, unrelated platforms and radio firmware
+are excluded. Firmware notices accompany firmware downloads separately.
 Verbatim identical license texts are deduplicated, with references retaining
 package identity. Distinct copyright notices remain separate.
 
 After changing dependencies, initialize the pinned submodules, install the Web UI
-lockfile (`npm ci` in its directory), then run from the repository root:
+lockfile (`npm ci` in its directory), and prepare/build the production Matter
+service and multipan Ziggurat using the root build instructions. Refresh uses
+their prepared manifests and pinned crate patches through offline, locked Cargo
+dependency trees. Then run from the repository root:
 
 ```sh
 python3 scripts/licensing/notices.py fetch-crates
@@ -75,10 +79,14 @@ upstream source revisions/checksums are recorded in
 [third-party/supplements.json](third-party/supplements.json). Where upstream also
 omits a license file, the declared license's standard text and declared authors
 are supplied explicitly, without inventing a copyright holder. Review changes
-to these exceptions before committing. Missing material must fail generation.
+to these exceptions before committing. Missing material must fail generation. Author credits come from package metadata
+or reviewed overrides in `third-party/authors.json`, based on upstream copyright
+notices, repository identity and (for Ziggurat) pinned Git author history. These
+credits supplement the verbatim notices; they do not replace them.
 
 The Web UI build creates `licenses.html`, accessible through “Open-source
-licenses”, including the gateway stack and browser dependencies. It is uploaded
+licenses” at the bottom of the Gateway tab. It renders the same inventory as
+the release notice file, with authors and expandable license texts. It is uploaded
 only as an ordinary Web UI asset. **Do not deploy standalone license/notice files
 to the gateway.** Service-only updates do not upload notice files; if dependency
 versions change, rebuild and distribute the matching Web UI as well.
