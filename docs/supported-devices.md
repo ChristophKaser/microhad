@@ -32,7 +32,7 @@ Do not reset the gateway network to resolve one device's missing readings.
 Matter uses a phone-assisted Bluetooth commissioning flow, followed by Thread
 for normal operation. The following functions are implemented and covered by
 synthetic integration tests. Physical accessory compatibility, sustained reports
-and recovery still require [hardware acceptance](matter-physical-acceptance.md).
+and recovery remain unverified.
 There is no verified Matter product list yet.
 
 | Device category | Implemented functions | Limits |

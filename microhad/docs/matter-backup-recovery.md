@@ -5,8 +5,6 @@ an arranged maintenance window. Host shell templates run from `microhad/` and
 use the private root [workspace env file](../../docs/workspace-settings.md) for
 the gateway, SSH port/user and credentials. Coordinate
 shutdown through the [recovery guide](../../docs/recovery-tooling.md#orderly-stop-and-frozen-zigbee-export).
-Physical recovery/durability checks remain part of
-[hardware acceptance](../../docs/matter-physical-acceptance.md).
 
 ## State and consistency
 
