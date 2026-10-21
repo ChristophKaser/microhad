@@ -235,8 +235,13 @@ def collect(root, args, env, toolchain, sysroot):
     run(['bash', 'ziggurat/scripts/build.sh', '--prepare-only'], env=env)
     run(['bash', 'micro-thread-matter-daemon/scripts/fetch-rs-matter.sh'], env=env)
     run(['python3', 'micro-thread-matter-daemon/scripts/prepare-openthread.py'], env=env)
-    for manifest in ('micro-thread-matter-daemon/Cargo.toml', 'worktrees/ziggurat-multipan/Cargo.toml'):
-        run(['cargo', '+' + toolchain, 'fetch', '--locked', '--manifest-path', manifest], env=env)
+    # The prepared Ziggurat mailbox series adds target dependencies, so its
+    # upstream lock must be resolved before it can be frozen with the approved
+    # local crate substitutions below. The Matter lock remains an input lock.
+    run(['cargo', '+' + toolchain, 'fetch', '--locked', '--manifest-path',
+         'micro-thread-matter-daemon/Cargo.toml'], env=env)
+    run(['cargo', '+' + toolchain, 'fetch', '--manifest-path',
+         'worktrees/ziggurat-multipan/Cargo.toml'], env=env)
     run(['python3', 'scripts/prepare-crate-patches.py', 'getrandom-0.4.3', 'nix-0.26.4', 'radium-0.7.0'], env=env)
     export_git(ROOT, root, recursive=False, filter_root=True, revision=args.revision)
     (root / '.release/patches').mkdir(parents=True)
