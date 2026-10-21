@@ -29,6 +29,24 @@ Dashboard shown with demo data.
 > **The same applies to the documentation:** it has not been thoroughly reviewed
 > and may contain errors or omissions.
 
+## Thanks
+
+Special thanks to [Paul Banks](https://paulbanks.org/projects/lidl-zigbee/) for
+the Lidl gateway root-access work that made this project possible.
+
+Even though it currently runs on the stock firmware, this project would not
+have been possible without
+[`rtl8196e-gateway`](https://github.com/jnilo1/rtl8196e-gateway), maintained by
+[jnilo1](https://github.com/jnilo1), and the work of its contributors.
+
+Thank you to the maintainers and contributors of the major upstream projects
+used here: [Ziggurat](https://github.com/zigpy/ziggurat),
+[rs-matter](https://github.com/project-chip/rs-matter),
+[OpenThread](https://github.com/openthread/openthread),
+[Mbed TLS](https://github.com/Mbed-TLS/mbedtls), and
+[tinycbor](https://github.com/intel/tinycbor), as well as their respective
+communities and all other upstream contributors.
+
 ## Getting started
 
 See the [documentation index](docs/README.md) for setup, usage, deployment,
