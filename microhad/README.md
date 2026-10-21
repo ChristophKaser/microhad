@@ -120,10 +120,10 @@ prints an empty line; implicit defaults are not included. With no `--config`,
 it reads `/tuya/native/config.json`. This is a local command and can print
 private configuration values, so do not expose it through a public endpoint.
 
-## SONOFF TRVZB
+## Thermostats
 
 Thermostat controls, device schedules, advanced settings, and automatic external
-temperature sensor linking are described in [TRVZB support](docs/trvzb.md).
+temperature sensor linking are described in [thermostat support](docs/thermostats.md).
 
 ## Licenses and attribution
 
