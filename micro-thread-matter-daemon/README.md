@@ -54,7 +54,7 @@ python3 microhad/scripts/test_matter_native_report_integration.py
 The native integration builds a separate service artifact with test-only report
 hooks. Production builds check that those hooks are absent.
 See [runtime](../docs/matter-service-runtime.md) and
-[physical acceptance](../microhad/docs/matter-plans/08-real-device-acceptance.md).
+[physical acceptance](../docs/matter-physical-acceptance.md).
 
 OpenThread is pinned to release `v2026.10.0`, commit
 `53e8322140dde7b26827332100504507cec9cc4e`. Its build initializes the nested

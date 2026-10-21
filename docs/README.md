@@ -41,6 +41,6 @@ Protocol and storage references:
 - [Sensor history](../microhad/SENSOR_HISTORY_FORMAT.md) and [syslog IPC](../microhad/docs/syslog-ipc.md).
 - [Toolchain selection](../config/TOOLCHAINS.md) and [third-party notices](../microhad/THIRD_PARTY.md).
 
-[Physical Matter acceptance](../microhad/docs/matter-plans/08-real-device-acceptance.md)
+[Physical Matter acceptance](matter-physical-acceptance.md)
 describes the remaining hardware checks. Synthetic tests establish software
 behavior; they do not establish accessory compatibility or sustained RF reliability.

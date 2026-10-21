@@ -91,7 +91,7 @@ Deployment requires an explicit request. Physical accessory acceptance remains p
 See the [runtime](../docs/matter-service-runtime.md),
 [public API](docs/matter-native-api-v1.md),
 [backup/recovery runbook](docs/matter-backup-recovery.md) and
-[acceptance requirements](docs/matter-plans/README.md).
+[physical acceptance](../docs/matter-physical-acceptance.md).
 
 ## Subscription health and recovery
 

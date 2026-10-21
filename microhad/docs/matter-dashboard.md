@@ -74,7 +74,7 @@ node microhad/webui/test/matter-devices-browser.cjs
 
 Run from the repository root after installing Web UI dependencies. These use
 synthetic service/browser fixtures. Physical phone/accessory commissioning,
-reports and restart recovery remain in [hardware acceptance](matter-plans/08-real-device-acceptance.md).
+reports and restart recovery remain in [hardware acceptance](../../docs/matter-physical-acceptance.md).
 The current controller policy bypasses manufacturer attestation; enabling
 verification fails closed until a verifier is implemented. PASE/CASE remain
 active. See [controller policy](../../docs/rs-matter-controller-tests.md).

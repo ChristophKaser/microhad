@@ -34,7 +34,7 @@ and bookkeeping also consume memory; target CPU/RSS require workload measurement
 A missing legacy catalog is reconciled through bounded operational DNS-SD browse
 and authenticated CASE recovery. See [catalog recovery](matter-node-catalog.md).
 Incomplete nodes are not assumed commissioned. Physical accessory recovery and
-resource/RF behavior require [hardware acceptance](../microhad/docs/matter-plans/08-real-device-acceptance.md).
+resource/RF behavior require [hardware acceptance](matter-physical-acceptance.md).
 
 ## Paginated snapshots
 
