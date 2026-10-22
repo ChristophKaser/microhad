@@ -3243,12 +3243,13 @@ std::string GatewayView::statusJson() const {
              << "\",\"observed_at\":" << source.temperatureObservation.at << '}';
     }
     json << "],\"devices\":[";
-    std::vector<Device> listedDevices;
+    std::vector<const Device*> listedDevices;
+    listedDevices.reserve(devices.size());
     std::map<std::string, std::vector<Device> > matterEndpoints;
     std::map<std::string, Device> matterNodes;
     for (unsigned long index=0; index<devices.size(); ++index) {
         const Device& entry=devices[index];
-        if (entry.source != "matter" || isThermostat(entry)) { listedDevices.push_back(entry); continue; }
+        if (entry.source != "matter" || isThermostat(entry)) { listedDevices.push_back(&entry); continue; }
         const std::string id=entry.ieeeAddress.substr(0,40);
         if (entry.matterEndpoint < 0) matterNodes[id]=entry;
         else matterEndpoints[id].push_back(entry);
@@ -3258,6 +3259,9 @@ std::string GatewayView::statusJson() const {
             matterNodes[it->first]=it->second.front();
             matterNodes[it->first].matterMetadataState="stale";
         }
+    // Snapshot devices stay immutable; only grouped Matter nodes need copies.
+    std::vector<Device> mergedNodes;
+    mergedNodes.reserve(matterNodes.size());
     for (std::map<std::string, Device>::iterator it=matterNodes.begin(); it!=matterNodes.end(); ++it) {
         Device node=it->second;
         const std::vector<Device>& endpoints=matterEndpoints[it->first];
@@ -3288,11 +3292,12 @@ std::string GatewayView::statusJson() const {
         node.ieeeAddress=node.externalId=it->first;
         node.component="node";
         if (node.matterMetadataState.empty()) node.matterMetadataState=endpoints.empty()?"missing":"stale";
-        listedDevices.push_back(node);
+        mergedNodes.push_back(node);
+        listedDevices.push_back(&mergedNodes.back());
     }
     bool first = true;
     for (unsigned long deviceIndex = 0; deviceIndex < listedDevices.size(); ++deviceIndex) {
-        const Device& device = listedDevices[deviceIndex];
+        const Device& device = *listedDevices[deviceIndex];
         if (!first) json << ',';
         first = false;
         json << "{\"id\":\"" << jsonEscape(device.ieeeAddress) << "\",\"source\":\"" << jsonEscape(device.source)
