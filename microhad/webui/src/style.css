@@ -1175,4 +1175,7 @@ button:disabled {
 .automation-toolbar, .automation-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin-bottom: .75rem; }
 .automation-toolbar span { margin-right: auto; opacity: .75; }
 .automation-source { width: 100%; min-height: 28rem; resize: vertical; box-sizing: border-box; padding: .8rem; color: inherit; background: #10151d; border: 1px solid var(--border, #455); border-radius: .4rem; font: .9rem/1.45 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.automation-logs { max-height: 24rem; overflow: auto; }
+.automation-log { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; padding: .5rem 0; border-bottom: 1px solid #455; }
+.automation-log pre { width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; }
 @media (max-width: 760px) { .automation-layout { grid-template-columns: 1fr; } }

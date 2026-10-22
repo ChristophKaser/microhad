@@ -1,4 +1,5 @@
 {
+  "microhad/dependencies/lua": ["Lua.org, PUC-Rio"],
   "abstract-bits": [
     "puddly"
   ],

@@ -1,6 +1,7 @@
 # The gateway is an old big-endian MIPS/uClibc system. Never substitute a
 # host compiler for the target build: a host executable is not deployable.
 MICROHAD_ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
+.DEFAULT_GOAL := all
 ZIGGURAT_ROOT := $(abspath $(MICROHAD_ROOT)/..)
 include $(ZIGGURAT_ROOT)/config/toolchains.mk
 include $(ZIGGURAT_ROOT)/config/toolchain-select.mk
@@ -37,18 +38,20 @@ BACKEND_SUFFIX := $(BACKEND_SUFFIX)-matter
 endif
 
 LUA_DIR := dependencies/lua
+AUTOMATION_SOURCES := src/automation_worker.cpp src/automation_types.cpp
+AUTOMATION_RUNTIME := build/automation_runtime.inc
 
 WARNINGS := -Wall -Wextra -Werror -pedantic
 TARGET_OPTIMIZATION ?= $(if $(filter crosstool-ng,$(TOOLCHAIN)),-Os,-O2)
 # Both target compilers support the C++98 dialect used by this C++03 daemon.
-HOST_CXXFLAGS = -std=gnu++03 $(WARNINGS) -Wno-long-long -Iinclude -I$(LUA_DIR) $(TLS_CPPFLAGS) -O2 -DMICROHAD_ZIGGURAT_ENABLED=$(ZIGGURAT) -DMICROHAD_MBEDTLS_ENABLED=1 -DMICROHAD_BUILD_REVISION=\"$(BUILD_REVISION)\"
-TARGET_CXXFLAGS = -std=gnu++98 $(WARNINGS) -Wno-long-long -Iinclude -I$(LUA_DIR) $(TLS_CPPFLAGS) $(TARGET_OPTIMIZATION) -ffunction-sections -fdata-sections -DMICROHAD_MIPS_TARGET=1 -DMICROHAD_ZIGGURAT_ENABLED=$(ZIGGURAT) -DMICROHAD_MBEDTLS_ENABLED=1 -DMICROHAD_BUILD_REVISION=\"$(BUILD_REVISION)\"
+HOST_CXXFLAGS = -std=gnu++03 $(WARNINGS) -Wno-long-long -Iinclude -Ibuild -I$(LUA_DIR) $(TLS_CPPFLAGS) -O2 -DMICROHAD_ZIGGURAT_ENABLED=$(ZIGGURAT) -DMICROHAD_MBEDTLS_ENABLED=1 -DMICROHAD_BUILD_REVISION=\"$(BUILD_REVISION)\"
+TARGET_CXXFLAGS = -std=gnu++98 $(WARNINGS) -Wno-long-long -Iinclude -Ibuild -I$(LUA_DIR) $(TLS_CPPFLAGS) $(TARGET_OPTIMIZATION) -ffunction-sections -fdata-sections -DMICROHAD_MIPS_TARGET=1 -DMICROHAD_ZIGGURAT_ENABLED=$(ZIGGURAT) -DMICROHAD_MBEDTLS_ENABLED=1 -DMICROHAD_BUILD_REVISION=\"$(BUILD_REVISION)\"
 HOST_CXXFLAGS += -DMICROHAD_MATTER_ENABLED=$(MATTER)
 TARGET_CXXFLAGS += -DMICROHAD_MATTER_ENABLED=$(MATTER)
 TARGET_CFLAGS := $(WARNINGS) $(TARGET_OPTIMIZATION) -ffunction-sections -fdata-sections
 TARGET_LINK_FLAGS := $(if $(filter dynamic,$(LINK_MODE)),-L"$(STOCK_ROOTFS)/link",-static)
 LDFLAGS := -lpthread -lrt
-SOURCES := src/main.cpp src/script_benchmark.cpp src/automation_worker.cpp src/matter_websocket.cpp src/matter_protocol.cpp src/matter_cbor.cpp src/matter_client.cpp src/matter_worker.cpp src/gateway_config.cpp src/companion_discovery.cpp src/ash.cpp src/json_util.cpp src/storage.cpp src/network_backup.cpp $(ZIGGURAT_SOURCES) src/http_server.cpp src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/thermostat.cpp src/gateway_thermostat.cpp src/sensor_history.cpp src/syslog_log_reader.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp src/external_http_device.cpp src/device_shelly.cpp src/device_fritz_box.cpp
+SOURCES := src/main.cpp src/script_benchmark.cpp $(AUTOMATION_SOURCES) src/matter_websocket.cpp src/matter_protocol.cpp src/matter_cbor.cpp src/matter_client.cpp src/matter_worker.cpp src/gateway_config.cpp src/companion_discovery.cpp src/ash.cpp src/json_util.cpp src/storage.cpp src/network_backup.cpp $(ZIGGURAT_SOURCES) src/http_server.cpp src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/thermostat.cpp src/gateway_thermostat.cpp src/sensor_history.cpp src/syslog_log_reader.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp src/external_http_device.cpp src/device_shelly.cpp src/device_fritz_box.cpp
 HOST_BUILD := build/host$(BACKEND_SUFFIX)
 MIPS_BUILD := build/$(TARGET_BUILD_SUBDIR)mips$(BACKEND_SUFFIX)
 HOST_BIN := $(HOST_BUILD)/microhad
@@ -59,7 +62,7 @@ HOST_CXXFLAGS += -DMICROHAD_TEST_BINARY=\"$(HOST_BIN)\"
 TLS_C_SOURCES := src/crypto_init.c src/fcm_signer.c src/https_client.c src/vapid_key.c src/web_push_crypto.c src/tls_server.c
 HOST_C_OBJECTS := $(patsubst src/%.c,$(HOST_BUILD)/%.o,$(TLS_C_SOURCES))
 MIPS_C_OBJECTS := $(patsubst src/%.c,$(MIPS_BUILD)/%.o,$(TLS_C_SOURCES))
-LUA_NAMES := lapi lcode lctype ldebug ldo ldump lfunc lgc llex lmem lobject lopcodes lparser lstate lstring ltable ltm lundump lvm lzio lauxlib lbaselib lmathlib lstrlib ltablib
+LUA_NAMES := lapi lcode lctype ldebug ldo ldump lfunc lgc llex lmem lobject lopcodes lparser lstate lstring ltable ltm lundump lvm lzio lauxlib lbaselib lcorolib lmathlib lstrlib ltablib
 HOST_C_OBJECTS += $(addprefix $(HOST_BUILD)/lua-,$(addsuffix .o,$(LUA_NAMES)))
 MIPS_C_OBJECTS += $(addprefix $(MIPS_BUILD)/lua-,$(addsuffix .o,$(LUA_NAMES)))
 MBEDTLS_DIR := dependencies/mbedtls
@@ -77,12 +80,24 @@ HOST_MBEDTLS_LIBS := $(HOST_MBEDTLS_BUILD)/library/libmbedtls.a $(HOST_MBEDTLS_B
 MIPS_MBEDTLS_LIBS := $(MIPS_MBEDTLS_BUILD)/library/libmbedtls.a $(MIPS_MBEDTLS_BUILD)/library/libmbedx509.a $(MIPS_MBEDTLS_BUILD)/library/libtfpsacrypto.a
 UNIT_TEST_BIN := $(HOST_BUILD)/unit_tests
 INTEGRATION_TEST_BIN := $(HOST_BUILD)/integration_tests
-UNIT_TEST_SOURCES := $(ZIGGURAT_TEST_SOURCES) test/unit_matter_websocket.cpp test/unit_matter_protocol.cpp test/unit_matter_client.cpp test/unit_network_backup.cpp test/unit_gateway.cpp test/unit_gateway_config.cpp test/unit_companion_discovery.cpp test/unit_fcm.cpp test/unit_web_push.cpp test/unit_sensor_history.cpp test/unit_log_ring.cpp test/unit_syslog_log_reader.cpp test/unit_external_http_device.cpp test/test_main.cpp
-INTEGRATION_TEST_SOURCES := test/integration_gateway.cpp test/integration_http_server.cpp test/integration_lifecycle.cpp test/integration_outbound.cpp test/integration_main.cpp
+UNIT_TEST_SOURCES := test/unit_automation.cpp $(ZIGGURAT_TEST_SOURCES) test/unit_matter_websocket.cpp test/unit_matter_protocol.cpp test/unit_matter_client.cpp test/unit_network_backup.cpp test/unit_gateway.cpp test/unit_gateway_config.cpp test/unit_companion_discovery.cpp test/unit_fcm.cpp test/unit_web_push.cpp test/unit_sensor_history.cpp test/unit_log_ring.cpp test/unit_syslog_log_reader.cpp test/unit_external_http_device.cpp test/test_main.cpp
+
+.PHONY: automation-test
+automation-test: $(HOST_BUILD)/automation_tests
+	$(HOST_BUILD)/automation_tests
+
+$(HOST_BUILD)/automation_tests: $(AUTOMATION_RUNTIME) $(HOST_BIN) test/unit_automation.cpp test/integration_automation.cpp test/automation_main.cpp
+	$(HOST_CXX) $(HOST_CXXFLAGS) -DMICROHAD_TESTING=1 test/unit_automation.cpp test/integration_automation.cpp test/automation_main.cpp $(filter-out src/main.cpp src/script_benchmark.cpp,$(SOURCES)) src/log_ring.cpp $(HOST_C_OBJECTS) -o $@ $(HOST_MBEDTLS_LIBS) $(LDFLAGS)
+INTEGRATION_TEST_SOURCES := test/integration_automation.cpp test/integration_gateway.cpp test/integration_http_server.cpp test/integration_lifecycle.cpp test/integration_outbound.cpp test/integration_main.cpp
 
 .PHONY: all host mips benchmark-host benchmark-mips webui mbedtls-host mbedtls-mips unit-test integration-test target-verifier-test test verify-target clean
 
 all: host
+
+$(AUTOMATION_RUNTIME): automation/runtime.lua scripts/embed_automation.py
+	python3 scripts/embed_automation.py $< $@
+
+$(HOST_BIN) $(HOST_TEST_BIN) $(MIPS_BIN) $(UNIT_TEST_BIN) $(INTEGRATION_TEST_BIN): $(AUTOMATION_RUNTIME) src/automation_types.cpp
 
 host: mbedtls-host $(HOST_BIN)
 
@@ -159,13 +174,13 @@ endef
 verify-target: $(MIPS_BIN)
 	@python3 $(ZIGGURAT_ROOT)/scripts/verify-gateway-target.py --link-mode $(LINK_MODE) "$(MIPS_BIN)"
 
-$(UNIT_TEST_BIN): $(UNIT_TEST_SOURCES) src/automation_worker.cpp src/matter_websocket.cpp src/matter_protocol.cpp src/matter_cbor.cpp src/matter_client.cpp src/matter_worker.cpp src/gateway_config.cpp src/companion_discovery.cpp src/ash.cpp src/json_util.cpp src/storage.cpp src/network_backup.cpp $(ZIGGURAT_SOURCES) src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/thermostat.cpp src/gateway_thermostat.cpp src/sensor_history.cpp src/log_ring.cpp src/syslog_log_reader.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp src/external_http_device.cpp src/device_shelly.cpp src/device_fritz_box.cpp $(HOST_C_OBJECTS) $(HOST_MBEDTLS_LIBS) $(wildcard include/*.h) $(wildcard include/*.inc) ../config/thermostat-attributes.def
+$(UNIT_TEST_BIN): $(UNIT_TEST_SOURCES) $(AUTOMATION_SOURCES) src/matter_websocket.cpp src/matter_protocol.cpp src/matter_cbor.cpp src/matter_client.cpp src/matter_worker.cpp src/gateway_config.cpp src/companion_discovery.cpp src/ash.cpp src/json_util.cpp src/storage.cpp src/network_backup.cpp $(ZIGGURAT_SOURCES) src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/thermostat.cpp src/gateway_thermostat.cpp src/sensor_history.cpp src/log_ring.cpp src/syslog_log_reader.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp src/external_http_device.cpp src/device_shelly.cpp src/device_fritz_box.cpp $(HOST_C_OBJECTS) $(HOST_MBEDTLS_LIBS) $(wildcard include/*.h) $(wildcard include/*.inc) ../config/thermostat-attributes.def
 	@mkdir -p $(HOST_BUILD)
-	$(HOST_CXX) $(HOST_CXXFLAGS) -DMICROHAD_TESTING=1 $(UNIT_TEST_SOURCES) src/automation_worker.cpp src/matter_websocket.cpp src/matter_protocol.cpp src/matter_cbor.cpp src/matter_client.cpp src/matter_worker.cpp src/gateway_config.cpp src/companion_discovery.cpp src/ash.cpp src/json_util.cpp src/storage.cpp src/network_backup.cpp $(ZIGGURAT_SOURCES) src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/thermostat.cpp src/gateway_thermostat.cpp src/sensor_history.cpp src/log_ring.cpp src/syslog_log_reader.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp src/external_http_device.cpp src/device_shelly.cpp src/device_fritz_box.cpp $(HOST_C_OBJECTS) -o $@ $(HOST_MBEDTLS_LIBS) $(LDFLAGS)
+	$(HOST_CXX) $(HOST_CXXFLAGS) -DMICROHAD_TESTING=1 $(UNIT_TEST_SOURCES) $(AUTOMATION_SOURCES) src/matter_websocket.cpp src/matter_protocol.cpp src/matter_cbor.cpp src/matter_client.cpp src/matter_worker.cpp src/gateway_config.cpp src/companion_discovery.cpp src/ash.cpp src/json_util.cpp src/storage.cpp src/network_backup.cpp $(ZIGGURAT_SOURCES) src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/thermostat.cpp src/gateway_thermostat.cpp src/sensor_history.cpp src/log_ring.cpp src/syslog_log_reader.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp src/external_http_device.cpp src/device_shelly.cpp src/device_fritz_box.cpp $(HOST_C_OBJECTS) -o $@ $(HOST_MBEDTLS_LIBS) $(LDFLAGS)
 
-$(INTEGRATION_TEST_BIN): $(INTEGRATION_TEST_SOURCES) src/automation_worker.cpp src/gateway_config.cpp src/companion_discovery.cpp src/matter_websocket.cpp src/matter_protocol.cpp src/matter_cbor.cpp src/matter_client.cpp src/matter_worker.cpp src/ash.cpp src/json_util.cpp src/storage.cpp src/network_backup.cpp $(ZIGGURAT_SOURCES) src/http_server.cpp src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/thermostat.cpp src/gateway_thermostat.cpp src/sensor_history.cpp src/log_ring.cpp src/syslog_log_reader.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp src/external_http_device.cpp src/device_shelly.cpp src/device_fritz_box.cpp $(HOST_C_OBJECTS) $(HOST_MBEDTLS_LIBS) $(wildcard include/*.h) $(wildcard include/*.inc) ../config/thermostat-attributes.def
+$(INTEGRATION_TEST_BIN): $(INTEGRATION_TEST_SOURCES) $(AUTOMATION_SOURCES) src/gateway_config.cpp src/companion_discovery.cpp src/matter_websocket.cpp src/matter_protocol.cpp src/matter_cbor.cpp src/matter_client.cpp src/matter_worker.cpp src/ash.cpp src/json_util.cpp src/storage.cpp src/network_backup.cpp $(ZIGGURAT_SOURCES) src/http_server.cpp src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/thermostat.cpp src/gateway_thermostat.cpp src/sensor_history.cpp src/log_ring.cpp src/syslog_log_reader.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp src/external_http_device.cpp src/device_shelly.cpp src/device_fritz_box.cpp $(HOST_C_OBJECTS) $(HOST_MBEDTLS_LIBS) $(wildcard include/*.h) $(wildcard include/*.inc) ../config/thermostat-attributes.def
 	@mkdir -p $(HOST_BUILD)
-	$(HOST_CXX) $(HOST_CXXFLAGS) -DMICROHAD_TESTING=1 $(INTEGRATION_TEST_SOURCES) src/automation_worker.cpp src/gateway_config.cpp src/companion_discovery.cpp src/matter_websocket.cpp src/matter_protocol.cpp src/matter_cbor.cpp src/matter_client.cpp src/matter_worker.cpp src/ash.cpp src/json_util.cpp src/storage.cpp src/network_backup.cpp $(ZIGGURAT_SOURCES) src/http_server.cpp src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/thermostat.cpp src/gateway_thermostat.cpp src/sensor_history.cpp src/log_ring.cpp src/syslog_log_reader.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp src/external_http_device.cpp src/device_shelly.cpp src/device_fritz_box.cpp $(HOST_C_OBJECTS) -o $@ $(HOST_MBEDTLS_LIBS) $(LDFLAGS)
+	$(HOST_CXX) $(HOST_CXXFLAGS) -DMICROHAD_TESTING=1 $(INTEGRATION_TEST_SOURCES) $(AUTOMATION_SOURCES) src/gateway_config.cpp src/companion_discovery.cpp src/matter_websocket.cpp src/matter_protocol.cpp src/matter_cbor.cpp src/matter_client.cpp src/matter_worker.cpp src/ash.cpp src/json_util.cpp src/storage.cpp src/network_backup.cpp $(ZIGGURAT_SOURCES) src/http_server.cpp src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/thermostat.cpp src/gateway_thermostat.cpp src/sensor_history.cpp src/log_ring.cpp src/syslog_log_reader.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp src/external_http_device.cpp src/device_shelly.cpp src/device_fritz_box.cpp $(HOST_C_OBJECTS) -o $@ $(HOST_MBEDTLS_LIBS) $(LDFLAGS)
 
 unit-test: mbedtls-host $(HOST_BIN) $(UNIT_TEST_BIN)
 	$(UNIT_TEST_BIN)

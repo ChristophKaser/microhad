@@ -7,10 +7,12 @@
 #include <string>
 #include <vector>
 #include "gateway.h"
+#include "automation_types.h"
 
 class Gateway;
 class GatewayView;
 class SensorHistory;
+class AutomationWorker;
 
 class GatewayRunner {
     struct ViewData;
@@ -28,6 +30,8 @@ public:
         long serialOpenedAt() const;
         bool coordinatorOnline() const;
         unsigned char coordinatorChannel() const;
+        std::vector<Device> devices() const;
+        std::vector<SceneGroup> sceneGroups() const;
     private:
         friend class GatewayRunner;
         ViewData* data_;
@@ -98,6 +102,9 @@ public:
     bool setBroadcastQuorum(unsigned int value, std::string* error);
     bool setMatterCommissioningRegion(const std::string& countryCode, const std::string& location,
                                      std::string* error);
+    void setAutomationWorker(AutomationWorker* worker);
+    void automationGeneration(const std::string& script, unsigned long generation);
+    bool submitAutomation(const Automation::Action& action, std::string* error);
 
 private:
     enum CommandType { DeviceDelete, DeviceDeleteStatus, MatterDeleteTarget, MatterNodeRemove, MatterNodesReconcile, GatewaySettings, MatterRegionSettings, NetworkBackup, Join, CreateNetwork, DeviceSettings, DeviceValueAlerts, DeviceRefresh, DeviceReconfigure, DeviceIdentify, DeviceConfiguration, LightState, ThermostatSetting, ThermostatResult, SceneConfiguration, SceneActivate, SceneOff, TestNotification, NotificationSetting, EventLoopDebug, ShellyRegister, ShellyRemove, ShellyReconcile, MatterReconcile, MatterValue, MatterButton, ShellyEvent, FritzEvent, FritzReconcile, ActorState };
@@ -147,6 +154,15 @@ private:
     };
 
     Gateway* gateway_;
+    AutomationWorker* automation_;
+    std::deque<Automation::Action> automationActions_;
+    std::map<std::string, unsigned long> automationGenerations_;
+    std::map<std::string, Automation::Value> automationSnapshots_;
+    uint64_t automationChain_;
+    uint64_t activeAutomationChain_;
+    unsigned int activeAutomationDepth_;
+    void publishAutomation(const GatewayView& view);
+    void executeAutomation(const Automation::Action& action);
     SensorHistory* historyStore_;
     pthread_t thread_;
     mutable pthread_mutex_t mutex_;

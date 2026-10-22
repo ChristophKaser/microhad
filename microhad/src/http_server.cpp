@@ -50,7 +50,7 @@ extern "C" void microhad_tls_session_close(void* session);
 #endif
 
 namespace {
-const unsigned long maximumRequestBytes = 16384;
+const unsigned long maximumRequestBytes = 400000;
 
 enum RequestReadResult {
     RequestReadOk,
@@ -135,12 +135,13 @@ bool equalHeaderName(const std::string& name, const char* expected) {
 }
 
 RequestReadResult expectedRequestLength(const std::string& request, unsigned long* expected) {
+    const unsigned long limit = request.find("POST /api/automations/save ")==0 || request.find("POST /api/automations/validate ")==0 ? maximumRequestBytes : 16384;
     std::string::size_type headerEnd = request.find("\r\n\r\n");
     std::string::size_type lineStart;
     bool sawContentLength = false;
     unsigned long contentLength = 0;
     if (headerEnd == std::string::npos) return RequestReadFailed;
-    if (headerEnd + 4 > maximumRequestBytes) return RequestReadTooLarge;
+    if (headerEnd + 4 > 16384) return RequestReadTooLarge;
     lineStart = request.find("\r\n");
     if (lineStart == std::string::npos || lineStart == 0) return RequestReadMalformed;
     lineStart += 2;
@@ -169,7 +170,7 @@ RequestReadResult expectedRequestLength(const std::string& request, unsigned lon
         }
         lineStart = lineEnd + 2;
     }
-    if (contentLength > maximumRequestBytes - static_cast<unsigned long>(headerEnd + 4)) return RequestReadTooLarge;
+    if (contentLength > limit - static_cast<unsigned long>(headerEnd + 4)) return RequestReadTooLarge;
     *expected = static_cast<unsigned long>(headerEnd + 4) + contentLength;
     return RequestReadOk;
 }
@@ -726,6 +727,8 @@ void HttpServer::handleClient(int clientFd) {
         }
         request.assign(&buffer[0]);
         setActiveTlsSession(session);
+        unsigned long expected=0;
+        if(expectedRequestLength(request,&expected)==RequestReadTooLarge){writeResponse(clientFd,413,"application/json","{\"error\":\"request is too large\"}");setActiveTlsSession(0);microhad_tls_session_close(session);return;}
     } else readResult = readPlainRequest(clientFd, &request);
 #else
     readResult = readPlainRequest(clientFd, &request);
@@ -1043,6 +1046,8 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
         writeResponse(clientFd, 200, "application/json", companionConfig_);
     } else if (automations_ != 0 && request.find("GET /api/automations ") == 0) {
         writeResponse(clientFd, 200, "application/json", automations_->listJson());
+    } else if (automations_ != 0 && request.find("GET /api/automations/logs ") == 0) {
+        writeResponse(clientFd, 200, "application/json", automations_->logsJson(""));
     } else if (automations_ != 0 && request.find("GET /api/automations/") == 0) {
         const std::string prefix = "GET /api/automations/";
         const std::string::size_type end = request.find(' ', prefix.size());

@@ -4,9 +4,8 @@ MicroHAD automation scripts are Lua source files stored on the gateway. They
 can be edited from the dashboard or over SSH. The source file is always the
 source of truth: the dashboard does not maintain a separate copy of a script.
 
-This describes the intended scripting workflow while the feature is being
-implemented; it is not an indication that a released gateway already exposes
-the described dashboard controls.
+Lua automation is built into the native daemon. The dashboard's Automations
+tab provides script management, a plain-text editor, validation, status and logs.
 
 See [Lua scripting API](lua_scripting_api.md) for available functions and
 [Lua script lifecycle](lua_script_lifecycle.md) for reload, timer, coroutine,
@@ -57,32 +56,31 @@ never a partly-written file.
 
 ## Script editor
 
-The editor is intended to make ordinary automation authoring comfortable
-without turning the dashboard into a full debugger. It provides Lua syntax
-highlighting, line numbers, bracket matching, undo/redo, find and replace, and
-the normal keyboard shortcuts for saving and searching. Before changing the
-selected script or leaving the page, it asks what to do with unsaved edits.
+The current editor uses a plain-text area with native undo/redo and Ctrl/Cmd-S
+to save. Before selecting another script, creating a draft, leaving the tab or
+closing the browser, it protects unsaved edits. Runtime diagnostics and log
+records link to the affected source line.
 
-The editor offers **Format source**, which formats only the in-browser draft.
-Formatting never saves, validates, reloads, or otherwise changes the gateway
-source until **Save** or **Save and reload** is selected.
+Syntax highlighting, a formatter, completion, inline diagnostics, and the target
+picker described below are deferred editor enhancements; they are not controls
+in the current plain-text editor.
 
 ### API help and diagnostics
 
-Completion and inline reference help cover the supported Lua API, including
+Planned completion and inline reference help will cover the supported Lua API, including
 event filters, device and scene actions, timers, `persistent`, `shared`,
 `log()`, and `dump()`. This help follows the [Lua scripting API](lua_scripting_api.md);
 it does not advertise shell, filesystem, networking, or raw protocol access.
 
-Syntax and API diagnostics appear inline at their source line and column.
-They include invalid arguments, unsupported capabilities, and initialization
-errors. Each diagnostic links to the matching record in **Logs and status**.
+Validation and callback errors appear in status and **Logs and status**, with
+source lines when Lua supplies them. Validation includes invalid arguments,
+unsupported capabilities, and initialization errors.
 Validation is isolated and side-effect-free: it does not register listeners,
 run timers, write `persistent`, or send device actions or notifications.
 
 ### Insert devices and scenes
 
-The **Insert target** picker searches current gateway devices, scene groups,
+The planned **Insert target** picker will search current gateway devices, scene groups,
 and scenes. For each result, it shows the display name, stable ID, source, and
 capability where relevant. It inserts either a quoted display name or a quoted
 stable ID at the current cursor position, selected by the author.
@@ -198,4 +196,41 @@ After a MicroHAD restart every enabled source file is evaluated afresh. Timers
 and coroutines do not survive restart, so scripts should rebuild required work
 from current device state during initialization and reserve `persistent` for
 the values that genuinely need to survive reboot.
+
+## Runtime bounds and HTTP interface
+
+Each script has a 512 KiB Lua heap, 100,000 instructions and 100 ms of active
+execution per callback (cumulative across coroutine resumes), a 64-frame
+recursion limit, 64 listeners, 32 timers/cron registrations and 64 pending
+callbacks. Source is limited to 128 KiB and persistent state to 64 KiB per ID.
+The worker accepts 256 queued events and the coordinator accepts 64 automation
+actions. Overflow produces an explicit error record. Only one ready callback
+per script is resumed per scheduler turn so other scripts keep making progress.
+
+Persistent checkpoints are private JSON objects under `automations/state/`.
+Successful callback completion atomically checkpoints changed values; errors
+discard that callback's writes. Suspended callbacks keep their transaction,
+and independent keys committed by other callbacks are preserved. Reset clears
+the selected ID's values without reloading its source or deleting other state.
+Source discovery compares file contents every 250 ms, including same-size edits.
+Enabled/disabled files with the same ID cause a load error; neither file is
+silently overwritten. All source and checkpoint operations reject symlinks.
+
+`GET /api/automations` lists scripts. `GET /api/automations/FILENAME` returns
+`{filename, source}` and `GET /api/automations/logs` returns structured records.
+POST requests use URL-encoded form bodies:
+
+| Endpoint | Fields |
+| --- | --- |
+| `/api/automations/validate` | `filename`, draft `source` |
+| `/api/automations/save` | `filename`, `source`, optional `reload=0` for watcher-only reload |
+| `/api/automations/reload` | `filename`, or `all` for all scripts |
+| `/api/automations/enable`, `/disable`, `/delete` | current `filename` |
+| `/api/automations/reset` | `filename` whose persistent namespace is reset |
+
+Script logs retain the latest 256 records in memory and also use syslog for
+operational output. UI clearing changes only its display cursor. Validation
+diagnostics are retained, while draft `log()`/`dump()` calls do not publish
+operational output. Structured fields and table dumps redact sensitive key
+names; authors must still avoid writing secrets into free-text messages.
 

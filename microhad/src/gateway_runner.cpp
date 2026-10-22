@@ -1,6 +1,7 @@
 #include "gateway_runner.h"
 #include "gateway.h"
 #include "thread_name.h"
+#include "automation_worker.h"
 
 #include <algorithm>
 #include <cerrno>
@@ -16,7 +17,7 @@ GatewayRunner::LoopDebugStats::LoopDebugStats() : iterations(0), commandSkips(0)
     lastTimeoutSeconds(-1), lastDeadline(0), lastDeadlineSource("none") {
 }
 
-GatewayRunner::GatewayRunner(Gateway* gateway) : gateway_(gateway), historyStore_(gateway->historyStore()), commandWakeRead_(-1), commandWakeWrite_(-1),
+GatewayRunner::GatewayRunner(Gateway* gateway) : gateway_(gateway), automation_(0), automationChain_(0), activeAutomationChain_(0), activeAutomationDepth_(0), historyStore_(gateway->historyStore()), commandWakeRead_(-1), commandWakeWrite_(-1),
     commandHead_(0), commandTail_(0), started_(false), startupComplete_(false), startupSucceeded_(false), stopping_(false),
     eventLoopDebug_(false), currentView_(0), lastCoordinatorProgress_(0), runtimeDirectory_(gateway->runtimeDirectory()), historyPath_(gateway->historyPath()) {
     int wakePipe[2];
@@ -101,16 +102,20 @@ void GatewayRunner::run() {
     time_t nextDebugReportAt = 0;
     while (true) {
         Command* command = 0;
+        Automation::Action action;
+        bool hasAction = false;
         pthread_mutex_lock(&mutex_);
         if (commandHead_ != 0) {
             command = commandHead_;
             commandHead_ = commandHead_->next;
             if (commandHead_ == 0) commandTail_ = 0;
         }
+        if (!automationActions_.empty()) { action=automationActions_.front(); automationActions_.pop_front(); hasAction=true; }
         bool stopNow = stopping_;
         pthread_mutex_unlock(&mutex_);
         if (command != 0) execute(command);
         if (stopNow) break;
+        if (hasAction) executeAutomation(action);
         if (!eventLoopDebug_) {
             debugStats = LoopDebugStats();
             nextDebugReportAt = 0;
@@ -160,6 +165,7 @@ void GatewayRunner::publishView(bool force) {
     GatewayView* view = new GatewayView(gateway_->captureView(false));
 #endif
     if (force) gateway_->takeViewDirty();
+    publishAutomation(*view);
     pthread_mutex_lock(&mutex_);
     ViewData* previous = currentView_;
     currentView_ = new ViewData(view);
@@ -167,6 +173,55 @@ void GatewayRunner::publishView(bool force) {
         previous->retired = true;
         if (previous->references == 0) { delete previous->view; delete previous; }
     }
+    pthread_mutex_unlock(&mutex_);
+}
+
+void GatewayRunner::setAutomationWorker(AutomationWorker* worker) { pthread_mutex_lock(&mutex_);automation_=worker;pthread_mutex_unlock(&mutex_); }
+void GatewayRunner::automationGeneration(const std::string& script,unsigned long generation) { pthread_mutex_lock(&mutex_);automationGenerations_[script]=generation;pthread_mutex_unlock(&mutex_); }
+bool GatewayRunner::submitAutomation(const Automation::Action& action,std::string* error) {
+    if(action.operation!="actor"&&action.operation!="light"&&action.operation!="refresh"&&action.operation!="scene.off"&&action.operation!="scene.activate"){*error="unsupported automation action";return false;}
+    pthread_mutex_lock(&mutex_);
+    if(!started_||stopping_||!startupSucceeded_||!action.generation||automationGenerations_[action.script]!=action.generation||action.depth>16||automationActions_.size()>=64){pthread_mutex_unlock(&mutex_);*error="coordinator unavailable, retired generation, causal limit, or action queue full";return false;}
+    automationActions_.push_back(action);wakeCoordinator();pthread_mutex_unlock(&mutex_);return true;
+}
+void GatewayRunner::executeAutomation(const Automation::Action& a) {
+    std::string error;bool ok=false;
+    activeAutomationChain_=a.chain;activeAutomationDepth_=a.depth;
+    if(a.operation=="actor")ok=gateway_->setActorState(a.target,a.args.fields.find("on")->second.boolean,&error);
+    else if(a.operation=="light"){
+        std::map<std::string,Automation::Value>::const_iterator on=a.args.fields.find("on"),brightness=a.args.fields.find("brightness");
+        ok=gateway_->setLightState(a.target,on!=a.args.fields.end()&&on->second.boolean?"on":"off",brightness==a.args.fields.end()?-1:static_cast<int>(brightness->second.number),&error);
+        if(ok&&on!=a.args.fields.end()&&brightness!=a.args.fields.end())ok=gateway_->setLightState(a.target,on->second.boolean?"on":"off",-1,&error);
+    }else if(a.operation=="refresh")ok=gateway_->refreshDevice(a.target,&error);
+    else if(a.operation=="scene.off")ok=gateway_->turnOffSceneGroup(static_cast<unsigned short>(a.args.fields.find("group")->second.number),&error);
+    else if(a.operation=="scene.activate")ok=gateway_->activateScene(static_cast<unsigned short>(a.args.fields.find("group")->second.number),static_cast<unsigned char>(a.args.fields.find("scene")->second.number),&error);
+    if(!ok)gateway_->logEventLoopDiagnostic("Automation action failed: "+error);
+    // Correlate immediate changes to the accepted command; later radio reports
+    // start a new observation chain because protocols do not echo our IDs.
+    automationChain_=std::max(automationChain_,a.chain);
+    publishView(true);
+    activeAutomationChain_=0;activeAutomationDepth_=0;
+}
+void GatewayRunner::publishAutomation(const GatewayView& view) {
+    typedef Automation::Value V;
+    std::vector<Gateway::AutomationReport> reports=gateway_->takeAutomationReports();
+    std::map<std::string,V> next;
+    std::vector<Automation::Event> outgoing;
+    uint64_t chain=activeAutomationChain_?activeAutomationChain_:++automationChain_;
+    // Preserve accepted reports and their intermediate edges even when several
+    // arrive during one coordinator poll before the view is published.
+    for(size_t i=0;i<reports.size();++i){V snapshot=Automation::snapshot(reports[i].device);const std::string id=snapshot.fields["id"].string;const std::string field=reports[i].field;Automation::Event e;e.data.fields["type"]=V("device.value");e.data.fields["device"]=snapshot;e.data.fields["field"]=V(field);e.data.fields["value"]=snapshot.fields[field];outgoing.push_back(e);
+        if(automationSnapshots_.count(id)){V old=automationSnapshots_[id].fields[field];if(old!=snapshot.fields[field]){e.data.fields["type"]=V("device.changed");e.data.fields["old"]=old;outgoing.push_back(e);}automationSnapshots_[id].fields[field]=snapshot.fields[field];}
+    }
+    for(size_t i=0;i<view.devices.size();++i){V snapshot=Automation::snapshot(view.devices[i]);std::string id=snapshot.fields["id"].string;next[id]=snapshot;
+        std::map<std::string,V>::iterator before=automationSnapshots_.find(id);
+        if(before==automationSnapshots_.end()){Automation::Event e;e.data.fields["type"]=V("device.added");e.data.fields["device"]=snapshot;outgoing.push_back(e);}
+        else for(std::map<std::string,V>::const_iterator f=snapshot.fields.begin();f!=snapshot.fields.end();++f){std::map<std::string,V>::const_iterator old=before->second.fields.find(f->first);if(old!=before->second.fields.end()&&old->second==f->second)continue;if(f->first=="last_seen")continue;Automation::Event e;e.data.fields["type"]=V("device.changed");e.data.fields["device"]=snapshot;e.data.fields["field"]=V(f->first);e.data.fields["value"]=f->second;e.data.fields["old"]=old==before->second.fields.end()?V():old->second;outgoing.push_back(e);if(f->first=="online"){e.data.fields["type"]=V(f->second.boolean?"device.online":"device.offline");outgoing.push_back(e);}}
+    }
+    for(std::map<std::string,V>::const_iterator it=automationSnapshots_.begin();it!=automationSnapshots_.end();++it)if(!next.count(it->first)){Automation::Event e;e.data.fields["type"]=V("device.removed");e.data.fields["device"]=it->second;e.data.fields["reason"]=V("removed");outgoing.push_back(e);}
+    automationSnapshots_.swap(next);
+    pthread_mutex_lock(&mutex_);
+    if(automation_)for(size_t i=0;i<outgoing.size();++i){Automation::Event& e=outgoing[i];e.chain=chain;e.depth=activeAutomationDepth_;e.data.fields["device_id"]=e.data.fields["device"].fields["id"];e.data.fields["source"]=e.data.fields["device"].fields["source"];e.data.fields["at"]=V(static_cast<double>(time(0)));std::ostringstream id;id<<chain;e.data.fields["chain_id"]=V(id.str());e.data.fields["chain_depth"]=V(static_cast<double>(e.depth));automation_->enqueue(e);}
     pthread_mutex_unlock(&mutex_);
 }
 
@@ -285,7 +340,7 @@ void GatewayRunner::waitForWork(LoopDebugStats* stats, bool debugEnabled) {
     int maximum = commandWakeRead_;
     long deadline;
     pthread_mutex_lock(&mutex_);
-    bool commandQueued = commandHead_ != 0 || stopping_;
+    bool commandQueued = commandHead_ != 0 || !automationActions_.empty() || stopping_;
     pthread_mutex_unlock(&mutex_);
     /* Pipe bytes are deliberately coalesced when drained.  Do not sleep if
        another queued command remains after the previous loop iteration. */
@@ -369,6 +424,8 @@ bool GatewayRunner::ViewLease::coordinatorOnline() const {
 unsigned char GatewayRunner::ViewLease::coordinatorChannel() const {
     return coordinatorOnline() ? data_->view->observedNetworkChannel : 0;
 }
+std::vector<Device> GatewayRunner::ViewLease::devices() const { return data_->view->devices; }
+std::vector<SceneGroup> GatewayRunner::ViewLease::sceneGroups() const { return data_->view->sceneGroups; }
 
 GatewayRunner::ViewLease* GatewayRunner::acquireView() {
     pthread_mutex_lock(&mutex_);

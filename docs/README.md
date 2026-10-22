@@ -17,7 +17,7 @@ Commands run on the development computer unless marked **gateway**.
 - [Recovery and diagnostics](recovery-tooling.md): supervisor control, logs and radio ownership.
 - [Sensor reporting](sensor-reporting.md): troubleshoot missing Zigbee readings.
 - [Automation scripting](scripting.md): write, reload and debug gateway-local Lua scripts.
-- [Lua scripting API](lua_scripting_api.md) and [script lifecycle](lua_script_lifecycle.md): proposed gateway-local automation scripting model.
+- [Lua scripting API](lua_scripting_api.md) and [script lifecycle](lua_script_lifecycle.md): gateway-local automation runtime and reload semantics.
 - [Matter dashboard](../microhad/docs/matter-dashboard.md): Thread setup and phone-assisted commissioning.
 - [Matter backup and recovery](../microhad/docs/matter-backup-recovery.md): consistent identity/state backups.
 

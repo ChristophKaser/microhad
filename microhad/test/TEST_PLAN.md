@@ -76,3 +76,17 @@ resource headroom or power-loss durability for a new accessory. The deployed
 Matter path receives temperature and air-quality reports. [Zigbee migration
 acceptance](../../docs/ziggurat-deployment-plan.md#accept-the-migrated-network)
 covers the Zigbee boundary.
+# Lua automation verification
+
+`make -C microhad automation-test` runs the automation unit suite and a local
+coordinator/HTTP integration fixture. It uses synthetic readings and notification
+delivery hooks, with no gateway or Internet access. These cases also run within
+the ordinary host unit and integration suites. Coverage includes sandbox and
+execution limits, source validation, persistence transactions/restart/reset,
+events and filters, timers/cron, coroutine resume/timeout/cancellation, shared
+state, reload failures, logs/redaction, source watcher and management APIs,
+device/action/scene capability validation and notification delivery isolation.
+
+`python3 microhad/scripts/test_automation_webui.py` exercises the production
+editor with mocked browser and HTTP boundaries: drafts, validation, save/reload,
+unsaved-edit guards, enable/disable/delete/reset, and log display controls.

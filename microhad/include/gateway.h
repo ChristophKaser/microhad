@@ -337,10 +337,14 @@ public:
     std::vector<Device> devices() const;
     GatewayView captureView(bool includeLogs = true) const;
     bool takeViewDirty();
+    struct AutomationReport { Device device; std::string field; };
+    std::vector<AutomationReport> takeAutomationReports();
     std::string statusJson() const;
     std::string logsJson() const;
 
 private:
+    std::vector<AutomationReport> automationReports_;
+    void automationReport(const Device& device, const std::string& field);
     friend class GatewayTestPeer;
     friend class GatewayIntegrationTestPeer;
 #if MICROHAD_ZIGGURAT_ENABLED

@@ -1,6 +1,6 @@
 # Lua automation script lifecycle
 
-This document specifies the intended lifecycle for Lua automation scripts in
+This document specifies the lifecycle for Lua automation scripts in
 MicroHAD.  It is a design contract for the script runtime and its dashboard
 editor; it does not describe a shell, filesystem, network, or raw-radio API.
 
@@ -136,7 +136,7 @@ events.on({
 end)
 ```
 
-`automation.wait_for(filter[, timeout_seconds])` suspends the current
+`events.wait_for(filter[, timeout_seconds])` suspends the current
 coroutine until a matching normalized event arrives.  It returns the matching
 event, or `nil, "timeout"` when the optional timeout expires:
 
@@ -149,7 +149,7 @@ events.on({
 }, function()
   notify.send("Office", "Temperature is low; waiting for recovery")
 
-  local event, reason = automation.wait_for({
+  local event, reason = events.wait_for({
     type = "device.changed",
     device = "Office sensor",
     field = "temperature_celsius",

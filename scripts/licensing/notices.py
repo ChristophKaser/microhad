@@ -18,6 +18,7 @@ LEGAL = re.compile(r'^(licen[cs]e|copying|copyright|notice)(?:$|[._-])', re.I)
 SUBMODULES = {
  'microhad/dependencies/mbedtls': 'Apache-2.0 (selected from Apache-2.0 OR GPL-2.0-or-later)',
  'microhad/dependencies/tinycbor': 'MIT',
+ 'microhad/dependencies/lua': 'MIT',
  'ziggurat/dependencies/ziggurat': 'Apache-2.0; locally patched',
  'micro-thread-matter-daemon/dependencies/rs-matter': 'Apache-2.0; locally patched',
  'micro-thread-matter-daemon/dependencies/openthread': 'BSD-3-Clause and component-specific licenses; locally patched',
@@ -153,7 +154,14 @@ def collect_gateway():
     revisions = inputs()
     for folder, license_name in SUBMODULES.items():
         root = ROOT / folder
-        license_texts = texts(root)
+        if root.name == 'lua':
+            header = (root / 'lua.h').read_text()
+            notice = re.search(r'/\*+\n\* Copyright .*?\n\*+/', header, re.S)
+            if not notice:
+                raise ValueError('Missing Lua copyright notice')
+            license_texts = [('lua.h copyright notice', notice.group())]
+        else:
+            license_texts = texts(root)
         # Include linked crypto libraries, not upstream tools, examples, or debug firmware.
         bundled = {'mbedtls': ['tf-psa-crypto'],
                    'openthread': ['third_party/mbedtls/repo']}.get(root.name, [])

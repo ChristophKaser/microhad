@@ -2,9 +2,11 @@
 #define MICROHAD_AUTOMATION_WORKER_H
 
 #include <string>
+#include "automation_types.h"
 
 class GatewayRunner;
 class NotificationWorker;
+class MatterWorker;
 
 /* Owns all Lua states.  No coordinator or HTTP thread is ever allowed to
  * evaluate script code. */
@@ -13,6 +15,7 @@ public:
     AutomationWorker(const std::string& runtimeDirectory, GatewayRunner* gateway,
                      NotificationWorker* notifications);
     ~AutomationWorker();
+    void setMatterWorker(MatterWorker* matter);
     bool start(std::string* error);
     void stop();
 
@@ -24,6 +27,14 @@ public:
     bool setEnabled(const std::string& filename, bool enabled, std::string* error);
     bool remove(const std::string& filename, std::string* error);
     bool resetPersistent(const std::string& filename, std::string* error);
+    std::string logsJson(const std::string& filename) const;
+    bool enqueue(const Automation::Event& event);
+
+    /* Deterministic fixtures can drive exactly the same event input as the coordinator. */
+    bool waitIdle(unsigned long milliseconds = 2000) const;
+#ifdef MICROHAD_TESTING
+    void advanceTimeForTests(double seconds);
+#endif
 
 private:
     struct Impl;

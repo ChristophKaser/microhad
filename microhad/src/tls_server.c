@@ -46,9 +46,15 @@ static int request_length(char* request, unsigned long capacity, unsigned long* 
     char* header_end = strstr(request, "\r\n\r\n");
     char* line = strstr(request, "\r\n");
     unsigned long content_length = 0;
+    unsigned long request_limit = capacity - 1;
     int saw_content_length = 0;
     if (header_end == 0 || line == 0 || line == request) return -1;
-    if ((unsigned long)(header_end + 4 - request) >= capacity) return -2;
+    if ((unsigned long)(header_end + 4 - request) >= capacity || header_end + 4 - request > 16384) return -2;
+    /* Only source uploads get the larger body allowance. Check this while
+       parsing headers, before waiting for a body that must be rejected. */
+    if (strncmp(request, "POST /api/automations/save ", sizeof("POST /api/automations/save ") - 1) != 0 &&
+        strncmp(request, "POST /api/automations/validate ", sizeof("POST /api/automations/validate ") - 1) != 0 &&
+        request_limit > 16384) request_limit = 16384;
     line += 2;
     while (line < header_end) {
         char* line_end = strstr(line, "\r\n");
@@ -70,7 +76,7 @@ static int request_length(char* request, unsigned long capacity, unsigned long* 
         }
         line = line_end + 2;
     }
-    if (content_length > capacity - 1 - (unsigned long)(header_end + 4 - request)) return -2;
+    if (content_length > request_limit - (unsigned long)(header_end + 4 - request)) return -2;
     *expected = (unsigned long)(header_end + 4 - request) + content_length;
     return 0;
 }
@@ -151,6 +157,7 @@ int microhad_tls_read_request(void* opaque_session, char* request, unsigned long
         if (received > 0) {
             length += (unsigned long)received;
             request[length] = 0;
+            if (!parsed_headers && length > 16384 && strstr(request, "\r\n\r\n") == 0) { result = -2; break; }
             if (!parsed_headers && strstr(request, "\r\n\r\n") != 0) {
                 result = request_length(request, capacity, &expected);
                 if (result != 0) break;

@@ -107,10 +107,12 @@ int main(int argc, char** argv) {
     gatewayRunner = new GatewayRunner(gateway);
     automations = new AutomationWorker(runtimeDirectory, gatewayRunner, notificationWorker);
     MatterWorker matterWorker(gatewayRunner);
+    automations->setMatterWorker(&matterWorker);
     shellyIntegration = new ExternalHttpDeviceWorker(runtimeDirectory, gatewayRunner);
     gateway->setShellyTransport(shellyIntegration);
     if (!gatewayRunner->start(&error)) {
         fprintf(stderr, "gateway startup failed: %s\n", error.c_str());
+        delete automations;
         delete shellyIntegration;
         matterWorker.stop();
         delete gatewayRunner;

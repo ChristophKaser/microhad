@@ -867,6 +867,7 @@ bool Gateway::applyMatterReading(const MatterReading& reading, std::string* erro
         updateContactAlert(device.ieeeAddress, before.contactOpen, before.contactKnown);
     }
     updateValueAlerts(device, before);
+    automationReport(device, reading.cluster==1026?"temperature_celsius":reading.cluster==1029?"humidity_percent":reading.cluster==69?(device.hasWaterLeak?"water_detected":"contact_open"):reading.cluster==8?"brightness_percent":reading.cluster==6?(device.hasActor?"actor_on":"light_on"):reading.cluster==47?"battery_percent":reading.cluster==91?"air_quality":reading.cluster==1037?"co2_ppm":reading.cluster==1066?"pm25_micrograms_m3":"temperature_celsius");
     markViewDirty();
     bool volatileChanged = before.lightKnown != device.lightKnown || before.lightOn != device.lightOn ||
         before.actorKnown != device.actorKnown || before.actorOn != device.actorOn ||
@@ -1003,6 +1004,7 @@ bool Gateway::applyShellyEvent(const std::string& id, int metric, int channelInd
         updateValueAlerts(d, before);
     }
     d.lastSeen = now;
+    automationReport(d,metric==1?"contact_open":metric==2?"temperature_celsius":metric==3?"actor_on":"power_watts");
     markViewDirty(); saveState();
     return true;
 }
@@ -1028,6 +1030,8 @@ bool Gateway::applyFritzEvent(const std::string& id, bool connected, bool hasSig
      * ===================================================================== */
     if (hasSignal) updateValueAlerts(it->second, before);
     it->second.lastSeen = time(0);
+    automationReport(it->second,"occupied");
+    if(hasSignal)automationReport(it->second,"wifi_signal_percent");
     markViewDirty(); saveState();
     return true;
 }
@@ -2958,6 +2962,14 @@ bool Gateway::applyAttributeReport(const std::string& ieeeAddress, unsigned shor
     double previousTemperature = device.temperatureCelsius;
     if (device.ieeeAddress.empty()) device.ieeeAddress = ieeeAddress;
     changed = applyZclAttribute(&device, cluster, attribute, value, timestamp, &observed);
+    if(observed & ZclObservedTemperature)automationReport(device,"temperature_celsius");
+    if(observed & ZclObservedHumidity)automationReport(device,"humidity_percent");
+    if(observed & ZclObservedContact)automationReport(device,"contact_open");
+    if(observed & ZclObservedOccupancy)automationReport(device,"occupied");
+    if(observed & ZclObservedBattery)automationReport(device,"battery_percent");
+    if(observed & ZclObservedWaterLeak)automationReport(device,"water_detected");
+    if(changed && cluster==6)automationReport(device,"light_on");
+    if(changed && cluster==8)automationReport(device,"brightness_percent");
     if (changed) recordHistory(before, device, observed, timestamp);
     if (changed) { markViewDirty(); updateContactAlert(ieeeAddress, wasOpen, hadKnownContact); updateTemperatureAlert(device, hadTemperature, previousTemperature); updateValueAlerts(device, before); saveState(); }
     return changed;
@@ -2971,6 +2983,7 @@ bool Gateway::applyIasZoneStatus(const std::string& ieeeAddress, const std::vect
     bool hadKnownContact = device.contactKnown;
     if (device.ieeeAddress.empty()) device.ieeeAddress = ieeeAddress;
     changed = ::applyIasZoneStatus(&device, payload, time(0));
+    if(changed)automationReport(device,device.hasWaterLeak?"water_detected":"contact_open");
     if (changed) {
         if (!device.hasWaterLeak) recordHistory(before, device, ZclObservedContact, device.lastSeen);
         addLog(std::string(device.hasWaterLeak ? "Water leak status from " : "Contact status from ") + ieeeAddress +
@@ -3576,6 +3589,11 @@ GatewayView Gateway::captureView(bool includeLogs) const {
 }
 
 bool Gateway::takeViewDirty() { bool dirty = viewDirty_; viewDirty_ = false; return dirty; }
+void Gateway::automationReport(const Device& device,const std::string& field) {
+    if(automationReports_.size()<256) { AutomationReport report;report.device=device;report.field=field;automationReports_.push_back(report); }
+    markViewDirty();
+}
+std::vector<Gateway::AutomationReport> Gateway::takeAutomationReports() { std::vector<AutomationReport> result;result.swap(automationReports_);return result; }
 void Gateway::markViewDirty() { viewDirty_ = true; }
 std::string Gateway::statusJson() const { return captureView(false).statusJson(); }
 std::string Gateway::logsJson() const {
@@ -5935,6 +5953,15 @@ void Gateway::handleApsMessage(unsigned short sender, unsigned short profile, un
                 interview->second.persistentDirty = true;
         }
         if (applyZclReadAttributeResponse(&devices_[address->second], cluster, records, time(0), &observed)) {
+            const Device& accepted=devices_[address->second];
+            if(observed&ZclObservedTemperature)automationReport(accepted,"temperature_celsius");
+            if(observed&ZclObservedHumidity)automationReport(accepted,"humidity_percent");
+            if(observed&ZclObservedContact)automationReport(accepted,"contact_open");
+            if(observed&ZclObservedWaterLeak)automationReport(accepted,"water_detected");
+            if(observed&ZclObservedOccupancy)automationReport(accepted,"occupied");
+            if(observed&ZclObservedBattery)automationReport(accepted,"battery_percent");
+            if(cluster==6)automationReport(accepted,"light_on");
+            if(cluster==8)automationReport(accepted,"brightness_percent");
             recordHistory(before, devices_[address->second], observed, devices_[address->second].lastSeen);
             updateContactAlert(address->second, wasOpen, hadKnownContact);
             saveState();

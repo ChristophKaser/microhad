@@ -1,6 +1,6 @@
 # Lua scripting API
 
-This document proposes the public API for MicroHAD Lua automations. It is used
+This document describes the public API for MicroHAD Lua automations. It is used
 by scripts running in the dedicated automation worker; lifecycle and reload
 semantics are specified in [Lua script lifecycle](lua_script_lifecycle.md).
 
@@ -77,14 +77,14 @@ within its configured safety limits.
 
 Unregisters a subscription. Calling it for an already removed handle is safe.
 
-### `automation.wait_for(filter[, timeout_seconds])`
+### `events.wait_for(filter[, timeout_seconds])`
 
 Suspends the current callback coroutine until a matching event arrives. It
 returns the event, or `nil, "timeout"` after the optional timeout. The wait is
 canceled if its script reloads, is disabled, is removed, or MicroHAD restarts.
 
 ```lua
-local event, reason = automation.wait_for({
+local event, reason = events.wait_for({
   type = "device.changed", device = "Office sensor",
   field = "temperature_celsius", value_at_least = 18,
 }, 1800)

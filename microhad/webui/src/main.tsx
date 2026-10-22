@@ -74,6 +74,7 @@ function JoinButton({
 
 function App() {
   const [tab, setTab] = useState('Dashboard')
+  const [automationDirty, setAutomationDirty] = useState(false)
   const [gatewaySettingsOpen, setGatewaySettingsOpen] = useState(false)
   const [logFilter, setLogFilter] = useState('')
   const { status, statusError, logs, logsError, logsHasMore, loadOlderLogs, refreshStatus } = useGatewayData(tab === 'Diagnostics')
@@ -262,7 +263,7 @@ function App() {
       {gatewaySettingsOpen && <GatewaySettingsDialog onClose={() => setGatewaySettingsOpen(false)} />}
       <nav className="main-tabs" role="tablist" aria-label="Gateway views">
         {['Dashboard', 'Gateway', 'Groups', 'Automations', ...visibleDeviceTypes.map(type => type.name), 'Diagnostics'].map(name => (
-          <button key={name} role="tab" aria-selected={tab === name} className={`main-tab ${tab === name ? 'active' : ''}`} onClick={() => setTab(name)}>{name}</button>
+          <button key={name} role="tab" aria-selected={tab === name} className={`main-tab ${tab === name ? 'active' : ''}`} onClick={() => { if (name === tab || !automationDirty || window.confirm('Discard unsaved script changes?')) setTab(name) }}>{name}</button>
         ))}
       </nav>
       {tab === 'Dashboard' && <Dashboard
@@ -287,7 +288,7 @@ function App() {
         loaded={dashboardLoaded}
         configError={dashboardError}
       />}
-      {tab === 'Automations' && <AutomationScripts />}
+      {tab === 'Automations' && <AutomationScripts onDirtyChange={setAutomationDirty} />}
       {tab === 'Gateway' && <>
       <section className="overview">
         <div className={`overview-item ${statusError || !status?.online ? 'bad' : 'good'}`}>

@@ -18,7 +18,7 @@ sys.path.insert(0, str(ROOT / 'scripts/release'))
 from common import inventory, sha, verify_binary, verify_elf
 import release_source
 
-DEPENDENCIES = ['microhad/dependencies/mbedtls', 'microhad/dependencies/tinycbor',
+DEPENDENCIES = ['microhad/dependencies/mbedtls', 'microhad/dependencies/tinycbor', 'microhad/dependencies/lua',
                 'micro-thread-matter-daemon/dependencies/openthread',
                 'micro-thread-matter-daemon/dependencies/rs-matter', 'ziggurat/dependencies/ziggurat']
 PREPARED = ['worktrees/ziggurat-multipan', 'build/openthread-unix/source-mailbox',

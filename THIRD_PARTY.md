@@ -1,5 +1,8 @@
 # Third-party software and attribution
 
+The native gateway embeds Lua (MIT, Lua.org/PUC-Rio); its pinned source and
+copyright notice are included in release source bundles and gateway notices.
+
 Original MicroHAD project code and documentation are [MIT licensed](LICENSE),
 Copyright (c) 2026 MicroHAD contributors. This does not relicense dependencies,
 SDK-generated files, copied upstream material, or modifications derived from
