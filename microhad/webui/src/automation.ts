@@ -17,4 +17,4 @@ export function visibleAutomationLogs(records: AutomationLog[], id: string, seve
   return records.filter(row => row.script_id === id && (!severity || row.level === severity) && row.at >= since && row.record_id > cleared)
 }
 export function disabledFilename(name: string, enabled: boolean) { return enabled ? name.replace(/\.disabled$/, '') : `${name}.disabled` }
-export function validAutomationFilename(name: string) { return /^[a-zA-Z0-9_-]{1,96}\.lua(?:\.disabled)?$/.test(name) }
+export function validAutomationFilename(name: string) { return /^[a-zA-Z0-9_-]{1,192}\.lua(?:\.disabled)?$/.test(name) }

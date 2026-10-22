@@ -199,13 +199,27 @@ the values that genuinely need to survive reboot.
 
 ## Runtime bounds and HTTP interface
 
-Each script has a 512 KiB Lua heap, 100,000 instructions and 100 ms of active
-execution per callback (cumulative across coroutine resumes), a 64-frame
-recursion limit, 64 listeners, 32 timers/cron registrations and 64 pending
-callbacks. Source is limited to 128 KiB and persistent state to 64 KiB per ID.
-The worker accepts 256 queued events and the coordinator accepts 64 automation
+Each script has a 1 MiB Lua heap, 200,000 instructions and 200 ms of active
+execution per resume (fresh budgets after every cooperative yield), a 128-frame
+recursion limit, 128 listeners, 64 timers/cron registrations and 128 pending
+callbacks. Source is limited to 256 KiB and persistent state to 128 KiB per ID.
+The worker accepts 512 queued events and the coordinator accepts 128 automation
 actions. Overflow produces an explicit error record. Only one ready callback
 per script is resumed per scheduler turn so other scripts keep making progress.
+
+Management requests have a 64-entry queue, accepted device reports a 512-entry
+buffer, and causal chains a 32-action depth limit. Script IDs allow 192 characters.
+Serializable Lua tables allow 48 nested levels; JSON decoding allows 64 levels
+and 16,384 nodes. Log records are capped at 8 KiB. Notifications allow a
+512-byte title, 8 KiB body and 256-byte option values. Timer durations may be up
+to two years. These scripting limits are doubled from the initial implementation;
+shared transport queues and ordinary HTTP request limits remain unchanged.
+
+Source writes, enable/disable and deletion are serialized on the worker before
+watcher discovery, preventing duplicate initialization from one management
+operation. Queued device actions are discarded if their generation has retired
+before execution. Recurring timers skip a callback rejected by a full task queue
+and remain scheduled for their next interval or matching cron minute.
 
 Persistent checkpoints are private JSON objects under `automations/state/`.
 Successful callback completion atomically checkpoints changed values; errors
@@ -228,7 +242,7 @@ POST requests use URL-encoded form bodies:
 | `/api/automations/enable`, `/disable`, `/delete` | current `filename` |
 | `/api/automations/reset` | `filename` whose persistent namespace is reset |
 
-Script logs retain the latest 256 records in memory and also use syslog for
+Script logs retain the latest 512 records in memory and also use syslog for
 operational output. UI clearing changes only its display cursor. Validation
 diagnostics are retained, while draft `log()`/`dump()` calls do not publish
 operational output. Structured fields and table dumps redact sensitive key

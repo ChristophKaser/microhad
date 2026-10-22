@@ -2,15 +2,31 @@
 #include "automation_types.h"
 #include "gateway.h"
 #include "json_util.h"
+extern "C" {
+#include "lua.h"
+#include "lauxlib.h"
+#include "lualib.h"
+}
 #include <cassert>
 #include <cstdio>
 #include <cstdlib>
+#include <sstream>
 #include <dirent.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
 namespace {
 using Automation::Value;
+void schedulerRegressions(){
+    lua_State* L=luaL_newstate();assert(L);
+    luaL_requiref(L,"_G",luaopen_base,1);lua_pop(L,1);
+    luaL_requiref(L,"table",luaopen_table,1);lua_pop(L,1);
+    luaL_requiref(L,"string",luaopen_string,1);lua_pop(L,1);
+    luaL_requiref(L,"math",luaopen_math,1);lua_pop(L,1);
+    luaL_requiref(L,"coroutine",luaopen_coroutine,1);lua_pop(L,1);
+    if(luaL_dofile(L,"test/automation_runtime_regressions.lua")!=LUA_OK){fprintf(stderr,"scheduler: %s\n",lua_tostring(L,-1));assert(false);}
+    lua_close(L);
+}
 bool regularFile(const std::string& name){struct stat st;return lstat(name.c_str(),&st)==0&&S_ISREG(st.st_mode);}
 struct Fixture {
     std::string root,error;
@@ -43,13 +59,13 @@ void timersLimitsAndLogs(){Fixture f;f.save(
   "local cancelled=automation.after(.01,function()persistent.bad=1 end);assert(automation.cancel(cancelled));assert(not automation.cancel(cancelled));"
   "local h;h=automation.every(.01,function()automation.sleep(.02);persistent.runs=(persistent.runs or 0)+1;if persistent.runs==3 then automation.cancel(h)end end);"
   "automation.after(.005,function()while true do end end);"
-  "local t={password='hidden',nested={value=true}};t.self=t;dump(t,'debug table');log('warn','fields',{network_key='hidden',number=3});dump(string.rep('x',5000),'long');log('info',string.rep('\\n',3000),{large=string.rep('x',12000)})");
+  "local t={password='hidden',nested={value=true}};t.self=t;dump(t,'debug table');log('warn','fields',{network_key='hidden',number=3});dump(string.rep('x',10000),'long');log('info',string.rep('\\n',3000),{large=string.rep('x',12000)})");
   assert(f.until("runs",3));usleep(50000);assert(f.state().fields["runs"].number==3);assert(!f.state().fields.count("bad"));std::string logs=f.worker->logsJson("test.lua");assert(logs.find("<cycle>")!=logs.npos);assert(logs.find("[truncated]")!=logs.npos);assert(logs.find("hidden")==logs.npos);assert(logs.find("budget")!=logs.npos);
-  Value records;assert(Automation::parse(logs,&records));for(size_t i=0;i<records.fields["records"].items.size();++i)assert(Automation::json(records.fields["records"].items[i]).size()<=4096);
-  assert(!f.worker->validate("draft.lua","local t={};t.self=t;persistent.x=t",&f.error));assert(!f.worker->validate("draft.lua","persistent.x=function()end",&f.error));assert(!f.worker->validate("draft.lua","persistent.x={ [1]=true }",&f.error));assert(!f.worker->validate("draft.lua","persistent.x=0/0",&f.error));assert(!f.worker->validate("draft.lua","for i=1,33 do automation.after(1,function()end) end",&f.error));
+  Value records;assert(Automation::parse(logs,&records));for(size_t i=0;i<records.fields["records"].items.size();++i)assert(Automation::json(records.fields["records"].items[i]).size()<=8192);
+  assert(!f.worker->validate("draft.lua","local t={};t.self=t;persistent.x=t",&f.error));assert(!f.worker->validate("draft.lua","persistent.x=function()end",&f.error));assert(!f.worker->validate("draft.lua","persistent.x={ [1]=true }",&f.error));assert(!f.worker->validate("draft.lua","persistent.x=0/0",&f.error));assert(!f.worker->validate("draft.lua","for i=1,65 do automation.after(1,function()end) end",&f.error));
   f.save("automation.after(.3,function()persistent.retired=1 end)");assert(f.worker->reload("test.lua",&f.error));f.save("persistent.reloaded=1");usleep(350000);assert(!f.state().fields.count("retired"));
 }
-void safeFiles(){Fixture f;std::string out;assert(!f.worker->save("../escape.lua","",true,&f.error));assert(!f.worker->save("a/b.lua","",true,&f.error));assert(!f.worker->save("a.lua",std::string(131073,'x'),true,&f.error));std::string symlinkPath=f.root+"/automations/link.lua";assert(symlink("/etc/passwd",symlinkPath.c_str())==0);assert(!f.worker->source("link.lua",&out,&f.error));assert(!f.worker->save("link.lua","x",true,&f.error));assert(!f.worker->remove("link.lua",&f.error));assert(!f.worker->reload("missing.lua",&f.error));f.save("persistent.x=1");assert(!f.worker->save("test.lua.disabled","",false,&f.error));}
+void safeFiles(){Fixture f;std::string out;assert(!f.worker->save("../escape.lua","",true,&f.error));assert(!f.worker->save("a/b.lua","",true,&f.error));assert(!f.worker->save("a.lua",std::string(262145,'x'),true,&f.error));std::string symlinkPath=f.root+"/automations/link.lua";assert(symlink("/etc/passwd",symlinkPath.c_str())==0);assert(!f.worker->source("link.lua",&out,&f.error));assert(!f.worker->save("link.lua","x",true,&f.error));assert(!f.worker->remove("link.lua",&f.error));assert(!f.worker->reload("missing.lua",&f.error));f.save("persistent.x=1");assert(!f.worker->save("test.lua.disabled","",false,&f.error));}
 void schedulesSharedAndShutdown(){Fixture f;
     FILE* collision=fopen((f.root+"/automations/test.lua").c_str(),"w");assert(collision);fputs("persistent.recovered=1",collision);fclose(collision);
     collision=fopen((f.root+"/automations/test.lua.disabled").c_str(),"w");assert(collision);fputs("-- disabled",collision);fclose(collision);
@@ -73,6 +89,23 @@ void acceptedReportSources(){Fixture f;Gateway gateway("/dev/null",115200,f.root
     MatterEndpoint endpoint;endpoint.id="matter:0000000000000001:0000000000000002:0001";endpoint.node="0000000000000002";endpoint.endpoint=1;endpoint.servers.push_back(1026);endpoint.online=true;assert(gateway.reconcileMatterDevices(std::vector<MatterEndpoint>(1,endpoint),&error));MatterReading reading;reading.node=endpoint.node;reading.endpoint=1;reading.cluster=1026;reading.known=true;reading.numberValue=19;assert(gateway.applyMatterReading(reading,&error));assert(gateway.applyMatterReading(reading,&error));reports=gateway.takeAutomationReports();assert(reports.size()==2);assert(Automation::snapshot(reports[0].device).fields["source"].string=="matter");assert(reports[1].field=="temperature_celsius");
 }
 void callbackBudgetAndQueues(){Fixture f;
+    schedulerRegressions();
+    f.worker->scanEveryTurnForTests();
+    for(unsigned i=1;i<=8;++i){
+        std::ostringstream source;source<<"persistent.loads=(persistent.loads or 0)+1 -- version "<<i;
+        f.save(source.str());assert(f.state().fields["loads"].number==i);
+        assert(f.worker->setEnabled("test.lua",false,&f.error));
+        assert(f.worker->setEnabled("test.lua.disabled",true,&f.error));
+        assert(f.state().fields["loads"].number==i+1);
+        assert(f.worker->resetPersistent("test.lua",&f.error));
+        // Reset the expected count for the next distinct replacement.
+        if(i<8){std::ostringstream seed;seed<<"persistent.loads="<<i;f.save(seed.str());}
+    }
+    assert(f.worker->validate("larger.lua","local a=string.rep('x',300000);local b=string.rep('y',300000);assert(#a+#b==600000)",&f.error));
+    assert(f.worker->validate("larger.lua","for i=1,128 do events.on({type='device.value'},function()end)end;for i=1,64 do automation.after(1,function()end)end",&f.error));
+    assert(!f.worker->validate("larger.lua","for i=1,129 do events.on({type='device.value'},function()end)end",&f.error));
+    f.save("automation.after(.01,function()for round=1,4 do local n=0;for i=1,30000 do n=n+i end;automation.sleep(.01)end;persistent.slices=1 end)");
+    assert(f.until("slices",1));
     assert(!f.worker->validate("recursive.lua","local function recurse(n)if n==0 then return 0 end return 1+recurse(n-1)end recurse(10000)",&f.error));
     f.save("persistent.good=1;events.on({type='device.value'},function()automation.sleep(.01);automation.sleep(.01);for i=1,40000 do local n=i*i end end);events.on({type='automation.error'},function(e)persistent.limit_errors=(persistent.limit_errors or 0)+1 end)");
     unsigned rejected=0;for(unsigned i=0;i<4096;++i){Automation::Event e;e.data.fields["type"]=Value("device.value");e.data.fields["chain_id"]=Value("");e.data.fields["chain_depth"]=Value(0.);if(!f.worker->enqueue(e))++rejected;}

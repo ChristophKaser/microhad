@@ -181,10 +181,14 @@ void GatewayRunner::automationGeneration(const std::string& script,unsigned long
 bool GatewayRunner::submitAutomation(const Automation::Action& action,std::string* error) {
     if(action.operation!="actor"&&action.operation!="light"&&action.operation!="refresh"&&action.operation!="scene.off"&&action.operation!="scene.activate"){*error="unsupported automation action";return false;}
     pthread_mutex_lock(&mutex_);
-    if(!started_||stopping_||!startupSucceeded_||!action.generation||automationGenerations_[action.script]!=action.generation||action.depth>16||automationActions_.size()>=64){pthread_mutex_unlock(&mutex_);*error="coordinator unavailable, retired generation, causal limit, or action queue full";return false;}
+    if(!started_||stopping_||!startupSucceeded_||!action.generation||automationGenerations_[action.script]!=action.generation||action.depth>32||automationActions_.size()>=128){pthread_mutex_unlock(&mutex_);*error="coordinator unavailable, retired generation, causal limit, or action queue full";return false;}
     automationActions_.push_back(action);wakeCoordinator();pthread_mutex_unlock(&mutex_);return true;
 }
 void GatewayRunner::executeAutomation(const Automation::Action& a) {
+    pthread_mutex_lock(&mutex_);
+    const bool current=a.generation!=0&&automationGenerations_[a.script]==a.generation;
+    pthread_mutex_unlock(&mutex_);
+    if(!current)return;
     std::string error;bool ok=false;
     activeAutomationChain_=a.chain;activeAutomationDepth_=a.depth;
     if(a.operation=="actor")ok=gateway_->setActorState(a.target,a.args.fields.find("on")->second.boolean,&error);

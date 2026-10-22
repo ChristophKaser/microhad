@@ -34,6 +34,7 @@ public:
     bool waitIdle(unsigned long milliseconds = 2000) const;
 #ifdef MICROHAD_TESTING
     void advanceTimeForTests(double seconds);
+    void scanEveryTurnForTests();
 #endif
 
 private:

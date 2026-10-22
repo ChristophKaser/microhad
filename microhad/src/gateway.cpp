@@ -3590,7 +3590,7 @@ GatewayView Gateway::captureView(bool includeLogs) const {
 
 bool Gateway::takeViewDirty() { bool dirty = viewDirty_; viewDirty_ = false; return dirty; }
 void Gateway::automationReport(const Device& device,const std::string& field) {
-    if(automationReports_.size()<256) { AutomationReport report;report.device=device;report.field=field;automationReports_.push_back(report); }
+    if(automationReports_.size()<512) { AutomationReport report;report.device=device;report.field=field;automationReports_.push_back(report); }
     markViewDirty();
 }
 std::vector<Gateway::AutomationReport> Gateway::takeAutomationReports() { std::vector<AutomationReport> result;result.swap(automationReports_);return result; }

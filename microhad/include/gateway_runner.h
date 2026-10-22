@@ -15,6 +15,9 @@ class SensorHistory;
 class AutomationWorker;
 
 class GatewayRunner {
+#ifdef MICROHAD_TESTING
+    friend class AutomationRunnerTestPeer;
+#endif
     struct ViewData;
 public:
     class ViewLease {

@@ -90,3 +90,9 @@ device/action/scene capability validation and notification delivery isolation.
 `python3 microhad/scripts/test_automation_webui.py` exercises the production
 editor with mocked browser and HTTP boundaries: drafts, validation, save/reload,
 unsaved-edit guards, enable/disable/delete/reset, and log display controls.
+
+Review regressions additionally exercise retired queued actions, forced watcher
+scans during save/enable, interval and cron recovery from a full callback queue
+(including saturation by timer listeners), doubled resource boundaries, and
+fresh time/instruction budgets after each cooperative yield. The deterministic
+scheduler fixture is `test/automation_runtime_regressions.lua`.

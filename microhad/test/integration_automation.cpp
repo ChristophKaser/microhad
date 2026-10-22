@@ -19,6 +19,15 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+class AutomationRunnerTestPeer {
+public:
+    static void queue(GatewayRunner& runner,const Automation::Action& action){runner.automationActions_.push_back(action);}
+    static void drain(GatewayRunner& runner){
+        Automation::Action action=runner.automationActions_.front();runner.automationActions_.pop_front();
+        runner.executeAutomation(action);
+    }
+};
+
 namespace {
 using Automation::Value;
 class Delivery:public NotificationWorker::DeliveryHook {
@@ -43,6 +52,22 @@ void runAutomationIntegrationTests(){
     puts("integration: automation HTTP workflow, coordinator readings/actions, source watcher and restart");
     char path[]="/tmp/microhad-automation-integration-XXXXXX";assert(mkdtemp(path));std::string root=path,error;
     int serial[2];assert(pipe(serial)==0);
+    {
+        // No coordinator thread: deterministically retire an already queued
+        // entry before executing the same dequeue path used by the runner.
+        Gateway* gateway=new Gateway("/dev/null",115200,root,"","","",0,root+"/retired-history.bin");
+        GatewayRunner runner(gateway);Automation::Action action;
+        action.operation="refresh";action.target="missing";action.script="queued";action.generation=1;
+        const std::string before=gateway->logsJson();
+        runner.automationGeneration(action.script,1);AutomationRunnerTestPeer::queue(runner,action);
+        runner.automationGeneration(action.script,0);AutomationRunnerTestPeer::drain(runner);
+        assert(gateway->logsJson()==before);
+        runner.automationGeneration(action.script,1);AutomationRunnerTestPeer::queue(runner,action);
+        runner.automationGeneration(action.script,2);AutomationRunnerTestPeer::drain(runner);
+        assert(gateway->logsJson()==before);
+        action.generation=2;AutomationRunnerTestPeer::queue(runner,action);AutomationRunnerTestPeer::drain(runner);
+        assert(gateway->logsJson()!=before);
+    }
     {
         Delivery delivery;NotificationWorker notifications(root,"","","",&delivery);assert(notifications.start(&error));
         Device lamp;lamp.ieeeAddress="0x00124b0000000042";lamp.name="Lamp";lamp.source="zigbee";lamp.hasLight=true;lamp.hasBrightness=true;lamp.kind="light";lamp.networkAddress=0x1234;

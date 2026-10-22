@@ -12,7 +12,7 @@ local function strict(v, t, name)
 end
 local function duration(n)
   strict(n, 'number', 'seconds')
-  assert(n > 0 and n < math.huge and n <= 31536000, 'invalid duration')
+  assert(n > 0 and n < math.huge and n <= 63072000, 'invalid duration')
   return n
 end
 local function handle()
@@ -56,21 +56,21 @@ local function report(message, operation)
   host.failure(tostring(message),operation)
 end
 local function start(fn,args,chain,depth,on_done)
-  if count(tasks)>=64 then report('callback queue limit reached','queue'); return end
+  if count(tasks)>=128 then report('callback queue limit reached','queue'); return end
   local h=handle()
-  tasks[h]={thread=co.create(fn),args=args,instructions=100000,time=0.1,chain=chain or '',depth=depth or 0,on_done=on_done}
+  tasks[h]={thread=co.create(fn),args=args,chain=chain or '',depth=depth or 0,on_done=on_done}
   return h
 end
 local function resume(h,t)
   current=t
   host.begin(tostring(h),t.chain,t.depth)
-  host.limit(t.thread,t.instructions,t.time)
+  -- A cooperative yield starts a fresh execution slice on the next resume.
+  host.limit(t.thread,200000,0.2)
   local args=t.args or {}
   local result=pack(co.resume(t.thread,unpack(args,1,args.n or #args)))
   local used, elapsed=host.spent()
-  t.instructions=t.instructions-used; t.time=t.time-elapsed
   current=nil; t.args=nil
-  local ok=result[1] and t.instructions>0 and t.time>0
+  local ok=result[1] and used<200000 and elapsed<0.2
   local done=not ok or co.status(t.thread)=='dead'
   host.finish(ok,done)
   if done then
@@ -86,14 +86,14 @@ end
 local events={}
 function events.on(f,fn)
   strict(fn,'function','callback'); f=filter(f)
-  assert(count(listeners)<64,'listener limit reached')
+  assert(count(listeners)<128,'listener limit reached')
   local h=handle();listeners[h]={filter=f,fn=fn};return h
 end
 function events.off(h) host.handle_id(h);listeners[h]=nil end
 local automation={now=host.now,script_id=host.script_id}
 local function timer(seconds,fn,payload,repeating)
   duration(seconds);strict(fn,'function','callback');payload=host.serializable(payload)
-  assert(count(timers)<32,'timer limit reached')
+  assert(count(timers)<64,'timer limit reached')
   local h=handle();timers[h]={due=host.monotonic()+seconds,seconds=seconds,fn=fn,payload=payload,repeat_timer=repeating};return h
 end
 function automation.after(n,fn,payload)return timer(n,fn,payload,false)end
@@ -131,7 +131,7 @@ end
 function automation.cron(expression,fn)
   strict(expression,'string','cron expression');strict(fn,'function','callback')
   local parts={} for p in expression:gmatch('%S+')do parts[#parts+1]=p end
-  assert(#parts==5,'cron requires five fields');assert(count(timers)<32,'timer limit reached')
+  assert(#parts==5,'cron requires five fields');assert(count(timers)<64,'timer limit reached')
   local ranges={{0,59},{0,23},{1,31},{1,12},{0,7}};local fields,stars={},{}
   for i=1,5 do fields[i],stars[i]=cron_field(parts[i],unpack(ranges[i])) end
   if fields[5][7]then fields[5][0]=true end
@@ -206,7 +206,10 @@ function runtime.tick()
       t.active=true
       runtime.event({type='timer.fired',at=host.now(),source='automation',timer_id=tostring(h),payload=t.payload,chain_id='',chain_depth=0})
       if not t.repeat_timer and not t.cron then timers[h]=nil end
-      start(t.fn,{t.payload},'',0,function()if timers[h]then t.active=false;t.due=not t.cron and (host.monotonic()+t.seconds)or nil end end)
+      local function completed()
+        if timers[h]then t.active=false;t.due=not t.cron and (host.monotonic()+t.seconds)or nil end
+      end
+      if not start(t.fn,{t.payload},'',0,completed) then completed() end
     end
   end
   last_minute=minute

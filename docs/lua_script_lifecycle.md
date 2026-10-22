@@ -165,9 +165,9 @@ end)
 ```
 
 The worker resumes a coroutine only from its own queue, so it cannot be resumed
-twice or run while the script is being torn down.  The same per-callback time,
-instruction, memory, recursion, queue, and timer limits apply cumulatively to
-each coroutine across its resume steps.  A script should use a regular timer
+twice or run while the script is being torn down. Time and instruction budgets
+apply separately to each resume and reset after a cooperative yield. Memory,
+recursion, queue, and timer limits still bound the script as a whole. A script should use a regular timer
 instead of `sleep` when it needs a simple cancelable delay, and should use
 initialization plus `persistent` when the delay must be reconstructed after a
 restart.

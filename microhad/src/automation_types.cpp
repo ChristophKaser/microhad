@@ -29,13 +29,13 @@ class Parser {
     void space(){while(at<text.size()&&(text[at]==' '||text[at]=='\n'||text[at]=='\t'||text[at]=='\r'))++at;}
     bool take(char c){space();if(at==text.size()||text[at]!=c)return false;++at;return true;}
     bool quoted(std::string* out){space();size_t start=at;if(!take('"'))return false;bool escaped=false;while(at<text.size()){char c=text[at++];if(!escaped&&c=='"'){std::string wrapper="{\"s\":"+text.substr(start,at-start)+"}";return jsonStringField(wrapper,"s",out);}if(!escaped&&static_cast<unsigned char>(c)<32)return false;if(!escaped&&c=='\\')escaped=true;else escaped=false;}return false;}
-    bool value(Value* out,unsigned int depth){space();if(depth>32||++nodes>8192||at>=text.size())return false;char c=text[at];
+    bool value(Value* out,unsigned int depth){space();if(depth>64||++nodes>16384||at>=text.size())return false;char c=text[at];
         if(c=='"'){out->type=Value::String;return quoted(&out->string);}
         if(c=='{'||c=='['){++at;bool object=c=='{';*out=object?Value::object():Value::array();space();if(at<text.size()&&text[at]==(object?'}':']')){++at;return true;}do{std::string key;if(object&&(!quoted(&key)||out->fields.count(key)||!take(':')))return false;Value child;if(!value(&child,depth+1))return false;if(object)out->fields[key]=child;else out->items.push_back(child);space();if(at<text.size()&&text[at]==(object?'}':']')){++at;return true;}}while(take(','));return false;}
         if(text.compare(at,4,"null")==0){at+=4;*out=Value();return true;}if(text.compare(at,4,"true")==0){at+=4;*out=Value(true);return true;}if(text.compare(at,5,"false")==0){at+=5;*out=Value(false);return true;}
         size_t begin=at;if(c=='-')++at;if(at==text.size())return false;if(text[at]=='0')++at;else{if(text[at]<'1'||text[at]>'9')return false;while(at<text.size()&&text[at]>='0'&&text[at]<='9')++at;}if(at<text.size()&&text[at]=='.'){++at;size_t digits=at;while(at<text.size()&&text[at]>='0'&&text[at]<='9')++at;if(at==digits)return false;}if(at<text.size()&&(text[at]=='e'||text[at]=='E')){++at;if(at<text.size()&&(text[at]=='+'||text[at]=='-'))++at;size_t digits=at;while(at<text.size()&&text[at]>='0'&&text[at]<='9')++at;if(at==digits)return false;}double n=strtod(text.substr(begin,at-begin).c_str(),0);if(!std::isfinite(n))return false;*out=Value(n);return true;
     }
-public: explicit Parser(const std::string& t):text(t),at(0),nodes(0){}bool run(Value* v){if(text.size()>262144||!value(v,0))return false;space();return at==text.size();}
+public: explicit Parser(const std::string& t):text(t),at(0),nodes(0){}bool run(Value* v){if(text.size()>524288||!value(v,0))return false;space();return at==text.size();}
 };
 }
 bool parse(const std::string& text,Value* value){return Parser(text).run(value);}

@@ -50,7 +50,7 @@ extern "C" void microhad_tls_session_close(void* session);
 #endif
 
 namespace {
-const unsigned long maximumRequestBytes = 400000;
+const unsigned long maximumRequestBytes = 800000;
 
 enum RequestReadResult {
     RequestReadOk,

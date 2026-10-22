@@ -8,7 +8,8 @@ const api = require(path.join(build, 'automation.js'))
 test('automation names, disabled suffixes, log isolation, severity, time and clear cursor', () => {
   assert(api.validAutomationFilename('office-temperature.lua'))
   assert(api.validAutomationFilename('office.lua.disabled'))
-  for (const name of ['../x.lua', 'a/b.lua', '.lua', 'x.lua.next', 'x'.repeat(97) + '.lua']) assert(!api.validAutomationFilename(name))
+  assert(api.validAutomationFilename('x'.repeat(192) + '.lua'))
+  for (const name of ['../x.lua', 'a/b.lua', '.lua', 'x.lua.next', 'x'.repeat(193) + '.lua']) assert(!api.validAutomationFilename(name))
   assert.equal(api.disabledFilename('office.lua', false), 'office.lua.disabled')
   assert.equal(api.disabledFilename('office.lua.disabled', true), 'office.lua')
   const records = [{ record_id: 1, script_id: 'a', level: 'warn', at: 100 }, { record_id: 2, script_id: 'b', level: 'warn', at: 110 }, { record_id: 3, script_id: 'a', level: 'error', at: 120 }]
