@@ -2,6 +2,7 @@
 #include "json_util.h"
 
 #include <cerrno>
+#include <climits>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -151,12 +152,91 @@ bool indexLines(const std::vector<char>& snapshot, std::vector<LineRange>* lines
     return true;
 }
 
+bool leapYear(int year) {
+    return year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+}
+
+// A named timezone may contain historical offset changes even without DST.
+// Only explicit fixed POSIX zones (or the system's UTC default) qualify.
+bool fixedTimezone() {
+    if (daylight != 0) return false;
+    const char* zone = getenv("TZ");
+    if (zone == 0) return timezone == 0 && tzname[0] != 0 &&
+        (strcmp(tzname[0], "UTC") == 0 || strcmp(tzname[0], "GMT") == 0);
+    if (*zone == '\0') return true;
+    unsigned long letters = 0;
+    while ((*zone >= 'A' && *zone <= 'Z') || (*zone >= 'a' && *zone <= 'z')) { ++zone; ++letters; }
+    if (letters < 3) return false;
+    if (*zone == '\0') return strcmp(tzname[0], "UTC") == 0 || strcmp(tzname[0], "GMT") == 0;
+    if (*zone == '+' || *zone == '-') ++zone;
+    unsigned int fields = 0;
+    while (true) {
+        if (*zone < '0' || *zone > '9') return false;
+        while (*zone >= '0' && *zone <= '9') ++zone;
+        if (*zone == '\0') return true;
+        if (*zone++ != ':' || ++fields > 2) return false;
+    }
+}
+
 struct TimestampContext {
     time_t now;
     struct tm current;
-    bool valid;
-    explicit TimestampContext(time_t observedAt) : now(observedAt), valid(localtime_r(&now, &current) != 0) {}
+    bool valid, fixedOffset;
+    int64_t yearStart;
+    explicit TimestampContext(time_t observedAt) : now(observedAt),
+        valid(localtime_r(&now, &current) != 0), fixedOffset(false), yearStart(0) {
+        fixedOffset = valid && current.tm_isdst == 0 && fixedTimezone();
+        if (fixedOffset) yearStart = static_cast<int64_t>(now) -
+            static_cast<int64_t>(current.tm_yday) * 86400 - current.tm_hour * 3600 -
+            current.tm_min * 60 - current.tm_sec;
+    }
 };
+
+bool digit(char c) { return c >= '0' && c <= '9'; }
+
+bool standardTimestamp(const char* bytes, unsigned long length, struct tm* parsed) {
+    if (length < 15 || bytes[3] != ' ' || bytes[6] != ' ' || bytes[9] != ':' || bytes[12] != ':' ||
+        (length > 15 && digit(bytes[15])) || (bytes[4] != ' ' && !digit(bytes[4]))) return false;
+    const unsigned int digits[] = {5, 7, 8, 10, 11, 13, 14};
+    for (unsigned int i = 0; i < sizeof(digits) / sizeof(digits[0]); ++i)
+        if (!digit(bytes[digits[i]])) return false;
+    static const char months[] = "JanFebMarAprMayJunJulAugSepOctNovDec";
+    int month = 0;
+    while (month < 12 && memcmp(bytes, months + month * 3, 3) != 0) ++month;
+    if (month == 12) return false;
+    parsed->tm_mon = month;
+    parsed->tm_mday = (bytes[4] == ' ' ? 0 : bytes[4] - '0') * 10 + bytes[5] - '0';
+    parsed->tm_hour = (bytes[7] - '0') * 10 + bytes[8] - '0';
+    parsed->tm_min = (bytes[10] - '0') * 10 + bytes[11] - '0';
+    parsed->tm_sec = (bytes[13] - '0') * 10 + bytes[14] - '0';
+    return parsed->tm_mday >= 1 && parsed->tm_mday <= 31 && parsed->tm_hour <= 23 &&
+        parsed->tm_min <= 59 && parsed->tm_sec <= 60;
+}
+
+bool fixedTimestamp(const struct tm& parsed, const TimestampContext& context, long* timestamp) {
+    if (!context.fixedOffset || parsed.tm_sec == 60) return false;
+    static const int monthDays[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    int year = context.current.tm_year + 1900;
+    int64_t yearStart = context.yearStart;
+    for (unsigned int attempt = 0; attempt < 2; ++attempt) {
+        bool leap = leapYear(year);
+        if (parsed.tm_mday > monthDays[parsed.tm_mon] + (parsed.tm_mon == 1 && leap ? 1 : 0)) return false;
+        int days = parsed.tm_mday - 1;
+        for (int month = 0; month < parsed.tm_mon; ++month) days += monthDays[month];
+        if (leap && parsed.tm_mon > 1) ++days;
+        int64_t result = yearStart + static_cast<int64_t>(days) * 86400 +
+            parsed.tm_hour * 3600 + parsed.tm_min * 60 + parsed.tm_sec;
+        if (attempt == 0 && result > static_cast<int64_t>(context.now) + 86400) {
+            --year;
+            yearStart -= static_cast<int64_t>(leapYear(year) ? 366 : 365) * 86400;
+            continue;
+        }
+        if (result < LONG_MIN || result > LONG_MAX) return false;
+        *timestamp = static_cast<long>(result);
+        return true;
+    }
+    return false;
+}
 
 
 long rangeTimestamp(const std::vector<char>& snapshot, const LineRange& range,
@@ -166,30 +246,48 @@ long rangeTimestamp(const std::vector<char>& snapshot, const LineRange& range,
 #else
     if (stats != 0) ++stats->timestampConversions;
 #endif
-    // Normal syslog headers fit on the stack. Preserve the old sscanf behavior
-    // for unusual long whitespace/header fields with a bounded fallback copy.
-    char prefix[64];
-    unsigned long length = range.length < sizeof(prefix) - 1 ? range.length : sizeof(prefix) - 1;
-    memcpy(prefix, &snapshot[range.offset], length);
-    prefix[length] = '\0';
-    char month[4] = {0, 0, 0, 0};
-    int day = 0, hour = 0, minute = 0, second = 0, consumed = 0;
-    int matched = sscanf(prefix, "%3s %d %d:%d:%d%n", month, &day, &hour, &minute, &second, &consumed);
-    if (range.length > length && (matched != 5 || consumed >= static_cast<int>(length))) {
-        std::string header(&snapshot[range.offset], range.length);
-        matched = sscanf(header.c_str(), "%3s %d %d:%d:%d", month, &day, &hour, &minute, &second);
-    }
-    if (matched != 5) return 0;
-    static const char* months[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
-    int monthIndex = -1;
-    for (int i = 0; i < 12; ++i) if (strcmp(month, months[i]) == 0) monthIndex = i;
-    if (monthIndex < 0 || day < 1 || day > 31 || hour > 23 || minute > 59 || second > 60) return 0;
     if (!context.valid) return 0;
     struct tm parsed = context.current;
-    parsed.tm_mon = monthIndex; parsed.tm_mday = day;
-    parsed.tm_hour = hour; parsed.tm_min = minute; parsed.tm_sec = second; parsed.tm_isdst = -1;
+    if (standardTimestamp(&snapshot[range.offset], range.length, &parsed)) {
+#ifdef MICROHAD_TESTING
+        if (stats != 0) ++stats->fastTimestampParses;
+#endif
+        long timestamp;
+        if (fixedTimestamp(parsed, context, &timestamp)) return timestamp;
+    } else {
+        // Normal syslog headers fit on the stack. Preserve the old sscanf behavior
+        // for unusual long whitespace/header fields with a bounded fallback copy.
+        char prefix[64];
+        unsigned long length = range.length < sizeof(prefix) - 1 ? range.length : sizeof(prefix) - 1;
+        memcpy(prefix, &snapshot[range.offset], length);
+        prefix[length] = '\0';
+        char month[4] = {0, 0, 0, 0};
+        int day = 0, hour = 0, minute = 0, second = 0, consumed = 0;
+        int matched = sscanf(prefix, "%3s %d %d:%d:%d%n", month, &day, &hour, &minute, &second, &consumed);
+        if (range.length > length && (matched != 5 || consumed >= static_cast<int>(length))) {
+            std::string header(&snapshot[range.offset], range.length);
+            matched = sscanf(header.c_str(), "%3s %d %d:%d:%d", month, &day, &hour, &minute, &second);
+        }
+        if (matched != 5) return 0;
+        static const char* months[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+        int monthIndex = -1;
+        for (int i = 0; i < 12; ++i) if (strcmp(month, months[i]) == 0) monthIndex = i;
+        if (monthIndex < 0 || day < 1 || day > 31 || hour > 23 || minute > 59 || second > 60) return 0;
+        parsed.tm_mon = monthIndex; parsed.tm_mday = day;
+        parsed.tm_hour = hour; parsed.tm_min = minute; parsed.tm_sec = second;
+    }
+    parsed.tm_isdst = -1;
+#ifdef MICROHAD_TESTING
+    if (stats != 0) ++stats->calendarConversions;
+#endif
     time_t result = mktime(&parsed);
-    if (result > context.now + 86400) { parsed.tm_year -= 1; result = mktime(&parsed); }
+    if (static_cast<int64_t>(result) > static_cast<int64_t>(context.now) + 86400) {
+        parsed.tm_year -= 1;
+#ifdef MICROHAD_TESTING
+        if (stats != 0) ++stats->calendarConversions;
+#endif
+        result = mktime(&parsed);
+    }
     return static_cast<long>(result);
 }
 

@@ -9,7 +9,9 @@
 #ifdef MICROHAD_TESTING
 struct SyslogReadStats {
     unsigned long indexedLines, materializedLines, timestampConversions, zeroBlocksSkipped;
-    SyslogReadStats() : indexedLines(0), materializedLines(0), timestampConversions(0), zeroBlocksSkipped(0) {}
+    unsigned long fastTimestampParses, calendarConversions;
+    SyslogReadStats() : indexedLines(0), materializedLines(0), timestampConversions(0), zeroBlocksSkipped(0),
+        fastTimestampParses(0), calendarConversions(0) {}
 };
 #endif
 

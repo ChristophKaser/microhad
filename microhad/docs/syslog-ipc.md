@@ -66,8 +66,15 @@ possibility of positions changing when the ring overwrites older messages.
 `since` checks every candidate timestamp once, includes equal timestamps, and
 reuses that timestamp when formatting selected lines. It does not stop at an
 older timestamp: syslog messages can arrive out of timestamp order. One date
-and timezone context is captured for the request. Unusual long timestamp
-headers retain the previous parser behavior through a bounded fallback copy.
+and timezone context is captured for the request. Standard 15-byte syslog
+headers use direct month and digit parsing instead of `sscanf`. For UTC and
+explicit fixed-offset POSIX timezones, epoch values are computed with integer
+calendar arithmetic using the request's year boundary; scanning old records
+therefore requires no per-record libc calendar conversions. DST-aware and
+named timezone files retain `mktime`, as do leap seconds and normalized invalid
+dates. No timestamp ordering assumption or cross-request cache is introduced.
+Unusual long timestamp headers retain the previous parser behavior through a
+bounded fallback copy.
 
 Unit tests compare the optimized output with the original byte-walk and
 filter/page semantics, including physical wraparound, multiline records,

@@ -141,6 +141,50 @@ void checkQueries(IpcFixture* ipc, const std::string& chronological, unsigned lo
     }
 }
 
+void parserTests(time_t observedAt) {
+    const char* zones[] = {"UTC0", "FIX-5:30", "FIX8", "EST5EDT,M3.2.0/2,M11.1.0/2", ":Europe/Berlin"};
+    const char* records[] = {
+        "Jan  1 00:00:00 first", "Feb 28 23:59:59 end", "Feb 29 12:00:00 leap",
+        "Feb 31 12:00:00 normalized", "Mar  8 02:30:00 spring", "Apr 30 12:34:56 april",
+        "May 31 12:34:56 may", "Jun 30 12:34:56 june", "Jul 31 12:34:56 july",
+        "Aug 31 12:34:56 august", "Sep 30 12:34:56 september", "Oct 25 02:30:00 autumn",
+        "Nov  1 01:30:00 ambiguous", "Dec 31 23:59:59 last", "Jan  1 00:00:60 leap-second",
+        "Jan  1 00:00:0001 long-second", "Jan  1 00:00:01.123 fractional", "Jan  1 00:00:01",
+        "Jan  0 00:00:00 bad-day", "Jan 32 00:00:00 bad-day", "Jan  1 24:00:00 bad-hour",
+        "Jan  1 00:60:00 bad-minute", "Jan  1 00:00:61 bad-second", "Jan  1 -1:00:00 signed",
+        "Jan  1 00:00:+1 signed", "Xxx  1 00:00:00 bad-month", "Jan  1 00:00:0 truncated",
+        "Jan  1 00:00:", "Jan  1 00:00:aa", "Jan  1 00:00:01 trailing"};
+    for (unsigned int z = 0; z < sizeof(zones) / sizeof(zones[0]); ++z) {
+        setenv("TZ", zones[z], 1); tzset();
+        IpcFixture ipc(4096);
+        std::string chronological(1, '\0');
+        for (unsigned int i = 0; i < sizeof(records) / sizeof(records[0]); ++i) {
+            chronological += records[i]; chronological += '\0';
+        }
+        chronological.append(ipc.capacity - chronological.size(), '\0');
+        // Cover leap years, the year boundary and both DST transitions.
+        const time_t dates[] = {observedAt, 1709251200, 1772956800, 1793491200};
+        for (unsigned int d = 0; d < sizeof(dates) / sizeof(dates[0]); ++d)
+            checkQueries(&ipc, chronological, 37, dates[d]);
+    }
+    setenv("TZ", "UTC0", 1); tzset();
+    IpcFixture dense(512UL * 1024UL - 9);
+    std::string chronological(1, '\0');
+    for (unsigned int i = 0; i < 4000; ++i) {
+        char line[80];
+        snprintf(line, sizeof(line), "Jan  1 00:00:%02u repeated older record %u", i % 2, i);
+        chronological += line; chronological += '\0';
+    }
+    chronological.append(dense.capacity - chronological.size(), '\0');
+    dense.ring(chronological, 97);
+    SyslogReadStats stats; std::string json;
+    assert(SyslogLogReader::readRequestForTest(dense.key, true, static_cast<unsigned long>(observedAt),
+                                             0, 0, observedAt, &json, &stats));
+    assert(json == "{\"lines\":[]}");
+    assert(stats.fastTimestampParses == 4000 && stats.calendarConversions == 0);
+    assert(stats.materializedLines == 0);
+}
+
 void queryTests() {
     // Fix TZ only for deterministic date/year tests; restore the caller's TZ.
     const char* original = getenv("TZ"); bool hadZone = original != 0;
@@ -178,6 +222,7 @@ void queryTests() {
     assert(stats.materializedLines == 1 && stats.timestampConversions == 1 && stats.zeroBlocksSkipped > 1000);
     assert(!SyslogLogReader::readRequestForTest(sparse.key, false, 0, 501, 0, now, &json, &stats));
     assert(!SyslogLogReader::readRequestForTest(sparse.key, false, 0, 1, 0, now, 0, &stats));
+    parserTests(now);
     if (hadZone) setenv("TZ", savedZone.c_str(), 1); else unsetenv("TZ"); tzset();
 }
 
