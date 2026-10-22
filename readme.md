@@ -5,6 +5,7 @@ as the Lidl/Silvercrest SGWZ 1 A1 Zigbee gateway (HG06339). Features include:
 
 - A local web dashboard
 - Device control
+- [Lua automation scripts](docs/scripting.md) with device events, timers and schedules
 - Sensor history
 - Browser Push and FCM Notifications
 - An [Android companion app](docs/companion-app.md) for Matter setup and push alerts
@@ -43,7 +44,8 @@ Thank you to the maintainers and contributors of the major upstream projects
 used here: [Ziggurat](https://github.com/zigpy/ziggurat),
 [rs-matter](https://github.com/project-chip/rs-matter),
 [OpenThread](https://github.com/openthread/openthread),
-[Mbed TLS](https://github.com/Mbed-TLS/mbedtls), and
+[Mbed TLS](https://github.com/Mbed-TLS/mbedtls),
+[Lua](https://www.lua.org/), and
 [tinycbor](https://github.com/intel/tinycbor), as well as their respective
 communities and all other upstream contributors.
 
