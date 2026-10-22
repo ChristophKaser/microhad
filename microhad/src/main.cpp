@@ -7,6 +7,7 @@
 #include "external_http_device.h"
 #include "thread_name.h"
 #include "matter_worker.h"
+#include "script_benchmark.h"
 
 #include <cerrno>
 #include <csignal>
@@ -29,6 +30,19 @@ void stopHandler(int) {
 int main(int argc, char** argv) {
     openlog("gateway", 0, LOG_USER);
     setCurrentThreadName("gateway-main");
+    if (argc >= 4 && std::string(argv[1]) == "--script-benchmark") {
+        char* end = 0;
+        unsigned long runs = 1;
+        if (argc == 6 && std::string(argv[4]) == "--runs") runs = strtoul(argv[5], &end, 10);
+        else if (argc != 4) { fprintf(stderr, "usage: microhad --script-benchmark lua|quickjs SCRIPT [--runs N]\n"); return 2; }
+        if (argc == 6 && (end == argv[5] || *end != '\0')) { fprintf(stderr, "invalid benchmark run count\n"); return 2; }
+        std::string result;
+        std::string benchmarkError;
+        if (!runScriptBenchmark(argv[2], argv[3], runs, &result, &benchmarkError)) {
+            fprintf(stderr, "script benchmark failed: %s\n", benchmarkError.c_str()); return 1;
+        }
+        printf("%s\n", result.c_str()); return 0;
+    }
     std::string configPath;
     std::string error;
     GatewayConfig config;

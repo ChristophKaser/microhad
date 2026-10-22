@@ -36,19 +36,28 @@ ifeq ($(MATTER),1)
 BACKEND_SUFFIX := $(BACKEND_SUFFIX)-matter
 endif
 
+SCRIPT_RUNTIME ?= none
+ifneq ($(filter none lua quickjs,$(SCRIPT_RUNTIME)),$(SCRIPT_RUNTIME))
+$(error SCRIPT_RUNTIME must be none, lua, or quickjs)
+endif
+SCRIPT_RUNTIME_ID := $(if $(filter lua,$(SCRIPT_RUNTIME)),1,$(if $(filter quickjs,$(SCRIPT_RUNTIME)),2,0))
+SCRIPT_SUFFIX := $(if $(filter none,$(SCRIPT_RUNTIME)),,-script-$(SCRIPT_RUNTIME))
+LUA_DIR := dependencies/lua
+QUICKJS_DIR := dependencies/quickjs
+
 WARNINGS := -Wall -Wextra -Werror -pedantic
 TARGET_OPTIMIZATION ?= $(if $(filter crosstool-ng,$(TOOLCHAIN)),-Os,-O2)
 # Both target compilers support the C++98 dialect used by this C++03 daemon.
-HOST_CXXFLAGS = -std=gnu++03 $(WARNINGS) -Iinclude $(TLS_CPPFLAGS) -O2 -DMICROHAD_ZIGGURAT_ENABLED=$(ZIGGURAT) -DMICROHAD_MBEDTLS_ENABLED=1 -DMICROHAD_BUILD_REVISION=\"$(BUILD_REVISION)\"
-TARGET_CXXFLAGS = -std=gnu++98 $(WARNINGS) -Iinclude $(TLS_CPPFLAGS) $(TARGET_OPTIMIZATION) -ffunction-sections -fdata-sections -DMICROHAD_MIPS_TARGET=1 -DMICROHAD_ZIGGURAT_ENABLED=$(ZIGGURAT) -DMICROHAD_MBEDTLS_ENABLED=1 -DMICROHAD_BUILD_REVISION=\"$(BUILD_REVISION)\"
+HOST_CXXFLAGS = -std=gnu++03 $(WARNINGS) -Iinclude $(TLS_CPPFLAGS) -O2 -DMICROHAD_ZIGGURAT_ENABLED=$(ZIGGURAT) -DMICROHAD_MBEDTLS_ENABLED=1 -DMICROHAD_BUILD_REVISION=\"$(BUILD_REVISION)\" -DMICROHAD_SCRIPT_RUNTIME=$(SCRIPT_RUNTIME_ID)
+TARGET_CXXFLAGS = -std=gnu++98 $(WARNINGS) -Iinclude $(TLS_CPPFLAGS) $(TARGET_OPTIMIZATION) -ffunction-sections -fdata-sections -DMICROHAD_MIPS_TARGET=1 -DMICROHAD_ZIGGURAT_ENABLED=$(ZIGGURAT) -DMICROHAD_MBEDTLS_ENABLED=1 -DMICROHAD_BUILD_REVISION=\"$(BUILD_REVISION)\" -DMICROHAD_SCRIPT_RUNTIME=$(SCRIPT_RUNTIME_ID)
 HOST_CXXFLAGS += -DMICROHAD_MATTER_ENABLED=$(MATTER)
 TARGET_CXXFLAGS += -DMICROHAD_MATTER_ENABLED=$(MATTER)
 TARGET_CFLAGS := $(WARNINGS) $(TARGET_OPTIMIZATION) -ffunction-sections -fdata-sections
 TARGET_LINK_FLAGS := $(if $(filter dynamic,$(LINK_MODE)),-L"$(STOCK_ROOTFS)/link",-static)
 LDFLAGS := -lpthread -lrt
-SOURCES := src/main.cpp src/matter_websocket.cpp src/matter_protocol.cpp src/matter_cbor.cpp src/matter_client.cpp src/matter_worker.cpp src/gateway_config.cpp src/companion_discovery.cpp src/ash.cpp src/json_util.cpp src/storage.cpp src/network_backup.cpp $(ZIGGURAT_SOURCES) src/http_server.cpp src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/thermostat.cpp src/gateway_thermostat.cpp src/sensor_history.cpp src/syslog_log_reader.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp src/external_http_device.cpp src/device_shelly.cpp src/device_fritz_box.cpp
-HOST_BUILD := build/host$(BACKEND_SUFFIX)
-MIPS_BUILD := build/$(TARGET_BUILD_SUBDIR)mips$(BACKEND_SUFFIX)
+SOURCES := src/main.cpp src/script_benchmark.cpp src/matter_websocket.cpp src/matter_protocol.cpp src/matter_cbor.cpp src/matter_client.cpp src/matter_worker.cpp src/gateway_config.cpp src/companion_discovery.cpp src/ash.cpp src/json_util.cpp src/storage.cpp src/network_backup.cpp $(ZIGGURAT_SOURCES) src/http_server.cpp src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/thermostat.cpp src/gateway_thermostat.cpp src/sensor_history.cpp src/syslog_log_reader.cpp src/fcm.cpp src/https_client.cpp src/web_push.cpp src/external_http_device.cpp src/device_shelly.cpp src/device_fritz_box.cpp
+HOST_BUILD := build/host$(BACKEND_SUFFIX)$(SCRIPT_SUFFIX)
+MIPS_BUILD := build/$(TARGET_BUILD_SUBDIR)mips$(BACKEND_SUFFIX)$(SCRIPT_SUFFIX)
 HOST_BIN := $(HOST_BUILD)/microhad
 HOST_TEST_BIN := $(HOST_BUILD)/microhad-test
 MIPS_BIN := $(MIPS_BUILD)/microhad
@@ -57,6 +66,20 @@ HOST_CXXFLAGS += -DMICROHAD_TEST_BINARY=\"$(HOST_BIN)\"
 TLS_C_SOURCES := src/crypto_init.c src/fcm_signer.c src/https_client.c src/vapid_key.c src/web_push_crypto.c src/tls_server.c
 HOST_C_OBJECTS := $(patsubst src/%.c,$(HOST_BUILD)/%.o,$(TLS_C_SOURCES))
 MIPS_C_OBJECTS := $(patsubst src/%.c,$(MIPS_BUILD)/%.o,$(TLS_C_SOURCES))
+ifeq ($(SCRIPT_RUNTIME),lua)
+HOST_CXXFLAGS += -I$(LUA_DIR) -Wno-long-long
+TARGET_CXXFLAGS += -I$(LUA_DIR) -Wno-long-long
+LUA_NAMES := lapi lcode lctype ldebug ldo ldump lfunc lgc llex lmem lobject lopcodes lparser lstate lstring ltable ltm lundump lvm lzio lauxlib lbaselib lmathlib lstrlib ltablib
+HOST_C_OBJECTS += $(addprefix $(HOST_BUILD)/lua-,$(addsuffix .o,$(LUA_NAMES)))
+MIPS_C_OBJECTS += $(addprefix $(MIPS_BUILD)/lua-,$(addsuffix .o,$(LUA_NAMES)))
+endif
+ifeq ($(SCRIPT_RUNTIME),quickjs)
+HOST_CXXFLAGS += -I$(QUICKJS_DIR) -Wno-pedantic -Wno-c++20-extensions -Wno-unused-parameter
+TARGET_CXXFLAGS += -I$(QUICKJS_DIR) -Wno-pedantic -Wno-c++20-extensions -Wno-unused-parameter
+QUICKJS_NAMES := quickjs cutils libregexp libunicode dtoa
+HOST_C_OBJECTS += $(addprefix $(HOST_BUILD)/quickjs-,$(addsuffix .o,$(QUICKJS_NAMES)))
+MIPS_C_OBJECTS += $(addprefix $(MIPS_BUILD)/quickjs-,$(addsuffix .o,$(QUICKJS_NAMES)))
+endif
 MBEDTLS_DIR := dependencies/mbedtls
 TLS_CONFIG := $(abspath config/mbedtls_user_config.h)
 PSA_CONFIG := $(abspath config/psa_crypto_config.h)
@@ -75,11 +98,15 @@ INTEGRATION_TEST_BIN := $(HOST_BUILD)/integration_tests
 UNIT_TEST_SOURCES := $(ZIGGURAT_TEST_SOURCES) test/unit_matter_websocket.cpp test/unit_matter_protocol.cpp test/unit_matter_client.cpp test/unit_network_backup.cpp test/unit_gateway.cpp test/unit_gateway_config.cpp test/unit_companion_discovery.cpp test/unit_fcm.cpp test/unit_web_push.cpp test/unit_sensor_history.cpp test/unit_log_ring.cpp test/unit_syslog_log_reader.cpp test/unit_external_http_device.cpp test/test_main.cpp
 INTEGRATION_TEST_SOURCES := test/integration_gateway.cpp test/integration_http_server.cpp test/integration_lifecycle.cpp test/integration_outbound.cpp test/integration_main.cpp
 
-.PHONY: all host mips webui mbedtls-host mbedtls-mips unit-test integration-test target-verifier-test test verify-target clean
+.PHONY: all host mips benchmark-host benchmark-mips webui mbedtls-host mbedtls-mips unit-test integration-test target-verifier-test test verify-target clean
 
 all: host
 
 host: mbedtls-host $(HOST_BIN)
+
+benchmark-host: host
+
+benchmark-mips: mips
 
 webui:
 	cd webui && npm ci && npm run build
@@ -95,12 +122,14 @@ $(HOST_TEST_BIN): $(SOURCES) $(HOST_C_OBJECTS) $(HOST_MBEDTLS_LIBS) $(wildcard i
 mips: mbedtls-mips $(MIPS_BIN) verify-target
 
 ifeq ($(MATTER),1)
+ifeq ($(SCRIPT_RUNTIME),none)
 mips: $(MIPS_MATTER_MANIFEST)
 
 $(MIPS_MATTER_MANIFEST): $(MIPS_BIN) Makefile
 	@{ printf '%s\n' 'format=microhad-build-v1' 'ziggurat=1' 'matter=1'; \
 	  printf 'binary_sha256='; sha256sum "$(MIPS_BIN)" | awk '{print $$1}'; } > "$@.tmp"
 	@mv "$@.tmp" "$@"
+endif
 endif
 
 mbedtls-host: $(HOST_MBEDTLS_LIBS)
@@ -125,6 +154,20 @@ $(HOST_BUILD)/%.o: src/%.c $(HOST_MBEDTLS_LIBS)
 $(MIPS_BUILD)/%.o: src/%.c $(MIPS_MBEDTLS_LIBS)
 	@mkdir -p $(MIPS_BUILD)
 	$(TARGET_CC) -std=gnu99 $(TARGET_CFLAGS) $(TLS_CPPFLAGS) -c $< -o $@
+
+$(HOST_BUILD)/lua-%.o: $(LUA_DIR)/%.c
+
+	@mkdir -p $(HOST_BUILD)
+	$(HOST_CC) -std=gnu99 $(WARNINGS) -O2 -DLUA_USE_JUMPTABLE=0 -I$(LUA_DIR) -c $< -o $@
+$(MIPS_BUILD)/lua-%.o: $(LUA_DIR)/%.c
+	@mkdir -p $(MIPS_BUILD)
+	$(TARGET_CC) -std=gnu99 $(TARGET_CFLAGS) -DLUA_USE_JUMPTABLE=0 -I$(LUA_DIR) -c $< -o $@
+$(HOST_BUILD)/quickjs-%.o: $(QUICKJS_DIR)/%.c
+	@mkdir -p $(HOST_BUILD)
+	$(HOST_CC) -std=gnu99 -O2 -D_GNU_SOURCE -DCONFIG_VERSION=\"benchmark\" -c $< -o $@
+$(MIPS_BUILD)/quickjs-%.o: $(QUICKJS_DIR)/%.c
+	@mkdir -p $(MIPS_BUILD)
+	$(TARGET_CC) -std=gnu99 $(TARGET_OPTIMIZATION) -ffunction-sections -fdata-sections -D_GNU_SOURCE -DCONFIG_VERSION=\"benchmark\" -c $< -o $@
 
 $(MIPS_BIN): $(SOURCES) $(wildcard include/*.h) $(wildcard include/*.inc) ../config/thermostat-attributes.def $(MIPS_MBEDTLS_LIBS) $(MIPS_C_OBJECTS)
 	@test -x $(TARGET_CXX) || (echo "Selected target compiler not found: $(TARGET_CXX)"; exit 1)
@@ -211,7 +254,7 @@ $(HOST_BIN) $(HOST_TEST_BIN) $(UNIT_TEST_BIN) $(INTEGRATION_TEST_BIN) $(MIPS_BIN
 $(UNIT_TEST_BIN): include/matter_wire_vectors.inc
 
 # Keep compiler changes from reusing objects or CMake caches from another SDK.
-ifneq ($(filter mips mbedtls-mips verify-target $(MIPS_BIN),$(MAKECMDGOALS)),)
+ifneq ($(filter mips benchmark-mips mbedtls-mips verify-target $(MIPS_BIN),$(MAKECMDGOALS)),)
 .PHONY: toolchain-force
 toolchain-force:
 $(MIPS_BUILD)/.toolchain: toolchain-force

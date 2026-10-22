@@ -22,3 +22,15 @@
 [submodule "microhad/dependencies/mbedtls"]
 	path = microhad/dependencies/mbedtls
 	url = https://github.com/Mbed-TLS/mbedtls.git
+[submodule "microhad-lua"]
+	path = microhad/dependencies/lua
+	url = https://github.com/lua/lua.git
+[submodule "microhad-quickjs"]
+	path = microhad/dependencies/quickjs
+	url = https://github.com/bellard/quickjs.git
+[submodule "microhad-lua"]
+	path = microhad/dependencies/lua
+	url = https://github.com/lua/lua.git
+[submodule "microhad-quickjs"]
+	path = microhad/dependencies/quickjs
+	url = https://github.com/bellard/quickjs.git
