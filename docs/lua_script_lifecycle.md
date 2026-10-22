@@ -42,7 +42,7 @@ automation.on({
   device = "Office sensor",
   field = "temperature_celsius",
 }, function(event)
-  automation.log("info", "temperature is " .. tostring(event.value))
+  log("info", "temperature is " .. tostring(event.value))
 end)
 ```
 
