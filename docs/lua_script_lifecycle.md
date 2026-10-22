@@ -37,7 +37,7 @@ Scripts register ordinary Lua functions; callbacks do not need global names.
 For example:
 
 ```lua
-automation.on({
+events.on({
   type = "device.changed",
   device = "Office sensor",
   field = "temperature_celsius",
@@ -74,7 +74,7 @@ local function send_low_temperature_alert()
   low_temperature_timer = nil
 end
 
-automation.on({
+events.on({
   type = "device.changed",
   device = "Office sensor",
   field = "temperature_celsius",
@@ -119,7 +119,7 @@ the duration.  It is equivalent to an internal one-shot timer, but keeps the
 local variables and control flow of the currently loaded script:
 
 ```lua
-automation.on({
+events.on({
   type = "device.changed",
   device = "Office sensor",
   field = "contact_open",
@@ -141,7 +141,7 @@ coroutine until a matching normalized event arrives.  It returns the matching
 event, or `nil, "timeout"` when the optional timeout expires:
 
 ```lua
-automation.on({
+events.on({
   type = "device.changed",
   device = "Office sensor",
   field = "temperature_celsius",

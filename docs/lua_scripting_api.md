@@ -23,21 +23,21 @@ needed timers from current device state there.
 ```lua
 local kitchen_light = "Kitchen light"
 
-automation.on({ type = "device.added" }, function(event)
+events.on({ type = "device.added" }, function(event)
   log("info", "new device: " .. event.device.name)
 end)
 ```
 
 ## Events
 
-### `automation.on(filter, callback)`
+### `events.on(filter, callback)`
 
 Registers `callback(event)` and returns an opaque subscription handle.
-`automation.off(handle)` unregisters it. All subscriptions are removed on a
+`events.off(handle)` unregisters it. All subscriptions are removed on a
 script reload, disable, source removal, or daemon restart.
 
 ```lua
-automation.on({
+events.on({
   type = "device.changed",
   device = "Office sensor",
   field = "temperature_celsius",
@@ -73,7 +73,7 @@ gateway-visible state. The runtime may coalesce redundant `device.changed`
 events under queue pressure, but must retain accepted `device.value` reports
 within its configured safety limits.
 
-### `automation.off(handle)`
+### `events.off(handle)`
 
 Unregisters a subscription. Calling it for an already removed handle is safe.
 
@@ -211,7 +211,7 @@ inspecting event, device, and state tables while authoring a script. `label` is
 an optional short prefix.
 
 ```lua
-automation.on({ type = "device.value", device = "Office sensor" }, function(event)
+events.on({ type = "device.value", device = "Office sensor" }, function(event)
   dump(event, "office value event")
   dump(devices.get("Office sensor"), "current office snapshot")
 end)

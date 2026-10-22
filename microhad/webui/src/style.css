@@ -1165,3 +1165,14 @@ button:disabled {
 .thermostat-setting label { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: .25rem; }
 .thermostat-setting input, .thermostat-setting select { width: 100%; min-width: 0; }
 .thermostat-setting button { flex-shrink: 0; }
+
+.automation-layout { display: grid; grid-template-columns: minmax(12rem, 18rem) minmax(0, 1fr); gap: 1rem; }
+.automation-list { display: flex; flex-direction: column; gap: .5rem; }
+.automation-script { text-align: left; padding: .65rem; border: 1px solid var(--border, #455); border-radius: .4rem; background: transparent; color: inherit; }
+.automation-script.selected { border-color: var(--accent, #61dafb); }
+.automation-script small { display: block; opacity: .75; margin-top: .2rem; overflow: hidden; text-overflow: ellipsis; }
+.automation-script .error { color: #e98a8a; }
+.automation-toolbar, .automation-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin-bottom: .75rem; }
+.automation-toolbar span { margin-right: auto; opacity: .75; }
+.automation-source { width: 100%; min-height: 28rem; resize: vertical; box-sizing: border-box; padding: .8rem; color: inherit; background: #10151d; border: 1px solid var(--border, #455); border-radius: .4rem; font: .9rem/1.45 ui-monospace, SFMono-Regular, Consolas, monospace; }
+@media (max-width: 760px) { .automation-layout { grid-template-columns: 1fr; } }

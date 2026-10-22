@@ -173,7 +173,7 @@ the debug log. It handles recursive tables safely and marks output that exceeds
 the log-size limit.
 
 ```lua
-automation.on({ type = "device.value", device = "Office sensor" }, function(event)
+events.on({ type = "device.value", device = "Office sensor" }, function(event)
   dump(event, "office report")
   dump(devices.get("Office sensor"), "current device state")
 end)

@@ -11,13 +11,11 @@
 #include <stdint.h>
 #include <time.h>
 
-#if MICROHAD_SCRIPT_RUNTIME == 1
 extern "C" {
 #include "lua.h"
 #include "lauxlib.h"
 #include "lualib.h"
 }
-#endif
 
 namespace {
 const size_t kHeapLimit = 1024U * 1024U;
@@ -69,7 +67,6 @@ struct BenchmarkState {
     BenchmarkState() : ticks(0), actions(0), deadline(0), used(0) {}
 };
 
-#if MICROHAD_SCRIPT_RUNTIME == 1
 void* limitedAlloc(void* opaque, void* pointer, size_t oldSize, size_t newSize) {
     BenchmarkState* state = static_cast<BenchmarkState*>(opaque);
     if (newSize == 0) { if (oldSize <= state->used) state->used -= oldSize; free(pointer); return 0; }
@@ -121,18 +118,13 @@ bool runLua(const std::string& source, const std::string& filename, unsigned lon
     }
     lua_close(lua); return true;
 }
-#endif
 }
 
 bool runScriptBenchmark(const std::string& runtime, const std::string& filename, unsigned long runs, std::string* json, std::string* error) {
     std::string source;
     if (runs == 0 || runs > 1000000UL || !readFile(filename, &source, error)) return false;
     BenchmarkState state; struct rusage before, after; getrusage(RUSAGE_SELF, &before); const int64_t started = monotonicNanoseconds();
-#if MICROHAD_SCRIPT_RUNTIME == 1
     const bool result = runtime == "lua" && runLua(source, filename, runs, &state, error);
-#else
-    const bool result = false; *error = "this binary has no script runtime";
-#endif
     const int64_t elapsed = monotonicNanoseconds() - started; getrusage(RUSAGE_SELF, &after);
     if (!result) return false;
     std::ostringstream output;

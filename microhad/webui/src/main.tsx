@@ -16,6 +16,7 @@ import { useGatewayData } from './useGatewayData'
 import { useGatewayOverview } from './useGatewayOverview'
 import { GatewaySettingsDialog } from './GatewaySettingsDialog'
 import { DeleteDeviceDialog, IncompleteDevices } from './DeviceDeletion'
+import { AutomationScripts } from './AutomationScripts'
 import './style.css'
 
 function LogLine({ line }: { line: string }) {
@@ -260,7 +261,7 @@ function App() {
       </header>
       {gatewaySettingsOpen && <GatewaySettingsDialog onClose={() => setGatewaySettingsOpen(false)} />}
       <nav className="main-tabs" role="tablist" aria-label="Gateway views">
-        {['Dashboard', 'Gateway', 'Groups', ...visibleDeviceTypes.map(type => type.name), 'Diagnostics'].map(name => (
+        {['Dashboard', 'Gateway', 'Groups', 'Automations', ...visibleDeviceTypes.map(type => type.name), 'Diagnostics'].map(name => (
           <button key={name} role="tab" aria-selected={tab === name} className={`main-tab ${tab === name ? 'active' : ''}`} onClick={() => setTab(name)}>{name}</button>
         ))}
       </nav>
@@ -286,6 +287,7 @@ function App() {
         loaded={dashboardLoaded}
         configError={dashboardError}
       />}
+      {tab === 'Automations' && <AutomationScripts />}
       {tab === 'Gateway' && <>
       <section className="overview">
         <div className={`overview-item ${statusError || !status?.online ? 'bad' : 'good'}`}>

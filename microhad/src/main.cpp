@@ -8,6 +8,7 @@
 #include "thread_name.h"
 #include "matter_worker.h"
 #include "script_benchmark.h"
+#include "automation_worker.h"
 
 #include <cerrno>
 #include <csignal>
@@ -55,6 +56,7 @@ int main(int argc, char** argv) {
     GatewayRunner* gatewayRunner;
     NotificationWorker* notificationWorker;
     HttpServer* server;
+    AutomationWorker* automations;
     ExternalHttpDeviceWorker* shellyIntegration;
 
     const bool printConfig = argc > 2 && std::string(argv[1]) == "--print-config";
@@ -103,6 +105,7 @@ int main(int argc, char** argv) {
     gateway->configureBroadcastQuorum(static_cast<unsigned int>(config.broadcastPassiveAckQuorum));
     gateway->configureMatterCommissioningRegion(config.matterCountryCode, config.matterRegulatoryLocation);
     gatewayRunner = new GatewayRunner(gateway);
+    automations = new AutomationWorker(runtimeDirectory, gatewayRunner, notificationWorker);
     MatterWorker matterWorker(gatewayRunner);
     shellyIntegration = new ExternalHttpDeviceWorker(runtimeDirectory, gatewayRunner);
     gateway->setShellyTransport(shellyIntegration);
@@ -114,8 +117,18 @@ int main(int argc, char** argv) {
         delete notificationWorker;
         return 1;
     }
+    if (!automations->start(&error)) {
+        fprintf(stderr, "automation worker startup failed: %s\n", error.c_str());
+        delete automations;
+        delete shellyIntegration;
+        matterWorker.stop();
+        delete gatewayRunner;
+        delete notificationWorker;
+        return 1;
+    }
     if (!shellyIntegration->start(&error)) {
         fprintf(stderr, "Shelly integration startup failed: %s\n", error.c_str());
+        delete automations;
         delete shellyIntegration;
         matterWorker.stop();
         delete gatewayRunner;
@@ -125,14 +138,15 @@ int main(int argc, char** argv) {
 #if MICROHAD_MATTER_ENABLED
     if (!matterWorker.start(&error)) {
         fprintf(stderr, "Matter worker startup failed: %s\n", error.c_str());
-        delete shellyIntegration; matterWorker.stop(); delete gatewayRunner; delete notificationWorker;
+        delete automations; delete shellyIntegration; matterWorker.stop(); delete gatewayRunner; delete notificationWorker;
         return 1;
     }
 #endif
-    server = new HttpServer(httpPort, gatewayRunner, runtimeDirectory + "/webui", "", "", shellyIntegration, notificationWorker, &matterWorker, config.companionJson());
+    server = new HttpServer(httpPort, gatewayRunner, runtimeDirectory + "/webui", "", "", shellyIntegration, notificationWorker, &matterWorker, config.companionJson(), automations);
     if (!server->start(&error)) {
         fprintf(stderr, "web startup failed: %s\n", error.c_str());
         delete server;
+        delete automations;
         delete shellyIntegration;
         matterWorker.stop();
         delete gatewayRunner;
@@ -146,7 +160,7 @@ int main(int argc, char** argv) {
         if (certificatePath.empty() || privateKeyPath.empty()) {
             fprintf(stderr, "both tls_certificate and tls_private_key are required for HTTPS\n");
         } else {
-            httpsServer = new HttpServer(httpsPort, gatewayRunner, runtimeDirectory + "/webui", certificatePath, privateKeyPath, shellyIntegration, notificationWorker, &matterWorker, config.companionJson());
+            httpsServer = new HttpServer(httpsPort, gatewayRunner, runtimeDirectory + "/webui", certificatePath, privateKeyPath, shellyIntegration, notificationWorker, &matterWorker, config.companionJson(), automations);
             if (!httpsServer->start(&error)) {
                 fprintf(stderr, "HTTPS disabled: %s\n", error.c_str());
                 delete httpsServer;
@@ -167,6 +181,7 @@ int main(int argc, char** argv) {
     }
     delete server;
     delete httpsServer;
+    delete automations;
     delete shellyIntegration;
     matterWorker.stop();
     delete gatewayRunner;

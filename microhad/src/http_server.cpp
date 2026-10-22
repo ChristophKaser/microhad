@@ -9,6 +9,7 @@
 #include "notification_worker.h"
 #include "matter_client.h"
 #include "matter_worker.h"
+#include "automation_worker.h"
 #include "syslog_log_reader.h"
 #include "thread_name.h"
 
@@ -576,10 +577,10 @@ bool threadUsageOrder(const ThreadCpuReading& left, const ThreadCpuReading& righ
 
 HttpServer::HttpServer(int port, GatewayRunner* gateway, const std::string& webuiDirectory,
                        const std::string& certificatePath, const std::string& privateKeyPath,
-                       ExternalHttpDeviceWorker* shelly, NotificationWorker* notifications, MatterWorker* matterWorker, const std::string& companionConfig) :
+                       ExternalHttpDeviceWorker* shelly, NotificationWorker* notifications, MatterWorker* matterWorker, const std::string& companionConfig, AutomationWorker* automations) :
     companionConfig_(companionConfig.empty() ? GatewayConfig().companionJson() : companionConfig), port_(port), listenFd_(-1), gateway_(gateway), processId_(static_cast<unsigned long>(getpid())),
     threadNamePrefix_(certificatePath.empty() ? "http" : "https"), shelly_(shelly), notifications_(notifications),
-    matter_(new MatterClient("/tmp/microhad-matter.sock")), matterWorker_(matterWorker), webPush_(new WebPushStore(gateway->runtimeDirectory())), webuiDirectory_(webuiDirectory),
+    matter_(new MatterClient("/tmp/microhad-matter.sock")), matterWorker_(matterWorker), automations_(automations), webPush_(new WebPushStore(gateway->runtimeDirectory())), webuiDirectory_(webuiDirectory),
     certificatePath_(certificatePath), privateKeyPath_(privateKeyPath), tlsServer_(0), running_(false),
     previousCpuTotal_(0), previousCpuIdle_(0), hasPreviousCpu_(false), previousThreadSampleUptime_(0) {
     pthread_mutex_init(&queueMutex_, 0);
@@ -1040,6 +1041,35 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
         }
     } else if (request.find("GET /api/companion/config ") == 0) {
         writeResponse(clientFd, 200, "application/json", companionConfig_);
+    } else if (automations_ != 0 && request.find("GET /api/automations ") == 0) {
+        writeResponse(clientFd, 200, "application/json", automations_->listJson());
+    } else if (automations_ != 0 && request.find("GET /api/automations/") == 0) {
+        const std::string prefix = "GET /api/automations/";
+        const std::string::size_type end = request.find(' ', prefix.size());
+        const std::string filename = end == std::string::npos ? "" : decodeComponent(request.substr(prefix.size(), end-prefix.size()));
+        std::string source, error;
+        if (!automations_->source(filename, &source, &error)) writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + jsonEscape(error) + "\"}");
+        else writeResponse(clientFd, 200, "application/json", "{\"filename\":\"" + jsonEscape(filename) + "\",\"source\":\"" + jsonEscape(source) + "\"}");
+    } else if (automations_ != 0 && request.find("POST /api/automations/") == 0) {
+        const std::string prefix = "POST /api/automations/";
+        const std::string::size_type end = request.find(' ', prefix.size());
+        const std::string operation = end == std::string::npos ? "" : request.substr(prefix.size(), end-prefix.size());
+        const std::string::size_type bodyAt = request.find("\r\n\r\n");
+        const std::string body = bodyAt == std::string::npos ? "" : request.substr(bodyAt+4);
+        std::string filename, source, error;
+        const bool hasFilename = formValue(body, "filename", &filename);
+        bool result = false;
+        if (operation == "validate" && hasFilename && formValue(body, "source", &source)) result = automations_->validate(filename, source, &error);
+        else if (operation == "save" && hasFilename && formValue(body, "source", &source)) { std::string reload; result = automations_->save(filename, source, !formValue(body, "reload", &reload) || reload != "0", &error); }
+        else if (operation == "reload" && (!hasFilename || filename == "all")) result = automations_->reload("", &error);
+        else if (operation == "reload" && hasFilename) result = automations_->reload(filename, &error);
+        else if (operation == "enable" && hasFilename) result = automations_->setEnabled(filename, true, &error);
+        else if (operation == "disable" && hasFilename) result = automations_->setEnabled(filename, false, &error);
+        else if (operation == "delete" && hasFilename) result = automations_->remove(filename, &error);
+        else if (operation == "reset" && hasFilename) result = automations_->resetPersistent(filename, &error);
+        else error = "invalid automation request";
+        if (result) writeResponse(clientFd, 200, "application/json", "{\"ok\":true}");
+        else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + jsonEscape(error) + "\"}");
     } else if (request.find("GET /api/status ") == 0) {
         GatewayRunner::ViewLease* view = gateway_->acquireView();
         if (view == 0) writeResponse(clientFd, 503, "application/json", "{\"ok\":false,\"error\":\"coordinator is unavailable\"}");
