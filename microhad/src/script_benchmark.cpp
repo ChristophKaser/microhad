@@ -17,10 +17,6 @@ extern "C" {
 #include "lauxlib.h"
 #include "lualib.h"
 }
-#elif MICROHAD_SCRIPT_RUNTIME == 2
-extern "C" {
-#include "quickjs.h"
-}
 #endif
 
 namespace {
@@ -125,54 +121,6 @@ bool runLua(const std::string& source, const std::string& filename, unsigned lon
     }
     lua_close(lua); return true;
 }
-#elif MICROHAD_SCRIPT_RUNTIME == 2
-JSValue quickJsTick(JSContext* context, JSValueConst, int, JSValueConst*) {
-    BenchmarkState* state = static_cast<BenchmarkState*>(JS_GetContextOpaque(context));
-    ++state->ticks; return JS_NewInt64(context, static_cast<int64_t>(state->ticks));
-}
-
-JSValue quickJsAction(JSContext* context, JSValueConst, int, JSValueConst*) {
-    BenchmarkState* state = static_cast<BenchmarkState*>(JS_GetContextOpaque(context));
-    ++state->actions; return JS_TRUE;
-}
-
-int quickJsInterrupt(JSRuntime* runtime, void* opaque) {
-    (void)runtime; BenchmarkState* state = static_cast<BenchmarkState*>(opaque);
-    return monotonicNanoseconds() > state->deadline;
-}
-
-std::string quickJsError(JSContext* context) {
-    JSValue exception = JS_GetException(context); const char* text = JS_ToCString(context, exception);
-    std::string output = text == 0 ? "QuickJS script failed" : text;
-    if (text != 0) JS_FreeCString(context, text);
-    JS_FreeValue(context, exception);
-    return output;
-}
-
-bool runQuickJs(const std::string& source, const std::string& filename, unsigned long runs, BenchmarkState* state, std::string* error) {
-    JSRuntime* runtime = JS_NewRuntime();
-    if (runtime == 0) { *error = "cannot create QuickJS runtime"; return false; }
-    JS_SetMemoryLimit(runtime, kHeapLimit); JS_SetMaxStackSize(runtime, 256U * 1024U); JS_SetInterruptHandler(runtime, quickJsInterrupt, state);
-    JSContext* context = JS_NewContext(runtime);
-    if (context == 0) { JS_FreeRuntime(runtime); *error = "cannot create QuickJS context"; return false; }
-    JS_SetContextOpaque(context, state);
-    JSValue global = JS_GetGlobalObject(context); JSValue benchmark = JS_NewObject(context);
-    JS_SetPropertyStr(context, benchmark, "tick", JS_NewCFunction(context, quickJsTick, "tick", 0));
-    JS_SetPropertyStr(context, benchmark, "action", JS_NewCFunction(context, quickJsAction, "action", 1)); JS_SetPropertyStr(context, global, "benchmark", benchmark); JS_FreeValue(context, global);
-    state->deadline = monotonicNanoseconds() + kDeadlineNanoseconds;
-    JSValue evaluated = JS_Eval(context, source.data(), source.size(), filename.c_str(), JS_EVAL_TYPE_GLOBAL);
-    if (JS_IsException(evaluated)) { *error = quickJsError(context); JS_FreeContext(context); JS_FreeRuntime(runtime); return false; }
-    JS_FreeValue(context, evaluated);
-    global = JS_GetGlobalObject(context); JSValue run = JS_GetPropertyStr(context, global, "run"); JS_FreeValue(context, global);
-    if (!JS_IsFunction(context, run)) { JS_FreeValue(context, run); JS_FreeContext(context); JS_FreeRuntime(runtime); *error = "script must define run()"; return false; }
-    for (unsigned long i = 0; i < runs; ++i) {
-        state->deadline = monotonicNanoseconds() + kDeadlineNanoseconds;
-        JSValue result = JS_Call(context, run, JS_UNDEFINED, 0, 0);
-        if (JS_IsException(result)) { JS_FreeValue(context, result); *error = quickJsError(context); JS_FreeValue(context, run); JS_FreeContext(context); JS_FreeRuntime(runtime); return false; }
-        JS_FreeValue(context, result);
-    }
-    JS_FreeValue(context, run); JS_FreeContext(context); JS_FreeRuntime(runtime); return true;
-}
 #endif
 }
 
@@ -182,8 +130,6 @@ bool runScriptBenchmark(const std::string& runtime, const std::string& filename,
     BenchmarkState state; struct rusage before, after; getrusage(RUSAGE_SELF, &before); const int64_t started = monotonicNanoseconds();
 #if MICROHAD_SCRIPT_RUNTIME == 1
     const bool result = runtime == "lua" && runLua(source, filename, runs, &state, error);
-#elif MICROHAD_SCRIPT_RUNTIME == 2
-    const bool result = runtime == "quickjs" && runQuickJs(source, filename, runs, &state, error);
 #else
     const bool result = false; *error = "this binary has no script runtime";
 #endif

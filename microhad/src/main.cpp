@@ -34,7 +34,7 @@ int main(int argc, char** argv) {
         char* end = 0;
         unsigned long runs = 1;
         if (argc == 6 && std::string(argv[4]) == "--runs") runs = strtoul(argv[5], &end, 10);
-        else if (argc != 4) { fprintf(stderr, "usage: microhad --script-benchmark lua|quickjs SCRIPT [--runs N]\n"); return 2; }
+        else if (argc != 4) { fprintf(stderr, "usage: microhad --script-benchmark lua SCRIPT [--runs N]\n"); return 2; }
         if (argc == 6 && (end == argv[5] || *end != '\0')) { fprintf(stderr, "invalid benchmark run count\n"); return 2; }
         std::string result;
         std::string benchmarkError;

@@ -37,13 +37,12 @@ BACKEND_SUFFIX := $(BACKEND_SUFFIX)-matter
 endif
 
 SCRIPT_RUNTIME ?= none
-ifneq ($(filter none lua quickjs,$(SCRIPT_RUNTIME)),$(SCRIPT_RUNTIME))
-$(error SCRIPT_RUNTIME must be none, lua, or quickjs)
+ifneq ($(filter none lua,$(SCRIPT_RUNTIME)),$(SCRIPT_RUNTIME))
+$(error SCRIPT_RUNTIME must be none or lua)
 endif
-SCRIPT_RUNTIME_ID := $(if $(filter lua,$(SCRIPT_RUNTIME)),1,$(if $(filter quickjs,$(SCRIPT_RUNTIME)),2,0))
+SCRIPT_RUNTIME_ID := $(if $(filter lua,$(SCRIPT_RUNTIME)),1,0)
 SCRIPT_SUFFIX := $(if $(filter none,$(SCRIPT_RUNTIME)),,-script-$(SCRIPT_RUNTIME))
 LUA_DIR := dependencies/lua
-QUICKJS_DIR := dependencies/quickjs
 
 WARNINGS := -Wall -Wextra -Werror -pedantic
 TARGET_OPTIMIZATION ?= $(if $(filter crosstool-ng,$(TOOLCHAIN)),-Os,-O2)
@@ -72,13 +71,6 @@ TARGET_CXXFLAGS += -I$(LUA_DIR) -Wno-long-long
 LUA_NAMES := lapi lcode lctype ldebug ldo ldump lfunc lgc llex lmem lobject lopcodes lparser lstate lstring ltable ltm lundump lvm lzio lauxlib lbaselib lmathlib lstrlib ltablib
 HOST_C_OBJECTS += $(addprefix $(HOST_BUILD)/lua-,$(addsuffix .o,$(LUA_NAMES)))
 MIPS_C_OBJECTS += $(addprefix $(MIPS_BUILD)/lua-,$(addsuffix .o,$(LUA_NAMES)))
-endif
-ifeq ($(SCRIPT_RUNTIME),quickjs)
-HOST_CXXFLAGS += -I$(QUICKJS_DIR) -Wno-pedantic -Wno-c++20-extensions -Wno-unused-parameter
-TARGET_CXXFLAGS += -I$(QUICKJS_DIR) -Wno-pedantic -Wno-c++20-extensions -Wno-unused-parameter
-QUICKJS_NAMES := quickjs cutils libregexp libunicode dtoa
-HOST_C_OBJECTS += $(addprefix $(HOST_BUILD)/quickjs-,$(addsuffix .o,$(QUICKJS_NAMES)))
-MIPS_C_OBJECTS += $(addprefix $(MIPS_BUILD)/quickjs-,$(addsuffix .o,$(QUICKJS_NAMES)))
 endif
 MBEDTLS_DIR := dependencies/mbedtls
 TLS_CONFIG := $(abspath config/mbedtls_user_config.h)
@@ -162,13 +154,6 @@ $(HOST_BUILD)/lua-%.o: $(LUA_DIR)/%.c
 $(MIPS_BUILD)/lua-%.o: $(LUA_DIR)/%.c
 	@mkdir -p $(MIPS_BUILD)
 	$(TARGET_CC) -std=gnu99 $(TARGET_CFLAGS) -DLUA_USE_JUMPTABLE=0 -I$(LUA_DIR) -c $< -o $@
-$(HOST_BUILD)/quickjs-%.o: $(QUICKJS_DIR)/%.c
-	@mkdir -p $(HOST_BUILD)
-	$(HOST_CC) -std=gnu99 -O2 -D_GNU_SOURCE -DCONFIG_VERSION=\"benchmark\" -c $< -o $@
-$(MIPS_BUILD)/quickjs-%.o: $(QUICKJS_DIR)/%.c
-	@mkdir -p $(MIPS_BUILD)
-	$(TARGET_CC) -std=gnu99 $(TARGET_OPTIMIZATION) -ffunction-sections -fdata-sections -D_GNU_SOURCE -DCONFIG_VERSION=\"benchmark\" -c $< -o $@
-
 $(MIPS_BIN): $(SOURCES) $(wildcard include/*.h) $(wildcard include/*.inc) ../config/thermostat-attributes.def $(MIPS_MBEDTLS_LIBS) $(MIPS_C_OBJECTS)
 	@test -x $(TARGET_CXX) || (echo "Selected target compiler not found: $(TARGET_CXX)"; exit 1)
 	@mkdir -p $(MIPS_BUILD)
