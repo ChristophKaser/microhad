@@ -3,6 +3,8 @@
 #include "gateway_runner.h"
 #include "storage.h"
 #include "json_util.h"
+#include "json_writer.h"
+#include "proc_stats.h"
 #include "web_push.h"
 #include "sensor_history.h"
 #include "external_http_device.h"
@@ -393,100 +395,69 @@ bool safeAssetPath(const std::string& path) {
     return true;
 }
 
+bool readProcLine(const char* path, char* line, unsigned long size) {
+    FILE* input = fopen(path, "r");
+    if (input == 0) return false;
+    bool ok = fgets(line, size, input) != 0;
+    fclose(input);
+    return ok;
+}
+
 bool readCpuCounters(uint64_t* total, uint64_t* idle) {
-    std::ifstream input("/proc/stat");
-    std::string line, label;
-    uint64_t value;
-    std::vector<uint64_t> counters;
-    if (!std::getline(input, line)) return false;
-    std::istringstream fields(line);
-    if (!(fields >> label) || label != "cpu") return false;
-    while (fields >> value) counters.push_back(value);
-    if (counters.size() < 4) return false;
-    *idle = counters[3] + (counters.size() > 4 ? counters[4] : 0);
-    *total = 0;
-    for (unsigned long i = 0; i < counters.size(); ++i) *total += counters[i];
-    return true;
-}
-
-bool readMemoryKb(const char* key, uint64_t* value) {
-    std::ifstream input("/proc/meminfo");
-    std::string name, unit;
-    uint64_t amount;
-    while (input >> name >> amount >> unit) if (name == key) { *value = amount; return true; }
-    return false;
-}
-
-bool numericName(const char* name, uint64_t* value);
-
-bool readProcessRssBytes(uint64_t pid, uint64_t* bytes) {
-    std::ostringstream path;
-    path << "/proc/" << pid << "/status";
-    std::ifstream input(path.str().c_str());
-    std::string line;
-    while (std::getline(input, line)) {
-        std::istringstream fields(line);
-        std::string key, unit;
-        uint64_t amount;
-        if (fields >> key >> amount >> unit && key == "VmRSS:") { *bytes = amount * 1024; return true; }
+    char line[1024];
+    if (!readProcLine("/proc/stat", line, sizeof(line)) || strncmp(line, "cpu ", 4) != 0) return false;
+    const char* cursor = line + 4;
+    *total = 0; *idle = 0;
+    unsigned int count = 0;
+    while (true) {
+        while (*cursor == ' ') ++cursor;
+        if (*cursor == '\n' || *cursor == 0) break;
+        char* end = 0; errno = 0;
+        uint64_t value = strtoull(cursor, &end, 10);
+        if (errno || end == cursor || (*end && *end != ' ' && *end != '\n')) return false;
+        if (count == 3 || count == 4) *idle += value;
+        *total += value; ++count; cursor = end;
     }
-    return false;
+    return count >= 4;
 }
 
-bool processExecutable(uint64_t pid, const char* expected) {
-    std::ostringstream path;
-    path << "/proc/" << pid << "/exe";
-    char target[512];
-    ssize_t length = readlink(path.str().c_str(), target, sizeof(target) - 1);
-    if (length <= 0) return false;
-    target[length] = 0;
-    std::string executable(target);
-    std::string::size_type slash = executable.rfind('/');
-    return executable.substr(slash == std::string::npos ? 0 : slash + 1) == expected;
-}
+struct MemoryStats {
+    uint64_t total, free, reclaimable, cached, slab;
+    bool hasTotal, hasFree, hasReclaimable, hasCached, hasSlab;
+    MemoryStats() : total(0), free(0), reclaimable(0), cached(0), slab(0),
+        hasTotal(false), hasFree(false), hasReclaimable(false), hasCached(false), hasSlab(false) {}
+};
 
-bool readNamedProcessRss(const char* executable, uint64_t* bytes) {
-    DIR* directory = opendir("/proc");
-    if (directory == 0) return false;
-    bool found = false;
-    uint64_t largest = 0;
-    struct dirent* entry;
-    while ((entry = readdir(directory)) != 0) {
-        uint64_t pid;
-        if (!numericName(entry->d_name, &pid) || !processExecutable(pid, executable)) continue;
-        uint64_t rss = 0;
-        // This gateway's LinuxThreads runtime exposes threads as separate PIDs.
-        // They share one address space and each status file repeats its RSS, so
-        // summing these entries counts the same resident pages multiple times.
-        if (readProcessRssBytes(pid, &rss)) {
-            if (!found || rss > largest) largest = rss;
-            found = true;
-        }
+MemoryStats readMemory() {
+    MemoryStats stats;
+    FILE* input = fopen("/proc/meminfo", "r");
+    if (input == 0) return stats;
+    char line[256];
+    while (fgets(line, sizeof(line), input) != 0) {
+        char* colon = strchr(line, ':');
+        if (colon == 0) continue;
+        *colon = 0;
+        char* end = 0; errno = 0;
+        uint64_t value = strtoull(colon + 1, &end, 10);
+        if (errno || end == colon + 1 || strncmp(end, " kB", 3) != 0) continue;
+        if (strcmp(line, "MemTotal") == 0) { stats.total = value; stats.hasTotal = true; }
+        else if (strcmp(line, "MemFree") == 0) { stats.free = value; stats.hasFree = true; }
+        else if (strcmp(line, "MemReclaimable") == 0) { stats.reclaimable = value; stats.hasReclaimable = true; }
+        else if (strcmp(line, "Cached") == 0) { stats.cached = value; stats.hasCached = true; }
+        else if (strcmp(line, "SReclaimable") == 0) { stats.slab = value; stats.hasSlab = true; }
     }
-    closedir(directory);
-    if (found) *bytes = largest;
-    return found;
+    fclose(input);
+    return stats;
+}
+
+bool readProcessStat(const char* path, ProcessStat* stats) {
+    char line[4096];
+    return readProcLine(path, line, sizeof(line)) && parseProcessStat(line, stats);
 }
 
 bool readUptime(double* uptime) {
-    std::ifstream input("/proc/uptime");
-    double idle;
-    return static_cast<bool>(input >> *uptime >> idle);
-}
-
-bool readProcessStartTicks(uint64_t* ticks) {
-    std::ifstream input("/proc/self/stat");
-    std::string line;
-    if (!std::getline(input, line)) return false;
-    std::string::size_type close = line.rfind(')');
-    if (close == std::string::npos || close + 2 >= line.size()) return false;
-    std::istringstream fields(line.substr(close + 2));
-    std::string field;
-    for (int number = 3; number <= 22; ++number) {
-        if (!(fields >> field)) return false;
-        if (number == 22) { char* end = 0; *ticks = strtoull(field.c_str(), &end, 10); return end != field.c_str() && *end == 0; }
-    }
-    return false;
+    char line[128]; double idle;
+    return readProcLine("/proc/uptime", line, sizeof(line)) && sscanf(line, "%lf %lf", uptime, &idle) == 2;
 }
 
 uint64_t fileBytes(const std::string& path) {
@@ -514,56 +485,67 @@ bool numericName(const char* name, uint64_t* value) {
     return true;
 }
 
-bool readTaskCpu(const std::string& taskRoot, uint64_t tid, uint64_t* startTicks, uint64_t* cpuTicks, std::string* name) {
-    std::ostringstream path;
-    path << taskRoot << '/' << tid << "/stat";
-    std::ifstream input(path.str().c_str());
-    std::string line;
-    if (!std::getline(input, line)) return false;
-    std::string::size_type close = line.rfind(')');
-    if (close == std::string::npos || close + 2 >= line.size()) return false;
-    std::istringstream fields(line.substr(close + 2));
-    std::string field;
-    uint64_t user = 0, system = 0;
-    for (int number = 3; number <= 22; ++number) {
-        if (!(fields >> field)) return false;
-        if (number == 14 || number == 15 || number == 22) {
-            char* end = 0;
-            uint64_t parsed = strtoull(field.c_str(), &end, 10);
-            if (end == field.c_str() || *end) return false;
-            if (number == 14) user = parsed;
-            else if (number == 15) system = parsed;
-            else *startTicks = parsed;
-        }
+void collectProcessThreads(uint64_t pid, const char* process, const ProcessStat& leader,
+                           std::map<uint64_t, ThreadCpuReading>* readings) {
+    ThreadCpuReading reading;
+    reading.tid = pid; reading.process = process; reading.startTicks = leader.startTicks;
+    reading.cpuTicks = leader.cpuTicks; reading.name = leader.name; reading.usage = 0; reading.sampled = false;
+    (*readings)[pid] = reading;
+    char root[96]; snprintf(root, sizeof(root), "/proc/%lu/task", static_cast<unsigned long>(pid));
+    DIR* tasks = opendir(root);
+    if (tasks == 0) return;
+    struct dirent* entry;
+    while ((entry = readdir(tasks)) != 0) {
+        uint64_t tid;
+        if (!numericName(entry->d_name, &tid) || tid == pid || readings->find(tid) != readings->end()) continue;
+        char path[160]; snprintf(path, sizeof(path), "%s/%lu/stat", root, static_cast<unsigned long>(tid));
+        ProcessStat task;
+        if (!readProcessStat(path, &task)) continue;
+        reading.tid = tid; reading.startTicks = task.startTicks; reading.cpuTicks = task.cpuTicks; reading.name = task.name;
+        (*readings)[tid] = reading;
     }
-    *cpuTicks = user + system;
-    std::ostringstream commPath;
-    commPath << taskRoot << '/' << tid << "/comm";
-    std::ifstream comm(commPath.str().c_str());
-    if (!std::getline(comm, *name)) *name = "unknown";
-    return true;
+    closedir(tasks);
 }
 
-bool readProcessGroup(uint64_t pid, uint64_t* group) {
-    std::ostringstream path;
-    path << "/proc/" << pid << "/stat";
-    std::ifstream input(path.str().c_str());
-    std::string line;
-    if (!std::getline(input, line)) return false;
-    std::string::size_type close = line.rfind(')');
-    if (close == std::string::npos || close + 2 >= line.size()) return false;
-    std::istringstream fields(line.substr(close + 2));
-    std::string field;
-    for (int number = 3; number <= 5; ++number) {
-        if (!(fields >> field)) return false;
-        if (number == 5) {
-            char* end = 0;
-            unsigned long parsed = strtoul(field.c_str(), &end, 10);
-            if (end == field.c_str() || *end) return false;
-            *group = parsed;
+void collectProcesses(unsigned long processId, const ProcessStat& self, long pageSize,
+                      std::map<uint64_t, ThreadCpuReading>* readings,
+                      uint64_t* zigguratMemory, bool* hasZigguratMemory,
+                      uint64_t* matterMemory, bool* hasMatterMemory) {
+    char ownPath[96], ownExecutable[512];
+    snprintf(ownPath, sizeof(ownPath), "/proc/%lu/exe", processId);
+    ssize_t ownLength = readlink(ownPath, ownExecutable, sizeof(ownExecutable) - 1);
+    if (ownLength >= 0) ownExecutable[ownLength] = 0;
+    // A single /proc scan handles both LinuxThreads PIDs and NPTL task directories.
+    // Each service's RSS is a maximum, since LinuxThreads shares its address space.
+    DIR* directory = opendir("/proc");
+    if (directory == 0) return;
+    struct dirent* entry;
+    while ((entry = readdir(directory)) != 0) {
+        uint64_t pid;
+        if (!numericName(entry->d_name, &pid)) continue;
+        char path[96], executable[512];
+        snprintf(path, sizeof(path), "/proc/%lu/exe", static_cast<unsigned long>(pid));
+        ssize_t length = readlink(path, executable, sizeof(executable) - 1);
+        if (length < 0) continue;
+        executable[length] = 0;
+        const char* base = strrchr(executable, '/'); base = base == 0 ? executable : base + 1;
+        const char* process = 0;
+        if (ownLength >= 0 && strcmp(executable, ownExecutable) == 0) process = "microhad";
+        else if (strcmp(base, "ziggurat") == 0) process = "ziggurat";
+        else if (strcmp(base, "mthread-matter") == 0) process = "mthread-matter";
+        if (process == 0) continue;
+        snprintf(path, sizeof(path), "/proc/%lu/stat", static_cast<unsigned long>(pid));
+        ProcessStat stats;
+        if (!readProcessStat(path, &stats)) continue;
+        if (strcmp(process, "microhad") == 0 && stats.group != self.group) continue;
+        if (pageSize > 0 && strcmp(process, "microhad") != 0) {
+            uint64_t rss = stats.rssPages * static_cast<uint64_t>(pageSize);
+            if (strcmp(process, "ziggurat") == 0) { *hasZigguratMemory = true; *zigguratMemory = std::max(*zigguratMemory, rss); }
+            else { *hasMatterMemory = true; *matterMemory = std::max(*matterMemory, rss); }
         }
+        collectProcessThreads(pid, process, stats, readings);
     }
-    return true;
+    closedir(directory);
 }
 
 bool threadUsageOrder(const ThreadCpuReading& left, const ThreadCpuReading& right) {
@@ -1461,175 +1443,77 @@ std::string HttpServer::controllerStatsJson() {
     double uptime = 0;
     double cpuUsage = -1;
     uint64_t totalTicks = 0, idleTicks = 0, startTicks = 0;
-    uint64_t memoryTotal = 0, memoryFree = 0, reclaimableKb = 0, cachedKb = 0, slabReclaimableKb = 0, processPages = 0;
-    uint64_t zigguratMemory = 0, matterMemory = 0;
+    uint64_t processPages = 0, zigguratMemory = 0, matterMemory = 0;
     struct statvfs filesystem;
     uint64_t storageTotal = 0, storageFree = 0;
     double load1 = 0, load5 = 0, load15 = 0;
     bool hasUptime = readUptime(&uptime);
     bool hasCpu = readCpuCounters(&totalTicks, &idleTicks);
-    if (hasCpu) {
-        pthread_mutex_lock(&statsMutex_);
+    MemoryStats memory = readMemory();
+    bool hasMemory = memory.hasTotal, hasFree = memory.hasFree;
+    uint64_t memoryTotal = memory.total * 1024, memoryFree = memory.free * 1024;
+    bool hasReclaimable = memory.hasReclaimable || memory.hasCached || memory.hasSlab;
+    uint64_t reclaimableKb = memory.hasReclaimable ? memory.reclaimable : memory.cached + memory.slab;
+    if (hasMemory && hasFree && memoryFree > memoryTotal) memoryFree = memoryTotal;
+    ProcessStat self;
+    char selfPath[96]; snprintf(selfPath, sizeof(selfPath), "/proc/%lu/stat", processId_);
+    bool hasStart = readProcessStat(selfPath, &self);
+    startTicks = self.startTicks;
+    long pageSize = sysconf(_SC_PAGESIZE);
+    bool hasProcessMemory = hasStart && pageSize > 0;
+    if (hasProcessMemory) processPages = self.rssPages * static_cast<uint64_t>(pageSize);
+    bool hasFilesystem = statvfs(gateway_->runtimeDirectory().c_str(), &filesystem) == 0;
+    if (hasFilesystem) {
+        storageTotal = static_cast<uint64_t>(filesystem.f_blocks) * filesystem.f_frsize;
+        storageFree = static_cast<uint64_t>(filesystem.f_bavail) * filesystem.f_frsize;
+    }
+    char load[128];
+    bool hasLoad = readProcLine("/proc/loadavg", load, sizeof(load)) &&
+        sscanf(load, "%lf %lf %lf", &load1, &load5, &load15) == 3;
+    long ticksPerSecond = sysconf(_SC_CLK_TCK);
+    double serviceUptime = hasUptime && hasStart && ticksPerSecond > 0 ? uptime - static_cast<double>(startTicks) / ticksPerSecond : -1;
+    std::map<uint64_t, ThreadCpuReading> readings;
+    bool hasZigguratMemory = false, hasMatterMemory = false;
+    if (hasStart) collectProcesses(processId_, self, pageSize, &readings,
+        &zigguratMemory, &hasZigguratMemory, &matterMemory, &hasMatterMemory);
+    std::vector<ThreadCpuReading> threads;
+    std::map<uint64_t, ThreadCpuSample> currentSamples;
+    pthread_mutex_lock(&statsMutex_);
+    if (hasCpu && (!hasUptime || uptime >= previousThreadSampleUptime_)) {
         if (hasPreviousCpu_ && totalTicks > previousCpuTotal_) {
             uint64_t totalDelta = totalTicks - previousCpuTotal_;
             uint64_t idleDelta = idleTicks >= previousCpuIdle_ ? idleTicks - previousCpuIdle_ : 0;
             cpuUsage = totalDelta ? 100.0 * (totalDelta - (idleDelta > totalDelta ? totalDelta : idleDelta)) / totalDelta : 0;
         }
         previousCpuTotal_ = totalTicks; previousCpuIdle_ = idleTicks; hasPreviousCpu_ = true;
-        pthread_mutex_unlock(&statsMutex_);
     }
-    bool hasMemory = readMemoryKb("MemTotal:", &memoryTotal);
-    bool hasFree = readMemoryKb("MemFree:", &memoryFree);
-    bool hasReclaimable = readMemoryKb("MemReclaimable:", &reclaimableKb);
-    if (!hasReclaimable) {
-        bool hasCached = readMemoryKb("Cached:", &cachedKb);
-        bool hasSlab = readMemoryKb("SReclaimable:", &slabReclaimableKb);
-        hasReclaimable = hasCached || hasSlab;
-        reclaimableKb = (hasCached ? cachedKb : 0) + (hasSlab ? slabReclaimableKb : 0);
-    }
-    bool hasZigguratMemory = readNamedProcessRss("ziggurat", &zigguratMemory);
-    bool hasMatterMemory = readNamedProcessRss("mthread-matter", &matterMemory);
-    if (hasMemory) memoryTotal *= 1024;
-    if (hasFree) memoryFree *= 1024;
-    if (hasMemory && hasFree && memoryFree > memoryTotal) memoryFree = memoryTotal;
-    std::ifstream statm("/proc/self/statm");
-    uint64_t virtualPages = 0;
-    bool hasProcessMemory = static_cast<bool>(statm >> virtualPages >> processPages);
-    long pageSize = sysconf(_SC_PAGESIZE);
-    if (hasProcessMemory && pageSize > 0) processPages *= static_cast<uint64_t>(pageSize);
-    bool hasFilesystem = statvfs(gateway_->runtimeDirectory().c_str(), &filesystem) == 0;
-    if (hasFilesystem) {
-        storageTotal = static_cast<uint64_t>(filesystem.f_blocks) * filesystem.f_frsize;
-        storageFree = static_cast<uint64_t>(filesystem.f_bavail) * filesystem.f_frsize;
-    }
-    std::ifstream load("/proc/loadavg");
-    bool hasLoad = static_cast<bool>(load >> load1 >> load5 >> load15);
-    bool hasStart = readProcessStartTicks(&startTicks);
-    long ticksPerSecond = sysconf(_SC_CLK_TCK);
-    double serviceUptime = hasUptime && hasStart && ticksPerSecond > 0 ? uptime - static_cast<double>(startTicks) / ticksPerSecond : -1;
-    std::vector<ThreadCpuReading> threads;
-    std::map<uint64_t, ThreadCpuSample> currentSamples;
-    pthread_mutex_lock(&statsMutex_);
-    std::ostringstream taskRootBuilder;
-    taskRootBuilder << "/proc/" << processId_ << "/task";
-    std::string taskRoot = taskRootBuilder.str();
-    DIR* taskDirectory = opendir(taskRoot.c_str());
-    if (taskDirectory != 0) {
-        struct dirent* entry;
-        while ((entry = readdir(taskDirectory)) != 0) {
-            uint64_t tid, threadStart = 0, threadCpu = 0;
-            std::string threadName;
-            if (!numericName(entry->d_name, &tid) || !readTaskCpu(taskRoot, tid, &threadStart, &threadCpu, &threadName)) continue;
-            ThreadCpuReading reading;
-            reading.tid = tid; reading.process = "microhad"; reading.startTicks = threadStart; reading.cpuTicks = threadCpu;
-            reading.usage = 0; reading.sampled = false; reading.name = threadName;
-            std::map<uint64_t, ThreadCpuSample>::const_iterator previous = previousThreadSamples_.find(tid);
-            if (previous != previousThreadSamples_.end() && previous->second.startTicks == threadStart &&
-                threadCpu >= previous->second.cpuTicks && hasUptime && previousThreadSampleUptime_ > 0 &&
-                uptime > previousThreadSampleUptime_ && ticksPerSecond > 0) {
-                double elapsedTicks = (uptime - previousThreadSampleUptime_) * ticksPerSecond;
-                reading.usage = elapsedTicks > 0 ? 100.0 * (threadCpu - previous->second.cpuTicks) / elapsedTicks : 0;
-                reading.sampled = true;
-            }
-            ThreadCpuSample sample;
-            sample.startTicks = threadStart; sample.cpuTicks = threadCpu;
-            currentSamples[tid] = sample;
-            threads.push_back(reading);
+    for (std::map<uint64_t, ThreadCpuReading>::iterator it = readings.begin(); it != readings.end(); ++it) {
+        ThreadCpuReading& reading = it->second;
+        std::map<uint64_t, ThreadCpuSample>::const_iterator previous = previousThreadSamples_.find(reading.tid);
+        if (previous != previousThreadSamples_.end() && previous->second.startTicks == reading.startTicks &&
+            reading.cpuTicks >= previous->second.cpuTicks && hasUptime && previousThreadSampleUptime_ > 0 &&
+            uptime > previousThreadSampleUptime_ && ticksPerSecond > 0) {
+            double elapsedTicks = (uptime - previousThreadSampleUptime_) * ticksPerSecond;
+            reading.usage = 100.0 * (reading.cpuTicks - previous->second.cpuTicks) / elapsedTicks;
+            reading.sampled = true;
         }
-        closedir(taskDirectory);
+        ThreadCpuSample sample; sample.startTicks = reading.startTicks; sample.cpuTicks = reading.cpuTicks;
+        currentSamples[reading.tid] = sample;
+        threads.push_back(reading);
     }
-    /* LinuxThreads on older embedded libc versions represents pthreads as
-       separate PIDs, so /proc/<leader>/task can contain only the leader. */
-    if (threads.size() <= 1) {
-        struct stat executable;
-        uint64_t processGroup = 0;
-        if (stat("/proc/self/exe", &executable) == 0 && readProcessGroup(processId_, &processGroup)) {
-            DIR* procDirectory = opendir("/proc");
-            if (procDirectory != 0) {
-                struct dirent* entry;
-                while ((entry = readdir(procDirectory)) != 0) {
-                    uint64_t pid, candidateGroup = 0;
-                    struct stat candidateExecutable;
-                    if (!numericName(entry->d_name, &pid) ||
-                        !readProcessGroup(pid, &candidateGroup) || candidateGroup != processGroup) continue;
-                    std::ostringstream executablePath;
-                    executablePath << "/proc/" << pid << "/exe";
-                    if (stat(executablePath.str().c_str(), &candidateExecutable) != 0 ||
-                        candidateExecutable.st_dev != executable.st_dev || candidateExecutable.st_ino != executable.st_ino) continue;
-                    bool alreadyPresent = false;
-                    for (unsigned long i = 0; i < threads.size(); ++i)
-                        if (threads[i].tid == pid) { alreadyPresent = true; break; }
-                    if (alreadyPresent) continue;
-                    uint64_t threadStart = 0, threadCpu = 0;
-                    std::string threadName;
-                    if (!readTaskCpu("/proc", pid, &threadStart, &threadCpu, &threadName)) continue;
-                    ThreadCpuReading reading;
-                    reading.tid = pid; reading.process = "microhad"; reading.startTicks = threadStart; reading.cpuTicks = threadCpu;
-                    reading.usage = 0; reading.sampled = false; reading.name = threadName;
-                    std::map<uint64_t, ThreadCpuSample>::const_iterator previous = previousThreadSamples_.find(pid);
-                    if (previous != previousThreadSamples_.end() && previous->second.startTicks == threadStart &&
-                        threadCpu >= previous->second.cpuTicks && hasUptime && previousThreadSampleUptime_ > 0 &&
-                        uptime > previousThreadSampleUptime_ && ticksPerSecond > 0) {
-                        double elapsedTicks = (uptime - previousThreadSampleUptime_) * ticksPerSecond;
-                        reading.usage = elapsedTicks > 0 ? 100.0 * (threadCpu - previous->second.cpuTicks) / elapsedTicks : 0;
-                        reading.sampled = true;
-                    }
-                    ThreadCpuSample sample;
-                    sample.startTicks = threadStart; sample.cpuTicks = threadCpu;
-                    currentSamples[pid] = sample;
-                    threads.push_back(reading);
-                }
-                closedir(procDirectory);
-            }
-        }
+    // An overlapping request can finish sampling before an older request does.
+    // Never replace the baseline with counters from an earlier observation.
+    if (hasUptime && uptime > previousThreadSampleUptime_) {
+        previousThreadSamples_.swap(currentSamples);
+        previousThreadSampleUptime_ = uptime;
     }
-    const char* processNames[] = { "ziggurat", "mthread-matter" };
-    for (unsigned long processIndex = 0; processIndex < 2; ++processIndex) {
-        DIR* procDirectory = opendir("/proc");
-        if (procDirectory == 0) continue;
-        struct dirent* processEntry;
-        while ((processEntry = readdir(procDirectory)) != 0) {
-            uint64_t pid;
-            if (!numericName(processEntry->d_name, &pid) || pid == processId_ || !processExecutable(pid, processNames[processIndex])) continue;
-            std::ostringstream taskRootBuilder;
-            taskRootBuilder << "/proc/" << pid << "/task";
-            std::string taskRoot = taskRootBuilder.str();
-            DIR* taskDirectory = opendir(taskRoot.c_str());
-            if (taskDirectory == 0) continue;
-            struct dirent* taskEntry;
-            while ((taskEntry = readdir(taskDirectory)) != 0) {
-                uint64_t tid, threadStart = 0, threadCpu = 0;
-                std::string threadName;
-                if (!numericName(taskEntry->d_name, &tid) || !readTaskCpu(taskRoot, tid, &threadStart, &threadCpu, &threadName)) continue;
-                ThreadCpuReading reading;
-                reading.tid = tid; reading.process = processNames[processIndex]; reading.startTicks = threadStart; reading.cpuTicks = threadCpu;
-                reading.usage = 0; reading.sampled = false; reading.name = threadName;
-                std::map<uint64_t, ThreadCpuSample>::const_iterator previous = previousThreadSamples_.find(tid);
-                if (previous != previousThreadSamples_.end() && previous->second.startTicks == threadStart &&
-                    threadCpu >= previous->second.cpuTicks && hasUptime && previousThreadSampleUptime_ > 0 &&
-                    uptime > previousThreadSampleUptime_ && ticksPerSecond > 0) {
-                    double elapsedTicks = (uptime - previousThreadSampleUptime_) * ticksPerSecond;
-                    reading.usage = elapsedTicks > 0 ? 100.0 * (threadCpu - previous->second.cpuTicks) / elapsedTicks : 0;
-                    reading.sampled = true;
-                }
-                ThreadCpuSample sample;
-                sample.startTicks = threadStart; sample.cpuTicks = threadCpu;
-                currentSamples[tid] = sample;
-                threads.push_back(reading);
-            }
-            closedir(taskDirectory);
-        }
-        closedir(procDirectory);
-    }
-    previousThreadSamples_.swap(currentSamples);
-    if (hasUptime) previousThreadSampleUptime_ = uptime;
     pthread_mutex_unlock(&statsMutex_);
     std::sort(threads.begin(), threads.end(), threadUsageOrder);
     long serialOpenedAt = 0;
     GatewayRunner::ViewLease* view = gateway_->acquireView();
     if (view != 0) { serialOpenedAt = view->serialOpenedAt(); delete view; }
-    std::ostringstream json;
-    json << std::setprecision(6) << "{\"build_date\":\"" << __DATE__ << " " << __TIME__
+    JsonWriter json;
+    json << "{\"build_date\":\"" << __DATE__ << " " << __TIME__
          << "\",\"build_commit\":\"" << MICROHAD_BUILD_REVISION << "\",\"device_uptime_seconds\":";
     if (hasUptime) json << static_cast<unsigned long>(uptime); else json << "null";
     json << ",\"service_uptime_seconds\":";

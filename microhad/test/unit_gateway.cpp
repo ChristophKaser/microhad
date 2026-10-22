@@ -10,6 +10,8 @@
 #include "fcm.h"
 #include "notification_worker.h"
 #include "json_util.h"
+#include "json_writer.h"
+#include "proc_stats.h"
 #include "web_push.h"
 
 #include <cassert>
@@ -3490,6 +3492,47 @@ static void testFcmMessageConstruction() {
     assert(makeFcmMessage("zigbee_alerts", "Window open", "Kitchen").find("\"topic\":\"zigbee_alerts\"") != std::string::npos);
 }
 
+template <typename T> static void compareJsonNumber(T value) {
+    std::ostringstream expected; expected << value;
+    JsonWriter actual; actual << value;
+    assert(actual.str() == expected.str());
+}
+
+static void testApiFormattingAndProcStats() {
+    compareJsonNumber(INT_MIN); compareJsonNumber(INT_MAX); compareJsonNumber(UINT_MAX);
+    compareJsonNumber(LONG_MIN); compareJsonNumber(LONG_MAX); compareJsonNumber(ULONG_MAX);
+    compareJsonNumber(std::numeric_limits<long long>::min());
+    compareJsonNumber(std::numeric_limits<unsigned long long>::max());
+    compareJsonNumber(static_cast<unsigned char>(42)); compareJsonNumber(static_cast<short>(-100));
+    const double values[] = {0.0, -0.0, 1.23456789, -12.75, 0.0000001234567, 123456789.0,
+        std::numeric_limits<double>::min(), std::numeric_limits<double>::max()};
+    for (unsigned int i = 0; i < sizeof(values) / sizeof(values[0]); ++i) compareJsonNumber(values[i]);
+    JsonWriter json; json << "{\"text\":\"" << jsonEscape("quotes\"\n") << "\",\"n\":" << -42 << '}';
+    assert(json.str() == "{\"text\":\"quotes\\\"\\n\",\"n\":-42}");
+    std::ostringstream stat;
+    stat << "123 (worker (with) spaces) S";
+    for (int field = 4; field <= 24; ++field) {
+        if (field == 5) stat << " 777";
+        else if (field == 14) stat << " 4294967297";
+        else if (field == 15) stat << " 10";
+        else if (field == 18) stat << " -20";
+        else if (field == 22) stat << " 123456789012";
+        else if (field == 24) stat << " 321";
+        else stat << " 0";
+    }
+    ProcessStat parsed;
+    assert(parseProcessStat(stat.str().c_str(), &parsed));
+    assert(parsed.name == "worker (with) spaces" && parsed.group == 777 && parsed.rssPages == 321);
+    assert(parsed.cpuTicks == 4294967307ULL && parsed.startTicks == 123456789012ULL);
+    assert(!parseProcessStat("123 (broken) S 0", &parsed));
+    assert(!parseProcessStat("123 broken S", &parsed));
+    std::string invalid = stat.str();
+    invalid.replace(invalid.find("4294967297"), 10, "18446744073709551616");
+    assert(!parseProcessStat(invalid.c_str(), &parsed));
+    invalid = stat.str(); invalid.replace(invalid.rfind("321"), 3, "-1");
+    assert(!parseProcessStat(invalid.c_str(), &parsed));
+}
+
 static void testSharedJsonUtilities() {
     std::string value;
     long number = 0;
@@ -3619,5 +3662,6 @@ void runUnitTests() {
     testNotificationAuditDoesNotWriteRuntimeFlash();
     testBrowserPushSubscriptionBounds();
     testFcmMessageConstruction();
+    testApiFormattingAndProcStats();
     testSharedJsonUtilities();
 }

@@ -5,6 +5,7 @@
 #endif
 #include "external_http_device.h"
 #include "json_util.h"
+#include "json_writer.h"
 #include "notification_worker.h"
 #include "storage.h"
 #include "syslog_log_reader.h"
@@ -3223,7 +3224,7 @@ std::string GatewayView::logsJson() const {
 #endif
 
 std::string GatewayView::statusJson() const {
-    std::ostringstream json;
+    JsonWriter json;
     json << "{\"coordinator_backend\":\"" << (coordinatorBackend.empty() ? "ezsp" : coordinatorBackend) << "\",\"online\":" << (online ? "true" : "false") << ",\"network_forming\":"
          << (networkForming ? "true" : "false") << ",\"network_formed\":" << (networkFormed ? "true" : "false")
          << ",\"observed_network_channel\":" << static_cast<unsigned int>(observedNetworkChannel)

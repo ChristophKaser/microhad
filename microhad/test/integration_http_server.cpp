@@ -521,6 +521,13 @@ void testServers() {
            response.find("\"name\":\"coordinator\"") != std::string::npos &&
            response.find("\"name\":\"http-worker\"") != std::string::npos &&
            response.find("\"cpu_usage_percent\":null") != std::string::npos);
+    std::string statsBody = response.substr(response.find("\r\n\r\n") + 4);
+    long memoryBytes = 0;
+    assert(jsonLongField(statsBody, "process_memory_bytes", &memoryBytes) && memoryBytes > 0);
+    assert(jsonLongField(statsBody, "memory_total_bytes", &memoryBytes) && memoryBytes > 0);
+    response = plainRequest(http.boundPort(), "GET /api/controller-stats HTTP/1.1\r\nHost: localhost\r\n\r\n");
+    expectStatus("http repeated controller stats", response, 200);
+    assert(response.find("\"name\":\"coordinator\"") != std::string::npos);
     response = plainRequest(http.boundPort(), "GET /api/dashboard/config HTTP/1.1\r\nHost: localhost\r\n\r\n");
     expectStatus("http default dashboard config", response, 200);
     assert(response.find("{\"widgets\":[]}") != std::string::npos);
