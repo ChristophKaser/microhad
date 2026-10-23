@@ -69,7 +69,8 @@ Dashboard and Lua reads share immutable per-device records from one published
 inventory. Normal value updates replace only the affected records and reuse
 unchanged metadata and the name index. Automation preserves each accepted
 report and intermediate value edge; it builds Lua-shaped tables on the Lua
-worker rather than rebuilding maps for the whole inventory on the coordinator.
+worker only for event types with a listener or waiting callback, rather than
+rebuilding maps for the whole inventory on the coordinator.
 Dashboard reads use those same device records, with no second inventory batch.
 Held views and queued events retain their original values after later updates.
 Status/log readers copy immutable record references under short locks and format

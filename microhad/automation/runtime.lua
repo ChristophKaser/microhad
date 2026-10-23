@@ -62,6 +62,12 @@ local function start(fn,args,chain,depth,on_done)
   tasks[h]={thread=co.create(fn),args=args,chain=chain or '',depth=depth or 0,on_done=on_done}
   return h
 end
+-- Update local ownership before decrementing host interest. If an author
+-- budget interrupts a public API, conservative extra interest is safe; losing
+-- interest in a still-live listener/waiter would drop events.
+local function unwatch(t)
+  if t.watched then local kind=t.watched;t.watched=nil;host.watch(kind,false)end
+end
 local function resume(h,t)
   current=t
   host.begin(tostring(h),t.chain,t.depth)
@@ -76,22 +82,24 @@ local function resume(h,t)
   local done=not ok or co.status(t.thread)=='dead'
   host.finish(ok,done)
   if done then
+    unwatch(t)
     tasks[h]=nil
     if t.on_done then t.on_done() end
     if not ok then report(result[1] and 'callback instruction budget exceeded' or result[2],'callback',t.thread) end
   elseif type(result[2])=='table' and result[2].kind then
     t.wait=result[2]
   else
-    tasks[h]=nil;host.discard(tostring(h));report('unsupported coroutine yield','callback')
+    unwatch(t);tasks[h]=nil;host.discard(tostring(h));report('unsupported coroutine yield','callback')
   end
 end
 local events={}
 function events.on(f,fn)
   strict(fn,'function','callback'); f=filter(f)
   assert(count(listeners)<128,'listener limit reached')
+  host.watch(f.type,true)
   local h=handle();listeners[h]={filter=f,fn=fn};return h
 end
-function events.off(h) host.handle_id(h);listeners[h]=nil end
+function events.off(h) host.handle_id(h);local entry=listeners[h];if entry then listeners[h]=nil;host.watch(entry.filter.type,false)end end
 local automation={now=host.now,script_id=host.script_id}
 local function timer(seconds,fn,payload,repeating)
   duration(seconds);strict(fn,'function','callback');payload=host.serializable(payload)
@@ -103,7 +111,7 @@ function automation.every(n,fn,payload)return timer(n,fn,payload,true)end
 function automation.cancel(h)
   host.handle_id(h)
   if timers[h] then timers[h]=nil;return true end
-  if tasks[h] and tasks[h].wait then tasks[h]=nil;host.discard(tostring(h));return true end
+  if tasks[h] and tasks[h].wait then local task=tasks[h];tasks[h]=nil;unwatch(task);host.discard(tostring(h));return true end
   return false
 end
 function automation.sleep(n)
@@ -112,7 +120,9 @@ function automation.sleep(n)
 end
 function events.wait_for(f,timeout)
   assert(current and not initializing,'wait_for is only available in callbacks')
-  return co.yield({kind='event',filter=filter(f),due=timeout and (host.monotonic()+duration(timeout))})
+  f=filter(f);local due=timeout and (host.monotonic()+duration(timeout))
+  host.watch(f.type,true);current.watched=f.type
+  return co.yield({kind='event',filter=f,due=due})
 end
 local function cron_field(text,min,max)
   local values={}
@@ -196,7 +206,7 @@ end
 function runtime.event(event)
   local snapshot
   for _,entry in pairs(listeners) do if matches(entry.filter,event)then snapshot=snapshot or immutable(event);start(entry.fn,{snapshot},event.chain_id,event.chain_depth)end end
-  for _,task in pairs(tasks)do if task.wait and task.wait.kind=='event' and matches(task.wait.filter,event)then snapshot=snapshot or immutable(event);task.wait=nil;task.args={snapshot}end end
+  for _,task in pairs(tasks)do if task.wait and task.wait.kind=='event' and matches(task.wait.filter,event)then snapshot=snapshot or immutable(event);unwatch(task);task.wait=nil;task.args={snapshot}end end
 end
 function runtime.tick()
   if next(tasks)==nil and next(timers)==nil then return end
@@ -227,7 +237,7 @@ function runtime.tick()
   local dispatched=false
   for _,entry in ipairs(ready)do local h,t=unpack(entry)
     if tasks[h] then
-      if t.wait and t.wait.due and t.wait.due<=now then local kind=t.wait.kind;t.wait=nil;t.args=kind=='event' and pack(nil,'timeout')or {} end
+      if t.wait and t.wait.due and t.wait.due<=now then local kind=t.wait.kind;unwatch(t);t.wait=nil;t.args=kind=='event' and pack(nil,'timeout')or {} end
       if not t.wait and not dispatched then resume(h,t);dispatched=true end
     end
   end

@@ -2,14 +2,16 @@
 local factory = assert(loadfile('automation/runtime.lua'))
 local function fixture(used)
   local clock, minute, failures, clock_calls = 0, 0, 0, 0
+  local watched={};local latest_handle=0
   local host = {
     calendar=function() clock_calls=clock_calls+1;return {minute,0,1,1,0,126,0} end,
     now=function() return clock end, monotonic=function() clock_calls=clock_calls+1;return clock end,
-    handle=function(id) return id end, handle_id=function(id) return id end,
+    handle=function(id) latest_handle=id;return id end, handle_id=function(id) return id end,
     begin=function() end, finish=function() end, discard=function() end,
     failed=function() return false end,
     failure=function() failures=failures+1 end,
     serializable=function(value) return value end,
+    watch=function(kind,added)watched[kind]=(watched[kind]or 0)+(added and 1 or -1);assert(watched[kind]>=0)end,
     limit=function(_,instructions,seconds)
       assert(instructions==200000 and seconds==nil)
     end,
@@ -19,7 +21,7 @@ local function fixture(used)
   }
   local runtime = factory(host)
   return runtime, function(value) clock=value;minute=value end,
-    function() return failures end, function() return clock_calls end
+    function() return failures end, function() return clock_calls end, function(kind)return watched[kind]or 0 end, function()return latest_handle end
 end
 
 for _,cron in ipairs({false,true}) do
@@ -77,4 +79,34 @@ do
   assert(calls()==before,'idle tick should not ask the host for time')
   runtime.event({type='device.value',device=setmetatable({}, {__pairs=function()error('unmatched snapshot copied')end})})
   assert(failures()==0)
+end
+
+-- Interest tracks listener removal, event completion, timeout and cancellation.
+do
+  local runtime, advance, failures, _, watching, latest = fixture()
+  local listener, task
+  runtime.initialize(function()
+    listener=runtime.env.events.on({type='remote.action'},function()end)
+    runtime.env.automation.after(1,function()
+      local event=runtime.env.events.wait_for({type='device.value'},1)
+      assert(event==nil)
+    end)
+    runtime.env.automation.after(1,function()
+      runtime.env.events.wait_for({type='device.changed'})
+    end)
+    runtime.env.automation.after(1,function()
+      runtime.env.events.wait_for({type='device.offline'})
+    end)
+  end)
+  assert(watching('remote.action')==1)
+  runtime.env.events.off(listener);runtime.env.events.off(listener)
+  assert(watching('remote.action')==0)
+  advance(1);runtime.tick();runtime.tick();runtime.tick()
+  task=latest();assert(watching('device.offline')==1)
+  assert(runtime.env.automation.cancel(task) and watching('device.offline')==0)
+  assert(watching('device.value')==1 and watching('device.changed')==1)
+  runtime.event({type='device.changed'})
+  assert(watching('device.changed')==0)
+  advance(2);runtime.tick();runtime.tick()
+  assert(watching('device.value')==0 and failures()==0)
 end

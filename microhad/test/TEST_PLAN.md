@@ -123,4 +123,6 @@ Repeated equal reports and intermediate value changes retain their individual
 events and historical values. Existing concurrent view/retirement and bounded
 log tests cover reference lifetimes and public JSON compatibility. Scheduler
 regressions reject calendar work on idle ticks and immutable-table construction
-for events with no matching listener.
+for events with no matching listener. Subscription accounting covers listener
+removal, event completion, wait timeout and task cancellation, so native event
+conversion can be skipped without losing events needed by a sleeping callback.

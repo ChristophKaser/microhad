@@ -83,7 +83,7 @@ struct AutomationWorker::Impl {
     struct Request {std::string operation,name,source,error;bool done,result;Request():done(false),result(false){}};
     struct Transaction {Value persistent,base;Transaction():persistent(Value::object()),base(Value::object()){} };
     struct Script {
-        Impl* owner;std::string name,id,error,source,transaction;lua_State* L;int runtime;size_t heap;bool validation,failed,enabled;unsigned long generation,instructions,instructionLimit;double nextStatus;time_t loaded,validated,lastEvent,lastCallback;unsigned listeners,timers,suspended;std::map<std::string,Transaction> transactions;Value persistent,validationShared;std::string chain;unsigned depth;std::deque<Value> errors;
+        Impl* owner;std::string name,id,error,source,transaction;lua_State* L;int runtime;size_t heap;bool validation,failed,enabled;unsigned long generation,instructions,instructionLimit;double nextStatus;time_t loaded,validated,lastEvent,lastCallback;unsigned listeners,timers,suspended;std::map<std::string,unsigned> watched;std::map<std::string,Transaction> transactions;Value persistent,validationShared;std::string chain;unsigned depth;std::deque<Value> errors;
         Script(Impl* o):owner(o),L(0),runtime(LUA_NOREF),heap(0),validation(false),failed(false),enabled(true),generation(0),instructions(0),instructionLimit(0),nextStatus(0),loaded(0),validated(0),lastEvent(0),lastCallback(0),listeners(0),timers(0),suspended(0),persistent(Value::object()),depth(0){}
         ~Script(){if(L)lua_close(L);}
     };
@@ -115,6 +115,12 @@ struct AutomationWorker::Impl {
         if(!s->validation)syslog(level=="error"?LOG_ERR:level=="warn"?LOG_WARNING:level=="debug"?LOG_DEBUG:LOG_INFO,"automation script=%s generation=%lu %s",s->id.c_str(),s->generation,row.fields["message"].string.c_str());
     }
     void error(Script* s,const std::string& message,const std::string& operation){s->error=message;s->failed=true;s->nextStatus=0;record(s,"error",message,Value::object(),operation);if(!s->validation&&s->chain!="automation.error"&&s->errors.size()<32){Value event=Value::object();event.fields["type"]=Value("automation.error");event.fields["at"]=Value(static_cast<double>(time(0)));event.fields["source"]=Value("automation");event.fields["operation"]=Value(operation);event.fields["message"]=Value(message);event.fields["chain_id"]=Value("automation.error");event.fields["chain_depth"]=Value(0.);s->errors.push_back(event);}}
+    static int watch(lua_State* L){
+        Script* s=script(L);const std::string type=stringArg(L,1);
+        if(lua_toboolean(L,2))++s->watched[type];
+        else {std::map<std::string,unsigned>::iterator it=s->watched.find(type);if(it!=s->watched.end()&&!--it->second)s->watched.erase(it);}
+        return 0;
+    }
     static int now(lua_State* L){lua_pushnumber(L,time(0)+script(L)->owner->testOffset);return 1;}
     static int clock(lua_State* L){lua_pushnumber(L,monotonic()+script(L)->owner->testOffset);return 1;}
     static int id(lua_State* L){lua_pushstring(L,script(L)->id.c_str());return 1;}
@@ -216,7 +222,7 @@ struct AutomationWorker::Impl {
         if(luaL_loadbufferx(L,kRuntime,sizeof(kRuntime)-1,"@automation-runtime","t")!=LUA_OK){error(s,lua_tostring(L,-1),"runtime");return false;}
         lua_newtable(L);
 #define B(name,fn) bind(s,name,fn)
-        B("now",now);B("monotonic",clock);B("script_id",id);B("calendar",calendar);B("handle",handle);B("handle_id",handleId);B("limit",limit);B("spent",spent);B("begin",begin);B("finish",finish);B("discard",discard);B("read_state",readState);B("write_state",writeState);B("serializable",serializable);B("failed",failed);B("failure",failureLog);B("log",log);B("dump",dump);B("resolve",resolveId);B("device_get",deviceGet);B("device_list",deviceList);B("action",action);B("scene",scene);B("notify",notify);
+        B("watch",watch);B("now",now);B("monotonic",clock);B("script_id",id);B("calendar",calendar);B("handle",handle);B("handle_id",handleId);B("limit",limit);B("spent",spent);B("begin",begin);B("finish",finish);B("discard",discard);B("read_state",readState);B("write_state",writeState);B("serializable",serializable);B("failed",failed);B("failure",failureLog);B("log",log);B("dump",dump);B("resolve",resolveId);B("device_get",deviceGet);B("device_list",deviceList);B("action",action);B("scene",scene);B("notify",notify);
 #undef B
         if(lua_pcall(L,1,1,0)!=LUA_OK){error(s,lua_tostring(L,-1),"runtime");return false;}s->runtime=luaL_ref(L,LUA_REGISTRYINDEX);return true;
     }
@@ -274,7 +280,18 @@ struct AutomationWorker::Impl {
             // does not initialize the same replacement a second time.
             catalog();for(size_t i=0;i<pending.size();++i){process(pending[i]);pthread_mutex_lock(&mutex);pending[i]->done=true;pthread_cond_broadcast(&ready);pthread_mutex_unlock(&mutex);}
             if(monotonic()>=nextScan||testScanEveryTurn){scan();nextScan=monotonic()+0.25;}
-            for(size_t i=0;i<queued.size();++i){Value event=Automation::eventValue(queued[i]);for(std::map<std::string,Script*>::iterator it=scripts.begin();it!=scripts.end();++it){Script* s=it->second;if(s->L){s->lastEvent=time(0);call(s,"event",&event);}}}
+            for(size_t i=0;i<queued.size();++i){
+                const Automation::Event& input=queued[i];
+                std::map<std::string,Value>::const_iterator typeField=input.data.fields.find("type");
+                const std::string type=input.device?input.type:typeField==input.data.fields.end()?"":typeField->second.string;
+                Value event;bool materialized=false;const time_t at=time(0);
+                for(std::map<std::string,Script*>::iterator it=scripts.begin();it!=scripts.end();++it){
+                    Script* s=it->second;if(!s->L)continue;s->lastEvent=at;
+                    if(!s->watched.count(type))continue;
+                    if(!materialized){event=Automation::eventValue(input);materialized=true;}
+                    call(s,"event",&event);
+                }
+            }
             for(std::map<std::string,Script*>::iterator it=scripts.begin();it!=scripts.end();++it){Script* s=it->second;if(s->L){if(overflow)error(s,"event queue limit reached; reports dropped","queue");std::deque<Value> errors;errors.swap(s->errors);for(size_t i=0;i<errors.size();++i)call(s,"event",&errors[i]);call(s,"tick");}status(s,false);}
             pthread_mutex_lock(&mutex);busy=false;pthread_cond_broadcast(&ready);timespec until;clock_gettime(CLOCK_REALTIME,&until);until.tv_nsec+=10000000;if(until.tv_nsec>=1000000000){++until.tv_sec;until.tv_nsec-=1000000000;}if(requests.empty()&&events.empty()&&running)pthread_cond_timedwait(&ready,&mutex,&until);pthread_mutex_unlock(&mutex);
         }for(std::map<std::string,Script*>::iterator it=scripts.begin();it!=scripts.end();++it){if(gateway)gateway->automationGeneration(it->first,0);delete it->second;}scripts.clear();}
