@@ -195,8 +195,7 @@ unavailable or disabled. Credentials are never exposed to Lua.
 
 Writes a structured automation log. `level` is `debug`, `info`, `warn`, or
 `error`; `message` is a short string; `fields` is an optional JSON-compatible
-table. Entries automatically contain the script ID and generation. Scripts must
-not log credentials, Matter identity data, network keys, or raw payloads.
+table. Entries automatically contain the script ID and generation.
 
 ```lua
 log("warn", "low temperature remains", {
@@ -222,8 +221,7 @@ than recursing indefinitely. It attempts to include every field of a supported
 table, but enforces an overall log-record byte limit; overlong output ends with
 an explicit truncation marker. Functions, threads, userdata, and opaque handles
 are represented by their type and identity rather than being executed or
-dereferenced. The same credential, identity, and network-secret redaction rules
-as `log` apply.
+dereferenced.
 
 ## State and utility functions
 

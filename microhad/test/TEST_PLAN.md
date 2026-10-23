@@ -84,7 +84,7 @@ delivery hooks, with no gateway or Internet access. These cases also run within
 the ordinary host unit and integration suites. Coverage includes sandbox and
 execution limits, source validation, persistence transactions/restart/reset,
 events and filters, timers/cron, coroutine resume/timeout/cancellation, shared
-state, reload failures, logs/redaction, source watcher and management APIs,
+state, reload failures, logs, source watcher and management APIs,
 device/action/scene capability validation and notification delivery isolation.
 
 `python3 microhad/scripts/test_automation_webui.py` exercises the production

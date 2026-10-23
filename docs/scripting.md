@@ -179,8 +179,7 @@ end)
 
 The UI supports filtering script logs by severity and time, copying a record,
 and clearing the displayed log view. Clearing the view does not erase the
-gateway's retained system log. Do not use `dump()` for credentials, Matter
-identity values, network keys, or raw protocol data.
+gateway's retained system log.
 
 ## Recovering from a broken script
 
@@ -245,6 +244,5 @@ POST requests use URL-encoded form bodies:
 Script logs retain the latest 512 records in memory and also use syslog for
 operational output. UI clearing changes only its display cursor. Validation
 diagnostics are retained, while draft `log()`/`dump()` calls do not publish
-operational output. Structured fields and table dumps redact sensitive key
-names; authors must still avoid writing secrets into free-text messages.
+operational output.
 
