@@ -17,6 +17,29 @@ extern "C" {
 
 namespace {
 using Automation::Value;
+void typedSnapshots(){
+    Device d;d.ieeeAddress="sensor";d.name="Sensor";d.hasTemperature=true;d.temperatureKnown=true;d.temperatureCelsius=18;
+    Automation::SnapshotPtr before=Automation::capture(d);
+    assert(Automation::capture(d,before)==before);
+    d.temperatureCelsius=19;Automation::SnapshotPtr changed=Automation::capture(d,before);
+    assert(changed!=before&&changed->metadata==before->metadata);
+    assert(before->values[Automation::Temperature]==18&&changed->values[Automation::Temperature]==19);
+    d.name="Renamed";Automation::SnapshotPtr renamed=Automation::capture(d,changed);
+    assert(renamed->metadata!=changed->metadata&&changed->metadata->name=="Sensor");
+    EndpointDescriptor endpoint;endpoint.inputClusters.push_back(8);d.endpoints.push_back(endpoint);
+    Automation::SnapshotPtr capability=Automation::capture(d,renamed);
+    assert(capability->metadata!=renamed->metadata&&capability->metadata->brightness);
+    assert(!renamed->metadata->brightness&&!capability->has(Automation::Brightness));
+    Automation::Event e;e.type="device.value";e.device=before;e.field=Automation::Temperature;e.chain=123;e.depth=2;e.at=42;
+    assert(e.data.fields.empty());Value event=Automation::eventValue(e);
+    assert(event.fields["device"].fields["temperature_celsius"].number==18&&event.fields["value"].number==18);
+    assert(event.fields["chain_id"].string=="123"&&event.fields["chain_depth"].number==2);
+    e.type="device.changed";e.device=changed;e.hasOld=true;e.old=Value(18.);
+    event=Automation::eventValue(e);assert(event.fields["old"].number==18&&event.fields["value"].number==19);
+    d.temperatureKnown=false;Automation::SnapshotPtr unknown=Automation::capture(d,capability);
+    assert(!unknown->has(Automation::Temperature)&&!Automation::snapshot(*unknown).fields.count("temperature_celsius"));
+}
+
 void schedulerRegressions(){
     lua_State* L=luaL_newstate();assert(L);
     luaL_requiref(L,"_G",luaopen_base,1);lua_pop(L,1);
@@ -158,4 +181,4 @@ void callbackBudgetAndQueues(){Fixture f;
     assert(rejected>0);assert(f.worker->waitIdle());usleep(100000);assert(f.worker->logsJson("test.lua").find("limit")!=std::string::npos);assert(f.state().fields["good"].number==1);
 }
 }
-void runAutomationUnitTests(){printf("unit: Lua sandbox, validation, persistence, reload, event filtering, coroutines, timers, cron, shared state, limits, logs and all report sources\n");serialization();sandboxAndValidation();errorLocations();persistenceAndReload();eventsAndCoroutines();timersLimitsAndLogs();safeFiles();schedulesSharedAndShutdown();acceptedReportSources();callbackBudgetAndQueues();}
+void runAutomationUnitTests(){printf("unit: Lua sandbox, validation, persistence, reload, event filtering, coroutines, timers, cron, shared state, limits, logs and all report sources\n");serialization();typedSnapshots();sandboxAndValidation();errorLocations();persistenceAndReload();eventsAndCoroutines();timersLimitsAndLogs();safeFiles();schedulesSharedAndShutdown();acceptedReportSources();callbackBudgetAndQueues();}

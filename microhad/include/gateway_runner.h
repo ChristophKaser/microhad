@@ -105,6 +105,7 @@ public:
     bool setBroadcastQuorum(unsigned int value, std::string* error);
     bool setMatterCommissioningRegion(const std::string& countryCode, const std::string& location,
                                      std::string* error);
+    Automation::CatalogPtr acquireAutomationCatalog();
     void setAutomationWorker(AutomationWorker* worker);
     void automationGeneration(const std::string& script, unsigned long generation);
     bool submitAutomation(const Automation::Action& action, std::string* error);
@@ -160,11 +161,13 @@ private:
     AutomationWorker* automation_;
     std::deque<Automation::Action> automationActions_;
     std::map<std::string, unsigned long> automationGenerations_;
-    std::map<std::string, Automation::Value> automationSnapshots_;
+    std::map<std::string, Automation::SnapshotPtr> automationSnapshots_;
+    Automation::CatalogPtr automationCatalog_;
+    uint64_t automationRevision_;
     uint64_t automationChain_;
     uint64_t activeAutomationChain_;
     unsigned int activeAutomationDepth_;
-    void publishAutomation(const GatewayView& view);
+    void publishAutomation(bool force = false);
     void executeAutomation(const Automation::Action& action);
     SensorHistory* historyStore_;
     pthread_t thread_;

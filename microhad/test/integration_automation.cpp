@@ -21,6 +21,15 @@
 
 class AutomationRunnerTestPeer {
 public:
+    static bool sharedInventory(GatewayRunner& runner,const std::string& id){
+        bool same=false;pthread_mutex_lock(&runner.mutex_);
+        std::map<std::string,Automation::SnapshotPtr>::const_iterator record=runner.automationCatalog_->devices.find(id);
+        if(runner.currentView_&&record!=runner.automationCatalog_->devices.end()){
+            const DeviceViewList& devices=runner.currentView_->view->devices;
+            for(size_t i=0;i<devices.size();++i)if(devices[i].ieeeAddress==id)same=devices.record(i)==record->second->record;
+        }
+        pthread_mutex_unlock(&runner.mutex_);return same;
+    }
     static void queue(GatewayRunner& runner,const Automation::Action& action){runner.automationActions_.push_back(action);}
     static void drain(GatewayRunner& runner){
         Automation::Action action=runner.automationActions_.front();runner.automationActions_.pop_front();
@@ -91,7 +100,28 @@ void runAutomationIntegrationTests(){
         std::string save="filename=main.lua&source="+encode(code);
         std::string response=request(port,"POST","/api/automations/save",save);assert(response.find("200 OK")!=response.npos);
         if(automations.listJson().find("\"loaded\":true")==std::string::npos){fprintf(stderr,"%s\n%s\n",automations.listJson().c_str(),automations.logsJson("").c_str());assert(false);}
-        assert(runner.applyShellyEvent("1234567890abcdef",2,0,18,&error));assert(runner.applyShellyEvent("1234567890abcdef",2,0,18,&error));assert(runner.applyShellyEvent("1234567890abcdef",2,0,19,&error));assert(until(root,"values",3));assert(until(root,"changes",2));
+        Automation::CatalogPtr before=runner.acquireAutomationCatalog();
+        std::string sensorId;for(std::map<std::string,Automation::SnapshotPtr>::const_iterator it=before->devices.begin();it!=before->devices.end();++it)if(it->second->metadata->source=="shelly"&&it->second->metadata->kind=="temperature")sensorId=it->first;
+        assert(!sensorId.empty());
+        assert(runner.applyShellyEvent("1234567890abcdef",2,0,18,&error));
+        Automation::CatalogPtr changed=runner.acquireAutomationCatalog();
+        assert(before!=changed&&before->names==changed->names);
+        assert(AutomationRunnerTestPeer::sharedInventory(runner,sensorId));
+        assert(changed->devices.find(sensorId)->second->record->temperatureCelsius==18);
+        assert(before->devices.find(sensorId)->second->metadata==changed->devices.find(sensorId)->second->metadata);
+        assert(before->devices.find("0x00124b0000000042")->second==changed->devices.find("0x00124b0000000042")->second);
+        assert(!before->devices.find(sensorId)->second->has(Automation::Temperature));
+        assert(changed->devices.find(sensorId)->second->values[Automation::Temperature]==18);
+        assert(runner.applyShellyEvent("1234567890abcdef",2,0,18,&error));assert(runner.applyShellyEvent("1234567890abcdef",2,0,19,&error));assert(until(root,"values",3));assert(until(root,"changes",2));
+        assert(changed->devices.find(sensorId)->second->values[Automation::Temperature]==18);
+        assert(changed->devices.find(sensorId)->second->record->temperatureCelsius==18);
+        const std::string oldName=changed->devices.find(sensorId)->second->metadata->name;
+        assert(runner.setDeviceSettings(sensorId,"Renamed temperature",false,0,false,0,false,0,0,false,0,&error));
+        Automation::CatalogPtr renamed=runner.acquireAutomationCatalog();
+        assert(renamed->names!=changed->names&&renamed->resolve("rENAMED TEMPERATURE",&error));
+        assert(!renamed->resolve(oldName,&error));
+        assert(AutomationRunnerTestPeer::sharedInventory(runner,sensorId));
+        assert(renamed->devices.find("0x00124b0000000042")->second==changed->devices.find("0x00124b0000000042")->second);
         const std::string apiChecks="local d,err=devices.get('LaMp');assert(d==nil and err:find('ambiguous'));local lamp=assert(devices.get('0x00124b0000000042'));assert(lamp.name=='Lamp');assert(not pcall(function()lamp.name='changed'end));assert(devices.light(lamp.id,{on=true,brightness=50}));assert(devices.refresh(lamp.id));assert(scenes.activate('office','evening'));assert(scenes.off('1'));local ok=devices.actor(lamp.id,true);assert(ok==nil);assert(not pcall(function()devices.light(lamp.id,{brightness=101})end));assert(not pcall(function()devices.list({unsupported=true})end));assert(not pcall(function()devices.actor(lamp.id,1)end));assert(not pcall(function()notify.send(1,'body')end));assert(not pcall(function()notify.send('title','body',{bad=true})end));assert(not devices.get('missing'));assert(not scenes.activate('missing','scene'));assert(not scenes.activate('office','missing'));assert(notify.send('Automation','Message',{tag='test',device_id=lamp.id}));";
         std::string checkedApis=apiChecks;for(size_t i=0;i<checkedApis.size();++i)if(checkedApis[i]==';')checkedApis.insert(++i,"\n");
         const unsigned delivered=delivery.count();if(!automations.validate("apis.lua",checkedApis,&error)){fprintf(stderr,"API checks: %s\n",error.c_str());assert(false);}usleep(20000);assert(delivery.count()==delivered);

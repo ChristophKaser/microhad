@@ -11,6 +11,8 @@
 #include "ash.h"
 #include "network_backup.h"
 #include "sensor_history.h"
+#include "automation_types.h"
+#include <set>
 
 class ZigguratClient;
 class NotificationWorker;
@@ -218,6 +220,19 @@ struct DeviceConfigurationStatus {
     std::vector<DeviceBindingEntry> bindings;
 };
 
+// This is an index of shared immutable device records, not another inventory.
+class DeviceViewList {
+    Automation::SnapshotListPtr records_;
+public:
+    DeviceViewList() : records_(new Automation::SnapshotList) {}
+    void share(const Automation::SnapshotListPtr& records) { records_=records; }
+    size_t size() const { return records_->size(); }
+    const Device& operator[](size_t index) const { return *(*records_)[index]->record; }
+    const Automation::DevicePtr& record(size_t index) const { return (*records_)[index]->record; }
+    void push_back(const Device& device);
+    operator std::vector<Device>() const;
+};
+
 /* Immutable data which may be safely handed from the coordinator to a web
    worker.  It deliberately contains only dashboard-visible state. */
 class GatewayView {
@@ -236,7 +251,7 @@ public:
     long joiningUntil;
     bool joiningPreparing;
     bool notificationsEnabled;
-    std::vector<Device> devices;
+    DeviceViewList devices;
     std::vector<SceneGroup> sceneGroups;
     std::vector<RemoteSceneBinding> sceneBindings;
     std::vector<NativeRemoteBinding> nativeBindings;
@@ -336,8 +351,19 @@ public:
     bool setNotificationsEnabled(bool enabled, std::string* error);
     void logEventLoopDiagnostic(const std::string& message);
     std::vector<Device> devices() const;
-    GatewayView captureView(bool includeLogs = true) const;
+    GatewayView captureView(bool includeLogs = true,const Automation::CatalogPtr& catalog = Automation::CatalogPtr()) const;
     bool takeViewDirty();
+    struct AutomationChanges {
+        bool inventory;
+        std::set<std::string> devices;
+        AutomationChanges() : inventory(false) {}
+    };
+    AutomationChanges takeAutomationChanges();
+    long contactTriggerUntilForView(const std::string& id) const;
+    // Coordinator-only immutable capture inputs; never hand live references to workers.
+    uint64_t viewRevision() const { return viewRevision_; }
+    const std::map<std::string,Device>& devicesForAutomation() const { return devices_; }
+    const std::vector<SceneGroup>& groupsForAutomation() const { return sceneGroups_; }
     struct AutomationReport {
         Device device;
         std::string field;
@@ -616,7 +642,10 @@ private:
 #ifdef MICROHAD_TESTING
     std::deque<std::string> logs_;
 #endif
-    bool viewDirty_;
+    mutable bool viewDirty_;
+    mutable uint64_t viewRevision_;
+    mutable bool automationInventoryDirty_;
+    mutable std::set<std::string> automationDeviceDirty_;
     mutable bool deviceCacheDirty_;
     mutable uint64_t deviceCacheDueMs_;
     mutable bool matterInventoryDirty_;
@@ -746,7 +775,8 @@ private:
     void markViewDirty();
     void addHexLog(const std::string& direction, const unsigned char* bytes, unsigned long length);
     void loadState();
-    void saveState() const;
+    void saveState(const std::string& deviceId = "") const;
+    void markDeviceDirty(const std::string& deviceId) const;
     void flushState(bool force);
     std::string resolveDeviceId(const std::string& id) const;
     void savePersistentState() const;

@@ -111,3 +111,16 @@ Cache tests also run with flash history absent or disabled. Gateway fixtures
 isolate both RAM-cache paths so deferred shutdown writes cannot contaminate
 other fixtures or overwrite an existing host cache. Existing history tests retain
 the full-page/four-hour and stable flash-slot checks.
+
+## Shared immutable device publication
+
+Automation unit and integration tests verify unchanged snapshot reuse, immutable
+old values, shared device metadata, capability updates, field disappearance,
+case-insensitive lookup and duplicate-name handling, and name-index invalidation
+after rename. Integration checks assert that dashboard and automation reference
+the same full device record, while unaffected records keep their identity.
+Repeated equal reports and intermediate value changes retain their individual
+events and historical values. Existing concurrent view/retirement and bounded
+log tests cover reference lifetimes and public JSON compatibility. Scheduler
+regressions reject calendar work on idle ticks and immutable-table construction
+for events with no matching listener.

@@ -355,7 +355,7 @@ Gateway::Gateway(const std::string& serialDevice, int serialBaud, const std::str
     online_(false), joinUntil_(0), joinPermitRenewAt_(0), joinPermitClosePending_(false), joinPermitCloseDeadline_(0), pendingJoinSeconds_(0), joinPreparationStep_(0), joinPreparationDeadline_(0), ashSendSequence_(0), ashReceiveSequence_(0), ezspSequence_(0),
     ashAckDeadline_(0), ashRetries_(0), ashPendingSensitive_(false), networkBackupQuery_(0, std::vector<unsigned char>()), networkBackupSequence_(0), networkBackupDeadline_(0), networkBackupStarted_(0), ezspVersion_(4), zdoSequence_(0), zclTransactionSequence_(0), ezspVersionNegotiated_(false), stackTokenWritingRequested_(false), networkInitRequested_(false), tradfriBindGroupConfigured_(false), coordinatorInitializationStep_(0), coordinatorInitializationDeadline_(0), resetDeadline_(0), serialReconnectFailures_(0), zigbeeDownAlertQueued_(false), nextHeartbeatAt_(0), serialRxBytes_(0), ashRxFrames_(0), networkForming_(false), networkFormationStep_(0), networkFormationDeadline_(0), networkFormed_(false), networkPanId_(0),
     networkChannel_(0), observedNetworkChannel_(0), interviewRequestInFlight_(false), interviewSendAccepted_(false), interviewEzspSequence_(0), interviewNode_(0xffff),
-    interviewDeadline_(0), nextMessageTag_(1), coordinatorIeeeAddressRequested_(false), viewDirty_(true), deviceCacheDirty_(false), deviceCacheDueMs_(0), matterInventoryDirty_(false), matterInventorySaveAt_(0) {
+    interviewDeadline_(0), nextMessageTag_(1), coordinatorIeeeAddressRequested_(false), viewDirty_(true), viewRevision_(1), automationInventoryDirty_(true), deviceCacheDirty_(false), deviceCacheDueMs_(0), matterInventoryDirty_(false), matterInventorySaveAt_(0) {
 #if MICROHAD_ZIGGURAT_ENABLED
     ziggurat_ = 0;
 #endif
@@ -871,7 +871,7 @@ bool Gateway::applyMatterReading(const MatterReading& reading, std::string* erro
     }
     updateValueAlerts(device, before);
     automationReport(device, reading.cluster==1026?"temperature_celsius":reading.cluster==1029?"humidity_percent":reading.cluster==69?(device.hasWaterLeak?"water_detected":"contact_open"):reading.cluster==8?"brightness_percent":reading.cluster==6?(device.hasActor?"actor_on":"light_on"):reading.cluster==47?"battery_percent":reading.cluster==91?"air_quality":reading.cluster==1037?"co2_ppm":reading.cluster==1066?"pm25_micrograms_m3":"temperature_celsius");
-    markViewDirty();
+    markDeviceDirty(device.ieeeAddress);
     bool volatileChanged = before.lightKnown != device.lightKnown || before.lightOn != device.lightOn ||
         before.actorKnown != device.actorKnown || before.actorOn != device.actorOn ||
         before.contactKnown != device.contactKnown || before.contactOpen != device.contactOpen ||
@@ -884,7 +884,7 @@ bool Gateway::applyMatterReading(const MatterReading& reading, std::string* erro
         before.pm25Known != device.pm25Known || before.pm25MicrogramsM3 != device.pm25MicrogramsM3 ||
         before.pm25Unit != device.pm25Unit ||
         before.hasBattery != device.hasBattery || before.batteryPercent != device.batteryPercent;
-    if (volatileChanged) saveState();
+    if (volatileChanged) saveState(device.ieeeAddress);
     return true;
 }
 
@@ -1010,7 +1010,7 @@ bool Gateway::applyShellyEvent(const std::string& id, int metric, int channelInd
     }
     d.lastSeen = now;
     automationReport(d,metric==1?"contact_open":metric==2?"temperature_celsius":metric==3?"actor_on":"power_watts");
-    markViewDirty(); saveState();
+    markDeviceDirty(d.ieeeAddress); saveState(d.ieeeAddress);
     return true;
 }
 
@@ -1037,7 +1037,7 @@ bool Gateway::applyFritzEvent(const std::string& id, bool connected, bool hasSig
     it->second.lastSeen = time(0);
     automationReport(it->second,"occupied");
     if(hasSignal)automationReport(it->second,"wifi_signal_percent");
-    markViewDirty(); saveState();
+    markDeviceDirty(it->second.ieeeAddress); saveState(it->second.ieeeAddress);
     return true;
 }
 
@@ -1974,7 +1974,7 @@ bool Gateway::setDeviceSettings(const std::string& ieeeAddress, const std::strin
         if (sensorRefreshIntervalMinutes == 0) nextSensorRefreshAt_.erase(it->second.networkAddress);
         else nextSensorRefreshAt_[it->second.networkAddress] = sensorRefreshDeadline(time(0), sensorRefreshIntervalMinutes);
     }
-    saveState();
+    saveState(it->second.ieeeAddress);
     savePersistentState();
     return true;
 }
@@ -2029,7 +2029,7 @@ bool Gateway::setDeviceValueAlerts(const std::string& ieeeAddress,
         value.lowActive = false; value.highActive = false;
         device.valueAlerts[setting->first] = value;
     }
-    saveState(); savePersistentState(); markViewDirty();
+    saveState(device.ieeeAddress); savePersistentState(); markDeviceDirty(device.ieeeAddress);
     return true;
 }
 
@@ -2192,7 +2192,7 @@ bool Gateway::setLightState(const std::string& ieeeAddress, const std::string& s
         found->second.hasBrightness = true;
         found->second.brightnessPercent = brightnessPercent;
         found->second.lightOn = brightnessPercent != 0;
-        saveState();
+        saveState(found->second.ieeeAddress);
         addLog(std::string("Light brightness command queued: ") + ieeeAddress);
         return true;
     }
@@ -2205,7 +2205,7 @@ bool Gateway::setLightState(const std::string& ieeeAddress, const std::string& s
     sendZclLightCommand(found->second.networkAddress, endpoint, kOnOffCluster, command, std::vector<unsigned char>());
     if (state == "toggle") found->second.lightOn = !found->second.lightOn;
     else found->second.lightOn = state == "on";
-    saveState();
+    saveState(found->second.ieeeAddress);
     addLog(std::string("Light power command queued: ") + ieeeAddress + " " + state);
     return true;
 }
@@ -2980,7 +2980,7 @@ bool Gateway::applyAttributeReport(const std::string& ieeeAddress, unsigned shor
     if(changed && cluster==6)automationReport(device,"light_on");
     if(changed && cluster==8)automationReport(device,"brightness_percent");
     if (changed) recordHistory(before, device, observed, timestamp);
-    if (changed) { markViewDirty(); updateContactAlert(ieeeAddress, wasOpen, hadKnownContact); updateTemperatureAlert(device, hadTemperature, previousTemperature); updateValueAlerts(device, before); saveState(); }
+    if (changed) { markDeviceDirty(device.ieeeAddress); updateContactAlert(ieeeAddress, wasOpen, hadKnownContact); updateTemperatureAlert(device, hadTemperature, previousTemperature); updateValueAlerts(device, before); saveState(device.ieeeAddress); }
     return changed;
 }
 
@@ -2998,7 +2998,7 @@ bool Gateway::applyIasZoneStatus(const std::string& ieeeAddress, const std::vect
         addLog(std::string(device.hasWaterLeak ? "Water leak status from " : "Contact status from ") + ieeeAddress +
                (device.contactOpen ? (device.hasWaterLeak ? ": wet" : ": open") : (device.hasWaterLeak ? ": dry" : ": closed")));
         updateContactAlert(ieeeAddress, wasOpen, hadKnownContact);
-        saveState();
+        saveState(device.ieeeAddress);
     }
     return changed;
 }
@@ -3566,7 +3566,14 @@ std::string GatewayView::statusJson() const {
     return json.str();
 }
 
-GatewayView Gateway::captureView(bool includeLogs) const {
+void DeviceViewList::push_back(const Device& device) {
+    std::tr1::shared_ptr<Automation::SnapshotList> next(new Automation::SnapshotList(*records_));
+    Automation::DevicePtr record(new Device(device));next->push_back(Automation::capture(*record,Automation::SnapshotPtr(),record));records_=next;
+}
+DeviceViewList::operator std::vector<Device>() const {
+    std::vector<Device> result;result.reserve(size());for(size_t i=0;i<size();++i)result.push_back((*this)[i]);return result;
+}
+GatewayView Gateway::captureView(bool includeLogs,const Automation::CatalogPtr& catalog) const {
     AUTOMATION_PROFILE("coord.capture");
     GatewayView view;
     view.coordinatorBackend = "ezsp";
@@ -3581,10 +3588,14 @@ GatewayView Gateway::captureView(bool includeLogs) const {
     view.settingsJson = gatewaySettingsJson();
     view.matterCountryCode = matterCountryCode_;
     view.matterRegulatoryLocation = matterRegulatoryLocation_;
-    view.devices = devices();
-    for (unsigned long i = 0; i < view.devices.size(); ++i) {
-        std::map<std::string, long>::const_iterator trigger = nextContactTriggerAt_.find(view.devices[i].ieeeAddress);
-        if (trigger != nextContactTriggerAt_.end()) view.devices[i].contactTriggerUntil = trigger->second;
+    if(catalog)view.devices.share(catalog->ordered);
+    else {
+        std::tr1::shared_ptr<Automation::SnapshotList> records(new Automation::SnapshotList);records->reserve(devices_.size());
+        for(std::map<std::string,Device>::const_iterator it=devices_.begin();it!=devices_.end();++it){
+            Device* record=new Device(it->second);record->contactTriggerUntil=contactTriggerUntilForView(it->first);
+            Automation::DevicePtr immutable(record);records->push_back(Automation::capture(*record,Automation::SnapshotPtr(),immutable));
+        }
+        view.devices.share(records);
     }
     view.sceneGroups = sceneGroups_; view.sceneBindings = sceneBindings_;
     view.nativeBindings = nativeBindings_;
@@ -3606,7 +3617,7 @@ GatewayView Gateway::captureView(bool includeLogs) const {
 bool Gateway::takeViewDirty() { bool dirty = viewDirty_; viewDirty_ = false; return dirty; }
 void Gateway::automationReport(const Device& device,const std::string& field) {
     if(automationReports_.size()<512) { AutomationReport report;report.device=device;report.field=field;automationReports_.push_back(report); }
-    markViewDirty();
+    markDeviceDirty(device.ieeeAddress);
 }
 void Gateway::automationRemoteAction(const Device& device, const std::string& action,
                                      unsigned short endpoint, int position, int pressCount) {
@@ -3620,10 +3631,19 @@ void Gateway::automationRemoteAction(const Device& device, const std::string& ac
         report.remoteAction = true;
         automationReports_.push_back(report);
     }
-    markViewDirty();
+    markDeviceDirty(device.ieeeAddress);
 }
 std::vector<Gateway::AutomationReport> Gateway::takeAutomationReports() { std::vector<AutomationReport> result;result.swap(automationReports_);return result; }
-void Gateway::markViewDirty() { viewDirty_ = true; }
+void Gateway::markViewDirty() { viewDirty_=true;++viewRevision_;automationInventoryDirty_=true; }
+void Gateway::markDeviceDirty(const std::string& id) const {
+    viewDirty_=true;++viewRevision_;if(!automationInventoryDirty_)automationDeviceDirty_.insert(id);
+}
+Gateway::AutomationChanges Gateway::takeAutomationChanges() {
+    AutomationChanges result;result.inventory=automationInventoryDirty_;result.devices.swap(automationDeviceDirty_);automationInventoryDirty_=false;return result;
+}
+long Gateway::contactTriggerUntilForView(const std::string& id) const {
+    std::map<std::string,long>::const_iterator found=nextContactTriggerAt_.find(id);return found==nextContactTriggerAt_.end()?0:found->second;
+}
 std::string Gateway::statusJson() const { return captureView(false).statusJson(); }
 std::string Gateway::logsJson() const {
 #ifdef MICROHAD_TESTING
@@ -3658,7 +3678,7 @@ void Gateway::addLog(const std::string& message) {
     }
 #endif
 #ifdef MICROHAD_TESTING
-    markViewDirty();
+    viewDirty_=true;
 #endif
     syslog(LOG_INFO, "%s", rendered.c_str());
 }
@@ -3797,7 +3817,9 @@ uint64_t deviceCacheMilliseconds() {
     return static_cast<uint64_t>(value.tv_sec)*1000+value.tv_nsec/1000000;
 }
 }
-void Gateway::saveState() const {
+void Gateway::saveState(const std::string& id) const {
+    if(id.empty()){viewDirty_=true;++viewRevision_;automationInventoryDirty_=true;}
+    else markDeviceDirty(id);
     // A fixed window from the first dirty value prevents continuous reports
     // from postponing persistence indefinitely. No snapshot or I/O here.
     if (!deviceCacheDirty_) deviceCacheDueMs_=deviceCacheMilliseconds()+5000;
@@ -5979,7 +6001,7 @@ void Gateway::handleApsMessage(unsigned short sender, unsigned short profile, un
             device.linkQuality = lqi;
             device.lastSeen = time(0);
             updateValueAlerts(device, before);
-            markViewDirty();
+            markDeviceDirty(device.ieeeAddress);
         }
     }
     if (cluster == 0x0019 && (frameControl & 0x0f) == 0x01 && command == 0x01 &&
@@ -6041,7 +6063,7 @@ void Gateway::handleApsMessage(unsigned short sender, unsigned short profile, un
             if(cluster==8)automationReport(accepted,"brightness_percent");
             recordHistory(before, devices_[address->second], observed, devices_[address->second].lastSeen);
             updateContactAlert(address->second, wasOpen, hadKnownContact);
-            saveState();
+            saveState(accepted.ieeeAddress);
         }
         if (matched) completeInterviewOperation(sender);
     } else if ((frameControl & 0x03) == 0 && command == 0x0a) {

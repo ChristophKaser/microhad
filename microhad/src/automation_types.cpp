@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <sstream>
 #include <iomanip>
+#include <cstdio>
 
 namespace Automation {
 bool Value::operator==(const Value& v) const {
@@ -39,27 +40,98 @@ public: explicit Parser(const std::string& t):text(t),at(0),nodes(0){}bool run(V
 };
 }
 bool parse(const std::string& text,Value* value){return Parser(text).run(value);}
-Value snapshot(const Device& d){Value v=Value::object();
-    const bool zigbee=d.source.empty()||d.source=="zigbee";
-    v.fields["id"]=Value(d.ieeeAddress);
-    v.fields["name"]=Value(d.name);v.fields["source"]=Value(d.source.empty()?"zigbee":d.source);v.fields["kind"]=Value(d.kind);v.fields["online"]=Value(d.online||(!zigbee&&d.source!="matter"&&d.lastSeen>0)||(zigbee&&d.lastSeen>0));v.fields["last_seen"]=Value(static_cast<double>(d.lastSeen));
-#define FIELD(known,name,member) if(known)v.fields[name]=Value(d.member)
-    FIELD(d.hasTemperature&&d.temperatureKnown,"temperature_celsius",temperatureCelsius);
-    FIELD(d.hasHumidity&&(d.humidityKnown||zigbee),"humidity_percent",humidityPercent);
-    FIELD(d.hasContact&&d.contactKnown,"contact_open",contactOpen);
-    FIELD(d.hasWaterLeak&&d.waterLeakKnown,"water_detected",waterDetected);
-    FIELD(d.hasOccupancy,"occupied",occupied);
-    FIELD(d.hasLight&&(d.lightKnown||zigbee),"light_on",lightOn);
-    FIELD(d.hasActor&&d.actorKnown,"actor_on",actorOn);
-    FIELD(d.hasPower&&d.powerKnown,"power_watts",powerWatts);
-    FIELD(d.hasAirQuality&&d.airQualityKnown,"air_quality",airQuality);
-    FIELD(d.hasCo2&&d.co2Known,"co2_ppm",co2Ppm);
-    FIELD(d.hasPm25&&d.pm25Known,"pm25_micrograms_m3",pm25MicrogramsM3);
-#undef FIELD
-    if(d.hasBrightness&&(d.brightnessKnown||zigbee))v.fields["brightness_percent"]=Value(static_cast<double>(d.brightnessPercent));
-    if(d.hasBattery)v.fields["battery_percent"]=Value(static_cast<double>(d.batteryPercent));
-    if(d.hasWifiSignal)v.fields["wifi_signal_percent"]=Value(static_cast<double>(d.wifiSignalPercent));
-    if(d.source=="zigbee"||d.source.empty())v.fields["link_quality"]=Value(static_cast<double>(d.linkQuality));
-    return v;
+namespace {
+std::string folded(const std::string& text) {
+    std::string result=text;for(size_t i=0;i<result.size();++i)if(result[i]>='A'&&result[i]<='Z')result[i]+=32;return result;
 }
+bool dimmable(const Device& d) {
+    if(d.hasBrightness)return true;
+    for(size_t i=0;i<d.endpoints.size();++i)for(size_t j=0;j<d.endpoints[i].inputClusters.size();++j)
+        if(d.endpoints[i].inputClusters[j]==8)return true;
+    return false;
+}
+const char* names[]={"actor_on","air_quality","battery_percent","brightness_percent","co2_ppm","contact_open","humidity_percent","id","kind","last_seen","light_on","link_quality","name","occupied","online","pm25_micrograms_m3","power_watts","source","temperature_celsius","water_detected","wifi_signal_percent"};
+bool booleanField(Field f) { return f==ActorOn||f==ContactOpen||f==LightOn||f==Occupied||f==Online||f==WaterDetected; }
+}
+DeviceMetadata::DeviceMetadata(const Device& d):id(d.ieeeAddress),name(d.name),lookupName(folded(d.name)),source(d.source.empty()?"zigbee":d.source),kind(d.kind),matterNode(d.matterNode),matterEndpoint(d.matterEndpoint),light(d.hasLight),actor(d.hasActor),brightness(dimmable(d)),contact(d.hasContact),humidity(d.hasHumidity) {}
+bool DeviceMetadata::matches(const Device& d) const {
+    return id==d.ieeeAddress&&name==d.name&&source==(d.source.empty()?"zigbee":d.source)&&kind==d.kind&&matterNode==d.matterNode&&matterEndpoint==d.matterEndpoint&&light==d.hasLight&&actor==d.hasActor&&brightness==dimmable(d)&&contact==d.hasContact&&humidity==d.hasHumidity;
+}
+DeviceSnapshot::DeviceSnapshot():present(0) { for(unsigned i=0;i<FieldCount;++i)values[i]=0; }
+const char* fieldName(Field field) { return field<FieldCount?names[field]:""; }
+Field findField(const std::string& name) { for(unsigned i=0;i<FieldCount;++i)if(name==names[i])return static_cast<Field>(i);return FieldCount; }
+bool sameField(const DeviceSnapshot& a,const DeviceSnapshot& b,Field field) {
+    if(a.has(field)!=b.has(field))return false;
+    if(!a.has(field))return true;
+    switch(field) {
+    case Id:return a.metadata->id==b.metadata->id;
+    case Name:return a.metadata->name==b.metadata->name;
+    case Kind:return a.metadata->kind==b.metadata->kind;
+    case Source:return a.metadata->source==b.metadata->source;
+    case AirQuality:return a.airQuality==b.airQuality;
+    default:return a.values[field]==b.values[field];
+    }
+}
+SnapshotPtr capture(const Device& d,const SnapshotPtr& previous,const DevicePtr& record) {
+    DeviceSnapshot next;next.record=record;
+    next.metadata=previous&&previous->metadata->matches(d)?previous->metadata:MetadataPtr(new DeviceMetadata(d));
+    const bool zigbee=d.source.empty()||d.source=="zigbee";
+#define F(field,known,value) if(known){next.present|=1U<<field;next.values[field]=value;}
+    F(Id,true,0);F(Name,true,0);F(Kind,true,0);F(Source,true,0);
+    F(Online,true,d.online||(!zigbee&&d.source!="matter"&&d.lastSeen>0)||(zigbee&&d.lastSeen>0));
+    F(LastSeen,true,d.lastSeen);
+    F(Temperature,d.hasTemperature&&d.temperatureKnown,d.temperatureCelsius);
+    F(Humidity,d.hasHumidity&&(d.humidityKnown||zigbee),d.humidityPercent);
+    F(ContactOpen,d.hasContact&&d.contactKnown,d.contactOpen);
+    F(WaterDetected,d.hasWaterLeak&&d.waterLeakKnown,d.waterDetected);
+    F(Occupied,d.hasOccupancy,d.occupied);F(LightOn,d.hasLight&&(d.lightKnown||zigbee),d.lightOn);
+    F(ActorOn,d.hasActor&&d.actorKnown,d.actorOn);F(Power,d.hasPower&&d.powerKnown,d.powerWatts);
+    F(AirQuality,d.hasAirQuality&&d.airQualityKnown,0);if(next.has(AirQuality))next.airQuality=d.airQuality;
+    F(Co2,d.hasCo2&&d.co2Known,d.co2Ppm);F(Pm25,d.hasPm25&&d.pm25Known,d.pm25MicrogramsM3);
+    F(Brightness,d.hasBrightness&&(d.brightnessKnown||zigbee),d.brightnessPercent);
+    F(Battery,d.hasBattery,d.batteryPercent);F(WifiSignal,d.hasWifiSignal,d.wifiSignalPercent);F(LinkQuality,zigbee,d.linkQuality);
+#undef F
+    bool same=previous&&(!record||record==previous->record)&&next.metadata==previous->metadata&&next.present==previous->present;
+    for(unsigned i=0;same&&i<FieldCount;++i)same=sameField(next,*previous,static_cast<Field>(i));
+    return same?previous:SnapshotPtr(new DeviceSnapshot(next));
+}
+Value fieldValue(const DeviceSnapshot& d,Field field) {
+    if(field>=FieldCount||!d.has(field))return Value();
+    switch(field) {
+    case Id:return Value(d.metadata->id);case Name:return Value(d.metadata->name);
+    case Kind:return Value(d.metadata->kind);case Source:return Value(d.metadata->source);
+    case AirQuality:return Value(d.airQuality);
+    default:return booleanField(field)?Value(d.values[field]!=0):Value(d.values[field]);
+    }
+}
+Value snapshot(const DeviceSnapshot& d) {
+    Value result=Value::object();for(unsigned i=0;i<FieldCount;++i)if(d.has(static_cast<Field>(i)))result.fields[names[i]]=fieldValue(d,static_cast<Field>(i));return result;
+}
+Value snapshot(const Device& d) { return snapshot(*capture(d)); }
+Catalog::Catalog():ordered(new SnapshotList),names(new NameIndex),groups(new SceneCatalog) {}
+const DeviceSnapshot* Catalog::resolve(const std::string& target,std::string* error) const {
+    std::map<std::string,SnapshotPtr>::const_iterator direct=devices.find(target);
+    if(direct!=devices.end())return direct->second.get();
+    NameIndex::const_iterator name=names->find(folded(target));
+    if(name==names->end()){*error="unknown device: "+target;return 0;}
+    if(name->second.empty()){*error="ambiguous name; use stable IDs";return 0;}
+    direct=devices.find(name->second);return direct==devices.end()?0:direct->second.get();
+}
+Value eventValue(const Event& e) {
+    if(!e.device)return e.data;
+    Value out=Value::object();out.fields["type"]=Value(e.type);out.fields["device"]=snapshot(*e.device);
+    out.fields["device_id"]=Value(e.device->metadata->id);out.fields["source"]=Value(e.device->metadata->source);
+    out.fields["at"]=Value(e.at);char chain[32];snprintf(chain,sizeof(chain),"%llu",static_cast<unsigned long long>(e.chain));
+    out.fields["chain_id"]=Value(chain);out.fields["chain_depth"]=Value(static_cast<double>(e.depth));
+    if(e.field!=FieldCount){out.fields["field"]=Value(fieldName(e.field));out.fields["value"]=fieldValue(*e.device,e.field);}
+    if(e.hasOld)out.fields["old"]=e.old;
+    if(e.type=="device.removed")out.fields["reason"]=Value("removed");
+    if(e.type=="remote.action"){
+        out.fields["action"]=Value(e.action);out.fields["endpoint"]=Value(static_cast<double>(e.endpoint));
+        if(e.position>=0)out.fields["position"]=Value(static_cast<double>(e.position));
+        if(e.pressCount>=0)out.fields["press_count"]=Value(static_cast<double>(e.pressCount));
+    }
+    return out;
+}
+
 }

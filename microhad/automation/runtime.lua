@@ -4,7 +4,7 @@ local co, unpack, pack = coroutine, table.unpack, table.pack
 local next, pairs, type, error, assert = next, pairs, type, error, assert
 local tasks, listeners, timers = {}, {}, {}
 local serial, last_minute = 0, table.concat(host.calendar(),':')
-local current, initializing
+local current, initializing, has_cron
 local env = {}
 local function strict(v, t, name)
   if type(v) ~= t then error((name or 'argument') .. ' must be ' .. t, 3) end
@@ -137,6 +137,8 @@ function automation.cron(expression,fn)
   local ranges={{0,59},{0,23},{1,31},{1,12},{0,7}};local fields,stars={},{}
   for i=1,5 do fields[i],stars[i]=cron_field(parts[i],unpack(ranges[i])) end
   if fields[5][7]then fields[5][0]=true end
+  if not has_cron then last_minute=table.concat(host.calendar(),':')end
+  has_cron=true
   local h=handle();timers[h]={cron=fields,stars=stars,fn=fn};return h
 end
 local function state_proxy(scope,path)
@@ -192,12 +194,14 @@ function runtime.initialize(fn)
   return true
 end
 function runtime.event(event)
-  local snapshot=immutable(event)
-  for _,entry in pairs(listeners) do if matches(entry.filter,event)then start(entry.fn,{snapshot},event.chain_id,event.chain_depth)end end
-  for _,task in pairs(tasks)do if task.wait and task.wait.kind=='event' and matches(task.wait.filter,event)then task.wait=nil;task.args={snapshot}end end
+  local snapshot
+  for _,entry in pairs(listeners) do if matches(entry.filter,event)then snapshot=snapshot or immutable(event);start(entry.fn,{snapshot},event.chain_id,event.chain_depth)end end
+  for _,task in pairs(tasks)do if task.wait and task.wait.kind=='event' and matches(task.wait.filter,event)then snapshot=snapshot or immutable(event);task.wait=nil;task.args={snapshot}end end
 end
 function runtime.tick()
-  local now=host.monotonic();local calendar=host.calendar();local minute=table.concat(calendar,':')
+  if next(tasks)==nil and next(timers)==nil then return end
+  local now=host.monotonic();local calendar;local minute=last_minute
+  if has_cron then calendar=host.calendar();minute=table.concat(calendar,':')end
   for h,t in pairs(timers)do
     local due=t.due and t.due<=now
     if t.cron and minute~=last_minute and not t.active then
@@ -215,8 +219,10 @@ function runtime.tick()
     end
   end
   last_minute=minute
+  if next(tasks)==nil then return end
   -- Snapshot the ready queue: newly registered callbacks run on the next tick.
-  local ready={} for h,t in pairs(tasks)do ready[#ready+1]={h,t}end
+  local ready={} for h,t in pairs(tasks)do if not t.wait or (t.wait.due and t.wait.due<=now)then ready[#ready+1]={h,t}end end
+  if #ready==0 then return end
   table.sort(ready,function(a,b)return host.handle_id(a[1])<host.handle_id(b[1])end)
   local dispatched=false
   for _,entry in ipairs(ready)do local h,t=unpack(entry)

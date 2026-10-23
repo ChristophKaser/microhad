@@ -1,10 +1,10 @@
 -- Deterministic tests of scheduler admission and per-resume accounting.
 local factory = assert(loadfile('automation/runtime.lua'))
 local function fixture(used)
-  local clock, minute, failures = 0, 0, 0
+  local clock, minute, failures, clock_calls = 0, 0, 0, 0
   local host = {
-    calendar=function() return {minute,0,1,1,0,126,0} end,
-    now=function() return clock end, monotonic=function() return clock end,
+    calendar=function() clock_calls=clock_calls+1;return {minute,0,1,1,0,126,0} end,
+    now=function() return clock end, monotonic=function() clock_calls=clock_calls+1;return clock end,
     handle=function(id) return id end, handle_id=function(id) return id end,
     begin=function() end, finish=function() end, discard=function() end,
     failed=function() return false end,
@@ -19,7 +19,7 @@ local function fixture(used)
   }
   local runtime = factory(host)
   return runtime, function(value) clock=value;minute=value end,
-    function() return failures end
+    function() return failures end, function() return clock_calls end
 end
 
 for _,cron in ipairs({false,true}) do
@@ -65,4 +65,16 @@ do
   local runtime, _, failures = fixture(200000)
   runtime.initialize(function() end)
   assert(failures()==1,'exhausted instruction budget must fail after resume')
+end
+
+-- Idle listeners require no clock/calendar work and unmatched events need no
+-- immutable device-table copy. These are hot paths on the single-core gateway.
+do
+  local runtime, _, failures, calls = fixture()
+  runtime.initialize(function() runtime.env.events.on({type='remote.action'},function()end) end)
+  local before=calls()
+  for _=1,100 do runtime.tick() end
+  assert(calls()==before,'idle tick should not ask the host for time')
+  runtime.event({type='device.value',device=setmetatable({}, {__pairs=function()error('unmatched snapshot copied')end})})
+  assert(failures()==0)
 end

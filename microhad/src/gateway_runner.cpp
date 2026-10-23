@@ -9,6 +9,7 @@
 #include <ctime>
 #include <fcntl.h>
 #include <sstream>
+#include <set>
 #include <sys/select.h>
 #include <unistd.h>
 #if defined(__linux__)
@@ -23,7 +24,7 @@ GatewayRunner::LoopDebugStats::LoopDebugStats() : iterations(0), commandSkips(0)
     lastTimeoutSeconds(-1), lastDeadline(0), lastDeadlineSource("none") {
 }
 
-GatewayRunner::GatewayRunner(Gateway* gateway) : gateway_(gateway), automation_(0), automationChain_(0), activeAutomationChain_(0), activeAutomationDepth_(0), historyStore_(gateway->historyStore()), commandWakeRead_(-1), commandWakeWrite_(-1),
+GatewayRunner::GatewayRunner(Gateway* gateway) : gateway_(gateway), automation_(0), automationCatalog_(new Automation::Catalog), automationRevision_(0), automationChain_(0), activeAutomationChain_(0), activeAutomationDepth_(0), historyStore_(gateway->historyStore()), commandWakeRead_(-1), commandWakeWrite_(-1),
     commandHead_(0), commandTail_(0), started_(false), startupComplete_(false), startupSucceeded_(false), stopping_(false),
     eventLoopDebug_(false), currentView_(0), lastCoordinatorProgress_(0), runtimeDirectory_(gateway->runtimeDirectory()), historyPath_(gateway->historyPath()) {
     int wakePipe[2];
@@ -102,7 +103,7 @@ void* GatewayRunner::runThread(void* opaque) {
 void GatewayRunner::run() {
     std::string error;
     bool ready = gateway_->start(&error);
-    if (ready) publishView(true);
+    if (ready) { publishAutomation(true);publishView(true); }
     pthread_mutex_lock(&mutex_);
     startupComplete_ = true;
     startupSucceeded_ = ready;
@@ -136,6 +137,7 @@ void GatewayRunner::run() {
             ++debugStats.iterations;
         }
         { AUTOMATION_PROFILE("coord.poll");gateway_->poll(); }
+        publishAutomation();
         publishView(false);
         struct timespec progress;
         pthread_mutex_lock(&mutex_);
@@ -171,22 +173,23 @@ void GatewayRunner::run() {
 
 void GatewayRunner::publishView(bool force) {
     AUTOMATION_PROFILE("coord.publish");
-    if (!force && !gateway_->takeViewDirty()) return;
+    const bool dirty=gateway_->takeViewDirty();
+    if(!force&&!dirty)return;
 #ifdef MICROHAD_TESTING
-    GatewayView* view = new GatewayView(gateway_->captureView());
+    GatewayView* view = new GatewayView(gateway_->captureView(true,automationCatalog_));
 #else
-    GatewayView* view = new GatewayView(gateway_->captureView(false));
+    GatewayView* view = new GatewayView(gateway_->captureView(false,automationCatalog_));
 #endif
-    if (force) gateway_->takeViewDirty();
-    publishAutomation(*view);
+    ViewData* published=new ViewData(view);
     pthread_mutex_lock(&mutex_);
     ViewData* previous = currentView_;
-    currentView_ = new ViewData(view);
+    currentView_ = published;
     if (previous != 0) {
         previous->retired = true;
-        if (previous->references == 0) { delete previous->view; delete previous; }
+        if (previous->references != 0) previous=0;
     }
     pthread_mutex_unlock(&mutex_);
+    if (previous != 0) { delete previous->view;delete previous; }
 }
 
 void GatewayRunner::setAutomationWorker(AutomationWorker* worker) { pthread_mutex_lock(&mutex_);automation_=worker;pthread_mutex_unlock(&mutex_); }
@@ -218,32 +221,116 @@ void GatewayRunner::executeAutomation(const Automation::Action& a) {
     // Correlate immediate changes to the accepted command; later radio reports
     // start a new observation chain because protocols do not echo our IDs.
     automationChain_=std::max(automationChain_,a.chain);
-    publishView(true);
+    publishAutomation(true);
     activeAutomationChain_=0;activeAutomationDepth_=0;
 }
-void GatewayRunner::publishAutomation(const GatewayView& view) {
+namespace {
+bool sameScenes(const std::vector<SceneGroup>& source,const Automation::SceneCatalog& old) {
+    if(source.size()!=old.size())return false;
+    for(size_t i=0;i<source.size();++i){
+        if(source[i].id!=old[i].id||source[i].name!=old[i].name||source[i].scenes.size()!=old[i].scenes.size())return false;
+        for(size_t j=0;j<source[i].scenes.size();++j)if(source[i].scenes[j].id!=old[i].scenes[j].id||source[i].scenes[j].name!=old[i].scenes[j].name)return false;
+    }
+    return true;
+}
+}
+Automation::CatalogPtr GatewayRunner::acquireAutomationCatalog() {
+    pthread_mutex_lock(&mutex_);Automation::CatalogPtr result=automationCatalog_;pthread_mutex_unlock(&mutex_);return result;
+}
+void GatewayRunner::publishAutomation(bool force) {
+    if(!force&&automationRevision_==gateway_->viewRevision())return;
     AUTOMATION_PROFILE("coord.events");
-    typedef Automation::Value V;
+    automationRevision_=gateway_->viewRevision();
+    Gateway::AutomationChanges changes=gateway_->takeAutomationChanges();
+    typedef Automation::SnapshotPtr Snapshot;
     std::vector<Gateway::AutomationReport> reports=gateway_->takeAutomationReports();
-    std::map<std::string,V> next;
     std::vector<Automation::Event> outgoing;
-    uint64_t chain=activeAutomationChain_?activeAutomationChain_:++automationChain_;
-    // Preserve accepted reports and their intermediate edges even when several
-    // arrive during one coordinator poll before the view is published.
-    for(size_t i=0;i<reports.size();++i){V snapshot=Automation::snapshot(reports[i].device);const std::string id=snapshot.fields["id"].string;
-        if(reports[i].remoteAction){Automation::Event e;e.data.fields["type"]=V("remote.action");e.data.fields["device"]=snapshot;e.data.fields["action"]=V(reports[i].action);e.data.fields["endpoint"]=V(static_cast<double>(reports[i].endpoint));if(reports[i].position>=0)e.data.fields["position"]=V(static_cast<double>(reports[i].position));if(reports[i].pressCount>=0)e.data.fields["press_count"]=V(static_cast<double>(reports[i].pressCount));outgoing.push_back(e);continue;}
-        const std::string field=reports[i].field;Automation::Event e;e.data.fields["type"]=V("device.value");e.data.fields["device"]=snapshot;e.data.fields["field"]=V(field);e.data.fields["value"]=snapshot.fields[field];outgoing.push_back(e);
-        if(automationSnapshots_.count(id)){V old=automationSnapshots_[id].fields[field];if(old!=snapshot.fields[field]){e.data.fields["type"]=V("device.changed");e.data.fields["old"]=old;outgoing.push_back(e);}automationSnapshots_[id].fields[field]=snapshot.fields[field];}
+    const uint64_t chain=activeAutomationChain_?activeAutomationChain_:++automationChain_;
+    for(size_t i=0;i<reports.size();++i){
+        const Gateway::AutomationReport& report=reports[i];
+        const std::string& id=report.device.ieeeAddress;
+        std::map<std::string,Snapshot>::iterator previous=automationSnapshots_.find(id);
+        Snapshot before=previous==automationSnapshots_.end()?Snapshot():previous->second;
+        Snapshot current=Automation::capture(report.device,before);
+        Automation::Event e;e.device=current;
+        if(report.remoteAction){
+            e.type="remote.action";e.action=report.action;e.endpoint=report.endpoint;e.position=report.position;e.pressCount=report.pressCount;outgoing.push_back(e);continue;
+        }
+        e.type="device.value";e.field=Automation::findField(report.field);outgoing.push_back(e);
+        if(before&&e.field!=Automation::FieldCount&&!Automation::sameField(*before,*current,e.field)){
+            e.type="device.changed";e.old=Automation::fieldValue(*before,e.field);e.hasOld=true;outgoing.push_back(e);
+        }
+        // Advance only the reported field. Other edges are still discovered
+        // below, and repeated reports retain their individual event snapshots.
+        if(before&&e.field!=Automation::FieldCount&&!Automation::sameField(*before,*current,e.field)){
+            Automation::DeviceSnapshot* advanced=new Automation::DeviceSnapshot(*before);
+            const unsigned bit=1U<<e.field;advanced->present=(advanced->present&~bit)|(current->present&bit);
+            advanced->values[e.field]=current->values[e.field];
+            if(e.field==Automation::AirQuality)advanced->airQuality=current->airQuality;
+            previous->second=Snapshot(advanced);
+        }
     }
-    for(size_t i=0;i<view.devices.size();++i){V snapshot=Automation::snapshot(view.devices[i]);std::string id=snapshot.fields["id"].string;next[id]=snapshot;
-        std::map<std::string,V>::iterator before=automationSnapshots_.find(id);
-        if(before==automationSnapshots_.end()){Automation::Event e;e.data.fields["type"]=V("device.added");e.data.fields["device"]=snapshot;outgoing.push_back(e);}
-        else for(std::map<std::string,V>::const_iterator f=snapshot.fields.begin();f!=snapshot.fields.end();++f){std::map<std::string,V>::const_iterator old=before->second.fields.find(f->first);if(old!=before->second.fields.end()&&old->second==f->second)continue;if(f->first=="last_seen")continue;Automation::Event e;e.data.fields["type"]=V("device.changed");e.data.fields["device"]=snapshot;e.data.fields["field"]=V(f->first);e.data.fields["value"]=f->second;e.data.fields["old"]=old==before->second.fields.end()?V():old->second;outgoing.push_back(e);if(f->first=="online"){e.data.fields["type"]=V(f->second.boolean?"device.online":"device.offline");outgoing.push_back(e);}}
+    const std::map<std::string,Device>& devices=gateway_->devicesForAutomation();
+    std::vector<const Device*> inspect;
+    if(changes.inventory){inspect.reserve(devices.size());for(std::map<std::string,Device>::const_iterator it=devices.begin();it!=devices.end();++it)inspect.push_back(&it->second);}
+    else {inspect.reserve(changes.devices.size());for(std::set<std::string>::const_iterator it=changes.devices.begin();it!=changes.devices.end();++it){std::map<std::string,Device>::const_iterator found=devices.find(*it);if(found!=devices.end())inspect.push_back(&found->second);}}
+    bool changed=false,namesChanged=false;
+    for(size_t index=0;index<inspect.size();++index){
+        const Device& live=*inspect[index];const std::string& id=live.ieeeAddress;
+        std::map<std::string,Snapshot>::iterator old=automationSnapshots_.find(id);
+        Snapshot previous=old==automationSnapshots_.end()?Snapshot():old->second;
+        Device* record=new Device(live);record->contactTriggerUntil=gateway_->contactTriggerUntilForView(id);
+        Automation::DevicePtr immutable(record);
+        Snapshot current=Automation::capture(*record,previous,immutable);
+        std::map<std::string,Snapshot>::const_iterator published=automationCatalog_->devices.find(id);
+        if(published==automationCatalog_->devices.end()||published->second!=current)changed=true;
+        if(published==automationCatalog_->devices.end()||published->second->metadata->name!=current->metadata->name)namesChanged=true;
+        if(!previous){Automation::Event e;e.type="device.added";e.device=current;outgoing.push_back(e);}
+        else if(current!=previous)for(unsigned f=0;f<Automation::FieldCount;++f){
+            const Automation::Field field=static_cast<Automation::Field>(f);
+            if(field==Automation::LastSeen||!current->has(field)||Automation::sameField(*previous,*current,field))continue;
+            Automation::Event e;e.type="device.changed";e.device=current;e.field=field;e.hasOld=true;e.old=Automation::fieldValue(*previous,field);outgoing.push_back(e);
+            if(field==Automation::Online){e.type=current->values[field]!=0?"device.online":"device.offline";outgoing.push_back(e);}
+        }
+        automationSnapshots_[id]=current;
     }
-    for(std::map<std::string,V>::const_iterator it=automationSnapshots_.begin();it!=automationSnapshots_.end();++it)if(!next.count(it->first)){Automation::Event e;e.data.fields["type"]=V("device.removed");e.data.fields["device"]=it->second;e.data.fields["reason"]=V("removed");outgoing.push_back(e);}
-    automationSnapshots_.swap(next);
-    pthread_mutex_lock(&mutex_);
-    if(automation_)for(size_t i=0;i<outgoing.size();++i){Automation::Event& e=outgoing[i];e.chain=chain;e.depth=activeAutomationDepth_;e.data.fields["device_id"]=e.data.fields["device"].fields["id"];e.data.fields["source"]=e.data.fields["device"].fields["source"];e.data.fields["at"]=V(static_cast<double>(time(0)));std::ostringstream id;id<<chain;e.data.fields["chain_id"]=V(id.str());e.data.fields["chain_depth"]=V(static_cast<double>(e.depth));automation_->enqueue(e);}
+    std::vector<std::string> removed;
+    if(changes.inventory){for(std::map<std::string,Snapshot>::const_iterator it=automationSnapshots_.begin();it!=automationSnapshots_.end();++it)if(!devices.count(it->first))removed.push_back(it->first);}
+    else {for(std::set<std::string>::const_iterator it=changes.devices.begin();it!=changes.devices.end();++it)if(!devices.count(*it))removed.push_back(*it);}
+    for(size_t i=0;i<removed.size();++i){std::map<std::string,Snapshot>::iterator old=automationSnapshots_.find(removed[i]);if(old==automationSnapshots_.end())continue;Automation::Event e;e.type="device.removed";e.device=old->second;outgoing.push_back(e);automationSnapshots_.erase(old);changed=namesChanged=true;}
+    const std::vector<SceneGroup>& source=gateway_->groupsForAutomation();
+    const bool groupsChanged=changes.inventory&&!sameScenes(source,*automationCatalog_->groups);
+    Automation::CatalogPtr published=automationCatalog_;
+    if(changed||groupsChanged){
+        Automation::Catalog* next=new Automation::Catalog;next->devices=automationSnapshots_;next->names=automationCatalog_->names;next->groups=automationCatalog_->groups;
+        std::tr1::shared_ptr<Automation::SnapshotList> ordered(new Automation::SnapshotList);ordered->reserve(next->devices.size());
+        for(std::map<std::string,Snapshot>::const_iterator it=next->devices.begin();it!=next->devices.end();++it)ordered->push_back(it->second);
+        next->ordered=ordered;
+        if(namesChanged){
+            std::tr1::shared_ptr<Automation::NameIndex> names(new Automation::NameIndex);
+            for(std::map<std::string,Snapshot>::const_iterator it=next->devices.begin();it!=next->devices.end();++it){
+                const std::string& name=it->second->metadata->lookupName;
+                std::pair<Automation::NameIndex::iterator,bool> entry=names->insert(std::make_pair(name,it->first));
+                if(!entry.second)entry.first->second.clear();
+            }
+            next->names=names;
+        }
+        if(groupsChanged){
+            std::tr1::shared_ptr<Automation::SceneCatalog> groups(new Automation::SceneCatalog);
+            for(size_t i=0;i<source.size();++i){
+                Automation::SceneCatalogEntry group;group.id=source[i].id;group.name=source[i].name;
+                for(size_t j=0;j<source[i].scenes.size();++j){Automation::SceneEntry scene;scene.id=source[i].scenes[j].id;scene.name=source[i].scenes[j].name;group.scenes.push_back(scene);}
+                groups->push_back(group);
+            }
+            next->groups=groups;
+        }
+        published=Automation::CatalogPtr(next);
+    }
+    // Keep the pointer valid until enqueue completes; expensive Lua-shaped
+    // allocations and retired catalog destruction happen outside this mutex.
+    Automation::CatalogPtr retired;
+    pthread_mutex_lock(&mutex_);retired.swap(automationCatalog_);automationCatalog_=published;
+    if(automation_)for(size_t i=0;i<outgoing.size();++i){outgoing[i].chain=chain;outgoing[i].depth=activeAutomationDepth_;outgoing[i].at=time(0);automation_->enqueue(outgoing[i]);}
     pthread_mutex_unlock(&mutex_);
 }
 
@@ -311,6 +398,7 @@ void GatewayRunner::execute(Command* command) {
         }
         result = true;
     }
+    publishAutomation(true);
     publishView(true);
     pthread_mutex_lock(&command->mutex);
     command->result = result;
@@ -482,8 +570,9 @@ void GatewayRunner::coordinatorObservation(unsigned char* channel, bool* online)
 void GatewayRunner::releaseView(ViewData* data) {
     pthread_mutex_lock(&mutex_);
     --data->references;
-    if (data->retired && data->references == 0) { delete data->view; delete data; }
+    const bool destroy=data->retired && data->references==0;
     pthread_mutex_unlock(&mutex_);
+    if (destroy) { delete data->view;delete data; }
 }
 std::string GatewayRunner::runtimeDirectory() const { return runtimeDirectory_; }
 std::string GatewayRunner::historyPath() const { return historyPath_; }
@@ -502,7 +591,7 @@ bool GatewayRunner::readHistoryJson(const std::string& address, uint64_t before,
     if (address.size()==40 && address.substr(0,7)=="matter:") {
         ViewLease* lease=const_cast<GatewayRunner*>(this)->acquireView();
         if (lease) {
-            const std::vector<Device>& devices=lease->data_->view->devices;
+            const DeviceViewList& devices=lease->data_->view->devices;
             for (unsigned long index=0;index<devices.size();++index) {
                 const Device& device=devices[index];
                 if (device.source=="matter" && device.ieeeAddress.substr(0,40)==address &&
