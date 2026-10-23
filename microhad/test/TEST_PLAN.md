@@ -94,5 +94,8 @@ unsaved-edit guards, enable/disable/delete/reset, and log display controls.
 Review regressions additionally exercise retired queued actions, forced watcher
 scans during save/enable, interval and cron recovery from a full callback queue
 (including saturation by timer listeners), doubled resource boundaries, and
-fresh time/instruction budgets after each cooperative yield. The deterministic
-scheduler fixture is `test/automation_runtime_regressions.lua`.
+fresh instruction budgets after each cooperative yield, acceptance despite
+elapsed time beyond the former wall-clock cutoff, and rejection at instruction
+budget exhaustion. Each slice allows fewer than 200,000 Lua VM instructions,
+checked every 100 instructions; native calls do not consume VM ticks. The
+deterministic scheduler fixture is `test/automation_runtime_regressions.lua`.

@@ -1,6 +1,6 @@
 -- Deterministic tests of scheduler admission and per-resume accounting.
 local factory = assert(loadfile('automation/runtime.lua'))
-local function fixture()
+local function fixture(used)
   local clock, minute, failures = 0, 0, 0
   local host = {
     calendar=function() return {minute,0,1,1,0,126,0} end,
@@ -11,10 +11,11 @@ local function fixture()
     failure=function() failures=failures+1 end,
     serializable=function(value) return value end,
     limit=function(_,instructions,seconds)
-      assert(instructions==200000 and seconds==0.2)
+      assert(instructions==200000 and seconds==nil)
     end,
-    -- Each resume uses most of its budget; multiple resumes must still work.
-    spent=function() return 150000,0.15 end,
+    -- Simulate native work or descheduling exceeding the former wall deadline.
+    -- Each resume still uses less than the instruction budget.
+    spent=function() return used or 150000,10 end,
   }
   local runtime = factory(host)
   return runtime, function(value) clock=value;minute=value end,
@@ -56,5 +57,12 @@ do
     end)
   end))
   for now=1,5 do advance(now);runtime.tick() end
-  assert(completed and failures()==0,'time and instruction budgets reset after each yield')
+  assert(completed and failures()==0,'instruction budgets reset after each yield regardless of elapsed time')
+end
+
+-- Even a caught hook error must not let an exhausted callback succeed.
+do
+  local runtime, _, failures = fixture(200000)
+  runtime.initialize(function() end)
+  assert(failures()==1,'exhausted instruction budget must fail after resume')
 end

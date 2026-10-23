@@ -65,19 +65,20 @@ end
 local function resume(h,t)
   current=t
   host.begin(tostring(h),t.chain,t.depth)
+  -- Count Lua VM instructions, independent of CPU contention or native calls.
   -- A cooperative yield starts a fresh execution slice on the next resume.
-  host.limit(t.thread,200000,0.2)
+  host.limit(t.thread,200000)
   local args=t.args or {}
   local result=pack(co.resume(t.thread,unpack(args,1,args.n or #args)))
-  local used, elapsed=host.spent()
+  local used=host.spent()
   current=nil; t.args=nil
-  local ok=result[1] and used<200000 and elapsed<0.2
+  local ok=result[1] and used<200000
   local done=not ok or co.status(t.thread)=='dead'
   host.finish(ok,done)
   if done then
     tasks[h]=nil
     if t.on_done then t.on_done() end
-    if not ok then report(result[1] and 'callback budget exceeded' or result[2],'callback',t.thread) end
+    if not ok then report(result[1] and 'callback instruction budget exceeded' or result[2],'callback',t.thread) end
   elseif type(result[2])=='table' and result[2].kind then
     t.wait=result[2]
   else
@@ -162,7 +163,7 @@ end
 for _,name in ipairs({'assert','error','ipairs','next','pairs','pcall','select','tonumber','tostring','type','xpcall','rawequal'}) do env[name]=_G[name] end
 env._VERSION=_VERSION;env._G=env
 env.math=immutable(math);env.string=immutable(string);env.table=immutable(table)
--- Expensive string operations are capped by the allocator and execution budget.
+-- Native string operations do not consume VM ticks; the allocator caps memory.
 env.events=events;env.automation=automation
 env.devices={get=function(target)local v,e=host.device_get(target);return v and immutable(v),e end,
   list=function(f)local values=host.device_list(f);for i,v in ipairs(values)do values[i]=immutable(v)end return values end,
