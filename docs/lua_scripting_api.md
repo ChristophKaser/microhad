@@ -57,6 +57,7 @@ event types are:
 | `device.value` | A device supplies an accepted value, even if it is unchanged. | `device`, `device_id`, `field`, `value` |
 | `device.changed` | A dashboard-visible field changes. | `device`, `device_id`, `field`, `old`, `value` |
 | `device.online` / `device.offline` | Reachability changes. | `device` |
+| `remote.action` | A recognized Zigbee or Matter remote/button action arrives. | `device`, `action`, `endpoint`; Matter events can also include `position`, `press_count` |
 | `timer.fired` | An optional named timer expires. | `timer_id`, `payload` |
 | `automation.error` | The current script has a nonfatal error. | `operation`, `message` |
 
@@ -65,6 +66,27 @@ causal-chain identifier. `event.device` is an immutable snapshot. For numeric
 `device.value` and `device.changed` values, filters can use `value_below`, `value_at_most`,
 `value_above`, or `value_at_least`; `value` requests exact equality. Applicable
 filters also include `device`, `device_id`, `source`, and `field`.
+
+`remote.action` supports the ordinary device filters plus exact `action`, `endpoint`,
+`position`, and `press_count` filters. `action` is the gateway's normalized remote
+action. Examples include Zigbee `on`, `off`, `toggle`, `move`, `step`, `stop`,
+`arrow_left`, and `arrow_right`; Matter remotes emit `matter_press`, `matter_hold`,
+`matter_release`, or `matter_multi_press`. The optional Matter `position` and
+`press_count` fields are present only when supplied by the device. A recognized
+button action is delivered to automations even when that remote is also configured
+to trigger a gateway scene.
+
+```lua
+events.on({
+  type = "remote.action",
+  device = "Hall remote",
+  action = "matter_press",
+  endpoint = 1,
+}, function(event)
+  log("info", "button pressed at position " .. tostring(event.position))
+  scenes.activate("Downstairs", "Evening")
+end)
+```
 
 Use `device.value` when every accepted measurement matters, such as resetting
 a stale-reading watchdog or collecting an audit trail. Use `device.changed`

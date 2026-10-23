@@ -29,15 +29,16 @@ end
 local function count(t) local n=0 for _ in pairs(t) do n=n+1 end return n end
 local function filter(f)
   strict(f,'table','filter'); strict(f.type,'string','filter.type')
-  local types={['device.added']=true,['device.removed']=true,['device.value']=true,['device.changed']=true,
+  local types={['device.added']=true,['device.removed']=true,['device.value']=true,['device.changed']=true,['remote.action']=true,
     ['device.online']=true,['device.offline']=true,['timer.fired']=true,['automation.error']=true}
   assert(types[f.type], 'unsupported event type')
-  local allowed={type=true,device=true,device_id=true,source=true,field=true,value=true,
+  local allowed={type=true,device=true,device_id=true,source=true,field=true,value=true,action=true,endpoint=true,position=true,press_count=true,
     value_below=true,value_at_most=true,value_above=true,value_at_least=true}
   local copy={}
   for k,v in pairs(f) do
     assert(allowed[k], 'unsupported filter field: '..tostring(k))
     if k:sub(1,6)=='value_' then strict(v,'number',k); assert(v==v and math.abs(v)<math.huge,'invalid threshold')
+    elseif k=='endpoint' or k=='position' or k=='press_count' then strict(v,'number',k); assert(v==v and math.abs(v)<math.huge and v%1==0,'invalid '..k)
     elseif k~='value' then strict(v,'string',k) end
     copy[k]=v
   end
@@ -45,7 +46,7 @@ local function filter(f)
   return copy
 end
 local function matches(f,e)
-  for _,k in ipairs({'type','device_id','source','field','value'}) do if f[k]~=nil and f[k]~=e[k] then return false end end
+  for _,k in ipairs({'type','device_id','source','field','value','action','endpoint','position','press_count'}) do if f[k]~=nil and f[k]~=e[k] then return false end end
   for k,compare in pairs({value_below=function(a,b)return a<b end,value_at_most=function(a,b)return a<=b end,
     value_above=function(a,b)return a>b end,value_at_least=function(a,b)return a>=b end}) do
     if f[k]~=nil and (type(e.value)~='number' or not compare(e.value,f[k])) then return false end

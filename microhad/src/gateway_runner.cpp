@@ -214,7 +214,9 @@ void GatewayRunner::publishAutomation(const GatewayView& view) {
     uint64_t chain=activeAutomationChain_?activeAutomationChain_:++automationChain_;
     // Preserve accepted reports and their intermediate edges even when several
     // arrive during one coordinator poll before the view is published.
-    for(size_t i=0;i<reports.size();++i){V snapshot=Automation::snapshot(reports[i].device);const std::string id=snapshot.fields["id"].string;const std::string field=reports[i].field;Automation::Event e;e.data.fields["type"]=V("device.value");e.data.fields["device"]=snapshot;e.data.fields["field"]=V(field);e.data.fields["value"]=snapshot.fields[field];outgoing.push_back(e);
+    for(size_t i=0;i<reports.size();++i){V snapshot=Automation::snapshot(reports[i].device);const std::string id=snapshot.fields["id"].string;
+        if(reports[i].remoteAction){Automation::Event e;e.data.fields["type"]=V("remote.action");e.data.fields["device"]=snapshot;e.data.fields["action"]=V(reports[i].action);e.data.fields["endpoint"]=V(static_cast<double>(reports[i].endpoint));if(reports[i].position>=0)e.data.fields["position"]=V(static_cast<double>(reports[i].position));if(reports[i].pressCount>=0)e.data.fields["press_count"]=V(static_cast<double>(reports[i].pressCount));outgoing.push_back(e);continue;}
+        const std::string field=reports[i].field;Automation::Event e;e.data.fields["type"]=V("device.value");e.data.fields["device"]=snapshot;e.data.fields["field"]=V(field);e.data.fields["value"]=snapshot.fields[field];outgoing.push_back(e);
         if(automationSnapshots_.count(id)){V old=automationSnapshots_[id].fields[field];if(old!=snapshot.fields[field]){e.data.fields["type"]=V("device.changed");e.data.fields["old"]=old;outgoing.push_back(e);}automationSnapshots_[id].fields[field]=snapshot.fields[field];}
     }
     for(size_t i=0;i<view.devices.size();++i){V snapshot=Automation::snapshot(view.devices[i]);std::string id=snapshot.fields["id"].string;next[id]=snapshot;

@@ -11,6 +11,15 @@ See [Lua scripting API](lua_scripting_api.md) for available functions and
 [Lua script lifecycle](lua_script_lifecycle.md) for reload, timer, coroutine,
 and persistent-state semantics.
 
+## Listening for remote buttons
+
+Use `events.on({ type = "remote.action", ... }, callback)` for recognized
+Zigbee and Matter remote actions. The event has the remote's device snapshot,
+normalized `action`, and `endpoint`; Matter button events may also carry
+`position` and `press_count`. See the API reference for action names and a
+complete example. Remote events continue to reach automations when the same
+button is configured with a gateway-scene rule.
+
 ## Script location and names
 
 Enabled scripts are `*.lua` files in:

@@ -337,7 +337,16 @@ public:
     std::vector<Device> devices() const;
     GatewayView captureView(bool includeLogs = true) const;
     bool takeViewDirty();
-    struct AutomationReport { Device device; std::string field; };
+    struct AutomationReport {
+        Device device;
+        std::string field;
+        std::string action;
+        unsigned short endpoint;
+        int position;
+        int pressCount;
+        bool remoteAction;
+        AutomationReport() : endpoint(0), position(-1), pressCount(-1), remoteAction(false) {}
+    };
     std::vector<AutomationReport> takeAutomationReports();
     std::string statusJson() const;
     std::string logsJson() const;
@@ -345,6 +354,8 @@ public:
 private:
     std::vector<AutomationReport> automationReports_;
     void automationReport(const Device& device, const std::string& field);
+    void automationRemoteAction(const Device& device, const std::string& action,
+                                unsigned short endpoint, int position = -1, int pressCount = -1);
     friend class GatewayTestPeer;
     friend class GatewayIntegrationTestPeer;
 #if MICROHAD_ZIGGURAT_ENABLED

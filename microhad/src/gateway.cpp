@@ -936,6 +936,8 @@ bool Gateway::logMatterButtonEvent(const MatterButtonEvent& event) {
     if (event.position >= 0) line << " position=" << event.position;
     if (event.pressCount >= 0) line << " presses=" << event.pressCount;
     addLog(line.str());
+    if (action != 0)
+        automationRemoteAction(device->second, action, event.endpoint, event.position, event.pressCount);
     if (action != 0) dispatchRemoteSceneAction(device->second.ieeeAddress, action);
     return true;
 }
@@ -2946,6 +2948,7 @@ bool Gateway::logRemoteKeyEvent(unsigned short sender, unsigned short cluster, u
     std::string bindingAction = action;
     if (bindingAction == "arrow_left_click") bindingAction = "arrow_left";
     else if (bindingAction == "arrow_right_click") bindingAction = "arrow_right";
+    automationRemoteAction(device->second, bindingAction, endpoint);
     dispatchRemoteSceneAction(device->second.ieeeAddress, bindingAction);
     return true;
 }
@@ -3597,6 +3600,20 @@ GatewayView Gateway::captureView(bool includeLogs) const {
 bool Gateway::takeViewDirty() { bool dirty = viewDirty_; viewDirty_ = false; return dirty; }
 void Gateway::automationReport(const Device& device,const std::string& field) {
     if(automationReports_.size()<512) { AutomationReport report;report.device=device;report.field=field;automationReports_.push_back(report); }
+    markViewDirty();
+}
+void Gateway::automationRemoteAction(const Device& device, const std::string& action,
+                                     unsigned short endpoint, int position, int pressCount) {
+    if (automationReports_.size() < 512) {
+        AutomationReport report;
+        report.device = device;
+        report.action = action;
+        report.endpoint = endpoint;
+        report.position = position;
+        report.pressCount = pressCount;
+        report.remoteAction = true;
+        automationReports_.push_back(report);
+    }
     markViewDirty();
 }
 std::vector<Gateway::AutomationReport> Gateway::takeAutomationReports() { std::vector<AutomationReport> result;result.swap(automationReports_);return result; }
