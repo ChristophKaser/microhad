@@ -5,10 +5,12 @@ import 'ace-builds/src-noconflict/ext-language_tools'
 import 'ace-builds/src-noconflict/snippets/lua'
 import workerUrl from '../node_modules/.cache/microhad-worker-lua.js?url'
 import { completions, type Catalog, type Completion } from './automationCompletion'
+import { automationSnippets } from './automationSnippets'
 
 // The upstream numeric-for snippet uses print(), which the sandbox does not expose.
 const luaSnippets = ace.require('ace/snippets/lua')
 luaSnippets.snippetText = luaSnippets.snippetText.replace('print(i)', '-- body')
+ace.require('ace/snippets').snippetManager.register(automationSnippets, 'lua')
 
 ace.config.setModuleUrl('ace/mode/lua_worker', workerUrl)
 // Every used mode/snippet/worker is bundled; never infer a remote asset path.

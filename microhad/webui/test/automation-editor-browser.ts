@@ -1,5 +1,6 @@
 import * as ace from 'ace-builds'
 import { attachEditor } from '../src/aceAutomation'
+import { automationSnippets } from '../src/automationSnippets'
 
 const output = document.getElementById('result')!
 const assert = (condition: unknown, message: string) => { if (!condition) throw new Error(message) }
@@ -40,6 +41,26 @@ async function main() {
   completer.getCompletions(editor, editor.session, editor.getCursorPosition(), 'li', (_error, value) => { items = value })
   completer.insertMatch!(editor, items.find(value => value.value === 'light')!)
   assert(editor.getValue() === 'devices.light(target, state)', 'call snippet insertion')
+  const snippetManager = ace.require('ace/snippets').snippetManager
+  for (const snippet of automationSnippets) {
+    instance.setSource(snippet.tabTrigger)
+    editor.navigateFileEnd()
+    assert(snippetManager.expandWithTab(editor), 'snippet did not expand: ' + snippet.tabTrigger)
+    assert(!editor.getValue().includes('${'), 'unexpanded placeholders: ' + snippet.tabTrigger)
+    const defaults = [...snippet.content.matchAll(/\$\{[1-9]:(.*?)\}/g)].map(match => match[1])
+    assert(editor.getSelectedText() === defaults[0], 'first tab stop: ' + snippet.tabTrigger)
+    for (const expected of defaults.slice(1)) {
+      (editor as unknown as { tabstopManager: { tabNext(): void } }).tabstopManager.tabNext()
+      assert(editor.getSelectedText() === expected, 'tab stop: ' + snippet.tabTrigger + ' / ' + expected)
+    }
+    const expected = snippet.content.replace(/\$\{\d+(?::([^}]*))?\}/g, (_match, value) => value ?? '').replace(/\t/g, '  ')
+    assert(editor.getValue() === expected, 'snippet expansion: ' + snippet.tabTrigger)
+    const snippetCompleter = ace.require('ace/ext/language_tools').snippetCompleter
+    let suggested: ace.Ace.Completion[] = []
+    snippetCompleter.getCompletions(editor, editor.session, editor.getCursorPosition(), snippet.tabTrigger, (_error: unknown, value: ace.Ace.Completion[]) => { suggested = value })
+    assert(suggested.some(item => item.caption === snippet.name), 'snippet missing from content assist: ' + snippet.tabTrigger)
+    instance.setSource('')
+  }
   let saved = false
   const save = (event: KeyboardEvent) => { if (event.ctrlKey && event.key === 's') saved = true }
   window.addEventListener('keydown', save)
