@@ -978,6 +978,9 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                     },
                 );
             }
+            // Foreground work runs first, but a live background exchange must
+            // also progress while its transport and deadline keep running.
+            self.poll_background(now, context);
             return;
         }
         while let Some(index) = self.queued.iter().position(|queued| queued.deadline <= now) {
@@ -1005,6 +1008,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 .unwrap_or(Err(crate::operations::Failure::NotFound));
             if let Err(error) = authorization {
                 self.record_state(id, JobRecordState::Failed(error));
+                self.poll_background(now, context);
                 return;
             }
             let remaining = queued.deadline.saturating_duration_since(now);
@@ -1023,125 +1027,12 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 work: Box::pin(work),
             });
             self.record_state(id, JobRecordState::Running);
+            // Foreground work runs first, but a live background exchange must
+            // also progress while its transport and deadline keep running.
+            self.poll_background(now, context);
             return;
         }
-        if let Some((key, deadline, work)) = &mut self.subscription_work {
-            let result = if now >= *deadline {
-                Some(Err(ErrorCode::RxTimeout.into()))
-            } else {
-                match work.as_mut().poll(context) {
-                    Poll::Ready(result) => Some(result),
-                    Poll::Pending => None,
-                }
-            };
-            if let Some(result) = result {
-                let key = *key;
-                self.subscription_work = None;
-                let failed = result
-                    .as_ref()
-                    .err()
-                    .is_some_and(|error| error.code() == ErrorCode::RxTimeout);
-                let mut priming_report = None;
-                if let Some(subscription) = self
-                    .subscriptions
-                    .iter_mut()
-                    .find(|subscription| subscription.key == key)
-                {
-                    match result {
-                        Ok(established) => {
-                            let subscription_id = established.established.subscription_id;
-                            subscription.id = Some(subscription_id);
-                            subscription.failures = 0;
-                            subscription.max_interval = established.established.max_int.max(1);
-                            subscription.next_retry = now
-                                + Duration::from_secs(u64::from(subscription.max_interval))
-                                + SUBSCRIPTION_REPORT_GRACE;
-                            subscription.unit = established.unit;
-                            priming_report = Some(crate::subscriptions::ReceivedReport {
-                                fabric: self.fabric.get(),
-                                node: key.node,
-                                subscription_id,
-                                values: established.priming_values,
-                                buttons: Vec::new(),
-                            });
-                        }
-                        Err(_) => {
-                            subscription.id = None;
-                            subscription.failures = subscription.failures.saturating_add(1);
-                            subscription.next_retry = now + retry_delay(subscription.failures);
-                        }
-                    }
-                }
-                if let Some(report) = priming_report {
-                    self.sync_report_subscriptions();
-                    self.record_report(report);
-                }
-                if failed {
-                    self.mark_node_unreachable(key.node, now);
-                }
-            }
-            return;
-        }
-        if let Some((node, deadline, work)) = &mut self.work {
-            let result = if now >= *deadline {
-                Some(Err(ErrorCode::RxTimeout.into()))
-            } else {
-                match work.as_mut().poll(context) {
-                    Poll::Ready(result) => Some(result),
-                    Poll::Pending => None,
-                }
-            };
-            if let Some(result) = result {
-                let node = *node;
-                self.work = None;
-                let recovery_required = self
-                    .catalog
-                    .nodes()
-                    .iter()
-                    .any(|entry| entry.id == node && entry.phase == Phase::RecoveryRequired);
-                let result = match result {
-                    Ok(endpoints) if recovery_required => {
-                        self.catalog.recover_complete(node).map(|()| endpoints)
-                    }
-                    result => result,
-                };
-                if result.is_ok() {
-                    self.icd_checked
-                        .retain(|(checked_node, _)| *checked_node != node);
-                }
-                let rssi_dbm = self.signals.rssi(self.compressed_fabric, node);
-                let returned = result.is_ok() && self.snapshots.iter().any(|snapshot| snapshot.node == node && !snapshot.online);
-                let snapshot = self.snapshots.iter_mut().find(|s| s.node == node).unwrap();
-                let visible_changed = match &result {
-                    Ok(discovery) => !snapshot.online || snapshot.endpoints != discovery.endpoints ||
-                        snapshot.manufacturer != discovery.manufacturer || snapshot.model != discovery.model || snapshot.rssi_dbm != rssi_dbm,
-                    Err(_) => snapshot.online,
-                };
-                if result.is_err() {
-                    self.address_refresh.request(self.compressed_fabric, node);
-                }
-                match result {
-                    Ok(discovery) => {
-                        snapshot.endpoints = discovery.endpoints;
-                        snapshot.manufacturer = discovery.manufacturer;
-                        snapshot.model = discovery.model;
-                        snapshot.rssi_dbm = rssi_dbm;
-                        snapshot.online = true;
-                        snapshot.failures = 0;
-                        snapshot.next = now + Duration::from_secs(300);
-                    }
-                    Err(_) => {
-                        snapshot.online = false;
-                        snapshot.failures = snapshot.failures.saturating_add(1);
-                        snapshot.next = now + retry_delay(snapshot.failures);
-                    }
-                }
-                if visible_changed {
-                    self.changed();
-                }
-                self.sync_subscriptions(now);
-                if returned { self.restore_after_return(node, now); }
-            }
+        if self.poll_background(now, context) {
             return;
         }
         if self.operations_busy() {
@@ -1218,6 +1109,131 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 work,
             ));
         }
+    }
+    /// Advance the already-admitted background transaction once per turn.
+    /// Return whether it occupied this turn, including when it just completed,
+    /// so we do not admit another expensive background transaction immediately.
+    fn poll_background(&mut self, now: Instant, context: &mut Context<'_>) -> bool {
+        if let Some((key, deadline, work)) = &mut self.subscription_work {
+            let result = if now >= *deadline {
+                Some(Err(ErrorCode::RxTimeout.into()))
+            } else {
+                match work.as_mut().poll(context) {
+                    Poll::Ready(result) => Some(result),
+                    Poll::Pending => None,
+                }
+            };
+            if let Some(result) = result {
+                let key = *key;
+                self.subscription_work = None;
+                let failed = result
+                    .as_ref()
+                    .err()
+                    .is_some_and(|error| error.code() == ErrorCode::RxTimeout);
+                let mut priming_report = None;
+                if let Some(subscription) = self
+                    .subscriptions
+                    .iter_mut()
+                    .find(|subscription| subscription.key == key)
+                {
+                    match result {
+                        Ok(established) => {
+                            let subscription_id = established.established.subscription_id;
+                            subscription.id = Some(subscription_id);
+                            subscription.failures = 0;
+                            subscription.max_interval = established.established.max_int.max(1);
+                            subscription.next_retry = now
+                                + Duration::from_secs(u64::from(subscription.max_interval))
+                                + SUBSCRIPTION_REPORT_GRACE;
+                            subscription.unit = established.unit;
+                            priming_report = Some(crate::subscriptions::ReceivedReport {
+                                fabric: self.fabric.get(),
+                                node: key.node,
+                                subscription_id,
+                                values: established.priming_values,
+                                buttons: Vec::new(),
+                            });
+                        }
+                        Err(_) => {
+                            subscription.id = None;
+                            subscription.failures = subscription.failures.saturating_add(1);
+                            subscription.next_retry = now + retry_delay(subscription.failures);
+                        }
+                    }
+                }
+                if let Some(report) = priming_report {
+                    self.sync_report_subscriptions();
+                    self.record_report(report);
+                }
+                if failed {
+                    self.mark_node_unreachable(key.node, now);
+                }
+            }
+            return true;
+        }
+        if let Some((node, deadline, work)) = &mut self.work {
+            let result = if now >= *deadline {
+                Some(Err(ErrorCode::RxTimeout.into()))
+            } else {
+                match work.as_mut().poll(context) {
+                    Poll::Ready(result) => Some(result),
+                    Poll::Pending => None,
+                }
+            };
+            if let Some(result) = result {
+                let node = *node;
+                self.work = None;
+                let recovery_required = self
+                    .catalog
+                    .nodes()
+                    .iter()
+                    .any(|entry| entry.id == node && entry.phase == Phase::RecoveryRequired);
+                let result = match result {
+                    Ok(endpoints) if recovery_required => {
+                        self.catalog.recover_complete(node).map(|()| endpoints)
+                    }
+                    result => result,
+                };
+                if result.is_ok() {
+                    self.icd_checked
+                        .retain(|(checked_node, _)| *checked_node != node);
+                }
+                let rssi_dbm = self.signals.rssi(self.compressed_fabric, node);
+                let returned = result.is_ok() && self.snapshots.iter().any(|snapshot| snapshot.node == node && !snapshot.online);
+                let snapshot = self.snapshots.iter_mut().find(|s| s.node == node).unwrap();
+                let visible_changed = match &result {
+                    Ok(discovery) => !snapshot.online || snapshot.endpoints != discovery.endpoints ||
+                        snapshot.manufacturer != discovery.manufacturer || snapshot.model != discovery.model || snapshot.rssi_dbm != rssi_dbm,
+                    Err(_) => snapshot.online,
+                };
+                if result.is_err() {
+                    self.address_refresh.request(self.compressed_fabric, node);
+                }
+                match result {
+                    Ok(discovery) => {
+                        snapshot.endpoints = discovery.endpoints;
+                        snapshot.manufacturer = discovery.manufacturer;
+                        snapshot.model = discovery.model;
+                        snapshot.rssi_dbm = rssi_dbm;
+                        snapshot.online = true;
+                        snapshot.failures = 0;
+                        snapshot.next = now + Duration::from_secs(300);
+                    }
+                    Err(_) => {
+                        snapshot.online = false;
+                        snapshot.failures = snapshot.failures.saturating_add(1);
+                        snapshot.next = now + retry_delay(snapshot.failures);
+                    }
+                }
+                if visible_changed {
+                    self.changed();
+                }
+                self.sync_subscriptions(now);
+                if returned { self.restore_after_return(node, now); }
+            }
+            return true;
+        }
+        false
     }
     fn poll_icd(&mut self, now: Instant, context: &mut Context<'_>) -> bool {
         let mut progressed = false;
@@ -2124,6 +2140,137 @@ mod tests {
         assert_eq!(catalog.nodes().iter().map(|node| node.id).collect::<Vec<_>>(), vec![3]);
         assert!(!crate::icd::ClientRegistry::open(store.clone()).unwrap().is_registered(fabric, 2));
         drop(catalog); drop(store); std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    // A real network transaction can become ready while a command is pending.
+    // It must be polled before its absolute deadline, rather than discarded
+    // after the command finishes. Exercise both background transaction kinds.
+    fn background_progress_during_command(subscription: bool) {
+        use std::{cell::Cell, rc::Rc};
+        use crate::{entropy::OsEntropy, store::PrivateStore};
+        use rs_matter::{
+            crypto::{default_crypto, CryptoSensitiveRef},
+            dm::devices::test::{TEST_DEV_ATT, TEST_DEV_COMM, TEST_DEV_DET},
+            utils::init::InitMaybeUninit,
+        };
+        let directory = std::env::temp_dir().join(format!(
+            "matter-background-command-{}-{}-{}", std::process::id(), subscription,
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let store = PrivateStore::open(&directory).unwrap();
+        let catalog = Catalog::open(store.clone(), 1, 2).unwrap();
+        let reservation = catalog.reserve(2).unwrap();
+        reservation.fabric_installed().unwrap();
+        reservation.thread_provisioned().unwrap();
+        reservation.complete().unwrap();
+        let before = std::fs::read(directory.join("credentials.bin")).unwrap();
+        let crypto = default_crypto(OsEntropy::open().unwrap(), CryptoSensitiveRef::new(&[9; 32]));
+        let mut memory = Box::new(std::mem::MaybeUninit::uninit());
+        let matter = memory.init_with(Matter::init(&TEST_DEV_DET, TEST_DEV_COMM, &TEST_DEV_ATT, 5540));
+        let mut manager = Manager::new(matter, &crypto, NonZeroU8::new(1).unwrap(), catalog).unwrap();
+        let now = Instant::now();
+        manager.inventory_bootstrap_until = now;
+        manager.snapshots.push(Snapshot {
+            node: 2, endpoints: vec![], manufacturer: String::new(), model: String::new(),
+            rssi_dbm: None, online: true, next: now + Duration::from_secs(300), failures: 0,
+        });
+        manager.jobs.push_back(JobRecord { id: 1, state: JobRecordState::Running });
+        manager.active = Some(ActiveOperation {
+            id: 1, node: 2, deleting: false, deadline: now + Duration::from_secs(30),
+            work: Box::pin(std::future::pending()),
+        });
+        let key = SubscriptionKey { node: 2, endpoint: 1, cluster: 6, attribute: 0 };
+        manager.subscriptions.push(SubscriptionState {
+            key, id: None, next_retry: now + Duration::from_secs(300), max_interval: 60,
+            failures: 0, unit: None, last_report: None, last_received: None,
+        });
+        let polls = Rc::new(Cell::new(0));
+        let ready = Rc::new(Cell::new(false));
+        let counted = polls.clone();
+        let available = ready.clone();
+        let deadline = now + Duration::from_secs(10);
+        if subscription {
+            manager.subscription_work = Some((key, deadline, Box::pin(std::future::poll_fn(move |_| {
+                counted.set(counted.get() + 1);
+                if !available.get() { return Poll::Pending; }
+                Poll::Ready(Ok(crate::subscriptions::DeviceSubscription {
+                    established: rs_matter::im::client::SubscribeEstablished { subscription_id: 77, max_int: 60 },
+                    unit: None, priming_values: vec![],
+                }))
+            }))));
+        } else {
+            manager.work = Some((2, deadline, Box::pin(std::future::poll_fn(move |_| {
+                counted.set(counted.get() + 1);
+                if !available.get() { return Poll::Pending; }
+                Poll::Ready(Ok(Discovery {
+                    endpoints: vec![], manufacturer: "confirmed".into(), model: String::new(),
+                }))
+            }))));
+        }
+        let mut context = Context::from_waker(std::task::Waker::noop());
+        manager.poll(true, false, now, &mut context);
+        assert_eq!(polls.get(), 1, "in-flight background work must progress during a command");
+        ready.set(true);
+        manager.poll(true, false, now + Duration::from_secs(1), &mut context);
+        assert_eq!(polls.get(), 2, "poll each background future only once per turn");
+        assert!(manager.active.is_some(), "background completion must not cancel the command");
+        if subscription {
+            assert!(manager.subscription_work.is_none());
+            assert_eq!(manager.subscriptions[0].id, Some(77));
+            manager.subscription_work = Some((key, deadline, Box::pin(std::future::pending())));
+        } else {
+            assert!(manager.work.is_none());
+            assert_eq!(manager.snapshots[0].manufacturer, "confirmed");
+            manager.work = Some((2, deadline, Box::pin(std::future::pending())));
+        }
+        // A genuinely unresponsive transaction must still expire while a command runs.
+        manager.poll(true, false, deadline, &mut context);
+        assert!(manager.work.is_none() && manager.subscription_work.is_none());
+        assert!(!manager.snapshots[0].online);
+        assert!(manager.active.is_some());
+        manager.poll(true, false, now + Duration::from_secs(30), &mut context);
+        assert!(matches!(manager.job(crate::control::Id(1)).unwrap(),
+            JobState::Failed { error: crate::operations::Failure::Timeout, .. }));
+
+        // Command admission still takes priority over an existing pending
+        // background transaction; polling it must not make commands wait.
+        let later = now + Duration::from_secs(31);
+        manager.snapshots[0].online = true;
+        manager.snapshots[0].endpoints = vec![Endpoint {
+            id: 1, servers: vec![6], clients: vec![], device_types: vec![],
+        }];
+        manager.work = None;
+        manager.subscription_work = None;
+        if subscription {
+            manager.subscription_work = Some((key, later + Duration::from_secs(30),
+                Box::pin(std::future::pending())));
+        } else {
+            manager.work = Some((2, later + Duration::from_secs(30),
+                Box::pin(std::future::pending())));
+        }
+        let accepted = manager.submit(crate::control::Request::decode(11,
+            br#"{"schema":1,"command":"off","node":"0000000000000002","endpoint":1}"#,
+        ).unwrap(), true, false, later).unwrap();
+        manager.poll(true, false, later, &mut context);
+        assert!(matches!(manager.job(accepted.job).unwrap(), JobState::Running { .. }));
+        assert!(manager.work.is_some() || manager.subscription_work.is_some());
+        manager.poll(false, false, later, &mut context);
+        assert!(manager.work.is_none() && manager.subscription_work.is_none());
+        assert!(matches!(manager.job(accepted.job).unwrap(),
+            JobState::Failed { error: crate::operations::Failure::NotReady, .. }));
+        assert_eq!(std::fs::read(directory.join("credentials.bin")).unwrap(), before);
+        drop(manager);
+        drop(store);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn subscription_progresses_and_expires_during_command() {
+        background_progress_during_command(true);
+    }
+
+    #[test]
+    fn discovery_progresses_and_expires_during_command() {
+        background_progress_during_command(false);
     }
 
     #[test]
