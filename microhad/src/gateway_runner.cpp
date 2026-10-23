@@ -405,6 +405,10 @@ void GatewayRunner::waitForWork(LoopDebugStats* stats, bool debugEnabled) {
         timeout.tv_sec = 1; timeout.tv_usec = 0; timeoutPointer = &timeout;
     }
 #endif
+    const long cacheDelay = gateway_->deviceCacheWaitMilliseconds();
+    if (cacheDelay >= 0 && (timeoutPointer == 0 || cacheDelay < timeout.tv_sec * 1000 + timeout.tv_usec / 1000)) {
+        timeout.tv_sec=cacheDelay/1000;timeout.tv_usec=(cacheDelay%1000)*1000;timeoutPointer=&timeout;
+    }
     if (debugEnabled) {
         ++stats->selectCalls;
         stats->lastTimeoutSeconds = timeoutPointer == 0 ? -1 : static_cast<int>(timeout.tv_sec);

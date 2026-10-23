@@ -1,6 +1,10 @@
 #include "storage.h"
 #include "gateway.h"
 #include "json_util.h"
+#include "../dependencies/tinycbor/src/cbor.h"
+#include <cmath>
+#include <set>
+#include <stdint.h>
 
 #include <algorithm>
 #include <cerrno>
@@ -605,6 +609,184 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
     }
     *devices = parsedDevices;
     return true;
+}
+
+namespace {
+const size_t cacheLimit = 4 * 1024 * 1024;
+#define CACHE_TRY(call) do { CborError result=(call); if(result!=CborNoError)return result; } while(0)
+CborError cacheText(CborEncoder* encoder,const std::string& text) {
+    return text.size()>65536?CborErrorDataTooLarge:cbor_encode_text_string(encoder,text.data(),text.size());
+}
+CborError encodeCacheDevice(CborEncoder* array,const Device& d) {
+    CborEncoder map;CACHE_TRY(cbor_encoder_create_map(array,&map,CborIndefiniteLength));
+#define CACHE_TEXT(key,member) CACHE_TRY(cacheText(&map,key));CACHE_TRY(cacheText(&map,d.member));
+#define CACHE_BOOL(key,member) CACHE_TRY(cacheText(&map,key));CACHE_TRY(cbor_encode_boolean(&map,d.member));
+#define CACHE_INT(key,member,low,high) CACHE_TRY(cacheText(&map,key));CACHE_TRY(cbor_encode_int(&map,d.member));
+#define CACHE_NUMBER(key,member,low,high) if(!std::isfinite(d.member))return CborErrorIllegalNumber;CACHE_TRY(cacheText(&map,key));CACHE_TRY(cbor_encode_double(&map,d.member));
+#include "device_cache_fields.inc"
+#undef CACHE_TEXT
+#undef CACHE_BOOL
+#undef CACHE_INT
+#undef CACHE_NUMBER
+    CACHE_TRY(cacheText(&map,"endpoint_descriptors"));CACHE_TRY(cacheText(&map,encodeEndpointDescriptors(d.endpoints)));
+    CACHE_TRY(cacheText(&map,"node_descriptor"));CACHE_TRY(cacheText(&map,hexEncode(d.nodeDescriptor)));
+    CACHE_TRY(cacheText(&map,"matter_servers"));CACHE_TRY(cacheText(&map,encodeMatterServers(d.matterServers)));
+    CACHE_TRY(cacheText(&map,"matter_clients"));CACHE_TRY(cacheText(&map,encodeMatterServers(d.matterClients)));
+    CACHE_TRY(cacheText(&map,"matter_device_types"));CACHE_TRY(cacheText(&map,encodeMatterServers(d.matterDeviceTypes)));
+    for(std::map<std::string,DeviceValueAlert>::const_iterator it=d.valueAlerts.begin();it!=d.valueAlerts.end();++it) {
+        const std::string prefix="alert_"+it->first;
+        const DeviceValueAlert& a=it->second;
+        if(!std::isfinite(a.low)||!std::isfinite(a.high)||!std::isfinite(a.hysteresis))return CborErrorIllegalNumber;
+        CACHE_TRY(cacheText(&map,prefix+"_has_low"));CACHE_TRY(cbor_encode_boolean(&map,a.hasLow));
+        CACHE_TRY(cacheText(&map,prefix+"_has_high"));CACHE_TRY(cbor_encode_boolean(&map,a.hasHigh));
+        CACHE_TRY(cacheText(&map,prefix+"_low"));CACHE_TRY(cbor_encode_double(&map,a.low));
+        CACHE_TRY(cacheText(&map,prefix+"_high"));CACHE_TRY(cbor_encode_double(&map,a.high));
+        CACHE_TRY(cacheText(&map,prefix+"_hysteresis"));CACHE_TRY(cbor_encode_double(&map,a.hysteresis));
+        CACHE_TRY(cacheText(&map,prefix+"_unit"));CACHE_TRY(cacheText(&map,a.unit));
+    }
+    return cbor_encoder_close_container(array,&map);
+}
+CborError encodeCache(const std::vector<Device>& devices,std::vector<unsigned char>* bytes,size_t* length) {
+    CborEncoder encoder,root,array;cbor_encoder_init(&encoder,&(*bytes)[0],bytes->size(),0);
+    CACHE_TRY(cbor_encoder_create_map(&encoder,&root,2));
+    CACHE_TRY(cacheText(&root,"version"));CACHE_TRY(cbor_encode_uint(&root,1));
+    CACHE_TRY(cacheText(&root,"devices"));CACHE_TRY(cbor_encoder_create_array(&root,&array,devices.size()));
+    for(size_t i=0;i<devices.size();++i)CACHE_TRY(encodeCacheDevice(&array,devices[i]));
+    CACHE_TRY(cbor_encoder_close_container(&root,&array));CACHE_TRY(cbor_encoder_close_container(&encoder,&root));
+    *length=cbor_encoder_get_buffer_size(&encoder,&(*bytes)[0]);return CborNoError;
+}
+#undef CACHE_TRY
+bool cacheReadText(const CborValue& value,std::string* text) {
+    size_t length=0;
+    if(!cbor_value_is_text_string(&value)||cbor_value_get_string_length(&value,&length)!=CborNoError||length>65536)return false;
+    std::vector<char> buffer(length+1);size_t capacity=buffer.size();
+    if(cbor_value_copy_text_string(&value,&buffer[0],&capacity,0)!=CborNoError)return false;
+    text->assign(&buffer[0],length);return true;
+}
+bool cacheReadBool(const CborValue& value,bool* result) {
+    return cbor_value_is_boolean(&value)&&cbor_value_get_boolean(&value,result)==CborNoError;
+}
+bool cacheReadInt(const CborValue& value,int64_t low,int64_t high,int64_t* result) {
+    return cbor_value_is_integer(&value)&&cbor_value_get_int64_checked(&value,result)==CborNoError&&*result>=low&&*result<=high;
+}
+bool cacheReadNumber(const CborValue& value,double low,double high,double* result) {
+    CborError error=CborErrorIllegalType;
+    if(cbor_value_is_double(&value))error=cbor_value_get_double(&value,result);
+    else if(cbor_value_is_float(&value)){float n=0;error=cbor_value_get_float(&value,&n);*result=n;}
+    else if(cbor_value_is_half_float(&value)){float n=0;error=cbor_value_get_half_float_as_float(&value,&n);*result=n;}
+    else if(cbor_value_is_integer(&value)){int64_t n;if(cbor_value_get_int64_checked(&value,&n)==CborNoError){*result=n;error=CborNoError;}}
+    return error==CborNoError&&std::isfinite(*result)&&*result>=low&&*result<=high;
+}
+// Bound nesting and work even for unknown fields before skipping them.
+bool cacheAdvance(CborValue* value,unsigned depth=0) {
+    if(depth>16)return false;
+    if(cbor_value_is_container(value)) {
+        CborValue child;if(cbor_value_enter_container(value,&child)!=CborNoError)return false;
+        unsigned count=0;
+        while(!cbor_value_at_end(&child))if(++count>16384||!cacheAdvance(&child,depth+1))return false;
+        return cbor_value_leave_container(value,&child)==CborNoError;
+    }
+    if(cbor_value_is_tag(value))return false;
+    return cbor_value_advance(value)==CborNoError;
+}
+bool decodeCacheDevice(CborValue* array,Device* d) {
+    if(!cbor_value_is_map(array))return false;
+    CborValue field;if(cbor_value_enter_container(array,&field)!=CborNoError)return false;
+    std::set<std::string> keys;
+    while(!cbor_value_at_end(&field)) {
+        std::string key;if(keys.size()>=256||!cacheReadText(field,&key)||!keys.insert(key).second||!cacheAdvance(&field)||cbor_value_at_end(&field))return false;
+        int64_t integer=0;double number=0;bool matched=false;
+#define CACHE_TEXT(name,member) if(key==name){if(!cacheReadText(field,&d->member))return false;matched=true;}
+#define CACHE_BOOL(name,member) if(key==name){if(!cacheReadBool(field,&d->member))return false;matched=true;}
+#define CACHE_INT(name,member,low,high) if(key==name){if(!cacheReadInt(field,low,high,&integer))return false;d->member=integer;matched=true;}
+#define CACHE_NUMBER(name,member,low,high) if(key==name){if(!cacheReadNumber(field,low,high,&number))return false;d->member=number;matched=true;}
+#include "device_cache_fields.inc"
+#undef CACHE_TEXT
+#undef CACHE_BOOL
+#undef CACHE_INT
+#undef CACHE_NUMBER
+        if(key=="endpoint_descriptors"){std::string text;if(!cacheReadText(field,&text)||!decodeEndpointDescriptors(text,&d->endpoints))return false;matched=true;}
+        if(key=="node_descriptor"){std::string text;if(!cacheReadText(field,&text)||!hexDecode(text,&d->nodeDescriptor))return false;matched=true;}
+        if(key=="matter_servers"||key=="matter_clients"||key=="matter_device_types") {
+            std::string text;std::vector<unsigned int>* target=key=="matter_servers"?&d->matterServers:key=="matter_clients"?&d->matterClients:&d->matterDeviceTypes;
+            if(!cacheReadText(field,&text)||!decodeMatterServers(text,target))return false;
+            matched=true;
+        }
+        static const char* names[]={"temperature","humidity","battery","link_quality","wifi_signal","brightness","power","co2","pm25"};
+        for(unsigned i=0;!matched&&i<9;++i) {
+            const std::string prefix=std::string("alert_")+names[i]+"_";
+            if(key.compare(0,prefix.size(),prefix)!=0)continue;
+            const std::string suffix=key.substr(prefix.size());DeviceValueAlert& alert=d->valueAlerts[names[i]];
+            if(suffix=="has_low"){if(!cacheReadBool(field,&alert.hasLow))return false;}
+            else if(suffix=="has_high"){if(!cacheReadBool(field,&alert.hasHigh))return false;}
+            else if(suffix=="low"){if(!cacheReadNumber(field,-1e308,1e308,&alert.low))return false;}
+            else if(suffix=="high"){if(!cacheReadNumber(field,-1e308,1e308,&alert.high))return false;}
+            else if(suffix=="hysteresis"){if(!cacheReadNumber(field,0,1e308,&alert.hysteresis))return false;}
+            else if(suffix=="unit"){if(!cacheReadText(field,&alert.unit))return false;}
+        }
+        if(!cacheAdvance(&field))return false;
+    }
+    if(cbor_value_leave_container(array,&field)!=CborNoError||d->ieeeAddress.empty()||
+        (d->source!="zigbee"&&d->source!="matter"&&d->source!="shelly"&&d->source!="fritz_box"))return false;
+    if(d->source=="matter") {
+        if(d->matterNode.size()!=16||!keys.count("matter_servers"))return false;
+        if(d->matterState.empty())d->matterState="complete";
+        if(d->matterMetadataState!="missing")d->matterMetadataState="stale";
+    }
+    return true;
+}
+}
+
+bool saveDeviceCache(const std::string& filename,const std::vector<Device>& devices,std::string* error) {
+    if(error)error->clear();
+    if(devices.size()>4096){if(error)*error="too many devices for CBOR cache";return false;}
+    std::vector<unsigned char> bytes(65536);size_t length=0;CborError result;
+    for(;;) {
+        result=encodeCache(devices,&bytes,&length);
+        if(result!=CborErrorOutOfMemory||bytes.size()==cacheLimit)break;
+        bytes.resize(std::min(cacheLimit,bytes.size()*2));
+    }
+    if(result!=CborNoError){if(error)*error="cannot encode device CBOR cache";return false;}
+    std::string pattern=filename+".tmp.XXXXXX";std::vector<char> name(pattern.begin(),pattern.end());name.push_back(0);
+    int fd=mkstemp(&name[0]);bool ok=fd>=0;
+    if(ok)ok=fchmod(fd,0600)==0;
+    size_t at=0;
+    while(ok&&at<length){ssize_t n=write(fd,&bytes[at],length-at);if(n<0&&errno==EINTR)continue;if(n<=0)ok=false;else at+=n;}
+    if(fd>=0&&close(fd)!=0)ok=false;
+    if(ok)ok=rename(&name[0],filename.c_str())==0;
+    if(!ok){unlink(&name[0]);if(error)*error="cannot atomically write device CBOR cache";}
+    return ok;
+}
+bool loadDeviceCache(const std::string& filename,std::vector<Device>* devices,std::string* error) {
+    if(error)error->clear();
+    int fd=open(filename.c_str(),O_RDONLY|O_NOFOLLOW|O_NONBLOCK);
+    if(fd<0){if(errno==ENOENT){devices->clear();return true;}if(error)*error="cannot open device CBOR cache";return false;}
+    struct stat st;bool ok=fstat(fd,&st)==0&&S_ISREG(st.st_mode)&&st.st_size>0&&st.st_size<=static_cast<off_t>(cacheLimit);
+    std::vector<unsigned char> bytes(ok?static_cast<size_t>(st.st_size):1);size_t at=0;
+    while(ok&&at<bytes.size()){ssize_t n=read(fd,&bytes[at],bytes.size()-at);if(n<0&&errno==EINTR)continue;if(n<=0)ok=false;else at+=n;}close(fd);
+    CborParser parser;CborValue root,field;
+    ok=ok&&cbor_parser_init(&bytes[0],bytes.size(),0,&parser,&root)==CborNoError&&cbor_value_is_map(&root)&&cbor_value_enter_container(&root,&field)==CborNoError;
+    std::vector<Device> parsed;std::set<std::string> keys,ids;std::set<unsigned short> nodes;
+    bool version=false,found=false;
+    while(ok&&!cbor_value_at_end(&field)) {
+        std::string key;ok=keys.size()<32&&cacheReadText(field,&key)&&keys.insert(key).second&&cacheAdvance(&field)&&!cbor_value_at_end(&field);
+        if(!ok)break;
+        if(key=="version"){int64_t n;ok=cacheReadInt(field,1,1,&n);version=ok;}
+        else if(key=="devices") {
+            found=true;CborValue item;ok=cbor_value_is_array(&field)&&cbor_value_enter_container(&field,&item)==CborNoError;
+            while(ok&&!cbor_value_at_end(&item)) {
+                Device d;ok=parsed.size()<4096&&decodeCacheDevice(&item,&d)&&ids.insert(d.ieeeAddress).second;
+                if(ok&&d.source=="zigbee"&&d.networkAddress!=0xffff)ok=nodes.insert(d.networkAddress).second;
+                if(ok)parsed.push_back(d);
+            }
+            if(ok)ok=cbor_value_leave_container(&field,&item)==CborNoError;
+            continue;
+        }
+        if(ok)ok=cacheAdvance(&field);
+    }
+    ok=ok&&version&&found&&cbor_value_leave_container(&root,&field)==CborNoError&&cbor_value_get_next_byte(&root)==&bytes[0]+bytes.size();
+    if(!ok){if(error)*error="invalid device CBOR cache";return false;}
+    devices->swap(parsed);return true;
 }
 
 namespace {

@@ -1,3 +1,4 @@
+#include "cache_fixture.h"
 #include "ash.h"
 #include "gateway.h"
 #include "gateway_runner.h"
@@ -2164,72 +2165,72 @@ void testSecurityCountersAndDeliveryDiagnostics() {
 
 void runGatewayIntegrationTests() {
     fprintf(stderr, "integration: security counters and decoded delivery diagnostics\n");
-    testSecurityCountersAndDeliveryDiagnostics();
+    { DeviceCacheIsolation cache; testSecurityCountersAndDeliveryDiagnostics(); }
     fprintf(stderr, "integration: gateway reset and EZSP version over pipe\n");
-    testResetAndVersionOverPipe();
+    { DeviceCacheIsolation cache; testResetAndVersionOverPipe(); }
     fprintf(stderr, "integration: gateway reset timeout retry over pipe\n");
-    testResetTimeoutRetriesOverPipe();
+    { DeviceCacheIsolation cache; testResetTimeoutRetriesOverPipe(); }
     fprintf(stderr, "integration: serial reconnect alert after three failures\n");
-    testSerialReconnectAlertAfterThreeFailures();
+    { DeviceCacheIsolation cache; testSerialReconnectAlertAfterThreeFailures(); }
     fprintf(stderr, "integration: EZSP version negotiation failure modes\n");
-    testEzspVersionFailureModes();
+    { DeviceCacheIsolation cache; testEzspVersionFailureModes(); }
     fprintf(stderr, "integration: EZSP failed initialization status\n");
-    testEzspFailedInitializationStatus();
+    { DeviceCacheIsolation cache; testEzspFailedInitializationStatus(); }
     fprintf(stderr, "integration: fresh network formation and persistence\n");
-    testFreshNetworkFormationOverSerial();
+    { DeviceCacheIsolation cache; testFreshNetworkFormationOverSerial(); }
     fprintf(stderr, "integration: network creation rejection, RNG, EZSP failure, and timeout\n");
-    testNetworkCreationFailuresAndTimeout();
+    { DeviceCacheIsolation cache; testNetworkCreationFailuresAndTimeout(); }
     fprintf(stderr, "integration: secure join preparation policy sequence\n");
-    testSecureJoinPreparationSuccess();
+    { DeviceCacheIsolation cache; testSecureJoinPreparationSuccess(); }
     fprintf(stderr, "integration: secure join policy failures, timeouts, and retry\n");
-    testSecureJoinPreparationFailuresAndRetries();
+    { DeviceCacheIsolation cache; testSecureJoinPreparationFailuresAndRetries(); }
     fprintf(stderr, "integration: join extension, expiry, renewal, and close failure\n");
-    testJoinWindowExtensionExpiryRenewalAndCloseFailure();
+    { DeviceCacheIsolation cache; testJoinWindowExtensionExpiryRenewalAndCloseFailure(); }
     fprintf(stderr, "integration: IAS enrollment and zone ID exhaustion\n");
-    testIasEnrollmentAndZoneIdExhaustion();
+    { DeviceCacheIsolation cache; testIasEnrollmentAndZoneIdExhaustion(); }
     fprintf(stderr, "integration: device announce, rejoin, and node reuse\n");
-    testDeviceAnnounceRejoinAndNodeReuse();
+    { DeviceCacheIsolation cache; testDeviceAnnounceRejoinAndNodeReuse(); }
     fprintf(stderr, "integration: complete sensor interview sequence\n");
-    testCompleteSensorInterview();
-    testReadNodeDescriptorFromConfigurationQuery();
+    { DeviceCacheIsolation cache; testCompleteSensorInterview(); }
+    { DeviceCacheIsolation cache; testReadNodeDescriptorFromConfigurationQuery(); }
     fprintf(stderr, "integration: interview response matching and timeout\n");
-    testInterviewResponseMatchingAndTimeout();
+    { DeviceCacheIsolation cache; testInterviewResponseMatchingAndTimeout(); }
     fprintf(stderr, "integration: sleepy interview wake, contact closure, and refresh-only\n");
-    testInterviewWakeContactAndRefreshOnly();
+    { DeviceCacheIsolation cache; testInterviewWakeContactAndRefreshOnly(); }
     fprintf(stderr, "integration: sensor refresh intervals and periodic attribute read\n");
-    testSensorRefreshIntervalsAndPeriodicRead();
+    { DeviceCacheIsolation cache; testSensorRefreshIntervalsAndPeriodicRead(); }
     fprintf(stderr, "integration: manual refresh validation and serial failure\n");
-    testManualRefreshRejectionsAndSerialFailure();
+    { DeviceCacheIsolation cache; testManualRefreshRejectionsAndSerialFailure(); }
     fprintf(stderr, "integration: remote APS dispatch and default response\n");
-    testRemoteApsDispatchAndDefaultResponse();
+    { DeviceCacheIsolation cache; testRemoteApsDispatchAndDefaultResponse(); }
     fprintf(stderr, "integration: coordinator initialization, IEEE lookup, and Tradfri setup\n");
-    testCoordinatorInitializationSequence();
+    { DeviceCacheIsolation cache; testCoordinatorInitializationSequence(); }
     fprintf(stderr, "integration: coordinator initialization unexpected reply and timeout\n");
-    testCoordinatorInitializationUnexpectedReplyAndTimeout();
+    { DeviceCacheIsolation cache; testCoordinatorInitializationUnexpectedReplyAndTimeout(); }
     fprintf(stderr, "integration: APS callback validation and dispatch\n");
-    testApsCallbackValidationAndDispatch();
+    { DeviceCacheIsolation cache; testApsCallbackValidationAndDispatch(); }
     fprintf(stderr, "integration: serial backpressure recovery and terminal failures\n");
-    testSerialBackpressureAndFailures();
+    { DeviceCacheIsolation cache; testSerialBackpressureAndFailures(); }
     fprintf(stderr, "integration: ASH acknowledgements, retries, duplicate suppression, and wrap\n");
-    testAshAcknowledgementsRetriesAndDuplicates();
+    { DeviceCacheIsolation cache; testAshAcknowledgementsRetriesAndDuplicates(); }
     fprintf(stderr, "integration: scene command errors and state preservation\n");
-    testSceneCommandErrors();
+    { DeviceCacheIsolation cache; testSceneCommandErrors(); }
     fprintf(stderr, "integration: scene configuration persistence, provisioning, and snapshot\n");
-    testSceneConfigurationProvisioning();
+    { DeviceCacheIsolation cache; testSceneConfigurationProvisioning(); }
     fprintf(stderr, "integration: secret redaction and bounded frame diagnostics\n");
-    testSecurityDiagnosticsRedactAndBoundFallback();
+    { DeviceCacheIsolation cache; testSecurityDiagnosticsRedactAndBoundFallback(); }
     fprintf(stderr, "integration: gateway runtime directory boundaries\n");
-    testRuntimeDirectoryBoundaries();
+    { DeviceCacheIsolation cache; testRuntimeDirectoryBoundaries(); }
     fprintf(stderr, "integration: transient log restart and write failure\n");
-    testTransientLogRestartAndWriteFailure();
+    { DeviceCacheIsolation cache; testTransientLogRestartAndWriteFailure(); }
     fprintf(stderr, "integration: serial startup failures and idempotent stop\n");
-    testSerialStartupAndIdempotentStop();
+    { DeviceCacheIsolation cache; testSerialStartupAndIdempotentStop(); }
     fprintf(stderr, "integration: coordinator runner startup and stop lifecycle\n");
-    testGatewayRunnerLifecycle();
+    { DeviceCacheIsolation cache; testGatewayRunnerLifecycle(); }
     fprintf(stderr, "integration: runner command dispatch and result relay\n");
-    testGatewayRunnerCommandDispatch();
+    { DeviceCacheIsolation cache; testGatewayRunnerCommandDispatch(); }
     fprintf(stderr, "integration: runner concurrent snapshots and wake-pipe failure\n");
-    testGatewayRunnerConcurrentSnapshotsAndWakeFailure();
+    { DeviceCacheIsolation cache; testGatewayRunnerConcurrentSnapshotsAndWakeFailure(); }
     fprintf(stderr, "integration: gateway CLI usage failures\n");
-    testCliUsageFailures();
+    { DeviceCacheIsolation cache; testCliUsageFailures(); }
 }

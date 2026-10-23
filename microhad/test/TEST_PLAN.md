@@ -99,3 +99,15 @@ elapsed time beyond the former wall-clock cutoff, and rejection at instruction
 budget exhaustion. Each slice allows fewer than 200,000 Lua VM instructions,
 checked every 100 instructions; native calls do not consume VM ticks. The
 deterministic scheduler fixture is `test/automation_runtime_regressions.lua`.
+
+## Background device-values cache
+
+Host unit tests cover direct CBOR round trips for Zigbee, Matter and external
+devices, malformed/truncated/unsupported caches, atomic replacement and permissions,
+five-second batching without deadline postponement, shutdown flushing, and legacy
+JSON migration. A blocked history writer exercises nonblocking submissions and
+latest-snapshot replacement; failed writes retain and retry the newest snapshot.
+Cache tests also run with flash history absent or disabled. Gateway fixtures
+isolate both RAM-cache paths so deferred shutdown writes cannot contaminate
+other fixtures or overwrite an existing host cache. Existing history tests retain
+the full-page/four-hour and stable flash-slot checks.

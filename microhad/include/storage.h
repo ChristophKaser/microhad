@@ -24,6 +24,9 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
 bool saveDashboardConfiguration(const std::string& filename, const std::string& value);
 bool pruneDashboardDevices(const std::string& filename, const std::vector<std::string>& addresses, std::string* error);
 bool saveDevices(const std::string& filename, const std::vector<Device>& devices, std::string* error);
+// RAM cache only: bounded, versioned CBOR; never used for devices.json.
+bool saveDeviceCache(const std::string& filename, const std::vector<Device>& devices, std::string* error);
+bool loadDeviceCache(const std::string& filename, std::vector<Device>* devices, std::string* error);
 bool loadNetworkState(const std::string& filename, NetworkState* network, std::string* error);
 bool saveNetworkState(const std::string& filename, const NetworkState& network, std::string* error);
 bool loadSceneConfiguration(const std::string& filename, std::vector<SceneGroup>* groups,

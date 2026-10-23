@@ -1,5 +1,7 @@
+#include "cache_fixture.h"
 #include <cstdio>
 
+void runDeviceCacheUnitTests();
 void runUnitTests();
 void runAutomationUnitTests();
 void runMatterWebSocketUnitTests();
@@ -20,6 +22,8 @@ void runZigguratUnitTests();
 #endif
 
 int main() {
+    DeviceCacheIsolation caches;
+    runDeviceCacheUnitTests();
     runAutomationUnitTests();
 #if MICROHAD_ZIGGURAT_ENABLED
     runZigguratUnitTests();

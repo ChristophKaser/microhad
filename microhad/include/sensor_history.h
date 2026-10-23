@@ -8,6 +8,8 @@
 #include <sys/types.h>
 #include <vector>
 
+struct Device;
+
 /* Bounded paged sensor history in RAM-backed /tmp. */
 class SensorHistory {
 public:
@@ -28,6 +30,11 @@ public:
     const std::string& path() const;
     bool initialize(std::string* error = 0);
     std::string takePersistenceError();
+    // Transfers an owned snapshot; replaces the pending cache job, never a flash page.
+    bool queueDeviceCache(const std::string& path, std::vector<Device>* snapshot,
+                          const std::string& legacyPath, std::string* error);
+    bool flushDeviceCache(std::string* error = 0);
+
 #ifdef MICROHAD_TESTING
     void useManualPersistenceForTests();
     bool persistForTests(unsigned long seconds, std::string* error);
@@ -92,6 +99,8 @@ private:
     ValueJournal values_;
     bool prepareFlash(std::string* error);
     bool persistPages(unsigned long seconds, std::string* error);
+    bool startPersistenceLocked(std::string* error);
+    bool persistDeviceCache(unsigned long seconds, bool force, std::string* error);
     static void* persistenceThread(void* opaque);
     void runPersistence();
     bool initializeValues(std::string* error);

@@ -1,4 +1,7 @@
 #include "sensor_history.h"
+#include "storage.h"
+#include "gateway.h"
+#include "automation_profile.h"
 #include "thread_name.h"
 
 #include <algorithm>
@@ -16,6 +19,8 @@
 #include <unistd.h>
 
 #ifdef MICROHAD_TESTING
+void (*deviceCacheWriteHook)(void*) = 0;
+void* deviceCacheWriteHookData = 0;
 void (*sensorHistorySnapshotHook)(void*) = 0;
 void* sensorHistorySnapshotHookData = 0;
 void (*sensorHistoryPersistenceCopyHook)(void*) = 0;
@@ -257,10 +262,18 @@ struct SensorHistory::FlashState {
     int wakeRead, wakeWrite;
     unsigned long nextSparse, retryAt, pageWrites;
     std::vector<Page> residents;
+    std::vector<Device> cachePending;
+    std::string cachePath, cacheLegacyPath, cacheError;
+    bool cacheQueued, cacheWriting, cacheForce;
+    uint64_t cacheSubmitted, cachePendingGeneration, cacheCompleted, cacheFailed, cacheFailures;
+    unsigned long cacheRetryAt;
+    pthread_cond_t cacheReady;
     explicit FlashState(const std::string& p) : path(p), prepared(false), disabled(false), started(false),
         stopping(false), manual(false), retrySparse(false), wakeRead(-1), wakeWrite(-1), nextSparse(sparseInterval), retryAt(0), pageWrites(0),
-        residents(flashPageLimit) {
-        if (!path.empty()) {
+        residents(flashPageLimit), cacheQueued(false), cacheWriting(false), cacheForce(false),
+        cacheSubmitted(0), cachePendingGeneration(0), cacheCompleted(0), cacheFailed(0), cacheFailures(0), cacheRetryAt(0) {
+        pthread_cond_init(&cacheReady, 0);
+        {
             int descriptors[2];
             if (pipe(descriptors) == 0) {
                 wakeRead = descriptors[0]; wakeWrite = descriptors[1];
@@ -272,7 +285,7 @@ struct SensorHistory::FlashState {
     void signal() {
         if (wakeWrite >= 0) { const char byte = 1; ssize_t ignored = write(wakeWrite, &byte, 1); (void)ignored; }
     }
-    ~FlashState() { if (wakeRead >= 0) close(wakeRead); if (wakeWrite >= 0) close(wakeWrite); }
+    ~FlashState() { pthread_cond_destroy(&cacheReady); if (wakeRead >= 0) close(wakeRead); if (wakeWrite >= 0) close(wakeWrite); }
 };
 
 bool SensorHistory::prepareFlash(std::string* error) {
@@ -441,15 +454,96 @@ void* SensorHistory::persistenceThread(void* opaque) {
     setCurrentThreadName("history-write");
     static_cast<SensorHistory*>(opaque)->runPersistence(); return 0;
 }
+bool SensorHistory::startPersistenceLocked(std::string* error) {
+    if (flash_->started || flash_->manual) return true;
+    if (flash_->stopping || flash_->wakeRead < 0 || flash_->wakeWrite < 0 ||
+        pthread_create(&flash_->thread, 0, persistenceThread, this) != 0) {
+        if (error) *error="cannot start persistence worker";
+        return false;
+    }
+    flash_->started=true;return true;
+}
+bool SensorHistory::queueDeviceCache(const std::string& path,std::vector<Device>* snapshot,
+                                    const std::string& legacyPath,std::string* error) {
+    if (error) error->clear();
+    pthread_mutex_lock(&values_.mutex);
+    if (!startPersistenceLocked(error)) { pthread_mutex_unlock(&values_.mutex);return false; }
+    flash_->cachePath=path;flash_->cacheLegacyPath=legacyPath;
+    flash_->cachePending.swap(*snapshot);flash_->cacheQueued=true;
+    flash_->cachePendingGeneration=++flash_->cacheSubmitted;
+    flash_->signal();pthread_mutex_unlock(&values_.mutex);return true;
+}
+bool SensorHistory::persistDeviceCache(unsigned long seconds,bool force,std::string* error) {
+    std::vector<Device> snapshot;std::string path,legacy;
+    pthread_mutex_lock(&values_.mutex);
+    if (!flash_->cacheQueued || (!force && !flash_->cacheForce && seconds<flash_->cacheRetryAt)) {
+        pthread_mutex_unlock(&values_.mutex);return true;
+    }
+    snapshot.swap(flash_->cachePending);path=flash_->cachePath;legacy=flash_->cacheLegacyPath;
+    const uint64_t generation=flash_->cachePendingGeneration;
+    flash_->cacheQueued=false;flash_->cacheWriting=true;flash_->cacheForce=false;
+    pthread_mutex_unlock(&values_.mutex);
+    std::string failure;bool ok;
+    {
+        AUTOMATION_PROFILE("history.cacheWrite");
+#ifdef MICROHAD_TESTING
+        extern void (*deviceCacheWriteHook)(void*);
+        extern void* deviceCacheWriteHookData;
+        if (deviceCacheWriteHook) deviceCacheWriteHook(deviceCacheWriteHookData);
+#endif
+        ok=saveDeviceCache(path,snapshot,&failure);
+    }
+    if (ok && !legacy.empty() && legacy!=path) unlink(legacy.c_str());
+    pthread_mutex_lock(&values_.mutex);
+    flash_->cacheWriting=false;
+    if (ok) {
+        flash_->cacheCompleted=generation;flash_->cacheRetryAt=0;flash_->cacheError.clear();
+    } else {
+        flash_->cacheFailed=generation;++flash_->cacheFailures;flash_->cacheRetryAt=seconds+5;flash_->cacheError=failure;
+        flash_->error=failure;
+        if (!flash_->cacheQueued) {
+            snapshot.swap(flash_->cachePending);flash_->cacheQueued=true;flash_->cachePendingGeneration=generation;
+        }
+        if (error) *error=failure;
+    }
+    pthread_cond_broadcast(&flash_->cacheReady);pthread_mutex_unlock(&values_.mutex);
+    return ok;
+}
+bool SensorHistory::flushDeviceCache(std::string* error) {
+    if (error) error->clear();
+    pthread_mutex_lock(&values_.mutex);
+    const uint64_t target=flash_->cacheSubmitted;
+    if (flash_->cacheCompleted>=target) { pthread_mutex_unlock(&values_.mutex);return true; }
+    flash_->cacheForce=true;flash_->signal();
+    // A failed attempt wakes this barrier; shutdown must not retry forever.
+    const uint64_t failedBefore=flash_->cacheFailures;
+    if (flash_->manual) {
+        pthread_mutex_unlock(&values_.mutex);
+        return persistDeviceCache(monotonicSeconds(),true,error);
+    }
+    while (flash_->cacheCompleted<target && (flash_->cacheFailed<target || flash_->cacheFailures==failedBefore))
+        pthread_cond_wait(&flash_->cacheReady,&values_.mutex);
+    const bool ok=flash_->cacheCompleted>=target;
+    if (!ok && error) *error=flash_->cacheError;
+    pthread_mutex_unlock(&values_.mutex);return ok;
+}
+
 void SensorHistory::runPersistence() {
     for (;;) {
-        std::string error; persistPages(monotonicSeconds(), &error);
+        std::string error;
+        persistDeviceCache(monotonicSeconds(), false, &error);
+        // Cache jobs also work when history initialization failed or is disabled.
+        pthread_mutex_lock(&values_.mutex);const bool historyReady=values_.initialized;pthread_mutex_unlock(&values_.mutex);
+        if (historyReady) persistPages(monotonicSeconds(), &error);
         pthread_mutex_lock(&values_.mutex);
         if (!error.empty()) flash_->error = error;
         if (flash_->stopping) { pthread_mutex_unlock(&values_.mutex); break; }
         pthread_mutex_unlock(&values_.mutex);
         unsigned long now = monotonicSeconds();
-        unsigned long delay = flash_->nextSparse > now ? flash_->nextSparse - now : 1;
+        pthread_mutex_lock(&values_.mutex);
+        unsigned long delay = historyReady && !flash_->disabled && flash_->nextSparse > now ? flash_->nextSparse - now : 60;
+        if (flash_->cacheQueued) delay = std::min(delay, flash_->cacheForce || flash_->cacheRetryAt <= now ? 0UL : flash_->cacheRetryAt - now);
+        pthread_mutex_unlock(&values_.mutex);
         struct pollfd descriptor; descriptor.fd = flash_->wakeRead; descriptor.events = POLLIN; descriptor.revents = 0;
         // Relative poll timeout avoids wall-clock changes affecting the monotonic schedule.
         poll(&descriptor, 1, static_cast<int>(std::min(delay, 60UL) * 1000));
@@ -474,6 +568,7 @@ SensorHistory::ValueJournal::~ValueJournal() { pthread_mutex_destroy(&mutex); }
 SensorHistory::SensorHistory(const std::string& path, const std::string& flashPath)
     : flash_(new FlashState(flashPath)) { values_.path = path + ".values"; }
 SensorHistory::~SensorHistory() {
+    flushDeviceCache();
     pthread_mutex_lock(&values_.mutex);
     flash_->stopping = true; flash_->signal();
     pthread_mutex_unlock(&values_.mutex);
@@ -542,8 +637,8 @@ bool SensorHistory::initializeValues(std::string* error) {
     close(fd); values_.initialized = true;
     if (!flash_->path.empty() && !flash_->disabled && !flash_->manual) {
         flash_->nextSparse = monotonicSeconds() + 4 * 60 * 60;
-        if (pthread_create(&flash_->thread, 0, persistenceThread, this) == 0) flash_->started = true;
-        else { flash_->disabled = true; flash_->error = "cannot start history persistence worker"; }
+        std::string workerError;
+        if (!startPersistenceLocked(&workerError)) { flash_->disabled = true; flash_->error = workerError; }
     }
     pthread_mutex_unlock(&values_.mutex); return true;
 }

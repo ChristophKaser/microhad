@@ -43,6 +43,16 @@ socket failure stays offline rather than falling back to UART access.
 | `history.values` | Committed sensor history pages |
 | `matter/` | State owned by the Rust Matter service |
 
+Live device values are cached in RAM at `/tmp/microhad-values.cbor`. Changes
+are batched for five seconds, then an owned snapshot is encoded and atomically
+written by the existing `history-write` thread. Graceful shutdown flushes the
+latest snapshot; an abrupt daemon crash can lose unflushed values. A busy history
+writer can delay cache completion beyond the five-second handoff interval.
+Legacy `/tmp/microhad-values.json` is read only when CBOR is absent and removed
+after the first successful CBOR write. Persistent `devices.json` remains JSON and takes precedence for saved settings
+when the RAM snapshot is older.
+Cache writes do not change the history flash layout or persistence schedule.
+
 Preserve configuration, identity and network state during application updates.
 [Installation](../docs/installation.md) supplies initial configuration;
 [deployment](../docs/deployment.md) explains staged and complete releases.

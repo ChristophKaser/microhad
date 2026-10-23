@@ -31,6 +31,7 @@
 #include <termios.h>
 #include <unistd.h>
 #include <syslog.h>
+#include <sys/stat.h>
 
 #ifndef MICROHAD_BUILD_REVISION
 #define MICROHAD_BUILD_REVISION "unknown"
@@ -354,7 +355,7 @@ Gateway::Gateway(const std::string& serialDevice, int serialBaud, const std::str
     online_(false), joinUntil_(0), joinPermitRenewAt_(0), joinPermitClosePending_(false), joinPermitCloseDeadline_(0), pendingJoinSeconds_(0), joinPreparationStep_(0), joinPreparationDeadline_(0), ashSendSequence_(0), ashReceiveSequence_(0), ezspSequence_(0),
     ashAckDeadline_(0), ashRetries_(0), ashPendingSensitive_(false), networkBackupQuery_(0, std::vector<unsigned char>()), networkBackupSequence_(0), networkBackupDeadline_(0), networkBackupStarted_(0), ezspVersion_(4), zdoSequence_(0), zclTransactionSequence_(0), ezspVersionNegotiated_(false), stackTokenWritingRequested_(false), networkInitRequested_(false), tradfriBindGroupConfigured_(false), coordinatorInitializationStep_(0), coordinatorInitializationDeadline_(0), resetDeadline_(0), serialReconnectFailures_(0), zigbeeDownAlertQueued_(false), nextHeartbeatAt_(0), serialRxBytes_(0), ashRxFrames_(0), networkForming_(false), networkFormationStep_(0), networkFormationDeadline_(0), networkFormed_(false), networkPanId_(0),
     networkChannel_(0), observedNetworkChannel_(0), interviewRequestInFlight_(false), interviewSendAccepted_(false), interviewEzspSequence_(0), interviewNode_(0xffff),
-    interviewDeadline_(0), nextMessageTag_(1), coordinatorIeeeAddressRequested_(false), viewDirty_(true), matterInventoryDirty_(false), matterInventorySaveAt_(0) {
+    interviewDeadline_(0), nextMessageTag_(1), coordinatorIeeeAddressRequested_(false), viewDirty_(true), deviceCacheDirty_(false), deviceCacheDueMs_(0), matterInventoryDirty_(false), matterInventorySaveAt_(0) {
 #if MICROHAD_ZIGGURAT_ENABLED
     ziggurat_ = 0;
 #endif
@@ -1254,6 +1255,7 @@ bool Gateway::start(std::string* error) {
 }
 
 void Gateway::stop() {
+    flushState(true);
 #if MICROHAD_ZIGGURAT_ENABLED
     if (ziggurat_ != 0) ziggurat_->stop();
 #endif
@@ -1593,6 +1595,7 @@ void Gateway::poll() {
             alert->second = now + static_cast<long>(device->second.contactReminderAlertMinutes * 60);
         }
     }
+    flushState(false);
 }
 
 bool Gateway::isOnline() const {
@@ -3728,12 +3731,30 @@ void Gateway::loadState() {
         }
     }
     error.clear();
-    if (loadDevices("/tmp/microhad-values.json", &volatileValues, &error)) {
+    struct stat cacheStat;
+    const bool legacyCache = lstat("/tmp/microhad-values.cbor", &cacheStat) != 0 && errno == ENOENT;
+    const bool valuesLoaded = legacyCache
+        ? loadDevices("/tmp/microhad-values.json", &volatileValues, &error)
+        : loadDeviceCache("/tmp/microhad-values.cbor", &volatileValues, &error);
+    if (valuesLoaded) {
         for (i = 0; i < volatileValues.size(); ++i) {
             if (devices_.find(volatileValues[i].ieeeAddress) != devices_.end()) {
                 Device& persistent = devices_[volatileValues[i].ieeeAddress];
                 // Successful configuration is authoritative in the persistent store, even if
                 // the RAM snapshot predates completion or a leave invalidation.
+                // A batched RAM cache may predate a successfully saved setting.
+                // User configuration must remain authoritative in devices.json.
+                volatileValues[i].name = persistent.name;
+                volatileValues[i].hasLowTemperatureAlert = persistent.hasLowTemperatureAlert;
+                volatileValues[i].hasHighTemperatureAlert = persistent.hasHighTemperatureAlert;
+                volatileValues[i].lowTemperatureAlert = persistent.lowTemperatureAlert;
+                volatileValues[i].highTemperatureAlert = persistent.highTemperatureAlert;
+                volatileValues[i].contactInitialAlertMinutes = persistent.contactInitialAlertMinutes;
+                volatileValues[i].contactReminderAlertMinutes = persistent.contactReminderAlertMinutes;
+                volatileValues[i].contactTriggerMode = persistent.contactTriggerMode;
+                volatileValues[i].contactTriggerCooldownSeconds = persistent.contactTriggerCooldownSeconds;
+                volatileValues[i].sensorRefreshIntervalMinutes = persistent.sensorRefreshIntervalMinutes;
+                volatileValues[i].valueAlerts = persistent.valueAlerts;
                 volatileValues[i].initialInterviewComplete = persistent.initialInterviewComplete;
                 volatileValues[i].configuredSignature = persistent.configuredSignature;
                 volatileValues[i].thermostat.sourceId = persistent.thermostat.sourceId;
@@ -3747,6 +3768,8 @@ void Gateway::loadState() {
             }
         }
     }
+    if (!valuesLoaded) addLog("Device values cache ignored: " + error);
+    if (legacyCache && lstat("/tmp/microhad-values.json", &cacheStat) == 0 && valuesLoaded) saveState();
     // Open state survives a service restart in RAM, but its alert timers do not.
     // Start a fresh initial delay after both device stores have been restored.
     for (std::map<std::string, Device>::const_iterator device = devices_.begin();
@@ -3768,11 +3791,38 @@ void Gateway::loadState() {
     loadSceneRuntime();
 }
 
+namespace {
+uint64_t deviceCacheMilliseconds() {
+    timespec value;clock_gettime(CLOCK_MONOTONIC,&value);
+    return static_cast<uint64_t>(value.tv_sec)*1000+value.tv_nsec/1000000;
+}
+}
 void Gateway::saveState() const {
-    AUTOMATION_PROFILE("coord.saveValues");
-    std::vector<Device> saved = devices();
-    std::string ignored;
-    saveDevices("/tmp/microhad-values.json", saved, &ignored);
+    // A fixed window from the first dirty value prevents continuous reports
+    // from postponing persistence indefinitely. No snapshot or I/O here.
+    if (!deviceCacheDirty_) deviceCacheDueMs_=deviceCacheMilliseconds()+5000;
+    deviceCacheDirty_=true;
+}
+long Gateway::deviceCacheWaitMilliseconds() const {
+    if (!deviceCacheDirty_) return -1;
+    const uint64_t now=deviceCacheMilliseconds();
+    return deviceCacheDueMs_<=now?0:static_cast<long>(deviceCacheDueMs_-now);
+}
+void Gateway::flushState(bool force) {
+    if (deviceCacheDirty_ && (force || deviceCacheWaitMilliseconds()==0)) {
+        AUTOMATION_PROFILE("coord.cacheSnapshot");
+        std::vector<Device> snapshot=devices();std::string error;
+        if (history_.queueDeviceCache("/tmp/microhad-values.cbor",&snapshot,"/tmp/microhad-values.json",&error)) {
+            deviceCacheDirty_=false;deviceCacheDueMs_=0;
+        } else {
+            deviceCacheDueMs_=deviceCacheMilliseconds()+5000;
+            addLog("Device values cache submission failed: "+error);
+        }
+    }
+    if (force) {
+        std::string error;
+        if (!history_.flushDeviceCache(&error)) addLog("Device values cache flush failed: "+error);
+    }
 }
 
 void Gateway::savePersistentState() const {

@@ -296,6 +296,7 @@ public:
     int serialFd() const;
     bool serialNeedsWrite() const;
     bool hasImmediateWork() const;
+    long deviceCacheWaitMilliseconds() const;
     /* Coordinator-only: clears inactive timers before choosing a deadline. */
     long nextPollDeadline(std::string* source = 0);
     bool setJoining(unsigned int seconds, std::string* error);
@@ -616,6 +617,8 @@ private:
     std::deque<std::string> logs_;
 #endif
     bool viewDirty_;
+    mutable bool deviceCacheDirty_;
+    mutable uint64_t deviceCacheDueMs_;
     mutable bool matterInventoryDirty_;
     mutable time_t matterInventorySaveAt_;
     struct DeviceDeletion {
@@ -744,6 +747,7 @@ private:
     void addHexLog(const std::string& direction, const unsigned char* bytes, unsigned long length);
     void loadState();
     void saveState() const;
+    void flushState(bool force);
     std::string resolveDeviceId(const std::string& id) const;
     void savePersistentState() const;
 };

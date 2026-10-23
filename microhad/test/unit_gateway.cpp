@@ -1,3 +1,4 @@
+#include "cache_fixture.h"
 #include "ash.h"
 #include "gateway.h"
 #if MICROHAD_ZIGGURAT_ENABLED
@@ -30,6 +31,54 @@
 
 class GatewayTestPeer {
 public:
+
+    static void deviceCacheBatching() {
+        char directory[]="/tmp/microhad-cache-batch-XXXXXX";assert(mkdtemp(directory));
+        const std::string cache="/tmp/microhad-values.cbor";
+        std::string error;Device device;device.ieeeAddress="cache-lamp";device.hasLight=true;device.lightKnown=true;
+        std::vector<Device> saved(1,device);assert(saveDevices(std::string(directory)+"/devices.json",saved,&error));
+        {
+            Gateway gateway("/dev/null",115200,directory,"","","");
+            gateway.history_.useManualPersistenceForTests();gateway.devices_[device.ieeeAddress]=device;
+            gateway.saveState();const uint64_t first=gateway.deviceCacheDueMs_;
+            assert(gateway.deviceCacheWaitMilliseconds()>4500&&gateway.deviceCacheWaitMilliseconds()<=5000);
+            gateway.devices_[device.ieeeAddress].lightOn=true;gateway.saveState();
+            assert(gateway.deviceCacheDueMs_==first);
+            gateway.flushState(false);assert(access(cache.c_str(),F_OK)!=0);
+            gateway.deviceCacheDueMs_=0;gateway.flushState(false);
+            assert(!gateway.deviceCacheDirty_&&access(cache.c_str(),F_OK)!=0);
+            assert(gateway.history_.flushDeviceCache(&error));
+            std::vector<Device> loaded;assert(loadDeviceCache(cache,&loaded,&error)&&loaded[0].lightOn);
+            gateway.devices_[device.ieeeAddress].lightOn=false;gateway.saveState();
+            gateway.stop();assert(loadDeviceCache(cache,&loaded,&error)&&!loaded[0].lightOn);
+        }
+        saved[0].name="Saved name";saved[0].sensorRefreshIntervalMinutes=17;
+        saved[0].contactReminderAlertMinutes=123;
+        DeviceValueAlert setting;setting.hasHigh=true;setting.high=30;setting.hysteresis=2;
+        saved[0].valueAlerts["temperature"]=setting;
+        assert(saveDevices(std::string(directory)+"/devices.json",saved,&error));
+        {
+            Gateway restored("/dev/null",115200,directory,"","","");restored.loadState();
+            const Device& loaded=restored.devices_[device.ieeeAddress];
+            assert(loaded.lightKnown&&!loaded.lightOn&&loaded.name=="Saved name");
+            assert(loaded.sensorRefreshIntervalMinutes==17&&loaded.contactReminderAlertMinutes==123);
+            assert(loaded.valueAlerts.find("temperature")->second.high==30);
+        }
+        // A malformed new cache must not resurrect a stale legacy snapshot.
+        {std::ofstream bad(cache.c_str());bad<<"bad";}
+        saved[0].lightOn=true;assert(saveDevices("/tmp/microhad-values.json",saved,&error));
+        {
+            Gateway restored("/dev/null",115200,directory,"","","");restored.loadState();
+            assert(!restored.devices_[device.ieeeAddress].lightOn);
+        }
+        unlink(cache.c_str());
+        {
+            Gateway legacy("/dev/null",115200,directory,"","","");legacy.history_.useManualPersistenceForTests();legacy.loadState();
+            assert(legacy.devices_[device.ieeeAddress].lightOn&&legacy.deviceCacheDirty_);
+            legacy.stop();assert(access("/tmp/microhad-values.json",F_OK)!=0);
+        }
+        unlink(cache.c_str());unlink((std::string(directory)+"/devices.json").c_str());assert(rmdir(directory)==0);
+    }
 
     static void genericThermostats() {
         puts("unit: generic Zigbee/Matter thermostat discovery, capabilities, cooling, schedules and transport preparation");
@@ -326,6 +375,7 @@ public:
         assert(worker.start(&error));
         for (unsigned int disabled = 0; disabled < 2; ++disabled) {
             assert(worker.setEnabled(disabled == 0, &error));
+            assert(saveDeviceCache("/tmp/microhad-values.cbor", saved, &error));
             Gateway restarted("/dev/null", 115200, directory, "", "", "", &worker);
             const long before = time(0);
             restarted.loadState();
@@ -3601,67 +3651,68 @@ static void testTrvzbProtocol() {
 }
 
 void runUnitTests() {
-    GatewayTestPeer::genericThermostats();
-    testTrvzbProtocol();
-    GatewayTestPeer::trvzb();
-    GatewayTestPeer::deviceDeletion();
-    GatewayTestPeer::reportingConfigurationPersistence();
-    GatewayTestPeer::gatewaySettings();
-    GatewayTestPeer::emptyDeadlineIsUnscheduled();
-    GatewayTestPeer::inactiveDeadlinesAreResetBeforeSelection();
-    GatewayTestPeer::deadlineSelectionMatchesHandlerOrdering();
-    GatewayTestPeer::ineligibleSensorRefreshCannotSpin();
-    GatewayTestPeer::pausedRefreshWaitsForScheduledWake();
-    GatewayTestPeer::pausedTimersDoNotWinDeadline();
-    GatewayTestPeer::closingPermitReplyTimeout();
-    GatewayTestPeer::refreshDiscoversMissingEndpoints();
-    GatewayTestPeer::reviewAndTransportRegressions();
-    GatewayTestPeer::ezspUpgradeCompatibility();
-    GatewayTestPeer::networkJoinWindowDoesNotClearNetworkState();
-    GatewayTestPeer::lightCommandEncoding();
-    GatewayTestPeer::identifyCommandEncoding();
-    testAshRoundTrip();
-    testAshRejectsBadCrc();
-    testAshFragmentationAndFrameOrdering();
-    testAshRejectsMalformedAndOverlongInput();
-    testDevicePersistence();
-    testDeviceLoadRejectsCorruptDuplicatesAndNumbers();
-    testDeviceSettings();
-    testMatterInventoryIsCachedGroupedAndAtomic();
-    testMatterAlertSettingsSurviveRestart();
-    testNetworkPersistence();
-    testNetworkPersistenceRejectsInvalidState();
-    testSceneConfigurationPersistence();
-    testSceneConfigurationMalformedRecordsAreAtomic();
-    testStorageSaveFailuresPreserveDestinations();
-    testGenericCapabilities();
-    testZclRejectsMalformedAttributes();
-    testTh01SignedHumidity();
-    testConfigureReportingEncoding();
-    testInterviewDescriptorAndPlanning();
-    testJoinStatusJson();
-    testInterviewRetryDeadline();
-    testGatewayViewIsImmutable();
-    testRamLog();
-    testFrameLogs();
-    testRemoteKeyEvents();
-    testStyrbarArrowEvents();
-    testSceneConfigurationRejectsDuplicateStates();
-    testSceneConfigurationRejectsInvalidReferences();
-    testSaveTriggeredProvisioning();
-    testSceneBusyDoesNotAdvanceSelection();
-    testPendingSceneKeepsLatestRemoteAction();
-    testContactNotificationIsDeferred();
-    testTemperatureThresholdAlerts();
-    testContactAlertReminders();
-    GatewayTestPeer::contactAlertsSurviveRestart();
-    testNotificationTogglePersistence();
-    testPresenceBasedPushRouting();
-    testPushDeviceRegistry();
-    testNotificationWorkerQueueLifecycle();
-    testNotificationAuditDoesNotWriteRuntimeFlash();
-    testBrowserPushSubscriptionBounds();
-    testFcmMessageConstruction();
-    testApiFormattingAndProcStats();
-    testSharedJsonUtilities();
+    { DeviceCacheIsolation cache; GatewayTestPeer::deviceCacheBatching(); }
+    { DeviceCacheIsolation cache; GatewayTestPeer::genericThermostats(); }
+    { DeviceCacheIsolation cache; testTrvzbProtocol(); }
+    { DeviceCacheIsolation cache; GatewayTestPeer::trvzb(); }
+    { DeviceCacheIsolation cache; GatewayTestPeer::deviceDeletion(); }
+    { DeviceCacheIsolation cache; GatewayTestPeer::reportingConfigurationPersistence(); }
+    { DeviceCacheIsolation cache; GatewayTestPeer::gatewaySettings(); }
+    { DeviceCacheIsolation cache; GatewayTestPeer::emptyDeadlineIsUnscheduled(); }
+    { DeviceCacheIsolation cache; GatewayTestPeer::inactiveDeadlinesAreResetBeforeSelection(); }
+    { DeviceCacheIsolation cache; GatewayTestPeer::deadlineSelectionMatchesHandlerOrdering(); }
+    { DeviceCacheIsolation cache; GatewayTestPeer::ineligibleSensorRefreshCannotSpin(); }
+    { DeviceCacheIsolation cache; GatewayTestPeer::pausedRefreshWaitsForScheduledWake(); }
+    { DeviceCacheIsolation cache; GatewayTestPeer::pausedTimersDoNotWinDeadline(); }
+    { DeviceCacheIsolation cache; GatewayTestPeer::closingPermitReplyTimeout(); }
+    { DeviceCacheIsolation cache; GatewayTestPeer::refreshDiscoversMissingEndpoints(); }
+    { DeviceCacheIsolation cache; GatewayTestPeer::reviewAndTransportRegressions(); }
+    { DeviceCacheIsolation cache; GatewayTestPeer::ezspUpgradeCompatibility(); }
+    { DeviceCacheIsolation cache; GatewayTestPeer::networkJoinWindowDoesNotClearNetworkState(); }
+    { DeviceCacheIsolation cache; GatewayTestPeer::lightCommandEncoding(); }
+    { DeviceCacheIsolation cache; GatewayTestPeer::identifyCommandEncoding(); }
+    { DeviceCacheIsolation cache; testAshRoundTrip(); }
+    { DeviceCacheIsolation cache; testAshRejectsBadCrc(); }
+    { DeviceCacheIsolation cache; testAshFragmentationAndFrameOrdering(); }
+    { DeviceCacheIsolation cache; testAshRejectsMalformedAndOverlongInput(); }
+    { DeviceCacheIsolation cache; testDevicePersistence(); }
+    { DeviceCacheIsolation cache; testDeviceLoadRejectsCorruptDuplicatesAndNumbers(); }
+    { DeviceCacheIsolation cache; testDeviceSettings(); }
+    { DeviceCacheIsolation cache; testMatterInventoryIsCachedGroupedAndAtomic(); }
+    { DeviceCacheIsolation cache; testMatterAlertSettingsSurviveRestart(); }
+    { DeviceCacheIsolation cache; testNetworkPersistence(); }
+    { DeviceCacheIsolation cache; testNetworkPersistenceRejectsInvalidState(); }
+    { DeviceCacheIsolation cache; testSceneConfigurationPersistence(); }
+    { DeviceCacheIsolation cache; testSceneConfigurationMalformedRecordsAreAtomic(); }
+    { DeviceCacheIsolation cache; testStorageSaveFailuresPreserveDestinations(); }
+    { DeviceCacheIsolation cache; testGenericCapabilities(); }
+    { DeviceCacheIsolation cache; testZclRejectsMalformedAttributes(); }
+    { DeviceCacheIsolation cache; testTh01SignedHumidity(); }
+    { DeviceCacheIsolation cache; testConfigureReportingEncoding(); }
+    { DeviceCacheIsolation cache; testInterviewDescriptorAndPlanning(); }
+    { DeviceCacheIsolation cache; testJoinStatusJson(); }
+    { DeviceCacheIsolation cache; testInterviewRetryDeadline(); }
+    { DeviceCacheIsolation cache; testGatewayViewIsImmutable(); }
+    { DeviceCacheIsolation cache; testRamLog(); }
+    { DeviceCacheIsolation cache; testFrameLogs(); }
+    { DeviceCacheIsolation cache; testRemoteKeyEvents(); }
+    { DeviceCacheIsolation cache; testStyrbarArrowEvents(); }
+    { DeviceCacheIsolation cache; testSceneConfigurationRejectsDuplicateStates(); }
+    { DeviceCacheIsolation cache; testSceneConfigurationRejectsInvalidReferences(); }
+    { DeviceCacheIsolation cache; testSaveTriggeredProvisioning(); }
+    { DeviceCacheIsolation cache; testSceneBusyDoesNotAdvanceSelection(); }
+    { DeviceCacheIsolation cache; testPendingSceneKeepsLatestRemoteAction(); }
+    { DeviceCacheIsolation cache; testContactNotificationIsDeferred(); }
+    { DeviceCacheIsolation cache; testTemperatureThresholdAlerts(); }
+    { DeviceCacheIsolation cache; testContactAlertReminders(); }
+    { DeviceCacheIsolation cache; GatewayTestPeer::contactAlertsSurviveRestart(); }
+    { DeviceCacheIsolation cache; testNotificationTogglePersistence(); }
+    { DeviceCacheIsolation cache; testPresenceBasedPushRouting(); }
+    { DeviceCacheIsolation cache; testPushDeviceRegistry(); }
+    { DeviceCacheIsolation cache; testNotificationWorkerQueueLifecycle(); }
+    { DeviceCacheIsolation cache; testNotificationAuditDoesNotWriteRuntimeFlash(); }
+    { DeviceCacheIsolation cache; testBrowserPushSubscriptionBounds(); }
+    { DeviceCacheIsolation cache; testFcmMessageConstruction(); }
+    { DeviceCacheIsolation cache; testApiFormattingAndProcStats(); }
+    { DeviceCacheIsolation cache; testSharedJsonUtilities(); }
 }
