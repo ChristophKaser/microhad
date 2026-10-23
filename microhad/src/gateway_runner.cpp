@@ -10,6 +10,11 @@
 #include <sstream>
 #include <sys/select.h>
 #include <unistd.h>
+#if defined(__linux__)
+#include <sys/resource.h>
+#include <sys/syscall.h>
+#include <syslog.h>
+#endif
 
 GatewayRunner::LoopDebugStats::LoopDebugStats() : iterations(0), commandSkips(0), immediateSkips(0),
     selectCalls(0), selectReady(0), selectTimeouts(0), selectInterrupted(0), selectErrors(0),
@@ -83,6 +88,12 @@ void GatewayRunner::stop() {
 
 void* GatewayRunner::runThread(void* opaque) {
     setCurrentThreadName("coordinator");
+#if defined(__linux__)
+    // Linux nice values are per thread. Keep normal scheduling so the radio
+    // services and automation callbacks can still make progress under load.
+    if (setpriority(PRIO_PROCESS, static_cast<id_t>(syscall(SYS_gettid)), -20) != 0)
+        syslog(LOG_WARNING, "Cannot raise coordinator priority: errno=%d", errno);
+#endif
     static_cast<GatewayRunner*>(opaque)->run();
     return 0;
 }

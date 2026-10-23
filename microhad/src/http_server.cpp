@@ -36,6 +36,11 @@
 #include <signal.h>
 #include <unistd.h>
 #include <vector>
+#if defined(__linux__)
+#include <sys/resource.h>
+#include <sys/syscall.h>
+#include <syslog.h>
+#endif
 
 #ifndef MICROHAD_BUILD_REVISION
 #define MICROHAD_BUILD_REVISION "unknown"
@@ -654,6 +659,10 @@ void* HttpServer::workerThreadMain(void* opaque) {
     HttpServer* server = static_cast<HttpServer*>(opaque);
     std::string name = server->threadNamePrefix_ + "-worker";
     setCurrentThreadName(name.c_str());
+#if defined(__linux__)
+    if (setpriority(PRIO_PROCESS, static_cast<id_t>(syscall(SYS_gettid)), 10) != 0)
+        syslog(LOG_WARNING, "Cannot lower %s priority: errno=%d", name.c_str(), errno);
+#endif
     server->workerLoop();
     return 0;
 }
