@@ -1,4 +1,5 @@
 #include "gateway_runner.h"
+#include "automation_profile.h"
 #include "gateway.h"
 #include "thread_name.h"
 #include "automation_worker.h"
@@ -134,7 +135,7 @@ void GatewayRunner::run() {
             if (nextDebugReportAt == 0) nextDebugReportAt = time(0) + 5;
             ++debugStats.iterations;
         }
-        gateway_->poll();
+        { AUTOMATION_PROFILE("coord.poll");gateway_->poll(); }
         publishView(false);
         struct timespec progress;
         pthread_mutex_lock(&mutex_);
@@ -169,6 +170,7 @@ void GatewayRunner::run() {
 }
 
 void GatewayRunner::publishView(bool force) {
+    AUTOMATION_PROFILE("coord.publish");
     if (!force && !gateway_->takeViewDirty()) return;
 #ifdef MICROHAD_TESTING
     GatewayView* view = new GatewayView(gateway_->captureView());
@@ -193,9 +195,11 @@ bool GatewayRunner::submitAutomation(const Automation::Action& action,std::strin
     if(action.operation!="actor"&&action.operation!="light"&&action.operation!="refresh"&&action.operation!="scene.off"&&action.operation!="scene.activate"){*error="unsupported automation action";return false;}
     pthread_mutex_lock(&mutex_);
     if(!started_||stopping_||!startupSucceeded_||!action.generation||automationGenerations_[action.script]!=action.generation||action.depth>32||automationActions_.size()>=128){pthread_mutex_unlock(&mutex_);*error="coordinator unavailable, retired generation, causal limit, or action queue full";return false;}
-    automationActions_.push_back(action);wakeCoordinator();pthread_mutex_unlock(&mutex_);return true;
+    AutomationProfile::mark("enqueue",action.target.c_str());automationActions_.push_back(action);wakeCoordinator();pthread_mutex_unlock(&mutex_);return true;
 }
 void GatewayRunner::executeAutomation(const Automation::Action& a) {
+    AUTOMATION_PROFILE("coord.action");
+    AutomationProfile::mark("dequeue",a.target.c_str());
     pthread_mutex_lock(&mutex_);
     const bool current=a.generation!=0&&automationGenerations_[a.script]==a.generation;
     pthread_mutex_unlock(&mutex_);
@@ -218,6 +222,7 @@ void GatewayRunner::executeAutomation(const Automation::Action& a) {
     activeAutomationChain_=0;activeAutomationDepth_=0;
 }
 void GatewayRunner::publishAutomation(const GatewayView& view) {
+    AUTOMATION_PROFILE("coord.events");
     typedef Automation::Value V;
     std::vector<Gateway::AutomationReport> reports=gateway_->takeAutomationReports();
     std::map<std::string,V> next;

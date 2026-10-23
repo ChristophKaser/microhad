@@ -1,4 +1,5 @@
 #include "gateway.h"
+#include "automation_profile.h"
 #include "gateway_config.h"
 #if MICROHAD_ZIGGURAT_ENABLED
 #include "ziggurat_client.h"
@@ -2170,6 +2171,7 @@ void Gateway::sendZclLightCommand(unsigned short destination, unsigned char endp
 
 bool Gateway::setLightState(const std::string& ieeeAddress, const std::string& state, int brightnessPercent,
                             std::string* error) {
+    AUTOMATION_PROFILE("coord.light");
     std::map<std::string, Device>::iterator found = devices_.find(resolveDeviceId(ieeeAddress));
     unsigned char endpoint;
     if (found == devices_.end() || !found->second.hasLight) { *error = "device is not a light"; return false; }
@@ -3562,6 +3564,7 @@ std::string GatewayView::statusJson() const {
 }
 
 GatewayView Gateway::captureView(bool includeLogs) const {
+    AUTOMATION_PROFILE("coord.capture");
     GatewayView view;
     view.coordinatorBackend = "ezsp";
 #if MICROHAD_ZIGGURAT_ENABLED
@@ -3766,6 +3769,7 @@ void Gateway::loadState() {
 }
 
 void Gateway::saveState() const {
+    AUTOMATION_PROFILE("coord.saveValues");
     std::vector<Device> saved = devices();
     std::string ignored;
     saveDevices("/tmp/microhad-values.json", saved, &ignored);
