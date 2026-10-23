@@ -116,7 +116,8 @@ test('Lua 5.4 parser accepts attributes and expanded escapes without changing po
   }
   try { lua.parse('-- unchanged\nlocal x <wat> = 1'); assert.fail('expected error') }
   catch (failure) { assert.equal(failure.line, 2); assert.equal(failure.column, 9) }
-  assert.throws(() => patchLuaWorker(workerSource + '\n'), /changed/)
+  assert.doesNotThrow(() => patchLuaWorker(workerSource + '\n'))
+  assert.throws(() => patchLuaWorker(workerSource.replace('  function parseLocalStatement(flowContext) {', '  function renamedLocalStatement(flowContext) {')))
   await generateLuaWorker()
   const minified = parser(readFileSync(new URL('../node_modules/.cache/microhad-worker-lua.js', import.meta.url), 'utf8'))
   for (const [source, valid] of fixtures) assert.equal((() => { try { minified.parse(source); return true } catch { return false } })(), valid, source)
