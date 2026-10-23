@@ -1,8 +1,10 @@
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
+import { generateLuaWorker } from './scripts/lua-worker.mjs'
 
-export default defineConfig(({ command }) => {
+export default defineConfig(async ({ command }) => {
+  await generateLuaWorker()
   // Development-only host settings. Never load them into the browser bundle.
   if (command !== 'serve') return {}
   const loader = fileURLToPath(new URL('../../scripts/workspace-env.sh', import.meta.url))

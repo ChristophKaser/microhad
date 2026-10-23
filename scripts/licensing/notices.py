@@ -241,6 +241,10 @@ def collect_gateway():
         if package['version'] != p['version']:
             raise ValueError(f'Stale npm install: {folder}')
         records.append({'name': f'{package["name"]} {p["version"]}', 'license': package.get('license', ''), 'authors': authors(package, package['name']), 'texts': texts(root)})
+    if any(r['name'].startswith('ace-builds ') for r in records):
+        records.append({'name': 'luaparse 0.3.1 (Ace Lua worker; locally patched)',
+                        'license': 'MIT', 'authors': ['Oskar Schöldström'],
+                        'texts': texts(ROOT / 'third-party/supplements/luaparse-0.3.1')})
     return sorted(records, key=lambda r: r['name'].casefold())
 
 

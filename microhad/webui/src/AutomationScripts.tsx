@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { errorMessage } from './api'
+import { errorMessage, type Device, type SceneGroupSummary } from './api'
+import { useAutomationEditor } from './useAutomationEditor'
 import { automationAction, disabledFilename, listAutomations, readAutomation, readAutomationLogs, validAutomationFilename, visibleAutomationLogs, type AutomationLog, type AutomationScript } from './automation'
 
-export function AutomationScripts({ onDirtyChange }: { onDirtyChange: (dirty: boolean) => void }) {
+export function AutomationScripts({ onDirtyChange, devices = [], groups = [] }: { onDirtyChange: (dirty: boolean) => void; devices?: Device[]; groups?: SceneGroupSummary[] }) {
   const [scripts, setScripts] = useState<AutomationScript[]>([])
   const [records, setRecords] = useState<AutomationLog[]>([])
   const [selected, setSelected] = useState('')
@@ -16,6 +17,7 @@ export function AutomationScripts({ onDirtyChange }: { onDirtyChange: (dirty: bo
   const [since, setSince] = useState('')
   const [cleared, setCleared] = useState(0)
   const editor = useRef<HTMLTextAreaElement>(null)
+  const aceEditor = useAutomationEditor(selected, source, setSource, { devices, groups }, editor)
   const dirty = selected !== '' && (!exists || source !== saved)
   const script = scripts.find(item => item.filename === selected)
   const scriptId = selected.replace(/\.lua(?:\.disabled)?$/, '')
@@ -70,9 +72,7 @@ export function AutomationScripts({ onDirtyChange }: { onDirtyChange: (dirty: bo
     window.addEventListener('keydown', keyboard); return () => window.removeEventListener('keydown', keyboard)
   })
   const jumpToLine = (line?: number) => {
-    if (!line || !editor.current) return
-    const start = source.split('\n').slice(0, line - 1).reduce((length, text) => length + text.length + 1, 0)
-    editor.current.focus(); editor.current.setSelectionRange(start, start + (source.split('\n')[line - 1]?.length ?? 0))
+    if (line) aceEditor.jump(line)
   }
   const logs = visibleAutomationLogs(records, scriptId, severity, since ? new Date(since).getTime() / 1000 : 0, cleared)
   const timestamp = (epoch?: number) => epoch ? new Date(epoch * 1000).toLocaleString() : '—'
@@ -88,7 +88,9 @@ export function AutomationScripts({ onDirtyChange }: { onDirtyChange: (dirty: bo
         <button className="button primary" disabled={busy} onClick={() => save(true)}>Save and reload</button>
         <button className="button" disabled={busy || !exists} onClick={() => void action('reload', { filename: selected })}>Reload</button>
       </div>
-      <textarea ref={editor} className="automation-source" aria-label="Lua source" value={source} onChange={event => setSource(event.target.value)} spellCheck={false} />
+      <div ref={aceEditor.container} className="automation-ace" hidden={!aceEditor.ready} />
+      {aceEditor.warning && <p role="status">{aceEditor.warning}</p>}
+      <textarea hidden={aceEditor.ready} ref={editor} className="automation-source" aria-label="Lua source" value={source} onChange={event => setSource(event.target.value)} spellCheck={false} />
       <div className="automation-actions">
         <button className="button" disabled={busy || !exists} onClick={() => void action(script?.enabled ? 'disable' : 'enable', { filename: selected })}>{script?.enabled ? 'Disable' : 'Enable'}</button>
         <button className="button" disabled={busy || !exists} onClick={() => { if (window.confirm('Reset this script’s persistent state?')) void action('reset', { filename: selected }) }}>Reset persistent state</button>

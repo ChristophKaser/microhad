@@ -24,14 +24,14 @@
     "microhad/dependencies/lua": "6e22fedb74cf0c9b6656e9fce8b7331db847c605",
     "microhad/dependencies/mbedtls": "ece41aa84d7879d7e55c59e955a5884b541f7f3b",
     "microhad/dependencies/tinycbor": "d393c16f3eb30d0c47e6f9d92db62272f0ec4dc7",
-    "microhad/webui/package-lock.json": "63194a64b3aac5cb9f6942508c3ccbb3f65cb81194d729060014d6b90a22f766",
+    "microhad/webui/package-lock.json": "dd50a743adf8976a5b7d76a3b7d9c76f659132972577836322bfa325f8e63fdd",
     "patches/getrandom-0.4.3.patch": "12ad4c2e1f639ade672d1588503d295a4fc0add097c8ba124b924eefef65bcab",
     "patches/nix-0.26.4.patch": "d6a9b186442ab23daeb203d255ffb7db0be68aab09168ad4f332f449b6d69e57",
     "patches/radium-0.7.0.patch": "ef497a3f87cd43ed9a0863b21fbfcb0052a3b5a224d5eef467323cc786301acc",
-    "scripts/licensing/notices.py": "2d59e608255339b2a202670c99caa5cce5974b217291a07d723c081abbdb02f5",
+    "scripts/licensing/notices.py": "980ea9fd898ecc0f8d71b2a45fa2427856f304bfdc4f5e7893304287b0ab4d5c",
     "scripts/rust-env.sh": "9e0ab301248766f8420fa4faa60e6374b45f99623c95123a0a5235a6f148e326",
-    "third-party/authors.json": "1d545ce993e142447fac726b2b1f2cfa952e2d3543375bfef76dd8cc41849daf",
-    "third-party/supplements.json": "4a6b1aa2006b773287e022a5d1fe847252807030616551dbad967debc32b9edc",
+    "third-party/authors.json": "708922d182b7abb702b60cbc40144b05ce4329587c26fe303c0df9dc74b5a6c3",
+    "third-party/supplements.json": "12e090753a2952bc160a68b266c8c00e66b3270c0ea68a1d51c3fa04ad55ba70",
     "ziggurat/dependencies/ziggurat": "392d4c7fe5c497d553977492bc02cb305573b7fc",
     "ziggurat/dependencies/ziggurat/Cargo.lock": "be1cd92f9a1077465670f3ff58f9c5f46b1527a32a79db6a21f0004fb130827d",
     "ziggurat/patches/ziggurat-async-syslog.patch": "71c6d4f6d5fd6b238b4a029c51eb5b131e966aa1065a29357aaa7d63bdb9fa5e",
@@ -53,6 +53,6 @@
     "ziggurat/scripts/build.sh": "96183a864f4f8931e8249cb2a39d94db5542d146628e9e0c2c6b341f4adb9c72",
     "ziggurat/stock-uclibc-compat/Cargo.toml": "10d8809501704a473e93541ee4cbaa922eafc1a79b4ee0f9f3445f5a7361fdc1"
   },
-  "records_sha256": "dd707fc5a0a1dd819a3bd8a83c5fe6ca8ca946d5a41f2cfd0a17d1748cd68581",
-  "sha256": "5aec726b20fe9c91e1b9c926461ab5453063e15a1a8bbfee872390e4cdbad04d"
+  "records_sha256": "2a1e5cefc16efa75e62fe06c6864df1ba0baf98e41b2f607ab72c40804b81363",
+  "sha256": "ab8b3a7b0337f8cf7e31ff7a14d183fa468aa51e27dd580c922ca90411b213d2"
 }

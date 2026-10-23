@@ -288,7 +288,7 @@ function App() {
         loaded={dashboardLoaded}
         configError={dashboardError}
       />}
-      {tab === 'Automations' && <AutomationScripts onDirtyChange={setAutomationDirty} />}
+      {tab === 'Automations' && <AutomationScripts onDirtyChange={setAutomationDirty} devices={catalogStatus?.devices ?? []} groups={status?.scene_groups ?? []} />}
       {tab === 'Gateway' && <>
       <section className="overview">
         <div className={`overview-item ${statusError || !status?.online ? 'bad' : 'good'}`}>
