@@ -12,8 +12,7 @@ workspace_load "$repo_root"
 host=$GATEWAY_IP
 user=$SSH_USER
 target=/tuya/native-test
-build_subdir=
-[ "$TOOLCHAIN" != crosstool-ng ] || build_subdir=crosstool-ng/
+build_subdir=$(python3 "$repo_root/scripts/toolchain_config.py" TARGET_BUILD_SUBDIR)
 binary="$project_dir/build/${build_subdir}mips-ziggurat-matter/microhad"
 binary_explicit=false
 password_file=$SSH_PASSWORD_FILE
@@ -138,11 +137,11 @@ fi
     }
 }
 [ "$deploy_binary" = false ] || [ -x "$binary" ] || { echo "MIPS binary not found or not executable: $binary" >&2; exit 1; }
-[ "$deploy_webui" = false ] || { [ -f "$webui_dir/index.html" ] && [ -f "$webui_dir/sw.js" ]; } || { echo "Built Web UI not found; run make webui first" >&2; exit 1; }
+[ "$deploy_webui" = false ] || { [ -f "$webui_dir/index.html.br" ] && [ -f "$webui_dir/sw.js.br" ]; } || { echo "Built Brotli Web UI not found; run make webui first" >&2; exit 1; }
 [ -z "$config" ] || { [ "$deploy_binary" = true ] && [ -f "$config" ]; } || usage
 [ -z "$matter_service" ] || [ -n "$service_selection" ] || { { [ "$deploy_binary" = true ] || [ "$activate_paired_only" = true ]; } && [ -x "$matter_service" ]; } || usage
 [ "$maintenance_deploy" = false ] || [ -n "$service_selection" ] || { [ -x "$ziggurat" ] && [ -x "$maintenance_helper" ]; } || { echo "Ziggurat or gateway-maintenance artifact missing or not executable" >&2; exit 1; }
-[ "$maintenance_deploy" = false ] || [ -n "$service_selection" ] || { [ -d "$webui_dir" ] && [ -f "$webui_dir/index.html" ] && [ -f "$webui_dir/sw.js" ]; } || usage
+[ "$maintenance_deploy" = false ] || [ -n "$service_selection" ] || { [ -d "$webui_dir" ] && [ -f "$webui_dir/index.html.br" ] && [ -f "$webui_dir/sw.js.br" ]; } || usage
 [ -z "$certificate" ] || [ -f "$certificate" ] || usage
 [ -z "$private_key" ] || [ -f "$private_key" ] || usage
 [ -z "$ca_bundle" ] || [ -f "$ca_bundle" ] || usage
@@ -194,6 +193,10 @@ verification_get() {
     curl --noproxy '*' --connect-timeout 5 --max-time "${2:-10}" -fsS "http://$host$1"
 }
 
+verification_headers() {
+    curl --noproxy '*' --connect-timeout 5 --max-time "${2:-10}" -fsS -D - -o /dev/null "http://$host$1"
+}
+
 wait_for_dashboard() {
     echo "Waiting for the HTTP dashboard to become ready"
     sleep 3
@@ -207,15 +210,27 @@ wait_for_dashboard() {
     done
 }
 
+verify_webui_release() {
+    release_dir=$1
+    [ -f "$release_dir/index.html.br" ] && [ -f "$release_dir/sw.js.br" ] || {
+        echo "Brotli Web UI entry assets are missing from $release_dir" >&2; return 1;
+    }
+    find "$release_dir" -type f | while IFS= read -r asset; do
+        case "$asset" in *.br) ;; *) echo "Uncompressed Web UI artifact: $asset" >&2; exit 1 ;; esac
+    done
+}
+
 verify_webui_assets() {
-    index_file=$1
-    asset_urls=$(sed -n \
-        -e 's/.*src="\([^"]*\.js\)".*/\1/p' \
-        -e 's/.*href="\([^"]*\.css\)".*/\1/p' "$index_file")
-    [ -n "$asset_urls" ] || { echo "No JavaScript or CSS assets found in $index_file" >&2; return 1; }
-    for asset_url in $asset_urls; do
-        verification_get "$asset_url" >/dev/null || {
-            echo "Web UI asset is not served: $asset_url" >&2; return 1;
+    release_dir=$1
+    verify_webui_release "$release_dir" || return 1
+    find "$release_dir" -type f -name '*.br' | while IFS= read -r asset; do
+        relative=${asset#"$release_dir"/}
+        asset_url=/${relative%.br}
+        headers=$(verification_headers "$asset_url") || {
+            echo "Web UI asset is not served: $asset_url" >&2; exit 1;
+        }
+        printf '%s\n' "$headers" | tr -d '\r' | grep -qi '^Content-Encoding: br$' || {
+            echo "Web UI asset is missing Brotli content encoding: $asset_url" >&2; exit 1;
         }
     done
 }
@@ -547,12 +562,12 @@ maintenance_deploy_run() {
         echo "Deployment incomplete; services remain stopped. $rollback_notice" >&2
         return 1
     fi
-    find "$webui_dir" -type f ! -name index.html | while IFS= read -r asset; do
+    find "$webui_dir" -type f ! -name index.html.br | while IFS= read -r asset; do
         relative=${asset#"$webui_dir"/}
         case "$relative" in *[!A-Za-z0-9_./-]*|*..*) echo "Unsupported Web UI path: $relative" >&2; exit 1 ;; esac
         upload_atomic "$asset" "$target/webui/$relative" 644 || exit 1
     done || { echo "Deployment incomplete; services remain stopped. $rollback_notice" >&2; return 1; }
-    upload_atomic "$webui_dir/index.html" "$target/webui/index.html" 644 || { echo "Deployment incomplete; services remain stopped. $rollback_notice" >&2; return 1; }
+    upload_atomic "$webui_dir/index.html.br" "$target/webui/index.html.br" 644 || { echo "Deployment incomplete; services remain stopped. $rollback_notice" >&2; return 1; }
     if [ "$launcher_backup_bytes" -gt 0 ]; then
         upload_atomic "$rollback_dir/gateway_start.sh" /tuya/tuya_start.sh.lowjs-backup 755 || { echo "Deployment incomplete; services remain stopped. $rollback_notice" >&2; return 1; }
     fi
@@ -571,7 +586,7 @@ maintenance_deploy_run() {
             echo "Dashboard verification failed. No automatic rollback was attempted. $rollback_notice" >&2
             return 1
         }
-    verify_webui_assets "$webui_dir/index.html" || {
+    verify_webui_assets "$webui_dir" || {
         echo "Web UI bundle verification failed. $rollback_notice" >&2
         return 1
     }
@@ -736,7 +751,11 @@ paired_launcher_preflight
 
 prune_web_bundles() {
     assets_dir="$target/webui/assets"
-    ssh_command "index=\$(cat \"$target/webui/index.html\" 2>/dev/null || true); for asset in \"$assets_dir\"/index-*.js \"$assets_dir\"/index-*.css; do [ -f \"\$asset\" ] || continue; name=\${asset##*/}; case \"\$index\" in *\"\$name\"*) ;; *) rm -f \"\$asset\" ;; esac; done; rm -f \"$assets_dir\"/index-*.js.new \"$assets_dir\"/index-*.css.new"
+    if [ "${1:-}" = final ]; then
+        ssh_command "rm -f \"$target/webui/index.html\" \"$target/webui/sw.js\" \"$target/webui/licenses.html\" \"$target/webui/microhad-icon.svg\" \"$assets_dir\"/index-*.js \"$assets_dir\"/index-*.css \"$assets_dir\"/index-*.js.br.new \"$assets_dir\"/index-*.css.br.new"
+    else
+        ssh_command "rm -f \"$assets_dir\"/index-*.js.br.new \"$assets_dir\"/index-*.css.br.new"
+    fi
 }
 
 if [ "$deploy_binary" = true ]; then
@@ -768,8 +787,9 @@ if [ "$deploy_webui" = true ]; then
     webui_dist="$webui_dir"
     # Free flash before copying new assets while the active index and its
     # referenced bundles remain available if the transfer is interrupted.
-    prune_web_bundles
-    find "$webui_dist" -type f ! -name index.html | while IFS= read -r asset; do
+    prune_web_bundles temporary
+    verify_webui_release "$webui_dist"
+    find "$webui_dist" -type f ! -name index.html.br | while IFS= read -r asset; do
         relative=${asset#"$webui_dist"/}
         case "$relative" in *[!A-Za-z0-9_./-]*|*..*) echo "unsupported Web UI asset path: $relative" >&2; exit 1 ;; esac
         asset_dir=${relative%/*}
@@ -779,10 +799,13 @@ if [ "$deploy_webui" = true ]; then
         ssh_command "dd of=\"$target/webui/$relative.new\"" < "$asset"
         ssh_command "chmod 644 \"$target/webui/$relative.new\"; mv \"$target/webui/$relative.new\" \"$target/webui/$relative\"" < /dev/null
     done
-    ssh_command "dd of=\"$target/webui/.index.html.new\"" < "$webui_dist/index.html"
-    ssh_command "chmod 644 \"$target/webui/.index.html.new\"; mv \"$target/webui/.index.html.new\" \"$target/webui/index.html\"; ls -l \"$target/webui/index.html\""
-    prune_web_bundles
-    verify_webui_assets "$webui_dist/index.html"
+    ssh_command "dd of=\"$target/webui/.index.html.br.new\"" < "$webui_dist/index.html.br"
+    ssh_command "chmod 644 \"$target/webui/.index.html.br.new\"; mv \"$target/webui/.index.html.br.new\" \"$target/webui/index.html.br\"; ls -l \"$target/webui/index.html.br\""
+    prune_web_bundles final
+    find "$webui_dist" -type f | while IFS= read -r asset; do
+        relative=${asset#"$webui_dist"/}
+        ssh_command "test -f \"$target/webui/$relative\"" < /dev/null || exit 1
+    done
 fi
 if [ -n "$certificate" ]; then
     ssh_command "mkdir -p \"$target/tls\"; dd of=\"$target/tls/.cert.pem.new\"" < "$certificate"

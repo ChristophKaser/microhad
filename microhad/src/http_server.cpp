@@ -110,12 +110,14 @@ void relayTls(void* session, int clientFd, int bridgeFd) {
 }
 #endif
 
-void writeResponse(int fd, int status, const char* contentType, const std::string& body) {
+void writeResponse(int fd, int status, const char* contentType, const std::string& body, const char* contentEncoding = 0) {
     std::ostringstream response;
     response << "HTTP/1.1 " << status << (status == 200 ? " OK" : status == 202 ? " Accepted" : status == 500 ? " Internal Server Error" :
                                            status == 503 ? " Service Unavailable" :
                                            status == 413 ? " Payload Too Large" : status == 404 ? " Not Found" : " Bad Request") << "\r\n"
-             << "Content-Type: " << contentType << "\r\nCache-Control: no-store\r\nConnection: close\r\n"
+             << "Content-Type: " << contentType << "\r\n";
+    if (contentEncoding != 0) response << "Content-Encoding: " << contentEncoding << "\r\n";
+    response << "Cache-Control: no-store\r\nConnection: close\r\n"
              << "Content-Length: " << body.size() << "\r\n\r\n";
     std::string header = response.str();
     if (queuedResponse != 0) {
@@ -1424,12 +1426,12 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
         if (!safeAssetPath(path) || contentType == 0) {
             writeResponse(clientFd, 404, "text/plain; charset=utf-8", "Asset not found.");
         } else {
-            std::string filename = webuiDirectory_ + path;
+            std::string filename = webuiDirectory_ + path + ".br";
             struct stat info;
             std::string body;
             if (lstat(filename.c_str(), &info) == 0 && S_ISREG(info.st_mode) &&
                 readTextFile(filename, &body))
-                writeResponse(clientFd, 200, contentType, body);
+                writeResponse(clientFd, 200, contentType, body, "br");
             else if (path == "/index.html")
                 writeResponse(clientFd, 500, "text/plain; charset=utf-8", "Dashboard is not installed.");
             else writeResponse(clientFd, 404, "text/plain; charset=utf-8", "Asset not found.");

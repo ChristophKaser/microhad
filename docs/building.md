@@ -81,7 +81,7 @@ bash firmware/scripts/build-maintenance.sh
 
 | Artifact | Default output |
 | --- | --- |
-| Web UI | `microhad/webui/dist/` |
+| Web UI | `microhad/webui/dist/` (Brotli-only `.br` artifacts) |
 | Ziggurat multipan | `build/ziggurat-hdlc/lexra-stock-uclibc/release/ziggurat.stripped` |
 | Matter service | `build/micro-thread-matter-daemon/mthread-matter-mips` |
 | Radio maintenance helper | `build/gateway-maintenance` |

@@ -5,7 +5,7 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "build": "tsc --noEmit && vite build && python3 ../../scripts/licensing/notices.py web --output dist/licenses.html",
+    "build": "tsc --noEmit && vite build && python3 ../../scripts/licensing/notices.py web --output dist/licenses.html && node scripts/compress-dist.mjs",
     "dev": "vite --host 0.0.0.0",
     "test:history": "python3 ../scripts/test_history_webui.py"
   },
