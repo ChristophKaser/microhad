@@ -76,6 +76,25 @@ action. Examples include Zigbee `on`, `off`, `toggle`, `move`, `step`, `stop`,
 button action is delivered to automations even when that remote is also configured
 to trigger a gateway scene.
 
+### Matter switch models
+
+Matter defines two relevant switch models. MicroHAD currently exposes the
+**Generic Switch** model: an endpoint advertising the Switch *server* cluster
+(`0x003B`, decimal `59`) is discovered as a Matter remote and its standardized
+Switch-cluster events produce `remote.action` events. `matter_press` maps to
+InitialPress, `matter_hold` to LongPress, `matter_release` to ShortRelease or
+LongRelease, and `matter_multi_press` to MultiPressComplete. The event endpoint
+identifies the control; `position` identifies it more precisely when the device
+reports that field, and `press_count` is present for a reported multi-press
+count.
+
+A **command-capable light switch** is different: it uses On/Off and/or Level
+Control *client* clusters and, after Matter binding, sends those cluster commands
+directly to its bound light or group. The light responds to the command rather
+than to a button-position identifier. MicroHAD does not currently translate those
+outgoing client commands into `remote.action` events. A switch must advertise the
+Switch server cluster to be available as an event-style Matter remote in Lua.
+
 ```lua
 events.on({
   type = "remote.action",

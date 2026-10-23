@@ -64,6 +64,26 @@ remain while a node is offline; cached display does not guarantee a command
 will succeed. [The HTTP API](matter-native-api-v1.md) describes cached inventory, jobs
 and relay ownership.
 
+## Matter buttons and switches
+
+MicroHAD recognizes the Matter **Generic Switch** model. An endpoint that
+advertises the Switch server cluster (`0x003B`, decimal `59`) appears as a
+Matter remote. The service subscribes to its standardized Switch-cluster events;
+Lua automations receive these as `remote.action` events. InitialPress, LongPress,
+ShortRelease/LongRelease, and MultiPressComplete map respectively to
+`matter_press`, `matter_hold`, `matter_release`, and `matter_multi_press`.
+The event endpoint identifies the control. Devices may additionally report a
+button `position` and a multi-press count.
+
+This differs from a command-capable Matter light switch. Those switches use
+On/Off and Level Control client clusters and, once bound, issue commands directly
+to the selected light or group. The light receives a standard cluster command;
+it does not receive a physical button position. MicroHAD currently exposes the
+Generic Switch event path to automations and does not convert outgoing client
+commands from a command-capable switch into `remote.action` events. Check the
+device's advertised clusters: Switch server cluster `59` means it can be used as
+an event-style Matter remote.
+
 ## Developer verification and limits
 
 ```sh
