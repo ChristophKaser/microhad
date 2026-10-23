@@ -9,7 +9,7 @@
 
 class NotificationWorker {
 public:
-    struct RouteClient { std::string id, presenceSensorId; bool enabled; };
+    struct RouteClient { std::string id, label, presenceSensorId; bool enabled, browser; RouteClient(): enabled(false), browser(false) {} };
     class DeliveryHook {
     public:
         virtual ~DeliveryHook() {}
@@ -30,12 +30,18 @@ public:
     void stop();
     bool enqueue(const std::string& title, const std::string& body,
                  const std::vector<std::string>& presentSensorIds, std::string* error,
-                 const std::string& androidChannelId = "");
+                 const std::string& androidChannelId = "",
+                 const std::vector<std::string>& recipientIds = std::vector<std::string>());
     bool enqueue(const std::string& title, const std::string& body, std::string* error,
                  const std::string& androidChannelId = "");
     bool enqueueState(const std::string& title, const std::string& body, const std::string& key,
                       const std::string& action, const std::vector<std::string>& presentSensorIds,
-                      std::string* error, const std::string& androidChannelId = "");
+                      std::string* error, const std::string& androidChannelId = "",
+                      const std::vector<std::string>& recipientIds = std::vector<std::string>());
+    // Resolved IDs carry a phone:/browser: prefix and may be passed to enqueue.
+    bool resolveRecipients(const std::vector<std::string>& requested, std::vector<std::string>* ids, std::string* error) const;
+    static bool resolveRecipients(const std::vector<RouteClient>& clients, const std::vector<std::string>& requested,
+                                  std::vector<std::string>* ids, std::string* error);
     bool enabled() const;
     bool setEnabled(bool enabled, std::string* error);
     bool registerDevice(const std::string& id, const std::string& model, const std::string& token, std::string* error);
@@ -47,7 +53,7 @@ public:
     static std::vector<std::string> selectRecipients(const std::vector<RouteClient>& clients,
                                                      const std::vector<std::string>& presentSensorIds);
 private:
-    struct Job { std::string title; std::string body; std::string androidChannelId; std::string key, action; std::vector<std::string> presentSensorIds; };
+    struct Job { std::string title; std::string body; std::string androidChannelId; std::string key, action; std::vector<std::string> presentSensorIds, recipientIds; };
     struct Device { std::string id, model, token, label, presenceSensorId; bool enabled; };
     std::string runtimeDirectory_, firebaseServiceAccount_, firebaseTopic_, caBundle_;
     FirebaseServiceAccount firebaseAccount_;
@@ -62,6 +68,7 @@ private:
     static void* threadMain(void* opaque);
     void run();
     void deliver(const Job& job, HttpsSession* fcmSession);
+    std::vector<RouteClient> routingClients(bool includeBrowsers) const;
     void loadEnabled();
     bool saveEnabled(std::string* error) const;
     void loadDevices();

@@ -223,6 +223,84 @@ void cleanNotificationRuntime(const std::string& directory) {
     rmdir(directory.c_str());
 }
 
+void testExplicitNotificationRecipients(const std::string& root) {
+    const std::string directory = root + "/explicit-recipients";
+    const std::string alice = "11111111-1111-4111-8111-111111111111";
+    const std::string bob = "22222222-2222-4222-8222-222222222222";
+    std::string error;
+    assert(mkdir(directory.c_str(), 0700) == 0);
+    prepareBrowserSubscription(directory);
+    const std::string account = makeAccount(directory + "/service-account.json", "targeted@example.test");
+    FakeHttpsTransport transport;
+    transport.fcmResponse = "HTTP/1.1 200 OK\r\nContent-Length: 31\r\n\r\n{\"name\":\"projects/p/messages/m\"}";
+    setFakeTransport(&transport);
+    {
+        NotificationWorker worker(directory, account, "", "fake-ca-recipients");
+        assert(worker.registerDevice(alice, "Phone", "token-one", &error));
+        assert(worker.registerDevice(bob, "Phone", "token-two", &error));
+        assert(worker.updateDevice(alice, "Alice", true, "away", &error));
+        assert(worker.updateDevice(bob, "Bob", true, "home", &error));
+        assert(worker.start(&error));
+        std::vector<std::string> requested(1, "aLiCe"), ids, present(1, "home");
+        assert(worker.resolveRecipients(requested, &ids, &error));
+        assert(worker.enqueue("Single", "Alice only, even when away", present, &error, "", ids));
+        worker.stop();
+        assert(transport.countHost("fcm.googleapis.com") == 1);
+        assert(transport.countHost("push.example.test") == 0);
+        assert(transport.requests.back().body.find("token-one") != std::string::npos);
+
+        assert(worker.start(&error));
+        requested.push_back(bob); requested.push_back("Browser"); requested.push_back(alice);
+        assert(worker.resolveRecipients(requested, &ids, &error)); assert(ids.size() == 3);
+        assert(worker.enqueueState("Multiple", "Tagged mixed recipients", "automation:test", "show", present, &error, "", ids));
+        worker.stop();
+        assert(transport.countHost("fcm.googleapis.com") == 3);
+        assert(transport.countHost("push.example.test") == 1);
+        for (size_t i = 0; i < transport.requests.size(); ++i)
+            if (transport.requests[i].host == "fcm.googleapis.com" && transport.requests[i].body.find("Multiple") != std::string::npos)
+                assert(transport.requests[i].body.find("automation:test") != std::string::npos);
+
+        // A disabled explicit target must not fall back to other clients.
+        assert(worker.updateDevice(alice, "Alice", false, "away", &error));
+        assert(worker.start(&error)); requested.assign(1, "Alice");
+        assert(worker.resolveRecipients(requested, &ids, &error));
+        assert(worker.enqueue("Disabled", "No fallback", present, &error, "", ids));
+        worker.stop();
+        assert(transport.countHost("fcm.googleapis.com") == 3);
+        assert(transport.countHost("push.example.test") == 1);
+        assert(worker.setEnabled(false, &error));
+        assert(!worker.resolveRecipients(requested, &ids, &error));
+        assert(worker.setEnabled(true, &error));
+        requested.push_back("missing");
+        assert(!worker.resolveRecipients(requested, &ids, &error)); assert(ids.empty());
+    }
+    // Freeze the delivery worker while changing already-resolved targets.
+    BlockingFcmTransport blocked;
+    blocked.fcmResponse = transport.fcmResponse;
+    setFakeTransport(&blocked);
+    {
+        NotificationWorker worker(directory, account, "", "fake-ca-recipients");
+        assert(worker.updateDevice(alice, "Alice", true, "away", &error));
+        assert(worker.start(&error));
+        std::vector<std::string> requested(1, "Alice"), ids;
+        assert(worker.resolveRecipients(requested, &ids, &error));
+        assert(worker.enqueue("Block", "First", std::vector<std::string>(), &error, "", ids));
+        blocked.waitUntilBlocked();
+        requested.assign(1, "Bob");
+        assert(worker.resolveRecipients(requested, &ids, &error));
+        assert(worker.enqueue("Removed", "Must not broadcast", std::vector<std::string>(), &error, "", ids));
+        assert(worker.removeDevice(bob, &error));
+        requested.assign(1, "Alice");
+        assert(worker.resolveRecipients(requested, &ids, &error));
+        assert(worker.enqueue("Disabled", "Must not broadcast", std::vector<std::string>(), &error, "", ids));
+        assert(worker.updateDevice(alice, "Alice", false, "away", &error));
+        blocked.release(); worker.stop();
+    }
+    assert(blocked.countHost("fcm.googleapis.com") == 1);
+    assert(blocked.countHost("push.example.test") == 0);
+    unlink(account.c_str()); cleanNotificationRuntime(directory);
+}
+
 void testNotificationTransportIndependence(const std::string& root) {
     std::string error;
     std::string directory = root + "/browser-only";
@@ -476,6 +554,7 @@ void runOutboundIntegrationTests() {
     setFakeTransport(&transport);
     testFcmTokenCacheAndFailures(directory, &transport);
     testNotificationTransportIndependence(directory);
+    testExplicitNotificationRecipients(directory);
     testWebPushEncryptionAndRejection(directory);
     setHttpsPostHook(0);
     setHttpsSessionHook(0);

@@ -3330,6 +3330,23 @@ static void testNotificationTogglePersistence() {
 }
 
 static void testPresenceBasedPushRouting() {
+    {
+        std::vector<NotificationWorker::RouteClient> clients;
+        NotificationWorker::RouteClient client; client.id="phone-id"; client.label="Alice"; client.enabled=true;
+        clients.push_back(client); client.id="browser-id"; client.label="Bob"; client.browser=true; clients.push_back(client);
+        std::vector<std::string> requested,ids; std::string error;
+        requested.push_back("alice"); requested.push_back("phone-id"); requested.push_back("BOB");
+        assert(NotificationWorker::resolveRecipients(clients,requested,&ids,&error));
+        assert(ids.size()==2 && ids[0]=="phone:phone-id" && ids[1]=="browser:browser-id");
+        requested.push_back("missing"); assert(!NotificationWorker::resolveRecipients(clients,requested,&ids,&error)); assert(ids.empty());
+        requested.assign(1,"Alice"); clients[1].label="ALICE";
+        assert(!NotificationWorker::resolveRecipients(clients,requested,&ids,&error));
+        requested.assign(1,"phone-id"); clients[1].label="phone-id";
+        assert(NotificationWorker::resolveRecipients(clients,requested,&ids,&error)); assert(ids[0]=="phone:phone-id");
+        clients[1].id="phone-id";
+        assert(!NotificationWorker::resolveRecipients(clients,requested,&ids,&error));
+    }
+
     std::vector<NotificationWorker::RouteClient> clients;
     NotificationWorker::RouteClient client;
     client.id = "phone-home"; client.presenceSensorId = "sensor-home"; client.enabled = true; clients.push_back(client);

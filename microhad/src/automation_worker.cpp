@@ -194,23 +194,37 @@ struct AutomationWorker::Impl {
         std::string title=stringArg(L,1),body=stringArg(L,2);
         Value options=Value::object();
         if(title.size()>512||body.size()>8192)return luaL_error(L,"notification exceeds size limit");
-        if(!lua_isnoneornil(L,3)&&(!readValue(L,3,&options)||options.type!=Value::Object))
+        if(!lua_isnoneornil(L,3)&&(!readValue(L,3,&options,true)||options.type!=Value::Object))
             return luaL_error(L,"invalid notification options");
-        for(std::map<std::string,Value>::const_iterator it=options.fields.begin();it!=options.fields.end();++it)
-            if((it->first!="device_id"&&it->first!="tag")||it->second.type!=Value::String||it->second.string.size()>256)
+        std::vector<std::string> requested,recipientIds;
+        for(std::map<std::string,Value>::const_iterator it=options.fields.begin();it!=options.fields.end();++it){
+            if(it->first=="recipients"){
+                const Value& recipients=it->second;
+                std::vector<Value> values;
+                if(recipients.type==Value::String)values.push_back(recipients);
+                else if(recipients.type==Value::Array)values=recipients.items;
+                if(values.empty())return luaL_error(L,"invalid notification recipients");
+                for(size_t i=0;i<values.size();++i){
+                    if(values[i].type!=Value::String||values[i].string.empty()||values[i].string.size()>256)
+                        return luaL_error(L,"invalid notification recipients");
+                    requested.push_back(values[i].string);
+                }
+            }else if((it->first!="device_id"&&it->first!="tag")||it->second.type!=Value::String||it->second.string.size()>256)
                 return luaL_error(L,"invalid notification option");
+        }
         if(s->validation){lua_pushboolean(L,1);return 1;}
         std::string err;
         NotificationWorker* notifications=s->owner->notifications;
         bool accepted=false;
         if(notifications){
+            if(!requested.empty()&&!notifications->resolveRecipients(requested,&recipientIds,&err))return failure(L,err);
             const std::string device=options.fields["device_id"].string,tag=options.fields["tag"].string;
-            if(device.empty()&&tag.empty())accepted=notifications->enqueue(title,body,&err);
+            if(device.empty()&&tag.empty())accepted=notifications->enqueue(title,body,std::vector<std::string>(),&err,"",recipientIds);
             else{
                 // Keep author grouping separate from Android's channel setting.
                 std::ostringstream key;
                 key<<"automation:"<<s->id<<":"<<device.size()<<":"<<device<<":"<<tag;
-                accepted=notifications->enqueueState(title,body,key.str(),"show",std::vector<std::string>(),&err);
+                accepted=notifications->enqueueState(title,body,key.str(),"show",std::vector<std::string>(),&err,"",recipientIds);
             }
         }
         if(!accepted)return failure(L,err.empty()?"notifications unavailable":err);

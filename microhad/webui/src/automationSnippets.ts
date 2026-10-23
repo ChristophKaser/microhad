@@ -14,6 +14,14 @@ export const automationSnippets = [
     content: 'notify.send("${1:Automation}", "${2:Message}")${0}',
   },
   {
+    name: 'notifyto — Notify one recipient', tabTrigger: 'notifyto',
+    content: 'notify.send("${1:Automation}", "${2:Message}", { recipients = "${3:RECIPIENT_ID_OR_LABEL}" })${0}',
+  },
+  {
+    name: 'notifyrecipients — Notify multiple recipients', tabTrigger: 'notifyrecipients',
+    content: 'notify.send("${1:Automation}", "${2:Message}", { recipients = { "${3:RECIPIENT_ID_OR_LABEL}", "${4:RECIPIENT_ID_OR_LABEL}" } })${0}',
+  },
+  {
     name: 'notifydevice — Send a device notification', tabTrigger: 'notifydevice',
     content: 'notify.send("${1:Automation}", "${2:Message}", { device_id = "${3:DEVICE_ID}", tag = "${4:automation}" })${0}',
   },

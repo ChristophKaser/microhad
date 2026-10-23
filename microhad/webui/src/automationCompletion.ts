@@ -21,7 +21,7 @@ export const gatewayApi: Record<string, Spec> = {
   'devices.refresh': ['target', 'boolean | nil, error', 'Request a device refresh.'],
   'scenes.activate': ['group, scene', 'boolean | nil, error', 'Activate a scene using names or string IDs.'],
   'scenes.off': ['group', 'boolean | nil, error', 'Turn off a scene group.'],
-  'notify.send': ['title, body, options', 'boolean | nil, error', 'Send a notification; optional options: device_id, tag.'],
+  'notify.send': ['title, body, options', 'boolean | nil, error', 'Send a notification; optional options: device_id, tag, recipients (one client ID/label or a list). Explicit recipients ignore presence; notification switches still apply.'],
   log: ['level, message, fields', 'nil', 'Log debug/info/warn/error; optional JSON-compatible fields.'],
   dump: ['value, label', 'nil', 'Log a structured value with optional label.'],
 }
@@ -45,7 +45,7 @@ const fieldCapabilities: Record<string, keyof Device> = {
   temperature_celsius:'has_temperature', humidity_percent:'has_humidity', contact_open:'has_contact', water_detected:'has_water_leak', occupied:'has_occupancy', light_on:'has_light', actor_on:'has_actor', power_watts:'has_power', air_quality:'has_air_quality', co2_ppm:'has_co2', pm25_micrograms_m3:'has_pm25', brightness_percent:'has_brightness', battery_percent:'has_battery', wifi_signal_percent:'has_wifi_signal',
 }
 const entry = (value: string, meta = 'Lua', score = 1000): Completion => ({ caption: value, value, meta, score })
-const fieldType = (name: string) => ['id','name','source','kind','type','field','action','reason','message','operation','timer_id','chain_id','device_id','air_quality'].includes(name) ? 'string' : name === 'tag' ? 'string (user-defined)' : ['online','contact_open','water_detected','occupied','light_on','actor_on'].includes(name) ? 'boolean' : name === 'device' ? 'immutable device snapshot' : ['value','old','payload'].includes(name) ? 'event-dependent value' : 'number'
+const fieldType = (name: string) => ['id','name','source','kind','type','field','action','reason','message','operation','timer_id','chain_id','device_id','air_quality'].includes(name) ? 'string' : name === 'recipients' ? 'client ID or unique label, or a list of IDs/labels' : name === 'tag' ? 'string (user-defined)' : ['online','contact_open','water_detected','occupied','light_on','actor_on'].includes(name) ? 'boolean' : name === 'device' ? 'immutable device snapshot' : ['value','old','payload'].includes(name) ? 'event-dependent value' : 'number'
 const documentation = (name: string, spec: Spec) => `${name}(${spec[0].split(', ').filter(Boolean).map(arg => `${arg}: ${argumentTypes[arg]}`).join(', ')}): ${spec[1]}\n${spec[2]}`
 const quote = (value: string, delimiter = '"') => delimiter + value.replace(/\\/g, '\\\\').replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(new RegExp(delimiter, 'g'), '\\' + delimiter) + delimiter
 
@@ -120,7 +120,7 @@ export function completions(source: string, offset: number, catalog: Catalog): C
     if (eventCall && call.argument === 0) keys = filterKeys.filter(k => !eventType || eventType === 'remote.action' || !['action','endpoint','position','press_count'].includes(k))
     else if (call?.call === 'devices.light' && call.argument === 1) keys = ['on','brightness']
     else if (call?.call === 'devices.list') keys = ['source','kind','online','name']
-    else if (call?.call === 'notify.send' && call.argument === 2) keys = ['device_id','tag']
+    else if (call?.call === 'notify.send' && call.argument === 2) keys = ['device_id','tag','recipients']
     result = keys.filter(k => !new RegExp(`\\b${k}\\s*=`).test(tableText)).map(k => ({ ...entry(k + ' = ', 'argument field'), docText: k.startsWith('value_') ? `${k}: finite number — compare the event value` : k === 'brightness' ? 'brightness: integer 0–100' : ['endpoint','position','press_count'].includes(k) ? `${k}: integer` : `${k}: ${fieldType(k)}` }))
   } else if (!inString) {
     const member = context.match(/([\w.]+)\.$/)?.[1]

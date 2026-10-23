@@ -82,6 +82,11 @@ void errorLocations(){
         {"devices.light('missing',{brightness=101})","brightness must be"},
         {"devices.actor('missing','yes')","must be boolean"},
         {"notify.send('title','body',{unknown=true})","invalid notification option"},
+        {"notify.send('t','b',{recipients={}})","invalid notification recipients"},
+        {"notify.send('t','b',{recipients=''})","invalid notification recipients"},
+        {"notify.send('t','b',{recipients={'a',false}})","invalid notification recipients"},
+        {"notify.send('t','b',{recipients={[2]='a'}})","invalid notification recipients"},
+        {"notify.send('t','b',{recipients={name='a'}})","invalid notification recipients"},
         {"persistent.value=function()end","not serializable"},
         {"local missing=nil; missing()","attempt to call"},
         {"error('custom failure',0)","custom failure"},
@@ -92,6 +97,7 @@ void errorLocations(){
         if(f.error.find("draft.lua:3: ")!=0){fprintf(stderr,"error location: %s\n",f.error.c_str());assert(false);}
         assert(f.error.find(cases[i].message)!=std::string::npos);
     }
+    assert(f.worker->validate("draft.lua","assert(notify.send('t','b',{recipients='Unregistered'}));assert(notify.send('t','b',{recipients={'Alice','Bob'},tag='test'}))",&f.error));
     assert(!f.worker->validate("draft.lua","local function setup()\n  events.on({type='unsupported'},function()end)\nend\nsetup()",&f.error));
     assert(f.error.find("draft.lua:2: unsupported event type")==0);
     assert(!f.worker->validate("draft.lua","-- syntax error\nlocal =",&f.error));

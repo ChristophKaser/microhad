@@ -4,6 +4,7 @@
 #include "json_util.h"
 #include "thread_name.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <fstream>
 #include <fcntl.h>
@@ -98,7 +99,7 @@ void NotificationWorker::stop() {
 
 bool NotificationWorker::enqueue(const std::string& title, const std::string& body,
                                  const std::vector<std::string>& presentSensorIds, std::string* error,
-                                 const std::string& androidChannelId) {
+                                 const std::string& androidChannelId, const std::vector<std::string>& recipientIds) {
     Job job;
     pthread_mutex_lock(&mutex_);
     if (!running_) {
@@ -120,6 +121,7 @@ bool NotificationWorker::enqueue(const std::string& title, const std::string& bo
     job.body = body;
     job.androidChannelId = androidChannelId;
     job.presentSensorIds = presentSensorIds;
+    job.recipientIds = recipientIds;
     jobs_.push_back(job);
     pthread_cond_signal(&ready_);
     pthread_mutex_unlock(&mutex_);
@@ -132,7 +134,7 @@ bool NotificationWorker::enqueue(const std::string& title, const std::string& bo
 
 bool NotificationWorker::enqueueState(const std::string& title, const std::string& body, const std::string& key,
                                        const std::string& action, const std::vector<std::string>& presentSensorIds,
-                                       std::string* error, const std::string& androidChannelId) {
+                                       std::string* error, const std::string& androidChannelId, const std::vector<std::string>& recipientIds) {
     if (key.empty() || (action != "show" && action != "clear")) {
         *error = "invalid Android notification state message";
         return false;
@@ -149,10 +151,71 @@ bool NotificationWorker::enqueueState(const std::string& title, const std::strin
     }
     Job job;
     job.title = title; job.body = body; job.androidChannelId = androidChannelId;
-    job.key = key; job.action = action; job.presentSensorIds = presentSensorIds;
+    job.key = key; job.action = action; job.presentSensorIds = presentSensorIds; job.recipientIds = recipientIds;
     jobs_.push_back(job);
     pthread_cond_signal(&ready_);
     pthread_mutex_unlock(&mutex_);
+    return true;
+}
+
+std::vector<NotificationWorker::RouteClient> NotificationWorker::routingClients(bool includeBrowsers) const {
+    std::vector<RouteClient> clients;
+    pthread_mutex_lock(&mutex_);
+    for (size_t i = 0; i < devices_.size(); ++i) {
+        RouteClient client; client.id = devices_[i].id; client.label = devices_[i].label;
+        client.presenceSensorId = devices_[i].presenceSensorId; client.enabled = devices_[i].enabled;
+        clients.push_back(client);
+    }
+    pthread_mutex_unlock(&mutex_);
+    if (!includeBrowsers) return clients;
+    WebPushStore store(runtimeDirectory_);
+    std::vector<WebPushStore::RoutingClient> browsers;
+    store.routingClients(&browsers);
+    for (size_t i = 0; i < browsers.size(); ++i) {
+        RouteClient client; client.id = browsers[i].id; client.label = browsers[i].label;
+        client.presenceSensorId = browsers[i].presenceSensorId; client.enabled = browsers[i].enabled;
+        client.browser = true; clients.push_back(client);
+    }
+    return clients;
+}
+
+namespace {
+std::string recipientLabel(std::string label) {
+    for (size_t i = 0; i < label.size(); ++i) if (label[i] >= 'A' && label[i] <= 'Z') label[i] += 'a' - 'A';
+    return label;
+}
+}
+
+bool NotificationWorker::resolveRecipients(const std::vector<std::string>& requested,
+                                            std::vector<std::string>* ids, std::string* error) const {
+    // Reject disabled notifications before loading client routing data.
+    ids->clear();
+    if (!enabled()) { *error = "push notifications are disabled"; return false; }
+    return resolveRecipients(routingClients(true), requested, ids, error);
+}
+
+bool NotificationWorker::resolveRecipients(const std::vector<RouteClient>& clients,
+                                            const std::vector<std::string>& requested,
+                                            std::vector<std::string>* ids, std::string* error) {
+    ids->clear();
+    if (requested.empty()) { *error = "notification recipients must not be empty"; return false; }
+    std::vector<std::string> resolved;
+    for (size_t i = 0; i < requested.size(); ++i) {
+        const RouteClient* match = 0;
+        for (int pass = 0; pass < 2 && !match; ++pass) {
+            for (size_t j = 0; j < clients.size(); ++j) {
+                bool matches = pass == 0 ? clients[j].id == requested[i] :
+                    !clients[j].label.empty() && recipientLabel(clients[j].label) == recipientLabel(requested[i]);
+                if (!matches) continue;
+                if (match) { *error = "ambiguous notification recipient; use stable ID"; return false; }
+                match = &clients[j];
+            }
+        }
+        if (!match) { *error = "unknown notification recipient"; return false; }
+        std::string id = (match->browser ? "browser:" : "phone:") + match->id;
+        if (std::find(resolved.begin(), resolved.end(), id) == resolved.end()) resolved.push_back(id);
+    }
+    ids->swap(resolved);
     return true;
 }
 
@@ -233,28 +296,18 @@ void NotificationWorker::deliver(const Job& job, HttpsSession* fcmSession) {
         return;
     }
     std::vector<std::string> allowedPhones, allowedBrowsers;
-    std::vector<RouteClient> routeClients;
     WebPushStore* browserPush = caBundle_.empty() ? 0 : new WebPushStore(runtimeDirectory_);
-    std::vector<WebPushStore::RoutingClient> browserClients;
-    if (browserPush != 0) browserPush->routingClients(&browserClients);
-    pthread_mutex_lock(&mutex_);
-    for (unsigned long i = 0; i < devices_.size(); ++i) {
-        RouteClient client; client.id = devices_[i].id; client.presenceSensorId = devices_[i].presenceSensorId;
-        client.enabled = devices_[i].enabled; routeClients.push_back(client);
-    }
-    pthread_mutex_unlock(&mutex_);
-    for (unsigned long i = 0; i < browserClients.size(); ++i) {
-        RouteClient client; client.id = browserClients[i].id; client.presenceSensorId = browserClients[i].presenceSensorId;
-        client.enabled = browserClients[i].enabled; routeClients.push_back(client);
-    }
-    std::vector<std::string> selected = selectRecipients(routeClients, job.presentSensorIds);
-    for (unsigned long i = 0; i < selected.size(); ++i) {
-        bool phone = false;
-        pthread_mutex_lock(&mutex_);
-        for (unsigned long j = 0; j < devices_.size(); ++j) if (devices_[j].id == selected[i]) { phone = true; break; }
-        pthread_mutex_unlock(&mutex_);
-        if (phone) allowedPhones.push_back(selected[i]);
-        else allowedBrowsers.push_back(selected[i]);
+    std::vector<RouteClient> routeClients = routingClients(browserPush != 0);
+    // Namespace internal routing IDs so a browser and phone can never collide.
+    for (size_t i = 0; i < routeClients.size(); ++i)
+        routeClients[i].id = (routeClients[i].browser ? "browser:" : "phone:") + routeClients[i].id;
+    std::vector<std::string> selected = job.recipientIds.empty() ?
+        selectRecipients(routeClients, job.presentSensorIds) : job.recipientIds;
+    for (size_t i = 0; i < routeClients.size(); ++i) {
+        const RouteClient& client = routeClients[i];
+        if (!client.enabled || std::find(selected.begin(), selected.end(), client.id) == selected.end()) continue;
+        if (client.browser) allowedBrowsers.push_back(client.id.substr(8));
+        else allowedPhones.push_back(client.id.substr(6));
     }
     if (firebaseAccountLoaded_ && !caBundle_.empty()) {
         std::vector<std::string> tokens;
@@ -273,11 +326,10 @@ void NotificationWorker::deliver(const Job& job, HttpsSession* fcmSession) {
                 fprintf(stderr, "FCM delivery failed: %s\n", ignored.c_str());
         }
     }
-    if (!enabled()) return;
-    if (browserPush != 0 && job.action != "clear") {
+    if (enabled() && browserPush != 0 && job.action != "clear") {
         browserPush->send(caBundle_, job.title, job.body, allowedBrowsers, &ignored);
-        delete browserPush;
     }
+    delete browserPush;
 }
 bool NotificationWorker::registerDevice(const std::string& id, const std::string& model,
                                          const std::string& token, std::string* error) {

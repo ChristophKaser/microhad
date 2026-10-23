@@ -279,7 +279,7 @@ void WebPushStore::routingClients(std::vector<RoutingClient>* output) const {
     output->clear();
     for (unsigned long i = 0; i < clients.size(); ++i) {
         RoutingClient client; client.id = clientId(clients[i].endpoint);
-        client.presenceSensorId = clients[i].presenceSensorId; client.enabled = clients[i].enabled;
+        client.label = clients[i].label; client.presenceSensorId = clients[i].presenceSensorId; client.enabled = clients[i].enabled;
         output->push_back(client);
     }
 }

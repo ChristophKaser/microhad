@@ -29,6 +29,7 @@ test('gateway APIs, snippets and sandbox globals', () => {
   assert(values('devices.light("0x123", { ').includes('brightness = '))
   assert.deepEqual(values('devices.light("0x123", { on = '), ['true', 'false'])
   assert(values('notify.send("hello", "world", { ').includes('device_id = '))
+  assert(values('notify.send("hello", "world", { ').includes('recipients = '))
   assert(values('log("w').includes('warn'))
 })
 
@@ -81,7 +82,8 @@ test('completion metadata matches actual runtime contracts', () => {
     assert(member ? runtime.includes(name) || runtime.includes(member + '=') || runtime.includes(member + ' =') : runtime.includes('env.' + namespace + '='), name)
   }
   for (const action of remoteActions) assert(gateway.includes('"' + action + '"'), action)
-  assert(native.includes('ambiguous name; use stable IDs'))
+  assert(snapshot.includes('ambiguous name; use stable IDs'))
+  assert(native.includes('"recipients"'))
 })
 
 const workerSource = readFileSync(new URL('../node_modules/ace-builds/src/worker-lua.js', import.meta.url), 'utf8')

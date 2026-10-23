@@ -6,7 +6,7 @@
 
 class WebPushStore {
 public:
-    struct RoutingClient { std::string id, presenceSensorId; bool enabled; };
+    struct RoutingClient { std::string id, label, presenceSensorId; bool enabled; };
     explicit WebPushStore(const std::string& runtimeDirectory);
     bool addSubscription(const std::string& subscriptionJson, std::string* error);
     std::string clientsJson() const;

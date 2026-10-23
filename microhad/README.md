@@ -154,3 +154,18 @@ temperature sensor linking are described in [thermostat support](docs/thermostat
 Original project code is MIT licensed; upstream components retain their own terms.
 See the repository-wide [third-party inventory](../THIRD_PARTY.md) for attribution,
 notice generation and release requirements.
+
+Automation notifications can target registered phones and browsers by stable client
+ID or unique display label (labels are case-insensitive):
+
+```lua
+notify.send("Alert", "Door opened", { recipients = "Alice" })
+notify.send("Alert", "Door opened", { recipients = { "Alice", "Bob" }, tag = "door" })
+```
+
+Omit `recipients` for normal routing. Explicit recipients bypass presence routing
+and respect global and per-client notification switches. Unknown or ambiguous
+recipients return `nil, error` without sending; use stable IDs to distinguish
+clients with the same label. Empty recipients and malformed lists are invalid.
+Repeated recipients receive one copy. `device_id` and `tag` retain their existing
+notification grouping behavior.
