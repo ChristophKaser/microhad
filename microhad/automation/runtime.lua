@@ -53,8 +53,8 @@ local function matches(f,e)
   end
   return true
 end
-local function report(message, operation)
-  host.failure(tostring(message),operation)
+local function report(message, operation, thread)
+  host.failure(tostring(message),operation,thread)
 end
 local function start(fn,args,chain,depth,on_done)
   if count(tasks)>=128 then report('callback queue limit reached','queue'); return end
@@ -77,7 +77,7 @@ local function resume(h,t)
   if done then
     tasks[h]=nil
     if t.on_done then t.on_done() end
-    if not ok then report(result[1] and 'callback budget exceeded' or result[2],'callback') end
+    if not ok then report(result[1] and 'callback budget exceeded' or result[2],'callback',t.thread) end
   elseif type(result[2])=='table' and result[2].kind then
     t.wait=result[2]
   else

@@ -94,7 +94,8 @@ struct AutomationWorker::Impl {
     static void hook(lua_State* L,lua_Debug*){void* opaque=0;lua_getallocf(L,&opaque);Script* s=static_cast<Script*>(opaque);s->instructions+=100;lua_Debug frame;if(lua_getstack(L,128,&frame))luaL_error(L,"callback recursion limit exceeded");if(s->instructions>=static_cast<unsigned long>(s->remaining)||monotonic()>=s->deadline)luaL_error(L,"callback execution budget exceeded");}
     void record(Script* s,const std::string& level,const std::string& message,const Value& fields=Value::object(),const std::string& operation="log"){
         Value row=Value::object();row.fields["script_id"]=Value(s->id);row.fields["generation"]=Value(static_cast<double>(s->generation));row.fields["at"]=Value(static_cast<double>(time(0)));row.fields["level"]=Value(level);row.fields["operation"]=Value(operation);row.fields["message"]=Value(message.size()>8192?message.substr(0,8120)+" [truncated]":message);row.fields["fields"]=fields;
-        size_t colon=message.find(':');if(colon!=message.npos){char* end=0;long line=strtol(message.c_str()+colon+1,&end,10);if(line>0&&end&&*end==':')row.fields["line"]=Value(static_cast<double>(line));}
+        const std::string location=s->name+":";
+        if(message.compare(0,location.size(),location)==0){char* end=0;long line=strtol(message.c_str()+location.size(),&end,10);if(line>0&&end&&*end==':')row.fields["line"]=Value(static_cast<double>(line));}
         // Bound the encoded record, not just its message: structured fields and
         // JSON escaping must not let one author consume the entire log ring.
         if(Automation::json(row).size()>8000){
@@ -124,7 +125,30 @@ struct AutomationWorker::Impl {
     static int writeState(lua_State* L){Script* s=script(L);std::string scope=stringArg(L,1);Value v;bool ok=readValue(L,2,&v)&&v.type==Value::Object&&Automation::json(v).size()<=131072;if(!ok)return luaL_error(L,"state must contain finite, acyclic values with string keys (128 KiB limit)");if(scope=="shared"){if(s->validation)s->validationShared=v;else s->owner->shared=v;}else s->transactions[s->transaction].persistent=v;return 0;}
     static int serializable(lua_State* L){Value v;bool ok=readValue(L,1,&v);if(!ok)return luaL_error(L,"value is not serializable");push(L,v);return 1;}
     static int failed(lua_State* L){lua_pushboolean(L,script(L)->failed);return 1;}
-    static int failureLog(lua_State* L){Script* s=script(L);s->owner->error(s,stringArg(L,1),stringArg(L,2));return 0;}
+    static std::string locatedError(Script* s,lua_State* thread,const std::string& message){
+        // A failed coroutine retains its frames after resume returns. Use the
+        // innermost author frame, never the scheduler's assertion/helper line.
+        if(!thread||message.compare(0,s->name.size()+1,s->name+":")==0)return message;
+        const std::string source="@"+s->name;
+        lua_Debug frame;
+        for(int depth=0;depth<128&&lua_getstack(thread,depth,&frame);++depth){
+            if(!lua_getinfo(thread,"Sl",&frame)||!frame.source||source!=frame.source||frame.currentline<=0)continue;
+            std::string detail=message;
+            const std::string runtime="automation-runtime:";
+            if(detail.compare(0,runtime.size(),runtime)==0){
+                char* end=0;strtol(detail.c_str()+runtime.size(),&end,10);
+                if(end!=detail.c_str()+runtime.size()&&*end==':'){
+                    size_t start=static_cast<size_t>(end-detail.c_str())+1;
+                    if(start<detail.size()&&detail[start]==' ')++start;
+                    detail.erase(0,start);
+                }
+            }
+            std::ostringstream result;result<<s->name<<':'<<frame.currentline<<": "<<detail;
+            return result.str();
+        }
+        return message;
+    }
+    static int failureLog(lua_State* L){Script* s=script(L);s->owner->error(s,locatedError(s,lua_tothread(L,3),stringArg(L,1)),stringArg(L,2));return 0;}
     static int log(lua_State* L){Script* s=script(L);std::string level=stringArg(L,1),message=stringArg(L,2);if(level!="debug"&&level!="info"&&level!="warn"&&level!="error")return luaL_error(L,"invalid severity");Value fields=Value::object();if(!lua_isnoneornil(L,3)&&!readValue(L,3,&fields,true))return luaL_error(L,"log fields must be JSON compatible");if(!s->validation)s->owner->record(s,level,message,fields);return 0;}
     static void dumpValue(lua_State* L,int at,std::string* out,std::set<const void*>* seen,unsigned depth){if(out->size()>8192)return;at=lua_absindex(L,at);if(lua_type(L,at)==LUA_TTABLE){const void* p=lua_topointer(L,at);if(seen->count(p)){*out+="<cycle>";return;}if(depth>48){*out+="<depth limit>";return;}seen->insert(p);*out+="{";lua_pushnil(L);while(lua_next(L,at)){dumpValue(L,-2,out,seen,depth+1);*out+="=";dumpValue(L,-1,out,seen,depth+1);*out+=",";lua_pop(L,1);if(out->size()>8192){lua_pop(L,1);break;}}*out+="}";seen->erase(p);}else if(lua_type(L,at)==LUA_TSTRING){size_t n;const char* text=lua_tolstring(L,at,&n);out->append(text,std::min(n,static_cast<size_t>(8200)));}else if(lua_type(L,at)==LUA_TNUMBER){std::ostringstream n;n<<lua_tonumber(L,at);*out+=n.str();}else if(lua_type(L,at)==LUA_TBOOLEAN)*out+=lua_toboolean(L,at)?"true":"false";else{std::ostringstream p;p<<lua_typename(L,lua_type(L,at))<<':'<<lua_topointer(L,at);*out+=p.str();}}
     static int dump(lua_State* L){Script* s=script(L);std::string text=lua_isnoneornil(L,2)?"":stringArg(L,2)+": ";std::set<const void*> seen;dumpValue(L,1,&text,&seen,0);if(!s->validation)s->owner->record(s,"debug",text);return 0;}

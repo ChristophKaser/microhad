@@ -44,6 +44,51 @@ struct Fixture {
 };
 void serialization(){Value v;assert(Automation::parse("{\"nested\":{\"s\":\"x\\u00e4\\n\",\"n\":-1.2e3},\"b\":false}",&v));Value again;assert(Automation::parse(Automation::json(v),&again)&&again==v);assert(!Automation::parse("{\"n\":01}",&v));assert(!Automation::parse("{\"n\":1e999}",&v));assert(!Automation::parse("{\"x\":1,\"x\":2}",&v));assert(!Automation::parse("{\"x\":true}garbage",&v));Device d;d.ieeeAddress="0xabc";d.name="Office";d.hasTemperature=true;d.temperatureKnown=false;assert(!Automation::snapshot(d).fields.count("temperature_celsius"));d.temperatureKnown=true;d.temperatureCelsius=0;assert(Automation::snapshot(d).fields["temperature_celsius"].number==0);}
 void sandboxAndValidation(){Fixture f;assert(f.worker->validate("draft.lua","assert(io==nil and os==nil and package==nil and debug==nil and load==nil and loadfile==nil and dofile==nil and coroutine==nil and rawset==nil); assert(events.on and events.off and automation.sleep and events.wait_for)",&f.error));assert(!f.worker->validate("draft.lua","while true do end",&f.error));assert(f.error.find("budget")!=std::string::npos);assert(!f.worker->validate("draft.lua","local x=string.rep('x',1024*1024)",&f.error));assert(!f.worker->validate("draft.lua","automation.after(0,function()end)",&f.error));assert(!f.worker->validate("draft.lua","events.on({type='unsupported'},function()end)",&f.error));assert(!f.worker->validate("draft.lua","events.on({type='device.value',value_below='cold'},function()end)",&f.error));assert(!f.worker->validate("draft.lua","events.on({type='remote.action',endpoint='one'},function()end)",&f.error));assert(!f.worker->validate("draft.lua","automation.cron('* * *',function()end)",&f.error));assert(!f.worker->validate("draft.lua","automation.cron('70 * * * *',function()end)",&f.error));assert(f.worker->validate("draft.lua","persistent.changed=1; shared.changed=1; automation.after(.01,function()error('must not run')end)",&f.error));assert(!regularFile(f.root+"/automations/state/draft.json"));}
+void errorLocations(){
+    Fixture f;
+    struct Case {const char* code;const char* message;};
+    const Case cases[]={
+        {"events.on({type='unsupported'},function()end)","unsupported event type"},
+        {"events.on({type='device.value',unknown=true},function()end)","unsupported filter field"},
+        {"events.on({type='device.value',value_below='cold'},function()end)","must be number"},
+        {"automation.after(0,function()end)","invalid duration"},
+        {"automation.after(1,'callback')","must be function"},
+        {"automation.cron('70 * * * *',function()end)","invalid cron field"},
+        {"automation.sleep(1)","sleep is only available in callbacks"},
+        {"events.wait_for({type='device.value'},1)","wait_for is only available in callbacks"},
+        {"devices.light('missing',{brightness=101})","brightness must be"},
+        {"devices.actor('missing','yes')","must be boolean"},
+        {"notify.send('title','body',{unknown=true})","invalid notification option"},
+        {"persistent.value=function()end","not serializable"},
+        {"local missing=nil; missing()","attempt to call"},
+        {"error('custom failure',0)","custom failure"},
+        {"assert(false,'assertion failure')","assertion failure"}
+    };
+    for(size_t i=0;i<sizeof(cases)/sizeof(cases[0]);++i){
+        assert(!f.worker->validate("draft.lua",std::string("-- first line\n\n")+cases[i].code,&f.error));
+        if(f.error.find("draft.lua:3: ")!=0){fprintf(stderr,"error location: %s\n",f.error.c_str());assert(false);}
+        assert(f.error.find(cases[i].message)!=std::string::npos);
+    }
+    assert(!f.worker->validate("draft.lua","local function setup()\n  events.on({type='unsupported'},function()end)\nend\nsetup()",&f.error));
+    assert(f.error.find("draft.lua:2: unsupported event type")==0);
+    assert(!f.worker->validate("draft.lua","-- syntax error\nlocal =",&f.error));
+    assert(f.error.find("draft.lua:2:")==0);
+    f.save("-- runtime validation failure\n\nevents.on({type='unsupported'},function()end)");
+    assert(f.status().fields["error"].string.find("test.lua:3: unsupported event type")==0);
+    Value log;assert(Automation::parse(f.worker->logsJson("test.lua"),&log));
+    bool found=false;
+    for(size_t i=0;i<log.fields["records"].items.size();++i){const Value& row=log.fields["records"].items[i];
+        if(row.fields.find("message")->second.string.find("test.lua:3: unsupported event type")==0){assert(row.fields.find("line")->second.number==3);found=true;}}
+    assert(found);
+    f.save("events.on({type='device.value'},function()\n  automation.sleep(.01)\n  events.wait_for({type='unsupported'},1)\nend)");
+    f.event("device.value");
+    for(unsigned i=0;i<200&&f.status().fields["error"].string.empty();++i)usleep(10000);
+    assert(f.status().fields["error"].string.find("test.lua:3: unsupported event type")==0);
+    f.save("log('warn','automation-runtime:34: unrelated message')\nlog('warn','sensor:12: unrelated message')");
+    assert(Automation::parse(f.worker->logsJson("test.lua"),&log));
+    for(size_t i=0;i<log.fields["records"].items.size();++i){const Value& row=log.fields["records"].items[i];
+        if(row.fields.find("message")->second.string.find("unrelated message")!=std::string::npos)assert(!row.fields.count("line"));}
+}
 void persistenceAndReload(){Fixture f;f.save("persistent.loads=(persistent.loads or 0)+1; persistent.nested={value=2}; persistent.nested.value=3; shared.present=41");assert(f.state().fields["loads"].number==1);assert(f.state().fields["nested"].fields["value"].number==3);assert(f.worker->reload("test.lua",&f.error));assert(f.state().fields["loads"].number==2);f.save("assert(shared.present==41);persistent.loads=(persistent.loads or 0)+1");assert(f.state().fields["loads"].number==3);assert(f.worker->validate("test.lua","persistent.loads=999;shared.present=99",&f.error));assert(f.state().fields["loads"].number==3);f.save("assert(shared.present==41);persistent.loads=999;error('broken init')");assert(!f.status().fields["loaded"].boolean);assert(f.state().fields["loads"].number==3);f.save("persistent.loads=(persistent.loads or 0)+1");assert(f.state().fields["loads"].number==4);assert(f.worker->setEnabled("test.lua",false,&f.error));assert(!f.status().fields["enabled"].boolean);assert(f.state().fields["loads"].number==4);assert(f.worker->setEnabled("test.lua.disabled",true,&f.error));assert(f.state().fields["loads"].number==5);f.stop();f.start();assert(f.worker->reload("test.lua",&f.error));assert(f.state().fields["loads"].number>=6);assert(f.worker->resetPersistent("test.lua",&f.error));assert(f.state().fields.empty());assert(f.worker->reload("test.lua",&f.error));assert(f.state().fields["loads"].number==1);assert(f.worker->remove("test.lua",&f.error));assert(regularFile(f.root+"/automations/state/test.json"));}
 void eventsAndCoroutines(){Fixture f;f.save(
   "persistent.count=0;persistent.order=''; "
@@ -113,4 +158,4 @@ void callbackBudgetAndQueues(){Fixture f;
     assert(rejected>0);assert(f.worker->waitIdle());usleep(100000);assert(f.worker->logsJson("test.lua").find("limit")!=std::string::npos);assert(f.state().fields["good"].number==1);
 }
 }
-void runAutomationUnitTests(){printf("unit: Lua sandbox, validation, persistence, reload, event filtering, coroutines, timers, cron, shared state, limits, logs and all report sources\n");serialization();sandboxAndValidation();persistenceAndReload();eventsAndCoroutines();timersLimitsAndLogs();safeFiles();schedulesSharedAndShutdown();acceptedReportSources();callbackBudgetAndQueues();}
+void runAutomationUnitTests(){printf("unit: Lua sandbox, validation, persistence, reload, event filtering, coroutines, timers, cron, shared state, limits, logs and all report sources\n");serialization();sandboxAndValidation();errorLocations();persistenceAndReload();eventsAndCoroutines();timersLimitsAndLogs();safeFiles();schedulesSharedAndShutdown();acceptedReportSources();callbackBudgetAndQueues();}
