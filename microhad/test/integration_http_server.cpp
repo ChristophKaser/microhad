@@ -52,11 +52,11 @@ void writeBytes(const std::string& name, const char* bytes, unsigned long size) 
 }
 
 void removeDirectory(const std::string& directory) {
-    unlink((directory + "/webui/index.html.br").c_str());
-    unlink((directory + "/webui/sw.js.br").c_str());
-    unlink((directory + "/webui/assets/app.js.br").c_str());
-    unlink((directory + "/webui/assets/app.css.br").c_str());
-    unlink((directory + "/webui/microhad-icon.svg.br").c_str());
+    unlink((directory + "/webui/index.html.gz").c_str());
+    unlink((directory + "/webui/sw.js.gz").c_str());
+    unlink((directory + "/webui/assets/app.js.gz").c_str());
+    unlink((directory + "/webui/assets/app.css.gz").c_str());
+    unlink((directory + "/webui/microhad-icon.svg.gz").c_str());
     rmdir((directory + "/webui/assets").c_str());
     rmdir((directory + "/webui").c_str());
     unlink((directory + "/notifications.json").c_str());
@@ -290,17 +290,17 @@ void testServers() {
     int inbound[2], outbound[2];
     assert(pipe(inbound) == 0 && pipe(outbound) == 0);
     assert(ensureDirectory(directory + "/webui", &error));
-    const char indexBrotli[] = "\x1b\x21\x00\xf8\x8d\x93\x54\xed\xfe\xc8\x53\x96\x8b\x49\xdd\x26\x08\xa4\x3f\x5e\x72\x92\x51\xe0\xc9\x15\x72\xf0\x66\x91\x5f\x39\x91\x75\x09\x00";
-    const char javascriptBrotli[] = "\x8b\x0b\x80\x63\x6f\x6e\x73\x6f\x6c\x65\x2e\x6c\x6f\x67\x28\x22\x64\x61\x73\x68\x62\x6f\x61\x72\x64\x22\x29\x03";
-    const char cssBrotli[] = "\x8b\x07\x80\x62\x6f\x64\x79\x7b\x63\x6f\x6c\x6f\x72\x3a\x62\x6c\x75\x65\x7d\x03";
-    const char serviceWorkerBrotli[] = "\x1b\x2c\x00\xf8\x8d\x94\x2e\x6b\x07\xb5\x08\xca\x5e\x9f\x04\x49\xd9\x81\x0d\x38\x60\x0f\x30\xc1\x04\xb7\xdb\x09\x44\x56\xc9\x05\xda\x28\xff\x91\xd2\x0d";
-    const char svgBrotli[] = "\x8b\x02\x80\x3c\x73\x76\x67\x2f\x3e\x03";
-    writeBytes(directory + "/webui/index.html.br", indexBrotli, sizeof(indexBrotli) - 1);
+    const char indexGzip[] = "\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\x03\xb3\xc9\x28\xc9\xcd\xb1\xcb\xcc\x2b\x49\x4d\x2f\x4a\x2c\xc9\xcc\xcf\x53\x48\x49\x2c\xce\x48\xca\x4f\x2c\x4a\xb1\xd1\x07\xcb\x01\x00\x14\x77\x31\xb1\x22\x00\x00\x00";
+    const char javascriptGzip[] = "\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\x03\x4b\xce\xcf\x2b\xce\xcf\x49\xd5\xcb\xc9\x4f\xd7\x50\x4a\x49\x2c\xce\x48\xca\x4f\x2c\x4a\x51\xd2\x04\x00\x2d\x70\xa9\x7e\x18\x00\x00\x00";
+    const char cssGzip[] = "\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\x03\x4b\xca\x4f\xa9\xac\x4e\xce\xcf\xc9\x2f\xb2\x4a\xca\x29\x4d\xad\x05\x00\x8f\xe8\x72\xcb\x10\x00\x00\x00";
+    const char serviceWorkerGzip[] = "\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\x03\x2b\x4e\xcd\x49\xd3\x4b\x4c\x49\x71\x2d\x4b\xcd\x2b\xf1\xc9\x2c\x2e\x49\xcd\x4b\x2d\xd2\x50\x2a\x28\x2d\xce\x50\xd2\x51\x48\x2b\xcd\x4b\x2e\xc9\xcc\xcf\xd3\xd0\x54\xa8\xae\xd5\xb4\x06\x00\x7b\xca\x34\xdf\x2d\x00\x00\x00";
+    const char svgGzip[] = "\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\x03\xb3\x29\x2e\x4b\xd7\xb7\x03\x00\x49\xfb\xb9\xac\x06\x00\x00\x00";
+    writeBytes(directory + "/webui/index.html.gz", indexGzip, sizeof(indexGzip) - 1);
     assert(ensureDirectory(directory + "/webui/assets", &error));
-    writeBytes(directory + "/webui/assets/app.js.br", javascriptBrotli, sizeof(javascriptBrotli) - 1);
-    writeBytes(directory + "/webui/assets/app.css.br", cssBrotli, sizeof(cssBrotli) - 1);
-    writeBytes(directory + "/webui/sw.js.br", serviceWorkerBrotli, sizeof(serviceWorkerBrotli) - 1);
-    writeBytes(directory + "/webui/microhad-icon.svg.br", svgBrotli, sizeof(svgBrotli) - 1);
+    writeBytes(directory + "/webui/assets/app.js.gz", javascriptGzip, sizeof(javascriptGzip) - 1);
+    writeBytes(directory + "/webui/assets/app.css.gz", cssGzip, sizeof(cssGzip) - 1);
+    writeBytes(directory + "/webui/sw.js.gz", serviceWorkerGzip, sizeof(serviceWorkerGzip) - 1);
+    writeBytes(directory + "/webui/microhad-icon.svg.gz", svgGzip, sizeof(svgGzip) - 1);
     NotificationWorker notifications(directory, "", "", "");
     assert(notifications.start(&error));
     SensorHistory history(directory + "/history.bin");
@@ -345,23 +345,23 @@ void testServers() {
 
     response = plainRequest(http.boundPort(), "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n");
     expectStatus("http dashboard", response, 200);
-    assert(response.find("Content-Type: text/html; charset=utf-8\r\n") != std::string::npos && response.find("Content-Encoding: br\r\n") != std::string::npos && response.substr(response.size() - (sizeof(indexBrotli) - 1)) == std::string(indexBrotli, sizeof(indexBrotli) - 1));
+    assert(response.find("Content-Type: text/html; charset=utf-8\r\n") != std::string::npos && response.find("Content-Encoding: gzip\r\n") != std::string::npos && response.substr(response.size() - (sizeof(indexGzip) - 1)) == std::string(indexGzip, sizeof(indexGzip) - 1));
     response = plainRequest(http.boundPort(), "GET /sw.js HTTP/1.1\r\nHost: localhost\r\n\r\n");
     expectStatus("http service worker", response, 200);
-    assert(response.find("Content-Type: application/javascript; charset=utf-8\r\n") != std::string::npos && response.find("Content-Encoding: br\r\n") != std::string::npos && response.substr(response.size() - (sizeof(serviceWorkerBrotli) - 1)) == std::string(serviceWorkerBrotli, sizeof(serviceWorkerBrotli) - 1));
+    assert(response.find("Content-Type: application/javascript; charset=utf-8\r\n") != std::string::npos && response.find("Content-Encoding: gzip\r\n") != std::string::npos && response.substr(response.size() - (sizeof(serviceWorkerGzip) - 1)) == std::string(serviceWorkerGzip, sizeof(serviceWorkerGzip) - 1));
     response = plainRequest(http.boundPort(), "GET /assets/app.js HTTP/1.1\r\nHost: localhost\r\n\r\n");
     expectStatus("http javascript asset", response, 200);
-    assert(response.find("Content-Type: application/javascript; charset=utf-8\r\n") != std::string::npos && response.find("Content-Encoding: br\r\n") != std::string::npos && response.substr(response.size() - (sizeof(javascriptBrotli) - 1)) == std::string(javascriptBrotli, sizeof(javascriptBrotli) - 1));
+    assert(response.find("Content-Type: application/javascript; charset=utf-8\r\n") != std::string::npos && response.find("Content-Encoding: gzip\r\n") != std::string::npos && response.substr(response.size() - (sizeof(javascriptGzip) - 1)) == std::string(javascriptGzip, sizeof(javascriptGzip) - 1));
     response = plainRequest(http.boundPort(), "GET /assets/app.css HTTP/1.1\r\nHost: localhost\r\n\r\n");
     expectStatus("http css asset", response, 200);
-    assert(response.find("Content-Type: text/css; charset=utf-8\r\n") != std::string::npos && response.find("Content-Encoding: br\r\n") != std::string::npos && response.substr(response.size() - (sizeof(cssBrotli) - 1)) == std::string(cssBrotli, sizeof(cssBrotli) - 1));
+    assert(response.find("Content-Type: text/css; charset=utf-8\r\n") != std::string::npos && response.find("Content-Encoding: gzip\r\n") != std::string::npos && response.substr(response.size() - (sizeof(cssGzip) - 1)) == std::string(cssGzip, sizeof(cssGzip) - 1));
     response = plainRequest(http.boundPort(), "GET /microhad-icon.svg HTTP/1.1\r\nHost: localhost\r\n\r\n");
     expectStatus("http svg asset", response, 200);
-    assert(response.find("Content-Type: image/svg+xml\r\n") != std::string::npos && response.find("Content-Encoding: br\r\n") != std::string::npos && response.substr(response.size() - (sizeof(svgBrotli) - 1)) == std::string(svgBrotli, sizeof(svgBrotli) - 1));
+    assert(response.find("Content-Type: image/svg+xml\r\n") != std::string::npos && response.find("Content-Encoding: gzip\r\n") != std::string::npos && response.substr(response.size() - (sizeof(svgGzip) - 1)) == std::string(svgGzip, sizeof(svgGzip) - 1));
     expectStatus("http missing asset", plainRequest(http.boundPort(), "GET /assets/missing.js HTTP/1.1\r\nHost: localhost\r\n\r\n"), 404);
     expectStatus("http traversal", plainRequest(http.boundPort(), "GET /assets/../index.html HTTP/1.1\r\nHost: localhost\r\n\r\n"), 404);
     expectStatus("http encoded traversal", plainRequest(http.boundPort(), "GET /assets/%2e%2e/index.html HTTP/1.1\r\nHost: localhost\r\n\r\n"), 404);
-    expectStatus("http direct brotli asset", plainRequest(http.boundPort(), "GET /assets/app.js.br HTTP/1.1\r\nHost: localhost\r\n\r\n"), 404);
+    expectStatus("http direct gzip asset", plainRequest(http.boundPort(), "GET /assets/app.js.gz HTTP/1.1\r\nHost: localhost\r\n\r\n"), 404);
 
     expectStatus("delete rejects missing mode", plainRequest(http.boundPort(), "POST /api/devices/unknown/delete HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n"), 400);
     expectStatus("delete rejects unknown device", plainRequest(http.boundPort(), "POST /api/devices/unknown/delete HTTP/1.1\r\nHost: localhost\r\nContent-Length: 10\r\n\r\nmode=local"), 400);
@@ -678,7 +678,7 @@ void testServers() {
 
     response = tlsRequest(https.boundPort(), "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n");
     expectStatus("https dashboard", response, 200);
-    assert(response.find("Content-Type: text/html; charset=utf-8\r\n") != std::string::npos && response.find("Content-Encoding: br\r\n") != std::string::npos);
+    assert(response.find("Content-Type: text/html; charset=utf-8\r\n") != std::string::npos && response.find("Content-Encoding: gzip\r\n") != std::string::npos);
     response = tlsRequest(https.boundPort(), "GET /api/status HTTP/1.1\r\nHost: localhost\r\n\r\n");
     expectStatus("https status", response, 200);
     assert(response.find("Content-Type: application/json\r\n") != std::string::npos && response.find("\"devices\":") != std::string::npos);
@@ -687,10 +687,10 @@ void testServers() {
     assert(response.find("Content-Type: application/json\r\n") != std::string::npos && response.find("\"lines\":") != std::string::npos);
     response = tlsRequest(https.boundPort(), "GET /sw.js HTTP/1.1\r\nHost: localhost\r\n\r\n");
     expectStatus("https service worker", response, 200);
-    assert(response.find("Content-Type: application/javascript; charset=utf-8\r\n") != std::string::npos && response.find("Content-Encoding: br\r\n") != std::string::npos);
+    assert(response.find("Content-Type: application/javascript; charset=utf-8\r\n") != std::string::npos && response.find("Content-Encoding: gzip\r\n") != std::string::npos);
     response = tlsRequest(https.boundPort(), "GET /assets/app.js HTTP/1.1\r\nHost: localhost\r\n\r\n");
     expectStatus("https javascript asset", response, 200);
-    assert(response.find("Content-Type: application/javascript; charset=utf-8\r\n") != std::string::npos && response.find("Content-Encoding: br\r\n") != std::string::npos);
+    assert(response.find("Content-Type: application/javascript; charset=utf-8\r\n") != std::string::npos && response.find("Content-Encoding: gzip\r\n") != std::string::npos);
     response = tlsRequest(https.boundPort(), post("/api/notifications/enabled", "enabled=true"));
     expectStatus("https enable notifications", response, 200);
     assert(response.find("{\"ok\":true,\"enabled\":true}") != std::string::npos);

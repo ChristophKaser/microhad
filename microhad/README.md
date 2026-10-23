@@ -80,10 +80,9 @@ npm run dev
 Vite proxies `/api/` to `GATEWAY_IP` from the root `workspace.local.env` or the
 environment. See [shared host settings](../docs/workspace-settings.md). Browser Push enrollment is tested
 from the deployed HTTPS dashboard. `make -C microhad webui` builds
-`microhad/webui/dist/` as Brotli-only `.br` artifacts; deployment uploads those
+`microhad/webui/dist/` as gzip-only `.gz` artifacts; deployment uploads those
 files beneath the runtime directory and the gateway serves their canonical URLs
-with `Content-Encoding: br`. Browsers must support Brotli; no uncompressed
-fallback is included.
+with `Content-Encoding: gzip`. No uncompressed fallback is included.
 
 ## References
 

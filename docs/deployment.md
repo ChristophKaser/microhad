@@ -22,14 +22,14 @@ explicit `--binary` and service paths must match the selected build.
 | Update the complete Matter stack | Maintenance release |
 
 The script uses SSH stdin with `SSH_PORT` (default 22) and atomically replaces transferred files.
-Default staging includes the native binary and Brotli-only Web UI. `--binary-only`,
+Default staging includes the native binary and gzip-only Web UI. `--binary-only`,
 `--webui-only` and `--both` select assets. Pass `--config` only to intentionally
 replace configuration. Staging does not activate the paired launcher or restart
 services. The default binary is the Ziggurat/Matter build.
 
 Build the Web UI with `make -C microhad webui`; its `dist/` directory contains
-only `.br` assets. The gateway serves their normal URLs with `Content-Encoding:
-br`, with no gzip or uncompressed fallback, so deploy the matching native
+only `.gz` assets. The gateway serves their normal URLs with `Content-Encoding:
+gzip`, with no uncompressed fallback, so deploy the matching native
 binary and restart it with any Web UI update.
 
 ## Ordinary staging

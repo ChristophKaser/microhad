@@ -1,10 +1,9 @@
-import { brotliCompressSync, constants } from 'node:zlib'
+import { gzipSync } from 'node:zlib'
 import { readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const dist = fileURLToPath(new URL('../dist/', import.meta.url))
-const quality = 11
 const files = []
 
 function collect(directory) {
@@ -23,14 +22,12 @@ collect(dist)
 let rawTotal = 0
 let compressedTotal = 0
 for (const filename of files.sort()) {
-  if (filename.endsWith('.br')) throw new Error(`unexpected pre-compressed artifact: ${filename}`)
+  if (filename.endsWith('.gz')) throw new Error(`unexpected pre-compressed artifact: ${filename}`)
   const source = readFileSync(filename)
-  const compressed = brotliCompressSync(source, {
-    params: { [constants.BROTLI_PARAM_QUALITY]: quality },
-  })
-  const temporary = `${filename}.br.new`
+  const compressed = gzipSync(source, { level: 9, mtime: 0 })
+  const temporary = `${filename}.gz.new`
   writeFileSync(temporary, compressed)
-  renameSync(temporary, `${filename}.br`)
+  renameSync(temporary, `${filename}.gz`)
   rmSync(filename)
   rawTotal += source.length
   compressedTotal += compressed.length

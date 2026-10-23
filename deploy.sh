@@ -137,11 +137,11 @@ fi
     }
 }
 [ "$deploy_binary" = false ] || [ -x "$binary" ] || { echo "MIPS binary not found or not executable: $binary" >&2; exit 1; }
-[ "$deploy_webui" = false ] || { [ -f "$webui_dir/index.html.br" ] && [ -f "$webui_dir/sw.js.br" ]; } || { echo "Built Brotli Web UI not found; run make webui first" >&2; exit 1; }
+[ "$deploy_webui" = false ] || { [ -f "$webui_dir/index.html.gz" ] && [ -f "$webui_dir/sw.js.gz" ]; } || { echo "Built gzip Web UI not found; run make webui first" >&2; exit 1; }
 [ -z "$config" ] || { [ "$deploy_binary" = true ] && [ -f "$config" ]; } || usage
 [ -z "$matter_service" ] || [ -n "$service_selection" ] || { { [ "$deploy_binary" = true ] || [ "$activate_paired_only" = true ]; } && [ -x "$matter_service" ]; } || usage
 [ "$maintenance_deploy" = false ] || [ -n "$service_selection" ] || { [ -x "$ziggurat" ] && [ -x "$maintenance_helper" ]; } || { echo "Ziggurat or gateway-maintenance artifact missing or not executable" >&2; exit 1; }
-[ "$maintenance_deploy" = false ] || [ -n "$service_selection" ] || { [ -d "$webui_dir" ] && [ -f "$webui_dir/index.html.br" ] && [ -f "$webui_dir/sw.js.br" ]; } || usage
+[ "$maintenance_deploy" = false ] || [ -n "$service_selection" ] || { [ -d "$webui_dir" ] && [ -f "$webui_dir/index.html.gz" ] && [ -f "$webui_dir/sw.js.gz" ]; } || usage
 [ -z "$certificate" ] || [ -f "$certificate" ] || usage
 [ -z "$private_key" ] || [ -f "$private_key" ] || usage
 [ -z "$ca_bundle" ] || [ -f "$ca_bundle" ] || usage
@@ -212,25 +212,25 @@ wait_for_dashboard() {
 
 verify_webui_release() {
     release_dir=$1
-    [ -f "$release_dir/index.html.br" ] && [ -f "$release_dir/sw.js.br" ] || {
-        echo "Brotli Web UI entry assets are missing from $release_dir" >&2; return 1;
+    [ -f "$release_dir/index.html.gz" ] && [ -f "$release_dir/sw.js.gz" ] || {
+        echo "gzip Web UI entry assets are missing from $release_dir" >&2; return 1;
     }
     find "$release_dir" -type f | while IFS= read -r asset; do
-        case "$asset" in *.br) ;; *) echo "Uncompressed Web UI artifact: $asset" >&2; exit 1 ;; esac
+        case "$asset" in *.gz) ;; *) echo "Uncompressed Web UI artifact: $asset" >&2; exit 1 ;; esac
     done
 }
 
 verify_webui_assets() {
     release_dir=$1
     verify_webui_release "$release_dir" || return 1
-    find "$release_dir" -type f -name '*.br' | while IFS= read -r asset; do
+    find "$release_dir" -type f -name '*.gz' | while IFS= read -r asset; do
         relative=${asset#"$release_dir"/}
-        asset_url=/${relative%.br}
+        asset_url=/${relative%.gz}
         headers=$(verification_headers "$asset_url") || {
             echo "Web UI asset is not served: $asset_url" >&2; exit 1;
         }
-        printf '%s\n' "$headers" | tr -d '\r' | grep -qi '^Content-Encoding: br$' || {
-            echo "Web UI asset is missing Brotli content encoding: $asset_url" >&2; exit 1;
+        printf '%s\n' "$headers" | tr -d '\r' | grep -qi '^Content-Encoding: gzip$' || {
+            echo "Web UI asset is missing gzip content encoding: $asset_url" >&2; exit 1;
         }
     done
 }
@@ -562,12 +562,12 @@ maintenance_deploy_run() {
         echo "Deployment incomplete; services remain stopped. $rollback_notice" >&2
         return 1
     fi
-    find "$webui_dir" -type f ! -name index.html.br | while IFS= read -r asset; do
+    find "$webui_dir" -type f ! -name index.html.gz | while IFS= read -r asset; do
         relative=${asset#"$webui_dir"/}
         case "$relative" in *[!A-Za-z0-9_./-]*|*..*) echo "Unsupported Web UI path: $relative" >&2; exit 1 ;; esac
         upload_atomic "$asset" "$target/webui/$relative" 644 || exit 1
     done || { echo "Deployment incomplete; services remain stopped. $rollback_notice" >&2; return 1; }
-    upload_atomic "$webui_dir/index.html.br" "$target/webui/index.html.br" 644 || { echo "Deployment incomplete; services remain stopped. $rollback_notice" >&2; return 1; }
+    upload_atomic "$webui_dir/index.html.gz" "$target/webui/index.html.gz" 644 || { echo "Deployment incomplete; services remain stopped. $rollback_notice" >&2; return 1; }
     if [ "$launcher_backup_bytes" -gt 0 ]; then
         upload_atomic "$rollback_dir/gateway_start.sh" /tuya/tuya_start.sh.lowjs-backup 755 || { echo "Deployment incomplete; services remain stopped. $rollback_notice" >&2; return 1; }
     fi
@@ -752,9 +752,9 @@ paired_launcher_preflight
 prune_web_bundles() {
     assets_dir="$target/webui/assets"
     if [ "${1:-}" = final ]; then
-        ssh_command "rm -f \"$target/webui/index.html\" \"$target/webui/sw.js\" \"$target/webui/licenses.html\" \"$target/webui/microhad-icon.svg\" \"$assets_dir\"/index-*.js \"$assets_dir\"/index-*.css \"$assets_dir\"/index-*.js.br.new \"$assets_dir\"/index-*.css.br.new"
+        ssh_command "rm -f \"$target/webui/index.html\" \"$target/webui/index.html.br\" \"$target/webui/sw.js\" \"$target/webui/sw.js.br\" \"$target/webui/licenses.html\" \"$target/webui/licenses.html.br\" \"$target/webui/microhad-icon.svg\" \"$target/webui/microhad-icon.svg.br\" \"$assets_dir\"/index-*.js \"$assets_dir\"/index-*.css \"$assets_dir\"/index-*.js.br \"$assets_dir\"/index-*.css.br \"$assets_dir\"/index-*.js.gz.new \"$assets_dir\"/index-*.css.gz.new"
     else
-        ssh_command "rm -f \"$assets_dir\"/index-*.js.br.new \"$assets_dir\"/index-*.css.br.new"
+        ssh_command "rm -f \"$assets_dir\"/index-*.js.gz.new \"$assets_dir\"/index-*.css.gz.new"
     fi
 }
 
@@ -789,7 +789,7 @@ if [ "$deploy_webui" = true ]; then
     # referenced bundles remain available if the transfer is interrupted.
     prune_web_bundles temporary
     verify_webui_release "$webui_dist"
-    find "$webui_dist" -type f ! -name index.html.br | while IFS= read -r asset; do
+    find "$webui_dist" -type f ! -name index.html.gz | while IFS= read -r asset; do
         relative=${asset#"$webui_dist"/}
         case "$relative" in *[!A-Za-z0-9_./-]*|*..*) echo "unsupported Web UI asset path: $relative" >&2; exit 1 ;; esac
         asset_dir=${relative%/*}
@@ -799,8 +799,8 @@ if [ "$deploy_webui" = true ]; then
         ssh_command "dd of=\"$target/webui/$relative.new\"" < "$asset"
         ssh_command "chmod 644 \"$target/webui/$relative.new\"; mv \"$target/webui/$relative.new\" \"$target/webui/$relative\"" < /dev/null
     done
-    ssh_command "dd of=\"$target/webui/.index.html.br.new\"" < "$webui_dist/index.html.br"
-    ssh_command "chmod 644 \"$target/webui/.index.html.br.new\"; mv \"$target/webui/.index.html.br.new\" \"$target/webui/index.html.br\"; ls -l \"$target/webui/index.html.br\""
+    ssh_command "dd of=\"$target/webui/.index.html.gz.new\"" < "$webui_dist/index.html.gz"
+    ssh_command "chmod 644 \"$target/webui/.index.html.gz.new\"; mv \"$target/webui/.index.html.gz.new\" \"$target/webui/index.html.gz\"; ls -l \"$target/webui/index.html.gz\""
     prune_web_bundles final
     find "$webui_dist" -type f | while IFS= read -r asset; do
         relative=${asset#"$webui_dist"/}

@@ -1426,12 +1426,12 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
         if (!safeAssetPath(path) || contentType == 0) {
             writeResponse(clientFd, 404, "text/plain; charset=utf-8", "Asset not found.");
         } else {
-            std::string filename = webuiDirectory_ + path + ".br";
+            std::string filename = webuiDirectory_ + path + ".gz";
             struct stat info;
             std::string body;
             if (lstat(filename.c_str(), &info) == 0 && S_ISREG(info.st_mode) &&
                 readTextFile(filename, &body))
-                writeResponse(clientFd, 200, contentType, body, "br");
+                writeResponse(clientFd, 200, contentType, body, "gzip");
             else if (path == "/index.html")
                 writeResponse(clientFd, 500, "text/plain; charset=utf-8", "Dashboard is not installed.");
             else writeResponse(clientFd, 404, "text/plain; charset=utf-8", "Asset not found.");
