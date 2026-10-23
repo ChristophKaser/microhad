@@ -337,7 +337,7 @@ selected_services_deploy() {
         upload_source=$1; upload_destination=$2; upload_mode=$3
         upload_hash=$(md5sum "$upload_source" | awk '{print $1}')
         # Measure JFFS2 after transfer and verify before replacing the old file.
-        ssh_command "dd of=\"$upload_destination.new\"" < "$upload_source" || {
+        ssh_command "dd bs=64k of=\"$upload_destination.new\"" < "$upload_source" || {
             ssh_command "rm -f \"$upload_destination.new\"" </dev/null || true; return 1;
         }
         ssh_command "available=\$(df -k /tuya | awk 'END {print \$4}'); case \"\$available\" in ''|*[!0-9]*) rm -f \"$upload_destination.new\"; exit 1 ;; esac; if [ \"\$available\" -lt $flash_reserve_kib ] || [ \"\$(md5sum \"$upload_destination.new\" | awk '{print \$1}')\" != '$upload_hash' ]; then rm -f \"$upload_destination.new\"; exit 1; fi; chmod $upload_mode \"$upload_destination.new\" && mv \"$upload_destination.new\" \"$upload_destination\"" </dev/null || return 1
@@ -525,7 +525,7 @@ maintenance_deploy_run() {
             return 1
         fi
         ssh_command "mkdir -p \"$remote_directory\"; rm -f \"$temporary\"" </dev/null
-        ssh_command "dd of=\"$temporary\"" < "$source_file" || return 1
+        ssh_command "dd bs=64k of=\"$temporary\"" < "$source_file" || return 1
         available_after=$(ssh_command "df -k /tuya | awk 'END {print \$4}'" </dev/null) || {
             ssh_command "rm -f \"$temporary\"" </dev/null || true; return 1;
         }
@@ -722,7 +722,7 @@ paired_launcher_preflight() {
         printf 'Insufficient flash for paired launcher and control helper: need %s KiB, have %s KiB\n' "$required_kib" "$available_kib" >&2
         return 1
     fi
-    ssh_command "dd of=\"$target/.paired_control.sh.new\"" < "$project_dir/scripts/paired_control.sh"
+    ssh_command "dd bs=64k of=\"$target/.paired_control.sh.new\"" < "$project_dir/scripts/paired_control.sh"
     ssh_command "chmod 700 \"$target/.paired_control.sh.new\"; mv \"$target/.paired_control.sh.new\" \"$target/paired_control.sh\""
 
     ssh_command "test -x \"$target/microhad\" && test -x \"$target/mthread-matter\" && test -x \"$target/paired_start.sh\" && test -x \"$target/paired_control.sh\" && grep -q '^format=microhad-build-v1\$' \"$target/microhad.matter-manifest\" && grep -q '^ziggurat=1\$' \"$target/microhad.matter-manifest\" && grep -q '^matter=1\$' \"$target/microhad.matter-manifest\"" || {
@@ -761,25 +761,25 @@ prune_web_bundles() {
 if [ "$deploy_binary" = true ]; then
     printf 'Uploading native binary to %s:%s\n' "$host" "$target"
     ssh_command "mkdir -p \"$target\"; rm -f \"$target/.microhad.new\" \"$target/.config.json.new\""
-    ssh_command "dd of=\"$target/.microhad.new\"" < "$binary"
+    ssh_command "dd bs=64k of=\"$target/.microhad.new\"" < "$binary"
     if [ -z "$config" ]; then
         ssh_command "chmod 700 \"$target/.microhad.new\"; mv \"$target/.microhad.new\" \"$target/microhad\"; ls -l \"$target/microhad\""
     else
-        ssh_command "dd of=\"$target/.config.json.new\"" < "$config"
+        ssh_command "dd bs=64k of=\"$target/.config.json.new\"" < "$config"
         ssh_command "chmod 700 \"$target/.microhad.new\"; chmod 600 \"$target/.config.json.new\"; mv \"$target/.microhad.new\" \"$target/microhad\"; mv \"$target/.config.json.new\" \"$target/config.json\"; ls -l \"$target/microhad\" \"$target/config.json\""
     fi
 fi
 if { [ -n "$matter_service" ] || [ "$deploy_supervisor" = true ]; } && [ "$activate_paired_only" = false ]; then
     # Stage the selected manifest and supervisor; the service is optional. No launcher activation,
     # credential state transfer, UART ownership change or process restart here.
-    ssh_command "dd of=\"$target/.microhad.matter-manifest.new\"" < "$binary.matter-manifest"
+    ssh_command "dd bs=64k of=\"$target/.microhad.matter-manifest.new\"" < "$binary.matter-manifest"
     ssh_command "chmod 600 \"$target/.microhad.matter-manifest.new\"; mv \"$target/.microhad.matter-manifest.new\" \"$target/microhad.matter-manifest\""
     if [ -n "$matter_service" ]; then
-        ssh_command "dd of=\"$target/.mthread-matter.new\"" < "$matter_service"
+        ssh_command "dd bs=64k of=\"$target/.mthread-matter.new\"" < "$matter_service"
         ssh_command "chmod 700 \"$target/.mthread-matter.new\"; mv \"$target/.mthread-matter.new\" \"$target/mthread-matter\""
     fi
-    ssh_command "dd of=\"$target/.paired_start.sh.new\"" < "$project_dir/paired_start.sh"
-    ssh_command "dd of=\"$target/.paired_control.sh.new\"" < "$project_dir/scripts/paired_control.sh"
+    ssh_command "dd bs=64k of=\"$target/.paired_start.sh.new\"" < "$project_dir/paired_start.sh"
+    ssh_command "dd bs=64k of=\"$target/.paired_control.sh.new\"" < "$project_dir/scripts/paired_control.sh"
     ssh_command "chmod 700 \"$target/.paired_start.sh.new\" \"$target/.paired_control.sh.new\"; mv \"$target/.paired_start.sh.new\" \"$target/paired_start.sh\"; mv \"$target/.paired_control.sh.new\" \"$target/paired_control.sh\""
 fi
 if [ "$deploy_webui" = true ]; then
@@ -796,10 +796,10 @@ if [ "$deploy_webui" = true ]; then
         if [ "$asset_dir" = "$relative" ]; then asset_dir=.; fi
         # Keep SSH from consuming the remaining filenames on find's stdin.
         ssh_command "mkdir -p \"$target/webui/$asset_dir\"" < /dev/null
-        ssh_command "dd of=\"$target/webui/$relative.new\"" < "$asset"
+        ssh_command "dd bs=64k of=\"$target/webui/$relative.new\"" < "$asset"
         ssh_command "chmod 644 \"$target/webui/$relative.new\"; mv \"$target/webui/$relative.new\" \"$target/webui/$relative\"" < /dev/null
     done
-    ssh_command "dd of=\"$target/webui/.index.html.gz.new\"" < "$webui_dist/index.html.gz"
+    ssh_command "dd bs=64k of=\"$target/webui/.index.html.gz.new\"" < "$webui_dist/index.html.gz"
     ssh_command "chmod 644 \"$target/webui/.index.html.gz.new\"; mv \"$target/webui/.index.html.gz.new\" \"$target/webui/index.html.gz\"; ls -l \"$target/webui/index.html.gz\""
     prune_web_bundles final
     find "$webui_dist" -type f | while IFS= read -r asset; do
@@ -808,20 +808,20 @@ if [ "$deploy_webui" = true ]; then
     done
 fi
 if [ -n "$certificate" ]; then
-    ssh_command "mkdir -p \"$target/tls\"; dd of=\"$target/tls/.cert.pem.new\"" < "$certificate"
-    ssh_command "dd of=\"$target/tls/.key.pem.new\"" < "$private_key"
+    ssh_command "mkdir -p \"$target/tls\"; dd bs=64k of=\"$target/tls/.cert.pem.new\"" < "$certificate"
+    ssh_command "dd bs=64k of=\"$target/tls/.key.pem.new\"" < "$private_key"
     ssh_command "chmod 644 \"$target/tls/.cert.pem.new\"; chmod 600 \"$target/tls/.key.pem.new\"; mv \"$target/tls/.cert.pem.new\" \"$target/tls/cert.pem\"; mv \"$target/tls/.key.pem.new\" \"$target/tls/key.pem\""
 fi
 if [ -n "$ca_bundle" ]; then
-    ssh_command "mkdir -p \"$target/tls\"; dd of=\"$target/tls/.ca-bundle.pem.new\"" < "$ca_bundle"
+    ssh_command "mkdir -p \"$target/tls\"; dd bs=64k of=\"$target/tls/.ca-bundle.pem.new\"" < "$ca_bundle"
     ssh_command "chmod 644 \"$target/tls/.ca-bundle.pem.new\"; mv \"$target/tls/.ca-bundle.pem.new\" \"$target/tls/ca-bundle.pem\""
 fi
 if [ "$activate" = true ]; then
-    ssh_command "dd of=\"$target/.gateway_start.sh.new\"" < "$project_dir/native_start.sh"
+    ssh_command "dd bs=64k of=\"$target/.gateway_start.sh.new\"" < "$project_dir/native_start.sh"
     ssh_command "[ -z \"$rollback_dir\" ] || test -f /tuya/tuya_start.sh.lowjs-backup || cp /tuya/tuya_start.sh /tuya/tuya_start.sh.lowjs-backup; chmod 755 \"$target/.gateway_start.sh.new\"; mv \"$target/.gateway_start.sh.new\" /tuya/tuya_start.sh"
 fi
 if [ "$activate_paired" = true ] || [ "$activate_paired_only" = true ]; then
-    ssh_command "dd of=\"$target/.gateway_start.sh.new\"" < "$project_dir/ziggurat_start.sh"
+    ssh_command "dd bs=64k of=\"$target/.gateway_start.sh.new\"" < "$project_dir/ziggurat_start.sh"
     ssh_command "[ -z \"$rollback_dir\" ] || test -f /tuya/tuya_start.sh.lowjs-backup || cp /tuya/tuya_start.sh /tuya/tuya_start.sh.lowjs-backup; chmod 755 \"$target/.gateway_start.sh.new\"; mv \"$target/.gateway_start.sh.new\" /tuya/tuya_start.sh"
 fi
 if [ "$restart" = true ]; then

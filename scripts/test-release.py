@@ -280,6 +280,7 @@ class Installer(unittest.TestCase):
             instance.upload(self.root / 'bin/microhad', '/tuya/native/config.json', '600', absent=True)
         commands = [call.args[0] for call in remote.call_args_list]
         self.assertIn('test ! -e /tuya/native/config.json', commands[0])
+        self.assertIn('dd bs=64k of=', commands[1])
         self.assertIn('md5sum', commands[-1])
         self.assertIn('-ge 512', commands[-1])
         self.assertIn('ln /tuya/native/config.json.release-new /tuya/native/config.json', commands[-1])

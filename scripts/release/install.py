@@ -68,7 +68,7 @@ class Installer:
         q = shlex.quote
         guard = 'test ! -e ' + q(destination) + ' && ' if absent else ''
         self.remote(guard + 'test "$(df -k /tuya | awk \'END {print $4}\')" -gt 512 && mkdir -p ' + q(str(Path(destination).parent)))
-        self.remote('umask 077; dd of=' + q(temporary), Path(source).read_bytes())
+        self.remote('umask 077; dd bs=64k of=' + q(temporary), Path(source).read_bytes())
         expected = hashlib.md5(Path(source).read_bytes()).hexdigest()
         command = ('test "$(df -k /tuya | awk \'END {print $4}\')" -ge 512 && '
                    'test "$(md5sum ' + q(temporary) + ' | awk \'{print $1}\')" = ' + q(expected) + ' && chmod ' + mode + ' ' + q(temporary) + ' && ')
@@ -87,7 +87,7 @@ class Installer:
     def check_radio_free(self):
         # Bootstrap an ephemeral helper without putting its package on flash.
         name = '/tmp/microhad-release-maintenance'
-        self.remote('umask 077; dd of=' + name, (ROOT / 'bin/gateway-maintenance').read_bytes())
+        self.remote('umask 077; dd bs=64k of=' + name, (ROOT / 'bin/gateway-maintenance').read_bytes())
         expected = hashlib.md5((ROOT / 'bin/gateway-maintenance').read_bytes()).hexdigest()
         try:
             self.remote('test "$(md5sum ' + name + ' | awk \'{print $1}\')" = ' + expected +

@@ -60,7 +60,7 @@ elif command.startswith('cat '):
 elif command.startswith('md5sum '):
     import hashlib
     print(hashlib.md5(b'previous service').hexdigest())
-elif 'dd of=' in command and os.environ.get('SELECTED_UPLOAD_FAIL'):
+elif 'dd bs=64k of=' in command and os.environ.get('SELECTED_UPLOAD_FAIL'):
     sys.exit(1)
 elif 'chmod 700' in command and '.new' in command and os.environ.get('SELECTED_VERIFY_FAIL'):
     sys.exit(1)
@@ -203,7 +203,7 @@ echo '{"available":true,"controller_initialized":true,"fabric_ready":true,"state
                                    cwd=cwd, env=env, stdin=subprocess.DEVNULL,
                                    stdout=subprocess.DEVNULL, check=True, timeout=10)
                     rows = [json.loads(line) for line in calls.read_text().splitlines()]
-                    uploads = [row for row in rows if row['command'].startswith('dd of=')]
+                    uploads = [row for row in rows if row['command'].startswith('dd bs=64k of=')]
                     self.assertEqual(uploads[0]['bytes'], binary.stat().st_size)
                     self.assertEqual(uploads[-1]['bytes'], (webui / 'index.html').stat().st_size)
                     self.assertEqual(sorted(row['bytes'] for row in uploads[1:-1]),
@@ -315,7 +315,7 @@ with open(os.environ['VERIFY_CALLS'], 'a') as output:
                              ['http://192.168.178.62/app.js', 'http://192.168.178.62/app.css'])
             self.assertTrue(all('-fsS' in row and '-kfsS' not in row for row in rows))
             staging = [json.loads(line) for line in (root / 'staging-calls').read_text().splitlines()]
-            uploads = [row['command'] for row in staging if row['command'].startswith('dd of=')]
+            uploads = [row['command'] for row in staging if row['command'].startswith('dd bs=64k of=')]
             self.assertTrue(any('/webui/licenses.html.new' in command for command in uploads))
             self.assertTrue(all('/webui/' in command for command in uploads))
 
