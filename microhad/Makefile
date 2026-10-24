@@ -226,15 +226,32 @@ matter-build-flags-test:
 # Pinned TinyCBOR submodule, built as C99 with the legacy target compiler.
 CBOR_DIR := dependencies/tinycbor/src
 CBOR_PLATFORM := include/matter_cbor_platform.h
+CBOR_GENERATOR := ../scripts/tinycbor_headers.py
+CBOR_HEADERS := tinycbor-version.h tinycbor-export.h
+HOST_CBOR_INCLUDE := $(HOST_BUILD)/tinycbor-include
+MIPS_CBOR_INCLUDE := $(MIPS_BUILD)/tinycbor-include
+HOST_CBOR_HEADERS := $(addprefix $(HOST_CBOR_INCLUDE)/,$(CBOR_HEADERS))
+MIPS_CBOR_HEADERS := $(addprefix $(MIPS_CBOR_INCLUDE)/,$(CBOR_HEADERS))
+CBOR_HEADER_INPUTS := $(CBOR_GENERATOR) dependencies/tinycbor/CMakeLists.txt $(CBOR_DIR)/tinycbor-version.h.in
+HOST_CXXFLAGS += -I$(HOST_CBOR_INCLUDE)
+TARGET_CXXFLAGS += -I$(MIPS_CBOR_INCLUDE)
+$(HOST_CBOR_HEADERS) &: $(CBOR_HEADER_INPUTS)
+	python3 $(CBOR_GENERATOR) $(HOST_CBOR_INCLUDE)
+	@touch $(HOST_CBOR_HEADERS)
+$(MIPS_CBOR_HEADERS) &: $(CBOR_HEADER_INPUTS)
+	python3 $(CBOR_GENERATOR) $(MIPS_CBOR_INCLUDE)
+	@touch $(MIPS_CBOR_HEADERS)
+$(HOST_BIN) $(HOST_TEST_BIN) $(UNIT_TEST_BIN) $(INTEGRATION_TEST_BIN): $(HOST_CBOR_HEADERS) $(wildcard $(CBOR_DIR)/*.h)
+$(MIPS_BIN): $(MIPS_CBOR_HEADERS) $(wildcard $(CBOR_DIR)/*.h)
 CBOR_NAMES := cborencoder cborparser cborparser_float cborencoder_float
 HOST_C_OBJECTS += $(addprefix $(HOST_BUILD)/tinycbor-,$(addsuffix .o,$(CBOR_NAMES)))
 MIPS_C_OBJECTS += $(addprefix $(MIPS_BUILD)/tinycbor-,$(addsuffix .o,$(CBOR_NAMES)))
-$(HOST_BUILD)/tinycbor-%.o: $(CBOR_DIR)/%.c $(wildcard $(CBOR_DIR)/*.h) $(CBOR_PLATFORM)
+$(HOST_BUILD)/tinycbor-%.o: $(CBOR_DIR)/%.c $(wildcard $(CBOR_DIR)/*.h) $(CBOR_PLATFORM) $(HOST_CBOR_HEADERS) Makefile
 	@mkdir -p $(HOST_BUILD)
-	$(HOST_CC) -std=gnu99 -O2 -include $(CBOR_PLATFORM) -I$(CBOR_DIR) -c $< -o $@
-$(MIPS_BUILD)/tinycbor-%.o: $(CBOR_DIR)/%.c $(wildcard $(CBOR_DIR)/*.h) $(CBOR_PLATFORM)
+	$(HOST_CC) -std=gnu99 -O2 -include $(CBOR_PLATFORM) -I$(CBOR_DIR) -I$(HOST_CBOR_INCLUDE) -c $< -o $@
+$(MIPS_BUILD)/tinycbor-%.o: $(CBOR_DIR)/%.c $(wildcard $(CBOR_DIR)/*.h) $(CBOR_PLATFORM) $(MIPS_CBOR_HEADERS) Makefile
 	@mkdir -p $(MIPS_BUILD)
-	$(TARGET_CC) -std=gnu99 $(TARGET_OPTIMIZATION) -ffunction-sections -fdata-sections -include $(CBOR_PLATFORM) -I$(CBOR_DIR) -c $< -o $@
+	$(TARGET_CC) -std=gnu99 $(TARGET_OPTIMIZATION) -ffunction-sections -fdata-sections -include $(CBOR_PLATFORM) -I$(CBOR_DIR) -I$(MIPS_CBOR_INCLUDE) -c $< -o $@
 $(HOST_BIN) $(HOST_TEST_BIN) $(UNIT_TEST_BIN) $(INTEGRATION_TEST_BIN): $(addprefix $(HOST_BUILD)/tinycbor-,$(addsuffix .o,$(CBOR_NAMES)))
 $(MIPS_BIN): $(addprefix $(MIPS_BUILD)/tinycbor-,$(addsuffix .o,$(CBOR_NAMES)))
 

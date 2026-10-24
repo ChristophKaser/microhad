@@ -49,9 +49,12 @@ mutations are never automatically replayed.
 
 ## Dependencies and verification
 
-MicroHAD builds TinyCBOR v0.6.1 as C99 from its pinned Git submodule at
+MicroHAD builds TinyCBOR v7.1 as C99 from its pinned Git submodule at
 `microhad/dependencies/tinycbor`. Rust uses Ciborium 0.2.2, preceded by a bounded
 structural scan. Initialize dependencies with `git submodule update --init`.
+
+The direct build generates TinyCBOR version and static export headers under its
+build directory using `scripts/tinycbor_headers.py`, shared by standalone probes.
 
 TinyCBOR C compilation includes `matter_cbor_platform.h`, which supplies endian
 macros from libc for the factory GCC 4.4 toolchain. This keeps multi-byte integers

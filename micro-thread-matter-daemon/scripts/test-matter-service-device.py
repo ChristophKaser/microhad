@@ -20,6 +20,7 @@ import uuid
 ROOT = Path(__file__).resolve().parents[2]
 import sys
 sys.path.insert(0, str(ROOT / "scripts"))
+from tinycbor_headers import prepare
 from toolchain_config import target_path, settings
 
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -38,13 +39,14 @@ def build_ipc_client():
     source = ROOT / 'micro-thread-matter-daemon/tests/helpers/matter-ipc-client.cpp'
     native = ROOT / 'microhad'
     output.parent.mkdir(parents=True, exist_ok=True)
+    cbor_include = prepare(output.parent / 'tinycbor-include')
     objects=[]
     for name in ('cborencoder', 'cborparser', 'cborparser_float', 'cborencoder_float'):
         obj=output.parent/(name+'.o')
-        subprocess.run([str(toolchain['TARGET_CC']), '-std=gnu99', '-Os', '-include', str(native/'include/matter_cbor_platform.h'), '-I'+str(native/'dependencies/tinycbor/src'), '-c', str(native/'dependencies/tinycbor/src'/(name+'.c')), '-o', str(obj)], check=True)
+        subprocess.run([str(toolchain['TARGET_CC']), '-std=gnu99', '-Os', '-include', str(native/'include/matter_cbor_platform.h'), '-I'+str(native/'dependencies/tinycbor/src'), '-I'+str(cbor_include), '-c', str(native/'dependencies/tinycbor/src'/(name+'.c')), '-o', str(obj)], check=True)
         objects.append(str(obj))
     subprocess.run([str(toolchain['TARGET_CXX']), '-Wall', '-Wextra', '-Werror', '-pedantic',
-                    '-Os', '-static', '-I'+str(native/'include'), str(source),
+                    '-Os', '-static', '-I'+str(native/'include'), '-I'+str(cbor_include), str(source),
                     str(native/'src/matter_protocol.cpp'), str(native/'src/matter_cbor.cpp'),
                     str(native/'src/json_util.cpp'), *objects, '-o', str(output)], check=True)
     subprocess.run([str(toolchain['TARGET_STRIP']), str(output)], check=True)

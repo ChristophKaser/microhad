@@ -11,6 +11,7 @@ import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT.parent / 'scripts'))
+from tinycbor_headers import prepare
 from toolchain_config import settings
 
 TOOLCHAIN = settings()
@@ -28,6 +29,7 @@ def main():
     report = {'host': False, 'factory_mips': False, 'real_radio_access': False}
     with tempfile.TemporaryDirectory(prefix='matter-ipc-codec-') as directory:
         directory = Path(directory)
+        cbor_include = prepare(directory / 'tinycbor-include')
         driver = directory / 'driver.cpp'
         status_vector = json.loads((ROOT.parent/'protocol/matter-wire-vectors.json').read_text())[0]
         status_bytes = ','.join(str(v) for v in bytes.fromhex(status_vector['wire']))
@@ -45,20 +47,20 @@ def main():
             objects=[]
             for name in cbor_names:
                 output=directory/(name+suffix+'.o')
-                subprocess.run([compiler, '-std=gnu99', '-O2', '-include', str(ROOT/'include/matter_cbor_platform.h'), '-I'+str(ROOT/'dependencies/tinycbor/src'), '-c', str(ROOT/'dependencies/tinycbor/src'/ (name+'.c')), '-o', str(output)], check=True)
+                subprocess.run([compiler, '-std=gnu99', '-O2', '-include', str(ROOT/'include/matter_cbor_platform.h'), '-I'+str(ROOT/'dependencies/tinycbor/src'), '-I'+str(cbor_include), '-c', str(ROOT/'dependencies/tinycbor/src'/ (name+'.c')), '-o', str(output)], check=True)
                 objects.append(str(output))
             return objects
         host_objects = cbor_objects(TOOLCHAIN['HOST_CC'], '-host')
         host = directory / 'host'
         subprocess.run(['g++', '-std=gnu++03', '-Wall', '-Wextra', '-Werror', '-pedantic', '-O2',
-                        '-I' + str(ROOT / 'include'), *sources, *host_objects, '-o', str(host)], check=True)
+                        '-I' + str(ROOT / 'include'), '-I'+str(cbor_include), *sources, *host_objects, '-o', str(host)], check=True)
         subprocess.run([str(host)], check=True)
         report['host'] = True
         if args.host:
             target_objects = cbor_objects(str(TOOLCHAIN['TARGET_CC']), '-mips')
             target = directory / 'mips'
             subprocess.run([str(TOOLCHAIN['TARGET_CXX']), '-Wall', '-Wextra', '-Werror', '-pedantic',
-                            '-Os', '-msoft-float', '-static', '-I' + str(ROOT / 'include'), *sources, *target_objects,
+                            '-Os', '-msoft-float', '-static', '-I' + str(ROOT / 'include'), '-I'+str(cbor_include), *sources, *target_objects,
                             '-o', str(target)], check=True)
             subprocess.run([str(TOOLCHAIN['TARGET_STRIP']), str(target)], check=True)
             ssh = ssh_command(args.host, args.password_file)

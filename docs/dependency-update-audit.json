@@ -64,10 +64,10 @@
     {
       "name": "microhad/dependencies/tinycbor",
       "before": "0.6.0",
-      "selected": "0.6.1",
-      "upstream": "7.1; latest 0.6 is 0.6.1",
+      "selected": "7.1",
+      "upstream": "7.1",
       "source": "https://github.com/intel/tinycbor",
-      "decision": "Updated compatible release. Major v7 migration retained for separate API/compiler review."
+      "decision": "Updated to stable v7.1 with generated headers for direct static C99 builds; verified host C++03 consumers and target compiler compatibility."
     },
     {
       "name": "ziggurat/dependencies/ziggurat",
