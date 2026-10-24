@@ -15,8 +15,7 @@ case-insensitively but must resolve uniquely; use stable IDs for rename-proof
 automations.
 
 For copyable remote, light, actor, and scene scripts, see
-[Example scripts](scripting.md#example-scripts). That guide also explains the
-current thermostat-control and scene-state query limitations.
+[Example scripts](scripting.md#example-scripts). That guide also covers thermostat control and scene-state queries.
 
 ## Script initialization
 
@@ -176,6 +175,40 @@ local ok, err = devices.light("Kitchen light", { on = true, brightness = 65 })
 if not ok then log("warn", "cannot set kitchen light: " .. err) end
 ```
 
+### `devices.thermostat(device, field, value)`
+
+Queues one thermostat setting for a Zigbee or Matter thermostat. Returns `true`
+on acceptance or `nil, error_message`. `value` must be a string or finite
+number. Field names, Celsius units, reported limits, capabilities, and schedule
+formats follow the [thermostat API](../microhad/docs/thermostats.md#http-api).
+For example, `system_mode` uses `0` off, `1` auto, `3` cool, and `4` heat where
+supported. Numeric strings are accepted; booleans and tables are not.
+
+```lua
+local ok, err = devices.thermostat("Office thermostat", "occupied_heating_setpoint", 21)
+if not ok then log("warn", "Cannot set heating target", { error = err }) end
+```
+
+Use `schedule_0` through `schedule_6` (Sunday through Saturday) with a schedule
+JSON string, or `"__read__"` to request a day's schedule. Supported model-specific
+settings and temperature-source settings use the same field names as the
+HTTP API; a linked temperature source must be supplied as its stable device ID.
+Each call changes one field; multiple calls are separate requests, not an
+atomic transaction.
+
+Thermostat snapshots have an immutable `thermostat` object matching the
+dashboard representation: `values`, `supported`, `fields`, `modes`, schedule
+capabilities, `schedules`, `schedule_details`, `pending`, `source_id`,
+`stale_minutes`, `source_observed_at`, `status`, and `error`. Lua arrays are
+1-based: Sunday is slot 1 of `schedules` and `schedule_details`; unknown entries
+are `nil`. Devices without this capability omit `thermostat`.
+
+A changed thermostat snapshot emits `device.changed` with `field = "thermostat"`
+and immutable `old` and `value` objects, including pending/error-only changes.
+A queued request is not a confirmed setting. Observe reported values, pending
+fields, and errors; execution failures also appear in gateway diagnostics.
+Validation checks settings without submitting commands or changing pending state.
+
 ### `devices.refresh(device)`
 
 Requests a normal gateway refresh. It returns whether the request was accepted;
@@ -191,6 +224,34 @@ Each returns `true` on queue acceptance or `nil, error_message`.
 ```lua
 scenes.activate("Downstairs", "Evening")
 -- scenes.off("Downstairs")
+```
+
+### `scenes.get(group)`
+
+Returns an immutable group snapshot or `nil, error_message`. It accepts the same
+stable string IDs and unique case-insensitive names as scene actions.
+
+| Field | Meaning |
+| --- | --- |
+| `id`, `name` | Group string ID and display name |
+| `scene_id`, `scene_name` | Last selected configured scene, omitted if unknown or removed |
+| `off` | Gateway group-off state, omitted if unknown |
+
+Turning a group off retains its last selected scene. Selection is the gateway's
+runtime state after its scene recall path updates it, not physical confirmation
+that every lamp matches. Pending requests may still show the previous selection.
+Individual light changes do not recalculate the selection. Changes made through
+the dashboard, Lua, or gateway remote rules are visible in subsequent snapshots.
+Snapshots do not change in place; call `scenes.get()` again for fresh state.
+There is no scene-change event.
+
+```lua
+local group, err = scenes.get("Downstairs")
+if group then
+  dump(group, "gateway scene selection")
+else
+  log("warn", "Cannot read scene group", { error = err })
+end
 ```
 
 ## Timers and schedules

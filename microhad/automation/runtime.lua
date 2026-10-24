@@ -185,8 +185,13 @@ env.devices={get=function(target)local v,e=host.device_get(target);return v and 
     for k,v in pairs(state)do if k=='on'then strict(v,'boolean','on')elseif k=='brightness'then strict(v,'number','brightness');assert(v%1==0 and v>=0 and v<=100,'brightness must be 0–100')else error('unsupported light field')end end
     return host.action('light',target,state)
   end,
+  thermostat=function(target,field,value)
+    strict(target,'string','device');strict(field,'string','field')
+    assert(type(value)=='string' or (type(value)=='number' and value==value and math.abs(value)<math.huge), 'thermostat value must be a string or finite number')
+    return host.action('thermostat',target,{field=field,value=tostring(value)})
+  end,
   refresh=function(target)return host.action('refresh',target,{})end}
-env.scenes={activate=function(group,scene)return host.scene(group,scene)end,off=function(group)return host.scene(group,nil)end}
+env.scenes={get=function(group)local v,e=host.scene_get(group);return v and immutable(v),e end,activate=function(group,scene)return host.scene(group,scene)end,off=function(group)return host.scene(group,nil)end}
 env.notify={send=host.notify};env.log=host.log
 local function unwrap(value,seen)
   if type(value)~='table'then return value end

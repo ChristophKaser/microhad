@@ -336,6 +336,35 @@ bool applyMatterThermostat(Device* device, unsigned int attribute, const std::st
     }
     return false;
 }
+bool thermostatValidateSetting(const Device& device, const std::string& field,
+                               const std::string& value, std::string* error) {
+    if(!isThermostat(device)) { *error="device is not a thermostat"; return false; }
+    if(field=="stale_minutes" && device.source!="matter") {
+        double minutes=0;
+        if(!thermostatNumber(value,&minutes)||minutes<5||minutes>1440||minutes!=std::floor(minutes)) {
+            *error="stale timeout must be 5–1440 whole minutes"; return false;
+        }
+        return true;
+    }
+    if(field=="temperature_source" && device.source!="matter") {
+        if(!thermostatSupported(device,*thermostatAttribute("temperature_sensor_select")) ||
+           (value!="builtin"&&!thermostatSupported(device,*thermostatAttribute("external_temperature_input"))) || value.empty()) {
+            *error="external temperature is unavailable"; return false;
+        }
+        return true;
+    }
+    std::vector<unsigned char> payload;
+    if(field.size()==10&&field.compare(0,9,"schedule_")==0&&field[9]>='0'&&field[9]<='6') {
+        if(value=="__read__" ? (isTrvzb(device)||device.thermostat.scheduleSupported) :
+           thermostatScheduleForDevice(device,value,field[9]-'0',&payload))return true;
+        *error="invalid or unsupported thermostat schedule";return false;
+    }
+    if(!device.thermostat.sourceId.empty()&&(field=="external_temperature_input"||field=="temperature_sensor_select")) {
+        *error="switch to manual or built-in temperature source first";return false;
+    }
+    return thermostatEncode(device,field,value,&payload,error);
+}
+
 std::string thermostatJson(const Device& device) {
     std::ostringstream out; const ThermostatState& t=device.thermostat;
     out<<"{\"values\":{";

@@ -59,5 +59,9 @@ bool applyThermostatAttribute(Device* device, unsigned short cluster, unsigned s
                              unsigned char type, const std::vector<unsigned char>& value, long now);
 bool thermostatSchedule(const std::string& text, int day, std::vector<unsigned char>* payload);
 bool applyThermostatSchedule(Device* device, const std::vector<unsigned char>& payload);
+// Pure validation shared by Lua draft validation and coordinator execution.
+// Live network/queue state and source existence are checked by the caller.
+bool thermostatValidateSetting(const Device& device, const std::string& field,
+                               const std::string& value, std::string* error);
 std::string thermostatJson(const Device& device);
 #endif

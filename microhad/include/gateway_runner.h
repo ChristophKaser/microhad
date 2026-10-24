@@ -13,6 +13,7 @@ class Gateway;
 class GatewayView;
 class SensorHistory;
 class AutomationWorker;
+class MatterWorker;
 
 class GatewayRunner {
 #ifdef MICROHAD_TESTING
@@ -107,6 +108,7 @@ public:
                                      std::string* error);
     Automation::CatalogPtr acquireAutomationCatalog();
     void setAutomationWorker(AutomationWorker* worker);
+    void setAutomationMatterWorker(MatterWorker* worker);
     void automationGeneration(const std::string& script, unsigned long generation);
     bool submitAutomation(const Automation::Action& action, std::string* error);
 
@@ -159,6 +161,7 @@ private:
 
     Gateway* gateway_;
     AutomationWorker* automation_;
+    MatterWorker* automationMatter_;
     std::deque<Automation::Action> automationActions_;
     std::map<std::string, unsigned long> automationGenerations_;
     std::map<std::string, Automation::SnapshotPtr> automationSnapshots_;

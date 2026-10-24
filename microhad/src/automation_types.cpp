@@ -50,7 +50,7 @@ bool dimmable(const Device& d) {
         if(d.endpoints[i].inputClusters[j]==8)return true;
     return false;
 }
-const char* names[]={"actor_on","air_quality","battery_percent","brightness_percent","co2_ppm","contact_open","humidity_percent","id","kind","last_seen","light_on","link_quality","name","occupied","online","pm25_micrograms_m3","power_watts","source","temperature_celsius","water_detected","wifi_signal_percent"};
+const char* names[]={"actor_on","air_quality","battery_percent","brightness_percent","co2_ppm","contact_open","humidity_percent","id","kind","last_seen","light_on","link_quality","name","occupied","online","pm25_micrograms_m3","power_watts","source","temperature_celsius","water_detected","wifi_signal_percent","thermostat"};
 bool booleanField(Field f) { return f==ActorOn||f==ContactOpen||f==LightOn||f==Occupied||f==Online||f==WaterDetected; }
 }
 DeviceMetadata::DeviceMetadata(const Device& d):id(d.ieeeAddress),name(d.name),lookupName(folded(d.name)),source(d.source.empty()?"zigbee":d.source),kind(d.kind),matterNode(d.matterNode),matterEndpoint(d.matterEndpoint),light(d.hasLight),actor(d.hasActor),brightness(dimmable(d)),contact(d.hasContact),humidity(d.hasHumidity) {}
@@ -69,6 +69,7 @@ bool sameField(const DeviceSnapshot& a,const DeviceSnapshot& b,Field field) {
     case Kind:return a.metadata->kind==b.metadata->kind;
     case Source:return a.metadata->source==b.metadata->source;
     case AirQuality:return a.airQuality==b.airQuality;
+    case Thermostat:return a.thermostat==b.thermostat;
     default:return a.values[field]==b.values[field];
     }
 }
@@ -90,6 +91,11 @@ SnapshotPtr capture(const Device& d,const SnapshotPtr& previous,const DevicePtr&
     F(Co2,d.hasCo2&&d.co2Known,d.co2Ppm);F(Pm25,d.hasPm25&&d.pm25Known,d.pm25MicrogramsM3);
     F(Brightness,d.hasBrightness&&(d.brightnessKnown||zigbee),d.brightnessPercent);
     F(Battery,d.hasBattery,d.batteryPercent);F(WifiSignal,d.hasWifiSignal,d.wifiSignalPercent);F(LinkQuality,zigbee,d.linkQuality);
+    if(isThermostat(d)) {
+        next.present|=1U<<Thermostat;
+        if(!parse(thermostatJson(d),&next.thermostat))next.thermostat=Value::object();
+        if(!next.record)next.record=DevicePtr(new Device(d));
+    }
 #undef F
     bool same=previous&&(!record||record==previous->record)&&next.metadata==previous->metadata&&next.present==previous->present;
     for(unsigned i=0;same&&i<FieldCount;++i)same=sameField(next,*previous,static_cast<Field>(i));
@@ -101,6 +107,7 @@ Value fieldValue(const DeviceSnapshot& d,Field field) {
     case Id:return Value(d.metadata->id);case Name:return Value(d.metadata->name);
     case Kind:return Value(d.metadata->kind);case Source:return Value(d.metadata->source);
     case AirQuality:return Value(d.airQuality);
+    case Thermostat:return d.thermostat;
     default:return booleanField(field)?Value(d.values[field]!=0):Value(d.values[field]);
     }
 }

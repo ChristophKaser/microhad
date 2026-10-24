@@ -134,48 +134,94 @@ are not replayed.
 
 ### Get the current scene of a group
 
-Lua currently exposes only `scenes.activate(group, scene)` and
-`scenes.off(group)`. There is no group-state getter or scene-change event, so
-a script cannot query the current scene. `devices.get()` reads individual
-devices, not scene groups. Device values alone do not identify a scene uniquely.
+Use `scenes.get()` to read the gateway's selected scene and group-off state.
+For example, this button logs the selection without changing it:
 
-You can remember the last scene your script requested in `persistent`, but
-that is only a record of that script's request. It does not confirm execution
-or follow changes from the dashboard, another script, or a remote scene rule.
-Do not use it as the group's current scene.
-
-### Control a thermostat
-
-The Lua API currently has no thermostat command function or thermostat
-settings in its device snapshots. `devices.actor()` and `devices.light()` do
-not set a thermostat's mode or target temperature. A remote-to-thermostat Lua
-script therefore requires an API extension.
-
-Use the dashboard's **Thermostats** cards for mode and target temperature, or
-configure a supported weekly schedule on the thermostat itself. An external
-host script can also use the authenticated
-[`POST /api/devices/{device-id}/thermostat` API](../microhad/docs/thermostats.md#http-api).
-For example, after setting `GATEWAY_URL` and the URL-encoded `THERMOSTAT_ID`
-for your gateway and adding its required authentication to curl:
-
-```sh
-# External host shell, not Lua. Temperatures are in degrees Celsius.
-curl --fail-with-body --connect-timeout 5 --max-time 15 \
-  --data-urlencode 'field=occupied_heating_setpoint' \
-  --data-urlencode 'value=21' \
-  "$GATEWAY_URL/api/devices/$THERMOSTAT_ID/thermostat"
-
-# Select heating mode where the thermostat supports it.
-curl --fail-with-body --connect-timeout 5 --max-time 15 \
-  --data-urlencode 'field=system_mode' \
-  --data-urlencode 'value=4' \
-  "$GATEWAY_URL/api/devices/$THERMOSTAT_ID/thermostat"
+```lua
+events.on({
+  type = "remote.action", device = "Hall remote", action = "matter_press",
+}, function()
+  local group, err = scenes.get("Downstairs")
+  if not group then
+    log("warn", "Cannot read scene group", { error = err })
+    return
+  end
+  dump(group, "current scene group")
+  if group.off == true then
+    log("info", "Downstairs is switched off")
+  elseif group.scene_id then
+    log("info", "Selected scene: " .. group.scene_name)
+  else
+    log("info", "No known scene selection")
+  end
+end)
 ```
 
-Use only supported fields, modes, and reported setpoint limits. Requests are
-asynchronous; Matter responses include an operation job ID. Inspect reported
-state and errors to confirm completion. Lua scripts cannot call this HTTP API
-because arbitrary network access is unavailable.
+`scene_id` and `scene_name` are absent before a known selection or after the
+selected scene is removed. `off` is absent when unknown. Turning a group off
+retains its last selected scene. The getter follows gateway selection, including
+dashboard and remote rules; it does not infer a scene from individual lamp
+reports or confirm that every light still matches. A pending recall can still
+show the previous selection. See [`scenes.get()`](lua_scripting_api.md#scenesgetgroup).
+
+### Remote controls a thermostat
+
+This Zigbee remote selects heating at 21°C with its on button and off mode
+with its off button. Replace the actions with those reported by your remote.
+The thermostat must support heating and off modes. Each setting is a separate
+queued request; reported state changes when the device confirms it.
+
+```lua
+local thermostat = "Office thermostat"
+local function set_setting(field, value)
+  local ok, err = devices.thermostat(thermostat, field, value)
+  if not ok then log("warn", "Cannot control thermostat", { field = field, error = err }) end
+end
+
+events.on({ type = "remote.action", device = "Office remote", action = "on" }, function()
+  set_setting("occupied_heating_setpoint", 21)
+  set_setting("system_mode", 4)
+end)
+events.on({ type = "remote.action", device = "Office remote", action = "off" }, function()
+  set_setting("system_mode", 0)
+end)
+events.on({
+  type = "device.changed", device = thermostat, field = "thermostat",
+}, function(event)
+  dump(event.value, "thermostat reported state and pending settings")
+  if event.value.error ~= "" then
+    log("warn", "Thermostat request failed", { error = event.value.error })
+  end
+end)
+```
+
+Read current settings with `devices.get(thermostat).thermostat`; inspect `values`,
+`supported`, `fields`, and `modes` before choosing targets for your model.
+Unsupported settings return an error rather than silently changing another
+capability. Cooling uses `occupied_cooling_setpoint` and mode `3` when supported.
+
+### Set a thermostat weekly schedule
+
+Weekly schedules execute on the thermostat itself. This example copies a
+heating schedule to Monday when the schedule button is pressed. Day fields
+are `schedule_0` (Sunday) through `schedule_6` (Saturday); transition times are
+minutes after midnight. Follow the thermostat's transition limits and setpoint
+range. Some models require a transition at midnight.
+
+```lua
+events.on({
+  type = "remote.action", device = "Schedule button", action = "matter_press",
+}, function()
+  local schedule = '{"mode":1,"transitions":[{"time":0,"heat":17},{"time":420,"heat":21},{"time":1320,"heat":17}]}'
+  local ok, err = devices.thermostat("Office thermostat", "schedule_1", schedule)
+  if not ok then log("warn", "Cannot set Monday schedule", { error = err }) end
+end)
+```
+
+Use `"__read__"` as the value to request the device's schedule instead. See the
+[Lua thermostat API](lua_scripting_api.md#devicesthermostatdevice-field-value)
+and [thermostat settings](../microhad/docs/thermostats.md#http-api) for additional
+standard and model-specific settings, external temperature sources, and formats.
 
 ## Script location and names
 

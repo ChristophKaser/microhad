@@ -159,3 +159,17 @@ test('patched worker fixtures agree with the repository Lua 5.5.1 compiler', () 
     }
   } finally { rmSync(directory, { recursive: true, force: true }) }
 })
+
+test('thermostat and scene-query completions use supported capabilities', () => {
+  const thermostat = { ...device, ieee_address: 'trv', name: 'Office thermostat', kind: 'thermostat', has_light: false, has_thermostat: true,
+    thermostat: { fields: { system_mode: { writable: true }, local_temperature: { writable: false }, child_lock: { writable: true } },
+      supported: { system_mode: true, local_temperature: true, child_lock: false }, schedule_supported: true, external_input_supported: false } }
+  const data = { ...catalog, devices: [...catalog.devices, thermostat] }
+  const targets = suggest('devices.thermostat("', data)
+  assert(targets.find(item => item.value === 'trv').score > targets.find(item => item.value === '0x123').score)
+  const fields = suggest('devices.thermostat("trv", "', data).map(item => item.value)
+  assert(fields.includes('system_mode') && fields.includes('schedule_0') && fields.includes('schedule_6'))
+  assert(!fields.includes('local_temperature') && !fields.includes('child_lock'))
+  assert(suggest('scenes.get("', data).some(item => item.value === 'Living room'))
+  assert(suggest('scenes.').some(item => item.caption === 'scenes.get(group)'))
+})

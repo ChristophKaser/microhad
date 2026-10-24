@@ -3,6 +3,7 @@
 #include "gateway.h"
 #include "thread_name.h"
 #include "automation_worker.h"
+#include "matter_worker.h"
 
 #include <algorithm>
 #include <cerrno>
@@ -24,7 +25,7 @@ GatewayRunner::LoopDebugStats::LoopDebugStats() : iterations(0), commandSkips(0)
     lastTimeoutSeconds(-1), lastDeadline(0), lastDeadlineSource("none") {
 }
 
-GatewayRunner::GatewayRunner(Gateway* gateway) : gateway_(gateway), automation_(0), automationCatalog_(new Automation::Catalog), automationRevision_(0), automationChain_(0), activeAutomationChain_(0), activeAutomationDepth_(0), historyStore_(gateway->historyStore()), commandWakeRead_(-1), commandWakeWrite_(-1),
+GatewayRunner::GatewayRunner(Gateway* gateway) : gateway_(gateway), automation_(0), automationMatter_(0), automationCatalog_(new Automation::Catalog), automationRevision_(0), automationChain_(0), activeAutomationChain_(0), activeAutomationDepth_(0), historyStore_(gateway->historyStore()), commandWakeRead_(-1), commandWakeWrite_(-1),
     commandHead_(0), commandTail_(0), started_(false), startupComplete_(false), startupSucceeded_(false), stopping_(false),
     eventLoopDebug_(false), currentView_(0), lastCoordinatorProgress_(0), runtimeDirectory_(gateway->runtimeDirectory()), historyPath_(gateway->historyPath()) {
     int wakePipe[2];
@@ -193,9 +194,10 @@ void GatewayRunner::publishView(bool force) {
 }
 
 void GatewayRunner::setAutomationWorker(AutomationWorker* worker) { pthread_mutex_lock(&mutex_);automation_=worker;pthread_mutex_unlock(&mutex_); }
+void GatewayRunner::setAutomationMatterWorker(MatterWorker* worker) { pthread_mutex_lock(&mutex_);automationMatter_=worker;pthread_mutex_unlock(&mutex_); }
 void GatewayRunner::automationGeneration(const std::string& script,unsigned long generation) { pthread_mutex_lock(&mutex_);automationGenerations_[script]=generation;pthread_mutex_unlock(&mutex_); }
 bool GatewayRunner::submitAutomation(const Automation::Action& action,std::string* error) {
-    if(action.operation!="actor"&&action.operation!="light"&&action.operation!="refresh"&&action.operation!="scene.off"&&action.operation!="scene.activate"){*error="unsupported automation action";return false;}
+    if(action.operation!="actor"&&action.operation!="light"&&action.operation!="refresh"&&action.operation!="scene.off"&&action.operation!="scene.activate"&&action.operation!="thermostat"){*error="unsupported automation action";return false;}
     pthread_mutex_lock(&mutex_);
     if(!started_||stopping_||!startupSucceeded_||!action.generation||automationGenerations_[action.script]!=action.generation||action.depth>32||automationActions_.size()>=128){pthread_mutex_unlock(&mutex_);*error="coordinator unavailable, retired generation, causal limit, or action queue full";return false;}
     AutomationProfile::mark("enqueue",action.target.c_str());automationActions_.push_back(action);wakeCoordinator();pthread_mutex_unlock(&mutex_);return true;
@@ -214,6 +216,23 @@ void GatewayRunner::executeAutomation(const Automation::Action& a) {
         std::map<std::string,Automation::Value>::const_iterator on=a.args.fields.find("on"),brightness=a.args.fields.find("brightness");
         ok=gateway_->setLightState(a.target,on!=a.args.fields.end()&&on->second.boolean?"on":"off",brightness==a.args.fields.end()?-1:static_cast<int>(brightness->second.number),&error);
         if(ok&&on!=a.args.fields.end()&&brightness!=a.args.fields.end())ok=gateway_->setLightState(a.target,on->second.boolean?"on":"off",-1,&error);
+    }else if(a.operation=="thermostat") {
+        const std::string& field=a.args.fields.find("field")->second.string;
+        const std::string& value=a.args.fields.find("value")->second.string;
+        std::string request;
+        const std::map<std::string,Device>& devices=gateway_->devicesForAutomation();
+        std::map<std::string,Device>::const_iterator device=devices.find(a.target);
+        ok=device!=devices.end()&&thermostatValidateSetting(device->second,field,value,&error);
+        if(ok)ok=gateway_->setThermostat(a.target,field,value,&error,&request);
+        if(ok&&!request.empty()) {
+            pthread_mutex_lock(&mutex_);MatterWorker* matter=automationMatter_;pthread_mutex_unlock(&mutex_);
+            uint32_t job=0;
+            ok=matter&&matter->submit(11,request,&job,&error);
+            if(!ok) {
+                if(error.empty())error="Matter worker unavailable";
+                gateway_->thermostatResult(device->second.matterNode,static_cast<unsigned short>(device->second.matterEndpoint),field,error);
+            }
+        }
     }else if(a.operation=="refresh")ok=gateway_->refreshDevice(a.target,&error);
     else if(a.operation=="scene.off")ok=gateway_->turnOffSceneGroup(static_cast<unsigned short>(a.args.fields.find("group")->second.number),&error);
     else if(a.operation=="scene.activate")ok=gateway_->activateScene(static_cast<unsigned short>(a.args.fields.find("group")->second.number),static_cast<unsigned char>(a.args.fields.find("scene")->second.number),&error);
@@ -225,9 +244,13 @@ void GatewayRunner::executeAutomation(const Automation::Action& a) {
     activeAutomationChain_=0;activeAutomationDepth_=0;
 }
 namespace {
-bool sameScenes(const std::vector<SceneGroup>& source,const Automation::SceneCatalog& old) {
+bool sameScenes(const Gateway& gateway,const std::vector<SceneGroup>& source,const Automation::SceneCatalog& old) {
     if(source.size()!=old.size())return false;
     for(size_t i=0;i<source.size();++i){
+        int selected=-1,off=-1;gateway.sceneStateForAutomation(source[i].id,&selected,&off);
+        bool exists=false;for(size_t j=0;j<source[i].scenes.size();++j)if(source[i].scenes[j].id==selected)exists=true;
+        if(!exists)selected=-1;
+        if(selected!=old[i].selectedScene||off!=old[i].off)return false;
         if(source[i].id!=old[i].id||source[i].name!=old[i].name||source[i].scenes.size()!=old[i].scenes.size())return false;
         for(size_t j=0;j<source[i].scenes.size();++j)if(source[i].scenes[j].id!=old[i].scenes[j].id||source[i].scenes[j].name!=old[i].scenes[j].name)return false;
     }
@@ -299,7 +322,7 @@ void GatewayRunner::publishAutomation(bool force) {
     else {for(std::set<std::string>::const_iterator it=changes.devices.begin();it!=changes.devices.end();++it)if(!devices.count(*it))removed.push_back(*it);}
     for(size_t i=0;i<removed.size();++i){std::map<std::string,Snapshot>::iterator old=automationSnapshots_.find(removed[i]);if(old==automationSnapshots_.end())continue;Automation::Event e;e.type="device.removed";e.device=old->second;outgoing.push_back(e);automationSnapshots_.erase(old);changed=namesChanged=true;}
     const std::vector<SceneGroup>& source=gateway_->groupsForAutomation();
-    const bool groupsChanged=changes.inventory&&!sameScenes(source,*automationCatalog_->groups);
+    const bool groupsChanged=!sameScenes(*gateway_,source,*automationCatalog_->groups);
     Automation::CatalogPtr published=automationCatalog_;
     if(changed||groupsChanged){
         Automation::Catalog* next=new Automation::Catalog;next->devices=automationSnapshots_;next->names=automationCatalog_->names;next->groups=automationCatalog_->groups;
@@ -319,7 +342,10 @@ void GatewayRunner::publishAutomation(bool force) {
             std::tr1::shared_ptr<Automation::SceneCatalog> groups(new Automation::SceneCatalog);
             for(size_t i=0;i<source.size();++i){
                 Automation::SceneCatalogEntry group;group.id=source[i].id;group.name=source[i].name;
+                gateway_->sceneStateForAutomation(group.id,&group.selectedScene,&group.off);
                 for(size_t j=0;j<source[i].scenes.size();++j){Automation::SceneEntry scene;scene.id=source[i].scenes[j].id;scene.name=source[i].scenes[j].name;group.scenes.push_back(scene);}
+                bool selectedExists=false;for(size_t j=0;j<group.scenes.size();++j)if(group.scenes[j].id==group.selectedScene)selectedExists=true;
+                if(!selectedExists)group.selectedScene=-1;
                 groups->push_back(group);
             }
             next->groups=groups;

@@ -18,7 +18,9 @@ export const gatewayApi: Record<string, Spec> = {
   'devices.list': ['filter', 'device[]', 'List snapshots; optional filter supports source, kind, online, name.'],
   'devices.actor': ['target, on', 'boolean | nil, error', 'Set an actor using a boolean.'],
   'devices.light': ['target, state', 'boolean | nil, error', 'Set on and/or brightness (integer 0–100).'],
+  'devices.thermostat': ['target, field, value', 'boolean | nil, error', 'Set one thermostat field using a string or finite number; temperatures use Celsius.'],
   'devices.refresh': ['target', 'boolean | nil, error', 'Request a device refresh.'],
+  'scenes.get': ['group', 'group | nil, error', 'Read an immutable gateway scene selection and group-off state; this is not a physical state match.'],
   'scenes.activate': ['group, scene', 'boolean | nil, error', 'Activate a scene using names or string IDs.'],
   'scenes.off': ['group', 'boolean | nil, error', 'Turn off a scene group.'],
   'notify.send': ['title, body, options', 'boolean | nil, error', 'Send a notification; optional options: device_id, tag, recipients (one client ID/label or a list). Explicit recipients ignore presence; notification switches still apply.'],
@@ -27,13 +29,13 @@ export const gatewayApi: Record<string, Spec> = {
 }
 export const eventNames = ['device.added', 'device.removed', 'device.value', 'device.changed', 'remote.action', 'device.online', 'device.offline', 'timer.fired', 'automation.error']
 export const filterKeys = ['type', 'device', 'device_id', 'source', 'field', 'value', 'action', 'endpoint', 'position', 'press_count', 'value_below', 'value_at_most', 'value_above', 'value_at_least']
-export const snapshotFields = ['id', 'name', 'source', 'kind', 'online', 'last_seen', 'temperature_celsius', 'humidity_percent', 'contact_open', 'water_detected', 'occupied', 'light_on', 'actor_on', 'power_watts', 'air_quality', 'co2_ppm', 'pm25_micrograms_m3', 'brightness_percent', 'battery_percent', 'wifi_signal_percent', 'link_quality']
+export const snapshotFields = ['id', 'name', 'source', 'kind', 'online', 'last_seen', 'temperature_celsius', 'humidity_percent', 'contact_open', 'water_detected', 'occupied', 'light_on', 'actor_on', 'power_watts', 'air_quality', 'co2_ppm', 'pm25_micrograms_m3', 'brightness_percent', 'battery_percent', 'wifi_signal_percent', 'link_quality', 'thermostat']
 export const remoteActions = ['on', 'off', 'toggle', 'move-to-level', 'move', 'step', 'stop', 'arrow_left', 'arrow_right', 'arrow_left_hold', 'arrow_right_hold', 'arrow_left_release', 'arrow_right_release', 'matter_press', 'matter_hold', 'matter_release', 'matter_multi_press']
 const sources = ['zigbee', 'shelly', 'fritz_box', 'matter']
 const keywords = ['and','break','do','else','elseif','end','false','for','function','goto','if','in','local','nil','not','or','repeat','return','then','true','until','while']
 const namespaces = ['events', 'automation', 'devices', 'scenes', 'notify', 'persistent', 'shared', 'math', 'string', 'table']
 export const argumentTypes: Record<string, string> = {
-  filter: 'table (optional for devices.list)', callback: 'function', handle: 'handle', timeout: 'number? (seconds)', seconds: 'number (0 < seconds <= 63072000)', payload: 'JSON value?', expression: 'string (five cron fields)', target: 'string (ID or unique name)', on: 'boolean', state: 'table {on?: boolean, brightness?: integer 0–100}', group: 'string (ID or unique name)', scene: 'string (ID or unique name)', title: 'string', body: 'string', options: 'table? {device_id?: string, tag?: string}', level: 'string (debug/info/warn/error)', message: 'string', fields: 'JSON value?', value: 'any', label: 'string?',
+  filter: 'table (optional for devices.list)', callback: 'function', handle: 'handle', timeout: 'number? (seconds)', seconds: 'number (0 < seconds <= 63072000)', payload: 'JSON value?', expression: 'string (five cron fields)', target: 'string (ID or unique name)', field: 'string (thermostat field name)', on: 'boolean', state: 'table {on?: boolean, brightness?: integer 0–100}', group: 'string (ID or unique name)', scene: 'string (ID or unique name)', title: 'string', body: 'string', options: 'table? {device_id?: string, tag?: string}', level: 'string (debug/info/warn/error)', message: 'string', fields: 'JSON value?', value: 'any', label: 'string?',
 }
 const globals = ['assert', 'error', 'ipairs', 'next', 'pairs', 'pcall', 'select', 'tonumber', 'tostring', 'type', 'xpcall', 'rawequal', '_VERSION', '_G']
 const standard: Record<string, string[]> = {
@@ -42,10 +44,10 @@ const standard: Record<string, string[]> = {
   table: ['concat','insert','move','pack','remove','sort','unpack'],
 }
 const fieldCapabilities: Record<string, keyof Device> = {
-  temperature_celsius:'has_temperature', humidity_percent:'has_humidity', contact_open:'has_contact', water_detected:'has_water_leak', occupied:'has_occupancy', light_on:'has_light', actor_on:'has_actor', power_watts:'has_power', air_quality:'has_air_quality', co2_ppm:'has_co2', pm25_micrograms_m3:'has_pm25', brightness_percent:'has_brightness', battery_percent:'has_battery', wifi_signal_percent:'has_wifi_signal',
+  temperature_celsius:'has_temperature', humidity_percent:'has_humidity', contact_open:'has_contact', water_detected:'has_water_leak', occupied:'has_occupancy', light_on:'has_light', actor_on:'has_actor', power_watts:'has_power', air_quality:'has_air_quality', co2_ppm:'has_co2', pm25_micrograms_m3:'has_pm25', brightness_percent:'has_brightness', battery_percent:'has_battery', wifi_signal_percent:'has_wifi_signal', thermostat:'has_thermostat',
 }
 const entry = (value: string, meta = 'Lua', score = 1000): Completion => ({ caption: value, value, meta, score })
-const fieldType = (name: string) => ['id','name','source','kind','type','field','action','reason','message','operation','timer_id','chain_id','device_id','air_quality'].includes(name) ? 'string' : name === 'recipients' ? 'client ID or unique label, or a list of IDs/labels' : name === 'tag' ? 'string (user-defined)' : ['online','contact_open','water_detected','occupied','light_on','actor_on'].includes(name) ? 'boolean' : name === 'device' ? 'immutable device snapshot' : ['value','old','payload'].includes(name) ? 'event-dependent value' : 'number'
+const fieldType = (name: string) => ['id','name','source','kind','type','field','action','reason','message','operation','timer_id','chain_id','device_id','air_quality'].includes(name) ? 'string' : name === 'recipients' ? 'client ID or unique label, or a list of IDs/labels' : name === 'tag' ? 'string (user-defined)' : ['online','contact_open','water_detected','occupied','light_on','actor_on'].includes(name) ? 'boolean' : name === 'thermostat' ? 'immutable thermostat snapshot' : name === 'device' ? 'immutable device snapshot' : ['value','old','payload'].includes(name) ? 'event-dependent value' : 'number'
 const documentation = (name: string, spec: Spec) => `${name}(${spec[0].split(', ').filter(Boolean).map(arg => `${arg}: ${argumentTypes[arg]}`).join(', ')}): ${spec[1]}\n${spec[2]}`
 const quote = (value: string, delimiter = '"') => delimiter + value.replace(/\\/g, '\\\\').replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(new RegExp(delimiter, 'g'), '\\' + delimiter) + delimiter
 
@@ -92,7 +94,8 @@ export function completions(source: string, offset: number, catalog: Catalog): C
       // Automation uses ieee_address verbatim for every protocol, unlike dashboard IDs.
       const id = device.ieee_address
       if (!id) continue
-      const compatible = call?.call !== 'devices.actor' && call?.call !== 'devices.light' || (call.call === 'devices.actor' ? device.has_actor : device.has_light)
+      const capability = { 'devices.actor': device.has_actor, 'devices.light': device.has_light, 'devices.thermostat': device.has_thermostat }
+      const compatible = !call || !(call.call in capability) || capability[call.call as keyof typeof capability]
       const meta = `${device.kind} · ${device.source}${compatible ? '' : ' · unsupported capability'}`
       const add = (value: string, score: number) => list.push({ ...entry(inString ? value : quote(value), meta, score), caption: `${device.name || id} — ${value}` })
       add(id, compatible ? 2000 : 500)
@@ -101,6 +104,15 @@ export function completions(source: string, offset: number, catalog: Catalog): C
     return list
   }
   if ((key === 'device' || key === 'device_id') || call?.call.startsWith('devices.') && call.call !== 'devices.list' && call.argument === 0 && !table) result = deviceValues(key === 'device_id')
+  else if (call?.call === 'devices.thermostat' && call.argument === 1 && !table) {
+    const target = context.slice(context.lastIndexOf('(') + 1).match(/^\s*(["'])(.*?)\1/)?.[2]
+    const device = catalog.devices.find(d => d.ieee_address === target || d.name.toLowerCase() === target?.toLowerCase())
+    const thermostat = device?.thermostat
+    const fields = thermostat ? Object.keys(thermostat.fields).filter(field => thermostat.supported[field] && thermostat.fields[field].writable) : []
+    if (thermostat?.schedule_supported) fields.push(...Array.from({ length: 7 }, (_, day) => `schedule_${day}`))
+    if (thermostat?.external_input_supported) fields.push('temperature_source', 'stale_minutes')
+    result = values(fields, 'thermostat field')
+  }
   else if (key === 'type' && eventCall) result = values(eventNames, 'event type')
   else if (key === 'source') result = values(sources, 'device source')
   else if (key === 'kind') result = values([...new Set(catalog.devices.map(d => d.kind))], 'device kind')

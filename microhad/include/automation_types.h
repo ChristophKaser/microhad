@@ -34,7 +34,7 @@ typedef std::tr1::shared_ptr<const Device> DevicePtr;
 // when a consumer needs them. Unchanged device metadata is shared across versions.
 enum Field { ActorOn, AirQuality, Battery, Brightness, Co2, ContactOpen, Humidity,
     Id, Kind, LastSeen, LightOn, LinkQuality, Name, Occupied, Online, Pm25, Power,
-    Source, Temperature, WaterDetected, WifiSignal, FieldCount };
+    Source, Temperature, WaterDetected, WifiSignal, Thermostat, FieldCount };
 struct DeviceMetadata {
     std::string id,name,lookupName,source,kind,matterNode;
     int matterEndpoint;
@@ -49,6 +49,7 @@ struct DeviceSnapshot {
     uint32_t present;
     double values[FieldCount];
     std::string airQuality;
+    Value thermostat;
     DeviceSnapshot();
     bool has(Field field) const { return (present & (1U<<field))!=0; }
 };
@@ -60,7 +61,14 @@ const char* fieldName(Field field);
 Field findField(const std::string& name);
 Value snapshot(const DeviceSnapshot& device);
 struct SceneEntry { unsigned char id;std::string name; };
-struct SceneCatalogEntry { unsigned short id;std::string name;std::vector<SceneEntry> scenes; };
+struct SceneCatalogEntry {
+    unsigned short id;
+    std::string name;
+    std::vector<SceneEntry> scenes;
+    int selectedScene; // -1 means unknown or removed
+    int off; // -1 unknown, 0 on, 1 off
+    SceneCatalogEntry() : id(0), selectedScene(-1), off(-1) {}
+};
 typedef std::vector<SceneCatalogEntry> SceneCatalog;
 typedef std::map<std::string,std::string> NameIndex;
 typedef std::vector<SnapshotPtr> SnapshotList;

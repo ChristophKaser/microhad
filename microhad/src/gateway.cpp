@@ -2524,6 +2524,7 @@ void Gateway::completeSceneRetry(unsigned short groupId, SceneRetry* retry) {
         addLog(std::string("Scene recalled: ") + group->name + " / " + scene->name);
     }
     saveSceneRuntime();
+    markViewDirty();
 }
 
 bool Gateway::scheduleSceneRetry(SceneRetry* retry, long now) {
@@ -3925,6 +3926,14 @@ void Gateway::loadSceneRuntime() {
         else if (type == 'F')
             sceneGroupOff_[static_cast<unsigned short>(group)] = value != 0;
     }
+}
+
+void Gateway::sceneStateForAutomation(unsigned short group, int* selected, int* off) const {
+    *selected=-1; *off=-1;
+    std::map<unsigned short,unsigned char>::const_iterator scene=selectedScenes_.find(group);
+    if(scene!=selectedScenes_.end())*selected=scene->second;
+    std::map<unsigned short,bool>::const_iterator state=sceneGroupOff_.find(group);
+    if(state!=sceneGroupOff_.end())*off=state->second?1:0;
 }
 
 void Gateway::saveSceneRuntime() const {

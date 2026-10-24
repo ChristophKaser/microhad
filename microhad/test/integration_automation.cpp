@@ -8,6 +8,7 @@
 #include "external_http_device.h"
 #include "json_util.h"
 #include "storage.h"
+#include "matter_worker.h"
 #include <cassert>
 #include <cstdio>
 #include <cstdlib>
@@ -16,6 +17,7 @@
 #include <sstream>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include <sys/un.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -30,6 +32,7 @@ public:
         }
         pthread_mutex_unlock(&runner.mutex_);return same;
     }
+    static void publish(GatewayRunner& runner){runner.publishAutomation(true);}
     static void queue(GatewayRunner& runner,const Automation::Action& action){runner.automationActions_.push_back(action);}
     static void drain(GatewayRunner& runner){
         Automation::Action action=runner.automationActions_.front();runner.automationActions_.pop_front();
@@ -57,7 +60,144 @@ bool until(const std::string& root,const std::string& key,double number){for(uns
 void clean(const std::string& path){DIR* d=opendir(path.c_str());assert(d);dirent* e;while((e=readdir(d))){std::string name=e->d_name;if(name=="."||name=="..")continue;std::string child=path+"/"+name;struct stat st;assert(lstat(child.c_str(),&st)==0);if(S_ISDIR(st.st_mode))clean(child);else unlink(child.c_str());}closedir(d);rmdir(path.c_str());}
 }
 
+namespace {
+struct ThermostatPeer {
+    int listener;
+    unsigned commands;
+    ThermostatPeer() : listener(-1), commands(0) {}
+    static void* serve(void* opaque) {
+        ThermostatPeer* peer=static_cast<ThermostatPeer*>(opaque);
+        int fd=accept(peer->listener,0,0);assert(fd>=0);
+        MatterWire::Decoder decoder;
+        while(true) {
+            unsigned char byte;ssize_t count=read(fd,&byte,1);
+            if(count==0)break;
+            assert(count==1&&decoder.feed(MatterWire::Bytes(1,byte)));
+            MatterWire::Frame frame;if(!decoder.pop(&frame))continue;
+            const std::string thread="{\"enabled\":true,\"available\":true,\"configured\":false,\"attached\":false,\"state\":\"detached\",\"linux_ipv6_or_tun\":false}";
+            std::string reply;
+            if(frame.opcode==9)reply="{\"schema\":1,\"ok\":true,\"result\":"+thread+"}";
+            else if(frame.opcode==1)reply="{\"enabled\":true,\"available\":true,\"controller_initialized\":true,\"fabric_ready\":true,\"state\":\"running\"}";
+            else if(frame.opcode==2)reply=thread;
+            else if(frame.opcode==11) {
+                const std::string body(frame.payload.begin(),frame.payload.end());
+                std::string command,node,field,value;long endpoint=0;
+                assert(jsonStringField(body,"command",&command)&&command=="thermostat");
+                assert(jsonStringField(body,"node",&node)&&node=="0000000000000072");
+                assert(jsonLongField(body,"endpoint",&endpoint)&&endpoint==2);
+                assert(jsonStringField(body,"field",&field)&&field=="system_mode");
+                assert(jsonStringField(body,"value",&value)&&value=="4");++peer->commands;
+                reply="{\"schema\":1,\"ok\":true,\"result\":{\"job\":\"0000000000000001\",\"state\":\"queued\"}}";
+            } else {
+                assert(frame.opcode==10);
+                reply="{\"schema\":1,\"ok\":true,\"result\":{\"job\":\"0000000000000001\",\"state\":\"complete\",\"result\":{\"node\":\"0000000000000072\",\"endpoint\":2,\"cluster\":513,\"attribute\":28,\"value\":{\"type\":\"thermostat\",\"value\":4}}}}";
+            }
+            frame.kind=MatterWire::Frame::Response;frame.payload.assign(reply.begin(),reply.end());
+            MatterWire::Bytes encoded;assert(MatterWire::encode(frame,&encoded));
+            size_t offset=0;while(offset<encoded.size()){ssize_t sent=send(fd,&encoded[offset],encoded.size()-offset,MSG_NOSIGNAL);assert(sent>0);offset+=sent;}
+        }
+        close(fd);return 0;
+    }
+};
+
+void automationControls(){
+    puts("integration: Lua thermostat validation/actions/snapshots and scene selection queries");
+    char directory[]="/tmp/microhad-automation-controls-XXXXXX";assert(mkdtemp(directory));
+    const std::string root=directory;std::string error;
+    {
+        Gateway* gateway=new Gateway("/dev/null",115200,root,"","","",0,root+"/history.bin");
+        GatewayRunner runner(gateway);
+        Device thermostat;thermostat.ieeeAddress="trv";thermostat.name="Office thermostat";thermostat.source="zigbee";thermostat.networkAddress=0x1234;
+        EndpointDescriptor endpoint;endpoint.endpoint=1;endpoint.inputClusters.push_back(513);thermostat.endpoints.push_back(endpoint);
+        thermostat.thermostat.values["control_sequence_of_operation"]=2;
+        thermostat.thermostat.values["occupied_heating_setpoint"]=20;
+        thermostat.thermostat.values["system_mode"]=4;
+        thermostat.thermostat.scheduleSupported=true;
+        GatewayIntegrationTestPeer::automationDevice(gateway,thermostat);
+        Device matter=thermostat;matter.ieeeAddress="matter-trv";matter.name="Matter thermostat";matter.source="matter";
+        matter.matterNode="0000000000000072";matter.matterEndpoint=2;matter.matterServers.push_back(513);
+        assert(applyMatterThermostat(&matter,65531,"thermostat_list","[0,17,18,27,28,65532]",100));
+        assert(applyMatterThermostat(&matter,65532,"thermostat","35",100));
+        GatewayIntegrationTestPeer::automationDevice(gateway,matter);
+        Device light;light.ieeeAddress="lamp";light.name="Lamp";light.hasLight=true;
+        GatewayIntegrationTestPeer::automationDevice(gateway,light);
+        SceneGroup group;group.id=7;group.name="Downstairs";Scene scene;scene.id=2;scene.name="Evening";group.scenes.push_back(scene);
+        std::vector<SceneGroup> groups(1,group);GatewayIntegrationTestPeer::automationGroups(gateway,groups);
+        AutomationRunnerTestPeer::publish(runner);
+        AutomationWorker worker(root,&runner,0);assert(worker.start(&error));
+        const std::string valid=
+            "local g=assert(scenes.get('downstairs'));assert(g.id=='7' and g.name=='Downstairs' and g.scene_id==nil and g.off==nil);"
+            "assert(not pcall(function()g.name='changed'end));assert(not scenes.get('missing'));"
+            "local t=assert(devices.get('Office thermostat')).thermostat;assert(t.values.occupied_heating_setpoint==20);"
+            "assert(not pcall(function()t.values.occupied_heating_setpoint=99 end));"
+            "assert(devices.thermostat('trv','occupied_heating_setpoint',21));assert(devices.thermostat('trv','system_mode','4'));"
+            "assert(devices.thermostat('trv','schedule_1','{\"mode\":1,\"transitions\":[{\"time\":0,\"heat\":20}]}'));"
+            "assert(devices.thermostat('trv','schedule_1','__read__'));assert(devices.thermostat('matter-trv','occupied_cooling_setpoint',26));"
+            "assert(not devices.thermostat('lamp','system_mode',4));assert(not devices.thermostat('missing','system_mode',4));"
+            "assert(not devices.thermostat('trv','unknown',1));assert(not devices.thermostat('trv','system_mode',3));"
+            "assert(not devices.thermostat('trv','occupied_heating_setpoint',100));assert(not devices.thermostat('trv','schedule_1','invalid'));"
+            "assert(not devices.thermostat('trv','stale_minutes',4));assert(not devices.thermostat('trv','stale_minutes',5.5));"
+            "assert(not devices.thermostat('matter-trv','child_lock',1));";
+        if(!worker.validate("draft.lua",valid,&error)){fprintf(stderr,"controls validation: %s\n",error.c_str());assert(false);}
+        assert(GatewayIntegrationTestPeer::automationThermostatOperations(*gateway)==0);
+        assert(runner.acquireAutomationCatalog()->devices.find("matter-trv")->second->thermostat.fields.find("pending")->second.items.empty());
+        assert(!worker.validate("draft.lua","devices.thermostat('trv','system_mode',true)",&error));
+        assert(!worker.validate("draft.lua","devices.thermostat('trv','system_mode',math.huge)",&error));
+        assert(!worker.validate("draft.lua","devices.thermostat('trv','system_mode',0/0)",&error));
+        assert(!worker.validate("draft.lua","scenes.get(7)",&error));
+        assert(worker.save("main.lua",
+            "local old=scenes.get('7');persistent.changes=0;events.on({type='device.changed',device='trv',field='thermostat'},function(e)"
+            "assert(e.old.values.occupied_heating_setpoint==20);assert(e.value.values.occupied_heating_setpoint==20);"
+            "assert(e.value.error=='timeout');assert(old.scene_id==nil);persistent.changes=persistent.changes+1 end)",true,&error));
+        thermostat.thermostat.error="timeout";GatewayIntegrationTestPeer::automationDevice(gateway,thermostat);
+        AutomationRunnerTestPeer::publish(runner);assert(until(root,"changes",1));
+        assert(worker.setEnabled("main.lua",false,&error));
+        // Exercise the coordinator action path, including generation retirement.
+        GatewayIntegrationTestPeer::setNetworkReady(gateway,true);
+        Automation::Action action;action.operation="thermostat";action.target="trv";action.script="commands";action.generation=1;
+        action.args=Value::object();action.args.fields["field"]=Value("occupied_heating_setpoint");action.args.fields["value"]=Value("21");
+        runner.automationGeneration("commands",1);AutomationRunnerTestPeer::queue(runner,action);
+        runner.automationGeneration("commands",2);AutomationRunnerTestPeer::drain(runner);
+        assert(GatewayIntegrationTestPeer::automationThermostatOperations(*gateway)==0);
+        action.generation=2;AutomationRunnerTestPeer::queue(runner,action);AutomationRunnerTestPeer::drain(runner);
+        assert(GatewayIntegrationTestPeer::automationThermostatOperations(*gateway)==1);
+        assert(worker.validate("draft.lua","local t=devices.get('trv').thermostat;assert(t.pending[1]=='occupied_heating_setpoint');assert(t.values.occupied_heating_setpoint==20)",&error));
+        GatewayIntegrationTestPeer::clearAutomationThermostatOperations(gateway);
+        action.target="matter-trv";action.args.fields["field"]=Value("occupied_cooling_setpoint");action.args.fields["value"]=Value("26");
+        AutomationRunnerTestPeer::queue(runner,action);AutomationRunnerTestPeer::drain(runner);
+        assert(worker.validate("draft.lua","local t=devices.get('matter-trv').thermostat;assert(#t.pending==0 and t.error=='Matter worker unavailable')",&error));
+        MatterWorker unavailable(&runner,root+"/absent.sock");worker.setMatterWorker(&unavailable);
+        AutomationRunnerTestPeer::queue(runner,action);AutomationRunnerTestPeer::drain(runner);
+        assert(worker.validate("draft.lua","local t=devices.get('matter-trv').thermostat;assert(#t.pending==0 and t.error=='not_ready')",&error));
+        worker.setMatterWorker(0);
+        // Real recall completion updates the scene catalog without changing its configuration.
+        GatewayIntegrationTestPeer::completeAutomationScene(gateway,7,2,false);AutomationRunnerTestPeer::publish(runner);
+        assert(worker.validate("draft.lua","local g=scenes.get('7');assert(g.scene_id=='2' and g.scene_name=='Evening' and g.off==false)",&error));
+        light.lightOn=true;GatewayIntegrationTestPeer::automationDevice(gateway,light);AutomationRunnerTestPeer::publish(runner);
+        assert(worker.validate("draft.lua","assert(scenes.get('7').scene_id=='2')",&error));
+        GatewayIntegrationTestPeer::completeAutomationScene(gateway,7,0,true);AutomationRunnerTestPeer::publish(runner);
+        assert(worker.validate("draft.lua","local g=scenes.get('7');assert(g.off==true and g.scene_id=='2')",&error));
+        groups[0].scenes[0].name="Renamed";GatewayIntegrationTestPeer::automationGroups(gateway,groups);AutomationRunnerTestPeer::publish(runner);
+        assert(worker.validate("draft.lua","assert(scenes.get('7').scene_name=='Renamed')",&error));
+        groups[0].scenes.clear();GatewayIntegrationTestPeer::automationGroups(gateway,groups);AutomationRunnerTestPeer::publish(runner);
+        assert(worker.validate("draft.lua","local g=scenes.get('7');assert(g.scene_id==nil and g.scene_name==nil and g.off==true)",&error));
+        SceneGroup duplicate=group;duplicate.id=8;duplicate.name="downstairs";groups.push_back(duplicate);
+        GatewayIntegrationTestPeer::automationGroups(gateway,groups);AutomationRunnerTestPeer::publish(runner);
+        assert(worker.validate("draft.lua","assert(not scenes.get('Downstairs'));assert(scenes.get('7').id=='7');assert(scenes.get('8').id=='8')",&error));
+        groups[1].name="7";GatewayIntegrationTestPeer::automationGroups(gateway,groups);AutomationRunnerTestPeer::publish(runner);
+        assert(worker.validate("draft.lua","assert(scenes.get('7').id=='7')",&error));
+        thermostat.name="Matter thermostat";GatewayIntegrationTestPeer::automationDevice(gateway,thermostat);AutomationRunnerTestPeer::publish(runner);
+        assert(worker.validate("draft.lua","assert(not devices.thermostat('Matter thermostat','system_mode',4));assert(devices.thermostat('trv','system_mode',4))",&error));
+        groups.clear();GatewayIntegrationTestPeer::automationGroups(gateway,groups);AutomationRunnerTestPeer::publish(runner);
+        assert(worker.validate("draft.lua","assert(not scenes.get('7'))",&error));
+        worker.stop();
+    }
+    clean(root);
+}
+}
+
 void runAutomationIntegrationTests(){
+    automationControls();
     puts("integration: automation HTTP workflow, coordinator readings/actions, source watcher and restart");
     char path[]="/tmp/microhad-automation-integration-XXXXXX";assert(mkdtemp(path));std::string root=path,error;
     int serial[2];assert(pipe(serial)==0);
@@ -97,6 +237,45 @@ void runAutomationIntegrationTests(){
           "events.on({type='device.added',source='matter'},function(e)assert(e.device.id==e.device_id);persistent.added=(persistent.added or 0)+1 end);"
           "events.on({type='device.offline',source='matter'},function(e)assert(e.device.online==false);persistent.offline=(persistent.offline or 0)+1 end);"
           "events.on({type='device.online',source='matter'},function(e)assert(e.device.online==true);persistent.online=(persistent.online or 0)+1 end);";
+        // A local setting exercises the real Lua command queue without radio traffic.
+        MatterEndpoint trv;trv.id="matter:0000000000000001:0000000000000072:0002";trv.node="0000000000000072";trv.endpoint=2;trv.online=true;trv.servers.push_back(513);
+        assert(runner.reconcileMatterDevices(std::vector<MatterEndpoint>(1,trv),&error));
+        MatterReading features;features.node=trv.node;features.endpoint=2;features.cluster=513;features.attribute=65532;features.known=true;features.unit="thermostat";features.textValue="1";
+        assert(runner.applyMatterReading(features,&error));
+        features.attribute=28;features.textValue="0";assert(runner.applyMatterReading(features,&error));
+        assert(automations.save("command.lua","assert(devices.thermostat('"+trv.id+"','system_mode',4))",true,&error));
+        bool failed=false;
+        for(unsigned i=0;i<200&&!failed;++i){
+            Automation::CatalogPtr catalog=runner.acquireAutomationCatalog();
+            std::map<std::string,Automation::SnapshotPtr>::const_iterator found=catalog->devices.find(trv.id);
+            failed=found!=catalog->devices.end()&&found->second->thermostat.fields.find("error")!=found->second->thermostat.fields.end()&&found->second->thermostat.fields.find("error")->second==Value("Matter worker unavailable");
+            if(!failed)usleep(10000);
+        }
+        assert(failed);assert(automations.remove("command.lua",&error));
+        const std::string socketPath=root+"/matter.sock";
+        ThermostatPeer peer;peer.listener=socket(AF_UNIX,SOCK_STREAM,0);assert(peer.listener>=0);
+        sockaddr_un address;memset(&address,0,sizeof(address));address.sun_family=AF_UNIX;assert(socketPath.size()<sizeof(address.sun_path));strcpy(address.sun_path,socketPath.c_str());
+        assert(bind(peer.listener,reinterpret_cast<sockaddr*>(&address),sizeof(address))==0);
+        assert(chmod(socketPath.c_str(),0600)==0&&listen(peer.listener,1)==0);
+        pthread_t service;assert(pthread_create(&service,0,ThermostatPeer::serve,&peer)==0);
+        {
+            MatterWorker connected(&runner,socketPath);automations.setMatterWorker(&connected);assert(connected.start(&error));
+            std::string status;bool ready=false;
+            for(unsigned i=0;i<200&&!ready;++i){ready=connected.status(false,&status,&error);if(!ready)usleep(10000);}
+            assert(ready);
+            assert(automations.save("command.lua","assert(devices.thermostat('"+trv.id+"','system_mode',4))",true,&error));
+            bool confirmed=false;
+            for(unsigned i=0;i<300&&!confirmed;++i){
+                Automation::CatalogPtr catalog=runner.acquireAutomationCatalog();
+                Value t=catalog->devices.find(trv.id)->second->thermostat;
+                confirmed=t.fields["values"].fields["system_mode"]==Value(4.)&&t.fields["pending"].items.empty()&&t.fields["error"]==Value("");
+                if(!confirmed)usleep(10000);
+            }
+            assert(confirmed);assert(automations.remove("command.lua",&error));automations.setMatterWorker(0);
+            connected.stop();
+        }
+        assert(pthread_join(service,0)==0&&peer.commands==1);close(peer.listener);assert(unlink(socketPath.c_str())==0);
+        assert(runner.removeMatterNode(trv.node,&error));
         std::string save="filename=main.lua&source="+encode(code);
         std::string response=request(port,"POST","/api/automations/save",save);assert(response.find("200 OK")!=response.npos);
         if(automations.listJson().find("\"loaded\":true")==std::string::npos){fprintf(stderr,"%s\n%s\n",automations.listJson().c_str(),automations.logsJson("").c_str());assert(false);}

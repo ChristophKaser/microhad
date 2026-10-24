@@ -364,6 +364,7 @@ public:
     uint64_t viewRevision() const { return viewRevision_; }
     const std::map<std::string,Device>& devicesForAutomation() const { return devices_; }
     const std::vector<SceneGroup>& groupsForAutomation() const { return sceneGroups_; }
+    void sceneStateForAutomation(unsigned short group, int* selected, int* off) const;
     struct AutomationReport {
         Device device;
         std::string field;

@@ -40,6 +40,29 @@ void typedSnapshots(){
     assert(!unknown->has(Automation::Temperature)&&!Automation::snapshot(*unknown).fields.count("temperature_celsius"));
 }
 
+void thermostatSnapshots(){
+    Device d;d.ieeeAddress="trv";d.name="Thermostat";d.source="zigbee";
+    EndpointDescriptor endpoint;endpoint.endpoint=1;endpoint.inputClusters.push_back(513);d.endpoints.push_back(endpoint);
+    d.thermostat.values["occupied_heating_setpoint"]=20;
+    Automation::SnapshotPtr before=Automation::capture(d);
+    assert(before->has(Automation::Thermostat)&&before->record);
+    assert(Automation::capture(d,before)==before);
+    Value initial=before->thermostat;
+    assert(initial.fields["values"].fields["occupied_heating_setpoint"]==Value(20.));
+    d.thermostat.pending.insert("system_mode");d.thermostat.error="timeout";
+    Automation::SnapshotPtr after=Automation::capture(d,before);
+    assert(!Automation::sameField(*before,*after,Automation::Thermostat));
+    assert(initial.fields["error"]==Value(""));
+    Automation::Event event;event.type="device.changed";event.field=Automation::Thermostat;event.device=after;
+    event.hasOld=true;event.old=Automation::fieldValue(*before,Automation::Thermostat);
+    Value value=Automation::eventValue(event);
+    assert(value.fields["field"]==Value("thermostat"));
+    assert(value.fields["old"].fields["pending"].items.empty());
+    assert(value.fields["value"].fields["pending"].items.size()==1);
+    assert(value.fields["device"].fields["thermostat"].fields["error"]==Value("timeout"));
+    assert(!Automation::snapshot(Device()).fields.count("thermostat"));
+}
+
 void schedulerRegressions(){
     lua_State* L=luaL_newstate();assert(L);
     luaL_requiref(L,"_G",luaopen_base,1);lua_pop(L,1);
@@ -188,4 +211,4 @@ void callbackBudgetAndQueues(){Fixture f;
     assert(rejected>0);assert(f.worker->waitIdle());usleep(100000);assert(f.worker->logsJson("test.lua").find("limit")!=std::string::npos);assert(f.state().fields["good"].number==1);
 }
 }
-void runAutomationUnitTests(){printf("unit: Lua sandbox, validation, persistence, reload, event filtering, coroutines, timers, cron, shared state, limits, logs and all report sources\n");serialization();typedSnapshots();sandboxAndValidation();errorLocations();persistenceAndReload();eventsAndCoroutines();timersLimitsAndLogs();safeFiles();schedulesSharedAndShutdown();acceptedReportSources();callbackBudgetAndQueues();}
+void runAutomationUnitTests(){printf("unit: Lua sandbox, validation, persistence, reload, event filtering, coroutines, timers, cron, shared state, limits, logs and all report sources\n");serialization();typedSnapshots();thermostatSnapshots();sandboxAndValidation();errorLocations();persistenceAndReload();eventsAndCoroutines();timersLimitsAndLogs();safeFiles();schedulesSharedAndShutdown();acceptedReportSources();callbackBudgetAndQueues();}

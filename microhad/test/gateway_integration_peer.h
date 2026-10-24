@@ -11,6 +11,22 @@
 
 class GatewayIntegrationTestPeer {
 public:
+    static void automationDevice(Gateway* gateway, const Device& device) {
+        gateway->devices_[device.ieeeAddress]=device;gateway->markDeviceDirty(device.ieeeAddress);
+    }
+    static void automationGroups(Gateway* gateway, const std::vector<SceneGroup>& groups) {
+        gateway->sceneGroups_=groups;gateway->markViewDirty();
+    }
+    static void completeAutomationScene(Gateway* gateway, unsigned short group, unsigned char scene, bool off) {
+        Gateway::SceneRetry retry;retry.sceneId=scene;retry.off=off;
+        gateway->completeSceneRetry(group,&retry);
+    }
+    static void clearAutomationThermostatOperations(Gateway* gateway) {
+        gateway->thermostatOperations_.clear();
+        for(std::map<std::string,Device>::iterator it=gateway->devices_.begin();it!=gateway->devices_.end();++it)it->second.thermostat.pending.clear();
+        gateway->markViewDirty();
+    }
+    static unsigned long automationThermostatOperations(const Gateway& gateway) { return gateway.thermostatOperations_.size(); }
     static void injectEzspFrame(Gateway* gateway, const std::vector<unsigned char>& frame, unsigned char version) {
         gateway->ezspVersion_ = version;
         gateway->handleEzspFrame(frame);

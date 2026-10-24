@@ -110,3 +110,37 @@ do
   advance(2);runtime.tick();runtime.tick()
   assert(watching('device.value')==0 and failures()==0)
 end
+
+-- Public control wrappers preserve errors, enforce thermostat value types,
+-- and return immutable scene snapshots without changing earlier snapshots.
+do
+  local calls = 0
+  local current = {id='7', name='Downstairs', scene_id='2', scene_name='Evening', off=false}
+  local host = {
+    calendar=function() return {0,0,1,1,0,126,0} end,
+    action=function(operation, target, args)
+      calls=calls+1
+      assert(operation=='thermostat' and target=='trv')
+      assert(args.field=='occupied_heating_setpoint' and args.value=='21')
+      return nil,'queue full'
+    end,
+    scene_get=function(group)
+      if group=='missing' then return nil,'unknown scene group' end
+      return current
+    end,
+  }
+  local env=factory(host).env
+  local ok,err=env.devices.thermostat('trv','occupied_heating_setpoint',21)
+  assert(ok==nil and err=='queue full' and calls==1)
+  assert(not pcall(env.devices.thermostat,'trv','system_mode',true))
+  assert(not pcall(env.devices.thermostat,'trv','system_mode',{}))
+  assert(not pcall(env.devices.thermostat,'trv','system_mode',math.huge))
+  assert(not pcall(env.devices.thermostat,'trv','system_mode',0/0))
+  assert(calls==1)
+  local before=env.scenes.get('7')
+  assert(not pcall(function()before.off=true end))
+  current.off=true
+  assert(before.off==false and env.scenes.get('7').off==true)
+  local group,reason=env.scenes.get('missing')
+  assert(group==nil and reason=='unknown scene group')
+end

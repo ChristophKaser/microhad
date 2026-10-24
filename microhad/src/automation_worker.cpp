@@ -171,8 +171,23 @@ struct AutomationWorker::Impl {
     static int action(lua_State* L){AUTOMATION_PROFILE("auto.action");Script* s=script(L);Automation::Action a;a.operation=stringArg(L,1);std::string err;const Automation::DeviceSnapshot* d=s->owner->resolve(stringArg(L,2),&err);if(!readValue(L,3,&a.args))return luaL_error(L,"invalid action arguments");if(!d)return failure(L,err);
         bool dimmable=d->metadata->brightness;
         if((a.operation=="actor"&&!d->metadata->actor)||(a.operation=="light"&&(!d->metadata->light||(a.args.fields.count("brightness")&&!dimmable))))return failure(L,"unsupported device capability");
+        if(a.operation=="thermostat") {
+            if(!d->record)return failure(L,"device is not a thermostat");
+            const std::string& field=a.args.fields["field"].string;
+            const std::string& value=a.args.fields["value"].string;
+            if(!thermostatValidateSetting(*d->record,field,value,&err))return failure(L,err);
+            if(field=="temperature_source"&&value!="builtin"&&value!="manual") {
+                std::map<std::string,Automation::SnapshotPtr>::const_iterator source=s->owner->catalogState->devices.find(value);
+                if(source==s->owner->catalogState->devices.end()||!source->second->record ||
+                   source->first==d->metadata->id||!source->second->record->hasTemperature||isThermostat(*source->second->record)||
+                   (source->second->metadata->source=="matter"&&source->second->metadata->matterEndpoint<0))
+                    return failure(L,"select a measured temperature sensor endpoint");
+            }
+        }
         if(s->validation){lua_pushboolean(L,1);return 1;}a.target=d->metadata->id;a.script=s->id;a.generation=s->generation;a.chain=strtoull(s->chain.c_str(),0,10);a.depth=s->depth+1;if(a.depth>32)return failure(L,"causal chain limit reached");
-        if(d->metadata->source=="matter"){
+        if(a.operation=="thermostat") {
+            if(!s->owner->gateway||!s->owner->gateway->submitAutomation(a,&err))return failure(L,err.empty()?"coordinator unavailable":err);
+        }else if(d->metadata->source=="matter"){
             if(!s->owner->matter)return failure(L,"Matter worker unavailable");
             std::ostringstream request;request<<"{\"schema\":1,\"node\":\""<<d->metadata->matterNode<<"\",\"endpoint\":"<<d->metadata->matterEndpoint;
             unsigned char opcode=11;if(a.operation=="refresh"){opcode=10;request<<",\"cluster\":"<<(d->metadata->light||d->metadata->actor?6:d->metadata->contact?69:d->metadata->humidity?1029:1026)<<",\"attribute\":0";}else if(a.args.fields.count("brightness")){request<<",\"command\":\"move_to_level\",\"level\":"<<static_cast<int>((a.args.fields["brightness"].number*254+50)/100)<<",\"transition_deciseconds\":0";}else request<<",\"command\":\""<<(a.args.fields["on"].boolean?"on":"off")<<"\"";request<<"}";uint32_t id;std::string prepared;bool ok=opcode==10?MatterChannel::deviceReadRequest(request.str(),&prepared):MatterChannel::deviceCommandRequest(request.str(),&prepared);if(!ok||!s->owner->matter->submit(opcode,prepared,&id,&err))return failure(L,err.empty()?"unsupported Matter operation":err);
@@ -187,7 +202,31 @@ struct AutomationWorker::Impl {
         lua_pushboolean(L,1);return 1;
     }
     static bool targetArg(lua_State* L,int index,std::string* target){if(lua_type(L,index)==LUA_TSTRING){*target=stringArg(L,index);return true;}return false;}
-    static int scene(lua_State* L){Script* s=script(L);std::string groupName,sceneName;if(!targetArg(L,1,&groupName)||(!lua_isnil(L,2)&&!targetArg(L,2,&sceneName)))return luaL_error(L,"scene targets must be names or string IDs");const Automation::SceneCatalogEntry* group=0;for(size_t i=0;i<(*s->owner->catalogState->groups).size();++i){const Automation::SceneCatalogEntry& g=(*s->owner->catalogState->groups)[i];std::ostringstream id;id<<g.id;if(id.str()==groupName){group=&g;break;}if(lower(g.name)==lower(groupName)){if(group)return failure(L,"ambiguous scene group; use stable ID");group=&g;}}if(!group)return failure(L,"unknown scene group");int selected=-1;if(!lua_isnil(L,2)){for(size_t i=0;i<group->scenes.size();++i){std::ostringstream id;id<<static_cast<int>(group->scenes[i].id);if(id.str()==sceneName){selected=i;break;}if(lower(group->scenes[i].name)==lower(sceneName)){if(selected>=0)return failure(L,"ambiguous scene; use stable ID");selected=i;}}if(selected<0)return failure(L,"unknown scene");}
+    static const Automation::SceneCatalogEntry* sceneGroup(Script* s,const std::string& target,std::string* error) {
+        const Automation::SceneCatalog& groups=*s->owner->catalogState->groups;
+        for(size_t i=0;i<groups.size();++i){std::ostringstream id;id<<groups[i].id;if(id.str()==target)return &groups[i];}
+        const Automation::SceneCatalogEntry* found=0;
+        for(size_t i=0;i<groups.size();++i)if(lower(groups[i].name)==lower(target)) {
+            if(found){*error="ambiguous scene group; use stable ID";return 0;}found=&groups[i];
+        }
+        if(!found)*error="unknown scene group";
+        return found;
+    }
+    static int sceneGet(lua_State* L) {
+        std::string target,err;
+        if(!targetArg(L,1,&target))return luaL_error(L,"scene group must be a name or string ID");
+        const Automation::SceneCatalogEntry* group=sceneGroup(script(L),target,&err);
+        if(!group)return failure(L,err);
+        Value out=Value::object();std::ostringstream id;id<<group->id;
+        out.fields["id"]=Value(id.str());out.fields["name"]=Value(group->name);
+        if(group->off>=0)out.fields["off"]=Value(group->off!=0);
+        for(size_t i=0;i<group->scenes.size();++i)if(group->scenes[i].id==group->selectedScene) {
+            std::ostringstream sceneId;sceneId<<static_cast<int>(group->scenes[i].id);
+            out.fields["scene_id"]=Value(sceneId.str());out.fields["scene_name"]=Value(group->scenes[i].name);break;
+        }
+        push(L,out);return 1;
+    }
+    static int scene(lua_State* L){Script* s=script(L);std::string groupName,sceneName,groupError;if(!targetArg(L,1,&groupName)||(!lua_isnil(L,2)&&!targetArg(L,2,&sceneName)))return luaL_error(L,"scene targets must be names or string IDs");const Automation::SceneCatalogEntry* group=sceneGroup(s,groupName,&groupError);if(!group)return failure(L,groupError);int selected=-1;if(!lua_isnil(L,2)){for(size_t i=0;i<group->scenes.size();++i){std::ostringstream id;id<<static_cast<int>(group->scenes[i].id);if(id.str()==sceneName){selected=i;break;}if(lower(group->scenes[i].name)==lower(sceneName)){if(selected>=0)return failure(L,"ambiguous scene; use stable ID");selected=i;}}if(selected<0)return failure(L,"unknown scene");}
         Automation::Action a;a.operation=selected<0?"scene.off":"scene.activate";a.args.fields["group"]=Value(static_cast<double>(group->id));if(selected>=0)a.args.fields["scene"]=Value(static_cast<double>(group->scenes[selected].id));a.script=s->id;a.generation=s->generation;a.chain=strtoull(s->chain.c_str(),0,10);a.depth=s->depth+1;std::string err;if(!s->validation&&(!s->owner->gateway||!s->owner->gateway->submitAutomation(a,&err)))return failure(L,err);lua_pushboolean(L,1);return 1;}
     static int notify(lua_State* L){
         Script* s=script(L);
@@ -236,7 +275,7 @@ struct AutomationWorker::Impl {
         if(luaL_loadbufferx(L,kRuntime,sizeof(kRuntime)-1,"@automation-runtime","t")!=LUA_OK){error(s,lua_tostring(L,-1),"runtime");return false;}
         lua_newtable(L);
 #define B(name,fn) bind(s,name,fn)
-        B("watch",watch);B("now",now);B("monotonic",clock);B("script_id",id);B("calendar",calendar);B("handle",handle);B("handle_id",handleId);B("limit",limit);B("spent",spent);B("begin",begin);B("finish",finish);B("discard",discard);B("read_state",readState);B("write_state",writeState);B("serializable",serializable);B("failed",failed);B("failure",failureLog);B("log",log);B("dump",dump);B("resolve",resolveId);B("device_get",deviceGet);B("device_list",deviceList);B("action",action);B("scene",scene);B("notify",notify);
+        B("watch",watch);B("now",now);B("monotonic",clock);B("script_id",id);B("calendar",calendar);B("handle",handle);B("handle_id",handleId);B("limit",limit);B("spent",spent);B("begin",begin);B("finish",finish);B("discard",discard);B("read_state",readState);B("write_state",writeState);B("serializable",serializable);B("failed",failed);B("failure",failureLog);B("log",log);B("dump",dump);B("resolve",resolveId);B("device_get",deviceGet);B("device_list",deviceList);B("action",action);B("scene",scene);B("scene_get",sceneGet);B("notify",notify);
 #undef B
         if(lua_pcall(L,1,1,0)!=LUA_OK){error(s,lua_tostring(L,-1),"runtime");return false;}s->runtime=luaL_ref(L,LUA_REGISTRYINDEX);return true;
     }
@@ -315,7 +354,7 @@ struct AutomationWorker::Impl {
 
 AutomationWorker::AutomationWorker(const std::string& root,GatewayRunner* gateway,NotificationWorker* n):impl_(new Impl(this,root,gateway,n)){}
 AutomationWorker::~AutomationWorker(){stop();delete impl_;}
-void AutomationWorker::setMatterWorker(MatterWorker* matter){impl_->matter=matter;}
+void AutomationWorker::setMatterWorker(MatterWorker* matter){impl_->matter=matter;if(impl_->gateway)impl_->gateway->setAutomationMatterWorker(matter);}
 bool AutomationWorker::start(std::string* err){if((mkdir(impl_->dir.c_str(),0700)!=0&&errno!=EEXIST)||!directory(impl_->dir)){*err="unsafe automation directory";return false;}std::string state=impl_->dir+"/state";if((mkdir(state.c_str(),0700)!=0&&errno!=EEXIST)||!directory(state)){*err="unsafe automation state directory";return false;}pthread_mutex_lock(&impl_->mutex);if(impl_->started){pthread_mutex_unlock(&impl_->mutex);*err="automation already started";return false;}impl_->running=true;if(pthread_create(&impl_->thread,0,Impl::main,impl_)!=0){impl_->running=false;pthread_mutex_unlock(&impl_->mutex);*err="cannot start automation worker";return false;}impl_->started=true;pthread_mutex_unlock(&impl_->mutex);if(impl_->gateway)impl_->gateway->setAutomationWorker(this);return true;}
 void AutomationWorker::stop(){if(impl_->gateway)impl_->gateway->setAutomationWorker(0);pthread_mutex_lock(&impl_->mutex);bool started=impl_->started;impl_->running=false;pthread_cond_broadcast(&impl_->ready);pthread_mutex_unlock(&impl_->mutex);if(started)pthread_join(impl_->thread,0);pthread_mutex_lock(&impl_->mutex);impl_->started=false;pthread_mutex_unlock(&impl_->mutex);}
 std::string AutomationWorker::listJson()const{
