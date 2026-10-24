@@ -12,7 +12,7 @@ export function patchLuaWorker(source) {
     const filename = join(directory, 'worker-lua.js')
     writeFileSync(filename, source)
     execFileSync('patch', ['--batch', '--forward', '--silent', '-p1', '-i',
-      fileURLToPath(new URL('../patches/ace-lua-5.4.patch', import.meta.url))],
+      fileURLToPath(new URL('../patches/ace-lua-5.5.patch', import.meta.url))],
       { cwd: directory, encoding: 'utf8' })
     return readFileSync(filename, 'utf8')
   } finally {

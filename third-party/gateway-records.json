@@ -1567,7 +1567,7 @@
   },
   {
     "name": "lua",
-    "revision": "312b9efaa1061c2c4cad08554dbc1351c3270eef",
+    "revision": "7579fc9d7ed90240487251dfb69168f8e64e9294",
     "license": "MIT",
     "authors": [
       "Lua.org, PUC-Rio"

@@ -231,7 +231,7 @@ struct AutomationWorker::Impl {
         lua_pushboolean(L,1);return 1;
     }
     void bind(Script* s,const char* name,lua_CFunction fn){lua_pushlightuserdata(s->L,s);lua_pushcclosure(s->L,fn,1);lua_setfield(s->L,-2,name);}
-    bool create(Script* s){s->L=lua_newstate(allocate,s);if(!s->L){error(s,"cannot allocate Lua state","load");return false;}lua_State* L=s->L;
+    bool create(Script* s){s->L=lua_newstate(allocate,s,luaL_makeseed(NULL));if(!s->L){error(s,"cannot allocate Lua state","load");return false;}lua_State* L=s->L;
         luaL_requiref(L,"_G",luaopen_base,1);lua_pop(L,1);luaL_requiref(L,"table",luaopen_table,1);lua_pop(L,1);luaL_requiref(L,"string",luaopen_string,1);lua_pop(L,1);luaL_requiref(L,"math",luaopen_math,1);lua_pop(L,1);luaL_requiref(L,"coroutine",luaopen_coroutine,1);lua_pop(L,1);
         if(luaL_loadbufferx(L,kRuntime,sizeof(kRuntime)-1,"@automation-runtime","t")!=LUA_OK){error(s,lua_tostring(L,-1),"runtime");return false;}
         lua_newtable(L);

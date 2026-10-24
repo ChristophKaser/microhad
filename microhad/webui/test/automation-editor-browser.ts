@@ -11,10 +11,10 @@ async function main() {
   const catalog = { devices: [{ ieee_address: 'abc', id: 'different', name: 'Desk "lamp"', source: 'zigbee', kind: 'light', has_light: true }], groups: [] }
   const instance = attachEditor(host, '', value => { source = value }, () => catalog as never, () => { workerFailed = true })
   const editor = ace.edit(host)
-  instance.setSource('local x <const> = 1\nlocal y <close> = nil')
+  instance.setSource('local <const> x = 1\nlocal y <close> = nil\nglobal answer = 42\nlocal function first(...args) return args[1] end')
   await pause(1200)
   assert(!workerFailed, 'worker failed')
-  assert(editor.session.getAnnotations().length === 0, 'valid Lua 5.4 syntax flagged')
+  assert(editor.session.getAnnotations().length === 0, 'valid Lua 5.5 syntax flagged')
   instance.setSource('local x <wat> = 1')
   await pause(1200)
   assert(editor.session.getAnnotations().some(item => item.type === 'error'), 'missing live syntax annotation')

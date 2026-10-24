@@ -95,6 +95,22 @@ function parser(source) {
 }
 const lua = parser(patchLuaWorker(workerSource))
 export const fixtures = [
+  ['global x = 1', true],
+  ['global <const> x, y = 1, 2', true],
+  ['global x <const> = 1', true],
+  ['global *', true],
+  ['global <const> *', true],
+  ['global function f(...args) return args[1], ... end', true],
+  ['local function f(x, ...args) return args[1] end', true],
+  ['local <const> x, y = 1, 2', true],
+  ['local <close> x = nil', true],
+  ['local <close> x, y = nil, nil', false],
+  ['global x <close> = nil', false],
+  ['global <close> *', false],
+  ['global <unknown> x', false],
+  ['global function f.a() end', false],
+  ['local function f(...args, x) end', false],
+  ['local global = 1; global = global + 1', true],
   ['local x <const> = 1', true],
   ['local x <close> = nil', true],
   ['local a <const>, b <close> = 1, nil', true],
@@ -112,7 +128,7 @@ export const fixtures = [
   ['if true then', false],
   ['local x = (2 + 3) // 2; return x << 1', true],
 ]
-test('Lua 5.4 parser accepts attributes and expanded escapes without changing positions', async () => {
+test('Lua 5.5 parser accepts attributes and expanded escapes without changing positions', async () => {
   for (const [source, valid] of fixtures) {
     if (valid) assert.doesNotThrow(() => lua.parse(source), source)
     else assert.throws(() => lua.parse(source), undefined, source)
@@ -126,7 +142,7 @@ test('Lua 5.4 parser accepts attributes and expanded escapes without changing po
   for (const [source, valid] of fixtures) assert.equal((() => { try { minified.parse(source); return true } catch { return false } })(), valid, source)
 })
 
-test('patched worker fixtures agree with the repository Lua 5.4.9 compiler', () => {
+test('patched worker fixtures agree with the repository Lua 5.5.1 compiler', () => {
   const directory = mkdtempSync(join(tmpdir(), 'automation-lua-syntax-'))
   try {
     const root = new URL('../../dependencies/lua/', import.meta.url).pathname

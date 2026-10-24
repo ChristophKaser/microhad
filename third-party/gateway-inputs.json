@@ -21,7 +21,7 @@
     "micro-thread-matter-daemon/patches/rs-matter-sessionless-icd.patch": "3313ae7829de9e6d520467339b8b896b35037145afb34c994d45b31931e9e303",
     "micro-thread-matter-daemon/patches/rs-matter-spake2p.patch": "e8e6357352fe600fa4241a9e806afa0ea8806a5cb0ff5bd03ad5d20f95bc8788",
     "micro-thread-matter-daemon/scripts/build.sh": "111395d0a4dcb71d8f40f777fc692fdddc9e1fcf0684aa344508bc4e86f3af3f",
-    "microhad/dependencies/lua": "312b9efaa1061c2c4cad08554dbc1351c3270eef",
+    "microhad/dependencies/lua": "7579fc9d7ed90240487251dfb69168f8e64e9294",
     "microhad/dependencies/mbedtls": "ece41aa84d7879d7e55c59e955a5884b541f7f3b",
     "microhad/dependencies/tinycbor": "da6421f2b5b91e3468c0af7265117427ea73f19e",
     "microhad/webui/package-lock.json": "753a43fe2a52404d0108bb04e957c1bfcb7a38a3d25bfe5219d074cbc657b19c",
@@ -31,7 +31,7 @@
     "scripts/licensing/notices.py": "980ea9fd898ecc0f8d71b2a45fa2427856f304bfdc4f5e7893304287b0ab4d5c",
     "scripts/rust-env.sh": "9e0ab301248766f8420fa4faa60e6374b45f99623c95123a0a5235a6f148e326",
     "third-party/authors.json": "62ca4111839fe4391824950beda8f2d84cde2efa678b38bc23a2c7a4ee692207",
-    "third-party/supplements.json": "12e090753a2952bc160a68b266c8c00e66b3270c0ea68a1d51c3fa04ad55ba70",
+    "third-party/supplements.json": "674e14471d141d14472b36444cc1c6fb09dbf9b58066c71d0618e4992d150457",
     "ziggurat/dependencies/ziggurat": "1e319a4c41c71c3070524ca0599d101d3062acdb",
     "ziggurat/dependencies/ziggurat/Cargo.lock": "be1cd92f9a1077465670f3ff58f9c5f46b1527a32a79db6a21f0004fb130827d",
     "ziggurat/patches/ziggurat-async-syslog.patch": "71c6d4f6d5fd6b238b4a029c51eb5b131e966aa1065a29357aaa7d63bdb9fa5e",
@@ -52,6 +52,6 @@
     "ziggurat/scripts/build.sh": "a6f6d4b5b8cc173583d256796df3bd97eedac753776478608b458213bbd54207",
     "ziggurat/stock-uclibc-compat/Cargo.toml": "10d8809501704a473e93541ee4cbaa922eafc1a79b4ee0f9f3445f5a7361fdc1"
   },
-  "records_sha256": "36a9b2fb78ed76bf7bd8dccb04e819f747b3eb901ed1c569940afbb918a772a2",
+  "records_sha256": "9d17e44471dbeb2f7917624fd30185b63673eb1b24e6412a4a3ad2dac0ea84b7",
   "sha256": "a0e65ea3ffc4885b58d7cf2df4b6ed49a181ffed128dd800cb466d84f6e20a5a"
 }

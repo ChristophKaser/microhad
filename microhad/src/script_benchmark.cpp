@@ -94,7 +94,7 @@ void luaLimitHook(lua_State* state, lua_Debug*) {
 }
 
 bool runLua(const std::string& source, const std::string& filename, unsigned long runs, BenchmarkState* state, std::string* error) {
-    lua_State* lua = lua_newstate(limitedAlloc, state);
+    lua_State* lua = lua_newstate(limitedAlloc, state, luaL_makeseed(NULL));
     if (lua == 0) { *error = "cannot create Lua state"; return false; }
     luaL_requiref(lua, "_G", luaopen_base, 1); lua_pop(lua, 1);
     luaL_requiref(lua, LUA_TABLIBNAME, luaopen_table, 1); lua_pop(lua, 1);

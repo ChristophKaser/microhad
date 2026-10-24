@@ -143,7 +143,7 @@
     "files": {
       "LICENSE": "bedf97319fd3fb51c22dc5a44daf603ca4b2515ae75cae8ac677fb6bd40ec34e"
     },
-    "review": "MIT parser embedded in Ace 1.44.0 Lua worker, locally patched for Lua 5.4 syntax",
+    "review": "MIT parser embedded in Ace 1.45.2 Lua worker, locally patched for Lua 5.5 syntax",
     "source": "https://raw.githubusercontent.com/fstirlitz/luaparse/v0.3.1/LICENSE"
   },
   "pinned-init-macro-0.0.6": {

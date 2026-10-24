@@ -1,0 +1,117 @@
+--- a/worker-lua.js
++++ b/worker-lua.js
+@@ -467,7 +467,7 @@
+           onCreateScope: null,
+           onDestroyScope: null,
+           onLocalDeclaration: null,
+-          luaVersion: "5.1",
++          luaVersion: "5.3",
+           encodingMode: "none"
+         };
+         function encodeUTF8(codepoint, highMask) {
+@@ -1251,7 +1251,7 @@
+           var escStart = index;
+           while (isHexDigit(input.charCodeAt(index))) {
+             ++index;
+-            if (index - escStart > 6)
++            if (index - escStart > 8)
+               raise(null, errors.tooLargeCodepoint, "\\" + input.slice(sequenceStart, index));
+           }
+           var b = input.charAt(index++);
+@@ -1263,7 +1263,7 @@
+           }
+           var codepoint = parseInt(input.slice(escStart, index - 1) || "0", 16);
+           var frag = "\\" + input.slice(sequenceStart, index);
+-          if (codepoint > 1114111) {
++          if (codepoint > 2147483647) {
+             raise(null, errors.tooLargeCodepoint, frag);
+           }
+           return encodingMode.encodeUTF8(codepoint, frag);
+@@ -1727,6 +1727,12 @@
+             }
+           }
+           flowContext.raiseDeferredErrors();
++          // Match Lua's default LUA_COMPAT_GLOBAL contextual keyword.
++          if (Identifier === token.type && token.value === "global" &&
++              (Identifier === lookahead.type || ["<", "*", "function"].indexOf(lookahead.value) >= 0)) {
++            next();
++            return parseLocalStatement(flowContext, true);
++          }
+           if (Keyword === token.type) {
+             switch (token.value) {
+               case "local":
+@@ -1915,14 +1921,33 @@
+             return finishNode(ast.forGenericStatement(variables, iterators, body));
+           }
+         }
+-        function parseLocalStatement(flowContext) {
++        function parseLocalStatement(flowContext, isGlobal) {
++          var hasClose = false;
++          function attribute(fallback) {
++            if (!consume("<")) return fallback;
++            var at = token;
++            var value = parseIdentifier().name;
++            if (value !== "const" && value !== "close")
++              raise(at, "unknown attribute '%1'", value);
++            expect(">");
++            if (isGlobal && value === "close")
++              raise(at, "global variables cannot be to-be-closed");
++            return value;
++          }
++          var defaultAttribute = attribute(null);
++          if (isGlobal && consume("*"))
++            return finishNode(ast.localStatement([], []));
+           var name, declToken = previousToken;
+           if (Identifier === token.type) {
+             var variables = [], init = [];
+             do {
+               name = parseIdentifier();
++              name.attribute = attribute(defaultAttribute);
++              if (name.attribute === "close" && hasClose)
++                raise(token, "multiple to-be-closed variables in local list");
++              if (name.attribute === "close") hasClose = true;
+               variables.push(name);
+-              flowContext.addLocal(name.name, declToken);
++              if (!isGlobal) flowContext.addLocal(name.name, declToken);
+             } while (consume(","));
+             if (consume("=")) {
+               do {
+@@ -1930,21 +1955,21 @@
+                 init.push(expression);
+               } while (consume(","));
+             }
+-            if (options.scope) {
++            if (options.scope && !isGlobal) {
+               for (var i = 0, l = variables.length; i < l; ++i) {
+                 scopeIdentifier(variables[i]);
+               }
+             }
+             return finishNode(ast.localStatement(variables, init));
+           }
+-          if (consume("function")) {
++          if (!defaultAttribute && consume("function")) {
+             name = parseIdentifier();
+-            flowContext.addLocal(name.name, declToken);
+-            if (options.scope) {
++            if (!isGlobal) flowContext.addLocal(name.name, declToken);
++            if (options.scope && !isGlobal) {
+               scopeIdentifier(name);
+               createScope();
+             }
+-            return parseFunctionDeclaration(name, true);
++            return parseFunctionDeclaration(name, !isGlobal);
+           } else {
+             raiseUnexpectedToken("<name>", token);
+           }
+@@ -2031,6 +2056,11 @@
+               } else if (VarargLiteral === token.type) {
+                 flowContext.allowVararg = true;
+                 parameters.push(parsePrimaryExpression(flowContext));
++                if (Identifier === token.type) {
++                  var varargName = parseIdentifier();
++                  if (options.scope) scopeIdentifier(varargName);
++                  parameters.push(varargName);
++                }
+               } else {
+                 raiseUnexpectedToken("<name> or '...'", token);
+               }
