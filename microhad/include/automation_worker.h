@@ -20,6 +20,7 @@ public:
     void stop();
 
     std::string listJson() const;
+    bool refresh(std::string* error);
     bool source(const std::string& filename, std::string* value, std::string* error) const;
     bool validate(const std::string& filename, const std::string& value, std::string* error) const;
     bool save(const std::string& filename, const std::string& value, bool reload, std::string* error);

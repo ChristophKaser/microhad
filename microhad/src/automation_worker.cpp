@@ -258,6 +258,7 @@ struct AutomationWorker::Impl {
         }
     }
     void process(Request* r){r->result=true;if(r->operation=="validate"){Script candidate(this);candidate.name=r->name;candidate.id=stem(r->name);candidate.validation=true;candidate.validationShared=shared;std::map<std::string,Script*>::iterator live=scripts.find(candidate.id);if(live!=scripts.end())candidate.persistent=live->second->persistent;r->result=initialize(&candidate,r->source);r->error=candidate.error;if(r->result&&live!=scripts.end()){live->second->validated=time(0);status(live->second);}}
+        else if(r->operation=="refresh"){scan();}
         else if(r->operation=="advance"){testOffset+=strtod(r->source.c_str(),0);}
 #ifdef MICROHAD_TESTING
         else if(r->operation=="scan_each_turn"){testScanEveryTurn=true;}
@@ -293,7 +294,7 @@ struct AutomationWorker::Impl {
             // discovery. The following scan sees their final generation and
             // does not initialize the same replacement a second time.
             catalog();for(size_t i=0;i<pending.size();++i){process(pending[i]);pthread_mutex_lock(&mutex);pending[i]->done=true;pthread_cond_broadcast(&ready);pthread_mutex_unlock(&mutex);}
-            if(monotonic()>=nextScan||testScanEveryTurn){scan();nextScan=monotonic()+0.25;}
+            if(monotonic()>=nextScan||testScanEveryTurn){scan();nextScan=monotonic()+120.0;}
             for(size_t i=0;i<queued.size();++i){
                 const Automation::Event& input=queued[i];
                 std::map<std::string,Value>::const_iterator typeField=input.data.fields.find("type");
@@ -339,6 +340,7 @@ std::string AutomationWorker::logsJson(const std::string& name)const{
 bool AutomationWorker::source(const std::string& name,std::string* out,std::string* err)const{if(!filename(name)){*err="invalid automation filename";return false;}return readSource(impl_->dir+"/"+name,out,err);}
 bool AutomationWorker::validate(const std::string& name,const std::string& source,std::string* err)const{if(!filename(name)||source.size()>262144){*err="invalid automation source";return false;}Impl::Request r;r.operation="validate";r.name=name;r.source=source;bool ok=impl_->request(&r);*err=r.error;return ok;}
 bool AutomationWorker::save(const std::string& name,const std::string& source,bool reload,std::string* err){if(!filename(name)||source.size()>262144){*err="invalid automation source";return false;}Impl::Request r;r.operation=reload?"save_reload":"save";r.name=name;r.source=source;bool ok=impl_->request(&r);*err=r.error;return ok;}
+bool AutomationWorker::refresh(std::string* err){Impl::Request r;r.operation="refresh";bool ok=impl_->request(&r);*err=r.error;return ok;}
 bool AutomationWorker::reload(const std::string& name,std::string* err){if(!name.empty()&&!filename(name)){*err="invalid automation filename";return false;}if(!name.empty()&&!regular(impl_->dir+"/"+name)){*err="source does not exist";return false;}Impl::Request r;r.operation="reload";r.name=name;bool ok=impl_->request(&r);*err=r.error;return ok;}
 bool AutomationWorker::setEnabled(const std::string& name,bool enabled,std::string* err){if(!filename(name)){*err="invalid automation filename";return false;}Impl::Request r;r.operation=enabled?"enable":"disable";r.name=name;bool ok=impl_->request(&r);*err=r.error;return ok;}
 bool AutomationWorker::remove(const std::string& name,std::string* err){if(!filename(name)){*err="invalid automation filename";return false;}Impl::Request r;r.operation="remove";r.name=name;bool ok=impl_->request(&r);*err=r.error;return ok;}

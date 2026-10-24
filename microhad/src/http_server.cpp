@@ -1061,6 +1061,7 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
         else if (operation == "save" && hasFilename && formValue(body, "source", &source)) { std::string reload; result = automations_->save(filename, source, !formValue(body, "reload", &reload) || reload != "0", &error); }
         else if (operation == "reload" && (!hasFilename || filename == "all")) result = automations_->reload("", &error);
         else if (operation == "reload" && hasFilename) result = automations_->reload(filename, &error);
+        else if (operation == "refresh") result = automations_->refresh(&error);
         else if (operation == "enable" && hasFilename) result = automations_->setEnabled(filename, true, &error);
         else if (operation == "disable" && hasFilename) result = automations_->setEnabled(filename, false, &error);
         else if (operation == "delete" && hasFilename) result = automations_->remove(filename, &error);

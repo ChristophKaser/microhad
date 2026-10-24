@@ -18,9 +18,9 @@ test('automation names, disabled suffixes, log isolation, severity, time and cle
   assert.deepEqual(api.visibleAutomationLogs(records, 'a', '', 0, 3), [])
 })
 
-test('editor creates drafts, validates without saving, saves, protects edits and controls lifecycle', async () => {
+test('editor validates before saving, refreshes directory, protects edits and controls lifecycle', async () => {
   const states = [], effects = [], cleanup = [], browserListeners = new Map()
-  let cursor = 0, prompt = 'office.lua', confirm = true, dirty = false
+  let cursor = 0, prompt = 'office', confirm = true, dirty = false
   const hooks = {
     useState(initial) { const at = cursor++; if (!(at in states)) states[at] = initial; return [states[at], value => { states[at] = typeof value === 'function' ? value(states[at]) : value }] },
     useRef(value) { const at = cursor++; if (!(at in states)) states[at] = { current: value }; return states[at] },
@@ -47,6 +47,7 @@ test('editor creates drafts, validates without saving, saves, protects edits and
     else if (!options.method) value = { source: sources.get(decodeURIComponent(url.split('/').pop())) }
     else {
       const fields = Object.fromEntries(new URLSearchParams(options.body)); const action = url.split('/').pop()
+      if (action === 'validate' && fields.source === 'invalid syntax') return { ok: false, status: 400, json: async () => ({ error: 'Syntax error on line 1' }) }
       if (action === 'save') { sources.set(fields.filename, fields.source); if (!scripts.some(s => s.filename === fields.filename)) scripts.push({ id: 'office', filename: fields.filename, enabled: true, loaded: true, generation: 1, listeners: 0, timers: 0, coroutines: 0 }) }
       if (action === 'disable') scripts[0].filename = api.disabledFilename(fields.filename, false), scripts[0].enabled = false
       if (action === 'enable') scripts[0].filename = api.disabledFilename(fields.filename, true), scripts[0].enabled = true
@@ -71,10 +72,20 @@ test('editor creates drafts, validates without saving, saves, protects edits and
   await render(); await click('New script')
   assert(dirty); assert(browserListeners.has('beforeunload'))
   let editor = nodes().find(node => node.type === 'textarea'); editor.props.onChange({ target: { value: 'persistent.count = 1' } }); await render()
-  await click('Validate'); assert(!calls.some(([url]) => url.endsWith('/save'))); assert(dirty)
-  await click('Save'); assert(!dirty); assert.equal(sources.get('office.lua'), 'persistent.count = 1')
-  const body = new URLSearchParams(calls.find(([url]) => url.endsWith('/save'))[1].body); assert.equal(body.get('reload'), '0')
-  await click('Save and reload'); assert.equal(new URLSearchParams(calls.filter(([url]) => url.endsWith('/save')).at(-1)[1].body).get('reload'), '1')
+  assert(!nodes().some(node => node.type === 'button' && ['Save', 'Validate', 'Reload all'].includes(text(node))))
+  assert.equal(button('Save and reload').props.disabled, false)
+  editor.props.onChange({ target: { value: 'invalid syntax' } }); await render()
+  await click('Save and reload')
+  assert(!calls.some(([url]) => url.endsWith('/save'))); assert(dirty)
+  assert(nodes().some(node => node.props?.role === 'alert' && text(node).includes('Syntax error on line 1')))
+  nodes().find(node => node.type === 'textarea').props.onChange({ target: { value: 'persistent.count = 1' } }); await render()
+  await click('Save and reload'); assert(!dirty); assert.equal(sources.get('office.lua'), 'persistent.count = 1')
+  assert.equal(button('Save and reload').props.disabled, true)
+  const actions = calls.filter(([url, options]) => options.method).map(([url]) => url.split('/').pop())
+  assert.deepEqual(actions, ['validate', 'validate', 'save'])
+  const body = new URLSearchParams(calls.find(([url]) => url.endsWith('/save'))[1].body); assert.equal(body.get('reload'), '1')
+  await click('Refresh'); assert(calls.some(([url]) => url.endsWith('/refresh')))
+  assert(!calls.some(([url]) => url.endsWith('/reload')))
   await click('Copy record'); assert.match(copied, /test warning/)
   await click('Clear displayed logs'); assert(!nodes().some(node => text(node) === 'test warning'))
   editor = nodes().find(node => node.type === 'textarea'); editor.props.onChange({ target: { value: 'unsaved' } }); await render(); confirm = false

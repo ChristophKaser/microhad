@@ -149,8 +149,13 @@ void runAutomationIntegrationTests(){
         assert(request(port,"POST","/api/automations/enable","filename=main.lua.disabled").find("200 OK")!=std::string::npos);assert(until(root,"boots",1));
         assert(request(port,"POST","/api/automations/reload","filename=main.lua").find("200 OK")!=std::string::npos);assert(until(root,"boots",2));
         // SSH-style atomic replacement, including same-size/same-second edits.
-        std::string next=root+"/automations/.ssh-next";FILE* f=fopen(next.c_str(),"w");assert(f);fputs("persistent.ssh=1",f);fclose(f);assert(rename(next.c_str(),(root+"/automations/main.lua").c_str())==0);assert(until(root,"ssh",1));
-        f=fopen(next.c_str(),"w");assert(f);fputs("persistent.ssh=2",f);fclose(f);assert(rename(next.c_str(),(root+"/automations/main.lua").c_str())==0);assert(until(root,"ssh",2));
+        std::string next=root+"/automations/.ssh-next";FILE* f=fopen(next.c_str(),"w");assert(f);fputs("persistent.ssh=1",f);fclose(f);assert(rename(next.c_str(),(root+"/automations/main.lua").c_str())==0);usleep(350000);assert(!state(root).fields.count("ssh"));
+        assert(request(port,"POST","/api/automations/refresh","").find("200 OK")!=std::string::npos);assert(until(root,"ssh",1));
+        const Value refreshed=state(root);
+        const std::string refreshedList=automations.listJson();
+        assert(request(port,"POST","/api/automations/refresh","").find("200 OK")!=std::string::npos);
+        assert(state(root)==refreshed);assert(automations.listJson()==refreshedList);
+        f=fopen(next.c_str(),"w");assert(f);fputs("persistent.ssh=2",f);fclose(f);assert(rename(next.c_str(),(root+"/automations/main.lua").c_str())==0);assert(request(port,"POST","/api/automations/refresh","").find("200 OK")!=std::string::npos);assert(until(root,"ssh",2));
         assert(request(port,"POST","/api/automations/save","filename=../evil.lua&source=x").find("400 Bad Request")!=std::string::npos);
         assert(request(port,"POST","/api/automations/save","filename=large.lua.disabled&source="+encode("--"+std::string(32000,'x'))).find("200 OK")!=std::string::npos);
         assert(request(port,"POST","/api/automations/reset","filename=main.lua").find("200 OK")!=std::string::npos);assert(!state(root).fields.count("values"));

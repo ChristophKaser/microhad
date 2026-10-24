@@ -15,7 +15,7 @@ export function useAutomationEditor(selected: string, source: string, setSource:
     if (selected) void import('./aceAutomation').then(({ attachEditor }) => {
       if (!active || !container.current) return
       instance.current = attachEditor(container.current, latest.current.source, value => latest.current.setSource(value), () => latest.current.catalog,
-        () => { if (active) setWarning('Live syntax checking is unavailable. Use Validate to check this script.') })
+        () => { if (active) setWarning('Live syntax checking is unavailable.') })
       setReady(true)
     }).catch(() => {
       if (!active) return
