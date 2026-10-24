@@ -13,7 +13,7 @@ Authors: puddly
 License: Apache-2.0 selected from Apache-2.0 OR MIT
   LICENSE: text 7301005a9caefadf1339c254f511582f5c18e5ab089622e0547c451c1392a12f
 
-ace-builds 1.44.0
+ace-builds 1.45.2
 Authors: Ajax.org B.V. and contributors
 License: BSD-3-Clause
   LICENSE: text 850f545c5254e8c08204edb2a6d50bbb72727c38a82982c17a84bebf6064cdf8
@@ -117,7 +117,7 @@ License: MIT OR Apache-2.0
   LICENSE-APACHE: text a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5
   LICENSE-MIT: text b8c6939380a400f53e11923d50fcc4dd2fa1ba8339fd9d04cda38a0251b6c9b0
 
-chart.js 4.5.1
+chart.js 4.6.1
 Authors: Chart.js Contributors
 License: MIT
   LICENSE.md: text 41a84aa2caba645f966a18d9c2056b73e6d3a81d80bc0046bc0011a2634d4cce
@@ -528,7 +528,7 @@ License: MIT OR Apache-2.0
   LICENSE-APACHE: text 62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a
   LICENSE-MIT: text 123a331b5dbf04c30097fa43b8f858bc85df671fe776de498d01f3d6b7c1f69e
 
-libc 0.2.190
+libc 0.2.191
 Authors: The Rust Project Developers
 License: MIT OR Apache-2.0
   LICENSE-APACHE: text 62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a
@@ -554,7 +554,7 @@ License: MIT
 lua
 Authors: Lua.org, PUC-Rio
 License: MIT
-  lua.h copyright notice: text 3095b996addbc7d4b0414ef55166b00b91bff8709a79b667e7177ff0430a366c
+  lua.h copyright notice: text 5d5d91aaaba97fabd36290e3c9b4e52529b9572e98e1fcec15c7b59ad6d3d8ed
 
 luaparse 0.3.1 (Ace Lua worker; locally patched)
 Authors: Oskar Schöldström
@@ -834,7 +834,7 @@ License: MIT OR Apache-2.0
   LICENSE-APACHE: text 62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a
   LICENSE-MIT: text 23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3
 
-serde_json 1.0.151
+serde_json 1.0.154
 Authors: Erick Tryzelaar <erick.tryzelaar@gmail.com>, David Tolnay <dtolnay@gmail.com>
 License: MIT OR Apache-2.0
   LICENSE-APACHE: text 62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a
@@ -1048,7 +1048,7 @@ License: BSD-2-Clause OR Apache-2.0 OR MIT
   LICENSE-BSD: text 83c1763356e822adde0a2cae748d938a73fdc263849ccff6b27776dff213bd32
   LICENSE-MIT: text 1a2f5c12ddc934d58956aa5dbdd3255fe55fd957633ab7d0d39e4f0daa73f7df
 
-zeroize 1.9.0
+zeroize 1.9.1
 Authors: The RustCrypto Project Developers
 License: Apache-2.0 OR MIT
   LICENSE-APACHE: text cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30
@@ -2457,30 +2457,6 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-
-TEXT 3095b996addbc7d4b0414ef55166b00b91bff8709a79b667e7177ff0430a366c
-/******************************************************************************
-* Copyright (C) 1994-2025 Lua.org, PUC-Rio.
-*
-* Permission is hereby granted, free of charge, to any person obtaining
-* a copy of this software and associated documentation files (the
-* "Software"), to deal in the Software without restriction, including
-* without limitation the rights to use, copy, modify, merge, publish,
-* distribute, sublicense, and/or sell copies of the Software, and to
-* permit persons to whom the Software is furnished to do so, subject to
-* the following conditions:
-*
-* The above copyright notice and this permission notice shall be
-* included in all copies or substantial portions of the Software.
-*
-* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
-* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
-* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
-* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-******************************************************************************/
 
 TEXT 3234ac55816264ee7b6c7ee27efd61cf0a1fe775806870e3d9b4c41ea73c5cb1
 Copyright (c) 2017 Gilad Naaman
@@ -4476,6 +4452,30 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+TEXT 5d5d91aaaba97fabd36290e3c9b4e52529b9572e98e1fcec15c7b59ad6d3d8ed
+/******************************************************************************
+* Copyright (C) 1994-2026 Lua.org, PUC-Rio.
+*
+* Permission is hereby granted, free of charge, to any person obtaining
+* a copy of this software and associated documentation files (the
+* "Software"), to deal in the Software without restriction, including
+* without limitation the rights to use, copy, modify, merge, publish,
+* distribute, sublicense, and/or sell copies of the Software, and to
+* permit persons to whom the Software is furnished to do so, subject to
+* the following conditions:
+*
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+*
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+******************************************************************************/
 
 TEXT 5e05b024f653a5ce199e77cbbbd42fb5553562ec714b819421ed0c3e552a75d7
 Copyright (c) 2017 Robert Grosse

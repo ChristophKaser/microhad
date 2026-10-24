@@ -19,10 +19,10 @@ python3 micro-thread-matter-daemon/scripts/test-rs-matter-controller.py
 ```
 
 The runner pins rs-matter commit
-`1570356ecb938a9d19be032b93ca3bb487069e75`, Rust `nightly-2026-10-02`, and the
+`ae2293b016f823411679a2e119ebce3ab9370a05`, Rust `nightly-2026-10-02`, and the
 tracked workspace dependency lock `micro-thread-matter-daemon/controller-tests.lock`.
 It creates a separate ignored `build/micro-thread-matter-daemon/commissioning-source` worktree,
-applies only `micro-thread-matter-daemon/patches/rs-matter-commissioning-probe.patch`, verifies the exact
+applies the commissioning-probe and commissioning-region mailbox patches, verifies the exact
 tracked diff, rejects unexpected files, and uses `cargo test --locked` with
 `--no-default-features --features 'os rustcrypto'`. It runs suites sequentially,
 requires a nonzero number of passing tests, and writes a filtered JSON report.
@@ -54,6 +54,9 @@ The extended UDP and TCP commissioning tests exercise:
    the same controller. The TCP case also tests reuse of a node ID with a stale
    CASE session; the upstream UDP variant avoids that branch because trailing
    MRP acknowledgments can independently clear the stale session.
+8. Reuse a PASE session deliberately opened by the caller and retain it through
+   Thread provisioning, then expire it when commissioning completes. The secure-default
+   rejection check runs during ordinary commissioning so it cannot close this session.
 
 Separate upstream suites check a PASE handshake, CASE including Sigma2
 retransmission, and certification-declaration/trust-store components. Passing

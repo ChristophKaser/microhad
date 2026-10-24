@@ -90,7 +90,8 @@ const workerSource = readFileSync(new URL('../node_modules/ace-builds/src/worker
 function parser(source) {
   const context = vm.createContext({ console, postMessage() {}, setTimeout, clearTimeout })
   vm.runInContext(source, context)
-  return context.require('ace/mode/lua/luaparse')
+  const { Worker } = context.require('ace/mode/lua_worker')
+  return new Worker({ on() {}, emit() {} }).parser
 }
 const lua = parser(patchLuaWorker(workerSource))
 export const fixtures = [
@@ -125,7 +126,7 @@ test('Lua 5.4 parser accepts attributes and expanded escapes without changing po
   for (const [source, valid] of fixtures) assert.equal((() => { try { minified.parse(source); return true } catch { return false } })(), valid, source)
 })
 
-test('patched worker fixtures agree with the repository Lua 5.4.8 compiler', () => {
+test('patched worker fixtures agree with the repository Lua 5.4.9 compiler', () => {
   const directory = mkdtempSync(join(tmpdir(), 'automation-lua-syntax-'))
   try {
     const root = new URL('../../dependencies/lua/', import.meta.url).pathname

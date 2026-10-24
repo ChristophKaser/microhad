@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { transform } from 'esbuild'
 import { fileURLToPath } from 'node:url'
 
-// Ace 1.44.0 embeds luaparse 0.3.1. Patch readable source, never minified text.
+// Ace 1.45.2 embeds luaparse 0.3.1. Patch readable source, never minified text.
 export function patchLuaWorker(source) {
   const directory = mkdtempSync(join(tmpdir(), 'microhad-lua-worker-'))
   try {

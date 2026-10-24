@@ -1,6 +1,10 @@
 {
-  "ace-builds": ["Ajax.org B.V. and contributors"],
-  "microhad/dependencies/lua": ["Lua.org, PUC-Rio"],
+  "ace-builds": [
+    "Ajax.org B.V. and contributors"
+  ],
+  "microhad/dependencies/lua": [
+    "Lua.org, PUC-Rio"
+  ],
   "abstract-bits": [
     "puddly"
   ],
@@ -154,5 +158,9 @@
     "puddly",
     "David Kleingeld",
     "tube0013"
+  ],
+  "serde_json": [
+    "Erick Tryzelaar <erick.tryzelaar@gmail.com>",
+    "David Tolnay <dtolnay@gmail.com>"
   ]
 }

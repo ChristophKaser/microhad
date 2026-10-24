@@ -121,7 +121,7 @@ bash firmware/scripts/install-commander.sh
 bash firmware/scripts/package-hdlc-gbl.sh
 ```
 
-The installer selects GSDK 4.5.0, SLC 5.6.3 and ARM GCC 12.2.rel1. SLC uses an
+The installer selects GSDK 4.5.1 with the local radio trace patch, SLC 5.6.3 and ARM GCC 12.2.rel1. SLC uses an
 ignored worktree. Java 17 defaults to the Debian/Ubuntu installation path;
 other distributions may need an adjustment in `firmware/scripts/silabs-env.sh`.
 

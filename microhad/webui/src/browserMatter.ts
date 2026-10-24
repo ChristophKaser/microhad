@@ -71,7 +71,7 @@ export function setupCode(input: string): SetupCode {
   return { discriminator: ((first & 3) << 2) | (second >>> 14), pin: passcode, ble: true }
 }
 function hex(bytes: Uint8Array): string { return [...bytes].map(value => value.toString(16).padStart(2, '0')).join('') }
-function bytes(value: string): Uint8Array { if (!/^(?:[0-9a-f]{2})+$/.test(value)) throw new MatterError('protocol'); return new Uint8Array(value.match(/../g)!.map(item => Number.parseInt(item, 16))) }
+function bytes(value: string): Uint8Array<ArrayBuffer> { if (!/^(?:[0-9a-f]{2})+$/.test(value)) throw new MatterError('protocol'); return new Uint8Array(value.match(/../g)!.map(item => Number.parseInt(item, 16))) }
 function randomAddress(): string { const value = new Uint8Array(6); crypto.getRandomValues(value); value[0] = (value[0] | 2) & 254; return hex(value) }
 
 export class BrowserMatterRelay {

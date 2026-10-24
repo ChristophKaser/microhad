@@ -49,7 +49,7 @@ mutations are never automatically replayed.
 
 ## Dependencies and verification
 
-MicroHAD builds TinyCBOR v0.6.0 as C99 from its pinned Git submodule at
+MicroHAD builds TinyCBOR v0.6.1 as C99 from its pinned Git submodule at
 `microhad/dependencies/tinycbor`. Rust uses Ciborium 0.2.2, preceded by a bounded
 structural scan. Initialize dependencies with `git submodule update --init`.
 

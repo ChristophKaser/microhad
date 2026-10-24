@@ -58,7 +58,7 @@ See [runtime](../docs/matter-service-runtime.md).
 OpenThread is pinned to release `v2026.10.0`, commit
 `53e8322140dde7b26827332100504507cec9cc4e`. Its build initializes the nested
 Mbed TLS dependency without requiring the Silicon Labs firmware installer.
-The release and the unchanged GSDK 4.5.0 radio source both declare Spinel RCP API
+The release and the GSDK 4.5.1 radio source both declare Spinel RCP API
 version 11, minimum supported RCP API version 4, and protocol version 4.3.
 Runtime compatibility checks remain enabled. Host synthetic tests validate the
 shared-radio no-reset attachment. The deployed gateway uses the same radio path

@@ -27,7 +27,7 @@
     ]
   },
   {
-    "name": "ace-builds 1.44.0",
+    "name": "ace-builds 1.45.2",
     "license": "BSD-3-Clause",
     "authors": [
       "Ajax.org B.V. and contributors"
@@ -318,7 +318,7 @@
     ]
   },
   {
-    "name": "chart.js 4.5.1",
+    "name": "chart.js 4.6.1",
     "license": "MIT",
     "authors": [
       "Chart.js Contributors"
@@ -1502,7 +1502,7 @@
     ]
   },
   {
-    "name": "libc 0.2.190",
+    "name": "libc 0.2.191",
     "license": "MIT OR Apache-2.0",
     "authors": [
       "The Rust Project Developers"
@@ -1567,7 +1567,7 @@
   },
   {
     "name": "lua",
-    "revision": "6e22fedb74cf0c9b6656e9fce8b7331db847c605",
+    "revision": "312b9efaa1061c2c4cad08554dbc1351c3270eef",
     "license": "MIT",
     "authors": [
       "Lua.org, PUC-Rio"
@@ -1575,7 +1575,7 @@
     "texts": [
       [
         "lua.h copyright notice",
-        "/******************************************************************************\n* Copyright (C) 1994-2025 Lua.org, PUC-Rio.\n*\n* Permission is hereby granted, free of charge, to any person obtaining\n* a copy of this software and associated documentation files (the\n* \"Software\"), to deal in the Software without restriction, including\n* without limitation the rights to use, copy, modify, merge, publish,\n* distribute, sublicense, and/or sell copies of the Software, and to\n* permit persons to whom the Software is furnished to do so, subject to\n* the following conditions:\n*\n* The above copyright notice and this permission notice shall be\n* included in all copies or substantial portions of the Software.\n*\n* THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND,\n* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF\n* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.\n* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY\n* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,\n* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE\n* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.\n******************************************************************************/"
+        "/******************************************************************************\n* Copyright (C) 1994-2026 Lua.org, PUC-Rio.\n*\n* Permission is hereby granted, free of charge, to any person obtaining\n* a copy of this software and associated documentation files (the\n* \"Software\"), to deal in the Software without restriction, including\n* without limitation the rights to use, copy, modify, merge, publish,\n* distribute, sublicense, and/or sell copies of the Software, and to\n* permit persons to whom the Software is furnished to do so, subject to\n* the following conditions:\n*\n* The above copyright notice and this permission notice shall be\n* included in all copies or substantial portions of the Software.\n*\n* THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND,\n* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF\n* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.\n* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY\n* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,\n* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE\n* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.\n******************************************************************************/"
       ]
     ]
   },
@@ -2277,7 +2277,7 @@
   },
   {
     "name": "rs-matter",
-    "revision": "1570356ecb938a9d19be032b93ca3bb487069e75",
+    "revision": "ae2293b016f823411679a2e119ebce3ab9370a05",
     "license": "Apache-2.0; locally patched",
     "authors": [
       "Kedar Sovani",
@@ -2375,7 +2375,7 @@
     ]
   },
   {
-    "name": "serde_json 1.0.151",
+    "name": "serde_json 1.0.154",
     "license": "MIT OR Apache-2.0",
     "authors": [
       "Erick Tryzelaar <erick.tryzelaar@gmail.com>",
@@ -2696,7 +2696,7 @@
   },
   {
     "name": "tinycbor",
-    "revision": "d393c16f3eb30d0c47e6f9d92db62272f0ec4dc7",
+    "revision": "c0aad2fb2137a31b9845fbaae3653540c410f215",
     "license": "MIT",
     "authors": [
       "Intel Corporation"
@@ -2981,7 +2981,7 @@
     ]
   },
   {
-    "name": "zeroize 1.9.0",
+    "name": "zeroize 1.9.1",
     "license": "Apache-2.0 OR MIT",
     "authors": [
       "The RustCrypto Project Developers"
@@ -2999,7 +2999,7 @@
   },
   {
     "name": "ziggurat",
-    "revision": "392d4c7fe5c497d553977492bc02cb305573b7fc",
+    "revision": "1e319a4c41c71c3070524ca0599d101d3062acdb",
     "license": "Apache-2.0; locally patched",
     "authors": [
       "puddly",

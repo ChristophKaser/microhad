@@ -1,0 +1,501 @@
+{
+  "checked_at": "2026-10-24",
+  "scope": "Direct dependencies declared by this repository: tracked Git submodules, root service Rust manifest, Web UI npm manifest, pinned compiler/build inputs and host migration/diagnostic helpers. Upstream-owned transitive manifests and the separate ignored garage-app are excluded.",
+  "policy": "Apply compatible source/package updates and rebase patches; record major migrations, compiler baselines and operational tool pins separately. A newer release recorded here is not claimed to be installed.",
+  "system_packages": "Host gcc/clang/Java, distribution Python packages, Docker Ubuntu 24.04 packages and apt-managed tools are environment prerequisites, not repository-pinned package versions. Stock gateway libraries are an immutable ABI fixture, not upgrade candidates.",
+  "inactive_gitmodules": "QuickJS appears in .gitmodules but has no tracked gitlink or active build dependency. Repeated Lua/QuickJS entries are existing metadata.",
+  "dependencies": [
+    {
+      "name": "firmware/dependencies/gecko-sdk",
+      "before": "v4.5.0 + radio trace",
+      "selected": "v4.5.1 + radio trace",
+      "upstream": "v4.5.1",
+      "source": "https://github.com/SiliconLabs/gecko_sdk",
+      "decision": "Updated; trace commit cherry-picks cleanly. Custom commit 461f90758bb18b3416bad77b1f1248f1a76dbeed retains existing local customization."
+    },
+    {
+      "name": "firmware/dependencies/rtl8196e-gateway",
+      "before": "v4.7.0",
+      "selected": "v4.7.0",
+      "upstream": "v4.7.0; main e1061e509594e730a254abc1bcc2a75f740bca0b",
+      "source": "https://github.com/jnilo1/rtl8196e-gateway",
+      "decision": "Current release. Newer main commits do not change the consumed Lexra patches."
+    },
+    {
+      "name": "firmware/dependencies/slc-cli",
+      "before": "a2cef4434600379695bef23bfbdcc8e604f7f305",
+      "selected": "a2cef4434600379695bef23bfbdcc8e604f7f305",
+      "upstream": "a2cef4434600379695bef23bfbdcc8e604f7f305",
+      "source": "https://github.com/SiliconLabsSoftware/circuitpython_slc_cli_linux",
+      "decision": "Current."
+    },
+    {
+      "name": "micro-thread-matter-daemon/dependencies/openthread",
+      "before": "v2026.10.0",
+      "selected": "v2026.10.0",
+      "upstream": "v2026.10.0; main f03b05f14e0376a2a60116baccdc480f9333ce1b",
+      "source": "https://github.com/openthread/openthread",
+      "decision": "Current monthly release; retained released pin instead of development HEAD."
+    },
+    {
+      "name": "micro-thread-matter-daemon/dependencies/rs-matter",
+      "before": "1570356ecb938a9d19be032b93ca3bb487069e75",
+      "selected": "ae2293b016f823411679a2e119ebce3ab9370a05",
+      "upstream": "ae2293b016f823411679a2e119ebce3ab9370a05",
+      "source": "https://github.com/project-chip/rs-matter",
+      "decision": "Updated tracked development source; rebased production and synthetic fixture patches."
+    },
+    {
+      "name": "microhad/dependencies/lua",
+      "before": "5.4.8",
+      "selected": "5.4.9",
+      "upstream": "5.5.1; latest 5.4 is 5.4.9",
+      "source": "https://github.com/lua/lua",
+      "decision": "Updated compatible release. Lua 5.5 changes the automation language contract and needs a separate migration."
+    },
+    {
+      "name": "microhad/dependencies/mbedtls",
+      "before": "4.2.0",
+      "selected": "4.2.0",
+      "upstream": "4.2.0",
+      "source": "https://github.com/Mbed-TLS/mbedtls",
+      "decision": "Current stable v4 release; upstream development HEAD not selected."
+    },
+    {
+      "name": "microhad/dependencies/tinycbor",
+      "before": "0.6.0",
+      "selected": "0.6.1",
+      "upstream": "7.1; latest 0.6 is 0.6.1",
+      "source": "https://github.com/intel/tinycbor",
+      "decision": "Updated compatible release. Major v7 migration retained for separate API/compiler review."
+    },
+    {
+      "name": "ziggurat/dependencies/ziggurat",
+      "before": "392d4c7fe5c497d553977492bc02cb305573b7fc",
+      "selected": "1e319a4c41c71c3070524ca0599d101d3062acdb",
+      "upstream": "1e319a4c41c71c3070524ca0599d101d3062acdb",
+      "source": "https://github.com/zigpy/ziggurat",
+      "decision": "Updated development source; removed relay patch superseded by upstream #66."
+    },
+    {
+      "name": "npm:ace-builds",
+      "before": "1.44.0",
+      "selected": "1.45.2",
+      "upstream": "1.45.2",
+      "source": "https://registry.npmjs.org/ace-builds",
+      "decision": "Updated; rebased Lua 5.4 patch for the new worker bundle and adjusted parser tests."
+    },
+    {
+      "name": "npm:chart.js",
+      "before": "^4.5.1",
+      "selected": "4.6.1",
+      "upstream": "4.6.1",
+      "source": "https://registry.npmjs.org/chart.js",
+      "decision": "Updated."
+    },
+    {
+      "name": "npm:react",
+      "before": "18.3.1",
+      "selected": "18.3.1",
+      "upstream": "19.3.1",
+      "source": "https://registry.npmjs.org/react",
+      "decision": "Retained React 18; React 19 requires a separate rendering/API migration."
+    },
+    {
+      "name": "npm:react-dom",
+      "before": "18.3.1",
+      "selected": "18.3.1",
+      "upstream": "19.3.1",
+      "source": "https://registry.npmjs.org/react-dom",
+      "decision": "Retained React 18; React 19 requires a separate rendering/API migration."
+    },
+    {
+      "name": "npm:@types/react",
+      "before": "18.3.12",
+      "selected": "18.3.31",
+      "upstream": "19.3.0",
+      "source": "https://registry.npmjs.org/@types/react",
+      "decision": "Updated latest React 18 types to match the retained React runtime."
+    },
+    {
+      "name": "npm:@types/react-dom",
+      "before": "18.3.1",
+      "selected": "18.3.7",
+      "upstream": "19.3.0",
+      "source": "https://registry.npmjs.org/@types/react-dom",
+      "decision": "Updated latest React 18 types to match the retained React runtime."
+    },
+    {
+      "name": "npm:typescript",
+      "before": "5.6.3",
+      "selected": "7.0.2",
+      "upstream": "7.0.2",
+      "source": "https://registry.npmjs.org/typescript",
+      "decision": "Updated; explicitly typed the owned ArrayBuffer used by Web Bluetooth."
+    },
+    {
+      "name": "npm:vite",
+      "before": "6.4.3",
+      "selected": "6.4.5",
+      "upstream": "8.3.5",
+      "source": "https://registry.npmjs.org/vite",
+      "decision": "Updated latest Vite 6 maintenance release; Vite 8 requires Node ^20.19 or >=22.12, while this host has Node 18.19.1."
+    },
+    {
+      "name": "crate:ciborium",
+      "before": "0.2.2",
+      "selected": "0.2.2",
+      "upstream": "0.2.2",
+      "source": "https://crates.io/api/v1/crates/ciborium",
+      "decision": "Current stable release."
+    },
+    {
+      "name": "crate:log",
+      "before": "0.4.34",
+      "selected": "0.4.34",
+      "upstream": "0.4.34",
+      "source": "https://crates.io/api/v1/crates/log",
+      "decision": "Current stable release."
+    },
+    {
+      "name": "crate:critical-section",
+      "before": "1.2.0",
+      "selected": "1.2.0",
+      "upstream": "1.2.0",
+      "source": "https://crates.io/api/v1/crates/critical-section",
+      "decision": "Current stable release."
+    },
+    {
+      "name": "crate:embassy-time",
+      "before": "0.5.1",
+      "selected": "0.5.1",
+      "upstream": "0.5.1",
+      "source": "https://crates.io/api/v1/crates/embassy-time",
+      "decision": "Current stable release."
+    },
+    {
+      "name": "crate:embassy-time-queue-utils",
+      "before": "0.3.2",
+      "selected": "0.3.2",
+      "upstream": "0.3.2",
+      "source": "https://crates.io/api/v1/crates/embassy-time-queue-utils",
+      "decision": "Current stable release."
+    },
+    {
+      "name": "crate:embassy-futures",
+      "before": "0.1.2",
+      "selected": "0.1.2",
+      "upstream": "0.1.2",
+      "source": "https://crates.io/api/v1/crates/embassy-futures",
+      "decision": "Current stable release."
+    },
+    {
+      "name": "crate:static_cell",
+      "before": "2.1.1",
+      "selected": "2.1.1",
+      "upstream": "2.1.1",
+      "source": "https://crates.io/api/v1/crates/static_cell",
+      "decision": "Current stable release."
+    },
+    {
+      "name": "crate:heapless",
+      "before": "0.9.3",
+      "selected": "0.9.3",
+      "upstream": "0.9.3",
+      "source": "https://crates.io/api/v1/crates/heapless",
+      "decision": "Current stable release."
+    },
+    {
+      "name": "crate:libc",
+      "before": "0.2.190",
+      "selected": "0.2.191",
+      "upstream": "0.2.191",
+      "source": "https://crates.io/api/v1/crates/libc",
+      "decision": "Updated."
+    },
+    {
+      "name": "crate:serde",
+      "before": "1.0.229",
+      "selected": "1.0.229",
+      "upstream": "1.0.229",
+      "source": "https://crates.io/api/v1/crates/serde",
+      "decision": "Current stable release."
+    },
+    {
+      "name": "crate:serde_json",
+      "before": "1.0.151",
+      "selected": "1.0.154",
+      "upstream": "1.0.154",
+      "source": "https://crates.io/api/v1/crates/serde_json",
+      "decision": "Updated."
+    },
+    {
+      "name": "crate:zeroize",
+      "before": "1.9.0",
+      "selected": "1.9.1",
+      "upstream": "1.9.1",
+      "source": "https://crates.io/api/v1/crates/zeroize",
+      "decision": "Updated."
+    },
+    {
+      "name": "npm:source-map-js (transitive security fix)",
+      "before": "1.2.1",
+      "selected": "1.2.2",
+      "upstream": ">=1.2.2 fixes GHSA-68fv-2mgg-jv7q",
+      "source": "https://github.com/advisories/GHSA-68fv-2mgg-jv7q",
+      "decision": "Updated within existing constraints; npm audit reports zero vulnerabilities."
+    },
+    {
+      "name": "python:bellows",
+      "before": "1.0.2",
+      "selected": "1.0.2",
+      "upstream": "1.2.1",
+      "source": "https://pypi.org/pypi/bellows/json",
+      "decision": "Newer release found; retained exact migration/flashing API baseline. These tools access persistent network state and require a separate compatibility validation before changing their pins."
+    },
+    {
+      "name": "python:universal-silabs-flasher",
+      "before": "1.1.0",
+      "selected": "1.1.0",
+      "upstream": "1.2.0",
+      "source": "https://pypi.org/pypi/universal-silabs-flasher/json",
+      "decision": "Newer release found; retained exact migration/flashing API baseline. These tools access persistent network state and require a separate compatibility validation before changing their pins."
+    },
+    {
+      "name": "python:zigpy",
+      "before": "2.2.0",
+      "selected": "2.2.0",
+      "upstream": "2.4.0",
+      "source": "https://pypi.org/pypi/zigpy/json",
+      "decision": "Newer release found; retained exact migration/flashing API baseline. These tools access persistent network state and require a separate compatibility validation before changing their pins."
+    },
+    {
+      "name": "python:jefferson",
+      "before": "0.4.8",
+      "selected": "0.4.8",
+      "upstream": "0.4.8",
+      "source": "https://pypi.org/pypi/jefferson/json",
+      "decision": "Current."
+    },
+    {
+      "name": "toolchain:binutils",
+      "before": "2.45.1",
+      "selected": "2.45.1",
+      "upstream": "2.47",
+      "source": "https://ftp.gnu.org/gnu/binutils/",
+      "decision": "Newer release found; retained coherent Lexra toolchain baseline. GCC/binutils patches and the crosstool configuration explicitly target these versions; upgrading needs a separate toolchain rebuild and stock-runtime verification."
+    },
+    {
+      "name": "toolchain:gcc",
+      "before": "15.2.0",
+      "selected": "15.2.0",
+      "upstream": "16.2.0 (15.3.0 also available)",
+      "source": "https://ftp.gnu.org/gnu/gcc/gcc-15.2.0/",
+      "decision": "Newer release found; retained coherent Lexra toolchain baseline. GCC/binutils patches and the crosstool configuration explicitly target these versions; upgrading needs a separate toolchain rebuild and stock-runtime verification."
+    },
+    {
+      "name": "toolchain:linux",
+      "before": "3.10.90",
+      "selected": "3.10.90",
+      "upstream": "3.10.108 (last 3.10 release; newer major kernels exist)",
+      "source": "https://cdn.kernel.org/pub/linux/kernel/v3.x/",
+      "decision": "Newer release found; retained coherent Lexra toolchain baseline. GCC/binutils patches and the crosstool configuration explicitly target these versions; upgrading needs a separate toolchain rebuild and stock-runtime verification."
+    },
+    {
+      "name": "toolchain:help2man",
+      "before": "1.49.3",
+      "selected": "1.49.3",
+      "upstream": "1.49.3",
+      "source": "https://ftp.gnu.org/gnu/help2man/",
+      "decision": "Current."
+    },
+    {
+      "name": "toolchain:libtool",
+      "before": "2.5.4",
+      "selected": "2.5.4",
+      "upstream": "2.6.2",
+      "source": "https://ftp.gnu.org/gnu/libtool/",
+      "decision": "Newer release found; retained coherent Lexra toolchain baseline. GCC/binutils patches and the crosstool configuration explicitly target these versions; upgrading needs a separate toolchain rebuild and stock-runtime verification."
+    },
+    {
+      "name": "toolchain:crosstool-ng",
+      "before": "1.28.0",
+      "selected": "1.28.0",
+      "upstream": "1.29.0",
+      "source": "https://github.com/crosstool-ng/crosstool-ng/releases/download/crosstool-ng-1.28.0/",
+      "decision": "Newer release found; retained coherent Lexra toolchain baseline. GCC/binutils patches and the crosstool configuration explicitly target these versions; upgrading needs a separate toolchain rebuild and stock-runtime verification."
+    },
+    {
+      "name": "toolchain:gmp",
+      "before": "6.3.0",
+      "selected": "6.3.0",
+      "upstream": "6.3.0",
+      "source": "https://ftp.gnu.org/gnu/gmp/",
+      "decision": "Current."
+    },
+    {
+      "name": "toolchain:mpfr",
+      "before": "4.2.2",
+      "selected": "4.2.2",
+      "upstream": "4.2.2",
+      "source": "https://ftp.gnu.org/gnu/mpfr/",
+      "decision": "Current."
+    },
+    {
+      "name": "toolchain:isl",
+      "before": "0.27",
+      "selected": "0.27",
+      "upstream": "0.28",
+      "source": "https://libisl.sourceforge.io/",
+      "decision": "Newer release found; retained coherent Lexra toolchain baseline. GCC/binutils patches and the crosstool configuration explicitly target these versions; upgrading needs a separate toolchain rebuild and stock-runtime verification."
+    },
+    {
+      "name": "toolchain:mpc",
+      "before": "1.3.1",
+      "selected": "1.3.1",
+      "upstream": "1.4.1",
+      "source": "https://ftp.gnu.org/gnu/mpc/",
+      "decision": "Newer release found; retained coherent Lexra toolchain baseline. GCC/binutils patches and the crosstool configuration explicitly target these versions; upgrading needs a separate toolchain rebuild and stock-runtime verification."
+    },
+    {
+      "name": "toolchain:uClibc-ng",
+      "before": "1.0.54",
+      "selected": "1.0.54",
+      "upstream": "1.0.59",
+      "source": "https://downloads.uclibc-ng.org/releases/1.0.54/",
+      "decision": "Newer release found; retained coherent Lexra toolchain baseline. GCC/binutils patches and the crosstool configuration explicitly target these versions; upgrading needs a separate toolchain rebuild and stock-runtime verification."
+    },
+    {
+      "name": "toolchain:zlib",
+      "before": "1.3.1",
+      "selected": "1.3.1",
+      "upstream": "1.3.2",
+      "source": "https://github.com/madler/zlib/releases/download/v1.3.1/",
+      "decision": "Newer release found; retained coherent Lexra toolchain baseline. GCC/binutils patches and the crosstool configuration explicitly target these versions; upgrading needs a separate toolchain rebuild and stock-runtime verification."
+    },
+    {
+      "name": "toolchain:zstd",
+      "before": "1.5.7",
+      "selected": "1.5.7",
+      "upstream": "1.5.7",
+      "source": "https://github.com/facebook/zstd/releases/download/v1.5.7/",
+      "decision": "Current."
+    },
+    {
+      "name": "Rust toolchain",
+      "before": "nightly-2026-10-02",
+      "selected": "nightly-2026-10-02",
+      "upstream": "nightly-2026-10-24 (1.101.0-nightly); stable 1.99.1",
+      "source": "https://static.rust-lang.org/dist/channel-rust-nightly.toml",
+      "decision": "Retained compiler baseline; MIPS JSON targets and build-std require nightly and need toolchain-specific verification."
+    },
+    {
+      "name": "Firmware Arm GCC",
+      "before": "12.2.rel1",
+      "selected": "12.2.rel1",
+      "upstream": "15.3.rel1",
+      "source": "https://developer.arm.com/downloads/-/arm-gnu-toolchain-downloads",
+      "decision": "Retained Gecko firmware compiler baseline; the updated SDK builds successfully with it."
+    },
+    {
+      "name": "Firmware Simplicity Commander",
+      "before": "1.16.4 build 1564",
+      "selected": "1.16.4 build 1564",
+      "upstream": "1.25.0",
+      "source": "https://docs.silabs.com/simplicity-commander/latest/version-history",
+      "decision": "Newer release found; retained packaging-tool baseline. No device flashing was performed."
+    },
+    {
+      "name": "diagnostics:connectedhomeip",
+      "before": "43c0a7d29f8d251d3eef0a7333d3b68e421eed81",
+      "selected": "43c0a7d29f8d251d3eef0a7333d3b68e421eed81",
+      "upstream": "stable v1.6.1.0; main bf74af04f563b5243db77c14d63da91278c14aa9",
+      "source": "https://github.com/project-chip/connectedhomeip",
+      "decision": "Retained rehearsed diagnostic SDK baseline. Both local patches still validate against the installed source; changing requires rebuilding and rehearsing the diagnostic fixture."
+    },
+    {
+      "name": "diagnostics:ot-br-posix",
+      "before": "cb4bdae242b22287cded07ae3aa10347c2d16d9b",
+      "selected": "cb4bdae242b22287cded07ae3aa10347c2d16d9b",
+      "upstream": "c055a68e02d71fccb475fc5b7280f704895eab5f",
+      "source": "https://github.com/openthread/ot-br-posix",
+      "decision": "Newer development source found; retained rehearsed diagnostic build and its nested OpenThread pin. Attach patch validates against installed source."
+    },
+    {
+      "name": "diagnostics:bnutzer/otbr-tcp",
+      "before": "sha256:f0cc0cddca91011d98794c98a0b7e43571058f2e2e92ce0dbe2f0223a63adf61",
+      "selected": "sha256:f0cc0cddca91011d98794c98a0b7e43571058f2e2e92ce0dbe2f0223a63adf61",
+      "upstream": "latest sha256:c036476bc4aabb4d6b204b0e92e556977d7d518811ee5dab3c5f0fd4d9169ce3",
+      "source": "https://hub.docker.com/r/bnutzer/otbr-tcp",
+      "decision": "Newer image digest found; retained known diagnostic runtime until Docker fixture rebuild/rehearsal."
+    },
+    {
+      "name": "QEMU OpenWrt test image",
+      "before": "25.12.5",
+      "selected": "25.12.5",
+      "upstream": "25.12.6",
+      "source": "https://downloads.openwrt.org/.versions.json",
+      "decision": "Newer test image found; retained stock userspace/QEMU fixture baseline; unrelated to gateway firmware."
+    },
+    {
+      "name": "serialgateway helper",
+      "before": "Release-1.2",
+      "selected": "Release-1.2",
+      "upstream": "Release-1.2",
+      "source": "https://github.com/banksy-git/lidl-gateway-freedom/releases/latest",
+      "decision": "Current release; checksum retained."
+    },
+    {
+      "name": "diagnostics:Ubuntu base images",
+      "before": "24.04",
+      "selected": "24.04",
+      "upstream": "24.04 tag updated 2026-10-17; 26.04 and 26.10 also available",
+      "source": "https://registry.hub.docker.com/v2/repositories/library/ubuntu/tags?page_size=15",
+      "decision": "Retained maintained Ubuntu 24.04 LTS base. Dockerfiles already install current apt security updates; a distribution upgrade requires rebuilding the diagnostic toolchain."
+    }
+  ],
+  "verification": {
+    "native": "make -C microhad host test and make -C microhad mips passed; MIPS RSDK run outside sandbox after SIGSYS restriction.",
+    "ziggurat": "ZIGGURAT_MULTIPAN=1 bash ziggurat/scripts/build.sh passed, including target verification.",
+    "matter": "Host commissioning probe, host service and MIPS service builds passed; production service has no test hooks.",
+    "firmware": "HDLC firmware build passed with Gecko 4.5.1 and preserved trace patch; 33 release tests passed in tools/network-migration-venv.",
+    "webui": "make -C microhad webui passed; six editor syntax/completion tests and browser worker test passed; npm audit found zero vulnerabilities.",
+    "patches": "All active Ziggurat stock/multipan, Matter production/commissioning, OpenThread and patched-crate series apply. Diagnostic CHIP patches and OTBR attach patch pass reverse applicability checks against installed sources.",
+    "controller_tests": {
+      "command": "python3 micro-thread-matter-daemon/scripts/test-rs-matter-controller.py",
+      "suites": [
+        {
+          "name": "commissioning",
+          "exit_code": 0,
+          "passed": 5,
+          "failed": 0,
+          "elapsed_seconds": 1.25
+        },
+        {
+          "name": "pase",
+          "exit_code": 0,
+          "passed": 1,
+          "failed": 0,
+          "elapsed_seconds": 0.51
+        },
+        {
+          "name": "case",
+          "exit_code": 0,
+          "passed": 3,
+          "failed": 0,
+          "elapsed_seconds": 1.78
+        },
+        {
+          "name": "attestation_components",
+          "exit_code": 0,
+          "passed": 32,
+          "failed": 0,
+          "elapsed_seconds": 0.0
+        }
+      ],
+      "device_access": false
+    },
+    "device_access": "None. No deployment, flash operation, or live gateway checks.",
+    "compatibility_limits": "Gateway MIPS builds use the workspace-selected dynamic link mode and passed the stock ABI verifier. Retained compiler/helper major upgrades are not claimed tested or installed."
+  }
+}

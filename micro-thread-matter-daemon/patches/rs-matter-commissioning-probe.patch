@@ -1,14 +1,14 @@
-From 6d9d86bcbd47604c53591328d9e17f8be06f70b4 Mon Sep 17 00:00:00 2001
+From 3638cdef33ca366b0ad0802d39bd7e81fbc6c001 Mon Sep 17 00:00:00 2001
 From: Christoph Kaser <christoph@caser.de>
 Date: Wed, 7 Oct 2026 16:04:52 +0200
 Subject: [PATCH] rs-matter: add synthetic commissioning controller fixture
 
 ---
- rs-matter/tests/commissioning.rs | 350 +++++++++++++++++++++++--------
- 1 file changed, 268 insertions(+), 82 deletions(-)
+ rs-matter/tests/commissioning.rs | 365 ++++++++++++++++++++++++-------
+ 1 file changed, 282 insertions(+), 83 deletions(-)
 
 diff --git a/rs-matter/tests/commissioning.rs b/rs-matter/tests/commissioning.rs
-index 6c9291f0..0aa487f2 100644
+index 6c9291f0..5a6f6f77 100644
 --- a/rs-matter/tests/commissioning.rs
 +++ b/rs-matter/tests/commissioning.rs
 @@ -39,7 +39,120 @@
@@ -306,7 +306,15 @@ index 6c9291f0..0aa487f2 100644
      )
      .await?;
  
-@@ -388,6 +547,7 @@ async fn test_commission<C: Crypto>(
+@@ -355,6 +514,7 @@ async fn run_controller_flow<C: Crypto, D: Crypto>(
+         device_crypto,
+         peer_addr,
+         use_tcp,
++        thread_network,
+     )
+     .await?;
+ 
+@@ -388,6 +548,7 @@ async fn test_commission<C: Crypto>(
      crypto: &C,
      peer_addr: Address,
      use_tcp: bool,
@@ -314,7 +322,7 @@ index 6c9291f0..0aa487f2 100644
  ) -> Result<(core::num::NonZeroU8, u64), Error> {
      // ---- Offline CA chain: RCAC then ICAC; RCAC priv discarded ----
  
-@@ -424,7 +584,14 @@ async fn test_commission<C: Crypto>(
+@@ -424,7 +585,14 @@ async fn test_commission<C: Crypto>(
      )
      .with_transport(transport(use_tcp));
  
@@ -330,7 +338,7 @@ index 6c9291f0..0aa487f2 100644
  
      Ok((controller_fab_idx, result.device_node_id))
  }
-@@ -448,6 +615,7 @@ async fn test_stale_case_is_dropped<C: Crypto, D: Crypto>(
+@@ -448,6 +616,7 @@ async fn test_stale_case_is_dropped<C: Crypto, D: Crypto>(
      device_crypto: &D,
      peer_addr: Address,
      use_tcp: bool,
@@ -338,7 +346,7 @@ index 6c9291f0..0aa487f2 100644
  ) -> Result<(), Error> {
      // One controller fabric for both runs.
      let mut rcac_buf = [0u8; MAX_CERT_TLV_AND_ASN1_LEN];
-@@ -486,7 +654,14 @@ async fn test_stale_case_is_dropped<C: Crypto, D: Crypto>(
+@@ -486,7 +655,14 @@ async fn test_stale_case_is_dropped<C: Crypto, D: Crypto>(
          &mut commissioner_buf,
      )
      .with_transport(transport(use_tcp));
@@ -354,7 +362,7 @@ index 6c9291f0..0aa487f2 100644
  
      // Factory-reset the device without a word to the controller, whose CASE
      // session to it is now stale.
-@@ -505,7 +680,14 @@ async fn test_stale_case_is_dropped<C: Crypto, D: Crypto>(
+@@ -505,7 +681,14 @@ async fn test_stale_case_is_dropped<C: Crypto, D: Crypto>(
      )
      .with_transport(transport(use_tcp))
      .with_case_attempts(1);
@@ -370,7 +378,24 @@ index 6c9291f0..0aa487f2 100644
  
      Ok(())
  }
-@@ -623,14 +805,25 @@ async fn run_commissioner<C: Crypto>(
+@@ -520,6 +703,7 @@ async fn test_open_pase_is_reused<C: Crypto, D: Crypto>(
+     device_crypto: &D,
+     peer_addr: Address,
+     use_tcp: bool,
++    thread_network: &TestThreadNetwork,
+ ) -> Result<(), Error> {
+     let device = peer_addr.canonical();
+     let pase_to_device = move |sess: &Session| {
+@@ -541,7 +725,7 @@ async fn test_open_pase_is_reused<C: Crypto, D: Crypto>(
+     });
+     let open = open.expect("no PASE session to the device");
+ 
+-    test_commission(matter, crypto, peer_addr, use_tcp).await?;
++    test_commission(matter, crypto, peer_addr, use_tcp, thread_network).await?;
+ 
+     // Still there, so it was used rather than replaced; expired, as phase 2 is
+     // done.
+@@ -623,14 +807,36 @@ async fn run_commissioner<C: Crypto>(
      commissioner: &mut Commissioner<'_, '_, C>,
      peer_addr: Address,
      use_tcp: bool,
@@ -386,22 +411,33 @@ index 6c9291f0..0aa487f2 100644
      // Phase 1 — establishes PASE (lazily on first step) then ArmFailSafe → ... → AddNOC.
 +    // Secure defaults must fail closed: this revision has no attestation verifier.
 +    // Do this before the explicit public-fixture bypass below.
-+    let rejected = commissioner
-+        .commission(
-+            peer_addr,
-+            TEST_PASSCODE,
-+            &CommissionOptions::default(),
-+            DEVICE_NODE_ID,
-+            VALID_FOREVER,
-+        )
-+        .await;
-+    assert!(matches!(rejected, Err(ref err) if err.code() == rs_matter::error::ErrorCode::Failure));
-+    info!("Secure-default attestation rejection verified");
++    // Do not invalidate the session deliberately opened by the PASE-reuse test.
++    // Ordinary commissioning still exercises the secure-default rejection first.
++    let has_open_pase = matter.with_state(|state| {
++        state.sessions.iter().any(|sess| {
++            matches!(sess.get_session_mode(), SessionMode::Pase { .. })
++                && sess.get_peer_addr().canonical() == peer_addr.canonical()
++                && !sess.is_expired()
++        })
++    });
++    if !has_open_pase {
++        let rejected = commissioner
++            .commission(
++                peer_addr,
++                TEST_PASSCODE,
++                &CommissionOptions::default(),
++                DEVICE_NODE_ID,
++                VALID_FOREVER,
++            )
++            .await;
++        assert!(matches!(rejected, Err(ref err) if err.code() == rs_matter::error::ErrorCode::Failure));
++        info!("Secure-default attestation rejection verified");
++    }
 +
      let result = commissioner
          .commission(
              peer_addr,
-@@ -657,6 +850,60 @@ async fn run_commissioner<C: Crypto>(
+@@ -657,6 +863,60 @@ async fn run_commissioner<C: Crypto>(
      });
      assert!(pase_open, "phase 1 closed the PASE session");
  
@@ -462,7 +498,7 @@ index 6c9291f0..0aa487f2 100644
      // Phase 2 — operational discovery, then CASE against the device's
      // operational identity, then CommissioningComplete on the new session.
      //
-@@ -702,14 +949,11 @@ async fn run_commissioner<C: Crypto>(
+@@ -702,14 +962,11 @@ async fn run_commissioner<C: Crypto>(
  /// making discovery flaky and environment-dependent. The mDNS protocol code
  /// (query building, response parsing, the resolve rendezvous) is covered by
  /// unit tests instead. Here we use the device's known localhost address: it
@@ -479,7 +515,7 @@ index 6c9291f0..0aa487f2 100644
          MATTER_PORT,
          0,
          0,
-@@ -871,7 +1115,7 @@ fn create_dual_stack_socket() -> Result<async_io::Async<UdpSocket>, Error> {
+@@ -871,7 +1128,7 @@ fn create_dual_stack_socket() -> Result<async_io::Async<UdpSocket>, Error> {
      socket
          .set_only_v6(false)
          .map_err(|_| rs_matter::error::ErrorCode::NoNetworkInterface)?;
@@ -488,7 +524,7 @@ index 6c9291f0..0aa487f2 100644
      socket
          .bind(&bind_addr.into())
          .map_err(|_| rs_matter::error::ErrorCode::NoNetworkInterface)?;
-@@ -879,61 +1123,3 @@ fn create_dual_stack_socket() -> Result<async_io::Async<UdpSocket>, Error> {
+@@ -879,61 +1136,3 @@ fn create_dual_stack_socket() -> Result<async_io::Async<UdpSocket>, Error> {
      async_io::Async::new_nonblocking(socket)
          .map_err(|_| rs_matter::error::ErrorCode::NoNetworkInterface.into())
  }
