@@ -289,6 +289,37 @@ impl Lifecycle {
         self.activate(radio, now)?;
         Ok(self.snapshot())
     }
+    pub fn recreate<R: TryRng + TryCryptoRng>(
+        &mut self,
+        channel: u8,
+        entropy: &mut R,
+        radio: &dyn Radio,
+        now: Instant,
+    ) -> Result<Snapshot, Failure> {
+        if self.fatal { return Err(Failure::Transport); }
+        if self.channel != Some(channel) || !self.fresh(now) {
+            return Err(Failure::NotReady);
+        }
+        if self.dataset.is_none() { return Err(Failure::NotReady); }
+        let bytes = generate(channel, entropy)?;
+        let mut record = Zeroizing::new(Vec::with_capacity(bytes.len() + 11));
+        record.extend(MAGIC);
+        record.push(channel);
+        record.extend((bytes.len() as u16).to_le_bytes());
+        record.extend(bytes.iter().copied());
+        let was_active = self.active;
+        self.stop(Some(radio))?;
+        self.state = State::Detached;
+        if self.store.set(DATASET_KEY, Some(&record)).is_err() {
+            if was_active { let _ = self.activate(radio, now); }
+            return Err(Failure::Storage);
+        }
+        self.dataset = Some(bytes);
+        self.dataset_channel = Some(channel);
+        self.apply_failed = false;
+        self.activate(radio, now)?;
+        Ok(self.snapshot())
+    }
     pub fn create<R: TryRng + TryCryptoRng>(
         &mut self,
         channel: u8,
@@ -397,6 +428,54 @@ mod tests {
         fn attached(&self) -> bool {
             self.attached.get()
         }
+    }
+    #[test]
+    fn recreation_replaces_only_dataset_and_requires_fresh_existing_network() {
+        let dir = Directory::new();
+        let store = PrivateStore::open(&dir.0).unwrap();
+        store.set(0x1002, Some(b"identity retained")).unwrap();
+        let mut lifecycle = Lifecycle::load(store.clone()).unwrap();
+        let radio = FakeRadio::default();
+        let now = Instant::now();
+        let mut entropy = OsEntropy::open().unwrap();
+        lifecycle.observe(15, true, Some(&radio), now).unwrap();
+        assert!(matches!(lifecycle.recreate(15, &mut entropy, &radio, now), Err(Failure::NotReady)));
+        lifecycle.create(15, &mut entropy, &radio, now).unwrap();
+        let old = lifecycle.dataset_copy().unwrap();
+        let persisted = std::fs::read(dir.0.join("credentials.bin")).unwrap();
+        assert!(matches!(lifecycle.recreate(20, &mut entropy, &radio, now), Err(Failure::NotReady)));
+        assert!(matches!(lifecycle.recreate(15, &mut entropy, &radio, now + Duration::from_secs(5)), Err(Failure::NotReady)));
+        assert_eq!(std::fs::read(dir.0.join("credentials.bin")).unwrap(), persisted);
+        lifecycle.recreate(15, &mut entropy, &radio, now).unwrap();
+        assert_ne!(lifecycle.dataset_copy().unwrap().as_slice(), old.as_slice());
+        assert_eq!(radio.disables.get(), 1);
+        assert_eq!(radio.applies.get(), 2);
+        let restored = Lifecycle::load(store.clone()).unwrap();
+        assert_eq!(restored.dataset_copy().unwrap().as_slice(), lifecycle.dataset_copy().unwrap().as_slice());
+        let mut identity = [0; 64];
+        let length = store.get(0x1002, &mut identity).unwrap().unwrap();
+        assert_eq!(&identity[..length], b"identity retained");
+    }
+    #[test]
+    fn recreation_apply_failure_retains_replacement_for_retry() {
+        let dir = Directory::new();
+        let store = PrivateStore::open(&dir.0).unwrap();
+        let mut lifecycle = Lifecycle::load(store.clone()).unwrap();
+        let radio = FakeRadio::default();
+        let now = Instant::now();
+        let mut entropy = OsEntropy::open().unwrap();
+        lifecycle.observe(15, true, Some(&radio), now).unwrap();
+        lifecycle.create(15, &mut entropy, &radio, now).unwrap();
+        let old = lifecycle.dataset_copy().unwrap();
+        radio.fail.set(true);
+        assert!(matches!(lifecycle.recreate(15, &mut entropy, &radio, now), Err(Failure::Transport)));
+        assert!(matches!(lifecycle.snapshot().state, State::Error));
+        let replacement = lifecycle.dataset_copy().unwrap();
+        assert_ne!(replacement.as_slice(), old.as_slice());
+        assert_eq!(Lifecycle::load(store).unwrap().dataset_copy().unwrap().as_slice(), replacement.as_slice());
+        radio.fail.set(false);
+        lifecycle.retry(&radio, now).unwrap();
+        assert_eq!(lifecycle.dataset_copy().unwrap().as_slice(), replacement.as_slice());
     }
     #[test]
     fn fresh_observation_gates_creation_and_expiry_stops_radio_without_flash_writes() {

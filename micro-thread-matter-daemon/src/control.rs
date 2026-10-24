@@ -133,6 +133,10 @@ pub enum ThreadRequest {
         schema: Schema,
         zigbee_channel: u8,
     },
+    Recreate {
+        schema: Schema,
+        zigbee_channel: u8,
+    },
     Import {
         schema: Schema,
         zigbee_channel: u8,
@@ -309,6 +313,7 @@ impl Request {
                         }
                     }
                     ThreadRequest::Create { zigbee_channel, .. }
+                    | ThreadRequest::Recreate { zigbee_channel, .. }
                     | ThreadRequest::Import { zigbee_channel, .. } => Some(zigbee_channel),
                 };
                 if channel.is_some_and(|c| !(11..=26).contains(c)) {

@@ -788,10 +788,11 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
                request.find("POST /api/matter/devices/bind ") == 0 ||
                request.find("POST /api/matter/devices/subscriptions ") == 0 ||
                request.find("POST /api/thread/create ") == 0 || request.find("POST /api/thread/import ") == 0 ||
-               request.find("POST /api/thread/retry ") == 0) {
+               request.find("POST /api/thread/retry ") == 0 || request.find("POST /api/thread/recreate ") == 0) {
 #if MICROHAD_MATTER_ENABLED
         const bool threadMutation = request.find("POST /api/thread/create ") == 0 ||
-            request.find("POST /api/thread/import ") == 0 || request.find("POST /api/thread/retry ") == 0;
+            request.find("POST /api/thread/import ") == 0 || request.find("POST /api/thread/retry ") == 0 ||
+            request.find("POST /api/thread/recreate ") == 0;
         const bool deviceRead = request.find("POST /api/matter/devices/read ") == 0;
         const bool deviceCommand = request.find("POST /api/matter/devices/command ") == 0;
         const bool deviceSubscriptions = request.find("POST /api/matter/devices/subscriptions ") == 0;
@@ -805,6 +806,7 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
         if (threadMutation) {
             std::string prepared;
             const std::string action = request.find("POST /api/thread/import ") == 0 ? "import" :
+                request.find("POST /api/thread/recreate ") == 0 ? "recreate" :
                 request.find("POST /api/thread/retry ") == 0 ? "retry" : "create";
             valid = MatterChannel::threadMutation(action, body, &prepared);
             body.swap(prepared);

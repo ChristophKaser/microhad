@@ -90,6 +90,17 @@ test('Thread retry reapplies stored credentials without requesting a dataset', a
   });
 });
 
+test('Thread recreation requires explicit confirmation and never retries', async () => {
+  await peer(call => ({ body: call.method === 'POST' ? accepted : completed(thread) }), async calls => {
+    await assert.rejects(wire.matterCall('/api/thread/recreate', {}, signal()), /malformed/);
+    await assert.rejects(wire.matterCall('/api/thread/recreate', { confirmation: 'wrong' }, signal()), /malformed/);
+    assert.equal(calls.length, 0);
+    await wire.matterCall('/api/thread/recreate', { confirmation: 'RECREATE' }, signal());
+    assert.deepEqual(calls[0].body, { schema: 1, confirmation: 'RECREATE' });
+    assert.equal(calls.filter(call => call.method === 'POST').length, 1);
+  });
+});
+
 test('known-session cancellation returns terminal result and is sent once', async () => {
   await peer(call => ({ body: call.method === 'POST' ? accepted : completed({ ...session, state: 'cancelled', deadline_remaining_seconds: 0 }) }), async calls => {
     const value = wire.sessionResult(await wire.matterCall('/api/matter/commissioning/cancel', { session: id }, signal()));

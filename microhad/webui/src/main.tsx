@@ -261,6 +261,7 @@ function App() {
         </div></div>
       </header>
       {gatewaySettingsOpen && <GatewaySettingsDialog onClose={() => setGatewaySettingsOpen(false)}
+        matterNetworkConfigured={thread?.available ? thread.configured : undefined}
         onReplaceZigbeeNetwork={status?.network_formed ? () => { setGatewaySettingsOpen(false); setDialog('network') } : undefined} />}
       <nav className="main-tabs" role="tablist" aria-label="Gateway views">
         {['Dashboard', 'Gateway', 'Groups', 'Automations', ...visibleDeviceTypes.map(type => type.name), 'Diagnostics'].map(name => (

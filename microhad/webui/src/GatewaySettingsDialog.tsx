@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { errorMessage, form, jsonRequest, post } from './api'
+import { matterCall, threadResult } from './matter'
 
 interface GatewaySettings {
   broadcast_passive_ack_quorum: number
@@ -16,13 +17,32 @@ const countries = completeCountryCodes.split(' ').concat('MP MR MS MQ MU MW MY R
   .filter((entry, index, values) => values.findIndex(candidate => candidate[0] === entry[0]) === index)
   .sort((left, right) => left[1].localeCompare(right[1]))
 
-export function GatewaySettingsDialog({ onClose, onReplaceZigbeeNetwork }: { onClose: () => void; onReplaceZigbeeNetwork?: () => void }) {
+export function GatewaySettingsDialog({ onClose, onReplaceZigbeeNetwork, matterNetworkConfigured }: { onClose: () => void; onReplaceZigbeeNetwork?: () => void; matterNetworkConfigured?: boolean }) {
   const [settings, setSettings] = useState<GatewaySettings | null>(null)
   const [value, setValue] = useState('')
   const [country, setCountry] = useState('DE')
   const [location, setLocation] = useState<'indoor' | 'outdoor'>('indoor')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [networkConfirmationOpen, setNetworkConfirmationOpen] = useState(false)
+  const [networkConfirmation, setNetworkConfirmation] = useState('')
+  const [networkBusy, setNetworkBusy] = useState(false)
+  const [networkCreated, setNetworkCreated] = useState(false)
+  const networkOperation = useRef<AbortController | null>(null)
+  useEffect(() => () => networkOperation.current?.abort(), [])
+  async function changeMatterNetwork() {
+    if (networkOperation.current) return
+    const controller = new AbortController()
+    networkOperation.current = controller; setNetworkBusy(true); setError('')
+    try {
+      const result = threadResult(await matterCall(matterNetworkConfigured || networkCreated ? '/api/thread/recreate' : '/api/thread/create',
+        matterNetworkConfigured || networkCreated ? { confirmation: networkConfirmation } : {}, controller.signal))
+      if (!controller.signal.aborted && result.configured) {
+        setNetworkCreated(true); setNetworkConfirmationOpen(false); setNetworkConfirmation('')
+      }
+    } catch (cause) { if (!controller.signal.aborted) setError(errorMessage(cause)) }
+    finally { networkOperation.current = null; if (!controller.signal.aborted) setNetworkBusy(false) }
+  }
   const initialized = useRef(false)
 
   useEffect(() => {
@@ -86,7 +106,6 @@ export function GatewaySettingsDialog({ onClose, onReplaceZigbeeNetwork }: { onC
       </label>
       <p className="muted">Number of eligible neighboring routers whose rebroadcasts confirm delivery.
         If fewer routers are eligible, all are required. Default: 8.</p>
-      <p className="muted">Changes are saved and applied immediately. They are restored after a service restart.</p>
       <label className="field">
         <span>Matter commissioning country</span>
         <select value={country} disabled={!settings || saving} onChange={event => setCountry(event.target.value)}>
@@ -107,10 +126,21 @@ export function GatewaySettingsDialog({ onClose, onReplaceZigbeeNetwork }: { onC
           {unsupported && <p>This setting is unavailable with the current coordinator.</p>}
         </>}
       </div>
+      {matterNetworkConfigured !== undefined && <fieldset className="field" disabled={saving || networkBusy}>
+        <legend>Matter network</legend>
+        {networkConfirmationOpen ? <>
+          <p>Recreating the Thread network disconnects existing Matter devices. They must be joined to the new network again.</p>
+          <label className="field">Type RECREATE to confirm<input value={networkConfirmation} onChange={event => setNetworkConfirmation(event.target.value)} autoComplete="off" /></label>
+          <div className="toolbar"><button type="button" className="button danger" disabled={networkConfirmation !== 'RECREATE'} onClick={() => void changeMatterNetwork()}>Recreate Matter network</button>
+            <button type="button" className="button" onClick={() => { setNetworkConfirmationOpen(false); setNetworkConfirmation('') }}>Cancel recreation</button></div>
+        </> : <button type="button" className={`button ${matterNetworkConfigured || networkCreated ? 'danger' : ''}`}
+          onClick={() => { if (matterNetworkConfigured || networkCreated) setNetworkConfirmationOpen(true); else void changeMatterNetwork() }}>
+          {networkBusy ? 'Creating network…' : matterNetworkConfigured || networkCreated ? 'Recreate Matter network' : 'Create Matter network'}</button>}
+      </fieldset>}
       <div className="dialog-actions">
-        {onReplaceZigbeeNetwork && <button type="button" className="button danger" disabled={saving} onClick={onReplaceZigbeeNetwork}>Replace Zigbee network</button>}
+        {onReplaceZigbeeNetwork && <button type="button" className="button danger" disabled={saving || networkBusy} onClick={onReplaceZigbeeNetwork}>Replace Zigbee network</button>}
         <button type="button" className="button" onClick={onClose}>Cancel</button>
-        <button type="submit" className="button primary" disabled={!settings || saving}>{saving ? 'Saving…' : 'Save settings'}</button>
+        <button type="submit" className="button primary" disabled={!settings || saving || networkBusy}>{saving ? 'Saving…' : 'Save settings'}</button>
       </div>
     </form>
   </div>

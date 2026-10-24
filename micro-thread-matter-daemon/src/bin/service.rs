@@ -176,6 +176,16 @@ fn dispatch<C: Crypto>(
                     Some(radio) => lifecycle.create(zigbee_channel, entropy, radio, now),
                     None => Err(Failure::NotReady),
                 },
+                ThreadRequest::Recreate { zigbee_channel, .. } => {
+                    if controller.commissioning_session(now).is_some() {
+                        Err(Failure::Busy)
+                    } else {
+                        match radio {
+                            Some(radio) => lifecycle.recreate(zigbee_channel, entropy, radio, now),
+                            None => Err(Failure::NotReady),
+                        }
+                    }
+                },
                 ThreadRequest::Import { zigbee_channel, dataset, .. } => match radio {
                     Some(radio) => lifecycle.import(dataset.bytes(), zigbee_channel, radio, now),
                     None => Err(Failure::NotReady),

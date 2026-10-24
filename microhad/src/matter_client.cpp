@@ -308,7 +308,7 @@ bool requestValid(unsigned char opcode, const std::string& text) {
             number(fields["level"], 0, 254) && number(fields["transition_deciseconds"], 0, 65535);
     }
     if (opcode == 9) {
-        if (fields["action"] == "\"create\"") return fields.size() == 2;
+        if (fields["action"] == "\"create\"" || fields["action"] == "\"recreate\"") return fields.size() == 2;
         if (fields["action"] == "\"retry\"") return fields.size() == 2;
         return fields["action"] == "\"import\"" && fields.size() == 3 && hex(fields["dataset"], 2, 508);
     }
@@ -801,11 +801,14 @@ bool MatterChannel::threadMutation(const std::string& action, const std::string&
     body->clear();
     const bool importing = action == "import";
     const bool retrying = action == "retry";
-    if (action != "create" && !importing && !retrying) return false;
+    const bool recreating = action == "recreate";
+    if (action != "create" && !importing && !retrying && !recreating) return false;
     Fields fields;
     if (input.size() > MatterWire::MaxPayload || !StatusJson(input).parse(&fields) || fields["schema"] != "1" ||
-        fields.size() != (importing ? 2U : 1U) || (importing && !hex(fields["dataset"], 2, 508))) return false;
+        fields.size() != (importing || recreating ? 2U : 1U) || (importing && !hex(fields["dataset"], 2, 508)) ||
+        (recreating && fields["confirmation"] != "\"RECREATE\"")) return false;
     *body = importing ? "{\"schema\":1,\"action\":\"import\",\"dataset\":" + fields["dataset"] + '}' :
+        recreating ? "{\"schema\":1,\"action\":\"recreate\"}" :
         retrying ? "{\"schema\":1,\"action\":\"retry\"}" :
                    "{\"schema\":1,\"action\":\"create\"}";
     return true;

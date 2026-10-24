@@ -208,6 +208,11 @@
     "zigbee_channel": "",
     "dataset": "@bytes"
   },
+  "request9:recreate": {
+    "schema": "",
+    "action": "",
+    "zigbee_channel": ""
+  },
   "request9:retry": {
     "schema": "",
     "action": ""

@@ -125,6 +125,12 @@ disconnected or restarted service never causes an operation replay. Callers poll
 ## Thread dataset mutations
 
 `POST /api/thread/create` accepts exactly `{"schema":1}`.
+`POST /api/thread/recreate` accepts exactly `{"schema":1,"confirmation":"RECREATE"}`
+and replaces an existing Thread network with newly generated credentials on the
+confirmed Zigbee channel. It refuses an absent network or active commissioning
+session. The UI exposes this action in Gateway settings with explicit confirmation;
+existing Matter devices must join the new Thread network again. Zigbee state,
+Matter fabric identity and saved device records are preserved.
 `POST /api/thread/import` accepts exactly `schema:1` and a lowercase hexadecimal
 `dataset` string encoding 1–254 bytes. Both return the same 202/job contract as
 commissioning. Unknown/duplicate fields, a supplied `zigbee_channel`, bad hex
@@ -138,7 +144,9 @@ mutation. The Rust lifecycle independently checks observation freshness, dataset
 TLVs and channel compatibility before persistence/radio apply.
 
 A repeated create returns service `busy` rather than replacing an existing
-network. Import of an identical active dataset is idempotent; a different valid
+network; replacement requires the separate confirmed recreate action. Recreation
+stops the old radio network before persisting the replacement. A failed apply
+retains the new dataset for the existing retry flow. Import of an identical active dataset is idempotent; a different valid
 existing dataset is refused. Invalid TLVs or an incompatible dataset channel
 return service `malformed` in the completed job. Successful results contain only
 the redacted Thread snapshot, never dataset/key bytes. Dataset inputs remain

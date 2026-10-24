@@ -526,6 +526,13 @@ void runMatterClientUnitTests() {
     assert(MatterChannel::threadChannel(prepared, 15, &privateBody));
     assert(privateBody == prepared);
     assert(!MatterChannel::threadMutation("retry", "{\"schema\":1,\"dataset\":\"01\"}", &prepared));
+    assert(!MatterChannel::threadMutation("recreate", "{\"schema\":1}", &prepared));
+    assert(!MatterChannel::threadMutation("recreate", "{\"schema\":1,\"confirmation\":\"wrong\"}", &prepared));
+    assert(MatterChannel::threadMutation("recreate", "{\"schema\":1,\"confirmation\":\"RECREATE\"}", &prepared));
+    assert(MatterChannel::validRequest(9, prepared));
+    assert(MatterChannel::threadChannel(prepared, 15, &privateBody));
+    assert(privateBody == "{\"schema\":1,\"action\":\"recreate\",\"zigbee_channel\":15}");
+    assert(!MatterChannel::validRequest(9, privateBody));
     assert(!client.status(false, &json, &error));
     assert(error == "Matter service socket unavailable");
     assert(!client.observe(10, true, &json, &error));

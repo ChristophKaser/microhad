@@ -103,10 +103,11 @@ function pause(ms: number, signal: AbortSignal): Promise<void> {
   })
 }
 export async function matterCall(route: string, fields: Record<string, unknown>, signal: AbortSignal): Promise<unknown> {
-  if (!['/api/thread/create', '/api/thread/import', '/api/thread/retry', '/api/matter/commissioning/start', '/api/matter/commissioning/status', '/api/matter/commissioning/cancel',
+  if (!['/api/thread/create', '/api/thread/import', '/api/thread/retry', '/api/thread/recreate', '/api/matter/commissioning/start', '/api/matter/commissioning/status', '/api/matter/commissioning/cancel',
     '/api/matter/devices/read', '/api/matter/devices/command', '/api/matter/devices/bind', '/api/matter/devices/subscriptions'].includes(route)) throw new MatterError('unsupported')
   const keys = Object.keys(fields)
   if (route.endsWith('/create') && keys.length !== 0) throw new MatterError('malformed')
+  if (route.endsWith('/recreate') && (keys.length !== 1 || fields.confirmation !== 'RECREATE')) throw new MatterError('malformed')
   if (route.endsWith('/import') && (keys.length !== 1 || typeof fields.dataset !== 'string' || !validDataset(fields.dataset))) throw new MatterError('malformed')
   if (route.endsWith('/retry') && keys.length !== 0) throw new MatterError('malformed')
   if (route.endsWith('/commissioning/start') && (keys.length !== 3 || !integer(fields.discriminator, 0, 4095) ||

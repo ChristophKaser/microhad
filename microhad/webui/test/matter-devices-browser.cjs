@@ -21,6 +21,8 @@ async function main() {
       response.setHeader('Content-Type', 'text/html');
       response.end(`<!doctype html><html><body><div id="root"></div><pre id="result"></pre><script>
         Object.defineProperty(navigator, 'bluetooth', { configurable: true, value: { requestDevice: async () => ({}) } });
+        window.requestAnimationFrame = callback => setTimeout(() => callback(performance.now()), 16);
+        window.cancelAnimationFrame = clearTimeout;
         Object.defineProperty(navigator, 'mediaDevices', { value: { getUserMedia: async () => new MediaStream() } });
         Object.defineProperty(HTMLMediaElement.prototype, 'readyState', { get: () => 2 });
         HTMLMediaElement.prototype.play = async () => {};

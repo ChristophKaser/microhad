@@ -184,7 +184,7 @@ export function MatterPanel() {
     {error && <p className="error" role="alert">{error}</p>}
     {ready && configured === false && <div className="matter-network">
       <p>Create a Thread network, or import your existing network’s operational dataset. Keep the dataset private.</p>
-      <div className="toolbar"><button className="button primary" disabled={pending} onClick={() => void mutate('/api/thread/create', {})}>Create Thread network</button></div>
+      <div className="toolbar"><button className="button primary" disabled={pending} onClick={() => void mutate('/api/thread/create', {})}>Create Matter network</button></div>
       <form onSubmit={event => { event.preventDefault(); const value = dataset; setDataset(''); void mutate('/api/thread/import', { dataset: value }) }}>
         <label>Operational dataset (hex)<input type="password" autoComplete="off" spellCheck={false} maxLength={508} value={dataset} disabled={pending} onChange={event => setDataset(event.target.value)} /></label>
         <button className="button" disabled={pending || !validDataset(dataset)}>Import dataset</button>

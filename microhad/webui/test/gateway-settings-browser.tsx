@@ -7,7 +7,16 @@ let rejectSave = false
 let savedValue = 0
 let savedCountry = ''
 let savedLocation = ''
+const networkCalls: { url: string; body: unknown }[] = []
 window.fetch = async (_url, options) => {
+  const url = String(_url)
+  if (url === '/api/thread/create' || url === '/api/thread/recreate') {
+    networkCalls.push({ url, body: JSON.parse(String(options?.body)) })
+    return new Response(JSON.stringify({ schema: 1, ok: true, job: 1, state: 'queued' }), { status: 202 })
+  }
+  if (url === '/api/matter/jobs/1') return new Response(JSON.stringify({ job: 1, state: 'complete', response: {
+    schema: 1, ok: true, result: { enabled: true, available: true, configured: true, attached: false, state: 'attaching', linux_ipv6_or_tun: false },
+  } }), { status: 200 })
   if (options?.method === 'POST') {
     if (rejectSave) return new Response(JSON.stringify({ ok: false, error: 'Cannot save settings' }), { status: 400 })
     const fields = new URLSearchParams(String(options.body))
@@ -66,6 +75,22 @@ async function run() {
   if (replace.type !== 'button') throw new Error('Network replacement submits gateway settings')
   replace.click()
   if (!replacement) throw new Error('Network replacement action was not opened')
+  root.render(<GatewaySettingsDialog key="matter-network" onClose={() => {}} matterNetworkConfigured={false} />)
+  await until(() => document.body.textContent!.includes('Create Matter network'))
+  ;[...document.querySelectorAll('button')].find(button => button.textContent === 'Create Matter network')!.click()
+  await until(() => document.body.textContent!.includes('Recreate Matter network'))
+  if (networkCalls.length !== 1 || networkCalls[0].url !== '/api/thread/create') throw new Error('Network create was not sent once')
+  ;[...document.querySelectorAll('button')].find(button => button.textContent === 'Recreate Matter network')!.click()
+  await until(() => document.body.textContent!.includes('Type RECREATE to confirm'))
+  const recreate = [...document.querySelectorAll('button')].find(button => button.textContent === 'Recreate Matter network')!
+  if (!recreate.disabled || networkCalls.length !== 1) throw new Error('Recreation bypasses confirmation')
+  const confirmation = document.querySelector<HTMLInputElement>('fieldset input')!
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(confirmation, 'RECREATE')
+  confirmation.dispatchEvent(new Event('input', { bubbles: true }))
+  await until(() => !recreate.disabled)
+  recreate.click()
+  await until(() => networkCalls.length === 2 && !document.body.textContent!.includes('Type RECREATE to confirm'))
+  if (networkCalls[1].url !== '/api/thread/recreate' || JSON.stringify(networkCalls[1].body) !== JSON.stringify({ schema: 1, confirmation: 'RECREATE' })) throw new Error('Confirmed network recreation request differs')
   const result = document.getElementById('result')!
   result.dataset.result = 'passed'; result.textContent = 'PASS gateway region defaults, save, threshold validation, polling, errors, unsupported and close'
 }
