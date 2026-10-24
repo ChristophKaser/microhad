@@ -20,6 +20,163 @@ normalized `action`, and `endpoint`; Matter button events may also carry
 complete example. Remote events continue to reach automations when the same
 button is configured with a gateway-scene rule.
 
+## Example scripts
+
+Copy each Lua example into its own script in **Automations**, replace the
+example names with your devices and configured scene groups, then **Validate**
+and **Save and reload**. Names must resolve uniquely; string stable IDs also
+work and survive renaming. These examples register callbacks, so saving them
+does not immediately switch devices. A successful command means it was queued;
+check device reports for the resulting physical state.
+
+### Discover a remote's buttons
+
+Save this first, press the buttons, and inspect the script's debug logs. Use
+the reported `action` and `endpoint` (and Matter `position` or `press_count`
+when present) in subsequent filters.
+
+```lua
+events.on({ type = "remote.action", device = "Hall remote" }, function(event)
+  dump(event, "remote button")
+end)
+```
+
+Zigbee actions include `on`, `off`, `toggle`, `move`, `step`, `stop`,
+`arrow_left`, and `arrow_right`. Matter Generic Switch actions include
+`matter_press`, `matter_hold`, `matter_release`, and `matter_multi_press`.
+See [Matter switch models](lua_scripting_api.md#matter-switch-models) for which
+Matter switches produce these events. An existing gateway-scene rule also
+runs for the same button; remove conflicting rules when using Lua instead.
+
+### Remote controls a light
+
+This Zigbee example maps the on button to 65% brightness and the off button to
+off. For a light without dimming, omit `brightness`.
+
+```lua
+local remote = "Hall remote"
+local light = "Hall light"
+
+local function set_light(state)
+  local ok, err = devices.light(light, state)
+  if not ok then log("warn", "Cannot control hall light", { error = err }) end
+end
+
+events.on({ type = "remote.action", device = remote, action = "on" }, function()
+  set_light({ on = true, brightness = 65 })
+end)
+events.on({ type = "remote.action", device = remote, action = "off" }, function()
+  set_light({ on = false })
+end)
+```
+
+### Remote toggles an actor (plug or relay)
+
+Read `actor_on` from a fresh snapshot before toggling. An unknown state is
+`nil`; do not treat it as off. Rapid presses before the device reports its
+new state can request the same target state repeatedly.
+
+```lua
+local actor = "Desk plug"
+
+events.on({
+  type = "remote.action", device = "Desk button",
+  action = "matter_press", endpoint = 1,
+}, function()
+  local device, err = devices.get(actor)
+  if not device or device.actor_on == nil then
+    log("warn", "Actor state unavailable", { error = err, device = actor })
+    return
+  end
+  local ok, action_err = devices.actor(actor, not device.actor_on)
+  if not ok then log("warn", "Cannot toggle actor", { error = action_err }) end
+end)
+```
+
+For a Zigbee toggle button, replace the action with `toggle` and use the
+endpoint observed in the discovery example. To request a definite state,
+use `devices.actor(actor, true)` or `devices.actor(actor, false)`.
+
+### Remote selects a scene or turns a group off
+
+Create the group and its scenes in **Scenes & groups** first. This example
+selects Evening with the right arrow and switches the group off with the left
+arrow. Replace the actions with those emitted by your remote.
+
+```lua
+local group = "Downstairs"
+
+events.on({
+  type = "remote.action", device = "Hall remote", action = "arrow_right",
+}, function()
+  local ok, err = scenes.activate(group, "Evening")
+  if not ok then log("warn", "Cannot activate scene", { error = err }) end
+end)
+events.on({
+  type = "remote.action", device = "Hall remote", action = "arrow_left",
+}, function()
+  local ok, err = scenes.off(group)
+  if not ok then log("warn", "Cannot turn group off", { error = err }) end
+end)
+```
+
+To select a scene on a schedule instead, use a separate script:
+
+```lua
+automation.cron("0 18 * * *", function()
+  local ok, err = scenes.activate("Downstairs", "Evening")
+  if not ok then log("warn", "Cannot activate evening scene", { error = err }) end
+end)
+```
+
+This runs at 18:00 in the gateway's local time. Missed runs during downtime
+are not replayed.
+
+### Get the current scene of a group
+
+Lua currently exposes only `scenes.activate(group, scene)` and
+`scenes.off(group)`. There is no group-state getter or scene-change event, so
+a script cannot query the current scene. `devices.get()` reads individual
+devices, not scene groups. Device values alone do not identify a scene uniquely.
+
+You can remember the last scene your script requested in `persistent`, but
+that is only a record of that script's request. It does not confirm execution
+or follow changes from the dashboard, another script, or a remote scene rule.
+Do not use it as the group's current scene.
+
+### Control a thermostat
+
+The Lua API currently has no thermostat command function or thermostat
+settings in its device snapshots. `devices.actor()` and `devices.light()` do
+not set a thermostat's mode or target temperature. A remote-to-thermostat Lua
+script therefore requires an API extension.
+
+Use the dashboard's **Thermostats** cards for mode and target temperature, or
+configure a supported weekly schedule on the thermostat itself. An external
+host script can also use the authenticated
+[`POST /api/devices/{device-id}/thermostat` API](../microhad/docs/thermostats.md#http-api).
+For example, after setting `GATEWAY_URL` and the URL-encoded `THERMOSTAT_ID`
+for your gateway and adding its required authentication to curl:
+
+```sh
+# External host shell, not Lua. Temperatures are in degrees Celsius.
+curl --fail-with-body --connect-timeout 5 --max-time 15 \
+  --data-urlencode 'field=occupied_heating_setpoint' \
+  --data-urlencode 'value=21' \
+  "$GATEWAY_URL/api/devices/$THERMOSTAT_ID/thermostat"
+
+# Select heating mode where the thermostat supports it.
+curl --fail-with-body --connect-timeout 5 --max-time 15 \
+  --data-urlencode 'field=system_mode' \
+  --data-urlencode 'value=4' \
+  "$GATEWAY_URL/api/devices/$THERMOSTAT_ID/thermostat"
+```
+
+Use only supported fields, modes, and reported setpoint limits. Requests are
+asynchronous; Matter responses include an operation job ID. Inspect reported
+state and errors to confirm completion. Lua scripts cannot call this HTTP API
+because arbitrary network access is unavailable.
+
 ## Script location and names
 
 Enabled scripts are `*.lua` files in:

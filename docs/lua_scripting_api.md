@@ -14,6 +14,10 @@ accept either a stable ID or an exact current display name. Names are matched
 case-insensitively but must resolve uniquely; use stable IDs for rename-proof
 automations.
 
+For copyable remote, light, actor, and scene scripts, see
+[Example scripts](scripting.md#example-scripts). That guide also explains the
+current thermostat-control and scene-state query limitations.
+
 ## Script initialization
 
 Top-level script code is initialization code. It runs on every initial load,
