@@ -226,6 +226,10 @@ matter-build-flags-test:
 # Nanopb wire primitives; metadata and Prost/Python bindings are checked in.
 PROTO_DIR := ../third-party/nanopb
 PROTO_NAMES := pb_common pb_encode pb_decode
+HOST_CXXFLAGS += -I$(PROTO_DIR)
+TARGET_CXXFLAGS += -I$(PROTO_DIR)
+HOST_C_OBJECTS += $(HOST_BUILD)/device-cache-pb.o
+MIPS_C_OBJECTS += $(MIPS_BUILD)/device-cache-pb.o
 HOST_C_OBJECTS += $(addprefix $(HOST_BUILD)/nanopb-,$(addsuffix .o,$(PROTO_NAMES)))
 MIPS_C_OBJECTS += $(addprefix $(MIPS_BUILD)/nanopb-,$(addsuffix .o,$(PROTO_NAMES)))
 $(HOST_BUILD)/nanopb-%.o: $(PROTO_DIR)/%.c $(wildcard $(PROTO_DIR)/*.h) Makefile
@@ -264,3 +268,12 @@ $(HOST_BUILD)/crypto-interop: test/crypto_interop.c $(HOST_C_OBJECTS) $(HOST_MBE
 
 crypto-interop-test: $(HOST_BUILD)/crypto-interop
 	python3 scripts/test_crypto_interop.py $(HOST_BUILD)/crypto-interop
+
+$(HOST_BUILD)/device-cache-pb.o: ../protocol/generated/device-cache.pb.c ../protocol/generated/device-cache.pb.h $(wildcard $(PROTO_DIR)/*.h) Makefile
+	@mkdir -p $(@D)
+	$(HOST_CC) -std=gnu99 -DPB_C99_STATIC_ASSERT -O2 -I$(PROTO_DIR) -c $< -o $@
+$(MIPS_BUILD)/device-cache-pb.o: ../protocol/generated/device-cache.pb.c ../protocol/generated/device-cache.pb.h $(wildcard $(PROTO_DIR)/*.h) Makefile
+	@mkdir -p $(@D)
+	$(TARGET_CC) -std=gnu99 -DPB_C99_STATIC_ASSERT $(TARGET_OPTIMIZATION) -ffunction-sections -fdata-sections -I$(PROTO_DIR) -c $< -o $@
+$(HOST_BIN) $(HOST_TEST_BIN) $(UNIT_TEST_BIN) $(INTEGRATION_TEST_BIN): $(HOST_BUILD)/device-cache-pb.o ../protocol/generated/device_cache_encode.inc ../protocol/generated/protobuf_operations.inc
+$(MIPS_BIN): $(MIPS_BUILD)/device-cache-pb.o ../protocol/generated/device_cache_encode.inc ../protocol/generated/protobuf_operations.inc

@@ -134,3 +134,8 @@ regressions reject calendar work on idle ticks and immutable-table construction
 for events with no matching listener. Subscription accounting covers listener
 removal, event completion, wait timeout and task cancellation, so native event
 conversion can be skipped without losing events needed by a sleeping callback.
+
+For cache performance, run `python3 microhad/scripts/benchmark-device-cache.py`.
+Optional gateway benchmarks require an explicit `--device ADDRESS`; they use
+synthetic snapshots in RAM and leave production state untouched. See
+[the measured regression and fix](../../docs/device-cache-performance.md).

@@ -1,7 +1,7 @@
 {
-  "Request1": [],
-  "Request2": [],
-  "Request3": [
+  "MatterStatusRequest": [],
+  "ThreadStatusRequest": [],
+  "CommissioningStartRequest": [
     {
       "name": "schema",
       "tag": 1,
@@ -51,7 +51,7 @@
       "oneof": false
     }
   ],
-  "Request4": [
+  "CommissioningStatusRequest": [
     {
       "name": "schema",
       "tag": 1,
@@ -77,7 +77,7 @@
       "oneof": false
     }
   ],
-  "Request5": [
+  "CommissioningCancelRequest": [
     {
       "name": "schema",
       "tag": 1,
@@ -95,7 +95,7 @@
       "oneof": false
     }
   ],
-  "Request6": [
+  "BleAttachRequest": [
     {
       "name": "schema",
       "tag": 1,
@@ -129,7 +129,7 @@
       "oneof": false
     }
   ],
-  "Request7": [
+  "BleIndicationRequest": [
     {
       "name": "schema",
       "tag": 1,
@@ -171,7 +171,7 @@
       "oneof": false
     }
   ],
-  "Request8": [
+  "BleWriteCompleteRequest": [
     {
       "name": "schema",
       "tag": 1,
@@ -213,7 +213,7 @@
       "oneof": false
     }
   ],
-  "Request9": [
+  "ThreadControlRequest": [
     {
       "name": "schema",
       "tag": 1,
@@ -263,7 +263,7 @@
       "oneof": false
     }
   ],
-  "Request10": [
+  "DeviceControlRequest": [
     {
       "name": "schema",
       "tag": 1,
@@ -340,7 +340,7 @@
       "name": "targets",
       "tag": 10,
       "type": 11,
-      "message": "ListTarget",
+      "message": "BindingTargetList",
       "repeated": false,
       "oneof": false
     },
@@ -361,7 +361,7 @@
       "oneof": false
     }
   ],
-  "Request11": [
+  "DeviceCommandRequest": [
     {
       "name": "schema",
       "tag": 1,
@@ -443,7 +443,7 @@
       "oneof": false
     }
   ],
-  "Reply": [
+  "OperationResponse": [
     {
       "name": "schema",
       "tag": 1,
@@ -472,12 +472,12 @@
       "name": "result",
       "tag": 4,
       "type": 11,
-      "message": "Result",
+      "message": "OperationResult",
       "repeated": false,
       "oneof": false
     }
   ],
-  "Event": [
+  "EventNotification": [
     {
       "name": "schema",
       "tag": 1,
@@ -498,12 +498,12 @@
       "name": "data",
       "tag": 3,
       "type": 11,
-      "message": "EventData",
+      "message": "EventPayload",
       "repeated": false,
       "oneof": false
     }
   ],
-  "Matter": [
+  "MatterStatus": [
     {
       "name": "enabled",
       "tag": 1,
@@ -553,7 +553,7 @@
       "oneof": false
     }
   ],
-  "Thread": [
+  "ThreadStatus": [
     {
       "name": "enabled",
       "tag": 1,
@@ -619,7 +619,7 @@
       "oneof": false
     }
   ],
-  "Session": [
+  "CommissioningSession": [
     {
       "name": "session",
       "tag": 1,
@@ -661,7 +661,7 @@
       "oneof": false
     }
   ],
-  "Ack6": [
+  "BleAttachResult": [
     {
       "name": "generation",
       "tag": 1,
@@ -671,7 +671,7 @@
       "oneof": false
     }
   ],
-  "Ack7": [
+  "BleIndicationResult": [
     {
       "name": "sequence",
       "tag": 1,
@@ -681,7 +681,7 @@
       "oneof": false
     }
   ],
-  "Ack8": [
+  "BleWriteCompleteResult": [
     {
       "name": "write",
       "tag": 1,
@@ -691,7 +691,7 @@
       "oneof": false
     }
   ],
-  "Page": [
+  "DeviceSnapshotPage": [
     {
       "name": "revision",
       "tag": 1,
@@ -704,7 +704,7 @@
       "name": "devices",
       "tag": 2,
       "type": 11,
-      "message": "ListDevice",
+      "message": "MatterDeviceList",
       "repeated": false,
       "oneof": false
     },
@@ -717,7 +717,7 @@
       "oneof": false
     }
   ],
-  "Device": [
+  "MatterDevice": [
     {
       "name": "node",
       "tag": 1,
@@ -762,7 +762,7 @@
       "name": "servers",
       "tag": 6,
       "type": 11,
-      "message": "Listuint32",
+      "message": "UInt32List",
       "repeated": false,
       "oneof": false
     },
@@ -770,7 +770,7 @@
       "name": "clients",
       "tag": 7,
       "type": 11,
-      "message": "Listuint32",
+      "message": "UInt32List",
       "repeated": false,
       "oneof": false
     },
@@ -802,12 +802,12 @@
       "name": "device_types",
       "tag": 11,
       "type": 11,
-      "message": "Listuint32",
+      "message": "UInt32List",
       "repeated": false,
       "oneof": false
     }
   ],
-  "Job": [
+  "DeviceOperationJob": [
     {
       "name": "job",
       "tag": 1,
@@ -836,12 +836,12 @@
       "name": "result",
       "tag": 4,
       "type": 11,
-      "message": "Reading",
+      "message": "AttributeReading",
       "repeated": false,
       "oneof": false
     }
   ],
-  "Reading": [
+  "AttributeReading": [
     {
       "name": "node",
       "tag": 1,
@@ -878,12 +878,12 @@
       "name": "value",
       "tag": 5,
       "type": 11,
-      "message": "Typed",
+      "message": "AttributeValue",
       "repeated": false,
       "oneof": false
     }
   ],
-  "Typed": [
+  "AttributeValue": [
     {
       "name": "type",
       "tag": 1,
@@ -938,12 +938,12 @@
       "name": "transitions",
       "tag": 5,
       "type": 11,
-      "message": "ListThermostatTransition",
+      "message": "ThermostatTransitionList",
       "repeated": false,
       "oneof": false
     }
   ],
-  "BleWrite": [
+  "BleWriteEvent": [
     {
       "name": "session",
       "tag": 1,
@@ -977,7 +977,7 @@
       "oneof": false
     }
   ],
-  "Button": [
+  "ButtonEvent": [
     {
       "name": "node",
       "tag": 1,
@@ -1019,7 +1019,7 @@
       "oneof": false
     }
   ],
-  "Target": [
+  "BindingTarget": [
     {
       "name": "node",
       "tag": 1,
@@ -1048,7 +1048,7 @@
       "name": "members",
       "tag": 4,
       "type": 11,
-      "message": "ListMember",
+      "message": "BindingMemberList",
       "repeated": false,
       "oneof": false
     },
@@ -1061,7 +1061,7 @@
       "oneof": false
     }
   ],
-  "Member": [
+  "BindingMember": [
     {
       "name": "node",
       "tag": 1,
@@ -1079,7 +1079,7 @@
       "oneof": false
     }
   ],
-  "Inventory": [
+  "InventoryRecord": [
     {
       "name": "kind",
       "tag": 1,
@@ -1092,7 +1092,7 @@
       "name": "device",
       "tag": 2,
       "type": 11,
-      "message": "Device",
+      "message": "MatterDevice",
       "repeated": false,
       "oneof": false
     },
@@ -1105,12 +1105,12 @@
       "oneof": false
     }
   ],
-  "InventoryNodes": [
+  "InventoryNodeManifest": [
     {
       "name": "nodes",
       "tag": 1,
       "type": 11,
-      "message": "ListInventoryNode",
+      "message": "InventoryNodeList",
       "repeated": false,
       "oneof": false
     }
@@ -1170,7 +1170,7 @@
       "name": "subscriptions",
       "tag": 6,
       "type": 11,
-      "message": "ListSubscription",
+      "message": "SubscriptionList",
       "repeated": false,
       "oneof": false
     }
@@ -1262,7 +1262,7 @@
       "name": "transitions",
       "tag": 2,
       "type": 11,
-      "message": "ListThermostatTransition",
+      "message": "ThermostatTransitionList",
       "repeated": false,
       "oneof": false
     }
@@ -1442,41 +1442,41 @@
       "name": "list",
       "tag": 8,
       "type": 11,
-      "message": "UintList",
+      "message": "ThermostatCapabilityList",
       "repeated": false,
       "oneof": true
     }
   ],
-  "Result": [
+  "OperationResult": [
     {
       "name": "session",
       "tag": 1,
       "type": 11,
-      "message": "Session",
+      "message": "CommissioningSession",
       "repeated": false,
       "oneof": true
     },
     {
-      "name": "ack6",
+      "name": "ble_attach_result",
       "tag": 2,
       "type": 11,
-      "message": "Ack6",
+      "message": "BleAttachResult",
       "repeated": false,
       "oneof": true
     },
     {
-      "name": "ack7",
+      "name": "ble_indication_result",
       "tag": 3,
       "type": 11,
-      "message": "Ack7",
+      "message": "BleIndicationResult",
       "repeated": false,
       "oneof": true
     },
     {
-      "name": "ack8",
+      "name": "ble_write_complete_result",
       "tag": 4,
       "type": 11,
-      "message": "Ack8",
+      "message": "BleWriteCompleteResult",
       "repeated": false,
       "oneof": true
     },
@@ -1484,7 +1484,7 @@
       "name": "thread",
       "tag": 5,
       "type": 11,
-      "message": "Thread",
+      "message": "ThreadStatus",
       "repeated": false,
       "oneof": true
     },
@@ -1492,7 +1492,7 @@
       "name": "page",
       "tag": 6,
       "type": 11,
-      "message": "Page",
+      "message": "DeviceSnapshotPage",
       "repeated": false,
       "oneof": true
     },
@@ -1500,7 +1500,7 @@
       "name": "job",
       "tag": 7,
       "type": 11,
-      "message": "Job",
+      "message": "DeviceOperationJob",
       "repeated": false,
       "oneof": true
     },
@@ -1513,12 +1513,12 @@
       "oneof": true
     }
   ],
-  "EventData": [
+  "EventPayload": [
     {
       "name": "thread",
       "tag": 1,
       "type": 11,
-      "message": "Thread",
+      "message": "ThreadStatus",
       "repeated": false,
       "oneof": true
     },
@@ -1526,7 +1526,7 @@
       "name": "session",
       "tag": 2,
       "type": 11,
-      "message": "Session",
+      "message": "CommissioningSession",
       "repeated": false,
       "oneof": true
     },
@@ -1534,7 +1534,7 @@
       "name": "ble_write",
       "tag": 3,
       "type": 11,
-      "message": "BleWrite",
+      "message": "BleWriteEvent",
       "repeated": false,
       "oneof": true
     },
@@ -1542,7 +1542,7 @@
       "name": "reading",
       "tag": 4,
       "type": 11,
-      "message": "Reading",
+      "message": "AttributeReading",
       "repeated": false,
       "oneof": true
     },
@@ -1550,7 +1550,7 @@
       "name": "button",
       "tag": 5,
       "type": 11,
-      "message": "Button",
+      "message": "ButtonEvent",
       "repeated": false,
       "oneof": true
     },
@@ -1558,7 +1558,7 @@
       "name": "inventory",
       "tag": 6,
       "type": 11,
-      "message": "Inventory",
+      "message": "InventoryRecord",
       "repeated": false,
       "oneof": true
     },
@@ -1566,97 +1566,97 @@
       "name": "inventory_nodes",
       "tag": 7,
       "type": 11,
-      "message": "InventoryNodes",
+      "message": "InventoryNodeManifest",
       "repeated": false,
       "oneof": true
     }
   ],
-  "Body": [
+  "MessageBody": [
     {
-      "name": "request1",
+      "name": "matter_status_request",
       "tag": 1,
       "type": 11,
-      "message": "Request1",
+      "message": "MatterStatusRequest",
       "repeated": false,
       "oneof": true
     },
     {
-      "name": "request2",
+      "name": "thread_status_request",
       "tag": 2,
       "type": 11,
-      "message": "Request2",
+      "message": "ThreadStatusRequest",
       "repeated": false,
       "oneof": true
     },
     {
-      "name": "request3",
+      "name": "commissioning_start_request",
       "tag": 3,
       "type": 11,
-      "message": "Request3",
+      "message": "CommissioningStartRequest",
       "repeated": false,
       "oneof": true
     },
     {
-      "name": "request4",
+      "name": "commissioning_status_request",
       "tag": 4,
       "type": 11,
-      "message": "Request4",
+      "message": "CommissioningStatusRequest",
       "repeated": false,
       "oneof": true
     },
     {
-      "name": "request5",
+      "name": "commissioning_cancel_request",
       "tag": 5,
       "type": 11,
-      "message": "Request5",
+      "message": "CommissioningCancelRequest",
       "repeated": false,
       "oneof": true
     },
     {
-      "name": "request6",
+      "name": "ble_attach_request",
       "tag": 6,
       "type": 11,
-      "message": "Request6",
+      "message": "BleAttachRequest",
       "repeated": false,
       "oneof": true
     },
     {
-      "name": "request7",
+      "name": "ble_indication_request",
       "tag": 7,
       "type": 11,
-      "message": "Request7",
+      "message": "BleIndicationRequest",
       "repeated": false,
       "oneof": true
     },
     {
-      "name": "request8",
+      "name": "ble_write_complete_request",
       "tag": 8,
       "type": 11,
-      "message": "Request8",
+      "message": "BleWriteCompleteRequest",
       "repeated": false,
       "oneof": true
     },
     {
-      "name": "request9",
+      "name": "thread_control_request",
       "tag": 9,
       "type": 11,
-      "message": "Request9",
+      "message": "ThreadControlRequest",
       "repeated": false,
       "oneof": true
     },
     {
-      "name": "request10",
+      "name": "device_control_request",
       "tag": 10,
       "type": 11,
-      "message": "Request10",
+      "message": "DeviceControlRequest",
       "repeated": false,
       "oneof": true
     },
     {
-      "name": "request11",
+      "name": "device_command_request",
       "tag": 11,
       "type": 11,
-      "message": "Request11",
+      "message": "DeviceCommandRequest",
       "repeated": false,
       "oneof": true
     },
@@ -1664,7 +1664,7 @@
       "name": "matter",
       "tag": 12,
       "type": 11,
-      "message": "Matter",
+      "message": "MatterStatus",
       "repeated": false,
       "oneof": true
     },
@@ -1672,7 +1672,7 @@
       "name": "thread",
       "tag": 13,
       "type": 11,
-      "message": "Thread",
+      "message": "ThreadStatus",
       "repeated": false,
       "oneof": true
     },
@@ -1680,7 +1680,7 @@
       "name": "reply",
       "tag": 14,
       "type": 11,
-      "message": "Reply",
+      "message": "OperationResponse",
       "repeated": false,
       "oneof": true
     },
@@ -1688,12 +1688,12 @@
       "name": "event",
       "tag": 15,
       "type": 11,
-      "message": "Event",
+      "message": "EventNotification",
       "repeated": false,
       "oneof": true
     }
   ],
-  "UintList": [
+  "ThermostatCapabilityList": [
     {
       "name": "items",
       "tag": 1,
@@ -1703,7 +1703,7 @@
       "oneof": false
     }
   ],
-  "Envelope": [
+  "IpcEnvelope": [
     {
       "name": "version",
       "tag": 1,
@@ -1740,32 +1740,32 @@
       "name": "body",
       "tag": 5,
       "type": 11,
-      "message": "Body",
+      "message": "MessageBody",
       "repeated": false,
       "oneof": false
     }
   ],
-  "ListTarget": [
+  "BindingTargetList": [
     {
       "name": "items",
       "tag": 1,
       "type": 11,
-      "message": "Target",
+      "message": "BindingTarget",
       "repeated": true,
       "oneof": false
     }
   ],
-  "ListDevice": [
+  "MatterDeviceList": [
     {
       "name": "items",
       "tag": 1,
       "type": 11,
-      "message": "Device",
+      "message": "MatterDevice",
       "repeated": true,
       "oneof": false
     }
   ],
-  "Listuint32": [
+  "UInt32List": [
     {
       "name": "items",
       "tag": 1,
@@ -1775,7 +1775,7 @@
       "oneof": false
     }
   ],
-  "ListThermostatTransition": [
+  "ThermostatTransitionList": [
     {
       "name": "items",
       "tag": 1,
@@ -1785,17 +1785,17 @@
       "oneof": false
     }
   ],
-  "ListMember": [
+  "BindingMemberList": [
     {
       "name": "items",
       "tag": 1,
       "type": 11,
-      "message": "Member",
+      "message": "BindingMember",
       "repeated": true,
       "oneof": false
     }
   ],
-  "ListInventoryNode": [
+  "InventoryNodeList": [
     {
       "name": "items",
       "tag": 1,
@@ -1805,7 +1805,7 @@
       "oneof": false
     }
   ],
-  "ListSubscription": [
+  "SubscriptionList": [
     {
       "name": "items",
       "tag": 1,
@@ -2219,7 +2219,7 @@
       "oneof": false
     },
     {
-      "name": "has_low_temperature_alert",
+      "name": "low_temperature_alert_enabled",
       "tag": 49,
       "type": 8,
       "message": "",
@@ -2227,7 +2227,7 @@
       "oneof": false
     },
     {
-      "name": "has_high_temperature_alert",
+      "name": "high_temperature_alert_enabled",
       "tag": 50,
       "type": 8,
       "message": "",
@@ -2519,7 +2519,7 @@
       "oneof": false
     },
     {
-      "name": "has_low",
+      "name": "low_enabled",
       "tag": 2,
       "type": 8,
       "message": "",
@@ -2527,7 +2527,7 @@
       "oneof": false
     },
     {
-      "name": "has_high",
+      "name": "high_enabled",
       "tag": 3,
       "type": 8,
       "message": "",

@@ -38,9 +38,9 @@ fn shape(context: &str, value: &Value, kind: u8, opcode: u8, event: &str) -> Str
             let name = if opcode == 11 { "command" } else { "action" };
             let action = field(value, name).map(text).unwrap_or("");
             if (9..=11).contains(&opcode) && !action.is_empty() {
-                format!("request{opcode}:{action}")
+                format!("{}:{action}",generated::request_name(opcode))
             } else {
-                format!("request{opcode}")
+                generated::request_name(opcode).to_owned()
             }
         }
         "body" if kind == 2 => "event".into(),
@@ -49,7 +49,7 @@ fn shape(context: &str, value: &Value, kind: u8, opcode: u8, event: &str) -> Str
         "body" => "reply".into(),
         "result" => match opcode {
             3..=5 => "session".into(),
-            6..=8 => format!("ack{opcode}"),
+            6..=8 => generated::ack_name(opcode).to_owned(),
             9 => "thread".into(),
             10 if has(value, "subscriptions") => "subscription-health".into(),
             10 if has(value, "devices") => "page".into(),
@@ -235,7 +235,7 @@ fn schema(name: &str) -> &'static [generated::Field] { generated::schema(name) }
 fn nfield<'a>(v: &'a Value, key: &str) -> Result<&'a Value, ProtocolError> { field(v,key).ok_or(ProtocolError::Malformed) }
 fn normalize(v: Value, msg: &str, kind:u8, op:u8, ev:&str, incoming:bool) -> Result<Value, ProtocolError> {
     let fields=schema(msg);
-    if msg.starts_with("List") || msg=="UintList" {
+    if fields.len()==1 && fields[0].repeated && fields[0].name=="items" {
         let values=if incoming { match field(&v,"items") { Some(Value::Array(a))=>a.clone(),None=>vec![],_=>return Err(ProtocolError::Malformed) } } else { match v { Value::Array(a)=>a,_=>return Err(ProtocolError::Malformed) } };
         let f=&fields[0];let values=values.into_iter().map(|x|if f.kind==11 {normalize(x,f.message,kind,op,ev,incoming)}else{Ok(x)}).collect::<Result<Vec<_>,_>>()?;
         return Ok(if incoming { Value::Array(values) } else { Value::Map(vec![(Value::Text("items".into()),Value::Array(values))]) });
@@ -248,9 +248,9 @@ fn normalize(v: Value, msg: &str, kind:u8, op:u8, ev:&str, incoming:bool) -> Res
             return if key=="null" {if matches!(x,Value::Bool(true)){Ok(Value::Null)}else{Err(ProtocolError::Malformed)}}else if f.kind==11 {normalize(x,f.message,kind,op,ev,true)}else{Ok(x)};
         }
         let key=match msg {
-            "Body"=>if kind==0 {format!("request{op}")}else if kind==2{"event".into()}else if op==1{"matter".into()}else if op==2{"thread".into()}else{"reply".into()},
-            "Result"=>if op<=5{"session".into()}else if op<=8{format!("ack{op}")}else if op==9{"thread".into()}else if has(&v,"subscriptions"){"subscription_health".into()}else if has(&v,"devices"){"page".into()}else{"job".into()},
-            "EventData"=>match ev {"thread"=>"thread","commissioning"=>"session","ble_write"=>"ble_write","matter_report"=>"reading","matter_button"=>"button","matter_inventory"=>"inventory","matter_inventory_nodes"=>"inventory_nodes",_=>return Err(ProtocolError::Malformed)}.into(),
+            "MessageBody"=>if kind==0 {generated::request_name(op).to_owned()}else if kind==2{"event".into()}else if op==1{"matter".into()}else if op==2{"thread".into()}else{"reply".into()},
+            "OperationResult"=>if op<=5{"session".into()}else if op<=8{generated::ack_name(op).to_owned()}else if op==9{"thread".into()}else if has(&v,"subscriptions"){"subscription_health".into()}else if has(&v,"devices"){"page".into()}else{"job".into()},
+            "EventPayload"=>match ev {"thread"=>"thread","commissioning"=>"session","ble_write"=>"ble_write","matter_report"=>"reading","matter_button"=>"button","matter_inventory"=>"inventory","matter_inventory_nodes"=>"inventory_nodes",_=>return Err(ProtocolError::Malformed)}.into(),
             _=>match &v {Value::Null=>"null",_ if msg=="NullableText"=>"text",_ if msg=="NullableUint"||msg=="NullableInt"=>"integer",Value::Bool(_)=>"boolean",Value::Float(_)=>"number",Value::Integer(i)=>if *i>=0&&msg=="ReadingValue"{"unsigned"}else{"integer"},Value::Text(_)=>"text",Value::Array(_)=>"list",_=>"measurement"}.into(),
         };
         let f=fields.iter().find(|f|f.name==key).ok_or(ProtocolError::Malformed)?;
@@ -297,24 +297,24 @@ fn scan(b:&[u8],msg:&str,depth:usize,unknown:&mut usize)->Result<(),ProtocolErro
 pub fn encode(frame:&Frame)->Result<Vec<u8>,ProtocolError>{
     let json=if frame.payload.is_empty(){serde_json::json!({})}else{serde_json::from_slice(&frame.payload).map_err(|_|ProtocolError::Malformed)?};
     let body=to_wire(json,"body",frame.kind,frame.opcode,"")?;
-    let body=normalize(body,"Body",frame.kind,frame.opcode,"",false)?;
+    let body=normalize(body,"MessageBody",frame.kind,frame.opcode,"",false)?;
     let env=Value::Map(vec![(Value::Text("version".into()),Value::Integer(3)),(Value::Text("kind".into()),Value::Integer(frame.kind.into())),(Value::Text("opcode".into()),Value::Integer(frame.opcode.into())),(Value::Text("id".into()),Value::Integer(frame.id.into())),(Value::Text("body".into()),body)]);
     let out=generated::encode(&env)?;
     if out.len()>MAX_PAYLOAD{return Err(ProtocolError::Oversized)}
-    scan(&out,"Envelope",0,&mut 0)?;
+    scan(&out,"IpcEnvelope",0,&mut 0)?;
     let mut bytes=(out.len() as u16).to_le_bytes().to_vec();bytes.extend(out);Ok(bytes)
 }
 pub fn decode(bytes:&[u8])->Result<Frame,ProtocolError>{
     if bytes.is_empty()||bytes.len()>MAX_PAYLOAD{return Err(ProtocolError::Malformed)}
-    let mut unknown=0;scan(bytes,"Envelope",0,&mut unknown)?;
+    let mut unknown=0;scan(bytes,"IpcEnvelope",0,&mut unknown)?;
     let env=generated::decode(bytes)?;
     let integer=|key|match nfield(&env,key)?{Value::Integer(i)=>u64::try_from(*i).map_err(|_|ProtocolError::Malformed),_=>Err(ProtocolError::Malformed)};
     if integer("version")?!=3{return Err(ProtocolError::Malformed)}
     let kind=u8::try_from(integer("kind")?).map_err(|_|ProtocolError::Malformed)?;let opcode=u8::try_from(integer("opcode")?).map_err(|_|ProtocolError::Malformed)?;let id=u32::try_from(integer("id")?).map_err(|_|ProtocolError::Malformed)?;
     if kind>2||!(1..=12).contains(&opcode)||(kind==2)!=(id==0)||(kind==2)!=(opcode==12){return Err(ProtocolError::Malformed)}
-    let wrapped=nfield(&env,"body")?;let key=if kind==0{format!("request{opcode}")}else if kind==2{"event".into()}else if opcode==1{"matter".into()}else if opcode==2{"thread".into()}else{"reply".into()};
+    let wrapped=nfield(&env,"body")?;let key=if kind==0{generated::request_name(opcode).to_owned()}else if kind==2{"event".into()}else if opcode==1{"matter".into()}else if opcode==2{"thread".into()}else{"reply".into()};
     if !has(wrapped,&key){return Err(ProtocolError::Malformed)}
-    let body=normalize(wrapped.clone(),"Body",kind,opcode,"",true)
+    let body=normalize(wrapped.clone(),"MessageBody",kind,opcode,"",true)
         .and_then(|body| from_wire(body,"body",kind,opcode,"",&mut unknown));
     if unknown>0{warning(opcode,unknown)}
     let payload=match body{Ok(Json::Object(m))if kind==0&&opcode<=2&&m.is_empty()=>vec![],Ok(v)=>serde_json::to_vec(&v).map_err(|_|ProtocolError::Malformed)?,Err(_)=>b"!invalid protobuf body".to_vec()};

@@ -32,10 +32,11 @@ void codec(const std::string& root) {
     for(unsigned i=0;i<4;++i){devices[i].ieeeAddress=std::string("id-")+static_cast<char>('0'+i);devices[i].name="Büro \"lamp\"\n";}
     Device& d=devices[0];d.networkAddress=0x1234;d.hasTemperature=true;d.temperatureKnown=true;d.temperatureCelsius=-12.375;
     d.hasLight=true;d.lightKnown=true;d.lightOn=true;d.hasBrightness=true;d.brightnessKnown=true;d.brightnessPercent=55;
+    d.hasLowTemperatureAlert=true;d.lowTemperatureAlert=-5;d.hasHighTemperatureAlert=true;d.highTemperatureAlert=30;
     d.thermostat.sourceId="remote";d.thermostat.staleMinutes=60;d.lastSeen=1700000123;
     EndpointDescriptor endpoint;endpoint.endpoint=1;endpoint.profileId=260;endpoint.inputClusters.push_back(6);d.endpoints.push_back(endpoint);
     d.initialInterviewComplete=true;d.nodeDescriptor.assign(13,0x42);
-    DeviceValueAlert alert;alert.hasHigh=true;alert.high=30.5;alert.hysteresis=1.25;alert.unit="°C";d.valueAlerts["temperature"]=alert;
+    DeviceValueAlert alert;alert.hasLow=true;alert.low=-20;alert.hasHigh=true;alert.high=30.5;alert.hysteresis=1.25;alert.unit="°C";d.valueAlerts["temperature"]=alert;
     devices[1].source="matter";devices[1].matterNode="0000000000000012";devices[1].matterEndpoint=2;
     devices[1].matterServers.push_back(6);devices[1].matterClients.push_back(8);devices[1].matterDeviceTypes.push_back(256);
     devices[1].matterState="complete";devices[1].matterMetadataState="stale";

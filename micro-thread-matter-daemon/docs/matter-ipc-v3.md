@@ -1,14 +1,14 @@
 # Matter IPC v3: length-prefixed protobuf
 
 MicroHAD and `mthread-matter` communicate over `/tmp/microhad-matter.sock`.
-Each frame has a two-byte little-endian length followed by a protobuf Envelope,
+Each frame has a two-byte little-endian length followed by a protobuf `IpcEnvelope`,
 limited to 2048 bytes. Its version is 3. Kind, opcode, correlation ID, and body
 are inside the envelope. The authoritative schema is
 [`matter-ipc-v3.proto`](../../protocol/matter-ipc-v3.proto).
 
 Requests/responses use nonzero u32 correlations; responses repeat the opcode
 and correlation. Events use opcode 12 and correlation zero. Opcodes 1–11 keep
-their existing operations. The Body oneof must match kind/opcode. Status
+their existing operations. The `MessageBody` oneof must match kind/opcode. Status
 requests use empty messages. Other operation bodies retain `schema:1`.
 
 Bodies and nested results are typed protobuf messages. Optional scalars preserve
@@ -38,12 +38,19 @@ commits only complete node records.
 ## Bindings and builds
 
 The native implementation uses pinned nanopb 0.4.9.1 wire primitives and generated
-schema metadata, compiled as C99 with the legacy static-assert option. Rust uses
+schema metadata for IPC, compiled as C99 with the legacy static-assert option.
+The device RAM cache uses checked-in typed nanopb C bindings and callbacks
+that borrow the worker snapshot, with no generic value-tree conversion. Rust uses
 Prost with checked-in typed bindings. Python host fixtures use the same generated
 schema metadata; generated standard Python protobuf bindings are also supplied.
 The existing `matter-wire-shapes.json` table now serves only JSON/hex boundary
 conversion and action-specific allowlists; protobuf types and tags come from the
 `.proto` schemas.
+
+Messages use descriptive names (`MatterStatusRequest`,
+`CommissioningStartRequest`, `BleWriteCompleteRequest`, `DeviceControlRequest`)
+and named results (`BleAttachResult`, `BleIndicationResult`,
+`BleWriteCompleteResult`). The protocol version remains 3.
 
 Normal builds do not need generators. To regenerate in a private Python venv:
 

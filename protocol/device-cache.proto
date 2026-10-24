@@ -51,8 +51,8 @@ message CachedDevice {
   optional bool actor_on = 46;
   optional bool has_power = 47;
   optional bool power_known = 48;
-  optional bool has_low_temperature_alert = 49;
-  optional bool has_high_temperature_alert = 50;
+  optional bool low_temperature_alert_enabled = 49;
+  optional bool high_temperature_alert_enabled = 50;
   optional bool contact_trigger_mode = 51;
   optional bool initial_interview_complete = 52;
   optional sint64 network_address = 53;
@@ -83,4 +83,4 @@ message CachedDevice {
   repeated CachedAlert alerts = 105;
 }
 message CachedEndpoint { optional uint32 endpoint = 1; optional uint32 profile_id = 2; optional uint32 device_id = 3; repeated uint32 input_clusters = 4; repeated uint32 output_clusters = 5; optional uint32 device_version = 6; }
-message CachedAlert { optional string name = 1; optional bool has_low = 2; optional bool has_high = 3; optional double low = 4; optional double high = 5; optional double hysteresis = 6; optional string unit = 7; }
+message CachedAlert { optional string name = 1; optional bool low_enabled = 2; optional bool high_enabled = 3; optional double low = 4; optional double high = 5; optional double hysteresis = 6; optional string unit = 7; }

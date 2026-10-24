@@ -2,13 +2,13 @@
 use prost::Message;
 use super::{Value, ProtocolError};
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct Request1 {
+pub struct MatterStatusRequest {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct Request2 {
+pub struct ThreadStatusRequest {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct Request3 {
+pub struct CommissioningStartRequest {
 #[prost(uint32, optional, tag="1")]
 pub schema: Option<u32>,
 #[prost(uint32, optional, tag="2")]
@@ -23,7 +23,7 @@ pub country_code: Option<String>,
 pub regulatory_location: Option<String>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct Request4 {
+pub struct CommissioningStatusRequest {
 #[prost(uint32, optional, tag="1")]
 pub schema: Option<u32>,
 #[prost(uint64, optional, tag="2")]
@@ -32,14 +32,14 @@ pub session: Option<u64>,
 pub subscribe: Option<bool>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct Request5 {
+pub struct CommissioningCancelRequest {
 #[prost(uint32, optional, tag="1")]
 pub schema: Option<u32>,
 #[prost(uint64, optional, tag="2")]
 pub session: Option<u64>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct Request6 {
+pub struct BleAttachRequest {
 #[prost(uint32, optional, tag="1")]
 pub schema: Option<u32>,
 #[prost(uint64, optional, tag="2")]
@@ -50,7 +50,7 @@ pub address: Option<Vec<u8>>,
 pub mtu: Option<u32>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct Request7 {
+pub struct BleIndicationRequest {
 #[prost(uint32, optional, tag="1")]
 pub schema: Option<u32>,
 #[prost(uint64, optional, tag="2")]
@@ -63,7 +63,7 @@ pub sequence: Option<u32>,
 pub data: Option<Vec<u8>>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct Request8 {
+pub struct BleWriteCompleteRequest {
 #[prost(uint32, optional, tag="1")]
 pub schema: Option<u32>,
 #[prost(uint64, optional, tag="2")]
@@ -76,7 +76,7 @@ pub write: Option<u32>,
 pub success: Option<bool>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct Request9 {
+pub struct ThreadControlRequest {
 #[prost(uint32, optional, tag="1")]
 pub schema: Option<u32>,
 #[prost(string, optional, tag="2")]
@@ -91,7 +91,7 @@ pub zigbee_online: Option<bool>,
 pub dataset: Option<Vec<u8>>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct Request10 {
+pub struct DeviceControlRequest {
 #[prost(uint32, optional, tag="1")]
 pub schema: Option<u32>,
 #[prost(string, optional, tag="2")]
@@ -111,14 +111,14 @@ pub attribute: Option<u32>,
 #[prost(uint64, optional, tag="9")]
 pub job: Option<u64>,
 #[prost(message, optional, tag="10")]
-pub targets: Option<ListTarget>,
+pub targets: Option<BindingTargetList>,
 #[prost(bool, optional, tag="11")]
 pub local: Option<bool>,
 #[prost(bool, optional, tag="12")]
 pub restore: Option<bool>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct Request11 {
+pub struct DeviceCommandRequest {
 #[prost(uint32, optional, tag="1")]
 pub schema: Option<u32>,
 #[prost(uint64, optional, tag="2")]
@@ -141,7 +141,7 @@ pub time_zone: Option<String>,
 pub offset_seconds: Option<i64>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct Reply {
+pub struct OperationResponse {
 #[prost(uint32, optional, tag="1")]
 pub schema: Option<u32>,
 #[prost(bool, optional, tag="2")]
@@ -149,19 +149,19 @@ pub ok: Option<bool>,
 #[prost(string, optional, tag="3")]
 pub error: Option<String>,
 #[prost(message, optional, tag="4")]
-pub result: Option<Result>,
+pub result: Option<OperationResult>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct Event {
+pub struct EventNotification {
 #[prost(uint32, optional, tag="1")]
 pub schema: Option<u32>,
 #[prost(string, optional, tag="2")]
 pub event: Option<String>,
 #[prost(message, optional, tag="3")]
-pub data: Option<EventData>,
+pub data: Option<EventPayload>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct Matter {
+pub struct MatterStatus {
 #[prost(bool, optional, tag="1")]
 pub enabled: Option<bool>,
 #[prost(bool, optional, tag="2")]
@@ -176,7 +176,7 @@ pub state: Option<String>,
 pub commissioning_session: Option<u64>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct Thread {
+pub struct ThreadStatus {
 #[prost(bool, optional, tag="1")]
 pub enabled: Option<bool>,
 #[prost(bool, optional, tag="2")]
@@ -195,7 +195,7 @@ pub zigbee_channel: Option<u32>,
 pub dataset_channel: Option<u32>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct Session {
+pub struct CommissioningSession {
 #[prost(uint64, optional, tag="1")]
 pub session: Option<u64>,
 #[prost(string, optional, tag="2")]
@@ -208,31 +208,31 @@ pub error: Option<String>,
 pub node: Option<u64>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct Ack6 {
+pub struct BleAttachResult {
 #[prost(uint32, optional, tag="1")]
 pub generation: Option<u32>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct Ack7 {
+pub struct BleIndicationResult {
 #[prost(uint32, optional, tag="1")]
 pub sequence: Option<u32>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct Ack8 {
+pub struct BleWriteCompleteResult {
 #[prost(uint32, optional, tag="1")]
 pub write: Option<u32>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct Page {
+pub struct DeviceSnapshotPage {
 #[prost(uint64, optional, tag="1")]
 pub revision: Option<u64>,
 #[prost(message, optional, tag="2")]
-pub devices: Option<ListDevice>,
+pub devices: Option<MatterDeviceList>,
 #[prost(message, optional, tag="3")]
 pub next_cursor: Option<NullableUint>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct Device {
+pub struct MatterDevice {
 #[prost(uint64, optional, tag="1")]
 pub node: Option<u64>,
 #[prost(string, optional, tag="2")]
@@ -244,9 +244,9 @@ pub id: Option<NullableText>,
 #[prost(message, optional, tag="5")]
 pub endpoint: Option<NullableUint>,
 #[prost(message, optional, tag="6")]
-pub servers: Option<Listuint32>,
+pub servers: Option<UInt32List>,
 #[prost(message, optional, tag="7")]
-pub clients: Option<Listuint32>,
+pub clients: Option<UInt32List>,
 #[prost(string, optional, tag="8")]
 pub manufacturer: Option<String>,
 #[prost(string, optional, tag="9")]
@@ -254,10 +254,10 @@ pub model: Option<String>,
 #[prost(message, optional, tag="10")]
 pub rssi_dbm: Option<NullableInt>,
 #[prost(message, optional, tag="11")]
-pub device_types: Option<Listuint32>,
+pub device_types: Option<UInt32List>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct Job {
+pub struct DeviceOperationJob {
 #[prost(uint64, optional, tag="1")]
 pub job: Option<u64>,
 #[prost(string, optional, tag="2")]
@@ -265,10 +265,10 @@ pub state: Option<String>,
 #[prost(string, optional, tag="3")]
 pub error: Option<String>,
 #[prost(message, optional, tag="4")]
-pub result: Option<Reading>,
+pub result: Option<AttributeReading>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct Reading {
+pub struct AttributeReading {
 #[prost(uint64, optional, tag="1")]
 pub node: Option<u64>,
 #[prost(uint32, optional, tag="2")]
@@ -278,10 +278,10 @@ pub cluster: Option<u32>,
 #[prost(uint32, optional, tag="4")]
 pub attribute: Option<u32>,
 #[prost(message, optional, tag="5")]
-pub value: Option<Typed>,
+pub value: Option<AttributeValue>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct Typed {
+pub struct AttributeValue {
 #[prost(string, optional, tag="1")]
 pub r#type: Option<String>,
 #[prost(message, optional, tag="2")]
@@ -298,10 +298,10 @@ pub quality: Option<String>,
 #[prost(uint32, optional, tag="4")]
 pub mode: Option<u32>,
 #[prost(message, optional, tag="5")]
-pub transitions: Option<ListThermostatTransition>,
+pub transitions: Option<ThermostatTransitionList>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct BleWrite {
+pub struct BleWriteEvent {
 #[prost(uint64, optional, tag="1")]
 pub session: Option<u64>,
 #[prost(uint32, optional, tag="2")]
@@ -312,7 +312,7 @@ pub write: Option<u32>,
 pub data: Option<Vec<u8>>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct Button {
+pub struct ButtonEvent {
 #[prost(uint64, optional, tag="1")]
 pub node: Option<u64>,
 #[prost(uint32, optional, tag="2")]
@@ -325,7 +325,7 @@ pub position: Option<u32>,
 pub press_count: Option<u32>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct Target {
+pub struct BindingTarget {
 #[prost(uint64, optional, tag="1")]
 pub node: Option<u64>,
 #[prost(message, optional, tag="2")]
@@ -333,30 +333,30 @@ pub endpoint: Option<NullableUint>,
 #[prost(message, optional, tag="3")]
 pub group: Option<NullableUint>,
 #[prost(message, optional, tag="4")]
-pub members: Option<ListMember>,
+pub members: Option<BindingMemberList>,
 #[prost(uint32, optional, tag="5")]
 pub cluster: Option<u32>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct Member {
+pub struct BindingMember {
 #[prost(uint64, optional, tag="1")]
 pub node: Option<u64>,
 #[prost(uint32, optional, tag="2")]
 pub endpoint: Option<u32>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct Inventory {
+pub struct InventoryRecord {
 #[prost(string, optional, tag="1")]
 pub kind: Option<String>,
 #[prost(message, optional, tag="2")]
-pub device: Option<Device>,
+pub device: Option<MatterDevice>,
 #[prost(uint32, optional, tag="3")]
 pub endpoint_count: Option<u32>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct InventoryNodes {
+pub struct InventoryNodeManifest {
 #[prost(message, optional, tag="1")]
-pub nodes: Option<ListInventoryNode>,
+pub nodes: Option<InventoryNodeList>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct InventoryNode {
@@ -376,7 +376,7 @@ pub reachability: Option<String>,
 #[prost(message, optional, tag="5")]
 pub next_cursor: Option<NullableUint>,
 #[prost(message, optional, tag="6")]
-pub subscriptions: Option<ListSubscription>,
+pub subscriptions: Option<SubscriptionList>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Subscription {
@@ -404,7 +404,7 @@ pub struct ThermostatSchedule {
 #[prost(uint32, optional, tag="1")]
 pub mode: Option<u32>,
 #[prost(message, optional, tag="2")]
-pub transitions: Option<ListThermostatTransition>,
+pub transitions: Option<ThermostatTransitionList>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ThermostatTransition {
@@ -489,99 +489,99 @@ Text(String),
 #[prost(message, tag="7")]
 Measurement(Measurement),
 #[prost(message, tag="8")]
-List(UintList),
+List(ThermostatCapabilityList),
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct Result {
-#[prost(oneof="ResultChoice", tags="1,2,3,4,5,6,7,8")]
-pub choice: Option<ResultChoice>,
+pub struct OperationResult {
+#[prost(oneof="OperationResultChoice", tags="1,2,3,4,5,6,7,8")]
+pub choice: Option<OperationResultChoice>,
 }
 #[derive(Clone, PartialEq, ::prost::Oneof)]
-pub enum ResultChoice {
+pub enum OperationResultChoice {
 #[prost(message, tag="1")]
-Session(Session),
+Session(CommissioningSession),
 #[prost(message, tag="2")]
-Ack6(Ack6),
+BleAttachResult(BleAttachResult),
 #[prost(message, tag="3")]
-Ack7(Ack7),
+BleIndicationResult(BleIndicationResult),
 #[prost(message, tag="4")]
-Ack8(Ack8),
+BleWriteCompleteResult(BleWriteCompleteResult),
 #[prost(message, tag="5")]
-Thread(Thread),
+Thread(ThreadStatus),
 #[prost(message, tag="6")]
-Page(Page),
+Page(DeviceSnapshotPage),
 #[prost(message, tag="7")]
-Job(Job),
+Job(DeviceOperationJob),
 #[prost(message, tag="8")]
 SubscriptionHealth(SubscriptionHealth),
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct EventData {
-#[prost(oneof="EventDataChoice", tags="1,2,3,4,5,6,7")]
-pub choice: Option<EventDataChoice>,
+pub struct EventPayload {
+#[prost(oneof="EventPayloadChoice", tags="1,2,3,4,5,6,7")]
+pub choice: Option<EventPayloadChoice>,
 }
 #[derive(Clone, PartialEq, ::prost::Oneof)]
-pub enum EventDataChoice {
+pub enum EventPayloadChoice {
 #[prost(message, tag="1")]
-Thread(Thread),
+Thread(ThreadStatus),
 #[prost(message, tag="2")]
-Session(Session),
+Session(CommissioningSession),
 #[prost(message, tag="3")]
-BleWrite(BleWrite),
+BleWrite(BleWriteEvent),
 #[prost(message, tag="4")]
-Reading(Reading),
+Reading(AttributeReading),
 #[prost(message, tag="5")]
-Button(Button),
+Button(ButtonEvent),
 #[prost(message, tag="6")]
-Inventory(Inventory),
+Inventory(InventoryRecord),
 #[prost(message, tag="7")]
-InventoryNodes(InventoryNodes),
+InventoryNodes(InventoryNodeManifest),
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct Body {
-#[prost(oneof="BodyChoice", tags="1,2,3,4,5,6,7,8,9,10,11,12,13,14,15")]
-pub choice: Option<BodyChoice>,
+pub struct MessageBody {
+#[prost(oneof="MessageBodyChoice", tags="1,2,3,4,5,6,7,8,9,10,11,12,13,14,15")]
+pub choice: Option<MessageBodyChoice>,
 }
 #[derive(Clone, PartialEq, ::prost::Oneof)]
-pub enum BodyChoice {
+pub enum MessageBodyChoice {
 #[prost(message, tag="1")]
-Request1(Request1),
+MatterStatusRequest(MatterStatusRequest),
 #[prost(message, tag="2")]
-Request2(Request2),
+ThreadStatusRequest(ThreadStatusRequest),
 #[prost(message, tag="3")]
-Request3(Request3),
+CommissioningStartRequest(CommissioningStartRequest),
 #[prost(message, tag="4")]
-Request4(Request4),
+CommissioningStatusRequest(CommissioningStatusRequest),
 #[prost(message, tag="5")]
-Request5(Request5),
+CommissioningCancelRequest(CommissioningCancelRequest),
 #[prost(message, tag="6")]
-Request6(Request6),
+BleAttachRequest(BleAttachRequest),
 #[prost(message, tag="7")]
-Request7(Request7),
+BleIndicationRequest(BleIndicationRequest),
 #[prost(message, tag="8")]
-Request8(Request8),
+BleWriteCompleteRequest(BleWriteCompleteRequest),
 #[prost(message, tag="9")]
-Request9(Request9),
+ThreadControlRequest(ThreadControlRequest),
 #[prost(message, tag="10")]
-Request10(Request10),
+DeviceControlRequest(DeviceControlRequest),
 #[prost(message, tag="11")]
-Request11(Request11),
+DeviceCommandRequest(DeviceCommandRequest),
 #[prost(message, tag="12")]
-Matter(Matter),
+Matter(MatterStatus),
 #[prost(message, tag="13")]
-Thread(Thread),
+Thread(ThreadStatus),
 #[prost(message, tag="14")]
-Reply(Reply),
+Reply(OperationResponse),
 #[prost(message, tag="15")]
-Event(Event),
+Event(EventNotification),
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct UintList {
+pub struct ThermostatCapabilityList {
 #[prost(uint32, repeated, packed="false", tag="1")]
 pub items: Vec<u32>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct Envelope {
+pub struct IpcEnvelope {
 #[prost(uint32, optional, tag="1")]
 pub version: Option<u32>,
 #[prost(uint32, optional, tag="2")]
@@ -591,40 +591,40 @@ pub opcode: Option<u32>,
 #[prost(uint32, optional, tag="4")]
 pub id: Option<u32>,
 #[prost(message, optional, tag="5")]
-pub body: Option<Body>,
+pub body: Option<MessageBody>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ListTarget {
+pub struct BindingTargetList {
 #[prost(message, repeated, tag="1")]
-pub items: Vec<Target>,
+pub items: Vec<BindingTarget>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ListDevice {
+pub struct MatterDeviceList {
 #[prost(message, repeated, tag="1")]
-pub items: Vec<Device>,
+pub items: Vec<MatterDevice>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct Listuint32 {
+pub struct UInt32List {
 #[prost(uint32, repeated, packed="false", tag="1")]
 pub items: Vec<u32>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ListThermostatTransition {
+pub struct ThermostatTransitionList {
 #[prost(message, repeated, tag="1")]
 pub items: Vec<ThermostatTransition>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ListMember {
+pub struct BindingMemberList {
 #[prost(message, repeated, tag="1")]
-pub items: Vec<Member>,
+pub items: Vec<BindingMember>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ListInventoryNode {
+pub struct InventoryNodeList {
 #[prost(message, repeated, tag="1")]
 pub items: Vec<InventoryNode>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ListSubscription {
+pub struct SubscriptionList {
 #[prost(message, repeated, tag="1")]
 pub items: Vec<Subscription>,
 }
@@ -734,9 +734,9 @@ pub has_power: Option<bool>,
 #[prost(bool, optional, tag="48")]
 pub power_known: Option<bool>,
 #[prost(bool, optional, tag="49")]
-pub has_low_temperature_alert: Option<bool>,
+pub low_temperature_alert_enabled: Option<bool>,
 #[prost(bool, optional, tag="50")]
-pub has_high_temperature_alert: Option<bool>,
+pub high_temperature_alert_enabled: Option<bool>,
 #[prost(bool, optional, tag="51")]
 pub contact_trigger_mode: Option<bool>,
 #[prost(bool, optional, tag="52")]
@@ -814,9 +814,9 @@ pub struct CachedAlert {
 #[prost(string, optional, tag="1")]
 pub name: Option<String>,
 #[prost(bool, optional, tag="2")]
-pub has_low: Option<bool>,
+pub low_enabled: Option<bool>,
 #[prost(bool, optional, tag="3")]
-pub has_high: Option<bool>,
+pub high_enabled: Option<bool>,
 #[prost(double, optional, tag="4")]
 pub low: Option<f64>,
 #[prost(double, optional, tag="5")]
@@ -826,26 +826,26 @@ pub hysteresis: Option<f64>,
 #[prost(string, optional, tag="7")]
 pub unit: Option<String>,
 }
-fn to_Request1(v: &Value) -> std::result::Result<Request1, ProtocolError> {
-let mut m=Request1::default();
+fn to_MatterStatusRequest(v: &Value) -> std::result::Result<MatterStatusRequest, ProtocolError> {
+let mut m=MatterStatusRequest::default();
 let fields=object(v)?;
 Ok(m)
 }
-fn from_Request1(m: Request1) -> Value {
+fn from_MatterStatusRequest(m: MatterStatusRequest) -> Value {
 let mut fields=Vec::new();
 Value::Map(fields)
 }
-fn to_Request2(v: &Value) -> std::result::Result<Request2, ProtocolError> {
-let mut m=Request2::default();
+fn to_ThreadStatusRequest(v: &Value) -> std::result::Result<ThreadStatusRequest, ProtocolError> {
+let mut m=ThreadStatusRequest::default();
 let fields=object(v)?;
 Ok(m)
 }
-fn from_Request2(m: Request2) -> Value {
+fn from_ThreadStatusRequest(m: ThreadStatusRequest) -> Value {
 let mut fields=Vec::new();
 Value::Map(fields)
 }
-fn to_Request3(v: &Value) -> std::result::Result<Request3, ProtocolError> {
-let mut m=Request3::default();
+fn to_CommissioningStartRequest(v: &Value) -> std::result::Result<CommissioningStartRequest, ProtocolError> {
+let mut m=CommissioningStartRequest::default();
 let fields=object(v)?;
 if let Some(v)=lookup(fields,"schema") { m.schema=Some(u32::try_from(unsigned(v)?).map_err(|_| ProtocolError::Malformed)?); }
 if let Some(v)=lookup(fields,"discriminator") { m.discriminator=Some(u32::try_from(unsigned(v)?).map_err(|_| ProtocolError::Malformed)?); }
@@ -855,7 +855,7 @@ if let Some(v)=lookup(fields,"country_code") { m.country_code=Some(text(v)?); }
 if let Some(v)=lookup(fields,"regulatory_location") { m.regulatory_location=Some(text(v)?); }
 Ok(m)
 }
-fn from_Request3(m: Request3) -> Value {
+fn from_CommissioningStartRequest(m: CommissioningStartRequest) -> Value {
 let mut fields=Vec::new();
 if let Some(v)=m.schema { fields.push((Value::Text("schema".into()), Value::Integer(i128::from(v)))); }
 if let Some(v)=m.discriminator { fields.push((Value::Text("discriminator".into()), Value::Integer(i128::from(v)))); }
@@ -865,36 +865,36 @@ if let Some(v)=m.country_code { fields.push((Value::Text("country_code".into()),
 if let Some(v)=m.regulatory_location { fields.push((Value::Text("regulatory_location".into()), Value::Text(v))); }
 Value::Map(fields)
 }
-fn to_Request4(v: &Value) -> std::result::Result<Request4, ProtocolError> {
-let mut m=Request4::default();
+fn to_CommissioningStatusRequest(v: &Value) -> std::result::Result<CommissioningStatusRequest, ProtocolError> {
+let mut m=CommissioningStatusRequest::default();
 let fields=object(v)?;
 if let Some(v)=lookup(fields,"schema") { m.schema=Some(u32::try_from(unsigned(v)?).map_err(|_| ProtocolError::Malformed)?); }
 if let Some(v)=lookup(fields,"session") { m.session=Some(unsigned(v)?); }
 if let Some(v)=lookup(fields,"subscribe") { m.subscribe=Some(boolean(v)?); }
 Ok(m)
 }
-fn from_Request4(m: Request4) -> Value {
+fn from_CommissioningStatusRequest(m: CommissioningStatusRequest) -> Value {
 let mut fields=Vec::new();
 if let Some(v)=m.schema { fields.push((Value::Text("schema".into()), Value::Integer(i128::from(v)))); }
 if let Some(v)=m.session { fields.push((Value::Text("session".into()), Value::Integer(i128::from(v)))); }
 if let Some(v)=m.subscribe { fields.push((Value::Text("subscribe".into()), Value::Bool(v))); }
 Value::Map(fields)
 }
-fn to_Request5(v: &Value) -> std::result::Result<Request5, ProtocolError> {
-let mut m=Request5::default();
+fn to_CommissioningCancelRequest(v: &Value) -> std::result::Result<CommissioningCancelRequest, ProtocolError> {
+let mut m=CommissioningCancelRequest::default();
 let fields=object(v)?;
 if let Some(v)=lookup(fields,"schema") { m.schema=Some(u32::try_from(unsigned(v)?).map_err(|_| ProtocolError::Malformed)?); }
 if let Some(v)=lookup(fields,"session") { m.session=Some(unsigned(v)?); }
 Ok(m)
 }
-fn from_Request5(m: Request5) -> Value {
+fn from_CommissioningCancelRequest(m: CommissioningCancelRequest) -> Value {
 let mut fields=Vec::new();
 if let Some(v)=m.schema { fields.push((Value::Text("schema".into()), Value::Integer(i128::from(v)))); }
 if let Some(v)=m.session { fields.push((Value::Text("session".into()), Value::Integer(i128::from(v)))); }
 Value::Map(fields)
 }
-fn to_Request6(v: &Value) -> std::result::Result<Request6, ProtocolError> {
-let mut m=Request6::default();
+fn to_BleAttachRequest(v: &Value) -> std::result::Result<BleAttachRequest, ProtocolError> {
+let mut m=BleAttachRequest::default();
 let fields=object(v)?;
 if let Some(v)=lookup(fields,"schema") { m.schema=Some(u32::try_from(unsigned(v)?).map_err(|_| ProtocolError::Malformed)?); }
 if let Some(v)=lookup(fields,"session") { m.session=Some(unsigned(v)?); }
@@ -902,7 +902,7 @@ if let Some(v)=lookup(fields,"address") { m.address=Some(binary(v)?); }
 if let Some(v)=lookup(fields,"mtu") { m.mtu=Some(u32::try_from(unsigned(v)?).map_err(|_| ProtocolError::Malformed)?); }
 Ok(m)
 }
-fn from_Request6(m: Request6) -> Value {
+fn from_BleAttachRequest(m: BleAttachRequest) -> Value {
 let mut fields=Vec::new();
 if let Some(v)=m.schema { fields.push((Value::Text("schema".into()), Value::Integer(i128::from(v)))); }
 if let Some(v)=m.session { fields.push((Value::Text("session".into()), Value::Integer(i128::from(v)))); }
@@ -910,8 +910,8 @@ if let Some(v)=m.address { fields.push((Value::Text("address".into()), Value::By
 if let Some(v)=m.mtu { fields.push((Value::Text("mtu".into()), Value::Integer(i128::from(v)))); }
 Value::Map(fields)
 }
-fn to_Request7(v: &Value) -> std::result::Result<Request7, ProtocolError> {
-let mut m=Request7::default();
+fn to_BleIndicationRequest(v: &Value) -> std::result::Result<BleIndicationRequest, ProtocolError> {
+let mut m=BleIndicationRequest::default();
 let fields=object(v)?;
 if let Some(v)=lookup(fields,"schema") { m.schema=Some(u32::try_from(unsigned(v)?).map_err(|_| ProtocolError::Malformed)?); }
 if let Some(v)=lookup(fields,"session") { m.session=Some(unsigned(v)?); }
@@ -920,7 +920,7 @@ if let Some(v)=lookup(fields,"sequence") { m.sequence=Some(u32::try_from(unsigne
 if let Some(v)=lookup(fields,"data") { m.data=Some(binary(v)?); }
 Ok(m)
 }
-fn from_Request7(m: Request7) -> Value {
+fn from_BleIndicationRequest(m: BleIndicationRequest) -> Value {
 let mut fields=Vec::new();
 if let Some(v)=m.schema { fields.push((Value::Text("schema".into()), Value::Integer(i128::from(v)))); }
 if let Some(v)=m.session { fields.push((Value::Text("session".into()), Value::Integer(i128::from(v)))); }
@@ -929,8 +929,8 @@ if let Some(v)=m.sequence { fields.push((Value::Text("sequence".into()), Value::
 if let Some(v)=m.data { fields.push((Value::Text("data".into()), Value::Bytes(v))); }
 Value::Map(fields)
 }
-fn to_Request8(v: &Value) -> std::result::Result<Request8, ProtocolError> {
-let mut m=Request8::default();
+fn to_BleWriteCompleteRequest(v: &Value) -> std::result::Result<BleWriteCompleteRequest, ProtocolError> {
+let mut m=BleWriteCompleteRequest::default();
 let fields=object(v)?;
 if let Some(v)=lookup(fields,"schema") { m.schema=Some(u32::try_from(unsigned(v)?).map_err(|_| ProtocolError::Malformed)?); }
 if let Some(v)=lookup(fields,"session") { m.session=Some(unsigned(v)?); }
@@ -939,7 +939,7 @@ if let Some(v)=lookup(fields,"write") { m.write=Some(u32::try_from(unsigned(v)?)
 if let Some(v)=lookup(fields,"success") { m.success=Some(boolean(v)?); }
 Ok(m)
 }
-fn from_Request8(m: Request8) -> Value {
+fn from_BleWriteCompleteRequest(m: BleWriteCompleteRequest) -> Value {
 let mut fields=Vec::new();
 if let Some(v)=m.schema { fields.push((Value::Text("schema".into()), Value::Integer(i128::from(v)))); }
 if let Some(v)=m.session { fields.push((Value::Text("session".into()), Value::Integer(i128::from(v)))); }
@@ -948,8 +948,8 @@ if let Some(v)=m.write { fields.push((Value::Text("write".into()), Value::Intege
 if let Some(v)=m.success { fields.push((Value::Text("success".into()), Value::Bool(v))); }
 Value::Map(fields)
 }
-fn to_Request9(v: &Value) -> std::result::Result<Request9, ProtocolError> {
-let mut m=Request9::default();
+fn to_ThreadControlRequest(v: &Value) -> std::result::Result<ThreadControlRequest, ProtocolError> {
+let mut m=ThreadControlRequest::default();
 let fields=object(v)?;
 if let Some(v)=lookup(fields,"schema") { m.schema=Some(u32::try_from(unsigned(v)?).map_err(|_| ProtocolError::Malformed)?); }
 if let Some(v)=lookup(fields,"action") { m.action=Some(text(v)?); }
@@ -959,7 +959,7 @@ if let Some(v)=lookup(fields,"zigbee_online") { m.zigbee_online=Some(boolean(v)?
 if let Some(v)=lookup(fields,"dataset") { m.dataset=Some(binary(v)?); }
 Ok(m)
 }
-fn from_Request9(m: Request9) -> Value {
+fn from_ThreadControlRequest(m: ThreadControlRequest) -> Value {
 let mut fields=Vec::new();
 if let Some(v)=m.schema { fields.push((Value::Text("schema".into()), Value::Integer(i128::from(v)))); }
 if let Some(v)=m.action { fields.push((Value::Text("action".into()), Value::Text(v))); }
@@ -969,8 +969,8 @@ if let Some(v)=m.zigbee_online { fields.push((Value::Text("zigbee_online".into()
 if let Some(v)=m.dataset { fields.push((Value::Text("dataset".into()), Value::Bytes(v))); }
 Value::Map(fields)
 }
-fn to_Request10(v: &Value) -> std::result::Result<Request10, ProtocolError> {
-let mut m=Request10::default();
+fn to_DeviceControlRequest(v: &Value) -> std::result::Result<DeviceControlRequest, ProtocolError> {
+let mut m=DeviceControlRequest::default();
 let fields=object(v)?;
 if let Some(v)=lookup(fields,"schema") { m.schema=Some(u32::try_from(unsigned(v)?).map_err(|_| ProtocolError::Malformed)?); }
 if let Some(v)=lookup(fields,"action") { m.action=Some(text(v)?); }
@@ -981,12 +981,12 @@ if let Some(v)=lookup(fields,"endpoint") { m.endpoint=Some(u32::try_from(unsigne
 if let Some(v)=lookup(fields,"cluster") { m.cluster=Some(u32::try_from(unsigned(v)?).map_err(|_| ProtocolError::Malformed)?); }
 if let Some(v)=lookup(fields,"attribute") { m.attribute=Some(u32::try_from(unsigned(v)?).map_err(|_| ProtocolError::Malformed)?); }
 if let Some(v)=lookup(fields,"job") { m.job=Some(unsigned(v)?); }
-if let Some(v)=lookup(fields,"targets") { m.targets=Some(to_ListTarget(v)?); }
+if let Some(v)=lookup(fields,"targets") { m.targets=Some(to_BindingTargetList(v)?); }
 if let Some(v)=lookup(fields,"local") { m.local=Some(boolean(v)?); }
 if let Some(v)=lookup(fields,"restore") { m.restore=Some(boolean(v)?); }
 Ok(m)
 }
-fn from_Request10(m: Request10) -> Value {
+fn from_DeviceControlRequest(m: DeviceControlRequest) -> Value {
 let mut fields=Vec::new();
 if let Some(v)=m.schema { fields.push((Value::Text("schema".into()), Value::Integer(i128::from(v)))); }
 if let Some(v)=m.action { fields.push((Value::Text("action".into()), Value::Text(v))); }
@@ -997,13 +997,13 @@ if let Some(v)=m.endpoint { fields.push((Value::Text("endpoint".into()), Value::
 if let Some(v)=m.cluster { fields.push((Value::Text("cluster".into()), Value::Integer(i128::from(v)))); }
 if let Some(v)=m.attribute { fields.push((Value::Text("attribute".into()), Value::Integer(i128::from(v)))); }
 if let Some(v)=m.job { fields.push((Value::Text("job".into()), Value::Integer(i128::from(v)))); }
-if let Some(v)=m.targets { fields.push((Value::Text("targets".into()), from_ListTarget(v))); }
+if let Some(v)=m.targets { fields.push((Value::Text("targets".into()), from_BindingTargetList(v))); }
 if let Some(v)=m.local { fields.push((Value::Text("local".into()), Value::Bool(v))); }
 if let Some(v)=m.restore { fields.push((Value::Text("restore".into()), Value::Bool(v))); }
 Value::Map(fields)
 }
-fn to_Request11(v: &Value) -> std::result::Result<Request11, ProtocolError> {
-let mut m=Request11::default();
+fn to_DeviceCommandRequest(v: &Value) -> std::result::Result<DeviceCommandRequest, ProtocolError> {
+let mut m=DeviceCommandRequest::default();
 let fields=object(v)?;
 if let Some(v)=lookup(fields,"schema") { m.schema=Some(u32::try_from(unsigned(v)?).map_err(|_| ProtocolError::Malformed)?); }
 if let Some(v)=lookup(fields,"node") { m.node=Some(unsigned(v)?); }
@@ -1017,7 +1017,7 @@ if let Some(v)=lookup(fields,"time_zone") { m.time_zone=Some(text(v)?); }
 if let Some(v)=lookup(fields,"offset_seconds") { m.offset_seconds=Some(signed(v)?); }
 Ok(m)
 }
-fn from_Request11(m: Request11) -> Value {
+fn from_DeviceCommandRequest(m: DeviceCommandRequest) -> Value {
 let mut fields=Vec::new();
 if let Some(v)=m.schema { fields.push((Value::Text("schema".into()), Value::Integer(i128::from(v)))); }
 if let Some(v)=m.node { fields.push((Value::Text("node".into()), Value::Integer(i128::from(v)))); }
@@ -1031,40 +1031,40 @@ if let Some(v)=m.time_zone { fields.push((Value::Text("time_zone".into()), Value
 if let Some(v)=m.offset_seconds { fields.push((Value::Text("offset_seconds".into()), Value::Integer(i128::from(v)))); }
 Value::Map(fields)
 }
-fn to_Reply(v: &Value) -> std::result::Result<Reply, ProtocolError> {
-let mut m=Reply::default();
+fn to_OperationResponse(v: &Value) -> std::result::Result<OperationResponse, ProtocolError> {
+let mut m=OperationResponse::default();
 let fields=object(v)?;
 if let Some(v)=lookup(fields,"schema") { m.schema=Some(u32::try_from(unsigned(v)?).map_err(|_| ProtocolError::Malformed)?); }
 if let Some(v)=lookup(fields,"ok") { m.ok=Some(boolean(v)?); }
 if let Some(v)=lookup(fields,"error") { m.error=Some(text(v)?); }
-if let Some(v)=lookup(fields,"result") { m.result=Some(to_Result(v)?); }
+if let Some(v)=lookup(fields,"result") { m.result=Some(to_OperationResult(v)?); }
 Ok(m)
 }
-fn from_Reply(m: Reply) -> Value {
+fn from_OperationResponse(m: OperationResponse) -> Value {
 let mut fields=Vec::new();
 if let Some(v)=m.schema { fields.push((Value::Text("schema".into()), Value::Integer(i128::from(v)))); }
 if let Some(v)=m.ok { fields.push((Value::Text("ok".into()), Value::Bool(v))); }
 if let Some(v)=m.error { fields.push((Value::Text("error".into()), Value::Text(v))); }
-if let Some(v)=m.result { fields.push((Value::Text("result".into()), from_Result(v))); }
+if let Some(v)=m.result { fields.push((Value::Text("result".into()), from_OperationResult(v))); }
 Value::Map(fields)
 }
-fn to_Event(v: &Value) -> std::result::Result<Event, ProtocolError> {
-let mut m=Event::default();
+fn to_EventNotification(v: &Value) -> std::result::Result<EventNotification, ProtocolError> {
+let mut m=EventNotification::default();
 let fields=object(v)?;
 if let Some(v)=lookup(fields,"schema") { m.schema=Some(u32::try_from(unsigned(v)?).map_err(|_| ProtocolError::Malformed)?); }
 if let Some(v)=lookup(fields,"event") { m.event=Some(text(v)?); }
-if let Some(v)=lookup(fields,"data") { m.data=Some(to_EventData(v)?); }
+if let Some(v)=lookup(fields,"data") { m.data=Some(to_EventPayload(v)?); }
 Ok(m)
 }
-fn from_Event(m: Event) -> Value {
+fn from_EventNotification(m: EventNotification) -> Value {
 let mut fields=Vec::new();
 if let Some(v)=m.schema { fields.push((Value::Text("schema".into()), Value::Integer(i128::from(v)))); }
 if let Some(v)=m.event { fields.push((Value::Text("event".into()), Value::Text(v))); }
-if let Some(v)=m.data { fields.push((Value::Text("data".into()), from_EventData(v))); }
+if let Some(v)=m.data { fields.push((Value::Text("data".into()), from_EventPayload(v))); }
 Value::Map(fields)
 }
-fn to_Matter(v: &Value) -> std::result::Result<Matter, ProtocolError> {
-let mut m=Matter::default();
+fn to_MatterStatus(v: &Value) -> std::result::Result<MatterStatus, ProtocolError> {
+let mut m=MatterStatus::default();
 let fields=object(v)?;
 if let Some(v)=lookup(fields,"enabled") { m.enabled=Some(boolean(v)?); }
 if let Some(v)=lookup(fields,"available") { m.available=Some(boolean(v)?); }
@@ -1074,7 +1074,7 @@ if let Some(v)=lookup(fields,"state") { m.state=Some(text(v)?); }
 if let Some(v)=lookup(fields,"commissioning_session") { m.commissioning_session=Some(unsigned(v)?); }
 Ok(m)
 }
-fn from_Matter(m: Matter) -> Value {
+fn from_MatterStatus(m: MatterStatus) -> Value {
 let mut fields=Vec::new();
 if let Some(v)=m.enabled { fields.push((Value::Text("enabled".into()), Value::Bool(v))); }
 if let Some(v)=m.available { fields.push((Value::Text("available".into()), Value::Bool(v))); }
@@ -1084,8 +1084,8 @@ if let Some(v)=m.state { fields.push((Value::Text("state".into()), Value::Text(v
 if let Some(v)=m.commissioning_session { fields.push((Value::Text("commissioning_session".into()), Value::Integer(i128::from(v)))); }
 Value::Map(fields)
 }
-fn to_Thread(v: &Value) -> std::result::Result<Thread, ProtocolError> {
-let mut m=Thread::default();
+fn to_ThreadStatus(v: &Value) -> std::result::Result<ThreadStatus, ProtocolError> {
+let mut m=ThreadStatus::default();
 let fields=object(v)?;
 if let Some(v)=lookup(fields,"enabled") { m.enabled=Some(boolean(v)?); }
 if let Some(v)=lookup(fields,"available") { m.available=Some(boolean(v)?); }
@@ -1097,7 +1097,7 @@ if let Some(v)=lookup(fields,"zigbee_channel") { m.zigbee_channel=Some(u32::try_
 if let Some(v)=lookup(fields,"dataset_channel") { m.dataset_channel=Some(u32::try_from(unsigned(v)?).map_err(|_| ProtocolError::Malformed)?); }
 Ok(m)
 }
-fn from_Thread(m: Thread) -> Value {
+fn from_ThreadStatus(m: ThreadStatus) -> Value {
 let mut fields=Vec::new();
 if let Some(v)=m.enabled { fields.push((Value::Text("enabled".into()), Value::Bool(v))); }
 if let Some(v)=m.available { fields.push((Value::Text("available".into()), Value::Bool(v))); }
@@ -1109,8 +1109,8 @@ if let Some(v)=m.zigbee_channel { fields.push((Value::Text("zigbee_channel".into
 if let Some(v)=m.dataset_channel { fields.push((Value::Text("dataset_channel".into()), Value::Integer(i128::from(v)))); }
 Value::Map(fields)
 }
-fn to_Session(v: &Value) -> std::result::Result<Session, ProtocolError> {
-let mut m=Session::default();
+fn to_CommissioningSession(v: &Value) -> std::result::Result<CommissioningSession, ProtocolError> {
+let mut m=CommissioningSession::default();
 let fields=object(v)?;
 if let Some(v)=lookup(fields,"session") { m.session=Some(unsigned(v)?); }
 if let Some(v)=lookup(fields,"state") { m.state=Some(text(v)?); }
@@ -1119,7 +1119,7 @@ if let Some(v)=lookup(fields,"error") { m.error=Some(text(v)?); }
 if let Some(v)=lookup(fields,"node") { m.node=Some(unsigned(v)?); }
 Ok(m)
 }
-fn from_Session(m: Session) -> Value {
+fn from_CommissioningSession(m: CommissioningSession) -> Value {
 let mut fields=Vec::new();
 if let Some(v)=m.session { fields.push((Value::Text("session".into()), Value::Integer(i128::from(v)))); }
 if let Some(v)=m.state { fields.push((Value::Text("state".into()), Value::Text(v))); }
@@ -1128,129 +1128,129 @@ if let Some(v)=m.error { fields.push((Value::Text("error".into()), Value::Text(v
 if let Some(v)=m.node { fields.push((Value::Text("node".into()), Value::Integer(i128::from(v)))); }
 Value::Map(fields)
 }
-fn to_Ack6(v: &Value) -> std::result::Result<Ack6, ProtocolError> {
-let mut m=Ack6::default();
+fn to_BleAttachResult(v: &Value) -> std::result::Result<BleAttachResult, ProtocolError> {
+let mut m=BleAttachResult::default();
 let fields=object(v)?;
 if let Some(v)=lookup(fields,"generation") { m.generation=Some(u32::try_from(unsigned(v)?).map_err(|_| ProtocolError::Malformed)?); }
 Ok(m)
 }
-fn from_Ack6(m: Ack6) -> Value {
+fn from_BleAttachResult(m: BleAttachResult) -> Value {
 let mut fields=Vec::new();
 if let Some(v)=m.generation { fields.push((Value::Text("generation".into()), Value::Integer(i128::from(v)))); }
 Value::Map(fields)
 }
-fn to_Ack7(v: &Value) -> std::result::Result<Ack7, ProtocolError> {
-let mut m=Ack7::default();
+fn to_BleIndicationResult(v: &Value) -> std::result::Result<BleIndicationResult, ProtocolError> {
+let mut m=BleIndicationResult::default();
 let fields=object(v)?;
 if let Some(v)=lookup(fields,"sequence") { m.sequence=Some(u32::try_from(unsigned(v)?).map_err(|_| ProtocolError::Malformed)?); }
 Ok(m)
 }
-fn from_Ack7(m: Ack7) -> Value {
+fn from_BleIndicationResult(m: BleIndicationResult) -> Value {
 let mut fields=Vec::new();
 if let Some(v)=m.sequence { fields.push((Value::Text("sequence".into()), Value::Integer(i128::from(v)))); }
 Value::Map(fields)
 }
-fn to_Ack8(v: &Value) -> std::result::Result<Ack8, ProtocolError> {
-let mut m=Ack8::default();
+fn to_BleWriteCompleteResult(v: &Value) -> std::result::Result<BleWriteCompleteResult, ProtocolError> {
+let mut m=BleWriteCompleteResult::default();
 let fields=object(v)?;
 if let Some(v)=lookup(fields,"write") { m.write=Some(u32::try_from(unsigned(v)?).map_err(|_| ProtocolError::Malformed)?); }
 Ok(m)
 }
-fn from_Ack8(m: Ack8) -> Value {
+fn from_BleWriteCompleteResult(m: BleWriteCompleteResult) -> Value {
 let mut fields=Vec::new();
 if let Some(v)=m.write { fields.push((Value::Text("write".into()), Value::Integer(i128::from(v)))); }
 Value::Map(fields)
 }
-fn to_Page(v: &Value) -> std::result::Result<Page, ProtocolError> {
-let mut m=Page::default();
+fn to_DeviceSnapshotPage(v: &Value) -> std::result::Result<DeviceSnapshotPage, ProtocolError> {
+let mut m=DeviceSnapshotPage::default();
 let fields=object(v)?;
 if let Some(v)=lookup(fields,"revision") { m.revision=Some(unsigned(v)?); }
-if let Some(v)=lookup(fields,"devices") { m.devices=Some(to_ListDevice(v)?); }
+if let Some(v)=lookup(fields,"devices") { m.devices=Some(to_MatterDeviceList(v)?); }
 if let Some(v)=lookup(fields,"next_cursor") { m.next_cursor=Some(to_NullableUint(v)?); }
 Ok(m)
 }
-fn from_Page(m: Page) -> Value {
+fn from_DeviceSnapshotPage(m: DeviceSnapshotPage) -> Value {
 let mut fields=Vec::new();
 if let Some(v)=m.revision { fields.push((Value::Text("revision".into()), Value::Integer(i128::from(v)))); }
-if let Some(v)=m.devices { fields.push((Value::Text("devices".into()), from_ListDevice(v))); }
+if let Some(v)=m.devices { fields.push((Value::Text("devices".into()), from_MatterDeviceList(v))); }
 if let Some(v)=m.next_cursor { fields.push((Value::Text("next_cursor".into()), from_NullableUint(v))); }
 Value::Map(fields)
 }
-fn to_Device(v: &Value) -> std::result::Result<Device, ProtocolError> {
-let mut m=Device::default();
+fn to_MatterDevice(v: &Value) -> std::result::Result<MatterDevice, ProtocolError> {
+let mut m=MatterDevice::default();
 let fields=object(v)?;
 if let Some(v)=lookup(fields,"node") { m.node=Some(unsigned(v)?); }
 if let Some(v)=lookup(fields,"state") { m.state=Some(text(v)?); }
 if let Some(v)=lookup(fields,"online") { m.online=Some(boolean(v)?); }
 if let Some(v)=lookup(fields,"id") { m.id=Some(to_NullableText(v)?); }
 if let Some(v)=lookup(fields,"endpoint") { m.endpoint=Some(to_NullableUint(v)?); }
-if let Some(v)=lookup(fields,"servers") { m.servers=Some(to_Listuint32(v)?); }
-if let Some(v)=lookup(fields,"clients") { m.clients=Some(to_Listuint32(v)?); }
+if let Some(v)=lookup(fields,"servers") { m.servers=Some(to_UInt32List(v)?); }
+if let Some(v)=lookup(fields,"clients") { m.clients=Some(to_UInt32List(v)?); }
 if let Some(v)=lookup(fields,"manufacturer") { m.manufacturer=Some(text(v)?); }
 if let Some(v)=lookup(fields,"model") { m.model=Some(text(v)?); }
 if let Some(v)=lookup(fields,"rssi_dbm") { m.rssi_dbm=Some(to_NullableInt(v)?); }
-if let Some(v)=lookup(fields,"device_types") { m.device_types=Some(to_Listuint32(v)?); }
+if let Some(v)=lookup(fields,"device_types") { m.device_types=Some(to_UInt32List(v)?); }
 Ok(m)
 }
-fn from_Device(m: Device) -> Value {
+fn from_MatterDevice(m: MatterDevice) -> Value {
 let mut fields=Vec::new();
 if let Some(v)=m.node { fields.push((Value::Text("node".into()), Value::Integer(i128::from(v)))); }
 if let Some(v)=m.state { fields.push((Value::Text("state".into()), Value::Text(v))); }
 if let Some(v)=m.online { fields.push((Value::Text("online".into()), Value::Bool(v))); }
 if let Some(v)=m.id { fields.push((Value::Text("id".into()), from_NullableText(v))); }
 if let Some(v)=m.endpoint { fields.push((Value::Text("endpoint".into()), from_NullableUint(v))); }
-if let Some(v)=m.servers { fields.push((Value::Text("servers".into()), from_Listuint32(v))); }
-if let Some(v)=m.clients { fields.push((Value::Text("clients".into()), from_Listuint32(v))); }
+if let Some(v)=m.servers { fields.push((Value::Text("servers".into()), from_UInt32List(v))); }
+if let Some(v)=m.clients { fields.push((Value::Text("clients".into()), from_UInt32List(v))); }
 if let Some(v)=m.manufacturer { fields.push((Value::Text("manufacturer".into()), Value::Text(v))); }
 if let Some(v)=m.model { fields.push((Value::Text("model".into()), Value::Text(v))); }
 if let Some(v)=m.rssi_dbm { fields.push((Value::Text("rssi_dbm".into()), from_NullableInt(v))); }
-if let Some(v)=m.device_types { fields.push((Value::Text("device_types".into()), from_Listuint32(v))); }
+if let Some(v)=m.device_types { fields.push((Value::Text("device_types".into()), from_UInt32List(v))); }
 Value::Map(fields)
 }
-fn to_Job(v: &Value) -> std::result::Result<Job, ProtocolError> {
-let mut m=Job::default();
+fn to_DeviceOperationJob(v: &Value) -> std::result::Result<DeviceOperationJob, ProtocolError> {
+let mut m=DeviceOperationJob::default();
 let fields=object(v)?;
 if let Some(v)=lookup(fields,"job") { m.job=Some(unsigned(v)?); }
 if let Some(v)=lookup(fields,"state") { m.state=Some(text(v)?); }
 if let Some(v)=lookup(fields,"error") { m.error=Some(text(v)?); }
-if let Some(v)=lookup(fields,"result") { m.result=Some(to_Reading(v)?); }
+if let Some(v)=lookup(fields,"result") { m.result=Some(to_AttributeReading(v)?); }
 Ok(m)
 }
-fn from_Job(m: Job) -> Value {
+fn from_DeviceOperationJob(m: DeviceOperationJob) -> Value {
 let mut fields=Vec::new();
 if let Some(v)=m.job { fields.push((Value::Text("job".into()), Value::Integer(i128::from(v)))); }
 if let Some(v)=m.state { fields.push((Value::Text("state".into()), Value::Text(v))); }
 if let Some(v)=m.error { fields.push((Value::Text("error".into()), Value::Text(v))); }
-if let Some(v)=m.result { fields.push((Value::Text("result".into()), from_Reading(v))); }
+if let Some(v)=m.result { fields.push((Value::Text("result".into()), from_AttributeReading(v))); }
 Value::Map(fields)
 }
-fn to_Reading(v: &Value) -> std::result::Result<Reading, ProtocolError> {
-let mut m=Reading::default();
+fn to_AttributeReading(v: &Value) -> std::result::Result<AttributeReading, ProtocolError> {
+let mut m=AttributeReading::default();
 let fields=object(v)?;
 if let Some(v)=lookup(fields,"node") { m.node=Some(unsigned(v)?); }
 if let Some(v)=lookup(fields,"endpoint") { m.endpoint=Some(u32::try_from(unsigned(v)?).map_err(|_| ProtocolError::Malformed)?); }
 if let Some(v)=lookup(fields,"cluster") { m.cluster=Some(u32::try_from(unsigned(v)?).map_err(|_| ProtocolError::Malformed)?); }
 if let Some(v)=lookup(fields,"attribute") { m.attribute=Some(u32::try_from(unsigned(v)?).map_err(|_| ProtocolError::Malformed)?); }
-if let Some(v)=lookup(fields,"value") { m.value=Some(to_Typed(v)?); }
+if let Some(v)=lookup(fields,"value") { m.value=Some(to_AttributeValue(v)?); }
 Ok(m)
 }
-fn from_Reading(m: Reading) -> Value {
+fn from_AttributeReading(m: AttributeReading) -> Value {
 let mut fields=Vec::new();
 if let Some(v)=m.node { fields.push((Value::Text("node".into()), Value::Integer(i128::from(v)))); }
 if let Some(v)=m.endpoint { fields.push((Value::Text("endpoint".into()), Value::Integer(i128::from(v)))); }
 if let Some(v)=m.cluster { fields.push((Value::Text("cluster".into()), Value::Integer(i128::from(v)))); }
 if let Some(v)=m.attribute { fields.push((Value::Text("attribute".into()), Value::Integer(i128::from(v)))); }
-if let Some(v)=m.value { fields.push((Value::Text("value".into()), from_Typed(v))); }
+if let Some(v)=m.value { fields.push((Value::Text("value".into()), from_AttributeValue(v))); }
 Value::Map(fields)
 }
-fn to_Typed(v: &Value) -> std::result::Result<Typed, ProtocolError> {
-let mut m=Typed::default();
+fn to_AttributeValue(v: &Value) -> std::result::Result<AttributeValue, ProtocolError> {
+let mut m=AttributeValue::default();
 let fields=object(v)?;
 if let Some(v)=lookup(fields,"type") { m.r#type=Some(text(v)?); }
 if let Some(v)=lookup(fields,"value") { m.value=Some(to_ReadingValue(v)?); }
 Ok(m)
 }
-fn from_Typed(m: Typed) -> Value {
+fn from_AttributeValue(m: AttributeValue) -> Value {
 let mut fields=Vec::new();
 if let Some(v)=m.r#type { fields.push((Value::Text("type".into()), Value::Text(v))); }
 if let Some(v)=m.value { fields.push((Value::Text("value".into()), from_ReadingValue(v))); }
@@ -1263,7 +1263,7 @@ if let Some(v)=lookup(fields,"value") { m.value=Some(to_MeasurementValue(v)?); }
 if let Some(v)=lookup(fields,"unit") { m.unit=Some(text(v)?); }
 if let Some(v)=lookup(fields,"quality") { m.quality=Some(text(v)?); }
 if let Some(v)=lookup(fields,"mode") { m.mode=Some(u32::try_from(unsigned(v)?).map_err(|_| ProtocolError::Malformed)?); }
-if let Some(v)=lookup(fields,"transitions") { m.transitions=Some(to_ListThermostatTransition(v)?); }
+if let Some(v)=lookup(fields,"transitions") { m.transitions=Some(to_ThermostatTransitionList(v)?); }
 Ok(m)
 }
 fn from_Measurement(m: Measurement) -> Value {
@@ -1272,11 +1272,11 @@ if let Some(v)=m.value { fields.push((Value::Text("value".into()), from_Measurem
 if let Some(v)=m.unit { fields.push((Value::Text("unit".into()), Value::Text(v))); }
 if let Some(v)=m.quality { fields.push((Value::Text("quality".into()), Value::Text(v))); }
 if let Some(v)=m.mode { fields.push((Value::Text("mode".into()), Value::Integer(i128::from(v)))); }
-if let Some(v)=m.transitions { fields.push((Value::Text("transitions".into()), from_ListThermostatTransition(v))); }
+if let Some(v)=m.transitions { fields.push((Value::Text("transitions".into()), from_ThermostatTransitionList(v))); }
 Value::Map(fields)
 }
-fn to_BleWrite(v: &Value) -> std::result::Result<BleWrite, ProtocolError> {
-let mut m=BleWrite::default();
+fn to_BleWriteEvent(v: &Value) -> std::result::Result<BleWriteEvent, ProtocolError> {
+let mut m=BleWriteEvent::default();
 let fields=object(v)?;
 if let Some(v)=lookup(fields,"session") { m.session=Some(unsigned(v)?); }
 if let Some(v)=lookup(fields,"generation") { m.generation=Some(u32::try_from(unsigned(v)?).map_err(|_| ProtocolError::Malformed)?); }
@@ -1284,7 +1284,7 @@ if let Some(v)=lookup(fields,"write") { m.write=Some(u32::try_from(unsigned(v)?)
 if let Some(v)=lookup(fields,"data") { m.data=Some(binary(v)?); }
 Ok(m)
 }
-fn from_BleWrite(m: BleWrite) -> Value {
+fn from_BleWriteEvent(m: BleWriteEvent) -> Value {
 let mut fields=Vec::new();
 if let Some(v)=m.session { fields.push((Value::Text("session".into()), Value::Integer(i128::from(v)))); }
 if let Some(v)=m.generation { fields.push((Value::Text("generation".into()), Value::Integer(i128::from(v)))); }
@@ -1292,8 +1292,8 @@ if let Some(v)=m.write { fields.push((Value::Text("write".into()), Value::Intege
 if let Some(v)=m.data { fields.push((Value::Text("data".into()), Value::Bytes(v))); }
 Value::Map(fields)
 }
-fn to_Button(v: &Value) -> std::result::Result<Button, ProtocolError> {
-let mut m=Button::default();
+fn to_ButtonEvent(v: &Value) -> std::result::Result<ButtonEvent, ProtocolError> {
+let mut m=ButtonEvent::default();
 let fields=object(v)?;
 if let Some(v)=lookup(fields,"node") { m.node=Some(unsigned(v)?); }
 if let Some(v)=lookup(fields,"endpoint") { m.endpoint=Some(u32::try_from(unsigned(v)?).map_err(|_| ProtocolError::Malformed)?); }
@@ -1302,7 +1302,7 @@ if let Some(v)=lookup(fields,"position") { m.position=Some(u32::try_from(unsigne
 if let Some(v)=lookup(fields,"press_count") { m.press_count=Some(u32::try_from(unsigned(v)?).map_err(|_| ProtocolError::Malformed)?); }
 Ok(m)
 }
-fn from_Button(m: Button) -> Value {
+fn from_ButtonEvent(m: ButtonEvent) -> Value {
 let mut fields=Vec::new();
 if let Some(v)=m.node { fields.push((Value::Text("node".into()), Value::Integer(i128::from(v)))); }
 if let Some(v)=m.endpoint { fields.push((Value::Text("endpoint".into()), Value::Integer(i128::from(v)))); }
@@ -1311,62 +1311,62 @@ if let Some(v)=m.position { fields.push((Value::Text("position".into()), Value::
 if let Some(v)=m.press_count { fields.push((Value::Text("press_count".into()), Value::Integer(i128::from(v)))); }
 Value::Map(fields)
 }
-fn to_Target(v: &Value) -> std::result::Result<Target, ProtocolError> {
-let mut m=Target::default();
+fn to_BindingTarget(v: &Value) -> std::result::Result<BindingTarget, ProtocolError> {
+let mut m=BindingTarget::default();
 let fields=object(v)?;
 if let Some(v)=lookup(fields,"node") { m.node=Some(unsigned(v)?); }
 if let Some(v)=lookup(fields,"endpoint") { m.endpoint=Some(to_NullableUint(v)?); }
 if let Some(v)=lookup(fields,"group") { m.group=Some(to_NullableUint(v)?); }
-if let Some(v)=lookup(fields,"members") { m.members=Some(to_ListMember(v)?); }
+if let Some(v)=lookup(fields,"members") { m.members=Some(to_BindingMemberList(v)?); }
 if let Some(v)=lookup(fields,"cluster") { m.cluster=Some(u32::try_from(unsigned(v)?).map_err(|_| ProtocolError::Malformed)?); }
 Ok(m)
 }
-fn from_Target(m: Target) -> Value {
+fn from_BindingTarget(m: BindingTarget) -> Value {
 let mut fields=Vec::new();
 if let Some(v)=m.node { fields.push((Value::Text("node".into()), Value::Integer(i128::from(v)))); }
 if let Some(v)=m.endpoint { fields.push((Value::Text("endpoint".into()), from_NullableUint(v))); }
 if let Some(v)=m.group { fields.push((Value::Text("group".into()), from_NullableUint(v))); }
-if let Some(v)=m.members { fields.push((Value::Text("members".into()), from_ListMember(v))); }
+if let Some(v)=m.members { fields.push((Value::Text("members".into()), from_BindingMemberList(v))); }
 if let Some(v)=m.cluster { fields.push((Value::Text("cluster".into()), Value::Integer(i128::from(v)))); }
 Value::Map(fields)
 }
-fn to_Member(v: &Value) -> std::result::Result<Member, ProtocolError> {
-let mut m=Member::default();
+fn to_BindingMember(v: &Value) -> std::result::Result<BindingMember, ProtocolError> {
+let mut m=BindingMember::default();
 let fields=object(v)?;
 if let Some(v)=lookup(fields,"node") { m.node=Some(unsigned(v)?); }
 if let Some(v)=lookup(fields,"endpoint") { m.endpoint=Some(u32::try_from(unsigned(v)?).map_err(|_| ProtocolError::Malformed)?); }
 Ok(m)
 }
-fn from_Member(m: Member) -> Value {
+fn from_BindingMember(m: BindingMember) -> Value {
 let mut fields=Vec::new();
 if let Some(v)=m.node { fields.push((Value::Text("node".into()), Value::Integer(i128::from(v)))); }
 if let Some(v)=m.endpoint { fields.push((Value::Text("endpoint".into()), Value::Integer(i128::from(v)))); }
 Value::Map(fields)
 }
-fn to_Inventory(v: &Value) -> std::result::Result<Inventory, ProtocolError> {
-let mut m=Inventory::default();
+fn to_InventoryRecord(v: &Value) -> std::result::Result<InventoryRecord, ProtocolError> {
+let mut m=InventoryRecord::default();
 let fields=object(v)?;
 if let Some(v)=lookup(fields,"kind") { m.kind=Some(text(v)?); }
-if let Some(v)=lookup(fields,"device") { m.device=Some(to_Device(v)?); }
+if let Some(v)=lookup(fields,"device") { m.device=Some(to_MatterDevice(v)?); }
 if let Some(v)=lookup(fields,"endpoint_count") { m.endpoint_count=Some(u32::try_from(unsigned(v)?).map_err(|_| ProtocolError::Malformed)?); }
 Ok(m)
 }
-fn from_Inventory(m: Inventory) -> Value {
+fn from_InventoryRecord(m: InventoryRecord) -> Value {
 let mut fields=Vec::new();
 if let Some(v)=m.kind { fields.push((Value::Text("kind".into()), Value::Text(v))); }
-if let Some(v)=m.device { fields.push((Value::Text("device".into()), from_Device(v))); }
+if let Some(v)=m.device { fields.push((Value::Text("device".into()), from_MatterDevice(v))); }
 if let Some(v)=m.endpoint_count { fields.push((Value::Text("endpoint_count".into()), Value::Integer(i128::from(v)))); }
 Value::Map(fields)
 }
-fn to_InventoryNodes(v: &Value) -> std::result::Result<InventoryNodes, ProtocolError> {
-let mut m=InventoryNodes::default();
+fn to_InventoryNodeManifest(v: &Value) -> std::result::Result<InventoryNodeManifest, ProtocolError> {
+let mut m=InventoryNodeManifest::default();
 let fields=object(v)?;
-if let Some(v)=lookup(fields,"nodes") { m.nodes=Some(to_ListInventoryNode(v)?); }
+if let Some(v)=lookup(fields,"nodes") { m.nodes=Some(to_InventoryNodeList(v)?); }
 Ok(m)
 }
-fn from_InventoryNodes(m: InventoryNodes) -> Value {
+fn from_InventoryNodeManifest(m: InventoryNodeManifest) -> Value {
 let mut fields=Vec::new();
-if let Some(v)=m.nodes { fields.push((Value::Text("nodes".into()), from_ListInventoryNode(v))); }
+if let Some(v)=m.nodes { fields.push((Value::Text("nodes".into()), from_InventoryNodeList(v))); }
 Value::Map(fields)
 }
 fn to_InventoryNode(v: &Value) -> std::result::Result<InventoryNode, ProtocolError> {
@@ -1388,7 +1388,7 @@ if let Some(v)=lookup(fields,"restore_scheduled") { m.restore_scheduled=Some(boo
 if let Some(v)=lookup(fields,"intermittent") { m.intermittent=Some(boolean(v)?); }
 if let Some(v)=lookup(fields,"reachability") { m.reachability=Some(text(v)?); }
 if let Some(v)=lookup(fields,"next_cursor") { m.next_cursor=Some(to_NullableUint(v)?); }
-if let Some(v)=lookup(fields,"subscriptions") { m.subscriptions=Some(to_ListSubscription(v)?); }
+if let Some(v)=lookup(fields,"subscriptions") { m.subscriptions=Some(to_SubscriptionList(v)?); }
 Ok(m)
 }
 fn from_SubscriptionHealth(m: SubscriptionHealth) -> Value {
@@ -1398,7 +1398,7 @@ if let Some(v)=m.restore_scheduled { fields.push((Value::Text("restore_scheduled
 if let Some(v)=m.intermittent { fields.push((Value::Text("intermittent".into()), Value::Bool(v))); }
 if let Some(v)=m.reachability { fields.push((Value::Text("reachability".into()), Value::Text(v))); }
 if let Some(v)=m.next_cursor { fields.push((Value::Text("next_cursor".into()), from_NullableUint(v))); }
-if let Some(v)=m.subscriptions { fields.push((Value::Text("subscriptions".into()), from_ListSubscription(v))); }
+if let Some(v)=m.subscriptions { fields.push((Value::Text("subscriptions".into()), from_SubscriptionList(v))); }
 Value::Map(fields)
 }
 fn to_Subscription(v: &Value) -> std::result::Result<Subscription, ProtocolError> {
@@ -1432,13 +1432,13 @@ fn to_ThermostatSchedule(v: &Value) -> std::result::Result<ThermostatSchedule, P
 let mut m=ThermostatSchedule::default();
 let fields=object(v)?;
 if let Some(v)=lookup(fields,"mode") { m.mode=Some(u32::try_from(unsigned(v)?).map_err(|_| ProtocolError::Malformed)?); }
-if let Some(v)=lookup(fields,"transitions") { m.transitions=Some(to_ListThermostatTransition(v)?); }
+if let Some(v)=lookup(fields,"transitions") { m.transitions=Some(to_ThermostatTransitionList(v)?); }
 Ok(m)
 }
 fn from_ThermostatSchedule(m: ThermostatSchedule) -> Value {
 let mut fields=Vec::new();
 if let Some(v)=m.mode { fields.push((Value::Text("mode".into()), Value::Integer(i128::from(v)))); }
-if let Some(v)=m.transitions { fields.push((Value::Text("transitions".into()), from_ListThermostatTransition(v))); }
+if let Some(v)=m.transitions { fields.push((Value::Text("transitions".into()), from_ThermostatTransitionList(v))); }
 Value::Map(fields)
 }
 fn to_ThermostatTransition(v: &Value) -> std::result::Result<ThermostatTransition, ProtocolError> {
@@ -1543,7 +1543,7 @@ m.choice=Some(match key {
 "number" => ReadingValueChoice::Number(float(v)?),
 "text" => ReadingValueChoice::Text(text(v)?),
 "measurement" => ReadingValueChoice::Measurement(to_Measurement(v)?),
-"list" => ReadingValueChoice::List(to_UintList(v)?),
+"list" => ReadingValueChoice::List(to_ThermostatCapabilityList(v)?),
 _ => return Err(ProtocolError::Malformed),
 });
 Ok(m)
@@ -1558,215 +1558,215 @@ ReadingValueChoice::Integer(v) => ("integer", Value::Integer(i128::from(v))),
 ReadingValueChoice::Number(v) => ("number", Value::Float(v)),
 ReadingValueChoice::Text(v) => ("text", Value::Text(v)),
 ReadingValueChoice::Measurement(v) => ("measurement", from_Measurement(v)),
-ReadingValueChoice::List(v) => ("list", from_UintList(v)),
+ReadingValueChoice::List(v) => ("list", from_ThermostatCapabilityList(v)),
 }; fields.push((Value::Text(key.into()),v)); }
 Value::Map(fields)
 }
-fn to_Result(v: &Value) -> std::result::Result<Result, ProtocolError> {
-let mut m=Result::default();
+fn to_OperationResult(v: &Value) -> std::result::Result<OperationResult, ProtocolError> {
+let mut m=OperationResult::default();
 let (key,v)=single(v)?;
 m.choice=Some(match key {
-"session" => ResultChoice::Session(to_Session(v)?),
-"ack6" => ResultChoice::Ack6(to_Ack6(v)?),
-"ack7" => ResultChoice::Ack7(to_Ack7(v)?),
-"ack8" => ResultChoice::Ack8(to_Ack8(v)?),
-"thread" => ResultChoice::Thread(to_Thread(v)?),
-"page" => ResultChoice::Page(to_Page(v)?),
-"job" => ResultChoice::Job(to_Job(v)?),
-"subscription_health" => ResultChoice::SubscriptionHealth(to_SubscriptionHealth(v)?),
+"session" => OperationResultChoice::Session(to_CommissioningSession(v)?),
+"ble_attach_result" => OperationResultChoice::BleAttachResult(to_BleAttachResult(v)?),
+"ble_indication_result" => OperationResultChoice::BleIndicationResult(to_BleIndicationResult(v)?),
+"ble_write_complete_result" => OperationResultChoice::BleWriteCompleteResult(to_BleWriteCompleteResult(v)?),
+"thread" => OperationResultChoice::Thread(to_ThreadStatus(v)?),
+"page" => OperationResultChoice::Page(to_DeviceSnapshotPage(v)?),
+"job" => OperationResultChoice::Job(to_DeviceOperationJob(v)?),
+"subscription_health" => OperationResultChoice::SubscriptionHealth(to_SubscriptionHealth(v)?),
 _ => return Err(ProtocolError::Malformed),
 });
 Ok(m)
 }
-fn from_Result(m: Result) -> Value {
+fn from_OperationResult(m: OperationResult) -> Value {
 let mut fields=Vec::new();
 if let Some(v)=m.choice { let (key,v)=match v {
-ResultChoice::Session(v) => ("session", from_Session(v)),
-ResultChoice::Ack6(v) => ("ack6", from_Ack6(v)),
-ResultChoice::Ack7(v) => ("ack7", from_Ack7(v)),
-ResultChoice::Ack8(v) => ("ack8", from_Ack8(v)),
-ResultChoice::Thread(v) => ("thread", from_Thread(v)),
-ResultChoice::Page(v) => ("page", from_Page(v)),
-ResultChoice::Job(v) => ("job", from_Job(v)),
-ResultChoice::SubscriptionHealth(v) => ("subscription_health", from_SubscriptionHealth(v)),
+OperationResultChoice::Session(v) => ("session", from_CommissioningSession(v)),
+OperationResultChoice::BleAttachResult(v) => ("ble_attach_result", from_BleAttachResult(v)),
+OperationResultChoice::BleIndicationResult(v) => ("ble_indication_result", from_BleIndicationResult(v)),
+OperationResultChoice::BleWriteCompleteResult(v) => ("ble_write_complete_result", from_BleWriteCompleteResult(v)),
+OperationResultChoice::Thread(v) => ("thread", from_ThreadStatus(v)),
+OperationResultChoice::Page(v) => ("page", from_DeviceSnapshotPage(v)),
+OperationResultChoice::Job(v) => ("job", from_DeviceOperationJob(v)),
+OperationResultChoice::SubscriptionHealth(v) => ("subscription_health", from_SubscriptionHealth(v)),
 }; fields.push((Value::Text(key.into()),v)); }
 Value::Map(fields)
 }
-fn to_EventData(v: &Value) -> std::result::Result<EventData, ProtocolError> {
-let mut m=EventData::default();
+fn to_EventPayload(v: &Value) -> std::result::Result<EventPayload, ProtocolError> {
+let mut m=EventPayload::default();
 let (key,v)=single(v)?;
 m.choice=Some(match key {
-"thread" => EventDataChoice::Thread(to_Thread(v)?),
-"session" => EventDataChoice::Session(to_Session(v)?),
-"ble_write" => EventDataChoice::BleWrite(to_BleWrite(v)?),
-"reading" => EventDataChoice::Reading(to_Reading(v)?),
-"button" => EventDataChoice::Button(to_Button(v)?),
-"inventory" => EventDataChoice::Inventory(to_Inventory(v)?),
-"inventory_nodes" => EventDataChoice::InventoryNodes(to_InventoryNodes(v)?),
+"thread" => EventPayloadChoice::Thread(to_ThreadStatus(v)?),
+"session" => EventPayloadChoice::Session(to_CommissioningSession(v)?),
+"ble_write" => EventPayloadChoice::BleWrite(to_BleWriteEvent(v)?),
+"reading" => EventPayloadChoice::Reading(to_AttributeReading(v)?),
+"button" => EventPayloadChoice::Button(to_ButtonEvent(v)?),
+"inventory" => EventPayloadChoice::Inventory(to_InventoryRecord(v)?),
+"inventory_nodes" => EventPayloadChoice::InventoryNodes(to_InventoryNodeManifest(v)?),
 _ => return Err(ProtocolError::Malformed),
 });
 Ok(m)
 }
-fn from_EventData(m: EventData) -> Value {
+fn from_EventPayload(m: EventPayload) -> Value {
 let mut fields=Vec::new();
 if let Some(v)=m.choice { let (key,v)=match v {
-EventDataChoice::Thread(v) => ("thread", from_Thread(v)),
-EventDataChoice::Session(v) => ("session", from_Session(v)),
-EventDataChoice::BleWrite(v) => ("ble_write", from_BleWrite(v)),
-EventDataChoice::Reading(v) => ("reading", from_Reading(v)),
-EventDataChoice::Button(v) => ("button", from_Button(v)),
-EventDataChoice::Inventory(v) => ("inventory", from_Inventory(v)),
-EventDataChoice::InventoryNodes(v) => ("inventory_nodes", from_InventoryNodes(v)),
+EventPayloadChoice::Thread(v) => ("thread", from_ThreadStatus(v)),
+EventPayloadChoice::Session(v) => ("session", from_CommissioningSession(v)),
+EventPayloadChoice::BleWrite(v) => ("ble_write", from_BleWriteEvent(v)),
+EventPayloadChoice::Reading(v) => ("reading", from_AttributeReading(v)),
+EventPayloadChoice::Button(v) => ("button", from_ButtonEvent(v)),
+EventPayloadChoice::Inventory(v) => ("inventory", from_InventoryRecord(v)),
+EventPayloadChoice::InventoryNodes(v) => ("inventory_nodes", from_InventoryNodeManifest(v)),
 }; fields.push((Value::Text(key.into()),v)); }
 Value::Map(fields)
 }
-fn to_Body(v: &Value) -> std::result::Result<Body, ProtocolError> {
-let mut m=Body::default();
+fn to_MessageBody(v: &Value) -> std::result::Result<MessageBody, ProtocolError> {
+let mut m=MessageBody::default();
 let (key,v)=single(v)?;
 m.choice=Some(match key {
-"request1" => BodyChoice::Request1(to_Request1(v)?),
-"request2" => BodyChoice::Request2(to_Request2(v)?),
-"request3" => BodyChoice::Request3(to_Request3(v)?),
-"request4" => BodyChoice::Request4(to_Request4(v)?),
-"request5" => BodyChoice::Request5(to_Request5(v)?),
-"request6" => BodyChoice::Request6(to_Request6(v)?),
-"request7" => BodyChoice::Request7(to_Request7(v)?),
-"request8" => BodyChoice::Request8(to_Request8(v)?),
-"request9" => BodyChoice::Request9(to_Request9(v)?),
-"request10" => BodyChoice::Request10(to_Request10(v)?),
-"request11" => BodyChoice::Request11(to_Request11(v)?),
-"matter" => BodyChoice::Matter(to_Matter(v)?),
-"thread" => BodyChoice::Thread(to_Thread(v)?),
-"reply" => BodyChoice::Reply(to_Reply(v)?),
-"event" => BodyChoice::Event(to_Event(v)?),
+"matter_status_request" => MessageBodyChoice::MatterStatusRequest(to_MatterStatusRequest(v)?),
+"thread_status_request" => MessageBodyChoice::ThreadStatusRequest(to_ThreadStatusRequest(v)?),
+"commissioning_start_request" => MessageBodyChoice::CommissioningStartRequest(to_CommissioningStartRequest(v)?),
+"commissioning_status_request" => MessageBodyChoice::CommissioningStatusRequest(to_CommissioningStatusRequest(v)?),
+"commissioning_cancel_request" => MessageBodyChoice::CommissioningCancelRequest(to_CommissioningCancelRequest(v)?),
+"ble_attach_request" => MessageBodyChoice::BleAttachRequest(to_BleAttachRequest(v)?),
+"ble_indication_request" => MessageBodyChoice::BleIndicationRequest(to_BleIndicationRequest(v)?),
+"ble_write_complete_request" => MessageBodyChoice::BleWriteCompleteRequest(to_BleWriteCompleteRequest(v)?),
+"thread_control_request" => MessageBodyChoice::ThreadControlRequest(to_ThreadControlRequest(v)?),
+"device_control_request" => MessageBodyChoice::DeviceControlRequest(to_DeviceControlRequest(v)?),
+"device_command_request" => MessageBodyChoice::DeviceCommandRequest(to_DeviceCommandRequest(v)?),
+"matter" => MessageBodyChoice::Matter(to_MatterStatus(v)?),
+"thread" => MessageBodyChoice::Thread(to_ThreadStatus(v)?),
+"reply" => MessageBodyChoice::Reply(to_OperationResponse(v)?),
+"event" => MessageBodyChoice::Event(to_EventNotification(v)?),
 _ => return Err(ProtocolError::Malformed),
 });
 Ok(m)
 }
-fn from_Body(m: Body) -> Value {
+fn from_MessageBody(m: MessageBody) -> Value {
 let mut fields=Vec::new();
 if let Some(v)=m.choice { let (key,v)=match v {
-BodyChoice::Request1(v) => ("request1", from_Request1(v)),
-BodyChoice::Request2(v) => ("request2", from_Request2(v)),
-BodyChoice::Request3(v) => ("request3", from_Request3(v)),
-BodyChoice::Request4(v) => ("request4", from_Request4(v)),
-BodyChoice::Request5(v) => ("request5", from_Request5(v)),
-BodyChoice::Request6(v) => ("request6", from_Request6(v)),
-BodyChoice::Request7(v) => ("request7", from_Request7(v)),
-BodyChoice::Request8(v) => ("request8", from_Request8(v)),
-BodyChoice::Request9(v) => ("request9", from_Request9(v)),
-BodyChoice::Request10(v) => ("request10", from_Request10(v)),
-BodyChoice::Request11(v) => ("request11", from_Request11(v)),
-BodyChoice::Matter(v) => ("matter", from_Matter(v)),
-BodyChoice::Thread(v) => ("thread", from_Thread(v)),
-BodyChoice::Reply(v) => ("reply", from_Reply(v)),
-BodyChoice::Event(v) => ("event", from_Event(v)),
+MessageBodyChoice::MatterStatusRequest(v) => ("matter_status_request", from_MatterStatusRequest(v)),
+MessageBodyChoice::ThreadStatusRequest(v) => ("thread_status_request", from_ThreadStatusRequest(v)),
+MessageBodyChoice::CommissioningStartRequest(v) => ("commissioning_start_request", from_CommissioningStartRequest(v)),
+MessageBodyChoice::CommissioningStatusRequest(v) => ("commissioning_status_request", from_CommissioningStatusRequest(v)),
+MessageBodyChoice::CommissioningCancelRequest(v) => ("commissioning_cancel_request", from_CommissioningCancelRequest(v)),
+MessageBodyChoice::BleAttachRequest(v) => ("ble_attach_request", from_BleAttachRequest(v)),
+MessageBodyChoice::BleIndicationRequest(v) => ("ble_indication_request", from_BleIndicationRequest(v)),
+MessageBodyChoice::BleWriteCompleteRequest(v) => ("ble_write_complete_request", from_BleWriteCompleteRequest(v)),
+MessageBodyChoice::ThreadControlRequest(v) => ("thread_control_request", from_ThreadControlRequest(v)),
+MessageBodyChoice::DeviceControlRequest(v) => ("device_control_request", from_DeviceControlRequest(v)),
+MessageBodyChoice::DeviceCommandRequest(v) => ("device_command_request", from_DeviceCommandRequest(v)),
+MessageBodyChoice::Matter(v) => ("matter", from_MatterStatus(v)),
+MessageBodyChoice::Thread(v) => ("thread", from_ThreadStatus(v)),
+MessageBodyChoice::Reply(v) => ("reply", from_OperationResponse(v)),
+MessageBodyChoice::Event(v) => ("event", from_EventNotification(v)),
 }; fields.push((Value::Text(key.into()),v)); }
 Value::Map(fields)
 }
-fn to_UintList(v: &Value) -> std::result::Result<UintList, ProtocolError> {
-let mut m=UintList::default();
+fn to_ThermostatCapabilityList(v: &Value) -> std::result::Result<ThermostatCapabilityList, ProtocolError> {
+let mut m=ThermostatCapabilityList::default();
 let fields=object(v)?;
 if let Some(v)=lookup(fields,"items") { m.items=array(v)?.iter().map(|v| Ok(u32::try_from(unsigned(v)?).map_err(|_| ProtocolError::Malformed)?)).collect::<std::result::Result<_,ProtocolError>>()?; }
 Ok(m)
 }
-fn from_UintList(m: UintList) -> Value {
+fn from_ThermostatCapabilityList(m: ThermostatCapabilityList) -> Value {
 let mut fields=Vec::new();
 if !m.items.is_empty() { fields.push((Value::Text("items".into()),Value::Array(m.items.into_iter().map(|v| Value::Integer(i128::from(v))).collect()))); }
 Value::Map(fields)
 }
-fn to_Envelope(v: &Value) -> std::result::Result<Envelope, ProtocolError> {
-let mut m=Envelope::default();
+fn to_IpcEnvelope(v: &Value) -> std::result::Result<IpcEnvelope, ProtocolError> {
+let mut m=IpcEnvelope::default();
 let fields=object(v)?;
 if let Some(v)=lookup(fields,"version") { m.version=Some(u32::try_from(unsigned(v)?).map_err(|_| ProtocolError::Malformed)?); }
 if let Some(v)=lookup(fields,"kind") { m.kind=Some(u32::try_from(unsigned(v)?).map_err(|_| ProtocolError::Malformed)?); }
 if let Some(v)=lookup(fields,"opcode") { m.opcode=Some(u32::try_from(unsigned(v)?).map_err(|_| ProtocolError::Malformed)?); }
 if let Some(v)=lookup(fields,"id") { m.id=Some(u32::try_from(unsigned(v)?).map_err(|_| ProtocolError::Malformed)?); }
-if let Some(v)=lookup(fields,"body") { m.body=Some(to_Body(v)?); }
+if let Some(v)=lookup(fields,"body") { m.body=Some(to_MessageBody(v)?); }
 Ok(m)
 }
-fn from_Envelope(m: Envelope) -> Value {
+fn from_IpcEnvelope(m: IpcEnvelope) -> Value {
 let mut fields=Vec::new();
 if let Some(v)=m.version { fields.push((Value::Text("version".into()), Value::Integer(i128::from(v)))); }
 if let Some(v)=m.kind { fields.push((Value::Text("kind".into()), Value::Integer(i128::from(v)))); }
 if let Some(v)=m.opcode { fields.push((Value::Text("opcode".into()), Value::Integer(i128::from(v)))); }
 if let Some(v)=m.id { fields.push((Value::Text("id".into()), Value::Integer(i128::from(v)))); }
-if let Some(v)=m.body { fields.push((Value::Text("body".into()), from_Body(v))); }
+if let Some(v)=m.body { fields.push((Value::Text("body".into()), from_MessageBody(v))); }
 Value::Map(fields)
 }
-fn to_ListTarget(v: &Value) -> std::result::Result<ListTarget, ProtocolError> {
-let mut m=ListTarget::default();
+fn to_BindingTargetList(v: &Value) -> std::result::Result<BindingTargetList, ProtocolError> {
+let mut m=BindingTargetList::default();
 let fields=object(v)?;
-if let Some(v)=lookup(fields,"items") { m.items=array(v)?.iter().map(|v| Ok(to_Target(v)?)).collect::<std::result::Result<_,ProtocolError>>()?; }
+if let Some(v)=lookup(fields,"items") { m.items=array(v)?.iter().map(|v| Ok(to_BindingTarget(v)?)).collect::<std::result::Result<_,ProtocolError>>()?; }
 Ok(m)
 }
-fn from_ListTarget(m: ListTarget) -> Value {
+fn from_BindingTargetList(m: BindingTargetList) -> Value {
 let mut fields=Vec::new();
-if !m.items.is_empty() { fields.push((Value::Text("items".into()),Value::Array(m.items.into_iter().map(|v| from_Target(v)).collect()))); }
+if !m.items.is_empty() { fields.push((Value::Text("items".into()),Value::Array(m.items.into_iter().map(|v| from_BindingTarget(v)).collect()))); }
 Value::Map(fields)
 }
-fn to_ListDevice(v: &Value) -> std::result::Result<ListDevice, ProtocolError> {
-let mut m=ListDevice::default();
+fn to_MatterDeviceList(v: &Value) -> std::result::Result<MatterDeviceList, ProtocolError> {
+let mut m=MatterDeviceList::default();
 let fields=object(v)?;
-if let Some(v)=lookup(fields,"items") { m.items=array(v)?.iter().map(|v| Ok(to_Device(v)?)).collect::<std::result::Result<_,ProtocolError>>()?; }
+if let Some(v)=lookup(fields,"items") { m.items=array(v)?.iter().map(|v| Ok(to_MatterDevice(v)?)).collect::<std::result::Result<_,ProtocolError>>()?; }
 Ok(m)
 }
-fn from_ListDevice(m: ListDevice) -> Value {
+fn from_MatterDeviceList(m: MatterDeviceList) -> Value {
 let mut fields=Vec::new();
-if !m.items.is_empty() { fields.push((Value::Text("items".into()),Value::Array(m.items.into_iter().map(|v| from_Device(v)).collect()))); }
+if !m.items.is_empty() { fields.push((Value::Text("items".into()),Value::Array(m.items.into_iter().map(|v| from_MatterDevice(v)).collect()))); }
 Value::Map(fields)
 }
-fn to_Listuint32(v: &Value) -> std::result::Result<Listuint32, ProtocolError> {
-let mut m=Listuint32::default();
+fn to_UInt32List(v: &Value) -> std::result::Result<UInt32List, ProtocolError> {
+let mut m=UInt32List::default();
 let fields=object(v)?;
 if let Some(v)=lookup(fields,"items") { m.items=array(v)?.iter().map(|v| Ok(u32::try_from(unsigned(v)?).map_err(|_| ProtocolError::Malformed)?)).collect::<std::result::Result<_,ProtocolError>>()?; }
 Ok(m)
 }
-fn from_Listuint32(m: Listuint32) -> Value {
+fn from_UInt32List(m: UInt32List) -> Value {
 let mut fields=Vec::new();
 if !m.items.is_empty() { fields.push((Value::Text("items".into()),Value::Array(m.items.into_iter().map(|v| Value::Integer(i128::from(v))).collect()))); }
 Value::Map(fields)
 }
-fn to_ListThermostatTransition(v: &Value) -> std::result::Result<ListThermostatTransition, ProtocolError> {
-let mut m=ListThermostatTransition::default();
+fn to_ThermostatTransitionList(v: &Value) -> std::result::Result<ThermostatTransitionList, ProtocolError> {
+let mut m=ThermostatTransitionList::default();
 let fields=object(v)?;
 if let Some(v)=lookup(fields,"items") { m.items=array(v)?.iter().map(|v| Ok(to_ThermostatTransition(v)?)).collect::<std::result::Result<_,ProtocolError>>()?; }
 Ok(m)
 }
-fn from_ListThermostatTransition(m: ListThermostatTransition) -> Value {
+fn from_ThermostatTransitionList(m: ThermostatTransitionList) -> Value {
 let mut fields=Vec::new();
 if !m.items.is_empty() { fields.push((Value::Text("items".into()),Value::Array(m.items.into_iter().map(|v| from_ThermostatTransition(v)).collect()))); }
 Value::Map(fields)
 }
-fn to_ListMember(v: &Value) -> std::result::Result<ListMember, ProtocolError> {
-let mut m=ListMember::default();
+fn to_BindingMemberList(v: &Value) -> std::result::Result<BindingMemberList, ProtocolError> {
+let mut m=BindingMemberList::default();
 let fields=object(v)?;
-if let Some(v)=lookup(fields,"items") { m.items=array(v)?.iter().map(|v| Ok(to_Member(v)?)).collect::<std::result::Result<_,ProtocolError>>()?; }
+if let Some(v)=lookup(fields,"items") { m.items=array(v)?.iter().map(|v| Ok(to_BindingMember(v)?)).collect::<std::result::Result<_,ProtocolError>>()?; }
 Ok(m)
 }
-fn from_ListMember(m: ListMember) -> Value {
+fn from_BindingMemberList(m: BindingMemberList) -> Value {
 let mut fields=Vec::new();
-if !m.items.is_empty() { fields.push((Value::Text("items".into()),Value::Array(m.items.into_iter().map(|v| from_Member(v)).collect()))); }
+if !m.items.is_empty() { fields.push((Value::Text("items".into()),Value::Array(m.items.into_iter().map(|v| from_BindingMember(v)).collect()))); }
 Value::Map(fields)
 }
-fn to_ListInventoryNode(v: &Value) -> std::result::Result<ListInventoryNode, ProtocolError> {
-let mut m=ListInventoryNode::default();
+fn to_InventoryNodeList(v: &Value) -> std::result::Result<InventoryNodeList, ProtocolError> {
+let mut m=InventoryNodeList::default();
 let fields=object(v)?;
 if let Some(v)=lookup(fields,"items") { m.items=array(v)?.iter().map(|v| Ok(to_InventoryNode(v)?)).collect::<std::result::Result<_,ProtocolError>>()?; }
 Ok(m)
 }
-fn from_ListInventoryNode(m: ListInventoryNode) -> Value {
+fn from_InventoryNodeList(m: InventoryNodeList) -> Value {
 let mut fields=Vec::new();
 if !m.items.is_empty() { fields.push((Value::Text("items".into()),Value::Array(m.items.into_iter().map(|v| from_InventoryNode(v)).collect()))); }
 Value::Map(fields)
 }
-fn to_ListSubscription(v: &Value) -> std::result::Result<ListSubscription, ProtocolError> {
-let mut m=ListSubscription::default();
+fn to_SubscriptionList(v: &Value) -> std::result::Result<SubscriptionList, ProtocolError> {
+let mut m=SubscriptionList::default();
 let fields=object(v)?;
 if let Some(v)=lookup(fields,"items") { m.items=array(v)?.iter().map(|v| Ok(to_Subscription(v)?)).collect::<std::result::Result<_,ProtocolError>>()?; }
 Ok(m)
 }
-fn from_ListSubscription(m: ListSubscription) -> Value {
+fn from_SubscriptionList(m: SubscriptionList) -> Value {
 let mut fields=Vec::new();
 if !m.items.is_empty() { fields.push((Value::Text("items".into()),Value::Array(m.items.into_iter().map(|v| from_Subscription(v)).collect()))); }
 Value::Map(fields)
@@ -1835,8 +1835,8 @@ if let Some(v)=lookup(fields,"actor_known") { m.actor_known=Some(boolean(v)?); }
 if let Some(v)=lookup(fields,"actor_on") { m.actor_on=Some(boolean(v)?); }
 if let Some(v)=lookup(fields,"has_power") { m.has_power=Some(boolean(v)?); }
 if let Some(v)=lookup(fields,"power_known") { m.power_known=Some(boolean(v)?); }
-if let Some(v)=lookup(fields,"has_low_temperature_alert") { m.has_low_temperature_alert=Some(boolean(v)?); }
-if let Some(v)=lookup(fields,"has_high_temperature_alert") { m.has_high_temperature_alert=Some(boolean(v)?); }
+if let Some(v)=lookup(fields,"low_temperature_alert_enabled") { m.low_temperature_alert_enabled=Some(boolean(v)?); }
+if let Some(v)=lookup(fields,"high_temperature_alert_enabled") { m.high_temperature_alert_enabled=Some(boolean(v)?); }
 if let Some(v)=lookup(fields,"contact_trigger_mode") { m.contact_trigger_mode=Some(boolean(v)?); }
 if let Some(v)=lookup(fields,"initial_interview_complete") { m.initial_interview_complete=Some(boolean(v)?); }
 if let Some(v)=lookup(fields,"network_address") { m.network_address=Some(signed(v)?); }
@@ -1917,8 +1917,8 @@ if let Some(v)=m.actor_known { fields.push((Value::Text("actor_known".into()), V
 if let Some(v)=m.actor_on { fields.push((Value::Text("actor_on".into()), Value::Bool(v))); }
 if let Some(v)=m.has_power { fields.push((Value::Text("has_power".into()), Value::Bool(v))); }
 if let Some(v)=m.power_known { fields.push((Value::Text("power_known".into()), Value::Bool(v))); }
-if let Some(v)=m.has_low_temperature_alert { fields.push((Value::Text("has_low_temperature_alert".into()), Value::Bool(v))); }
-if let Some(v)=m.has_high_temperature_alert { fields.push((Value::Text("has_high_temperature_alert".into()), Value::Bool(v))); }
+if let Some(v)=m.low_temperature_alert_enabled { fields.push((Value::Text("low_temperature_alert_enabled".into()), Value::Bool(v))); }
+if let Some(v)=m.high_temperature_alert_enabled { fields.push((Value::Text("high_temperature_alert_enabled".into()), Value::Bool(v))); }
 if let Some(v)=m.contact_trigger_mode { fields.push((Value::Text("contact_trigger_mode".into()), Value::Bool(v))); }
 if let Some(v)=m.initial_interview_complete { fields.push((Value::Text("initial_interview_complete".into()), Value::Bool(v))); }
 if let Some(v)=m.network_address { fields.push((Value::Text("network_address".into()), Value::Integer(i128::from(v)))); }
@@ -1974,8 +1974,8 @@ fn to_CachedAlert(v: &Value) -> std::result::Result<CachedAlert, ProtocolError> 
 let mut m=CachedAlert::default();
 let fields=object(v)?;
 if let Some(v)=lookup(fields,"name") { m.name=Some(text(v)?); }
-if let Some(v)=lookup(fields,"has_low") { m.has_low=Some(boolean(v)?); }
-if let Some(v)=lookup(fields,"has_high") { m.has_high=Some(boolean(v)?); }
+if let Some(v)=lookup(fields,"low_enabled") { m.low_enabled=Some(boolean(v)?); }
+if let Some(v)=lookup(fields,"high_enabled") { m.high_enabled=Some(boolean(v)?); }
 if let Some(v)=lookup(fields,"low") { m.low=Some(float(v)?); }
 if let Some(v)=lookup(fields,"high") { m.high=Some(float(v)?); }
 if let Some(v)=lookup(fields,"hysteresis") { m.hysteresis=Some(float(v)?); }
@@ -1985,16 +1985,16 @@ Ok(m)
 fn from_CachedAlert(m: CachedAlert) -> Value {
 let mut fields=Vec::new();
 if let Some(v)=m.name { fields.push((Value::Text("name".into()), Value::Text(v))); }
-if let Some(v)=m.has_low { fields.push((Value::Text("has_low".into()), Value::Bool(v))); }
-if let Some(v)=m.has_high { fields.push((Value::Text("has_high".into()), Value::Bool(v))); }
+if let Some(v)=m.low_enabled { fields.push((Value::Text("low_enabled".into()), Value::Bool(v))); }
+if let Some(v)=m.high_enabled { fields.push((Value::Text("high_enabled".into()), Value::Bool(v))); }
 if let Some(v)=m.low { fields.push((Value::Text("low".into()), Value::Float(v))); }
 if let Some(v)=m.high { fields.push((Value::Text("high".into()), Value::Float(v))); }
 if let Some(v)=m.hysteresis { fields.push((Value::Text("hysteresis".into()), Value::Float(v))); }
 if let Some(v)=m.unit { fields.push((Value::Text("unit".into()), Value::Text(v))); }
 Value::Map(fields)
 }
-pub(super) fn encode(v:&Value)->std::result::Result<Vec<u8>,ProtocolError>{Ok(to_Envelope(v)?.encode_to_vec())}
-pub(super) fn decode(b:&[u8])->std::result::Result<Value,ProtocolError>{Ok(from_Envelope(Envelope::decode(b).map_err(|_|ProtocolError::Malformed)?))}
+pub(super) fn encode(v:&Value)->std::result::Result<Vec<u8>,ProtocolError>{Ok(to_IpcEnvelope(v)?.encode_to_vec())}
+pub(super) fn decode(b:&[u8])->std::result::Result<Value,ProtocolError>{Ok(from_IpcEnvelope(IpcEnvelope::decode(b).map_err(|_|ProtocolError::Malformed)?))}
 fn object(v:&Value)->std::result::Result<&[(Value,Value)],ProtocolError>{if let Value::Map(m)=v{Ok(m)}else{Err(ProtocolError::Malformed)}}
 fn lookup<'a>(m:&'a[(Value,Value)],key:&str)->Option<&'a Value>{m.iter().find(|(k,_)|matches!(k,Value::Text(s) if s==key)).map(|(_,v)|v)}
 fn single(v:&Value)->std::result::Result<(&str,&Value),ProtocolError>{let m=object(v)?;if m.len()!=1{return Err(ProtocolError::Malformed)}if let Value::Text(k)=&m[0].0{Ok((k,&m[0].1))}else{Err(ProtocolError::Malformed)}}
@@ -2005,13 +2005,33 @@ fn float(v:&Value)->std::result::Result<f64,ProtocolError>{match v{Value::Float(
 fn boolean(v:&Value)->std::result::Result<bool,ProtocolError>{if let Value::Bool(b)=v{Ok(*b)}else{Err(ProtocolError::Malformed)}}
 fn text(v:&Value)->std::result::Result<String,ProtocolError>{if let Value::Text(s)=v{Ok(s.clone())}else{Err(ProtocolError::Malformed)}}
 fn binary(v:&Value)->std::result::Result<Vec<u8>,ProtocolError>{if let Value::Bytes(b)=v{Ok(b.clone())}else{Err(ProtocolError::Malformed)}}
+pub(super) fn request_name(opcode: u8) -> &'static str { match opcode {
+1 => "matter_status_request",
+2 => "thread_status_request",
+3 => "commissioning_start_request",
+4 => "commissioning_status_request",
+5 => "commissioning_cancel_request",
+6 => "ble_attach_request",
+7 => "ble_indication_request",
+8 => "ble_write_complete_request",
+9 => "thread_control_request",
+10 => "device_control_request",
+11 => "device_command_request",
+_ => "",
+} }
+pub(super) fn ack_name(opcode: u8) -> &'static str { match opcode {
+6 => "ble_attach_result",
+7 => "ble_indication_result",
+8 => "ble_write_complete_result",
+_ => "",
+} }
 pub(super) struct Field { pub name: &'static str, pub tag: u32, pub kind: u32, pub message: &'static str, pub repeated: bool, pub oneof: bool }
 pub(super) fn schema(name: &str) -> &'static [Field] { match name {
-"Request1" => &[
+"MatterStatusRequest" => &[
 ],
-"Request2" => &[
+"ThreadStatusRequest" => &[
 ],
-"Request3" => &[
+"CommissioningStartRequest" => &[
 Field { name:"schema", tag:1, kind:13, message:"", repeated:false, oneof:false },
 Field { name:"discriminator", tag:2, kind:13, message:"", repeated:false, oneof:false },
 Field { name:"pin", tag:3, kind:13, message:"", repeated:false, oneof:false },
@@ -2019,36 +2039,36 @@ Field { name:"timeout_seconds", tag:4, kind:13, message:"", repeated:false, oneo
 Field { name:"country_code", tag:5, kind:9, message:"", repeated:false, oneof:false },
 Field { name:"regulatory_location", tag:6, kind:9, message:"", repeated:false, oneof:false },
 ],
-"Request4" => &[
+"CommissioningStatusRequest" => &[
 Field { name:"schema", tag:1, kind:13, message:"", repeated:false, oneof:false },
 Field { name:"session", tag:2, kind:4, message:"", repeated:false, oneof:false },
 Field { name:"subscribe", tag:3, kind:8, message:"", repeated:false, oneof:false },
 ],
-"Request5" => &[
+"CommissioningCancelRequest" => &[
 Field { name:"schema", tag:1, kind:13, message:"", repeated:false, oneof:false },
 Field { name:"session", tag:2, kind:4, message:"", repeated:false, oneof:false },
 ],
-"Request6" => &[
+"BleAttachRequest" => &[
 Field { name:"schema", tag:1, kind:13, message:"", repeated:false, oneof:false },
 Field { name:"session", tag:2, kind:4, message:"", repeated:false, oneof:false },
 Field { name:"address", tag:3, kind:12, message:"", repeated:false, oneof:false },
 Field { name:"mtu", tag:4, kind:13, message:"", repeated:false, oneof:false },
 ],
-"Request7" => &[
+"BleIndicationRequest" => &[
 Field { name:"schema", tag:1, kind:13, message:"", repeated:false, oneof:false },
 Field { name:"session", tag:2, kind:4, message:"", repeated:false, oneof:false },
 Field { name:"generation", tag:3, kind:13, message:"", repeated:false, oneof:false },
 Field { name:"sequence", tag:4, kind:13, message:"", repeated:false, oneof:false },
 Field { name:"data", tag:5, kind:12, message:"", repeated:false, oneof:false },
 ],
-"Request8" => &[
+"BleWriteCompleteRequest" => &[
 Field { name:"schema", tag:1, kind:13, message:"", repeated:false, oneof:false },
 Field { name:"session", tag:2, kind:4, message:"", repeated:false, oneof:false },
 Field { name:"generation", tag:3, kind:13, message:"", repeated:false, oneof:false },
 Field { name:"write", tag:4, kind:13, message:"", repeated:false, oneof:false },
 Field { name:"success", tag:5, kind:8, message:"", repeated:false, oneof:false },
 ],
-"Request9" => &[
+"ThreadControlRequest" => &[
 Field { name:"schema", tag:1, kind:13, message:"", repeated:false, oneof:false },
 Field { name:"action", tag:2, kind:9, message:"", repeated:false, oneof:false },
 Field { name:"subscribe", tag:3, kind:8, message:"", repeated:false, oneof:false },
@@ -2056,7 +2076,7 @@ Field { name:"zigbee_channel", tag:4, kind:13, message:"", repeated:false, oneof
 Field { name:"zigbee_online", tag:5, kind:8, message:"", repeated:false, oneof:false },
 Field { name:"dataset", tag:6, kind:12, message:"", repeated:false, oneof:false },
 ],
-"Request10" => &[
+"DeviceControlRequest" => &[
 Field { name:"schema", tag:1, kind:13, message:"", repeated:false, oneof:false },
 Field { name:"action", tag:2, kind:9, message:"", repeated:false, oneof:false },
 Field { name:"cursor", tag:3, kind:13, message:"", repeated:false, oneof:false },
@@ -2066,11 +2086,11 @@ Field { name:"endpoint", tag:6, kind:13, message:"", repeated:false, oneof:false
 Field { name:"cluster", tag:7, kind:13, message:"", repeated:false, oneof:false },
 Field { name:"attribute", tag:8, kind:13, message:"", repeated:false, oneof:false },
 Field { name:"job", tag:9, kind:4, message:"", repeated:false, oneof:false },
-Field { name:"targets", tag:10, kind:11, message:"ListTarget", repeated:false, oneof:false },
+Field { name:"targets", tag:10, kind:11, message:"BindingTargetList", repeated:false, oneof:false },
 Field { name:"local", tag:11, kind:8, message:"", repeated:false, oneof:false },
 Field { name:"restore", tag:12, kind:8, message:"", repeated:false, oneof:false },
 ],
-"Request11" => &[
+"DeviceCommandRequest" => &[
 Field { name:"schema", tag:1, kind:13, message:"", repeated:false, oneof:false },
 Field { name:"node", tag:2, kind:4, message:"", repeated:false, oneof:false },
 Field { name:"endpoint", tag:3, kind:13, message:"", repeated:false, oneof:false },
@@ -2082,18 +2102,18 @@ Field { name:"value", tag:8, kind:9, message:"", repeated:false, oneof:false },
 Field { name:"time_zone", tag:9, kind:9, message:"", repeated:false, oneof:false },
 Field { name:"offset_seconds", tag:10, kind:18, message:"", repeated:false, oneof:false },
 ],
-"Reply" => &[
+"OperationResponse" => &[
 Field { name:"schema", tag:1, kind:13, message:"", repeated:false, oneof:false },
 Field { name:"ok", tag:2, kind:8, message:"", repeated:false, oneof:false },
 Field { name:"error", tag:3, kind:9, message:"", repeated:false, oneof:false },
-Field { name:"result", tag:4, kind:11, message:"Result", repeated:false, oneof:false },
+Field { name:"result", tag:4, kind:11, message:"OperationResult", repeated:false, oneof:false },
 ],
-"Event" => &[
+"EventNotification" => &[
 Field { name:"schema", tag:1, kind:13, message:"", repeated:false, oneof:false },
 Field { name:"event", tag:2, kind:9, message:"", repeated:false, oneof:false },
-Field { name:"data", tag:3, kind:11, message:"EventData", repeated:false, oneof:false },
+Field { name:"data", tag:3, kind:11, message:"EventPayload", repeated:false, oneof:false },
 ],
-"Matter" => &[
+"MatterStatus" => &[
 Field { name:"enabled", tag:1, kind:8, message:"", repeated:false, oneof:false },
 Field { name:"available", tag:2, kind:8, message:"", repeated:false, oneof:false },
 Field { name:"controller_initialized", tag:3, kind:8, message:"", repeated:false, oneof:false },
@@ -2101,7 +2121,7 @@ Field { name:"fabric_ready", tag:4, kind:8, message:"", repeated:false, oneof:fa
 Field { name:"state", tag:5, kind:9, message:"", repeated:false, oneof:false },
 Field { name:"commissioning_session", tag:6, kind:4, message:"", repeated:false, oneof:false },
 ],
-"Thread" => &[
+"ThreadStatus" => &[
 Field { name:"enabled", tag:1, kind:8, message:"", repeated:false, oneof:false },
 Field { name:"available", tag:2, kind:8, message:"", repeated:false, oneof:false },
 Field { name:"configured", tag:3, kind:8, message:"", repeated:false, oneof:false },
@@ -2111,54 +2131,54 @@ Field { name:"linux_ipv6_or_tun", tag:6, kind:8, message:"", repeated:false, one
 Field { name:"zigbee_channel", tag:7, kind:13, message:"", repeated:false, oneof:false },
 Field { name:"dataset_channel", tag:8, kind:13, message:"", repeated:false, oneof:false },
 ],
-"Session" => &[
+"CommissioningSession" => &[
 Field { name:"session", tag:1, kind:4, message:"", repeated:false, oneof:false },
 Field { name:"state", tag:2, kind:9, message:"", repeated:false, oneof:false },
 Field { name:"deadline_remaining_seconds", tag:3, kind:13, message:"", repeated:false, oneof:false },
 Field { name:"error", tag:4, kind:9, message:"", repeated:false, oneof:false },
 Field { name:"node", tag:5, kind:4, message:"", repeated:false, oneof:false },
 ],
-"Ack6" => &[
+"BleAttachResult" => &[
 Field { name:"generation", tag:1, kind:13, message:"", repeated:false, oneof:false },
 ],
-"Ack7" => &[
+"BleIndicationResult" => &[
 Field { name:"sequence", tag:1, kind:13, message:"", repeated:false, oneof:false },
 ],
-"Ack8" => &[
+"BleWriteCompleteResult" => &[
 Field { name:"write", tag:1, kind:13, message:"", repeated:false, oneof:false },
 ],
-"Page" => &[
+"DeviceSnapshotPage" => &[
 Field { name:"revision", tag:1, kind:4, message:"", repeated:false, oneof:false },
-Field { name:"devices", tag:2, kind:11, message:"ListDevice", repeated:false, oneof:false },
+Field { name:"devices", tag:2, kind:11, message:"MatterDeviceList", repeated:false, oneof:false },
 Field { name:"next_cursor", tag:3, kind:11, message:"NullableUint", repeated:false, oneof:false },
 ],
-"Device" => &[
+"MatterDevice" => &[
 Field { name:"node", tag:1, kind:4, message:"", repeated:false, oneof:false },
 Field { name:"state", tag:2, kind:9, message:"", repeated:false, oneof:false },
 Field { name:"online", tag:3, kind:8, message:"", repeated:false, oneof:false },
 Field { name:"id", tag:4, kind:11, message:"NullableText", repeated:false, oneof:false },
 Field { name:"endpoint", tag:5, kind:11, message:"NullableUint", repeated:false, oneof:false },
-Field { name:"servers", tag:6, kind:11, message:"Listuint32", repeated:false, oneof:false },
-Field { name:"clients", tag:7, kind:11, message:"Listuint32", repeated:false, oneof:false },
+Field { name:"servers", tag:6, kind:11, message:"UInt32List", repeated:false, oneof:false },
+Field { name:"clients", tag:7, kind:11, message:"UInt32List", repeated:false, oneof:false },
 Field { name:"manufacturer", tag:8, kind:9, message:"", repeated:false, oneof:false },
 Field { name:"model", tag:9, kind:9, message:"", repeated:false, oneof:false },
 Field { name:"rssi_dbm", tag:10, kind:11, message:"NullableInt", repeated:false, oneof:false },
-Field { name:"device_types", tag:11, kind:11, message:"Listuint32", repeated:false, oneof:false },
+Field { name:"device_types", tag:11, kind:11, message:"UInt32List", repeated:false, oneof:false },
 ],
-"Job" => &[
+"DeviceOperationJob" => &[
 Field { name:"job", tag:1, kind:4, message:"", repeated:false, oneof:false },
 Field { name:"state", tag:2, kind:9, message:"", repeated:false, oneof:false },
 Field { name:"error", tag:3, kind:9, message:"", repeated:false, oneof:false },
-Field { name:"result", tag:4, kind:11, message:"Reading", repeated:false, oneof:false },
+Field { name:"result", tag:4, kind:11, message:"AttributeReading", repeated:false, oneof:false },
 ],
-"Reading" => &[
+"AttributeReading" => &[
 Field { name:"node", tag:1, kind:4, message:"", repeated:false, oneof:false },
 Field { name:"endpoint", tag:2, kind:13, message:"", repeated:false, oneof:false },
 Field { name:"cluster", tag:3, kind:13, message:"", repeated:false, oneof:false },
 Field { name:"attribute", tag:4, kind:13, message:"", repeated:false, oneof:false },
-Field { name:"value", tag:5, kind:11, message:"Typed", repeated:false, oneof:false },
+Field { name:"value", tag:5, kind:11, message:"AttributeValue", repeated:false, oneof:false },
 ],
-"Typed" => &[
+"AttributeValue" => &[
 Field { name:"type", tag:1, kind:9, message:"", repeated:false, oneof:false },
 Field { name:"value", tag:2, kind:11, message:"ReadingValue", repeated:false, oneof:false },
 ],
@@ -2167,39 +2187,39 @@ Field { name:"value", tag:1, kind:11, message:"MeasurementValue", repeated:false
 Field { name:"unit", tag:2, kind:9, message:"", repeated:false, oneof:false },
 Field { name:"quality", tag:3, kind:9, message:"", repeated:false, oneof:false },
 Field { name:"mode", tag:4, kind:13, message:"", repeated:false, oneof:false },
-Field { name:"transitions", tag:5, kind:11, message:"ListThermostatTransition", repeated:false, oneof:false },
+Field { name:"transitions", tag:5, kind:11, message:"ThermostatTransitionList", repeated:false, oneof:false },
 ],
-"BleWrite" => &[
+"BleWriteEvent" => &[
 Field { name:"session", tag:1, kind:4, message:"", repeated:false, oneof:false },
 Field { name:"generation", tag:2, kind:13, message:"", repeated:false, oneof:false },
 Field { name:"write", tag:3, kind:13, message:"", repeated:false, oneof:false },
 Field { name:"data", tag:4, kind:12, message:"", repeated:false, oneof:false },
 ],
-"Button" => &[
+"ButtonEvent" => &[
 Field { name:"node", tag:1, kind:4, message:"", repeated:false, oneof:false },
 Field { name:"endpoint", tag:2, kind:13, message:"", repeated:false, oneof:false },
 Field { name:"event", tag:3, kind:13, message:"", repeated:false, oneof:false },
 Field { name:"position", tag:4, kind:13, message:"", repeated:false, oneof:false },
 Field { name:"press_count", tag:5, kind:13, message:"", repeated:false, oneof:false },
 ],
-"Target" => &[
+"BindingTarget" => &[
 Field { name:"node", tag:1, kind:4, message:"", repeated:false, oneof:false },
 Field { name:"endpoint", tag:2, kind:11, message:"NullableUint", repeated:false, oneof:false },
 Field { name:"group", tag:3, kind:11, message:"NullableUint", repeated:false, oneof:false },
-Field { name:"members", tag:4, kind:11, message:"ListMember", repeated:false, oneof:false },
+Field { name:"members", tag:4, kind:11, message:"BindingMemberList", repeated:false, oneof:false },
 Field { name:"cluster", tag:5, kind:13, message:"", repeated:false, oneof:false },
 ],
-"Member" => &[
+"BindingMember" => &[
 Field { name:"node", tag:1, kind:4, message:"", repeated:false, oneof:false },
 Field { name:"endpoint", tag:2, kind:13, message:"", repeated:false, oneof:false },
 ],
-"Inventory" => &[
+"InventoryRecord" => &[
 Field { name:"kind", tag:1, kind:9, message:"", repeated:false, oneof:false },
-Field { name:"device", tag:2, kind:11, message:"Device", repeated:false, oneof:false },
+Field { name:"device", tag:2, kind:11, message:"MatterDevice", repeated:false, oneof:false },
 Field { name:"endpoint_count", tag:3, kind:13, message:"", repeated:false, oneof:false },
 ],
-"InventoryNodes" => &[
-Field { name:"nodes", tag:1, kind:11, message:"ListInventoryNode", repeated:false, oneof:false },
+"InventoryNodeManifest" => &[
+Field { name:"nodes", tag:1, kind:11, message:"InventoryNodeList", repeated:false, oneof:false },
 ],
 "InventoryNode" => &[
 Field { name:"node", tag:1, kind:4, message:"", repeated:false, oneof:false },
@@ -2210,7 +2230,7 @@ Field { name:"restore_scheduled", tag:2, kind:8, message:"", repeated:false, one
 Field { name:"intermittent", tag:3, kind:8, message:"", repeated:false, oneof:false },
 Field { name:"reachability", tag:4, kind:9, message:"", repeated:false, oneof:false },
 Field { name:"next_cursor", tag:5, kind:11, message:"NullableUint", repeated:false, oneof:false },
-Field { name:"subscriptions", tag:6, kind:11, message:"ListSubscription", repeated:false, oneof:false },
+Field { name:"subscriptions", tag:6, kind:11, message:"SubscriptionList", repeated:false, oneof:false },
 ],
 "Subscription" => &[
 Field { name:"endpoint", tag:1, kind:13, message:"", repeated:false, oneof:false },
@@ -2225,7 +2245,7 @@ Field { name:"state", tag:9, kind:9, message:"", repeated:false, oneof:false },
 ],
 "ThermostatSchedule" => &[
 Field { name:"mode", tag:1, kind:13, message:"", repeated:false, oneof:false },
-Field { name:"transitions", tag:2, kind:11, message:"ListThermostatTransition", repeated:false, oneof:false },
+Field { name:"transitions", tag:2, kind:11, message:"ThermostatTransitionList", repeated:false, oneof:false },
 ],
 "ThermostatTransition" => &[
 Field { name:"time", tag:1, kind:13, message:"", repeated:false, oneof:false },
@@ -2258,73 +2278,73 @@ Field { name:"integer", tag:4, kind:18, message:"", repeated:false, oneof:true }
 Field { name:"number", tag:5, kind:1, message:"", repeated:false, oneof:true },
 Field { name:"text", tag:6, kind:9, message:"", repeated:false, oneof:true },
 Field { name:"measurement", tag:7, kind:11, message:"Measurement", repeated:false, oneof:true },
-Field { name:"list", tag:8, kind:11, message:"UintList", repeated:false, oneof:true },
+Field { name:"list", tag:8, kind:11, message:"ThermostatCapabilityList", repeated:false, oneof:true },
 ],
-"Result" => &[
-Field { name:"session", tag:1, kind:11, message:"Session", repeated:false, oneof:true },
-Field { name:"ack6", tag:2, kind:11, message:"Ack6", repeated:false, oneof:true },
-Field { name:"ack7", tag:3, kind:11, message:"Ack7", repeated:false, oneof:true },
-Field { name:"ack8", tag:4, kind:11, message:"Ack8", repeated:false, oneof:true },
-Field { name:"thread", tag:5, kind:11, message:"Thread", repeated:false, oneof:true },
-Field { name:"page", tag:6, kind:11, message:"Page", repeated:false, oneof:true },
-Field { name:"job", tag:7, kind:11, message:"Job", repeated:false, oneof:true },
+"OperationResult" => &[
+Field { name:"session", tag:1, kind:11, message:"CommissioningSession", repeated:false, oneof:true },
+Field { name:"ble_attach_result", tag:2, kind:11, message:"BleAttachResult", repeated:false, oneof:true },
+Field { name:"ble_indication_result", tag:3, kind:11, message:"BleIndicationResult", repeated:false, oneof:true },
+Field { name:"ble_write_complete_result", tag:4, kind:11, message:"BleWriteCompleteResult", repeated:false, oneof:true },
+Field { name:"thread", tag:5, kind:11, message:"ThreadStatus", repeated:false, oneof:true },
+Field { name:"page", tag:6, kind:11, message:"DeviceSnapshotPage", repeated:false, oneof:true },
+Field { name:"job", tag:7, kind:11, message:"DeviceOperationJob", repeated:false, oneof:true },
 Field { name:"subscription_health", tag:8, kind:11, message:"SubscriptionHealth", repeated:false, oneof:true },
 ],
-"EventData" => &[
-Field { name:"thread", tag:1, kind:11, message:"Thread", repeated:false, oneof:true },
-Field { name:"session", tag:2, kind:11, message:"Session", repeated:false, oneof:true },
-Field { name:"ble_write", tag:3, kind:11, message:"BleWrite", repeated:false, oneof:true },
-Field { name:"reading", tag:4, kind:11, message:"Reading", repeated:false, oneof:true },
-Field { name:"button", tag:5, kind:11, message:"Button", repeated:false, oneof:true },
-Field { name:"inventory", tag:6, kind:11, message:"Inventory", repeated:false, oneof:true },
-Field { name:"inventory_nodes", tag:7, kind:11, message:"InventoryNodes", repeated:false, oneof:true },
+"EventPayload" => &[
+Field { name:"thread", tag:1, kind:11, message:"ThreadStatus", repeated:false, oneof:true },
+Field { name:"session", tag:2, kind:11, message:"CommissioningSession", repeated:false, oneof:true },
+Field { name:"ble_write", tag:3, kind:11, message:"BleWriteEvent", repeated:false, oneof:true },
+Field { name:"reading", tag:4, kind:11, message:"AttributeReading", repeated:false, oneof:true },
+Field { name:"button", tag:5, kind:11, message:"ButtonEvent", repeated:false, oneof:true },
+Field { name:"inventory", tag:6, kind:11, message:"InventoryRecord", repeated:false, oneof:true },
+Field { name:"inventory_nodes", tag:7, kind:11, message:"InventoryNodeManifest", repeated:false, oneof:true },
 ],
-"Body" => &[
-Field { name:"request1", tag:1, kind:11, message:"Request1", repeated:false, oneof:true },
-Field { name:"request2", tag:2, kind:11, message:"Request2", repeated:false, oneof:true },
-Field { name:"request3", tag:3, kind:11, message:"Request3", repeated:false, oneof:true },
-Field { name:"request4", tag:4, kind:11, message:"Request4", repeated:false, oneof:true },
-Field { name:"request5", tag:5, kind:11, message:"Request5", repeated:false, oneof:true },
-Field { name:"request6", tag:6, kind:11, message:"Request6", repeated:false, oneof:true },
-Field { name:"request7", tag:7, kind:11, message:"Request7", repeated:false, oneof:true },
-Field { name:"request8", tag:8, kind:11, message:"Request8", repeated:false, oneof:true },
-Field { name:"request9", tag:9, kind:11, message:"Request9", repeated:false, oneof:true },
-Field { name:"request10", tag:10, kind:11, message:"Request10", repeated:false, oneof:true },
-Field { name:"request11", tag:11, kind:11, message:"Request11", repeated:false, oneof:true },
-Field { name:"matter", tag:12, kind:11, message:"Matter", repeated:false, oneof:true },
-Field { name:"thread", tag:13, kind:11, message:"Thread", repeated:false, oneof:true },
-Field { name:"reply", tag:14, kind:11, message:"Reply", repeated:false, oneof:true },
-Field { name:"event", tag:15, kind:11, message:"Event", repeated:false, oneof:true },
+"MessageBody" => &[
+Field { name:"matter_status_request", tag:1, kind:11, message:"MatterStatusRequest", repeated:false, oneof:true },
+Field { name:"thread_status_request", tag:2, kind:11, message:"ThreadStatusRequest", repeated:false, oneof:true },
+Field { name:"commissioning_start_request", tag:3, kind:11, message:"CommissioningStartRequest", repeated:false, oneof:true },
+Field { name:"commissioning_status_request", tag:4, kind:11, message:"CommissioningStatusRequest", repeated:false, oneof:true },
+Field { name:"commissioning_cancel_request", tag:5, kind:11, message:"CommissioningCancelRequest", repeated:false, oneof:true },
+Field { name:"ble_attach_request", tag:6, kind:11, message:"BleAttachRequest", repeated:false, oneof:true },
+Field { name:"ble_indication_request", tag:7, kind:11, message:"BleIndicationRequest", repeated:false, oneof:true },
+Field { name:"ble_write_complete_request", tag:8, kind:11, message:"BleWriteCompleteRequest", repeated:false, oneof:true },
+Field { name:"thread_control_request", tag:9, kind:11, message:"ThreadControlRequest", repeated:false, oneof:true },
+Field { name:"device_control_request", tag:10, kind:11, message:"DeviceControlRequest", repeated:false, oneof:true },
+Field { name:"device_command_request", tag:11, kind:11, message:"DeviceCommandRequest", repeated:false, oneof:true },
+Field { name:"matter", tag:12, kind:11, message:"MatterStatus", repeated:false, oneof:true },
+Field { name:"thread", tag:13, kind:11, message:"ThreadStatus", repeated:false, oneof:true },
+Field { name:"reply", tag:14, kind:11, message:"OperationResponse", repeated:false, oneof:true },
+Field { name:"event", tag:15, kind:11, message:"EventNotification", repeated:false, oneof:true },
 ],
-"UintList" => &[
+"ThermostatCapabilityList" => &[
 Field { name:"items", tag:1, kind:13, message:"", repeated:true, oneof:false },
 ],
-"Envelope" => &[
+"IpcEnvelope" => &[
 Field { name:"version", tag:1, kind:13, message:"", repeated:false, oneof:false },
 Field { name:"kind", tag:2, kind:13, message:"", repeated:false, oneof:false },
 Field { name:"opcode", tag:3, kind:13, message:"", repeated:false, oneof:false },
 Field { name:"id", tag:4, kind:13, message:"", repeated:false, oneof:false },
-Field { name:"body", tag:5, kind:11, message:"Body", repeated:false, oneof:false },
+Field { name:"body", tag:5, kind:11, message:"MessageBody", repeated:false, oneof:false },
 ],
-"ListTarget" => &[
-Field { name:"items", tag:1, kind:11, message:"Target", repeated:true, oneof:false },
+"BindingTargetList" => &[
+Field { name:"items", tag:1, kind:11, message:"BindingTarget", repeated:true, oneof:false },
 ],
-"ListDevice" => &[
-Field { name:"items", tag:1, kind:11, message:"Device", repeated:true, oneof:false },
+"MatterDeviceList" => &[
+Field { name:"items", tag:1, kind:11, message:"MatterDevice", repeated:true, oneof:false },
 ],
-"Listuint32" => &[
+"UInt32List" => &[
 Field { name:"items", tag:1, kind:13, message:"", repeated:true, oneof:false },
 ],
-"ListThermostatTransition" => &[
+"ThermostatTransitionList" => &[
 Field { name:"items", tag:1, kind:11, message:"ThermostatTransition", repeated:true, oneof:false },
 ],
-"ListMember" => &[
-Field { name:"items", tag:1, kind:11, message:"Member", repeated:true, oneof:false },
+"BindingMemberList" => &[
+Field { name:"items", tag:1, kind:11, message:"BindingMember", repeated:true, oneof:false },
 ],
-"ListInventoryNode" => &[
+"InventoryNodeList" => &[
 Field { name:"items", tag:1, kind:11, message:"InventoryNode", repeated:true, oneof:false },
 ],
-"ListSubscription" => &[
+"SubscriptionList" => &[
 Field { name:"items", tag:1, kind:11, message:"Subscription", repeated:true, oneof:false },
 ],
 "DeviceCache" => &[
@@ -2380,8 +2400,8 @@ Field { name:"actor_known", tag:45, kind:8, message:"", repeated:false, oneof:fa
 Field { name:"actor_on", tag:46, kind:8, message:"", repeated:false, oneof:false },
 Field { name:"has_power", tag:47, kind:8, message:"", repeated:false, oneof:false },
 Field { name:"power_known", tag:48, kind:8, message:"", repeated:false, oneof:false },
-Field { name:"has_low_temperature_alert", tag:49, kind:8, message:"", repeated:false, oneof:false },
-Field { name:"has_high_temperature_alert", tag:50, kind:8, message:"", repeated:false, oneof:false },
+Field { name:"low_temperature_alert_enabled", tag:49, kind:8, message:"", repeated:false, oneof:false },
+Field { name:"high_temperature_alert_enabled", tag:50, kind:8, message:"", repeated:false, oneof:false },
 Field { name:"contact_trigger_mode", tag:51, kind:8, message:"", repeated:false, oneof:false },
 Field { name:"initial_interview_complete", tag:52, kind:8, message:"", repeated:false, oneof:false },
 Field { name:"network_address", tag:53, kind:18, message:"", repeated:false, oneof:false },
@@ -2421,8 +2441,8 @@ Field { name:"device_version", tag:6, kind:13, message:"", repeated:false, oneof
 ],
 "CachedAlert" => &[
 Field { name:"name", tag:1, kind:9, message:"", repeated:false, oneof:false },
-Field { name:"has_low", tag:2, kind:8, message:"", repeated:false, oneof:false },
-Field { name:"has_high", tag:3, kind:8, message:"", repeated:false, oneof:false },
+Field { name:"low_enabled", tag:2, kind:8, message:"", repeated:false, oneof:false },
+Field { name:"high_enabled", tag:3, kind:8, message:"", repeated:false, oneof:false },
 Field { name:"low", tag:4, kind:1, message:"", repeated:false, oneof:false },
 Field { name:"high", tag:5, kind:1, message:"", repeated:false, oneof:false },
 Field { name:"hysteresis", tag:6, kind:1, message:"", repeated:false, oneof:false },

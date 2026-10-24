@@ -28,13 +28,13 @@ const char* child(const std::string& shape, const std::string& key) {
 std::string shape(const std::string& context,const Value& v,unsigned int kind,unsigned int op,const std::string& event) {
     std::ostringstream out;
     if(context=="body") {
-        if(kind==0){out<<"request"<<op;std::string action=textField(v,op==11?"command":"action");if(op>=9&&op<=11&&!action.empty())out<<':'<<action;return out.str();}
+        if(kind==0){out<<Proto::requestName(op);std::string action=textField(v,op==11?"command":"action");if(op>=9&&op<=11&&!action.empty())out<<':'<<action;return out.str();}
         if(kind==2)return "event";
         return op==1?"matter":op==2?"thread":"reply";
     }
     if(context=="result") {
         if(op<=5)return "session";
-        if(op<=8){out<<"ack"<<op;return out.str();}
+        if(op<=8){out<<Proto::ackName(op);return out.str();}
         if(op==9)return "thread";
         if(op==10 && field(v,"subscriptions"))return "subscription-health";
         return field(v,"devices")?"page":"job";
@@ -180,21 +180,21 @@ bool encodeProtobuf(const Frame& frame,Bytes* bytes){
     else if(!JsonReader(text).parse(&body))return false;
     if(body.type!=Value::Map)return false;
     unsigned int unknown=0;
-    if(!convert(&body,"body",frame.kind,frame.opcode,"",false,&unknown)||!Proto::normalize(&body,"Body",frame.kind,frame.opcode,"",false))return false;
+    if(!convert(&body,"body",frame.kind,frame.opcode,"",false,&unknown)||!Proto::normalize(&body,"MessageBody",frame.kind,frame.opcode,"",false))return false;
     Value env;env.type=Value::Map;add(&env,"version",3);add(&env,"kind",frame.kind);add(&env,"opcode",frame.opcode);add(&env,"id",frame.id);Proto::add(&env,"body",body);
-    Bytes buffer;if(!Proto::encode("Envelope",env,&buffer,MaxPayload))return false;
+    Bytes buffer;if(!Proto::encode("IpcEnvelope",env,&buffer,MaxPayload))return false;
     bytes->push_back(static_cast<unsigned char>(buffer.size()));bytes->push_back(static_cast<unsigned char>(buffer.size()>>8));bytes->insert(bytes->end(),buffer.begin(),buffer.end());return true;
 }
 bool decodeProtobuf(const Bytes& bytes,Frame* frame){
     Value env;unsigned unknown=0;
-    if(!Proto::decode("Envelope",bytes,&env,MaxPayload,&unknown))return false;
+    if(!Proto::decode("IpcEnvelope",bytes,&env,MaxPayload,&unknown))return false;
     const Value* version=field(env,"version");const Value* kind=field(env,"kind");const Value* opcode=field(env,"opcode");const Value* id=field(env,"id");const Value* body=field(env,"body");
     if(!version||version->type!=Value::UInt||version->u!=3||!kind||kind->type!=Value::UInt||kind->u>2||!opcode||opcode->type!=Value::UInt||opcode->u<1||opcode->u>12||!id||id->type!=Value::UInt||id->u>0xffffffffUL||!body||body->type!=Value::Map||((kind->u==2)!=(id->u==0))||((kind->u==2)!=(opcode->u==12)))return false;
     frame->kind=static_cast<unsigned char>(kind->u);frame->opcode=static_cast<unsigned char>(opcode->u);frame->id=static_cast<unsigned long>(id->u);
-    std::ostringstream request;request<<"request"<<opcode->u;
+    std::ostringstream request;request<<Proto::requestName(opcode->u);
     const std::string expected=kind->u==0?request.str():kind->u==2?"event":opcode->u==1?"matter":opcode->u==2?"thread":"reply";
     if(!field(*body,expected))return false;
-    Value converted=*body;bool valid=Proto::normalize(&converted,"Body",frame->kind,frame->opcode,"",true)&&convert(&converted,"body",frame->kind,frame->opcode,"",true,&unknown);
+    Value converted=*body;bool valid=Proto::normalize(&converted,"MessageBody",frame->kind,frame->opcode,"",true)&&convert(&converted,"body",frame->kind,frame->opcode,"",true,&unknown);
     if(unknown)syslog(LOG_WARNING,"Matter IPC opcode %u: ignored %u unknown fields",static_cast<unsigned>(frame->opcode),unknown);
     std::ostringstream out;if(!valid)out<<"!invalid protobuf body";else if(!(frame->kind==0&&frame->opcode<=2&&converted.items.empty()))json(converted,&out);
     std::string result=out.str();frame->payload.assign(result.begin(),result.end());return true;

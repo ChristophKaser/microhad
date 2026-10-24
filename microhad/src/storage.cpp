@@ -4,6 +4,8 @@
 #include "protobuf_value.h"
 #define PB_C99_STATIC_ASSERT
 #include "../../third-party/nanopb/pb_decode.h"
+#include "../../third-party/nanopb/pb_encode.h"
+#include "../../protocol/generated/device-cache.pb.h"
 #include <cmath>
 #include <set>
 #include <stdint.h>
@@ -616,12 +618,6 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
 namespace {
 const size_t cacheLimit=4*1024*1024;
 using Proto::Value;
-Value cacheString(const std::string& s){Value v;v.type=Value::Text;v.text=s;return v;}
-Value cacheBool(bool b){Value v;v.type=Value::Bool;v.u=b;return v;}
-Value cacheInt(int64_t n){Value v;v.type=Value::Int;v.i=n;return v;}
-Value cacheUint(uint64_t n){Value v;v.type=Value::UInt;v.u=n;return v;}
-Value cacheNumber(double n){Value v;v.type=Value::Float;v.f=n;return v;}
-template<class T> Value cacheArray(const std::vector<T>& a){Value v;v.type=Value::Array;for(size_t i=0;i<a.size();++i)v.items.push_back(cacheUint(a[i]));return v;}
 bool cacheInteger(const Value& v,int64_t low,int64_t high,int64_t* n){
     if(v.type==Value::UInt){if(v.u>static_cast<uint64_t>(high))return false;*n=static_cast<int64_t>(v.u);}
     else if(v.type==Value::Int)*n=v.i;else return false;
@@ -630,26 +626,6 @@ bool cacheInteger(const Value& v,int64_t low,int64_t high,int64_t* n){
 bool cacheDouble(const Value& v,double low,double high,double* n){
     if(v.type==Value::Float)*n=v.f;else if(v.type==Value::UInt)*n=static_cast<double>(v.u);else if(v.type==Value::Int)*n=static_cast<double>(v.i);else return false;
     return std::isfinite(*n)&&*n>=low&&*n<=high;
-}
-Value cacheDevice(const Device& d){
-    Value v;v.type=Value::Map;
-#define CACHE_TEXT(key,member) Proto::add(&v,key,cacheString(d.member));
-#define CACHE_BOOL(key,member) Proto::add(&v,key,cacheBool(d.member));
-#define CACHE_INT(key,member,low,high) Proto::add(&v,key,cacheInt(d.member));
-#define CACHE_NUMBER(key,member,low,high) Proto::add(&v,key,cacheNumber(d.member));
-#include "device_cache_fields.inc"
-#undef CACHE_TEXT
-#undef CACHE_BOOL
-#undef CACHE_INT
-#undef CACHE_NUMBER
-    Value endpoints;endpoints.type=Value::Array;
-    for(size_t i=0;i<d.endpoints.size();++i){const EndpointDescriptor& e=d.endpoints[i];Value x;Proto::add(&x,"endpoint",cacheUint(e.endpoint));Proto::add(&x,"profile_id",cacheUint(e.profileId));Proto::add(&x,"device_id",cacheUint(e.deviceId));Proto::add(&x,"device_version",cacheUint(e.deviceVersion));Proto::add(&x,"input_clusters",cacheArray(e.inputClusters));Proto::add(&x,"output_clusters",cacheArray(e.outputClusters));endpoints.items.push_back(x);}
-    Proto::add(&v,"endpoint_descriptors",endpoints);
-    Value bytes;bytes.type=Value::Binary;bytes.text.assign(d.nodeDescriptor.begin(),d.nodeDescriptor.end());Proto::add(&v,"node_descriptor",bytes);
-    Proto::add(&v,"matter_servers",cacheArray(d.matterServers));Proto::add(&v,"matter_clients",cacheArray(d.matterClients));Proto::add(&v,"matter_device_types",cacheArray(d.matterDeviceTypes));
-    Value alerts;alerts.type=Value::Array;
-    for(std::map<std::string,DeviceValueAlert>::const_iterator it=d.valueAlerts.begin();it!=d.valueAlerts.end();++it){Value a;Proto::add(&a,"name",cacheString(it->first));Proto::add(&a,"has_low",cacheBool(it->second.hasLow));Proto::add(&a,"has_high",cacheBool(it->second.hasHigh));Proto::add(&a,"low",cacheNumber(it->second.low));Proto::add(&a,"high",cacheNumber(it->second.high));Proto::add(&a,"hysteresis",cacheNumber(it->second.hysteresis));Proto::add(&a,"unit",cacheString(it->second.unit));alerts.items.push_back(a);}
-    Proto::add(&v,"alerts",alerts);return v;
 }
 template<class T> bool cacheReadArray(const Value* v,std::vector<T>* out,uint64_t max,size_t count){
     if(!v)return true;
@@ -674,16 +650,51 @@ bool cacheDeviceRead(const Value& v,Device* d){
     const Value* bytes=Proto::field(v,"node_descriptor");if(bytes){if(bytes->type!=Value::Binary)return false;d->nodeDescriptor.assign(bytes->text.begin(),bytes->text.end());}
     if(!cacheReadArray(Proto::field(v,"matter_servers"),&d->matterServers,0xffffffffUL,64)||!cacheReadArray(Proto::field(v,"matter_clients"),&d->matterClients,0xffffffffUL,64)||!cacheReadArray(Proto::field(v,"matter_device_types"),&d->matterDeviceTypes,0xffffffffUL,64))return false;
     const Value* alerts=Proto::field(v,"alerts");
-    if(alerts){if(alerts->type!=Value::Array||alerts->items.size()>9)return false;for(size_t i=0;i<alerts->items.size();++i){const Value& a=alerts->items[i];const Value* name=Proto::field(a,"name");if(!name||name->type!=Value::Text||d->valueAlerts.count(name->text))return false;static const char* allowed[]={"temperature","humidity","battery","link_quality","wifi_signal","brightness","power","co2","pm25"};bool found=false;for(unsigned j=0;j<9;++j)if(name->text==allowed[j])found=true;if(!found)return false;DeviceValueAlert alert;const Value* low=Proto::field(a,"has_low");const Value* high=Proto::field(a,"has_high");const Value* l=Proto::field(a,"low");const Value* h=Proto::field(a,"high");const Value* hysteresis=Proto::field(a,"hysteresis");const Value* unit=Proto::field(a,"unit");if(!low||low->type!=Value::Bool||!high||high->type!=Value::Bool||!l||!h||!hysteresis||!unit||unit->type!=Value::Text||!cacheDouble(*l,-1e308,1e308,&alert.low)||!cacheDouble(*h,-1e308,1e308,&alert.high)||!cacheDouble(*hysteresis,0,1e308,&alert.hysteresis))return false;alert.hasLow=low->u;alert.hasHigh=high->u;alert.unit=unit->text;d->valueAlerts[name->text]=alert;}}
+    if(alerts){if(alerts->type!=Value::Array||alerts->items.size()>9)return false;for(size_t i=0;i<alerts->items.size();++i){const Value& a=alerts->items[i];const Value* name=Proto::field(a,"name");if(!name||name->type!=Value::Text||d->valueAlerts.count(name->text))return false;static const char* allowed[]={"temperature","humidity","battery","link_quality","wifi_signal","brightness","power","co2","pm25"};bool found=false;for(unsigned j=0;j<9;++j)if(name->text==allowed[j])found=true;if(!found)return false;DeviceValueAlert alert;const Value* low=Proto::field(a,"low_enabled");const Value* high=Proto::field(a,"high_enabled");const Value* l=Proto::field(a,"low");const Value* h=Proto::field(a,"high");const Value* hysteresis=Proto::field(a,"hysteresis");const Value* unit=Proto::field(a,"unit");if(!low||low->type!=Value::Bool||!high||high->type!=Value::Bool||!l||!h||!hysteresis||!unit||unit->type!=Value::Text||!cacheDouble(*l,-1e308,1e308,&alert.low)||!cacheDouble(*h,-1e308,1e308,&alert.high)||!cacheDouble(*hysteresis,0,1e308,&alert.hysteresis))return false;alert.hasLow=low->u;alert.hasHigh=high->u;alert.unit=unit->text;d->valueAlerts[name->text]=alert;}}
     if(d->ieeeAddress.empty()||(d->source!="zigbee"&&d->source!="matter"&&d->source!="shelly"&&d->source!="fritz_box"))return false;
     if(d->source=="matter"){if(d->matterNode.size()!=16)return false;if(d->matterState.empty())d->matterState="complete";if(d->matterMetadataState!="missing")d->matterMetadataState="stale";}
     return true;
 }
-void cacheVarint(Proto::Bytes* b,uint64_t n){while(n>127){b->push_back(static_cast<unsigned char>((n&127)|128));n>>=7;}b->push_back(static_cast<unsigned char>(n));}
-bool encodeCache(const std::vector<Device>& devices,Proto::Bytes* out){
-    out->push_back(8);out->push_back(1);
-    for(size_t i=0;i<devices.size();++i){Proto::Bytes b;Value v=cacheDevice(devices[i]);if(!Proto::encode("CachedDevice",v,&b,cacheLimit)||b.size()+out->size()+6>cacheLimit)return false;out->push_back(18);cacheVarint(out,b.size());out->insert(out->end(),b.begin(),b.end());}return true;
+typedef bool (*EncodeCallback)(pb_ostream_t*,const pb_field_t*,void* const*);
+void bindCallback(pb_callback_t* callback,EncodeCallback fn,const void* arg){callback->funcs.encode=fn;callback->arg=const_cast<void*>(arg);}
+bool typedUtf8(const std::string& s){
+ for(size_t at=0;at<s.size();){unsigned char c=s[at++];if(c<128)continue;unsigned n=c>=0xc2&&c<=0xdf?1:c>=0xe0&&c<=0xef?2:c>=0xf0&&c<=0xf4?3:0;if(!n||at+n>s.size())return false;unsigned v=c&((1U<<(6-n))-1);for(unsigned i=0;i<n;++i){unsigned char b=s[at++];if((b&192)!=128)return false;v=(v<<6)|(b&63);}if(v<(n==1?128U:n==2?2048U:65536U)||v>0x10ffffU||(v>=0xd800&&v<=0xdfff))return false;}return true;
 }
+bool typedText(pb_ostream_t* stream,const pb_field_t* f,void* const* arg){const std::string& text=*static_cast<const std::string*>(*arg);return text.size()<=65536&&typedUtf8(text)&&pb_encode_tag_for_field(stream,f)&&pb_encode_string(stream,reinterpret_cast<const pb_byte_t*>(text.data()),text.size());}
+bool typedBytes(pb_ostream_t* stream,const pb_field_t* f,void* const* arg){const std::vector<unsigned char>& b=*static_cast<const std::vector<unsigned char>*>(*arg);return b.size()<=65536&&pb_encode_tag_for_field(stream,f)&&pb_encode_string(stream,b.empty()?0:&b[0],b.size());}
+template<class T> bool typedUints(pb_ostream_t* stream,const pb_field_t* f,void* const* arg){const std::vector<T>& values=*static_cast<const std::vector<T>*>(*arg);if(values.size()>512)return false;for(size_t i=0;i<values.size();++i)if(!pb_encode_tag_for_field(stream,f)||!pb_encode_varint(stream,values[i]))return false;return true;}
+bool typedEndpoints(pb_ostream_t* stream,const pb_field_t* f,void* const* arg){
+ const std::vector<EndpointDescriptor>& endpoints=*static_cast<const std::vector<EndpointDescriptor>*>(*arg);if(endpoints.size()>512)return false;
+ for(size_t i=0;i<endpoints.size();++i){const EndpointDescriptor& d=endpoints[i];microhad_CachedEndpoint v=microhad_CachedEndpoint_init_zero;
+ v.has_endpoint=true;v.endpoint=d.endpoint;v.has_profile_id=true;v.profile_id=d.profileId;v.has_device_id=true;v.device_id=d.deviceId;v.has_device_version=true;v.device_version=d.deviceVersion;
+ bindCallback(&v.input_clusters,typedUints<unsigned short>,&d.inputClusters);bindCallback(&v.output_clusters,typedUints<unsigned short>,&d.outputClusters);
+ if(!pb_encode_tag_for_field(stream,f)||!pb_encode_submessage(stream,microhad_CachedEndpoint_fields,&v))return false;
+ }return true;
+}
+bool typedAlerts(pb_ostream_t* stream,const pb_field_t* f,void* const* arg){
+ const std::map<std::string,DeviceValueAlert>& alerts=*static_cast<const std::map<std::string,DeviceValueAlert>*>(*arg);if(alerts.size()>512)return false;
+ for(std::map<std::string,DeviceValueAlert>::const_iterator it=alerts.begin();it!=alerts.end();++it){const DeviceValueAlert& a=it->second;microhad_CachedAlert v=microhad_CachedAlert_init_zero;
+ if(!std::isfinite(a.low)||!std::isfinite(a.high)||!std::isfinite(a.hysteresis))return false;
+ bindCallback(&v.name,typedText,&it->first);bindCallback(&v.unit,typedText,&a.unit);
+ v.has_low_enabled=true;v.low_enabled=a.hasLow;v.has_high_enabled=true;v.high_enabled=a.hasHigh;v.has_low=true;v.low=a.low;v.has_high=true;v.high=a.high;v.has_hysteresis=true;v.hysteresis=a.hysteresis;
+ if(!pb_encode_tag_for_field(stream,f)||!pb_encode_submessage(stream,microhad_CachedAlert_fields,&v))return false;
+ }return true;
+}
+bool typedDevices(pb_ostream_t* stream,const pb_field_t* f,void* const* arg){
+ const std::vector<Device>& devices=*static_cast<const std::vector<Device>*>(*arg);
+ for(size_t i=0;i<devices.size();++i){const Device& d=devices[i];microhad_CachedDevice v=microhad_CachedDevice_init_zero;
+#include "../../protocol/generated/device_cache_encode.inc"
+ bindCallback(&v.endpoint_descriptors,typedEndpoints,&d.endpoints);bindCallback(&v.node_descriptor,typedBytes,&d.nodeDescriptor);
+ bindCallback(&v.matter_servers,typedUints<unsigned int>,&d.matterServers);bindCallback(&v.matter_clients,typedUints<unsigned int>,&d.matterClients);bindCallback(&v.matter_device_types,typedUints<unsigned int>,&d.matterDeviceTypes);bindCallback(&v.alerts,typedAlerts,&d.valueAlerts);
+ if(!pb_encode_tag_for_field(stream,f)||!pb_encode_submessage(stream,microhad_CachedDevice_fields,&v))return false;
+ }return true;
+}
+bool encodeCache(const std::vector<Device>& devices,Proto::Bytes* out){
+ microhad_DeviceCache cache=microhad_DeviceCache_init_zero;cache.has_version=true;cache.version=1;bindCallback(&cache.devices,typedDevices,&devices);
+ out->resize(65536);
+ for(;;){pb_ostream_t stream=pb_ostream_from_buffer(&(*out)[0],out->size());if(pb_encode(&stream,microhad_DeviceCache_fields,&cache)){out->resize(stream.bytes_written);return true;}if(out->size()==cacheLimit||std::strcmp(PB_GET_ERROR(&stream),"stream full")!=0)return false;out->resize(std::min(cacheLimit,out->size()*2));}
+}
+
 }
 
 bool saveDeviceCache(const std::string& filename,const std::vector<Device>& devices,std::string* error){

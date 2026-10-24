@@ -42,8 +42,8 @@ for count in (512,513):
     if count==513:del vectors[-1]['body']
 for sample in list(vectors):
     if sample['name']=='thermostat-capabilities-event':
-        m=w.loads(bytes.fromhex(sample['wire'])[2:]);m['body']=w.normalize(m['body'],'Body',2,12)
-        raw('packed-capabilities',encode(m,'Envelope',packed=True),True)
+        m=w.loads(bytes.fromhex(sample['wire'])[2:]);m['body']=w.normalize(m['body'],'MessageBody',2,12)
+        raw('packed-capabilities',encode(m,'IpcEnvelope',packed=True),True)
         vectors[-1].update(kind=2,opcode=12,id=0,body=sample['body'])
 def field_bytes(tag,data):return varint(tag*8+2)+varint(len(data))+data
 def envelope(body,opcode=1):return b'\x08\x03\x10\x00'+varint(24)+varint(opcode)+b'\x20\x01'+field_bytes(5,body)

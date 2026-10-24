@@ -10,13 +10,16 @@ namespace Proto {
 namespace {
 struct ProtoField { const char* message; const char* name; unsigned tag; unsigned type; const char* child; bool repeated; bool oneof; };
 #include "../../protocol/generated/protobuf_fields.inc"
+#include "../../protocol/generated/protobuf_operations.inc"
 const unsigned count=sizeof(protoFields)/sizeof(protoFields[0]);
-const ProtoField* byName(const std::string& m,const std::string& n) {
-    for(unsigned i=0;i<count;++i)if(m==protoFields[i].message&&n==protoFields[i].name)return &protoFields[i];
+const ProtoField* byName(const std::string& message,const std::string& name) {
+    unsigned low=0,high=count;
+    while(low<high){unsigned mid=low+(high-low)/2;const ProtoField& field=protoFields[protoByName[mid]];int order=message.compare(field.message);if(!order)order=name.compare(field.name);if(order<0)high=mid;else if(order>0)low=mid+1;else return &field;}
     return 0;
 }
-const ProtoField* byTag(const std::string& m,unsigned tag) {
-    for(unsigned i=0;i<count;++i)if(m==protoFields[i].message&&tag==protoFields[i].tag)return &protoFields[i];
+const ProtoField* byTag(const std::string& message,unsigned tag) {
+    unsigned low=0,high=count;
+    while(low<high){unsigned mid=low+(high-low)/2;const ProtoField& field=protoFields[protoByTag[mid]];int order=message.compare(field.message);if(!order)order=tag<field.tag?-1:tag>field.tag?1:0;if(order<0)high=mid;else if(order>0)low=mid+1;else return &field;}
     return 0;
 }
 bool utf8(const std::string& s) {
@@ -40,7 +43,7 @@ bool writeField(pb_ostream_t* stream,const ProtoField& f,const Value& v,unsigned
     case 18:return (v.type==Value::Int||v.type==Value::UInt)&&(v.type!=Value::UInt||v.u<=(~static_cast<uint64_t>(0)>>1))&&pb_encode_svarint(stream,v.type==Value::Int?v.i:static_cast<int64_t>(v.u));
     case 8:return v.type==Value::Bool&&pb_encode_varint(stream,v.u?1:0);
     case 9:case 12:return v.type==(f.type==9?Value::Text:Value::Binary)&&v.text.size()<=65536&&(f.type!=9||utf8(v.text))&&pb_encode_string(stream,reinterpret_cast<const pb_byte_t*>(v.text.data()),v.text.size());
-    case 11:{pb_ostream_t size=PB_OSTREAM_SIZING;if(!writeMessage(&size,f.child,v,depth+1)||size.bytes_written>stream->max_size-stream->bytes_written||!pb_encode_varint(stream,size.bytes_written))return false;return writeMessage(stream,f.child,v,depth+1);}
+    case 11:{pb_ostream_t size=PB_OSTREAM_SIZING;if(!writeMessage(&size,f.child,v,depth+1)||size.bytes_written>stream->max_size-stream->bytes_written||!pb_encode_varint(stream,size.bytes_written))return false;if(!stream->callback)return pb_write(stream,0,size.bytes_written);return writeMessage(stream,f.child,v,depth+1);}
     default:return false;
     }
 }
@@ -98,6 +101,8 @@ bool readMessage(pb_istream_t* stream,const std::string& msg,Value* out,unsigned
 }
 std::string text(const Value& v,const char* name) {const Value* p=field(v,name);return p&&p->type==Value::Text?p->text:"";}
 }
+const char* requestName(unsigned opcode){return opcode<sizeof(protoRequestNames)/sizeof(protoRequestNames[0])?protoRequestNames[opcode]:"";}
+const char* ackName(unsigned opcode){return opcode<sizeof(protoAckNames)/sizeof(protoAckNames[0])?protoAckNames[opcode]:"";}
 const Value* field(const Value& v,const std::string& key){for(size_t i=0;i<v.keys.size();++i)if(v.keys[i]==key)return &v.items[i];return 0;}
 void add(Value* v,const std::string& key,const Value& item){v->type=Value::Map;v->keys.push_back(key);v->items.push_back(item);}
 bool encode(const std::string& msg,const Value& v,Bytes* out,size_t limit) {
@@ -114,8 +119,8 @@ bool decode(const std::string& msg,const Bytes& bytes,Value* out,size_t limit,un
 }
 bool normalize(Value* v,const std::string& msg,unsigned kind,unsigned op,const std::string& ev,bool incoming) {
     const ProtoField* first=0;for(unsigned i=0;i<count;++i)if(msg==protoFields[i].message){first=&protoFields[i];break;}
-    if(!first)return (msg=="Request1"||msg=="Request2")&&v->type==Value::Map;
-    if(msg.compare(0,4,"List")==0||msg=="UintList") {
+    if(!first)return (msg=="MatterStatusRequest"||msg=="ThreadStatusRequest")&&v->type==Value::Map;
+    if(first->repeated&&std::strcmp(first->name,"items")==0) {
         if(incoming){const Value* a=field(*v,"items");Value result;if(a)result=*a;else result.type=Value::Array;for(size_t i=0;i<result.items.size();++i)if(first->type==11&&!normalize(&result.items[i],first->child,kind,op,ev,true))return false;*v=result;return true;}
         if(v->type!=Value::Array)return false;
         Value result=*v;for(size_t i=0;i<result.items.size();++i)if(first->type==11&&!normalize(&result.items[i],first->child,kind,op,ev,false))return false;
@@ -124,9 +129,9 @@ bool normalize(Value* v,const std::string& msg,unsigned kind,unsigned op,const s
     if(first->oneof) {
         if(incoming){if(v->type!=Value::Map||v->items.size()!=1)return false;const ProtoField* f=byName(msg,v->keys[0]);if(!f)return false;Value result=v->items[0];if(v->keys[0]=="null"){if(result.type!=Value::Bool||result.u!=1)return false;result=Value();}else if(f->type==11&&!normalize(&result,f->child,kind,op,ev,true))return false;*v=result;return true;}
         std::string key;
-        if(msg=="Body"){std::ostringstream n;n<<"request"<<op;key=kind==0?n.str():kind==2?"event":op==1?"matter":op==2?"thread":"reply";}
-        else if(msg=="Result"){std::ostringstream n;n<<"ack"<<op;key=op<=5?"session":op<=8?n.str():op==9?"thread":field(*v,"subscriptions")?"subscription_health":field(*v,"devices")?"page":"job";}
-        else if(msg=="EventData")key=ev=="thread"?"thread":ev=="commissioning"?"session":ev=="ble_write"?"ble_write":ev=="matter_report"?"reading":ev=="matter_button"?"button":ev=="matter_inventory"?"inventory":ev=="matter_inventory_nodes"?"inventory_nodes":"";
+        if(msg=="MessageBody"){std::ostringstream n;n<<requestName(op);key=kind==0?n.str():kind==2?"event":op==1?"matter":op==2?"thread":"reply";}
+        else if(msg=="OperationResult"){std::ostringstream n;n<<ackName(op);key=op<=5?"session":op<=8?n.str():op==9?"thread":field(*v,"subscriptions")?"subscription_health":field(*v,"devices")?"page":"job";}
+        else if(msg=="EventPayload")key=ev=="thread"?"thread":ev=="commissioning"?"session":ev=="ble_write"?"ble_write":ev=="matter_report"?"reading":ev=="matter_button"?"button":ev=="matter_inventory"?"inventory":ev=="matter_inventory_nodes"?"inventory_nodes":"";
         else if(v->type==Value::Null)key="null";
         else if(msg=="NullableText")key="text";
         else if(msg=="NullableUint"||msg=="NullableInt")key="integer";

@@ -15,6 +15,8 @@ struct Value {
     Value() : type(Null), u(0), i(0), f(0) {}
 };
 typedef std::vector<unsigned char> Bytes;
+const char* requestName(unsigned opcode);
+const char* ackName(unsigned opcode);
 const Value* field(const Value&, const std::string&);
 void add(Value*, const std::string&, const Value&);
 bool encode(const std::string&, const Value&, Bytes*, size_t limit);

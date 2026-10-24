@@ -6,9 +6,9 @@
     "id": "",
     "body": "body"
   },
-  "request1": {},
-  "request2": {},
-  "request3": {
+  "matter_status_request": {},
+  "thread_status_request": {},
+  "commissioning_start_request": {
     "schema": "",
     "discriminator": "",
     "pin": "",
@@ -16,36 +16,36 @@
     "country_code": "",
     "regulatory_location": ""
   },
-  "request4": {
+  "commissioning_status_request": {
     "schema": "",
     "session": "@id",
     "subscribe": ""
   },
-  "request5": {
+  "commissioning_cancel_request": {
     "schema": "",
     "session": "@id"
   },
-  "request6": {
+  "ble_attach_request": {
     "schema": "",
     "session": "@id",
     "address": "@bytes",
     "mtu": ""
   },
-  "request7": {
+  "ble_indication_request": {
     "schema": "",
     "session": "@id",
     "generation": "",
     "sequence": "",
     "data": "@bytes"
   },
-  "request8": {
+  "ble_write_complete_request": {
     "schema": "",
     "session": "@id",
     "generation": "",
     "write": "",
     "success": ""
   },
-  "request9": {
+  "thread_control_request": {
     "schema": "",
     "action": "",
     "subscribe": "",
@@ -53,7 +53,7 @@
     "zigbee_online": "",
     "dataset": "@bytes"
   },
-  "request10": {
+  "device_control_request": {
     "schema": "",
     "action": "",
     "cursor": "",
@@ -65,7 +65,7 @@
     "job": "@id",
     "targets": "target"
   },
-  "request11": {
+  "device_command_request": {
     "schema": "",
     "node": "@id",
     "endpoint": "",
@@ -111,13 +111,13 @@
     "error": "",
     "node": "@id"
   },
-  "ack6": {
+  "ble_attach_result": {
     "generation": ""
   },
-  "ack7": {
+  "ble_indication_result": {
     "sequence": ""
   },
-  "ack8": {
+  "ble_write_complete_result": {
     "write": ""
   },
   "page": {
@@ -186,44 +186,44 @@
     "node": "@id",
     "endpoint": ""
   },
-  "request9:status": {
+  "thread_control_request:status": {
     "schema": "",
     "action": "",
     "subscribe": ""
   },
-  "request9:observe": {
+  "thread_control_request:observe": {
     "schema": "",
     "action": "",
     "zigbee_channel": "",
     "zigbee_online": ""
   },
-  "request9:create": {
+  "thread_control_request:create": {
     "schema": "",
     "action": "",
     "zigbee_channel": ""
   },
-  "request9:import": {
+  "thread_control_request:import": {
     "schema": "",
     "action": "",
     "zigbee_channel": "",
     "dataset": "@bytes"
   },
-  "request9:recreate": {
+  "thread_control_request:recreate": {
     "schema": "",
     "action": "",
     "zigbee_channel": ""
   },
-  "request9:retry": {
+  "thread_control_request:retry": {
     "schema": "",
     "action": ""
   },
-  "request10:snapshot": {
+  "device_control_request:snapshot": {
     "schema": "",
     "action": "",
     "cursor": "",
     "revision": "@id"
   },
-  "request10:read": {
+  "device_control_request:read": {
     "schema": "",
     "action": "",
     "node": "@id",
@@ -231,37 +231,37 @@
     "cluster": "",
     "attribute": ""
   },
-  "request10:bind": {
+  "device_control_request:bind": {
     "schema": "",
     "action": "",
     "node": "@id",
     "endpoint": "",
     "targets": "target"
   },
-  "request10:job": {
+  "device_control_request:job": {
     "schema": "",
     "action": "",
     "job": "@id"
   },
-  "request11:on": {
+  "device_command_request:on": {
     "schema": "",
     "command": "",
     "node": "@id",
     "endpoint": ""
   },
-  "request11:off": {
+  "device_command_request:off": {
     "schema": "",
     "command": "",
     "node": "@id",
     "endpoint": ""
   },
-  "request11:toggle": {
+  "device_command_request:toggle": {
     "schema": "",
     "command": "",
     "node": "@id",
     "endpoint": ""
   },
-  "request11:sync_time": {
+  "device_command_request:sync_time": {
     "schema": "",
     "command": "",
     "node": "@id",
@@ -269,7 +269,7 @@
     "time_zone": "",
     "offset_seconds": ""
   },
-  "request11:move_to_level": {
+  "device_command_request:move_to_level": {
     "schema": "",
     "command": "",
     "node": "@id",
@@ -282,7 +282,7 @@
     "device": "device",
     "endpoint_count": ""
   },
-  "request10:delete": {
+  "device_control_request:delete": {
     "schema": "",
     "action": "",
     "node": "@id",
@@ -294,7 +294,7 @@
   "inventory-node": {
     "node": "@id"
   },
-  "request10:subscriptions": {
+  "device_control_request:subscriptions": {
     "schema": "",
     "action": "",
     "node": "@id",
@@ -320,7 +320,7 @@
     "failures": "",
     "state": ""
   },
-  "request11:thermostat": {
+  "device_command_request:thermostat": {
     "schema": "",
     "command": "",
     "node": "@id",

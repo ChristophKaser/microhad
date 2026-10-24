@@ -5,6 +5,9 @@ import struct
 from pathlib import Path
 SCHEMA=json.loads((Path(__file__).resolve().parents[1]/'protocol/generated/schema.json').read_text())
 
+REQUEST_NAMES={f['tag']:f['name'] for f in SCHEMA['MessageBody'] if 1<=f['tag']<=11}
+ACK_NAMES={n:REQUEST_NAMES[n].removesuffix('_request')+'_result' for n in (6,7,8)}
+
 def varint(n):
     if not 0<=n<2**64:raise ValueError('integer overflow')
     out=bytearray()
@@ -14,7 +17,7 @@ def varint(n):
 def shape_name(s):return ''.join(x.title() for x in s.split('-'))
 def normalize(v,msg,kind,op,event='',incoming=False):
     fields=SCHEMA[msg]
-    if msg.startswith('List') or msg=='UintList':
+    if len(fields)==1 and fields[0]['repeated'] and fields[0]['name']=='items':
         return [normalize(x,fields[0]['message'],kind,op,event,incoming) if fields[0]['type']==11 else x for x in v.get('items',[])] if incoming else {'items':[normalize(x,fields[0]['message'],kind,op,event) if fields[0]['type']==11 else x for x in v]}
     if fields and fields[0]['oneof']:
         if incoming:
@@ -24,9 +27,9 @@ def normalize(v,msg,kind,op,event='',incoming=False):
                 if x is not True:raise ValueError('invalid null')
                 return None
             return normalize(x,f['message'],kind,op,event,True) if f['type']==11 else x
-        if msg=='Body':key=f'request{op}' if kind==0 else 'event' if kind==2 else 'matter' if op==1 else 'thread' if op==2 else 'reply'
-        elif msg=='Result':key='session' if op<=5 else f'ack{op}' if op<=8 else 'thread' if op==9 else 'subscription_health' if 'subscriptions' in v else 'page' if 'devices' in v else 'job'
-        elif msg=='EventData':key={'thread':'thread','commissioning':'session','ble_write':'ble_write','matter_report':'reading','matter_button':'button','matter_inventory':'inventory','matter_inventory_nodes':'inventory_nodes'}[event]
+        if msg=='MessageBody':key=REQUEST_NAMES[op] if kind==0 else 'event' if kind==2 else 'matter' if op==1 else 'thread' if op==2 else 'reply'
+        elif msg=='OperationResult':key='session' if op<=5 else ACK_NAMES[op] if op<=8 else 'thread' if op==9 else 'subscription_health' if 'subscriptions' in v else 'page' if 'devices' in v else 'job'
+        elif msg=='EventPayload':key={'thread':'thread','commissioning':'session','ble_write':'ble_write','matter_report':'reading','matter_button':'button','matter_inventory':'inventory','matter_inventory_nodes':'inventory_nodes'}[event]
         elif v is None:key='null'
         elif msg=='NullableText':key='text'
         elif msg in ('NullableUint','NullableInt'):key='integer'
