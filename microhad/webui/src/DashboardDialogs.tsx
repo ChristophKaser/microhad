@@ -282,7 +282,7 @@ export function SceneTextDialog({ onClose, onSaved }: DialogCallbacks) {
   )
 }
 
-export function NetworkDialog({ onClose, onSaved }: DialogCallbacks) {
+export function NetworkDialog({ onClose, onSaved, existingNetwork }: DialogCallbacks & { existingNetwork: boolean }) {
   const [confirmation, setConfirmation] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -307,12 +307,12 @@ export function NetworkDialog({ onClose, onSaved }: DialogCallbacks) {
     <div className="modal">
       <form className="dialog" onSubmit={createNetwork}>
         <div className="dialog-heading">
-          <h2>Create a fresh Zigbee network</h2>
+          <h2>{existingNetwork ? 'Replace Zigbee network' : 'Create Zigbee network'}</h2>
           <button type="button" className="icon-button" onClick={onClose} aria-label="Close">
             ✕
           </button>
         </div>
-        <p>This deletes the current Zigbee network. All paired devices must be joined again.</p>
+        <p>{existingNetwork ? 'This replaces the current Zigbee network. All paired Zigbee devices must be joined again.' : 'This creates a Zigbee network for pairing devices.'}</p>
         <p>
           Type <strong>DELETE</strong> to continue.
         </p>
@@ -334,7 +334,7 @@ export function NetworkDialog({ onClose, onSaved }: DialogCallbacks) {
             Cancel
           </button>
           <button className="button danger" disabled={confirmation !== 'DELETE' || saving}>
-            Create fresh network
+            {existingNetwork ? 'Replace Zigbee network' : 'Create Zigbee network'}
           </button>
         </div>
       </form>

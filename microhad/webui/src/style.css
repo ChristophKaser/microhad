@@ -882,10 +882,23 @@ button:disabled {
 }
 @media (max-width: 520px) {
   .overview {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
   }
-  .overview-item:last-child {
-    grid-column: auto;
+  .overview-item {
+    padding: 12px 10px;
+    gap: 8px;
+    min-width: 0;
+  }
+  .overview-item > div {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .overview-icon {
+    width: 30px;
+    height: 30px;
+    flex-shrink: 0;
+    font-size: 1.1rem;
   }
   .toolbar .button {
     flex: 1 1 145px;
@@ -994,8 +1007,7 @@ button:disabled {
   .shell {
     padding: 8px 10px 40px;
   }
-  .hero,
-  .overview {
+  .hero {
     display: none;
   }
   .mobile-top {

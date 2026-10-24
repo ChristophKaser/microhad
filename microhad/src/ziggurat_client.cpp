@@ -178,7 +178,7 @@ bool ZigguratState::save(const std::string& path, std::string* error) const {
 }
 
 ZigguratClient::ZigguratClient() : fd_(-1), lockFd_(-1), connecting_(false), hello_(false), ready_(false), failed_(false),
-    discarding_(false), stopping_(false), dirtyTables_(false), nextId_(1), controlId_(0), phase_(0), reconnectAt_(0),
+    discarding_(false), stopping_(false), dirtyTables_(false), creatingNetwork_(false), nextId_(1), controlId_(0), phase_(0), reconnectAt_(0),
     helloDeadline_(0), checkpointAt_(0), keyRevision_(0), snapshotRevision_(0) {}
 ZigguratClient::~ZigguratClient() { stop(); }
 bool ZigguratClient::start(const std::string& socket, const std::string& state, std::string* error) {
@@ -193,9 +193,46 @@ bool ZigguratClient::start(const std::string& socket, const std::string& state, 
         if (lockFd_>=0) close(lockFd_);
         lockFd_=-1; *error="Ziggurat state is locked or unsafe"; return false;
     }
-    if (!state_.load(state,error)) { close(lockFd_); lockFd_=-1; return false; }
+    struct stat saved;
+    if (lstat(state.c_str(),&saved)==0 || errno!=ENOENT) {
+        if (!state_.load(state,error)) { close(lockFd_); lockFd_=-1; return false; }
+    } else state_=ZigguratState();
     failed_=false; stopping_=false; reconnectAt_=time(0);
     return true;
+}
+bool ZigguratClient::createNetwork(const ZigguratState& state, std::string* error) {
+    if (fd_<0 || !hello_ || failed_ || stopping_ || controlId_ || !pending_.empty() || creatingNetwork_) {
+        *error="Ziggurat is unavailable or busy; retry network creation later"; return false;
+    }
+    if (!state.valid() || state.network.size()!=state_.network.size() ||
+        !std::equal(state.network.begin()+14,state.network.begin()+22,state_.network.begin()+14) ||
+        state.network[0]!=state_.network[0]) {
+        *error="invalid replacement Zigbee network or changed coordinator/channel"; return false;
+    }
+    newNetwork_=state;
+    if (!state_.valid()) return installNewNetwork(error);
+    // Freeze first, then read final counters and tables before preserving the old state.
+    creatingNetwork_=true; ready_=false; control(4,Bytes(),41);
+    return fd_>=0;
+}
+bool ZigguratClient::installNewNetwork(std::string* error) {
+    if (state_.valid()) {
+        std::string pattern=statePath_+".before-network-create-XXXXXX";
+        std::vector<char> name(pattern.begin(),pattern.end()); name.push_back(0);
+        int backup=mkstemp(&name[0]);
+        if (backup<0) { *error="cannot reserve previous Zigbee network backup"; return false; }
+        close(backup);
+        if (!state_.save(&name[0],error)) return false;
+    }
+    // Commit the new identity before sending Configure. A crash must never restore
+    // old counters into a newly configured network. Existing backups stay intact.
+    if (!newNetwork_.advance(error) || !newNetwork_.save(statePath_,error)) return false;
+    state_=newNetwork_; newNetwork_=ZigguratState(); creatingNetwork_=false;
+    ready_=false; dirtyTables_=false; checkpointAt_=0; ++keyRevision_;
+    Bytes config(1,0); config.push_back(1);
+    config.insert(config.end(),state_.network.begin(),state_.network.end());
+    control(0x10,config,2);
+    return fd_>=0;
 }
 bool ZigguratClient::connectSocket(std::string* error) {
     fd_=socket(AF_UNIX,SOCK_STREAM,0); if (fd_<0) { *error="cannot create Ziggurat socket"; return false; }
@@ -208,6 +245,7 @@ bool ZigguratClient::connectSocket(std::string* error) {
 void ZigguratClient::disconnect(const std::string& reason, bool permanent) {
     if (fd_>=0) close(fd_);
     fd_=-1; ready_=false; connecting_=false; hello_=false; failed_=permanent;
+    creatingNetwork_=false; newNetwork_=ZigguratState();
     output_.clear(); input_.clear(); discarding_=false; pending_.clear(); controlId_=0; phase_=0;
     reconnectAt_=permanent || stopping_ ? 0 : time(0)+1; helloDeadline_=0; checkpointAt_=0;
     Event event(Event::Down); event.message=reason; events_.push_back(event);
@@ -255,16 +293,29 @@ void ZigguratClient::finishSnapshot() {
         state_.children!=snapshot_.children || state_.addresses!=snapshot_.addresses;
     state_=snapshot_; if (changed && !persist()) return;
     checkpointAt_=time(0)+60; phase_=0; controlId_=0;
+    if (creatingNetwork_) {
+        std::string error;
+        if (!installNewNetwork(&error)) disconnect(error,true);
+        return;
+    }
     if (!ready_ && !stopping_) { ready_=true; Event event(Event::Ready); events_.push_back(event); }
 }
 void ZigguratClient::controlReply(unsigned char command, unsigned char status, const Bytes& body) {
     (void)command;
     if (phase_==1 && status==0x10) {
+        if (!state_.valid()) { control(2,Bytes(),40); return; }
         std::string error; if (!state_.advance(&error)) { disconnect(error,true); return; }
         if (!persist()) return;
         Bytes config(1,0); config.push_back(1); config.insert(config.end(),state_.network.begin(),state_.network.end()); control(0x10,config,2); return;
     }
     if (status) { disconnect("Ziggurat lifecycle request failed",true); return; }
+    if (phase_==40) {
+        if (body.size()!=8 || !nontrivial(body,0,8)) { disconnect("invalid coordinator hardware address",true); return; }
+        state_.network=Bytes(82,0); state_.network[0]=11;
+        std::copy(body.begin(),body.end(),state_.network.begin()+14);
+        phase_=0; Event event(Event::Unconfigured); events_.push_back(event); return;
+    }
+    if (phase_==41) { snapshot(false); return; }
     if (phase_==11 || phase_==21 || phase_==12 || phase_==22 || phase_==13 || phase_==23) {
         const Bytes& table=(phase_==11 || phase_==21) ? snapshot_.keys :
             (phase_==12 || phase_==22) ? snapshot_.children : snapshot_.addresses;
@@ -306,7 +357,7 @@ void ZigguratClient::controlReply(unsigned char command, unsigned char status, c
         if (snapshotRevision_==keyRevision_ && get16(body,82)!=get16(snapshot_.keys,0)) {
             disconnect("Ziggurat key count changed without a complete snapshot",true); return;
         }
-        if (stopping_ && body[84]!=0) { disconnect("Ziggurat freeze was not confirmed",true); return; }
+        if ((stopping_ || creatingNetwork_) && body[84]!=0) { disconnect("Ziggurat freeze was not confirmed",true); return; }
         mergeCounter(&snapshot_.network,network,39); mergeCounter(&snapshot_.network,network,78); finishSnapshot();
     }
 }

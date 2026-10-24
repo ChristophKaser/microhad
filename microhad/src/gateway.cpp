@@ -1312,14 +1312,21 @@ void Gateway::pollZiggurat() {
             broadcastQuorumState_="pending"; broadcastQuorumError_.clear();
             observedNetworkChannel_=0;
             online_=false; networkFormed_=false; zigguratSends_.clear();
+            networkForming_=false; networkFormationDeadline_=0; networkFormationStep_=0;
             interviewRequestInFlight_=false; interviewDeadline_=0;
             for (std::map<unsigned short, SceneRetry>::iterator i=sceneRetries_.begin();i!=sceneRetries_.end();++i)
                 if (i->second.inFlight) { i->second.inFlight=false; i->second.retryAt=LONG_MAX; }
             addLog(event.message); markViewDirty(); continue;
         }
+        if (event.type==ZigguratClient::Event::Unconfigured) {
+            online_=true; networkFormed_=false; networkInitRequested_=true;
+            observedNetworkChannel_=0;
+            addLog("Ziggurat coordinator ready; create a Zigbee network to continue"); markViewDirty(); continue;
+        }
         if (event.type==ZigguratClient::Event::Ready) {
             const ZigguratWire::Bytes& n=ziggurat_->state().network;
             online_=true; networkFormed_=true; networkInitRequested_=true; nextHeartbeatAt_=0;
+            networkForming_=false; networkFormationDeadline_=0; networkFormationStep_=0;
             coordinatorIeeeAddress_.assign(n.begin()+14,n.begin()+22); coordinatorIeeeAddressRequested_=true;
             networkChannel_=n[0]; networkPanId_=static_cast<unsigned short>(n[2] | (static_cast<unsigned short>(n[3])<<8));
             observedNetworkChannel_=n[0];
@@ -1871,7 +1878,40 @@ void Gateway::advanceNetworkBackup() {
 
 bool Gateway::createFreshNetwork(std::string* error) {
 #if MICROHAD_ZIGGURAT_ENABLED
-    if (ziggurat_ != 0) { *error = "Ziggurat requires explicit offline network initialization; existing network preserved"; return false; }
+    if (ziggurat_ != 0) {
+        if (!online_ || networkForming_ || networkBackup_.active()) {
+            *error="Zigbee coordinator is offline or network creation/backup is in progress"; return false;
+        }
+        const ZigguratWire::Bytes& previous=ziggurat_->state().network;
+        if (previous.size()!=82) { *error="coordinator identity is not available"; return false; }
+        const std::vector<unsigned char> oldExtendedPan=networkExtendedPan_, oldKey=networkKey_, oldSecret=preconfiguredKey_;
+        const unsigned short oldPan=networkPanId_;
+        const unsigned char oldChannel=networkChannel_;
+        if (!generateNetworkMaterial(error)) return false;
+        ZigguratState fresh;
+        fresh.network=ZigguratWire::Bytes(82,0);
+        fresh.network[0]=previous[0]; // Keep the shared radio channel compatible with Thread.
+        fresh.network[2]=static_cast<unsigned char>(networkPanId_);
+        fresh.network[3]=static_cast<unsigned char>(networkPanId_>>8);
+        std::copy(networkExtendedPan_.begin(),networkExtendedPan_.end(),fresh.network.begin()+4);
+        std::copy(previous.begin()+14,previous.begin()+22,fresh.network.begin()+14);
+        std::copy(networkKey_.begin(),networkKey_.end(),fresh.network.begin()+22);
+        const char joiningKey[]="ZigBeeAlliance09";
+        std::copy(joiningKey,joiningKey+16,fresh.network.begin()+43);
+        fresh.network[59]=1;
+        std::copy(preconfiguredKey_.begin(),preconfiguredKey_.end(),fresh.network.begin()+60);
+        fresh.network[76]=1; // EZSP hashed trust-center link-key derivation.
+        fresh.network[77]=previous[77];
+        fresh.keys=fresh.children=fresh.addresses=ZigguratWire::Bytes(2,0);
+        networkExtendedPan_=oldExtendedPan; networkKey_=oldKey; preconfiguredKey_=oldSecret;
+        networkPanId_=oldPan; networkChannel_=oldChannel;
+        if (!ziggurat_->createNetwork(fresh,error)) return false;
+        networkForming_=true; networkFormed_=false; joinUntil_=0;
+        networkFormationDeadline_=0; networkFormationStep_=0;
+        interviews_.clear(); interviewRequestInFlight_=false; interviewDeadline_=0;
+        addLog("Creating a new Zigbee network; previous network state is preserved in a private backup");
+        markViewDirty(); return true;
+    }
 #endif
     if (networkBackup_.active()) { *error = "network backup is active"; return false; }
     bool leaveExisting;

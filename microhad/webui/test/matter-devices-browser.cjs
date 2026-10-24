@@ -20,7 +20,7 @@ async function main() {
     if (request.url === '/') {
       response.setHeader('Content-Type', 'text/html');
       response.end(`<!doctype html><html><body><div id="root"></div><pre id="result"></pre><script>
-        Object.defineProperty(navigator, 'bluetooth', { value: { requestDevice: async () => ({}) } });
+        Object.defineProperty(navigator, 'bluetooth', { configurable: true, value: { requestDevice: async () => ({}) } });
         Object.defineProperty(navigator, 'mediaDevices', { value: { getUserMedia: async () => new MediaStream() } });
         Object.defineProperty(HTMLMediaElement.prototype, 'readyState', { get: () => 2 });
         HTMLMediaElement.prototype.play = async () => {};

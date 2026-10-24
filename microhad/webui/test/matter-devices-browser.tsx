@@ -48,6 +48,9 @@ async function run() {
   check(document.querySelector('[aria-label^="History for Matter light"]'), 'common telemetry history is missing from Matter card')
   check(!document.body.textContent?.includes('Running sessions'), 'empty running sessions section is visible')
   check(!document.body.textContent?.includes('Watch MicroHAD Companion progress'), 'manual session watcher remains')
+  check(!button('Commission with this browser').disabled, 'commissioning button requires a code before clicking')
+  button('Commission with this browser').click()
+  await wait(() => document.body.textContent?.includes('Enter a Matter setup code or scan its QR code.') === true, 'missing setup code hint')
   button('Scan Matter QR code').click()
   await wait(() => document.querySelector<HTMLInputElement>('.matter-panel input[maxlength="512"]')?.value === 'MT:Y.K9042C00KA0648G00',
     'Matter QR scanner did not fill the setup code')
@@ -79,6 +82,10 @@ async function run() {
   button('Retry stored Thread dataset').click()
   await wait(async () => (await (await fetch('/fixture/retry-count')).json()).retryPosts === 1,
     'retry stored Thread dataset is sent without dataset input')
+  Reflect.deleteProperty(navigator, 'bluetooth')
+  await wait(() => !document.body.textContent?.includes('Commission with this browser'), 'browser commissioning controls remain without Bluetooth')
+  check(!document.body.textContent?.includes('Matter setup code'), 'setup code field remains without Bluetooth')
+  check(!document.body.textContent?.includes('Scan Matter QR code'), 'QR scanning remains without Bluetooth')
   document.body.dataset.result = 'passed'
   document.getElementById('result')!.textContent = 'PASS Matter endpoints render and operate through the shared device catalog, common controls, Matter QR scanning, Matter join/settings and Thread dataset retry'
 }

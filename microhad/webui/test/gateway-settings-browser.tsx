@@ -34,6 +34,8 @@ function input(value: string) {
 function submit() { document.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })) }
 async function run() {
   await until(() => document.querySelector('input')?.value === '8')
+  if (document.body.textContent!.includes('Saved:') || document.body.textContent!.includes('Setting applied.')) throw new Error('Redundant settings status remains')
+  if (document.body.textContent!.includes('Replace Zigbee network')) throw new Error('Replacement offered without an existing network')
   const selects = document.querySelectorAll('select')
   if (selects[0].value !== 'DE' || selects[1].value !== 'indoor') throw new Error('Germany/indoor defaults were not loaded')
   input('0'); await pause(); submit()
@@ -43,7 +45,7 @@ async function run() {
   await until(() => savedValue === 3 && document.body.textContent!.includes('awaiting Ziggurat'))
   input('4'); await pause()
   state = { ...state, applied_value: 3, application_state: 'applied' }
-  await until(() => document.body.textContent!.includes('Applied: 3'))
+  await until(() => !document.body.textContent!.includes('awaiting Ziggurat'))
   if (document.querySelector('input')!.value !== '4') throw new Error('Polling overwrote the edit')
   rejectSave = true; submit()
   await until(() => document.body.textContent!.includes('Cannot save settings'))
@@ -57,6 +59,13 @@ async function run() {
   await until(() => savedCountry === 'US' && savedLocation === 'outdoor')
   ;(document.querySelector('button[aria-label="Close"]') as HTMLButtonElement).click()
   await until(() => document.body.textContent!.includes('Closed'))
+  let replacement = false
+  root.render(<GatewaySettingsDialog onClose={() => {}} onReplaceZigbeeNetwork={() => { replacement = true }} />)
+  await until(() => document.body.textContent!.includes('Replace Zigbee network'))
+  const replace = [...document.querySelectorAll('button')].find(button => button.textContent === 'Replace Zigbee network')!
+  if (replace.type !== 'button') throw new Error('Network replacement submits gateway settings')
+  replace.click()
+  if (!replacement) throw new Error('Network replacement action was not opened')
   const result = document.getElementById('result')!
   result.dataset.result = 'passed'; result.textContent = 'PASS gateway region defaults, save, threshold validation, polling, errors, unsupported and close'
 }

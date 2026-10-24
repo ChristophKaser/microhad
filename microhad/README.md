@@ -43,6 +43,27 @@ socket failure stays offline rather than falling back to UART access.
 | `history.values` | Committed sensor history pages |
 | `matter/` | State owned by the Rust Matter service |
 
+With Ziggurat, a missing `ziggurat-state.json` leaves the coordinator online
+without a Zigbee network until **Create Zigbee network** is confirmed in the
+Gateway tab. A malformed or unsafe existing state file still fails closed;
+an unknown live network is never adopted or overwritten automatically.
+
+When a Zigbee network already exists, **Replace Zigbee network** is under
+**Gateway settings** and requires typing `DELETE`. Replacement freezes Zigbee,
+reads its final security counters and tables, and preserves a private snapshot
+as `ziggurat-state.json.before-network-create-*`. It then durably saves the new
+identity before configuring and starting Ziggurat. The coordinator address and
+current channel stay the same; network identifiers, network key and trust-center
+seed are regenerated, and Zigbee key/child/address tables start empty. Existing
+Zigbee devices must be paired again. Matter identity, Thread dataset, gateway
+configuration, device inventory and existing backups are retained.
+
+Network creation is asynchronous. The HTTP reply means the request was accepted;
+wait for **Zigbee network: Formed**. A freeze, checkpoint, backup or configuration
+failure leaves the coordinator offline rather than guessing which network to
+resume. Previous snapshots remain available for deliberate recovery. Never
+restore old security counters directly into a running network.
+
 Live device values are cached in RAM at `/tmp/microhad-values.cbor`. Changes
 are batched for five seconds, then an owned snapshot is encoded and atomically
 written by the existing `history-write` thread. Graceful shutdown flushes the

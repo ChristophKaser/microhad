@@ -29,7 +29,7 @@ class Peer:
         self.path=path;self.saved=copy.deepcopy(state);self.network=bytes.fromhex(state["network"])
         self.tables={0x21:bytes.fromhex(state["keys"]),0x22:bytes.fromhex(state["children"]),0x23:bytes.fromhex(state["addresses"])}
         self.configured=False;self.started=False;self.conn=None;self.stop=threading.Event();self.error=None
-        self.lock=threading.Lock();self.commands=[];self.reject_send=False;self.fail_confirmation=False;self.drop_commands=set();self.omit_scan_rows=set()
+        self.lock=threading.Lock();self.commands=[];self.reject_send=False;self.reject_configure=False;self.fail_confirmation=False;self.drop_commands=set();self.omit_scan_rows=set()
         self.listener=socket.socket(socket.AF_UNIX);self.listener.bind(str(path));path.chmod(0o600);self.listener.listen();self.listener.settimeout(.1)
         self.thread=threading.Thread(target=self.run,daemon=True);self.thread.start()
 
@@ -55,14 +55,16 @@ class Peer:
         if command in self.drop_commands:return
         reply=bytes([command])+struct.pack("<H",ident<<2|1)
         status=0;response=b""
-        if command==0x20:
+        if command==2:response=self.network[14:22]
+        elif command==0x20:
             if not self.configured:status=0x10
             else:response=self.network+self.tables[0x21][:2]+bytes([self.started])
         elif command==0x10:
             assert len(body)==84
             committed=json.loads((self.path.parent/"ziggurat-state.json").read_text())
             assert committed["network"]==body[2:].hex() # Commit precedes Configure.
-            self.network=body[2:];self.configured=True;self.started=False
+            if self.reject_configure:status=0x20
+            else:self.network=body[2:];self.configured=True;self.started=False
         elif command in (0x11,0x12,0x13):self.tables[command+0x10]=body
         elif command==0x16:self.started=True
         elif command==4:self.started=False
@@ -152,6 +154,107 @@ class NativeTests(unittest.TestCase):
         wait_for(lambda:any(command==0x34 for command,_ in self.peer.commands))
         payload=next(body for command,body in self.peer.commands if command==0x34)
         self.assertEqual(payload,b"\x2c\x01\x01")
+
+    def submit_network(self):
+        # The broadcast threshold request may still be finishing after Ready.
+        def submit():
+            try:return self.request('/api/network/create', b'confirmation=DELETE')['ok']
+            except urllib.error.HTTPError as error:
+                self.assertEqual(error.code,400)
+                self.assertIn('busy',json.load(error)['error'])
+                return False
+        wait_for(submit)
+
+    def create_network(self):
+        previous=self.saved()['network'] if self.state_path.exists() else None
+        self.submit_network()
+        wait_for(lambda:self.state_path.exists() and self.saved()['network']!=previous)
+        wait_for(lambda:self.status()['network_formed'] and not self.status()['network_forming'])
+
+    def test_replace_network_preserves_old_snapshot_and_channel(self):
+        previous=self.peer.network
+        self.create_network()
+        current=bytes.fromhex(self.saved()['network'])
+        self.assertEqual(current[0],previous[0])
+        self.assertEqual(current[14:22],previous[14:22])
+        self.assertNotEqual(current[4:12],previous[4:12])
+        self.assertNotEqual(current[22:38],previous[22:38])
+        self.assertEqual(self.saved()['keys'],'0000')
+        self.assertEqual(self.saved()['children'],'0000')
+        self.assertEqual(self.saved()['addresses'],'0000')
+        backups=list(self.directory.glob('ziggurat-state.json.before-network-create-*'))
+        self.assertEqual(len(backups),1)
+        backup=json.loads(backups[0].read_text())
+        self.assertEqual(bytes.fromhex(backup['network'])[4:38],previous[4:38])
+        self.assertEqual(backups[0].stat().st_mode & 0o777,0o600)
+        self.assertTrue(any(command==4 for command,_ in self.peer.commands))
+        configured=sum(command==0x10 for command,_ in self.peer.commands)
+        self.process.kill();self.process.wait();self.process=None
+        self.launch()
+        self.assertEqual(bytes.fromhex(self.saved()['network'])[4:38],current[4:38])
+        self.assertEqual(sum(command==0x10 for command,_ in self.peer.commands),configured)
+
+    def test_create_network_without_saved_state_requires_confirmation(self):
+        self.process.terminate();self.process.wait(timeout=7);self.process=None
+        self.state_path.unlink()
+        self.peer.configured=False;self.peer.started=False
+        self.launch()
+        self.assertFalse(self.status()['network_formed'])
+        self.assertFalse(self.state_path.exists())
+        with self.assertRaises(urllib.error.HTTPError) as rejected:
+            self.request('/api/network/create',b'confirmation=no')
+        self.assertEqual(rejected.exception.code,400)
+        self.assertFalse(self.state_path.exists())
+        self.create_network()
+        self.assertTrue(self.state_path.exists())
+        self.assertFalse(list(self.directory.glob('ziggurat-state.json.before-network-create-*')))
+
+    def test_replacement_checkpoint_failure_preserves_identity(self):
+        before=self.saved()
+        configured=sum(command==0x10 for command,_ in self.peer.commands)
+        self.peer.omit_scan_rows.add(0x21)
+        self.submit_network()
+        wait_for(lambda:not self.status()['online'])
+        self.assertEqual(self.saved(),before)
+        self.assertEqual(sum(command==0x10 for command,_ in self.peer.commands),configured)
+
+    def test_missing_state_does_not_replace_unknown_live_network(self):
+        self.process.kill();self.process.wait();self.process=None
+        self.state_path.unlink()
+        configured=sum(command==0x10 for command,_ in self.peer.commands)
+        self.process=subprocess.Popen([str(NATIVE_BINARY),'--config',str(self.config)],stdout=self.log,stderr=self.log)
+        wait_for(lambda:any('network identity mismatch' in line for line in self.request('/api/logs')['lines']))
+        self.assertFalse(self.status()['online'])
+        self.assertFalse(self.state_path.exists())
+        self.assertEqual(sum(command==0x10 for command,_ in self.peer.commands),configured)
+
+    def test_repeated_replacement_keeps_existing_backups(self):
+        for index in range(2):
+            self.create_network()
+        backups=list(self.directory.glob('ziggurat-state.json.before-network-create-*'))
+        self.assertEqual(len(backups),2)
+        self.assertNotEqual(backups[0].read_bytes(),backups[1].read_bytes())
+
+    def test_replacement_storage_failure_never_sends_configure(self):
+        before=self.saved()
+        configured=sum(command==0x10 for command,_ in self.peer.commands)
+        self.state_path.chmod(0o644)
+        self.submit_network()
+        wait_for(lambda:not self.status()['online'])
+        self.assertEqual(self.saved(),before)
+        self.assertEqual(sum(command==0x10 for command,_ in self.peer.commands),configured)
+        self.assertTrue(list(self.directory.glob('ziggurat-state.json.before-network-create-*')))
+
+    def test_replacement_configure_rejected_keeps_backup_and_stays_offline(self):
+        previous=self.peer.network
+        self.peer.reject_configure=True
+        self.submit_network()
+        wait_for(lambda:not self.status()['online'])
+        backup=next(self.directory.glob('ziggurat-state.json.before-network-create-*'))
+        self.assertEqual(bytes.fromhex(json.loads(backup.read_text())['network'])[4:38],previous[4:38])
+        self.assertNotEqual(bytes.fromhex(self.saved()['network'])[22:38],previous[22:38])
+        self.assertFalse(self.status()['network_formed'])
+        self.assertFalse(self.peer.started)
 
     def test_counter_and_link_key_notifications_are_durable(self):
         nwk=struct.pack("<I",50000);aps=struct.pack("<I",60000)

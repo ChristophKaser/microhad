@@ -1,8 +1,8 @@
 # Use Matter and Thread from the dashboard
 
 Matter-enabled builds show Thread setup and commissioning controls. Disabled
-builds hide them. Unavailable service/coordinator state blocks mutations and
-shows a check/retry action. Basic panel requests use same-origin HTTP;
+builds hide them. Unavailable service/coordinator state blocks mutations;
+status refreshes automatically. Basic panel requests use same-origin HTTP;
 Browser Push has separate HTTPS requirements.
 
 ## Set up Thread
@@ -23,8 +23,8 @@ lost, inspect status before retrying. Mutations are not replayed automatically.
 1. Connect [MicroHAD Companion](../../docs/companion-app.md) to your gateway, then select **Commission Matter device**.
 2. Put the accessory in commissioning mode, enter/scan its setup code and
    select its BLE advertisement. Keep MicroHAD Companion in the foreground.
-3. Copy the displayed session ID into the dashboard's session field and select
-   **Watch progress** if you want to monitor from the browser.
+3. The dashboard discovers the running session automatically and shows its
+   progress under **Running sessions**. This section is hidden when idle.
 4. Wait for session state `complete`. A delivery job marked complete only means
    a request finished; it does not mean the accessory was commissioned.
 
@@ -36,6 +36,9 @@ over the phone relay.
 ## Scan a Matter QR code in the dashboard
 
 Chrome and Edge can scan a Matter QR code directly in the Device setup panel.
+The setup-code field, browser commissioning button and scanner are shown only
+when the Web Bluetooth API is available in a secure context. Otherwise, the
+panel suggests Chrome or Edge over HTTPS or the Android companion app.
 Open the dashboard over HTTPS, select **Scan Matter QR code**, and allow camera
 access. A full-screen scanner opens, prefers the rear camera, decodes the code
 locally, then fills the setup-code field. It extracts a valid `MT:` setup
@@ -44,10 +47,13 @@ Select **Commission with this browser** to choose the accessory and start
 commissioning; scanning never starts commissioning on its own. Stop scanning or
 leave the panel to release the camera. If scanning is unavailable, denied, or
 cannot recognize the code, enter the setup code manually or use MicroHAD Companion.
+The commissioning button can be pressed with an empty setup field; it shows a
+hint to enter a code or scan its QR code before opening the Bluetooth chooser.
+It is disabled while a gateway operation is pending.
 
 The browser displays phases, remaining gateway budget and terminal node ID,
 and provides explicit cancellation. Leaving the panel stops polling without
-cancelling the phone's operation. Return by selecting the session again.
+cancelling the phone's operation. Returning discovers any still-running session.
 Lost replies may leave an operation running until its gateway deadline.
 
 ## Devices, readings and controls

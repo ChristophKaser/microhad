@@ -260,7 +260,8 @@ function App() {
           {restarting ? 'Restarting service…' : statusError ? 'Gateway status unavailable' : status?.online ? 'Coordinator online' : 'Coordinator offline'}
         </div></div>
       </header>
-      {gatewaySettingsOpen && <GatewaySettingsDialog onClose={() => setGatewaySettingsOpen(false)} />}
+      {gatewaySettingsOpen && <GatewaySettingsDialog onClose={() => setGatewaySettingsOpen(false)}
+        onReplaceZigbeeNetwork={status?.network_formed ? () => { setGatewaySettingsOpen(false); setDialog('network') } : undefined} />}
       <nav className="main-tabs" role="tablist" aria-label="Gateway views">
         {['Dashboard', 'Gateway', 'Groups', 'Automations', ...visibleDeviceTypes.map(type => type.name), 'Diagnostics'].map(name => (
           <button key={name} role="tab" aria-selected={tab === name} className={`main-tab ${tab === name ? 'active' : ''}`} onClick={() => { if (name === tab || !automationDirty || window.confirm('Discard unsaved script changes?')) setTab(name) }}>{name}</button>
@@ -340,12 +341,12 @@ function App() {
         </div>
         <div className="toolbar">
           <JoinButton joinLeft={joinLeft} preparing={preparingJoin} action={action} />
-          <button
+          {status && !statusError && !status.network_formed && <button
             className="button danger"
             onClick={() => setDialog('network')}
           >
-            Create fresh network
-          </button>
+            Create Zigbee network
+          </button>}
           <button className="button" onClick={restart}>
             Restart service
           </button>
@@ -463,6 +464,7 @@ function App() {
       )}
       {dialog === 'network' && (
         <NetworkDialog
+          existingNetwork={!!status?.network_formed}
           onClose={() => setDialog(null)}
           onSaved={() => void refreshStatus()}
         />

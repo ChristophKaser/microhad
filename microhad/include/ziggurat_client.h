@@ -31,7 +31,7 @@ class ZigguratClient {
 public:
     typedef ZigguratWire::Bytes Bytes;
     struct Event {
-        enum Type { Ready, Down, ReceivedAps, Joined, Left, Admission, Confirmation, JoinReply, TunableReply, Diagnostic } type;
+        enum Type { Ready, Unconfigured, Down, ReceivedAps, Joined, Left, Admission, Confirmation, JoinReply, TunableReply, Diagnostic } type;
         unsigned int id;
         unsigned char command;
         unsigned char status;
@@ -49,6 +49,7 @@ public:
     long deadline() const;
     bool ready() const { return ready_; }
     bool pop(Event* event);
+    bool createNetwork(const ZigguratState& state, std::string* error);
     unsigned int request(unsigned char command, const Bytes& payload);
     const ZigguratState& state() const { return state_; }
 private:
@@ -65,6 +66,7 @@ private:
     bool discarding_;
     bool stopping_;
     bool dirtyTables_;
+    bool creatingNetwork_;
     unsigned int nextId_;
     unsigned int controlId_;
     unsigned char phase_;
@@ -79,6 +81,7 @@ private:
     std::deque<Event> events_;
     ZigguratState state_;
     ZigguratState snapshot_;
+    ZigguratState newNetwork_;
     unsigned long keyRevision_;
     unsigned long snapshotRevision_;
     bool connectSocket(std::string* error);
@@ -89,5 +92,6 @@ private:
     bool persist();
     void snapshot(bool initial);
     void finishSnapshot();
+    bool installNewNetwork(std::string* error);
 };
 #endif

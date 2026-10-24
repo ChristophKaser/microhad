@@ -29,6 +29,7 @@ export function MatterPanel() {
   const [pending, setPending] = useState(false)
   const [dataset, setDataset] = useState('')
   const [sessionInput, setSessionInput] = useState('')
+  const [setupHint, setSetupHint] = useState('')
   const [scanning, setScanning] = useState(false)
   const [scannerMessage, setScannerMessage] = useState('')
   const [watch, setWatch] = useState('')
@@ -108,6 +109,8 @@ export function MatterPanel() {
   }
   async function commissionInBrowser(input: string) {
     if (operation.current) return
+    if (!input.trim()) { setSetupHint('Enter a Matter setup code or scan its QR code.'); return }
+    setSetupHint('')
     try {
       const code = setupCode(input)
       if (!code.ble) throw new Error('unsupported')
@@ -188,15 +191,16 @@ export function MatterPanel() {
       </form>
     </div>}
     {ready && configured && <>
-      <p>Commission with <strong>MicroHAD Companion</strong>, or use this browser’s Bluetooth support.</p>
+      <p>Commission with <strong>MicroHAD Companion</strong>{webBluetoothAvailable() ? ', or use this browser’s Bluetooth support.' : '.'}</p>
       <p className="muted small">Gateway address: {window.location.origin}</p>
+      {webBluetoothAvailable() && <>
       <form onSubmit={event => { event.preventDefault(); const input = sessionInput; setSessionInput(''); void commissionInBrowser(input) }}>
-        <label>Matter setup code<input autoComplete="off" spellCheck={false} maxLength={512} value={sessionInput} disabled={pending || !webBluetoothAvailable()} onChange={event => setSessionInput(event.target.value)} /></label>
-        <button className="button primary" disabled={pending || !sessionInput.trim() || !webBluetoothAvailable()}>Commission with this browser</button>
-        {!webBluetoothAvailable() && <p className="muted small">Bluetooth commissioning needs Chrome or Edge over HTTPS.</p>}
+        <label>Matter setup code<input autoComplete="off" spellCheck={false} maxLength={512} value={sessionInput} disabled={pending} onChange={event => { setSessionInput(event.target.value); setSetupHint('') }} /></label>
+        <button className="button primary" disabled={pending}>Commission with this browser</button>
+        {setupHint && <p className="muted small" role="status">{setupHint}</p>}
       </form>
       {webQrScannerAvailable() && <div className="matter-scanner">
-        <button className="button" disabled={pending || !webBluetoothAvailable()} onClick={() => void startScanning()}>Scan Matter QR code</button>
+        <button className="button" disabled={pending} onClick={() => { setSetupHint(''); void startScanning() }}>Scan Matter QR code</button>
         {scannerMessage && <p className="muted small" role="status">{scannerMessage}</p>}
       </div>}
       {scanning && <div className="modal matter-scanner-modal">
@@ -208,7 +212,9 @@ export function MatterPanel() {
           <button className="button" onClick={stopScanning}>Stop scanning</button>
         </section>
       </div>}
-      <p className="muted small">Or use the Android companion app.</p>
+      </>}
+      {!webBluetoothAvailable() && <p className="muted small">For browser commissioning, use Chrome or Edge over HTTPS with Bluetooth support.</p>}
+      <p className="muted small">{webBluetoothAvailable() ? 'Or use' : 'Use'} the Android companion app.</p>
       {((session && !terminalSession(session)) || (!session && availability.matter.commissioning_session)) && <h3>Running sessions</h3>}
       {!session && availability.matter.commissioning_session && <p className="muted">Loading session…</p>}
       {session && <div aria-live="polite"><p><strong>{phases[session.state]}</strong>{session.deadline_remaining_seconds > 0 ? ` · ${session.deadline_remaining_seconds}s remaining` : ''}</p>

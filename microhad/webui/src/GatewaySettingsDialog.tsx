@@ -16,7 +16,7 @@ const countries = completeCountryCodes.split(' ').concat('MP MR MS MQ MU MW MY R
   .filter((entry, index, values) => values.findIndex(candidate => candidate[0] === entry[0]) === index)
   .sort((left, right) => left[1].localeCompare(right[1]))
 
-export function GatewaySettingsDialog({ onClose }: { onClose: () => void }) {
+export function GatewaySettingsDialog({ onClose, onReplaceZigbeeNetwork }: { onClose: () => void; onReplaceZigbeeNetwork?: () => void }) {
   const [settings, setSettings] = useState<GatewaySettings | null>(null)
   const [value, setValue] = useState('')
   const [country, setCountry] = useState('DE')
@@ -102,14 +102,13 @@ export function GatewaySettingsDialog({ onClose }: { onClose: () => void }) {
       <p className="muted">The country and installation location are sent to Matter accessories during commissioning. Default: Germany, indoor.</p>
       <div role="status" aria-live="polite">
         {!settings ? <p>Loading settings…</p> : <>
-          <p>Saved: {settings.broadcast_passive_ack_quorum} · Applied: {settings.applied_value ?? 'Unknown'}</p>
           {settings.application_state === 'pending' && <p>Saved; awaiting Ziggurat. If disconnected, this will apply after reconnect.</p>}
-          {settings.application_state === 'applied' && <p>Setting applied.</p>}
           {settings.application_state === 'error' && <p className="error">{settings.application_error}</p>}
           {unsupported && <p>This setting is unavailable with the current coordinator.</p>}
         </>}
       </div>
       <div className="dialog-actions">
+        {onReplaceZigbeeNetwork && <button type="button" className="button danger" disabled={saving} onClick={onReplaceZigbeeNetwork}>Replace Zigbee network</button>}
         <button type="button" className="button" onClick={onClose}>Cancel</button>
         <button type="submit" className="button primary" disabled={!settings || saving}>{saving ? 'Saving…' : 'Save settings'}</button>
       </div>

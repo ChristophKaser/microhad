@@ -30,6 +30,14 @@ make -C microhad test-backends
 Run variants sequentially. The Makefile is authoritative for tests included in
 `make host test`; the focused scripts below are separate entrypoints.
 
+The scripted Ziggurat peer tests included in `make host test` cover explicit
+first-time Zigbee network creation, confirmation rejection, replacement with
+fresh keys, retained coordinator/channel, empty network tables, private backup
+retention across repeated replacements, and a failed final snapshot preserving
+the saved identity without sending Configure. They also cover storage failures,
+rejected Configure replies, restart reconciliation of the new identity, and
+refusal to overwrite an unknown live network when the private state is missing.
+
 ## Focused integration checks
 
 | Area | Command from repository root |
