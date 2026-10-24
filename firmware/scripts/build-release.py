@@ -16,7 +16,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[2]
 BUILD = ROOT / "build/firmware-hdlc"
 TEMPLATES = ROOT / "firmware/release"
-SDK_REVISION = "853854753883af3c48271aa2060a5f8ffd8b070b"
+SDK_REVISION = "461f90758bb18b3416bad77b1f1248f1a76dbeed"
 
 
 def load(name, path):

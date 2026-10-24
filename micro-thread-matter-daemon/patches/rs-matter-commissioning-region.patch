@@ -1,14 +1,14 @@
-From b2b3798b8a705599086fe8cef6b51d850a69eabd Mon Sep 17 00:00:00 2001
+From 9f14e649064a3c6bd5404d1be76da30dcac7ee71 Mon Sep 17 00:00:00 2001
 From: Christoph Kaser <christoph@caser.de>
 Date: Thu, 8 Oct 2026 09:19:28 +0200
 Subject: [PATCH] rs-matter: configure regulatory region before credentials
 
 ---
- rs-matter/src/onboard.rs | 35 ++++++++++++++++++++++++++++++++++-
- 1 file changed, 34 insertions(+), 1 deletion(-)
+ rs-matter/src/onboard.rs | 34 +++++++++++++++++++++++++++++++++-
+ 1 file changed, 33 insertions(+), 1 deletion(-)
 
 diff --git a/rs-matter/src/onboard.rs b/rs-matter/src/onboard.rs
-index 2d0e258..ebd00db 100644
+index f1a5a79b..3e39406c 100644
 --- a/rs-matter/src/onboard.rs
 +++ b/rs-matter/src/onboard.rs
 @@ -62,7 +62,9 @@ use core::num::NonZeroU8;
@@ -53,10 +53,10 @@ index 2d0e258..ebd00db 100644
              allow_test_attestation: false,
          }
      }
-@@ -308,6 +320,27 @@ impl<'a, 'b, C: Crypto> Commissioner<'a, 'b, C> {
-             result => result?,
-         }
- 
+@@ -396,6 +408,26 @@ impl<'a, 'b, C: Crypto> Commissioner<'a, 'b, C> {
+         // `initiate_pase` unless there is one already; the rest reuse it.
+         self.arm_fail_safe(peer_addr, passcode, opts.fail_safe_secs)
+             .await?;
 +        if let Some(config) = opts.regulatory_config {
 +            if !config.country_code.iter().all(u8::is_ascii_uppercase) {
 +                return Err(ErrorCode::InvalidData.into());
@@ -77,10 +77,9 @@ index 2d0e258..ebd00db 100644
 +                return Err(ErrorCode::Failure.into());
 +            }
 +        }
-+
+ 
          // Device Attestation — structural hook. See [`CommissionOptions::allow_test_attestation`].
          self.verify_device_attestation(opts).await?;
- 
 -- 
 2.43.0
 

@@ -38,7 +38,6 @@ else
     mailboxes+=(ziggurat/patches/ziggurat-stock-compat.patch ziggurat/patches/ziggurat-syslog.patch)
 fi
 mailboxes+=(ziggurat/patches/ziggurat-syslog-fragments.patch ziggurat/patches/ziggurat-async-syslog.patch)
-mailboxes+=(ziggurat/patches/ziggurat-end-device-relay.patch)
 if [ "$ZIGGURAT_MULTIPAN" = 1 ]; then
     mailboxes+=(ziggurat/patches/ziggurat-radio-trace.patch ziggurat/patches/ziggurat-thread-tcp.patch)
 fi

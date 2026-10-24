@@ -1,31 +1,27 @@
+From 0475941c1b408719493c5d51fb34886306638c77 Mon Sep 17 00:00:00 2001
 From: Christoph Kaser <christoph@caser.de>
-Date: Fri, 16 Oct 2026 16:35:00 +0200
+Date: Sat, 24 Oct 2026 11:08:51 +0200
 Subject: [PATCH] rs-matter: allow Thread attachment before a BLE command response
 
-BTP acknowledgements confirm transport delivery, not command completion.
-ConnectNetwork can take more than five seconds while the accessory searches
-for a Thread parent. Keep the transport acknowledgement timer unchanged and
-allow sixty seconds for the Matter response. The commissioner still enforces
-its overall session deadline.
+---
+ rs-matter/src/transport/session.rs | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
 
+diff --git a/rs-matter/src/transport/session.rs b/rs-matter/src/transport/session.rs
+index 124efcc1..2b767223 100644
 --- a/rs-matter/src/transport/session.rs
 +++ b/rs-matter/src/transport/session.rs
-@@ -66,9 +66,11 @@
- 
- /// Receive timeout for a BTP (BLE) session.
- ///
--/// BTP runs its own acknowledgement scheme underneath, so the MRP ladder does not
--/// describe it; this matches the BTP layer's own ack timeout.
--const BTP_RX_TIMEOUT_MS: u64 = 5_000;
-+/// A BTP acknowledgement confirms delivery, not completion of a Matter command.
-+/// In particular, ConnectNetwork may be waiting for Thread attachment long after
-+/// the request has been acknowledged. Allow that processing time independently
-+/// of BTP's transport acknowledgement timer.
+@@ -71,7 +71,8 @@ const TCP_RX_TIMEOUT_MS: u64 = 30_000;
+ /// this is a flat upper bound on how long the peer may take to answer: a
+ /// commissionee answers `ConnectNetwork` only once it has tried to join, and the
+ /// spec allows a commissioning step at least 30 seconds.
+-const BTP_RX_TIMEOUT_MS: u64 = 30_000;
++// Allow Thread parent discovery independently of BTP transport acknowledgements.
 +const BTP_RX_TIMEOUT_MS: u64 = 60_000;
  
  pub const MAX_CAT_IDS_PER_NOC: usize = 3;
  pub type NocCatIds = [u32; MAX_CAT_IDS_PER_NOC];
-@@ -2260,7 +2262,7 @@
+@@ -2455,7 +2456,7 @@ mod tests {
          );
          assert_eq!(
              session(Address::Btp(BtAddr([0; 6]))).rx_timeout_ms(300),
@@ -34,3 +30,6 @@ its overall session deadline.
          );
  
          // UDP sums both directions of the MRP ladder plus the processing
+-- 
+2.43.0
+

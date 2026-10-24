@@ -1,14 +1,19 @@
-From 9f56c1c7e0c257b30b184b014d0bc7f4a4092762 Mon Sep 17 00:00:00 2001
+From 1992136389a1a7579ce7ab697c76066cc30881be Mon Sep 17 00:00:00 2001
 From: Christoph Kaser <christoph@caser.de>
 Date: Wed, 7 Oct 2026 16:04:51 +0200
 Subject: [PATCH] rs-matter: expose ICD check-in capture
 
+---
+ rs-matter/src/lib.rs                | 90 +++++++++++++++++++++++++++++
+ rs-matter/src/respond.rs            | 10 +++-
+ rs-matter/src/transport/exchange.rs | 17 ++++++
+ 3 files changed, 114 insertions(+), 3 deletions(-)
 
 diff --git a/rs-matter/src/lib.rs b/rs-matter/src/lib.rs
-index d9c1285..7358b63 100644
+index 4b14ee41..60ec6618 100644
 --- a/rs-matter/src/lib.rs
 +++ b/rs-matter/src/lib.rs
-@@ -71,6 +71,7 @@ use crate::utils::init::{init, Init};
+@@ -73,6 +73,7 @@ use crate::utils::init::{init, Init};
  use crate::utils::storage::pooled::Buffers;
  use crate::utils::storage::WriteBuf;
  use crate::utils::sync::blocking::Mutex;
@@ -16,7 +21,7 @@ index d9c1285..7358b63 100644
  
  use rand_core::Rng;
  
-@@ -134,6 +135,28 @@ macro_rules! alloc {
+@@ -137,6 +138,28 @@ macro_rules! alloc {
  /// The Matter UDP port
  pub const MATTER_PORT: u16 = 5540;
  
@@ -45,17 +50,16 @@ index d9c1285..7358b63 100644
  /// Device basic commissioning data
  #[derive(Debug, Clone)]
  #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-@@ -147,6 +170,9 @@ pub struct BasicCommData {
- 
- /// The primary Matter Object
- pub struct Matter<'a> {
-+    /// Bounded handoff from Secure Channel exchange handling to the controller
-+    /// event loop. It contains encrypted payloads only.
-+    icd_check_ins: Mutex<RefCell<Deque<IcdCheckIn, MAX_PENDING_ICD_CHECK_INS>>>,
+@@ -162,6 +185,8 @@ pub struct Matter<'a> {
+     dev_att: &'a dyn DeviceAttestation,
      /// The internal state of the Matter Object, protected by a mutex for concurrent access from different threads and async tasks.
      state: Mutex<RefCell<MatterState>>,
-     /// The transport state of the Matter Object
-@@ -174,6 +200,22 @@ pub struct Matter<'a> {
++    /// Bounded handoff of encrypted Check-In payloads to the controller.
++    icd_check_ins: Mutex<RefCell<Deque<IcdCheckIn, MAX_PENDING_ICD_CHECK_INS>>>,
+     /// The basic information configuration for this Matter device
+     dev_det: &'a BasicInfoConfig<'a>,
+     /// The scratch buffer used by the key-value persistence machinery for
+@@ -183,6 +208,22 @@ pub struct Matter<'a> {
  }
  
  impl<'a> Matter<'a> {
@@ -78,31 +82,31 @@ index d9c1285..7358b63 100644
      /// Create a new Matter object.
      ///
      /// # Parameters
-@@ -192,6 +234,7 @@ impl<'a> Matter<'a> {
+@@ -201,6 +242,7 @@ impl<'a> Matter<'a> {
          port: u16,
      ) -> Self {
          Self {
 +            icd_check_ins: Mutex::new(RefCell::new(Deque::new())),
              state: Mutex::new(RefCell::new(MatterState::new())),
-             transport: Transport::new(dev_det),
+             transport: Transport::new(),
              dev_det,
-@@ -226,6 +269,7 @@ impl<'a> Matter<'a> {
+@@ -235,6 +277,7 @@ impl<'a> Matter<'a> {
          {
              init!(
                  Self {
 +                    icd_check_ins <- Mutex::init(RefCell::init(Deque::new())),
                      state <- Mutex::init(RefCell::init(MatterState::init())),
-                     transport <- Transport::init(dev_det),
+                     transport <- Transport::init(),
                      dev_det,
-@@ -242,6 +286,7 @@ impl<'a> Matter<'a> {
+@@ -251,6 +294,7 @@ impl<'a> Matter<'a> {
          {
              init!(
                  Self {
 +                    icd_check_ins <- Mutex::init(RefCell::init(Deque::new())),
                      state <- Mutex::init(RefCell::init(MatterState::init())),
-                     transport <- Transport::init(dev_det),
+                     transport <- Transport::init(),
                      dev_det,
-@@ -1086,6 +1131,30 @@ impl<'a> Matter<'a> {
+@@ -1165,6 +1209,30 @@ impl<'a> Matter<'a> {
  /// The internal state of the Matter Object
  ///
  /// Public for unit tests.
@@ -133,8 +137,8 @@ index d9c1285..7358b63 100644
  pub struct MatterState {
      /// All fabrics
      pub fabrics: Fabrics,
-@@ -1168,6 +1237,28 @@ impl MatterState {
- pub mod test {
+@@ -1262,6 +1330,28 @@ pub mod test {
+     use crate::utils::storage::WriteBuf;
      use crate::Matter;
  
 +    #[test]
@@ -163,7 +167,7 @@ index d9c1285..7358b63 100644
          Matter::new(
              &crate::dm::devices::test::TEST_DEV_DET,
 diff --git a/rs-matter/src/respond.rs b/rs-matter/src/respond.rs
-index 2351d9b..0b5d265 100644
+index 2351d9ba..0b5d2651 100644
 --- a/rs-matter/src/respond.rs
 +++ b/rs-matter/src/respond.rs
 @@ -282,7 +282,7 @@ pub type DefaultExchangeHandler<
@@ -198,10 +202,10 @@ index 2351d9b..0b5d265 100644
      > {
          &self.responder
 diff --git a/rs-matter/src/transport/exchange.rs b/rs-matter/src/transport/exchange.rs
-index 24093ff..d90ed2a 100644
+index 02a912df..42fca9bf 100644
 --- a/rs-matter/src/transport/exchange.rs
 +++ b/rs-matter/src/transport/exchange.rs
-@@ -1315,6 +1315,23 @@ impl<'a> Exchange<'a> {
+@@ -1305,6 +1305,23 @@ impl<'a> Exchange<'a> {
          Self::accept_after(matter, 0).await
      }
  

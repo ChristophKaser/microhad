@@ -1,15 +1,18 @@
+From 53d8b01afad2e68a2139f9823249c35816436e3d Mon Sep 17 00:00:00 2001
 From: Christoph Kaser <christoph@caser.de>
 Date: Thu, 15 Oct 2026 09:00:00 +0200
 Subject: [PATCH] rs-matter: expose commissioning command progress
 
 Keep the existing commissioner API and offer an optional command callback.
-
 ---
+ rs-matter/src/onboard.rs | 22 +++++++++++++++++++++-
+ 1 file changed, 21 insertions(+), 1 deletion(-)
+
 diff --git a/rs-matter/src/onboard.rs b/rs-matter/src/onboard.rs
-index ebd00db..b95a52b 100644
+index 3e39406c..bcde9a33 100644
 --- a/rs-matter/src/onboard.rs
 +++ b/rs-matter/src/onboard.rs
-@@ -285,6 +285,19 @@ impl<'a, 'b, C: Crypto> Commissioner<'a, 'b, C> {
+@@ -286,6 +286,19 @@ impl<'a, 'b, C: Crypto> Commissioner<'a, 'b, C> {
          opts: &CommissionOptions,
          device_node_id: NodeId,
          validity: Validity,
@@ -29,23 +32,32 @@ index ebd00db..b95a52b 100644
      ) -> Result<CommissionResult, Error> {
          // A CASE session to the NodeID we are about to assign can only be left
          // over from a previous holder of it (NodeIDs get reused, e.g. after a
-@@ -307,6 +320,7 @@ impl<'a, 'b, C: Crypto> Commissioner<'a, 'b, C> {
-         // `SessionNotFound`, the transport drops our stale session and this step
-         // fails with `NoSession`. The device never decrypted it, so one retry is
-         // safe - and lands on a fresh PASE session.
-+        progress("arm_fail_safe");
-         match self
-             .arm_fail_safe(peer_addr, passcode, opts.fail_safe_secs)
-             .await
-@@ -321,6 +335,7 @@ impl<'a, 'b, C: Crypto> Commissioner<'a, 'b, C> {
-         }
+@@ -301,7 +314,7 @@ impl<'a, 'b, C: Crypto> Commissioner<'a, 'b, C> {
+         self.matter.transport().notify_session_removed();
  
+         let result = self
+-            .add_to_fabric(peer_addr, passcode, opts, device_node_id, validity)
++            .add_to_fabric(peer_addr, passcode, opts, device_node_id, validity, &mut progress)
+             .await;
+ 
+         if result.is_err() {
+@@ -403,12 +416,15 @@ impl<'a, 'b, C: Crypto> Commissioner<'a, 'b, C> {
+         opts: &CommissionOptions,
+         device_node_id: NodeId,
+         validity: Validity,
++        mut progress: impl FnMut(&'static str),
+     ) -> Result<CommissionResult, Error> {
+         // The first PASE step (ArmFailSafe) establishes the PASE session via
+         // `initiate_pase` unless there is one already; the rest reuse it.
++        progress("arm_fail_safe");
+         self.arm_fail_safe(peer_addr, passcode, opts.fail_safe_secs)
+             .await?;
          if let Some(config) = opts.regulatory_config {
 +            progress("regulatory_config");
              if !config.country_code.iter().all(u8::is_ascii_uppercase) {
                  return Err(ErrorCode::InvalidData.into());
              }
-@@ -342,6 +357,7 @@ impl<'a, 'b, C: Crypto> Commissioner<'a, 'b, C> {
+@@ -430,6 +446,7 @@ impl<'a, 'b, C: Crypto> Commissioner<'a, 'b, C> {
          }
  
          // Device Attestation — structural hook. See [`CommissionOptions::allow_test_attestation`].
@@ -53,7 +65,7 @@ index ebd00db..b95a52b 100644
          self.verify_device_attestation(opts).await?;
  
          // CSRRequest: random 32B nonce, then validate the device's echo
-@@ -363,6 +379,7 @@ impl<'a, 'b, C: Crypto> Commissioner<'a, 'b, C> {
+@@ -451,6 +468,7 @@ impl<'a, 'b, C: Crypto> Commissioner<'a, 'b, C> {
          // Sign the device NOC. The returned slice lives in
          // `noc_generator.buf` — independent of `buf`, so we can use
          // both side-by-side below.
@@ -61,7 +73,7 @@ index ebd00db..b95a52b 100644
          let noc = Self::csr_request(matter, crypto, peer_addr, passcode, &csr_nonce, |csr_der| {
              noc_generator.generate(crypto, csr_der, device_node_id, &[], validity)
          })
-@@ -383,6 +400,7 @@ impl<'a, 'b, C: Crypto> Commissioner<'a, 'b, C> {
+@@ -471,6 +489,7 @@ impl<'a, 'b, C: Crypto> Commissioner<'a, 'b, C> {
              buf[..rcac.len()].copy_from_slice(rcac);
              Ok::<_, Error>(rcac.len())
          })?;
@@ -69,7 +81,7 @@ index ebd00db..b95a52b 100644
          Self::add_trusted_root_certificate(matter, crypto, peer_addr, passcode, &buf[..rcac_len])
              .await?;
  
-@@ -405,6 +423,7 @@ impl<'a, 'b, C: Crypto> Commissioner<'a, 'b, C> {
+@@ -493,6 +512,7 @@ impl<'a, 'b, C: Crypto> Commissioner<'a, 'b, C> {
          // AddNOC. `&buf[..icac_len]` is empty for RCAC-direct fabrics
          // (the codegen builder skips the field entirely); non-empty ⇒
          // the full `[RCAC, ICAC, NOC]` chain is shipped.
@@ -77,3 +89,6 @@ index ebd00db..b95a52b 100644
          let fabric_index = Self::add_noc(
              matter,
              crypto,
+-- 
+2.43.0
+

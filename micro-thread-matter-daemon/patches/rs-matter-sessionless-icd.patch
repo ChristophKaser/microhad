@@ -1,14 +1,18 @@
-From 6dae94c9b3bd6ce1546057ce87bccea06016adc0 Mon Sep 17 00:00:00 2001
+From 8e954adc49ad2460c157bc6540ac09105a9111e6 Mon Sep 17 00:00:00 2001
 From: Christoph Kaser <christoph@caser.de>
 Date: Wed, 7 Oct 2026 16:04:52 +0200
 Subject: [PATCH] rs-matter: support sessionless ICD check-ins
 
+---
+ rs-matter/src/lib.rs       | 42 ++++++++++++++++++++++++--------------
+ rs-matter/src/transport.rs | 12 +++++++++++
+ 2 files changed, 39 insertions(+), 15 deletions(-)
 
 diff --git a/rs-matter/src/lib.rs b/rs-matter/src/lib.rs
-index 7358b63..c092ddb 100644
+index 60ec6618..1b09db8d 100644
 --- a/rs-matter/src/lib.rs
 +++ b/rs-matter/src/lib.rs
-@@ -140,9 +140,8 @@ pub const MATTER_PORT: u16 = 5540;
+@@ -143,9 +143,8 @@ pub const MATTER_PORT: u16 = 5540;
  pub const MAX_ICD_CHECK_IN_BYTES: usize = 128;
  const MAX_PENDING_ICD_CHECK_INS: usize = 8;
  
@@ -20,7 +24,7 @@ index 7358b63..c092ddb 100644
  #[derive(Clone)]
  pub struct IcdCheckIn {
      pub fabric: u8,
-@@ -152,6 +151,22 @@ pub struct IcdCheckIn {
+@@ -155,6 +154,22 @@ pub struct IcdCheckIn {
  }
  
  impl IcdCheckIn {
@@ -43,7 +47,7 @@ index 7358b63..c092ddb 100644
      pub fn payload(&self) -> &[u8] {
          &self.payload[..self.len]
      }
-@@ -200,8 +215,8 @@ pub struct Matter<'a> {
+@@ -208,8 +223,8 @@ pub struct Matter<'a> {
  }
  
  impl<'a> Matter<'a> {
@@ -54,7 +58,7 @@ index 7358b63..c092ddb 100644
      pub fn pop_icd_check_in(&self) -> Option<IcdCheckIn> {
          self.icd_check_ins.lock(|queue| queue.borrow_mut().pop_front())
      }
-@@ -216,6 +231,12 @@ impl<'a> Matter<'a> {
+@@ -224,6 +239,12 @@ impl<'a> Matter<'a> {
          });
      }
  
@@ -67,7 +71,7 @@ index 7358b63..c092ddb 100644
      /// Create a new Matter object.
      ///
      /// # Parameters
-@@ -1140,16 +1161,7 @@ impl crate::sc::AsyncScHandler for Matter<'_> {
+@@ -1218,16 +1239,7 @@ impl crate::sc::AsyncScHandler for Matter<'_> {
              .peer_identity()?
              .ok_or(ErrorCode::InvalidData)?;
          let payload = exchange.rx()?.payload();
@@ -86,13 +90,14 @@ index 7358b63..c092ddb 100644
          Ok(())
      }
 diff --git a/rs-matter/src/transport.rs b/rs-matter/src/transport.rs
-index fe7dc99..39e74ce 100644
+index 74c7202f..18d45bd6 100644
 --- a/rs-matter/src/transport.rs
 +++ b/rs-matter/src/transport.rs
-@@ -2098,6 +2098,17 @@ impl<'a, C: Crypto> TransportRunner<'a, C> {
-                     return session.post_recv(&packet.header);
+@@ -2119,6 +2119,18 @@ impl<'a, C: Crypto> TransportRunner<'a, C> {
+                     // Session created successfully: decode, indicate packet payload slice and process further
+                     return session.post_recv(&packet.peer, &packet.header);
                  }
- 
++
 +                let meta = MessageMeta::from(&packet.header.proto);
 +                if meta.proto_id == PROTO_ID_SECURE_CHANNEL
 +                    && meta.proto_opcode == OpCode::CheckIn as u8
@@ -104,9 +109,9 @@ index fe7dc99..39e74ce 100644
 +                    return Err(ErrorCode::NoExchange.into());
 +                }
 +
-                 // A `SessionNotFound` is the peer telling us that a session *we*
-                 // still hold is dead on its side (e.g. it rebooted). Drop it, so the
-                 // exchange waiting on it fails at once with `NoSession` instead of
+             } else {
+                 #[cfg(feature = "groups")]
+                 if packet.header.plain.is_group_session() {
 -- 
 2.43.0
 

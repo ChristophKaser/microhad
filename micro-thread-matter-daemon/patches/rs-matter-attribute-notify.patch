@@ -1,14 +1,17 @@
-From e8423e0e85e76b8fdbd24857409164e660c37e4d Mon Sep 17 00:00:00 2001
+From 5e59eb8ad739e6b8ad500a7c3aaab00328ce9212 Mon Sep 17 00:00:00 2001
 From: Christoph Kaser <christoph@caser.de>
 Date: Wed, 7 Oct 2026 16:04:51 +0200
 Subject: [PATCH] rs-matter: expose subscription attribute notifications
 
+---
+ rs-matter/src/im.rs | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
 
 diff --git a/rs-matter/src/im.rs b/rs-matter/src/im.rs
-index e0343b9..d52923a 100644
+index 4756ce0e..405c4f4c 100644
 --- a/rs-matter/src/im.rs
 +++ b/rs-matter/src/im.rs
-@@ -463,6 +463,17 @@ where
+@@ -476,6 +476,17 @@ where
      N: Networks,
      R: ReportDataHandler,
  {

@@ -5,7 +5,7 @@ project_root=$(cd -- "$(dirname -- "$0")/../.." && pwd)
 cd "$project_root"
 source_dir="$project_root/micro-thread-matter-daemon/dependencies/rs-matter"
 service_dir="$project_root/build/micro-thread-matter-daemon/service-source"
-revision=1570356ecb938a9d19be032b93ca3bb487069e75
+revision=ae2293b016f823411679a2e119ebce3ab9370a05
 if [[ ${MICROHAD_SOURCE_BUNDLE:-0} == 1 ]]; then
     python3 scripts/release_source.py build/micro-thread-matter-daemon/service-source
     exit 0

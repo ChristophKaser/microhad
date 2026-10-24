@@ -4,7 +4,7 @@ source "$(dirname -- "$0")/silabs-env.sh"
 project=ot-rcp-multipan
 build_dir="$experiment_root/build/firmware-hdlc"
 patches_dir="$experiment_root/firmware/dependencies/rtl8196e-gateway/2-Zigbee-Radio-Silabs-EFR32/26-OT-RCP/patches"
-revision=853854753883af3c48271aa2060a5f8ffd8b070b
+revision=461f90758bb18b3416bad77b1f1248f1a76dbeed
 [[ $(git -C "$GECKO_SDK" rev-parse HEAD) == "$revision" ]] || { echo 'Wrong Gecko SDK revision' >&2; exit 1; }
 command -v slc >/dev/null
 command -v arm-none-eabi-gcc >/dev/null

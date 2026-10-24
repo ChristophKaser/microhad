@@ -1,11 +1,14 @@
-From e854e58c3abb45f52e019aa3f04e1e293018f313 Mon Sep 17 00:00:00 2001
+From 6d9d86bcbd47604c53591328d9e17f8be06f70b4 Mon Sep 17 00:00:00 2001
 From: Christoph Kaser <christoph@caser.de>
 Date: Wed, 7 Oct 2026 16:04:52 +0200
 Subject: [PATCH] rs-matter: add synthetic commissioning controller fixture
 
+---
+ rs-matter/tests/commissioning.rs | 350 +++++++++++++++++++++++--------
+ 1 file changed, 268 insertions(+), 82 deletions(-)
 
 diff --git a/rs-matter/tests/commissioning.rs b/rs-matter/tests/commissioning.rs
-index 607570c..3b6ba6b 100644
+index 6c9291f0..0aa487f2 100644
 --- a/rs-matter/tests/commissioning.rs
 +++ b/rs-matter/tests/commissioning.rs
 @@ -39,7 +39,120 @@
@@ -286,7 +289,7 @@ index 607570c..3b6ba6b 100644
  
      // Phase 5 - the device reboots and is commissioned again by the *same*
      // controller. A reboot wipes the device's session table, but the controller
-@@ -333,7 +491,7 @@ async fn run_controller_flow<C: Crypto, D: Crypto>(
+@@ -334,7 +492,7 @@ async fn run_controller_flow<C: Crypto, D: Crypto>(
      device_matter.with_state(|state| state.sessions.remove_where(|_| true));
      device_matter.open_basic_comm_window(MAX_COMM_WINDOW_TIMEOUT_SECS, device_crypto, &())?;
  
@@ -295,7 +298,7 @@ index 607570c..3b6ba6b 100644
  
      info!("=== Phase 6: a stale CASE session to the node ID being assigned is dropped ===");
      test_stale_case_is_dropped(
-@@ -343,6 +501,7 @@ async fn run_controller_flow<C: Crypto, D: Crypto>(
+@@ -344,6 +502,7 @@ async fn run_controller_flow<C: Crypto, D: Crypto>(
          device_crypto,
          peer_addr,
          use_tcp,
@@ -303,7 +306,7 @@ index 607570c..3b6ba6b 100644
      )
      .await?;
  
-@@ -376,6 +535,7 @@ async fn test_commission<C: Crypto>(
+@@ -388,6 +547,7 @@ async fn test_commission<C: Crypto>(
      crypto: &C,
      peer_addr: Address,
      use_tcp: bool,
@@ -311,7 +314,7 @@ index 607570c..3b6ba6b 100644
  ) -> Result<(core::num::NonZeroU8, u64), Error> {
      // ---- Offline CA chain: RCAC then ICAC; RCAC priv discarded ----
  
-@@ -412,7 +572,14 @@ async fn test_commission<C: Crypto>(
+@@ -424,7 +584,14 @@ async fn test_commission<C: Crypto>(
      )
      .with_transport(transport(use_tcp));
  
@@ -327,7 +330,7 @@ index 607570c..3b6ba6b 100644
  
      Ok((controller_fab_idx, result.device_node_id))
  }
-@@ -443,6 +610,7 @@ async fn test_stale_case_is_dropped<C: Crypto, D: Crypto>(
+@@ -448,6 +615,7 @@ async fn test_stale_case_is_dropped<C: Crypto, D: Crypto>(
      device_crypto: &D,
      peer_addr: Address,
      use_tcp: bool,
@@ -335,7 +338,7 @@ index 607570c..3b6ba6b 100644
  ) -> Result<(), Error> {
      // One controller fabric for both runs.
      let mut rcac_buf = [0u8; MAX_CERT_TLV_AND_ASN1_LEN];
-@@ -481,7 +649,14 @@ async fn test_stale_case_is_dropped<C: Crypto, D: Crypto>(
+@@ -486,7 +654,14 @@ async fn test_stale_case_is_dropped<C: Crypto, D: Crypto>(
          &mut commissioner_buf,
      )
      .with_transport(transport(use_tcp));
@@ -351,7 +354,7 @@ index 607570c..3b6ba6b 100644
  
      // Factory-reset the device without a word to the controller, whose CASE
      // session to it is now stale.
-@@ -502,7 +677,14 @@ async fn test_stale_case_is_dropped<C: Crypto, D: Crypto>(
+@@ -505,7 +680,14 @@ async fn test_stale_case_is_dropped<C: Crypto, D: Crypto>(
      )
      .with_transport(transport(use_tcp))
      .with_case_attempts(1);
@@ -367,7 +370,7 @@ index 607570c..3b6ba6b 100644
  
      Ok(())
  }
-@@ -573,14 +755,25 @@ async fn run_commissioner<C: Crypto>(
+@@ -623,14 +805,25 @@ async fn run_commissioner<C: Crypto>(
      commissioner: &mut Commissioner<'_, '_, C>,
      peer_addr: Address,
      use_tcp: bool,
@@ -398,9 +401,9 @@ index 607570c..3b6ba6b 100644
      let result = commissioner
          .commission(
              peer_addr,
-@@ -595,6 +788,60 @@ async fn run_commissioner<C: Crypto>(
-         result.fabric_index, result.device_node_id,
-     );
+@@ -657,6 +850,60 @@ async fn run_commissioner<C: Crypto>(
+     });
+     assert!(pase_open, "phase 1 closed the PASE session");
  
 +    // Application-level failure statuses must not be mistaken for successful joining.
 +    let bytes = gateway_commissioning::fixture_dataset();
@@ -459,7 +462,7 @@ index 607570c..3b6ba6b 100644
      // Phase 2 — operational discovery, then CASE against the device's
      // operational identity, then CommissioningComplete on the new session.
      //
-@@ -640,14 +887,11 @@ async fn run_commissioner<C: Crypto>(
+@@ -702,14 +949,11 @@ async fn run_commissioner<C: Crypto>(
  /// making discovery flaky and environment-dependent. The mDNS protocol code
  /// (query building, response parsing, the resolve rendezvous) is covered by
  /// unit tests instead. Here we use the device's known localhost address: it
@@ -476,7 +479,7 @@ index 607570c..3b6ba6b 100644
          MATTER_PORT,
          0,
          0,
-@@ -809,7 +1053,7 @@ fn create_dual_stack_socket() -> Result<async_io::Async<UdpSocket>, Error> {
+@@ -871,7 +1115,7 @@ fn create_dual_stack_socket() -> Result<async_io::Async<UdpSocket>, Error> {
      socket
          .set_only_v6(false)
          .map_err(|_| rs_matter::error::ErrorCode::NoNetworkInterface)?;
@@ -485,7 +488,7 @@ index 607570c..3b6ba6b 100644
      socket
          .bind(&bind_addr.into())
          .map_err(|_| rs_matter::error::ErrorCode::NoNetworkInterface)?;
-@@ -817,61 +1061,3 @@ fn create_dual_stack_socket() -> Result<async_io::Async<UdpSocket>, Error> {
+@@ -879,61 +1123,3 @@ fn create_dual_stack_socket() -> Result<async_io::Async<UdpSocket>, Error> {
      async_io::Async::new_nonblocking(socket)
          .map_err(|_| rs_matter::error::ErrorCode::NoNetworkInterface.into())
  }

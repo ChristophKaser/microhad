@@ -1,11 +1,14 @@
-From fa19a303e1fef04bf2a31a68d48c2c88a0974c86 Mon Sep 17 00:00:00 2001
+From f2144752ece190fce1f660918cf919119cb4222d Mon Sep 17 00:00:00 2001
 From: Christoph Kaser <christoph@caser.de>
 Date: Wed, 7 Oct 2026 16:04:51 +0200
 Subject: [PATCH] rs-matter: expose SPAKE2+ for commissioning probe
 
+---
+ rs-matter/src/sc/pase.rs | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
 
 diff --git a/rs-matter/src/sc/pase.rs b/rs-matter/src/sc/pase.rs
-index 83e295e..7315458 100644
+index bf7e906f..ee9a5e00 100644
 --- a/rs-matter/src/sc/pase.rs
 +++ b/rs-matter/src/sc/pase.rs
 @@ -48,7 +48,7 @@ pub use spake2p::{

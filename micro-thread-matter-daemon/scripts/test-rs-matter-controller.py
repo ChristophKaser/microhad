@@ -8,7 +8,7 @@ import shutil
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[2]
-REVISION = '1570356ecb938a9d19be032b93ca3bb487069e75'
+REVISION = 'ae2293b016f823411679a2e119ebce3ab9370a05'
 SOURCE = ROOT / 'micro-thread-matter-daemon/dependencies/rs-matter'
 WORKTREE = ROOT / 'build/micro-thread-matter-daemon/commissioning-source'
 PATCH = ROOT / 'micro-thread-matter-daemon/patches/rs-matter-commissioning-probe.patch'
