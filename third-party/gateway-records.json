@@ -2696,7 +2696,7 @@
   },
   {
     "name": "tinycbor",
-    "revision": "c0aad2fb2137a31b9845fbaae3653540c410f215",
+    "revision": "da6421f2b5b91e3468c0af7265117427ea73f19e",
     "license": "MIT",
     "authors": [
       "Intel Corporation"
