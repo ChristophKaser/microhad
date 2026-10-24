@@ -230,7 +230,13 @@ export function SceneTextDialog({ onClose, onSaved }: DialogCallbacks) {
     setSaving(true)
     setError('')
     try {
-      await post('/api/scenes/config', text)
+      const trimmedNames = text.split('\n').map(line => {
+        const fields = line.split('\t')
+        const nameIndex = fields[0] === 'G' ? 2 : fields[0] === 'S' ? 3 : -1
+        if (nameIndex >= 0 && fields[nameIndex] !== undefined) fields[nameIndex] = fields[nameIndex].trim()
+        return fields.join('\t')
+      }).join('\n')
+      await post('/api/scenes/config', trimmedNames)
       onSaved()
       onClose()
     } catch (cause) {

@@ -42,7 +42,7 @@ export function PushDevices({ enabled, onClose, onEnableBrowser, onTest, onToggl
     setBusy(client.id)
     try {
       const base = client.kind === 'phone' ? '/api/push/devices/' : '/api/push/browser-clients/'
-      await post(`${base}${encodeURIComponent(client.id)}`, form({ label: updated.label, enabled: String(updated.enabled), presence_sensor_id: updated.presence_sensor_id }))
+      await post(`${base}${encodeURIComponent(client.id)}`, form({ label: updated.label.trim(), enabled: String(updated.enabled), presence_sensor_id: updated.presence_sensor_id }))
       await refresh()
     } catch (failure) { setError(errorMessage(failure)) }
     finally { setBusy(null) }

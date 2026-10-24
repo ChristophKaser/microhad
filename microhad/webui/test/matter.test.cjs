@@ -45,6 +45,20 @@ test('disabled status and enabled unconfigured Thread remain distinct', async ()
   });
 });
 
+test('status discovers running sessions and rejects malformed session IDs', async () => {
+  const status = { enabled: true, available: true, controller_initialized: true, fabric_ready: true, state: 'running' };
+  let current = status;
+  await peer(call => ({ body: call.path === '/api/thread/status' ? thread : current }), async () => {
+    assert.equal((await wire.matterAvailability(signal())).matter.commissioning_session, undefined);
+    current = { ...status, commissioning_session: id };
+    assert.equal((await wire.matterAvailability(signal())).matter.commissioning_session, id);
+    for (const invalid of ['0000000000000000', id.toUpperCase(), '', 123, null]) {
+      current = { ...status, commissioning_session: invalid };
+      await assert.rejects(wire.matterAvailability(signal()), /protocol/);
+    }
+  });
+});
+
 test('queue delivery completion is never accessory commissioning completion', async () => {
   let polls = 0;
   await peer(call => ({ body: call.method === 'POST' ? accepted : ++polls === 1 ? { job: 1, state: 'running' } : completed(session) }), async calls => {

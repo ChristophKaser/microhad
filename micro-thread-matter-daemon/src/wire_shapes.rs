@@ -66,6 +66,7 @@ pub(super) const FIELDS: &[(&str, &str, &str)] = &[
     ("matter", "controller_initialized", ""),
     ("matter", "fabric_ready", ""),
     ("matter", "state", ""),
+    ("matter", "commissioning_session", "@id"),
     ("thread", "enabled", ""),
     ("thread", "available", ""),
     ("thread", "configured", ""),

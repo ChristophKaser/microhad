@@ -37,9 +37,10 @@ bool member(const std::string& value, const char* const* values, unsigned int co
     for (unsigned int i = 0; i < count; ++i) if (value == values[i]) return true;
     return false;
 }
+bool hex(const std::string& value, unsigned int minimum, unsigned int maximum);
 bool snapshotValid(const Fields& fields, bool thread) {
     static const char* const common[] = {"enabled", "available", "state"};
-    static const char* const matterOnly[] = {"controller_initialized", "fabric_ready"};
+    static const char* const matterOnly[] = {"controller_initialized", "fabric_ready", "commissioning_session"};
     static const char* const threadOnly[] = {"configured", "attached", "linux_ipv6_or_tun", "zigbee_channel", "dataset_channel"};
     static const char* const states[] = {"\"awaiting_coordinator\"", "\"detached\"", "\"attaching\"", "\"attached\"", "\"channel_mismatch\"", "\"error\""};
     if (!booleanField(fields, "enabled") || !booleanField(fields, "available") || !fields.count("state")) return false;
@@ -50,7 +51,9 @@ bool snapshotValid(const Fields& fields, bool thread) {
     } else if (!booleanField(fields, "controller_initialized") || !booleanField(fields, "fabric_ready") ||
                (fields.find("state")->second != "\"running\"" && fields.find("state")->second != "\"awaiting_coordinator\"")) return false;
     for (Fields::const_iterator it = fields.begin(); it != fields.end(); ++it) {
-        if (!member(it->first, common, 3) && !member(it->first, thread ? threadOnly : matterOnly, thread ? 5 : 2)) return false;
+        if (!member(it->first, common, 3) && !member(it->first, thread ? threadOnly : matterOnly, thread ? 5 : 3)) return false;
+        if (it->first == "commissioning_session" &&
+            (!hex(it->second, 16, 16) || it->second == "\"0000000000000000\"")) return false;
         if (it->first == "zigbee_channel" || it->first == "dataset_channel") {
             if (it->second.size() != 2 || it->second[0] < '1' || it->second[0] > '2' ||
                 it->second[1] < '0' || it->second[1] > '9') return false;

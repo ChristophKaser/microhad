@@ -91,7 +91,8 @@
     "available": "",
     "controller_initialized": "",
     "fabric_ready": "",
-    "state": ""
+    "state": "",
+    "commissioning_session": "@id"
   },
   "thread": {
     "enabled": "",

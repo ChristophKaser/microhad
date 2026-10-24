@@ -76,7 +76,7 @@ button:disabled {
 }
 .overview {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 13px;
   margin-bottom: 20px;
 }
@@ -869,9 +869,6 @@ button:disabled {
   }
   .overview {
     grid-template-columns: 1fr 1fr;
-  }
-  .overview-item:last-child {
-    grid-column: 1/-1;
   }
   .section-heading .toolbar {
     margin-top: 14px;

@@ -67,6 +67,7 @@ const WireField wireFields[] = {
     {"matter", "controller_initialized", ""},
     {"matter", "fabric_ready", ""},
     {"matter", "state", ""},
+    {"matter", "commissioning_session", "@id"},
     {"thread", "enabled", ""},
     {"thread", "available", ""},
     {"thread", "configured", ""},

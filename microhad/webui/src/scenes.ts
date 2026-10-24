@@ -120,6 +120,7 @@ export function newState(address: string, devices: Device[]): SceneState {
 export function serializeScenes(config: SceneConfig, devices: Device[]): string {
   const lines = ['# microhad-zigbee-scenes-v2']
   const name = (value: string) => {
+    value = value.trim()
     if (!value.trim() || /[\t\r\n]/.test(value))
       throw new Error('Names must be nonempty and cannot contain tabs or line breaks')
     return value

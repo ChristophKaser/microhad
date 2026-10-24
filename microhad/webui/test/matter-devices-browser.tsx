@@ -46,8 +46,10 @@ async function run() {
   check(document.body.textContent?.includes('Unknown'), 'unknown initial Matter values were not kept explicit')
   check(document.querySelector('[aria-label^="Settings for Matter light"]'), 'common device settings are missing from Matter card')
   check(document.querySelector('[aria-label^="History for Matter light"]'), 'common telemetry history is missing from Matter card')
+  check(!document.body.textContent?.includes('Running sessions'), 'empty running sessions section is visible')
+  check(!document.body.textContent?.includes('Watch MicroHAD Companion progress'), 'manual session watcher remains')
   button('Scan Matter QR code').click()
-  await wait(() => (document.querySelector('input[autocomplete="off"]') as HTMLInputElement | null)?.value === 'MT:Y.K9042C00KA0648G00',
+  await wait(() => document.querySelector<HTMLInputElement>('.matter-panel input[maxlength="512"]')?.value === 'MT:Y.K9042C00KA0648G00',
     'Matter QR scanner did not fill the setup code')
   check(document.body.textContent?.includes('Select Commission with this browser to continue.'), 'scan did not require explicit commissioning')
   check(!document.body.textContent?.includes('Stop scanning'), 'scanner did not release the camera after a successful scan')
@@ -72,7 +74,7 @@ async function run() {
     'shared settings show unit-aware Matter concentration thresholds')
   check(document.body.textContent?.includes('Device settings'), 'common device settings did not open')
   await fetch('/fixture/mode', { method: 'POST', body: 'thread-error' })
-  button('Check gateway').click()
+  check(![...document.querySelectorAll('button')].some(item => item.textContent?.trim() === 'Check gateway'), 'Check gateway button remains')
   await wait(() => document.body.textContent?.includes('Thread radio apply failed'), 'Thread apply failure is actionable')
   button('Retry stored Thread dataset').click()
   await wait(async () => (await (await fetch('/fixture/retry-count')).json()).retryPosts === 1,

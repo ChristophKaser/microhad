@@ -111,6 +111,11 @@ impl<'a, C: Crypto + 'a> Controller<'a, C> {
             last_snapshot: Vec::new(),
         })
     }
+    pub fn commissioning_session(&mut self, now: Instant) -> Option<crate::control::Id> {
+        self.sessions.current_snapshot(now)
+            .filter(|snapshot| snapshot.state < crate::sessions::Phase::Complete)
+            .map(|snapshot| snapshot.session)
+    }
     fn ready(lifecycle: &Lifecycle, now: Instant) -> bool {
         lifecycle.snapshot().configured
             && lifecycle.boot_channel(now).is_some()
@@ -571,6 +576,7 @@ mod tests {
         let mut entropy = OsEntropy::open().unwrap();
         let now = Instant::now();
         let start = br#"{"schema":1,"discriminator":3840,"pin":20202021,"timeout_seconds":30,"country_code":"DE","regulatory_location":"indoor"}"#;
+        assert!(owner.commissioning_session(now).is_none());
         let before = std::fs::read(directory.0.join("credentials.bin")).unwrap();
         let body = owner
             .handle(
@@ -602,6 +608,7 @@ mod tests {
         assert_eq!(snapshot["result"]["state"], "waiting_ble");
         assert!(!String::from_utf8(body).unwrap().contains("20202021"));
         let id = snapshot["result"]["session"].as_str().unwrap();
+        assert_eq!(format!("{:016x}", owner.commissioning_session(now).unwrap().0), id);
         let status = format!(r#"{{"schema":1,"session":"{id}"}}"#);
         assert_eq!(
             owner
@@ -642,6 +649,7 @@ mod tests {
         let timeout: serde_json::Value = serde_json::from_slice(&timeout).unwrap();
         assert_eq!(timeout["result"]["state"], "timed_out");
         assert_eq!(timeout["result"]["error"], "timeout");
+        assert!(owner.commissioning_session(now + Duration::from_secs(31)).is_none());
         let again = now + Duration::from_secs(32);
         lifecycle
             .observe(15, true, Some(&FakeRadio), again)
@@ -685,5 +693,6 @@ mod tests {
         let cancelled: serde_json::Value = serde_json::from_slice(&first).unwrap();
         assert_eq!(cancelled["result"]["state"], "cancelled");
         assert_eq!(cancelled["result"]["deadline_remaining_seconds"], 0);
+        assert!(owner.commissioning_session(again).is_none());
     }
 }

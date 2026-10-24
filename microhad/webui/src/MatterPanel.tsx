@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { matterAvailability, matterCall, sessionResult, terminalSession, validDataset, validSession } from './matter'
+import { matterAvailability, matterCall, sessionResult, terminalSession, validDataset } from './matter'
 import type { MatterSession, MatterStatus, ThreadStatus } from './matter'
 import { BrowserMatterRelay, chooseMatterDevice, matterQrCode, setupCode, webBluetoothAvailable, webQrScannerAvailable } from './browserMatter'
 
@@ -67,6 +67,10 @@ export function MatterPanel() {
     void load()
     return () => { controller.abort(); window.clearTimeout(timer) }
   }, [revision])
+  useEffect(() => {
+    const running = availability?.matter.commissioning_session
+    if (running && running !== watch) { setSession(null); setWatch(running) }
+  }, [availability?.matter.commissioning_session])
   useEffect(() => {
     if (!watch) return
     const controller = new AbortController()
@@ -172,8 +176,7 @@ export function MatterPanel() {
     ['detached', 'attaching', 'attached', 'error'].includes(availability.thread.state ?? '')
   const configured = availability?.thread.configured
   return <section className="panel matter-panel">
-    <div className="section-heading"><div><p className="eyebrow">Matter over Thread</p><h2>Device setup</h2></div>
-      <button className="button" disabled={pending} onClick={() => { setError(''); setRevision(value => value + 1) }}>Check gateway</button></div>
+    <div className="section-heading"><div><p className="eyebrow">Matter over Thread</p><h2>Device setup</h2></div></div>
     <p role="status" aria-live="polite">{!availability ? error ? 'Matter status unavailable. Check the gateway connection.' : 'Checking Matter service…' : !ready ? 'Matter service unavailable or reconnecting.' : availability.thread.state === 'error' ? 'Thread radio apply failed. Retry after the coordinator is online.' : !configured ? 'Thread network has not been configured.' : availability.thread.attached ? 'Thread network attached.' : 'Thread network configured; waiting for attachment.'}</p>
     {error && <p className="error" role="alert">{error}</p>}
     {ready && configured === false && <div className="matter-network">
@@ -185,12 +188,12 @@ export function MatterPanel() {
       </form>
     </div>}
     {ready && configured && <>
-      <p>Commission with <strong>MicroHAD Companion</strong>, or use this browser’s Bluetooth support. Both use the same gateway and commissioning sessions.</p>
+      <p>Commission with <strong>MicroHAD Companion</strong>, or use this browser’s Bluetooth support.</p>
       <p className="muted small">Gateway address: {window.location.origin}</p>
       <form onSubmit={event => { event.preventDefault(); const input = sessionInput; setSessionInput(''); void commissionInBrowser(input) }}>
         <label>Matter setup code<input autoComplete="off" spellCheck={false} maxLength={512} value={sessionInput} disabled={pending || !webBluetoothAvailable()} onChange={event => setSessionInput(event.target.value)} /></label>
         <button className="button primary" disabled={pending || !sessionInput.trim() || !webBluetoothAvailable()}>Commission with this browser</button>
-        {!webBluetoothAvailable() && <p className="muted small">Bluetooth commissioning needs Chrome or Edge on Android or desktop, opened over HTTPS. You can still use MicroHAD Companion below.</p>}
+        {!webBluetoothAvailable() && <p className="muted small">Bluetooth commissioning needs Chrome or Edge over HTTPS.</p>}
       </form>
       {webQrScannerAvailable() && <div className="matter-scanner">
         <button className="button" disabled={pending || !webBluetoothAvailable()} onClick={() => void startScanning()}>Scan Matter QR code</button>
@@ -205,12 +208,11 @@ export function MatterPanel() {
           <button className="button" onClick={stopScanning}>Stop scanning</button>
         </section>
       </div>}
-      <p className="muted small">MicroHAD Companion remains available: connect to this gateway, select <strong>Commission Matter device</strong>, and scan or enter the accessory’s setup code.</p>
-      <form onSubmit={event => { event.preventDefault(); if (!validSession(sessionInput)) return; setSession(null); setError(''); setWatch(sessionInput); setSessionInput('') }}>
-        <label>MicroHAD Companion commissioning session ID<input autoComplete="off" spellCheck={false} maxLength={16} value={sessionInput} disabled={pending} onChange={event => setSessionInput(event.target.value)} /></label>
-        <button className="button" disabled={pending || !validSession(sessionInput)}>Watch MicroHAD Companion progress</button>
-      </form>
+      <p className="muted small">Or use the Android companion app.</p>
+      {((session && !terminalSession(session)) || (!session && availability.matter.commissioning_session)) && <h3>Running sessions</h3>}
+      {!session && availability.matter.commissioning_session && <p className="muted">Loading session…</p>}
       {session && <div aria-live="polite"><p><strong>{phases[session.state]}</strong>{session.deadline_remaining_seconds > 0 ? ` · ${session.deadline_remaining_seconds}s remaining` : ''}</p>
+        <p className="muted small">Session {session.session}</p>
         {session.node && <p>Commissioned node: {session.node}</p>}
         {session.error && <p className="error">{failure(new Error(session.error))}</p>}
         {!terminalSession(session) && <button className="button danger" disabled={pending} onClick={() => void mutate('/api/matter/commissioning/cancel', { session: session.session })}>Cancel commissioning</button>}

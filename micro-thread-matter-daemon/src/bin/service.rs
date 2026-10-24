@@ -151,8 +151,14 @@ fn dispatch<C: Crypto>(
     }
     let decoded = Request::decode(request.opcode, &request.payload);
     let payload = match decoded {
-        Ok(Request::MatterStatus) => { devices.subscribe_inventory(peer); format!("{{\"enabled\":true,\"available\":true,\"controller_initialized\":true,\"fabric_ready\":{},\"state\":\"{}\"}}",
-            fabric_ready, if thread.is_some() { "running" } else { "awaiting_coordinator" }) },
+        Ok(Request::MatterStatus) => {
+            devices.subscribe_inventory(peer);
+            let session = controller.commissioning_session(Instant::now())
+                .map(|id| format!(",\"commissioning_session\":\"{:016x}\"", id.0))
+                .unwrap_or_default();
+            format!("{{\"enabled\":true,\"available\":true,\"controller_initialized\":true,\"fabric_ready\":{},\"state\":\"{}\"{}}}",
+                fabric_ready, if thread.is_some() { "running" } else { "awaiting_coordinator" }, session)
+        },
         Ok(Request::ThreadStatus) => serde_json::to_string(&lifecycle.snapshot()).ok()?,
         Ok(Request::Thread(body)) => {
             let now = Instant::now();

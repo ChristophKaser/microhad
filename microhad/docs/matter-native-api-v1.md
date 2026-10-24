@@ -57,7 +57,11 @@ restart clears them. Sixteen snapshots are retained, with terminal entries
 eligible for eviction. Eight pending calls are allowed.
 
 Read-only `GET /api/matter/status` and `GET /api/thread/status` remain cached
-service snapshots. Commissioning calls run exclusively on the Matter worker;
+service snapshots. Matter status includes an optional `commissioning_session`
+containing the active session's canonical sixteen-digit hex ID. It is absent
+when no session is running; the service allows one active session at a time.
+Clients can discover sessions started by another client and poll the existing
+commissioning status route. Commissioning calls run exclusively on the Matter worker;
 HTTP/coordinator threads never wait for PASE, BLE, Thread or a service reply.
 
 ## Support and verification

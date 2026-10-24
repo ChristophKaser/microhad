@@ -615,7 +615,7 @@ export function DeviceSettings({
     event.preventDefault()
     setSaving(true)
     setError('')
-    const fields: Record<string, string> = { name }
+    const fields: Record<string, string> = { name: name.trim() }
     if (device.has_temperature) { fields.low = ''; fields.high = '' }
     for (const metric of alertMetrics) {
       if (!metric.available) continue

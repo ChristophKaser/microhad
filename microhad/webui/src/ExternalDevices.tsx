@@ -49,7 +49,7 @@ function FritzBoxDialog({ id, onClose, onSaved }: { id: string; onClose: () => v
   const save = async () => {
     setBusy(true); setError('')
     try {
-      await post('/api/external/fritz/config', form({ id: boxId, name, host, username, password, selected_macs: selected.join(',') }))
+      await post('/api/external/fritz/config', form({ id: boxId, name: name.trim(), host, username, password, selected_macs: selected.join(',') }))
       onSaved(); onClose()
     } catch (reason) { setError(errorMessage(reason)) }
     finally { setBusy(false) }
@@ -129,7 +129,7 @@ export function ShellyDialog({ id, onClose, onSaved }: { id: string; onClose: ()
     setSaving(true); setError('')
     try {
       const result = await post<{ id: string }>('/api/shelly/config', form({
-        id: editing?.id ?? '', name, host, callback_host: callbackHost, model, username, password,
+        id: editing?.id ?? '', name: name.trim(), host, callback_host: callbackHost, model, username, password,
         input_indices: model === 'uni' ? inputs.join(',') : '', temperature_indices: model === 'uni' ? temperatures.join(',') : '',
         relay_indices: model === 'uni' ? relays.join(',') : '', poll_seconds: pollSeconds,
         invert_contact: String(invert), callback_mode: String(callbackMode), clear_auth: String(clearAuth),

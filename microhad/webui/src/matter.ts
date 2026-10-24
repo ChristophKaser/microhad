@@ -1,7 +1,7 @@
 /** Bounded Matter API client. No automatic mutation retries or response-body diagnostics. */
 import type { Device } from './api'
 export type MatterSession = { session: string; state: string; deadline_remaining_seconds: number; node?: string; error?: string }
-export type MatterStatus = { enabled: boolean; available: boolean; fabric_ready?: boolean; controller_initialized?: boolean; state?: string }
+export type MatterStatus = { enabled: boolean; available: boolean; fabric_ready?: boolean; controller_initialized?: boolean; state?: string; commissioning_session?: string }
 export type ThreadStatus = { enabled: boolean; available: boolean; configured?: boolean; attached?: boolean; state?: string; zigbee_channel?: number; dataset_channel?: number }
 const states = ['waiting_ble', 'pase', 'provisioning', 'waiting_thread', 'case', 'completing', 'complete', 'cancelled', 'failed', 'timed_out']
 const errors = ['malformed', 'unsupported', 'not_ready', 'busy', 'stale_session', 'stale_generation', 'stale_revision', 'not_found', 'timeout', 'cancelled', 'transport', 'storage', 'capacity', 'accessory', 'protocol', 'disabled']
@@ -89,7 +89,8 @@ export async function matterAvailability(signal: AbortSignal): Promise<{ matter:
   }
   if (typeof matter.controller_initialized !== 'boolean' || typeof matter.fabric_ready !== 'boolean' ||
       !['running', 'awaiting_coordinator'].includes(String(matter.state)) || Object.keys(matter).some(key =>
-        !['enabled', 'available', 'controller_initialized', 'fabric_ready', 'state'].includes(key))) throw new MatterError('protocol')
+        !['enabled', 'available', 'controller_initialized', 'fabric_ready', 'state', 'commissioning_session'].includes(key)) ||
+      (matter.commissioning_session !== undefined && (typeof matter.commissioning_session !== 'string' || !validSession(matter.commissioning_session)))) throw new MatterError('protocol')
   return { matter: matter as MatterStatus, thread: threadResult(thread) }
 }
 
