@@ -16,9 +16,6 @@
 [submodule "thread-matter/dependencies/openthread"]
 	path = micro-thread-matter-daemon/dependencies/openthread
 	url = https://github.com/openthread/openthread.git
-[submodule "microhad/dependencies/tinycbor"]
-	path = microhad/dependencies/tinycbor
-	url = https://github.com/intel/tinycbor.git
 [submodule "microhad/dependencies/mbedtls"]
 	path = microhad/dependencies/mbedtls
 	url = https://github.com/Mbed-TLS/mbedtls.git

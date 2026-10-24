@@ -11,7 +11,7 @@ submodule. Cargo lockfiles pin the dependency graphs.
 
 Use the [runtime contract](matter-service-runtime.md),
 [commissioning fixture](rs-matter-openthread-commissioning.md) and
-[CBOR IPC contract](../micro-thread-matter-daemon/docs/matter-ipc-v2.md). Synthetic protocol tests
+[protobuf IPC contract](../micro-thread-matter-daemon/docs/matter-ipc-v3.md). Synthetic protocol tests
 cover PASE, provisioning, CASE, reads, commands and report delivery. Physical
 operation is established for the deployed temperature and air-quality sensors.
 Other accessory categories depend on their advertised clusters and implemented

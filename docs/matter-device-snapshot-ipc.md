@@ -1,12 +1,12 @@
 # Device snapshot IPC
 
-The private wire format is [CBOR v2](../micro-thread-matter-daemon/docs/matter-ipc-v2.md).
+The private wire format is [protobuf v3](../micro-thread-matter-daemon/docs/matter-ipc-v3.md).
 Examples below use the public/in-process JSON representation: private-wire
 node and revision IDs are unsigned 64-bit integers; the JSON representation
 uses sixteen-digit hexadecimal strings. Unknown private-wire fields are skipped
 with safe warnings. The executable is `mthread-matter`.
 
-Opcode 10 accepts a CBOR map equivalent to `{"schema":1,"action":"snapshot"}`
+Opcode 10 accepts a protobuf message equivalent to `{"schema":1,"action":"snapshot"}`
 with optional `cursor` (u16, default zero) and `revision` (nonzero unsigned 64-bit
 integer on the wire, sixteen-digit lowercase hex string in JSON).
 It responds immediately from the private catalog and in-memory descriptors;

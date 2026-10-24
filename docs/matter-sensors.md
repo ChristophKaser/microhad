@@ -1,8 +1,8 @@
 # Matter sensor reads
 
-The private wire format is [CBOR v2](../micro-thread-matter-daemon/docs/matter-ipc-v2.md), served
+The private wire format is [protobuf v3](../micro-thread-matter-daemon/docs/matter-ipc-v3.md), served
 by `mthread-matter` in `micro-thread-matter-daemon/`. JSON examples describe public/in-process representations. Nullable values
-also use CBOR null on the private wire.
+also use explicit protobuf null variants on the private wire.
 
 Boolean State (cluster 69) is read as a typed boolean using the generic
 Interaction Model attribute path and is included in subscription reports.

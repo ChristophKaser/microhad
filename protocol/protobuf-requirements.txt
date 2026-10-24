@@ -1,0 +1,4 @@
+# Generation only; ordinary native and Rust builds use checked-in bindings.
+nanopb==0.4.9.1
+grpcio-tools==1.76.0
+protobuf==6.33.6

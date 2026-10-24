@@ -1,0 +1,2570 @@
+{
+  "Request1": [],
+  "Request2": [],
+  "Request3": [
+    {
+      "name": "schema",
+      "tag": 1,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "discriminator",
+      "tag": 2,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "pin",
+      "tag": 3,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "timeout_seconds",
+      "tag": 4,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "country_code",
+      "tag": 5,
+      "type": 9,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "regulatory_location",
+      "tag": 6,
+      "type": 9,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    }
+  ],
+  "Request4": [
+    {
+      "name": "schema",
+      "tag": 1,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "session",
+      "tag": 2,
+      "type": 4,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "subscribe",
+      "tag": 3,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    }
+  ],
+  "Request5": [
+    {
+      "name": "schema",
+      "tag": 1,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "session",
+      "tag": 2,
+      "type": 4,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    }
+  ],
+  "Request6": [
+    {
+      "name": "schema",
+      "tag": 1,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "session",
+      "tag": 2,
+      "type": 4,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "address",
+      "tag": 3,
+      "type": 12,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "mtu",
+      "tag": 4,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    }
+  ],
+  "Request7": [
+    {
+      "name": "schema",
+      "tag": 1,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "session",
+      "tag": 2,
+      "type": 4,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "generation",
+      "tag": 3,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "sequence",
+      "tag": 4,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "data",
+      "tag": 5,
+      "type": 12,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    }
+  ],
+  "Request8": [
+    {
+      "name": "schema",
+      "tag": 1,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "session",
+      "tag": 2,
+      "type": 4,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "generation",
+      "tag": 3,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "write",
+      "tag": 4,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "success",
+      "tag": 5,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    }
+  ],
+  "Request9": [
+    {
+      "name": "schema",
+      "tag": 1,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "action",
+      "tag": 2,
+      "type": 9,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "subscribe",
+      "tag": 3,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "zigbee_channel",
+      "tag": 4,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "zigbee_online",
+      "tag": 5,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "dataset",
+      "tag": 6,
+      "type": 12,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    }
+  ],
+  "Request10": [
+    {
+      "name": "schema",
+      "tag": 1,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "action",
+      "tag": 2,
+      "type": 9,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "cursor",
+      "tag": 3,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "revision",
+      "tag": 4,
+      "type": 4,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "node",
+      "tag": 5,
+      "type": 4,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "endpoint",
+      "tag": 6,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "cluster",
+      "tag": 7,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "attribute",
+      "tag": 8,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "job",
+      "tag": 9,
+      "type": 4,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "targets",
+      "tag": 10,
+      "type": 11,
+      "message": "ListTarget",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "local",
+      "tag": 11,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "restore",
+      "tag": 12,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    }
+  ],
+  "Request11": [
+    {
+      "name": "schema",
+      "tag": 1,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "node",
+      "tag": 2,
+      "type": 4,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "endpoint",
+      "tag": 3,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "command",
+      "tag": 4,
+      "type": 9,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "level",
+      "tag": 5,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "transition_deciseconds",
+      "tag": 6,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "field",
+      "tag": 7,
+      "type": 9,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "value",
+      "tag": 8,
+      "type": 9,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "time_zone",
+      "tag": 9,
+      "type": 9,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "offset_seconds",
+      "tag": 10,
+      "type": 18,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    }
+  ],
+  "Reply": [
+    {
+      "name": "schema",
+      "tag": 1,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "ok",
+      "tag": 2,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "error",
+      "tag": 3,
+      "type": 9,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "result",
+      "tag": 4,
+      "type": 11,
+      "message": "Result",
+      "repeated": false,
+      "oneof": false
+    }
+  ],
+  "Event": [
+    {
+      "name": "schema",
+      "tag": 1,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "event",
+      "tag": 2,
+      "type": 9,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "data",
+      "tag": 3,
+      "type": 11,
+      "message": "EventData",
+      "repeated": false,
+      "oneof": false
+    }
+  ],
+  "Matter": [
+    {
+      "name": "enabled",
+      "tag": 1,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "available",
+      "tag": 2,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "controller_initialized",
+      "tag": 3,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "fabric_ready",
+      "tag": 4,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "state",
+      "tag": 5,
+      "type": 9,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "commissioning_session",
+      "tag": 6,
+      "type": 4,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    }
+  ],
+  "Thread": [
+    {
+      "name": "enabled",
+      "tag": 1,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "available",
+      "tag": 2,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "configured",
+      "tag": 3,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "attached",
+      "tag": 4,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "state",
+      "tag": 5,
+      "type": 9,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "linux_ipv6_or_tun",
+      "tag": 6,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "zigbee_channel",
+      "tag": 7,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "dataset_channel",
+      "tag": 8,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    }
+  ],
+  "Session": [
+    {
+      "name": "session",
+      "tag": 1,
+      "type": 4,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "state",
+      "tag": 2,
+      "type": 9,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "deadline_remaining_seconds",
+      "tag": 3,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "error",
+      "tag": 4,
+      "type": 9,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "node",
+      "tag": 5,
+      "type": 4,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    }
+  ],
+  "Ack6": [
+    {
+      "name": "generation",
+      "tag": 1,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    }
+  ],
+  "Ack7": [
+    {
+      "name": "sequence",
+      "tag": 1,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    }
+  ],
+  "Ack8": [
+    {
+      "name": "write",
+      "tag": 1,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    }
+  ],
+  "Page": [
+    {
+      "name": "revision",
+      "tag": 1,
+      "type": 4,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "devices",
+      "tag": 2,
+      "type": 11,
+      "message": "ListDevice",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "next_cursor",
+      "tag": 3,
+      "type": 11,
+      "message": "NullableUint",
+      "repeated": false,
+      "oneof": false
+    }
+  ],
+  "Device": [
+    {
+      "name": "node",
+      "tag": 1,
+      "type": 4,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "state",
+      "tag": 2,
+      "type": 9,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "online",
+      "tag": 3,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "id",
+      "tag": 4,
+      "type": 11,
+      "message": "NullableText",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "endpoint",
+      "tag": 5,
+      "type": 11,
+      "message": "NullableUint",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "servers",
+      "tag": 6,
+      "type": 11,
+      "message": "Listuint32",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "clients",
+      "tag": 7,
+      "type": 11,
+      "message": "Listuint32",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "manufacturer",
+      "tag": 8,
+      "type": 9,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "model",
+      "tag": 9,
+      "type": 9,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "rssi_dbm",
+      "tag": 10,
+      "type": 11,
+      "message": "NullableInt",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "device_types",
+      "tag": 11,
+      "type": 11,
+      "message": "Listuint32",
+      "repeated": false,
+      "oneof": false
+    }
+  ],
+  "Job": [
+    {
+      "name": "job",
+      "tag": 1,
+      "type": 4,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "state",
+      "tag": 2,
+      "type": 9,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "error",
+      "tag": 3,
+      "type": 9,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "result",
+      "tag": 4,
+      "type": 11,
+      "message": "Reading",
+      "repeated": false,
+      "oneof": false
+    }
+  ],
+  "Reading": [
+    {
+      "name": "node",
+      "tag": 1,
+      "type": 4,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "endpoint",
+      "tag": 2,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "cluster",
+      "tag": 3,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "attribute",
+      "tag": 4,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "value",
+      "tag": 5,
+      "type": 11,
+      "message": "Typed",
+      "repeated": false,
+      "oneof": false
+    }
+  ],
+  "Typed": [
+    {
+      "name": "type",
+      "tag": 1,
+      "type": 9,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "value",
+      "tag": 2,
+      "type": 11,
+      "message": "ReadingValue",
+      "repeated": false,
+      "oneof": false
+    }
+  ],
+  "Measurement": [
+    {
+      "name": "value",
+      "tag": 1,
+      "type": 11,
+      "message": "MeasurementValue",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "unit",
+      "tag": 2,
+      "type": 9,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "quality",
+      "tag": 3,
+      "type": 9,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "mode",
+      "tag": 4,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "transitions",
+      "tag": 5,
+      "type": 11,
+      "message": "ListThermostatTransition",
+      "repeated": false,
+      "oneof": false
+    }
+  ],
+  "BleWrite": [
+    {
+      "name": "session",
+      "tag": 1,
+      "type": 4,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "generation",
+      "tag": 2,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "write",
+      "tag": 3,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "data",
+      "tag": 4,
+      "type": 12,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    }
+  ],
+  "Button": [
+    {
+      "name": "node",
+      "tag": 1,
+      "type": 4,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "endpoint",
+      "tag": 2,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "event",
+      "tag": 3,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "position",
+      "tag": 4,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "press_count",
+      "tag": 5,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    }
+  ],
+  "Target": [
+    {
+      "name": "node",
+      "tag": 1,
+      "type": 4,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "endpoint",
+      "tag": 2,
+      "type": 11,
+      "message": "NullableUint",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "group",
+      "tag": 3,
+      "type": 11,
+      "message": "NullableUint",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "members",
+      "tag": 4,
+      "type": 11,
+      "message": "ListMember",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "cluster",
+      "tag": 5,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    }
+  ],
+  "Member": [
+    {
+      "name": "node",
+      "tag": 1,
+      "type": 4,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "endpoint",
+      "tag": 2,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    }
+  ],
+  "Inventory": [
+    {
+      "name": "kind",
+      "tag": 1,
+      "type": 9,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "device",
+      "tag": 2,
+      "type": 11,
+      "message": "Device",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "endpoint_count",
+      "tag": 3,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    }
+  ],
+  "InventoryNodes": [
+    {
+      "name": "nodes",
+      "tag": 1,
+      "type": 11,
+      "message": "ListInventoryNode",
+      "repeated": false,
+      "oneof": false
+    }
+  ],
+  "InventoryNode": [
+    {
+      "name": "node",
+      "tag": 1,
+      "type": 4,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    }
+  ],
+  "SubscriptionHealth": [
+    {
+      "name": "node",
+      "tag": 1,
+      "type": 4,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "restore_scheduled",
+      "tag": 2,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "intermittent",
+      "tag": 3,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "reachability",
+      "tag": 4,
+      "type": 9,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "next_cursor",
+      "tag": 5,
+      "type": 11,
+      "message": "NullableUint",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "subscriptions",
+      "tag": 6,
+      "type": 11,
+      "message": "ListSubscription",
+      "repeated": false,
+      "oneof": false
+    }
+  ],
+  "Subscription": [
+    {
+      "name": "endpoint",
+      "tag": 1,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "cluster",
+      "tag": 2,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "attribute",
+      "tag": 3,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "id",
+      "tag": 4,
+      "type": 11,
+      "message": "NullableUint",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "max_interval_seconds",
+      "tag": 5,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "last_report_age_seconds",
+      "tag": 6,
+      "type": 11,
+      "message": "NullableUint",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "retry_in_seconds",
+      "tag": 7,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "failures",
+      "tag": 8,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "state",
+      "tag": 9,
+      "type": 9,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    }
+  ],
+  "ThermostatSchedule": [
+    {
+      "name": "mode",
+      "tag": 1,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "transitions",
+      "tag": 2,
+      "type": 11,
+      "message": "ListThermostatTransition",
+      "repeated": false,
+      "oneof": false
+    }
+  ],
+  "ThermostatTransition": [
+    {
+      "name": "time",
+      "tag": 1,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "heat",
+      "tag": 2,
+      "type": 1,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "cool",
+      "tag": 3,
+      "type": 1,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    }
+  ],
+  "MeasurementValue": [
+    {
+      "name": "null",
+      "tag": 1,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": true
+    },
+    {
+      "name": "number",
+      "tag": 2,
+      "type": 1,
+      "message": "",
+      "repeated": false,
+      "oneof": true
+    },
+    {
+      "name": "integer",
+      "tag": 3,
+      "type": 18,
+      "message": "",
+      "repeated": false,
+      "oneof": true
+    },
+    {
+      "name": "text",
+      "tag": 4,
+      "type": 9,
+      "message": "",
+      "repeated": false,
+      "oneof": true
+    }
+  ],
+  "NullableText": [
+    {
+      "name": "null",
+      "tag": 1,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": true
+    },
+    {
+      "name": "text",
+      "tag": 2,
+      "type": 9,
+      "message": "",
+      "repeated": false,
+      "oneof": true
+    }
+  ],
+  "NullableUint": [
+    {
+      "name": "null",
+      "tag": 1,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": true
+    },
+    {
+      "name": "integer",
+      "tag": 2,
+      "type": 4,
+      "message": "",
+      "repeated": false,
+      "oneof": true
+    }
+  ],
+  "NullableInt": [
+    {
+      "name": "null",
+      "tag": 1,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": true
+    },
+    {
+      "name": "integer",
+      "tag": 2,
+      "type": 18,
+      "message": "",
+      "repeated": false,
+      "oneof": true
+    }
+  ],
+  "ReadingValue": [
+    {
+      "name": "null",
+      "tag": 1,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": true
+    },
+    {
+      "name": "boolean",
+      "tag": 2,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": true
+    },
+    {
+      "name": "unsigned",
+      "tag": 3,
+      "type": 4,
+      "message": "",
+      "repeated": false,
+      "oneof": true
+    },
+    {
+      "name": "integer",
+      "tag": 4,
+      "type": 18,
+      "message": "",
+      "repeated": false,
+      "oneof": true
+    },
+    {
+      "name": "number",
+      "tag": 5,
+      "type": 1,
+      "message": "",
+      "repeated": false,
+      "oneof": true
+    },
+    {
+      "name": "text",
+      "tag": 6,
+      "type": 9,
+      "message": "",
+      "repeated": false,
+      "oneof": true
+    },
+    {
+      "name": "measurement",
+      "tag": 7,
+      "type": 11,
+      "message": "Measurement",
+      "repeated": false,
+      "oneof": true
+    },
+    {
+      "name": "list",
+      "tag": 8,
+      "type": 11,
+      "message": "UintList",
+      "repeated": false,
+      "oneof": true
+    }
+  ],
+  "Result": [
+    {
+      "name": "session",
+      "tag": 1,
+      "type": 11,
+      "message": "Session",
+      "repeated": false,
+      "oneof": true
+    },
+    {
+      "name": "ack6",
+      "tag": 2,
+      "type": 11,
+      "message": "Ack6",
+      "repeated": false,
+      "oneof": true
+    },
+    {
+      "name": "ack7",
+      "tag": 3,
+      "type": 11,
+      "message": "Ack7",
+      "repeated": false,
+      "oneof": true
+    },
+    {
+      "name": "ack8",
+      "tag": 4,
+      "type": 11,
+      "message": "Ack8",
+      "repeated": false,
+      "oneof": true
+    },
+    {
+      "name": "thread",
+      "tag": 5,
+      "type": 11,
+      "message": "Thread",
+      "repeated": false,
+      "oneof": true
+    },
+    {
+      "name": "page",
+      "tag": 6,
+      "type": 11,
+      "message": "Page",
+      "repeated": false,
+      "oneof": true
+    },
+    {
+      "name": "job",
+      "tag": 7,
+      "type": 11,
+      "message": "Job",
+      "repeated": false,
+      "oneof": true
+    },
+    {
+      "name": "subscription_health",
+      "tag": 8,
+      "type": 11,
+      "message": "SubscriptionHealth",
+      "repeated": false,
+      "oneof": true
+    }
+  ],
+  "EventData": [
+    {
+      "name": "thread",
+      "tag": 1,
+      "type": 11,
+      "message": "Thread",
+      "repeated": false,
+      "oneof": true
+    },
+    {
+      "name": "session",
+      "tag": 2,
+      "type": 11,
+      "message": "Session",
+      "repeated": false,
+      "oneof": true
+    },
+    {
+      "name": "ble_write",
+      "tag": 3,
+      "type": 11,
+      "message": "BleWrite",
+      "repeated": false,
+      "oneof": true
+    },
+    {
+      "name": "reading",
+      "tag": 4,
+      "type": 11,
+      "message": "Reading",
+      "repeated": false,
+      "oneof": true
+    },
+    {
+      "name": "button",
+      "tag": 5,
+      "type": 11,
+      "message": "Button",
+      "repeated": false,
+      "oneof": true
+    },
+    {
+      "name": "inventory",
+      "tag": 6,
+      "type": 11,
+      "message": "Inventory",
+      "repeated": false,
+      "oneof": true
+    },
+    {
+      "name": "inventory_nodes",
+      "tag": 7,
+      "type": 11,
+      "message": "InventoryNodes",
+      "repeated": false,
+      "oneof": true
+    }
+  ],
+  "Body": [
+    {
+      "name": "request1",
+      "tag": 1,
+      "type": 11,
+      "message": "Request1",
+      "repeated": false,
+      "oneof": true
+    },
+    {
+      "name": "request2",
+      "tag": 2,
+      "type": 11,
+      "message": "Request2",
+      "repeated": false,
+      "oneof": true
+    },
+    {
+      "name": "request3",
+      "tag": 3,
+      "type": 11,
+      "message": "Request3",
+      "repeated": false,
+      "oneof": true
+    },
+    {
+      "name": "request4",
+      "tag": 4,
+      "type": 11,
+      "message": "Request4",
+      "repeated": false,
+      "oneof": true
+    },
+    {
+      "name": "request5",
+      "tag": 5,
+      "type": 11,
+      "message": "Request5",
+      "repeated": false,
+      "oneof": true
+    },
+    {
+      "name": "request6",
+      "tag": 6,
+      "type": 11,
+      "message": "Request6",
+      "repeated": false,
+      "oneof": true
+    },
+    {
+      "name": "request7",
+      "tag": 7,
+      "type": 11,
+      "message": "Request7",
+      "repeated": false,
+      "oneof": true
+    },
+    {
+      "name": "request8",
+      "tag": 8,
+      "type": 11,
+      "message": "Request8",
+      "repeated": false,
+      "oneof": true
+    },
+    {
+      "name": "request9",
+      "tag": 9,
+      "type": 11,
+      "message": "Request9",
+      "repeated": false,
+      "oneof": true
+    },
+    {
+      "name": "request10",
+      "tag": 10,
+      "type": 11,
+      "message": "Request10",
+      "repeated": false,
+      "oneof": true
+    },
+    {
+      "name": "request11",
+      "tag": 11,
+      "type": 11,
+      "message": "Request11",
+      "repeated": false,
+      "oneof": true
+    },
+    {
+      "name": "matter",
+      "tag": 12,
+      "type": 11,
+      "message": "Matter",
+      "repeated": false,
+      "oneof": true
+    },
+    {
+      "name": "thread",
+      "tag": 13,
+      "type": 11,
+      "message": "Thread",
+      "repeated": false,
+      "oneof": true
+    },
+    {
+      "name": "reply",
+      "tag": 14,
+      "type": 11,
+      "message": "Reply",
+      "repeated": false,
+      "oneof": true
+    },
+    {
+      "name": "event",
+      "tag": 15,
+      "type": 11,
+      "message": "Event",
+      "repeated": false,
+      "oneof": true
+    }
+  ],
+  "UintList": [
+    {
+      "name": "items",
+      "tag": 1,
+      "type": 13,
+      "message": "",
+      "repeated": true,
+      "oneof": false
+    }
+  ],
+  "Envelope": [
+    {
+      "name": "version",
+      "tag": 1,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "kind",
+      "tag": 2,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "opcode",
+      "tag": 3,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "id",
+      "tag": 4,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "body",
+      "tag": 5,
+      "type": 11,
+      "message": "Body",
+      "repeated": false,
+      "oneof": false
+    }
+  ],
+  "ListTarget": [
+    {
+      "name": "items",
+      "tag": 1,
+      "type": 11,
+      "message": "Target",
+      "repeated": true,
+      "oneof": false
+    }
+  ],
+  "ListDevice": [
+    {
+      "name": "items",
+      "tag": 1,
+      "type": 11,
+      "message": "Device",
+      "repeated": true,
+      "oneof": false
+    }
+  ],
+  "Listuint32": [
+    {
+      "name": "items",
+      "tag": 1,
+      "type": 13,
+      "message": "",
+      "repeated": true,
+      "oneof": false
+    }
+  ],
+  "ListThermostatTransition": [
+    {
+      "name": "items",
+      "tag": 1,
+      "type": 11,
+      "message": "ThermostatTransition",
+      "repeated": true,
+      "oneof": false
+    }
+  ],
+  "ListMember": [
+    {
+      "name": "items",
+      "tag": 1,
+      "type": 11,
+      "message": "Member",
+      "repeated": true,
+      "oneof": false
+    }
+  ],
+  "ListInventoryNode": [
+    {
+      "name": "items",
+      "tag": 1,
+      "type": 11,
+      "message": "InventoryNode",
+      "repeated": true,
+      "oneof": false
+    }
+  ],
+  "ListSubscription": [
+    {
+      "name": "items",
+      "tag": 1,
+      "type": 11,
+      "message": "Subscription",
+      "repeated": true,
+      "oneof": false
+    }
+  ],
+  "DeviceCache": [
+    {
+      "name": "version",
+      "tag": 1,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "devices",
+      "tag": 2,
+      "type": 11,
+      "message": "CachedDevice",
+      "repeated": true,
+      "oneof": false
+    }
+  ],
+  "CachedDevice": [
+    {
+      "name": "ieee_address",
+      "tag": 1,
+      "type": 9,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "source",
+      "tag": 2,
+      "type": 9,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "external_id",
+      "tag": 3,
+      "type": 9,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "component",
+      "tag": 4,
+      "type": 9,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "name",
+      "tag": 5,
+      "type": 9,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "kind",
+      "tag": 6,
+      "type": 9,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "air_quality",
+      "tag": 7,
+      "type": 9,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "co2_unit",
+      "tag": 8,
+      "type": 9,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "pm25_unit",
+      "tag": 9,
+      "type": 9,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "manufacturer_name",
+      "tag": 10,
+      "type": 9,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "model_id",
+      "tag": 11,
+      "type": 9,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "software_build_id",
+      "tag": 12,
+      "type": 9,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "configured_signature",
+      "tag": 13,
+      "type": 9,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "thermostat_source_id",
+      "tag": 14,
+      "type": 9,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "matter_state",
+      "tag": 15,
+      "type": 9,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "matter_metadata_state",
+      "tag": 16,
+      "type": 9,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "matter_node",
+      "tag": 17,
+      "type": 9,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "contact_open",
+      "tag": 18,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "has_contact",
+      "tag": 19,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "contact_known",
+      "tag": 20,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "has_water_leak",
+      "tag": 21,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "water_leak_known",
+      "tag": 22,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "water_detected",
+      "tag": 23,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "has_temperature",
+      "tag": 24,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "temperature_known",
+      "tag": 25,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "has_humidity",
+      "tag": 26,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "humidity_known",
+      "tag": 27,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "has_air_quality",
+      "tag": 28,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "air_quality_known",
+      "tag": 29,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "has_co2",
+      "tag": 30,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "co2_known",
+      "tag": 31,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "has_pm25",
+      "tag": 32,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "pm25_known",
+      "tag": 33,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "has_occupancy",
+      "tag": 34,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "occupied",
+      "tag": 35,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "has_battery",
+      "tag": 36,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "has_wifi_signal",
+      "tag": 37,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "has_light",
+      "tag": 38,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "light_on",
+      "tag": 39,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "light_known",
+      "tag": 40,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "has_brightness",
+      "tag": 41,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "brightness_known",
+      "tag": 42,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "has_remote",
+      "tag": 43,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "has_actor",
+      "tag": 44,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "actor_known",
+      "tag": 45,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "actor_on",
+      "tag": 46,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "has_power",
+      "tag": 47,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "power_known",
+      "tag": 48,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "has_low_temperature_alert",
+      "tag": 49,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "has_high_temperature_alert",
+      "tag": 50,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "contact_trigger_mode",
+      "tag": 51,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "initial_interview_complete",
+      "tag": 52,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "network_address",
+      "tag": 53,
+      "type": 18,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "battery_percent",
+      "tag": 54,
+      "type": 18,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "link_quality",
+      "tag": 55,
+      "type": 18,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "wifi_signal_percent",
+      "tag": 56,
+      "type": 18,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "brightness_percent",
+      "tag": 57,
+      "type": 18,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "last_seen",
+      "tag": 58,
+      "type": 18,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "ias_zone_id",
+      "tag": 59,
+      "type": 18,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "contact_initial_alert_minutes",
+      "tag": 60,
+      "type": 18,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "contact_reminder_alert_minutes",
+      "tag": 61,
+      "type": 18,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "contact_trigger_cooldown_seconds",
+      "tag": 62,
+      "type": 18,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "sensor_refresh_interval_minutes",
+      "tag": 63,
+      "type": 18,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "thermostat_stale_minutes",
+      "tag": 64,
+      "type": 18,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "matter_endpoint",
+      "tag": 65,
+      "type": 18,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "temperature_celsius",
+      "tag": 66,
+      "type": 1,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "humidity_percent",
+      "tag": 67,
+      "type": 1,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "co2_ppm",
+      "tag": 68,
+      "type": 1,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "pm25_micrograms_m3",
+      "tag": 69,
+      "type": 1,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "power_watts",
+      "tag": 70,
+      "type": 1,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "low_temperature_alert",
+      "tag": 71,
+      "type": 1,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "high_temperature_alert",
+      "tag": 72,
+      "type": 1,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "endpoint_descriptors",
+      "tag": 100,
+      "type": 11,
+      "message": "CachedEndpoint",
+      "repeated": true,
+      "oneof": false
+    },
+    {
+      "name": "node_descriptor",
+      "tag": 101,
+      "type": 12,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "matter_servers",
+      "tag": 102,
+      "type": 13,
+      "message": "",
+      "repeated": true,
+      "oneof": false
+    },
+    {
+      "name": "matter_clients",
+      "tag": 103,
+      "type": 13,
+      "message": "",
+      "repeated": true,
+      "oneof": false
+    },
+    {
+      "name": "matter_device_types",
+      "tag": 104,
+      "type": 13,
+      "message": "",
+      "repeated": true,
+      "oneof": false
+    },
+    {
+      "name": "alerts",
+      "tag": 105,
+      "type": 11,
+      "message": "CachedAlert",
+      "repeated": true,
+      "oneof": false
+    }
+  ],
+  "CachedEndpoint": [
+    {
+      "name": "endpoint",
+      "tag": 1,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "profile_id",
+      "tag": 2,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "device_id",
+      "tag": 3,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "input_clusters",
+      "tag": 4,
+      "type": 13,
+      "message": "",
+      "repeated": true,
+      "oneof": false
+    },
+    {
+      "name": "output_clusters",
+      "tag": 5,
+      "type": 13,
+      "message": "",
+      "repeated": true,
+      "oneof": false
+    },
+    {
+      "name": "device_version",
+      "tag": 6,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    }
+  ],
+  "CachedAlert": [
+    {
+      "name": "name",
+      "tag": 1,
+      "type": 9,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "has_low",
+      "tag": 2,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "has_high",
+      "tag": 3,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "low",
+      "tag": 4,
+      "type": 1,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "high",
+      "tag": 5,
+      "type": 1,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "hysteresis",
+      "tag": 6,
+      "type": 1,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "unit",
+      "tag": 7,
+      "type": 9,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    }
+  ]
+}

@@ -1,4 +1,4 @@
-// Test-only IPC client using the same bounded native CBOR codecs as MicroHAD.
+// Test-only IPC client using the same bounded native protobuf codecs as MicroHAD.
 #include "matter_protocol.h"
 #include <cstdlib>
 #include <cstdio>

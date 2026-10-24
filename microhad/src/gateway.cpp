@@ -3792,11 +3792,7 @@ void Gateway::loadState() {
         }
     }
     error.clear();
-    struct stat cacheStat;
-    const bool legacyCache = lstat("/tmp/microhad-values.cbor", &cacheStat) != 0 && errno == ENOENT;
-    const bool valuesLoaded = legacyCache
-        ? loadDevices("/tmp/microhad-values.json", &volatileValues, &error)
-        : loadDeviceCache("/tmp/microhad-values.cbor", &volatileValues, &error);
+    const bool valuesLoaded = loadDeviceCache("/tmp/microhad-values.pb", &volatileValues, &error);
     if (valuesLoaded) {
         for (i = 0; i < volatileValues.size(); ++i) {
             if (devices_.find(volatileValues[i].ieeeAddress) != devices_.end()) {
@@ -3830,7 +3826,6 @@ void Gateway::loadState() {
         }
     }
     if (!valuesLoaded) addLog("Device values cache ignored: " + error);
-    if (legacyCache && lstat("/tmp/microhad-values.json", &cacheStat) == 0 && valuesLoaded) saveState();
     // Open state survives a service restart in RAM, but its alert timers do not.
     // Start a fresh initial delay after both device stores have been restored.
     for (std::map<std::string, Device>::const_iterator device = devices_.begin();
@@ -3875,7 +3870,7 @@ void Gateway::flushState(bool force) {
     if (deviceCacheDirty_ && (force || deviceCacheWaitMilliseconds()==0)) {
         AUTOMATION_PROFILE("coord.cacheSnapshot");
         std::vector<Device> snapshot=devices();std::string error;
-        if (history_.queueDeviceCache("/tmp/microhad-values.cbor",&snapshot,"/tmp/microhad-values.json",&error)) {
+        if (history_.queueDeviceCache("/tmp/microhad-values.pb",&snapshot,"",&error)) {
             deviceCacheDirty_=false;deviceCacheDueMs_=0;
         } else {
             deviceCacheDueMs_=deviceCacheMilliseconds()+5000;

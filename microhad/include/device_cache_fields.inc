@@ -1,4 +1,4 @@
-// Shared direct-CBOR field mapping; JSON persistence remains unchanged.
+// Shared direct-protobuf field mapping; JSON persistence remains unchanged.
 CACHE_TEXT("ieee_address", ieeeAddress)
 CACHE_TEXT("source", source)
 CACHE_TEXT("external_id", externalId)

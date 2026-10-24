@@ -21,7 +21,7 @@ identify the revisions and lockfile hashes used for the shipped gateway notices.
 | Component / upstream | Used by | License and attribution |
 | --- | --- | --- |
 | [Mbed TLS](https://github.com/Mbed-TLS/mbedtls) and nested TF-PSA-Crypto | MicroHAD static TLS/crypto libraries | Apache-2.0 selected from Apache-2.0 OR GPL-2.0-or-later; retain applicable notices and license texts, including bundled third-party material. |
-| [TinyCBOR](https://github.com/intel/tinycbor) | MicroHAD Matter IPC | MIT; preserve Intel copyright and license. |
+| [nanopb](https://github.com/nanopb/nanopb) | MicroHAD protobuf IPC and RAM cache | Zlib; see `third-party/nanopb/LICENSE.txt`. |
 | [Ziggurat](https://github.com/zigpy/ziggurat) | Zigbee stack and shared radio transport | Apache-2.0; local patch series under `ziggurat/patches/` identifies changes. Rust transitive dependencies have their own terms. |
 | [rs-matter](https://github.com/project-chip/rs-matter) | Matter service | Apache-2.0; modified through `micro-thread-matter-daemon/patches/`. RustCrypto, embassy, serde and other transitive dependencies retain their individual terms. |
 | [OpenThread](https://github.com/openthread/openthread) | Matter userspace IPv6/Thread | BSD-3-Clause plus nested component terms; preserve its LICENSE and NOTICE, including specification/IP and certification limitations. Local patches are under the Matter component. |

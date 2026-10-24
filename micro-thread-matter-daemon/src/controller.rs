@@ -475,7 +475,7 @@ mod tests {
         let operational = matter.with_state(|state| {
             state
                 .sessions
-                .add(0, false, Address::default(), Some(42), &TEST_DEV_DET)
+                .add(0, false, Address::default(), Some(42))
                 .unwrap()
                 .id()
         });

@@ -34,7 +34,7 @@ public:
 
     static void deviceCacheBatching() {
         char directory[]="/tmp/microhad-cache-batch-XXXXXX";assert(mkdtemp(directory));
-        const std::string cache="/tmp/microhad-values.cbor";
+        const std::string cache="/tmp/microhad-values.pb";
         std::string error;Device device;device.ieeeAddress="cache-lamp";device.hasLight=true;device.lightKnown=true;
         std::vector<Device> saved(1,device);assert(saveDevices(std::string(directory)+"/devices.json",saved,&error));
         {
@@ -74,8 +74,9 @@ public:
         unlink(cache.c_str());
         {
             Gateway legacy("/dev/null",115200,directory,"","","");legacy.history_.useManualPersistenceForTests();legacy.loadState();
-            assert(legacy.devices_[device.ieeeAddress].lightOn&&legacy.deviceCacheDirty_);
-            legacy.stop();assert(access("/tmp/microhad-values.json",F_OK)!=0);
+            assert(!legacy.devices_[device.ieeeAddress].lightOn&&!legacy.deviceCacheDirty_);
+            legacy.stop();assert(access("/tmp/microhad-values.json",F_OK)==0);
+            unlink("/tmp/microhad-values.json");
         }
         unlink(cache.c_str());unlink((std::string(directory)+"/devices.json").c_str());assert(rmdir(directory)==0);
     }
@@ -375,7 +376,7 @@ public:
         assert(worker.start(&error));
         for (unsigned int disabled = 0; disabled < 2; ++disabled) {
             assert(worker.setEnabled(disabled == 0, &error));
-            assert(saveDeviceCache("/tmp/microhad-values.cbor", saved, &error));
+            assert(saveDeviceCache("/tmp/microhad-values.pb", saved, &error));
             Gateway restarted("/dev/null", 115200, directory, "", "", "", &worker);
             const long before = time(0);
             restarted.loadState();

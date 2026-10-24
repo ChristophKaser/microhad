@@ -46,7 +46,7 @@ used here: [Ziggurat](https://github.com/zigpy/ziggurat),
 [OpenThread](https://github.com/openthread/openthread),
 [Mbed TLS](https://github.com/Mbed-TLS/mbedtls),
 [Lua](https://www.lua.org/), and
-[tinycbor](https://github.com/intel/tinycbor), as well as their respective
+[nanopb](https://github.com/nanopb/nanopb), as well as their respective
 communities and all other upstream contributors.
 
 ## Getting started
@@ -128,7 +128,7 @@ flowchart TB
 | Link | Default socket | Protocol |
 | --- | --- | --- |
 | MicroHAD ↔ Ziggurat | `/tmp/ziggurat/native.sock` | COBS-framed Ziggurat API v2 |
-| MicroHAD ↔ Matter service | `/tmp/microhad-matter.sock` | Length-prefixed CBOR IPC v2 |
+| MicroHAD ↔ Matter service | `/tmp/microhad-matter.sock` | Length-prefixed protobuf IPC v3 |
 | OpenThread ↔ Ziggurat | `/tmp/ziggurat/thread.sock` | HDLC-encoded Spinel; client IID 0 is mapped to radio IID 2 |
 
 Zigbee and Thread share the radio through a patched Ziggurat. OpenThread runs inside

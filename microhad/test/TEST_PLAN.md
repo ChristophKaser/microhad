@@ -49,7 +49,7 @@ refusal to overwrite an unknown live network when the private state is missing.
 | Matter worker/relay | `python3 microhad/scripts/test_matter_native_worker.py` |
 | Real CASE/report handoff | `python3 microhad/scripts/test_matter_native_report_integration.py` |
 | Matter/shared-radio supervision | `python3 microhad/scripts/test_matter_spinel_supervisor.py --native-worker` |
-| CBOR codec/vectors | `python3 microhad/scripts/test-matter-ipc-codec.py` |
+| Protobuf codec/vectors | `python3 microhad/scripts/test-matter-ipc-codec.py` |
 | Deployment guards | `python3 microhad/scripts/test_deployment_tools.py` |
 | Matter package deployment | `python3 microhad/scripts/test_matter_service_deployment.py` |
 | Matter archive preflight/extraction | `python3 microhad/scripts/test_matter_archive.py` |
@@ -110,7 +110,7 @@ deterministic scheduler fixture is `test/automation_runtime_regressions.lua`.
 
 ## Background device-values cache
 
-Host unit tests cover direct CBOR round trips for Zigbee, Matter and external
+Host unit tests cover direct protobuf round trips for Zigbee, Matter and external
 devices, malformed/truncated/unsupported caches, atomic replacement and permissions,
 five-second batching without deadline postponement, shutdown flushing, and legacy
 JSON migration. A blocked history writer exercises nonblocking submissions and

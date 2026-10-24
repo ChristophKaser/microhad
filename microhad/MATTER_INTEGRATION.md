@@ -7,7 +7,7 @@ userspace OpenThread. Ziggurat owns the radio UART and exposes the Thread
 Spinel socket. No second UART owner or Linux IPv6/TUN interface is required.
 
 The private socket `/tmp/microhad-matter.sock` carries
-[CBOR IPC v2](../micro-thread-matter-daemon/docs/matter-ipc-v2.md). Only the length prefix is outside CBOR;
+[protobuf IPC v3](../micro-thread-matter-daemon/docs/matter-ipc-v3.md). Only the length prefix is outside protobuf;
 unknown fields are skipped with safe warnings. Public APIs remain JSON.
 
 ## Build and verification
@@ -36,7 +36,8 @@ limits. Deployment examples use RSDK artifact paths.
 
 `MATTER=1` requires `ZIGGURAT=1` and is the default for that backend.
 `MATTER=0` retains disabled status behavior and unavailable control routes.
-TinyCBOR is pinned at `microhad/dependencies/tinycbor`; Rust uses Ciborium.
+Native IPC uses pinned nanopb under `third-party/nanopb`; Rust uses Prost.
+Schemas and checked-in bindings live under `protocol/`.
 The host report fixture uses an isolated service-test-hook build. Production
 artifacts must exclude that hook.
 

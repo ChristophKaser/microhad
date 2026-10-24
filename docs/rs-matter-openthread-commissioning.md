@@ -35,4 +35,4 @@ handoff using an isolated test-hook build; production artifacts exclude it.
 The radio and accessory in this fixture remain synthetic. The deployed gateway
 runs Matter-over-Thread temperature and air-quality sensors; the fixture covers
 the protocol paths without depending on a live accessory. The private
-native/service transport is [CBOR IPC v2](../micro-thread-matter-daemon/docs/matter-ipc-v2.md).
+native/service transport is [protobuf IPC v3](../micro-thread-matter-daemon/docs/matter-ipc-v3.md).

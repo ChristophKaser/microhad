@@ -491,6 +491,8 @@ void runMatterClientUnitTests() {
         if (i == 3) body.insert(body.size()-1, ",\"pin\":12345678");
         if (i == 4) for (unsigned int n = 0; n < 32; ++n) channel.events_.push_back(writeEvent);
         frame.payload.assign(body.begin(), body.end()); MatterWire::Bytes bytes;
+        // Invalid integer/hex input cannot be represented by the typed encoder.
+        if (i == 1 || i == 2) { assert(!MatterWire::encode(frame, &bytes)); close(pair[1]); continue; }
         assert(MatterWire::encode(frame, &bytes));
         assert(write(pair[1], &bytes[0], bytes.size()) == static_cast<ssize_t>(bytes.size()));
         assert(channel.poll(&error) == (i == 0 || i == 3));

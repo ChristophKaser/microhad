@@ -1763,7 +1763,7 @@ async fn run(
                     if native_ipc {
                         assert!(payload.is_empty());
                     } else {
-                        // CBOR-to-JSON decoding may reorder object fields.
+                        // Protobuf-to-JSON decoding may reorder object fields.
                         assert_eq!(
                             serde_json::from_slice::<serde_json::Value>(&payload).unwrap(),
                             serde_json::from_slice::<serde_json::Value>(expected).unwrap(),

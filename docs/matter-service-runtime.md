@@ -60,9 +60,9 @@ the development administrator vendor). This metadata is not a manufacturer
 certificate. Set it before first initialization; a different value on restart
 is rejected. See the native `docs/matter-identity-store-v1.md` for the schema.
 
-IPC uses [length-prefixed CBOR v2](../micro-thread-matter-daemon/docs/matter-ipc-v2.md).
-Only the two-byte little-endian length is outside the CBOR envelope. Opcodes 1
-and 2 accept empty CBOR maps and return redacted CBOR status maps; their public
+IPC uses [length-prefixed protobuf v3](../micro-thread-matter-daemon/docs/matter-ipc-v3.md).
+Only the two-byte little-endian length is outside the protobuf envelope. Opcodes 1
+and 2 accept empty protobuf messages and return redacted protobuf status messages; their public
 HTTP representations remain JSON. Matter reports initialization/fabric readiness;
 Thread reports attachment. Opcodes 3–11 decode schema-1 request bodies;
 unknown fields are skipped with warnings containing only the opcode and count.
@@ -71,7 +71,7 @@ valid operations without implemented lifecycles return `unsupported`, and invali
 bodies return `malformed`, without echoing input. Opcode-12 requests close the peer.
 Limits:
 four clients, four accepts per loop, 4096 read/write bytes per client per loop,
-eight queued responses per client, 2048 bytes per complete CBOR envelope, and a two-second idle
+eight queued responses per client, 2048 bytes per complete protobuf envelope, and a two-second idle
 deadline that partial requests cannot extend. OpenThread polls at most five
 milliseconds between Matter and IPC turns.
 
@@ -93,7 +93,7 @@ see [Matter integration](../microhad/MATTER_INTEGRATION.md).
 ## Verification
 
 Use the [component build and test commands](../micro-thread-matter-daemon/README.md)
-and [CBOR contract](../micro-thread-matter-daemon/docs/matter-ipc-v2.md). Synthetic fixtures exercise
+and [protobuf contract](../micro-thread-matter-daemon/docs/matter-ipc-v3.md). Synthetic fixtures exercise
 CASE/report delivery, persistent native calls, BLE ownership and supervisor
 recovery. They complement the deployed temperature and air-quality sensor path;
 new accessory categories still need compatibility testing.

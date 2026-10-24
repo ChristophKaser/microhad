@@ -1,20 +1,21 @@
 #include "matter_protocol.h"
 
 namespace MatterWire {
-bool encodeCbor(const Frame&, Bytes*);
-bool decodeCbor(const Bytes&, Frame*);
+bool encodeProtobuf(const Frame&, Bytes*);
+bool decodeProtobuf(const Bytes&, Frame*);
 namespace {
 const unsigned int HeaderSize = 2;
 bool valid(const Frame& frame) {
     return frame.kind <= Frame::Event && frame.opcode >= 1 && frame.opcode <= 12 &&
-        frame.id <= 0xffffffffUL && ((frame.kind == Frame::Event) == (frame.id == 0));
+        frame.id <= 0xffffffffUL && ((frame.kind == Frame::Event) == (frame.id == 0)) &&
+        ((frame.kind == Frame::Event) == (frame.opcode == 12));
 }
 
 }
 bool encode(const Frame& frame, Bytes* bytes) {
     bytes->clear();
     if (!valid(frame)) return false;
-    return encodeCbor(frame, bytes);
+    return encodeProtobuf(frame, bytes);
 }
 bool Decoder::fail() {
     failed_ = true;
@@ -32,7 +33,7 @@ bool Decoder::feed(const Bytes& bytes) {
         if (size == 0 || size > MaxPayload) return fail();
         if (input_.size() < HeaderSize + size) return true;
         if (frames_.size() >= MaxQueued) return fail();
-        if (!decodeCbor(Bytes(input_.begin() + HeaderSize, input_.begin() + HeaderSize + size), &frame)) return fail();
+        if (!decodeProtobuf(Bytes(input_.begin() + HeaderSize, input_.begin() + HeaderSize + size), &frame)) return fail();
         frames_.push_back(frame);
         input_.erase(input_.begin(), input_.begin() + HeaderSize + size);
     }

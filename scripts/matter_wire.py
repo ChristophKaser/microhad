@@ -1,62 +1,9 @@
-"""Host-fixture CBOR v2 codec. No dependencies and no payload logging."""
+"""Host-fixture protobuf v3 adapter; internal/public JSON stays unchanged."""
 import json
-import math
 import struct
 from pathlib import Path
-SHAPES = json.loads((Path(__file__).resolve().parents[1] / 'protocol/matter-wire-shapes.json').read_text())
-
-def dumps(v):
-    def head(major,n):
-        return bytes([major << 5 | n]) if n<24 else bytes([major << 5 | 24])+bytes([n]) if n<256 else bytes([major << 5 | 25])+struct.pack('>H',n) if n<65536 else bytes([major << 5 | 26])+struct.pack('>I',n) if n<2**32 else bytes([major << 5 | 27])+struct.pack('>Q',n)
-    if v is None:return b'\xf6'
-    if isinstance(v,bool):return b'\xf5' if v else b'\xf4'
-    if isinstance(v,int):return head(0,v) if v>=0 else head(1,-1-v)
-    if isinstance(v,float):return b'\xfb'+struct.pack('>d',v)
-    if isinstance(v,str):v=v.encode();return head(3,len(v))+v
-    if isinstance(v,bytes):return head(2,len(v))+v
-    if isinstance(v,list):return head(4,len(v))+b''.join(map(dumps,v))
-    if isinstance(v,dict):return head(5,len(v))+b''.join(dumps(k)+dumps(val) for k,val in v.items())
-    raise ValueError('unsupported CBOR type')
-
-def loads(data):
-    data=bytes(data)
-    at=0
-    def read(depth=0):
-        nonlocal at
-        first=data[at];at+=1;major=first>>5;ai=first&31
-        if ai>=28:raise ValueError('indefinite/reserved CBOR')
-        n=ai
-        if ai>=24:
-            width=1<<(ai-24);part=data[at:at+width]
-            if len(part)!=width:raise ValueError('truncated CBOR')
-            at+=width;n=int.from_bytes(part,'big')
-        if major==0:return n
-        if major==1:return -1-n
-        if major in (2,3):
-            part=data[at:at+n];at+=n
-            if len(part)!=n:raise ValueError('truncated CBOR')
-            return part if major==2 else part.decode()
-        if major in (4,5):
-            if depth>=16 or n>(512 if major==4 else 256):raise ValueError('CBOR bounds')
-            if major==4:return [read(depth+1) for _ in range(n)]
-            out={}
-            for _ in range(n):
-                k=read(depth+1)
-                if not isinstance(k,str) or k in out:raise ValueError('CBOR map key')
-                out[k]=read(depth+1)
-            return out
-        if major==7:
-            if ai in (20,21):return ai==21
-            if ai==22:return None
-            if ai in (25,26,27):
-                value=struct.unpack({25:'>e',26:'>f',27:'>d'}[ai],part)[0]
-                if not math.isfinite(value):raise ValueError('nonfinite CBOR')
-                return value
-        raise ValueError('unsupported CBOR')
-    result=read()
-    if at!=len(data):raise ValueError('trailing CBOR')
-    return result
-
+from protobuf_wire import encode, decode, normalize
+SHAPES = json.loads((Path(__file__).resolve().parents[1]/'protocol/matter-wire-shapes.json').read_text())
 def shape(context,value,kind,opcode,event):
     if context=='body' and kind==0:
         action=value.get('command' if opcode==11 else 'action','') if isinstance(value,dict) else ''
@@ -82,12 +29,23 @@ def convert(value,context,kind,opcode,event='',incoming=False):
         return {k:convert(v,SHAPES.get(ctx,{}).get(k,''),kind,opcode,event,incoming) for k,v in value.items()}
     return value
 
-def frame(opcode,kind,ident,body=b'',version=2,**extra):
-    if isinstance(body,(bytes,str)):
-        try:body=json.loads(body) if body else {}
-        except (ValueError,UnicodeError):body=body.decode(errors='replace') if isinstance(body,bytes) else body
-    body=convert(body,'body',kind,opcode)
-    message={'version':version,'kind':kind,'opcode':opcode,'id':ident,'body':body}
+def dumps(message):
+    kind,op=message['kind'],message['opcode']
+    message=dict(message)
+    message['body']=normalize(message['body'],'Body',kind,op)
+    return encode(message,'Envelope')
+def loads(data):
+    if not 0<len(data)<=2048:raise ValueError('frame size')
+    m=decode(bytes(data),'Envelope')
+    if m.get('version')!=3 or m.get('kind',3)>2 or not 1<=m.get('opcode',0)<=12 or (m['kind']==2)!=(m.get('id',0)==0) or 'body' not in m or (m['kind']==2)!=(m['opcode']==12):raise ValueError('invalid envelope')
+    kind,op=m['kind'],m['opcode']
+    expected=f'request{op}' if kind==0 else 'event' if kind==2 else 'matter' if op==1 else 'thread' if op==2 else 'reply'
+    if expected not in m['body']:raise ValueError('mismatched body')
+    m['body']=normalize(m['body'],'Body',kind,op,incoming=True)
+    return m
+def frame(opcode,kind,ident,body=b'',version=3,**extra):
+    if isinstance(body,(bytes,str)):body=json.loads(body) if body else {}
+    message=dict(version=version,kind=kind,opcode=opcode,id=ident,body=convert(body,'body',kind,opcode))
     message.update(extra)
     encoded=dumps(message)
     return struct.pack('<H',len(encoded))+encoded
@@ -95,8 +53,5 @@ def frame(opcode,kind,ident,body=b'',version=2,**extra):
 def receive(peer,exact):
     length,=struct.unpack('<H',exact(peer,2))
     assert 0<length<=2048
-    message=loads(exact(peer,length))
-    assert message['version']==2
-    kind,opcode,ident=message['kind'],message['opcode'],message['id']
-    body=convert(message['body'],'body',kind,opcode,incoming=True)
-    return kind,opcode,ident,body
+    m=loads(exact(peer,length));kind,op,ident=m['kind'],m['opcode'],m['id']
+    return kind,op,ident,convert(m['body'],'body',kind,op,incoming=True)

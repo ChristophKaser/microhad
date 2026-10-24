@@ -49,7 +49,7 @@ overrides remain overrides when switching `TOOLCHAIN` in a sourced shell.
 
 ## Artifacts and verification
 
-MicroHAD uses `-Os` for crosstool-NG C/C++ code, TinyCBOR and Mbed TLS; RSDK
+MicroHAD uses `-Os` for crosstool-NG C/C++ code, nanopb and Mbed TLS; RSDK
 and host builds retain `-O2`.
 
 RSDK paths and host fixture paths remain unchanged. Crosstool-NG paths insert

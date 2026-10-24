@@ -18,7 +18,7 @@ pub mod sessions;
 pub mod store;
 #[cfg(feature = "controller-service")]
 pub mod subscriptions;
-mod wire_cbor;
+mod wire_protobuf;
 mod wire_shapes;
 
 #[cfg(feature = "controller-service")]

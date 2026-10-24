@@ -35,7 +35,7 @@ Commands run on the development computer unless marked **gateway**.
 
 Protocol and storage references:
 
-- [Matter CBOR IPC v2](../micro-thread-matter-daemon/docs/matter-ipc-v2.md) and [CDDL schema](../protocol/matter-ipc-v2.cddl).
+- [Matter protobuf IPC v3](../micro-thread-matter-daemon/docs/matter-ipc-v3.md) and [CDDL schema](../protocol/matter-ipc-v3.proto).
 - [Matter HTTP/WebSocket API](../microhad/docs/matter-native-api-v1.md).
 - [Commissioning sessions](matter-session-lifecycle.md).
 - [Operational discovery](matter-operational-discovery.md), [node catalog](matter-node-catalog.md), [descriptor discovery](matter-device-discovery.md), [snapshot pagination](matter-device-snapshot-ipc.md), [operations](matter-operational-transactions.md) and [sensor values](matter-sensors.md).

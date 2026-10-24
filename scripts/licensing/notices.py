@@ -17,7 +17,6 @@ ROOT = Path(__file__).resolve().parents[2]
 LEGAL = re.compile(r'^(licen[cs]e|copying|copyright|notice)(?:$|[._-])', re.I)
 SUBMODULES = {
  'microhad/dependencies/mbedtls': 'Apache-2.0 (selected from Apache-2.0 OR GPL-2.0-or-later)',
- 'microhad/dependencies/tinycbor': 'MIT',
  'microhad/dependencies/lua': 'MIT',
  'ziggurat/dependencies/ziggurat': 'Apache-2.0; locally patched',
  'micro-thread-matter-daemon/dependencies/rs-matter': 'Apache-2.0; locally patched',
@@ -64,6 +63,7 @@ def inputs():
              'scripts/rust-env.sh', 'config/toolchains.mk', *LOCKS]
     paths += git('ls-files', 'patches/*.patch', 'ziggurat/patches/*.patch',
                  'micro-thread-matter-daemon/patches/*.patch').splitlines()
+    paths += [str(p.relative_to(ROOT)) for p in sorted((ROOT / 'third-party/nanopb').iterdir()) if p.is_file()]
     result = {p: hashlib.sha256((ROOT / p).read_bytes()).hexdigest() for p in paths}
     for p in SUBMODULES:
         result[p] = git('rev-parse', f'HEAD:{p}')
@@ -145,7 +145,7 @@ def authors(package, name):
 
 def collect_gateway():
     selected_packages = production_packages()
-    records = []
+    records = [{'name': 'nanopb 0.4.9.1', 'revision': 'cad3c18ef15a663e30e3e43e3a752b66378adec1', 'license': 'Zlib', 'authors': ['Petteri Aimonen and nanopb contributors'], 'texts': texts(ROOT / 'third-party/nanopb')}]
     known_packages = {(p['name'], p['version']) for lock in LOCKS
                       for p in tomllib.loads((ROOT / lock).read_text())['package']}
     if selected_packages - known_packages:

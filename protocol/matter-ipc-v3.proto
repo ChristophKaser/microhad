@@ -1,0 +1,324 @@
+syntax = "proto2";
+package microhad;
+// Field numbers are permanent. Removed numbers must be reserved.
+// Optional scalars preserve explicit zero/false; semantic presence is validated by adapters.
+message Request1 {
+}
+message Request2 {
+}
+message Request3 {
+  optional uint32 schema = 1;
+  optional uint32 discriminator = 2;
+  optional uint32 pin = 3;
+  optional uint32 timeout_seconds = 4;
+  optional string country_code = 5;
+  optional string regulatory_location = 6;
+}
+message Request4 {
+  optional uint32 schema = 1;
+  optional uint64 session = 2;
+  optional bool subscribe = 3;
+}
+message Request5 {
+  optional uint32 schema = 1;
+  optional uint64 session = 2;
+}
+message Request6 {
+  optional uint32 schema = 1;
+  optional uint64 session = 2;
+  optional bytes address = 3;
+  optional uint32 mtu = 4;
+}
+message Request7 {
+  optional uint32 schema = 1;
+  optional uint64 session = 2;
+  optional uint32 generation = 3;
+  optional uint32 sequence = 4;
+  optional bytes data = 5;
+}
+message Request8 {
+  optional uint32 schema = 1;
+  optional uint64 session = 2;
+  optional uint32 generation = 3;
+  optional uint32 write = 4;
+  optional bool success = 5;
+}
+message Request9 {
+  optional uint32 schema = 1;
+  optional string action = 2;
+  optional bool subscribe = 3;
+  optional uint32 zigbee_channel = 4;
+  optional bool zigbee_online = 5;
+  optional bytes dataset = 6;
+}
+message Request10 {
+  optional uint32 schema = 1;
+  optional string action = 2;
+  optional uint32 cursor = 3;
+  optional uint64 revision = 4;
+  optional uint64 node = 5;
+  optional uint32 endpoint = 6;
+  optional uint32 cluster = 7;
+  optional uint32 attribute = 8;
+  optional uint64 job = 9;
+  optional ListTarget targets = 10;
+  optional bool local = 11;
+  optional bool restore = 12;
+}
+message Request11 {
+  optional uint32 schema = 1;
+  optional uint64 node = 2;
+  optional uint32 endpoint = 3;
+  optional string command = 4;
+  optional uint32 level = 5;
+  optional uint32 transition_deciseconds = 6;
+  optional string field = 7;
+  optional string value = 8;
+  optional string time_zone = 9;
+  optional sint64 offset_seconds = 10;
+}
+message Reply {
+  optional uint32 schema = 1;
+  optional bool ok = 2;
+  optional string error = 3;
+  optional Result result = 4;
+}
+message Event {
+  optional uint32 schema = 1;
+  optional string event = 2;
+  optional EventData data = 3;
+}
+message Matter {
+  optional bool enabled = 1;
+  optional bool available = 2;
+  optional bool controller_initialized = 3;
+  optional bool fabric_ready = 4;
+  optional string state = 5;
+  optional uint64 commissioning_session = 6;
+}
+message Thread {
+  optional bool enabled = 1;
+  optional bool available = 2;
+  optional bool configured = 3;
+  optional bool attached = 4;
+  optional string state = 5;
+  optional bool linux_ipv6_or_tun = 6;
+  optional uint32 zigbee_channel = 7;
+  optional uint32 dataset_channel = 8;
+}
+message Session {
+  optional uint64 session = 1;
+  optional string state = 2;
+  optional uint32 deadline_remaining_seconds = 3;
+  optional string error = 4;
+  optional uint64 node = 5;
+}
+message Ack6 {
+  optional uint32 generation = 1;
+}
+message Ack7 {
+  optional uint32 sequence = 1;
+}
+message Ack8 {
+  optional uint32 write = 1;
+}
+message Page {
+  optional uint64 revision = 1;
+  optional ListDevice devices = 2;
+  optional NullableUint next_cursor = 3;
+}
+message Device {
+  optional uint64 node = 1;
+  optional string state = 2;
+  optional bool online = 3;
+  optional NullableText id = 4;
+  optional NullableUint endpoint = 5;
+  optional Listuint32 servers = 6;
+  optional Listuint32 clients = 7;
+  optional string manufacturer = 8;
+  optional string model = 9;
+  optional NullableInt rssi_dbm = 10;
+  optional Listuint32 device_types = 11;
+}
+message Job {
+  optional uint64 job = 1;
+  optional string state = 2;
+  optional string error = 3;
+  optional Reading result = 4;
+}
+message Reading {
+  optional uint64 node = 1;
+  optional uint32 endpoint = 2;
+  optional uint32 cluster = 3;
+  optional uint32 attribute = 4;
+  optional Typed value = 5;
+}
+message Typed {
+  optional string type = 1;
+  optional ReadingValue value = 2;
+}
+message Measurement {
+  optional MeasurementValue value = 1;
+  optional string unit = 2;
+  optional string quality = 3;
+  optional uint32 mode = 4;
+  optional ListThermostatTransition transitions = 5;
+}
+message BleWrite {
+  optional uint64 session = 1;
+  optional uint32 generation = 2;
+  optional uint32 write = 3;
+  optional bytes data = 4;
+}
+message Button {
+  optional uint64 node = 1;
+  optional uint32 endpoint = 2;
+  optional uint32 event = 3;
+  optional uint32 position = 4;
+  optional uint32 press_count = 5;
+}
+message Target {
+  optional uint64 node = 1;
+  optional NullableUint endpoint = 2;
+  optional NullableUint group = 3;
+  optional ListMember members = 4;
+  optional uint32 cluster = 5;
+}
+message Member {
+  optional uint64 node = 1;
+  optional uint32 endpoint = 2;
+}
+message Inventory {
+  optional string kind = 1;
+  optional Device device = 2;
+  optional uint32 endpoint_count = 3;
+}
+message InventoryNodes {
+  optional ListInventoryNode nodes = 1;
+}
+message InventoryNode {
+  optional uint64 node = 1;
+}
+message SubscriptionHealth {
+  optional uint64 node = 1;
+  optional bool restore_scheduled = 2;
+  optional bool intermittent = 3;
+  optional string reachability = 4;
+  optional NullableUint next_cursor = 5;
+  optional ListSubscription subscriptions = 6;
+}
+message Subscription {
+  optional uint32 endpoint = 1;
+  optional uint32 cluster = 2;
+  optional uint32 attribute = 3;
+  optional NullableUint id = 4;
+  optional uint32 max_interval_seconds = 5;
+  optional NullableUint last_report_age_seconds = 6;
+  optional uint32 retry_in_seconds = 7;
+  optional uint32 failures = 8;
+  optional string state = 9;
+}
+message ThermostatSchedule {
+  optional uint32 mode = 1;
+  optional ListThermostatTransition transitions = 2;
+}
+message ThermostatTransition {
+  optional uint32 time = 1;
+  optional double heat = 2;
+  optional double cool = 3;
+}
+message MeasurementValue {
+  oneof choice {
+    bool null = 1;
+    double number = 2;
+    sint64 integer = 3;
+    string text = 4;
+  }
+}
+message NullableText {
+  oneof choice {
+    bool null = 1;
+    string text = 2;
+  }
+}
+message NullableUint {
+  oneof choice {
+    bool null = 1;
+    uint64 integer = 2;
+  }
+}
+message NullableInt {
+  oneof choice {
+    bool null = 1;
+    sint64 integer = 2;
+  }
+}
+message ReadingValue {
+  oneof choice {
+    bool null = 1;
+    bool boolean = 2;
+    uint64 unsigned = 3;
+    sint64 integer = 4;
+    double number = 5;
+    string text = 6;
+    Measurement measurement = 7;
+    UintList list = 8;
+  }
+}
+message Result {
+  oneof choice {
+    Session session = 1;
+    Ack6 ack6 = 2;
+    Ack7 ack7 = 3;
+    Ack8 ack8 = 4;
+    Thread thread = 5;
+    Page page = 6;
+    Job job = 7;
+    SubscriptionHealth subscription_health = 8;
+  }
+}
+message EventData {
+  oneof choice {
+    Thread thread = 1;
+    Session session = 2;
+    BleWrite ble_write = 3;
+    Reading reading = 4;
+    Button button = 5;
+    Inventory inventory = 6;
+    InventoryNodes inventory_nodes = 7;
+  }
+}
+message Body {
+  oneof choice {
+    Request1 request1 = 1;
+    Request2 request2 = 2;
+    Request3 request3 = 3;
+    Request4 request4 = 4;
+    Request5 request5 = 5;
+    Request6 request6 = 6;
+    Request7 request7 = 7;
+    Request8 request8 = 8;
+    Request9 request9 = 9;
+    Request10 request10 = 10;
+    Request11 request11 = 11;
+    Matter matter = 12;
+    Thread thread = 13;
+    Reply reply = 14;
+    Event event = 15;
+  }
+}
+message UintList { repeated uint32 items = 1; }
+message Envelope {
+  optional uint32 version = 1;
+  optional uint32 kind = 2;
+  optional uint32 opcode = 3;
+  optional uint32 id = 4;
+  optional Body body = 5;
+}
+message ListTarget { repeated Target items = 1; }
+message ListDevice { repeated Device items = 1; }
+message Listuint32 { repeated uint32 items = 1; }
+message ListThermostatTransition { repeated ThermostatTransition items = 1; }
+message ListMember { repeated Member items = 1; }
+message ListInventoryNode { repeated InventoryNode items = 1; }
+message ListSubscription { repeated Subscription items = 1; }

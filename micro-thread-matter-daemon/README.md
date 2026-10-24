@@ -64,8 +64,8 @@ Runtime compatibility checks remain enabled. Host synthetic tests validate the
 shared-radio no-reset attachment. The deployed gateway uses the same radio path
 for Matter-over-Thread temperature and air-quality sensors.
 
-The private protocol is [length-prefixed CBOR v2](docs/matter-ipc-v2.md).
-Only the length prefix is outside the CBOR envelope.
+The private protocol is [length-prefixed protobuf v3](docs/matter-ipc-v3.md).
+Only the length prefix is outside the protobuf envelope.
 
 ## Matter logging
 

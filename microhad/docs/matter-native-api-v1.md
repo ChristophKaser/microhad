@@ -12,7 +12,7 @@ JSON validation: duplicate/unknown fields, invalid PINs,
 noncanonical IDs, trailing data and payloads over 2048 bytes are rejected before
 queueing. No request body is returned or logged.
 
-The daemon converts accepted JSON into [private CBOR IPC v2](../../micro-thread-matter-daemon/docs/matter-ipc-v2.md).
+The daemon converts accepted JSON into [private protobuf IPC v3](../../micro-thread-matter-daemon/docs/matter-ipc-v3.md).
 Private-wire unknown fields are skipped with safe warnings; this does not relax
 the public HTTP validator. IDs and binary data retain their JSON encodings here
 and become unsigned integers and byte strings on the private wire.
@@ -170,7 +170,7 @@ The first text message must bind a retained commissioning session using opcode 4
 
 The native owner forces `subscribe:true` in that private status call. A successful
 reply binds the phone to that session. Later messages use the same envelope with
-opcodes 4–8 and the strict bodies from [IPC v2](../../micro-thread-matter-daemon/docs/matter-ipc-v2.md). IDs are nonzero
+opcodes 4–8 and the strict bodies from [IPC v2](../../micro-thread-matter-daemon/docs/matter-ipc-v3.md). IDs are nonzero
 u32 and must increase on the connection; replies have schema/id/response:
 
 ```json

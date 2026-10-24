@@ -1,7 +1,7 @@
 # Commissioning session lifetime
 
 The current service is `mthread-matter` in `micro-thread-matter-daemon/`, using
-[CBOR IPC v2](../micro-thread-matter-daemon/docs/matter-ipc-v2.md). The service owns the session lifecycle described here.
+[protobuf IPC v3](../micro-thread-matter-daemon/docs/matter-ipc-v3.md). The service owns the session lifecycle described here.
 
 ## Disconnect and cancellation
 
@@ -22,7 +22,7 @@ observed matching coordinator channel.
 
 Session IDs are unpredictable nonzero OS-entropy u64 values, rendered as sixteen
 lowercase hex characters in public/in-process JSON and unsigned integers on the
-private CBOR wire. They are distinct from IPC correlations. Status uses
+private protobuf wire. They are distinct from IPC correlations. Status uses
 monotonic deadlines (30–900 seconds); reading status or accepting callbacks does
 not extend them. Cancellation, deadline expiry and task completion drop the
 owned future before clearing BTP, invalidate the connection generation, and

@@ -1882,8 +1882,8 @@ mod tests {
         let body = crate::responses::reply::<_, crate::operations::Failure>(Ok(&health)).unwrap();
         assert!(body.len() <= crate::ipc::MAX_PAYLOAD);
         let frame = crate::ipc::Frame { kind: 1, opcode: 10, id: 1, payload: body };
-        let encoded = crate::wire_cbor::encode(&frame).unwrap();
-        let decoded = crate::wire_cbor::decode(&encoded[2..]).unwrap();
+        let encoded = crate::wire_protobuf::encode(&frame).unwrap();
+        let decoded = crate::wire_protobuf::decode(&encoded[2..]).unwrap();
         let decoded: serde_json::Value = serde_json::from_slice(&decoded.payload).unwrap();
         assert_eq!(decoded["result"], health);
         let second = manager.subscription_health(2, false, 6, now).unwrap();

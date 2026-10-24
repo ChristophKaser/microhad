@@ -1,4 +1,4 @@
-//! Bounded CBOR version-2 framing for the private native-controller Unix stream.
+//! Bounded protobuf version-3 framing for the private native-controller Unix stream.
 //! Payloads can contain credentials, so frames and decoders have no Debug/Display.
 use std::collections::VecDeque;
 
@@ -23,13 +23,13 @@ pub struct Frame {
 }
 impl Frame {
     fn valid(&self) -> bool {
-        self.kind <= 2 && (1..=12).contains(&self.opcode) && ((self.kind == 2) == (self.id == 0))
+        self.kind <= 2 && (1..=12).contains(&self.opcode) && ((self.kind == 2) == (self.id == 0)) && ((self.kind == 2) == (self.opcode == 12))
     }
     pub fn encode(&self) -> Result<Vec<u8>, ProtocolError> {
         if !self.valid() {
             return Err(ProtocolError::Malformed);
         }
-        crate::wire_cbor::encode(self)
+        crate::wire_protobuf::encode(self)
     }
 }
 #[derive(Default)]
@@ -66,7 +66,7 @@ impl Decoder {
             if self.frames.len() >= MAX_QUEUED {
                 return self.fail(ProtocolError::Overloaded);
             }
-            let frame = match crate::wire_cbor::decode(&self.bytes[HEADER..HEADER + length]) {
+            let frame = match crate::wire_protobuf::decode(&self.bytes[HEADER..HEADER + length]) {
                 Ok(frame) => frame,
                 Err(error) => return self.fail(error),
             };
@@ -104,7 +104,7 @@ mod tests {
                     serde_json::from_slice(&frame.payload).unwrap()
                 };
                 assert_eq!(body, v["body"], "{}", v["name"]);
-                let encoded = frame.encode().unwrap();
+                let encoded = frame.encode().unwrap_or_else(|e| panic!("{}: {e:?}", v["name"]));
                 let mut roundtrip = Decoder::default();
                 roundtrip.feed(&encoded).unwrap();
                 assert_eq!(roundtrip.pop().unwrap().payload, frame.payload);

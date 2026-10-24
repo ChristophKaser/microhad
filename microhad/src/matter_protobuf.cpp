@@ -1,7 +1,7 @@
-// CBOR boundary adapter; the worker/public JSON and persistent formats stay separate.
+// Protobuf boundary adapter; the worker/public JSON and persistent formats stay separate.
 #include "matter_protocol.h"
 #include "json_util.h"
-#include "../dependencies/tinycbor/src/cbor.h"
+#include "protobuf_value.h"
 #include <stdint.h>
 #include <cstdlib>
 #include <cerrno>
@@ -15,20 +15,8 @@
 
 namespace MatterWire {
 namespace {
-struct Value {
-    enum Type { Null, Bool, UInt, Int, Float, Text, Binary, Array, Map } type;
-    uint64_t u;
-    int64_t i;
-    double f;
-    std::string text;
-    std::vector<Value> items;
-    std::vector<std::string> keys;
-    Value() : type(Null), u(0), i(0), f(0) {}
-};
-const Value* field(const Value& v, const std::string& name) {
-    for (unsigned int n=0;n<v.keys.size();++n) if(v.keys[n]==name) return &v.items[n];
-    return 0;
-}
+using Proto::Value;
+using Proto::field;
 std::string textField(const Value& v, const std::string& name) {
     const Value* p=field(v,name); return p && p->type==Value::Text ? p->text : "";
 }
@@ -63,7 +51,7 @@ std::string shape(const std::string& context,const Value& v,unsigned int kind,un
     }
     return context;
 }
-// JSON is used solely at the existing in-process boundary, never in a CBOR body.
+// JSON is used solely at the existing in-process boundary, never in a protobuf body.
 class JsonReader {
     const std::string& s;
     unsigned int at;
@@ -163,75 +151,6 @@ bool convert(Value* v,const std::string& context,unsigned int kind,unsigned int 
     }
     return true;
 }
-bool encodeValue(CborEncoder* enc,const Value& v){
-    CborError err=CborNoError;
-    switch(v.type){
-    case Value::Null:err=cbor_encode_null(enc);break;
-    case Value::Bool:err=cbor_encode_boolean(enc,v.u!=0);break;
-    case Value::UInt:err=cbor_encode_uint(enc,v.u);break;
-    case Value::Int:err=cbor_encode_int(enc,v.i);break;
-    case Value::Float:err=cbor_encode_double(enc,v.f);break;
-    case Value::Text:err=cbor_encode_text_string(enc,v.text.data(),v.text.size());break;
-    case Value::Binary:err=cbor_encode_byte_string(enc,reinterpret_cast<const uint8_t*>(v.text.data()),v.text.size());break;
-    case Value::Map:case Value::Array:{
-        CborEncoder container;
-        err=v.type==Value::Map?cbor_encoder_create_map(enc,&container,v.items.size()):cbor_encoder_create_array(enc,&container,v.items.size());
-        if(err!=CborNoError)return false;
-        for(unsigned int n=0;n<v.items.size();++n){
-            if(v.type==Value::Map&&cbor_encode_text_string(&container,v.keys[n].data(),v.keys[n].size())!=CborNoError)return false;
-            if(!encodeValue(&container,v.items[n]))return false;
-        }
-        err=cbor_encoder_close_container(enc,&container);break;
-    }}
-    return err==CborNoError;
-}
-bool validUtf8(const std::string& s) {
-    for(unsigned int at=0;at<s.size();) {
-        unsigned char c=s[at++];if(c<128)continue;
-        unsigned int count=c>=0xc2&&c<=0xdf?1:c>=0xe0&&c<=0xef?2:c>=0xf0&&c<=0xf4?3:0;
-        if(!count||at+count>s.size())return false;
-        unsigned int value=c&((1U<<(6-count))-1);
-        for(unsigned int n=0;n<count;++n){unsigned char b=s[at++];if((b&0xc0)!=0x80)return false;value=(value<<6)|(b&63);}
-        if(value<(count==1?128U:count==2?2048U:65536U)||value>0x10ffffU||(value>=0xd800&&value<=0xdfff))return false;
-    }
-    return true;
-}
-bool readValue(CborValue* it,Value* out,unsigned int depth){
-    if(cbor_value_is_integer(it)){
-        if(cbor_value_is_unsigned_integer(it)){out->type=Value::UInt;if(cbor_value_get_uint64(it,&out->u)!=CborNoError)return false;}
-        else{out->type=Value::Int;if(cbor_value_get_int64_checked(it,&out->i)!=CborNoError)return false;}
-    }else if(cbor_value_is_boolean(it)){bool b=false;if(cbor_value_get_boolean(it,&b)!=CborNoError)return false;out->type=Value::Bool;out->u=b;}
-    else if(cbor_value_is_null(it))out->type=Value::Null;
-    else if(cbor_value_is_double(it)||cbor_value_is_float(it)||cbor_value_is_half_float(it)){
-        out->type=Value::Float;
-        if(cbor_value_is_double(it)){if(cbor_value_get_double(it,&out->f)!=CborNoError)return false;}
-        else{float f=0;CborError e=cbor_value_is_float(it)?cbor_value_get_float(it,&f):cbor_value_get_half_float_as_float(it,&f);if(e!=CborNoError)return false;out->f=f;}
-        if(!std::isfinite(out->f))return false;
-    }else if(cbor_value_is_text_string(it)||cbor_value_is_byte_string(it)){
-        size_t size=0;
-        if(!cbor_value_is_length_known(it)||cbor_value_calculate_string_length(it,&size)!=CborNoError||size>MaxPayload)return false;
-        std::vector<char> buffer(size+1);
-        bool text=cbor_value_is_text_string(it);
-        CborError e=text?cbor_value_copy_text_string(it,&buffer[0],&size,0):cbor_value_copy_byte_string(it,reinterpret_cast<uint8_t*>(&buffer[0]),&size,0);
-        if(e!=CborNoError)return false;
-        out->type=text?Value::Text:Value::Binary;out->text.assign(&buffer[0],size);
-        if(text&&!validUtf8(out->text))return false;
-    }else if(cbor_value_is_map(it)||cbor_value_is_array(it)){
-        if(depth>=16||!cbor_value_is_length_known(it))return false;
-        size_t count=0;bool map=cbor_value_is_map(it);
-        CborError e=map?cbor_value_get_map_length(it,&count):cbor_value_get_array_length(it,&count);
-        if(e!=CborNoError||count>(map?256U:512U))return false;
-        out->type=map?Value::Map:Value::Array;CborValue sub;
-        if(cbor_value_enter_container(it,&sub)!=CborNoError)return false;
-        std::set<std::string> keys;
-        for(size_t n=0;n<count;++n){
-            if(map){Value key;if(!readValue(&sub,&key,depth+1)||key.type!=Value::Text||!keys.insert(key.text).second)return false;out->keys.push_back(key.text);}
-            Value item;if(!readValue(&sub,&item,depth+1))return false;out->items.push_back(item);
-        }
-        return cbor_value_leave_container(it,&sub)==CborNoError;
-    }else return false;
-    return cbor_value_advance(it)==CborNoError;
-}
 void json(const Value& v,std::ostringstream* out){
     switch(v.type){
     case Value::Null:*out<<"null";break;
@@ -241,7 +160,7 @@ void json(const Value& v,std::ostringstream* out){
     case Value::Float:{
         std::ostringstream number;number<<std::setprecision(17)<<v.f;
         std::string text=number.str();
-        // Preserve the CBOR numeric type for the existing integer validators.
+        // Preserve the protobuf numeric type for the existing integer validators.
         if(text.find_first_of(".eE")==std::string::npos)text+=".0";
         *out<<text;break;
     }
@@ -255,34 +174,29 @@ void json(const Value& v,std::ostringstream* out){
 }
 void add(Value* map,const char* name,uint64_t n){Value v;v.type=Value::UInt;v.u=n;map->keys.push_back(name);map->items.push_back(v);}
 }
-bool encodeCbor(const Frame& frame,Bytes* bytes){
+bool encodeProtobuf(const Frame& frame,Bytes* bytes){
     std::string text(frame.payload.begin(),frame.payload.end());Value body;
     if(text.empty())body.type=Value::Map;
     else if(!JsonReader(text).parse(&body))return false;
     if(body.type!=Value::Map)return false;
     unsigned int unknown=0;
-    if(!convert(&body,"body",frame.kind,frame.opcode,"",false,&unknown))return false;
-    Value env;env.type=Value::Map;add(&env,"version",2);add(&env,"kind",frame.kind);add(&env,"opcode",frame.opcode);add(&env,"id",frame.id);env.keys.push_back("body");env.items.push_back(body);
-    Bytes buffer(MaxPayload);CborEncoder encoder;cbor_encoder_init(&encoder,&buffer[0],buffer.size(),0);
-    if(!encodeValue(&encoder,env))return false;
-    size_t size=cbor_encoder_get_buffer_size(&encoder,&buffer[0]);
-    bytes->push_back(static_cast<unsigned char>(size));bytes->push_back(static_cast<unsigned char>(size>>8));bytes->insert(bytes->end(),buffer.begin(),buffer.begin()+size);return true;
+    if(!convert(&body,"body",frame.kind,frame.opcode,"",false,&unknown)||!Proto::normalize(&body,"Body",frame.kind,frame.opcode,"",false))return false;
+    Value env;env.type=Value::Map;add(&env,"version",3);add(&env,"kind",frame.kind);add(&env,"opcode",frame.opcode);add(&env,"id",frame.id);Proto::add(&env,"body",body);
+    Bytes buffer;if(!Proto::encode("Envelope",env,&buffer,MaxPayload))return false;
+    bytes->push_back(static_cast<unsigned char>(buffer.size()));bytes->push_back(static_cast<unsigned char>(buffer.size()>>8));bytes->insert(bytes->end(),buffer.begin(),buffer.end());return true;
 }
-bool decodeCbor(const Bytes& bytes,Frame* frame){
-    if(bytes.empty()||bytes.size()>MaxPayload)return false;
-    CborParser parser;CborValue it;
-    if(cbor_parser_init(&bytes[0],bytes.size(),0,&parser,&it)!=CborNoError)return false;
-    // Validate UTF-8 before copying strings. Depth/count checks happen in readValue.
-    Value env;if(!readValue(&it,&env,0)||cbor_value_get_next_byte(&it)!=&bytes[0]+bytes.size()||env.type!=Value::Map)return false;
+bool decodeProtobuf(const Bytes& bytes,Frame* frame){
+    Value env;unsigned unknown=0;
+    if(!Proto::decode("Envelope",bytes,&env,MaxPayload,&unknown))return false;
     const Value* version=field(env,"version");const Value* kind=field(env,"kind");const Value* opcode=field(env,"opcode");const Value* id=field(env,"id");const Value* body=field(env,"body");
-    if(!version||version->type!=Value::UInt||version->u!=2||!kind||kind->type!=Value::UInt||kind->u>2||!opcode||opcode->type!=Value::UInt||opcode->u<1||opcode->u>12||!id||id->type!=Value::UInt||id->u>0xffffffffUL||!body||body->type!=Value::Map||((kind->u==2)!=(id->u==0)))return false;
+    if(!version||version->type!=Value::UInt||version->u!=3||!kind||kind->type!=Value::UInt||kind->u>2||!opcode||opcode->type!=Value::UInt||opcode->u<1||opcode->u>12||!id||id->type!=Value::UInt||id->u>0xffffffffUL||!body||body->type!=Value::Map||((kind->u==2)!=(id->u==0))||((kind->u==2)!=(opcode->u==12)))return false;
     frame->kind=static_cast<unsigned char>(kind->u);frame->opcode=static_cast<unsigned char>(opcode->u);frame->id=static_cast<unsigned long>(id->u);
-    unsigned int unknown=0;for(unsigned int n=0;n<env.keys.size();++n)if(!child("envelope",env.keys[n]))++unknown;
-    Value converted=*body;bool valid=convert(&converted,"body",frame->kind,frame->opcode,"",true,&unknown);
-    if(unknown)syslog(LOG_WARNING,"Matter IPC opcode %u: ignored %u unknown fields",static_cast<unsigned int>(frame->opcode),unknown);
-    std::ostringstream out;
-    if(!valid)out<<"!invalid CBOR body";
-    else if(!(frame->kind==0&&frame->opcode<=2&&converted.items.empty()))json(converted,&out);
+    std::ostringstream request;request<<"request"<<opcode->u;
+    const std::string expected=kind->u==0?request.str():kind->u==2?"event":opcode->u==1?"matter":opcode->u==2?"thread":"reply";
+    if(!field(*body,expected))return false;
+    Value converted=*body;bool valid=Proto::normalize(&converted,"Body",frame->kind,frame->opcode,"",true)&&convert(&converted,"body",frame->kind,frame->opcode,"",true,&unknown);
+    if(unknown)syslog(LOG_WARNING,"Matter IPC opcode %u: ignored %u unknown fields",static_cast<unsigned>(frame->opcode),unknown);
+    std::ostringstream out;if(!valid)out<<"!invalid protobuf body";else if(!(frame->kind==0&&frame->opcode<=2&&converted.items.empty()))json(converted,&out);
     std::string result=out.str();frame->payload.assign(result.begin(),result.end());return true;
 }
 }

@@ -64,14 +64,14 @@ failure leaves the coordinator offline rather than guessing which network to
 resume. Previous snapshots remain available for deliberate recovery. Never
 restore old security counters directly into a running network.
 
-Live device values are cached in RAM at `/tmp/microhad-values.cbor`. Changes
+Live device values are cached in RAM at `/tmp/microhad-values.pb`. Changes
 are batched for five seconds, then an owned snapshot is encoded and atomically
 written by the existing `history-write` thread. Graceful shutdown flushes the
 latest snapshot; an abrupt daemon crash can lose unflushed values. A busy history
 writer can delay cache completion beyond the five-second handoff interval.
-Legacy `/tmp/microhad-values.json` is read only when CBOR is absent and removed
-after the first successful CBOR write. Persistent `devices.json` remains JSON and takes precedence for saved settings
-when the RAM snapshot is older.
+Old CBOR and legacy JSON RAM caches are ignored and left untouched. During the
+upgrade, live readings return as devices report. Persistent `devices.json` remains
+JSON and takes precedence for saved settings when the RAM snapshot is older.
 Cache writes do not change the history flash layout or persistence schedule.
 
 Preserve configuration, identity and network state during application updates.

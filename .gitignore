@@ -16,3 +16,6 @@ __pycache__/
 
 # Private development-host settings (may contain an SSH password).
 /workspace.local.env
+
+# Retired dependency checkout; protobuf replaces this submodule.
+/microhad/dependencies/tinycbor/

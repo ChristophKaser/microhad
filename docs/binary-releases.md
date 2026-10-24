@@ -129,7 +129,7 @@ only in paired mode. No standalone license files are installed on the gateway.
 From a committed repository, on Linux x86_64:
 
 ```sh
-git submodule update --init --recursive microhad/dependencies/mbedtls microhad/dependencies/tinycbor \
+git submodule update --init --recursive microhad/dependencies/mbedtls \
   micro-thread-matter-daemon/dependencies/openthread micro-thread-matter-daemon/dependencies/rs-matter \
   ziggurat/dependencies/ziggurat
 python3 scripts/build-release.py --version VERSION --jobs 4

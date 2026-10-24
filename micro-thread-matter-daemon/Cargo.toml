@@ -19,7 +19,7 @@ controller-identity = ["dep:zeroize"]
 control-ipc = ["dep:zeroize"]
 
 [dependencies]
-ciborium = "=0.2.2"
+prost = "=0.14.1"
 log = "0.4"
 
 rs-matter = { path = "../build/micro-thread-matter-daemon/service-source/rs-matter", default-features = false, features = ["rustcrypto"] }

@@ -9,7 +9,7 @@
 // Each gateway test owns both global RAM-cache paths, including shutdown writes.
 class DeviceCacheIsolation {
     std::string backup_[2];bool saved_[2];
-    const char* path(unsigned i) const { return i ? "/tmp/microhad-values.cbor" : "/tmp/microhad-values.json"; }
+    const char* path(unsigned i) const { return i ? "/tmp/microhad-values.pb" : "/tmp/microhad-values.json"; }
 public:
     DeviceCacheIsolation() {
         for(unsigned i=0;i<2;++i) {
