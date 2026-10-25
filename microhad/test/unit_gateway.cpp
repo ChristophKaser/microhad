@@ -83,6 +83,31 @@ public:
 
     static void genericThermostats() {
         puts("unit: generic Zigbee/Matter thermostat discovery, capabilities, cooling, schedules and transport preparation");
+        ThermostatValues absent, zero;
+        assert(absent.get(ThermostatField::local_temperature,99)==99);
+        zero[ThermostatField::local_temperature]=0;
+        assert(zero.count(ThermostatField::local_temperature));
+        assert(zero.get(ThermostatField::local_temperature,99)==0 && !(zero==absent));
+        zero.erase(ThermostatField::local_temperature);
+        assert(zero==absent);
+        zero[ThermostatField::local_temperature]=123;
+        zero.erase(ThermostatField::local_temperature);
+        assert(zero==absent); // erased storage must not affect snapshot reuse
+        unsigned long fieldCount=0;
+        const ThermostatAttribute* fields=thermostatAttributes(&fieldCount);
+        assert(fieldCount==ThermostatField::Count);
+        for(unsigned i=0;i<fieldCount;++i) {
+            assert(fields[i].id==static_cast<ThermostatField::Id>(i));
+            assert(thermostatAttribute(fields[i].name)==&fields[i]);
+        }
+        ThermostatPending pending;
+        for(unsigned i=0;i<ThermostatPendingCount;++i) {
+            assert(thermostatPendingId(thermostatPendingName(i))==i);
+            pending.insert(i);assert(pending.count(i));pending.erase(i);assert(!pending.count(i));
+        }
+        assert(thermostatPendingId("unknown")==ThermostatPendingCount);
+        pending.insert(ThermostatPendingCount);assert(pending.empty());
+
         Device d; d.ieeeAddress="0x00124b0000000071"; d.networkAddress=0x7771;
         EndpointDescriptor endpoint; endpoint.endpoint=3; endpoint.profileId=0x104;
         endpoint.inputClusters.push_back(0x201);endpoint.inputClusters.push_back(6);d.endpoints.push_back(endpoint);
@@ -91,17 +116,17 @@ public:
         assert(isThermostat(d) && !isTrvzb(d) && !d.hasLight && d.kind=="thermostat");
         unsigned observed=0;std::vector<unsigned char> local;local.push_back(0x34);local.push_back(8);
         assert(applyZclAttribute(&d,0x201,0,local,100,&observed));assert(d.temperatureCelsius==21 && d.temperatureObservation.at==100);
-        d.thermostat.values["control_sequence_of_operation"]=4;
-        d.thermostat.values["occupied_heating_setpoint"]=20;d.thermostat.values["occupied_cooling_setpoint"]=25;
-        d.thermostat.values["system_mode"]=1;d.thermostat.values["min_heat_setpoint_limit"]=5;d.thermostat.values["max_heat_setpoint_limit"]=40;
+        d.thermostat.values[ThermostatField::control_sequence_of_operation]=4;
+        d.thermostat.values[ThermostatField::occupied_heating_setpoint]=20;d.thermostat.values[ThermostatField::occupied_cooling_setpoint]=25;
+        d.thermostat.values[ThermostatField::system_mode]=1;d.thermostat.values[ThermostatField::min_heat_setpoint_limit]=5;d.thermostat.values[ThermostatField::max_heat_setpoint_limit]=40;
         std::string error;std::vector<unsigned char> encoded;
         assert(thermostatEncode(d,"occupied_heating_setpoint","22.25",&encoded,&error));
         assert(!thermostatEncode(d,"occupied_heating_setpoint","24",&encoded,&error));
         assert(!thermostatEncode(d,"child_lock","1",&encoded,&error));
         assert(thermostatEncode(d,"system_mode","3",&encoded,&error));
-        d.thermostat.values["control_sequence_of_operation"]=2;
-        assert(!thermostatSupported(d,*thermostatAttribute("occupied_cooling_setpoint")));
-        assert(!thermostatModeSupported(d,3));d.thermostat.values["control_sequence_of_operation"]=4;
+        d.thermostat.values[ThermostatField::control_sequence_of_operation]=2;
+        assert(!thermostatSupported(d,*thermostatAttribute(ThermostatField::occupied_cooling_setpoint)));
+        assert(!thermostatModeSupported(d,3));d.thermostat.values[ThermostatField::control_sequence_of_operation]=4;
         d.thermostat.scheduleSupported=true;
         assert(thermostatScheduleForDevice(d,"{\"mode\":3,\"transitions\":[{\"time\":60,\"heat\":20,\"cool\":25}]}",1,&encoded));
         assert(applyThermostatSchedule(&d,encoded));assert(d.thermostat.scheduleDetails.count(1));
@@ -146,10 +171,10 @@ public:
         assert(g.setThermostat(valve.ieeeAddress,"stale_minutes","10",&error));
         g.pollThermostats(); assert(g.thermostatOperations_.size()==1);
         ThermostatOperationForTest(g, "external_temperature_input", 2130);
-        assert(g.thermostatOperations_.size()==1 && g.thermostatOperations_.front().field=="temperature_sensor_select");
+        assert(g.thermostatOperations_.size()==1 && g.thermostatOperations_.front().pendingId==ThermostatField::temperature_sensor_select);
         g.pollThermostats(); ThermostatOperationForTest(g,"temperature_sensor_select",1);
         Device& t=g.devices_[valve.ieeeAddress];
-        assert(t.thermostat.values["temperature_sensor_select"]==1 && t.thermostat.lastForwardValue==21.3);
+        assert(t.thermostat.values[ThermostatField::temperature_sensor_select]==1 && t.thermostat.lastForwardValue==21.3);
         g.pollThermostats(); assert(g.thermostatOperations_.empty());
         // A changed reading is coalesced for one minute.
         g.devices_[sensor.ieeeAddress].temperatureCelsius=22;
@@ -162,13 +187,13 @@ public:
         g.devices_[sensor.ieeeAddress].temperatureObservation.at=time(0)-601;
         g.devices_[sensor.ieeeAddress].lastSeen=time(0); t.thermostat.lastForwardAt=0;
         g.pollThermostats();
-        assert(g.thermostatOperations_.front().field=="temperature_sensor_select");
-        assert(t.thermostat.values["temperature_sensor_select"]==1); // fallback not yet confirmed
+        assert(g.thermostatOperations_.front().pendingId==ThermostatField::temperature_sensor_select);
+        assert(t.thermostat.values[ThermostatField::temperature_sensor_select]==1); // fallback not yet confirmed
         ThermostatOperationForTest(g,"temperature_sensor_select",0);
         g.pollThermostats(); assert(t.thermostat.status.find("built-in sensor confirmed")!=std::string::npos);
         // Fresh identical readings recover; selecting the valve itself is rejected.
         g.devices_[sensor.ieeeAddress].temperatureObservation.at=time(0); t.thermostat.lastForwardAt=0;
-        g.pollThermostats(); assert(g.thermostatOperations_.front().field=="external_temperature_input");
+        g.pollThermostats(); assert(g.thermostatOperations_.front().pendingId==ThermostatField::external_temperature_input);
         assert(!g.setThermostat(valve.ieeeAddress,"temperature_source",valve.ieeeAddress,&error));
         g.thermostatOperations_.clear();
         // Actual observations are transient; a reconstructed source must first report.
@@ -193,10 +218,10 @@ public:
         t.thermostat.lastForwardAt=0;
         g.pollThermostats(); assert(g.thermostatOperations_.empty());
         // Initial background reads cannot delay a required fallback.
-        t.thermostat.values.erase("temperature_sensor_select");
+        t.thermostat.values.erase(ThermostatField::temperature_sensor_select);
         g.queueThermostatReadings(t);
         g.pollThermostats();
-        assert(g.thermostatOperations_.front().field=="temperature_sensor_select" && g.thermostatOperations_.front().command==2);
+        assert(g.thermostatOperations_.front().pendingId==ThermostatField::temperature_sensor_select && g.thermostatOperations_.front().command==2);
         ThermostatOperationForTest(g,"temperature_sensor_select",0);
         g.thermostatOperations_.clear(); t.thermostat.pending.clear();
         assert(g.setThermostat(valve.ieeeAddress,"occupied_heating_setpoint","21.5",&error));
@@ -212,8 +237,8 @@ public:
         g.handleThermostatMessage(valve.ieeeAddress,1,0x0201,8,0,seq+1,4,ok);
         assert(!g.thermostatOperations_.front().readback);
         ThermostatOperationForTest(g,"occupied_heating_setpoint",2150);
-        assert(t.thermostat.values["occupied_heating_setpoint"]==21.5);
-        g.queueThermostatOperation(t,"child_lock",0xfc11,0,std::vector<unsigned char>(2,0));
+        assert(t.thermostat.values[ThermostatField::occupied_heating_setpoint]==21.5);
+        g.queueThermostatOperation(t,ThermostatField::child_lock,0xfc11,0,std::vector<unsigned char>(2,0));
         g.thermostatOperations_.front().attempts=3;
         g.thermostatOperations_.front().deadline=time(0)-1;
         g.pollThermostats(); assert(g.thermostatOperations_.empty() && !t.thermostat.error.empty());
@@ -222,8 +247,8 @@ public:
         assert(loadDevices(base+"/trvzb.json",&stored,&error));
         assert(stored[0].thermostat.sourceId==sensor.ieeeAddress && stored[0].thermostat.staleMinutes==10);
         assert(stored[1].temperatureObservation.at==0);
-        g.devices_.erase(sensor.ieeeAddress); t.thermostat.values["temperature_sensor_select"]=1; t.thermostat.lastForwardAt=0;
-        g.pollThermostats(); assert(g.thermostatOperations_.front().field=="temperature_sensor_select");
+        g.devices_.erase(sensor.ieeeAddress); t.thermostat.values[ThermostatField::temperature_sensor_select]=1; t.thermostat.lastForwardAt=0;
+        g.pollThermostats(); assert(g.thermostatOperations_.front().pendingId==ThermostatField::temperature_sensor_select);
         g.thermostatOperations_.clear();
         t.thermostat.pending.clear();
         assert(g.setThermostat(valve.ieeeAddress,"temperature_source","builtin",&error));
@@ -245,7 +270,7 @@ public:
         Gateway::ThermostatOperation rejected=g.thermostatOperations_.front();
         std::vector<unsigned char> rejection; rejection.push_back(0x86); rejection.push_back(0); rejection.push_back(0);
         g.handleThermostatMessage(valve.ieeeAddress,1,0xfc11,8,0,rejected.sequence,4,rejection);
-        assert(g.thermostatOperations_.empty() && t.thermostat.unsupported.count("child_lock"));
+        assert(g.thermostatOperations_.empty() && t.thermostat.unsupported.count(ThermostatField::child_lock));
         assert(!t.thermostat.error.empty() && t.thermostat.pending.empty());
         std::vector<unsigned char> wrongType; wrongType.push_back(0); wrongType.push_back(0);
         wrongType.push_back(0x21); wrongType.push_back(0x34); wrongType.push_back(8);
@@ -255,7 +280,7 @@ public:
     }
     static void ThermostatOperationForTest(Gateway& g, const std::string& field, unsigned long raw) {
         assert(!g.thermostatOperations_.empty());
-        Gateway::ThermostatOperation op=g.thermostatOperations_.front(); assert(op.field==field);
+        Gateway::ThermostatOperation op=g.thermostatOperations_.front(); assert(op.pendingId==thermostatPendingId(field));
         std::vector<unsigned char> ok(1,0);
         g.handleThermostatMessage(op.address,op.endpoint,op.cluster,8,0,op.sequence,4,ok);
         assert(g.thermostatOperations_.front().readback);
@@ -3630,10 +3655,10 @@ static void testTrvzbProtocol() {
     assert(!thermostatEncode(d,"temperature_sensor_select","2",&bytes,&error));
     std::vector<unsigned char> reconnected(1,3);
     assert(applyThermostatAttribute(&d,0xfc11,0x600e,0x20,reconnected,10));
-    assert(d.thermostat.values["temperature_sensor_select"]==1);
+    assert(d.thermostat.values[ThermostatField::temperature_sensor_select]==1);
     reconnected[0]=255;
     assert(applyThermostatAttribute(&d,0xfc11,0x6014,0x20,reconnected,10));
-    assert(d.thermostat.values["temporary_mode_select"]==255);
+    assert(d.thermostat.values[ThermostatField::temporary_mode_select]==255);
     assert(!thermostatEncode(d,"valve_opening_degree","50",&bytes,&error));
     d.softwareBuildId="v1.3.0";
     assert(thermostatEncode(d,"valve_opening_degree","50",&bytes,&error));
@@ -3641,7 +3666,7 @@ static void testTrvzbProtocol() {
     assert(bytes[3]==244);
     std::vector<unsigned char> signedValue(1,244);
     assert(applyThermostatAttribute(&d,0x0201,0x10,0x28,signedValue,10));
-    assert(d.thermostat.values["local_temperature_calibration"]==-1.2);
+    assert(d.thermostat.values[ThermostatField::local_temperature_calibration]==-1.2);
     assert(!applyThermostatAttribute(&d,0x0201,0x10,0x20,signedValue,10));
     signedValue.assign(2,0); signedValue[1]=0x80;
     assert(!applyThermostatAttribute(&d,0x0201,0,0x29,signedValue,10));
@@ -3661,9 +3686,9 @@ static void testTrvzbProtocol() {
     assert(!thermostatSchedule("00:00/18.1",1,&bytes));
     assert(!thermostatSchedule("00:00/18 01:00/20 02:00/20 03:00/20 04:00/20 05:00/20 06:00/20",1,&bytes));
     assert(!thermostatSchedule("",1,&bytes));
-    d.thermostat.values["smart_temperature_control"]=2;
+    d.thermostat.values[ThermostatField::smart_temperature_control]=2;
     assert(!thermostatEncode(d,"temperature_accuracy","-0.4",&bytes,&error));
-    d.thermostat.unsupported.insert("child_lock");
+    d.thermostat.unsupported.insert(ThermostatField::child_lock);
     assert(!thermostatEncode(d,"child_lock","1",&bytes,&error));
     assert(thermostatJson(d).find("\"schedules\":[null,\"00:00/18")!=std::string::npos);
 }

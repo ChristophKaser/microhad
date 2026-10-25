@@ -110,9 +110,9 @@ void automationControls(){
         GatewayRunner runner(gateway);
         Device thermostat;thermostat.ieeeAddress="trv";thermostat.name="Office thermostat";thermostat.source="zigbee";thermostat.networkAddress=0x1234;
         EndpointDescriptor endpoint;endpoint.endpoint=1;endpoint.inputClusters.push_back(513);thermostat.endpoints.push_back(endpoint);
-        thermostat.thermostat.values["control_sequence_of_operation"]=2;
-        thermostat.thermostat.values["occupied_heating_setpoint"]=20;
-        thermostat.thermostat.values["system_mode"]=4;
+        thermostat.thermostat.values[ThermostatField::control_sequence_of_operation]=2;
+        thermostat.thermostat.values[ThermostatField::occupied_heating_setpoint]=20;
+        thermostat.thermostat.values[ThermostatField::system_mode]=4;
         thermostat.thermostat.scheduleSupported=true;
         GatewayIntegrationTestPeer::automationDevice(gateway,thermostat);
         Device matter=thermostat;matter.ieeeAddress="matter-trv";matter.name="Matter thermostat";matter.source="matter";

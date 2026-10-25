@@ -25,11 +25,31 @@ int main(){
  Device d;d.ieeeAddress="synthetic";d.name="Synthetic thermostat";d.source="zigbee";
  EndpointDescriptor ep;ep.endpoint=1;ep.inputClusters.push_back(513);d.endpoints.push_back(ep);
  unsigned long n=0;const ThermostatAttribute* attrs=thermostatAttributes(&n);
- for(unsigned long i=0;i<n;++i)d.thermostat.values[attrs[i].name]=20;
+ for(unsigned long i=0;i<n;++i)d.thermostat.values[
+#ifdef TYPED_THERMOSTAT
+ attrs[i].id
+#else
+ attrs[i].name
+#endif
+ ]=20;
+ volatile double checked=0;
+ std::clock_t checksStart=std::clock();
+ for(int repeat=0;repeat<30000;++repeat)for(unsigned long i=0;i<n;++i){
+  ThermostatAttribute definition=thermostatDefinition(d,attrs[i]);
+  checked+=definition.minimum+definition.maximum+thermostatSupported(d,attrs[i]);
+ }
+ std::printf("thermostat_capability_sweep_cpu_us %.6f\n",1e6*double(std::clock()-checksStart)/CLOCKS_PER_SEC/30000);
+ std::printf("thermostat_state_inline_bytes %lu\n",static_cast<unsigned long>(sizeof(ThermostatState)));
  Automation::SnapshotPtr previous=Automation::capture(d);
  volatile unsigned long consumed=0;
  for(int mode=0;mode<2;++mode){std::clock_t start=std::clock();
- for(int i=0;i<3000;++i){if(mode)d.thermostat.values["occupied_heating_setpoint"]=20+(i%2);Automation::SnapshotPtr next=Automation::capture(d,previous);consumed+=next->present;previous=next;}
+ for(int i=0;i<3000;++i){if(mode)d.thermostat.values[
+#ifdef TYPED_THERMOSTAT
+ ThermostatField::occupied_heating_setpoint
+#else
+ "occupied_heating_setpoint"
+#endif
+ ]=20+(i%2);Automation::SnapshotPtr next=Automation::capture(d,previous);consumed+=next->present;previous=next;}
  std::printf("thermostat_%s_cpu_us %.6f\n",mode?"changed":"unchanged",1e6*double(std::clock()-start)/CLOCKS_PER_SEC/3000);
  }
  GatewayView view;

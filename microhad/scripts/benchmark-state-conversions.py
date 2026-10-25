@@ -39,6 +39,8 @@ def main():
         driver = {'state': 'benchmark_state_conversions.cpp', 'history': 'benchmark_history_conversions.cpp', 'logs': 'benchmark_log_polling.cpp'}[args.benchmark]
         objects = []
         flags = ['-DMICROHAD_TESTING']
+        if 'struct ThermostatValues' in (source_root/'microhad/include/thermostat.h').read_text():
+            flags.append('-DTYPED_THERMOSTAT')
         if 'cachedStatus' in (source_root/'microhad/include/gateway_runner.h').read_text():
             flags.append('-DCACHED_STATUS')
         if 'appendNumeric' in (source_root/'microhad/include/sensor_history.h').read_text():

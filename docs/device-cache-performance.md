@@ -304,3 +304,44 @@ worker/HTTP, service runtime and real Rust-to-native report fixtures; and both
 native/Rust MIPS builds with target ABI/instruction verification. Service job
 and BLE session tokens also remain numeric in worker state and polling; hex
 formatting happens only at the external boundary.
+
+## Indexed thermostat state (2026-10-25)
+
+Thermostat attribute values now use a fixed double array plus presence bits.
+Unsupported attributes and pending requests use bitsets; queued Zigbee work
+retains the pending ID rather than a field-name string. The shared attribute
+list supplies both the C++ enum and external names, and Rust still generates
+the same field names. Capability, setpoint-limit, mode and observation checks
+use enum IDs. String resolution remains at command/result boundaries; public
+JSON and automation dictionaries emit the existing names. Numeric capability
+lists and day-indexed schedule storage are unchanged.
+
+Host baseline: `14d2a46`. Same synthetic fixture on both revisions, all 44
+attributes present. Median process CPU across five runs; capability sweeps
+perform 30,000 passes, snapshot cases 3,000 iterations per run. A sweep checks
+support and derives limits for all 44 attributes.
+
+| Operation | Before (µs) | After (µs) | CPU reduction |
+|---|---:|---:|---:|
+| Capability and limit sweep | 5.252 | 0.385 | 92.7% |
+| Unchanged thermostat snapshot | 0.372 | 0.101 | 72.9% |
+| Changed thermostat snapshot | 94.550 | 86.804 | 8.2% |
+
+Changed snapshots still allocate the public automation dictionary, which
+accounts for most of their remaining cost. These are host CPU measurements,
+not gateway measurements. No gateway access or deployment was performed.
+The fixed storage increases host inline `sizeof(ThermostatState)` from 472 to
+712 bytes even for empty state, while eliminating per-value/per-flag tree
+nodes and field-name allocations for populated thermostats. This benchmark
+reports inline bytes separately from CPU timings; it does not measure total
+heap use.
+
+```sh
+python3 microhad/scripts/benchmark-state-conversions.py --revision 14d2a46
+python3 microhad/scripts/benchmark-state-conversions.py
+```
+
+Validation includes missing versus zero, erased-value equality, all attribute
+ID/name mappings, all pending attribute/report/day IDs, existing thermostat
+capability/schedule/source-confirmation tests, native host unit/integration and
+synthetic peer suites, the native MIPS build, and 111 Rust library tests.

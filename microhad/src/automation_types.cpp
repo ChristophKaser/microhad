@@ -85,9 +85,12 @@ bool sameThermostatInput(const Device& a,const Device& b) {
 Value thermostatSnapshotValue(const Device& d) {
     const ThermostatState& t=d.thermostat;Value out=Value::object();
     Value& values=out.fields["values"];values=Value::object();
-    for(std::map<std::string,double>::const_iterator it=t.values.begin();it!=t.values.end();++it){
-        if(!std::isfinite(it->second))return Value::object();
-        values.fields[it->first]=Value(it->second);
+    for(unsigned i=0;i<ThermostatField::Count;++i){
+        const ThermostatField::Id id=static_cast<ThermostatField::Id>(i);
+        if(!t.values.count(id))continue;
+        const double value=t.values.get(id,0);
+        if(!std::isfinite(value))return Value::object();
+        values.fields[thermostatAttribute(id)->name]=Value(value);
     }
     Value& supported=out.fields["supported"];supported=Value::object();
     Value& fields=out.fields["fields"];fields=Value::object();
@@ -103,7 +106,7 @@ Value thermostatSnapshotValue(const Device& d) {
     for(int mode=0;mode<=9;++mode)if(thermostatModeSupported(d,mode))modes.items.push_back(Value(static_cast<double>(mode)));
     const bool trv=isTrvzb(d);
     out.fields["schedule_supported"]=Value(trv||t.scheduleSupported);
-    out.fields["schedule_max_transitions"]=Value(static_cast<double>(trv?6:static_cast<int>(::thermostatValue(d,"number_of_daily_transitions",::thermostatValue(d,"number_of_weekly_transitions",10)))));
+    out.fields["schedule_max_transitions"]=Value(static_cast<double>(trv?6:static_cast<int>(::thermostatValue(d,ThermostatField::number_of_daily_transitions,::thermostatValue(d,ThermostatField::number_of_weekly_transitions,10)))));
     out.fields["schedule_midnight_start"]=Value(trv);out.fields["external_input_supported"]=Value(trv);
     Value& details=out.fields["schedule_details"];details=Value::array();
     Value& schedules=out.fields["schedules"];schedules=Value::array();
@@ -114,7 +117,7 @@ Value thermostatSnapshotValue(const Device& d) {
         schedules.items.push_back(it==t.schedules.end()?Value():Value(it->second));
     }
     Value& pending=out.fields["pending"];pending=Value::array();
-    for(std::set<std::string>::const_iterator it=t.pending.begin();it!=t.pending.end();++it)pending.items.push_back(Value(*it));
+    for(unsigned i=0;i<ThermostatPendingCount;++i)if(t.pending.count(i))pending.items.push_back(Value(thermostatPendingName(i)));
     out.fields["source_id"]=Value(t.sourceId);out.fields["stale_minutes"]=Value(static_cast<double>(t.staleMinutes));
     out.fields["source_observed_at"]=Value(static_cast<double>(t.sourceObservedAt));
     out.fields["status"]=Value(t.status);out.fields["error"]=Value(t.error);

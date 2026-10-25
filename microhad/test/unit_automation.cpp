@@ -43,7 +43,7 @@ void typedSnapshots(){
 void thermostatSnapshots(){
     Device d;d.ieeeAddress="trv";d.name="Thermostat";d.source="zigbee";
     EndpointDescriptor endpoint;endpoint.endpoint=1;endpoint.inputClusters.push_back(513);d.endpoints.push_back(endpoint);
-    d.thermostat.values["occupied_heating_setpoint"]=20;
+    d.thermostat.values[ThermostatField::occupied_heating_setpoint]=20;
     Automation::SnapshotPtr before=Automation::capture(d);
     assert(before->has(Automation::Thermostat)&&before->record);
     assert(Automation::capture(d,before)==before);
@@ -53,11 +53,11 @@ void thermostatSnapshots(){
     assert(before->thermostat==fromJson);
     Device changed=d;changed.thermostat.scheduleSupported=true;
     assert(Automation::capture(changed,before)->thermostat.fields.find("schedule_supported")->second==Value(true));
-    changed=d;changed.thermostat.values["local_temperature"]=21.123456789;
+    changed=d;changed.thermostat.values[ThermostatField::local_temperature]=21.123456789;
     assert(Automation::capture(changed,before)->thermostat.fields.find("values")->second.fields.find("local_temperature")->second==Value(21.123456789));
     Value initial=before->thermostat;
     assert(initial.fields["values"].fields["occupied_heating_setpoint"]==Value(20.));
-    d.thermostat.pending.insert("system_mode");d.thermostat.error="timeout";
+    d.thermostat.pending.insert(ThermostatField::system_mode);d.thermostat.error="timeout";
     Automation::SnapshotPtr after=Automation::capture(d,before);
     assert(!Automation::sameField(*before,*after,Automation::Thermostat));
     assert(initial.fields["error"]==Value(""));

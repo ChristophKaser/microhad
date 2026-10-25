@@ -492,7 +492,7 @@ private:
     std::map<unsigned short, std::string> nodeAddresses_;
     struct ThermostatOperation {
         std::string address;
-        std::string field;
+        unsigned pendingId;
         unsigned short cluster;
         unsigned char endpoint;
         unsigned char command;
@@ -501,7 +501,7 @@ private:
         long deadline;
         bool readback;
         std::vector<unsigned char> payload;
-        ThermostatOperation() : cluster(0), endpoint(0), command(0), sequence(0), attempts(0), deadline(0), readback(false) {}
+        ThermostatOperation() : pendingId(ThermostatPendingCount), cluster(0), endpoint(0), command(0), sequence(0), attempts(0), deadline(0), readback(false) {}
     };
     std::deque<ThermostatOperation> thermostatOperations_;
     void queueThermostatReadings(const Device& device);
@@ -510,7 +510,7 @@ private:
     bool handleThermostatMessage(const std::string& address, unsigned char endpoint, unsigned short cluster,
         unsigned char frameControl, unsigned short manufacturer, unsigned char sequence, unsigned char command,
         const std::vector<unsigned char>& payload);
-    void queueThermostatOperation(const Device& device, const std::string& field, unsigned short cluster,
+    void queueThermostatOperation(const Device& device, unsigned pendingId, unsigned short cluster,
         unsigned char command, const std::vector<unsigned char>& payload);
     enum InterviewOperationType {
         InterviewActiveEndpoints,

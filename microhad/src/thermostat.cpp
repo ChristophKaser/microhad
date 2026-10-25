@@ -15,10 +15,31 @@ namespace {
    FC11 cluster uses ordinary ZCL frames: it does not require a manufacturer header. */
 const ThermostatAttribute attributes[] = {
 #define THERMOSTAT_ATTRIBUTE(name, cluster, attribute, type, scale, minimum, maximum, step, writable, version) \
-    {name, cluster, attribute, type, scale, minimum, maximum, step, writable, version},
+    {#name, ThermostatField::name, cluster, attribute, type, scale, minimum, maximum, step, writable, version},
 #include "../../config/thermostat-attributes.def"
 #undef THERMOSTAT_ATTRIBUTE
 };
+bool heatingField(ThermostatField::Id id) {
+    using namespace ThermostatField;
+    return id==occupied_heating_setpoint || id==unoccupied_heating_setpoint ||
+        id==abs_min_heat_setpoint_limit || id==abs_max_heat_setpoint_limit ||
+        id==min_heat_setpoint_limit || id==max_heat_setpoint_limit || id==pi_heating_demand;
+}
+bool coolingField(ThermostatField::Id id) {
+    using namespace ThermostatField;
+    return id==occupied_cooling_setpoint || id==unoccupied_cooling_setpoint ||
+        id==abs_min_cool_setpoint_limit || id==abs_max_cool_setpoint_limit ||
+        id==min_cool_setpoint_limit || id==max_cool_setpoint_limit || id==pi_cooling_demand;
+}
+bool setpointField(ThermostatField::Id id) {
+    using namespace ThermostatField;
+    return id==occupied_heating_setpoint || id==unoccupied_heating_setpoint ||
+        id==occupied_cooling_setpoint || id==unoccupied_cooling_setpoint;
+}
+bool limitField(ThermostatField::Id id) {
+    return (heatingField(id)||coolingField(id)) && !setpointField(id) &&
+        id!=ThermostatField::pi_heating_demand && id!=ThermostatField::pi_cooling_demand;
+}
 unsigned int width(unsigned char type) {
     return type == 0x23 ? 4 : (type == 0x29 || type == 0x21 || type == 0x19 ? 2 : 1);
 }
@@ -43,6 +64,21 @@ const ThermostatAttribute* thermostatAttribute(const std::string& name) {
     for (unsigned long i=0;i<count;++i) if (name == attributes[i].name) return &attributes[i];
     return 0;
 }
+const ThermostatAttribute* thermostatAttribute(ThermostatField::Id id) {
+    return id<ThermostatField::Count ? &attributes[id] : 0;
+}
+unsigned thermostatPendingId(const std::string& name) {
+    if(name.size()==10 && name.compare(0,9,"schedule_")==0 && name[9]>='0' && name[9]<='6')
+        return 2*ThermostatField::Count+name[9]-'0';
+    const bool report=name.compare(0,7,"report:")==0;
+    const ThermostatAttribute* a=thermostatAttribute(report?name.substr(7):name);
+    return a ? static_cast<unsigned>(a->id)+(report?ThermostatField::Count:0) : static_cast<unsigned>(ThermostatPendingCount);
+}
+std::string thermostatPendingName(unsigned id) {
+    if(id>=ThermostatPendingCount)return "";
+    if(id>=2*ThermostatField::Count)return std::string("schedule_")+static_cast<char>('0'+id-2*ThermostatField::Count);
+    return (id>=ThermostatField::Count?std::string("report:"):std::string())+attributes[id%ThermostatField::Count].name;
+}
 bool isTrvzb(const Device& device) { return device.source == "zigbee" && device.modelId == "TRVZB"; }
 bool isThermostat(const Device& device) {
     if (isTrvzb(device)) return true;
@@ -54,52 +90,51 @@ bool isThermostat(const Device& device) {
     return false;
 }
 bool thermostatSupported(const Device& device, const ThermostatAttribute& attribute) {
-    if (!isThermostat(device) || device.thermostat.unsupported.count(attribute.name)) return false;
+    if (!isThermostat(device) || device.thermostat.unsupported.count(attribute.id)) return false;
     if (attribute.cluster!=0x0201 && !isTrvzb(device)) return false;
     if (!isTrvzb(device)) {
-        std::string name=attribute.name;
-        bool heat=name.find("heating_setpoint")!=std::string::npos || name.find("heat_setpoint_limit")!=std::string::npos || name=="pi_heating_demand";
-        bool cool=name.find("cooling_setpoint")!=std::string::npos || name.find("cool_setpoint_limit")!=std::string::npos || name=="pi_cooling_demand";
-        std::map<std::string,double>::const_iterator sequence=device.thermostat.values.find("control_sequence_of_operation");
-        std::map<std::string,double>::const_iterator features=device.thermostat.values.find("feature_map");
-        if(device.source=="matter" && features!=device.thermostat.values.end()) {
-            unsigned long mask=static_cast<unsigned long>(features->second);
+        const bool heat=heatingField(attribute.id), cool=coolingField(attribute.id);
+        const double sequence=device.thermostat.values.get(ThermostatField::control_sequence_of_operation,0);
+        const bool sequenceKnown=device.thermostat.values.count(ThermostatField::control_sequence_of_operation);
+        const double features=device.thermostat.values.get(ThermostatField::feature_map,0);
+        const bool featuresKnown=device.thermostat.values.count(ThermostatField::feature_map);
+        if(device.source=="matter" && featuresKnown) {
+            unsigned long mask=static_cast<unsigned long>(features);
             if((heat && !(mask&1)) || (cool && !(mask&2)))return false;
-        } else if(sequence!=device.thermostat.values.end()) {
-            int n=static_cast<int>(sequence->second);
+        } else if(sequenceKnown) {
+            int n=static_cast<int>(sequence);
             if((heat && n<2) || (cool && (n==2 || n==3)))return false;
         }
         return device.thermostat.attributesKnown ? device.thermostat.attributes.count(attribute.attribute)>0 :
-            device.thermostat.values.count(attribute.name)>0;
+            device.thermostat.values.count(attribute.id)>0;
     }
-    if (attribute.cluster==0x0201 && std::string(attribute.name)!="local_temperature" &&
-        std::string(attribute.name)!="occupied_heating_setpoint" && std::string(attribute.name)!="local_temperature_calibration" &&
-        std::string(attribute.name)!="system_mode" && std::string(attribute.name)!="running_state") return device.thermostat.values.count(attribute.name)>0;
-    return !attribute.minimumVersion[0] || device.thermostat.values.count(attribute.name) ||
+    if (attribute.cluster==0x0201 && attribute.id!=ThermostatField::local_temperature &&
+        attribute.id!=ThermostatField::occupied_heating_setpoint && attribute.id!=ThermostatField::local_temperature_calibration &&
+        attribute.id!=ThermostatField::system_mode && attribute.id!=ThermostatField::running_state) return device.thermostat.values.count(attribute.id)>0;
+    return !attribute.minimumVersion[0] || device.thermostat.values.count(attribute.id) ||
         versionAtLeast(device.softwareBuildId, attribute.minimumVersion);
 }
-double thermostatValue(const Device& d, const std::string& name, double fallback) {
-    std::map<std::string,double>::const_iterator it=d.thermostat.values.find(name);
-    return it==d.thermostat.values.end() ? fallback : it->second;
+double thermostatValue(const Device& d, ThermostatField::Id id, double fallback) {
+    return d.thermostat.values.get(id,fallback);
 }
 ThermostatAttribute thermostatDefinition(const Device& d, const ThermostatAttribute& base) {
-    ThermostatAttribute a=base; std::string name=a.name;
-    if (name.find("setpoint")!=std::string::npos && name.find("limit")==std::string::npos && name!="min_setpoint_dead_band") {
-        bool heat=name.find("heating")!=std::string::npos;
-        std::string side=heat ? "heat" : "cool";
-        a.minimum=thermostatValue(d,"min_"+side+"_setpoint_limit",thermostatValue(d,"abs_min_"+side+"_setpoint_limit",heat?7:16));
-        a.maximum=thermostatValue(d,"max_"+side+"_setpoint_limit",thermostatValue(d,"abs_max_"+side+"_setpoint_limit",heat?30:32));
+    ThermostatAttribute a=base;
+    if (setpointField(a.id)) {
+        bool heat=heatingField(a.id);
+
+        a.minimum=thermostatValue(d,(heat?ThermostatField::min_heat_setpoint_limit:ThermostatField::min_cool_setpoint_limit),thermostatValue(d,(heat?ThermostatField::abs_min_heat_setpoint_limit:ThermostatField::abs_min_cool_setpoint_limit),heat?7:16));
+        a.maximum=thermostatValue(d,(heat?ThermostatField::max_heat_setpoint_limit:ThermostatField::max_cool_setpoint_limit),thermostatValue(d,(heat?ThermostatField::abs_max_heat_setpoint_limit:ThermostatField::abs_max_cool_setpoint_limit),heat?30:32));
         if (isTrvzb(d)) { a.minimum=4; a.maximum=35; a.step=.5; }
     }
     return a;
 }
 bool thermostatModeSupported(const Device& d, int mode) {
     if (isTrvzb(d)) return mode==0 || mode==1 || mode==4;
-    int sequence=static_cast<int>(thermostatValue(d,"control_sequence_of_operation",-1));
-    bool heat=sequence>=0 ? sequence>=2 : thermostatSupported(d,*thermostatAttribute("occupied_heating_setpoint"));
-    bool cool=sequence>=0 ? (sequence<2 || sequence>=4) : thermostatSupported(d,*thermostatAttribute("occupied_cooling_setpoint"));
+    int sequence=static_cast<int>(thermostatValue(d,ThermostatField::control_sequence_of_operation,-1));
+    bool heat=sequence>=0 ? sequence>=2 : thermostatSupported(d,*thermostatAttribute(ThermostatField::occupied_heating_setpoint));
+    bool cool=sequence>=0 ? (sequence<2 || sequence>=4) : thermostatSupported(d,*thermostatAttribute(ThermostatField::occupied_cooling_setpoint));
     if (d.source=="matter") {
-        unsigned long features=static_cast<unsigned long>(thermostatValue(d,"feature_map",0));
+        unsigned long features=static_cast<unsigned long>(thermostatValue(d,ThermostatField::feature_map,0));
         heat=(features&1)!=0; cool=(features&2)!=0;
         if (mode==1) return heat && cool && (features&32)!=0;
     }
@@ -117,41 +152,46 @@ bool thermostatEncode(const Device& device, const std::string& field, const std:
     const ThermostatAttribute* a=base ? &definition : 0; double number=0;
     if (!a || !a->writable || !thermostatSupported(device,*a)) { *error="unsupported thermostat setting"; return false; }
     if (!thermostatNumber(text,&number) || number<a->minimum || number>a->maximum) { *error="thermostat value outside supported range"; return false; }
+    const ThermostatField::Id id=a->id;
     /* Calibration is signed tenths; a 0.2 degree increment is relative to zero. */
     double steps=number/a->step;
-    if (std::fabs(steps-std::floor(steps+.5))>.00001 && field!="local_temperature_calibration") {
+    if (std::fabs(steps-std::floor(steps+.5))>.00001 && id!=ThermostatField::local_temperature_calibration) {
         *error="invalid thermostat increment"; return false;
     }
-    if (field=="local_temperature_calibration" && std::fabs(number*10-std::floor(number*10+.5))>.00001) {
+    if (id==ThermostatField::local_temperature_calibration && std::fabs(number*10-std::floor(number*10+.5))>.00001) {
         *error="calibration requires whole tenths"; return false;
     }
-    if ((field=="system_mode" && !thermostatModeSupported(device,static_cast<int>(number))) ||
-        (field=="temperature_sensor_select" && number>1)) { *error="invalid thermostat mode"; return false; }
-    std::map<std::string,double>::const_iterator smart=device.thermostat.values.find("smart_temperature_control");
-    if (smart!=device.thermostat.values.end() && smart->second==2 &&
-        (field=="valve_opening_degree" || field=="temperature_accuracy")) { *error="disable smart temperature control first"; return false; }
-    std::map<std::string,double>::const_iterator mode=device.thermostat.values.find("temporary_mode_select");
-    std::map<std::string,double>::const_iterator duration=device.thermostat.values.find("temporary_mode_duration");
-    if ((field=="temporary_mode_duration" && number>180 && (mode==device.thermostat.values.end() || mode->second!=1)) ||
-        (field=="temporary_mode_select" && number==0 && duration!=device.thermostat.values.end() && duration->second>180)) {
+    if ((id==ThermostatField::system_mode && !thermostatModeSupported(device,static_cast<int>(number))) ||
+        (id==ThermostatField::temperature_sensor_select && number>1)) { *error="invalid thermostat mode"; return false; }
+    const double smart=device.thermostat.values.get(ThermostatField::smart_temperature_control,0);
+    const bool smartKnown=device.thermostat.values.count(ThermostatField::smart_temperature_control);
+    if (smartKnown && smart==2 &&
+        (id==ThermostatField::valve_opening_degree || id==ThermostatField::temperature_accuracy)) { *error="disable smart temperature control first"; return false; }
+    const double mode=device.thermostat.values.get(ThermostatField::temporary_mode_select,0);
+    const bool modeKnown=device.thermostat.values.count(ThermostatField::temporary_mode_select);
+    const double duration=device.thermostat.values.get(ThermostatField::temporary_mode_duration,0);
+    const bool durationKnown=device.thermostat.values.count(ThermostatField::temporary_mode_duration);
+    if ((id==ThermostatField::temporary_mode_duration && number>180 && (!modeKnown || mode!=1)) ||
+        (id==ThermostatField::temporary_mode_select && number==0 && durationKnown && duration>180)) {
         *error="boost duration must not exceed 180 minutes"; return false;
     }
-    if (field.find("setpoint")!=std::string::npos && field.find("limit")==std::string::npos && field!="min_setpoint_dead_band") {
-        bool heat=field.find("heating")!=std::string::npos;
-        std::string other=field.find("unoccupied")==0 ? "unoccupied_" : "occupied_";
-        other+=heat ? "cooling_setpoint" : "heating_setpoint";
-        std::map<std::string,double>::const_iterator peer=device.thermostat.values.find(other);
-        double deadband=thermostatValue(device,"min_setpoint_dead_band",2.5);
-        if (peer!=device.thermostat.values.end() && thermostatSupported(device,*thermostatAttribute(other)) && (heat ? number+deadband>peer->second : number-deadband<peer->second)) {
+    if (setpointField(id)) {
+        bool heat=heatingField(id);
+        const ThermostatField::Id other=(id==ThermostatField::unoccupied_heating_setpoint || id==ThermostatField::unoccupied_cooling_setpoint) ?
+            (heat?ThermostatField::unoccupied_cooling_setpoint:ThermostatField::unoccupied_heating_setpoint):
+            (heat?ThermostatField::occupied_cooling_setpoint:ThermostatField::occupied_heating_setpoint);
+        const double peer=device.thermostat.values.get(other,0);
+        double deadband=thermostatValue(device,ThermostatField::min_setpoint_dead_band,2.5);
+        if (device.thermostat.values.count(other) && thermostatSupported(device,*thermostatAttribute(other)) && (heat ? number+deadband>peer : number-deadband<peer)) {
             *error="setpoint violates the heating/cooling deadband"; return false;
         }
     }
-    if(field.find("setpoint_limit")!=std::string::npos) {
-        bool heat=field.find("heat")!=std::string::npos, minimum=field.find("min_")==0;
-        std::string side=heat?"heat":"cool";
-        double low=thermostatValue(device,"abs_min_"+side+"_setpoint_limit",heat?7:16);
-        double high=thermostatValue(device,"abs_max_"+side+"_setpoint_limit",heat?30:32);
-        if(number<low || number>high || (minimum ? number>thermostatValue(device,"max_"+side+"_setpoint_limit",high) : number<thermostatValue(device,"min_"+side+"_setpoint_limit",low))) {
+    if(limitField(id)) {
+        bool heat=heatingField(id), minimum=id==ThermostatField::min_heat_setpoint_limit || id==ThermostatField::min_cool_setpoint_limit;
+
+        double low=thermostatValue(device,(heat?ThermostatField::abs_min_heat_setpoint_limit:ThermostatField::abs_min_cool_setpoint_limit),heat?7:16);
+        double high=thermostatValue(device,(heat?ThermostatField::abs_max_heat_setpoint_limit:ThermostatField::abs_max_cool_setpoint_limit),heat?30:32);
+        if(number<low || number>high || (minimum ? number>thermostatValue(device,(heat?ThermostatField::max_heat_setpoint_limit:ThermostatField::max_cool_setpoint_limit),high) : number<thermostatValue(device,(heat?ThermostatField::min_heat_setpoint_limit:ThermostatField::min_cool_setpoint_limit),low))) {
             *error="invalid thermostat setpoint limits"; return false;
         }
     }
@@ -174,13 +214,13 @@ bool applyThermostatAttribute(Device* device, unsigned short cluster, unsigned s
         if (cluster==0xfc11 && attribute==0x600e && raw==3) number=1; // remote source reconnected
         bool inactive=cluster==0xfc11 && attribute==0x6014 && raw==255;
         if ((!inactive && (number<a.minimum || number>a.maximum)) ||
-            (std::string(a.name)=="system_mode" && number!=0 && number!=1 && number!=3 && number!=4 && number!=5 && number!=6 && number!=7 && number!=8 && number!=9) ||
-            (std::string(a.name)=="smart_temperature_control" && number!=0 && number!=2)) return false;
-        device->thermostat.unsupported.erase(a.name);
-        device->thermostat.values[a.name]=number;
-        device->thermostat.pending.erase(a.name);
+            (a.id==ThermostatField::system_mode && number!=0 && number!=1 && number!=3 && number!=4 && number!=5 && number!=6 && number!=7 && number!=8 && number!=9) ||
+            (a.id==ThermostatField::smart_temperature_control && number!=0 && number!=2)) return false;
+        device->thermostat.unsupported.erase(a.id);
+        device->thermostat.values[a.id]=number;
+        device->thermostat.pending.erase(a.id);
         device->kind="thermostat"; device->hasLight=false; device->hasBrightness=false; device->hasActor=false;
-        if (std::string(a.name)=="local_temperature") {
+        if (a.id==ThermostatField::local_temperature) {
             device->hasTemperature=true; device->temperatureKnown=true;
             device->temperatureCelsius=number; device->temperatureObservation.at=now;
         }
@@ -224,7 +264,7 @@ bool thermostatScheduleForDevice(const Device& device, const std::string& text, 
             std::ostringstream entry; entry<<"{\"time\":"<<hh*60+mm<<",\"heat\":"<<token.substr(6)<<'}'; entries.push_back(entry.str());
         }
     }
-    unsigned int maximum=isTrvzb(device) ? 6 : static_cast<unsigned int>(thermostatValue(device,"number_of_daily_transitions",thermostatValue(device,"number_of_weekly_transitions",10)));
+    unsigned int maximum=isTrvzb(device) ? 6 : static_cast<unsigned int>(thermostatValue(device,ThermostatField::number_of_daily_transitions,thermostatValue(device,ThermostatField::number_of_weekly_transitions,10)));
     if (entries.empty() || entries.size()>maximum || entries.size()>32 || (isTrvzb(device) && mode!=1)) return false;
     if (!isTrvzb(device) && !device.thermostat.scheduleSupported) return false;
     payload->clear(); payload->push_back(static_cast<unsigned char>(entries.size())); payload->push_back(static_cast<unsigned char>(1<<day)); payload->push_back(mode);
@@ -237,14 +277,14 @@ bool thermostatScheduleForDevice(const Device& device, const std::string& text, 
         put16(payload,static_cast<unsigned int>(at)); previous=static_cast<int>(at);
         double heat=0,cool=0;
         for (unsigned int bit=1;bit<=2;bit<<=1) if (mode&bit) {
-            std::string name=bit==1 ? "occupied_heating_setpoint" : "occupied_cooling_setpoint";
+            const ThermostatField::Id name=bit==1 ? ThermostatField::occupied_heating_setpoint : ThermostatField::occupied_cooling_setpoint;
             ThermostatAttribute a=thermostatDefinition(device,*thermostatAttribute(name)); double value;
             if (!thermostatSupported(device,*thermostatAttribute(name)) || !thermostatNumber(entry[bit==1?"heat":"cool"],&value) || value<a.minimum || value>a.maximum ||
                 std::fabs(value/a.step-std::floor(value/a.step+.5))>.00001) return false;
             put16(payload,static_cast<unsigned short>(static_cast<short>(std::floor(value*100+.5))));
             if(bit==1)heat=value;else cool=value;
         }
-        if(mode==3 && heat+thermostatValue(device,"min_setpoint_dead_band",2.5)>cool) return false;
+        if(mode==3 && heat+thermostatValue(device,ThermostatField::min_setpoint_dead_band,2.5)>cool) return false;
     }
     return true;
 }
@@ -270,7 +310,7 @@ bool applyThermostatSchedule(Device* device, const std::vector<unsigned char>& p
     for (int day=0;day<7;++day) if (payload[1]&(1<<day)) {
         device->thermostat.schedules[day]=payload[2]==1 ? legacy.str() : normalized.str();
         device->thermostat.scheduleDetails[day]=normalized.str();
-        std::ostringstream field; field<<"schedule_"<<day; device->thermostat.pending.erase(field.str());
+        device->thermostat.pending.erase(2*ThermostatField::Count+day);
     }
     return true;
 }
@@ -329,7 +369,7 @@ bool applyMatterThermostat(Device* device, unsigned int attribute, const std::st
     }
     unsigned long count; const ThermostatAttribute* list=thermostatAttributes(&count);
     for(unsigned long i=0;i<count;++i) if(list[i].cluster==513 && list[i].attribute==attribute) {
-        if(value=="null") { device->thermostat.values.erase(list[i].name); if(attribute==0){device->temperatureKnown=false;device->temperatureObservation.at=0;}return true; }
+        if(value=="null") { device->thermostat.values.erase(list[i].id); if(attribute==0){device->temperatureKnown=false;device->temperatureObservation.at=0;}return true; }
         unsigned long raw=(list[i].type==0x28 || list[i].type==0x29) ? static_cast<unsigned long>(strtol(value.c_str(),0,10)) : strtoul(value.c_str(),0,10); std::vector<unsigned char> bytes;
         for(unsigned int b=0;b<width(list[i].type);++b) bytes.push_back(static_cast<unsigned char>(static_cast<unsigned long>(raw)>>(8*b)));
         return applyThermostatAttribute(device,513,attribute,list[i].type,bytes,now);
@@ -347,8 +387,8 @@ bool thermostatValidateSetting(const Device& device, const std::string& field,
         return true;
     }
     if(field=="temperature_source" && device.source!="matter") {
-        if(!thermostatSupported(device,*thermostatAttribute("temperature_sensor_select")) ||
-           (value!="builtin"&&!thermostatSupported(device,*thermostatAttribute("external_temperature_input"))) || value.empty()) {
+        if(!thermostatSupported(device,*thermostatAttribute(ThermostatField::temperature_sensor_select)) ||
+           (value!="builtin"&&!thermostatSupported(device,*thermostatAttribute(ThermostatField::external_temperature_input))) || value.empty()) {
             *error="external temperature is unavailable"; return false;
         }
         return true;
@@ -368,9 +408,13 @@ bool thermostatValidateSetting(const Device& device, const std::string& field,
 std::string thermostatJson(const Device& device) {
     std::ostringstream out; const ThermostatState& t=device.thermostat;
     out<<"{\"values\":{";
-    for (std::map<std::string,double>::const_iterator it=t.values.begin();it!=t.values.end();++it) {
-        if (it!=t.values.begin()) out<<',';
-        out<<'"'<<it->first<<"\":"<<it->second;
+    bool first=true;
+    for(unsigned i=0;i<ThermostatField::Count;++i) {
+        ThermostatField::Id id=static_cast<ThermostatField::Id>(i);
+        if(!t.values.count(id))continue;
+        if(!first)out<<',';
+        first=false;
+        out<<'"'<<attributes[i].name<<"\":"<<t.values.get(id,0);
     }
     out<<"},\"supported\":{"; unsigned long count; thermostatAttributes(&count);
     for (unsigned long i=0;i<count;++i) { if(i)out<<','; out<<'"'<<attributes[i].name<<"\":"<<(thermostatSupported(device,attributes[i])?"true":"false"); }
@@ -379,14 +423,16 @@ std::string thermostatJson(const Device& device) {
         out<<'"'<<a.name<<"\":{\"min\":"<<a.minimum<<",\"max\":"<<a.maximum<<",\"step\":"<<a.step<<",\"writable\":"<<(a.writable?"true":"false")<<'}'; }
     out<<"},\"modes\":["; bool firstMode=true;
     for(int mode=0;mode<=9;++mode) if(thermostatModeSupported(device,mode)) { if(!firstMode)out<<','; firstMode=false;out<<mode; }
-    out<<"],\"schedule_supported\":"<<((isTrvzb(device)||t.scheduleSupported)?"true":"false")<<",\"schedule_max_transitions\":"<<(isTrvzb(device)?6:static_cast<int>(thermostatValue(device,"number_of_daily_transitions",thermostatValue(device,"number_of_weekly_transitions",10))))
+    out<<"],\"schedule_supported\":"<<((isTrvzb(device)||t.scheduleSupported)?"true":"false")<<",\"schedule_max_transitions\":"<<(isTrvzb(device)?6:static_cast<int>(thermostatValue(device,ThermostatField::number_of_daily_transitions,thermostatValue(device,ThermostatField::number_of_weekly_transitions,10))))
        <<",\"schedule_midnight_start\":"<<(isTrvzb(device)?"true":"false")<<",\"external_input_supported\":"<<(isTrvzb(device)?"true":"false")
        <<",\"schedule_details\":[";
     for(int day=0;day<7;++day) {if(day)out<<',';std::map<int,std::string>::const_iterator it=t.scheduleDetails.find(day);out<<(it==t.scheduleDetails.end()?"null":it->second);}
     out<<"],\"pending\":[";
-    for (std::set<std::string>::const_iterator it=t.pending.begin();it!=t.pending.end();++it) {
-        if (it!=t.pending.begin()) out<<',';
-        out<<'"'<<jsonEscape(*it)<<'"';
+    first=true;
+    for(unsigned i=0;i<ThermostatPendingCount;++i)if(t.pending.count(i)) {
+        if(!first)out<<',';
+        first=false;
+        out<<'"'<<jsonEscape(thermostatPendingName(i))<<'"';
     }
     out<<"],\"schedules\":[";
     for (int day=0;day<7;++day) {
@@ -439,11 +485,11 @@ bool applyMatterThermostat(Device* d,unsigned int attribute,const MatterProto::A
     }
     if(a.type.value=="thermostat_schedule"){
         const MatterProto::Measurement& m=v.measurement.value;const std::vector<MatterProto::ThermostatTransition>& entries=m.transitions.value.items;
-        const unsigned maximum=isTrvzb(*d)?6:static_cast<unsigned>(thermostatValue(*d,"number_of_daily_transitions",thermostatValue(*d,"number_of_weekly_transitions",10)));
+        const unsigned maximum=isTrvzb(*d)?6:static_cast<unsigned>(thermostatValue(*d,ThermostatField::number_of_daily_transitions,thermostatValue(*d,ThermostatField::number_of_weekly_transitions,10)));
         if(entries.size()>maximum||(isTrvzb(*d)&&(m.mode.value!=1||(!entries.empty()&&entries[0].time.value!=0)))){ return false; }
         std::vector<unsigned char> bytes;bytes.push_back(entries.size());bytes.push_back(1U<<(attribute-65536));bytes.push_back(m.mode.value);
         for(size_t i=0;i<entries.size();++i){const MatterProto::ThermostatTransition& t=entries[i];put16(&bytes,t.time.value);
-            for(unsigned bit=1;bit<=2;bit<<=1)if(m.mode.value&bit){const ThermostatAttribute* base=thermostatAttribute(bit==1?"occupied_heating_setpoint":"occupied_cooling_setpoint");const ThermostatAttribute def=thermostatDefinition(*d,*base);const double value=bit==1?t.heat.value:t.cool.value;
+            for(unsigned bit=1;bit<=2;bit<<=1)if(m.mode.value&bit){const ThermostatAttribute* base=thermostatAttribute(bit==1?ThermostatField::occupied_heating_setpoint:ThermostatField::occupied_cooling_setpoint);const ThermostatAttribute def=thermostatDefinition(*d,*base);const double value=bit==1?t.heat.value:t.cool.value;
                 if(!thermostatSupported(*d,*base)||value<def.minimum||value>def.maximum||std::fabs(value/def.step-std::floor(value/def.step+.5))>.00001){ return false; }
                 put16(&bytes,static_cast<unsigned>(static_cast<long>(std::floor(value*100+.5))));
             }
@@ -451,7 +497,7 @@ bool applyMatterThermostat(Device* d,unsigned int attribute,const MatterProto::A
     }
     unsigned long count;const ThermostatAttribute* list=thermostatAttributes(&count);
     for(unsigned long i=0;i<count;++i)if(list[i].cluster==513&&list[i].attribute==attribute){
-        if(v.null_value.present){d->thermostat.values.erase(list[i].name);if(attribute==0){d->temperatureKnown=false;d->temperatureObservation.at=0;}return true;}
+        if(v.null_value.present){d->thermostat.values.erase(list[i].id);if(attribute==0){d->temperatureKnown=false;d->temperatureObservation.at=0;}return true;}
         const uint64_t raw=v.integer.present?static_cast<uint64_t>(v.integer.value):v.unsigned_value.value;std::vector<unsigned char> bytes;
         for(unsigned b=0;b<width(list[i].type);++b)bytes.push_back(static_cast<unsigned char>(raw>>(8*b)));
         return applyThermostatAttribute(d,513,attribute,list[i].type,bytes,now);

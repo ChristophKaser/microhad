@@ -28,7 +28,7 @@ fn main() {
             format!("{v}f64")
         };
         generated.push_str(&format!("Field {{ name: {}, cluster: {}, attribute: {}, kind: {}, scale: {}, minimum: {}, maximum: {}, step: {}, writable: {} }},\n",
-            args[0], args[1], args[2], args[3], float(args[4]), float(args[5]), float(args[6]), float(args[7]), args[8]));
+            format!("\"{}\"", args[0]), args[1], args[2], args[3], float(args[4]), float(args[5]), float(args[6]), float(args[7]), args[8]));
     }
     generated.push_str("];\n");
     std::fs::write(
