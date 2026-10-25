@@ -840,30 +840,18 @@ bool Gateway::applyMatterReading(const MatterReading& reading, std::string* erro
     device.online = true;
     std::map<std::string, Device>::iterator node = devices_.find(device.ieeeAddress.substr(0,40));
     if (node != devices_.end()) { node->second.online = true; node->second.lastSeen = device.lastSeen; }
-    std::string historyValue;
-    std::string historyUnit;
-    unsigned char historyMetric = 0;
-    if (reading.known) {
-        if (reading.cluster == 69 && !device.hasWaterLeak) {
-            historyMetric = SensorHistory::Contact;
-            historyValue = reading.booleanValue ? "1" : "0";
-        } else if (reading.cluster == 513 && reading.attribute==0 && device.temperatureKnown) { historyMetric=SensorHistory::Temperature; std::ostringstream number; number<<device.temperatureCelsius; historyValue=number.str(); historyUnit="celsius"; }
-        else if (reading.cluster == 1026) historyMetric = SensorHistory::Temperature;
-        else if (reading.cluster == 1029) historyMetric = SensorHistory::Humidity;
-        else if (reading.cluster == 91) {
-            historyMetric = SensorHistory::AirQuality;
-            historyValue = reading.textValue;
-        } else if (reading.cluster == 1037) historyMetric = SensorHistory::CarbonDioxide;
-        else if (reading.cluster == 1066) historyMetric = SensorHistory::Pm25;
-        else if (reading.cluster == 47) historyMetric = SensorHistory::Battery;
-        if (historyMetric != SensorHistory::Contact && historyMetric != SensorHistory::AirQuality) {
-            std::ostringstream value;
-            value << std::setprecision(15) <<
-                (reading.cluster == 47 ? static_cast<double>(device.batteryPercent) : reading.numberValue);
-            historyValue = value.str();
-            historyUnit = reading.cluster == 47 ? "percent" : reading.unit;
-        }
-        if (historyMetric != 0) history_.appendValue(device.externalId, historyMetric, historyValue, historyUnit, time(0));
+    unsigned char historyMetric=0;double historyNumber=reading.numberValue;
+    std::string historyUnit=reading.unit;
+    if(reading.known){
+        if(reading.cluster==69&&!device.hasWaterLeak){historyMetric=SensorHistory::Contact;historyNumber=reading.booleanValue?1:0;historyUnit.clear();}
+        else if(reading.cluster==513&&reading.attribute==0&&device.temperatureKnown){historyMetric=SensorHistory::Temperature;historyNumber=device.temperatureCelsius;historyUnit="celsius";}
+        else if(reading.cluster==1026)historyMetric=SensorHistory::Temperature;
+        else if(reading.cluster==1029)historyMetric=SensorHistory::Humidity;
+        else if(reading.cluster==91)history_.appendValue(device.externalId,SensorHistory::AirQuality,reading.textValue,"",time(0));
+        else if(reading.cluster==1037)historyMetric=SensorHistory::CarbonDioxide;
+        else if(reading.cluster==1066)historyMetric=SensorHistory::Pm25;
+        else if(reading.cluster==47){historyMetric=SensorHistory::Battery;historyNumber=device.batteryPercent;historyUnit="percent";}
+        if(historyMetric)history_.appendNumeric(device.externalId,historyMetric,historyNumber,historyUnit,time(0));
     }
     if (reading.cluster == 69 && reading.known &&
         (!before.contactKnown || before.contactOpen != device.contactOpen)) {
@@ -979,8 +967,7 @@ bool Gateway::applyShellyEvent(const std::string& id, int metric, int channelInd
             const bool changed = !d.contactKnown || d.contactOpen != (value != 0);
             d.contactOpen = value != 0; d.contactKnown = true;
             if (changed) {
-                history_.appendValue("shelly:" + d.externalId + ":" + d.component, SensorHistory::Contact,
-                                     d.contactOpen ? "1" : "0", "", now);
+                history_.appendNumeric("shelly:"+d.externalId+":"+d.component,SensorHistory::Contact,d.contactOpen?1:0,"",now);
                 updateContactAlert(d.ieeeAddress, wasOpen, hadKnownState);
             }
         } else {
@@ -992,20 +979,14 @@ bool Gateway::applyShellyEvent(const std::string& id, int metric, int channelInd
         bool known = d.temperatureKnown;
         double previous = d.temperatureCelsius;
         d.temperatureCelsius = value; d.temperatureKnown = true; d.temperatureObservation.at = now;
-        std::ostringstream historyValue;
-        historyValue << std::setprecision(15) << value;
-        history_.appendValue("shelly:" + d.externalId + ":" + d.component, SensorHistory::Temperature,
-                             historyValue.str(), "celsius", now);
+        history_.appendNumeric("shelly:" + d.externalId + ":" + d.component,SensorHistory::Temperature,value,"celsius",now);
         updateTemperatureAlert(d, known, previous);
         updateValueAlerts(d, before);
     } else {
         Device before = d;
         if (value < 0 || value > 6553.5) { *error = "invalid Shelly power"; return false; }
         d.powerWatts = value; d.powerKnown = true;
-        std::ostringstream historyValue;
-        historyValue << std::setprecision(15) << value;
-        history_.appendValue("shelly:" + d.externalId + ":" + d.component, SensorHistory::Power,
-                             historyValue.str(), "watts", now);
+        history_.appendNumeric("shelly:" + d.externalId + ":" + d.component,SensorHistory::Power,value,"watts",now);
         updateValueAlerts(d, before);
     }
     d.lastSeen = now;
@@ -3046,29 +3027,18 @@ bool Gateway::applyIasZoneStatus(const std::string& ieeeAddress, const std::vect
 
 void Gateway::recordHistory(const Device& before, const Device& after, unsigned observed, long timestamp) {
     if ((observed & ZclObservedTemperature) && after.hasTemperature) {
-        std::ostringstream value;
-        value << std::setprecision(15) << after.temperatureCelsius;
-        history_.appendValue("zigbee:" + after.ieeeAddress, SensorHistory::Temperature,
-                             value.str(), "celsius", timestamp);
+        history_.appendNumeric("zigbee:"+after.ieeeAddress,SensorHistory::Temperature,after.temperatureCelsius,"celsius",timestamp);
     }
     if ((observed & ZclObservedHumidity) && after.hasHumidity) {
-        std::ostringstream value;
-        value << std::setprecision(15) << after.humidityPercent;
-        history_.appendValue("zigbee:" + after.ieeeAddress, SensorHistory::Humidity,
-                             value.str(), "percent", timestamp);
+        history_.appendNumeric("zigbee:"+after.ieeeAddress,SensorHistory::Humidity,after.humidityPercent,"percent",timestamp);
     }
     if ((observed & ZclObservedContact) && after.hasContact &&
         (!before.hasContact || before.contactOpen != after.contactOpen))
-        history_.appendValue("zigbee:" + after.ieeeAddress, SensorHistory::Contact,
-                             after.contactOpen ? "1" : "0", "", timestamp);
+        history_.appendNumeric("zigbee:"+after.ieeeAddress,SensorHistory::Contact,after.contactOpen?1:0,"",timestamp);
     if ((observed & ZclObservedOccupancy) && after.hasOccupancy)
-        history_.appendValue("zigbee:" + after.ieeeAddress, SensorHistory::Occupancy,
-                             after.occupied ? "1" : "0", "", timestamp);
+        history_.appendNumeric("zigbee:"+after.ieeeAddress,SensorHistory::Occupancy,after.occupied?1:0,"",timestamp);
     if ((observed & ZclObservedBattery) && after.hasBattery) {
-        std::ostringstream value;
-        value << after.batteryPercent;
-        history_.appendValue("zigbee:" + after.ieeeAddress, SensorHistory::Battery,
-                             value.str(), "percent", timestamp);
+        history_.appendNumeric("zigbee:"+after.ieeeAddress,SensorHistory::Battery,after.batteryPercent,"percent",timestamp);
     }
 }
 
@@ -3294,37 +3264,37 @@ std::string GatewayView::statusJson() const {
     json << "],\"devices\":[";
     std::vector<const Device*> listedDevices;
     listedDevices.reserve(devices.size());
-    std::map<std::string, std::vector<Device> > matterEndpoints;
-    std::map<std::string, Device> matterNodes;
+    std::map<std::string, std::vector<const Device*> > matterEndpoints;
+    std::map<std::string, const Device*> matterNodes;
     for (unsigned long index=0; index<devices.size(); ++index) {
         const Device& entry=devices[index];
         if (entry.source != "matter" || isThermostat(entry)) { listedDevices.push_back(&entry); continue; }
         const std::string id=entry.ieeeAddress.substr(0,40);
-        if (entry.matterEndpoint < 0) matterNodes[id]=entry;
-        else matterEndpoints[id].push_back(entry);
+        if (entry.matterEndpoint < 0) matterNodes[id]=&entry;
+        else matterEndpoints[id].push_back(&entry);
     }
-    for (std::map<std::string, std::vector<Device> >::const_iterator it=matterEndpoints.begin(); it!=matterEndpoints.end(); ++it)
+    for (std::map<std::string, std::vector<const Device*> >::const_iterator it=matterEndpoints.begin(); it!=matterEndpoints.end(); ++it)
         if (matterNodes.find(it->first)==matterNodes.end()) {
             matterNodes[it->first]=it->second.front();
-            matterNodes[it->first].matterMetadataState="stale";
         }
     // Snapshot devices stay immutable; only grouped Matter nodes need copies.
     std::vector<Device> mergedNodes;
     mergedNodes.reserve(matterNodes.size());
-    for (std::map<std::string, Device>::iterator it=matterNodes.begin(); it!=matterNodes.end(); ++it) {
-        Device node=it->second;
-        const std::vector<Device>& endpoints=matterEndpoints[it->first];
+    for (std::map<std::string, const Device*>::iterator it=matterNodes.begin(); it!=matterNodes.end(); ++it) {
+        Device node=*it->second;
+        if(it->second->matterEndpoint>=0)node.matterMetadataState="stale";
+        const std::vector<const Device*>& endpoints=matterEndpoints[it->first];
         const Device* preferred=0;
         for (unsigned long index=0;index<endpoints.size();++index)
-            if (endpoints[index].hasActor || endpoints[index].hasLight || endpoints[index].hasContact ||
-                endpoints[index].hasTemperature || endpoints[index].hasRemote) { preferred=&endpoints[index]; break; }
+            if (endpoints[index]->hasActor || endpoints[index]->hasLight || endpoints[index]->hasContact ||
+                endpoints[index]->hasTemperature || endpoints[index]->hasRemote) { preferred=endpoints[index]; break; }
         if (preferred) {
             const std::string state=node.matterState, metadata=node.matterMetadataState;
             const bool online=node.online;
             node=*preferred; node.matterState=state; node.matterMetadataState=metadata; node.online=online;
         }
         for (unsigned long index=0;index<endpoints.size();++index) {
-            const Device& endpoint=endpoints[index];
+            const Device& endpoint=*endpoints[index];
             node.hasActor = node.hasActor || endpoint.hasActor;
             node.hasLight = node.hasLight || endpoint.hasLight;
             node.hasRemote = node.hasRemote || endpoint.hasRemote;
@@ -3523,9 +3493,9 @@ std::string GatewayView::statusJson() const {
         } else json << "null";
         json << ",\"endpoint_descriptors\":[";
         if (device.source == "matter") {
-            const std::vector<Device>& endpoints=matterEndpoints[device.ieeeAddress];
+            const std::vector<const Device*>& endpoints=matterEndpoints[device.ieeeAddress];
             for (unsigned long index=0;index<endpoints.size();++index) {
-                const Device& endpoint=endpoints[index];
+                const Device& endpoint=*endpoints[index];
                 if (index) json << ',';
                 json << "{\"endpoint\":" << endpoint.matterEndpoint << ",\"id\":\"" << jsonEscape(endpoint.ieeeAddress)
                      << "\",\"name\":\"" << jsonEscape(endpoint.name) << "\",\"input_clusters\":[";

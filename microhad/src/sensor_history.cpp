@@ -138,21 +138,13 @@ bool metricDiscrete(unsigned char metric) {
     return metric == SensorHistory::Contact || metric == SensorHistory::Occupancy ||
            metric == SensorHistory::AirQuality || metric == SensorHistory::Light;
 }
-bool normalizeValue(unsigned char inputMetric, const std::string& value, const std::string& unit,
-                    unsigned char* metric, float* number, std::string* text) {
-    if (!plainText(value, 24, false) || !plainText(unit, 16, true)) return false;
-    if (inputMetric == SensorHistory::AirQuality) {
-        static const char* const qualities[] = {"good", "fair", "moderate", "poor", "very_poor", "extremely_poor"};
-        if (!unit.empty()) return false;
-        for (int i = 0; i < 6; ++i) if (value == qualities[i]) { *metric = inputMetric; *number = static_cast<float>(i); *text = value; return true; }
-        return false;
+bool normalizeNumeric(unsigned char inputMetric,double v,const std::string& unit,unsigned char* metric,float* number) {
+    if(!std::isfinite(v)||!plainText(unit,16,true))return false;
+    if(inputMetric==SensorHistory::Contact||inputMetric==SensorHistory::Occupancy||inputMetric==SensorHistory::Light){
+        if(!unit.empty()||(v!=0&&v!=1))return false;
+        *metric=inputMetric;*number=static_cast<float>(v);return true;
     }
-    if (inputMetric == SensorHistory::Contact || inputMetric == SensorHistory::Occupancy || inputMetric == SensorHistory::Light) {
-        if (!unit.empty() || (value != "0" && value != "1")) return false;
-        *metric = inputMetric; *number = value == "1" ? 1.0f : 0.0f; text->clear(); return true;
-    }
-    char* end = 0; double v = std::strtod(value.c_str(), &end);
-    if (end != value.c_str() + value.size() || !std::isfinite(v)) return false;
+    if(inputMetric==SensorHistory::AirQuality)return false;
     unsigned char m = inputMetric;
     double factor = 1.0;
     if (inputMetric == SensorHistory::CarbonDioxide || inputMetric == SensorHistory::Pm25) {
@@ -180,8 +172,26 @@ bool normalizeValue(unsigned char inputMetric, const std::string& value, const s
     }
     v *= factor;
     if (!std::isfinite(v) || std::fabs(v) > 3.402823466e38) return false;
-    *metric = m; *number = static_cast<float>(v); text->clear(); return true;
+    *metric = m; *number = static_cast<float>(v); return true;
 }
+bool normalizeValue(unsigned char inputMetric, const std::string& value, const std::string& unit,
+                    unsigned char* metric, float* number, std::string* text) {
+    if (!plainText(value, 24, false) || !plainText(unit, 16, true)) return false;
+    if (inputMetric == SensorHistory::AirQuality) {
+        static const char* const qualities[] = {"good", "fair", "moderate", "poor", "very_poor", "extremely_poor"};
+        if (!unit.empty()) return false;
+        for (int i = 0; i < 6; ++i) if (value == qualities[i]) { *metric = inputMetric; *number = static_cast<float>(i); *text = value; return true; }
+        return false;
+    }
+    if (inputMetric == SensorHistory::Contact || inputMetric == SensorHistory::Occupancy || inputMetric == SensorHistory::Light) {
+        if (!unit.empty() || (value != "0" && value != "1")) return false;
+        *metric = inputMetric; *number = value == "1" ? 1.0f : 0.0f; text->clear(); return true;
+    }
+    char* end = 0; double v = std::strtod(value.c_str(), &end);
+    if (end != value.c_str() + value.size() || !std::isfinite(v)) return false;
+    text->clear();return normalizeNumeric(inputMetric,v,unit,metric,number);
+}
+
 unsigned char recordCrc(const unsigned char* pageHeader, const unsigned char* record) {
     unsigned char data[71 + 4 + 8];
     memcpy(data, pageHeader, 71); memcpy(data + 71, pageHeader + 3, 4); memcpy(data + 75, record, 8);
@@ -643,22 +653,26 @@ bool SensorHistory::initializeValues(std::string* error) {
     pthread_mutex_unlock(&values_.mutex); return true;
 }
 
-bool SensorHistory::appendValue(const std::string& deviceId, unsigned char metric, const std::string& value,
+bool SensorHistory::appendValue(const std::string& deviceId, unsigned char inputMetric, const std::string& value,
                                const std::string& unit, long timestamp) {
-    if (!initializeValues(0)) return false;
+    unsigned char metric=0;float numeric=0;std::string text;
+    if(!normalizeValue(inputMetric,value,unit,&metric,&numeric,&text)||!initializeValues(0))return false;
     pthread_mutex_lock(&values_.mutex);
-    bool result = appendValueLocked(deviceId, metric, value, unit, timestamp);
-    pthread_mutex_unlock(&values_.mutex); return result;
+    bool result=appendNormalizedLocked(deviceId,metric,numeric,timestamp);
+    pthread_mutex_unlock(&values_.mutex);return result;
 }
-bool SensorHistory::appendValueLocked(const std::string& deviceId, unsigned char inputMetric, const std::string& value,
-                                      const std::string& unit, long timestamp) {
-    // Actuator states are not sensor history. FRITZ!Box Wi-Fi presence has no
-    // history for privacy reasons, including calls bypassing gateway handlers.
-    if (inputMetric == Light || inputMetric == Brightness || deviceId.find("fritz:") == 0) return false;
-    if (!values_.initialized || !plainText(deviceId, 64, false) || timestamp <= 0 ||
-        static_cast<unsigned long>(timestamp) > 0xffffffffUL) return false;
-    unsigned char metric = 0; float numeric = 0; std::string text;
-    if (!normalizeValue(inputMetric, value, unit, &metric, &numeric, &text)) return false;
+bool SensorHistory::appendNumeric(const std::string& deviceId,unsigned char inputMetric,double value,
+                                 const std::string& unit,long timestamp) {
+    unsigned char metric=0;float numeric=0;
+    if(!normalizeNumeric(inputMetric,value,unit,&metric,&numeric)||!initializeValues(0))return false;
+    pthread_mutex_lock(&values_.mutex);
+    bool result=appendNormalizedLocked(deviceId,metric,numeric,timestamp);
+    pthread_mutex_unlock(&values_.mutex);return result;
+}
+bool SensorHistory::appendNormalizedLocked(const std::string& deviceId,unsigned char metric,float numeric,long timestamp) {
+    // Actuator states and FRITZ!Box presence are excluded for both entry points.
+    if(metric==Light||metric==Brightness||deviceId.find("fritz:")==0)return false;
+    if(!values_.initialized||!plainText(deviceId,64,false)||timestamp<=0||static_cast<unsigned long>(timestamp)>0xffffffffUL)return false;
     const std::string key = pairKey(deviceId, metric);
     std::vector<unsigned int>& owned = values_.pairPages[key];
     Page* page = owned.empty() ? 0 : &values_.pages[owned.back()];

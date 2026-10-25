@@ -130,6 +130,12 @@ void checkQueries(IpcFixture* ipc, const std::string& chronological, unsigned lo
             if (limits[i] != 0) assert(stats.materializedLines <= limits[i]);
         }
     }
+    {
+        SyslogReadStats stats;std::string cached;
+        assert(SyslogLogReader::readRequestForTest(ipc->key,false,0,1,0,now,&cached,&stats));
+        assert(stats.indexCacheHits==1);
+        assert(cached==referenceJson(expected,false,0,1,0,now));
+    }
     const unsigned long since[] = {0, static_cast<unsigned long>(now - 2), static_cast<unsigned long>(now),
                                    static_cast<unsigned long>(now + 86400)};
     for (unsigned long i = 0; i < sizeof(since) / sizeof(since[0]); ++i) {

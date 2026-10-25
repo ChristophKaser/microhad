@@ -552,7 +552,14 @@ GatewayRunner::ViewLease::~ViewLease() { owner_->releaseView(data_); }
 std::string GatewayRunner::ViewLease::settingsJson() const { return data_->view->settingsJson; }
 std::string GatewayRunner::ViewLease::matterCountryCode() const { return data_->view->matterCountryCode; }
 std::string GatewayRunner::ViewLease::matterRegulatoryLocation() const { return data_->view->matterRegulatoryLocation; }
-std::string GatewayRunner::ViewLease::statusJson() const { return data_->view->statusJson(); }
+std::string GatewayRunner::ViewData::statusJson() const {
+    pthread_mutex_lock(&statusMutex);
+    const long now=time(0);
+    if(!statusCached||statusSecond!=now){cachedStatus=view->statusJson();statusSecond=now;statusCached=true;}
+    std::string result=cachedStatus;
+    pthread_mutex_unlock(&statusMutex);return result;
+}
+std::string GatewayRunner::ViewLease::statusJson() const { return data_->statusJson(); }
 #ifdef MICROHAD_TESTING
 std::string GatewayRunner::ViewLease::logsJson() const { return data_->view->logsJson(); }
 #endif

@@ -209,7 +209,16 @@ private:
         GatewayView* view;
         unsigned long references;
         bool retired;
-        ViewData(GatewayView* value) : view(value), references(0), retired(false) {}
+        mutable pthread_mutex_t statusMutex;
+        mutable std::string cachedStatus;
+        mutable long statusSecond;
+        mutable bool statusCached;
+        ViewData(GatewayView* value) : view(value), references(0), retired(false), statusSecond(0), statusCached(false) { pthread_mutex_init(&statusMutex,0); }
+        ~ViewData() { pthread_mutex_destroy(&statusMutex); }
+        std::string statusJson() const;
+    private:
+        ViewData(const ViewData&);
+        ViewData& operator=(const ViewData&);
     };
     ViewData* currentView_;
     int64_t lastCoordinatorProgress_;

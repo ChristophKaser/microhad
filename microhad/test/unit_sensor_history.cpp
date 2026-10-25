@@ -62,6 +62,22 @@ std::vector<SensorHistory::ValueRecord> samplesIn(const std::string& json) {
 
 void runSensorHistoryUnitTests() {
     fprintf(stderr, "unit: paged sensor history v3\n");
+    const std::string numericTypedPath=historyPath();
+    {
+        SensorHistory history(numericTypedPath);
+        assert(history.appendNumeric("synthetic:typed",SensorHistory::Temperature,21.125,"celsius",1700000000));
+        assert(history.appendNumeric("synthetic:typed",SensorHistory::Humidity,55.5,"percent",1700000060));
+        assert(history.appendNumeric("synthetic:typed",SensorHistory::CarbonDioxide,1.25,"ppb",1700000120));
+        assert(!history.appendNumeric("synthetic:typed",SensorHistory::Temperature,400,"celsius",1700000000));
+        assert(!history.appendNumeric("synthetic:typed",SensorHistory::Humidity,-1,"percent",1700000000));
+        assert(!history.appendNumeric("synthetic:typed",SensorHistory::Temperature,21,"watts",1700000000));
+        assert(!history.appendNumeric("synthetic:typed",SensorHistory::Contact,2,"",1700000000));
+        assert(!history.appendNumeric("synthetic:typed",SensorHistory::Light,1,"",1700000000));
+        assert(!history.appendNumeric("fritz:presence",SensorHistory::Temperature,21,"celsius",1700000000));
+        std::string values,error;assert(history.readForDevice("synthetic:typed",0,&values,&error));
+        assert(values.find("21.125")!=std::string::npos&&values.find("55.5")!=std::string::npos);
+    }
+    removeHistoryFiles(numericTypedPath);
     const std::string path = historyPath();
     const std::string zigbeeId = "zigbee:0x00124b0000000001";
     const std::string matterId = "matter:0000000000000001:0000000000000002:0001";

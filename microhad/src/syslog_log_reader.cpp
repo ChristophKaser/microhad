@@ -10,6 +10,8 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <pthread.h>
+#include <tr1/memory>
 #include <sys/types.h>
 #include <stdint.h>
 #include <sys/ipc.h>
@@ -307,15 +309,43 @@ void appendLine(std::ostringstream* json, const std::vector<char>& snapshot, con
     *json << '\"' << jsonEscape(line) << '\"';
 }
 
+// Retain one bounded immutable index. Compare the entire snapshot, including
+// zero padding, so a wrapped cursor or a restarted syslog daemon cannot yield
+// a stale hit. Readers keep their own shared lease while formatting output.
+struct IndexedSnapshot { std::vector<char> bytes;std::vector<LineRange> lines; };
+pthread_mutex_t indexCacheMutex=PTHREAD_MUTEX_INITIALIZER;
+std::tr1::shared_ptr<const IndexedSnapshot> indexCache;
+bool readIndexedSnapshot(long key,std::tr1::shared_ptr<const IndexedSnapshot>* result,ReadStats* stats) {
+    std::tr1::shared_ptr<IndexedSnapshot> next(new IndexedSnapshot);
+    if(!readSnapshot(key,&next->bytes))return false;
+    const bool cacheable=next->bytes.size()<=512UL*1024UL+1;
+    if(cacheable){
+        pthread_mutex_lock(&indexCacheMutex);
+        if(indexCache&&indexCache->bytes==next->bytes){
+            *result=indexCache;
+#ifdef MICROHAD_TESTING
+            if(stats){stats->indexedLines=indexCache->lines.size();++stats->indexCacheHits;}
+#endif
+            pthread_mutex_unlock(&indexCacheMutex);return true;
+        }
+        pthread_mutex_unlock(&indexCacheMutex);
+    }
+    if(!indexLines(next->bytes,&next->lines,stats))return false;
+    *result=next;
+    if(cacheable&&next->lines.size()<=16384){pthread_mutex_lock(&indexCacheMutex);indexCache=next;pthread_mutex_unlock(&indexCacheMutex);}
+    return true;
+}
+
 bool readRequest(long key, bool hasSince, unsigned long since, unsigned long limit, unsigned long before,
                  time_t now, std::string* json, ReadStats* stats) {
     if (json == 0 || limit > 500) return false;
 #ifdef MICROHAD_TESTING
     if (stats != 0) *stats = SyslogReadStats();
 #endif
-    std::vector<char> snapshot;
-    std::vector<LineRange> lines;
-    if (!readSnapshot(key, &snapshot) || !indexLines(snapshot, &lines, stats)) return false;
+    std::tr1::shared_ptr<const IndexedSnapshot> indexed;
+    if(!readIndexedSnapshot(key,&indexed,stats))return false;
+    const std::vector<char>& snapshot=indexed->bytes;
+    const std::vector<LineRange>& lines=indexed->lines;
     unsigned long count = static_cast<unsigned long>(lines.size());
     unsigned long end = limit == 0 || before == 0 || before > count ? count : before;
     unsigned long begin = limit == 0 || end <= limit ? 0 : end - limit;

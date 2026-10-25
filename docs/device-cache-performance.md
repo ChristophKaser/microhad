@@ -184,3 +184,57 @@ CARGO_TARGET_DIR="$PWD/build/micro-thread-matter-daemon/target" \
   --manifest-path micro-thread-matter-daemon/Cargo.toml \
   --features controller-service --example benchmark-report-dedup
 ```
+
+## Numeric history and HTTP polling follow-up
+
+Native history producers now call a numeric entry point. Text input keeps its
+bounded parser; both entry points share numeric/unit validation, exclusion of
+actuator and FRITZ!Box presence history, deduplication and persistence. Zigbee,
+Matter and Shelly no longer format numeric readings only to parse them again.
+The Matter thermostat-temperature path now keeps its actual Celsius value/unit
+instead of overwriting them with the transport reading's scalar/unit.
+
+Status grouping borrows immutable endpoint records and copies only merged
+nodes. Each published view also keeps a mutex-protected lazy serialization
+cache. It expires when the wall-clock second changes, so contact-trigger
+expiry still follows the original time-dependent behavior. Every newly
+published snapshot starts with an empty cache.
+
+Log polling retains one immutable ring snapshot and line index for rings up to
+512 KiB, with at most 16,384 line entries. A full byte comparison determines a
+hit, preserving correctness after wrap, same-cursor changes and syslog restart.
+Readers hold a shared lease; timestamp conversion and query filtering are still
+performed for each request. Larger rings/indices bypass caching. On the
+32-bit target this retains about 640 KiB at the configured upper bounds,
+including the ring and index (plus small allocator/object overhead).
+
+Same host/profile as above, medians of five samples, baseline `a080600`:
+
+| Operation | Before (µs CPU) | After (µs CPU) |
+|---|---:|---:|
+| Duplicate numeric history submission | 0.288 | 0.048 |
+| Fresh status serialization, 26 endpoints | 19.01 | 12.32 |
+| Repeated status read, same published view and second | 18.89 | 0.080 |
+| Log polling, unchanged 512 KiB ring | 290.77 | 235.88 |
+| Log polling, ring changed for every request | 298.68 | 285.34 |
+
+History samples contain 100,000 submissions and include the old number
+formatting plus the production append call, or the new numeric append call.
+Duplicate submissions exercise validation/deduplication without disk I/O; this
+does not measure the cost of writing a new history record. Status samples
+contain 3,000 calls; warm-cache numbers describe repeated reads of one immutable
+view within a second, not the cost of every production HTTP request. Log
+samples contain 1,000 requests filtering old synthetic entries from a private
+SysV ring. Changing-ring differences are small and are not claimed as a clear
+gain. Actual gateway savings depend on publication/log/request rates.
+
+Run each host-only comparison with and without `--revision a080600`:
+
+```sh
+python3 microhad/scripts/benchmark-state-conversions.py --benchmark state
+python3 microhad/scripts/benchmark-state-conversions.py --benchmark history
+python3 microhad/scripts/benchmark-state-conversions.py --benchmark logs
+```
+
+The log benchmark needs local SysV IPC permissions. All fixtures use synthetic
+input and private temporary resources; none accesses the gateway.

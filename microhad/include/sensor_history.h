@@ -42,6 +42,9 @@ public:
 #endif
     bool appendValue(const std::string& deviceId, unsigned char metric, const std::string& value,
                      const std::string& unit, long timestamp);
+    // Native numeric producers avoid formatting a number only to parse it again.
+    bool appendNumeric(const std::string& deviceId,unsigned char metric,double value,
+                       const std::string& unit,long timestamp);
     bool readForDevice(const std::string& deviceId, uint64_t before,
                        std::string* json, std::string* error,
                        ReadStats* stats = 0, uint32_t since = 0) const;
@@ -104,8 +107,7 @@ private:
     static void* persistenceThread(void* opaque);
     void runPersistence();
     bool initializeValues(std::string* error);
-    bool appendValueLocked(const std::string& deviceId, unsigned char metric, const std::string& value,
-                           const std::string& unit, long timestamp);
+    bool appendNormalizedLocked(const std::string& deviceId,unsigned char metric,float value,long timestamp);
     bool readValuesJson(const std::vector<std::string>& deviceIds, uint64_t before,
                         std::string* json, std::string* error, ReadStats* stats, uint32_t since) const;
 };

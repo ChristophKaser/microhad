@@ -1,9 +1,26 @@
 #include "gateway.h"
+#include "gateway_runner.h"
 #include "automation_types.h"
 #include "thermostat.h"
 #include <ctime>
 #include <cstdio>
 #include <cstdlib>
+// Use the existing test peer to benchmark the real published-view accessor.
+class AutomationRunnerTestPeer {
+public:
+    static void benchmarkStatus(GatewayView& view,volatile unsigned long* consumed) {
+        GatewayRunner::ViewData published(&view);
+        const std::clock_t start=std::clock();
+        for(int i=0;i<3000;++i){
+#ifdef CACHED_STATUS
+            *consumed+=published.statusJson().size();
+#else
+            *consumed+=published.view->statusJson().size();
+#endif
+        }
+        std::printf("published_status_cpu_us %.6f\n",1e6*double(std::clock()-start)/CLOCKS_PER_SEC/3000);
+    }
+};
 int main(){
  Device d;d.ieeeAddress="synthetic";d.name="Synthetic thermostat";d.source="zigbee";
  EndpointDescriptor ep;ep.endpoint=1;ep.inputClusters.push_back(513);d.endpoints.push_back(ep);
@@ -19,5 +36,6 @@ int main(){
  for(int i=0;i<26;++i){Device device;char id[80];std::sprintf(id,"matter:00000000000000000000000000000000:%04d",i);device.ieeeAddress=id;device.source="matter";device.matterEndpoint=i+1;device.hasTemperature=device.temperatureKnown=true;device.temperatureCelsius=21.125;view.devices.push_back(device);}
  std::clock_t start=std::clock();for(int i=0;i<3000;++i)consumed+=view.statusJson().size();
  std::printf("status_26_endpoints_cpu_us %.6f\n",1e6*double(std::clock()-start)/CLOCKS_PER_SEC/3000);
+ AutomationRunnerTestPeer::benchmarkStatus(view,&consumed);
  return consumed==0;
 }
