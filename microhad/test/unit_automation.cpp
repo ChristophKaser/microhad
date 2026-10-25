@@ -47,6 +47,14 @@ void thermostatSnapshots(){
     Automation::SnapshotPtr before=Automation::capture(d);
     assert(before->has(Automation::Thermostat)&&before->record);
     assert(Automation::capture(d,before)==before);
+    Value fromJson;assert(Automation::parse(thermostatJson(d),&fromJson));
+    // Direct construction retains the actual uint32 limit; the old JSON path rounded it.
+    fromJson.fields["fields"].fields["feature_map"].fields["max"]=Value(4294967295.);
+    assert(before->thermostat==fromJson);
+    Device changed=d;changed.thermostat.scheduleSupported=true;
+    assert(Automation::capture(changed,before)->thermostat.fields.find("schedule_supported")->second==Value(true));
+    changed=d;changed.thermostat.values["local_temperature"]=21.123456789;
+    assert(Automation::capture(changed,before)->thermostat.fields.find("values")->second.fields.find("local_temperature")->second==Value(21.123456789));
     Value initial=before->thermostat;
     assert(initial.fields["values"].fields["occupied_heating_setpoint"]==Value(20.));
     d.thermostat.pending.insert("system_mode");d.thermostat.error="timeout";

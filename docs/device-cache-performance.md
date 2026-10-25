@@ -143,3 +143,44 @@ large native nested-message improvements and Rust byte-decoding improvement
 are repeatable; small differences such as Rust BLE encoding are noise and
 are not claimed as gains. Production request frequency and MIPS behavior
 require separate measurement.
+
+## Typed thermostat snapshots and report suppression
+
+The thermostat automation snapshot now builds its Lua-facing value directly
+from `Device`, instead of formatting the complete thermostat to JSON and
+parsing it again. If the thermostat inputs and other snapshot fields have not
+changed, capture reuses the previous immutable snapshot before building any
+thermostat value. Schedule-detail JSON is still parsed at that stored-text
+boundary when a changed snapshot needs it. Numeric limits and readings retain
+full precision (the former JSON path rounded the feature-map maximum from
+4294967295 to 4294970000).
+
+On the same host, five samples of 3,000 synthetic captures each measured:
+
+| Thermostat capture | Before (µs CPU) | After (µs CPU) |
+|---|---:|---:|
+| Unchanged | 130.64 | 0.41 |
+| Changed setpoint | 150.39 | 92.50 |
+
+Reproduce with `python3 microhad/scripts/benchmark-state-conversions.py
+--revision 4438d79` and the same command without `--revision`.
+The fixture populates every thermostat attribute, so changed-snapshot cost is
+higher than for sparse devices. Public thermostat JSON is unchanged.
+
+Matter subscription suppression now compares typed normalized report values
+instead of allocating JSON bytes. It includes node, endpoint, cluster,
+attribute, value variant, unit and quality, with regression coverage preserving
+JSON's signed-zero and nonfinite/null comparison behavior. Five samples of
+100,000 comparisons measured 0.418 → 0.0078 µs CPU for unchanged readings and
+0.425 → 0.0123 µs for alternating readings, including replacement of the saved
+value. These are isolated suppression costs, not full report ingestion.
+
+Reproduce the old serialization expression and new typed expression together:
+
+```sh
+source scripts/rust-env.sh
+CARGO_TARGET_DIR="$PWD/build/micro-thread-matter-daemon/target" \
+  cargo +$RUST_TOOLCHAIN run --locked --release \
+  --manifest-path micro-thread-matter-daemon/Cargo.toml \
+  --features controller-service --example benchmark-report-dedup
+```

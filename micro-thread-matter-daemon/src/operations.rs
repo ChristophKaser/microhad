@@ -88,13 +88,34 @@ pub struct AirQualityValue {
     pub value: &'static str,
     pub quality: &'static str,
 }
-#[derive(Clone, Serialize)]
+#[derive(Clone, PartialEq, Serialize)]
 pub struct ResultValue {
     pub node: Id,
     pub endpoint: u16,
     pub cluster: u32,
     pub attribute: u32,
     pub value: Value,
+}
+
+// Match JSON's number semantics for report suppression, including signed zero
+// and nonfinite values serialized as null, without allocating encoded bytes.
+fn same_report_number(a: Option<f32>, b: Option<f32>) -> bool {
+    a.filter(|v|v.is_finite()).map(f32::to_bits)==b.filter(|v|v.is_finite()).map(f32::to_bits)
+}
+impl PartialEq for Value {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Thermostat(a),Self::Thermostat(b))=>a==b,
+            (Self::ThermostatList(a),Self::ThermostatList(b))=>a==b,
+            (Self::ThermostatSchedule(a),Self::ThermostatSchedule(b))=>a==b,
+            (Self::Bool(a),Self::Bool(b))=>a==b,
+            (Self::U8(a),Self::U8(b))=>a==b,
+            (Self::RawMeasurement(a),Self::RawMeasurement(b))=>same_report_number(*a,*b),
+            (Self::Measurement(a),Self::Measurement(b))=>same_report_number(a.value,b.value)&&a.unit==b.unit&&a.quality==b.quality,
+            (Self::AirQuality(a),Self::AirQuality(b))=>a.value==b.value&&a.quality==b.quality,
+            _=>false,
+        }
+    }
 }
 
 async fn provision_group_member<C: Crypto>(
@@ -813,6 +834,20 @@ pub async fn read_measurement_unit<C: Crypto>(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn report_equality_matches_serialized_number_and_quality_semantics() {
+        use super::{MeasurementValue,Value};
+        let numbers=[None,Some(0.0),Some(-0.0),Some(21.125),Some(f32::NAN),Some(f32::INFINITY)];
+        for a in numbers {for b in numbers {for quality in ["measured","unknown"] {
+            let a=Value::Measurement(MeasurementValue{value:a,unit:"celsius",quality:"measured"});
+            let b=Value::Measurement(MeasurementValue{value:b,unit:"celsius",quality});
+            assert_eq!(a==b,serde_json::to_vec(&a).unwrap()==serde_json::to_vec(&b).unwrap());
+        }}}
+        let a=Value::Measurement(MeasurementValue{value:Some(20.0),unit:"celsius",quality:"measured"});
+        let b=Value::Measurement(MeasurementValue{value:Some(20.0),unit:"percent",quality:"measured"});
+        assert!(a!=b);
+    }
+
     use super::*;
 
     #[test]

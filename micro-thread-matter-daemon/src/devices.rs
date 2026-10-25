@@ -135,7 +135,7 @@ struct SubscriptionState {
     max_interval: u16,
     failures: u8,
     unit: Option<&'static str>,
-    last_report: Option<Vec<u8>>,
+    last_report: Option<crate::operations::ResultValue>,
     last_received: Option<Instant>,
 }
 type SubscriptionWork<'a> =
@@ -1592,13 +1592,10 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                         quality,
                     });
             }
-            let Ok(encoded) = serde_json::to_vec(&value) else {
-                continue;
-            };
-            if subscription.last_report.as_ref() == Some(&encoded) {
+            if subscription.last_report.as_ref() == Some(&value) {
                 continue;
             }
-            subscription.last_report = Some(encoded);
+            subscription.last_report = Some(value.clone());
             if self.reports.len() == MAX_QUEUED_REPORT_VALUES {
                 self.reports.pop_front();
             }
