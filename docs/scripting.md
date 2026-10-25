@@ -29,6 +29,72 @@ work and survive renaming. These examples register callbacks, so saving them
 does not immediately switch devices. A successful command means it was queued;
 check device reports for the resulting physical state.
 
+### Low-battery warnings for any device
+
+This script watches every device with a reported battery percentage; no device
+names need replacing. It warns once below 15% and again below 10%, with warning
+state saved across reloads and restarts. Both warnings reset when the battery
+reaches 15% again. If a device is first seen below 10% (or drops directly below
+10%), only the more urgent warning is sent. Exactly 15% and 10% do not trigger
+their respective warnings.
+
+The script also checks existing devices when loaded, so saving it may
+immediately queue notifications. Enable and configure gateway push notifications
+first. A failed notification request leaves the warning eligible for retry on
+the next battery report.
+
+```lua
+local function check_battery(device)
+  local battery = device.battery_percent
+  if type(battery) ~= "number" then return end
+
+  local warnings = persistent.warnings or {}
+  local stage = warnings[device.id] or 0
+
+  if battery >= 15 then
+    if stage ~= 0 then
+      warnings[device.id] = nil
+      persistent.warnings = warnings
+    end
+    return
+  end
+
+  local next_stage = battery < 10 and 2 or 1
+  if next_stage <= stage then return end
+
+  local ok, err = notify.send(
+    next_stage == 2 and "Very low battery" or "Low battery",
+    device.name .. ": " .. tostring(battery) .. "% remaining",
+    { device_id = device.id, tag = "low-battery" }
+  )
+
+  if ok then
+    warnings[device.id] = next_stage
+    persistent.warnings = warnings
+  else
+    log("warn", "Battery notification failed", {
+      device = device.id,
+      error = err,
+    })
+  end
+end
+
+events.on({
+  type = "device.value",
+  field = "battery_percent",
+}, function(event)
+  check_battery(event.device)
+end)
+
+events.on({ type = "device.added" }, function(event)
+  check_battery(event.device)
+end)
+
+for _, device in ipairs(devices.list()) do
+  check_battery(device)
+end
+```
+
 ### Discover a remote's buttons
 
 Save this first, press the buttons, and inspect the script's debug logs. Use
